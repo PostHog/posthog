@@ -1365,6 +1365,8 @@ export interface HogQLQueryModifiersApi {
     mergeFederatedAggregateJoins?: boolean | null
     /** Replace negated person-property filters in the WHERE of an `events` query (such as `email not_icontains`) with `person_id NOT IN (SELECT id FROM persons WHERE <the filters fail>)`, so the query no longer joins every person. Applies only when every filtered person property has a materialized column, nothing else in the query reads that persons join, and the join would be a LEFT JOIN. */
     negatedPersonFiltersNotIn?: boolean | null
+    /** Move eligible non-nullable equality filters from CROSS JOIN queries into ALL INNER JOIN constraints */
+    optimizeCrossJoins?: boolean | null
     optimizeJoinedFilters?: boolean | null
     optimizeProjections?: boolean | null
     /** HogQL parser backend; absent → `rust_py_with_cpp_shadow` (rust-py is primary, cpp runs as a sampled shadow). `*_shadow` modes return the primary result and sample-compare against the other parser, reporting divergences without failing the request. The `rust_py_*` modes drive the same hand-rolled Rust parser as `rust_*` but build `posthog.hogql.ast` dataclass instances directly via PyO3, skipping the JSON round-trip. */
@@ -1377,6 +1379,8 @@ export interface HogQLQueryModifiersApi {
     propertyGroupsMode?: PropertyGroupsModeApi | null
     pushDownPredicates?: boolean | null
     s3TableUseInvalidColumns?: boolean | null
+    /** Filter the sessions join of an events query by its session property filters and run it as a `GLOBAL LEFT JOIN`, so the sessions are read once instead of once per events shard. Applies only when every session filter is an equality or `IN` against non-empty strings, which are false for an event with no matching session. */
+    sessionFilterGlobalJoin?: boolean | null
     /** Push a `session_id_v7 IN (SELECT … FROM events WHERE …)` predicate into the raw_sessions subquery to limit aggregation to sessions that participate in the outer events filter. */
     sessionIdPushdown?: boolean | null
     /** Pre-filter raw_sessions aggregation by `session_id_v7 IN (cheap pre-aggregation that only materializes the columns referenced by the outer-WHERE session predicate)`. Useful when the breakdown/SELECT pulls in many session columns (e.g. `$channel_type`) but the filter only references one (e.g. `$entry_current_url`). */
@@ -1473,6 +1477,9 @@ export const QueryScanFindingKindApi = {
     NoEventFilter: 'no_event_filter',
     NoStartDate: 'no_start_date',
     PersonsJoin: 'persons_join',
+    RepeatedCteExpansion: 'repeated_cte_expansion',
+    CrossJoinEquality: 'cross_join_equality',
+    DateArraysBeforeBreakdownLimit: 'date_arrays_before_breakdown_limit',
 } as const
 
 export interface QueryScanWarningApi {
@@ -4417,6 +4424,8 @@ export interface Response8Api {
 }
 
 export interface WebVitalsPathBreakdownResultItemApi {
+    /** Number of `$web_vitals` samples for this metric and page in the period. Unset when served from precomputed buckets. */
+    count?: number | null
     path: string
     value: number
 }
@@ -4675,6 +4684,7 @@ export const IntegrationKindApi = {
     AppleAds: 'apple-ads',
     Postgresql: 'postgresql',
     AwsS3: 'aws-s3',
+    AwsWarehouseSources: 'aws-warehouse-sources',
     AwsRedshift: 'aws-redshift',
     S3Compatible: 's3-compatible',
     Snowflake: 'snowflake',
@@ -4731,7 +4741,23 @@ export const ErrorTrackingIssueStatusApi = {
     Suppressed: 'suppressed',
 } as const
 
+export type ErrorTrackingIssueTagColorApi =
+    (typeof ErrorTrackingIssueTagColorApi)[keyof typeof ErrorTrackingIssueTagColorApi]
+
+export const ErrorTrackingIssueTagColorApi = {
+    Blue: 'blue',
+    Teal: 'teal',
+    Green: 'green',
+    Yellow: 'yellow',
+    Orange: 'orange',
+    Red: 'red',
+    Pink: 'pink',
+    Purple: 'purple',
+} as const
+
 export interface ErrorTrackingIssueTagApi {
+    /** Named color of the tag, or null for a color picked from the label. */
+    color?: ErrorTrackingIssueTagColorApi | null
     /** What the tag means, for a tooltip. */
     description: string
     /** Key of the tag definition. */
@@ -6087,6 +6113,27 @@ export interface ExperimentBreakdownResultApi {
     variants: ExperimentVariantResultFrequentistApi[] | ExperimentVariantResultBayesianApi[]
 }
 
+/**
+ * Exposed entities with no row of the metric query that counted, by variant.
+ */
+export type ExperimentWarehouseNativeRowsLeftOutApiExposedWithoutRows = { [key: string]: number } | null
+
+/**
+ * Exposure rows whose variant is not one the flag serves, counted by the value seen. At most the 50 most common values.
+ */
+export type ExperimentWarehouseNativeRowsLeftOutApiUnknownVariants = { [key: string]: number } | null
+
+export interface ExperimentWarehouseNativeRowsLeftOutApi {
+    /** Exposure rows with an empty entity_id. */
+    empty_id?: number | null
+    /** Exposed entities with no row of the metric query that counted, by variant. */
+    exposed_without_rows?: ExperimentWarehouseNativeRowsLeftOutApiExposedWithoutRows
+    /** Exposure rows whose variant is not one the flag serves, in total, including the values that `unknown_variants` leaves out. */
+    unknown_variant_rows?: number | null
+    /** Exposure rows whose variant is not one the flag serves, counted by the value seen. At most the 50 most common values. */
+    unknown_variants?: ExperimentWarehouseNativeRowsLeftOutApiUnknownVariants
+}
+
 export interface ExperimentQueryResponseApi {
     baseline?: ExperimentStatsBaseValidatedApi | null
     /** Results grouped by breakdown value. When present, baseline and variant_results contain aggregated data. */
@@ -6096,6 +6143,8 @@ export interface ExperimentQueryResponseApi {
     /** Whether exposures were served from the precomputation system */
     is_precomputed?: boolean | null
     kind?: 'ExperimentQuery'
+    /** Rows of the warehouse-native metric query that the run left out, by reason. Set by a warehouse-native run only. */
+    rows_left_out?: ExperimentWarehouseNativeRowsLeftOutApi | null
     variant_results?: ExperimentVariantResultFrequentistApi[] | ExperimentVariantResultBayesianApi[] | null
     /** Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics. */
     warnings?: DataWarehouseSyncWarningApi[] | null
@@ -6329,6 +6378,8 @@ export interface HogQLQueryApi {
     /** Extra filters applied to query via {filters} or the column-bound {filters(expr AS key, ...)} placeholder */
     filters?: HogQLFiltersApi | null
     kind?: 'HogQLQuery'
+    /** Rows to return in place of the default row limit, capped at the maximum for the query's context. Ignored when the query sets its own LIMIT, uses UNION, or runs as raw SQL. */
+    limit?: number | null
     /** Modifiers used when performing the query */
     modifiers?: HogQLQueryModifiersApi | null
     /** Client provided name of the query */
@@ -6770,6 +6821,8 @@ export interface WebVitalsPathBreakdownQueryApi {
     interval?: IntervalTypeApi | null
     kind?: 'WebVitalsPathBreakdownQuery'
     metric: WebVitalsMetricApi
+    /** Drop pages with fewer samples than this in the period, so a page with a handful of slow loads does not outrank a busy page with a real problem. No floor when omitted. */
+    minSamples?: number | null
     /** Modifiers used when performing the query */
     modifiers?: HogQLQueryModifiersApi | null
     orderBy?: (WebAnalyticsOrderByFieldsApi | WebAnalyticsOrderByDirectionApi)[] | null
@@ -7106,6 +7159,8 @@ export interface ConversionGoalFilter1Api {
         | null
     response?: ConversionGoalFilter1ApiResponse
     schema_map: ConversionGoalFilter1ApiSchemaMap
+    /** When true, Google Ads recommendations judge campaigns by this goal's conversions instead of the conversions Google Ads reports. Conversions from every marked goal are added together, so marking two goals the same person completes counts that person twice. Defaults to false. */
+    use_in_recommendations?: boolean | null
     /** version of the node, used for schema migrations */
     version?: number | null
 }
@@ -7202,6 +7257,8 @@ export interface ConversionGoalFilter2Api {
         | null
     response?: ConversionGoalFilter2ApiResponse
     schema_map: ConversionGoalFilter2ApiSchemaMap
+    /** When true, Google Ads recommendations judge campaigns by this goal's conversions instead of the conversions Google Ads reports. Conversions from every marked goal are added together, so marking two goals the same person completes counts that person twice. Defaults to false. */
+    use_in_recommendations?: boolean | null
     /** version of the node, used for schema migrations */
     version?: number | null
 }
@@ -7303,6 +7360,8 @@ export interface ConversionGoalFilter3Api {
     schema_map: ConversionGoalFilter3ApiSchemaMap
     table_name: string
     timestamp_field: string
+    /** When true, Google Ads recommendations judge campaigns by this goal's conversions instead of the conversions Google Ads reports. Conversions from every marked goal are added together, so marking two goals the same person completes counts that person twice. Defaults to false. */
+    use_in_recommendations?: boolean | null
     /** version of the node, used for schema migrations */
     version?: number | null
 }
@@ -7505,6 +7564,13 @@ export interface ErrorTrackingIssueTagFilterApi {
     key: string
 }
 
+export interface ErrorTrackingIssueTagsFilterApi {
+    /** Keys of tag definitions. Keeps the issues that have all of these tags. */
+    has?: string[] | null
+    /** Keys of tag definitions. Keeps the issues that have none of these tags. */
+    hasNot?: string[] | null
+}
+
 export type ErrorTrackingOrderByApi = (typeof ErrorTrackingOrderByApi)[keyof typeof ErrorTrackingOrderByApi]
 
 export const ErrorTrackingOrderByApi = {
@@ -7578,8 +7644,9 @@ export interface ErrorTrackingQueryApi {
     groupTypeIndex?: number | null
     /** Filter to a specific error tracking issue by ID. */
     issueId?: string | null
-    /** Filter by whether one issue tag is applied. Ignored when issue tags or this tag are off for the project. */
     issueTag?: ErrorTrackingIssueTagFilterApi | null
+    /** Filter by issue tags. Get the keys from the issue tag definitions. The query ignores a key whose tag is off for the project. */
+    issueTags?: ErrorTrackingIssueTagsFilterApi | null
     kind?: 'ErrorTrackingQuery'
     limit?: number | null
     /** Modifiers used when performing the query */
@@ -7765,6 +7832,8 @@ export interface TraceQueryResponseApi {
 
 export interface TraceQueryApi {
     dateRange?: DateRangeApi | null
+    /** Return only the earliest events of the trace by timestamp. The latency, token and cost totals still cover every matching event. Leave unset to return every event. */
+    eventsLimit?: number | null
     /** Include stored sentiment evaluation results for the trace and its generations. */
     includeSentiment?: boolean | null
     kind?: 'TraceQuery'
@@ -8595,6 +8664,7 @@ export interface ChartSettingsApi {
     /** Where the legend sits relative to the chart. Unset falls back per chart type: right for pie and donut, bottom for proportion bar, top for the rest. */
     legendPosition?: LegendPositionApi | null
     metric?: MetricChartSettingsApi | null
+    movingAverageIntervals?: number | null
     pie?: PieChartSettingsApi | null
     /** Per-breakdown-value color customizations. Keyed by the raw breakdown column value. */
     resultCustomizations?: ChartSettingsApiResultCustomizations
@@ -8603,6 +8673,7 @@ export interface ChartSettingsApi {
     seriesBreakdownColumn?: string | null
     showAnnotations?: boolean | null
     showLegend?: boolean | null
+    showMovingAverage?: boolean | null
     showNullsAsZero?: boolean | null
     showPieTotal?: boolean | null
     showTotalRow?: boolean | null

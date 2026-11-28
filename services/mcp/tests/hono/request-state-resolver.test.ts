@@ -11,7 +11,13 @@ const {
     mockGetApiKey,
     mockAnalyticsContext,
     mockDistinctId,
+    flagsBoundary,
 } = vi.hoisted(() => ({
+    flagsBoundary: {
+        response: {} as Record<string, unknown>,
+        flagsRequests: [] as Record<string, unknown>[],
+        events: [] as { event: string; properties: Record<string, unknown> }[],
+    },
     mockGetApiKey: vi.fn(),
     mockAnalyticsContext: { current: undefined as MCPAnalyticsContext | undefined },
     mockDistinctId: { current: 'distinct-id' },
@@ -20,6 +26,7 @@ const {
     mockApiKey: {
         scopes: ['*'],
         scoped_teams: [],
+        scoped_organizations: [] as string[],
         is_impersonated: undefined as boolean | undefined,
         suppress_analytics: undefined as boolean | undefined,
         mcp_allowed_tools: undefined as string[] | undefined,
@@ -38,6 +45,26 @@ const {
     // The request-scoped context the last resolve handed to RequestContext.
     mockPinned: { last: undefined as { orgId?: string; projectId?: string; sessionScoped: boolean } | undefined },
 }))
+
+vi.mock('@/lib/posthog/client', async () => {
+    const { PostHogMCP } = await import('@posthog/mcp-analytics')
+    const client = new PostHogMCP('phc_test', {
+        host: 'https://flags.posthog.invalid',
+        flushAt: 1,
+        flushInterval: 0,
+        disableCompression: true,
+        fetch: async (url, options) => {
+            const body = JSON.parse(String(options.body))
+            if (url.includes('/flags/')) {
+                flagsBoundary.flagsRequests.push(body)
+                return { status: 200, text: async () => '', json: async () => flagsBoundary.response }
+            }
+            flagsBoundary.events.push(...(body.batch ?? []))
+            return { status: 200, text: async () => '{"results":{}}', json: async () => ({ results: {} }) }
+        },
+    })
+    return { getPostHogClient: () => client }
+})
 
 vi.mock('@/lib/posthog/flags', () => ({
     evaluateFeatureFlags: vi.fn(async () => ({ flags: {}, payloads: {} })),
@@ -158,12 +185,14 @@ vi.mock('@/hono/request-context', async () => {
 
 import type { RedisLike } from '@/hono/cache/RedisCache'
 import { MCP_CURSOR_EXEC_MODE_FLAG, MCP_EXEC_SKILLS_FEATURE_FLAG } from '@/hono/constants'
+import { GUIDANCE_RULE_FLAGS } from '@/hono/guidance/rules'
 import { MCP_INTENT_PROMPT_FLAG } from '@/hono/intent-prompt'
 import { MCP_INTERVIEW_RECRUITMENT_FLAG } from '@/hono/interview-recruitment'
 import { RequestStateResolver } from '@/hono/request-state-resolver'
 import { ToolCatalog } from '@/hono/tool-catalog'
 import { StateLookupCache } from '@/lib/cache/StateLookupCache'
 import type { MCPAnalyticsContext } from '@/lib/posthog/analytics'
+import { getPostHogClient } from '@/lib/posthog/client'
 import { evaluateFeatureFlags, resolveFeatureFlagOverrides } from '@/lib/posthog/flags'
 import { PROJECT_SECRET_KEY_SCOPES, PROJECT_SECRET_KEY_TOOLS } from '@/lib/project-secret-key'
 import { parseRequestProperties, type RequestProperties } from '@/lib/request-properties'
@@ -219,6 +248,7 @@ describe('RequestStateResolver MCP client contexts', () => {
         mockDistinctId.current = 'distinct-id'
         mockGetApiKey.mockReset().mockImplementation(async () => mockApiKey)
         mockApiKey.scopes = ['*']
+        mockApiKey.scoped_organizations = []
         mockApiKey.is_impersonated = undefined
         mockApiKey.suppress_analytics = undefined
         mockApiKey.mcp_allowed_tools = undefined
@@ -285,6 +315,91 @@ describe('RequestStateResolver MCP client contexts', () => {
         } finally {
             requiredFlags.mockRestore()
             evaluate.mockReset().mockResolvedValue({ flags: {}, payloads: {} })
+        }
+    })
+
+    it.each([
+        { request: 'an analytics request', reported: true },
+        { request: 'an impersonated request', impersonated: true, reported: false },
+        { request: 'a request with analytics suppressed', suppressed: true, reported: false },
+    ])(
+        'keeps guidance flag payloads from the one flags request and reports exposure only when analytics are allowed: $request',
+        async (input) => {
+            mockApiKey.is_impersonated = input.impersonated
+            mockApiKey.suppress_analytics = input.suppressed
+            mockDistinctId.current = `distinct-id for ${input.request}`
+            const guidanceFlag = GUIDANCE_RULE_FLAGS[0]!
+            const actual = await vi.importActual<typeof import('@/lib/posthog/flags')>('@/lib/posthog/flags')
+            vi.mocked(evaluateFeatureFlags).mockImplementationOnce(actual.evaluateFeatureFlags)
+            flagsBoundary.flagsRequests.length = 0
+            flagsBoundary.events.length = 0
+            flagsBoundary.response = {
+                flags: {
+                    [guidanceFlag]: {
+                        key: guidanceFlag,
+                        value: 'treated',
+                        reason: { code: 'condition_match' },
+                        metadata: { id: 1, version: 1, payload: JSON.stringify({ label: 'Guidance copy' }) },
+                    },
+                    [MCP_INTENT_PROMPT_FLAG]: {
+                        key: MCP_INTENT_PROMPT_FLAG,
+                        value: true,
+                        reason: { code: 'condition_match' },
+                        metadata: { id: 2, version: 1, payload: JSON.stringify({ prompt: 'Not guidance' }) },
+                    },
+                },
+                errorsWhileComputingFlags: false,
+                requestId: 'request-1',
+            }
+
+            const state = await makeResolver().resolve(makeProps())
+            state.reportFlagExposure?.(guidanceFlag)
+            await getPostHogClient().flush()
+
+            expect({
+                flagsRequests: flagsBoundary.flagsRequests.length,
+                payloads: state.guidanceFlagPayloads,
+                exposures: flagsBoundary.events
+                    .filter((event) => event.event === '$feature_flag_called')
+                    .map((event) => [event.properties.$feature_flag, event.properties.$feature_flag_response]),
+            }).toEqual({
+                flagsRequests: 1,
+                payloads: { [guidanceFlag]: { label: 'Guidance copy' } },
+                exposures: input.reported ? [[guidanceFlag, 'treated']] : [],
+            })
+        }
+    )
+
+    it('times each resolution step it ran', async () => {
+        const state = await makeResolver().resolve(makeProps())
+
+        expect(Object.keys(state.stepSeconds).sort()).toEqual([
+            'ai_consent',
+            'analytics_context',
+            'api_key',
+            'available_features',
+            'distinct_id',
+            'flags',
+            'pinned_context',
+            'stored_context',
+            'tool_filter',
+        ])
+    })
+
+    it('counts the catalog scan in the tool filter step', async () => {
+        vi.useFakeTimers({ toFake: ['performance'] })
+        try {
+            const { resolver, getFilteredTools } = makeResolverWithCatalog()
+            getFilteredTools.mockImplementation(() => {
+                vi.advanceTimersByTime(40)
+                return []
+            })
+
+            const state = await resolver.resolve(makeProps())
+
+            expect(state.stepSeconds.tool_filter).toBeCloseTo(0.04)
+        } finally {
+            vi.useRealTimers()
         }
     })
 
@@ -989,6 +1104,37 @@ describe('RequestStateResolver MCP client contexts', () => {
         expect(result.viaMcpStore).toBe(true)
     })
 
+    it.each([
+        ['the URL asks for it', '?split_writes=true', {}, true],
+        ['the header asks for it', '', { 'x-posthog-split-writes': '1' }, true],
+        [
+            'the header declines what the URL asks for',
+            '?split_writes=true',
+            { 'x-posthog-split-writes': 'false' },
+            false,
+        ],
+        ['nothing asks for it', '', {}, false],
+        ['tools mode, which never lists exec-write', '?split_writes=true&mode=tools', {}, false],
+        ['a read-only connection, which has no writes', '?split_writes=true&readonly=true', {}, false],
+        [
+            'a wrapper whose write gate only knows exec',
+            '?split_writes=true',
+            { 'x-posthog-mcp-consumer': 'posthog-code' },
+            false,
+        ],
+    ])('splits writes from exec when %s: %s', async (_label, query, headers, expected) => {
+        const props = parseRequestProperties(
+            new Request(`https://example.com/mcp${query}`, {
+                headers: { Authorization: 'Bearer phx_test', ...headers },
+            }),
+            {}
+        )
+
+        const result = await makeResolver().resolve(props)
+
+        expect(result.splitWrites).toBe(expected)
+    })
+
     it('carries connected-tool restrictions to execution', async () => {
         const filters = {
             tools: ['linear__create_issue'],
@@ -1030,6 +1176,19 @@ describe('RequestStateResolver MCP client contexts', () => {
         expect(result.allTools.map((tool) => tool.name)).toEqual(['docs-search'])
         expect(result.scopeGatedTools.map((tool) => tool.name)).toEqual(['dashboards-get-all'])
         expect(result.flagGatedTools).toEqual([])
+    })
+
+    it.each([
+        ['an unscoped key', [], false],
+        ['an org-scoped key', ['org-1'], true],
+    ])('excludes organization-create for %s', async (_label, scopedOrganizations, excluded) => {
+        mockApiKey.scoped_organizations = scopedOrganizations
+        const { resolver, getFilteredTools } = makeResolverWithCatalog()
+
+        await resolver.resolve(makeProps())
+
+        const excludeTools = getFilteredTools.mock.calls[0]?.[0]?.excludeTools
+        expect(excludeTools?.includes('organization-create')).toBe(excluded)
     })
 
     it('gives a project secret API key the knowledge read tools and nothing else', async () => {

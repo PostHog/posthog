@@ -2,11 +2,11 @@ import json
 import builtins
 import dataclasses
 from collections import defaultdict
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from copy import deepcopy
 from datetime import datetime, timedelta
-from functools import lru_cache
-from typing import Any, Union, cast
+from functools import wraps
+from typing import Any, Concatenate, ParamSpec, TypeVar, Union, cast
 from uuid import UUID
 
 from django.conf import settings
@@ -57,6 +57,7 @@ from posthog.api.monitoring import Feature, monitor
 from posthog.api.openapi_parameters import make_filters_override_param, make_variables_override_param
 from posthog.api.query import add_query_response_identity_headers, get_query_request_analytics_properties
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.services.query import PlannedQuery
 from posthog.api.shared import SearchMatchTypeSerializerMixin, UserBasicSerializer
 from posthog.api.sharing_publish_gate import insight_query_access_error
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
@@ -78,10 +79,12 @@ from posthog.clickhouse.query_tagging import (
     tags_context,
 )
 from posthog.constants import INSIGHT
+from posthog.dataclasses import frozen
 from posthog.errors import CHQueryErrorQueryWasCancelled, ExposedCHQueryError, QueryErrorCategory, classify_query_error
 from posthog.event_usage import EventSource, get_event_source, report_user_action
 from posthog.exceptions import ClickHouseAtCapacity
 from posthog.exceptions_capture import capture_exception
+from posthog.helpers.feature_flag_usage_insights import feature_flag_generated_insight_q
 from posthog.helpers.impersonation import is_impersonated
 from posthog.helpers.trigram_search import (
     DESCRIPTION_FIELD,
@@ -178,11 +181,13 @@ from products.dashboards.backend.facade.api import (
     CannotRemoveFromDashboard,
     DashboardNotFound,
     InsightTilePlacement,
+    can_access_dashboard,
     check_insight_tile_limit,
+    create_planned_insight_tiles,
     dashboard_refs,
     hide_tiles_for_insights,
     insight_has_listed_tile,
-    insight_ids_on_dashboard,
+    insight_ids_on_dashboards,
     insights_with_dashboard_edit_access,
     plan_insight_tile_placement,
     restore_tiles_for_insights,
@@ -193,6 +198,7 @@ from products.dashboards.backend.facade.api import (
     unknown_dashboard_ids,
     update_insight_dashboard_membership,
 )
+from products.dashboards.backend.facade.contracts import InsightTileOnDashboard
 from products.dashboards.backend.presentation.serializers import DashboardTileBasicSerializer
 from products.product_analytics.backend.facade.account_filters import plan_test_account_filter_update
 from products.product_analytics.backend.facade.api import (
@@ -224,6 +230,7 @@ from products.product_analytics.backend.presentation.insight_metadata import (
 )
 from products.product_analytics.backend.presentation.insight_permissions import CanEditInsightDashboards
 from products.product_analytics.backend.presentation.insight_write_validation import validate_insight_write
+from products.product_analytics.backend.presentation.metrics_sql_insight import sql_insight_for_metrics_sql
 from products.product_analytics.backend.presentation.query_concurrency import query_concurrency_slots
 from products.subscriptions.backend.facade.api import delete_insight_subscriptions
 
@@ -293,6 +300,31 @@ def log_and_report_insight_activity(
                 organization=organization,
                 request=request,
             )
+
+
+_Owner = TypeVar("_Owner")
+_P = ParamSpec("_P")
+_R = TypeVar("_R")
+
+
+def memoize_last_call(
+    method: Callable[Concatenate[_Owner, _P], _R],
+) -> Callable[Concatenate[_Owner, _P], _R]:
+    # functools.lru_cache on a method keeps one cache for all instances, so serializers that run at the same
+    # time on different threads evict each other's entry and compute again. This keeps the last call per instance.
+    cache_attr = f"_memoized_last_call_{method.__qualname__.replace('.', '_')}"
+
+    @wraps(method)
+    def wrapper(self: _Owner, *args: _P.args, **kwargs: _P.kwargs) -> _R:
+        key = (args, tuple(sorted(kwargs.items())))
+        last = getattr(self, cache_attr, None)
+        if last is not None and last[0] == key:
+            return last[1]
+        result = method(self, *args, **kwargs)
+        setattr(self, cache_attr, (key, result))
+        return result
+
+    return wrapper
 
 
 def viewable_insight_or_404(*, team_id: int, insight_id: int, user_access_control: UserAccessControl) -> Insight:
@@ -375,6 +407,20 @@ def _dashboards_field_access_method(request: Request | None) -> str:
     if isinstance(authenticator, PersonalAPIKeyAuthentication):
         return "personal_api_key"
     return type(authenticator).__name__
+
+
+@frozen
+class _InsightCalculationInputs:
+    is_shared: bool
+    execution_mode: ExecutionMode
+    cache_age_seconds: int | None
+    filters_override: dict
+    variables_override: dict[str, dict] | None
+    tile_filters_override: dict
+    user: Any
+    user_access_control: UserAccessControl | None
+    allow_raw_results: bool
+    limit_context: LimitContext
 
 
 def _limit_context_for_access_method() -> LimitContext:
@@ -497,7 +543,7 @@ class InsightBasicSerializer(
 
         return representation
 
-    @lru_cache(maxsize=1)  # noqa: B019 - short-lived serializer
+    @memoize_last_call
     def _dashboard_tiles(self, instance):
         return [tile.dashboard_id for tile in instance.dashboard_tiles.all()]
 
@@ -839,6 +885,8 @@ class InsightSerializer(InsightBasicSerializer):
         """
         if not value:
             return value
+        if sql_insight := self._sql_insight_for_metrics_sql(value):
+            return sql_insight
         try:
             if value.get("kind") == "HogQLQuery":
                 return schema.DataVisualizationNode(source=schema.HogQLQuery.model_validate(value)).model_dump(
@@ -851,6 +899,12 @@ class InsightSerializer(InsightBasicSerializer):
         except PydanticValidationError:
             pass
         return value
+
+    def _sql_insight_for_metrics_sql(self, value: dict[str, Any]) -> dict[str, Any] | None:
+        get_team = self.context.get("get_team")
+        if get_team is None or value.get("kind") != "MetricsQuery" or value.get("language") != "sql":
+            return None
+        return sql_insight_for_metrics_sql(get_team(), value)
 
     @monitor(feature=Feature.INSIGHT, endpoint="insight", method="POST")
     def create(self, validated_data: dict, *args: Any, **kwargs: Any) -> Insight:
@@ -895,7 +949,8 @@ class InsightSerializer(InsightBasicSerializer):
         record_insight_view(insight_id=insight.pk, team_id=team_id, user_id=request.user.pk)
 
         if placement is not None:
-            for dashboard in placement.create_tiles(insight):
+            create_planned_insight_tiles(placement, insight_id=insight.id)
+            for dashboard in placement.dashboards:
                 report_user_action(
                     self.context["request"].user,
                     "dashboard tile added",
@@ -1077,7 +1132,8 @@ class InsightSerializer(InsightBasicSerializer):
 
         try:
             change = update_insight_dashboard_membership(
-                insight=instance,
+                insight_id=instance.id,
+                insight_team_id=instance.team_id,
                 dashboard_ids=dashboard_ids,
                 query=query,
                 user=self.context["request"].user,
@@ -1303,33 +1359,8 @@ class InsightSerializer(InsightBasicSerializer):
         resolved_layers = resolve_filter_layers_by_priority(dashboard_filters, tile_filters_override)
         return {key: value or None for key, value in resolved_layers.items()}
 
-    def to_representation(self, instance: Insight):
-        representation = super().to_representation(instance)
-
-        # Check if user has access to this insight when viewed in dashboard context
-        if self.context.get("dashboard"):
-            user_access_level = representation.get("user_access_level")
-            if user_access_level and not access_level_satisfied_for_resource("insight", user_access_level, "viewer"):
-                # User doesn't have sufficient access - return minimal insight data
-                return {
-                    "id": instance.id,
-                    "short_id": instance.short_id,
-                    "user_access_level": user_access_level,
-                }
-
-        # the ORM doesn't know about deleted dashboard tiles
-        # when they have just been updated
-        # we store them and can use that list to correct the response
-        # and avoid refreshing from the DB
-        #
-        # `after_dashboard_changes` is only set (even to an empty list) when this request itself
-        # wrote `dashboards` (see _update_insight_dashboards). Correct the value only for callers
-        # that opted into receiving the deprecated field.
-        if "after_dashboard_changes" in self.context and should_serve_deprecated_dashboards_field(self.context):
-            representation["dashboards"] = [
-                described_dashboard["id"] for described_dashboard in self.context["after_dashboard_changes"]
-            ]
-
+    def effective_query(self, instance: Insight) -> dict[str, Any] | None:
+        """The insight's query with the dashboard, tile and request overrides applied: what its result is computed with."""
         dashboard: Any = self.context.get("dashboard")
         request: Request | None = self.context.get("request")
         is_shared = self.context.get("is_shared", False)
@@ -1384,13 +1415,41 @@ class InsightSerializer(InsightBasicSerializer):
                     dashboard_variables_override or {},
                     instance.team,
                 )
-            representation["query"] = query
-        else:
-            representation["query"] = instance.get_effective_query(
-                dashboard=dashboard,
-                dashboard_filters_override=dashboard_filters_override,
-                dashboard_variables_override=dashboard_variables_override,
-            )
+            return query
+        return instance.get_effective_query(
+            dashboard=dashboard,
+            dashboard_filters_override=dashboard_filters_override,
+            dashboard_variables_override=dashboard_variables_override,
+        )
+
+    def to_representation(self, instance: Insight):
+        representation = super().to_representation(instance)
+
+        # Check if user has access to this insight when viewed in dashboard context
+        if self.context.get("dashboard"):
+            user_access_level = representation.get("user_access_level")
+            if user_access_level and not access_level_satisfied_for_resource("insight", user_access_level, "viewer"):
+                # User doesn't have sufficient access - return minimal insight data
+                return {
+                    "id": instance.id,
+                    "short_id": instance.short_id,
+                    "user_access_level": user_access_level,
+                }
+
+        # the ORM doesn't know about deleted dashboard tiles
+        # when they have just been updated
+        # we store them and can use that list to correct the response
+        # and avoid refreshing from the DB
+        #
+        # `after_dashboard_changes` is only set (even to an empty list) when this request itself
+        # wrote `dashboards` (see _update_insight_dashboards). Correct the value only for callers
+        # that opted into receiving the deprecated field.
+        if "after_dashboard_changes" in self.context and should_serve_deprecated_dashboards_field(self.context):
+            representation["dashboards"] = [
+                described_dashboard["id"] for described_dashboard in self.context["after_dashboard_changes"]
+            ]
+
+        representation["query"] = self.effective_query(instance)
 
         representation["filters_hash"] = self.insight_result(instance).cache_key
 
@@ -1403,9 +1462,12 @@ class InsightSerializer(InsightBasicSerializer):
 
         return representation
 
-    @lru_cache(maxsize=1)  # noqa: B019 - short-lived serializer
+    @memoize_last_call
     def insight_result(self, insight: Insight) -> InsightResult:
-        from posthog.caching.calculate_results import calculate_for_query_based_insight
+
+        # The caller reads results separately, such as a dashboard first load that reads them through cached_tiles.
+        if self.context.get("omit_insight_results"):
+            return InsightResult(result=None, last_refresh=None, cache_key=None, is_cached=False, timezone=None)
 
         dashboard: Any = self.context.get("dashboard")
 
@@ -1448,122 +1510,178 @@ class InsightSerializer(InsightBasicSerializer):
                 )
 
         with upgrade_insight(insight):
-            try:
-                is_shared = self.context.get("is_shared", False)
-                execution_mode, shared_cache_age_seconds = resolve_execution_mode(
-                    self.context["request"],
-                    surface=self.context.get("compute_surface", ComputeSurface.LEGACY_UNKNOWN),
-                    is_shared=is_shared,
-                )
-                filters_override = filters_override_requested_by_client(
-                    self.context["request"], dashboard, is_shared=is_shared
-                )
-                variables_override = variables_override_requested_by_client(
-                    self.context["request"], dashboard, list(self.context["insight_variables"]), is_shared=is_shared
-                )
+            return self._calculated_insight_result(insight, dashboard, planned=None)
 
-                dashboard_tile = self.dashboard_tile_from_context(insight, dashboard)
-                tile_filters_override = tile_filters_override_requested_by_client(
-                    self.context["request"],
-                    dashboard_tile.filters_overrides if dashboard_tile else None,
-                    is_shared=is_shared,
-                )
+    def _calculation_inputs(self, insight: Insight, dashboard: Any) -> _InsightCalculationInputs:
+        """The request inputs an insight's result is calculated or planned with."""
+        is_shared = self.context.get("is_shared", False)
+        execution_mode, shared_cache_age_seconds = resolve_execution_mode(
+            self.context["request"],
+            surface=self.context.get("compute_surface", ComputeSurface.LEGACY_UNKNOWN),
+            is_shared=is_shared,
+        )
+        filters_override = filters_override_requested_by_client(self.context["request"], dashboard, is_shared=is_shared)
+        variables_override = variables_override_requested_by_client(
+            self.context["request"], dashboard, list(self.context["insight_variables"]), is_shared=is_shared
+        )
 
-                # Shared rendering bypasses the FE scene-tag flow, so set product/feature
-                # tags here. No-op overwrite for authenticated paths (same values).
-                shared_tags = {"access_method": AccessMethod.SHARING_TOKEN} if is_shared else {}
-                request_user = None if self.context["request"].user.is_anonymous else self.context["request"].user
-                if request_user is None and is_shared:
-                    # Anonymous shared views execute as the shared-link user, so
-                    # warehouse-backed tiles resolve instead of failing with "no access"
-                    request_user = self.context.get("shared_link_user")
-                # Reuse the request's single UserAccessControl across all of a dashboard's insight
-                # runners, so the cache fingerprint resolves access once per request, not per tile.
-                # Real users only - a shared-link viewer has no access-control snapshot.
-                view = self.context.get("view")
-                request_user_access_control = (
-                    getattr(view, "user_access_control", None) if isinstance(request_user, User) else None
-                )
-                # Raw cached results (orjson.Fragment) are only valid when the response is
-                # rendered by orjson: SafeJSONRenderer directly, or a caller that declares it
-                # renders tiles with SafeJSONRenderer itself (the SSE tile stream sets
-                # raw_results_supported — SSE content negotiation alone doesn't guarantee an
-                # orjson boundary). Pretty-printed output (?indent=) would not indent inside a
-                # fragment, so keep the parsed path there.
-                accepted_renderer = getattr(self.context["request"], "accepted_renderer", None)
-                allow_raw_results = (
-                    (isinstance(accepted_renderer, SafeJSONRenderer) or bool(self.context.get("raw_results_supported")))
-                    and not self.context["request"].query_params.get("indent")
-                    and not self.context.get("require_parsed_results")
-                )
-                with tags_context(product=ProductKey.PRODUCT_ANALYTICS, feature=Feature.INSIGHT, **shared_tags):
+        dashboard_tile = self.dashboard_tile_from_context(insight, dashboard)
+        tile_filters_override = tile_filters_override_requested_by_client(
+            self.context["request"],
+            dashboard_tile.filters_overrides if dashboard_tile else None,
+            is_shared=is_shared,
+        )
+
+        request_user = None if self.context["request"].user.is_anonymous else self.context["request"].user
+        if request_user is None and is_shared:
+            # Anonymous shared views execute as the shared-link user, so
+            # warehouse-backed tiles resolve instead of failing with "no access"
+            request_user = self.context.get("shared_link_user")
+        # Reuse the request's single UserAccessControl across all of a dashboard's insight
+        # runners, so the cache fingerprint resolves access once per request, not per tile.
+        # Real users only - a shared-link viewer has no access-control snapshot.
+        view = self.context.get("view")
+        request_user_access_control = (
+            getattr(view, "user_access_control", None) if isinstance(request_user, User) else None
+        )
+        # Raw cached results (orjson.Fragment) are only valid when the response is
+        # rendered by orjson: SafeJSONRenderer directly, or a caller that declares it
+        # renders tiles with SafeJSONRenderer itself (the SSE tile stream sets
+        # raw_results_supported — SSE content negotiation alone doesn't guarantee an
+        # orjson boundary). Pretty-printed output (?indent=) would not indent inside a
+        # fragment, so keep the parsed path there.
+        accepted_renderer = getattr(self.context["request"], "accepted_renderer", None)
+        allow_raw_results = (
+            (isinstance(accepted_renderer, SafeJSONRenderer) or bool(self.context.get("raw_results_supported")))
+            and not self.context["request"].query_params.get("indent")
+            and not self.context.get("require_parsed_results")
+        )
+        return _InsightCalculationInputs(
+            is_shared=is_shared,
+            execution_mode=execution_mode,
+            cache_age_seconds=shared_cache_age_seconds,
+            filters_override=filters_override,
+            variables_override=variables_override,
+            tile_filters_override=tile_filters_override,
+            user=request_user,
+            user_access_control=request_user_access_control,
+            allow_raw_results=allow_raw_results,
+            limit_context=_limit_context_for_access_method(),
+        )
+
+    def plan_query(self, insight: Insight) -> PlannedQuery | None:
+        """The query `insight_result` would run for the insight in this context, planned but not run."""
+        from posthog.caching.calculate_results import plan_query_based_insight
+
+        dashboard: Any = self.context.get("dashboard")
+        with upgrade_insight(insight):
+            inputs = self._calculation_inputs(insight, dashboard)
+            return plan_query_based_insight(
+                insight,
+                team=self.context["get_team"](),
+                dashboard=dashboard,
+                user=inputs.user,
+                user_access_control=inputs.user_access_control,
+                filters_override=inputs.filters_override,
+                variables_override=inputs.variables_override,
+                tile_filters_override=inputs.tile_filters_override,
+                allow_raw_results=inputs.allow_raw_results,
+                limit_context=inputs.limit_context,
+            )
+
+    def planned_insight_result(self, insight: Insight, planned: PlannedQuery) -> InsightResult:
+        """`insight_result` for a query planned with `plan_query` in this request: runs the planned runner instead of
+        planning it again."""
+        return self._calculated_insight_result(insight, self.context.get("dashboard"), planned=planned)
+
+    def _calculated_insight_result(
+        self, insight: Insight, dashboard: Any, *, planned: PlannedQuery | None
+    ) -> InsightResult:
+        from posthog.caching.calculate_results import (
+            calculate_for_query_based_insight,
+            calculate_planned_query_based_insight,
+        )
+
+        try:
+            inputs = self._calculation_inputs(insight, dashboard)
+            # Shared rendering bypasses the FE scene-tag flow, so set product/feature
+            # tags here. No-op overwrite for authenticated paths (same values).
+            shared_tags = {"access_method": AccessMethod.SHARING_TOKEN} if inputs.is_shared else {}
+            with tags_context(product=ProductKey.PRODUCT_ANALYTICS, feature=Feature.INSIGHT, **shared_tags):
+                analytics_props = get_query_request_analytics_properties(self.context["request"])
+                if planned is None:
                     insight_result = calculate_for_query_based_insight(
                         insight,
                         team=self.context["get_team"](),
                         dashboard=dashboard,
-                        execution_mode=execution_mode,
-                        user=request_user,
-                        user_access_control=request_user_access_control,
-                        filters_override=filters_override,
-                        variables_override=variables_override,
-                        tile_filters_override=tile_filters_override,
-                        cache_age_seconds=shared_cache_age_seconds,
-                        analytics_props=get_query_request_analytics_properties(self.context["request"]),
-                        allow_raw_results=allow_raw_results,
-                        limit_context=_limit_context_for_access_method(),
-                    )
-                    access_method: DashboardAccessMethod | None = self.context.get("dashboard_access_method")
-                    if (
-                        dashboard is not None
-                        and access_method is not None
-                        and execution_mode
-                        not in {
-                            ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
-                            ExecutionMode.CALCULATE_ASYNC_ALWAYS,
-                        }
-                    ):
-                        record_dashboard_cache_outcome(
-                            access_method,
-                            is_cached=insight_result.is_cached,
-                        )
-                    return insight_result
-            except (ExposedHogQLError, ExposedCHQueryError, HogVMException) as e:
-                return self._degraded_insight_result(
-                    insight,
-                    dashboard,
-                    error=e,
-                    error_message=str(e),
-                    error_code=getattr(e, "code_name", None),
-                    last_refresh=None,
-                )
-            except Exception as e:
-                is_rate_limited = classify_query_error(e) == QueryErrorCategory.RATE_LIMITED
-                error_message = str(e)
-                if is_rate_limited:
-                    # Older dashboard clients retry on this marker. Other capacity messages can
-                    # contain internal Redis keys, task IDs or raw ClickHouse details.
-                    error_message = (
-                        "concurrency_limit_exceeded"
-                        if isinstance(e, ConcurrencyLimitExceeded)
-                        else ClickHouseAtCapacity.default_detail
-                    )
-                    logger.warn(
-                        "insight_calculation_rate_limited",
-                        exception=e,
-                        insight_id=insight.id,
-                        team_id=insight.team_id,
+                        execution_mode=inputs.execution_mode,
+                        user=inputs.user,
+                        user_access_control=inputs.user_access_control,
+                        filters_override=inputs.filters_override,
+                        variables_override=inputs.variables_override,
+                        tile_filters_override=inputs.tile_filters_override,
+                        cache_age_seconds=inputs.cache_age_seconds,
+                        analytics_props=analytics_props,
+                        allow_raw_results=inputs.allow_raw_results,
+                        limit_context=inputs.limit_context,
                     )
                 else:
-                    # Capture unexpected crashes so the API list doesn't fail
-                    logger.exception("insight_calculation_error", insight_id=insight.id, team_id=insight.team_id)
-                return self._degraded_insight_result(
-                    insight,
-                    dashboard,
-                    error=e,
-                    error_message=error_message,
-                    error_code=QueryErrorCategory.RATE_LIMITED if is_rate_limited else None,
-                    last_refresh=now() if is_rate_limited else None,
+                    insight_result = calculate_planned_query_based_insight(
+                        insight,
+                        planned,
+                        team=self.context["get_team"](),
+                        dashboard=dashboard,
+                        execution_mode=inputs.execution_mode,
+                        user=inputs.user,
+                        cache_age_seconds=inputs.cache_age_seconds,
+                        analytics_props=analytics_props,
+                    )
+                access_method: DashboardAccessMethod | None = self.context.get("dashboard_access_method")
+                if (
+                    dashboard is not None
+                    and access_method is not None
+                    and inputs.execution_mode
+                    not in {
+                        ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+                        ExecutionMode.CALCULATE_ASYNC_ALWAYS,
+                    }
+                ):
+                    record_dashboard_cache_outcome(access_method, is_cached=insight_result.is_cached)
+                return insight_result
+        except (ExposedHogQLError, ExposedCHQueryError, HogVMException) as e:
+            return self._degraded_insight_result(
+                insight,
+                dashboard,
+                error=e,
+                error_message=str(e),
+                error_code=getattr(e, "code_name", None),
+                last_refresh=None,
+            )
+        except Exception as e:
+            is_rate_limited = classify_query_error(e) == QueryErrorCategory.RATE_LIMITED
+            error_message = str(e)
+            if is_rate_limited:
+                # Older dashboard clients retry on this marker. Other capacity messages can
+                # contain internal Redis keys, task IDs or raw ClickHouse details.
+                error_message = (
+                    "concurrency_limit_exceeded"
+                    if isinstance(e, ConcurrencyLimitExceeded)
+                    else ClickHouseAtCapacity.default_detail
                 )
+                logger.warn(
+                    "insight_calculation_rate_limited", exception=e, insight_id=insight.id, team_id=insight.team_id
+                )
+            else:
+                # Capture unexpected crashes so the API list doesn't fail
+                logger.exception("insight_calculation_error", insight_id=insight.id, team_id=insight.team_id)
+            return self._degraded_insight_result(
+                insight,
+                dashboard,
+                error=e,
+                error_message=error_message,
+                error_code=QueryErrorCategory.RATE_LIMITED if is_rate_limited else None,
+                last_refresh=now() if is_rate_limited else None,
+            )
 
     def _degraded_insight_result(
         self,
@@ -1608,7 +1726,7 @@ class InsightSerializer(InsightBasicSerializer):
             timezone=self.context["get_team"]().timezone,
         )
 
-    @lru_cache(maxsize=1)  # noqa: B019 - short-lived serializer, one insight/tile combo
+    @memoize_last_call
     def dashboard_tile_from_context(self, insight: Insight, dashboard: Any) -> Any:
         dashboard_tile: Any = self.context.get("dashboard_tile", None)
 
@@ -1617,7 +1735,7 @@ class InsightSerializer(InsightBasicSerializer):
             dashboard_tile = None
 
         if not dashboard_tile and dashboard:
-            dashboard_tile = tile_for_render(insight=insight, dashboard=dashboard)
+            dashboard_tile = tile_for_render(insight_id=insight.id, dashboard_id=dashboard.id)
 
         return dashboard_tile
 
@@ -1643,6 +1761,8 @@ class MCPInsightSerializer(InsightSerializer):
         return super().validate(attrs)
 
     def validate_query(self, value: dict[str, Any] | None) -> dict[str, Any]:
+        if value and (sql_insight := self._sql_insight_for_metrics_sql(value)):
+            return sql_insight
         # Raw HogQL → DataVisualizationNode
         try:
             return schema.DataVisualizationNode(source=schema.HogQLQuery.model_validate(value)).model_dump(
@@ -2533,8 +2653,6 @@ class InsightViewSet(
                     queryset = queryset.exclude(query__kind="BIVisualizationNode")
             elif key == "hide_feature_flag_insights":
                 if str_to_bool(request.GET["hide_feature_flag_insights"]):
-                    from posthog.helpers.dashboard_templates import feature_flag_generated_insight_q
-
                     queryset = queryset.exclude(feature_flag_generated_insight_q())
             elif key == "date_from":
                 queryset = queryset.filter(
@@ -2587,9 +2705,19 @@ class InsightViewSet(
                 dashboards_filter = request.GET["dashboards"]
                 if dashboards_filter:
                     dashboards_ids = json.loads(dashboards_filter)
-                    for dashboard_id in dashboards_ids:
-                        # filter by dashboards one at a time so the filter is AND not OR
-                        queryset = queryset.filter(id__in=insight_ids_on_dashboard(dashboard_id))
+                    if not isinstance(dashboards_ids, list) or not all(
+                        (isinstance(dashboard_id, int) and not isinstance(dashboard_id, bool))
+                        or (isinstance(dashboard_id, str) and dashboard_id.isascii() and dashboard_id.isdigit())
+                        for dashboard_id in dashboards_ids
+                    ):
+                        raise ValidationError(
+                            {"dashboards": "Dashboards must be a list of dashboard IDs, such as [1, 2]."}
+                        )
+                    dashboards_ids = [int(dashboard_id) for dashboard_id in dashboards_ids]
+                    if dashboards_ids:
+                        # An insight must be on every listed dashboard, so the filter is AND, not OR.
+                        insight_ids_by_dashboard = insight_ids_on_dashboards(dashboards_ids, team_id=self.team.id)
+                        queryset = queryset.filter(id__in=frozenset.intersection(*insight_ids_by_dashboard.values()))
             elif key == "tags":
                 tags_filter = request.GET["tags"]
                 if tags_filter:
@@ -2663,7 +2791,7 @@ When set, the specified dashboard's filters and date range override will be appl
         instance = self.get_object()
         serializer_context = self.get_serializer_context()
 
-        dashboard_tile: Any = None
+        dashboard_tile: InsightTileOnDashboard | None = None
         dashboard_id = request.query_params.get("from_dashboard", None)
         if dashboard_id is not None:
             dashboard_tile = tile_for_insight_on_dashboard(insight_id=instance.id, dashboard_id=dashboard_id)
@@ -2674,10 +2802,10 @@ When set, the specified dashboard's filters and date range override will be appl
                     authenticator,
                     SharingAccessTokenAuthentication | SharingPasswordProtectedAuthentication,
                 ):
-                    can_view_dashboard = authenticator.sharing_configuration.dashboard_id == dashboard_tile.dashboard_id
+                    can_view_dashboard = authenticator.sharing_configuration.dashboard_id == dashboard_tile.dashboard.id
                 else:
-                    can_view_dashboard = self.user_access_control.check_access_level_for_object(
-                        dashboard_tile.dashboard, "viewer"
+                    can_view_dashboard = can_access_dashboard(
+                        dashboard_tile.dashboard, user_access_control=self.user_access_control
                     )
 
                 if not can_view_dashboard:
@@ -2702,12 +2830,7 @@ When set, the specified dashboard's filters and date range override will be appl
 
         if dashboard_tile is not None:
             serialized_data["color"] = dashboard_tile.color
-            layouts = dashboard_tile.layouts
-            # workaround because DashboardTiles layouts were migrated as stringified JSON :/
-            if isinstance(layouts, str):
-                layouts = json.loads(layouts)
-
-            serialized_data["layouts"] = layouts
+            serialized_data["layouts"] = dashboard_tile.layouts
 
         response = Response(serialized_data)
 

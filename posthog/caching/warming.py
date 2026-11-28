@@ -17,17 +17,19 @@ from posthog.caching.calculate_results import calculate_for_query_based_insight
 from posthog.caching.utils import largest_teams
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import Feature, get_team_query_tags, tag_queries
-from posthog.errors import CH_TRANSIENT_ERRORS
+from posthog.errors import CH_TRANSIENT_ERRORS, ExposedCHQueryError
 from posthog.event_usage import EventSource
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import Team
-from posthog.permissions import posthog_feature_flag_enabled
+from posthog.permissions import dashboard_v2_enabled
 from posthog.ph_client import ph_scoped_capture
 from posthog.query_cache import (
     clean_up_stale_insights,
     days_read_at_this_time,
     get_stale_insights,
+    last_read_hours,
+    last_refreshes,
     read_since,
     stale_among,
 )
@@ -126,17 +128,35 @@ def _stale_combos(team_id: int, *, read_at_this_time_only: bool, read_recently_o
         combos = stale_among(team_id=team_id, identifiers=recently_read)
     else:
         combos = get_stale_insights(team_id=team_id, limit=TIME_OF_DAY_CANDIDATES_LIMIT)
-    if not read_at_this_time_only:
-        return combos[:STALE_INSIGHTS_LIMIT]
     # Batched so one Redis round trip never checks more than TIME_OF_DAY_CANDIDATES_LIMIT identifiers.
     kept: list[str] = []
     for start in range(0, len(combos), TIME_OF_DAY_CANDIDATES_LIMIT):
         batch = combos[start : start + TIME_OF_DAY_CANDIDATES_LIMIT]
-        days_read = days_read_at_this_time(team_id=team_id, identifiers=batch, now=now)
-        kept.extend(combo for combo in batch if days_read[combo] >= READ_DAYS_REQUIRED)
+        if read_recently_only:
+            batch = _read_since_last_refresh(team_id, batch, since=now - RECENT_READ_WINDOW, now=now)
+        if read_at_this_time_only:
+            days_read = days_read_at_this_time(team_id=team_id, identifiers=batch, now=now)
+            batch = [combo for combo in batch if days_read[combo] >= READ_DAYS_REQUIRED]
+        kept.extend(batch)
         if len(kept) >= STALE_INSIGHTS_LIMIT:
             break
     return kept[:STALE_INSIGHTS_LIMIT]
+
+
+def _read_since_last_refresh(team_id: int, combos: list[str], *, since: datetime, now: datetime) -> list[str]:
+    """The combos read after their cached result was last computed, so a warm nobody has looked at is not repeated.
+
+    Reads are recorded per hour, so a read in the same hour as the computation counts as later: one extra warm
+    costs less than serving a result older than its interval allows. A combo with no recorded computation is kept.
+    """
+    last_refreshed = last_refreshes(team_id=team_id, identifiers=combos)
+    last_read = last_read_hours(team_id=team_id, identifiers=combos, since=since, now=now)
+    kept = []
+    for combo in combos:
+        refreshed_at, read_hour = last_refreshed[combo], last_read[combo]
+        if refreshed_at is None or (read_hour is not None and read_hour + timedelta(hours=1) > refreshed_at):
+            kept.append(combo)
+    return kept
 
 
 def insights_to_keep_fresh(
@@ -200,7 +220,7 @@ def schedule_warming_for_teams_task():
     Runs every hour and schedule warming for all insights (picked from insights_to_cache)
     for each team enabled for cache warming. Each team's warming starts at a stable
     offset within WARMING_START_WINDOW, or DASHBOARD_V2_WARMING_START_WINDOW for teams
-    on dashboard-v2, which also warm only tiles read within RECENT_READ_WINDOW.
+    on dashboard-v2, which also warm only tiles read within RECENT_READ_WINDOW and since their last computation.
 
     We trigger recalculation using ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE
     so even though we might pick all insights for a team to recalculate,
@@ -241,13 +261,7 @@ def schedule_warming_for_teams_task():
             read_at_this_time_only = _flag_enabled_for_team(
                 TIME_OF_DAY_FLAG, team_id=team.pk, organization_id=team.organization_id, uuid=team.uuid
             )
-            dashboard_v2 = posthog_feature_flag_enabled(
-                DASHBOARD_V2_FLAG,
-                str(team.uuid),
-                organization_id=team.organization_id,
-                team_id=team.pk,
-                only_evaluate_locally=True,
-            )
+            dashboard_v2 = dashboard_v2_enabled(team, None)
             insight_tuples = list(
                 insights_to_keep_fresh(
                     team,
@@ -387,7 +401,7 @@ def warm_insight_cache_task(insight_id: int, dashboard_id: Optional[int]):
                     error=e,
                     properties={"insight_id": insight.pk, "dashboard_id": dashboard_id},
                 )
-            elif isinstance(e, ExposedHogQLError):
+            elif isinstance(e, (ExposedHogQLError, ExposedCHQueryError)):
                 # The query itself is wrong, and only its author can correct it. Report it as an
                 # event so it stays with the team instead of becoming an issue in our error tracking.
                 with ph_scoped_capture() as capture_ph_event:

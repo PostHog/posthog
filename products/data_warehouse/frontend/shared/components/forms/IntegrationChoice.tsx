@@ -2,16 +2,20 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { useEffect, useRef } from 'react'
 
+import api from 'lib/api'
 import {
     IntegrationChoice,
     IntegrationConfigureProps,
 } from 'lib/components/CyclotronJob/integrations/IntegrationChoice'
 import { getIntegrationSetup } from 'lib/components/CyclotronJob/integrations/integrationSetupRegistry'
+import { GitHubInstallRequestsBanner } from 'lib/integrations/GitHubInstallRequestsBanner'
 import { useIntegrationManagementRestriction } from 'lib/integrations/integrationPermissions'
 import { integrationsLogic, OAUTH_INTEGRATION_ID_PARAM } from 'lib/integrations/integrationsLogic'
 import { describeOAuthCallbackError, INTEGRATION_ERROR_PARAM } from 'lib/integrations/oauthCallbackErrors'
 import { getIntegrationNameFromKind } from 'lib/integrations/utils'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { urls } from 'scenes/urls'
 
 import { IntegrationType } from '~/types'
@@ -39,6 +43,16 @@ export function authorizedIntegrationId(
     // Any kind's callback can land on this URL, and holding another provider's connection here
     // would only surface later as a failed schema discovery.
     return integrations?.some((integration) => integration.id === id && integration.kind === kind) ? id : null
+}
+
+// Setup-modal kinds create their connection in the picker's own modal, so they always get the picker.
+export function hasNoConnectionToPick(integrations: IntegrationType[] | null, kind: string, value: unknown): boolean {
+    return (
+        integrations !== null &&
+        !value &&
+        !getIntegrationSetup(kind) &&
+        !integrations.some((existing) => existing.kind === kind)
+    )
 }
 
 export function sourceOAuthRedirectUrl(sourceKind: string, pathname: string, search: string): string {
@@ -70,6 +84,7 @@ export function SourceIntegrationChoice({
     ...props
 }: SourceIntegrationChoiceProps): JSX.Element {
     const { saveFormStateBeforeRedirect } = useActions(sourceWizardLogic)
+    const { reportIntegrationConnectClicked } = useActions(eventUsageLogic)
     const { oauthRedirectUrl } = useValues(sourceWizardLogic)
     const { location, searchParams } = useValues(router)
     const { integrations, integrationsLoading } = useValues(integrationsLogic)
@@ -77,13 +92,16 @@ export function SourceIntegrationChoice({
     const sourceKind = sourceConfig.name.toLowerCase()
     const kind = integration ?? sourceKind
 
-    // Members can't start an OAuth connect (see IntegrationChoice), and the only hint is a tooltip
-    // on a disabled menu item. With no existing connection to pick, they have no way forward.
-    const blockedFromConnecting =
-        !!integrationManagementRestriction &&
-        !integrationsLoading &&
-        !getIntegrationSetup(kind) &&
-        !integrations?.some((existing) => existing.kind === kind)
+    const noConnectionToPick = hasNoConnectionToPick(integrationsLoading ? null : integrations, kind, value)
+
+    // Members can't start an OAuth connect (see IntegrationChoice). With no existing connection to
+    // pick, they have no way forward.
+    const blockedFromConnecting = !!integrationManagementRestriction && noConnectionToPick
+
+    // The shared picker's "Choose ... connection" menu reads as if a connection must already exist, and
+    // its "Manage integrations" item leads away from the wizard. With nothing to pick, offer the connect.
+    // GitHub keeps the picker: its approved-install banner already carries the connect button.
+    const connectsDirectly = noConnectionToPick && kind !== 'github'
 
     // A failed authorization sends the user back here, where the connect button is. The callback
     // carries the reason in the URL rather than a toast, which would be gone before they retry.
@@ -120,7 +138,7 @@ export function SourceIntegrationChoice({
     return (
         <div className="flex flex-col gap-2">
             {oauthError && (
-                <LemonBanner type="error">{describeOAuthCallbackError(String(oauthError), sourceKind)}</LemonBanner>
+                <LemonBanner type="error">{describeOAuthCallbackError(String(oauthError), kind)}</LemonBanner>
             )}
             {blockedFromConnecting && (
                 <LemonBanner type="info">
@@ -128,14 +146,44 @@ export function SourceIntegrationChoice({
                     admin to connect it, then pick it here.
                 </LemonBanner>
             )}
-            <IntegrationChoice
-                {...props}
-                value={value}
-                onChange={onChange}
-                integration={kind}
-                redirectUrl={redirectUrl}
-                beforeRedirect={saveFormStateBeforeRedirect}
-            />
+            {/* A GitHub install by someone who isn't an org owner only sends GitHub a request, and the
+                callback lands back here. The banner holds the message for the owner and resumes once
+                they approve. */}
+            {kind === 'github' && (
+                <GitHubInstallRequestsBanner
+                    finishConnectingUrl={api.integrations.authorizeUrl({ kind, next: redirectUrl })}
+                    onFinishConnecting={() => {
+                        reportIntegrationConnectClicked(kind, kind, 'install_approved_banner')
+                        saveFormStateBeforeRedirect()
+                    }}
+                />
+            )}
+            {connectsDirectly ? (
+                <div>
+                    <LemonButton
+                        type="secondary"
+                        to={api.integrations.authorizeUrl({ kind, next: redirectUrl })}
+                        disableClientSideRouting
+                        onClick={() => {
+                            reportIntegrationConnectClicked(kind, kind, 'pipeline_config')
+                            saveFormStateBeforeRedirect()
+                        }}
+                        disabledReason={integrationManagementRestriction ?? undefined}
+                        data-attr="source-integration-connect"
+                    >
+                        Connect to {getIntegrationNameFromKind(kind)}
+                    </LemonButton>
+                </div>
+            ) : (
+                <IntegrationChoice
+                    {...props}
+                    value={value}
+                    onChange={onChange}
+                    integration={kind}
+                    redirectUrl={redirectUrl}
+                    beforeRedirect={saveFormStateBeforeRedirect}
+                />
+            )}
         </div>
     )
 }

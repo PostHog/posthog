@@ -2,9 +2,10 @@
 
 import re
 import json
-import secrets
 from collections.abc import Mapping
 from typing import Any, ClassVar, Literal
+
+from django.conf import settings
 
 import structlog
 from rest_framework.exceptions import ValidationError
@@ -15,12 +16,17 @@ from posthog.credentials_service.settings_fallback import get_or_settings
 from posthog.dataclasses import frozen
 from posthog.integrations.contracts import IntegrationConflict, IntegrationRecord
 from posthog.models.user import User
+from posthog.models.utils import UUIDT
 from posthog.security.url_validation import is_url_allowed
 
 from . import common, model, row_writes
 from .postgres import RedshiftIntegration
 
-_AWSKindType = Literal[model.Integration.IntegrationKind.AWS_REDSHIFT, model.Integration.IntegrationKind.AWS_S3]
+_AWSKindType = Literal[
+    model.Integration.IntegrationKind.AWS_REDSHIFT,
+    model.Integration.IntegrationKind.AWS_S3,
+    model.Integration.IntegrationKind.AWS_WAREHOUSE_SOURCES,
+]
 
 LOGGER = structlog.get_logger(__name__)
 
@@ -106,7 +112,11 @@ def is_unique_aws_role_by_organization_id(aws_role_arn: str, organization_id: st
     has_same_aws_role_integrations = (
         model.Integration.objects.select_related("team__organization")
         .filter(
-            kind__in=(model.Integration.IntegrationKind.AWS_S3, model.Integration.IntegrationKind.AWS_REDSHIFT),
+            kind__in=(
+                model.Integration.IntegrationKind.AWS_S3,
+                model.Integration.IntegrationKind.AWS_REDSHIFT,
+                model.Integration.IntegrationKind.AWS_WAREHOUSE_SOURCES,
+            ),
             config__aws_role_arn=aws_role_arn,
         )
         .exclude(team__organization_id=organization_id)
@@ -123,6 +133,27 @@ def _return_non_empty_str_from_config_for_aws(config: Mapping, key: str, friendl
 
 
 AWS_ROLE_ARN_RE = re.compile(r"^arn:aws(-[a-z-]+)?:iam::\d{12}:role/.+")
+
+
+def _assume_role_is_allowed(sts: Any, aws_role_arn: str, **kwargs: str) -> bool:
+    """Whether STS lets us assume the role. Only an AccessDenied counts as a refusal."""
+    from botocore.exceptions import (  # noqa: PLC0415 — keeps botocore off the module import path (startup time)
+        BotoCoreError,
+        ClientError,
+    )
+
+    try:
+        sts.assume_role(RoleArn=aws_role_arn, RoleSessionName="PostHog-validate-aws-role-arn", **kwargs)
+    except ClientError as e:
+        if e.response.get("Error", {}).get("Code") == "AccessDenied":
+            return False
+        LOGGER.exception("Assume role probe failed")
+        raise common.IntegrationError("Could not validate AWS role ARN due to an internal error. Try again later.")
+    except BotoCoreError:
+        # A timeout says nothing about the trust policy, so it must not pass as a refusal.
+        LOGGER.exception("Assume role probe failed")
+        raise common.IntegrationError("Could not validate AWS role ARN due to an internal error. Try again later.")
+    return True
 
 
 def validate_aws_role_arn(aws_role_arn: str, our_aws_role_arn: str, external_id: str) -> None:
@@ -178,27 +209,13 @@ def validate_aws_role_arn(aws_role_arn: str, our_aws_role_arn: str, external_id:
 
     # These two tests are required to test both that an external id is
     # required and that it's not set to wildcard.
-    try:
-        _ = external_sts.assume_role(
-            RoleArn=aws_role_arn,
-            RoleSessionName="PostHog-validate-aws-role-arn",
-            ExternalId=f"posthog-{secrets.token_hex(67)}",
-        )
-    except Exception:
-        pass
-    else:
+    # Generated the way organization IDs are, so a wildcard that matches organization IDs also lets this one through.
+    if _assume_role_is_allowed(external_sts, aws_role_arn, ExternalId=f"posthog-{UUIDT()}"):
         raise common.IntegrationError(
             f"The provided role '{aws_role_arn}' allows access without a required external id condition. Update the role's policy with a condition to match '{external_id}' as a external id."
         )
 
-    try:
-        _ = external_sts.assume_role(
-            RoleArn=aws_role_arn,
-            RoleSessionName="PostHog-validate-aws-role-arn",
-        )
-    except Exception:
-        pass
-    else:
+    if _assume_role_is_allowed(external_sts, aws_role_arn):
         raise common.IntegrationError(
             f"The provided role '{aws_role_arn}' allows access without a required external id condition. Update the role's policy with a condition to match '{external_id}' as a external id."
         )
@@ -288,12 +305,9 @@ class AWSRoleBasedIntegration:
 
         extra = cls.read_extra_configuration_parameters(**config)
 
-        # Currently, only batch exports uses this integration.
-        # If you are using this integration outside batch exports, then you should make the our_aws_role_arn and external_id configurable.
-        # TODO: Make our_aws_role_arn external_id configurable.
         validate_aws_role_arn(
             aws_role_arn=aws_role_arn,
-            our_aws_role_arn=get_or_settings("BATCH_EXPORT_S3_EXTERNAL_ROLE_ARN", CredentialsCaller.INTEGRATIONS),
+            our_aws_role_arn=cls.our_aws_role_arn(),
             external_id=f"posthog-{organization_id}",
         )
 
@@ -305,6 +319,11 @@ class AWSRoleBasedIntegration:
             sensitive_config={},
             created_by=created_by,
         )
+
+    @classmethod
+    def our_aws_role_arn(cls) -> str:
+        """The PostHog role that assumes the customer's role."""
+        return get_or_settings("BATCH_EXPORT_S3_EXTERNAL_ROLE_ARN", CredentialsCaller.INTEGRATIONS)
 
     @staticmethod
     def read_extra_configuration_parameters(**config) -> dict[str, Any]:
@@ -318,6 +337,20 @@ class AWSS3RoleBasedIntegration(AWSRoleBasedIntegration):
     integration_kind: ClassVar[Literal[model.Integration.IntegrationKind.AWS_S3]] = (
         model.Integration.IntegrationKind.AWS_S3
     )
+
+
+class AWSWarehouseSourcesRoleBasedIntegration(AWSRoleBasedIntegration):
+    """A customer's AWS role that data warehouse sources read with, through the warehouse sources PostHog role."""
+
+    integration_kind: ClassVar[Literal[model.Integration.IntegrationKind.AWS_WAREHOUSE_SOURCES]] = (
+        model.Integration.IntegrationKind.AWS_WAREHOUSE_SOURCES
+    )
+
+    @classmethod
+    def our_aws_role_arn(cls) -> str:
+        if not settings.WAREHOUSE_SOURCES_AWS_ROLE_ARN:
+            raise common.IntegrationError("Connecting with an AWS role is not available on this PostHog instance.")
+        return settings.WAREHOUSE_SOURCES_AWS_ROLE_ARN
 
 
 def _return_redshift_groups(**config) -> list[str] | None:

@@ -26,7 +26,7 @@ from posthog.models.team import Team
 from posthog.models.user import User
 
 from ee.api.vercel.crypto import decrypt_payload, encrypt_payload, mark_token_used, release_used_token
-from ee.vercel.client import APIError, OAuthTokenResponse, VercelAPIClient
+from ee.vercel.client import APIError, InstallationTokenError, OAuthTokenResponse, VercelAPIClient
 
 logger = structlog.get_logger(__name__)
 
@@ -264,23 +264,27 @@ def _validate_next_url(url: str) -> str:
 
 
 def _is_installation_orphaned(integration: OrganizationIntegration) -> bool:
-    """Return True if Vercel no longer recognises this installation (401/403/404).
+    """Return True if Vercel no longer recognises this installation.
+
+    Vercel shows this by refusing a token for it (400 `invalid_grant`), or with 401/403/404 on the installation.
 
     Returns False when Vercel confirms the installation is active, or when
     we cannot reach Vercel (network/5xx) -- in that ambiguous case we keep
     the existing integration to avoid accidental deletion.
     """
-    access_token = integration.sensitive_config.get("credentials", {}).get("access_token")
-    if not access_token:
-        return False
-
     installation_id = integration.integration_id
     if not installation_id:
         return False
 
-    client = VercelAPIClient(bearer_token=access_token)
     try:
-        return not client.check_installation_active(installation_id)
+        if VercelAPIClient.for_installation(installation_id).check_installation_active(installation_id):
+            return False
+        # A cached token Vercel already revoked also gets a 401, so confirm with a fresh one before deleting.
+        return not VercelAPIClient.for_installation(installation_id, fresh=True).check_installation_active(
+            installation_id
+        )
+    except InstallationTokenError as e:
+        return e.status_code == 400 and e.code == "invalid_grant"
     except APIError:
         return False
 
@@ -371,8 +375,6 @@ class VercelConnectCallbackViewSet(viewsets.GenericViewSet):
             return _redirect_through_vercel_install(
                 request,
                 {
-                    "access_token": marketplace_grant.access_token,
-                    "token_type": marketplace_grant.token_type,
                     "installation_id": marketplace_grant.installation_id,
                     "user_id": marketplace_grant.user_id,
                     "team_id": marketplace_grant.team_id,
@@ -461,7 +463,7 @@ class VercelConnectLinkViewSet(viewsets.GenericViewSet):
         except OrganizationMembership.DoesNotExist:
             raise exceptions.PermissionDenied("You are not a member of this organization.")
 
-        if membership.level < OrganizationMembership.Level.ADMIN:
+        if membership.effective_level < OrganizationMembership.Level.ADMIN:
             raise exceptions.PermissionDenied("You must be an admin or owner to link this organization.")
 
         organization = membership.organization
@@ -501,6 +503,13 @@ class VercelConnectLinkViewSet(viewsets.GenericViewSet):
 
         production_team = teams_by_id[production_team_id]
 
+        try:
+            client = VercelAPIClient.for_installation(installation_id)
+        except InstallationTokenError as e:
+            release_used_token(jti)
+            capture_exception(e, {"installation_id": installation_id, "organization_id": str(organization.id)})
+            raise exceptions.ValidationError("Vercel did not accept the link. Start the link again from Vercel.")
+
         with transaction.atomic():
             _lock_vercel_links(organization.id)
             org_integration = OrganizationIntegration.objects.create(
@@ -521,12 +530,6 @@ class VercelConnectLinkViewSet(viewsets.GenericViewSet):
                         cached_data["user_id"]: user.pk,
                     },
                 },
-                sensitive_config={
-                    "credentials": {
-                        "access_token": cached_data["access_token"],
-                        "token_type": cached_data["token_type"],
-                    },
-                },
                 created_by=user,
             )
 
@@ -544,7 +547,6 @@ class VercelConnectLinkViewSet(viewsets.GenericViewSet):
         production_resource = resources[production_team_id]
         env_secrets = self._build_env_secrets(teams_by_id, production_team_id, preview_team_id, development_team_id)
 
-        client = VercelAPIClient(bearer_token=cached_data["access_token"])
         import_result = client.import_resource(
             integration_config_id=installation_id,
             resource_id=str(production_resource.id),
@@ -663,7 +665,11 @@ class VercelConnectLinkViewSet(viewsets.GenericViewSet):
 
         user = cast(User, request.user)
         memberships = (
-            OrganizationMembership.objects.filter(user=user, level__gte=OrganizationMembership.Level.ADMIN)
+            OrganizationMembership.objects.with_effective_level()
+            .filter(
+                user=user,
+                resolved_level__gte=OrganizationMembership.Level.ADMIN,
+            )
             .exclude(organization_id__in=get_ip_blocked_organization_ids(request))
             .select_related("organization")
         )

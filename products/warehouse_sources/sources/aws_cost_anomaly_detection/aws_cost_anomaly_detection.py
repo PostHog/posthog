@@ -6,7 +6,6 @@ from collections.abc import Iterator
 from typing import Any, Optional
 
 import requests
-from botocore.auth import SigV4Auth
 from botocore.awsrequest import AWSRequest
 from botocore.credentials import Credentials
 from structlog.types import FilteringBoundLogger
@@ -28,7 +27,10 @@ from products.warehouse_sources.sources.sdk import (
     BoundedRetry,
     ResumableSourceManager,
     SourceResponse,
+    aws_redact_values,
+    flatten_nested,
     make_tracked_session,
+    sign_aws_request,
 )
 
 MAX_THROTTLE_ATTEMPTS = 6
@@ -72,7 +74,6 @@ ENABLEMENT_MESSAGE = (
     "then try again in up to 24 hours once AWS has prepared the data."
 )
 
-_CAMEL_BOUNDARY = re.compile(r"(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])")
 
 _IAM_ACTION_PATTERN = re.compile(r"ce:[A-Za-z0-9]+")
 
@@ -91,11 +92,6 @@ class AwsCostAnomalyDetectionResumeConfig:
 
     date_interval_start: Optional[str] = None
     next_page_token: Optional[str] = None
-
-
-def _snake(name: str) -> str:
-    """`AnomalyStartDate` -> `anomaly_start_date`, `TotalImpactPercentage` -> `total_impact_percentage`."""
-    return _CAMEL_BOUNDARY.sub("_", name).lower()
 
 
 def _parse_date(value: Any) -> Any:
@@ -122,24 +118,9 @@ def coerce_date(value: Any) -> Optional[dt.date]:
     return None
 
 
-def _flatten(prefix: str, obj: dict[str, Any], raw_keys: frozenset[str]) -> dict[str, Any]:
-    flattened: dict[str, Any] = {}
-    for key, value in obj.items():
-        column = f"{prefix}_{_snake(key)}" if prefix else _snake(key)
-        if key in raw_keys:
-            flattened[column] = value
-        elif isinstance(value, dict):
-            flattened.update(_flatten(column, value, raw_keys))
-        elif isinstance(value, list):
-            flattened[column] = [_flatten("", item, raw_keys) if isinstance(item, dict) else item for item in value]
-        else:
-            flattened[column] = value
-    return flattened
-
-
 def normalize_row(endpoint_config: AnomalyDetectionEndpointConfig, obj: dict[str, Any]) -> dict[str, Any]:
     """Flatten nested structures into snake_case columns and parse the date members."""
-    row = _flatten("", obj, endpoint_config.raw_keys)
+    row = flatten_nested(obj, keep_raw=endpoint_config.raw_keys, flatten_list_items=True)
     for column in endpoint_config.date_columns:
         if column in row:
             row[column] = _parse_date(row[column])
@@ -212,9 +193,8 @@ def error_for_response(response: requests.Response) -> AwsCostAnomalyDetectionEr
     return AwsCostAnomalyDetectionError(text)
 
 
-def make_session(secret_access_key: str, session_token: Optional[str]) -> requests.Session:
-    redact = tuple(value for value in (secret_access_key, session_token) if value)
-    return make_tracked_session(retry=TRANSPORT_RETRY, redact_values=redact)
+def make_session(credentials: Credentials) -> requests.Session:
+    return make_tracked_session(retry=TRANSPORT_RETRY, redact_values=aws_redact_values(credentials))
 
 
 @retry(
@@ -240,7 +220,7 @@ def send_operation(
             "X-Amz-Target": f"{CE_TARGET_PREFIX}.{operation}",
         },
     )
-    SigV4Auth(credentials, CE_SIGNING_NAME, CE_SIGNING_REGION).add_auth(aws_request)
+    sign_aws_request(aws_request, credentials, CE_SIGNING_NAME, CE_SIGNING_REGION)
 
     response = session.post(
         CE_ENDPOINT_URL,
@@ -255,16 +235,8 @@ def send_operation(
     return response.json()
 
 
-def make_credentials(
-    aws_access_key_id: str, aws_secret_access_key: str, aws_session_token: Optional[str]
-) -> Credentials:
-    return Credentials(aws_access_key_id, aws_secret_access_key, aws_session_token or None)
-
-
 def get_rows(
-    aws_access_key_id: str,
-    aws_secret_access_key: str,
-    aws_session_token: Optional[str],
+    credentials: Credentials,
     endpoint: str,
     resumable_source_manager: ResumableSourceManager[AwsCostAnomalyDetectionResumeConfig],
     should_use_incremental_field: bool,
@@ -272,8 +244,7 @@ def get_rows(
     logger: FilteringBoundLogger,
 ) -> Iterator[list[dict[str, Any]]]:
     endpoint_config = AWS_COST_ANOMALY_DETECTION_ENDPOINTS[endpoint]
-    session = make_session(aws_secret_access_key, aws_session_token)
-    credentials = make_credentials(aws_access_key_id, aws_secret_access_key, aws_session_token)
+    session = make_session(credentials)
 
     date_interval_start: Optional[dt.date] = None
     if endpoint_config.supports_date_interval:
@@ -365,13 +336,10 @@ def endpoint_permission_reason(
 
 
 def probe_endpoint_permissions(
-    aws_access_key_id: str,
-    aws_secret_access_key: str,
-    aws_session_token: Optional[str],
+    credentials: Credentials,
     endpoints: list[str],
 ) -> dict[str, str | None]:
-    session = make_session(aws_secret_access_key, aws_session_token)
-    credentials = make_credentials(aws_access_key_id, aws_secret_access_key, aws_session_token)
+    session = make_session(credentials)
 
     reasons: dict[str, str | None] = {}
     for endpoint in endpoints:
@@ -383,16 +351,10 @@ def probe_endpoint_permissions(
 
 
 def validate_credentials(
-    aws_access_key_id: str,
-    aws_secret_access_key: str,
-    aws_session_token: Optional[str],
+    credentials: Credentials,
     schema_name: Optional[str] = None,
 ) -> tuple[bool, Optional[str]]:
-    if not aws_access_key_id or not aws_secret_access_key:
-        return False, "AWS access key ID and secret access key are required"
-
-    session = make_session(aws_secret_access_key, aws_session_token)
-    credentials = make_credentials(aws_access_key_id, aws_secret_access_key, aws_session_token)
+    session = make_session(credentials)
 
     if schema_name is not None and schema_name in AWS_COST_ANOMALY_DETECTION_ENDPOINTS:
         reason = endpoint_permission_reason(session, credentials, AWS_COST_ANOMALY_DETECTION_ENDPOINTS[schema_name])
@@ -418,9 +380,7 @@ def validate_credentials(
 
 
 def aws_cost_anomaly_detection_source(
-    aws_access_key_id: str,
-    aws_secret_access_key: str,
-    aws_session_token: Optional[str],
+    credentials: Credentials,
     endpoint: str,
     resumable_source_manager: ResumableSourceManager[AwsCostAnomalyDetectionResumeConfig],
     should_use_incremental_field: bool,
@@ -432,9 +392,7 @@ def aws_cost_anomaly_detection_source(
     return SourceResponse(
         name=endpoint,
         items=lambda: get_rows(
-            aws_access_key_id=aws_access_key_id,
-            aws_secret_access_key=aws_secret_access_key,
-            aws_session_token=aws_session_token,
+            credentials=credentials,
             endpoint=endpoint,
             resumable_source_manager=resumable_source_manager,
             should_use_incremental_field=should_use_incremental_field,

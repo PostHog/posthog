@@ -35,6 +35,7 @@ from .aws import (
     AWSRoleBasedIntegration,
     AWSS3Integration,
     AWSS3RoleBasedIntegration,
+    AWSWarehouseSourcesRoleBasedIntegration,
     DuplicateNameError,
     RedshiftProvisionedCluster,
     RedshiftServerlessWorkgroup,
@@ -65,13 +66,14 @@ from .github import (
     GITHUB_REPOSITORY_REFRESH_COOLDOWN_SECONDS,
     GitHubInstallationAccess,
     GitHubInstallationAccessFetchError,
+    GitHubInstallationUnavailableError,
     GitHubIntegration,
     GitHubIntegrationError,
     GitHubUserAuthorization,
     github_account_type,
     invalidate_github_repository_caches_for_installation,
 )
-from .gitlab import GitLabIntegration, GitLabIntegrationError
+from .gitlab import GitLabIntegration, GitLabIntegrationError, GitLabOverwriteNotAllowed
 from .google_ads import (
     GoogleAdsIntegration,
     GoogleAdsQuotaExhaustedError,
@@ -262,8 +264,10 @@ __all__ = [
     "invalidate_github_repository_caches_for_installation",
     "github_account_type",
     "GitHubIntegration",
+    "GitHubInstallationUnavailableError",
     "GitHubIntegrationError",
     "GitLabIntegrationError",
+    "GitLabOverwriteNotAllowed",
     "Assignee",
     "AssigneeLookupFailed",
     "ReconnectRequired",
@@ -290,6 +294,7 @@ __all__ = [
     "validate_aws_credentials",
     "AWSRoleBasedIntegration",
     "AWSS3RoleBasedIntegration",
+    "AWSWarehouseSourcesRoleBasedIntegration",
     "AWSRedshiftRoleBasedIntegration",
     "AWSCredentialsIntegration",
     "AWSS3Integration",

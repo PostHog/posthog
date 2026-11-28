@@ -1,8 +1,10 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 
-import { LemonButton, LemonInput } from '@posthog/lemon-ui'
+import { LemonSegmentedButton } from '@posthog/lemon-ui'
 
 import { EmailSides } from '../../emailDocument'
+import { EmailNumberInput } from './EmailNumberInput'
+import { NUMBER_LIMITS, NumberLimit } from './numberLimits'
 
 const SIDES: { name: keyof EmailSides; title: string }[] = [
     { name: 'top', title: 'Top' },
@@ -10,6 +12,16 @@ const SIDES: { name: keyof EmailSides; title: string }[] = [
     { name: 'bottom', title: 'Bottom' },
     { name: 'left', title: 'Left' },
 ]
+
+const MODE_TITLES = { same: 'Same on all sides', each: 'Set each side' }
+
+function IconSameSides(): JSX.Element {
+    return (
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden>
+            <rect x="1.5" y="1.5" width="11" height="11" rx="1" />
+        </svg>
+    )
+}
 
 function IconEachSide(): JSX.Element {
     return (
@@ -23,37 +35,34 @@ export function EmailSidesField({
     label,
     value,
     placeholder,
+    limit = NUMBER_LIMITS.padding,
     onChange,
     attr,
 }: {
     label: string
     value: EmailSides | undefined
     placeholder: EmailSides
+    limit?: NumberLimit
     onChange: (value: EmailSides | undefined) => void
     attr?: string
 }): JSX.Element {
     const shown = value ?? placeholder
     const uneven = shown.top !== shown.right || shown.top !== shown.bottom || shown.top !== shown.left
-    const [expanded, setExpanded] = useState(uneven)
-    useEffect(() => {
-        if (uneven) {
-            setExpanded(true)
-        }
-    }, [uneven])
+    // Opened by a person, so sides that become equal while they are edited stay open.
+    const [opened, setOpened] = useState(false)
+    const mode = opened || uneven ? 'each' : 'same'
 
     return (
         <div className="flex flex-col gap-1">
             <div className="flex items-center gap-2 min-h-8">
                 <span className="w-24 shrink-0 text-xs text-secondary">{label}</span>
                 <div className="flex-1 min-w-0 flex items-center gap-1">
-                    {expanded ? (
+                    {mode === 'each' ? (
                         <div className="flex-1" />
                     ) : (
-                        <LemonInput
-                            type="number"
-                            size="small"
+                        <EmailNumberInput
                             fullWidth
-                            min={0}
+                            limit={limit}
                             aria-label={label}
                             value={shown.top}
                             suffix={<span className="text-xs text-secondary">px</span>}
@@ -64,37 +73,50 @@ export function EmailSidesField({
                             data-attr={attr}
                         />
                     )}
-                    <LemonButton
-                        size="xsmall"
-                        noPadding
-                        center
-                        className="EmailEditor__square-button EmailEditor__square-button--compact"
-                        active={expanded}
-                        tooltip={expanded ? 'Same on all sides' : 'Set each side'}
-                        aria-label={expanded ? 'Same on all sides' : 'Set each side'}
-                        onClick={() => {
-                            if (expanded) {
-                                onChange({ top: shown.top, right: shown.top, bottom: shown.top, left: shown.top })
-                            }
-                            setExpanded(!expanded)
-                        }}
-                        data-attr={attr ? `${attr}-toggle` : undefined}
-                    >
-                        <IconEachSide />
-                    </LemonButton>
+                    {/* LemonSegmentedButton shows which option is selected only visually. */}
+                    <div role="group" aria-label={`${label}: ${MODE_TITLES[mode]}`}>
+                        <LemonSegmentedButton
+                            size="xsmall"
+                            value={mode}
+                            onChange={(next) => {
+                                if (next === mode) {
+                                    return
+                                }
+                                setOpened(next === 'each')
+                                if (next === 'same' && uneven) {
+                                    onChange({ top: shown.top, right: shown.top, bottom: shown.top, left: shown.top })
+                                }
+                            }}
+                            options={[
+                                {
+                                    value: 'same',
+                                    icon: <IconSameSides />,
+                                    tooltip: MODE_TITLES.same,
+                                    'data-attr': attr ? `${attr}-same` : undefined,
+                                },
+                                {
+                                    value: 'each',
+                                    icon: <IconEachSide />,
+                                    tooltip: MODE_TITLES.each,
+                                    'data-attr': attr ? `${attr}-each` : undefined,
+                                },
+                            ]}
+                        />
+                    </div>
                 </div>
             </div>
-            {expanded ? (
+            {mode === 'each' ? (
                 <div className="grid grid-cols-4 gap-1">
                     {SIDES.map(({ name, title }) => (
                         <label key={name} className="flex flex-col gap-0.5 text-xxs text-secondary">
-                            <LemonInput
-                                type="number"
-                                size="small"
-                                min={0}
+                            <EmailNumberInput
+                                limit={limit}
                                 aria-label={`${label} ${title}`}
                                 value={shown[name]}
-                                onChange={(next) => onChange({ ...shown, [name]: next ?? 0 })}
+                                onChange={(next) => {
+                                    setOpened(true)
+                                    onChange({ ...shown, [name]: next ?? 0 })
+                                }}
                                 data-attr={attr ? `${attr}-${name}` : undefined}
                             />
                             {title}

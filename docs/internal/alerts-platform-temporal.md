@@ -47,6 +47,27 @@ Reverting the code that registers a schedule does not remove one already registe
 Verify the Postgres activity result and the delivery child's completion separately.
 Parent completion does not prove either succeeded. Schedule creation also does not prove worker availability.
 
+### Error tracking rollout
+
+Keep `platform-alerts-source-error-tracking` closed until the evaluation binding, ingestion change-log producers, and delivery behavior are ready.
+Source registration and configuration APIs alone do not evaluate alerts.
+An enabled configuration without its evaluation binding stays due and contributes to the overdue inventory.
+
+Error tracking alerts do not send resolution notifications.
+Internal notification instances may reset silently so later changes can notify and resting instances can release their slots.
+The intended conversation lifetime is one thread per issue, per alert and destination, independent of those resets.
+Persistent threads across resets still require delivery support; per-issue grouping alone does not provide it.
+
+### Project-wide routing permissions
+
+Routing can redirect alerts from every source.
+Reading receivers and routes requires view access to every registered alert source; tokens also require each source's read scope.
+Changing routing additionally requires organization-admin access and each source's write scope on tokens.
+
+Registering error tracking adds `error_tracking:read` for routing reads and `error_tracking:write` for routing writes.
+Members also need error tracking access to read routing.
+These requirements apply to projects with routing enabled even when `platform-alerts-source-error-tracking` is off.
+
 ### Slack message formatting
 
 - Sources can register a Slack renderer with `register_source_slack_renderer` through the delivery facade.
@@ -409,8 +430,11 @@ The legacy logs stack's `incident_edge` wraps the same rule.
 
 - The source decides the action under its own policy and puts it on `AlertDeliveryRequest.incident_actions`,
   keyed by grouping key, because the history row does not record the policy.
-- The source sets an action only when the alert has a destination subscribed to its incident events, so an
-  alert without a paging destination starts no extra delivery.
+- The source sets an action only when the alert can reach an incident manager: one of its own destinations
+  subscribes to its incident events, or any enabled team route reaches an enabled PagerDuty or incident.io receiver.
+  The route check is team-wide and ignores labels, because each group routes on labels the source does not know when it decides.
+  It fails open when the routing flag cannot be read, since a dropped resolve leaves an incident open.
+  An alert that can reach no incident manager starts no extra delivery.
 - A source sends a delivery whenever a check announces or moves a firing. A delivery that exists only for its
   incident actions has `sends_messages=False`, and none of its rows reach a message destination.
 - `announcement()` also returns the held CHECK row of a group in `incident_grouping_keys`.
@@ -421,6 +445,12 @@ The legacy logs stack's `incident_edge` wraps the same rule.
   `<configuration_id>:<grouping_key>:<episode_started_at>`, so a resolve closes the incident of its own
   firing episode. It names the platform in `source`, because a team on the pilot also gets the HogFunction
   path's incident.
+- The incident.io transport sends only incident actions, as `firing` and `resolved` events.
+  Its `deduplication_key` is the PagerDuty `dedup_key`, so a resolve closes the alert of its own firing episode.
+- A routed incident receiver hears every trigger and resolve of the groups its routes match, whatever event kinds
+  the route lists (`deliver_routes` in `delivery/routing.py`).
+  If the routing flag cannot be read while such a route exists, delivery raises and the activity retries.
+  A delivery without incident actions skips the routes instead.
 - An insight alert announces no resolve, but it still sends incident actions for an alert the platform owns.
   A PagerDuty destination on `$insight_alert_incident_opened` and `$insight_alert_incident_closed` opens and resolves its incident.
   One on `$insight_alert_firing` keeps its HogFunction, which only triggers.

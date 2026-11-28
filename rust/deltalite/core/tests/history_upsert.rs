@@ -27,7 +27,7 @@ use deltalake::Path;
 use deltalite_core::errors::Error;
 use deltalite_core::handle::TableHandle;
 use deltalite_core::history::{
-    format_months, history_upsert, HistoryUpsertOptions, HistoryUpsertStats,
+    format_months, history_upsert, HistoryUpsertOptions, HistoryUpsertStats, LateRows,
 };
 use deltalite_core::limits::ProcessLimits;
 use deltalite_core::table::MultipartConfig;
@@ -119,7 +119,7 @@ async fn create(dir: &std::path::Path, partition_by: &[&str]) -> TableHandle {
 fn opts() -> HistoryUpsertOptions {
     HistoryUpsertOptions {
         key_columns: vec!["id".into()],
-        order_column: "v".into(),
+        order_columns: vec!["v".into()],
         valid_from_column: "valid_from".into(),
         valid_to_column: "valid_to".into(),
         partition_column: "p".into(),
@@ -1119,4 +1119,283 @@ fn register_race_scheme() {
     let scheme = url::Url::parse("dlrace://").expect("static url");
     object_store_factories().insert(scheme.clone(), Arc::new(RaceFactory));
     logstore_factories().insert(scheme, Arc::new(RaceFactory));
+}
+
+/// Options of a webhook history: late rows go into the past, and `payload` is the event id.
+fn late() -> HistoryUpsertOptions {
+    HistoryUpsertOptions {
+        late_rows: LateRows::Insert,
+        dedupe_column: Some("payload".into()),
+        ..opts()
+    }
+}
+
+#[tokio::test]
+async fn a_late_row_splits_the_covering_version_and_moves_it_to_its_new_month() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut h = create(dir.path(), &["p"]).await;
+    for rows in [
+        [
+            (Some("k"), 1, "2026-10-10T00:00:00Z", "k1", 1),
+            (Some("other"), 1, "2026-10-20T00:00:00Z", "o1", 2),
+        ],
+        [
+            (Some("k"), 3, "2026-12-12T00:00:00Z", "k3", 3),
+            (Some("other"), 3, "2026-12-20T00:00:00Z", "o3", 4),
+        ],
+    ] {
+        apply_with(&mut h, &rows, late()).await.unwrap();
+    }
+
+    let stats = apply_with(
+        &mut h,
+        &[(Some("k"), 2, "2026-11-11T00:00:00Z", "k2", 5)],
+        late(),
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        (
+            stats.rows_late,
+            stats.versions_split,
+            stats.versions_opened,
+            stats.versions_closed,
+            stats.files_removed,
+            stats.rows_copied,
+        ),
+        (1, 1, 0, 0, 1, 1),
+        "only the December file is rewritten, and the other key's row in it is copied: \
+         {stats:?}"
+    );
+    let expected = sorted(vec![
+        closed(
+            "2026-11",
+            Some("k"),
+            1,
+            "2026-10-10T00:00:00Z",
+            "2026-11-11T00:00:00Z",
+            "k1",
+        ),
+        closed(
+            "2026-12",
+            Some("k"),
+            2,
+            "2026-11-11T00:00:00Z",
+            "2026-12-12T00:00:00Z",
+            "k2",
+        ),
+        open(Some("k"), 3, "2026-12-12T00:00:00Z", "k3"),
+        closed(
+            "2026-12",
+            Some("other"),
+            1,
+            "2026-10-20T00:00:00Z",
+            "2026-12-20T00:00:00Z",
+            "o1",
+        ),
+        open(Some("other"), 3, "2026-12-20T00:00:00Z", "o3"),
+    ]);
+    assert_eq!(read(&h).await, expected);
+
+    let version = h.version();
+    let again = apply_with(
+        &mut h,
+        &[
+            (Some("k"), 2, "2026-11-11T00:00:00Z", "k2", 6),
+            (Some("k"), 1, "2026-10-10T00:00:00Z", "k1", 7),
+        ],
+        late(),
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        (again.committed, again.rows_redelivered),
+        (false, 2),
+        "{again:?}"
+    );
+    assert_eq!(h.version(), version);
+    assert_eq!(read(&h).await, expected);
+}
+
+#[tokio::test]
+async fn a_row_whose_valid_from_breaks_the_order_is_dropped_and_counted() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut h = create(dir.path(), &["p"]).await;
+    apply_with(
+        &mut h,
+        &[
+            (Some("k"), 1, "2026-10-10T00:00:00Z", "k1", 1),
+            (Some("k"), 3, "2026-12-12T00:00:00Z", "k3", 2),
+        ],
+        late(),
+    )
+    .await
+    .unwrap();
+    let (before, version) = (read(&h).await, h.version());
+
+    let stats = apply_with(
+        &mut h,
+        &[
+            (Some("k"), 2, "2027-01-01T00:00:00Z", "k2", 3),
+            (Some("k"), 4, "2026-11-01T00:00:00Z", "k4", 4),
+        ],
+        late(),
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(
+        (stats.rows_order_mismatch, stats.committed),
+        (2, false),
+        "{stats:?}"
+    );
+    assert_eq!(h.version(), version);
+    assert_eq!(read(&h).await, before);
+}
+
+#[tokio::test]
+async fn late_rows_years_apart_read_only_their_own_months() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut h = create(dir.path(), &["p"]).await;
+    for (v, day) in [(1, "10"), (3, "12")] {
+        let month = if v == 1 { "01" } else { "03" };
+        let rows: Vec<(Option<&str>, i64, String, &str, i64)> =
+            [("a", "2020"), ("b", "2023"), ("c", "2026")]
+                .into_iter()
+                .map(|(id, year)| {
+                    (
+                        Some(id),
+                        v,
+                        format!("{year}-{month}-{day}T00:00:00Z"),
+                        id,
+                        v,
+                    )
+                })
+                .collect();
+        let rows: Vec<Src> = rows
+            .iter()
+            .map(|r| (r.0, r.1, r.2.as_str(), r.3, r.4))
+            .collect();
+        apply_with(&mut h, &rows, opts()).await.unwrap();
+    }
+    let current_files = h
+        .files()
+        .unwrap()
+        .iter()
+        .filter(|f| f.partition_values["p"].as_deref() == Some("current"))
+        .count();
+
+    let stats = apply_with(
+        &mut h,
+        &[
+            (Some("a"), 2, "2020-02-10T00:00:00Z", "a2", 10),
+            (Some("c"), 2, "2026-02-10T00:00:00Z", "c2", 11),
+        ],
+        late(),
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(stats.rows_late, 2, "{stats:?}");
+    assert_eq!(
+        stats.files_probed,
+        current_files + 2,
+        "the 2020-03 and 2026-03 files, not b's 2023-03 file: {stats:?}"
+    );
+}
+
+#[tokio::test]
+async fn existing_versions_read_for_a_replay_count_against_the_source_guard() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut h = create(dir.path(), &["p"]).await;
+    let ids: Vec<String> = (0..5000).map(|i| format!("e{i}")).collect();
+    let rows: Vec<Src> = ids
+        .iter()
+        .enumerate()
+        .map(|(i, id)| (Some("k"), 1, "2026-10-10T00:00:00Z", id.as_str(), i as i64))
+        .collect();
+    let first = apply_with(&mut h, &rows, late()).await.unwrap();
+    assert_eq!(first.chain_rows_closed, 4999, "{first:?}");
+
+    let replay = [(Some("k"), 1, "2026-10-10T00:00:00Z", "e0", 9999)];
+    let err = apply_with(
+        &mut h,
+        &replay,
+        HistoryUpsertOptions {
+            max_source_bytes: Some(300 << 10),
+            ..late()
+        },
+    )
+    .await
+    .unwrap_err();
+    assert!(matches!(err, Error::SourceTooLarge(_)), "{err}");
+
+    let again = apply_with(&mut h, &replay, late()).await.unwrap();
+    assert_eq!(
+        (again.committed, again.rows_redelivered),
+        (false, 1),
+        "{again:?}"
+    );
+}
+
+#[tokio::test]
+async fn month_files_are_pruned_by_the_keys_that_need_closed_versions() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut h = create(dir.path(), &["p"]).await;
+    for rows in [
+        vec![
+            (Some("a"), 1, "2026-01-10T00:00:00Z", "a1", 1),
+            (Some("x"), 1, "2026-01-10T00:00:00Z", "x1", 2),
+            (Some("z"), 1, "2026-01-10T00:00:00Z", "z1", 3),
+        ],
+        vec![(Some("x"), 3, "2026-03-10T00:00:00Z", "x3", 4)],
+        vec![(Some("a"), 3, "2026-03-12T00:00:00Z", "a3", 5)],
+    ] {
+        apply_with(&mut h, &rows, late()).await.unwrap();
+    }
+    let current_files = |h: &TableHandle| {
+        h.files()
+            .unwrap()
+            .iter()
+            .filter(|f| f.partition_values["p"].as_deref() == Some("current"))
+            .count()
+    };
+    let current = current_files(&h);
+
+    let stats = apply_with(
+        &mut h,
+        &[
+            (Some("a"), 2, "2026-02-10T00:00:00Z", "a2", 6),
+            (Some("z"), 5, "2026-05-10T00:00:00Z", "z5", 7),
+        ],
+        late(),
+    )
+    .await
+    .unwrap();
+
+    assert_eq!((stats.rows_late, stats.versions_split), (1, 1), "{stats:?}");
+    assert_eq!(
+        stats.files_probed,
+        current + 1,
+        "a's 2026-03 file, not x's, although x sits between a and z: {stats:?}"
+    );
+
+    let version = h.version();
+    let redelivery = apply_with(
+        &mut h,
+        &[(Some("z"), 5, "2026-05-10T00:00:00Z", "z5", 8)],
+        late(),
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        (
+            redelivery.rows_redelivered,
+            redelivery.committed,
+            redelivery.files_probed
+        ),
+        (1, false, current_files(&h)),
+        "a redelivery of the open row reads no month: {redelivery:?}"
+    );
+    assert_eq!(h.version(), version);
 }

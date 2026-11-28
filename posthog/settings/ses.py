@@ -2,7 +2,7 @@ import os
 from typing import Optional
 
 from posthog.settings.base_variables import DEBUG, TEST
-from posthog.settings.utils import get_from_env
+from posthog.settings.utils import get_from_env, get_uuid_set
 from posthog.utils import str_to_bool
 
 if TEST or DEBUG:
@@ -49,8 +49,15 @@ WORKFLOWS_SES_EVENTS_SNS_TOPIC_ARNS: list[str] = [
 # Off by default. While off, the detector logs what it would have paused and increments its
 # counter, but writes nothing, which is how the thresholds below get calibrated per region before
 # anything enforces.
-WORKFLOW_EMAIL_AUTO_PAUSE_ENABLED: bool = get_from_env(
-    "WORKFLOW_EMAIL_AUTO_PAUSE_ENABLED", False, type_cast=str_to_bool
+#
+# Older images read `WORKFLOW_EMAIL_AUTO_PAUSE_ENABLED` instead, and the oldest of them pause
+# transactional workflows too. That key stays off, so a rollback to any of them falls back to dry
+# run with no manual step.
+WORKFLOW_EMAIL_AUTO_PAUSE_ENFORCE: bool = get_from_env(
+    "WORKFLOW_EMAIL_AUTO_PAUSE_ENFORCE", False, type_cast=str_to_bool
+)
+WORKFLOW_EMAIL_AUTO_PAUSE_EXEMPT_WORKFLOW_IDS: frozenset[str] = get_uuid_set(
+    os.getenv("WORKFLOW_EMAIL_AUTO_PAUSE_EXEMPT_WORKFLOW_IDS", "")
 )
 
 # Volume gates. A workflow that sent 12 emails and drew 1 complaint is a 8% complaint rate and
@@ -135,4 +142,6 @@ SES_ISP_DIMENSIONS: list[str] = [
     "Aol",
     "Gmx",
     "Tencent",
+    "Yandex",
+    "MailRu",
 ]

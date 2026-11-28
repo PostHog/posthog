@@ -13,7 +13,11 @@ from posthog.api.pagination import offset_page_links
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.models import User
+from posthog.permissions import request_subject
 
+from products.authorization.backend.facade import api as authorization
+from products.authorization.backend.facade.contracts import Resource
+from products.authorization.backend.facade.enums import Action, ResourceType
 from products.notebooks.backend.facade.widgets import (
     WidgetConflictError,
     WidgetError,
@@ -57,7 +61,11 @@ class ReusableWidgetViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     requires_resource_level_access = True
 
     def _require_query_access(self) -> None:
-        if not self.user_access_control.check_access_level_for_resource("query", "viewer"):
+        if not authorization.check(
+            resource=Resource(type=ResourceType.QUERY, project_id=self.team.pk),
+            action=Action.VIEW,
+            subject=request_subject(self.request),
+        ):
             raise PermissionDenied("You need query access to read or edit widget demo data.")
 
     def _require_user(self) -> None:

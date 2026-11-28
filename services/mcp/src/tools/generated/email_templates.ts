@@ -16,7 +16,7 @@ import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const WorkflowsCreateEmailTemplateSchema = () => {
     const MessagingTemplatesCreateBody = orvalSchemas.MessagingTemplatesCreateBody()
-    return MessagingTemplatesCreateBody.omit({ _create_in_folder: true })
+    return MessagingTemplatesCreateBody
 }
 
 const workflowsCreateEmailTemplate = (): ToolBase<
@@ -51,6 +51,9 @@ const workflowsCreateEmailTemplate = (): ToolBase<
         }
         if (params.sensitive !== undefined) {
             body['sensitive'] = params.sensitive
+        }
+        if (params.click_tracking_enabled !== undefined) {
+            body['click_tracking_enabled'] = params.click_tracking_enabled
         }
         const result = await context.api.request<Schemas.MessageTemplate>({
             method: 'POST',
@@ -90,7 +93,7 @@ const workflowsGetEmailTemplate = (): ToolBase<
 
 const WorkflowsListEmailTemplatesSchema = () => {
     const MessagingTemplatesListQueryParams = orvalSchemas.MessagingTemplatesListQueryParams()
-    return MessagingTemplatesListQueryParams.extend({
+    return MessagingTemplatesListQueryParams.omit({ tags: true }).extend({
         basic: MessagingTemplatesListQueryParams.shape['basic'].default(true).optional(),
     })
 }
@@ -108,8 +111,10 @@ const workflowsListEmailTemplates = (): ToolBase<
             path: `/api/projects/${encodeURIComponent(String(projectId))}/messaging_templates/`,
             query: {
                 basic: params.basic,
+                created_by: params.created_by,
                 limit: params.limit,
                 offset: params.offset,
+                search: params.search,
                 transactional: params.transactional,
             },
         })
@@ -207,6 +212,7 @@ const workflowsMakeEmailTemplateTransactionalExecute = (): ToolBase<
         if (params.from_integration_id !== undefined) {
             body['from_integration_id'] = params.from_integration_id
         }
+        body['expected_type'] = 'email'
         const result = await context.api.request<Schemas.MessageTemplate>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/messaging_templates/${encodeURIComponent(String(params.id))}/make_transactional/`,
@@ -247,6 +253,8 @@ const WorkflowsSendEmailSchema = () => {
         cc: true,
         bcc: true,
         attachments: true,
+        scheduled_at: true,
+        category: true,
     }).extend({
         template_key: MessagingSendEmailCreateBody.shape['template_key'].nonoptional(),
         subject: MessagingSendEmailCreateBody.shape['subject'].nonoptional(),
@@ -283,7 +291,8 @@ const workflowsSendEmailPrepare = (): ToolBase<
             purpose: 'workflows-send-email',
             inputSchema: WorkflowsSendEmailSchema(),
             actionLabel: 'send email',
-            messageTemplate: "About to send the email '{subject}' to {to}. Reply 'confirm' to send it.\n",
+            messageTemplate:
+                "About to send the email '{subject}' to {to}. If this project has no verified sending domain, PostHog may send it from the PostHog test sender instead, only to members of your organization, and ignore from and reply_to. Reply 'confirm' to send it.\n",
             codec: __runtime.codec,
             stash: __runtime.stash,
             boundScope: { projectId: String(__scopeProjectId) },
@@ -366,7 +375,9 @@ const WorkflowsSendEmailTemplateSchema = () => {
         attachments: true,
         capture_engagement: true,
         tracking: true,
+        scheduled_at: true,
         sensitive: true,
+        category: true,
         from: true,
     }).extend({
         template_id: MessagingSendEmailCreateBody.shape['template_id']
@@ -484,7 +495,7 @@ const WorkflowsUpdateEmailTemplateSchema = () => {
     const MessagingTemplatesPartialUpdateBody = orvalSchemas.MessagingTemplatesPartialUpdateBody()
     const MessagingTemplatesPartialUpdateParams = orvalSchemas.MessagingTemplatesPartialUpdateParams()
     return MessagingTemplatesPartialUpdateParams.omit({ project_id: true })
-        .extend(MessagingTemplatesPartialUpdateBody.omit({ _create_in_folder: true }).shape)
+        .extend(MessagingTemplatesPartialUpdateBody.shape)
         .strict()
 }
 
@@ -520,6 +531,9 @@ const workflowsUpdateEmailTemplate = (): ToolBase<
         }
         if (params.sensitive !== undefined) {
             body['sensitive'] = params.sensitive
+        }
+        if (params.click_tracking_enabled !== undefined) {
+            body['click_tracking_enabled'] = params.click_tracking_enabled
         }
         const result = await context.api.request<Schemas.MessageTemplate>({
             method: 'PATCH',

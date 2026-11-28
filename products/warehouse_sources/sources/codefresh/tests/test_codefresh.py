@@ -9,7 +9,6 @@ from products.warehouse_sources.sources.codefresh.codefresh import (
     ACCOUNT_LOOKUP_FAILED,
     ACCOUNT_LOOKUP_MESSAGE,
     CodefreshResumeConfig,
-    _flatten,
     _resolve_account_id,
     _transform_row,
     validate_credentials,
@@ -26,7 +25,10 @@ def _driver() -> SourceDriver:
 class TestFlatten:
     def test_lifts_nested_object_to_top_level(self) -> None:
         item = {"metadata": {"id": "p1", "name": "build-and-test"}, "spec": {"steps": {}}}
-        result = _flatten(item, "metadata")
+        config = CodefreshEndpointConfig(
+            name="pipelines", path="/pipelines", pagination="offset", flatten_key="metadata"
+        )
+        result = _transform_row(item, config)
         assert result["id"] == "p1"
         assert result["name"] == "build-and-test"
         assert result["spec"] == {"steps": {}}

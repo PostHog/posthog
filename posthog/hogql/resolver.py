@@ -1,4 +1,5 @@
 import string
+import dataclasses
 from collections.abc import Callable
 from datetime import date, datetime
 from typing import Any, Optional, cast
@@ -14,11 +15,20 @@ from posthog.hogql.constants import SQL_TARGET_DIALECTS, HogQLDialect
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.database.direct_clickhouse_table import DirectClickHouseTable
-from posthog.hogql.database.models import FunctionCallTable, LazyTable, SavedQuery, StringJSONDatabaseField, Table
+from posthog.hogql.database.models import (
+    DateDatabaseField,
+    DateTimeDatabaseField,
+    FunctionCallTable,
+    LazyTable,
+    SavedQuery,
+    StringJSONDatabaseField,
+    Table,
+)
 from posthog.hogql.database.s3_table import (
     DataWarehouseTable as HogQLDataWarehouseTable,
     S3Table,
 )
+from posthog.hogql.database.schema.document_embeddings import DocumentEmbeddingsTable, ModelSpecificEmbeddingTable
 from posthog.hogql.database.schema.duckdb_table_functions import (
     build_opaque_function_call_table,
     is_dangerous_table_function,
@@ -42,7 +52,7 @@ from posthog.hogql.errors import (
     ResolutionDepthExceededError,
     ResolutionError,
 )
-from posthog.hogql.escape_sql import safe_identifier
+from posthog.hogql.escape_sql import quote_hogql_identifier, safe_identifier
 from posthog.hogql.functions import find_hogql_posthog_function
 from posthog.hogql.functions.action import matches_action
 from posthog.hogql.functions.clickhouse.conversions import NUMERIC_CONVERSION_ALIASES
@@ -50,6 +60,7 @@ from posthog.hogql.functions.cohort import cohort_query_node
 from posthog.hogql.functions.core import validate_function_args
 from posthog.hogql.functions.explain_csp_report import explain_csp_report
 from posthog.hogql.functions.mapping import HOGQL_CLICKHOUSE_FUNCTIONS
+from posthog.hogql.functions.posthog import BOT_DETECTION_FUNCTIONS
 from posthog.hogql.functions.prompt_jev import PromptJevCall, is_decision_call
 from posthog.hogql.functions.recording_button import recording_button
 from posthog.hogql.functions.sparkline import sparkline
@@ -118,6 +129,14 @@ _UUID_GUARDED_COMPARE_OPS = (
     ast.CompareOperationOp.GlobalNotIn,
 )
 
+_DATE_GUARDED_COMPARE_OPS = (
+    *_UUID_GUARDED_COMPARE_OPS,
+    ast.CompareOperationOp.Lt,
+    ast.CompareOperationOp.LtEq,
+    ast.CompareOperationOp.Gt,
+    ast.CompareOperationOp.GtEq,
+)
+
 
 def _canonical_uuid(value: str) -> str | None:
     """The canonical dashed-hex form ClickHouse can parse, or None if the value isn't a UUID at all.
@@ -132,6 +151,16 @@ def _canonical_uuid(value: str) -> str | None:
         return None
 
 
+def _compared_field_name(node: ast.Expr) -> str | None:
+    """The field as it would be written in HogQL, quoted where needed, such as `Ordered At`."""
+    # The resolver wraps each field it resolves in a hidden alias that carries the field's name.
+    if isinstance(node, ast.Alias):
+        return quote_hogql_identifier(node.alias)
+    if isinstance(node, ast.Field):
+        return ".".join(str(part) if isinstance(part, int) else quote_hogql_identifier(part) for part in node.chain)
+    return None
+
+
 def _string_constants(node: ast.Expr) -> list[ast.Constant]:
     if isinstance(node, ast.Constant):
         return [node] if isinstance(node.value, str) else []
@@ -144,11 +173,17 @@ def _string_constants(node: ast.Expr) -> list[ast.Constant]:
 # re-executed per shard of a distributed outer scan: sharded tables, and tables on another
 # cluster (log_entries is a Distributed over the aux cluster, so a plain IN makes every shard
 # of the outer query issue its own remote read against aux).
-_GLOBAL_IN_TABLES: tuple[type, ...] = (EventsTable, FlagEvaluationsTable, LogEntriesTable)
+_GLOBAL_IN_TABLES: tuple[type, ...] = (
+    EventsTable,
+    FlagEvaluationsTable,
+    LogEntriesTable,
+    ModelSpecificEmbeddingTable,
+)
 _GLOBAL_IN_LAZY_TABLES: tuple[type, ...] = (
     ReplayConsoleLogsLogEntriesTable,
     BatchExportLogEntriesTable,
     EventsWithFlagCallsTable,
+    DocumentEmbeddingsTable,
 )
 
 
@@ -279,7 +314,15 @@ def resolve_types_from_table(
     expr: ast.Expr, table_chain: list[str], context: HogQLContext, dialect: HogQLDialect
 ) -> ast.Expr:
     scope = resolve_table_scope(table_chain, context, dialect)
-    return resolve_types(expr, context, dialect, [scope])
+    return resolve_types(expr, context, dialect, [scope], resolver_factory=_signature_typing_resolver)
+
+
+def _signature_typing_resolver(
+    context: HogQLContext, dialect: HogQLDialect, scopes: Optional[list[ast.SelectQueryType]]
+) -> "Resolver":
+    resolver = Resolver(scopes=scopes, context=context, dialect=dialect)
+    resolver.type_posthog_calls_by_signature = True
+    return resolver
 
 
 ResolverFactory = Callable[
@@ -343,7 +386,7 @@ def _select_type_columns(
     return list(select_type.columns.items())
 
 
-def _unify_select_set_columns(
+def unify_select_set_columns(
     select_types: list[ast.SelectQueryType | ast.SelectSetQueryType],
     dialect: HogQLDialect,
     context: HogQLContext,
@@ -501,6 +544,7 @@ class Resolver(CloningVisitor):
         self.union_view_name_by_id: dict[int, str] = {}
         self._pending_saved_view: str | None = None
         self.swap_flag_calls_in_views = False
+        self.type_posthog_calls_by_signature = False
         # The unresolved body that the flag call swap chose for each view, by the CTEs in scope where it was read. A
         # CTE's body can change the swap's decision, so the key holds each CTE's text. The text stays the same when
         # the resolver visits the same CTE again and builds a new node for it.
@@ -517,6 +561,7 @@ class Resolver(CloningVisitor):
         self._synthetic_using_join_aliases: set[str] = set()
         # Re-entrancy guard for argument-duplicating bot-lookup macros (see _expand_duplicating_macro).
         self._inside_posthog_macro_expansion: bool = False
+        self._inside_insight_selection: bool = False
         # Marks whether the outermost SELECT has been entered. Used to keep a top-level `SELECT *`
         # on a direct-connection table literal (so the external server expands the star); nested and
         # CTE-body stars still expand to explicit columns so enclosing queries can read them.
@@ -574,7 +619,7 @@ class Resolver(CloningVisitor):
         ]
         result.type = ast.SelectSetQueryType(
             types=select_types,  # type: ignore[arg-type]
-            columns=_unify_select_set_columns(select_types, self.dialect, self.context, result.select_queries()),  # type: ignore[arg-type]
+            columns=unify_select_set_columns(select_types, self.dialect, self.context, result.select_queries()),  # type: ignore[arg-type]
         )
 
         self.ctes = parent_ctes
@@ -976,6 +1021,8 @@ class Resolver(CloningVisitor):
                     first_type.columns = {
                         new_name: initial.select[i].type or ast.UnknownType() for i, new_name in enumerate(node.columns)
                     }
+                    if cte_expr.type.columns:
+                        cte_expr.type.columns = dict(zip(node.columns, cte_expr.type.columns.values()))
 
         if node.using_key is not None:
             if node.columns:
@@ -1521,7 +1568,9 @@ class Resolver(CloningVisitor):
                 self.join_sources = outer_join_sources
             return resolved
 
-        chosen_body = swap_flag_calls(body, self.context, resolve, scope=FlagCallScope.view(view_name)).source
+        chosen_body = swap_flag_calls(
+            body, self.context, resolve, scope=FlagCallScope.view(view_name), enclosing_ctes=self.ctes
+        ).source
         self._flag_call_view_bodies[key] = chosen_body
         return clone_expr(chosen_body)
 
@@ -1647,11 +1696,11 @@ class Resolver(CloningVisitor):
 
             if isinstance(database_table, LazyTable):
                 if isinstance(database_table, PersonsTable):
-                    # Promotion moves predicates before resolution, so preserve their CTE bindings first.
-                    if node.constraint is not None:
-                        CteReferenceBinder(set(self.ctes)).visit(node.constraint)
-                    # Check for inlineable exprs in the join on the persons table
                     database_table = database_table.create_new_table_with_filter(node)
+                    # The held copy is resolved later, outside this scope, so bind its CTE references now.
+                    if database_table.filter is not None:
+                        self.context.holds_join_filters = True
+                        CteReferenceBinder(set(self.ctes)).visit(database_table.filter)
                 node_table_type: ast.TableType | ast.LazyTableType = ast.LazyTableType(table=database_table)
 
             else:
@@ -2017,7 +2066,7 @@ class Resolver(CloningVisitor):
             index += 1
         alias = f"__using_join_{index}"
         self._synthetic_using_join_aliases.add(alias)
-        return alias
+        return scope.register_implicit_table_alias(alias)
 
     def _synthesize_join_alias(self, scope: ast.SelectQueryType, node: ast.JoinExpr) -> str:
         """Alias a joined sub-select because ClickHouse requires a name for it."""
@@ -2031,7 +2080,7 @@ class Resolver(CloningVisitor):
         index = 1
         while f"__join_{index}" in reserved_aliases:
             index += 1
-        return f"__join_{index}"
+        return scope.register_implicit_table_alias(f"__join_{index}")
 
     def _using_constraint_column_names(self, constraint: ast.JoinConstraint) -> list[str]:
         exprs = constraint.expr.exprs if isinstance(constraint.expr, ast.Tuple) else [constraint.expr]
@@ -2267,6 +2316,12 @@ class Resolver(CloningVisitor):
                 end=node.end,
             )
 
+        declared_return_type = self._declared_posthog_return_type(node.name)
+        if declared_return_type is not None:
+            node = super().visit_call(node)
+            node.type = ast.CallType(name=node.name, arg_types=[], return_type=declared_return_type)
+            return node
+
         if func_meta := find_hogql_posthog_function(node.name):
             validate_function_args(node.args, func_meta.min_args, func_meta.max_args, node.name)
 
@@ -2285,6 +2340,21 @@ class Resolver(CloningVisitor):
                 return self.visit(
                     matches_action(node=node, args=node.args, context=self.context, events_alias=events_alias)
                 )
+            if node.name == "matchesInsight":
+                from posthog.hogql.functions.insight import (
+                    matches_insight,  # noqa: PLC0415 -- keeps query schemas off Django's startup path
+                )
+
+                if self._inside_insight_selection:
+                    raise QueryError("Insight selections cannot contain another insight selection")
+                events_alias, _ = self._get_events_table_current_scope()
+                if events_alias is None:
+                    raise QueryError("matchesInsight can only be used with the events table")
+                self._inside_insight_selection = True
+                try:
+                    return self.visit(matches_insight(node, self.context, events_alias))
+                finally:
+                    self._inside_insight_selection = False
             if node.name == "getSurveyResponse":
                 return self.visit(
                     get_survey_response(node=node, args=node.args, use_new_schema=self.context.uses_new_events_schema())
@@ -2395,6 +2465,14 @@ class Resolver(CloningVisitor):
             return_type=return_type,
         )
         return node
+
+    def _declared_posthog_return_type(self, name: str) -> ConstantType | None:
+        if not self.type_posthog_calls_by_signature or name not in BOT_DETECTION_FUNCTIONS:
+            return None
+        meta = find_hogql_posthog_function(name)
+        if meta is None or not meta.signatures:
+            return None
+        return dataclasses.replace(meta.signatures[0][1])
 
     def _is_higher_order_array_call(self, node: ast.Call) -> bool:
         return (
@@ -2873,6 +2951,11 @@ class Resolver(CloningVisitor):
 
         return node
 
+    def visit_property_access(self, node: ast.PropertyAccess):
+        node = super().visit_property_access(node)
+        node.type = ast.StringType(nullable=True)
+        return node
+
     def visit_array_access(self, node: ast.ArrayAccess):
         node = super().visit_array_access(node)
 
@@ -3005,6 +3088,7 @@ class Resolver(CloningVisitor):
         node = super().visit_compare_operation(node)
         node.type = ast.BooleanType(nullable=False)
         self._raise_on_invalid_uuid_literal(node)
+        self._raise_on_invalid_date_literal(node)
 
         if (
             USE_GLOBAL_JOINS
@@ -3077,6 +3161,51 @@ class Resolver(CloningVisitor):
                     f"{constant.value!r} can never match {subject}, which holds UUIDs.{detail} "
                     f"Enter a full UUID, like '0198a4c2-8b3d-7e50-b4a1-2f9c6d8e0a1b'."
                 )
+
+    def _raise_on_invalid_date_literal(self, node: ast.CompareOperation) -> None:
+        """An empty or blank string compared against a Date or DateTime column fails the whole query
+        at execution time with ClickHouse's CANNOT_PARSE_DATE or CANNOT_PARSE_DATETIME. Other text is
+        left to ClickHouse, which parses DateTime best effort and accepts forms such as 'December'.
+
+        Only the ClickHouse dialect is checked. A direct query is resolved as HogQL and then runs on
+        its own database, such as Postgres.
+
+        Only table columns are checked. A property typed as DateTime is compared as text by a later
+        transform, so `properties.signed_up_at = ''` is valid and must not be rejected here."""
+        if self.dialect != "clickhouse":
+            return
+        if node.op not in _DATE_GUARDED_COMPARE_OPS:
+            return
+        for date_side, literal_side in ((node.left, node.right), (node.right, node.left)):
+            holds = self._date_column_values(date_side)
+            if holds is None:
+                continue
+            for constant in _string_constants(literal_side):
+                if constant.value.strip():
+                    continue
+                field_name = _compared_field_name(date_side)
+                subject = f"'{field_name}'" if field_name else "this column"
+                null_check = f"{field_name} IS NOT NULL" if field_name else "an IS NOT NULL check"
+                raise QueryError(
+                    f"{constant.value!r} can never match {subject}, which holds {holds}. "
+                    f"Compare it to a date, like '2026-01-31'. To skip empty values, use {null_check}."
+                )
+
+    def _date_column_values(self, node: ast.Expr) -> str | None:
+        field_type = node.type
+        while isinstance(field_type, ast.FieldAliasType):
+            field_type = field_type.type
+        if not isinstance(field_type, ast.FieldType):
+            return None
+        try:
+            database_field = field_type.resolve_database_field(self.context)
+        except Exception:
+            return None
+        if isinstance(database_field, DateTimeDatabaseField):
+            return "dates and times"
+        if isinstance(database_field, DateDatabaseField):
+            return "dates"
+        return None
 
     def _resolves_to_uuid(self, node: ast.Expr) -> bool:
         if node.type is None or isinstance(node, ast.Constant):

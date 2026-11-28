@@ -44,7 +44,7 @@ export interface MetricSceneActionsInput {
     metric: DataCatalogMetricApi
     mutating: boolean
     running: boolean
-    isMaxAvailable: boolean
+    isAiAvailable: boolean
     handlers: MetricSceneActionHandlers
 }
 
@@ -59,7 +59,7 @@ export function buildMetricSceneActions({
     metric,
     mutating,
     running,
-    isMaxAvailable,
+    isAiAvailable,
     handlers,
 }: MetricSceneActionsInput): MetricSceneAction[] {
     const sourceShortId = metric.source_insight_short_id
@@ -121,7 +121,7 @@ export function buildMetricSceneActions({
                   label: 'Run with AI',
                   icon: <IconSparkles />,
                   onClick: handlers.runWithAI,
-                  disabledReason: isMaxAvailable ? undefined : MAX_UNAVAILABLE_REASON,
+                  disabledReason: isAiAvailable ? undefined : MAX_UNAVAILABLE_REASON,
                   opensFloatingUi: true,
               }
             : {

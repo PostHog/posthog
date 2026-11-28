@@ -172,7 +172,9 @@ function DashboardScene({
     }
 
     useAttachedContext(
-        dashboard ? [{ type: 'dashboard', key: dashboard.id, label: dashboard.name ?? undefined }] : null
+        dashboard ? [{ type: 'dashboard', key: dashboard.id, label: dashboard.name ?? undefined }] : null,
+        // The home page renders its primary dashboard as a preview, which the home composer should not pick up
+        { active: placement !== DashboardPlacement.ProjectHomepage }
     )
 
     useFileSystemLogView({

@@ -150,7 +150,9 @@ PARQUET_COMPRESSION: ParquetCompression = "zstd"
 SOURCE_FENCE_TIMEOUT_SECONDS = 5.0
 
 
-def should_coalesce_tables(*, resume_manager: ResumableSourceManager[Any] | None, is_webhook: bool) -> bool:
+def should_coalesce_tables(
+    *, resume_manager: ResumableSourceManager[Any] | None, is_webhook: bool, is_cdc: bool = False
+) -> bool:
     """Whether the batcher may merge small Arrow tables before staging a batch.
 
     Coalescing keeps a driver's fetch size (e.g. a SQL cursor's 10k-row Arrow tables) from becoming
@@ -162,8 +164,12 @@ def should_coalesce_tables(*, resume_manager: ResumableSourceManager[Any] | None
     Pass the *resolved* manager, never the raw one. A resumable source class whose current run cannot
     resume commits no cursor, so it is free to coalesce — and reading the raw manager here would
     switch coalescing off for every run of every such class, most of which never checkpoint.
+
+    A change stream sizes its own batches by the rows the loader fills from the Delta table
+    (`CDCSourceManager.get_items`). DELETE and TOAST-omitted rows are small here, so coalescing by
+    rows and bytes would merge many such batches into one that runs the loader out of memory.
     """
-    return resume_manager is None and not is_webhook
+    return resume_manager is None and not is_webhook and not is_cdc
 
 
 class StagedSchemeWithoutResetError(Exception):
@@ -418,7 +424,9 @@ class PipelineV3(Generic[ResumableData]):
             team_id=self._job.team_id,
             schema_name=self._schema.name,
             coalesce_tables=should_coalesce_tables(
-                resume_manager=self._resumable_source_manager, is_webhook=self._schema.is_webhook
+                resume_manager=self._resumable_source_manager,
+                is_webhook=self._schema.is_webhook,
+                is_cdc=sync_type == "cdc",
             ),
             primary_keys=self._resource.primary_keys,
             masked_columns=self._schema.masked_columns,
@@ -1270,10 +1278,10 @@ class PipelineV3(Generic[ResumableData]):
     async def _stamp_full_run(self) -> None:
         """Record that this run took the full extraction path, for the fast-return valve.
 
-        Writes only `last_full_run_at`.
-        `last_synced_at` is deliberately left alone: it feeds data freshness, the schemas UI and
-        the signals watermark (`partition_field > last_synced_at`), so moving it on a run that
-        loaded nothing would narrow the next run's signal window.
+        Writes `last_full_run_at` and `last_checked_at`.
+        `last_synced_at` is deliberately left alone: it is the signals watermark
+        (`partition_field > last_synced_at`), so moving it on a run that loaded nothing would
+        narrow the next run's signal window.
 
         Best-effort: a bookkeeping failure must not fail an otherwise successful sync, which is
         how the observed-columns write above treats the same risk.
@@ -1283,6 +1291,7 @@ class PipelineV3(Generic[ResumableData]):
                 self._schema.id,
                 self._job.team_id,
                 updates={"last_full_run_at": datetime.datetime.now(datetime.UTC).isoformat()},
+                extra_model_fields={"last_checked_at": self._job.created_at},
             )
         except Exception:
             await self._logger.aexception("V3 Pipeline: Failed to stamp last_full_run_at")

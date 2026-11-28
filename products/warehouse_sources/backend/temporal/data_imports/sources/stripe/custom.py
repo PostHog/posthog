@@ -169,8 +169,13 @@ class WebhookRefetch:
     """How to complete one object type whose webhook payload can leave out data the list sync includes."""
 
     is_incomplete: Callable[[dict[str, Any]], bool]
-    # Gets the event payload, so a step can keep the event's fields and add only what is missing.
-    complete: Callable[[StripeClient, dict[str, Any]], dict[str, Any]]
+    # Reads the object as it is now, so one read serves every event of the object in a batch.
+    fetch: Callable[[StripeClient, dict[str, Any]], Any]
+    # Adds the read to one event payload, so a step can keep the event's fields and add only what is missing.
+    merge: Callable[[dict[str, Any], Any], dict[str, Any]]
+
+
+_REJECTED = object()
 
 
 class WebhookObjectRefetcher:
@@ -206,32 +211,35 @@ class WebhookObjectRefetcher:
         thread_clients = threading.local()
         pool = ThreadPoolExecutor(max_workers=self._concurrency, thread_name_prefix="stripe-webhook-refetch")
         try:
-            futures = [
-                submit_with_context(pool, self._complete_one, obj, client_factory, thread_clients)
-                if self._refetch.is_incomplete(obj)
-                else None
-                for obj in objects
-            ]
-            completed = [obj if future is None else future.result() for obj, future in zip(objects, futures)]
+            futures = {}
+            for obj in objects:
+                if self._refetch.is_incomplete(obj) and obj["id"] not in futures:
+                    futures[obj["id"]] = submit_with_context(pool, self._fetch_one, obj, client_factory, thread_clients)
+            reads = {object_id: future.result() for object_id, future in futures.items()}
         finally:
             pool.shutdown(wait=False, cancel_futures=True)
 
-        self._logger.debug(f"Stripe: completed {sum(f is not None for f in futures)} incomplete webhook objects")
-        return completed
+        self._logger.debug(f"Stripe: completed {len(reads)} incomplete webhook objects")
+        return [
+            self._refetch.merge(obj, reads[obj["id"]])
+            if self._refetch.is_incomplete(obj) and reads[obj["id"]] is not _REJECTED
+            else obj
+            for obj in objects
+        ]
 
-    def _complete_one(
+    def _fetch_one(
         self, obj: dict[str, Any], client_factory: PacedClientFactory, thread_clients: threading.local
-    ) -> dict[str, Any]:
+    ) -> Any:
         client: Optional[StripeClient] = getattr(thread_clients, "client", None)
         if client is None:
             client = client_factory(self._pacer.throttled, self._pacer.wait_turn)
             thread_clients.client = client
         try:
-            return self._refetch.complete(client, obj)
+            return self._refetch.fetch(client, obj)
         except stripe_lib.InvalidRequestError as e:
             # A rejection of this one object fails the same way on every retry, and a raise would
             # fail the whole batch and replay it on every sync. Auth, rate-limit and server errors
             # are not InvalidRequestError, so they still fail the batch.
             log = self._logger.debug if getattr(e, "code", None) == "resource_missing" else self._logger.warning
             log(f"Stripe: kept the webhook payload of {obj.get('object')} {obj['id']}: {e.user_message}")
-            return obj
+            return _REJECTED

@@ -107,12 +107,14 @@ from products.tasks.backend.logic.services.sandbox import (
     CLAUDE_CREDENTIAL_UNAVAILABLE_MESSAGE,
     CODEX_CREDENTIAL_UNAVAILABLE_MESSAGE,
     AgentServerResult,
+    ClonePhases,
     ExecutionResult,
     SandboxConfig,
     SandboxDirEntry,
     SandboxTemplate,
     SandboxWorkload,
     health_check_timeout_seconds,
+    parse_clone_phases,
 )
 from products.tasks.backend.logic.services.startup_failure import AgentServerStartupError
 
@@ -652,7 +654,7 @@ class TestModalSandboxAgentServer:
                 return ExecutionResult(stdout="", stderr="", exit_code=0, error=None)
             if "http_code=" in command:
                 return ExecutionResult(
-                    stdout="gateway.us.posthog.com http_code=200", stderr="", exit_code=0, error=None
+                    stdout="ai-gateway.us.posthog.com http_code=200", stderr="", exit_code=0, error=None
                 )
             return ExecutionResult(stdout='{"status":"ok","hasSession":false}', stderr="", exit_code=0, error=None)
 
@@ -769,6 +771,25 @@ class TestModalSandboxAgentServer:
         marker = command.index("export POSTHOG_AGENT_LAUNCH_STARTED_AT_MS=$(date +%s%3N)")
         process = command.index("exec /usr/bin/python3 -I /opt/posthog/task-filesystem.py enter -- env", marker)
         assert barrier < marker < process
+        assert "--repoReadyFile /tmp/workspace/.repo-ready" in command
+
+    def test_start_agent_server_launches_before_repository_when_supported(self, mock_sandbox: Any):
+        mock_sandbox.execute = MagicMock(
+            return_value=ExecutionResult(stdout=_preflight_stdout(), stderr="", exit_code=0, error=None),
+        )
+
+        mock_sandbox.start_agent_server(
+            repository="posthog/posthog",
+            task_id="task-123",
+            run_id="run-456",
+            mode="background",
+            repo_ready_file="/tmp/workspace/.repo-ready",
+            wait_for_health=False,
+        )
+
+        command = _agent_server_launch_command(mock_sandbox.execute)
+        assert "while [ ! -f" not in command
+        assert "export POSTHOG_AGENT_LAUNCH_STARTED_AT_MS=$(date +%s%3N) &&" in command
         assert "--repoReadyFile /tmp/workspace/.repo-ready" in command
 
     def test_start_agent_server_wraps_with_agentsh_when_domains_provided(self, mock_sandbox: Any):
@@ -1500,14 +1521,20 @@ class TestModalSandboxCommandEscaping:
                 assert shlex.quote(repo) in command
 
     @pytest.mark.parametrize(
-        "shallow,blobless,expected_in_command,not_expected_in_command",
+        "shallow,blobless,baked_repo_clone,expected_in_command,not_expected_in_command",
         [
-            (True, False, "--depth 1", "--filter=blob:"),
-            (False, False, "--filter=blob:limit=128k", "--filter=blob:none"),
-            (False, True, "--filter=blob:none", "--filter=blob:limit=128k"),
+            (True, False, False, "--depth 1", "--filter=blob:"),
+            (False, False, False, "--filter=blob:limit=128k", "--filter=blob:none"),
+            (False, True, False, "--filter=blob:none", "--filter=blob:limit=128k"),
+            (True, False, False, "git checkout -q -f", "/posthog/posthog/.git ]"),
+            (True, False, False, "git checkout -q -f", "checkout.workers"),
+            (True, False, True, "git -c checkout.workers=0 checkout -q -f;", None),
+            (False, False, True, "--filter=blob:limit=128k", "/posthog/posthog/.git ]"),
         ],
     )
-    def test_clone_repository_shallow_flag(self, shallow, blobless, expected_in_command, not_expected_in_command):
+    def test_clone_repository_shallow_flag(
+        self, shallow, blobless, baked_repo_clone, expected_in_command, not_expected_in_command
+    ):
         sandbox = ModalSandbox.__new__(ModalSandbox)
         sandbox.id = "sb-123"
         sandbox.config = SandboxConfig(name="test")
@@ -1516,13 +1543,34 @@ class TestModalSandboxCommandEscaping:
         with patch.object(sandbox, "is_running", return_value=True):
             with patch.object(sandbox, "execute") as mock_execute:
                 sandbox.clone_repository(
-                    "PostHog/posthog", github_token="test-token", shallow=shallow, blobless=blobless
+                    "PostHog/posthog",
+                    github_token="test-token",
+                    shallow=shallow,
+                    blobless=blobless,
+                    baked_repo_clone=baked_repo_clone,
                 )
                 command = mock_execute.call_args[0][0]
 
                 assert expected_in_command in command
                 if not_expected_in_command:
                     assert not_expected_in_command not in command
+
+    @pytest.mark.parametrize(
+        "stdout,expected",
+        [
+            (
+                "clone_phases_ms mode=baked fetch=6012 checkout=640\n",
+                ClonePhases(mode="baked", fetch_ms=6012, checkout_ms=640),
+            ),
+            (
+                "Cloning into 'posthog'...\nclone_phases_ms mode=fallback fetch=9100 checkout=1500",
+                ClonePhases(mode="fallback", fetch_ms=9100, checkout_ms=1500),
+            ),
+            ("", None),
+        ],
+    )
+    def test_parse_clone_phases(self, stdout, expected):
+        assert parse_clone_phases(stdout) == expected
 
     @pytest.mark.parametrize(
         "repository,task_id,run_id,mode",
@@ -1774,7 +1822,7 @@ class TestStartupFailureDiagnostics:
         def _exec(command: str, timeout_seconds: Any = None) -> ExecutionResult:
             if "http_code=" in command:
                 return ExecutionResult(
-                    stdout="gateway.us.posthog.com http_code=200", stderr="", exit_code=0, error=None
+                    stdout="ai-gateway.us.posthog.com http_code=200", stderr="", exit_code=0, error=None
                 )
             return ExecutionResult(stdout="ok", stderr="", exit_code=0, error=None)
 
@@ -1837,7 +1885,7 @@ class TestStartupFailureDiagnostics:
         def _exec(command: str, timeout_seconds: Any = None) -> ExecutionResult:
             if "http_code=" in command:
                 return ExecutionResult(
-                    stdout="gateway.us.posthog.com http_code=200", stderr="", exit_code=0, error=None
+                    stdout="ai-gateway.us.posthog.com http_code=200", stderr="", exit_code=0, error=None
                 )
             if "cpu_loop_ms" in command:
                 raise SandboxTimeoutError(
@@ -1880,7 +1928,7 @@ class TestStartupFailureDiagnostics:
                 return ExecutionResult(stdout="x" * log_bytes, stderr="", exit_code=0, error=None)
             if "http_code=" in command:
                 return ExecutionResult(
-                    stdout="gateway.us.posthog.com http_code=200", stderr="", exit_code=0, error=None
+                    stdout="ai-gateway.us.posthog.com http_code=200", stderr="", exit_code=0, error=None
                 )
             return ExecutionResult(stdout="ok", stderr="", exit_code=0, error=None)
 
@@ -1934,8 +1982,27 @@ class TestModalSandboxCreateAllowlist:
 
         assert mock_create.call_args.kwargs["outbound_domain_allowlist"] == []
 
-    @pytest.mark.parametrize("probe,observation", [(False, False), (True, False), (False, True)])
-    def test_create_sets_vm_runtime_experimental_option(self, probe: bool, observation: bool) -> None:
+    @pytest.mark.parametrize(
+        "probe,observation,enrollment",
+        [(False, False, False), (True, False, False), (False, True, False), (False, True, True)],
+    )
+    def test_create_sets_vm_runtime_experimental_option(self, probe: bool, observation: bool, enrollment: bool) -> None:
+        if enrollment:
+            with override_settings(
+                DEBUG=False,
+                TEST=False,
+                CLOUD_DEPLOYMENT="DEV",
+                SANDBOX_PROVIDER="modal",
+                AGENT_EGRESS_ENROLLMENT_CONFIG="",
+            ):
+                config = SandboxConfig(name="enrollment", vm_runtime=True, agent_egress_observation=True)
+                mock_create = self._create_with_config(config)
+            assert mock_create.call_args.kwargs["experimental_options"] == {
+                "vm_runtime": True,
+                "vm_sidecar_memory_reserve_mib": 1024,
+            }
+            assert "outbound_cidr_allowlist" not in mock_create.call_args.kwargs
+            return
         config = SandboxConfig(
             name="t",
             vm_runtime=True,
@@ -1985,6 +2052,46 @@ class TestModalSandboxCreateAllowlist:
             SandboxConfig.model_validate(values)
 
     @pytest.mark.parametrize(
+        "override,allowed",
+        [
+            ({}, True),
+            ({"agent_egress_resume": False}, False),
+            ({"agent_egress_observation": False}, False),
+            ({"resume_snapshot_external_id": None}, False),
+            ({"snapshot_mount_path": None}, False),
+            ({"snapshot_mount_path": "/"}, False),
+            ({"snapshot_mount_path": "/tmp"}, False),
+            ({"snapshot_mount_path": f"{DEFAULT_SANDBOX_WORKING_DIR}/.."}, False),
+            ({"snapshot_mount_path": f"{DEFAULT_SANDBOX_WORKING_DIR}/"}, False),
+            ({"snapshot_id": "snapshot-example"}, False),
+            ({"snapshot_external_id": "im-example"}, False),
+            ({"require_snapshot": True}, False),
+            ({"vm_runtime": False}, False),
+            ({"outbound_domain_allowlist": []}, False),
+            ({"block_network": True}, False),
+        ],
+    )
+    def test_egress_resume_requires_an_explicit_directory_handoff(
+        self, override: dict[str, object], allowed: bool
+    ) -> None:
+        values = {
+            "name": "enrollment-resume",
+            "vm_runtime": True,
+            "agent_egress_observation": True,
+            "agent_egress_resume": True,
+            "resume_snapshot_external_id": "im-example",
+            "snapshot_mount_path": DEFAULT_SANDBOX_WORKING_DIR,
+            **override,
+        }
+        if allowed:
+            config = SandboxConfig.model_validate(values)
+            assert config.resume_snapshot_external_id == "im-example"
+            assert config.snapshot_mount_path == DEFAULT_SANDBOX_WORKING_DIR
+        else:
+            with pytest.raises(ValueError):
+                SandboxConfig.model_validate(values)
+
+    @pytest.mark.parametrize(
         "override",
         [
             {"vm_runtime": False},
@@ -2007,13 +2114,16 @@ class TestModalSandboxCreateAllowlist:
             "vm_runtime": True,
             "agent_egress_probe": True,
         }
-        with pytest.raises(ValueError, match="fresh, credential-free development VM"):
+        with pytest.raises(ValueError, match="fresh, credential-free development or staging VM"):
             SandboxConfig(**(values | override))
 
     @override_settings(DEBUG=False, TEST=False)
     @pytest.mark.parametrize("observation", [False, True])
     def test_egress_profiles_reject_production_launch(self, observation: bool) -> None:
-        with pytest.raises(ValueError, match="development VM"):
+        with pytest.raises(
+            ValueError,
+            match="explicit directory handoff" if observation else "fresh, credential-free development or staging VM",
+        ):
             SandboxConfig(
                 name="probe",
                 template=SandboxTemplate.SLIM_BASE,
@@ -2447,6 +2557,53 @@ class TestModalSandboxCreateImageFallback:
             sandbox.config.image_fallback
         )
         assert "custom image posthog-dev-stack (never became ready) -> base image" in sandbox.config.image_fallback
+
+    def test_every_create_attempt_gets_a_fresh_sandbox_name(self):
+        config = SandboxConfig(
+            name="t",
+            template=SandboxTemplate.VM_BASE,
+            custom_image_name="posthog-dev-stack",
+            snapshot_external_id="im-snap-1",
+        )
+        names: list[str] = []
+        ready = iter([False, False, True])
+
+        def sandbox_create(**kwargs: Any) -> Any:
+            names.append(kwargs["name"])
+            sb = MagicMock()
+            sb.object_id = f"sb-{len(names)}"
+            if not next(ready):
+                sb.wait_until_ready.side_effect = ModalTimeoutError("readiness probe timed out")
+            return sb
+
+        with (
+            patch("products.tasks.backend.logic.services.modal_sandbox.modal.enable_output"),
+            patch.object(ModalSandbox, "_get_app_for_config", return_value=MagicMock()),
+            patch(
+                "products.tasks.backend.logic.services.modal_sandbox._get_template_image",
+                return_value=MagicMock(name="base"),
+            ),
+            patch(
+                "products.tasks.backend.logic.services.modal_sandbox.modal.Image.from_name",
+                return_value=MagicMock(name="custom"),
+            ),
+            patch(
+                "products.tasks.backend.logic.services.modal_sandbox.modal.Image.from_id",
+                return_value=MagicMock(name="snapshot"),
+            ),
+            patch(
+                "products.tasks.backend.logic.services.modal_sandbox._attach_local_package_mounts",
+                side_effect=lambda image, template, **kwargs: image,
+            ),
+            patch(
+                "products.tasks.backend.logic.services.modal_sandbox.modal.Sandbox.create", side_effect=sandbox_create
+            ),
+        ):
+            ModalSandbox.create(config)
+
+        assert len(names) == 3
+        assert len(set(names)) == 3
+        assert all(name.startswith("t-") for name in names)
 
     def test_unready_base_image_is_terminated_and_provisioning_fails(self):
         mock_sb = MagicMock()
@@ -3053,25 +3210,20 @@ class TestSessionInitProbeHosts:
         assert expected_host in hosts
         assert unused_host not in hosts
 
-    @override_settings(
-        SANDBOX_LLM_GATEWAY_URL="https://gateway.dev.posthog.dev",
-        SANDBOX_AI_GATEWAY_URL="https://ai-gateway.dev.posthog.dev",
-    )
-    def test_includes_both_configured_gateway_hosts(self):
-        # Routed products call the ai-gateway during session init; if the probe
+    @override_settings(SANDBOX_AI_GATEWAY_URL="https://ai-gateway.dev.posthog.dev")
+    def test_includes_configured_gateway_host(self):
+        # The agent calls the ai-gateway during session init; if the probe
         # omits its host, a blocked ai-gateway diagnoses as "no egress block
         # detected" (the exact failure class this probe exists to name).
         hosts = _session_init_probe_hosts()
-        assert "gateway.dev.posthog.dev" in hosts
         assert "ai-gateway.dev.posthog.dev" in hosts
 
-    @override_settings(
-        SANDBOX_LLM_GATEWAY_URL="https://gateway.us.posthog.com",
-        SANDBOX_AI_GATEWAY_URL=None,
-    )
-    def test_deduplicates_against_static_hosts_and_skips_unset(self):
-        hosts = _session_init_probe_hosts()
-        assert hosts.count("gateway.us.posthog.com") == 1
+    @pytest.mark.parametrize("gateway_url", ["https://api.anthropic.com", None])
+    def test_deduplicates_against_static_hosts_and_skips_unset(self, gateway_url: str | None):
+        with override_settings(SANDBOX_AI_GATEWAY_URL=gateway_url):
+            hosts = _session_init_probe_hosts()
+        assert hosts.count("api.anthropic.com") == 1
+        assert None not in hosts
 
 
 def _socks_rate_limit() -> Exception:

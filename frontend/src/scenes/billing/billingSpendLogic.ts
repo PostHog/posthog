@@ -105,11 +105,11 @@ export interface billingSpendLogicValues {
     emptySeriesIDs: number[]
     excludeEmptySeries: boolean
     filters: {
-        breakdowns?: ('team' | 'type')[] | undefined
-        interval?: 'day' | 'month' | 'week' | undefined
-        team_ids?: number[] | undefined
-        top_projects?: number | null | undefined
-        usage_types?: string[] | undefined
+        breakdowns?: ('team' | 'type')[]
+        interval?: 'day' | 'month' | 'week'
+        team_ids?: number[]
+        top_projects?: number | null
+        usage_types?: string[]
     }
     finalHiddenSeries: number[]
     heading: string
@@ -226,11 +226,11 @@ export interface billingSpendLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         effectiveTeamIds: (
             filters: {
-                breakdowns?: ('team' | 'type')[] | undefined
-                interval?: 'day' | 'month' | 'week' | undefined
-                team_ids?: number[] | undefined
-                top_projects?: number | null | undefined
-                usage_types?: string[] | undefined
+                breakdowns?: ('team' | 'type')[]
+                interval?: 'day' | 'month' | 'week'
+                team_ids?: number[]
+                top_projects?: number | null
+                usage_types?: string[]
             },
             teamOptions: {
                 key: string
@@ -239,11 +239,11 @@ export interface billingSpendLogicMeta {
         ) => number[] | undefined
         spendExportUrl: (
             filters: {
-                breakdowns?: ('team' | 'type')[] | undefined
-                interval?: 'day' | 'month' | 'week' | undefined
-                team_ids?: number[] | undefined
-                top_projects?: number | null | undefined
-                usage_types?: string[] | undefined
+                breakdowns?: ('team' | 'type')[]
+                interval?: 'day' | 'month' | 'week'
+                team_ids?: number[]
+                top_projects?: number | null
+                usage_types?: string[]
             },
             dateFrom: string,
             dateTo: string | null,
@@ -252,11 +252,11 @@ export interface billingSpendLogicMeta {
         ) => string
         spendChartExportUrl: (
             filters: {
-                breakdowns?: ('team' | 'type')[] | undefined
-                interval?: 'day' | 'month' | 'week' | undefined
-                team_ids?: number[] | undefined
-                top_projects?: number | null | undefined
-                usage_types?: string[] | undefined
+                breakdowns?: ('team' | 'type')[]
+                interval?: 'day' | 'month' | 'week'
+                team_ids?: number[]
+                top_projects?: number | null
+                usage_types?: string[]
             },
             dateFrom: string,
             dateTo: string | null,
@@ -285,11 +285,11 @@ export interface billingSpendLogicMeta {
             }[]
         ) => number[]
         defaultChartType: (filters: {
-            breakdowns?: ('team' | 'type')[] | undefined
-            interval?: 'day' | 'month' | 'week' | undefined
-            team_ids?: number[] | undefined
-            top_projects?: number | null | undefined
-            usage_types?: string[] | undefined
+            breakdowns?: ('team' | 'type')[]
+            interval?: 'day' | 'month' | 'week'
+            team_ids?: number[]
+            top_projects?: number | null
+            usage_types?: string[]
         }) => BillingChartType
         effectiveChartType: (
             chartType: BillingChartType | null,
@@ -314,11 +314,11 @@ export interface billingSpendLogicMeta {
         ) => boolean
         showEmptyState: (showSeries: boolean, billingSpendResponse: BillingSpendResponse | null) => boolean
         heading: (filters: {
-            breakdowns?: ('team' | 'type')[] | undefined
-            interval?: 'day' | 'month' | 'week' | undefined
-            team_ids?: number[] | undefined
-            top_projects?: number | null | undefined
-            usage_types?: string[] | undefined
+            breakdowns?: ('team' | 'type')[]
+            interval?: 'day' | 'month' | 'week'
+            team_ids?: number[]
+            top_projects?: number | null
+            usage_types?: string[]
         }) => string
         headingTooltip: (dateTo: string | null) => string | null
         teamOptions: (

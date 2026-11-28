@@ -15,6 +15,7 @@ use rdkafka::message::{BorrowedMessage, Headers, Message};
 use rdkafka::{ClientConfig, ClientContext, Offset, TopicPartitionList};
 
 use super::consumer_loop::{BatchSource, OffsetsToStore};
+use super::consumer_telemetry::ConsumerTelemetry;
 
 pub fn consumer_client_config(
     group_id: &str,
@@ -139,6 +140,16 @@ impl PartitionEpochs {
 #[derive(Default)]
 pub struct FencingContext {
     pub epochs: PartitionEpochs,
+    telemetry: ConsumerTelemetry,
+}
+
+impl FencingContext {
+    pub fn new(telemetry: ConsumerTelemetry) -> Self {
+        Self {
+            epochs: PartitionEpochs::default(),
+            telemetry,
+        }
+    }
 }
 
 impl ClientContext for FencingContext {}
@@ -151,6 +162,18 @@ impl ConsumerContext for FencingContext {
                     .iter()
                     .map(|e| (e.topic().to_string(), e.partition())),
             );
+        }
+    }
+
+    fn post_rebalance(&self, _: &BaseConsumer<Self>, rebalance: &Rebalance<'_>) {
+        let (partitions, assigned) = match rebalance {
+            Rebalance::Assign(partitions) => (partitions, true),
+            Rebalance::Revoke(partitions) => (partitions, false),
+            Rebalance::Error(_) => return,
+        };
+        for element in partitions.elements() {
+            self.telemetry
+                .partition_assigned(element.topic(), element.partition(), assigned);
         }
     }
 }
@@ -271,8 +294,10 @@ impl BatchSource for KafkaBatchSource {
         let storable = self.consumer.context().epochs.storable(offsets, epochs);
         let fenced = offsets.len() - storable.len();
         if fenced > 0 {
-            metrics::counter!("logs_ingestion_consumer_stale_store_offsets_skipped_total")
-                .increment(fenced as u64);
+            self.consumer
+                .context()
+                .telemetry
+                .stale_store_offsets_skipped(fenced as u64);
         }
         if storable.is_empty() {
             return Ok(());
@@ -300,6 +325,7 @@ impl BatchSource for KafkaBatchSource {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::service::consumer_telemetry::{assert_metric_lines, render_metrics_of};
     use std::sync::atomic::{AtomicU32, Ordering};
 
     #[tokio::test(start_paused = true)]
@@ -370,5 +396,63 @@ mod tests {
             assert_eq!(kip848.get(key), None, "{key}");
         }
         assert_eq!(kip848.get("group.id"), Some("g"));
+    }
+
+    fn context() -> FencingContext {
+        FencingContext::new(ConsumerTelemetry::new("in", "group", "pod-0"))
+    }
+
+    fn partitions(ids: &[i32]) -> TopicPartitionList {
+        let mut list = TopicPartitionList::new();
+        for id in ids {
+            list.add_partition("in", *id);
+        }
+        list
+    }
+
+    #[test]
+    fn a_rebalance_sets_the_assignment_gauge_of_each_partition() {
+        let rendered = render_metrics_of(|| {
+            let consumer: BaseConsumer<FencingContext> =
+                config(&[]).create_with_context(context()).unwrap();
+            let context = consumer.context();
+            context.post_rebalance(&consumer, &Rebalance::Assign(&partitions(&[0, 1])));
+            context.post_rebalance(&consumer, &Rebalance::Revoke(&partitions(&[1])));
+        });
+        let labels = r#"pod="pod-0",group_id="group""#;
+        assert_metric_lines(
+            &rendered,
+            &[
+                &format!(
+                    r#"kafka_consumer_assignment{{topic_name="in",partition_id="0",{labels}}} 1"#
+                ),
+                &format!(
+                    r#"kafka_consumer_assignment{{topic_name="in",partition_id="1",{labels}}} 0"#
+                ),
+            ],
+        );
+    }
+
+    #[test]
+    fn a_store_for_a_revoked_partition_counts_as_stale() {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        let rendered = render_metrics_of(|| {
+            runtime.block_on(async {
+                let consumer: LogsConsumer = config(&[]).create_with_context(context()).unwrap();
+                let mut source = KafkaBatchSource::new(consumer);
+                let offsets: OffsetsToStore = vec![("in".into(), 0, 5), ("in".into(), 1, 9)];
+                let at_dispatch = source.epochs(&offsets);
+                let revoked = [("in".to_string(), 1)];
+                source.consumer().context().epochs.revoke(revoked);
+                source.store_offsets(&offsets, &at_dispatch).unwrap();
+            })
+        });
+        assert_metric_lines(
+            &rendered,
+            &[r#"kafka_consumer_stale_store_offsets_skipped_total{topic="in",groupId="group"} 1"#],
+        );
     }
 }

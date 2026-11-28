@@ -54,14 +54,12 @@ async def run_oneshot_review(
 
     The sandbox-free counterpart of ``run_sandbox_review`` for steps whose prompt carries everything
     inline (chunking, dedup, outcome judging): no repo checkout, no agent loop — one Messages call
-    through the LLM gateway pinned to ``model`` at ``reasoning_effort`` (defaulting to the one-shot
+    through the AI gateway pinned to ``model`` at ``reasoning_effort`` (defaulting to the one-shot
     pins), with the response schema-constrained to ``model_to_validate`` via structured outputs (so
     the bare-JSON failure class the sandbox path retried on cannot occur). Callers that judge on a
-    different model family (the outcome classifier) pass ``model`` explicitly. Bedrock fallback
-    stays off: the Python gateway's Bedrock path forwards only allowlisted params and would strip
-    ``output_config``, losing both the effort pin and the schema constraint. The Go gateway drops
-    Bedrock targets that cannot serve structured outputs itself, so it needs no opt-out. It streams
-    because the Go gateway's public path cuts a buffered response at 290s, which chunking can exceed.
+    different model family (the outcome classifier) pass ``model`` explicitly. The gateway drops
+    Bedrock targets that cannot serve structured outputs, so ``output_config`` always reaches the
+    provider. It streams because the Go gateway's public path cuts a buffered response at 290s, which chunking can exceed.
 
     Raises on failure so the calling Temporal activity retries, mirroring the sandbox contract.
     Anthropic ``APIError``s are re-raised as compact ``ApplicationError``s — a raw ``APIError``
@@ -69,10 +67,7 @@ async def run_oneshot_review(
     non-retryable. ``step_name`` is stamped on the captured ``$ai_generation`` event as ``ai_stage``
     so dumps and cost queries can attribute the call to its pipeline stage.
     """
-    # The Go gateway reads ai_stage from the builder; the Python fallback reads the per-call header below.
-    client = build_async_anthropic_client(
-        product="review_hog", ai_product="review_hog", ai_stage=step_name, team_id=team_id
-    )
+    client = build_async_anthropic_client(ai_product="review_hog", ai_stage=step_name, team_id=team_id)
     async with client:
         try:
             async with client.messages.stream(
@@ -86,7 +81,6 @@ async def run_oneshot_review(
                 output_config=cast(OutputConfigParam, {"effort": reasoning_effort}),
                 output_format=model_to_validate,
                 metadata={"user_id": f"user-{user_id}"},
-                extra_headers={"x-posthog-property-ai_stage": step_name},
                 timeout=_TIMEOUT_SECONDS,
             ) as stream:
                 response = await stream.get_final_message()
@@ -134,7 +128,6 @@ async def run_oneshot_openai_review(
     the same limit, and a refused or unparseable reply is retryable.
     """
     client = build_async_openai_client(
-        product="review_hog",
         ai_product="review_hog",
         trace_id=team_trace_id(team_id),
         properties={"ai_stage": step_name, "team_id": str(team_id)},

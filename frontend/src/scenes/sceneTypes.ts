@@ -12,6 +12,7 @@ export enum Scene {
     Action = 'Action',
     Actions = 'Actions',
     AdvancedActivityLogs = 'AdvancedActivityLogs',
+    AgentTranscript = 'AgentTranscript',
     AgenticAccountMismatch = 'AgenticAccountMismatch',
     AgenticAuthorize = 'AgenticAuthorize',
     Alerts = 'Alerts',
@@ -43,6 +44,7 @@ export enum Scene {
     CustomerAnalyticsConfiguration = 'CustomerAnalyticsConfiguration',
     CustomerJourneyBuilder = 'CustomerJourneyBuilder',
     Dashboard = 'Dashboard',
+    DashboardV2 = 'DashboardV2',
     Dashboards = 'Dashboards',
     DashboardTemplateCopy = 'DashboardTemplateCopy',
     DataDeletionRequestNew = 'DataDeletionRequestNew',
@@ -103,8 +105,11 @@ export enum Scene {
     StripeConfirmInstall = 'StripeConfirmInstall',
     IngestionWarnings = 'IngestionWarnings',
     IdentityProviderConfig = 'IdentityProviderConfig',
+    OAuthApplication = 'OAuthApplication',
     InviteSignup = 'InviteSignup',
     BusinessKnowledge = 'BusinessKnowledge',
+    BusinessKnowledgeLibraries = 'BusinessKnowledgeLibraries',
+    BusinessKnowledgeLibrary = 'BusinessKnowledgeLibrary',
     BusinessKnowledgePlayground = 'BusinessKnowledgePlayground',
     BusinessKnowledgeSettings = 'BusinessKnowledgeSettings',
     BusinessKnowledgeSource = 'BusinessKnowledgeSource',
@@ -196,6 +201,7 @@ export enum Scene {
     Surveys = 'Surveys',
     SystemStatus = 'SystemStatus',
     ToolbarLaunch = 'ToolbarLaunch',
+    ToolbarOAuthError = 'ToolbarOAuthError',
     Tracing = 'Tracing',
     TracingRetentionNew = 'TracingRetentionNew',
     TracingRetentionDetail = 'TracingRetentionDetail',
@@ -252,13 +258,12 @@ export enum Scene {
     AIObservabilityOfflineScorerHistory = 'AIObservabilityOfflineScorerHistory',
     AIObservabilityEvaluationTemplates = 'AIObservabilityEvaluationTemplates',
     AIObservabilityPlayground = 'AIObservabilityPlayground',
-    AIObservabilityTag = 'AIObservabilityTag',
-    AIObservabilityTags = 'AIObservabilityTags',
     AIObservabilityTrace = 'AIObservabilityTrace',
     AIObservabilityUsers = 'AIObservabilityUsers',
     Logs = 'Logs',
     MCPAnalytics = 'MCPAnalytics',
     MCPAnalyticsToolDetail = 'MCPAnalyticsToolDetail',
+    MCPAnalyticsUser = 'MCPAnalyticsUser',
     LogsAlertDetail = 'LogsAlertDetail',
     LogsAlertNotificationDetail = 'LogsAlertNotificationDetail',
     LogsSamplingNew = 'LogsSamplingNew',
@@ -396,6 +401,7 @@ export const sceneToAccessControlResourceType: Partial<
 
     // Dashboards
     [Scene.Dashboard]: AccessControlResourceType.Dashboard,
+    [Scene.DashboardV2]: AccessControlResourceType.Dashboard,
     [Scene.Dashboards]: AccessControlResourceType.Dashboard,
     [Scene.DashboardTemplateCopy]: AccessControlResourceType.Dashboard,
 
@@ -456,6 +462,8 @@ export const sceneToAccessControlResourceType: Partial<
 
     // Business knowledge
     [Scene.BusinessKnowledge]: AccessControlResourceType.BusinessKnowledge,
+    [Scene.BusinessKnowledgeLibraries]: AccessControlResourceType.BusinessKnowledge,
+    [Scene.BusinessKnowledgeLibrary]: AccessControlResourceType.BusinessKnowledge,
     [Scene.BusinessKnowledgePlayground]: AccessControlResourceType.BusinessKnowledge,
     [Scene.BusinessKnowledgeSettings]: AccessControlResourceType.BusinessKnowledge,
     [Scene.BusinessKnowledgeSource]: AccessControlResourceType.BusinessKnowledge,
@@ -511,14 +519,13 @@ export const sceneToAccessControlResourceType: Partial<
     [Scene.AIObservabilityOfflineScorerHistory]: AccessControlResourceType.Evaluation,
     [Scene.AIObservabilityEvaluationTemplates]: AccessControlResourceType.Evaluation,
     [Scene.AIObservabilityPlayground]: AccessControlResourceType.LlmPlayground,
-    [Scene.AIObservabilityTag]: AccessControlResourceType.Tagger,
-    [Scene.AIObservabilityTags]: AccessControlResourceType.Tagger,
     [Scene.AIObservabilityTrace]: AccessControlResourceType.LlmAnalytics,
     [Scene.AIObservabilityUsers]: AccessControlResourceType.LlmAnalytics,
 
     // MCP analytics
     [Scene.MCPAnalytics]: AccessControlResourceType.McpAnalytics,
     [Scene.MCPAnalyticsToolDetail]: AccessControlResourceType.McpAnalytics,
+    [Scene.MCPAnalyticsUser]: AccessControlResourceType.McpAnalytics,
 
     // Skills
     [Scene.Skill]: AccessControlResourceType.LlmSkill,

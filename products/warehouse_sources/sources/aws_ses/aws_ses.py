@@ -6,7 +6,6 @@ from typing import Any, Optional
 from urllib.parse import quote, urlencode
 
 import requests
-from botocore.auth import SigV4Auth
 from botocore.awsrequest import AWSRequest
 from botocore.credentials import Credentials
 from structlog.types import FilteringBoundLogger
@@ -23,8 +22,11 @@ from products.warehouse_sources.sources.sdk import (
     BoundedRetry,
     ResumableSourceManager,
     SourceResponse,
+    aws_redact_values,
+    flatten_nested,
     make_tracked_session,
     scrub_url,
+    sign_aws_request,
 )
 
 # SESv2 returns TooManyRequestsException as HTTP 429 and its read APIs throttle at roughly one
@@ -41,7 +43,6 @@ TRANSPORT_RETRY = BoundedRetry(
 # semantics are undocumented, and merge on the primary key absorbs the re-read rows.
 INCREMENTAL_OVERLAP = dt.timedelta(days=1)
 
-_CAMEL_BOUNDARY = re.compile(r"(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])")
 
 _IAM_ACTION_PATTERN = re.compile(r"ses:[A-Za-z0-9]+")
 
@@ -96,11 +97,6 @@ def validate_region(region: str) -> str:
     return normalized
 
 
-def _snake(name: str) -> str:
-    """`IdentityName` -> `identity_name`, `SOARecord` -> `soa_record`."""
-    return _CAMEL_BOUNDARY.sub("_", name).lower()
-
-
 def _parse_timestamp(value: Any) -> Any:
     """SESv2 serializes timestamps as epoch seconds; keep anything unrecognized untouched."""
     if isinstance(value, int | float) and not isinstance(value, bool):
@@ -130,20 +126,9 @@ def coerce_datetime(value: Any) -> Optional[dt.datetime]:
     return None
 
 
-def _flatten(prefix: str, obj: dict[str, Any], raw_keys: frozenset[str]) -> dict[str, Any]:
-    flattened: dict[str, Any] = {}
-    for key, value in obj.items():
-        column = f"{prefix}_{_snake(key)}" if prefix else _snake(key)
-        if isinstance(value, dict) and key not in raw_keys:
-            flattened.update(_flatten(column, value, raw_keys))
-        else:
-            flattened[column] = value
-    return flattened
-
-
 def normalize_row(endpoint_config: AwsSesEndpointConfig, obj: dict[str, Any]) -> dict[str, Any]:
     """Flatten nested structures into snake_case columns and parse epoch timestamps."""
-    row = _flatten("", obj, endpoint_config.raw_keys)
+    row = flatten_nested(obj, keep_raw=endpoint_config.raw_keys)
     for column in endpoint_config.timestamp_columns:
         if column in row:
             row[column] = _parse_timestamp(row[column])
@@ -183,8 +168,8 @@ def error_for_response(response: requests.Response, endpoint: str, path: str) ->
     return AwsSesError(code, _error_message(response, body, code), endpoint, path)
 
 
-def make_session(secret_access_key: str, session_token: Optional[str]) -> requests.Session:
-    redact = tuple(value for value in (secret_access_key, session_token) if value)
+def make_session(credentials: Credentials) -> requests.Session:
+    redact = aws_redact_values(credentials)
     return make_tracked_session(retry=TRANSPORT_RETRY, redact_values=redact)
 
 
@@ -204,7 +189,7 @@ def send_request(
         url = f"{url}?{urlencode(sorted(params.items()), quote_via=quote, safe='-_.~')}"
 
     aws_request = AWSRequest(method="GET", url=url)
-    SigV4Auth(credentials, SES_SIGNING_NAME, region).add_auth(aws_request)
+    sign_aws_request(aws_request, credentials, SES_SIGNING_NAME, region)
 
     response = session.get(url, headers=dict(aws_request.headers.items()), timeout=REQUEST_TIMEOUT_SECONDS)
     if response.status_code >= 400:
@@ -330,9 +315,7 @@ def _walk_pages(
 
 
 def get_rows(
-    aws_access_key_id: str,
-    aws_secret_access_key: str,
-    aws_session_token: Optional[str],
+    credentials: Credentials,
     aws_region: str,
     endpoint: str,
     resumable_source_manager: ResumableSourceManager[AwsSesResumeConfig],
@@ -342,8 +325,7 @@ def get_rows(
 ) -> Iterator[list[dict[str, Any]]]:
     endpoint_config = AWS_SES_ENDPOINTS[endpoint]
     region = validate_region(aws_region)
-    session = make_session(aws_secret_access_key, aws_session_token)
-    credentials = Credentials(aws_access_key_id, aws_secret_access_key, aws_session_token or None)
+    session = make_session(credentials)
 
     if endpoint_config.page_size is None:
         yield [
@@ -415,9 +397,7 @@ def endpoint_permission_reason(
 
 
 def probe_endpoint_permissions(
-    aws_access_key_id: str,
-    aws_secret_access_key: str,
-    aws_session_token: Optional[str],
+    credentials: Credentials,
     aws_region: str,
     endpoints: list[str],
 ) -> dict[str, str | None]:
@@ -426,8 +406,7 @@ def probe_endpoint_permissions(
     except ValueError:
         return dict.fromkeys(endpoints)
 
-    session = make_session(aws_secret_access_key, aws_session_token)
-    credentials = Credentials(aws_access_key_id, aws_secret_access_key, aws_session_token or None)
+    session = make_session(credentials)
 
     reasons: dict[str, str | None] = {}
     for endpoint in endpoints:
@@ -441,22 +420,16 @@ def probe_endpoint_permissions(
 
 
 def validate_credentials(
-    aws_access_key_id: str,
-    aws_secret_access_key: str,
-    aws_session_token: Optional[str],
+    credentials: Credentials,
     aws_region: str,
     schema_name: Optional[str] = None,
 ) -> tuple[bool, Optional[str]]:
-    if not aws_access_key_id or not aws_secret_access_key:
-        return False, "AWS access key ID and secret access key are required"
-
     try:
         region = validate_region(aws_region)
     except ValueError:
         return False, f"'{aws_region}' isn't a valid AWS region. Use a region code like us-east-1."
 
-    session = make_session(aws_secret_access_key, aws_session_token)
-    credentials = Credentials(aws_access_key_id, aws_secret_access_key, aws_session_token or None)
+    session = make_session(credentials)
 
     if schema_name is not None and schema_name in AWS_SES_ENDPOINTS:
         reason = endpoint_permission_reason(session, credentials, region, AWS_SES_ENDPOINTS[schema_name])
@@ -478,9 +451,7 @@ def validate_credentials(
 
 
 def aws_ses_source(
-    aws_access_key_id: str,
-    aws_secret_access_key: str,
-    aws_session_token: Optional[str],
+    credentials: Credentials,
     aws_region: str,
     endpoint: str,
     resumable_source_manager: ResumableSourceManager[AwsSesResumeConfig],
@@ -493,9 +464,7 @@ def aws_ses_source(
     return SourceResponse(
         name=endpoint,
         items=lambda: get_rows(
-            aws_access_key_id=aws_access_key_id,
-            aws_secret_access_key=aws_secret_access_key,
-            aws_session_token=aws_session_token,
+            credentials=credentials,
             aws_region=aws_region,
             endpoint=endpoint,
             resumable_source_manager=resumable_source_manager,

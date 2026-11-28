@@ -147,6 +147,8 @@ export const anthropicMessagesThinkingToolUse: SampleTraceFixture = {
         sessionId: null,
         person: { distinctId: 'user-1', label: 'user-1' },
         totals: tree[0].stats,
+        totalsPartial: false,
+        costAndLatencyPartial: false,
     },
     tree,
     initialNodeId: GENERATION_ID,
@@ -182,7 +184,7 @@ export const anthropicMessagesThinkingToolUse: SampleTraceFixture = {
     },
     thread: {
         status: 'ready',
-        turns: [{ id: TRACE_ID, timestamp: TIMESTAMP, ...messagesSides(input, output), error: null }],
+        turns: [{ id: TRACE_ID, timestamp: TIMESTAMP, waitMs: null, ...messagesSides(input, output), error: null }],
         activeTurnId: TRACE_ID,
     },
     timeline: {

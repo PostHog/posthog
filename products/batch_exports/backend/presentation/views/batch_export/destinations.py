@@ -10,7 +10,7 @@ from rest_framework import serializers
 from posthog.integrations.fields import IntegrationReferenceField
 
 from products.batch_exports.backend.facade import api as batch_exports_api
-from products.batch_exports.backend.facade.contracts import InvalidDestinationConfigError
+from products.batch_exports.backend.facade.contracts import InvalidDestinationConfigError, InvalidKeyError
 from products.batch_exports.backend.facade.enums import (
     AZURE_BLOB_SUPPORTED_COMPRESSIONS,
     BATCH_EXPORT_INTEGRATION_KINDS,
@@ -19,7 +19,22 @@ from products.batch_exports.backend.facade.enums import (
 )
 
 
-class DatabricksDestinationConfigSerializer(serializers.Serializer):
+class BatchExportDestinationConfigBaseSerializer(serializers.Serializer):
+    """Configuration fields that every typed batch-export destination accepts."""
+
+    # TODO: Remove once every export reads events_json. No default, so a generated client that leaves the field
+    # out of a PATCH keeps the stored value instead of sending false.
+    use_new_events_schema = serializers.BooleanField(
+        required=False,
+        help_text=(
+            "Whether this export reads the new events table. Use it to try the new table on one export, such as "
+            "a copy of a production export, before your other exports move. Setting it to false does not keep "
+            "the export on the old table after all exports move."
+        ),
+    )
+
+
+class DatabricksDestinationConfigSerializer(BatchExportDestinationConfigBaseSerializer):
     """Typed configuration for a Databricks batch-export destination.
 
     Credentials live in the linked Integration, not in this config. Mirrors
@@ -42,7 +57,7 @@ class DatabricksDestinationConfigSerializer(serializers.Serializer):
     )
 
 
-class BigQueryDestinationConfigSerializer(serializers.Serializer):
+class BigQueryDestinationConfigSerializer(BatchExportDestinationConfigBaseSerializer):
     """Typed configuration for a BigQuery batch-export destination.
 
     Credentials live in the linked Integration, not in this config. Mirrors the
@@ -66,7 +81,7 @@ class BigQueryDestinationConfigSerializer(serializers.Serializer):
     )
 
 
-class PostgresDestinationConfigSerializer(serializers.Serializer):
+class PostgresDestinationConfigSerializer(BatchExportDestinationConfigBaseSerializer):
     """Typed configuration for a PostgreSQL batch-export destination.
 
     Connection credentials live in the linked Integration, never here. Mirrors the
@@ -100,7 +115,7 @@ LEGACY_PARQUET_EXTENSION_HELP_TEXT = (
 )
 
 
-class AzureBlobDestinationConfigSerializer(serializers.Serializer):
+class AzureBlobDestinationConfigSerializer(BatchExportDestinationConfigBaseSerializer):
     """Typed configuration for an Azure Blob Storage batch-export destination.
 
     Credentials live in the linked Integration, not in this config. Mirrors
@@ -140,7 +155,7 @@ class AzureBlobDestinationConfigSerializer(serializers.Serializer):
     )
 
 
-class S3FamilyDestinationConfigSerializer(serializers.Serializer):
+class S3FamilyDestinationConfigSerializer(BatchExportDestinationConfigBaseSerializer):
     """Shared non-credential configuration for S3-family batch-export destinations.
 
     Credentials (and, for S3-compatible providers, the `endpoint_url`) live in the linked
@@ -214,7 +229,7 @@ class S3CompatibleDestinationConfigSerializer(S3FamilyDestinationConfigSerialize
     )
 
 
-class SnowflakeDestinationConfigSerializer(serializers.Serializer):
+class SnowflakeDestinationConfigSerializer(BatchExportDestinationConfigBaseSerializer):
     """Typed configuration for a Snowflake batch-export destination.
 
     Account, user, authentication type and credentials live in the linked Integration, never here.
@@ -280,7 +295,7 @@ class RedshiftExportMode(models.TextChoices):
     COPY = "COPY", "COPY"
 
 
-class RedshiftDestinationConfigSerializer(serializers.Serializer):
+class RedshiftDestinationConfigSerializer(BatchExportDestinationConfigBaseSerializer):
     """Typed configuration for a Redshift batch-export destination.
 
     Connection credentials live in the linked Integration, never here. Mirrors the non-credential fields of `RedshiftBatchExportInputs` in
@@ -536,7 +551,7 @@ class BatchExportDestinationSerializer(serializers.Serializer):
             attrs["config"] = batch_exports_api.validate_destination_config(
                 attrs["type"], attrs["config"], partial=partial
             )
-        except InvalidDestinationConfigError as e:
+        except (InvalidDestinationConfigError, InvalidKeyError) as e:
             raise serializers.ValidationError(str(e))
 
         return attrs

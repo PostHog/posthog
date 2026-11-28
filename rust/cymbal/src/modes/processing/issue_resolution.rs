@@ -250,36 +250,51 @@ impl Issue {
         Ok(())
     }
 
+    pub fn can_reopen(&self) -> bool {
+        !matches!(self.status, IssueStatus::Active | IssueStatus::Suppressed)
+    }
+
     pub async fn maybe_reopen<'c, E>(&mut self, executor: E) -> Result<bool, UnhandledError>
     where
         E: sqlx::Executor<'c, Database = sqlx::Postgres>,
     {
-        // If this issue is already active, or permanently suppressed, we don't need to do anything
-        if matches!(self.status, IssueStatus::Active | IssueStatus::Suppressed) {
-            return Ok(false);
+        Ok(self.reopen(executor).await?.is_some())
+    }
+
+    pub async fn reopen<'c, E>(&mut self, executor: E) -> Result<Option<String>, UnhandledError>
+    where
+        E: sqlx::Executor<'c, Database = sqlx::Postgres>,
+    {
+        if !self.can_reopen() {
+            return Ok(None);
         }
 
-        let res = sqlx::query_scalar!(
+        // The row is locked before it is read, so the status returned is the one this update replaced,
+        // even when another writer reopens the issue at the same time.
+        let reopened: Option<(String, Option<String>, Option<String>)> = sqlx::query_as(
             r#"
-            UPDATE posthog_errortrackingissue
+            UPDATE posthog_errortrackingissue AS issue
             SET status = 'active'
-            WHERE id = $1 AND status != 'active'
-            RETURNING id
+            FROM (
+                SELECT id, status FROM posthog_errortrackingissue WHERE id = $1 FOR UPDATE
+            ) AS before
+            WHERE issue.id = before.id AND before.status NOT IN ('active', 'suppressed')
+            RETURNING before.status, issue.name, issue.severity
             "#,
-            self.id
         )
-        .fetch_all(executor)
+        .bind(self.id)
+        .fetch_optional(executor)
         .await?;
 
-        let reopened = !res.is_empty();
-        if reopened {
-            // DB row is now active; keep in-memory state in sync so downstream Kafka payloads
-            // (fingerprint_issue_state, internal events) are not stale.
-            self.status = IssueStatus::Active;
-            metrics::counter!(ISSUE_REOPENED).increment(1);
-        }
+        let Some((previous, name, severity)) = reopened else {
+            return Ok(None);
+        };
+        self.status = IssueStatus::Active;
+        self.name = name;
+        self.severity = severity;
+        metrics::counter!(ISSUE_REOPENED).increment(1);
 
-        Ok(reopened)
+        Ok(Some(previous))
     }
 
     pub async fn get_assignments<'c, E>(
@@ -833,6 +848,45 @@ mod test {
                 expected.map(str::to_string)
             );
         }
+    }
+
+    #[sqlx::test(migrations = "./tests/test_migrations")]
+    async fn a_reopen_returns_the_status_it_replaced_once(pool: sqlx::PgPool) {
+        let mut issue =
+            super::Issue::insert_new(1, "TypeError".to_string(), String::new(), None, &pool)
+                .await
+                .unwrap();
+        sqlx::query("UPDATE posthog_errortrackingissue SET status = 'resolved', name = 'Updated issue', severity = 'high' WHERE id = $1")
+            .bind(issue.id)
+            .execute(&pool)
+            .await
+            .unwrap();
+        issue.status = super::IssueStatus::Resolved;
+        // A second writer that read the issue before the first reopened it.
+        let mut stale = issue.clone();
+
+        assert_eq!(
+            issue.reopen(&pool).await.unwrap(),
+            Some("resolved".to_string())
+        );
+        assert_eq!(issue.status, super::IssueStatus::Active);
+        assert_eq!(issue.name.as_deref(), Some("Updated issue"));
+        assert_eq!(issue.severity.as_deref(), Some("high"));
+        assert_eq!(stale.reopen(&pool).await.unwrap(), None);
+
+        sqlx::query("UPDATE posthog_errortrackingissue SET status = 'suppressed' WHERE id = $1")
+            .bind(issue.id)
+            .execute(&pool)
+            .await
+            .unwrap();
+        assert_eq!(stale.reopen(&pool).await.unwrap(), None);
+        let status: String =
+            sqlx::query_scalar("SELECT status FROM posthog_errortrackingissue WHERE id = $1")
+                .bind(issue.id)
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(status, "suppressed");
     }
 
     #[sqlx::test(migrations = "./tests/test_migrations")]

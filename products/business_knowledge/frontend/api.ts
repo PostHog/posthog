@@ -8,6 +8,7 @@ import {
     businessKnowledgeLibrariesDestroy,
     businessKnowledgeLibrariesList,
     businessKnowledgeLibrariesPartialUpdate,
+    businessKnowledgeLibrariesRetrieve,
     businessKnowledgePlaygroundChatsAskCreate,
     businessKnowledgePlaygroundChatsCreate,
     businessKnowledgePlaygroundChatsDestroy,
@@ -198,13 +199,17 @@ export async function listLibraries(): Promise<KnowledgeLibrary[]> {
     return await businessKnowledgeLibrariesList(String(getCurrentTeamId()))
 }
 
+export async function getLibrary(id: string): Promise<KnowledgeLibrary> {
+    return await businessKnowledgeLibrariesRetrieve(String(getCurrentTeamId()), id)
+}
+
 export async function createLibrary(name: string): Promise<KnowledgeLibrary> {
     return await businessKnowledgeLibrariesCreate(String(getCurrentTeamId()), { name })
 }
 
 export async function updateLibrary(
     id: string,
-    payload: { name?: string; source_ids?: string[]; repos?: string[] }
+    payload: { name?: string; source_ids?: string[]; repos?: string[]; is_default?: boolean }
 ): Promise<KnowledgeLibrary> {
     return await businessKnowledgeLibrariesPartialUpdate(String(getCurrentTeamId()), id, payload)
 }

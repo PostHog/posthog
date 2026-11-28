@@ -1,0 +1,116 @@
+.NotebookAppBuilder {
+    container-type: inline-size;
+
+    &__workspace {
+        display: grid;
+        grid-template-columns: 14rem minmax(0, 1fr) 16rem;
+        gap: 1rem;
+        align-items: start;
+    }
+
+    &__grid {
+        display: grid;
+        grid-template-columns: repeat(12, minmax(0, 1fr));
+        gap: 1rem;
+        container-type: inline-size;
+    }
+
+    &__slot {
+        grid-column: span var(--app-block-width, 12);
+        min-width: 0;
+        container: notebook-app-card / inline-size;
+    }
+
+    &__slot--sized {
+        align-self: start;
+
+        > .LemonCard,
+        .NotebookAppBuilder__cell-block,
+        .NotebookAppBuilder__published-query {
+            display: flex;
+            flex-direction: column;
+            height: 100%;
+        }
+
+        .NotebookAppBuilder__card-body {
+            flex: 1;
+            min-height: 0;
+            overflow: auto;
+        }
+
+        .NotebookAppBuilder__cell-block > * {
+            flex-shrink: 0;
+        }
+
+        .NotebookAppBuilder__cell-output {
+            flex: 1 0 4rem;
+            container-type: size;
+        }
+
+        .MarkdownNotebook__real-node-content {
+            height: 100cqh !important;
+            min-height: 0;
+        }
+
+        .NotebookAppBuilder__published-query > div {
+            flex: 1;
+        }
+
+        .BoldNumber.HogQL {
+            padding: 0.25rem 0.5rem;
+        }
+    }
+
+    &__page {
+        width: 100%;
+        max-width: 80rem;
+        margin-inline: auto;
+    }
+
+    &__cell.MarkdownNotebook {
+        --markdown-notebook-canvas-max-width: 100%;
+        --markdown-notebook-gutter-reserve: 0px;
+        --markdown-notebook-content-offset: 0px;
+
+        min-height: 0;
+        padding: 0;
+    }
+
+    @container (max-width: 70rem) {
+        &__workspace {
+            grid-template-columns: 12rem minmax(0, 1fr);
+        }
+
+        &__inspector {
+            grid-column: 1 / -1;
+        }
+    }
+
+    @container (max-width: 45rem) {
+        &__workspace {
+            grid-template-columns: minmax(0, 1fr);
+        }
+    }
+
+    @container (max-width: 30rem) {
+        &__slot {
+            --app-grid-stacked: 1;
+
+            grid-column: span 12;
+        }
+    }
+
+    @container notebook-app-card (max-width: 9rem) {
+        &__slot > .LemonCard {
+            --app-card-padding: 1rem 2cqw;
+        }
+
+        &__toolbar-shortcut {
+            display: none;
+        }
+
+        &__card-body {
+            overflow: auto;
+        }
+    }
+}

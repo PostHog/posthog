@@ -5,6 +5,8 @@ Activities living here run on ``settings.TASKS_TASK_QUEUE`` and are imported by
 in this package at module load time.
 """
 
+from typing import TYPE_CHECKING
+
 from products.slack_app.backend.temporal.activities import (
     CLASSIFIER_THREAD_HISTORY_MESSAGES,
     POSTHOG_CODE_SLACK_MENTION_PICKER_GUIDANCE,
@@ -29,6 +31,7 @@ from products.slack_app.backend.temporal.activities import (
     find_slack_app_work_focus_activity,
     forward_posthog_code_followup_activity,
     handle_posthog_code_slack_mention_command_activity,
+    index_slack_app_daily_summary_activity,
     mark_slack_app_message_processing_activity,
     mark_slack_app_message_queued_activity,
     offer_slack_app_tool_connections_activity,
@@ -47,6 +50,7 @@ from products.slack_app.backend.temporal.activities import (
     request_untagged_question_confirmation_activity,
     resolve_posthog_code_slack_command_user_activity,
     run_posthog_slack_inbox_onboarding_activity,
+    run_slack_app_daily_focus_agent_activity,
 )
 from products.slack_app.backend.temporal.activities.report_implementation import (
     finish_slack_report_implementation_activity,
@@ -70,7 +74,10 @@ from products.slack_app.backend.temporal.types import (
     SlackRepoSelectionOutcome,
 )
 
-SLACK_APP_ACTIVITIES = [
+if TYPE_CHECKING:
+    from posthog.temporal.common.registration import ActivityDefinition
+
+SLACK_APP_ACTIVITIES: list[ActivityDefinition] = [
     prepare_slack_report_implementation_activity,
     finish_slack_report_implementation_activity,
     process_slack_app_fork_thread_activity,
@@ -101,7 +108,9 @@ SLACK_APP_ACTIVITIES = [
     mark_slack_app_message_queued_activity,
     edit_slack_app_onboarding_message_activity,
     find_slack_app_work_focus_activity,
+    run_slack_app_daily_focus_agent_activity,
     claim_due_slack_app_daily_focus_activity,
+    index_slack_app_daily_summary_activity,
     offer_slack_app_tool_connections_activity,
     plan_slack_app_onboarding_activity,
     post_slack_app_onboarding_message_activity,
@@ -161,7 +170,9 @@ __all__ = [
     "classify_slack_app_model_router_activity",
     "edit_slack_app_onboarding_message_activity",
     "find_slack_app_work_focus_activity",
+    "run_slack_app_daily_focus_agent_activity",
     "claim_due_slack_app_daily_focus_activity",
+    "index_slack_app_daily_summary_activity",
     "offer_slack_app_tool_connections_activity",
     "plan_slack_app_onboarding_activity",
     "post_slack_app_onboarding_message_activity",

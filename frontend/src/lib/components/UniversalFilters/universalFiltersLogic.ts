@@ -120,11 +120,11 @@ export interface universalFiltersLogicActions {
         }
     ) => {
         item: {
-            key?: string | undefined
-            matchedOn?: string | undefined
-            matchedValue?: string | undefined
-            name?: string | undefined
-            propertyFilterType?: PropertyFilterType | undefined
+            key?: string
+            matchedOn?: string
+            matchedValue?: string
+            name?: string
+            propertyFilterType?: PropertyFilterType
         }
         propertyKey: TaxonomicFilterValue
         taxonomicGroup: TaxonomicFilterGroup

@@ -5,8 +5,10 @@ quarter hour runs up to 14 minutes late."""
 import json
 from collections import Counter
 from datetime import UTC, datetime, time, timedelta
+from enum import StrEnum
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+from django.core.cache import cache
 from django.db import transaction
 from django.db.models import F, Q, QuerySet
 from django.utils import timezone
@@ -17,7 +19,10 @@ from posthog.dataclasses import frozen
 from posthog.models.integration import SlackIntegration
 
 from products.slack_app.backend.analytics import capture_slack_event
-from products.slack_app.backend.feature_flags import is_slack_app_daily_work_focus_enabled
+from products.slack_app.backend.feature_flags import (
+    is_slack_app_daily_work_focus_enabled,
+    is_slack_app_link_search_scopes_enabled,
+)
 from products.slack_app.backend.models import SlackDailyFocus, SlackUserProfileCache
 from products.slack_app.backend.services.slack_messages import context_block
 from products.slack_app.backend.services.slack_user_info import (
@@ -25,7 +30,7 @@ from products.slack_app.backend.services.slack_user_info import (
     normalize_slack_response,
     persist_slack_user_info,
 )
-from products.slack_app.backend.services.slack_user_oauth import linked_search_token
+from products.slack_app.backend.services.slack_user_oauth import linked_user_token
 from products.slack_app.backend.services.workspace_integrations import WorkspaceIntegration
 
 logger = structlog.get_logger(__name__)
@@ -43,6 +48,10 @@ MAX_LOOKBACK = timedelta(days=4)
 TURNED_ON_EVENT = "slack app daily work focus turned on"
 TURNED_OFF_EVENT = "slack app daily work focus turned off"
 TIME_CHANGED_EVENT = "slack app daily work focus time changed"
+RUN_FINISHED_EVENT = "slack app daily work focus run finished"
+# A mention checks the default once a day per person, so a busy thread costs a cache read, and a flag that turns on
+# or a link that gains the search scope is picked up by the next day.
+DEFAULT_ON_CHECK_SECONDS = 24 * 3600
 
 
 @frozen
@@ -139,10 +148,28 @@ def _person_rows(slack_workspace_id: str, slack_user_id: str) -> QuerySet[SlackD
     return SlackDailyFocus.objects.unscoped().filter(slack_workspace_id=slack_workspace_id, slack_user_id=slack_user_id)
 
 
+class DailyFocusAccess(StrEnum):
+    READY = "ready"
+    # The link predates the search scopes, so linking again would add them.
+    RELINK = "relink"
+    NONE = "none"
+
+
+def daily_focus_access(integration: WorkspaceIntegration, slack_user_id: str) -> DailyFocusAccess:
+    """Ready when the flag is on and the person's Slack link can search. The Home tab controls and the runs need
+    both. A link without the search scope gets a prompt to link again, but only while a new link would ask for it."""
+    token = linked_user_token(slack_user_id=slack_user_id, slack_team_id=integration.integration_id)
+    if token is None or not is_slack_app_daily_work_focus_enabled(integration, token.user_distinct_id):
+        return DailyFocusAccess.NONE
+    if "search:read.public" in token.scopes:
+        return DailyFocusAccess.READY
+    if is_slack_app_link_search_scopes_enabled(integration, token.user_distinct_id):
+        return DailyFocusAccess.RELINK
+    return DailyFocusAccess.NONE
+
+
 def can_run_daily_focus(integration: WorkspaceIntegration, slack_user_id: str) -> bool:
-    """The flag is on and the person's Slack link can search. The Home tab controls and the runs need both."""
-    token = linked_search_token(slack_user_id=slack_user_id, slack_team_id=integration.integration_id)
-    return token is not None and is_slack_app_daily_work_focus_enabled(integration, token.user_distinct_id)
+    return daily_focus_access(integration, slack_user_id) is DailyFocusAccess.READY
 
 
 def resolve_daily_focus(slack_workspace_id: str, slack_user_id: str) -> DailyFocusSettings:
@@ -309,3 +336,30 @@ def daily_focus_off_blocks(blocks: list[dict]) -> list[dict]:
         "block_id": DAILY_FOCUS_FOOTER_BLOCK_ID,
     }
     return [off if block.get("block_id") == DAILY_FOCUS_FOOTER_BLOCK_ID else block for block in blocks]
+
+
+def turn_on_daily_focus_by_default(integration: WorkspaceIntegration, slack_user_id: str, *, source: str) -> None:
+    """Turns the daily work focus on for a person who can run it and never chose. A person who turned it off has a
+    row and stays off. The row is read first, because it is the cheapest check and settles most people. Never
+    raises, so the caller's Slack response still goes out."""
+    try:
+        if resolve_daily_focus(integration.integration_id, slack_user_id).enabled is None and can_run_daily_focus(
+            integration, slack_user_id
+        ):
+            turn_on_daily_focus(integration, slack_user_id, source=source)
+    except Exception:
+        logger.warning("slack_app_daily_focus_default_failed", slack_user_id=slack_user_id, exc_info=True)
+
+
+def turn_on_daily_focus_on_mention(integration: WorkspaceIntegration, slack_user_id: str) -> None:
+    """The default for a person who only tags PostHog and never opens the Home tab, at most once a day."""
+    if cache.add(
+        f"slack_app:daily_focus_default:{integration.integration_id}:{slack_user_id}", 1, DEFAULT_ON_CHECK_SECONDS
+    ):
+        turn_on_daily_focus_by_default(integration, slack_user_id, source="mention_default")
+
+
+def report_daily_focus_run(integration: WorkspaceIntegration, slack_user_id: str, outcome: str) -> None:
+    """Every daily run ends here, also a quiet day or a run that cannot send, so adoption counts runs and not only
+    DMs."""
+    capture_slack_event(integration, RUN_FINISHED_EVENT, slack_user_id=slack_user_id, outcome=outcome)

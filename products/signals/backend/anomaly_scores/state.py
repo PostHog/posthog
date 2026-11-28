@@ -9,6 +9,7 @@ import datetime
 import dataclasses
 from collections.abc import Collection
 from enum import StrEnum
+from typing import Any
 from zoneinfo import ZoneInfo
 
 import structlog
@@ -23,7 +24,11 @@ from products.product_analytics.backend.facade.models import Insight
 from products.signals.backend.anomaly_scores.artifacts import delete_artifacts
 from products.signals.backend.anomaly_scores.config import (
     DEFAULT_LIMITS,
+    NO_AI_JUDGE,
+    SCORING_PROFILES,
+    AIJudgeConfig,
     AnomalyScoringConfig,
+    IntervalScoring,
     ScoringRun,
     resolve_profile,
 )
@@ -31,7 +36,11 @@ from products.signals.backend.anomaly_scores.scoring import (
     StateIdentity,
     TrainedState,
     buckets_to_score,
+    detector_version,
+    fit_by_current_version,
     interval_scoring,
+    local_scoring,
+    model_scoring,
     query_cost,
     scoring_interval,
     state_identity,
@@ -47,10 +56,12 @@ class TrainDue(StrEnum):
     """Whether a stored model must be replaced before the next score step."""
 
     NO = "no"
-    # The model is past `train_every_buckets`, or more buckets are due than one visit scores. It still scores,
-    # so the score pass keeps the insight current while the train pass has no budget for a refresh.
+    # The model is past `train_every_buckets`, was fit with older detector settings, or more buckets are due than
+    # one visit scores. It still scores, so the score pass keeps the insight current while the train pass has no
+    # budget for a refresh.
     SOFT = "soft"
-    # No usable model: none stored, a changed identity, too few series, or past `max_model_age_buckets`.
+    # No usable model: none stored, a changed interval or query, an older `FIT_VERSION`, too few series, or past
+    # `max_model_age_buckets`.
     HARD = "hard"
 
 
@@ -73,6 +84,9 @@ class ScoreReady:
     scored_through: datetime.datetime
     # A soft retrain is due. The train pass can pick the insight first.
     stale_model: bool = False
+    # The model was fit with older detector settings, at `trained_at`.
+    older_version: bool = False
+    trained_at: datetime.datetime | None = None
 
 
 def _schedule_train_due(
@@ -111,21 +125,23 @@ def train_due(
     state: TrainedState | None,
     *,
     identity: StateIdentity,
+    scoring: IntervalScoring,
     now: datetime.datetime,
     timezone: ZoneInfo,
     train_every: int,
     max_model_age: int,
     max_backfill: int,
 ) -> TrainDue:
+    """``scoring`` is the local part of the insight's settings now."""
     if (
         state is None
-        or state.identity != identity
         or not state.series_keys
         or not state.artifact_key
         or state.scored_through is None
+        or model_scoring(state, identity, scoring) is None
     ):
         return TrainDue.HARD
-    return _schedule_train_due(
+    due = _schedule_train_due(
         identity.interval,
         trained_at=state.trained_at,
         scored_through=state.scored_through,
@@ -137,6 +153,9 @@ def train_due(
         max_model_age=max_model_age,
         max_backfill=max_backfill,
     )
+    if due == TrainDue.NO and state.identity.detector_version != identity.detector_version:
+        return TrainDue.SOFT
+    return due
 
 
 def plan_run(
@@ -146,11 +165,12 @@ def plan_run(
     if not config.train_score_split:
         return RunPlan(queries=queries)
     try:
-        profile = resolve_profile(team, insight)
+        profile = resolve_profile(team, insight, config.ai_judge)
         query = trends_query_for(insight, profile)
         interval = scoring_interval(query)
         scoring = interval_scoring(profile, interval)
         identity = state_identity(query, scoring, team, config.limits)
+        local = local_scoring(scoring)
     except Exception:
         # The scorer fails on the same query and reports the error. A train step charges the larger budget.
         return RunPlan(queries=queries, run=ScoringRun.TRAIN)
@@ -159,6 +179,7 @@ def plan_run(
     due = train_due(
         state,
         identity=identity,
+        scoring=local,
         now=now,
         timezone=team.timezone_info,
         train_every=config.train_every_buckets[interval],
@@ -170,13 +191,19 @@ def plan_run(
     return RunPlan(queries=queries, run=ScoringRun.TRAIN, stale_model=due == TrainDue.SOFT)
 
 
-def load_states(team: Team, insights: Collection[Insight]) -> dict[int, TrainedState]:
-    """Insight id to the stored state of the insight's own scoring profile."""
-    profiles = {insight.id: resolve_profile(team, insight).name for insight in insights}
-    if not profiles:
+def load_states(
+    team: Team, insights: Collection[Insight], ai_judge: AIJudgeConfig = NO_AI_JUDGE
+) -> dict[int, TrainedState]:
+    """Insight id to the stored state under the model profile of the insight's scoring profile.
+
+    Profiles that share a model profile read the same row, so a project that moves between them keeps its
+    models. `plan_run` still checks the identity, so a model that the new profile cannot read trains.
+    """
+    model_profiles = {insight.id: resolve_profile(team, insight, ai_judge).model_profile for insight in insights}
+    if not model_profiles:
         return {}
-    rows = AnomalyScoringState.objects.for_team(team.id).filter(insight_id__in=list(profiles))
-    return {row.insight_id: _from_row(row) for row in rows if profiles.get(row.insight_id) == row.profile}
+    rows = AnomalyScoringState.objects.for_team(team.id).filter(insight_id__in=list(model_profiles))
+    return {row.insight_id: _from_row(row) for row in rows if model_profiles.get(row.insight_id) == row.profile}
 
 
 def score_ready_by_insight(
@@ -185,9 +212,9 @@ def score_ready_by_insight(
     """Insight id to the newest scored bucket of its stored state, for the rows that a score step can read.
 
     A row with a hard retrain trigger is left out, so its insight goes to the train pass without a plan. A row
-    with a soft trigger stays, and is marked stale. The identity and the profile are not checked here, because
-    they need the insight's query. `plan_run` checks them, and the score pass hands an insight that fails them
-    to the train pass.
+    with a soft trigger stays, and is marked stale. A model fit with older detector settings is a soft trigger.
+    The query and the profile are not checked here, because they need the insight's query. `plan_run` checks
+    them, and the score pass hands an insight that fails them to the train pass.
     """
     if not insight_ids:
         return {}
@@ -196,12 +223,36 @@ def score_ready_by_insight(
         .filter(insight_id__in=list(insight_ids), scored_through__isnull=False)
         .exclude(artifact_key="")
         .exclude(series_keys=[])
-        .values_list("insight_id", "interval", "trained_at", "scored_through", "missing_series", "series_keys")
+        .values_list(
+            "insight_id",
+            "profile",
+            "interval",
+            "detector_version",
+            "scoring",
+            "trained_at",
+            "scored_through",
+            "missing_series",
+            "series_keys",
+        )
     )
     ready: dict[int, ScoreReady] = {}
     scorable = {interval.value: interval for interval in config.train_every_buckets}
-    for insight_id, interval, trained_at, scored_through, missing_series, series_keys in rows:
+    current_versions = _current_detector_versions()
+    for (
+        insight_id,
+        model_profile,
+        interval,
+        version,
+        stored_scoring,
+        trained_at,
+        scored_through,
+        missing_series,
+        series_keys,
+    ) in rows:
         if scored_through is None or interval not in scorable:
+            continue
+        older_version = version != current_versions.get((model_profile, interval))
+        if older_version and not fit_by_current_version(version, _scoring_from_row(stored_scoring)):
             continue
         due = _schedule_train_due(
             scorable[interval],
@@ -219,18 +270,35 @@ def score_ready_by_insight(
             continue
         previous = ready.get(insight_id)
         if previous is None or scored_through > previous.scored_through:
-            ready[insight_id] = ScoreReady(scored_through=scored_through, stale_model=due == TrainDue.SOFT)
+            ready[insight_id] = ScoreReady(
+                scored_through=scored_through,
+                stale_model=due == TrainDue.SOFT or older_version,
+                older_version=older_version,
+                trained_at=trained_at,
+            )
     return ready
 
 
-def load_state(team: Team, insight: Insight) -> TrainedState | None:
-    return load_states(team, [insight]).get(insight.id)
+# nosemgrep: tuple-return-prefer-dataclass -- the (model profile, interval) tuples are dict keys here
+def _current_detector_versions() -> dict[tuple[str, str], str]:
+    """Model profile and interval to the detector version that a train step stores now."""
+    return {
+        (profile.model_profile, interval.value): detector_version(local_scoring(scoring), artifacts=True)
+        for profile in SCORING_PROFILES
+        for interval, scoring in profile.intervals.items()
+    }
 
 
-def save_state(team: Team, insight_id: int, profile: str, state: TrainedState) -> None:
+def load_state(team: Team, insight: Insight, ai_judge: AIJudgeConfig = NO_AI_JUDGE) -> TrainedState | None:
+    return load_states(team, [insight], ai_judge).get(insight.id)
+
+
+def save_state(team: Team, insight_id: int, model_profile: str, state: TrainedState) -> None:
     """Write the state row. A new artifact blob replaces the previous one, which is deleted after the write."""
     scope = AnomalyScoringState.objects.for_team(team.id)
-    previous_key = scope.filter(insight_id=insight_id, profile=profile).values_list("artifact_key", flat=True).first()
+    previous_key = (
+        scope.filter(insight_id=insight_id, profile=model_profile).values_list("artifact_key", flat=True).first()
+    )
     fields = {
         "interval": state.identity.interval.value,
         "detector_version": state.identity.detector_version,
@@ -241,10 +309,13 @@ def save_state(team: Team, insight_id: int, profile: str, state: TrainedState) -
         "artifact_key": state.artifact_key,
         "artifact_sha256": state.artifact_sha256,
         "series_keys": list(state.series_keys),
+        "scoring": None
+        if state.scoring is None
+        else {"min_points": state.scoring.min_points, "detector": state.scoring.detector},
     }
     # The scope filters on the project's canonical team, and save() writes that team for a new row.
     scope.update_or_create(
-        insight_id=insight_id, profile=profile, defaults=fields, create_defaults={**fields, "team_id": team.id}
+        insight_id=insight_id, profile=model_profile, defaults=fields, create_defaults={**fields, "team_id": team.id}
     )
     if previous_key and previous_key != state.artifact_key:
         try:
@@ -254,9 +325,11 @@ def save_state(team: Team, insight_id: int, profile: str, state: TrainedState) -
             logger.warning("anomaly_scoring_artifact_delete_failed", insight_id=insight_id, exc_info=True)
 
 
-def invalidate_state(team: Team, insight_id: int, profile: str) -> None:
+def invalidate_state(team: Team, insight_id: int, model_profile: str) -> None:
     """Make the next visit of the insight train. The row keeps its blob key, so that train step deletes the blob."""
-    AnomalyScoringState.objects.for_team(team.id).filter(insight_id=insight_id, profile=profile).update(series_keys=[])
+    AnomalyScoringState.objects.for_team(team.id).filter(insight_id=insight_id, profile=model_profile).update(
+        series_keys=[]
+    )
 
 
 def _from_row(row: AnomalyScoringState) -> TrainedState:
@@ -271,4 +344,12 @@ def _from_row(row: AnomalyScoringState) -> TrainedState:
         artifact_key=row.artifact_key,
         artifact_sha256=row.artifact_sha256,
         missing_series=row.missing_series,
+        scoring=_scoring_from_row(row.scoring),
     )
+
+
+def _scoring_from_row(stored: Any) -> IntervalScoring | None:
+    if not isinstance(stored, dict) or not isinstance(stored.get("min_points"), int):
+        return None
+    detector = stored.get("detector")
+    return IntervalScoring(min_points=stored["min_points"], detector=detector) if isinstance(detector, dict) else None

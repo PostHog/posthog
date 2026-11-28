@@ -21,9 +21,11 @@ from products.mcp_store.backend.facade.api import (
     get_active_installations,
     get_installations_for_sandbox,
     get_sandbox_mcp_server_names,
+    has_slack_mcp_connected,
     member_server_tools,
     resolve_agent_gateway_server_ids,
     resolve_installations_for_sandbox,
+    slack_mcp_installation_id,
     slack_mcp_user_scopes,
     team_tools_not_connected,
 )
@@ -58,6 +60,12 @@ class TestGetActiveInstallations(BaseTest):
         }
         defaults.update(kwargs)
         return MCPServerInstallation.objects.create(**defaults)
+
+    def test_another_active_server_is_not_the_slack_mcp(self) -> None:
+        self._create_installation()
+
+        assert get_active_installations(self.team.id, self.user.id) != []
+        assert has_slack_mcp_connected(self.team.id, self.user.id) is False
 
     def test_returns_active_installations(self) -> None:
         installation = self._create_installation()
@@ -290,6 +298,7 @@ class TestConnectSlackMcpFromSlackLink(BaseTest):
         connected = connect_slack_mcp_from_slack_link(self.team.id, self.user, slack_link_id=str(link.id))
 
         assert connected is connects
+        assert has_slack_mcp_connected(self.team.id, self.user.id) is connects
         assert slack_mcp_user_scopes(self.team.id, self.user.id) == (
             tuple(self.SCOPES) if source == "slack_app" and team_enabled else ()
         )
@@ -299,6 +308,11 @@ class TestConnectSlackMcpFromSlackLink(BaseTest):
             return
         assert installation is not None
         assert [active.id for active in get_active_installations(self.team.id, self.user.id)] == [str(installation.id)]
+        # A run mounts only a connection that shows whose Slack it reads, so a token of its own never counts.
+        mounted = slack_mcp_installation_id(self.team.id, self.user.id, slack_team_id="T1", slack_user_id="U1")
+        assert mounted == (None if existing_token else str(installation.id))
+        assert slack_mcp_installation_id(self.team.id, self.user.id, slack_team_id="T2", slack_user_id="U1") is None
+        assert slack_mcp_installation_id(self.team.id, self.user.id, slack_team_id="T1", slack_user_id="U2") is None
         if existing_token:
             assert installation.sensitive_configuration == {"access_token": existing_token}
             return
@@ -315,6 +329,7 @@ class TestConnectSlackMcpFromSlackLink(BaseTest):
         # The installation keeps no copy of the token, so an unlink also ends its access.
         link.delete()
         assert get_active_installations(self.team.id, self.user.id) == []
+        assert has_slack_mcp_connected(self.team.id, self.user.id) is False
 
     def test_a_relink_does_not_turn_on_a_slack_mcp_the_member_turned_off(self) -> None:
         self._slack_template()
@@ -459,6 +474,7 @@ class TestGetInstallationsForSandbox(BaseTest):
             ("server_disabled", None, "server_disabled"),
             ("revoked", None, "revoked"),
             ("replaced_by_personal", None, "replaced_by_personal"),
+            ("owner_only", None, "owner_only"),
             ("needs_reconnect", [], "not_selected"),
             ("server_disabled", [], "not_selected"),
             ("revoked", [], "not_selected"),
@@ -476,7 +492,7 @@ class TestGetInstallationsForSandbox(BaseTest):
         left_out = self._create_installation(
             scope="shared",
             user=User.objects.create_and_join(self.organization, "teammate@posthog.com", "password")
-            if reason == "teammate_needs_reconnect"
+            if reason in ("teammate_needs_reconnect", "owner_only")
             else self.user,
             display_name="Linear",
             url=server.url,
@@ -484,7 +500,7 @@ class TestGetInstallationsForSandbox(BaseTest):
             auth_type="oauth",
             sensitive_configuration={"access_token": "tok", "needs_reauth": True}
             if reason in ("needs_reconnect", "teammate_needs_reconnect")
-            else {"access_token": "tok"},
+            else {"access_token": "pha_" + "x" * 40 if reason == "owner_only" else "tok"},
         )
         if reason == "revoked":
             MCPMemberServerRevocation.objects.for_team(self.team.id).create(
@@ -830,6 +846,7 @@ class TestGetInstallationsForSandbox(BaseTest):
             ("connection_turned_off", "needs_reconnect"),
             ("server_turned_off_for_team", "server_disabled"),
             ("no_grant", "not_shared"),
+            ("posthog_credential", "owner_only"),
             ("teammate_share_still_works", None),
         ]
     )
@@ -867,7 +884,7 @@ class TestGetInstallationsForSandbox(BaseTest):
                 "both_tokens_need_reconnect",
                 "teammate_share_still_works",
             )
-            else {"access_token": "tok"},
+            else {"access_token": "pha_" + "x" * 40 if case == "posthog_credential" else "tok"},
         )
         if case != "no_grant":
             self._grant(account, server, user=grantor, installation=installation, scope="team")

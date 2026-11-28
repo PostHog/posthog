@@ -18,7 +18,7 @@ from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from posthog.sync import database_sync_to_async
-from posthog.temporal.common.clickhouse import ClickHouseClient
+from posthog.temporal.common.clickhouse import ClickHouseClient, get_client
 from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse
 
 from products.batch_exports.backend.service import (
@@ -249,13 +249,15 @@ async def test_insert_into_http_activity_inserts_data_into_http_endpoint(
     )
 
 
-@override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
+@override_settings(BATCH_EXPORTS_NEW_EVENTS_TABLE_ROLLOUT_PERCENTAGE=100)
 @pytest.mark.parametrize("has_mutations", [True, False])
+@pytest.mark.parametrize("days_ago", [10, 0], ids=["events-json", "events-json-recent"])
 async def test_insert_into_http_activity_exports_person_properties_as_set_when_using_native_events(
-    clickhouse_client, activity_environment, http_config, has_mutations
+    clickhouse_client, activity_environment, http_config, has_mutations, days_ago
 ):
-    interval_end = dt.datetime.now(tz=dt.UTC).replace(microsecond=0) - dt.timedelta(days=10)
+    interval_end = dt.datetime.now(tz=dt.UTC).replace(microsecond=0) - dt.timedelta(days=days_ago, hours=1)
     interval_start = interval_end - dt.timedelta(hours=1)
+    reads_recent_table = days_ago == 0
     team_id = randint(1, 1000000)
     properties = {
         "$set": {"email": "person@example.com", "phone": None},
@@ -283,21 +285,35 @@ async def test_insert_into_http_activity_exports_person_properties_as_set_when_u
     )
     insert_inputs = HttpInsertInputs(
         team_id=team_id,
-        data_interval_start=None,
+        data_interval_start=interval_start.isoformat() if reads_recent_table else None,
         data_interval_end=interval_end.isoformat(),
         backfill_details=BackfillDetails(
             backfill_id=None,
-            start_at=None,
+            start_at=interval_start.isoformat() if reads_recent_table else None,
             end_at=interval_end.isoformat(),
         ),
         **http_config,
     )
     mock_server = MockServer()
+    # Both routes point at the test server, so the cluster each client is given tells them apart.
+    if reads_recent_table:
+        route = {"CLICKHOUSE_BATCH_EXPORTS_HTTP_URL": settings.CLICKHOUSE_HTTP_URL}
+        expected_cluster = settings.CLICKHOUSE_BATCH_EXPORTS_CLUSTER
+    else:
+        route = {"CLICKHOUSE_EVENTS_OFFLINE_HTTP_URL": settings.CLICKHOUSE_HTTP_URL}
+        expected_cluster = settings.CLICKHOUSE_EVENTS_CLUSTER
 
-    with aioresponses(passthrough=[settings.CLICKHOUSE_HTTP_URL]) as responses:
+    with (
+        override_settings(**route),
+        unittest.mock.patch(
+            "products.batch_exports.backend.temporal.clickhouse.get_client", wraps=get_client
+        ) as connected_client,
+        aioresponses(passthrough=[settings.CLICKHOUSE_HTTP_URL]) as responses,
+    ):
         responses.post(TEST_URL, status=200, callback=mock_server.post, repeat=True)
         await activity_environment.run(insert_into_http_activity, insert_inputs)
 
+    assert connected_client.call_args.kwargs["cluster"] == expected_cluster
     assert len(mock_server.records) == 1
     expected_properties = {
         "$set": person_properties,
@@ -339,9 +355,7 @@ async def test_insert_into_http_activity_exports_mutation_properties_from_legacy
     person_properties,
     expected_mutations,
 ):
-    """A recent interval reads a legacy table even on the native schema, and those tables project no
-    mutation columns. The keys come from `properties`, which a legacy table still carries.
-    """
+    """The legacy tables project no mutation columns, so the keys come from `properties`, which they still carry."""
     team_id = randint(1, 1000000)
     interval_end = dt.datetime.now(tz=dt.UTC).replace(microsecond=0) - dt.timedelta(hours=1)
     interval_start = interval_end - dt.timedelta(hours=1)
@@ -373,8 +387,8 @@ async def test_insert_into_http_activity_exports_mutation_properties_from_legacy
 
     with (
         unittest.mock.patch(
-            "products.batch_exports.backend.temporal.destinations.http_batch_export.use_new_events_schema",
-            return_value=True,
+            "products.batch_exports.backend.temporal.destinations.http_batch_export.batch_exports_read_new_events_table",
+            return_value=False,
         ),
         aioresponses(passthrough=[settings.CLICKHOUSE_HTTP_URL]) as responses,
     ):

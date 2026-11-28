@@ -150,6 +150,7 @@ def test_can_patch_config(
             "bucket_name": "my-production-s3-bucket",
             "region": "us-east-1",
             "prefix": "posthog-events/",
+            "use_new_events_schema": True,
         },
     }
 
@@ -212,6 +213,7 @@ def test_can_patch_config(
         assert batch_export_data["offset_hour"] is None
         assert batch_export_data["offset_day"] is None
     assert batch_export_data["destination"]["config"]["bucket_name"] == "my-new-production-s3-bucket"
+    assert batch_export_data["destination"]["config"]["use_new_events_schema"] is True
 
     # validate the underlying temporal schedule has been updated
     new_schedule = describe_schedule(temporal, batch_export["id"])
@@ -225,6 +227,7 @@ def test_can_patch_config(
     decoded_payload = async_to_sync(encryption_codec.decode)(new_schedule.schedule.action.args)
     args = json.loads(decoded_payload[0].data)
     assert args["bucket_name"] == "my-new-production-s3-bucket"
+    assert args["use_new_events_schema"] is True
     assert new_schedule.schedule.spec.time_zone_name == timezone
     assert "user_id" not in args["batch_export_model"]
 
@@ -778,15 +781,16 @@ def test_can_patch_hogql_query(
             ],
             "values": {"hogql_val_0": "test", "hogql_val_1": "Int64"},
             "hogql_query": "SELECT toString(uuid) AS uuid, 'test' AS test, toInt(plus(1, 1)) AS n FROM events",
+            "restricted_properties": [],
         },
         "primary_key": [],
         "version_key": [],
         "incremental_mode": "APPEND",
     }
 
-    for patch_data, expected_schema in [
-        ({"name": "renamed"}, response_data["schema"]),
-        ({"hogql_query": None}, None),
+    for patch_data, expected_schema, expected_schedule_schema in [
+        ({"name": "renamed"}, response_data["schema"], args["batch_export_model"]["schema"]),
+        ({"hogql_query": None}, None, None),
     ]:
         response = patch_batch_export(client, team.pk, batch_export["id"], patch_data)
         assert response.status_code == status.HTTP_200_OK, response.json()
@@ -794,7 +798,7 @@ def test_can_patch_hogql_query(
         schedule = describe_schedule(temporal, batch_export["id"])
         decoded_payload = async_to_sync(encryption_codec.decode)(schedule.schedule.action.args)
         args = json.loads(decoded_payload[0].data)
-        assert args["batch_export_model"].get("schema") == expected_schema
+        assert args["batch_export_model"].get("schema") == expected_schedule_schema
 
 
 @pytest.mark.usefixtures("grandfathered_batch_export")

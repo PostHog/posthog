@@ -26,7 +26,6 @@ const createTestTeam = (overrides: Partial<Team> = {}): Team => ({
     name: 'Test Team',
     anonymize_ips: false,
     api_token: 'test-api-token',
-    secret_api_token: null,
     session_recording_opt_in: true,
     person_processing_opt_out: null,
     heatmaps_opt_in: null,
@@ -34,6 +33,7 @@ const createTestTeam = (overrides: Partial<Team> = {}): Team => ({
     person_display_name_properties: null,
     minimal_flag_called_events: false,
     flag_evaluations_mode: FlagEvaluationsMode.Events,
+    keep_writing_flag_calls_to_events: false,
     test_account_filters: null,
     cookieless_server_hash_mode: null,
     timezone: 'UTC',
@@ -398,7 +398,12 @@ describe('Pipeline Integration Tests', () => {
             const step1Map = new Map<
                 string,
                 AsyncStepConfig<{ message: Message; headers: TestHeaders }, OverflowOutput>
-            >([['redirect-event', { delay: 0, result: redirect('Mock redirect', OVERFLOW_OUTPUT, true) }]])
+            >([
+                [
+                    'redirect-event',
+                    { delay: 0, result: redirect('Mock redirect', OVERFLOW_OUTPUT, { preserveKey: true }) },
+                ],
+            ])
 
             // Define step
             const step1 = createMockStep<{ message: Message }, { message: Message; headers: TestHeaders }, string>(
@@ -1253,7 +1258,10 @@ describe('Pipeline Integration Tests', () => {
             >([
                 ['drop-event', { delay: 0, result: drop('Mock drop') }],
                 ['dlq-event', { delay: 0, result: dlq('Mock DLQ') }],
-                ['redirect-event', { delay: 0, result: redirect('Mock redirect', OVERFLOW_OUTPUT, true) }],
+                [
+                    'redirect-event',
+                    { delay: 0, result: redirect('Mock redirect', OVERFLOW_OUTPUT, { preserveKey: true }) },
+                ],
                 ['ok-event', { delay: 0, result: ok({ message: messages[3], headers: { token: 'test-token' } }) }],
             ])
 

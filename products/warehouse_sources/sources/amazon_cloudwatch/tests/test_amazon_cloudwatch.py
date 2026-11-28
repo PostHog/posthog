@@ -15,7 +15,6 @@ from products.warehouse_sources.sources.amazon_cloudwatch.amazon_cloudwatch impo
     VALIDATION_ERROR_MESSAGES,
     AmazonCloudWatchResumeConfig,
     parse_metric_queries,
-    validate_credentials,
 )
 from products.warehouse_sources.sources.amazon_cloudwatch.source import AmazonCloudWatchSource
 from products.warehouse_sources.sources.sdk.testing import (
@@ -44,7 +43,7 @@ def config(**overrides: Any) -> AmazonCloudWatchSourceConfig:
         "start_date": "2024-03-08",
     }
     values.update(overrides)
-    return AmazonCloudWatchSourceConfig(**values)
+    return AmazonCloudWatchSourceConfig.from_dict(values)
 
 
 def driver(**overrides: Any) -> SourceDriver:
@@ -244,9 +243,18 @@ class TestLogEvents:
         assert result.raised is None
         assert result.requests[0].json()["startTime"] == int(expected_start.timestamp() * 1000)
 
-    def test_no_configured_log_groups_discovers_them_first(self) -> None:
+    @pytest.mark.parametrize(
+        ("endpoint", "operation", "page"),
+        [
+            ("log_events", "FilterLogEvents", logs_page([event("d1")])),
+            ("log_streams", "DescribeLogStreams", ScriptedResponse(json={"logStreams": []})),
+        ],
+    )
+    def test_no_configured_log_groups_discovers_them_first(
+        self, endpoint: str, operation: str, page: ScriptedResponse
+    ) -> None:
         result = driver(log_group_names="").run(
-            "log_events",
+            endpoint,
             by_origin(
                 logs=[
                     ScriptedResponse(
@@ -259,7 +267,7 @@ class TestLogEvents:
                             ]
                         }
                     ),
-                    logs_page([event("d1")]),
+                    page,
                 ]
             ),
         )
@@ -267,7 +275,7 @@ class TestLogEvents:
         assert result.raised is None
         assert [r.headers["x-amz-target"] for r in result.requests] == [
             "Logs_20140328.DescribeLogGroups",
-            "Logs_20140328.FilterLogEvents",
+            f"Logs_20140328.{operation}",
         ]
         assert result.requests[1].json()["logGroupName"] == "/discovered"
 
@@ -317,6 +325,160 @@ class TestLogGroups:
             "stored_bytes": 10,
         }
         assert [row["log_group_name"] for row in result.rows] == ["/a", "/b"]
+
+
+class TestLogStreams:
+    def test_walks_every_page_of_each_log_group_and_tags_rows_with_their_group(self) -> None:
+        stream = {
+            "logStreamName": "s1",
+            "creationTime": 1709900000000,
+            "firstEventTimestamp": 1709900000000,
+            "lastEventTimestamp": 1709900060000,
+            "lastIngestionTime": 1709900060005,
+            "arn": "arn:s1",
+            "storedBytes": 0,
+            "uploadSequenceToken": "t",
+        }
+        result = driver().run(
+            "log_streams",
+            by_origin(
+                logs=[
+                    ScriptedResponse(json={"logStreams": [stream], "nextToken": "p2"}),
+                    ScriptedResponse(json={"logStreams": [{**stream, "logStreamName": "s2"}]}),
+                    ScriptedResponse(json={"logStreams": [stream]}),
+                ]
+            ),
+        )
+
+        assert result.raised is None
+        assert [(r.json()["logGroupName"], r.json().get("nextToken")) for r in result.requests] == [
+            ("/aws/lambda/one", None),
+            ("/aws/lambda/one", "p2"),
+            ("/aws/lambda/two", None),
+        ]
+        assert [(row["log_group_name"], row["log_stream_name"]) for row in result.rows] == [
+            ("/aws/lambda/one", "s1"),
+            ("/aws/lambda/one", "s2"),
+            ("/aws/lambda/two", "s1"),
+        ]
+        assert result.rows[0] == {
+            "log_group_name": "/aws/lambda/one",
+            "log_stream_name": "s1",
+            "arn": "arn:s1",
+            "creation_time": dt.datetime(2024, 3, 8, 12, 13, 20, tzinfo=dt.UTC),
+            "first_event_timestamp": dt.datetime(2024, 3, 8, 12, 13, 20, tzinfo=dt.UTC),
+            "last_event_timestamp": dt.datetime(2024, 3, 8, 12, 14, 20, tzinfo=dt.UTC),
+            "last_ingestion_time": dt.datetime(2024, 3, 8, 12, 14, 20, 5000, tzinfo=dt.UTC),
+        }
+
+
+class TestRegionWideLogCatalogs:
+    @pytest.mark.parametrize(
+        ("endpoint", "operation", "items_key", "item", "key_columns", "time_columns"),
+        [
+            (
+                "metric_filters",
+                "DescribeMetricFilters",
+                "metricFilters",
+                {
+                    "filterName": "errors",
+                    "logGroupName": "/aws/lambda/three",
+                    "filterPattern": "ERROR",
+                    "creationTime": 1709900000000,
+                    "metricTransformations": [{"metricName": "Errors", "metricNamespace": "App", "metricValue": "1"}],
+                },
+                ("log_group_name", "filter_name"),
+                ("creation_time",),
+            ),
+            (
+                "log_anomalies",
+                "ListAnomalies",
+                "anomalies",
+                {
+                    "anomalyId": "a1",
+                    "anomalyDetectorArn": "arn:detector",
+                    "patternString": "<*> timed out",
+                    "firstSeen": 1709900000000,
+                    "lastSeen": 1709900000000,
+                    "suppressedDate": 1709900000000,
+                    "suppressedUntil": 1709900000000,
+                    "histogram": {"1709900000000": 3},
+                },
+                ("anomaly_detector_arn", "anomaly_id"),
+                ("first_seen", "last_seen", "suppressed_date", "suppressed_until"),
+            ),
+        ],
+    )
+    def test_lists_the_whole_region_page_by_page_whatever_log_groups_are_configured(
+        self,
+        endpoint: str,
+        operation: str,
+        items_key: str,
+        item: dict[str, Any],
+        key_columns: tuple[str, ...],
+        time_columns: tuple[str, ...],
+    ) -> None:
+        result = driver().run(
+            endpoint,
+            by_origin(
+                logs=[
+                    ScriptedResponse(json={items_key: [item], "nextToken": "p2"}),
+                    ScriptedResponse(json={items_key: [item]}),
+                ]
+            ),
+        )
+
+        assert result.raised is None
+        assert [r.headers["x-amz-target"] for r in result.requests] == [f"Logs_20140328.{operation}"] * 2
+        assert [r.json() for r in result.requests] == [{"limit": 50}, {"limit": 50, "nextToken": "p2"}]
+        assert len(result.rows) == 2
+        assert all(result.rows[0][column] for column in key_columns)
+        for column in time_columns:
+            assert result.rows[0][column] == dt.datetime(2024, 3, 8, 12, 13, 20, tzinfo=dt.UTC)
+
+
+class TestMetrics:
+    @staticmethod
+    def metric(name: str, dimensions: list[tuple[str, str]]) -> str:
+        members = "".join(f"<member><Name>{n}</Name><Value>{v}</Value></member>" for n, v in dimensions)
+        return (
+            f"<member><Namespace>AWS/EC2</Namespace><MetricName>{name}</MetricName>"
+            f"<Dimensions>{members}</Dimensions></member>"
+        )
+
+    def test_follows_next_token_and_keys_a_metric_by_its_name_and_dimension_set(self) -> None:
+        result = driver().run(
+            "metrics",
+            by_origin(
+                monitoring=[
+                    xml_response(
+                        "ListMetrics",
+                        "<Metrics>"
+                        + self.metric("CPUUtilization", [("InstanceId", "i-1"), ("AutoScalingGroupName", "g")])
+                        + self.metric("CPUUtilization", [("InstanceId", "i-2")])
+                        + "</Metrics><NextToken>n2</NextToken>",
+                    ),
+                    xml_response(
+                        "ListMetrics",
+                        "<Metrics>"
+                        # AWS does not promise a dimension order, so the same metric must keep its key.
+                        + self.metric("CPUUtilization", [("AutoScalingGroupName", "g"), ("InstanceId", "i-1")])
+                        + self.metric("NetworkIn", [("InstanceId", "i-1"), ("AutoScalingGroupName", "g")])
+                        + "</Metrics>",
+                    ),
+                ]
+            ),
+        )
+
+        assert result.raised is None
+        assert [form(r)["Action"] for r in result.requests] == ["ListMetrics", "ListMetrics"]
+        assert "NextToken" not in form(result.requests[0])
+        assert form(result.requests[1])["NextToken"] == "n2"
+        assert result.rows[0]["namespace"] == "AWS/EC2"
+        assert result.rows[1]["dimensions"] == [{"Name": "InstanceId", "Value": "i-2"}]
+        ids = [row["metric_id"] for row in result.rows]
+        assert ids[0] == ids[2]
+        assert len({ids[0], ids[1], ids[3]}) == 3
 
 
 class TestMetricData:
@@ -650,7 +812,7 @@ class TestValidateCredentials:
     @pytest.mark.parametrize(
         ("overrides", "expected"),
         [
-            ({"aws_access_key_id": ""}, "AWS access key ID and secret access key are required"),
+            ({"aws_access_key_id": ""}, "Enter both an AWS access key ID and a secret access key."),
             ({"aws_region": "mars"}, "Enter an AWS region code, for example us-east-1."),
             (
                 {"metric_queries": "{"},
@@ -664,14 +826,7 @@ class TestValidateCredentials:
         c = config(**overrides)
 
         with scripted_network([]) as network:
-            assert validate_credentials(
-                c.aws_access_key_id,
-                c.aws_secret_access_key,
-                c.aws_session_token,
-                c.aws_region,
-                c.metric_queries,
-                c.start_date,
-            ) == (False, expected)
+            assert AmazonCloudWatchSource().validate_credentials(c, team_id=1) == (False, expected)
 
         assert network.requests == 0
 
@@ -696,12 +851,7 @@ class TestValidateCredentials:
         c = config()
 
         with scripted_network([response]) as network:
-            assert (
-                validate_credentials(
-                    c.aws_access_key_id, c.aws_secret_access_key, c.aws_session_token, c.aws_region, c.metric_queries
-                )
-                == expected
-            )
+            assert AmazonCloudWatchSource().validate_credentials(c, team_id=1) == expected
 
         # STS answers any valid key without an IAM permission, so a key scoped to one table connects.
         probe = network.requests_log[0]
@@ -712,9 +862,7 @@ class TestValidateCredentials:
         c = config(aws_region="cn-north-1")
 
         with scripted_network([CALLER_IDENTITY]) as network:
-            assert validate_credentials(
-                c.aws_access_key_id, c.aws_secret_access_key, c.aws_session_token, c.aws_region, c.metric_queries
-            ) == (True, None)
+            assert AmazonCloudWatchSource().validate_credentials(c, team_id=1) == (True, None)
 
         assert network.requests_log[0].origin == "https://sts.cn-north-1.amazonaws.com.cn"
 
@@ -732,8 +880,6 @@ class TestValidateCredentials:
         c = config()
 
         with scripted_network(lambda _request: response) as network:
-            assert validate_credentials(
-                c.aws_access_key_id, c.aws_secret_access_key, c.aws_session_token, c.aws_region, c.metric_queries
-            ) == (False, TRANSIENT_VALIDATION_ERROR)
+            assert AmazonCloudWatchSource().validate_credentials(c, team_id=1) == (False, TRANSIENT_VALIDATION_ERROR)
 
         assert 1 < network.requests <= MAX_ATTEMPTS

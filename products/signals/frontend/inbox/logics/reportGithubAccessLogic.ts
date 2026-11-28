@@ -37,6 +37,7 @@ export interface reportGithubAccessLogicValues {
     repairNeeded: boolean
     repositoryIntegrationId: number | null
     repositoryRequired: boolean
+    repositorySelectionRequests: number
     selectedIntegrationId: number | null
     selectedRepository: string
 }
@@ -114,6 +115,7 @@ export interface reportGithubAccessLogicMeta {
             githubIntegrations: IntegrationType[]
         ) => number | null
         pilot: (isGithubOptionalSetup: boolean) => boolean
+        repositoryRequired: (repositorySelectionRequests: number, report: SignalReport | null) => boolean
         loading: (integrationsLoading: boolean, accessLoading: boolean, savedStateLoading: boolean) => boolean
         failed: (
             pilot: boolean,
@@ -176,10 +178,10 @@ export const reportGithubAccessLogic = kea<reportGithubAccessLogicType>([
         setSelectedIntegrationId: (integrationId: number) => ({ integrationId }),
     }),
     reducers({
-        repositoryRequired: [
-            false,
+        repositorySelectionRequests: [
+            0,
             {
-                requireRepositorySelection: () => true,
+                requireRepositorySelection: (count) => count + 1,
             },
         ],
         selectedRepository: [
@@ -270,6 +272,12 @@ export const reportGithubAccessLogic = kea<reportGithubAccessLogicType>([
                 null,
         ],
         pilot: [(s) => [s.isGithubOptionalSetup], (available: boolean): boolean => available],
+        // The backend refuses a web implementation when it cannot resolve a repository, so a report
+        // without one asks for a repository before the request is sent.
+        repositoryRequired: [
+            (s, p) => [s.repositorySelectionRequests, p.report],
+            (requests: number, report: SignalReport | null): boolean => requests > 0 || !report?.repo_slug,
+        ],
         loading: [
             (s) => [s.integrationsLoading, s.accessLoading, s.savedStateLoading],
             (integrationsLoading: boolean, accessLoading: boolean, setupLoading: boolean): boolean =>

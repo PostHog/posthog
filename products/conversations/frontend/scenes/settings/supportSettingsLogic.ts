@@ -27,6 +27,8 @@ const BASE_AI_CHANNELS: TicketChannel[] = ['widget', 'email', 'slack']
 const SLACK_FILE_SCOPES = ['files:read', 'files:write']
 // Pinned analytics event schema because dashboards and funnels depend on its name and status values.
 const TRUSTED_RELAY_UPDATE_EVENT = 'support trusted relay update'
+// Pinned analytics event schema because dashboards and funnels depend on its name and status values.
+const EMAIL_DISPLAY_NAME_UPDATE_EVENT = 'support email display name update'
 
 export function aiAllChannelsForFeatureFlags(featureFlags: Record<string, boolean | string>): TicketChannel[] {
     const channels: TicketChannel[] = [...BASE_AI_CHANNELS]
@@ -83,6 +85,8 @@ export interface supportSettingsLogicValues {
     aiEnabledChannels: TicketChannel[]
     aiReplyCustomized: boolean
     aiReplyModes: Record<string, Record<string, 'bot_reply' | 'private_note'>>
+    aiRerunModeLoading: boolean
+    aiRerunUntilTeamReply: boolean
     aiResolutionChannels: TicketChannel[]
     aiSuggestionsEnabled: boolean
     aiSuggestionsLoading: boolean
@@ -93,6 +97,8 @@ export interface supportSettingsLogicValues {
     emailConfigs: EmailConfigStatus[]
     emailConnected: boolean
     emailConnecting: boolean
+    emailDisplayNameDrafts: Record<string, string>
+    emailDisplayNameSavingConfigId: string | null
     emailTestingConfigId: string | null
     emailVerifyingConfigId: string | null
     githubConnected: boolean
@@ -219,7 +225,7 @@ export interface supportSettingsLogicActions {
     ) => {
         channels: {
             id: string
-            membership_type?: string | null | undefined
+            membership_type?: string | null
             name: string
         }[]
         teamId: string
@@ -446,6 +452,19 @@ export interface supportSettingsLogicActions {
         editingIndex: number | null
         value: string
     }
+    saveEmailDisplayName: (configId: string) => {
+        configId: string
+    }
+    saveEmailDisplayNameDone: (
+        configId: string,
+        fromName: string
+    ) => {
+        configId: string
+        fromName: string
+    }
+    saveEmailDisplayNameFailed: () => {
+        value: true
+    }
     saveGreetingText: () => {
         value: true
     }
@@ -513,6 +532,9 @@ export interface supportSettingsLogicActions {
         mode: 'bot_reply' | 'private_note'
         ticketType: string
     }
+    setAiRerunUntilTeamReply: (enabled: boolean) => {
+        enabled: boolean
+    }
     setAiResolutionChannels: (channels: TicketChannel[]) => {
         channels: TicketChannel[]
     }
@@ -539,6 +561,13 @@ export interface supportSettingsLogicActions {
     }
     setEditingDomainIndex: (index: number | null) => {
         index: number | null
+    }
+    setEmailDisplayNameDraft: (
+        configId: string,
+        value: string
+    ) => {
+        configId: string
+        value: string
     }
     setGithubRepos: (repos: string[]) => {
         repos: string[]
@@ -667,6 +696,7 @@ export interface supportSettingsLogicMeta {
         githubSelectedRepos: (currentTeam: TeamPublicType | TeamType | null) => string[]
         aiSuggestionsEnabled: (currentTeam: TeamPublicType | TeamType | null) => boolean
         aiDiagnosticsEnabled: (currentTeam: TeamPublicType | TeamType | null) => boolean
+        aiRerunUntilTeamReply: (currentTeam: TeamPublicType | TeamType | null) => boolean
         aiContextAccountPropertyIds: (currentTeam: TeamPublicType | TeamType | null) => string[]
         aiEnabledChannels: (
             currentTeam: TeamPublicType | TeamType | null,
@@ -801,6 +831,10 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
             trustedRelaySender,
         }),
         saveTrustedRelaySenderFailed: true,
+        setEmailDisplayNameDraft: (configId: string, value: string) => ({ configId, value }),
+        saveEmailDisplayName: (configId: string) => ({ configId }),
+        saveEmailDisplayNameDone: (configId: string, fromName: string) => ({ configId, fromName }),
+        saveEmailDisplayNameFailed: true,
         // GitHub Issues channel settings
         connectGithub: (integrationId: number) => ({ integrationId }),
         disconnectGithub: true,
@@ -811,6 +845,7 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
         setAiSuggestionsLoading: (loading: boolean) => ({ loading }),
         setAiDiagnosticsEnabled: (enabled: boolean) => ({ enabled }),
         setAiDiagnosticsLoading: (loading: boolean) => ({ loading }),
+        setAiRerunUntilTeamReply: (enabled: boolean) => ({ enabled }),
         setAiResolutionChannels: (channels: TicketChannel[]) => ({ channels }),
         setAiReplyMode: (channel: string, ticketType: string, mode: 'private_note' | 'bot_reply') => ({
             channel,
@@ -916,6 +951,8 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
                     state.map((config) =>
                         config.id === configId ? { ...config, trusted_relay_sender: trustedRelaySender } : config
                     ),
+                saveEmailDisplayNameDone: (state, { configId, fromName }) =>
+                    state.map((config) => (config.id === configId ? { ...config, from_name: fromName } : config)),
                 verifyEmailDomainDone: (state, { configId, verified, dnsRecords }) => {
                     const targetDomain = state.find((t) => t.id === configId)?.domain
                     if (!targetDomain) {
@@ -999,6 +1036,23 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
                 saveTrustedRelaySenderFailed: () => null,
             },
         ],
+        emailDisplayNameDrafts: [
+            {} as Record<string, string>,
+            {
+                loadEmailConfigsDone: (_, { configs }) =>
+                    Object.fromEntries(configs.map((config) => [config.id, config.from_name])),
+                setEmailDisplayNameDraft: (state, { configId, value }) => ({ ...state, [configId]: value }),
+                saveEmailDisplayNameDone: (state, { configId, fromName }) => ({ ...state, [configId]: fromName }),
+            },
+        ],
+        emailDisplayNameSavingConfigId: [
+            null as string | null,
+            {
+                saveEmailDisplayName: (_, { configId }) => configId,
+                saveEmailDisplayNameDone: () => null,
+                saveEmailDisplayNameFailed: () => null,
+            },
+        ],
         teamsInstallStatus: [
             'idle' as 'idle' | 'installing' | 'installed' | 'needs_org_catalog' | 'error',
             {
@@ -1042,6 +1096,14 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
             false,
             {
                 setAiDiagnosticsLoading: (_, { loading }) => loading,
+                updateCurrentTeamSuccess: () => false,
+                updateCurrentTeamFailure: () => false,
+            },
+        ],
+        aiRerunModeLoading: [
+            false,
+            {
+                setAiRerunUntilTeamReply: () => true,
                 updateCurrentTeamSuccess: () => false,
                 updateCurrentTeamFailure: () => false,
             },
@@ -1372,6 +1434,11 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
             (s) => [s.currentTeam],
             (currentTeam: null | import('~/types').TeamPublicType | import('~/types').TeamType): boolean =>
                 !!currentTeam?.conversations_settings?.ai_diagnostics_enabled,
+        ],
+        aiRerunUntilTeamReply: [
+            (s) => [s.currentTeam],
+            (currentTeam: null | import('~/types').TeamPublicType | import('~/types').TeamType): boolean =>
+                currentTeam?.conversations_settings?.ai_rerun_mode === 'until_team_reply',
         ],
         aiContextAccountPropertyIds: [
             (s) => [s.currentTeam],
@@ -1765,6 +1832,24 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
                 lemonToast.error(emailSettingsErrorMessage(error, "Couldn't save the trusted relay sender. Try again."))
             }
         },
+        saveEmailDisplayName: async ({ configId }) => {
+            const fromName = (values.emailDisplayNameDrafts[configId] ?? '').trim()
+            posthog.capture(EMAIL_DISPLAY_NAME_UPDATE_EVENT, { status: 'started' })
+            try {
+                // nosemgrep: prefer-codegen-api -- Conversations email settings endpoints are absent from generated clients.
+                await api.create('api/conversations/v1/email/set_display_name', {
+                    config_id: configId,
+                    from_name: fromName,
+                })
+                actions.saveEmailDisplayNameDone(configId, fromName)
+                posthog.capture(EMAIL_DISPLAY_NAME_UPDATE_EVENT, { status: 'completed' })
+                lemonToast.success('Display name saved')
+            } catch (error) {
+                actions.saveEmailDisplayNameFailed()
+                posthog.capture(EMAIL_DISPLAY_NAME_UPDATE_EVENT, { status: 'failed' })
+                lemonToast.error(emailSettingsErrorMessage(error, "Couldn't save the display name. Try again."))
+            }
+        },
         disconnectSlack: async () => {
             try {
                 // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
@@ -1892,6 +1977,14 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
                 conversations_settings: {
                     ...values.currentTeam?.conversations_settings,
                     ai_diagnostics_enabled: enabled,
+                },
+            })
+        },
+        setAiRerunUntilTeamReply: ({ enabled }) => {
+            actions.updateCurrentTeam({
+                conversations_settings: {
+                    ...values.currentTeam?.conversations_settings,
+                    ai_rerun_mode: enabled ? 'until_team_reply' : 'first_message',
                 },
             })
         },

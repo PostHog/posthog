@@ -171,6 +171,8 @@ export interface ToolCallAnalyticsMeta {
     parameters?: unknown
     /** What the agent got back → `$mcp_response`. The SDK sanitizes and truncates it. */
     response?: unknown
+    /** Key names of the request's `_meta`, never values -> `mcp_request_meta_keys`. */
+    requestMetaKeys?: string[]
 }
 
 export async function trackToolCall(
@@ -249,6 +251,10 @@ export async function trackToolCall(
                 // Which vendor ran the tool, so "who do people actually call" is a
                 // breakdown rather than a string split over `tool_name` in HogQL.
                 ...(gatewayServer ? { mcp_gateway_server: gatewayServer } : {}),
+                ...(analyticsMeta?.requestMetaKeys ? { mcp_request_meta_keys: analyticsMeta.requestMetaKeys } : {}),
+                ...(requestContext.requestHeaderNames
+                    ? { mcp_request_header_names: requestContext.requestHeaderNames }
+                    : {}),
                 ...extraProperties,
                 [`$feature/${MCP_INTENT_PROMPT_FLAG}`]: state.toolFeatureFlags?.[MCP_INTENT_PROMPT_FLAG],
                 [`$feature/${MCP_INBOX_FIRST_FLAG}`]: state.toolFeatureFlags?.[MCP_INBOX_FIRST_FLAG],
@@ -353,9 +359,20 @@ const PRESIGNED_UPLOAD_TOOL_NAME = 'media-image-upload-start'
 // (`pat`, credential-bearing URLs) have names key-based redaction can't recognize.
 const FIVETRAN_UPLOAD_TOOL_NAME = 'warehouse-migration-upload-connections'
 
+// Their results can hold a live credential, including the SCIM token that IdP create and update
+// return when they turn SCIM on. Key-based redaction can't find it in the formatted result text.
+const CREDENTIAL_ISSUING_TOOL_NAMES = [
+    'identity-provider-configs-scim-token-create-execute',
+    'identity-provider-configs-create-execute',
+    'identity-provider-configs-partial-update-execute',
+    'skill-store-install-command',
+    'external-data-destinations-connect-link',
+]
+
 const UNCAPTURED_PAYLOAD_TOOL_NAMES: ReadonlySet<string> = new Set([
     PRESIGNED_UPLOAD_TOOL_NAME,
     FIVETRAN_UPLOAD_TOOL_NAME,
+    ...CREDENTIAL_ISSUING_TOOL_NAMES,
 ])
 
 function carriesUncapturedPayload(toolName: string, input: unknown): boolean {
@@ -390,6 +407,9 @@ type EmailRecipientExposure = 'arguments' | 'arguments-and-result'
 const EMAIL_RECIPIENT_TOOLS: ReadonlyMap<string, EmailRecipientExposure> = new Map([
     ['workflows-transactional-emails-list', 'arguments-and-result'],
     ['workflows-transactional-email-get', 'arguments-and-result'],
+    ['workflows-emails-list', 'arguments-and-result'],
+    ['workflows-email-get', 'arguments-and-result'],
+    ['workflows-email-activity', 'arguments-and-result'],
     ['opt-outs-list', 'arguments-and-result'],
     ['opt-outs-remove', 'arguments-and-result'],
     ['opt-outs-add', 'arguments'],

@@ -19,6 +19,10 @@ from products.warehouse_sources.backend.facade.source_config import (
     SourceFieldSelectConfigOption,
     SourceFieldSSHTunnelConfig,
 )
+from products.warehouse_sources.backend.models.ssh_tunnel import (
+    SSH_GATEWAY_CLOSED_BEFORE_BANNER_SETUP_MESSAGE,
+    SSHGatewayClosedBeforeBannerError,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.clickhouse.clickhouse import (
     NOT_A_CLICKHOUSE_HTTP_RESPONSE,
     BypassEnvProxy,
@@ -108,6 +112,18 @@ _CLOUDFLARE_TUNNEL_DOWN = (
     "host is running and connected, then try again."
 )
 
+# clickhouse-connect reports a bare, body-less 407 the same way it does the bare 400/404 above
+# ("HTTP driver received HTTP status 407 (for url <url>)"). Our own egress proxy's SSRF refusal
+# is also a 407, but it always appends "server response: Egress proxying is denied ..." (see
+# _EGRESS_DENIED_PRIVATE_HOST below) — a bare 407 with no such body means some other service
+# answered on that host/port and demanded proxy credentials we have no way to supply, the same
+# "wrong service is listening there" shape as 400/404.
+_PROXY_AUTH_REQUIRED = (
+    "We reached your ClickHouse host but it returned a 407 (Proxy Authentication Required), so it isn't "
+    "serving the ClickHouse HTTP interface on that host/port — some other proxy or service answered instead. "
+    "Please check the host, port, and HTTPS setting (and any tunnel or proxy in front of it)."
+)
+
 # PostHog's egress proxy is the SSRF backstop for this source (see `_get_client`'s docstring):
 # it independently re-resolves the configured host on every connection and refuses one that
 # answers with a private/internal address, even if the host passed this source's own DNS check
@@ -166,6 +182,10 @@ ClickHouseErrors: dict[str, str] = {
     # tunnel) rejected the request before it reached the server. Same cause as 404, different
     # status code some proxies use instead.
     "received http status 400": "We reached your ClickHouse host but it returned a 400, so it isn't serving the ClickHouse HTTP interface on that host/port. Please check the host, port, and HTTPS setting (and any tunnel or proxy in front of it).",
+    # Matching "(for url" right after the code catches only the bare, body-less 407 — the
+    # egress-proxy-deny 407 always has ", server response: Egress proxying is denied ..." between
+    # the code and "(for url" instead, so it never matches this key. See `_PROXY_AUTH_REQUIRED`.
+    "received http status 407 (for url": _PROXY_AUTH_REQUIRED,
     # `_get_client` raises this when the host answers 2xx with a body that isn't a
     # ClickHouse response (a proxy/LB page, or a different service on the host/port).
     "did not return a valid clickhouse response": NOT_A_CLICKHOUSE_HTTP_RESPONSE,
@@ -431,6 +451,11 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
             # sets. A bare 400 means a proxy, WAF, or tunnel in front of ClickHouse rejected the
             # request before it reached the server, so retrying replays the identical failure.
             "received HTTP status 400": "We reached your ClickHouse host but it returned a 400, so it isn't serving the ClickHouse HTTP interface on that host/port. Please check the host, port, and HTTPS setting (and any tunnel or proxy in front of it).",
+            # Bare, body-less 407 — matched the same way as validate_credentials's
+            # ClickHouseErrors entry above (see _PROXY_AUTH_REQUIRED and the comment there for why
+            # "(for url" right after the code keeps this distinct from the egress-proxy-deny 407
+            # below, which always carries a "server response: Egress proxying is denied" body).
+            "received HTTP status 407 (for url": _PROXY_AUTH_REQUIRED,
             # `_get_client` wraps the driver's construction-time probe failure ("too many
             # values to unpack") into this message when the host answers 2xx with a body that
             # isn't a ClickHouse response. The endpoint isn't serving the ClickHouse HTTP
@@ -572,6 +597,25 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
             # entry covers the case where the server stays saturated past all in-process
             # attempts, so Temporal's own retry — with a fresh backoff budget — isn't noise.
             "TOO_MANY_SIMULTANEOUS_QUERIES",
+            # QUOTA_EXCEEDED (code 201) — the connecting user has a server-side quota (e.g. a
+            # rolling-hour execution_time budget) and this sync pushed it over. Unlike the
+            # Code: 241/243/396 capacity limits above, a quota clears on its own once its interval
+            # ends (the message names exactly when), so it must not disable the schema — that
+            # would leave every table on this source off until a person notices and re-enables
+            # each one, well after the cause already cleared. Temporal's own retry budget is far
+            # shorter than a typical quota window, so the schema staying enabled for its next
+            # scheduled run — after the window has had more time to close — is what actually
+            # recovers this. We match the error-code name, which a quota-enforcing proxy in front
+            # of ClickHouse (not just ClickHouse itself) could also raise, rather than "Code: 201".
+            "QUOTA_EXCEEDED",
+        }
+
+    def get_retry_exhausted_errors(self) -> dict[str, str]:
+        return {
+            # Shown on `latest_error` once a run's retries run out while the quota is still active.
+            # The schema itself stays enabled (see `get_retryable_errors`), so this only replaces
+            # the raw driver text with something a customer can act on.
+            "QUOTA_EXCEEDED": "Your ClickHouse user has exceeded a query quota configured on the server (for example an hourly execution-time limit). This will retry automatically once the quota's interval resets. If it keeps happening, ask your ClickHouse administrator to raise the quota for this user.",
         }
 
     @contextmanager
@@ -727,6 +771,8 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
             # user-facing wording and neither is a PostHog defect, so they are not captured.
             return False, str(e)
         except BaseSSHTunnelForwarderError as e:
+            if isinstance(e, SSHGatewayClosedBeforeBannerError):
+                return False, SSH_GATEWAY_CLOSED_BEFORE_BANNER_SETUP_MESSAGE
             if _SSH_GATEWAY_SESSION_ERROR in (e.value or ""):
                 return False, _SSH_GATEWAY_UNREACHABLE_ERROR
             # Other sshtunnel messages are written for a traceback reader and can carry the host it dialed.

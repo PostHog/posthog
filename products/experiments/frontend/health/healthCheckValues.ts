@@ -27,7 +27,7 @@ export interface HealthSplitRow {
     plannedPercentage: number | null
 }
 
-const HANDLING_LABELS: Record<string, string> = {
+export const HANDLING_LABELS: Record<string, string> = {
     exclude: 'Exclude from analysis',
     first_seen: 'Use first seen variant',
 }
@@ -123,6 +123,10 @@ function textReading(label: string, values: HealthCheckValues | undefined, key: 
     return reading(label, typeof value === 'string' ? value : null)
 }
 
+function booleanReading(label: string, value: unknown, whenTrue: string, whenFalse: string): HealthReading | null {
+    return typeof value === 'boolean' ? reading(label, value ? whenTrue : whenFalse) : null
+}
+
 function receivedReading(values: HealthCheckValues | undefined): HealthReading | null {
     if (typeof values?.event !== 'string' || values.event_received === undefined) {
         return null
@@ -182,10 +186,14 @@ function flagReading(values: HealthCheckValues | undefined): HealthReading | nul
     return reading('Feature flag', text)
 }
 
+function billingLimitReading(label: string, values: HealthCheckValues | undefined, key: string): HealthReading | null {
+    const reached = values?.[key]
+    return reading(label, typeof reached === 'boolean' ? (reached ? 'Reached' : 'Not reached') : null)
+}
+
 /** What a check read, in the order the panel lists it. The p-value shows with the rule that judges it instead. */
 export function healthCheckReadings(values: HealthCheckValues | undefined, units: string): HealthReading[] {
     const handling = values?.multiple_variant_handling
-    const onlyMatured = values?.only_count_matured_users
     const primaryMetrics = numberValue(values, 'primary_metric_count')
     const waitingMetrics = numberValue(values, 'waiting_metric_count')
     const calculatedAt = values?.calculated_at
@@ -214,9 +222,11 @@ export function healthCheckReadings(values: HealthCheckValues | undefined, units
             formatHealthPercentage
         ),
         unservedReading(values, units),
-        reading(
+        booleanReading(
             'Require completed conversion or retention window',
-            typeof onlyMatured === 'boolean' ? (onlyMatured ? 'On' : 'Off') : null
+            values?.only_count_matured_users,
+            'On',
+            'Off'
         ),
         reading(
             "Primary metrics that can't count users yet",
@@ -224,6 +234,12 @@ export function healthCheckReadings(values: HealthCheckValues | undefined, units
                 ? null
                 : `${formatCount(waitingMetrics)} of ${formatCount(primaryMetrics)}`
         ),
+        // With the metrics that wait, the line above already shows the primary metric count.
+        reading(
+            'Primary metrics',
+            primaryMetrics === null || waitingMetrics !== null ? null : formatCount(primaryMetrics)
+        ),
+        numberReading('Secondary metrics', values, 'secondary_metric_count', formatCount),
         calculatedMetricsReading(values),
         numberReading('Metrics whose calculation failed', values, 'failed_metric_count', formatCount),
         invalidMetricsReading(values),
@@ -240,13 +256,23 @@ export function healthCheckReadings(values: HealthCheckValues | undefined, units
         textReading('Baseline variant', values, 'baseline_variant'),
         numberReading('Other running experiments on this flag', values, 'other_running_experiment_count', formatCount),
         numberReading('Other draft experiments on this flag', values, 'other_draft_experiment_count', formatCount),
+        timeReading('Flag history since', values, 'history_since_at', true),
+        numberReading('Changes found', values, 'change_count', formatCount),
+        booleanReading('Flag calls recorded', values?.flag_called, 'Yes', 'No'),
         timeReading('Last flag call', values, 'flag_last_called_at'),
         textReading('Exposure event', values, 'event'),
         receivedReading(values),
+        numberReading('Cohorts in the exposure criteria', values, 'cohort_count', formatCount),
+        numberReading('Dynamic cohorts', values, 'dynamic_cohort_count', formatCount),
         numberReading('Running for', values, 'since_start_hours', formatHours),
         dailyCalculationReading(values),
+        billingLimitReading('Product analytics billing limit', values, 'events_billing_limit_reached'),
+        timeReading('Limited until', values, 'events_billing_limit_ends_at', true),
+        billingLimitReading('Feature flags billing limit', values, 'feature_flags_billing_limit_reached'),
+        timeReading('Limited until', values, 'feature_flags_billing_limit_ends_at', true),
         reading('Metric', typeof values?.metric_name === 'string' ? values.metric_name : null),
         sampleReading(values, units),
+        timeReading('Significant since', values, 'significant_since_at', true),
         numberReading('Release conditions that force a variant', values, 'forced_condition_count', formatCount),
         numberReading(
             `${capitalizeFirstLetter(units)} the release conditions served`,
@@ -261,6 +287,7 @@ export function healthCheckReadings(values: HealthCheckValues | undefined, units
             'flag_service_call_percentage',
             formatHealthPercentage
         ),
+        booleanReading('Internal and test users', values?.filters_test_accounts, 'Left out', 'Counted'),
     ].filter((line): line is HealthReading => line !== null)
 }
 
@@ -338,6 +365,10 @@ export function healthCheckShowsDecidingValue(check: Pick<HealthPanelCheck, 'val
     return !rule.minimum || (minimumValue !== null && minimumValue >= rule.minimum.threshold)
 }
 
+export function healthIsComparedVariant(variant: string, expected: Record<string, number> | null | undefined): boolean {
+    return expected ? variant in expected : variant !== EXPERIMENT_VARIANT_MULTIPLE
+}
+
 /**
  * The exposed users of each compared variant against the planned split, from the exposure answer. The planned shares
  * come from the sample ratio test, so they are missing while too few users are exposed for it.
@@ -354,9 +385,7 @@ export function healthExposureSplit(
     const ordered = exposures.timeseries?.length
         ? exposures.timeseries.map(({ variant }) => variant)
         : Object.keys(totals)
-    const variants = ordered.filter((variant) =>
-        expected ? variant in expected : variant !== EXPERIMENT_VARIANT_MULTIPLE
-    )
+    const variants = ordered.filter((variant) => healthIsComparedVariant(variant, expected))
     const comparedCount = variants.reduce((sum, variant) => sum + (totals[variant] ?? 0), 0)
     const plannedTotal = expected ? Object.values(expected).reduce((sum, count) => sum + count, 0) : 0
     if (variants.length < 2 || comparedCount === 0) {

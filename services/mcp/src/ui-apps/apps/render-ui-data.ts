@@ -2,6 +2,7 @@ import type { App } from '@modelcontextprotocol/ext-apps'
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js'
 
 import type { UiAppKey } from '../../resources/ui-apps.generated'
+import { EXEC_READ_TOOL_NAME, EXEC_TOOL_NAME } from '../../tools/exec-names'
 import { APP_DATA_META_KEY } from '../types'
 
 interface RenderUiDataResult {
@@ -14,6 +15,15 @@ export interface RenderUiDataRequest {
     arguments: Record<string, unknown>
 }
 
+/**
+ * The render-ui result's `_meta` app data is the rendered tool's payload, not the render-ui
+ * envelope, so the envelope only travels in `structuredContent`. The generic parser prefers
+ * `_meta` and would hand the app chart data with no `app_key` to dispatch on.
+ */
+export function readRenderUiEnvelope(structuredContent: unknown, _meta?: Record<string, unknown>): unknown {
+    return structuredContent ?? null
+}
+
 /** The `tools/call` that fetches a visualization's data; the server preloads with the same call. */
 export function renderUiDataRequest(
     toolName: string,
@@ -21,7 +31,7 @@ export function renderUiDataRequest(
     appKey: UiAppKey
 ): RenderUiDataRequest {
     return appKey === 'query-results'
-        ? { name: 'exec', arguments: { command: `call --json ${toolName} ${JSON.stringify(input)}` } }
+        ? { name: EXEC_READ_TOOL_NAME, arguments: { command: `call --json ${toolName} ${JSON.stringify(input)}` } }
         : { name: toolName, arguments: input }
 }
 
@@ -48,5 +58,14 @@ export async function loadRenderUiData(
     if (preloaded !== undefined && preloaded !== null) {
         return { structuredContent: preloaded }
     }
-    return readRenderUiData(await app.callServerTool(renderUiDataRequest(toolName, input, appKey)), appKey)
+    const request = renderUiDataRequest(toolName, input, appKey)
+    try {
+        return readRenderUiData(await app.callServerTool(request), appKey)
+    } catch (error) {
+        if (request.name !== EXEC_READ_TOOL_NAME) {
+            throw error
+        }
+        // A connection without the split lists only `exec`, and a host may refuse a tool it never listed.
+        return readRenderUiData(await app.callServerTool({ ...request, name: EXEC_TOOL_NAME }), appKey)
+    }
 }

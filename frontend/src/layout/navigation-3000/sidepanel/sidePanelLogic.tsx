@@ -74,7 +74,7 @@ export interface sidePanelLogicValues {
     selectedTab: SidePanelTab | null // sidePanelStateLogic
     sidePanelOpen: boolean // sidePanelStateLogic
     currentTeam: TeamPublicType | TeamType | null // teamLogic
-    hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean // userLogic
+    hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number) => boolean // userLogic
     defaultTab: SidePanelTab
     deprecatedTabs: SidePanelTab[]
     enabledTabs: SidePanelTab[]
@@ -100,7 +100,11 @@ export interface sidePanelLogicActions {
 export interface sidePanelLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         isAccessControlSettings: (
-            location: { hash: string; pathname: string; search: string },
+            location: {
+                hash: string
+                pathname: string
+                search: string
+            },
             featureFlags: FeatureFlagsSet
         ) => boolean
         enabledTabs: (
@@ -108,8 +112,9 @@ export interface sidePanelLogicMeta {
             currentTeam: TeamPublicType | TeamType | null,
             scenePanelIsPresent: boolean,
             isCloudOrDev: boolean | undefined,
-            hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean, // userLogic
-            isAccessControlSettings: boolean
+            hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number) => boolean,
+            isAccessControlSettings: boolean,
+            featureFlags: FeatureFlagsSet
         ) => SidePanelTab[]
         deprecatedTabs: (featureFlags: FeatureFlagsSet) => SidePanelTab[]
         defaultTab: (scenePanelIsPresent: boolean, deprecatedTabs: SidePanelTab[]) => SidePanelTab
@@ -170,6 +175,7 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
                 s.isCloudOrDev,
                 s.hasAvailableFeature,
                 s.isAccessControlSettings,
+                s.featureFlags,
             ],
             (
                 sceneSidePanelContext: import('./types').SidePanelSceneContext,
@@ -177,7 +183,8 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
                 scenePanelIsPresent: boolean,
                 isCloudOrDev: boolean | undefined,
                 hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean,
-                isAccessControlSettings: boolean
+                isAccessControlSettings: boolean,
+                featureFlags: FeatureFlagsSet
             ) => {
                 if (sceneSidePanelContext.canvas_id && currentTeam) {
                     // Support stays openable from the help menu, but the canvas tabs take the bar. The web app
@@ -212,7 +219,8 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
                     tabs.push(SidePanelTab.AccessControl)
                 }
 
-                if (isAccessControlSettings) {
+                // The Today layout opens the detail in a dialog on the page instead
+                if (isAccessControlSettings && !featureFlags[FEATURE_FLAGS.TODAY_RAIL_NAV]) {
                     tabs.push(SidePanelTab.AccessDetail)
                 }
 

@@ -32,6 +32,7 @@ function suggestion(overrides: Partial<EvalSuggestionApi> & Pick<EvalSuggestionA
         created_evaluation: null,
         target_evaluation: null,
         target_evaluation_name: null,
+        fix_problem: null,
         similar_evaluation: null,
         similar_evaluation_name: null,
         dismiss_reason: null,
@@ -104,6 +105,7 @@ const FIX_FILTER = suggestion({
     draft: { conditions: [{ id: 'help-center', rollout_percentage: 100, properties: [] }] },
     target_evaluation: 'evaluation-refunds',
     target_evaluation_name: 'Refund policy check',
+    fix_problem: 'no_runs',
 })
 
 const NO_RECENT_EVENTS = suggestion({
@@ -115,6 +117,7 @@ const NO_RECENT_EVENTS = suggestion({
     reason: 'It has no runs in the last 30 days.',
     target_evaluation: 'evaluation-scout',
     target_evaluation_name: 'Support answers stay grounded',
+    fix_problem: 'no_runs',
 })
 
 const PROMPT_PROBLEM = suggestion({
@@ -231,7 +234,7 @@ export const FixReviewBanner: Story = {
     render: () => (
         <EvaluationFixSuggestionBanner
             suggestionId={FIX_FILTER.id}
-            evaluationId="evaluation-refunds"
+            evaluationLogicProps={{ evaluationId: 'evaluation-refunds' }}
             userAccessLevel={AccessControlLevel.Editor}
             hasUnsavedChanges={false}
         />

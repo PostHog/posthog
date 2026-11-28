@@ -41,11 +41,8 @@ function taskRunIdHeader(properties: PosthogProperties): string | null {
 
 /**
  * Build a `Record<string, string>` of `x-posthog-property-<name>` headers
- * suitable for `fetch()` init.headers. The LLM gateway lifts each header
- * onto the `$ai_generation` event it captures
- * (see `services/llm-gateway/src/llm_gateway/request_context.py` in
- * posthog/posthog). `null`/`undefined` values are dropped; values are
- * sanitized via {@link sanitizeHeaderValue}.
+ * suitable for `fetch()` init.headers. `null`/`undefined` values are dropped;
+ * values are sanitized via {@link sanitizeHeaderValue}.
  */
 export function buildPosthogPropertyHeaderRecord(
   properties: PosthogProperties,
@@ -96,6 +93,24 @@ export function buildPosthogUserHeaderLines(
 ): string {
   return userNode
     ? `${POSTHOG_USER_HEADER}: ${sanitizeHeaderValue(userNode)}`
+    : "";
+}
+
+const POSTHOG_DISTINCT_ID_HEADER = "X-PostHog-Distinct-Id";
+
+export function buildPosthogDistinctIdHeaderRecord(
+  distinctId: string | null | undefined,
+): Record<string, string> {
+  return distinctId
+    ? { [POSTHOG_DISTINCT_ID_HEADER]: sanitizeHeaderValue(distinctId) }
+    : {};
+}
+
+export function buildPosthogDistinctIdHeaderLines(
+  distinctId: string | null | undefined,
+): string {
+  return distinctId
+    ? `${POSTHOG_DISTINCT_ID_HEADER}: ${sanitizeHeaderValue(distinctId)}`
     : "";
 }
 

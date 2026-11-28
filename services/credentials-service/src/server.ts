@@ -24,6 +24,7 @@ import { createPool, pingDatabase } from './db/pool'
 import { isProductionEnv, runtimeRoleRefusal } from './db/role-guard'
 import { type AppOptions, type IntegrationDeps, createApp } from './http/app'
 import { AuditQueue } from './integrations/audit'
+import { MirrorService } from './integrations/mirror'
 import { IntegrationsService } from './integrations/service'
 import type { Config, DatabaseConfig } from './lib/config'
 import { logger } from './lib/logging'
@@ -123,17 +124,27 @@ export class CredentialsServer {
     private apply(source: SecretSource, snapshot: SecretSnapshot | null): void {
         // Keys before secrets: a revocation and a rotation can land in one secret
         // edit, and the revoked caller must not see the new values in the gap between.
-        this.signingKeys?.reloadFrom(snapshot?.values ?? null)
-        this.applySecrets(source, snapshot)
+        // A snapshot whose keys are refused only takes values away, because the keys still held
+        // would read any value that edit added or rotated.
+        const keysLoaded = this.signingKeys?.reloadFrom(snapshot?.values ?? null) ?? true
+        this.applySecrets(source, snapshot, { withdrawOnly: !keysLoaded })
     }
 
-    private applySecrets(source: SecretSource, snapshot: SecretSnapshot | null): void {
+    private applySecrets(
+        source: SecretSource,
+        snapshot: SecretSnapshot | null,
+        { withdrawOnly = false }: { withdrawOnly?: boolean } = {}
+    ): void {
         const mount = this.mount
         if (!mount) {
             return
         }
         const before = mount.current()?.versionId
-        mount.apply(snapshot?.values ?? null)
+        if (withdrawOnly) {
+            mount.withdraw(snapshot?.values ?? null)
+        } else {
+            mount.apply(snapshot?.values ?? null)
+        }
         const after = mount.current()
         if (after && after.versionId !== before) {
             logger.info('secrets:applied', {
@@ -227,13 +238,11 @@ export class CredentialsServer {
             )
             this.audit = new AuditQueue(pool)
             this.audit.start()
+            const envelope = new Envelope(createKms(config.kms))
             this.integrations = {
                 verifier: new IntegrationVerifier(integrationKeys, { replay: new PostgresReplayStore(pool) }),
-                service: new IntegrationsService({
-                    pool,
-                    envelope: new Envelope(createKms(config.kms)),
-                    audit: this.audit,
-                }),
+                service: new IntegrationsService({ pool, envelope, audit: this.audit }),
+                mirror: new MirrorService({ pool, envelope }),
             }
         } else if (pool || config.kms) {
             logger.warn('integrations:disabled', {

@@ -1,1 +1,1 @@
-0018_check_facts
+0024_check_search_query_index

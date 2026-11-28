@@ -2,10 +2,9 @@ import { useActions, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
 import { useMemo, useRef } from 'react'
 
-import { IconChevronDown } from '@posthog/icons'
-import { LemonButton, LemonCard, LemonModal, LemonSelect, LemonTag, Link, Spinner } from '@posthog/lemon-ui'
+import { IconChevronDown, IconEllipsis, IconTrash } from '@posthog/icons'
+import { LemonButton, LemonCard, LemonMenu, LemonModal, LemonSelect, LemonTag, Link, Spinner } from '@posthog/lemon-ui'
 
-import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { TZLabel } from 'lib/components/TZLabel'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
@@ -30,6 +29,7 @@ import { AccessControlLevel, AccessControlResourceType, Breadcrumb } from '~/typ
 
 import { conversationsTicketsAttachmentsCreate } from 'products/conversations/frontend/generated/api'
 import { PersonDisplay } from 'products/persons/frontend/components/PersonDisplay'
+import { pickBestPersonDistinctId } from 'products/persons/frontend/person-utils'
 
 import { AssigneeIconDisplay, AssigneeLabelDisplay, AssigneeSelect } from '../../components/Assignee'
 import { ChannelsTag, getChannelThreadUrl } from '../../components/Channels/ChannelsTag'
@@ -98,6 +98,16 @@ export function simplifiedRepliesFor(ticket: Ticket, emailRecipients: string): S
     }
 }
 
+// Email tickets store the sender address as distinct_id, and the backend can match the person
+// by their email property instead, so that address need not be one of the person's distinct_ids.
+export function personDistinctIdForTicket(ticket: Ticket): string {
+    const personDistinctIds = ticket.person?.distinct_ids
+    if (!personDistinctIds?.length || personDistinctIds.includes(ticket.distinct_id)) {
+        return ticket.distinct_id
+    }
+    return pickBestPersonDistinctId(personDistinctIds) ?? ticket.distinct_id
+}
+
 export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Element {
     const logic = supportTicketSceneLogic({ id: ticketId || 'new' })
     const {
@@ -115,7 +125,6 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
         olderMessagesLoading,
         linkedReports,
         chatPanelWidth,
-        hasUnsavedChanges,
         unsavedTicketChanges,
         ticketUpdating,
         ticketDeleting,
@@ -151,7 +160,6 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
         setTags,
         setSnoozedUntil,
         sendMessage,
-        updateTicket,
         loadOlderMessages,
         setDraftContent,
         setDraftIsPrivate,
@@ -179,7 +187,7 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
     const { currentTeam } = useValues(teamLogic)
     const aiSuggestionsEnabled = !!currentTeam?.conversations_settings?.ai_suggestions_enabled
 
-    const conversationsSettingsUrl = urls.settings('environment-conversations', 'conversations-general')
+    const conversationsSettingsUrl = urls.settings('environment-conversations', 'conversations-channels')
     const replyDisabledReason: JSX.Element | undefined = emailReplyBlockedReason
         ? {
               email_disabled: (
@@ -384,7 +392,7 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                                         type="secondary"
                                         onClick={(e) => {
                                             e.stopPropagation()
-                                            newInternalTab(urls.personByDistinctId(ticket.distinct_id))
+                                            newInternalTab(urls.personByDistinctId(personDistinctIdForTicket(ticket)))
                                         }}
                                     >
                                         View person
@@ -396,7 +404,7 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                                             ticket.person
                                                 ? {
                                                       id: ticket.person.id,
-                                                      distinct_id: ticket.distinct_id,
+                                                      distinct_id: personDistinctIdForTicket(ticket),
                                                       distinct_ids: ticket.person.distinct_ids,
                                                       // Merge anonymous_traits as fallback for missing person properties
                                                       properties: {
@@ -420,7 +428,34 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                         )}
 
                         {/* Ticket info */}
-                        <h3 className="text-sm font-semibold mb-2">Ticket info</h3>
+                        <div className="flex items-center justify-between gap-2 mb-2">
+                            <div className="flex items-center gap-1">
+                                <h3 className="text-sm font-semibold">Ticket info</h3>
+                                {ticketUpdating && <Spinner className="text-muted-alt" />}
+                            </div>
+                            <LemonMenu
+                                items={[
+                                    {
+                                        label: 'Delete ticket',
+                                        icon: <IconTrash />,
+                                        status: 'danger',
+                                        onClick: () => deleteTicket(),
+                                        disabledReason:
+                                            deleteDisabledReason ?? (ticketDeleting ? 'Deleting ticket…' : undefined),
+                                        'data-attr': 'ticket-delete',
+                                    },
+                                ]}
+                                placement="bottom-end"
+                            >
+                                <LemonButton
+                                    size="xsmall"
+                                    icon={<IconEllipsis />}
+                                    tooltip="More ticket actions"
+                                    aria-label="More ticket actions"
+                                    data-attr="ticket-more-menu"
+                                />
+                            </LemonMenu>
+                        </div>
                         <div className="space-y-2 text-xs">
                             {ticket?.created_at && (
                                 <div className="flex justify-between">
@@ -645,34 +680,6 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                                     disabledReason={sendDisabledReason}
                                 />
                             </div>
-                        </div>
-                        <div className="mt-3 pt-3 border-t flex justify-between gap-2">
-                            <LemonButton
-                                type="secondary"
-                                status="danger"
-                                size="small"
-                                onClick={() => deleteTicket()}
-                                loading={ticketDeleting}
-                                disabledReason={deleteDisabledReason}
-                                data-attr="ticket-delete"
-                            >
-                                Delete ticket
-                            </LemonButton>
-                            <AccessControlAction
-                                resourceType={AccessControlResourceType.Ticket}
-                                minAccessLevel={AccessControlLevel.Editor}
-                                userAccessLevel={ticket?.user_access_level}
-                            >
-                                <LemonButton
-                                    type="primary"
-                                    size="small"
-                                    onClick={() => updateTicket()}
-                                    loading={ticketUpdating}
-                                    disabledReason={!hasUnsavedChanges ? 'No changes to save' : undefined}
-                                >
-                                    Save changes
-                                </LemonButton>
-                            </AccessControlAction>
                         </div>
                     </LemonCard>
 

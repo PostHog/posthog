@@ -220,7 +220,7 @@ database "posthog" {
       cluster_name    = "ai_events"
       remote_database = "posthog"
       remote_table    = "sharded_ai_events"
-      sharding_key    = "cityHash64(concat(toString(team_id), '-', trace_id, '-', toString(toDate(timestamp))))"
+      sharding_key    = "rand()"
     }
   }
 
@@ -536,34 +536,6 @@ database "posthog" {
       zoo_path       = "/clickhouse/tables/noshard/posthog.clickhouse_cleanup_revived_persons"
       replica_name   = "{replica}-{shard}"
       version_column = "created_at"
-    }
-  }
-
-  table "cohort_membership" {
-    order_by = ["team_id", "cohort_id", "person_id"]
-    settings = {
-      index_granularity = "8192"
-    }
-    column "team_id" {
-      type = "Int64"
-    }
-    column "cohort_id" {
-      type = "Int64"
-    }
-    column "person_id" {
-      type = "UUID"
-    }
-    column "status" {
-      type = "Enum8('entered'=1, 'left'=2)"
-    }
-    column "last_updated" {
-      type    = "DateTime64(6)"
-      default = "now64()"
-    }
-    engine "replicated_replacing_merge_tree" {
-      zoo_path       = "/clickhouse/tables/noshard/posthog.cohort_membership"
-      replica_name   = "{replica}-{shard}"
-      version_column = "last_updated"
     }
   }
 
@@ -2006,12 +1978,6 @@ database "posthog" {
       type    = "String"
       comment = "column_materializer::properties::$feature_flag_request_id"
     }
-    column "properties_group_custom" {
-      type = "Map(String, String)"
-    }
-    column "person_properties_map_custom" {
-      type = "Map(String, String)"
-    }
     column "_timestamp" {
       type = "DateTime"
     }
@@ -2020,6 +1986,15 @@ database "posthog" {
     }
     column "_partition" {
       type = "UInt64"
+    }
+    column "properties_group_custom" {
+      type = "Map(String, String)"
+    }
+    column "person_properties_map_custom" {
+      type = "Map(String, String)"
+    }
+    column "properties_group_feature_flags" {
+      type = "Map(LowCardinality(String), LowCardinality(String))"
     }
     engine "distributed" {
       cluster_name    = "posthog"
@@ -3869,6 +3844,9 @@ database "posthog" {
     column "lc_estimated_bytes" {
       type = "SimpleAggregateFunction(max, Int64)"
     }
+    column "log_comment" {
+      type = "SimpleAggregateFunction(max, String)"
+    }
     column "query_id" {
       type = "String"
     }
@@ -4225,6 +4203,41 @@ database "posthog" {
     }
   }
 
+  table "series_values_preaggregated" {
+    column "team_id" {
+      type = "Int64"
+    }
+    column "job_id" {
+      type = "UUID"
+    }
+    column "time_window_start" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "time_window_end" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "series_key" {
+      type = "String"
+    }
+    column "value" {
+      type = "Float64"
+    }
+    column "computed_at" {
+      type    = "DateTime64(6, 'UTC')"
+      default = "now()"
+    }
+    column "expires_at" {
+      type    = "DateTime64(6, 'UTC')"
+      default = "now() + toIntervalDay(7)"
+    }
+    engine "distributed" {
+      cluster_name    = "aux"
+      remote_database = "posthog"
+      remote_table    = "sharded_series_values_preaggregated"
+      sharding_key    = "sipHash64(job_id)"
+    }
+  }
+
   table "session_recording_events" {
     column "uuid" {
       type = "UUID"
@@ -4410,9 +4423,6 @@ database "posthog" {
     column "ai_highlighted" {
       type    = "SimpleAggregateFunction(max, UInt8)"
       default = "0"
-    }
-    column "surfacing_score" {
-      type = "SimpleAggregateFunction(max, Nullable(Float32))"
     }
     column "snapshot_mode_v2" {
       type = "AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC'))"
@@ -5497,7 +5507,9 @@ database "posthog" {
     ttl          = "toDate(timestamp) + toIntervalDay(92)"
     settings = {
       index_granularity                = "8192"
+      map_serialization_version        = "with_buckets"
       materialize_ttl_recalculate_only = "1"
+      max_buckets_in_map               = "32"
       ttl_only_drop_parts              = "1"
     }
     column "uuid" {
@@ -5583,14 +5595,6 @@ database "posthog" {
       default = "replaceRegexpAll(JSONExtractRaw(properties, '$feature_flag_request_id'), '^\"|\"$', '')"
       comment = "column_materializer::properties::$feature_flag_request_id"
     }
-    column "properties_group_custom" {
-      type         = "Map(String, String)"
-      materialized = "mapSort(mapFilter((key, _) -> ((key NOT LIKE '$%') AND (key NOT IN ('token', 'distinct_id', 'utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_term', 'gclid', 'gad_source', 'gclsrc', 'dclid', 'gbraid', 'wbraid', 'fbclid', 'msclkid', 'twclid', 'li_fat_id', 'mc_cid', 'igshid', 'ttclid', 'rdt_cid', 'epik', 'qclid', 'sccid', 'irclid', '_kx'))), CAST(JSONExtractKeysAndValues(properties, 'String'), 'Map(String, String)')))"
-    }
-    column "person_properties_map_custom" {
-      type         = "Map(String, String)"
-      materialized = "mapSort(mapFilter((key, _) -> (key NOT LIKE '$%'), CAST(JSONExtractKeysAndValues(person_properties, 'String'), 'Map(String, String)')))"
-    }
     column "_timestamp" {
       type = "DateTime"
     }
@@ -5599,6 +5603,18 @@ database "posthog" {
     }
     column "_partition" {
       type = "UInt64"
+    }
+    column "properties_group_custom" {
+      type         = "Map(String, String)"
+      materialized = "mapSort(mapFilter((key, _) -> ((key NOT LIKE '$%') AND (key NOT IN ('token', 'distinct_id', 'utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_term', 'gclid', 'gad_source', 'gclsrc', 'dclid', 'gbraid', 'wbraid', 'fbclid', 'msclkid', 'twclid', 'li_fat_id', 'mc_cid', 'igshid', 'ttclid', 'rdt_cid', 'epik', 'qclid', 'sccid', 'irclid', '_kx'))), CAST(JSONExtractKeysAndValues(properties, 'String'), 'Map(String, String)')))"
+    }
+    column "person_properties_map_custom" {
+      type         = "Map(String, String)"
+      materialized = "mapSort(mapFilter((key, _) -> (key NOT LIKE '$%'), CAST(JSONExtractKeysAndValues(person_properties, 'String'), 'Map(String, String)')))"
+    }
+    column "properties_group_feature_flags" {
+      type         = "Map(LowCardinality(String), LowCardinality(String))"
+      materialized = "mapSort(mapFilter((key, _) -> (key LIKE '$feature/%'), CAST(JSONExtractKeysAndValues(properties, 'String'), 'Map(LowCardinality(String), LowCardinality(String))')))"
     }
     index "distinct_id_idx" {
       expr        = "distinct_id"
@@ -6778,9 +6794,6 @@ database "posthog" {
       type    = "SimpleAggregateFunction(max, UInt8)"
       default = "0"
     }
-    column "surfacing_score" {
-      type = "SimpleAggregateFunction(max, Nullable(Float32))"
-    }
     column "snapshot_mode_v2" {
       type = "AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC'))"
     }
@@ -7140,6 +7153,9 @@ database "posthog" {
     column "channel_type" {
       type = "LowCardinality(String)"
     }
+    column "session_hosts" {
+      type = "Array(String)"
+    }
     column "persons_uniq_state" {
       type = "AggregateFunction(uniq, UUID)"
     }
@@ -7156,6 +7172,9 @@ database "posthog" {
       type = "AggregateFunction(sum, Int64)"
     }
     column "total_session_count_state" {
+      type = "AggregateFunction(sum, Int64)"
+    }
+    column "bounce_eligible_sessions_state" {
       type = "AggregateFunction(sum, Int64)"
     }
     column "computed_at" {
@@ -8647,6 +8666,9 @@ database "posthog" {
     column "lc_estimated_bytes" {
       type = "SimpleAggregateFunction(max, Int64)"
     }
+    column "log_comment" {
+      type = "SimpleAggregateFunction(max, String)"
+    }
     engine "distributed" {
       cluster_name    = "ops"
       remote_database = "posthog"
@@ -9512,7 +9534,25 @@ SELECT
   lc.precompute_window_end AS lc_precompute_window_end,
   lc.plan_fingerprint AS lc_plan_fingerprint,
   lc.estimated_rows AS lc_estimated_rows,
-  lc.estimated_bytes AS lc_estimated_bytes
+  lc.estimated_bytes AS lc_estimated_bytes,
+  if(
+    ql.is_initial_query AND notEmpty(ql.log_comment),
+    concat(
+      '{',
+      arrayStringConcat(
+        arrayMap(
+          kv -> concat(toJSONString(kv.1), ':', kv.2),
+          arrayFilter(
+            kv -> ((kv.1) NOT IN ('timings', 'query')),
+            JSONExtractKeysAndValuesRaw(ql.log_comment)
+          )
+        ),
+        ','
+      ),
+      '}'
+    ),
+    ''
+  ) AS log_comment
 FROM system.query_log AS ql
 WHERE ql.type != 'QueryStart'
 SQL
@@ -9864,6 +9904,9 @@ SQL
     }
     column "lc_estimated_bytes" {
       type = "SimpleAggregateFunction(max, Int64)"
+    }
+    column "log_comment" {
+      type = "SimpleAggregateFunction(max, String)"
     }
   }
 
@@ -10625,10 +10668,6 @@ SQL
 }
 
 named_collection "msk_cluster" {
-  external = true
-}
-
-named_collection "warpstream_calculated_events" {
   external = true
 }
 

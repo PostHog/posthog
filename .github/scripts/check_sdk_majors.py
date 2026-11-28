@@ -35,15 +35,15 @@ SKIPPED_DIRS = {"node_modules", ".git", "dist", ".venv", "target", ".flox", "bui
 # posthog-python is published under two names: `posthoganalytics` for this repo (its
 # Django package is also called posthog) and `posthog` everywhere else.
 EXPECTED_MAJORS = {
-    "posthoganalytics": 7,
-    "posthog": 7,
-    "posthog-node": 5,
+    "posthoganalytics": 8,
+    "posthog": 8,
+    "posthog-node": 6,
     "posthog-js": 1,
     "@posthog/react": 1,
     "posthog-js-lite": 4,
     "posthog-react-native": 4,
     "posthog-rs": 1,
-    "posthog-go": 1,
+    "posthog-go": 2,
 }
 NPM_SDKS = ("posthog-node", "posthog-js", "@posthog/react", "posthog-js-lite", "posthog-react-native")
 NPM_SECTIONS = ("dependencies", "devDependencies", "optionalDependencies", "peerDependencies")
@@ -64,7 +64,6 @@ NODE_WRAPPER_PEERS = (
 # (manifest, package, lockfile or None)
 PYTHON_PINS = (
     ("pyproject.toml", "posthoganalytics", "uv.lock"),
-    ("services/llm-gateway/pyproject.toml", "posthoganalytics", "services/llm-gateway/uv.lock"),
     ("common/ingestion/acceptance_tests/requirements.txt", "posthoganalytics", None),
     ("tools/infra-scripts/clitools/requirements.txt", "posthog", None),
 )
@@ -262,13 +261,12 @@ def check_node(root: Path) -> list[str]:
             )
     for _prefix, workspace_file, lock in NPM_WORKSPACES:
         catalog = pnpm_catalog(root / workspace_file)
+        lock_text = (root / lock).read_text(encoding="utf-8")
         for package in NPM_SDKS:
             if package in catalog and not npm_pinned_to(catalog[package], EXPECTED_MAJORS[package]):
                 problems.append(
                     f"{workspace_file} catalog: {package} is {catalog[package]!r}, expected major {EXPECTED_MAJORS[package]}"
                 )
-        lock_text = (root / lock).read_text(encoding="utf-8")
-        for package in NPM_SDKS:
             resolved = pnpm_lock_majors(lock_text, package)
             if resolved and resolved != {EXPECTED_MAJORS[package]}:
                 problems.append(

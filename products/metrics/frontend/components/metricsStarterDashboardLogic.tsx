@@ -29,6 +29,8 @@ const SPAN_DURATION = 'posthog.derived.spans.duration'
 const SPAN_METRICS_PREFIX = 'posthog.derived.spans.'
 const BY_SERVICE = [{ key: 'service.name' }]
 const LATENCY_QUANTILES = [0.5, 0.95, 0.99]
+// These panels read raw spans. Over 24 hours a team with heavy tracing exceeds the query's read budget.
+const SPAN_PANEL_DATE_RANGE = { date_from: '-6h' }
 
 type StarterInsight = { name: string; query: MetricsQuery }
 
@@ -46,7 +48,11 @@ export function servicePanels(serviceFilter: Pick<MetricsQueryClause, 'filters'>
     return [
         {
             name: 'Request rate by service',
-            query: { kind: NodeKind.MetricsQuery, clauses: [requestRate('a', SPAN_REQUESTS)] },
+            query: {
+                kind: NodeKind.MetricsQuery,
+                clauses: [requestRate('a', SPAN_REQUESTS)],
+                dateRange: SPAN_PANEL_DATE_RANGE,
+            },
         },
         {
             name: 'Error rate by service',
@@ -54,12 +60,14 @@ export function servicePanels(serviceFilter: Pick<MetricsQueryClause, 'filters'>
                 kind: NodeKind.MetricsQuery,
                 clauses: [requestRate('a', SPAN_ERRORS), requestRate('b', SPAN_REQUESTS)],
                 formula: 'a / b',
+                dateRange: SPAN_PANEL_DATE_RANGE,
             },
         },
         ...LATENCY_QUANTILES.map((quantile) => ({
             name: `Latency p${Math.round(quantile * 100)} by service`,
             query: {
                 kind: NodeKind.MetricsQuery as const,
+                dateRange: SPAN_PANEL_DATE_RANGE,
                 clauses: [
                     {
                         name: 'a',

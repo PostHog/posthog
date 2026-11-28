@@ -98,6 +98,13 @@ class MetricAttributeScope(models.TextChoices):
     AUTO = "auto", "auto"
 
 
+# Same name and choices as `matchedOn` on the logs and traces attribute endpoints,
+# so that all three share the `MatchedOnEnum` schema component.
+class MatchedOn(models.TextChoices):
+    KEY = "key", "key"
+    VALUE = "value", "value"
+
+
 class MetricQueryAggregation(models.TextChoices):
     NONE = "none", "none"
     SUM = "sum", "sum"
@@ -240,7 +247,7 @@ class MetricQueryOutput(models.TextChoices):
 
 
 # ASCII digits with a length cap: `\d` also matches other scripts, which makes the parser backtrack quadratically.
-_RELATIVE_DATE_RE = re.compile(r"^-[0-9]{1,6}[Mhdwmy]$")
+_RELATIVE_DATE_RE = re.compile(r"^(-[0-9]{1,6}[Mhdwmy]|now)$")
 # PostHog-wide, lowercase m is months and capital M is minutes, so "-30m" reads 30 months back.
 _LOWERCASE_MONTHS_RE = re.compile(r"^-([0-9]{1,6})m$")
 _DEFAULT_QUERY_LOOKBACK = dt.timedelta(hours=24)
@@ -268,7 +275,7 @@ _PROMQL_EXCLUDED_FIELDS = (
 
 @extend_schema_field(OpenApiTypes.STR)
 class _RelativeOrIsoDateTimeField(serializers.DateTimeField):
-    # Relative offsets stay strings so the body serializer resolves both bounds against one "now";
+    # Relative offsets and "now" stay strings so the body serializer resolves every bound against one clock read;
     # two separate clock reads would push a maximum-span lookback past the runner's limit.
     def to_internal_value(self, value: dt.datetime | str) -> dt.datetime | str:  # type: ignore[override]
         if isinstance(value, str) and _RELATIVE_DATE_RE.match(value.strip()):
@@ -291,6 +298,8 @@ def _query_error(exc: ValueError, raw_date_from: object) -> ParseError:
 def _resolve_query_bound(value: dt.datetime | str | None, *, now: dt.datetime, field: str) -> dt.datetime | None:
     if not isinstance(value, str):
         return value
+    if value == "now":
+        return now
     try:
         return relative_date_parse(value, ZoneInfo("UTC"), now=now)
     except (ValueError, OverflowError):
@@ -1117,6 +1126,15 @@ class _MetricAttributeKeysParamsSerializer(serializers.Serializer):
         max_length=255,
         help_text="Substring filter (case-insensitive) applied to attribute keys.",
     )
+    search_values = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text=(
+            "Also list keys whose values contain the search term, on searches of 4 or more "
+            "characters. Value matches come after key matches and carry matchedOn='value' with "
+            "the matching matchedValue."
+        ),
+    )
     dateFrom = serializers.DateTimeField(
         required=False,
         allow_null=True,
@@ -1183,6 +1201,16 @@ class _MetricAttributeKeySerializer(serializers.Serializer):
         help_text="Attribute key as it appears on the team's metrics (e.g. 'env', 'k8s.pod.name')."
     )
     value_count = serializers.IntegerField(help_text="Number of distinct values for this attribute in recent data.")
+    matchedOn = serializers.ChoiceField(
+        choices=MatchedOn.choices,
+        required=False,
+        help_text="Set to 'value' when the key matched through one of its values. Absent when its name matched.",
+    )
+    matchedValue = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text="One value that matched the search; only set when matchedOn is 'value'.",
+    )
 
 
 class _MetricAttributeKeysResponseSerializer(serializers.Serializer):
@@ -1632,6 +1660,7 @@ class MetricsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 team=self.team,
                 metric_name=params.validated_data["metricName"],
                 search=params.validated_data["search"],
+                search_values=params.validated_data["search_values"],
                 date_from=params.validated_data["dateFrom"],
                 date_to=params.validated_data["dateTo"],
                 limit=params.validated_data["limit"],

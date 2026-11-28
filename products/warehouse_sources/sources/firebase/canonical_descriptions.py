@@ -1,4 +1,8 @@
-from products.warehouse_sources.sources.firebase.settings import AUTH_TENANT_USERS_TABLE, AUTH_USERS_TABLE
+from products.warehouse_sources.sources.firebase.settings import (
+    AUTH_TENANT_USERS_TABLE,
+    AUTH_TENANTS_TABLE,
+    AUTH_USERS_TABLE,
+)
 from products.warehouse_sources.sources.sdk import CanonicalDescriptions
 
 _AUTH_USER_COLUMNS: dict[str, str] = {
@@ -39,6 +43,28 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             **_AUTH_USER_COLUMNS,
             "localId": "Unique ID of the account inside its tenant.",
             "tenantId": "ID of the Identity Platform tenant the account belongs to.",
+        },
+    },
+    AUTH_TENANTS_TABLE: {
+        "description": "One row per Identity Platform tenant in the project, with its display name and sign-in settings. Password hash settings and test phone numbers are never synced.",
+        "docs_url": "https://cloud.google.com/identity-platform/docs/reference/rest/v2/projects.tenants/list",
+        "columns": {
+            "tenantId": "ID of the tenant, the last segment of its resource name.",
+            "name": "Resource name of the tenant, in the form projects/{project-id}/tenants/{tenant-id}.",
+            "displayName": "Display name of the tenant.",
+            "allowPasswordSignup": "Whether email and password sign-in is allowed.",
+            "enableEmailLinkSignin": "Whether email link sign-in is enabled.",
+            "enableAnonymousUser": "Whether anonymous sign-in is enabled.",
+            "disableAuth": "Whether sign-in is disabled for the users of the tenant.",
+            "autodeleteAnonymousUsers": "Whether anonymous users are deleted automatically after 30 days.",
+            "mfaConfig": "JSON multi-factor authentication settings of the tenant.",
+            "inheritance": "JSON settings the tenant inherits from the project.",
+            "recaptchaConfig": "JSON reCAPTCHA settings of the tenant.",
+            "smsRegionConfig": "JSON regions that SMS verification codes can be sent to.",
+            "passwordPolicyConfig": "JSON password policy of the tenant.",
+            "emailPrivacyConfig": "JSON email privacy settings of the tenant.",
+            "client": "JSON settings that limit what clients can change on behalf of users.",
+            "monitoring": "JSON request logging settings of the tenant.",
         },
     },
 }

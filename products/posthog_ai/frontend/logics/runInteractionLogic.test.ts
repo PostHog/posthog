@@ -52,6 +52,7 @@ jest.mock('./runStreamLogic', () => {
             markTurnComplete: (isReplay: boolean = false) => ({ isReplay }),
             markRunStarted: true,
             setCurrentMode: (mode: string) => ({ mode }),
+            setSessionConfig: (model: string | null, effort: string | null) => ({ model, effort }),
             handleTerminalStatus: (status: { status: string }) => status,
             setStubStatus: (status: string | null) => ({ status }),
             setStubThinking: (thinking: boolean) => ({ thinking }),
@@ -135,6 +136,14 @@ jest.mock('./runStreamLogic', () => {
                 {
                     setCurrentMode: (_: string | null, { mode }: { mode: string }) => mode,
                 },
+            ],
+            sessionModel: [
+                null,
+                { setSessionConfig: (state: string | null, { model }: { model: string | null }) => model ?? state },
+            ],
+            sessionEffort: [
+                null,
+                { setSessionConfig: (state: string | null, { effort }: { effort: string | null }) => effort ?? state },
             ],
             replySuggestions: [
                 null,
@@ -743,6 +752,46 @@ describe('runInteractionLogic', () => {
         expect(tasksRunsCommandCreate).not.toHaveBeenCalled()
         expect(logic.values.selectedModel).toBe('claude-opus-4-8')
         expect(logic.values.selectedEffort).toBe('low')
+    })
+
+    it('sends the picked effort when the model confirmation arrives before the effort command', async () => {
+        setThinking(false)
+        const agentEffort = logic.values.selectedEffort
+        const pickedEffort = agentEffort === 'low' ? 'medium' : 'low'
+        ;(tasksRunsCommandCreate as jest.Mock).mockImplementation(async (_project, _task, _run, body) => {
+            if (body.method === 'set_config_option' && body.params.configId === 'model') {
+                // The agent reports its whole config after the model change, with the effort it had before.
+                stream.actions.setSessionConfig(body.params.value, agentEffort)
+            }
+            return { jsonrpc: '2.0', result: { queued: true } }
+        })
+        logic.actions.setModel('claude-opus-4-8')
+        logic.actions.setEffort(pickedEffort)
+        logic.actions.setComposerFormValues({ draft: 'ship it' })
+
+        await expectLogic(logic, () => {
+            logic.actions.submitComposerForm()
+        }).toFinishAllListeners()
+
+        expect((tasksRunsCommandCreate as jest.Mock).mock.calls).toEqual([
+            setConfigCommand('model', 'claude-opus-4-8'),
+            setConfigCommand('effort', pickedEffort),
+            userMessageCommand('ship it'),
+        ])
+    })
+
+    it('follows a model the agent confirms, over a stale pick, and syncs nothing back', async () => {
+        setThinking(false)
+        logic.actions.setModel('claude-sonnet-4-6')
+        stream.actions.setSessionConfig('claude-opus-4-8', null)
+        expect(logic.values.selectedModel).toBe('claude-opus-4-8')
+        logic.actions.setComposerFormValues({ draft: 'ship it' })
+
+        await expectLogic(logic, () => {
+            logic.actions.submitComposerForm()
+        }).toFinishAllListeners()
+
+        expect((tasksRunsCommandCreate as jest.Mock).mock.calls).toEqual([userMessageCommand('ship it')])
     })
 
     it('syncs a changed model to the agent right before the message, and only when it changed', async () => {
@@ -1798,13 +1847,16 @@ describe('runInteractionLogic', () => {
         expect(send.params.content).not.toContain('- dashboard 7')
     })
 
-    it('prunes context whose rendered line the run log already carries, even with no sent-key bookkeeping', async () => {
+    it('prunes context whose rendered line the run log already carries, and does not report it as delivered', async () => {
         // The reload scenario: `sentContextKeysByTask` is empty (fresh session), but `runStreamLogic`
         // recorded the block lines it found replaying the resume-chain history — the same ref must not
         // be re-wrapped into the next send.
+        const capture = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined)
         const seenItem = { type: 'insight', key: 'sig', label: 'Signups', hidden: true }
+        const seenSkill = { type: 'skill', key: 'setting-up-data-catalog', label: 'Setting up data catalog skill' }
         attachedContextLogic().actions.registerContext('scene', [seenItem])
-        attachedContextLogic().actions.markContextLinesSeen(TASK_ID, [contextItemLine(seenItem)])
+        attachedContextLogic().actions.pickItem(seenSkill, TASK_ID)
+        attachedContextLogic().actions.markContextLinesSeen(TASK_ID, [seenItem, seenSkill].map(contextItemLine))
         setThinking(false)
 
         logic.actions.setComposerFormValues({ draft: 'follow up' })
@@ -1813,8 +1865,9 @@ describe('runInteractionLogic', () => {
         }).toFinishAllListeners()
 
         const send = (tasksRunsCommandCreate as jest.Mock).mock.calls[0][3] as { params: { content: string } }
-        // The only attached item is already in the chain history, so no context block is prepended.
+        // Every attached item is already in the chain history, so no context block is prepended.
         expect(send.params.content).toBe('follow up')
+        expect(capture).not.toHaveBeenCalledWith('posthog ai context skill delivered', expect.anything())
     })
 
     it('sends /clear unwrapped so the agent still sees the command at the front, and keeps the context pending', async () => {

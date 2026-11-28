@@ -6,6 +6,7 @@ import dataclasses
 from datetime import timedelta
 from itertools import count
 from typing import Any
+from uuid import uuid4
 
 import pytest
 from posthog.test.base import BaseTest
@@ -37,6 +38,7 @@ from products.commands.backend.channels.slack.mentions import read_slack_command
 from products.commands.backend.facade.api import accept_slack_mention
 from products.commands.backend.facade.contracts import SlackMention
 from products.commands.backend.logic.commands import (
+    ChannelName,
     CommandContext,
     CommandRequest,
     ProjectMember,
@@ -44,12 +46,13 @@ from products.commands.backend.logic.commands import (
     PullRequestRef,
 )
 from products.commands.backend.logic.github import InstallationGitHub, Reaction, UnsupportedPullRequest
-from products.commands.backend.logic.handlers import handle_loop, handle_qa
-from products.commands.backend.logic.schema import LoopArgs, QaArgs
+from products.commands.backend.logic.handlers import handle_loop, handle_qa, handle_stamp
+from products.commands.backend.logic.schema import LoopArgs, QaArgs, StampArgs
 from products.commands.backend.receivers import on_review_finished
 from products.commands.backend.tasks.tasks import deliver_follow_up, run_slack_command
 from products.error_tracking.backend.facade.api import get_issue
 from products.error_tracking.backend.facade.testing import create_issue, create_issue_fingerprint
+from products.review_hog.backend.facade.contracts import ForkRecreationOutcome
 from products.review_hog.backend.facade.finished_review_hooks import FinishedReview
 from products.review_hog.backend.facade.reviews import (
     RUN_MODE_FLASH,
@@ -57,6 +60,12 @@ from products.review_hog.backend.facade.reviews import (
     RUN_MODE_REVIEW_ONLY,
     PRReviewRequestOutcome,
     PRReviewRequestStatus,
+)
+from products.stamphog.backend.facade.contracts import BroadcastRequestDeliveryDTO, BroadcastRequestDTO
+from products.stamphog.backend.facade.enums import (
+    BroadcastRequestDeliveryKind,
+    BroadcastRequestSource,
+    BroadcastRequestStatus,
 )
 from products.tasks.backend.facade.access import DesktopAccessDecision
 
@@ -70,6 +79,7 @@ CREATE_TASK = "products.commands.backend.logic.handlers.tasks_facade.create_and_
 USAGE_LIMITED = "products.commands.backend.logic.handlers.tasks_usage.task_run_usage_limited"
 REQUEST_PR_REVIEW = "products.commands.backend.logic.handlers.review_hog_facade.request_pr_review"
 OWNING_TEAM_ID = "products.commands.backend.logic.handlers.review_hog_github.owning_team_id"
+RECREATE_FORK_PR = "products.commands.backend.logic.handlers.review_hog_fork_recreation.recreate_fork_pull_request"
 CLAIM_CACHE = "products.commands.backend.logic.admission.cache"
 CONSUME_BUDGET = "products.commands.backend.logic.admission.consume"
 RUN_COMMENT_COMMAND = "products.commands.backend.tasks.tasks.run_comment_command.delay"
@@ -177,11 +187,23 @@ class TestDispatchCommentCommand(BaseTest):
         self._link_github_login()
         github = FakeGitHub()
 
-        with patch(REQUEST_STAMPHOG_REVIEW, return_value=MagicMock(created=True)) as request_review:
+        with patch(
+            REQUEST_STAMPHOG_REVIEW, return_value=MagicMock(created=True, broadcast_request=None)
+        ) as request_review:
             outcome = dispatch_comment_command(self._request(), github=github)
 
         assert outcome == "accepted"
-        request_review.assert_called_once_with(self.team.id, user_id=self.user.id, repository=REPOSITORY, pr_number=7)
+        request_review.assert_called_once_with(
+            self.team.id,
+            user_id=self.user.id,
+            repository=REPOSITORY,
+            pr_number=7,
+            allow_broadcast=False,
+            note="",
+            requested_via=BroadcastRequestSource.GITHUB,
+            requester_slack_user_id="",
+            requester_github_login="octo",
+        )
         # A login can pass to another account after a rename; the permission must be for this id.
         assert github.permission_lookups == [self.github_id]
         assert github.reactions == ["eyes", "rocket"]
@@ -422,7 +444,8 @@ class TestDispatchCommentCommand(BaseTest):
         assert outcome == "invalid_arguments"
         request_review.assert_not_called()
         assert github.replies == [
-            "<!-- posthog-github-command:555 -->\n@octo `stamp` doesn't take that option. Use `@posthog stamp`."
+            "<!-- posthog-github-command:555 -->\n@octo `stamp` doesn't take that option. "
+            "Use `@posthog stamp [--allow-broadcast] [<note>]`."
         ]
 
     def test_an_installation_outside_the_rollout_stays_silent(self) -> None:
@@ -448,6 +471,184 @@ class TestDispatchCommentCommand(BaseTest):
 
         assert not outcome.accepted
         assert outcome.message == "Legacy loops have been retired. Use workflows instead."
+
+    @parameterized.expand(
+        [
+            (
+                "from_github",
+                "github",
+                StampArgs(allow_broadcast=True, note="ask Jane about billing"),
+                "Notes only work",
+            ),
+            ("from_github_without_broadcast", "github", StampArgs(note="ask Jane about billing"), "Notes only work"),
+            ("without_broadcast", "slack", StampArgs(note="ask Jane about billing"), "Add `--allow-broadcast`"),
+        ]
+    )
+    def test_stamp_refuses_a_note_it_cannot_use(
+        self, _name: str, channel: ChannelName, args: StampArgs, expected: str
+    ) -> None:
+        context = CommandContext(
+            request=dataclasses.replace(self._command_request(verb="stamp"), channel=channel),
+            subject=_pull_request(),
+            members=(ProjectMember(team_id=self.team.id, user_id=self.user.id),),
+        )
+
+        with patch(REQUEST_STAMPHOG_REVIEW) as request_review:
+            outcome = handle_stamp(context, args)
+
+        assert not outcome.accepted
+        assert outcome.message.startswith(expected)
+        # A reply on GitHub is public, so it never repeats the note.
+        assert "Jane" not in outcome.message
+        request_review.assert_not_called()
+
+    @parameterized.expand(
+        [
+            (
+                "pending",
+                BroadcastRequestStatus.PENDING,
+                [],
+                "reviews",
+                "If it doesn't approve, this goes to #reviews.",
+            ),
+            (
+                "pending_without_a_channel_name",
+                BroadcastRequestStatus.PENDING,
+                [],
+                "",
+                "If it doesn't approve, this goes to the repository's Slack channel.",
+            ),
+            ("open", BroadcastRequestStatus.OPEN, [], "reviews", "Stamphog didn't approve, so this goes to #reviews."),
+            (
+                "open_first_card_this_week",
+                BroadcastRequestStatus.OPEN,
+                [],
+                "reviews",
+                "Stamphog didn't approve, so this goes to #reviews.",
+                1,
+            ),
+            (
+                "open_twelfth_card_this_week",
+                BroadcastRequestStatus.OPEN,
+                [],
+                "reviews",
+                "Stamphog didn't approve, so this goes to #reviews. It's your 12th this week.",
+                12,
+            ),
+            (
+                "already_posted",
+                BroadcastRequestStatus.OPEN,
+                ["https://example.slack.com/archives/C1/p100200"],
+                "reviews",
+                "Already asked in #reviews: https://example.slack.com/archives/C1/p100200",
+            ),
+            # Slack gave no link for the message, so the reply names only the channel.
+            (
+                "already_posted_without_a_link",
+                BroadcastRequestStatus.OPEN,
+                [None],
+                "reviews",
+                "Already asked in #reviews.",
+            ),
+            (
+                "stamphog_approved",
+                BroadcastRequestStatus.STAMPHOG_APPROVED,
+                [],
+                "reviews",
+                "Stamphog approved. No one else needs to look.",
+            ),
+            # Someone else asked first and the card is not out yet, so the reply promises no count of theirs.
+            (
+                "asked_by_someone_else",
+                BroadcastRequestStatus.OPEN,
+                [],
+                "reviews",
+                "Already asked. Stamphog didn't approve, so this goes to #reviews.",
+                5,
+                False,
+            ),
+            # No Slack integration, or Slack refused the post: nothing goes to the channel until a person fixes it.
+            (
+                "card_blocked",
+                BroadcastRequestStatus.OPEN,
+                [],
+                "reviews",
+                "Stamphog didn't approve, but the request couldn't be posted to #reviews. "
+                "A manager can check that Slack is connected and that the app can post in the channel.",
+                None,
+                False,
+                True,
+            ),
+            # A reply on GitHub is a public comment, so it names no channel and has no Slack link or count.
+            (
+                "already_posted_from_github",
+                BroadcastRequestStatus.OPEN,
+                ["https://example.slack.com/archives/C1/p100200"],
+                "reviews",
+                "Already asked in the repository's Slack channel.",
+                None,
+                True,
+                False,
+                "github",
+            ),
+            (
+                "open_twelfth_card_from_github",
+                BroadcastRequestStatus.OPEN,
+                [],
+                "reviews",
+                "Stamphog didn't approve, so this goes to the repository's Slack channel.",
+                12,
+                True,
+                False,
+                "github",
+            ),
+        ]
+    )
+    def test_stamp_broadcast_replies_with_where_the_request_stands(
+        self,
+        _name: str,
+        status: BroadcastRequestStatus,
+        urls: list[str | None],
+        channel_name: str,
+        expected: str,
+        card_count: int | None = None,
+        created: bool = True,
+        card_blocked: bool = False,
+        asked_from: ChannelName = "slack",
+    ) -> None:
+        broadcast_request = BroadcastRequestDTO(
+            id=uuid4(),
+            status=status,
+            head_sha="abc123",
+            requested_via=BroadcastRequestSource.SLACK,
+            note="ask Jane about billing",
+            deliveries=[
+                BroadcastRequestDeliveryDTO(kind=BroadcastRequestDeliveryKind.SLACK_MESSAGE, url=url) for url in urls
+            ],
+        )
+        context = CommandContext(
+            request=dataclasses.replace(self._command_request(verb="stamp"), channel=asked_from),
+            subject=_pull_request(),
+            members=(ProjectMember(team_id=self.team.id, user_id=self.user.id),),
+        )
+        result = MagicMock(
+            created=True,
+            broadcast_request=broadcast_request,
+            broadcast_request_created=created,
+            broadcast_request_card_blocked=card_blocked,
+            broadcast_request_channel_name=channel_name,
+            broadcast_request_card_count=card_count,
+        )
+        note = "ask Jane about billing" if asked_from == "slack" else ""
+
+        with patch(REQUEST_STAMPHOG_REVIEW, return_value=result):
+            outcome = handle_stamp(context, StampArgs(allow_broadcast=True, note=note))
+
+        assert outcome.accepted
+        assert outcome.message.endswith(expected)
+        assert "Jane" not in outcome.message
+        if asked_from == "github":
+            assert "#reviews" not in outcome.message and "slack.com" not in outcome.message
 
     @parameterized.expand(
         [
@@ -522,6 +723,138 @@ class TestDispatchCommentCommand(BaseTest):
         else:
             assert request_pr_review.call_args.kwargs["run_mode"] == expected_mode
             assert request_pr_review.call_args.kwargs["team_id"] == self.team.id
+
+    @parameterized.expand(
+        [
+            (
+                "created",
+                "",
+                ForkRecreationOutcome(created=True, message="", pull_request_number=12),
+                "accepted",
+                "Re-created as #12.",
+            ),
+            (
+                "created_and_enqueued",
+                "--enqueue",
+                ForkRecreationOutcome(created=True, message="", pull_request_number=12),
+                "accepted",
+                "Re-created as #12.",
+            ),
+            (
+                "created_without_handover",
+                "",
+                ForkRecreationOutcome(created=True, message="", pull_request_number=12, handed_over=False),
+                "accepted",
+                "Comment `@posthog recreate` again to finish.",
+            ),
+            (
+                "refused",
+                "",
+                ForkRecreationOutcome(created=False, message="This pull request is closed."),
+                "refused",
+                "This pull request is closed.",
+            ),
+        ]
+    )
+    def test_recreate_runs_on_a_fork_pull_request(
+        self, _name: str, argument: str, result: ForkRecreationOutcome, expected_outcome: str, expected_reply: str
+    ) -> None:
+        self._link_github_login()
+        github = FakeGitHub(pull_request=_pull_request(is_fork=True))
+        recreations: list[dict[str, Any]] = []
+
+        def recreate(**request: Any) -> ForkRecreationOutcome:
+            recreations.append(request)
+            return result
+
+        with (
+            patch(OWNING_TEAM_ID, return_value=self.team.id),
+            patch(RECREATE_FORK_PR, side_effect=recreate),
+        ):
+            outcome = dispatch_comment_command(self._request(verb="recreate", argument=argument), github=github)
+
+        assert outcome == expected_outcome
+        assert github.replies[-1].endswith(expected_reply)
+        assert recreations == [
+            {
+                "team_id": self.team.id,
+                "installation_id": INSTALLATION_ID,
+                "repository": REPOSITORY,
+                "pr_number": 7,
+                "enqueue": argument == "--enqueue",
+            }
+        ]
+
+    def test_recreate_refuses_a_slack_request(self) -> None:
+        self._connect_github_account("acme")
+        slack = Integration.objects.create(
+            team=self.team, kind="slack", integration_id="T1", config={}, sensitive_config={"access_token": "xoxb-x"}
+        )
+        mention = self._slack_mention("recreate", (str(self.organization.id),), integration_id=slack.id)
+        budget = BucketDecision(allowed=True, remaining=0, limit=5, retry_after=60, reset=600)
+        recreations: list[dict[str, Any]] = []
+        answers: list[str] = []
+
+        with (
+            patch(RUN_SLACK_COMMAND, side_effect=lambda **kwargs: run_slack_command(**kwargs)),
+            patch(SLACK_INSTALLATION_GITHUB, return_value=FakeGitHub(pull_request=_pull_request(is_fork=True))),
+            patch(SLACK_POST, side_effect=lambda *args, **kwargs: answers.append(args[3])),
+            patch(CONSUME_BUDGET, return_value=budget),
+            patch(OWNING_TEAM_ID, return_value=self.team.id),
+            patch(RECREATE_FORK_PR, side_effect=lambda **request: recreations.append(request)),
+        ):
+            accept_slack_mention(mention)
+
+        assert [answer.split("\n")[0] for answer in answers] == ["`recreate` only runs from a pull request comment."]
+        assert recreations == []
+
+    def test_a_slack_stamp_passes_the_note_and_the_requester_to_stamphog(self) -> None:
+        self._connect_github_account("acme")
+        slack = Integration.objects.create(
+            team=self.team, kind="slack", integration_id="T1", config={}, sensitive_config={"access_token": "xoxb-x"}
+        )
+        mention = dataclasses.replace(
+            self._slack_mention("stamp", (str(self.organization.id),), integration_id=slack.id),
+            text=f"stamp --allow-broadcast https://github.com/{REPOSITORY}/pull/7 check the billing migration",
+        )
+        broadcast_request = BroadcastRequestDTO(
+            id=uuid4(),
+            status=BroadcastRequestStatus.PENDING,
+            head_sha="abc123",
+            requested_via=BroadcastRequestSource.SLACK,
+        )
+        result = MagicMock(
+            created=True,
+            broadcast_request=broadcast_request,
+            broadcast_request_created=True,
+            broadcast_request_card_blocked=False,
+            broadcast_request_channel_name="reviews",
+        )
+        budget = BucketDecision(allowed=True, remaining=0, limit=5, retry_after=60, reset=600)
+        answers: list[str] = []
+
+        with (
+            patch(RUN_SLACK_COMMAND, side_effect=lambda **kwargs: run_slack_command(**kwargs)),
+            patch(SLACK_INSTALLATION_GITHUB, return_value=FakeGitHub()),
+            patch(SLACK_POST, side_effect=lambda *args, **kwargs: answers.append(args[3])),
+            patch(CONSUME_BUDGET, return_value=budget),
+            patch(REQUEST_STAMPHOG_REVIEW, return_value=result) as request_review,
+        ):
+            accept_slack_mention(mention)
+
+        assert request_review.call_args.kwargs == {
+            "user_id": self.user.id,
+            "repository": REPOSITORY,
+            "pr_number": 7,
+            "allow_broadcast": True,
+            "note": "check the billing migration",
+            "requested_via": BroadcastRequestSource.SLACK,
+            "requester_slack_user_id": "U1",
+            "requester_github_login": "",
+        }
+        assert [answer.split("\n")[0] for answer in answers] == [
+            "Stamphog is reviewing. If it doesn't approve, this goes to #reviews."
+        ]
 
     @parameterized.expand(
         [

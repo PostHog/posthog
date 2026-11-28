@@ -1,15 +1,17 @@
 import { createHash } from 'crypto'
-import { readFileSync } from 'fs'
+import { readFileSync, realpathSync, statSync } from 'fs'
 import path from 'path'
 import { parse } from 'yaml'
 import { z } from 'zod'
 
+import type { ReadAlertFile } from '../cards/load'
 import { Duration } from '../duration'
 import { RunCard } from './card'
 
 export const CAP_USD = 200
 export const TTL_HOURS = 6
 export const REGION = 'us-east-1'
+export const PRODUCTION_READER_MONITORING_INTERVAL_SECONDS = 60
 
 const Usd = z.number().nonnegative()
 const Name = z.string().min(1)
@@ -68,7 +70,16 @@ export const CloudProfile = z
             .strict(),
         engineVersion: Name,
         writerClass: Name,
-        readerAcu: z.object({ min: z.literal(1), max: z.number().int().positive() }).strict(),
+        readerAcu: z
+            .object({
+                min: z.literal(1),
+                max: z.number().int().positive(),
+                idleMax: z.number().optional(),
+            })
+            .strict(),
+        readerMonitoringIntervalSeconds: z
+            .literal([1, 5, 10, 15, 30, 60])
+            .default(PRODUCTION_READER_MONITORING_INTERVAL_SECONDS),
         host: z
             .object({
                 class: Name,
@@ -123,8 +134,13 @@ export type CloudProfile = z.infer<typeof CloudProfile>
 
 export type InputFile = { file: string; bytes: Buffer; sha256: string }
 
-export type ProfileInputs = { profile: CloudProfile; runner: InputFile; inputs: InputFile[] }
+type ProfileInputs = {
+    profile: CloudProfile
+    runner: InputFile
+    inputs: InputFile[]
+}
 
+export type CloudRunProfileInputs = ProfileInputs & { readAlertFile: ReadAlertFile }
 export type RunInputs = ProfileInputs & { card: RunCard }
 
 export class CloudProfileError extends Error {
@@ -165,9 +181,26 @@ export function loadCloudProfile(filePath: string): CloudProfile {
     return parseCloudProfile(filePath, readInput('cloud-profile.yaml', filePath))
 }
 
-export function loadRunInputs(filePath: string): ProfileInputs {
+export function loadRunInputs(filePath: string): CloudRunProfileInputs {
     const cloud = readInput('cloud-profile.yaml', filePath)
     const profile = parseCloudProfile(filePath, cloud)
-    const runner = readInput('runner-profile.yaml', path.resolve(path.dirname(filePath), profile.runnerProfile))
-    return { profile, runner, inputs: [cloud, runner] }
+    const dir = realpathSync(path.dirname(filePath))
+    const runner = readInput('runner-profile.yaml', path.join(dir, profile.runnerProfile))
+    const inputs = [cloud, runner]
+    const readAlertFile: ReadAlertFile = (file) => {
+        if (!/^alerts\/[\w-][\w.-]*\.ya?ml$/.test(file)) {
+            throw new Error('Alert files must be YAML files in the alerts directory beside the runner profile.')
+        }
+        const resolved = path.join(dir, file)
+        let input = inputs.find((input) => input.file === file)
+        if (!input) {
+            if (realpathSync(resolved) !== resolved || !statSync(resolved).isFile()) {
+                throw new Error('Alert files must be regular files in the alerts directory beside the runner profile.')
+            }
+            input = readInput(file, resolved)
+            inputs.push(input)
+        }
+        return { path: resolved, sha256: input.sha256 }
+    }
+    return { profile, runner, inputs, readAlertFile }
 }

@@ -208,10 +208,10 @@ def user_has_billing_access(user: User, organization: Organization) -> bool:
     if not membership:
         return False
 
-    if membership.level >= OrganizationMembership.Level.OWNER:
+    if membership.effective_level >= OrganizationMembership.Level.OWNER:
         return True
 
-    if membership.level < OrganizationMembership.Level.ADMIN:
+    if membership.effective_level < OrganizationMembership.Level.ADMIN:
         return False
 
     # Only a confirmed disabled flag lets admins through. Unknown flag state fails closed to owners.
@@ -252,17 +252,17 @@ def user_has_billing_usage_spend_read_access(user: User, organization: Organizat
     if not membership:
         return False
 
-    if membership.level >= OrganizationMembership.Level.OWNER:
+    if membership.effective_level >= OrganizationMembership.Level.OWNER:
         return True
 
     # Only a confirmed disabled flag lets non-owners through. Unknown flag state fails closed to owners.
     if _owner_only_billing_enabled(user, organization) is not False:
         return False
 
-    if membership.level >= OrganizationMembership.Level.ADMIN:
+    if membership.effective_level >= OrganizationMembership.Level.ADMIN:
         return True
 
-    if membership.level < OrganizationMembership.Level.MEMBER:
+    if membership.effective_level < OrganizationMembership.Level.MEMBER:
         return False
 
     return _member_billing_usage_spend_read_access_enabled(user, organization)
@@ -338,8 +338,9 @@ def vercel_invoices_url(organization: Organization | None) -> str | None:
 
 def _find_privileged_authorizer(organization: Organization) -> Optional[User]:
     memberships = (
-        OrganizationMembership.objects.filter(organization=organization, level__gte=OrganizationMembership.Level.ADMIN)
-        .order_by("-level", "joined_at")
+        OrganizationMembership.objects.with_effective_level()
+        .filter(organization=organization, resolved_level__gte=OrganizationMembership.Level.ADMIN)
+        .order_by("-resolved_level", "joined_at")
         .select_related("user")
     )
     for membership in memberships:
@@ -701,7 +702,19 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
     payment_actions = {"activate", "authorize", "authorize_status"}
 
+    @classmethod
+    def as_view(cls, actions=None, **initkwargs):
+        # Billing limits are also updated with a PATCH to the list route. Binding it here keeps every other route
+        # answering PATCH with a 405.
+        if actions and actions.get("get") == "list":
+            actions = {**actions, "patch": "update_limits"}
+        return super().as_view(actions, **initkwargs)
+
     def initial(self, request: Request, *args: Any, **kwargs: Any) -> None:
+        if self.action == "update_limits":
+            # The router passes an action's permission_classes only to that action's own route, so the list route
+            # takes them here.
+            self.permission_classes = self.update_limits.kwargs["permission_classes"]
         scoped_billing_read = self.action == "list" and "organization_id" in request.query_params
         scoped_startup_application = self.action == "apply_startup_program" and bool(
             request.data.get("organization_id")
@@ -787,7 +800,7 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         url_path="/",
         permission_classes=[permissions.IsAuthenticated, HasBillingAccess],
     )
-    def patch(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+    def update_limits(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         distinct_id = None if self.request.user.is_anonymous else self.request.user.distinct_id
         license = get_cached_instance_license()
         if not license:

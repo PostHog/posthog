@@ -9,20 +9,20 @@ GitHub repositories, and code execution.
 Use them when your feature needs an autonomous agent that reads PostHog data, writes code, and produces artifacts like PRs or reports.
 
 For simpler LLM calls (summarization, translation, classification),
-skip this page and use the LLM gateway (`get_llm_client(product=..., team_id=...)`) directly —
-it's simpler and doesn't need a sandbox.
+skip this page and call the AI gateway directly with a client builder from `posthog/llm/gateway_client.py`, such as `build_openai_client(ai_product=...)`.
+It's simpler and doesn't need a sandbox.
 
 ## When to use what
 
-| Example                                                                                         | Solution                                                   |
-| ----------------------------------------------------------------------------------------------- | ---------------------------------------------------------- |
-| Signals team building an enrichment pipeline that generates reports from PostHog analytics data | Sandboxed agent (this page)                                |
-| Conversations team building a support agent that queries PostHog and customer documentation     | Sandboxed agent (this page)                                |
-| AI observability summarizing a funnel, generating a natural-language insight title              | LLM gateway via `get_llm_client(product=..., team_id=...)` |
-| Not sure                                                                                        | Ask in `#team-posthog-ai`                                  |
+| Example                                                                                         | Solution                                             |
+| ----------------------------------------------------------------------------------------------- | ---------------------------------------------------- |
+| Signals team building an enrichment pipeline that generates reports from PostHog analytics data | Sandboxed agent (this page)                          |
+| Conversations team building a support agent that queries PostHog and customer documentation     | Sandboxed agent (this page)                          |
+| AI observability summarizing a funnel, generating a natural-language insight title              | AI gateway via `build_openai_client(ai_product=...)` |
+| Not sure                                                                                        | Ask in `#team-posthog-ai`                            |
 
 **Rule of thumb**: if the LLM needs to _do things_ (query data, read files, create branches, open PRs), use a sandboxed agent.
-If it just needs to _answer a question_ given some context you already have, use the LLM gateway.
+If it just needs to _answer a question_ given some context you already have, use the AI gateway.
 
 ## How it works
 
@@ -42,6 +42,21 @@ An idle sandbox resume does not run an agent turn, so it does not send a finishe
 The chat history filters for PostHog AI, Slack, and Desktop show tasks created by the current user.
 These requests wait until the current user's ID is available, including filter changes, searches, and refreshes.
 When the user loads, the pending request uses the active filter and search term.
+
+### Provider rate limits
+
+Initial and resumed agent turns retry provider rate limits and capacity refusals up to four times.
+Without a provider hint, each retry uses a random delay between zero and an exponential ceiling of 15, 30, 60, then 120 seconds.
+A provider's `try again in` hint adds a minimum delay, capped at 60 seconds to leave room for jitter.
+The total delay stays below 120 seconds, including the hint.
+Canceling the turn interrupts the retry wait immediately.
+Other transient provider failures allow two retries with a five-second delay.
+Task spend limits and subscription usage limits do not trigger these retries.
+
+The turn retry log records the classification, attempt, and delay.
+The run's `state.upstream_turn_retry` stores the latest retry's `classification`, `attempt`, and `delay_ms`.
+This state remains available when a later retry succeeds.
+An exhausted rate-limit retry reports `upstream_rate_limited` as the error category.
 
 ### Stream recovery
 
@@ -185,7 +200,8 @@ A profile with `billing_product="background_agents"` runs on PostHog-funded infe
 Its origin must be in `BACKGROUND_AGENTS_ORIGINS` in `products/tasks/backend/temporal/process_task/ai_gateway_token.py`
 and in `Task.SERVER_ONLY_ORIGIN_PRODUCTS`, so API callers cannot set it.
 Without the first entry the tasks worker refuses the run an AI gateway token, with the reason `no_background_agents_provenance`.
-`test_background_agents_profile_can_mint_a_gateway_token` in `products/tasks/backend/tests/test_profile_parity.py` fails until both entries exist.
+`test_server_funded_profile_can_mint_a_gateway_token` in `products/tasks/backend/tests/test_profile_parity.py` fails until both entries exist.
+To budget and cap a product's spend on its own, give it a dedicated gateway product instead, as `account_audit` and `autoresearch` do.
 
 Register the profiles from your product's `AppConfig.ready()`:
 

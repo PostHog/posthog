@@ -34,6 +34,13 @@ class TestAppsFlyerSource:
             ("blocked_in_app_events", False),
             ("post_attribution_installs", False),
             ("master_report", False),
+            ("reinstalls", False),
+            ("reinstalls_organic", False),
+            ("install_postbacks", False),
+            ("in_app_event_postbacks", False),
+            ("retargeting_install_postbacks", False),
+            ("retargeting_in_app_event_postbacks", False),
+            ("skan_performance_report", False),
         ],
     )
     def test_only_aggregate_reports_sync_by_default(self, name, expected):

@@ -1,4 +1,3 @@
-import re
 import json
 import hashlib
 import datetime as dt
@@ -7,7 +6,6 @@ from collections.abc import Iterator
 from typing import Any, Optional
 
 import requests
-from botocore.auth import SigV4Auth
 from botocore.awsrequest import AWSRequest
 from botocore.credentials import Credentials
 from structlog.types import FilteringBoundLogger
@@ -27,8 +25,12 @@ from products.warehouse_sources.sources.sdk import (
     BoundedRetry,
     ResumableSourceManager,
     SourceResponse,
+    aws_redact_values,
+    camel_to_snake,
     capture_exception,
+    flatten_nested,
     make_tracked_session,
+    sign_aws_request,
 )
 
 REQUEST_TIMEOUT_SECONDS = 120
@@ -53,8 +55,6 @@ THROTTLING_ERROR_CODES = frozenset(
         "TooManyRequestsException",
     }
 )
-
-_CAMEL_BOUNDARY = re.compile(r"(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])")
 
 
 class AwsCostExplorerError(Exception):
@@ -81,11 +81,6 @@ class AwsCostExplorerResumeConfig:
 class TimeWindow:
     start: dt.date
     end: dt.date
-
-
-def _snake(name: str) -> str:
-    """`UtilizationPercentage` -> `utilization_percentage`, `LINKED_ACCOUNT` -> `linked_account`."""
-    return _CAMEL_BOUNDARY.sub("_", name).lower()
 
 
 def _to_number(value: Any) -> Any:
@@ -191,26 +186,8 @@ def build_payload(
     return payload
 
 
-def _flatten(prefix: str, obj: dict[str, Any]) -> dict[str, Any]:
-    flattened: dict[str, Any] = {}
-    for key, value in obj.items():
-        column = f"{prefix}_{_snake(key)}" if prefix else _snake(key)
-        if isinstance(value, dict):
-            flattened.update(_flatten(column, value))
-        else:
-            flattened[column] = _to_number(value)
-    return flattened
-
-
-def _flatten_raw(prefix: str, obj: dict[str, Any]) -> dict[str, Any]:
-    flattened: dict[str, Any] = {}
-    for key, value in obj.items():
-        column = f"{prefix}_{_snake(key)}" if prefix else _snake(key)
-        if isinstance(value, dict):
-            flattened.update(_flatten_raw(column, value))
-        else:
-            flattened[column] = value
-    return flattened
+def _flatten_numbers(prefix: str, obj: dict[str, Any]) -> dict[str, Any]:
+    return {column: _to_number(value) for column, value in flatten_nested(obj, prefix=prefix).items()}
 
 
 def _metric_columns(endpoint_config: CostExplorerEndpointConfig, metrics: dict[str, Any]) -> dict[str, Any]:
@@ -219,15 +196,15 @@ def _metric_columns(endpoint_config: CostExplorerEndpointConfig, metrics: dict[s
     columns: dict[str, Any] = {}
     for metric in endpoint_config.metrics:
         value = metrics.get(metric) or {}
-        columns[f"{_snake(metric)}_amount"] = _to_number(value.get("Amount"))
-        columns[f"{_snake(metric)}_unit"] = value.get("Unit")
+        columns[f"{camel_to_snake(metric)}_amount"] = _to_number(value.get("Amount"))
+        columns[f"{camel_to_snake(metric)}_unit"] = value.get("Unit")
     return columns
 
 
 def _cost_rows(
     endpoint_config: CostExplorerEndpointConfig, base: dict[str, Any], result: dict[str, Any]
 ) -> list[dict[str, Any]]:
-    group_columns = [_snake(key) for key in endpoint_config.group_by]
+    group_columns = [camel_to_snake(key) for key in endpoint_config.group_by]
     groups = result.get("Groups") or []
 
     if not groups:
@@ -253,13 +230,13 @@ def _dimension_rows(dimension: str, body: dict[str, Any]) -> list[dict[str, Any]
         # LINKED_ACCOUNT values carry the account name as a `description` attribute. Attributes are
         # labels, so they skip the numeric coercion a name like `0010` would not survive.
         row: dict[str, Any] = {"dimension": dimension, "value": item.get("Value")}
-        row.update({_snake(key): value for key, value in (item.get("Attributes") or {}).items()})
+        row.update({camel_to_snake(key): value for key, value in (item.get("Attributes") or {}).items()})
         rows.append(row)
     return rows
 
 
 def _slice_column(endpoint_config: CostExplorerEndpointConfig, slice_key: Optional[str]) -> dict[str, Any]:
-    return {_snake(endpoint_config.slice_member): slice_key} if endpoint_config.slice_member else {}
+    return {camel_to_snake(endpoint_config.slice_member): slice_key} if endpoint_config.slice_member else {}
 
 
 def _item_rows(
@@ -282,11 +259,11 @@ def _item_rows(
             if key == "TimePeriod" or key in nested:
                 continue
             if key in labels:
-                row.update(_flatten_raw(labels[key], value or {}))
+                row.update(flatten_nested(value or {}, prefix=labels[key]))
             elif not isinstance(value, dict):
-                row[_snake(key)] = _to_number(value)
+                row[camel_to_snake(key)] = _to_number(value)
         for member, prefix in endpoint_config.nested_keys:
-            row.update(_flatten(prefix, item.get(member) or {}))
+            row.update(_flatten_numbers(prefix, item.get(member) or {}))
         rows.append(row)
     return rows
 
@@ -307,17 +284,16 @@ def _record_rows(
     endpoint_config: CostExplorerEndpointConfig, body: dict[str, Any], slice_key: Optional[str]
 ) -> list[dict[str, Any]]:
     base = _slice_column(endpoint_config, slice_key)
-    base.update(_flatten_raw("metadata", body.get("Metadata") or {}))
+    base.update(flatten_nested(body.get("Metadata") or {}, prefix="metadata"))
     rows: list[dict[str, Any]] = []
     for record in body.get(endpoint_config.result_key) or []:
         if endpoint_config.detail_member is None:
-            rows.append({**base, **_flatten_raw("", record)})
+            rows.append({**base, **flatten_nested(record)})
             continue
 
         parent = {
             **base,
-            **_flatten_raw(
-                "",
+            **flatten_nested(
                 {
                     key: value
                     for key, value in record.items()
@@ -327,7 +303,7 @@ def _record_rows(
             ),
         }
         for detail in record.get(endpoint_config.detail_member) or []:
-            rows.append({**parent, **_flatten_raw("", detail)})
+            rows.append({**parent, **flatten_nested(detail)})
 
     if endpoint_config.synthetic_key:
         for row in rows:
@@ -366,7 +342,7 @@ def normalize_results(
         if endpoint_config.services:
             row["service"] = slice_key
         for member, prefix in endpoint_config.nested_keys:
-            row.update(_flatten(prefix, result.get(member) or {}))
+            row.update(_flatten_numbers(prefix, result.get(member) or {}))
         rows.append(row)
 
     return rows
@@ -403,9 +379,8 @@ def error_for_response(response: requests.Response) -> AwsCostExplorerError:
     return AwsCostExplorerError(text, code)
 
 
-def make_session(secret_access_key: str, session_token: Optional[str]) -> requests.Session:
-    redact = tuple(value for value in (secret_access_key, session_token) if value)
-    return make_tracked_session(retry=TRANSPORT_RETRY, redact_values=redact)
+def make_session(credentials: Credentials) -> requests.Session:
+    return make_tracked_session(retry=TRANSPORT_RETRY, redact_values=aws_redact_values(credentials))
 
 
 @retry(
@@ -431,7 +406,7 @@ def send_operation(
             "X-Amz-Target": f"{CE_TARGET_PREFIX}.{operation}",
         },
     )
-    SigV4Auth(credentials, CE_SIGNING_NAME, CE_SIGNING_REGION).add_auth(aws_request)
+    sign_aws_request(aws_request, credentials, CE_SIGNING_NAME, CE_SIGNING_REGION)
 
     response = session.post(
         CE_ENDPOINT_URL,
@@ -462,22 +437,34 @@ VALIDATION_ERROR_MESSAGES: dict[str, str] = {
     "BillExpirationException": "The requested dates are older than the data AWS keeps. Move the start date forward and try again.",
 }
 
-TRANSIENT_VALIDATION_ERROR = "AWS Cost Explorer is busy or temporarily unavailable. Wait a moment and try again."
+# AWS raises a ValidationException with this text when the connected credentials are a
+# linked/member account asking for a metric that includes discounts (amortized or net costs).
+# Only the management (payer) account, or a linked account with "View Discounts" turned on in
+# Cost Explorer preferences, can see those metrics, so retrying never changes the outcome.
+DISCOUNT_PERMISSION_ERROR_MESSAGE = (
+    "Linked accounts without permissions to view discounts may not query for this metric"
+)
 
-GENERIC_VALIDATION_ERROR = (
-    "AWS didn't accept the Cost Explorer request. Check the access key is active and can read Cost Explorer, "
-    "then try again."
+DISCOUNT_PERMISSION_ERROR_RESOLUTION = (
+    "This AWS account can't view amortized or net cost metrics. Connect the AWS management (payer) account, "
+    'or turn on "View Discounts" for this linked account in Cost Explorer preferences, to sync these metrics.'
 )
 
 
-def validate_credentials(
-    aws_access_key_id: str,
-    aws_secret_access_key: str,
-    aws_session_token: Optional[str],
-) -> tuple[bool, Optional[str]]:
+def is_discount_permission_error(error: AwsCostExplorerError) -> bool:
+    return error.code == "ValidationException" and DISCOUNT_PERMISSION_ERROR_MESSAGE in str(error)
+
+
+TRANSIENT_VALIDATION_ERROR = "AWS Cost Explorer is busy or temporarily unavailable. Wait a moment and try again."
+
+GENERIC_VALIDATION_ERROR = (
+    "AWS didn't accept the Cost Explorer request. Check that the access key or IAM role can read Cost "
+    "Explorer, then try again."
+)
+
+
+def validate_credentials(credentials: Credentials) -> tuple[bool, Optional[str]]:
     """One cheap `GetCostAndUsage` probe — the exact permission every table needs."""
-    if not aws_access_key_id or not aws_secret_access_key:
-        return False, "AWS access key ID and secret access key are required"
 
     end = dt.datetime.now(dt.UTC).date() + dt.timedelta(days=1)
     payload = {
@@ -488,8 +475,8 @@ def validate_credentials(
 
     try:
         send_operation(
-            make_session(aws_secret_access_key, aws_session_token),
-            Credentials(aws_access_key_id, aws_secret_access_key, aws_session_token or None),
+            make_session(credentials),
+            credentials,
             "GetCostAndUsage",
             payload,
         )
@@ -541,9 +528,7 @@ def list_window_services(session: requests.Session, credentials: Credentials, wi
 
 
 def get_rows(
-    aws_access_key_id: str,
-    aws_secret_access_key: str,
-    aws_session_token: Optional[str],
+    credentials: Credentials,
     start_date: Optional[str],
     endpoint: str,
     resumable_source_manager: ResumableSourceManager[AwsCostExplorerResumeConfig],
@@ -553,8 +538,7 @@ def get_rows(
 ) -> Iterator[list[dict[str, Any]]]:
     endpoint_config = AWS_COST_EXPLORER_ENDPOINTS[endpoint]
 
-    session = make_session(aws_secret_access_key, aws_session_token)
-    credentials = Credentials(aws_access_key_id, aws_secret_access_key, aws_session_token or None)
+    session = make_session(credentials)
 
     # `End` is exclusive. Cost-and-usage operations report today's partial figures (flagged
     # estimated), so their window reaches into tomorrow; the utilization operations have no
@@ -585,6 +569,10 @@ def get_rows(
     if resume is not None:
         logger.debug(f"Resuming AWS Cost Explorer sync. endpoint={endpoint}, window={slices[index][0].start}")
 
+    # A resumed run already served the slices before `index`, so it never counts as fully rejected.
+    served_any_slice = index > 0
+    discount_error: Optional[AwsCostExplorerError] = None
+
     for window, slice_key in slices[index:]:
         window_services: Optional[list[str]] = None
         if endpoint_config.filter_by_window_services:
@@ -595,12 +583,24 @@ def get_rows(
                 continue
 
         while True:
-            body = send_operation(
-                session,
-                credentials,
-                endpoint_config.operation,
-                build_payload(endpoint_config, window, page_token, slice_key, window_services),
-            )
+            try:
+                body = send_operation(
+                    session,
+                    credentials,
+                    endpoint_config.operation,
+                    build_payload(endpoint_config, window, page_token, slice_key, window_services),
+                )
+            except AwsCostExplorerError as error:
+                # AWS refuses a linked account without discount visibility only the metrics that
+                # include discounts. Skip those slices so the metrics AWS serves still sync.
+                if not endpoint_config.slice_values or not is_discount_permission_error(error):
+                    raise
+                logger.warning(
+                    f"Skipping AWS Cost Explorer slice: the account can't view discounts. endpoint={endpoint}, slice={slice_key}"
+                )
+                discount_error = error
+                break
+            served_any_slice = True
             rows = normalize_results(endpoint_config, body, slice_key)
             if rows:
                 yield rows
@@ -620,13 +620,15 @@ def get_rows(
 
         page_token = None
 
+    if discount_error is not None and not served_any_slice:
+        # Nothing synced, so fail with the error `get_non_retryable_errors` maps to the fix.
+        raise discount_error
+
     resumable_source_manager.clear_state()
 
 
 def aws_cost_explorer_source(
-    aws_access_key_id: str,
-    aws_secret_access_key: str,
-    aws_session_token: Optional[str],
+    credentials: Credentials,
     start_date: Optional[str],
     endpoint: str,
     resumable_source_manager: ResumableSourceManager[AwsCostExplorerResumeConfig],
@@ -640,9 +642,7 @@ def aws_cost_explorer_source(
     return SourceResponse(
         name=endpoint,
         items=lambda: get_rows(
-            aws_access_key_id=aws_access_key_id,
-            aws_secret_access_key=aws_secret_access_key,
-            aws_session_token=aws_session_token,
+            credentials=credentials,
             start_date=start_date,
             endpoint=endpoint,
             resumable_source_manager=resumable_source_manager,

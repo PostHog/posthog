@@ -800,6 +800,10 @@ SQL
       type    = "LowCardinality(String)"
       default = "''"
     }
+    column "auth_type" {
+      type    = "LowCardinality(String)"
+      default = "''"
+    }
     index "idx_severity_text_set" {
       expr        = "severity_text"
       type        = "set(10)"
@@ -1029,6 +1033,10 @@ SQL
       type = "UInt8"
     }
     column "internal_source" {
+      type    = "LowCardinality(String)"
+      default = "''"
+    }
+    column "auth_type" {
       type    = "LowCardinality(String)"
       default = "''"
     }
@@ -3151,6 +3159,9 @@ SQL
     column "lc_estimated_bytes" {
       type = "SimpleAggregateFunction(max, Int64)"
     }
+    column "log_comment" {
+      type = "SimpleAggregateFunction(max, String)"
+    }
     column "query_id" {
       type = "String"
     }
@@ -4780,10 +4791,6 @@ SQL
 }
 
 named_collection "msk_cluster" {
-  external = true
-}
-
-named_collection "warpstream_calculated_events" {
   external = true
 }
 

@@ -4,12 +4,45 @@ Quick-reference for AI agents using `@posthog/quill-components` — composed com
 
 ## Exports
 
+- `Credenza`, `CredenzaTrigger`, `CredenzaContent`, `CredenzaHeader`, `CredenzaTitle`, `CredenzaDescription`, `CredenzaBody`, `CredenzaFooter`, `CredenzaClose` — a `Dialog` on a wide viewport and a bottom `Drawer` on a phone, from one set of parts
 - `DataTable` — TanStack Table wired onto quill `Table` + `Pagination`, with an opt-in `selectable` checkbox variant
 - `FilterMenuTrigger`, `FilterRadioSubMenu`, `FilterCheckboxSubMenu`, `FilterSearchSubMenu`, `FilterSubMenu`, `FilterClearItem`, `filterSummary` — the parts of a list's one filter menu
 - `DateTimePicker` — calendar range picker with quick-range presets (`quickRanges`, `CUSTOM_RANGE`)
 - `DatePicker` — single-date picker (one calendar, optional time, no quick ranges)
 - `useCalendar` — headless calendar grid hook (`Day`, `Month` enums)
 - `Metric` — composable stat tile (`Card` + `Badge` pill + `Sparkline`); marries primitives with `@posthog/quill-charts`. Import from the `@posthog/quill-components/metric` subpath (not the main barrel)
+
+## Credenza
+
+```tsx
+<Credenza open={open} onOpenChange={setOpen}>
+  <CredenzaTrigger render={<Button variant="outline" />}>Rename dashboard</CredenzaTrigger>
+  <CredenzaContent>
+    <CredenzaHeader>
+      <CredenzaTitle>Rename dashboard</CredenzaTitle>
+      <CredenzaDescription>Everyone in the project sees the new name.</CredenzaDescription>
+    </CredenzaHeader>
+    <CredenzaBody>{/* fields */}</CredenzaBody>
+    <CredenzaFooter>
+      <CredenzaClose render={<Button variant="outline" />}>Cancel</CredenzaClose>
+      <Button variant="primary">Save</Button>
+    </CredenzaFooter>
+  </CredenzaContent>
+</Credenza>
+```
+
+Rules:
+
+- At 768px (`md`) and wider, the parts render the `Dialog` parts. Below that, they render the `Drawer` parts as a bottom sheet. Each mode keeps the look and behavior of its primitive: the dialog has its close button, and the drawer has its handle and swipe to dismiss.
+- The mode follows the viewport only while the credenza is closed. A popup that is open stays in its mode until its close animation ends, so a phone that rotates keeps the drawer and what the user typed.
+- `open`, `defaultOpen` and `onOpenChange` work as on `Dialog`. Leave out `open` to let the credenza keep its own state.
+- `disablePointerDismissal` keeps a click outside the dialog from closing it, for a form with unsaved input. Escape and the close button still close it. The drawer has no such option and ignores it.
+- Put content in `CredenzaBody`. It scrolls between the header and the footer and gives the side padding. Content placed directly in `CredenzaContent` has no padding. `viewportClassName` and `render` work as on `DialogBody` in both modes.
+- Every credenza has a `CredenzaFooter`. Without one, the body runs to the bottom edge with no padding.
+- Write the footer as Cancel first, main action last. The dialog shows them in a row, with the main action on the right. The drawer stacks them full width, with the main action on top.
+- When each change saves as the user makes it, there is nothing to submit or cancel. The footer then holds one `outline` button, since closing is not a main action: `<CredenzaClose render={<Button variant="outline" />}>Done</CredenzaClose>`.
+- A change of mode remounts the popup and its parts, but never a `CredenzaTrigger`: the triggers attach to the mounted root through a shared handle. Focus goes back to the trigger that opened it, and any number of triggers works with no extra props.
+- Use `Dialog` or `Drawer` directly when the surface must be the same on every viewport.
 
 ## DataTable
 
@@ -49,7 +82,7 @@ Rules:
 - A list sorted on the server passes `sorting` and `onSortingChange`. The table then keeps the rows in the order of `data`, only reports the clicks, and has no "off" state. Use `sortDescFirst` on a column to start at desc. `meta: { sortDataAttr }` sets the `data-attr` of the column's sort button.
 - `resizableColumns` lets the user drag a column's edge, or focus it and use the arrow keys. Its line shows while the header is hovered, and its handle while that header cell is. Columns fit their content until the first resize, then stay fixed. Bound a column with `minSize` and `maxSize` (the default minimum is 64px), and opt it out with `enableResizing: false`, as an actions column should. `columnSizing` and `onColumnSizingChange` control the widths, in pixels by column id, so a caller can save and restore them. A drag never renders: the handle moves the column in the DOM and `onColumnSizingChange` fires once, when it ends, so a table of any size stays smooth. A double click on an edge resets that column. A resize changes the dragged column and no other, including an `expand` column, which stops stretching at the first resize. A `fullWidth` table fills any space left over with an empty column, and scrolls once the columns no longer fit. Touch screens have no resizing.
 - `viewportRef` reaches the scrolling viewport, and `viewportEndRef` a marker at the end of it. Observe the marker, with the viewport as the root, to load more rows near the end.
-- Pagination is opt-in via `pageSize`; the component owns page state, reports user navigation through `onPageChange`, and resets to page 0 when `pageSize` changes. The pager is suppressed when the table has no rows — an empty table shows only its empty state, never a "0–0 of 0" pager.
+- Pagination is opt-in via `pageSize`; the component owns page state, reports user navigation through `onPageChange`, and resets to page 0 when `pageSize` changes. The pager shows only when the rows need more than one page, so pass the same `pageSize` for any number of rows. Never switch it to `undefined` to hide the pager on a short list. With `pageSizeOptions`, the pager stays while the rows need more than one page at the smallest option, so a user who picked a larger size can pick a smaller one again. An empty table shows only its empty state.
 - Custom empty state via the `empty` prop (ReactNode); default is a minimal "No results".
 - `rowClassName` accepts a class string or a function of the row data to style matching rows.
 - `onRowClick` makes non-interactive parts of each row clickable and keyboard accessible. Links, buttons, form controls, editable content, and custom controls keep their own behavior. Add `data-row-click-ignore` to a custom descendant that must not activate the row.

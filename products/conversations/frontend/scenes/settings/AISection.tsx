@@ -1,28 +1,21 @@
 import { useActions, useValues } from 'kea'
-import { router } from 'kea-router'
 
 import { LemonCard, LemonCheckbox, LemonSelect, LemonSwitch, Link } from '@posthog/lemon-ui'
 
-import { settingsLogic } from 'scenes/settings/settingsLogic'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { urls } from 'scenes/urls'
 
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
 
 import { AIContextAccountPropertiesSection } from '../../components/AIContextAccountPropertiesSection/AIContextAccountPropertiesSection'
+import { QuillAISection } from '../../components/QuillAISection/QuillAISection'
 import { SupportPlaybookSection } from '../../components/SupportPlaybookSection/SupportPlaybookSection'
 import { aiTriageTicketTypeLabel, TicketChannel } from '../../types'
+import { CHANNEL_LABELS, PUBLISHABLE_TICKET_TYPES, REPLY_MODE_OPTIONS, TICKET_TYPES } from './aiAgentSettingsOptions'
+import { type ChannelTabKey, openChannelSettings } from './openChannelSettings'
 import { supportSettingsLogic } from './supportSettingsLogic'
-import { CONVERSATIONS_LOGIC_KEY } from './SupportSettingsScene'
 
-const CHANNEL_LABELS: Record<TicketChannel, string> = {
-    widget: 'API / Widget',
-    slack: 'Slack',
-    email: 'Email',
-    teams: 'Microsoft Teams',
-    github: 'GitHub',
-}
-
-const CHANNEL_SETTINGS_TABS: Record<TicketChannel, string> = {
+const CHANNEL_SETTINGS_TABS: Record<TicketChannel, ChannelTabKey> = {
     widget: 'widget',
     slack: 'slack',
     email: 'email',
@@ -30,45 +23,56 @@ const CHANNEL_SETTINGS_TABS: Record<TicketChannel, string> = {
     github: 'github',
 }
 
-const TICKET_TYPES = ['how_to', 'diagnostic', 'account_billing'] as const
-
-// Only how_to replies may be sent to the customer. diagnostic/account_billing draw on project
-// data, so they're locked to private notes (enforced by the backend too).
-const PUBLISHABLE_TICKET_TYPES = new Set<string>(['how_to'])
-
-const REPLY_MODE_OPTIONS = [
-    { value: 'private_note' as const, label: 'Private note' },
-    { value: 'bot_reply' as const, label: 'AI reply' },
-]
-
 export function AISection(): JSX.Element {
     const {
         aiSuggestionsEnabled,
         aiSuggestionsLoading,
         aiDiagnosticsEnabled,
         aiDiagnosticsLoading,
+        aiRerunUntilTeamReply,
+        aiRerunModeLoading,
         aiEnabledChannels,
         aiAllChannels,
         aiResolutionChannels,
         aiReplyModes,
     } = useValues(supportSettingsLogic)
-    const { setAiSuggestionsEnabled, setAiDiagnosticsEnabled, setAiResolutionChannels, setAiReplyMode } =
-        useActions(supportSettingsLogic)
+    const {
+        setAiSuggestionsEnabled,
+        setAiDiagnosticsEnabled,
+        setAiRerunUntilTeamReply,
+        setAiResolutionChannels,
+        setAiReplyMode,
+    } = useActions(supportSettingsLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     const isChannelActive = (channel: TicketChannel): boolean => aiEnabledChannels.includes(channel)
 
-    const openChannelSettings = (channel: TicketChannel): void => {
-        // Switch the embedded settings pane via its own logic — settingsLogic does not
-        // sync selectedSetting from /support/settings hash changes.
-        settingsLogic({
-            logicKey: CONVERSATIONS_LOGIC_KEY,
-            sectionId: 'environment-conversations',
-        }).actions.selectSetting('conversations-general')
-        router.actions.push(urls.supportSettings(), router.values.searchParams, {
-            ...router.values.hashParams,
-            selectedSetting: 'conversations-general',
-            channel: CHANNEL_SETTINGS_TABS[channel],
-        })
+    const toggleResolutionChannel = (channel: TicketChannel, checked: boolean): void => {
+        const next = checked ? [...aiResolutionChannels, channel] : aiResolutionChannels.filter((c) => c !== channel)
+        setAiResolutionChannels(next)
+    }
+
+    if (todayRailNav) {
+        return (
+            <QuillAISection
+                aiSuggestionsEnabled={aiSuggestionsEnabled}
+                aiSuggestionsLoading={aiSuggestionsLoading}
+                aiDiagnosticsEnabled={aiDiagnosticsEnabled}
+                aiDiagnosticsLoading={aiDiagnosticsLoading}
+                aiRerunUntilTeamReply={aiRerunUntilTeamReply}
+                aiRerunModeLoading={aiRerunModeLoading}
+                onAiRerunUntilTeamReplyChange={setAiRerunUntilTeamReply}
+                aiAllChannels={aiAllChannels}
+                aiResolutionChannels={aiResolutionChannels}
+                aiReplyModes={aiReplyModes}
+                isChannelActive={isChannelActive}
+                onAiSuggestionsEnabledChange={setAiSuggestionsEnabled}
+                onAiDiagnosticsEnabledChange={setAiDiagnosticsEnabled}
+                onResolutionChannelToggle={toggleResolutionChannel}
+                onReplyModeChange={setAiReplyMode}
+                onOpenChannelSettings={(channel) => openChannelSettings(CHANNEL_SETTINGS_TABS[channel])}
+            />
+        )
     }
 
     return (
@@ -122,6 +126,33 @@ export function AISection(): JSX.Element {
                 </SceneSection>
             )}
 
+            {aiSuggestionsEnabled && (
+                <SceneSection
+                    title="Follow-up messages"
+                    titleSize="sm"
+                    className="my-8"
+                    description="By default the agent runs once per ticket, on the first customer message."
+                >
+                    <LemonCard hoverEffect={false} className="flex flex-col gap-y-3 max-w-[800px] px-4 py-3">
+                        <div className="flex items-center gap-4 justify-between">
+                            <div>
+                                <label className="font-medium">Run again when the customer adds a message</label>
+                                <p className="text-xs text-muted-alt mb-0">
+                                    The agent runs again on each new customer message until a teammate replies, up to 3
+                                    more runs per ticket.
+                                </p>
+                            </div>
+                            <LemonSwitch
+                                checked={aiRerunUntilTeamReply}
+                                onChange={(checked) => setAiRerunUntilTeamReply(checked)}
+                                loading={aiRerunModeLoading}
+                                data-attr="support-ai-rerun-until-team-reply"
+                            />
+                        </div>
+                    </LemonCard>
+                </SceneSection>
+            )}
+
             {aiSuggestionsEnabled && <SupportPlaybookSection />}
             {aiSuggestionsEnabled && <AIContextAccountPropertiesSection />}
 
@@ -142,12 +173,7 @@ export function AISection(): JSX.Element {
                                     disabledReason={
                                         active ? undefined : 'Enable this channel in Channels settings first'
                                     }
-                                    onChange={(checked) => {
-                                        const next = checked
-                                            ? [...aiResolutionChannels, channel]
-                                            : aiResolutionChannels.filter((c) => c !== channel)
-                                        setAiResolutionChannels(next)
-                                    }}
+                                    onChange={(checked) => toggleResolutionChannel(channel, checked)}
                                     label={
                                         <span className="inline-flex flex-wrap items-center gap-x-1">
                                             {CHANNEL_LABELS[channel]}
@@ -157,7 +183,7 @@ export function AISection(): JSX.Element {
                                                     <Link
                                                         onClick={(e) => {
                                                             e.preventDefault()
-                                                            openChannelSettings(channel)
+                                                            openChannelSettings(CHANNEL_SETTINGS_TABS[channel])
                                                         }}
                                                         to={urls.supportSettings()}
                                                     >

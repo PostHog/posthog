@@ -90,6 +90,21 @@ HITPAY_ENDPOINTS: dict[str, HitpayEndpointConfig] = {
         incremental_fields=_datetime_incremental_fields("datetime"),
         incremental_param="created_at_from",
     ),
+    "Products": HitpayEndpointConfig(
+        name="Products",
+        table_name="products",
+        path="/v1/products",
+        pagination="page",
+        page_param="page",
+    ),
+    "Transfers": HitpayEndpointConfig(
+        name="Transfers",
+        table_name="transfers",
+        path="/v1/transfers",
+        # The spec lists no `cursor` param here, but the response carries the same `meta.next_cursor`
+        # envelope as Charges and Invoices, so it pages the same way.
+        pagination="cursor",
+    ),
     "RecurringBilling": HitpayEndpointConfig(
         name="RecurringBilling",
         table_name="recurring_billing",

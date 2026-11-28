@@ -375,6 +375,7 @@ def releases_enabled(
     email: str | None,
     raise_on_error: bool = False,
     only_evaluate_locally: bool = False,
+    for_area: bool = False,
 ) -> bool:
     return feature_flags.is_releases_enabled(
         team_id=team_id,
@@ -384,6 +385,7 @@ def releases_enabled(
         email=email,
         raise_on_error=raise_on_error,
         only_evaluate_locally=only_evaluate_locally,
+        flag_key=feature_flags.RELEASES_AREA_FLAG if for_area else feature_flags.RELEASE_OBJECTS_FLAG,
     )
 
 
@@ -403,4 +405,5 @@ def get_summary(team_id: int, release_id: UUID) -> contracts.ReleaseSummary:
 
 
 def delete(team_id: int, release_id: UUID) -> None:
-    logic.delete_release(team_id, release_id)
+    if not logic.delete_release(team_id, release_id):
+        raise ReleaseNotFoundError(release_id)

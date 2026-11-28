@@ -4,11 +4,13 @@ import posthog from 'posthog-js'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { shouldReportApiFailure } from 'lib/api-error'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { uuid } from 'lib/utils/dom'
 import { addProjectIdIfMissing } from 'lib/utils/kea-router'
+import { isAbortedRequest } from 'lib/utils/requests'
 import { retryImport } from 'lib/utils/retryImport'
 import { projectLogic } from 'scenes/projectLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -368,6 +370,8 @@ function handleKickoffError(
 // comes back as a 400 on a field the reader never sees named.
 export const REPORT_DISCUSSION_QUESTION_MAX_LENGTH = 4000
 
+const REPOSITORY_MISSING_REASON = 'Select a repository to implement this report.'
+
 async function cancelWarmRun(projectId: string, lease: ReportWarmLease): Promise<void> {
     try {
         await tasksRunsCancelCreate(projectId, lease.taskId, lease.runId, { only_if_awaiting_first_message: true })
@@ -494,11 +498,13 @@ export interface inboxTaskKickoffLogicActions {
     contextDelivered: (
         taskId: string,
         items: AttachedContextItem[],
-        fromNewChat?: boolean | undefined
+        fromNewChat?: boolean | undefined,
+        wireItems?: AttachedContextItem[] | undefined
     ) => {
         fromNewChat: boolean
         items: AttachedContextItem[]
         taskId: string
+        wireItems: AttachedContextItem[]
     } // attachedContextLogic
     clearActiveCreation: () => {
         value: true
@@ -927,7 +933,9 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
                     }
                 }
             } catch (error) {
-                posthog.captureException(error)
+                if (shouldReportApiFailure(error)) {
+                    posthog.captureException(error)
+                }
             } finally {
                 cache.warmingReportId = null
                 cache.warmReleaseRequested = false
@@ -1125,6 +1133,10 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
                 captureInboxReportActionCompleted({ report, actionType: 'discuss', outcome: 'success' })
                 actions.discussReportSuccess()
             } catch (error: any) {
+                if (cache.disposables.isDisposed || isAbortedRequest(error)) {
+                    actions.discussReportFailure()
+                    return
+                }
                 handleKickoffError(error, report, 'discuss', "Couldn't ask AI about this report. Try again.")
                 actions.discussReportFailure()
                 if (background) {
@@ -1225,17 +1237,21 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
                 return
             }
             const [{ reportGithubAccessLogic }, { runStreamLogic }] = modules
-            const githubAccessLogic =
+            const findGithubAccessLogic = (): ReturnType<typeof reportGithubAccessLogic.findMounted> =>
                 reportGithubAccessLogic.findMounted({ report, surface: 'triage_mode' }) ??
                 reportGithubAccessLogic.findMounted({ report })
+            const githubAccessLogic = findGithubAccessLogic()
+            const repositoryMissing = !!githubAccessLogic?.values.repositoryRequired && !repository
             const disabledReason =
                 values.createPrDisabledReason ??
-                (githubAccessLogic?.values.repositoryRequired && !repository
-                    ? 'Select a repository to implement this report.'
-                    : null) ??
+                (repositoryMissing ? REPOSITORY_MISSING_REASON : null) ??
                 githubAccessLogic?.values.disabledReason
             if (disabledReason) {
-                lemonToast.error(disabledReason)
+                if (disabledReason === REPOSITORY_MISSING_REASON) {
+                    githubAccessLogic?.actions.requireRepositorySelection()
+                } else {
+                    lemonToast.error(disabledReason)
+                }
                 captureInboxReportActionCompleted({
                     report,
                     actionType: 'create_pr',
@@ -1291,7 +1307,7 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
                 captureInboxReportActionCompleted({ report, actionType: 'create_pr', outcome: 'success' })
                 actions.createPrSuccess()
             } catch (error: any) {
-                if (disposables.isDisposed) {
+                if (disposables.isDisposed || isAbortedRequest(error)) {
                     return
                 }
                 if (values.activeCreation?.streamKey === streamKey) {
@@ -1299,8 +1315,14 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
                     actions.clearActiveCreation()
                 }
                 if (error?.code === 'report_implementation_repository_unresolved') {
-                    githubAccessLogic?.actions.requireRepositorySelection()
-                    lemonToast.error(error?.detail || "Couldn't start the PR task. Try again.")
+                    // The reader can leave the report while the request runs, which unmounts the picker.
+                    // Without a mounted picker on screen, only the toast can report the refusal.
+                    const accessLogic = findGithubAccessLogic()
+                    if (accessLogic) {
+                        accessLogic.actions.requireRepositorySelection()
+                    } else {
+                        lemonToast.error(error?.detail || "Couldn't start the PR task. Try again.")
+                    }
                     captureInboxReportActionCompleted({
                         report,
                         actionType: 'create_pr',

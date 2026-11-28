@@ -24,6 +24,11 @@
             ],
             "description": "Filter by emit outcome. `true` returns only runs that emitted at least one finding (`emitted_count > 0`); `false` returns only runs that emitted nothing. Omit for both."
         },
+        "exclude_skill_name": {
+            "description": "Leave out the runs of this scout skill (e.g. your own `skill_name`), before `limit` applies. Use it on a fleet-wide `text` search, so your own runs don't fill the page.",
+            "minLength": 1,
+            "type": "string"
+        },
         "limit": {
             "description": "Max rows to return (default 20, hard cap 100).",
             "maximum": 100,

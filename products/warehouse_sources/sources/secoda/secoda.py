@@ -6,9 +6,11 @@ from products.warehouse_sources.sources.sdk import (
     DependentEndpointConfig,
     Endpoint,
     EndpointResource,
+    JSONResponseCursorPaginator,
     JSONResponsePaginator,
     RESTAPIConfig,
     ResumableSourceManager,
+    SinglePagePaginator,
     SourceResponse,
     build_dependent_resource,
     make_tracked_session,
@@ -39,6 +41,7 @@ class SecodaResumeConfig:
     # DRF-style cursor pagination, so a crashed full-refresh sync resumes from the page after the
     # last one yielded; merge dedupes the re-pulled page on ``id``.
     next_url: str | None = None
+    next_page: int | None = None
 
 
 def _drop_fields(row: dict[str, Any], fields: tuple[str, ...]) -> dict[str, Any]:
@@ -59,10 +62,16 @@ def secoda_source(
     if config.fanout is not None:
         return _fanout_source(config, config.fanout, client_config, team_id, job_id)
 
-    resource_config: EndpointResource = {
-        "name": endpoint,
-        "endpoint": {"path": config.path, **LIST_ENDPOINT_SELECTOR},
-    }
+    list_endpoint: Endpoint = {"path": config.path, **LIST_ENDPOINT_SELECTOR}
+    if config.pagination == "page":
+        list_endpoint["paginator"] = JSONResponseCursorPaginator(
+            cursor_path="meta.next_page", cursor_param="page", raise_on_repeated_cursor=True
+        )
+    elif config.pagination == "single":
+        list_endpoint["data_selector"] = "$"
+        list_endpoint["paginator"] = SinglePagePaginator()
+
+    resource_config: EndpointResource = {"name": endpoint, "endpoint": list_endpoint}
     if config.drop_fields:
         resource_config["data_map"] = lambda row: _drop_fields(row, config.drop_fields)
 
@@ -73,15 +82,21 @@ def secoda_source(
     }
 
     initial_paginator_state: Optional[dict[str, Any]] = None
-    if resumable_source_manager.can_resume():
+    supports_resume = config.pagination != "single"
+    if supports_resume and resumable_source_manager.can_resume():
         resume = resumable_source_manager.load_state()
-        if resume is not None and resume.next_url:
-            initial_paginator_state = {"next_url": resume.next_url}
+        if resume is not None:
+            if config.pagination == "page" and resume.next_page is not None:
+                initial_paginator_state = {"cursor": resume.next_page}
+            elif config.pagination == "link" and resume.next_url:
+                initial_paginator_state = {"next_url": resume.next_url}
 
     def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
         # Persist only when a next cursor remains; save AFTER a page is yielded so a crash
         # re-yields the last page (merge dedupes on ``id``) rather than skipping it.
-        if state and state.get("next_url"):
+        if state and config.pagination == "page" and state.get("cursor") is not None:
+            resumable_source_manager.save_state(SecodaResumeConfig(next_page=state["cursor"]))
+        elif state and config.pagination == "link" and state.get("next_url"):
             resumable_source_manager.save_state(SecodaResumeConfig(next_url=state["next_url"]))
 
     resource = rest_api_resource(
@@ -99,6 +114,7 @@ def secoda_source(
         primary_keys=config.primary_keys,
         partition_count=1,
         partition_size=1,
+        supports_resume=supports_resume,
     )
 
 

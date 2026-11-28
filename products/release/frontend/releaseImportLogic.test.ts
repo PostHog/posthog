@@ -1,5 +1,8 @@
 import { expectLogic } from 'kea-test-utils'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+
 import { initKeaTests } from '~/test/init'
 
 import { releasesImportAllCreate } from './generated/api'
@@ -14,6 +17,25 @@ describe('releaseImportLogic', () => {
     beforeEach(() => {
         localStorage.clear()
         initKeaTests()
+        featureFlagLogic.mount()
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.RELEASE_OBJECTS], {
+            [FEATURE_FLAGS.RELEASE_OBJECTS]: true,
+        })
+    })
+
+    it('does not import when only the area is enabled', async () => {
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.RELEASES_AREA], {
+            [FEATURE_FLAGS.RELEASES_AREA]: true,
+        })
+        jest.mocked(releasesImportAllCreate).mockClear()
+        const logic = releaseImportLogic()
+        logic.mount()
+
+        logic.actions.runAutoImport()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.showAutoImport).toBe(false)
+        expect(releasesImportAllCreate).not.toHaveBeenCalled()
     })
 
     it.each([

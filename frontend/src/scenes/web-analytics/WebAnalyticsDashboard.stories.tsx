@@ -28,7 +28,6 @@ const meta: Meta = {
         viewMode: 'story',
         mockDate: '2023-02-01',
         pageUrl: urls.webAnalytics(),
-        featureFlags: [FEATURE_FLAGS.WEB_ANALYTICS_FILTERS_V2],
         testOptions: {
             includeNavigationInSnapshot: true,
             waitForLoadersToDisappear: true,
@@ -89,7 +88,6 @@ export function WebAnalyticsDashboard(): JSX.Element {
 
 WebAnalyticsDashboardTileHeaderV2Medium.parameters = {
     featureFlags: {
-        [FEATURE_FLAGS.WEB_ANALYTICS_FILTERS_V2]: true,
         [FEATURE_FLAGS.WEB_ANALYTICS_TILE_HEADER_V2]: 'test',
     },
     testOptions: {
@@ -105,7 +103,6 @@ export function WebAnalyticsDashboardTileHeaderV2Medium(): JSX.Element {
 
 WebAnalyticsDashboardTileHeaderV2Wide.parameters = {
     featureFlags: {
-        [FEATURE_FLAGS.WEB_ANALYTICS_FILTERS_V2]: true,
         [FEATURE_FLAGS.WEB_ANALYTICS_TILE_HEADER_V2]: 'test',
     },
     testOptions: {
@@ -120,7 +117,6 @@ export function WebAnalyticsDashboardTileHeaderV2Wide(): JSX.Element {
 }
 
 const NARROW_FEATURE_FLAGS = {
-    [FEATURE_FLAGS.WEB_ANALYTICS_FILTERS_V2]: true,
     [FEATURE_FLAGS.WEB_ANALYTICS_TILE_HEADER_V2]: 'test',
     [FEATURE_FLAGS.SCENE_MENU_BAR]: true,
 }
@@ -170,7 +166,7 @@ WebAnalyticsDashboardLoading.parameters = {
     viewMode: 'story',
     mockDate: '2023-02-01',
     pageUrl: urls.webAnalytics(),
-    featureFlags: [FEATURE_FLAGS.WEB_ANALYTICS_FILTERS_V2, FEATURE_FLAGS.WEB_ANALYTICS_TILE_SKELETONS],
+    featureFlags: [FEATURE_FLAGS.WEB_ANALYTICS_TILE_SKELETONS],
     testOptions: {
         includeNavigationInSnapshot: true,
         waitForLoadersToDisappear: false,

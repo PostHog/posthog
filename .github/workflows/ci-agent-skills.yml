@@ -289,8 +289,10 @@ jobs:
                     sqlx database create
                   DATABASE_URL="postgres://posthog:posthog@localhost:5432/posthog_persons" \
                     sqlx migrate run --source rust/persons_migrations/
-                  python manage.py migrate --noinput
-                  python manage.py setup_dev --no-data
+                  # --skip-checks: the Django system checks cost ~24s per call and are
+                  # not needed to apply migrations; ci-backend's check-migrations job runs them.
+                  python manage.py migrate --noinput --skip-checks
+                  python manage.py setup_dev --no-data --skip-checks
 
             - name: Build skills
               env:

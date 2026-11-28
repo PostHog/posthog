@@ -40,11 +40,8 @@ def make_inputs(
 class TestAwsCostExplorerSource:
     def setup_method(self) -> None:
         self.source = AwsCostExplorerSource()
-        self.config = AwsCostExplorerSourceConfig(
-            aws_access_key_id="AKIAEXAMPLE",
-            aws_secret_access_key="secret",
-            aws_session_token=None,
-            start_date="2024-01-01",
+        self.config = AwsCostExplorerSourceConfig.from_dict(
+            {"aws_access_key_id": "AKIAEXAMPLE", "aws_secret_access_key": "secret", "start_date": "2024-01-01"}
         )
 
     @pytest.mark.parametrize(
@@ -59,6 +56,14 @@ class TestAwsCostExplorerSource:
     def test_transient_aws_failures_keep_retrying(self, observed_error: str) -> None:
         assert not any(key in observed_error for key in self.source.get_non_retryable_errors())
         assert any(key in observed_error for key in self.source.get_retryable_errors())
+
+    def test_a_linked_account_without_discount_permission_stops_retrying(self) -> None:
+        observed_error = (
+            "AWS Cost Explorer request failed: ValidationException - Linked accounts without permissions "
+            "to view discounts may not query for this metric: NET_AMORTIZED_COST"
+        )
+        assert any(key in observed_error for key in self.source.get_non_retryable_errors())
+        assert not any(key in observed_error for key in self.source.get_retryable_errors())
 
     def test_source_for_pipeline_forwards_the_watermark_only_on_an_incremental_run(self) -> None:
         watermark = dt.datetime(2024, 5, 1, tzinfo=dt.UTC)

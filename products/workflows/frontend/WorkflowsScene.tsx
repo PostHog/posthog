@@ -21,18 +21,19 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType, Breadcrumb } from '~/types'
 
+import { AdventCalendarBanner } from './AdventCalendar/AdventCalendarBanner'
 import { EmailSuspensionBanner } from './EmailSuspensionBanner'
 import { workflowsEmptyState } from './emptyState/workflowsEmptyState'
 import { EngagementEventsBanner } from './EngagementEventsBanner'
 import { MessagingSetup } from './MessagingSetup'
 import { MessagingTabActions } from './MessagingTabActions'
 import { isMessagingSetupTab } from './messagingTabs'
+import { ImportFromAnotherToolButton } from './OptOuts/ImportFromAnotherToolButton'
+import { ProviderImportModal } from './OptOuts/ProviderImportModal'
 import { SendCalendar } from './SendCalendar/SendCalendar'
 import { SendCalendarTabLabel } from './SendCalendar/SendCalendarTabLabel'
 import { MessagingSetupTabLabel } from './setupGuide/MessagingSetupTabLabel'
 import { WorkflowsOnboardingWizard } from './setupGuide/wizard/WorkflowsOnboardingWizard'
-import { customerioImportLogic } from './Workflows/import/customerioImportLogic'
-import { CustomerioImportModal } from './Workflows/import/CustomerioImportModal'
 import { newWorkflowLogic } from './Workflows/newWorkflowLogic'
 import { NewWorkflowModal } from './Workflows/NewWorkflowModal'
 import { workflowTemplatesLogic } from './Workflows/templates/workflowTemplatesLogic'
@@ -157,6 +158,9 @@ export const workflowsSceneLogic = kea<workflowsSceneLogicType>([
                 }
             },
             [urls.workflows(':tab' as WorkflowsSceneTab)]: ({ tab }) => {
+                if (urls.workflows(tab as WorkflowsSceneTab) === urls.workflowsAdventCalendar()) {
+                    return
+                }
                 // A shared link often drops the tab segment, so `/workflows/<id>` lands here with the id as the tab.
                 if (tab && isUUIDLike(tab)) {
                     router.actions.replace(urls.workflow(tab, 'workflow'), router.values.searchParams)
@@ -199,7 +203,6 @@ export function WorkflowsScene(props: WorkflowsSceneProps = {}): JSX.Element {
     const { setTypeFilter } = useActions(workflowTemplatesLogic)
     const { filters } = useValues(workflowsLogic)
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
-    const { openImportModal } = useActions(customerioImportLogic)
 
     const workflowsTab = {
         label: 'Workflows',
@@ -238,19 +241,11 @@ export function WorkflowsScene(props: WorkflowsSceneProps = {}): JSX.Element {
                 actions={
                     <>
                         {showsNewWorkflowButton && (
-                            <AccessControlAction
-                                resourceType={AccessControlResourceType.Workflow}
-                                minAccessLevel={AccessControlLevel.Editor}
-                            >
-                                <LemonButton
-                                    data-attr="workflows-import-customerio"
-                                    onClick={openImportModal}
-                                    type="secondary"
-                                    size="small"
-                                >
-                                    Import from Customer.io
-                                </LemonButton>
-                            </AccessControlAction>
+                            <ImportFromAnotherToolButton
+                                entryPoint={currentTab === 'templates' ? 'templates' : 'workflows'}
+                                // pinned: data-attr predates the shared import window
+                                dataAttr="workflows-import-customerio"
+                            />
                         )}
                         {showsNewWorkflowButton && (
                             <AccessControlAction
@@ -279,7 +274,8 @@ export function WorkflowsScene(props: WorkflowsSceneProps = {}): JSX.Element {
                     </>
                 }
             />
-            <CustomerioImportModal />
+            <ProviderImportModal />
+            <AdventCalendarBanner />
             <EmailSuspensionBanner />
             <EngagementEventsBanner />
             <LemonTabs<WorkflowsTopTab>

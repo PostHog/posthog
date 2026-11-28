@@ -1,6 +1,8 @@
 import typing
+from datetime import timedelta
 from typing import Any, cast
 
+import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
@@ -10,7 +12,7 @@ from django.test.utils import override_settings
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog.schema import RecordingOrder, RecordingOrderDirection
+from posthog.schema import LogsQueryResponse, RecordingOrder, RecordingOrderDirection
 
 from posthog.api.test.dashboards import DashboardAPI
 from posthog.clickhouse.client.execute import UntaggedQueryError
@@ -38,7 +40,9 @@ from products.dashboards.backend.constants import (
     MAX_WIDGET_RESULT_LIMIT,
     MAX_WIDGETS_BATCH_SIZE,
 )
+from products.dashboards.backend.models.dashboard_widget import DashboardWidget
 from products.dashboards.backend.presentation import widget_openapi_serializers as widget_openapi_serializers_module
+from products.dashboards.backend.presentation.pydantic_openapi import pydantic_model_to_openapi_components
 from products.dashboards.backend.widget_catalog import WIDGET_CATALOG
 from products.dashboards.backend.widget_registry import EXPECTED_WIDGET_TYPES, WIDGET_REGISTRY, validate_widget_config
 from products.dashboards.backend.widget_specs.configs import (
@@ -49,7 +53,6 @@ from products.dashboards.backend.widget_specs.configs import (
     ErrorTrackingListWidgetConfig,
     SessionReplayOrderBy,
 )
-from products.dashboards.backend.widget_specs.pydantic_openapi import pydantic_model_to_openapi_components
 from products.dashboards.backend.widgets.activity_events_list import (
     ACTIVITY_EVENTS_WIDGET_SELECT,
     run_activity_events_list_widget,
@@ -58,6 +61,7 @@ from products.dashboards.backend.widgets.error_tracking_list import run_error_tr
 from products.dashboards.backend.widgets.logs_list import run_logs_list_widget
 from products.dashboards.backend.widgets.session_replay_list import run_session_replay_list_widget
 from products.error_tracking.backend.facade.query_utils import ERROR_TRACKING_LISTING_VOLUME_RESOLUTION
+from products.logs.backend.facade.queries import LogsQueryRunner
 from products.logs.backend.models import LogsView
 
 
@@ -76,7 +80,7 @@ class TestWidgetRegistry(SimpleTestCase):
     def test_openapi_widget_config_serializers_match_registry(self) -> None:
         openapi_serializers = widget_openapi_serializers_module.DashboardWidgetConfigOpenApi.serializers
         assert len(openapi_serializers) == len(EXPECTED_WIDGET_TYPES), (
-            "Each WIDGET_SPECS entry must produce a config serializer in widget_specs/openapi.py. "
+            "Each WIDGET_SPECS entry must produce a config serializer in presentation/widget_openapi_serializers.py. "
             f"serializers={len(openapi_serializers)} expected={len(EXPECTED_WIDGET_TYPES)}"
         )
 
@@ -560,6 +564,40 @@ class TestDashboardRunWidgets(APIBaseTest):
         query = mock_runner_cls.call_args.kwargs["query"]
         self.assertEqual(query.severityLevels, ["error"])
         self.assertEqual(query.limit, 15)
+
+    @parameterized.expand(
+        [
+            ("flag_off_recomputes_every_refresh", False, 1, 2),
+            ("flag_on_serves_cache_within_freshness_window", True, 1, 1),
+            ("flag_on_recomputes_after_freshness_window", True, 61, 2),
+        ]
+    )
+    def test_logs_widget_refresh_reuses_cached_result_with_dashboard_v2(
+        self, _name: str, flag_on: bool, seconds_between_refreshes: int, expected_computes: int
+    ) -> None:
+        log_row = {
+            "uuid": "0196e9ab-0000-0000-0000-000000000000",
+            "timestamp": "2026-11-18T11:59:00Z",
+            "severity_text": "error",
+            "level": "error",
+            "body": "Boom",
+            "trace_id": "abc123",
+        }
+        config = {"limit": 10, "dateRange": {"date_from": "-1h"}}
+        with (
+            patch("posthog.permissions.posthog_feature_flag_enabled", return_value=flag_on),
+            patch.object(
+                LogsQueryRunner, "_calculate", return_value=LogsQueryResponse(results=[log_row], hasMore=False)
+            ) as compute,
+            time_machine.travel("2026-11-18T12:00:00Z", tick=False) as traveller,
+        ):
+            first = run_logs_list_widget(self.team, config, user=self.user)
+            traveller.shift(timedelta(seconds=seconds_between_refreshes))
+            second = run_logs_list_widget(self.team, config, user=self.user)
+
+        self.assertEqual(compute.call_count, expected_computes)
+        self.assertEqual(first["results"], [log_row])
+        self.assertEqual(second["results"], [log_row])
 
     @parameterized.expand(
         [
@@ -1375,6 +1413,26 @@ class TestDashboardRunWidgets(APIBaseTest):
         body = self._run(other_id, [tile_id])
 
         self.assertEqual(body["results"][0]["error"], "Tile not found or is not a widget tile.")
+
+    def test_reports_a_widget_type_that_is_no_longer_registered(self) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dash"})
+        _, dashboard_json = self.dashboard_api.create_widget_tile(dashboard_id)
+        tile = dashboard_json["tiles"][0]
+        DashboardWidget.objects.for_team(self.team.id).filter(id=tile["widget"]["id"]).update(widget_type="metrics")
+
+        body = self._run(dashboard_id, [tile["id"]])
+
+        self.assertEqual(
+            body["results"],
+            [
+                {
+                    "tile_id": tile["id"],
+                    "widget_type": "metrics",
+                    "result": None,
+                    "error": "Unknown widget type: metrics",
+                }
+            ],
+        )
 
     def test_run_widgets_denies_without_product_access(self) -> None:
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dash"})

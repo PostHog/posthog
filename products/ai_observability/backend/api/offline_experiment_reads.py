@@ -21,14 +21,9 @@ from posthog.permissions import get_authenticator_scopes
 
 from products.ai_observability.backend.api.metrics import llma_track_latency
 from products.ai_observability.backend.api.offline_evaluation_base import OfflineEvaluationViewSet
-from products.ai_observability.backend.api.offline_experiment_access import (
-    OfflineEvaluationReadBurstThrottle,
-    OfflineEvaluationReadSustainedThrottle,
-    OfflineEvaluationReadTeamBurstThrottle,
-    OfflineEvaluationReadTeamSustainedThrottle,
-)
 from products.ai_observability.backend.api.offline_experiment_errors import OfflineEvaluationErrorSerializer
 from products.ai_observability.backend.api.offline_experiment_read_serializers import (
+    ExperimentScorePreviewSerializer,
     OfflineExperimentPageSerializer,
     OfflineExperimentQuerySerializer,
     OfflineExperimentReadSerializer,
@@ -46,9 +41,16 @@ from products.ai_observability.backend.api.offline_experiment_read_serializers i
     OfflineSummaryQuerySerializer,
 )
 from products.ai_observability.backend.api.query import EmptyQuerySerializer
+from products.ai_observability.backend.api.score_definitions import CompositeValidationSerializer
 from products.ai_observability.backend.models.offline_evaluations import OfflineExperiment
 from products.ai_observability.backend.offline_evaluation_read_service import OfflineEvaluationReadService
 from products.ai_observability.backend.offline_evaluation_read_types import OfflineReadQuery, OfflineResultCellQuery
+from products.ai_observability.backend.presentation.throttles import (
+    OfflineEvaluationReadBurstThrottle,
+    OfflineEvaluationReadSustainedThrottle,
+    OfflineEvaluationReadTeamBurstThrottle,
+    OfflineEvaluationReadTeamSustainedThrottle,
+)
 
 OFFLINE_READ_ERRORS = Counter(
     "aio_offline_read_errors_total", "Rejected offline evaluation reads", labelnames=["outcome"]
@@ -83,6 +85,7 @@ class OfflineEvaluationReadViewSet(OfflineEvaluationViewSet):
         "item_payload",
         "result_payload",
         "scorer_summaries",
+        "score_previews",
         "history",
     ]
     throttle_classes = [
@@ -96,7 +99,14 @@ class OfflineEvaluationReadViewSet(OfflineEvaluationViewSet):
     pagination_class = None
 
     def dangerously_get_required_scopes(self, request: Request, view: viewsets.ViewSetMixin) -> list[str] | None:
-        if self.action in ["item_results", "result_cells", "result_payload", "scorer_summaries", "history"]:
+        if self.action in [
+            "item_results",
+            "result_cells",
+            "result_payload",
+            "scorer_summaries",
+            "history",
+            "score_previews",
+        ]:
             return ["evaluation:read", "llm_analytics:read"]
         if self.action in self.scope_object_read_actions or self.action == "metadata":
             return ["evaluation:read"]
@@ -115,7 +125,7 @@ class OfflineEvaluationReadViewSet(OfflineEvaluationViewSet):
         if query is not None and (query.scorer_definition_id or query.scorer_version_ids) and not can_read_scores:
             raise InsufficientScope(["llm_analytics:read"], detail="Scorer filters require llm_analytics:read.")
         return OfflineEvaluationReadService(
-            team_id=self.team_id, user_access_control=self.user_access_control, can_read_scores=can_read_scores
+            team_id=self.team_id, user_access_control=self.reference_access_control, can_read_scores=can_read_scores
         )
 
     def _path_id(self, name: str = "pk") -> UUID:
@@ -134,6 +144,20 @@ class OfflineEvaluationReadViewSet(OfflineEvaluationViewSet):
 
 
 class OfflineExperimentReadViewSet(OfflineEvaluationReadViewSet):
+    @validated_request(
+        request_serializer=CompositeValidationSerializer,
+        responses={200: ExperimentScorePreviewSerializer, **READ_ERROR_RESPONSES},
+    )
+    @action(detail=True, methods=["post"], url_path="score_previews")
+    def score_previews(self, request: ValidatedRequest, **kwargs: object) -> Response:
+        data = request.validated_data
+        return self._read_response(
+            lambda: self._read_service().preview_experiment_score(
+                self._path_id(), composition=data["composition"], kind=data["kind"], config=data.get("config", {})
+            ),
+            ExperimentScorePreviewSerializer,
+        )
+
     @validated_request(
         query_serializer=OfflineResultCellQuerySerializer,
         parameters=[EXPERIMENT_ID_PARAMETER],
@@ -259,6 +283,8 @@ class OfflineExperimentReadViewSet(OfflineEvaluationReadViewSet):
 
 
 class OfflineScorerViewSet(OfflineEvaluationReadViewSet):
+    psak_allowed_actions = ["history"]
+
     @validated_request(
         query_serializer=OfflineScorerHistoryQuerySerializer,
         operation_id="ai_observability_offline_scorers_history_list",

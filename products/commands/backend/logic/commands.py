@@ -15,6 +15,8 @@ from posthog.github.project_members import ProjectMember
 REPOSITORY_NAME_RE = re.compile(r"[A-Za-z0-9-]{1,39}/[A-Za-z0-9._-]{1,100}")
 
 SubjectKind = Literal["pull_request", "error_tracking_issue"]
+ChannelName = Literal["github", "slack"]
+CHANNEL_NAMES: dict[ChannelName, str] = {"github": "a pull request comment", "slack": "Slack"}
 SUBJECT_NAMES: dict[SubjectKind, str] = {
     "pull_request": "pull requests",
     "error_tracking_issue": "error tracking issues",
@@ -33,6 +35,7 @@ DispatchOutcome = Literal[
     "unknown_command",
     "invalid_arguments",
     "wrong_subject",
+    "wrong_channel",
     "unlinked",
     "account_refused",
     "no_project",
@@ -115,6 +118,12 @@ class CommandRequest:
     requester: str
     # Where they asked, to finish "asked for this run from ...", such as "a pull request comment".
     requested_via: str
+    # Replies on GitHub are public, so a handler checks this before it accepts text meant for fewer people.
+    channel: ChannelName
+    # Blank unless the command came from Slack. Identifies the requester there, unlike `requester`.
+    slack_user_id: str = ""
+    # Blank unless the command came from a pull request comment. The login GitHub reported for the commenter.
+    github_login: str = ""
 
 
 @frozen

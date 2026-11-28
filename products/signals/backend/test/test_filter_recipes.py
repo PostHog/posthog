@@ -21,7 +21,7 @@ from posthog.errors import InternalCHQueryError
 from posthog.models import Team
 
 from products.signals.backend.filter_catalog_schema import CatalogBundle, JsonPathRecipe
-from products.signals.backend.filter_catalog_seeds import LINEAR_ISSUE_SEED
+from products.signals.backend.filter_catalog_seeds import GITHUB_ISSUE_SEED, LINEAR_ISSUE_SEED, CatalogSeed
 from products.signals.backend.filter_expression import FilterValidationError
 from products.signals.backend.filter_recipes import WarehouseFilterBindings
 
@@ -185,8 +185,11 @@ class TestFilterRecipeExecution(SimpleTestCase):
             ("null", []),
         ]
     )
-    def test_array_map_and_empty_policy(self, payload: str, expected: object) -> None:
-        self.assertEqual(self.execute(bindings("array<string>", "json_array_map", "empty_array"), payload), expected)
+    def test_array_map_and_empty_policy(self, payload: str, expected: list[str]) -> None:
+        engine = bindings("array<string>", "json_array_map", "empty_array")
+        self.assertEqual(self.execute(engine, payload), expected)
+        self.assertEqual(self.execute(engine, payload, "empty(value)"), int(not expected))
+        self.assertEqual(self.execute(engine, payload, "notEmpty(value)"), int(bool(expected)))
 
     @parameterized.expand(
         [
@@ -199,9 +202,9 @@ class TestFilterRecipeExecution(SimpleTestCase):
         ]
     )
     def test_array_shape_and_elements_fail_closed(self, payload: str) -> None:
-        self.assert_malformed(
-            bindings("array<string>", "json_array_map", "empty_array"), payload, "NOT has(value, 'internal')"
-        )
+        engine = bindings("array<string>", "json_array_map", "empty_array")
+        self.assert_malformed(engine, payload, "NOT has(value, 'internal')")
+        self.assert_malformed(engine, payload, "empty(value)")
 
     def test_json_array_and_column_recipes(self) -> None:
         self.assertEqual(self.execute(bindings("array<string>"), '{"value":["a","b"]}'), ["a", "b"])
@@ -315,34 +318,71 @@ class TestFilterRecipeExecution(SimpleTestCase):
         )
         self.assertEqual(self.execute(engine, json.dumps({key: "safe"})), "safe")
 
-    def test_linear_seed_recipes_in_scoped_query(self) -> None:
-        bundle = CatalogBundle.model_validate(LINEAR_ISSUE_SEED.bundle)
-        payloads: dict[str, str | int] = {
-            "team": json.dumps({"id": "team-a", "name": "Engineering", "key": "ENG"}),
-            "project": json.dumps({"id": "project-a", "name": "Core"}),
-            "assignee": "null",
-            "state": json.dumps({"id": "state-a", "name": "Todo", "type": "unstarted", "color": "#000000"}),
-            "labels": json.dumps({"nodes": [{"id": "label-a", "name": "feature", "color": "#ffffff"}]}),
-            "priority": 2,
+    @parameterized.expand(
+        [
+            (
+                "linear",
+                LINEAR_ISSUE_SEED,
+                {
+                    "team": json.dumps({"id": "team-a", "name": "Engineering", "key": "ENG"}),
+                    "project": json.dumps({"id": "project-a", "name": "Core"}),
+                    "assignee": "null",
+                    "state": json.dumps({"id": "state-a", "name": "Todo", "type": "unstarted", "color": "#000000"}),
+                    "labels": json.dumps({"nodes": [{"id": "label-a", "name": "feature", "color": "#ffffff"}]}),
+                    "priority": 2,
+                },
+                "team_id = 'team-a' AND project_name = 'Core' AND assignee_id IS NULL AND state_type = 'unstarted' AND NOT has(label_names, 'internal') AND priority IN (1,2)",
+                ("team-a", "project-a", "Core", None, "unstarted", ["feature"], 2),
+            ),
+            (
+                "github",
+                GITHUB_ISSUE_SEED,
+                {
+                    "labels": json.dumps([{"id": 1, "name": "bug", "color": "d73a4a"}]),
+                    "assignees": json.dumps([{"id": 2, "login": "octocat", "type": "User"}]),
+                    "user": json.dumps({"id": 3, "login": "reporter", "type": "User"}),
+                    "author_association": "NONE",
+                    "type": None,
+                    "milestone": json.dumps({"id": 4, "title": "v2", "state": "open"}),
+                },
+                "has(label_names, 'bug') AND has(assignee_logins, 'octocat') AND author_login = 'reporter' AND author_association NOT IN ('OWNER', 'MEMBER', 'COLLABORATOR') AND issue_type IS NULL AND milestone_title = 'v2'",
+                (["bug"], ["octocat"], "reporter", "NONE", None, "v2"),
+            ),
+        ]
+    )
+    def test_seed_recipes_in_scoped_query(
+        self,
+        _name: str,
+        seed: CatalogSeed,
+        payloads: dict[str, str | int | None],
+        expression: str,
+        expected: tuple[object, ...],
+    ) -> None:
+        bundle = CatalogBundle.model_validate(seed.bundle)
+        columns: dict[str, DatabaseField] = {
+            name: IntegerDatabaseField(name=name) if isinstance(value, int) else StringDatabaseField(name=name)
+            for name, value in payloads.items()
         }
-        columns: dict[str, DatabaseField] = {name: StringDatabaseField(name=name) for name in payloads}
-        columns["priority"] = IntegerDatabaseField(name="priority")
         engine = WarehouseFilterBindings(bundle, columns, source_alias="source")
-        predicate = engine.predicate(
-            "team_id = 'team-a' AND project_name = 'Core' AND assignee_id IS NULL AND state_type = 'unstarted' AND NOT has(label_names, 'internal') AND priority IN (1,2)"
-        )
+        predicate = engine.predicate(expression)
         assert predicate is not None
         query = ast.SelectQuery(
             select=[projection.select() for projection in engine.projections.values()],
             select_from=ast.JoinExpr(
                 alias="source",
                 table=ast.SelectQuery(
-                    select=[ast.Alias(alias=name, expr=ast.Constant(value=value)) for name, value in payloads.items()]
+                    select=[
+                        ast.Alias(
+                            alias=name,
+                            expr=ast.Call(name="nullIf", args=[ast.Constant(value=""), ast.Constant(value="")])
+                            if value is None
+                            else ast.Constant(value=value),
+                        )
+                        for name, value in payloads.items()
+                    ]
                 ),
             ),
             where=ast.And(exprs=[ast.Constant(value=True), predicate.matches]),
             limit=ast.Constant(value=1),
         )
-        self.assertEqual(
-            self.execute_query(query), [("team-a", "project-a", "Core", None, "unstarted", ["feature"], 2)]
-        )
+        self.assertEqual(self.execute_query(query), [expected])

@@ -5,6 +5,7 @@ layer reaches product data only through ``facade.api``. Field-level help text is
 the generated OpenAPI schema, so it stays on the serializer rather than moving to the contract.
 """
 
+import re
 from typing import Any
 
 from drf_spectacular.types import OpenApiTypes
@@ -16,6 +17,9 @@ from posthog.api.fields import JSONTolerantListField, RepeatedOrCommaSeparatedLi
 
 from ..facade import contracts
 from ..facade.enums import (
+    BroadcastRequestDeliveryKind,
+    BroadcastRequestSource,
+    BroadcastRequestStatus,
     ChannelResolutionSource,
     DigestRunStatus,
     LlmSkipReason,
@@ -81,6 +85,26 @@ class _ReviewOutputSummarySerializer(serializers.Serializer):
     )
 
 
+BROADCAST_ENABLED_HELP = (
+    "Whether `stamp --allow-broadcast` and review requests with allow_broadcast set to true may ask people to review. When "
+    "auto-approval does not approve the pull request, it posts the pull request to "
+    "broadcast_slack_channel_id. Turning it on needs a channel. Defaults to false."
+)
+BROADCAST_CHANNEL_ID_HELP = (
+    "Slack channel ID, such as 'C0123456789', where auto-approval posts pull requests that need a person to "
+    "review. It uses the project's Slack integration, which must be able to post in the channel. Blank when "
+    "no channel is set."
+)
+BROADCAST_CHANNEL_NAME_HELP = (
+    "Display name of the Slack channel in broadcast_slack_channel_id, without the '#'. Letters, digits, '-' and "
+    "'_' only, up to 80 characters, like a Slack channel name. Shown in replies only, so a stale name does not "
+    "change where requests go."
+)
+# The characters of a Slack channel name. The name goes into Slack and GitHub markdown replies, so nothing in it
+# may form a mention, a link or other markup there.
+_SLACK_CHANNEL_NAME = re.compile(r"[\w-]{1,80}")
+
+
 @extend_schema_serializer(component_name="CodeReviewApprovalRepository")
 class CodeReviewApprovalRepositorySerializer(DataclassSerializer):
     user_access_level = serializers.SerializerMethodField(
@@ -88,7 +112,8 @@ class CodeReviewApprovalRepositorySerializer(DataclassSerializer):
         help_text=(
             "The caller's access level on the code review auto-approval resource, resolved for the team that owns this "
             "row. 'editor' can turn reviews on. 'manager' is required to turn them off or to change "
-            "review_mode, trigger_label, routing_mode, routing_fork_labels or review_on_clean_external_review."
+            "review_mode, trigger_label, routing_mode, routing_fork_labels, review_on_clean_external_review, "
+            "broadcast_enabled, broadcast_slack_channel_id or broadcast_slack_channel_name."
         ),
     )
 
@@ -156,6 +181,9 @@ class CodeReviewApprovalRepositorySerializer(DataclassSerializer):
             "routing_mode",
             "routing_fork_labels",
             "review_on_clean_external_review",
+            "broadcast_enabled",
+            "broadcast_slack_channel_id",
+            "broadcast_slack_channel_name",
             "user_access_level",
             "created_at",
             "updated_at",
@@ -202,6 +230,18 @@ class CodeReviewApprovalRepositorySerializer(DataclassSerializer):
                     "review_mode to 'all' turns it off. With routing_mode 'fallback', a head waits for that silent "
                     "review before routing. Defaults to false."
                 ),
+            },
+            "broadcast_enabled": {
+                "read_only": True,
+                "help_text": BROADCAST_ENABLED_HELP,
+            },
+            "broadcast_slack_channel_id": {
+                "read_only": True,
+                "help_text": BROADCAST_CHANNEL_ID_HELP,
+            },
+            "broadcast_slack_channel_name": {
+                "read_only": True,
+                "help_text": BROADCAST_CHANNEL_NAME_HELP,
             },
         }
 
@@ -382,8 +422,8 @@ class PullRequestRoutingSerializer(DataclassSerializer):
         choices=RoutingStatus.choices,
         read_only=True,
         help_text=(
-            "The phase of the latest routing record: 'waiting' (fallback mode, the head waits for auto-approval's "
-            "verdict or the safety net), 'routing' (a task holds the claim and requested nobody yet), "
+            "The phase of the latest routing record: 'waiting' (the head waits for the safety net and for "
+            "auto-approval's verdict in fallback mode, or for a policy attestation check in always mode), 'routing' (a task holds the claim and requested nobody yet), "
             "'requested' (the review requests went out, the routing comment is not finished) or 'done'."
         ),
     )
@@ -397,8 +437,9 @@ class PullRequestRoutingSerializer(DataclassSerializer):
         read_only=True,
         allow_null=True,
         help_text=(
-            "'full', or 'pinned' when an auto-approval asks only the owners of sensitive and new paths. "
-            "Null while the record waits."
+            "'full', 'pinned' when an auto-approval asks only the owners of sensitive and new paths, or "
+            "'attested' when a verified policy attestation covers every changed file and the pull request already "
+            "has a reviewer, so only the owners of sensitive and new paths are requested. Null while the record waits."
         ),
     )
 
@@ -420,7 +461,8 @@ class PullRequestRoutingSerializer(DataclassSerializer):
             "trigger": {
                 "help_text": (
                     "What started the record: 'opened', 'ready_for_review', 'verdict:<outcome>', 'external_review', "
-                    "'approval_retracted' or 'safety_net'."
+                    "'approval_retracted', 'attestation' (the attestation checks the head waited for reported) or "
+                    "'safety_net'."
                 )
             },
             "claim_expired": {
@@ -431,7 +473,9 @@ class PullRequestRoutingSerializer(DataclassSerializer):
             },
             "waiting_since": {
                 "allow_null": True,
-                "help_text": "When the head started to wait for auto-approval's verdict. Null unless waiting.",
+                "help_text": (
+                    "When the head started to wait for auto-approval's verdict or an attestation check. Null unless waiting."
+                ),
             },
             "claimed_at": {"allow_null": True, "help_text": "When a task claimed the pull request for this record."},
             "routed_at": {
@@ -448,6 +492,100 @@ class PullRequestRoutingSerializer(DataclassSerializer):
                 "help_text": "The latest approved head whose pinned owners were requested, blank if none."
             },
         }
+
+
+@extend_schema_serializer(component_name="CodeReviewApprovalBroadcastRequestDelivery")
+class BroadcastRequestDeliverySerializer(DataclassSerializer):
+    kind = serializers.ChoiceField(
+        choices=BroadcastRequestDeliveryKind.choices,
+        read_only=True,
+        help_text="Where the request was posted. 'slack_message' is a message in the repository's Slack channel.",
+    )
+    url = serializers.CharField(
+        read_only=True,
+        allow_null=True,
+        help_text="Link that opens the posted message, as Slack returned it. Null when Slack did not return one.",
+    )
+
+    class Meta:
+        dataclass = contracts.BroadcastRequestDeliveryDTO
+        fields = ["kind", "url"]
+
+
+@extend_schema_serializer(component_name="CodeReviewApprovalBroadcastRequest")
+class BroadcastRequestSerializer(DataclassSerializer):
+    status = serializers.ChoiceField(
+        choices=BroadcastRequestStatus.choices,
+        read_only=True,
+        help_text=(
+            "'pending' while auto-approval reviews the head, so nothing is posted yet. 'open' when auto-approval did "
+            "not approve and the request waits for a person. 'approved' when a person approved the current head; a "
+            "new push sets 'open' again. 'stamphog_approved' when auto-approval approved, so no person needs to look. "
+            "'merged' or 'closed' when the pull request merged or closed. Only 'pending', 'open' and 'approved' are "
+            "active, and a pull request has at most one active request."
+        ),
+    )
+    requested_via = serializers.ChoiceField(
+        choices=BroadcastRequestSource.choices,
+        read_only=True,
+        help_text="Where the request came from: a pull request comment ('github'), a Slack mention ('slack') or the API ('api').",
+    )
+    note = serializers.CharField(
+        read_only=True,
+        help_text="The requester's note for the people who review, shown in Slack only. Blank when there is none.",
+    )
+    looking = serializers.ListField(
+        child=serializers.CharField(),
+        read_only=True,
+        help_text="Slack display names of the people who said they will look, in the order they said it.",
+    )
+    approved_by_login = serializers.CharField(
+        read_only=True,
+        help_text="GitHub login of the person whose approval of the current head set 'approved'. Blank otherwise.",
+    )
+    deliveries = BroadcastRequestDeliverySerializer(
+        many=True,
+        read_only=True,
+        help_text="Where the request was posted. Empty until auto-approval does not approve.",
+    )
+    requester_card_count = serializers.IntegerField(
+        read_only=True,
+        allow_null=True,
+        help_text=(
+            "How many broadcast messages the requester caused in the 7 days up to this request's message, this one "
+            "included. Counted once when the message is posted. Null until then."
+        ),
+    )
+
+    class Meta:
+        dataclass = contracts.BroadcastRequestDTO
+        fields = [
+            "id",
+            "status",
+            "head_sha",
+            "requested_via",
+            "note",
+            "looking",
+            "approved_by_login",
+            "deliveries",
+            "requester_card_count",
+            "created_at",
+            "updated_at",
+        ]
+        # Only the fields NOT declared above (see ReviewRunSerializer).
+        read_only_fields = ["id", "head_sha", "created_at", "updated_at"]
+        extra_kwargs = {
+            "id": {"help_text": "ID of the Broadcast request."},
+            "head_sha": {"help_text": "The pull request head the request follows. A push moves it."},
+            "created_at": {"help_text": "When somebody asked for people to review."},
+            "updated_at": {"help_text": "When the request last changed."},
+        }
+
+
+BROADCAST_REQUEST_FIELD_HELP = (
+    "The newest request for people to review this pull request, or null when nobody asked. Set by a review "
+    "request with allow_broadcast set to true, or by `@posthog stamp --allow-broadcast`."
+)
 
 
 @extend_schema_serializer(component_name="CodeReviewApprovalPullRequest")
@@ -478,6 +616,9 @@ class PullRequestSerializer(DataclassSerializer):
             "routing runs list for the owners each run requested or cut."
         ),
     )
+    broadcast_request = BroadcastRequestSerializer(
+        read_only=True, allow_null=True, help_text=BROADCAST_REQUEST_FIELD_HELP
+    )
 
     class Meta:
         dataclass = contracts.PullRequestDTO
@@ -499,6 +640,7 @@ class PullRequestSerializer(DataclassSerializer):
             "changed_files",
             "routing_mode",
             "routing",
+            "broadcast_request",
             "created_at",
             "updated_at",
         ]
@@ -648,6 +790,12 @@ class ReviewRunSerializer(DataclassSerializer):
         ),
     )
 
+    broadcast_request = BroadcastRequestSerializer(
+        read_only=True,
+        allow_null=True,
+        help_text=f"{BROADCAST_REQUEST_FIELD_HELP} It belongs to the pull request, so every run of the pull request shows it.",
+    )
+
     reasoning = serializers.SerializerMethodField(
         help_text=(
             "The reviewer's reasoning, the same text auto-approval posts as its GitHub review. Returned only when "
@@ -703,6 +851,7 @@ class ReviewRunSerializer(DataclassSerializer):
             "posted_review_id",
             "verdict_posted_at",
             "approval_dismissed_at",
+            "broadcast_request",
             "created_at",
             "updated_at",
             "completed_at",
@@ -725,6 +874,35 @@ class ReviewRequestSerializer(serializers.Serializer):
         help_text="Full name of the GitHub repository, e.g. 'PostHog/posthog'. It must be connected and enabled for auto-approval."
     )
     pr_number = serializers.IntegerField(min_value=1, help_text="Pull request number on GitHub.")
+    allow_broadcast = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text=(
+            "Also ask people to review. Auto-approval reviews first. When it does not approve, it posts the pull "
+            "request to the repository's Slack channel for people to review. When it approves, nothing is posted. "
+            "The repository must have broadcasting turned on. Asking again returns the request that is already "
+            "active. Only set it when the user asks for people to review."
+        ),
+    )
+    note = serializers.CharField(
+        required=False,
+        default="",
+        allow_blank=True,
+        max_length=200,
+        help_text=(
+            "A short note for the people who review, shown in Slack only and never on GitHub. Needs allow_broadcast set to "
+            "true. A request that is already active keeps its note."
+        ),
+    )
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        if attrs["note"] and not attrs["allow_broadcast"]:
+            raise serializers.ValidationError(
+                {
+                    "note": "A note goes with a request for people to review. Set allow_broadcast to true, or leave out the note."
+                }
+            )
+        return attrs
 
 
 class ReviewRequestResponseSerializer(serializers.Serializer):
@@ -742,6 +920,13 @@ class ReviewRequestResponseSerializer(serializers.Serializer):
         help_text=(
             "True when this request queued a new run. False when a queued, running, or finished run already "
             "covered the current head, which is returned instead."
+        ),
+    )
+    broadcast_request = BroadcastRequestSerializer(
+        read_only=True,
+        allow_null=True,
+        help_text=(
+            "The request for people to review that this request made or found active. Null unless allow_broadcast was true."
         ),
     )
 
@@ -930,6 +1115,14 @@ class CodeReviewApprovalRepositoryWriteSerializer(serializers.Serializer):
         ),
     )
 
+    broadcast_enabled = serializers.BooleanField(required=False, help_text=BROADCAST_ENABLED_HELP)
+    broadcast_slack_channel_id = serializers.CharField(
+        required=False, allow_blank=True, max_length=64, help_text=BROADCAST_CHANNEL_ID_HELP
+    )
+    broadcast_slack_channel_name = serializers.CharField(
+        required=False, allow_blank=True, max_length=255, help_text=BROADCAST_CHANNEL_NAME_HELP
+    )
+
     def __init__(
         self,
         *args,
@@ -986,9 +1179,36 @@ class CodeReviewApprovalRepositoryWriteSerializer(serializers.Serializer):
         if "review_mode" in attrs:
             attrs["review_on_clean_external_review"] = False
 
+    def validate_broadcast_slack_channel_id(self, value: str) -> str:
+        return value.strip()
+
+    def validate_broadcast_slack_channel_name(self, value: str) -> str:
+        value = value.strip().lstrip("#")
+        if value and not _SLACK_CHANNEL_NAME.fullmatch(value):
+            raise serializers.ValidationError(
+                "Use the channel name as Slack shows it: letters, digits, '-' and '_', up to 80 characters."
+            )
+        return value
+
+    def _validate_broadcast_request_channel(self, attrs: dict[str, Any]) -> None:
+        # Judge the stored row on a PATCH, so clearing the channel of a switched-on repo fails too.
+        enabled = attrs.get("broadcast_enabled", self.current.broadcast_enabled if self.current else False)
+        channel_id = attrs.get(
+            "broadcast_slack_channel_id", self.current.broadcast_slack_channel_id if self.current else ""
+        )
+        if enabled and not channel_id:
+            raise serializers.ValidationError(
+                {
+                    "broadcast_slack_channel_id": (
+                        "Set a Slack channel before you turn this on. Requests for people to review are posted there."
+                    )
+                }
+            )
+
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         attrs = super().validate(attrs)
         self._validate_clean_review_switch(attrs)
+        self._validate_broadcast_request_channel(attrs)
         # The digest reports what stamphog approved, so it has nothing to report without the review
         # path running.
         enabled = attrs.get("enabled", self.current.enabled if self.current else True)
@@ -1183,9 +1403,9 @@ class RoutingRunOwnerSerializer(DataclassSerializer):
         help_text=(
             "What the run did with the owner: 'requested', 'labeled' (a fork label instead of a request), "
             "'refused' (GitHub refused the request or the label), 'cut', 'not_requested' (auto-approval approved, and routing "
-            "would have asked this owner without the approval; on an older run whose llm_skipped is 'stamphog_approved' "
-            "it means only that the owner owns changed code) or 'already_requested' (an earlier run asked this pinned "
-            "owner)."
+            "would have asked this owner without the approval; on an older run whose llm_skipped is 'stamphog_approved', "
+            "or on an 'attested' run, it means only that the unpinned owner owns changed code) or 'already_requested' (an "
+            "earlier run asked this pinned owner)."
         ),
     )
     reason = serializers.ChoiceField(
@@ -1194,7 +1414,8 @@ class RoutingRunOwnerSerializer(DataclassSerializer):
         help_text=(
             "Why: 'sensitive' or 'new_path' (pinned, never cut), 'largest_owner' (a pull request keeps "
             "at least one reviewer), 'diff_not_seen' (the model did not see all of the owner's diff), "
-            "'cut_skipped' (no model call, see llm_skipped on the run), 'model_kept', 'model_cut' or "
+            "'cut_skipped' (no model call, see llm_skipped on the run), 'model_kept', 'model_cut', 'attested' "
+            "(a verified policy attestation covers every changed file, so this unpinned owner was not requested) or "
             "'stamphog_approved' (older runs only)."
         ),
     )
@@ -1259,7 +1480,11 @@ class RoutingRunSerializer(DataclassSerializer):
     scope = serializers.ChoiceField(
         choices=RoutingScope.choices,
         read_only=True,
-        help_text="'full', or 'pinned' when an auto-approval asked only the owners of sensitive and new paths.",
+        help_text=(
+            "'full', 'pinned' when an auto-approval asked only the owners of sensitive and new paths, or "
+            "'attested' when a verified policy attestation covered every changed file and only the owners of sensitive and "
+            "new paths were requested."
+        ),
     )
     llm_skipped = serializers.ChoiceField(
         choices=LlmSkipReason.choices,
@@ -1300,7 +1525,8 @@ class RoutingRunSerializer(DataclassSerializer):
             "trigger": {
                 "help_text": (
                     "What started the run: 'opened', 'ready_for_review', 'verdict:<outcome>', 'external_review', "
-                    "'approval_retracted' or 'safety_net'."
+                    "'approval_retracted', 'attestation' (the attestation checks the head waited for reported) or "
+                    "'safety_net'."
                 )
             },
             "fork": {"help_text": "Whether the pull request came from a fork, which skips the model."},

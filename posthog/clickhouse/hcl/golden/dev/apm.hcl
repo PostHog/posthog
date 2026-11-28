@@ -268,6 +268,10 @@ database "posthog" {
       type    = "LowCardinality(String)"
       default = "''"
     }
+    column "auth_type" {
+      type    = "LowCardinality(String)"
+      default = "''"
+    }
     engine "distributed" {
       cluster_name    = "logs"
       remote_database = "posthog"
@@ -713,6 +717,9 @@ database "posthog" {
     column "lc_estimated_bytes" {
       type = "SimpleAggregateFunction(max, Int64)"
     }
+    column "log_comment" {
+      type = "SimpleAggregateFunction(max, String)"
+    }
     engine "distributed" {
       cluster_name    = "ops"
       remote_database = "posthog"
@@ -882,7 +889,8 @@ SELECT
   toInt64OrNull(_headers.value[indexOf(_headers.name, 'bytes_compressed')]) / _record_count AS _bytes_compressed,
   ifNull(pattern, '') AS pattern,
   toUInt8(ifNull(pattern_version, 0)) AS pattern_version,
-  _headers.value[indexOf(_headers.name, 'internal-source')] AS internal_source
+  _headers.value[indexOf(_headers.name, 'internal-source')] AS internal_source,
+  _headers.value[indexOf(_headers.name, 'auth-type')] AS auth_type
 FROM posthog.kafka_logs_avro
 SQL
 
@@ -959,6 +967,9 @@ SQL
       type = "UInt8"
     }
     column "internal_source" {
+      type = "LowCardinality(String)"
+    }
+    column "auth_type" {
       type = "LowCardinality(String)"
     }
   }
@@ -1224,7 +1235,25 @@ SELECT
   lc.precompute_window_end AS lc_precompute_window_end,
   lc.plan_fingerprint AS lc_plan_fingerprint,
   lc.estimated_rows AS lc_estimated_rows,
-  lc.estimated_bytes AS lc_estimated_bytes
+  lc.estimated_bytes AS lc_estimated_bytes,
+  if(
+    ql.is_initial_query AND notEmpty(ql.log_comment),
+    concat(
+      '{',
+      arrayStringConcat(
+        arrayMap(
+          kv -> concat(toJSONString(kv.1), ':', kv.2),
+          arrayFilter(
+            kv -> ((kv.1) NOT IN ('timings', 'query')),
+            JSONExtractKeysAndValuesRaw(ql.log_comment)
+          )
+        ),
+        ','
+      ),
+      '}'
+    ),
+    ''
+  ) AS log_comment
 FROM system.query_log AS ql
 WHERE ql.type != 'QueryStart'
 SQL
@@ -1577,6 +1606,9 @@ SQL
     column "lc_estimated_bytes" {
       type = "SimpleAggregateFunction(max, Int64)"
     }
+    column "log_comment" {
+      type = "SimpleAggregateFunction(max, String)"
+    }
   }
 
   view "custom_metrics" {
@@ -1657,10 +1689,6 @@ SQL
 }
 
 named_collection "msk_cluster" {
-  external = true
-}
-
-named_collection "warpstream_calculated_events" {
   external = true
 }
 

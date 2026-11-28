@@ -11,6 +11,7 @@ from django.core.management import CommandError, call_command
 from django.test import override_settings
 
 import requests
+import structlog.testing
 from parameterized import parameterized
 
 from products.aeo.backend.engines import (
@@ -20,6 +21,7 @@ from products.aeo.backend.engines import (
     GATEWAY_MAX_ATTEMPTS,
     MAX_WEB_SEARCHES_PER_PROMPT,
     OPENAI_MAX_OUTPUT_TOKENS,
+    AICreditsExhausted,
     CitationCheck,
     ClaudeWebSearchEngine,
     OpenAIWebSearchEngine,
@@ -153,6 +155,41 @@ def test_parse_openai_responses_citations() -> None:
     assert parsed.search_queries == ["feature flag tools comparison"]
 
 
+@parameterized.expand(
+    [
+        ("utm_only", "https://example.com/flags?utm_source=openai", "https://example.com/flags"),
+        ("utm_and_others", "https://example.com/a?id=7&utm_source=openai#top", "https://example.com/a?id=7#top"),
+        ("no_utm", "https://example.com/a?id=7&page=2", "https://example.com/a?id=7&page=2"),
+        (
+            "encoded_param_kept_as_is",
+            "https://example.com/s?q=feature%20flags&utm_source=openai",
+            "https://example.com/s?q=feature%20flags",
+        ),
+        ("malformed_url", "https://[invalid/path", "https://[invalid/path"),
+    ]
+)
+def test_parse_openai_responses_citations_drop_utm_params(_name: str, cited: str, expected: str) -> None:
+    body = {
+        "output": [
+            {
+                "type": "message",
+                "content": [
+                    {
+                        "type": "output_text",
+                        "text": "Answer.",
+                        "annotations": [
+                            {"type": "url_citation", "url": cited},
+                            {"type": "url_citation", "url": expected},
+                        ],
+                    }
+                ],
+            }
+        ]
+    }
+
+    assert parse_openai_responses_citations(body).cited_urls == [expected]
+
+
 OPENAI_INCOMPLETE_BODY = {
     "id": "resp_02",
     "status": "incomplete",
@@ -240,6 +277,43 @@ def test_openai_engine_run_wires_response_error(_name: str, body: dict, expected
         assert check.cited_urls  # completed body carries citations
 
 
+# OpenAI's deprecations page lists these as shut down or shutting down: https://developers.openai.com/api/docs/deprecations
+RETIRED_OPENAI_MODELS = {
+    "gpt-4o-search-preview",
+    "gpt-4o-mini-search-preview",
+    "o4-mini",
+    "o3",
+    "o3-pro",
+    "gpt-5",
+    "gpt-5-2025-08-07",
+    "gpt-5-mini",
+    "gpt-5-nano",
+    "gpt-5-pro",
+}
+
+
+@parameterized.expand([("at_the_cap", MAX_WEB_SEARCHES_PER_PROMPT, False), ("over_the_cap", 5, True)])
+def test_openai_engine_warns_when_a_response_searches_past_the_cap(_name: str, searches: int, warns: bool) -> None:
+    search_call = OPENAI_RESPONSES_BODY["output"][0]
+    body = {"output": [search_call] * searches + OPENAI_RESPONSES_BODY["output"][1:]}
+    with (
+        patch("products.aeo.backend.engines.resolve_ai_gateway_config", return_value=GATEWAY_CONFIG),
+        patch("products.aeo.backend.engines.gateway_post_json", return_value=body),
+        structlog.testing.capture_logs() as logs,
+    ):
+        check = OpenAIWebSearchEngine(model="gpt-6-luna").run("best flags tool", trace_id="t1", custom_properties={})
+
+    assert check.error is None
+    warnings = [log for log in logs if log["event"] == "aeo_openai_search_cap_exceeded"]
+    expected = [{"engine": "openai-web-search", "model": "gpt-6-luna", "count": searches, "cap": 3}] if warns else []
+    assert [{k: log[k] for k in ("engine", "model", "count", "cap")} for log in warnings] == expected
+
+
+def test_openai_engine_does_not_default_to_a_retired_model() -> None:
+    with patch("products.aeo.backend.engines.resolve_ai_gateway_config", return_value=GATEWAY_CONFIG):
+        assert OpenAIWebSearchEngine().model not in RETIRED_OPENAI_MODELS
+
+
 CLAUDE_SEARCH_TOOLS = [
     {
         "type": ANTHROPIC_WEB_SEARCH_TOOL_TYPE,
@@ -261,8 +335,18 @@ OPENAI_SEARCH_TOOLS = [{"type": "web_search"}]
             "/messages",
             CLAUDE_SEARCH_TOOLS,
             "claude-web-search",
+            None,
         ),
-        ("claude_no_search", ClaudeWebSearchEngine, False, ANTHROPIC_BODY, "/messages", None, "claude-no-search"),
+        (
+            "claude_no_search",
+            ClaudeWebSearchEngine,
+            False,
+            ANTHROPIC_BODY,
+            "/messages",
+            None,
+            "claude-no-search",
+            None,
+        ),
         (
             "openai_web_search",
             OpenAIWebSearchEngine,
@@ -271,6 +355,7 @@ OPENAI_SEARCH_TOOLS = [{"type": "web_search"}]
             "/responses",
             OPENAI_SEARCH_TOOLS,
             "openai-web-search",
+            MAX_WEB_SEARCHES_PER_PROMPT,
         ),
         (
             "openai_no_search",
@@ -280,6 +365,7 @@ OPENAI_SEARCH_TOOLS = [{"type": "web_search"}]
             "/responses",
             None,
             "openai-no-search",
+            None,
         ),
     ]
 )
@@ -291,11 +377,12 @@ def test_gateway_engines_send_the_search_tool_only_with_search(
     path: str,
     expected_tools: list[dict[str, Any]] | None,
     expected_engine: str,
+    expected_max_tool_calls: int | None,
 ) -> None:
     captured: dict[str, Any] = {}
 
-    def fake_post(_session, url, _headers, payload, **_kwargs):
-        captured.update(url=url, payload=payload)
+    def fake_post(_session, url, headers, payload, **_kwargs):
+        captured.update(url=url, headers=headers, payload=payload)
         return body
 
     with (
@@ -303,7 +390,6 @@ def test_gateway_engines_send_the_search_tool_only_with_search(
             "products.aeo.backend.engines.resolve_ai_gateway_config",
             return_value=SimpleNamespace(url="https://gw.test/v1", api_key="k"),
         ),
-        patch("products.aeo.backend.engines.ai_gateway_headers", return_value={}),
         patch("products.aeo.backend.engines.gateway_post_json", side_effect=fake_post),
     ):
         engine = engine_class(search=search)
@@ -320,6 +406,8 @@ def test_gateway_engines_send_the_search_tool_only_with_search(
         target_domains=["posthog.com"],
     )
     assert (captured["url"], captured["payload"]["model"]) == (f"https://gw.test/v1{path}", web_search_model)
+    assert captured["headers"]["X-PostHog-Product"] == "ai_visibility"
+    assert captured["payload"].get("max_tool_calls") == expected_max_tool_calls
     assert check.error is None and fields["answer_text"]
     assert (fields["engine"], fields["mode"]) == (expected_engine, "web_search" if search else "no_search")
     assert captured["payload"].get("tools") == expected_tools
@@ -506,12 +594,14 @@ def test_engine_derived_text_is_sanitized_before_it_reaches_the_event() -> None:
     assert fields["target_best_position"] == 1
 
 
-def _response(status: int, retry_after: str | None = None) -> requests.Response:
+def _response(status: int, retry_after: str | None = None, denial: str | None = None) -> requests.Response:
     response = requests.Response()
     response.status_code = status
     response._content = b'{"ok": true}'
     if retry_after is not None:
         response.headers["Retry-After"] = retry_after
+    if denial is not None:
+        response.headers["X-PostHog-Denial"] = denial
     return response
 
 
@@ -520,6 +610,15 @@ def _response(status: int, retry_after: str | None = None) -> requests.Response:
         ("throttled_then_ok", [_response(429, retry_after="7"), _response(200)], None, 2, [7.0]),
         ("transient_until_attempts_run_out", [_response(503)] * GATEWAY_MAX_ATTEMPTS, requests.HTTPError, 3, [5, 10]),
         ("client_error_is_not_retried", [_response(400)], requests.HTTPError, 1, []),
+        (
+            "gateway_credit_refusal",
+            [_response(402, denial="credit_bucket_exhausted:ai_credits")],
+            AICreditsExhausted,
+            1,
+            [],
+        ),
+        ("provider_payment_refusal", [_response(402)], requests.HTTPError, 1, []),
+        ("gateway_wallet_refusal", [_response(402, denial="insufficient_credits")], requests.HTTPError, 1, []),
     ]
 )
 def test_gateway_post_json_retries_throttling_and_transient_errors(
@@ -750,7 +849,12 @@ def test_perplexity_engine_sends_the_configured_model_with_web_search_to_the_gat
     assert url == "https://gw.test/v1/responses"
     assert headers["Authorization"] == "Bearer k"
     assert headers["X-PostHog-Trace-Id"] == "t1"
-    assert json.loads(headers["X-PostHog-Properties"]) == {"aeo_prompt_id": "p1", "aeo_run_id": "r1"}
+    assert headers["X-PostHog-Product"] == "ai_visibility"
+    assert json.loads(headers["X-PostHog-Properties"]) == {
+        "aeo_prompt_id": "p1",
+        "aeo_run_id": "r1",
+        "ai_product": "ai_visibility",
+    }
     assert payload["model"] == "perplexity/sonar-pro"
     assert payload["tools"] == [{"type": "web_search", "search_type": "fast"}]
     assert check.error is None

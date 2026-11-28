@@ -26,7 +26,12 @@ import {
     CyclotronV2RescheduleOptions,
     CyclotronV2RescheduleOptionsSchema,
     CyclotronV2WorkerConfig,
+    PendingWake,
 } from './types'
+
+// Only a wake written after this dequeue counts; an older one belongs to an earlier visit to the step.
+// SET reads the pre-update row, so last_transition is still the dequeue time.
+const FRESH_PENDING_WAKE = `(pending_wake -> COALESCE($4::text, action_id) ->> 'at')::timestamptz >= last_transition`
 
 export interface RawJobRow {
     id: string
@@ -43,6 +48,7 @@ export interface RawJobRow {
     person_id: string | null
     action_id: string | null
     cancel_requested_at: string | null
+    pending_wake: PendingWake | null
     lock_id: string
 }
 
@@ -299,6 +305,7 @@ async function updateSelfInTx(
         // A cancel requested while this worker held the job must not sleep the full
         // next delay before it's observed, so it wakes immediately instead.
         `scheduled = CASE WHEN cancel_requested_at IS NOT NULL THEN LEAST($3::timestamptz, NOW()) ELSE $3::timestamptz END`,
+        `pending_wake = NULL`,
     ]
     const params: any[] = [jobId, lockId, scheduled]
     if (disposition.state !== undefined) {
@@ -338,6 +345,7 @@ export class CyclotronV2Worker {
     private readonly releaseWriteRetry: boolean
     protected readonly includeEmptyBatches: boolean
     protected readonly fairDequeue: boolean
+    private readonly fairDequeueQueues: readonly string[]
     private readonly boundedPolls: boolean
     private readonly ownershipReadTimeoutMs: number
     private readonly boundedFairDequeue: boolean
@@ -370,11 +378,8 @@ export class CyclotronV2Worker {
         this.boundedPolls = config.boundedPolls ?? false
         this.ownershipReadTimeoutMs = config.ownershipReadTimeoutMs ?? 5_000
         this.boundedFairDequeue = config.boundedFairDequeue ?? false
-        // Fair (per-team round-robin) dequeue is the email queue's ordering.
-        // `dequeue_seq` is only ever assigned for email jobs (see
-        // CyclotronV2Manager), so deriving this from the queue name keeps the
-        // worker's ORDER BY in lockstep with where the sort key actually exists.
-        this.fairDequeue = config.queueName === 'email'
+        this.fairDequeueQueues = config.fairDequeueQueues
+        this.fairDequeue = this.fairDequeueQueues.includes(config.queueName)
     }
 
     private assertBackOffFitsHeartbeat(): void {
@@ -519,6 +524,7 @@ export class CyclotronV2Worker {
         const pool = this.pool
         const dbUrl = this.config.pool.dbUrl
         const releaseRetrySlots = this.releaseRetrySlots
+        const fairDequeueQueues = this.fairDequeueQueues
         const assignEmailDequeueSeq = this.assignEmailDequeueSeq
         let reservedEmailDequeueSeq: Promise<string> | null = null
         const reserveEmailDequeueSeqOnce = (db: ReleaseDb): Promise<string> => {
@@ -675,6 +681,7 @@ export class CyclotronV2Worker {
             cancelRequestedAt: row.cancel_requested_at
                 ? DateTime.fromISO(row.cancel_requested_at, { zone: 'utc' })
                 : null,
+            pendingWake: row.pending_wake ?? null,
 
             ack: releaseWrite('ack', (db) =>
                 db.query(
@@ -716,9 +723,16 @@ export class CyclotronV2Worker {
                     // A cancel requested while this worker held the job must not
                     // sleep the full next delay before it's observed, so it
                     // wakes immediately instead.
-                    `scheduled = CASE WHEN cancel_requested_at IS NOT NULL THEN LEAST($3::timestamptz, NOW()) ELSE $3::timestamptz END`,
+                    `scheduled = CASE WHEN cancel_requested_at IS NOT NULL OR ($5::boolean AND ${FRESH_PENDING_WAKE}) THEN LEAST($3::timestamptz, NOW()) ELSE $3::timestamptz END`,
+                    `pending_wake = CASE WHEN ${FRESH_PENDING_WAKE} THEN jsonb_build_object(COALESCE($4::text, action_id), pending_wake -> COALESCE($4::text, action_id)) ELSE NULL END`,
                 ]
-                const params: any[] = [row.id, lockId, scheduled]
+                const params: any[] = [
+                    row.id,
+                    lockId,
+                    scheduled,
+                    options?.actionId ?? null,
+                    options?.wakeOnPendingWake ?? false,
+                ]
 
                 if (options?.state !== undefined) {
                     params.push(options.state ?? null)
@@ -745,16 +759,19 @@ export class CyclotronV2Worker {
                     setClauses.push(`priority = $${params.length}`)
                 }
 
-                // Cross-queue routing into the email queue: assign a fresh
+                // Cross-queue routing into a fair-dequeue queue: assign a fresh
                 // dequeue_seq so the row participates in fair ordering. Without
-                // this, hogflow → email re-routing (via job.reschedule({
-                // queueName: 'email' })) lands the row with NULL dequeue_seq,
+                // this, hogflow → email re-routing lands the row with NULL dequeue_seq,
                 // which `NULLS FIRST` drains ahead of every fair-ordered row —
                 // defeating the per-team interleave for the most common email
-                // path. Skipped when the row was already on the email queue,
+                // path. Skipped when the row was already on that queue,
                 // so existing fair-ordered rows keep their place after retry/
                 // reschedule without bumping the counter.
-                if (options?.queueName === 'email' && row.queue_name !== 'email') {
+                if (
+                    options?.queueName !== undefined &&
+                    options.queueName !== row.queue_name &&
+                    fairDequeueQueues.includes(options.queueName)
+                ) {
                     const dequeueSeq = await reserveEmailDequeueSeqOnce(db)
                     params.push(dequeueSeq)
                     setClauses.push(`dequeue_seq = $${params.length}`)
@@ -768,14 +785,17 @@ export class CyclotronV2Worker {
             }),
 
             defer: releaseWrite('defer', async (db, { scheduledAt, state }: { scheduledAt: Date; state?: Buffer }) => {
-                const dequeueSeq = row.queue_name === 'email' ? await reserveEmailDequeueSeqOnce(db) : null
+                const dequeueSeq = fairDequeueQueues.includes(row.queue_name)
+                    ? await reserveEmailDequeueSeqOnce(db)
+                    : null
                 return db.query(
                     `UPDATE cyclotron_jobs
                      SET status = 'available', lock_id = NULL, last_heartbeat = NULL,
                          last_transition = NOW(), transition_count = LEAST(transition_count + 1, ${CYCLOTRON_COUNTER_MAX}),
                          scheduled = CASE WHEN cancel_requested_at IS NOT NULL THEN LEAST($3::timestamptz, NOW()) ELSE $3::timestamptz END,
                          dequeue_seq = COALESCE($4, dequeue_seq),
-                         state = COALESCE($5, state)
+                         state = COALESCE($5, state),
+                         pending_wake = NULL
                      WHERE id = $1 AND lock_id = $2`,
                     [row.id, lockId, scheduledAt, dequeueSeq, state ?? null]
                 )

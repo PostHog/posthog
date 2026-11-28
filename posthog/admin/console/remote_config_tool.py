@@ -4,7 +4,6 @@ from django.http import HttpRequest
 from django.urls import reverse
 
 from posthog.admin.console.registry import console
-from posthog.admin.console.team_panels import DEV_EXPERIENCE
 from posthog.admin.console.tools import ConsoleTool, Notice, Output, Page
 from posthog.models.remote_config import RemoteConfig
 from posthog.models.team.team import Team
@@ -35,14 +34,14 @@ def _cached_config(team: Team) -> Page:
 class RemoteConfigCacheTool(ConsoleTool):
     key = "remote-config-cache"
     title = "Remote config cache"
-    owner = DEV_EXPERIENCE
-    group = "Data"
+    owner = None
+    group = "Infrastructure"
     description = "The config JSON that SDKs read for one team, as the cache holds it."
+    subject = "team"
 
     def page(self, request: HttpRequest) -> Page:
-        team_id = request.GET.get("team", "").strip()
-        team = Team.objects.filter(pk=int(team_id)).first() if team_id.isascii() and team_id.isdigit() else None
-        if team is None:
+        team = self.subject_of(request)
+        if not isinstance(team, Team):
             return Page(
                 blocks=(
                     Notice(

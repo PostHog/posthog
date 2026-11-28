@@ -9,6 +9,7 @@ import type { ProviderImportRunApi } from 'products/messaging/frontend/generated
 import type { OptOutSyncConfigResponse } from './customerIOImportLogic'
 import { providerImportLogic } from './providerImportLogic'
 import { ProviderImportModal } from './ProviderImportModal'
+import type { ImportEntryPoint } from './providerImportOrder'
 
 const syncConfigEndpoint = '/api/environments/:team_id/messaging_categories/optout_sync_config/'
 const importRunsEndpoint = '/api/projects/:team_id/messaging_provider_imports/'
@@ -23,6 +24,7 @@ const importProviders = [
         api_key_help:
             'You can generate an App API key in Customer.io under Settings → Account Settings → API Credentials.',
         api_key_url: null,
+        settings: [],
         not_imported: '',
         next_steps: [],
         steps: [
@@ -49,13 +51,14 @@ const importProviders = [
 
 function mockSyncConfig(
     config: OptOutSyncConfigResponse,
-    importRuns: ProviderImportRunApi[] = []
+    importRuns: ProviderImportRunApi[] = [],
+    providers: typeof importProviders = importProviders
 ): Record<string, any> {
     return {
         get: {
             [syncConfigEndpoint]: config,
             [importRunsEndpoint]: importRuns,
-            [importProvidersEndpoint]: importProviders,
+            [importProvidersEndpoint]: providers,
         },
     }
 }
@@ -125,17 +128,54 @@ export default meta
 type StoryProps = {
     syncConfig: OptOutSyncConfigResponse
     importRuns?: ProviderImportRunApi[]
+    providers?: typeof importProviders
+    entryPoint?: ImportEntryPoint
 }
 
-const Template: StoryFn<StoryProps> = ({ syncConfig, importRuns }) => {
-    useStorybookMocks(mockSyncConfig(syncConfig, importRuns))
+const Template: StoryFn<StoryProps> = ({ syncConfig, importRuns, providers, entryPoint }) => {
+    useStorybookMocks(mockSyncConfig(syncConfig, importRuns, providers))
     const { openImportModal } = useActions(providerImportLogic)
 
     useEffect(() => {
-        openImportModal()
-    }, [openImportModal])
+        openImportModal(null, entryPoint)
+    }, [openImportModal, entryPoint])
 
     return <ProviderImportModal />
+}
+
+const otherTool = (key: string, label: string, stepLabels: string[]): (typeof importProviders)[number] => ({
+    ...importProviders[0],
+    key,
+    label,
+    retains_credentials: false,
+    steps: stepLabels.map((stepLabel, index) => ({ key: `step_${index}`, label: stepLabel, description: '' })),
+})
+
+export const ProviderPicker: StoryFn<StoryProps> = Template.bind({})
+ProviderPicker.args = {
+    syncConfig: emptySyncConfig,
+    providers: [
+        otherTool('sendgrid', 'SendGrid', [
+            'Unsubscribe groups',
+            'Bounces',
+            'Global unsubscribes',
+            'Templates',
+            'Lists',
+        ]),
+        ...importProviders,
+        otherTool('resend', 'Resend', ['Topics', 'Suppression list', 'Contacts', 'Templates', 'Automations']),
+        otherTool('mailgun', 'Mailgun', ['Bounces', 'Unsubscribes']),
+        otherTool('postmark', 'Postmark', ['Suppressions', 'Templates', 'Webhooks']),
+    ],
+}
+ProviderPicker.parameters = {
+    testOptions: { waitForSelector: '[data-attr="import-provider-resend"]', snapshotBrowsers: [] },
+}
+
+export const CustomerIOWithAutomations: StoryFn<StoryProps> = Template.bind({})
+CustomerIOWithAutomations.args = { syncConfig: emptySyncConfig, entryPoint: 'workflows' }
+CustomerIOWithAutomations.parameters = {
+    testOptions: { waitForSelector: '[data-attr="import-provider-customerio-automations"]', snapshotBrowsers: [] },
 }
 
 export const BothStepsNotCompleted: StoryFn<StoryProps> = Template.bind({})
@@ -238,6 +278,7 @@ const importRun = (
     created_at: '2026-04-13T10:00:00Z',
     started_at: '2026-04-13T10:00:02Z',
     finished_at: status === 'completed' || status === 'failed' ? '2026-04-13T10:06:00Z' : null,
+    settings: {},
 })
 
 export const ImportRunning: StoryFn<StoryProps> = Template.bind({})
@@ -257,6 +298,7 @@ ImportRunning.args = {
                 items: [],
                 warnings_omitted: 0,
                 items_omitted: 0,
+                skipped: false,
             },
             {
                 key: 'suppressions',
@@ -270,6 +312,7 @@ ImportRunning.args = {
                 items: [],
                 warnings_omitted: 0,
                 items_omitted: 0,
+                skipped: false,
             },
             {
                 key: 'opt_outs',
@@ -283,6 +326,7 @@ ImportRunning.args = {
                 items: [],
                 warnings_omitted: 0,
                 items_omitted: 0,
+                skipped: false,
             },
         ]),
     ],
@@ -311,6 +355,7 @@ ImportStepFailed.args = {
                 items: [],
                 warnings_omitted: 0,
                 items_omitted: 0,
+                skipped: false,
             },
             {
                 key: 'opt_outs',
@@ -324,6 +369,7 @@ ImportStepFailed.args = {
                 items: [],
                 warnings_omitted: 0,
                 items_omitted: 0,
+                skipped: false,
             },
         ]),
     ],
@@ -341,6 +387,7 @@ const resendProvider = {
     api_key_help:
         'Resend has no read-only keys, so this needs a key with full access. PostHog only reads from your account, deletes the key as soon as the import ends, and asks for it again next time.',
     api_key_url: 'https://resend.com/api-keys',
+    settings: [],
     not_imported: 'API keys, webhooks, send history and stats stay in Resend.',
     next_steps: [
         'Add each sending domain in PostHog and publish its DNS records.',
@@ -402,6 +449,7 @@ ResendFinishedWithNotes.args = {
                     items: [],
                     warnings_omitted: 0,
                     items_omitted: 0,
+                    skipped: false,
                 },
                 {
                     key: 'templates',
@@ -430,6 +478,7 @@ ResendFinishedWithNotes.args = {
                     ],
                     warnings_omitted: 0,
                     items_omitted: 0,
+                    skipped: false,
                 },
             ]),
             provider: 'resend',
@@ -439,4 +488,48 @@ ResendFinishedWithNotes.args = {
 ResendFinishedWithNotes.parameters = {
     mockDate: '2026-04-13 10:30:00',
     testOptions: { waitForSelector: '[data-attr="resend-import-next-steps"]', snapshotBrowsers: [] },
+}
+
+export const ResendFinishedWithSkippedStep: StoryFn<StoryProps> = ResendTemplate.bind({})
+ResendFinishedWithSkippedStep.args = {
+    syncConfig: emptySyncConfig,
+    importRuns: [
+        {
+            ...importRun('completed', [
+                {
+                    key: 'suppressions',
+                    label: 'Suppression list',
+                    status: 'completed',
+                    processed: 3,
+                    imported: 3,
+                    warnings: [],
+                    last_error: null,
+                    counts: [],
+                    items: [],
+                    warnings_omitted: 0,
+                    items_omitted: 0,
+                    skipped: false,
+                },
+                {
+                    key: 'templates',
+                    label: 'Templates',
+                    status: 'completed',
+                    processed: 0,
+                    imported: 0,
+                    warnings: ["Skipped, because this key can't read templates. Give it access, then import again."],
+                    last_error: null,
+                    counts: [],
+                    items: [],
+                    warnings_omitted: 0,
+                    items_omitted: 0,
+                    skipped: true,
+                },
+            ]),
+            provider: 'resend',
+        },
+    ],
+}
+ResendFinishedWithSkippedStep.parameters = {
+    mockDate: '2026-04-13 10:30:00',
+    testOptions: { waitForSelector: '[data-attr="resend-import-run-progress"]', snapshotBrowsers: [] },
 }

@@ -60,59 +60,6 @@ from posthog.temporal.usage_report.metrics import (
     USAGE_REPORTS_LATENCY_HISTOGRAM_METRICS,
 )
 
-from products.alerts_platform.backend.facade.temporal import (
-    ALERTS_PLATFORM_LATENCY_HISTOGRAM_BUCKETS,
-    ALERTS_PLATFORM_LATENCY_HISTOGRAM_METRICS,
-    ALERTS_PLATFORM_TICK_HISTOGRAM_BUCKETS,
-    ALERTS_PLATFORM_TICK_HISTOGRAM_METRICS,
-    ALERTS_PLATFORM_TICK_KEYS_BUCKETS,
-    ALERTS_PLATFORM_TICK_KEYS_METRICS,
-    AlertsPlatformTelemetryInterceptor,
-)
-from products.batch_exports.backend.facade.temporal import BatchExportsMetricsInterceptor
-from products.data_modeling.backend.facade.temporal_metrics import (
-    DATA_MODELING_DURATION_HISTOGRAM_BUCKETS,
-    DATA_MODELING_DURATION_HISTOGRAM_METRICS,
-    DATA_MODELING_LATENCY_HISTOGRAM_BUCKETS,
-    DATA_MODELING_LATENCY_HISTOGRAM_METRICS,
-)
-from products.experiments.backend.facade.temporal import (
-    EXPERIMENT_METRICS_RECALCULATION_ATTEMPT_HISTOGRAM_BUCKETS,
-    EXPERIMENT_METRICS_RECALCULATION_ATTEMPT_HISTOGRAM_METRICS,
-    EXPERIMENT_METRICS_RECALCULATION_LATENCY_HISTOGRAM_BUCKETS,
-    EXPERIMENT_METRICS_RECALCULATION_LATENCY_HISTOGRAM_METRICS,
-    EXPERIMENT_METRICS_RECALCULATION_SCHEDULE_TO_START_HISTOGRAM_BUCKETS,
-    EXPERIMENT_METRICS_RECALCULATION_SCHEDULE_TO_START_HISTOGRAM_METRICS,
-    ExperimentsRecalculationMetricsInterceptor,
-)
-from products.logs.backend.facade.temporal import (
-    LOGS_ALERTING_COUNT_HISTOGRAM_BUCKETS,
-    LOGS_ALERTING_COUNT_HISTOGRAM_METRICS,
-    LOGS_ALERTING_LATENCY_HISTOGRAM_BUCKETS,
-    LOGS_ALERTING_LATENCY_HISTOGRAM_METRICS,
-    LOGS_VOLUME_TICK_LATENCY_HISTOGRAM_BUCKETS,
-    LOGS_VOLUME_TICK_LATENCY_HISTOGRAM_METRICS,
-    LogsAlertingMetricsInterceptor,
-)
-from products.tasks.backend.facade.temporal import (
-    TASKS_CPU_PRESSURE_RATIO_HISTOGRAM_BUCKETS,
-    TASKS_CPU_PRESSURE_RATIO_HISTOGRAM_METRICS,
-    TASKS_LATENCY_HISTOGRAM_BUCKETS,
-    TASKS_LATENCY_HISTOGRAM_METRICS,
-    TASKS_LAUNCH_PREPARATION_HISTOGRAM_BUCKETS,
-    TASKS_LAUNCH_PREPARATION_HISTOGRAM_METRICS,
-    TASKS_MEMORY_PEAK_RATIO_HISTOGRAM_BUCKETS,
-    TASKS_MEMORY_PEAK_RATIO_HISTOGRAM_METRICS,
-    TASKS_NETWORK_BYTES_HISTOGRAM_BUCKETS,
-    TASKS_NETWORK_BYTES_HISTOGRAM_METRICS,
-    TASKS_RUN_TOKENS_HISTOGRAM_BUCKETS,
-    TASKS_RUN_TOKENS_HISTOGRAM_METRICS,
-    TASKS_RUN_TURNS_HISTOGRAM_BUCKETS,
-    TASKS_RUN_TURNS_HISTOGRAM_METRICS,
-    TASKS_SDK_LATENCY_HISTOGRAM_BUCKETS,
-    TASKS_SDK_LATENCY_HISTOGRAM_METRICS,
-)
-
 logger = get_write_only_logger()
 
 
@@ -196,16 +143,12 @@ ALL_INTERCEPTOR_CLASSES = [
     LivenessInterceptor,
     PostHogClientInterceptor,
     SloInterceptor,
-    AlertsPlatformTelemetryInterceptor,
-    BatchExportsMetricsInterceptor,
     DeleteRecordingsMetricsInterceptor,
     EvalsMetricsInterceptor,
     SummarizationMetricsInterceptor,
     ClusteringMetricsInterceptor,
     MCPAClusteringMetricsInterceptor,
     EvalReportsMetricsInterceptor,
-    LogsAlertingMetricsInterceptor,
-    ExperimentsRecalculationMetricsInterceptor,
 ]
 
 
@@ -213,10 +156,55 @@ def interceptor_classes() -> list[type[Interceptor]]:
     return [*ALL_INTERCEPTOR_CLASSES, *combined_registration().interceptors]
 
 
-def with_declared_histograms(core_buckets: dict[str, list[float]]) -> dict[str, list[float]]:
+def with_declared_histograms(task_queue: str, core_buckets: dict[str, list[float]]) -> dict[str, list[float]]:
     # Core's buckets win, so a product declaration cannot change the buckets of a core metric.
-    declared = {histogram.metric_name: list(histogram.buckets) for histogram in combined_registration().histograms}
+    declared = {
+        histogram.metric_name: list(histogram.buckets)
+        for histogram in combined_registration().histograms
+        if histogram.applies_to(task_queue)
+    }
     return declared | core_buckets
+
+
+def histogram_buckets_for_queue(task_queue: str) -> dict[str, list[float]]:
+    histogram_bucket_overrides: dict[str, list[float]] = (
+        dict(
+            zip(
+                BATCH_EXPORTS_LATENCY_HISTOGRAM_METRICS,
+                itertools.repeat(BATCH_EXPORTS_LATENCY_HISTOGRAM_BUCKETS),
+            )
+        )
+        | dict(
+            zip(
+                BATCH_EXPORTS_FAST_LATENCY_HISTOGRAM_METRICS,
+                itertools.repeat(BATCH_EXPORTS_FAST_LATENCY_HISTOGRAM_BUCKETS),
+            )
+        )
+        | dict(zip(EVALS_LATENCY_HISTOGRAM_METRICS, itertools.repeat(EVALS_LATENCY_HISTOGRAM_BUCKETS)))
+        | dict(zip(SUMMARIZATION_LATENCY_HISTOGRAM_METRICS, itertools.repeat(SUMMARIZATION_LATENCY_HISTOGRAM_BUCKETS)))
+        | dict(zip(CLUSTERING_LATENCY_HISTOGRAM_METRICS, itertools.repeat(CLUSTERING_LATENCY_HISTOGRAM_BUCKETS)))
+        | dict(
+            zip(
+                MCPA_CLUSTERING_LATENCY_HISTOGRAM_METRICS,
+                itertools.repeat(MCPA_CLUSTERING_LATENCY_HISTOGRAM_BUCKETS),
+            )
+        )
+        | dict(
+            zip(
+                EVAL_REPORTS_LATENCY_HISTOGRAM_METRICS,
+                itertools.repeat(EVAL_REPORTS_LATENCY_HISTOGRAM_BUCKETS),
+            )
+        )
+        | dict(
+            zip(
+                DELETE_RECORDINGS_LATENCY_HISTOGRAM_METRICS,
+                itertools.repeat(DELETE_RECORDINGS_LATENCY_HISTOGRAM_BUCKETS),
+            )
+        )
+        | dict(zip(USAGE_REPORTS_LATENCY_HISTOGRAM_METRICS, itertools.repeat(USAGE_REPORTS_LATENCY_HISTOGRAM_BUCKETS)))
+        | {"batch_exports_activity_attempt": [1.0, 5.0, 10.0, 100.0]}
+    )
+    return with_declared_histograms(task_queue, histogram_bucket_overrides)
 
 
 @frozen
@@ -362,151 +350,7 @@ async def create_worker(
         # Expose Temporal SDK metrics directly on the public metrics port.
         temporal_metrics_bind_address = f"0.0.0.0:{metrics_port}"
 
-    histogram_bucket_overrides: dict[str, list[float]] = (
-        dict(
-            zip(
-                BATCH_EXPORTS_LATENCY_HISTOGRAM_METRICS,
-                itertools.repeat(BATCH_EXPORTS_LATENCY_HISTOGRAM_BUCKETS),
-            )
-        )
-        | dict(
-            zip(
-                BATCH_EXPORTS_FAST_LATENCY_HISTOGRAM_METRICS,
-                itertools.repeat(BATCH_EXPORTS_FAST_LATENCY_HISTOGRAM_BUCKETS),
-            )
-        )
-        | dict(zip(EVALS_LATENCY_HISTOGRAM_METRICS, itertools.repeat(EVALS_LATENCY_HISTOGRAM_BUCKETS)))
-        | dict(zip(SUMMARIZATION_LATENCY_HISTOGRAM_METRICS, itertools.repeat(SUMMARIZATION_LATENCY_HISTOGRAM_BUCKETS)))
-        | dict(zip(CLUSTERING_LATENCY_HISTOGRAM_METRICS, itertools.repeat(CLUSTERING_LATENCY_HISTOGRAM_BUCKETS)))
-        | dict(
-            zip(
-                MCPA_CLUSTERING_LATENCY_HISTOGRAM_METRICS,
-                itertools.repeat(MCPA_CLUSTERING_LATENCY_HISTOGRAM_BUCKETS),
-            )
-        )
-        | dict(zip(TASKS_LATENCY_HISTOGRAM_METRICS, itertools.repeat(TASKS_LATENCY_HISTOGRAM_BUCKETS)))
-        | dict(
-            zip(
-                TASKS_LAUNCH_PREPARATION_HISTOGRAM_METRICS, itertools.repeat(TASKS_LAUNCH_PREPARATION_HISTOGRAM_BUCKETS)
-            )
-        )
-        | dict(zip(TASKS_RUN_TOKENS_HISTOGRAM_METRICS, itertools.repeat(TASKS_RUN_TOKENS_HISTOGRAM_BUCKETS)))
-        | dict(zip(TASKS_RUN_TURNS_HISTOGRAM_METRICS, itertools.repeat(TASKS_RUN_TURNS_HISTOGRAM_BUCKETS)))
-        | dict(
-            zip(TASKS_MEMORY_PEAK_RATIO_HISTOGRAM_METRICS, itertools.repeat(TASKS_MEMORY_PEAK_RATIO_HISTOGRAM_BUCKETS))
-        )
-        | dict(
-            zip(
-                TASKS_CPU_PRESSURE_RATIO_HISTOGRAM_METRICS, itertools.repeat(TASKS_CPU_PRESSURE_RATIO_HISTOGRAM_BUCKETS)
-            )
-        )
-        | dict(zip(TASKS_NETWORK_BYTES_HISTOGRAM_METRICS, itertools.repeat(TASKS_NETWORK_BYTES_HISTOGRAM_BUCKETS)))
-        | dict(
-            zip(
-                EVAL_REPORTS_LATENCY_HISTOGRAM_METRICS,
-                itertools.repeat(EVAL_REPORTS_LATENCY_HISTOGRAM_BUCKETS),
-            )
-        )
-        | dict(
-            zip(
-                DELETE_RECORDINGS_LATENCY_HISTOGRAM_METRICS,
-                itertools.repeat(DELETE_RECORDINGS_LATENCY_HISTOGRAM_BUCKETS),
-            )
-        )
-        | dict(
-            zip(
-                ALERTS_PLATFORM_LATENCY_HISTOGRAM_METRICS,
-                itertools.repeat(ALERTS_PLATFORM_LATENCY_HISTOGRAM_BUCKETS),
-            )
-        )
-        | dict(zip(ALERTS_PLATFORM_TICK_HISTOGRAM_METRICS, itertools.repeat(ALERTS_PLATFORM_TICK_HISTOGRAM_BUCKETS)))
-        | dict(zip(ALERTS_PLATFORM_TICK_KEYS_METRICS, itertools.repeat(ALERTS_PLATFORM_TICK_KEYS_BUCKETS)))
-        | dict(zip(LOGS_ALERTING_LATENCY_HISTOGRAM_METRICS, itertools.repeat(LOGS_ALERTING_LATENCY_HISTOGRAM_BUCKETS)))
-        | dict(zip(LOGS_ALERTING_COUNT_HISTOGRAM_METRICS, itertools.repeat(LOGS_ALERTING_COUNT_HISTOGRAM_BUCKETS)))
-        | dict(
-            zip(
-                LOGS_VOLUME_TICK_LATENCY_HISTOGRAM_METRICS, itertools.repeat(LOGS_VOLUME_TICK_LATENCY_HISTOGRAM_BUCKETS)
-            )
-        )
-        | dict(zip(USAGE_REPORTS_LATENCY_HISTOGRAM_METRICS, itertools.repeat(USAGE_REPORTS_LATENCY_HISTOGRAM_BUCKETS)))
-        | dict(
-            zip(
-                EXPERIMENT_METRICS_RECALCULATION_LATENCY_HISTOGRAM_METRICS,
-                itertools.repeat(EXPERIMENT_METRICS_RECALCULATION_LATENCY_HISTOGRAM_BUCKETS),
-            )
-        )
-        | dict(
-            zip(
-                EXPERIMENT_METRICS_RECALCULATION_ATTEMPT_HISTOGRAM_METRICS,
-                itertools.repeat(EXPERIMENT_METRICS_RECALCULATION_ATTEMPT_HISTOGRAM_BUCKETS),
-            )
-        )
-        | dict(
-            zip(
-                EXPERIMENT_METRICS_RECALCULATION_SCHEDULE_TO_START_HISTOGRAM_METRICS,
-                itertools.repeat(EXPERIMENT_METRICS_RECALCULATION_SCHEDULE_TO_START_HISTOGRAM_BUCKETS),
-            )
-        )
-        | {"batch_exports_activity_attempt": [1.0, 5.0, 10.0, 100.0]}
-    )
-    if task_queue == settings.DATA_MODELING_TASK_QUEUE:
-        histogram_bucket_overrides |= dict(
-            zip(
-                DATA_MODELING_LATENCY_HISTOGRAM_METRICS,
-                itertools.repeat(DATA_MODELING_LATENCY_HISTOGRAM_BUCKETS),
-            )
-        )
-        histogram_bucket_overrides |= dict(
-            zip(
-                DATA_MODELING_DURATION_HISTOGRAM_METRICS,
-                itertools.repeat(DATA_MODELING_DURATION_HISTOGRAM_BUCKETS),
-            )
-        )
-    if task_queue == settings.DATA_WAREHOUSE_TASK_QUEUE:
-        # Both metrics hold small counts. The default buckets are for latencies in milliseconds,
-        # which puts every count into the first bucket.
-        histogram_bucket_overrides |= {
-            "warehouse_pipeline_run_attempt": [1.0, 2.0, 3.0, 5.0, 9.0, 20.0, 50.0, 100.0, 200.0],
-            "warehouse_import_handoffs_per_run": [0.0, 1.0, 2.0, 3.0, 5.0, 10.0, 20.0, 50.0, 100.0, 200.0],
-        }
-        # Recorded in seconds, from a hand-off at once to a run that holds the worker for hours.
-        histogram_bucket_overrides["warehouse_import_shutdown_handoff_delay_seconds"] = [
-            1.0,
-            5.0,
-            15.0,
-            30.0,
-            60.0,
-            90.0,
-            120.0,
-            300.0,
-            900.0,
-            1800.0,
-            3600.0,
-            7200.0,
-            21600.0,
-        ]
-        histogram_bucket_overrides["warehouse_import_attempt_duration_seconds"] = [
-            1.0,
-            5.0,
-            15.0,
-            30.0,
-            60.0,
-            120.0,
-            300.0,
-            600.0,
-            1800.0,
-            3600.0,
-            7200.0,
-            21600.0,
-        ]
-    if task_queue == settings.TASKS_TASK_QUEUE:
-        histogram_bucket_overrides |= dict(
-            zip(
-                TASKS_SDK_LATENCY_HISTOGRAM_METRICS,
-                itertools.repeat(TASKS_SDK_LATENCY_HISTOGRAM_BUCKETS),
-            )
-        )
-    histogram_bucket_overrides = with_declared_histograms(histogram_bucket_overrides)
+    histogram_bucket_overrides = histogram_buckets_for_queue(task_queue)
 
     runtime = Runtime(
         telemetry=TelemetryConfig(

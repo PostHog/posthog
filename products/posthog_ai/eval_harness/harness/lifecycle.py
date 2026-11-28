@@ -36,6 +36,7 @@ from products.tasks.backend.logic.services.local_skills import (
 )
 from products.tasks.backend.temporal.process_task.utils import get_reasoning_effort_error
 
+from ..data_setup import ensure_master_demo_team, prewarm_demo_teams
 from ..engines.base import EvalEngine
 from ..engines.registry import resolve_engine
 from ..log_sink import LOGS_ROOT
@@ -156,6 +157,25 @@ class SandboxedEvalHarness:
         self._git_dirty = _worktree_dirty()
 
     def run(self) -> int:
+        if self.options.prewarm_teams is not None:
+            reporter = ProgressReporter(total_suites=0, verbose=self.options.verbose, dashboard=self._dashboard)
+            ensure_personhog_binaries()
+            try:
+                with self._stack:
+                    self._bootstrap(frozenset({Infra.DATABASE, Infra.PERSONHOG}), reporter)
+                    assert self._database is not None
+                    blocker = self._database.blocker
+                    master_team_id = ensure_master_demo_team(blocker)
+                    reporter.setup_started(f"prepare {self.options.prewarm_teams} single-use teams")
+                    started = time.monotonic()
+                    prewarm_demo_teams(
+                        master_team_id, blocker, self.options.prewarm_teams, self.options.team_setup_concurrency
+                    )
+                    reporter.prewarm_finished(self.options.prewarm_teams, time.monotonic() - started)
+            finally:
+                atexit.unregister(stop_all_subprocesses)
+            return 0
+
         # Discover before anything is provisioned: a typo'd selector should cost a
         # module import, not a database build and a Hedgebox seed.
         suites = discover_suites(self.options.selectors)
@@ -210,6 +230,7 @@ class SandboxedEvalHarness:
             agent_runtime=self.options.agent_runtime,
             agent_model=self.options.agent_model,
             max_sandboxes=self.options.max_sandboxes,
+            team_setup_concurrency=self.options.team_setup_concurrency,
             trials=self.options.trials,
             case_timeout_seconds=self.options.per_case_timeout_seconds,
         )
@@ -469,7 +490,10 @@ class SandboxedEvalHarness:
             self.provider.start(self._stack)
 
         # The harness uses TEST for its database, but this client captures eval traces deliberately.
-        self._posthog_client = get_client("US", disabled=bool(os.environ.get("OPT_OUT_CAPTURE", False)))
+        # The AI lane queue defaults to 1,000 events; keep the 10,000 the analytics lane held for these traces.
+        self._posthog_client = get_client(
+            "US", disabled=bool(os.environ.get("OPT_OUT_CAPTURE", False)), capture_ai_max_queue_size=10_000
+        )
         if self._posthog_client is not None:
             self._stack.callback(_shutdown_trace_client, self._posthog_client)
 
@@ -516,6 +540,7 @@ class SandboxedEvalHarness:
                     # the same per-process queue lets the single eval worker serve both, and keeps
                     # those workflows off a dev worker the same way.
                     GENERAL_PURPOSE_TASK_QUEUE=temporal_task_queue(),
+                    CANVAS_BUILD_TASK_QUEUE=temporal_task_queue(),
                     # The harness never starts run_task_workflow_dispatcher, so an outbox dispatch would
                     # leave every case parked in QUEUED until the case's poll budget runs out.
                     TASKS_WORKFLOW_DISPATCH_OUTBOX_ENABLED=False,
@@ -596,6 +621,7 @@ class SandboxedEvalHarness:
             posthog_client=self._posthog_client,
             sandbox_slots=asyncio.Semaphore(self.options.max_sandboxes) if Infra.SANDBOX in required else None,
             team_setup_slots=asyncio.Semaphore(self.options.team_setup_concurrency),
+            preparation_slots=asyncio.Semaphore(max(4, self.options.team_setup_concurrency)),
             one_shot_slots=asyncio.Semaphore(DEFAULT_ONE_SHOT_CONCURRENCY),
             reporter=reporter,
             engine=self._engine,

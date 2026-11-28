@@ -21,9 +21,10 @@ from posthog.models.team.team import Team
 from posthog.storage.object_storage import ObjectStorageError
 from posthog.temporal.oauth import PosthogMcpScopes
 
+from products.tasks.backend.constants import UPSTREAM_RETRYABLE_ERROR_CATEGORIES
 from products.tasks.backend.facade.api import upload_task_run_artifacts
 from products.tasks.backend.facade.contracts import AgentStartupFailure, AgentTaskRunDTO, SessionFile
-from products.tasks.backend.facade.profiles import TaskProfile, TaskRunOptions, TaskSource
+from products.tasks.backend.facade.profiles import GithubAccess, TaskProfile, TaskRunOptions, TaskSource
 from products.tasks.backend.logic.services.startup_failure import (
     AgentStartupFailed,
     SandboxRunFailed as SandboxRunFailed,
@@ -77,6 +78,7 @@ TRANSIENT_SIDE_CHANNEL_METHODS = frozenset(
         "_posthog/console",
         "_posthog/progress",
         "_posthog/sandbox_output",
+        "_posthog/session_log_gap",
     }
 )
 
@@ -173,6 +175,9 @@ class CustomPromptSandboxContext:
     Best-effort: if no team GitHub integration exists or the mint fails, the sandbox starts
     without a token."""
     github_token_scope: Literal["read", "push"] | None = None
+    github_access: GithubAccess | None = None
+    """Lower the GitHub access the profile allows for this run. ``GithubAccess.NONE`` attaches no GitHub credential,
+    for a run whose input is untrusted content and that has no repository work to do."""
     interaction_origin: str | None = None
     """Surface the run is answering on (e.g. ``"slack"``). The agent server branches its system
     prompt on this, so evals that grade surface-specific behavior must set it to exercise the
@@ -249,19 +254,6 @@ class EmptyAgentTurnError(RuntimeError):
         super().__init__(message)
         self.total_lines = total_lines
         self.printed_lines = printed_lines
-
-
-# Mirrored from RETRYABLE_UPSTREAM_ERROR_CLASSIFICATIONS in
-# packages/agent/packages/agent/src/adapters/error-classification.ts, which is the source of
-# truth. A category added there must be added here too, or a retryable failure reads as permanent.
-UPSTREAM_RETRYABLE_ERROR_CATEGORIES = frozenset(
-    {
-        "upstream_stream_terminated",
-        "upstream_connection_error",
-        "upstream_timeout",
-        "upstream_provider_failure",
-    }
-)
 
 
 class AgentTurnFailed(RuntimeError):
@@ -361,6 +353,7 @@ async def _create_task_and_trigger(
         output_schema=output_schema,
         mcp_scopes=context.posthog_mcp_scopes,
         permission_mode=context.initial_permission_mode,
+        github_access=context.github_access,
     )
     extra_run_state: dict[str, Any] = {}
     if context.system_prompt is not None:

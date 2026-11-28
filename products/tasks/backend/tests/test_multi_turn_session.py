@@ -23,7 +23,7 @@ from posthog.storage.object_storage import ObjectStorageError
 from products.tasks.backend.facade import agents as agents_facade
 from products.tasks.backend.facade.api import _public_task_run_state
 from products.tasks.backend.facade.contracts import SessionFile
-from products.tasks.backend.facade.profiles import get_task_profile
+from products.tasks.backend.facade.profiles import GithubAccess, get_task_profile
 from products.tasks.backend.logic.services.custom_prompt_internals import (
     AgentError,
     AgentTurnFailed,
@@ -383,6 +383,7 @@ class TestPollForTurnStaleSalvage:
             ),
             ("sandbox_output", [_console_line("npm install ...", method="_posthog/sandbox_output")]),
             ("setup_progress", [_console_line("cloning repo", method="_posthog/progress")]),
+            ("session_log_gap", [_console_line("", method="_posthog/session_log_gap")]),
         ]
     )
     async def test_salvages_dropped_finalization_despite_trailing_console_lines(self, _name, trailing):
@@ -1261,6 +1262,7 @@ class TestExtractAgentError:
     @parameterized.expand(
         [
             ("upstream_provider_failure", "API Error: 429 rate_limit_error"),
+            ("upstream_rate_limited", "Rate limit reached"),
             ("upstream_connection_error", "API Error: Connection error"),
             ("upstream_stream_terminated", "API Error: terminated"),
             ("agent_error", "Something broke inside the agent"),
@@ -1381,6 +1383,7 @@ class TestPollForTurnSurfacesAgentError:
     @parameterized.expand(
         [
             ("upstream_provider_failure", "API Error: 429 rate_limit_error", True),
+            ("upstream_rate_limited", "Rate limit reached", True),
             ("upstream_connection_error", "API Error: Connection error", True),
             ("upstream_stream_terminated", "API Error: terminated", True),
             ("upstream_timeout", "API Error: Request timed out", True),
@@ -2175,6 +2178,19 @@ class TestCreateTaskAndTriggerForwardsContext:
         assert public_state["codex_max_subagents"] == 9
         assert public_state["codex_shared_prompt_cache"] is True
         assert public_state["disable_skills"] is True
+
+    @pytest.mark.asyncio
+    async def test_a_run_without_github_attaches_no_github_credential(self) -> None:
+        team, user = await sync_to_async(self._setup_team_and_user)()
+        context = CustomPromptSandboxContext(team_id=team.id, user_id=user.id, github_access=GithubAccess.NONE)
+
+        with patch("products.tasks.backend.temporal.client.execute_task_processing_workflow"):
+            task_run = await agents_facade.create_task_and_trigger("prompt", context, profile=USER)
+
+        task = await sync_to_async(Task.objects.get)(id=task_run.task_id)
+        # The profile allows GitHub, so only the run's own limit keeps the credential out of the sandbox.
+        assert task.github_access_limit == GithubAccess.NONE
+        assert task.github_integration_id is None
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(("output_schema", "expected_flag"), [({"type": "object"}, True), (None, None)])

@@ -1,101 +1,64 @@
 import { useActions, useValues } from 'kea'
 
-import { IconEllipsis, IconExternal, IconWarning } from '@posthog/icons'
+import { IconEllipsis } from '@posthog/icons'
 import {
     DropdownMenu,
     DropdownMenuContent,
+    DropdownMenuGroup,
     DropdownMenuItem,
+    DropdownMenuLabel,
     DropdownMenuSeparator,
     DropdownMenuTrigger,
 } from '@posthog/quill'
 
-import { helpMenuLogic } from 'lib/components/HelpMenu/helpMenuLogic'
-import { posthogStatusLogic } from 'lib/components/HelpMenu/posthogStatusLogic'
-import { navSwitchLogic } from 'lib/components/NavSwitch/navSwitchLogic'
-import { urls } from 'scenes/urls'
+import { getAppContext } from 'lib/utils/getAppContext'
 
-import { todayMenuLinkItem } from './todayMenuLinkItem'
-import { TodayMoreMenuSupportItem } from './TodayMoreMenuSupportItem'
-import { TodayNavSwitchMenuItem } from './TodayNavSwitchMenuItem'
-import { SEVERITY_TEXT_CLASS } from './todayRailSeverity'
-import { todayRailStatusLogic } from './todayRailStatusLogic'
+import { todayDesignChangelogLogic } from './todayDesignChangelogLogic'
+import { TodayMoreMenuRow } from './TodayMoreMenuRow'
+import { todayRailLayoutLogic } from './todayRailLayoutLogic'
 import { TodayRailTile } from './TodayRailTile'
-import { TodayTabBarTab } from './TodayTabBarTab'
-import { todayTourLogic } from './todayTourLogic'
+import { TodayRailPane, todayShellLogic } from './todayShellLogic'
 
-/**
- * The "More" menu, on the rail or in the phone layout's tab bar. The help menu shortcut opens it too.
- * Its `data-attr`s are pinned: they match the classic help menu, so autocapture data stays continuous.
- */
-export function TodayMoreMenu({ placement = 'rail' }: { placement?: 'rail' | 'tab-bar' }): JSX.Element {
-    const { isHelpMenuOpen } = useValues(helpMenuLogic)
-    const { setHelpMenuOpen } = useActions(helpMenuLogic)
-    const { statusPageUrl } = useValues(posthogStatusLogic)
-    const { statusSeverity, statusText, healthSeverity, healthText, moreSeverity, moreLabel } =
-        useValues(todayRailStatusLogic)
-    const { switchAvailable } = useValues(navSwitchLogic)
-    const { tourActive } = useValues(todayTourLogic)
-    const Tile = placement === 'tab-bar' ? TodayTabBarTab : TodayRailTile
+/** The panes that do not fit the rail and the ones the person hid from it, plus the way to arrange the rail. */
+export function TodayMoreMenu({ overflowPanes }: { overflowPanes: TodayRailPane[] }): JSX.Element {
+    const { activePane } = useValues(todayShellLogic)
+    const { hiddenRailPanes, moreMenuOpen } = useValues(todayRailLayoutLogic)
+    const { setCustomizeOpen, setMoreMenuOpen } = useActions(todayRailLayoutLogic)
+    const { showChangelogAgain } = useActions(todayDesignChangelogLogic)
+    const panes = [...overflowPanes, ...hiddenRailPanes]
 
     return (
-        // The tour opens this menu and shows its card beside it. A modal menu would swallow the first click on the card.
-        <DropdownMenu open={isHelpMenuOpen} onOpenChange={setHelpMenuOpen} modal={!tourActive}>
+        // Its open state lives in the logic, so the design changelog's demo can open it.
+        <DropdownMenu open={moreMenuOpen} onOpenChange={setMoreMenuOpen}>
             <DropdownMenuTrigger
                 render={
-                    <Tile
+                    <TodayRailTile
                         label="More"
-                        icon={
-                            statusSeverity === 'ok' ? (
-                                <IconEllipsis />
-                            ) : (
-                                <IconWarning className={SEVERITY_TEXT_CLASS[statusSeverity]} />
-                            )
-                        }
-                        active={isHelpMenuOpen}
+                        icon={<IconEllipsis />}
+                        active={moreMenuOpen || panes.includes(activePane)}
+                        // pinned: autocapture `data-attr` kept from when this menu was the help menu.
                         dataAttr="help-menu-button"
-                        severity={moreSeverity}
-                        aria-label={moreLabel}
                     />
                 }
             />
-            <DropdownMenuContent side={placement === 'tab-bar' ? 'top' : 'right'} align="end" className="w-56">
-                <TodayMoreMenuSupportItem />
-                <DropdownMenuSeparator />
-                <DropdownMenuItem
-                    render={todayMenuLinkItem(statusPageUrl, { external: true })}
-                    description={
-                        statusText && <span className={SEVERITY_TEXT_CLASS[statusSeverity]}>{statusText}</span>
-                    }
-                    data-attr="more-menu-status-button"
-                >
-                    Status page
-                    <IconExternal data-icon="inline-end" className="ms-auto" />
+            <DropdownMenuContent side="right" align="end" className="w-72">
+                {panes.length > 0 && (
+                    <>
+                        <DropdownMenuGroup>
+                            <DropdownMenuLabel>More</DropdownMenuLabel>
+                            {panes.map((pane) => (
+                                <TodayMoreMenuRow key={pane} pane={pane} />
+                            ))}
+                        </DropdownMenuGroup>
+                        <DropdownMenuSeparator />
+                    </>
+                )}
+                <DropdownMenuItem data-attr="today-rail-customize" onClick={() => setCustomizeOpen(true)}>
+                    Customize navigation
                 </DropdownMenuItem>
-                <DropdownMenuItem
-                    render={todayMenuLinkItem(urls.health())}
-                    description={
-                        healthText && (
-                            <span className={SEVERITY_TEXT_CLASS[healthSeverity === 'ok' ? 'none' : healthSeverity]}>
-                                {healthText}
-                            </span>
-                        )
-                    }
-                    data-attr="more-menu-health-button"
-                >
-                    Health
-                </DropdownMenuItem>
-                {switchAvailable && <TodayNavSwitchMenuItem />}
-                <DropdownMenuSeparator />
-                <DropdownMenuItem
-                    render={todayMenuLinkItem('https://posthog.com/changelog', { external: true })}
-                    data-attr="more-menu-changelog-button"
-                >
-                    Changelog
-                    <IconExternal data-icon="inline-end" className="ms-auto" />
-                </DropdownMenuItem>
-                <DropdownMenuItem render={todayMenuLinkItem(urls.exports())} data-attr="more-menu-exports-button">
-                    Exports
-                </DropdownMenuItem>
+                {getAppContext()?.preflight?.is_debug && (
+                    <DropdownMenuItem onClick={showChangelogAgain}>Show design changelog</DropdownMenuItem>
+                )}
             </DropdownMenuContent>
         </DropdownMenu>
     )

@@ -65,10 +65,15 @@ def add_credit(request: HttpRequest, obj: Model, form: forms.Form | None) -> Htt
         messages.error(request, refused.detail)
         return HttpResponse(status=400)
     if result.duplicate:
-        messages.info(request, f"Idempotent replay, no new credit. Team '{obj.name}' balance: ${result.balance_usd}.")
+        messages.info(
+            request,
+            f"Idempotent replay, no new credit. Organization balance for team '{obj.name}': ${result.balance_usd}.",
+        )
     else:
         messages.success(
-            request, f"Added ${result.amount_usd} to team '{obj.name}'. New balance: ${result.balance_usd}."
+            request,
+            f"Added ${result.amount_usd} to the organization of team '{obj.name}'. "
+            f"Organization balance, shared by its teams: ${result.balance_usd}.",
         )
     return None
 
@@ -98,7 +103,7 @@ class AIGatewayPanel(Panel):
             Fact(
                 label="Wallet",
                 value="Balance and recent ledger",
-                href=f"{reverse('admin_console_tool', kwargs={'tool_key': WALLET_TOOL_KEY})}?team={obj.pk}",
+                href=AIGatewayWalletTool.url_for(obj),
             )
         )
         for top_up in api.recent_team_credits(obj.pk, RECENT_TOP_UPS):
@@ -117,7 +122,7 @@ class AIGatewayPanel(Panel):
                 key="add-credit",
                 label="Add credit",
                 handler=add_credit,
-                description="Adds USD credit to the team's gateway wallet.",
+                description="Adds USD credit to the organization's gateway balance, which all its teams share.",
                 form_class=AddCreditForm,
             )
         ]
@@ -169,14 +174,16 @@ class AIGatewayWalletTool(ConsoleTool):
     owner = AI_GATEWAY
     group = "Billing"
     description = "The gateway balance and recent ledger entries of one team."
+    subject = "team"
 
     def page(self, request: HttpRequest) -> Page:
-        team_id = request.GET.get("team", "")
-        if not team_id.isdecimal():
+        team = self.subject_of(request)
+        if team is None:
             return Page(blocks=(Notice(text="Open a team's wallet from the AI gateway panel on the team's page."),))
-        team_url = reverse("admin_console_team", kwargs={"pk": int(team_id)})
+        team_id = team.pk
+        team_url = reverse("admin_console_team", kwargs={"pk": team_id})
         try:
-            wallet = api.team_wallet(int(team_id))
+            wallet = api.team_wallet(team_id)
         except TeamWalletUnavailable as unavailable:
             return Page(blocks=(Notice(text=unavailable.detail, link_text="Back to the team", href=team_url),))
         blocks: list[Notice | Table] = [

@@ -240,6 +240,7 @@ def _sandbox_compute_usage(begin: datetime, end: datetime) -> dict[str, list[tup
         "credits": usage.credits,
         "cpu_millicore_seconds": usage.cpu_millicore_seconds,
         "memory_mib_seconds": usage.memory_mib_seconds,
+        "ai_credits": usage.ai_credits,
     }
 
 
@@ -341,6 +342,8 @@ QUERIES: list[QuerySpec] = [
             "unreal_events": "teams_with_unreal_events_count_in_period",
             "roblox_events": "teams_with_roblox_events_count_in_period",
             "rust_events": "teams_with_rust_events_count_in_period",
+            "rust_ffi_events": "teams_with_rust_ffi_events_count_in_period",
+            "electron_events": "teams_with_electron_events_count_in_period",
         },
         timeout_minutes=30,
     ),
@@ -564,6 +567,7 @@ QUERIES: list[QuerySpec] = [
             "credits": "teams_with_sandbox_compute_credits_used_in_period",
             "cpu_millicore_seconds": "teams_with_sandbox_compute_cpu_millicore_seconds_in_period",
             "memory_mib_seconds": "teams_with_sandbox_compute_memory_mib_seconds_in_period",
+            "ai_credits": "teams_with_ai_compute_credits_used_in_period",
         },
     ),
     # ---- Postgres: business knowledge usage ledger --------------------------

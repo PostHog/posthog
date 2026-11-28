@@ -1,11 +1,13 @@
 import { JSONContent } from '@tiptap/core'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 
-import { IconLock } from '@posthog/icons'
+import { IconCollapse45, IconExpand45, IconLock } from '@posthog/icons'
 import { LemonButton, LemonCheckbox, LemonInput, LemonSwitch, Tooltip } from '@posthog/lemon-ui'
 
 import { RichContentEditorType } from 'lib/components/RichContentEditor/types'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
+import { cn } from 'lib/utils/css-classes'
 
 import type { TicketMacroApi } from 'products/conversations/frontend/generated/api.schemas'
 
@@ -14,6 +16,7 @@ import { channelIcon, getReplyPlaceholder, hasReplyChannelBranding } from '../Ch
 import { ComposerHeader, SimplifiedRepliesProps } from '../ComposerHeader/ComposerHeader'
 import { SupportEditor, type SupportEditorProps, serializeToMarkdown } from '../Editor'
 import { SendMenu } from '../SendMenu/SendMenu'
+import { keepTabFocusWithin } from './keepTabFocusWithin'
 
 export interface MessageInputProps {
     onSendMessage: (
@@ -116,10 +119,12 @@ export function MessageInput({
     const [localIsPrivate, setLocalIsPrivate] = useState(false)
     const [composerExpanded, setComposerExpanded] = useState(false)
     const [sendMenuOpen, setSendMenuOpen] = useState(false)
+    const [isExpanded, setIsExpanded] = useState(false)
     const lastThreadIdRef = useRef(threadId)
     if (lastThreadIdRef.current !== threadId) {
         lastThreadIdRef.current = threadId
         setComposerExpanded(false)
+        setIsExpanded(false)
     }
     const editorRef = useRef<RichContentEditorType | null>(null)
     const composerRef = useRef<HTMLDivElement>(null)
@@ -134,6 +139,19 @@ export function MessageInput({
     useEffect(() => {
         setIsEmpty(!draftContent)
     }, [draftContent])
+
+    // Moving this one portal target to document.body, instead of portaling conditionally, keeps the editor mounted.
+    const [portalHost] = useState(() => document.createElement('div'))
+    const inlineSlotRef = useRef<HTMLDivElement>(null)
+
+    const prevIsExpandedRef = useRef(isExpanded)
+    useEffect(() => {
+        // The toggle button takes focus on click; hand it back so typing continues in the editor.
+        if (prevIsExpandedRef.current !== isExpanded) {
+            prevIsExpandedRef.current = isExpanded
+            editorRef.current?.focus()
+        }
+    }, [isExpanded])
 
     useEffect(() => {
         if (composerExpanded) {
@@ -258,6 +276,7 @@ export function MessageInput({
                     () => {
                         editorRef.current?.clear()
                         setIsEmpty(true)
+                        setIsExpanded(false)
                         onDraftChange?.(null)
                         if (onPrivateChange) {
                             onPrivateChange(false)
@@ -352,6 +371,13 @@ export function MessageInput({
     const showFullComposer =
         !collapseUntilActive || composerExpanded || !!draftContent || !!editingMessageId || !!composerInsertAt
 
+    // A layout effect, so the node is in the document before the editor's mount effects try to focus it.
+    useLayoutEffect(() => {
+        const target = isExpanded ? document.body : inlineSlotRef.current
+        target?.appendChild(portalHost)
+        return () => portalHost.remove()
+    }, [isExpanded, showFullComposer, portalHost])
+
     if (!showFullComposer) {
         return (
             <LemonInput
@@ -366,150 +392,200 @@ export function MessageInput({
         )
     }
 
-    return (
-        <div ref={composerRef}>
-            <SupportEditor
-                initialContent={typeof draftContent === 'string' ? null : draftContent}
-                placeholder={resolvedPlaceholder}
-                autoFocus={composerExpanded}
-                onCreate={(editor) => {
-                    editorRef.current = editor
-                    if (draftContent) {
-                        editor.setContent(draftContent)
-                        setIsEmpty(false)
-                    }
-                }}
-                onUpdate={handleUpdate}
-                onPressCmdEnter={() => {
-                    // With the send menu, the shortcut opens it rather than sending: every send is confirmed there.
-                    if (!sendsThroughMenu) {
-                        handleSubmit()
-                    } else if (!sendBlockedReason) {
-                        setSendMenuOpen(true)
-                    }
-                }}
-                onUploadingChange={setIsUploading}
-                onAttachFile={onAttachFile}
-                disabled={messageSending || !!sendDisabledReason}
-                minRows={minRows}
-                enableMacros={enableMacros}
-                onInsertMacro={onInsertMacro}
+    const composer = (
+        <div
+            className={
+                isExpanded
+                    ? 'fixed inset-0 z-[var(--z-modal)] flex items-center justify-center p-4 bg-[var(--modal-backdrop-color)] backdrop-blur-[var(--modal-backdrop-blur)]'
+                    : undefined
+            }
+            onMouseDown={(e) => {
+                if (isExpanded && e.target === e.currentTarget) {
+                    setIsExpanded(false)
+                }
+            }}
+        >
+            <div
+                ref={composerRef}
                 className={
-                    isPrivate || isEditing
-                        ? 'bg-warning-highlight border-warning'
-                        : draftModeActive
-                          ? 'bg-success-highlight border-success'
-                          : undefined
+                    isExpanded
+                        ? 'flex flex-col w-full max-w-4xl h-[80vh] p-4 bg-surface-primary border border-primary rounded shadow-lg'
+                        : undefined
                 }
-                header={
-                    simplifiedReplies && !isEditing ? (
-                        <ComposerHeader isPrivate={isPrivate} channel={channel} {...simplifiedReplies} />
-                    ) : undefined
-                }
-            />
-            <div className="flex flex-wrap justify-between items-center gap-2 mt-2">
-                <div className="flex flex-wrap items-center gap-2">
-                    {macroPicker}
-                    {showPrivateOption ? (
-                        <Tooltip title="Private notes are only visible to your team, not to the customer.">
-                            <span>
-                                <LemonCheckbox
-                                    checked={isPrivate || isEditing}
-                                    onChange={setIsPrivate}
-                                    disabledReason={isEditing ? 'Editing a private note' : sendControlDisabledReason}
-                                    label={
-                                        <span className="inline-flex items-center gap-1">
-                                            <IconLock className="text-sm" />
-                                            {isEditing ? 'Editing private note' : 'Attach as private note'}
-                                        </span>
-                                    }
-                                />
-                            </span>
-                        </Tooltip>
-                    ) : null}
-                </div>
-                <div className="flex items-center gap-2">
-                    {onDraftModeChange && !simplifiedReplies && (
-                        <Tooltip
-                            title={
-                                isPrivate || isEditing
-                                    ? null
-                                    : 'In draft mode, sending asks you to confirm the recipient first.'
-                            }
-                        >
-                            <span>
-                                <LemonSwitch
-                                    checked={draftMode}
-                                    onChange={onDraftModeChange}
-                                    label="Draft mode"
-                                    disabledReason={
-                                        sendControlDisabledReason ??
-                                        (isPrivate || isEditing
-                                            ? 'Draft mode has no effect on private notes'
-                                            : undefined)
-                                    }
-                                />
-                            </span>
-                        </Tooltip>
-                    )}
-                    {extraActions}
-                    {isEditing && onCancelEdit && (
-                        <LemonButton type="secondary" onClick={onCancelEdit} disabled={messageSending}>
-                            Cancel
-                        </LemonButton>
-                    )}
-                    {sendsThroughMenu ? (
-                        <SendMenu
-                            visible={sendMenuOpen}
-                            onVisibilityChange={setSendMenuOpen}
-                            onSend={sendFromMenu}
-                            onCancel={closeSendMenu}
-                            composerRef={composerRef}
-                            verb={sendVerb}
-                            isPrivate={isPrivate}
-                            channel={channel}
-                            audience={sendConfirmationMessage}
-                            statusLabel={simplifiedReplies?.statusLabel}
-                            statusOptions={sendAndSetStatusOptions}
-                            disabledReason={sendBlockedReason}
-                            loading={messageSending}
-                        >
-                            {sendButtonContent}
-                        </SendMenu>
-                    ) : (
+                onKeyDown={(e) => {
+                    // Popovers portal out of this node, so the DOM check keeps their keys from reaching the overlay.
+                    const composer = composerRef.current
+                    if (!isExpanded || e.defaultPrevented || !composer?.contains(e.target as Node)) {
+                        return
+                    }
+                    if (e.key === 'Escape') {
+                        e.preventDefault()
+                        setIsExpanded(false)
+                    } else if (e.key === 'Tab') {
+                        keepTabFocusWithin(composer, e)
+                    }
+                }}
+            >
+                <SupportEditor
+                    initialContent={typeof draftContent === 'string' ? null : draftContent}
+                    placeholder={resolvedPlaceholder}
+                    autoFocus={composerExpanded}
+                    onCreate={(editor) => {
+                        editorRef.current = editor
+                        if (draftContent) {
+                            editor.setContent(draftContent)
+                            setIsEmpty(false)
+                        }
+                    }}
+                    onUpdate={handleUpdate}
+                    onPressCmdEnter={() => {
+                        // With the send menu, the shortcut opens it rather than sending: every send is confirmed there.
+                        if (!sendsThroughMenu) {
+                            handleSubmit()
+                        } else if (!sendBlockedReason) {
+                            setSendMenuOpen(true)
+                        }
+                    }}
+                    onPressEscape={() => setIsExpanded(false)}
+                    onUploadingChange={setIsUploading}
+                    onAttachFile={onAttachFile}
+                    disabled={messageSending || !!sendDisabledReason}
+                    minRows={minRows}
+                    fillHeight={isExpanded}
+                    toolbarEnd={
                         <LemonButton
-                            type="primary"
-                            onClick={() => handleSubmit()}
-                            loading={messageSending}
-                            disabledReason={sendBlockedReason}
-                            sideAction={
-                                !isEditing && sendAndSetStatusOptions?.length
-                                    ? {
-                                          'aria-label': `${sendVerb} and set ticket status`,
-                                          disabled: messageSending,
-                                          disabledReason: sendBlockedReason,
-                                          dropdown: {
-                                              placement: 'bottom-end',
-                                              overlay: sendAndSetStatusOptions.map((option) => (
-                                                  <LemonButton
-                                                      key={option.value}
-                                                      fullWidth
-                                                      size="small"
-                                                      onClick={() => handleSubmit(option.value)}
-                                                  >
-                                                      {`${sendVerb} and set ${option.statusLabel}`}
-                                                  </LemonButton>
-                                              )),
-                                          },
-                                      }
-                                    : undefined
-                            }
-                        >
-                            {sendButtonContent}
-                        </LemonButton>
+                            size="small"
+                            icon={isExpanded ? <IconCollapse45 /> : <IconExpand45 />}
+                            onClick={() => setIsExpanded((current) => !current)}
+                            tooltip={isExpanded ? 'Collapse editor (Esc)' : 'Expand editor'}
+                            aria-label={isExpanded ? 'Collapse editor' : 'Expand editor'}
+                            data-attr={isExpanded ? 'message-input-collapse' : 'message-input-expand'}
+                        />
+                    }
+                    enableMacros={enableMacros}
+                    onInsertMacro={onInsertMacro}
+                    className={cn(
+                        isExpanded && 'flex-1 min-h-0 mt-0',
+                        isPrivate || isEditing
+                            ? 'bg-warning-highlight border-warning'
+                            : draftModeActive
+                              ? 'bg-success-highlight border-success'
+                              : undefined
                     )}
+                    header={
+                        simplifiedReplies && !isEditing ? (
+                            <ComposerHeader isPrivate={isPrivate} channel={channel} {...simplifiedReplies} />
+                        ) : undefined
+                    }
+                />
+                <div className="flex flex-wrap justify-between items-center gap-2 mt-2">
+                    <div className="flex flex-wrap items-center gap-2">
+                        {macroPicker}
+                        {showPrivateOption ? (
+                            <Tooltip title="Private notes are only visible to your team, not to the customer.">
+                                <span>
+                                    <LemonCheckbox
+                                        checked={isPrivate || isEditing}
+                                        onChange={setIsPrivate}
+                                        disabledReason={
+                                            isEditing ? 'Editing a private note' : sendControlDisabledReason
+                                        }
+                                        label={
+                                            <span className="inline-flex items-center gap-1">
+                                                <IconLock className="text-sm" />
+                                                {isEditing ? 'Editing private note' : 'Attach as private note'}
+                                            </span>
+                                        }
+                                    />
+                                </span>
+                            </Tooltip>
+                        ) : null}
+                    </div>
+                    <div className="flex items-center gap-2">
+                        {onDraftModeChange && !simplifiedReplies && (
+                            <Tooltip
+                                title={
+                                    isPrivate || isEditing
+                                        ? null
+                                        : 'In draft mode, sending asks you to confirm the recipient first.'
+                                }
+                            >
+                                <span>
+                                    <LemonSwitch
+                                        checked={draftMode}
+                                        onChange={onDraftModeChange}
+                                        label="Draft mode"
+                                        disabledReason={
+                                            sendControlDisabledReason ??
+                                            (isPrivate || isEditing
+                                                ? 'Draft mode has no effect on private notes'
+                                                : undefined)
+                                        }
+                                    />
+                                </span>
+                            </Tooltip>
+                        )}
+                        {extraActions}
+                        {isEditing && onCancelEdit && (
+                            <LemonButton type="secondary" onClick={onCancelEdit} disabled={messageSending}>
+                                Cancel
+                            </LemonButton>
+                        )}
+                        {sendsThroughMenu ? (
+                            <SendMenu
+                                visible={sendMenuOpen}
+                                onVisibilityChange={setSendMenuOpen}
+                                onSend={sendFromMenu}
+                                onCancel={closeSendMenu}
+                                composerRef={composerRef}
+                                verb={sendVerb}
+                                isPrivate={isPrivate}
+                                channel={channel}
+                                audience={sendConfirmationMessage}
+                                statusLabel={simplifiedReplies?.statusLabel}
+                                statusOptions={sendAndSetStatusOptions}
+                                disabledReason={sendBlockedReason}
+                                loading={messageSending}
+                            >
+                                {sendButtonContent}
+                            </SendMenu>
+                        ) : (
+                            <LemonButton
+                                type="primary"
+                                onClick={() => handleSubmit()}
+                                loading={messageSending}
+                                disabledReason={sendBlockedReason}
+                                sideAction={
+                                    !isEditing && sendAndSetStatusOptions?.length
+                                        ? {
+                                              'aria-label': `${sendVerb} and set ticket status`,
+                                              disabled: messageSending,
+                                              disabledReason: sendBlockedReason,
+                                              dropdown: {
+                                                  placement: 'bottom-end',
+                                                  overlay: sendAndSetStatusOptions.map((option) => (
+                                                      <LemonButton
+                                                          key={option.value}
+                                                          fullWidth
+                                                          size="small"
+                                                          onClick={() => handleSubmit(option.value)}
+                                                      >
+                                                          {`${sendVerb} and set ${option.statusLabel}`}
+                                                      </LemonButton>
+                                                  )),
+                                              },
+                                          }
+                                        : undefined
+                                }
+                            >
+                                {sendButtonContent}
+                            </LemonButton>
+                        )}
+                    </div>
                 </div>
             </div>
         </div>
     )
+
+    return <div ref={inlineSlotRef}>{createPortal(composer, portalHost)}</div>
 }

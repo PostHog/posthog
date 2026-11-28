@@ -77,6 +77,12 @@ export const BatchExportsCreateBody = () => zod
                             ),
                         config: zod
                             .object({
+                                use_new_events_schema: zod
+                                    .boolean()
+                                    .optional()
+                                    .describe(
+                                        'Whether this export reads the new events table. Use it to try the new table on one export, such as a copy of a production export, before your other exports move. Setting it to false does not keep the export on the old table after all exports move.'
+                                    ),
                                 http_path: zod.string().describe('Databricks SQL warehouse HTTP path.'),
                                 catalog: zod.string().describe('Unity Catalog name.'),
                                 schema: zod.string().describe('Schema (database) name inside the catalog.'),
@@ -109,6 +115,12 @@ export const BatchExportsCreateBody = () => zod
                             ),
                         config: zod
                             .object({
+                                use_new_events_schema: zod
+                                    .boolean()
+                                    .optional()
+                                    .describe(
+                                        'Whether this export reads the new events table. Use it to try the new table on one export, such as a copy of a production export, before your other exports move. Setting it to false does not keep the export on the old table after all exports move.'
+                                    ),
                                 container_name: zod.string().describe('Azure Blob Storage container name.'),
                                 prefix: zod
                                     .string()
@@ -162,6 +174,12 @@ export const BatchExportsCreateBody = () => zod
                             ),
                         config: zod
                             .object({
+                                use_new_events_schema: zod
+                                    .boolean()
+                                    .optional()
+                                    .describe(
+                                        'Whether this export reads the new events table. Use it to try the new table on one export, such as a copy of a production export, before your other exports move. Setting it to false does not keep the export on the old table after all exports move.'
+                                    ),
                                 dataset_id: zod.string().describe('BigQuery dataset ID to write to.'),
                                 table_id: zod
                                     .string()
@@ -189,6 +207,12 @@ export const BatchExportsCreateBody = () => zod
                             ),
                         config: zod
                             .object({
+                                use_new_events_schema: zod
+                                    .boolean()
+                                    .optional()
+                                    .describe(
+                                        'Whether this export reads the new events table. Use it to try the new table on one export, such as a copy of a production export, before your other exports move. Setting it to false does not keep the export on the old table after all exports move.'
+                                    ),
                                 database: zod.string().describe('PostgreSQL database name to connect to.'),
                                 schema: zod
                                     .string()
@@ -220,6 +244,12 @@ export const BatchExportsCreateBody = () => zod
                             ),
                         config: zod
                             .object({
+                                use_new_events_schema: zod
+                                    .boolean()
+                                    .optional()
+                                    .describe(
+                                        'Whether this export reads the new events table. Use it to try the new table on one export, such as a copy of a production export, before your other exports move. Setting it to false does not keep the export on the old table after all exports move.'
+                                    ),
                                 bucket_name: zod.string().describe('Name of the destination bucket.'),
                                 region: zod.string().describe("Region the bucket is in (e.g. 'us-east-1')."),
                                 prefix: zod.string().describe('Object key prefix applied to every exported file.'),
@@ -281,6 +311,12 @@ export const BatchExportsCreateBody = () => zod
                             ),
                         config: zod
                             .object({
+                                use_new_events_schema: zod
+                                    .boolean()
+                                    .optional()
+                                    .describe(
+                                        'Whether this export reads the new events table. Use it to try the new table on one export, such as a copy of a production export, before your other exports move. Setting it to false does not keep the export on the old table after all exports move.'
+                                    ),
                                 bucket_name: zod.string().describe('Name of the destination bucket.'),
                                 region: zod.string().describe("Region the bucket is in (e.g. 'us-east-1')."),
                                 prefix: zod.string().describe('Object key prefix applied to every exported file.'),
@@ -338,6 +374,12 @@ export const BatchExportsCreateBody = () => zod
                             ),
                         config: zod
                             .object({
+                                use_new_events_schema: zod
+                                    .boolean()
+                                    .optional()
+                                    .describe(
+                                        'Whether this export reads the new events table. Use it to try the new table on one export, such as a copy of a production export, before your other exports move. Setting it to false does not keep the export on the old table after all exports move.'
+                                    ),
                                 database: zod.string().describe('Snowflake database to write to.'),
                                 warehouse: zod.string().describe('Snowflake compute warehouse to use.'),
                                 schema: zod
@@ -367,6 +409,12 @@ export const BatchExportsCreateBody = () => zod
                             ),
                         config: zod
                             .object({
+                                use_new_events_schema: zod
+                                    .boolean()
+                                    .optional()
+                                    .describe(
+                                        'Whether this export reads the new events table. Use it to try the new table on one export, such as a copy of a production export, before your other exports move. Setting it to false does not keep the export on the old table after all exports move.'
+                                    ),
                                 database: zod.string().describe('Redshift database name to connect to.'),
                                 host: zod
                                     .string()
@@ -606,6 +654,12 @@ export const BatchExportsCreateBody = () => zod
                         .describe(
                             'Replace negated person-property filters in the WHERE of an `events` query (such as `email not_icontains`) with `person_id NOT IN (SELECT id FROM persons WHERE <the filters fail>)`, so the query no longer joins every person. Applies only when every filtered person property has a materialized column, nothing else in the query reads that persons join, and the join would be a LEFT JOIN.'
                         ),
+                    optimizeCrossJoins: zod
+                        .union([zod.boolean(), zod.null()])
+                        .optional()
+                        .describe(
+                            'Move eligible non-nullable equality filters from CROSS JOIN queries into ALL INNER JOIN constraints'
+                        ),
                     optimizeJoinedFilters: zod.union([zod.boolean(), zod.null()]).optional(),
                     optimizeProjections: zod.union([zod.boolean(), zod.null()]).optional(),
                     parserMode: zod
@@ -649,6 +703,12 @@ export const BatchExportsCreateBody = () => zod
                         .optional(),
                     pushDownPredicates: zod.union([zod.boolean(), zod.null()]).optional(),
                     s3TableUseInvalidColumns: zod.union([zod.boolean(), zod.null()]).optional(),
+                    sessionFilterGlobalJoin: zod
+                        .union([zod.boolean(), zod.null()])
+                        .optional()
+                        .describe(
+                            'Filter the sessions join of an events query by its session property filters and run it as a `GLOBAL LEFT JOIN`, so the sessions are read once instead of once per events shard. Applies only when every session filter is an equality or `IN` against non-empty strings, which are false for an event with no matching session.'
+                        ),
                     sessionIdPushdown: zod
                         .union([zod.boolean(), zod.null()])
                         .optional()
@@ -808,6 +868,12 @@ export const BatchExportsPartialUpdateBody = () => zod
                             ),
                         config: zod
                             .object({
+                                use_new_events_schema: zod
+                                    .boolean()
+                                    .optional()
+                                    .describe(
+                                        'Whether this export reads the new events table. Use it to try the new table on one export, such as a copy of a production export, before your other exports move. Setting it to false does not keep the export on the old table after all exports move.'
+                                    ),
                                 http_path: zod.string().describe('Databricks SQL warehouse HTTP path.'),
                                 catalog: zod.string().describe('Unity Catalog name.'),
                                 schema: zod.string().describe('Schema (database) name inside the catalog.'),
@@ -840,6 +906,12 @@ export const BatchExportsPartialUpdateBody = () => zod
                             ),
                         config: zod
                             .object({
+                                use_new_events_schema: zod
+                                    .boolean()
+                                    .optional()
+                                    .describe(
+                                        'Whether this export reads the new events table. Use it to try the new table on one export, such as a copy of a production export, before your other exports move. Setting it to false does not keep the export on the old table after all exports move.'
+                                    ),
                                 container_name: zod.string().describe('Azure Blob Storage container name.'),
                                 prefix: zod
                                     .string()
@@ -893,6 +965,12 @@ export const BatchExportsPartialUpdateBody = () => zod
                             ),
                         config: zod
                             .object({
+                                use_new_events_schema: zod
+                                    .boolean()
+                                    .optional()
+                                    .describe(
+                                        'Whether this export reads the new events table. Use it to try the new table on one export, such as a copy of a production export, before your other exports move. Setting it to false does not keep the export on the old table after all exports move.'
+                                    ),
                                 dataset_id: zod.string().describe('BigQuery dataset ID to write to.'),
                                 table_id: zod
                                     .string()
@@ -920,6 +998,12 @@ export const BatchExportsPartialUpdateBody = () => zod
                             ),
                         config: zod
                             .object({
+                                use_new_events_schema: zod
+                                    .boolean()
+                                    .optional()
+                                    .describe(
+                                        'Whether this export reads the new events table. Use it to try the new table on one export, such as a copy of a production export, before your other exports move. Setting it to false does not keep the export on the old table after all exports move.'
+                                    ),
                                 database: zod.string().describe('PostgreSQL database name to connect to.'),
                                 schema: zod
                                     .string()
@@ -953,6 +1037,12 @@ export const BatchExportsPartialUpdateBody = () => zod
                             ),
                         config: zod
                             .object({
+                                use_new_events_schema: zod
+                                    .boolean()
+                                    .optional()
+                                    .describe(
+                                        'Whether this export reads the new events table. Use it to try the new table on one export, such as a copy of a production export, before your other exports move. Setting it to false does not keep the export on the old table after all exports move.'
+                                    ),
                                 bucket_name: zod.string().describe('Name of the destination bucket.'),
                                 region: zod.string().describe("Region the bucket is in (e.g. 'us-east-1')."),
                                 prefix: zod.string().describe('Object key prefix applied to every exported file.'),
@@ -1014,6 +1104,12 @@ export const BatchExportsPartialUpdateBody = () => zod
                             ),
                         config: zod
                             .object({
+                                use_new_events_schema: zod
+                                    .boolean()
+                                    .optional()
+                                    .describe(
+                                        'Whether this export reads the new events table. Use it to try the new table on one export, such as a copy of a production export, before your other exports move. Setting it to false does not keep the export on the old table after all exports move.'
+                                    ),
                                 bucket_name: zod.string().describe('Name of the destination bucket.'),
                                 region: zod.string().describe("Region the bucket is in (e.g. 'us-east-1')."),
                                 prefix: zod.string().describe('Object key prefix applied to every exported file.'),
@@ -1071,6 +1167,12 @@ export const BatchExportsPartialUpdateBody = () => zod
                             ),
                         config: zod
                             .object({
+                                use_new_events_schema: zod
+                                    .boolean()
+                                    .optional()
+                                    .describe(
+                                        'Whether this export reads the new events table. Use it to try the new table on one export, such as a copy of a production export, before your other exports move. Setting it to false does not keep the export on the old table after all exports move.'
+                                    ),
                                 database: zod.string().describe('Snowflake database to write to.'),
                                 warehouse: zod.string().describe('Snowflake compute warehouse to use.'),
                                 schema: zod
@@ -1100,6 +1202,12 @@ export const BatchExportsPartialUpdateBody = () => zod
                             ),
                         config: zod
                             .object({
+                                use_new_events_schema: zod
+                                    .boolean()
+                                    .optional()
+                                    .describe(
+                                        'Whether this export reads the new events table. Use it to try the new table on one export, such as a copy of a production export, before your other exports move. Setting it to false does not keep the export on the old table after all exports move.'
+                                    ),
                                 database: zod.string().describe('Redshift database name to connect to.'),
                                 host: zod
                                     .string()
@@ -1343,6 +1451,12 @@ export const BatchExportsPartialUpdateBody = () => zod
                         .describe(
                             'Replace negated person-property filters in the WHERE of an `events` query (such as `email not_icontains`) with `person_id NOT IN (SELECT id FROM persons WHERE <the filters fail>)`, so the query no longer joins every person. Applies only when every filtered person property has a materialized column, nothing else in the query reads that persons join, and the join would be a LEFT JOIN.'
                         ),
+                    optimizeCrossJoins: zod
+                        .union([zod.boolean(), zod.null()])
+                        .optional()
+                        .describe(
+                            'Move eligible non-nullable equality filters from CROSS JOIN queries into ALL INNER JOIN constraints'
+                        ),
                     optimizeJoinedFilters: zod.union([zod.boolean(), zod.null()]).optional(),
                     optimizeProjections: zod.union([zod.boolean(), zod.null()]).optional(),
                     parserMode: zod
@@ -1386,6 +1500,12 @@ export const BatchExportsPartialUpdateBody = () => zod
                         .optional(),
                     pushDownPredicates: zod.union([zod.boolean(), zod.null()]).optional(),
                     s3TableUseInvalidColumns: zod.union([zod.boolean(), zod.null()]).optional(),
+                    sessionFilterGlobalJoin: zod
+                        .union([zod.boolean(), zod.null()])
+                        .optional()
+                        .describe(
+                            'Filter the sessions join of an events query by its session property filters and run it as a `GLOBAL LEFT JOIN`, so the sessions are read once instead of once per events shard. Applies only when every session filter is an equality or `IN` against non-empty strings, which are false for an event with no matching session.'
+                        ),
                     sessionIdPushdown: zod
                         .union([zod.boolean(), zod.null()])
                         .optional()
@@ -1823,6 +1943,12 @@ export const FileDownloadBatchExportsCreateBody = () => zod.union([
                         .describe(
                             'Replace negated person-property filters in the WHERE of an `events` query (such as `email not_icontains`) with `person_id NOT IN (SELECT id FROM persons WHERE <the filters fail>)`, so the query no longer joins every person. Applies only when every filtered person property has a materialized column, nothing else in the query reads that persons join, and the join would be a LEFT JOIN.'
                         ),
+                    optimizeCrossJoins: zod
+                        .union([zod.boolean(), zod.null()])
+                        .optional()
+                        .describe(
+                            'Move eligible non-nullable equality filters from CROSS JOIN queries into ALL INNER JOIN constraints'
+                        ),
                     optimizeJoinedFilters: zod.union([zod.boolean(), zod.null()]).optional(),
                     optimizeProjections: zod.union([zod.boolean(), zod.null()]).optional(),
                     parserMode: zod
@@ -1866,6 +1992,12 @@ export const FileDownloadBatchExportsCreateBody = () => zod.union([
                         .optional(),
                     pushDownPredicates: zod.union([zod.boolean(), zod.null()]).optional(),
                     s3TableUseInvalidColumns: zod.union([zod.boolean(), zod.null()]).optional(),
+                    sessionFilterGlobalJoin: zod
+                        .union([zod.boolean(), zod.null()])
+                        .optional()
+                        .describe(
+                            'Filter the sessions join of an events query by its session property filters and run it as a `GLOBAL LEFT JOIN`, so the sessions are read once instead of once per events shard. Applies only when every session filter is an equality or `IN` against non-empty strings, which are false for an event with no matching session.'
+                        ),
                     sessionIdPushdown: zod
                         .union([zod.boolean(), zod.null()])
                         .optional()
@@ -2131,6 +2263,12 @@ export const FileDownloadBatchExportsCountRowsCreateBody = () => zod
                     .describe(
                         'Replace negated person-property filters in the WHERE of an `events` query (such as `email not_icontains`) with `person_id NOT IN (SELECT id FROM persons WHERE <the filters fail>)`, so the query no longer joins every person. Applies only when every filtered person property has a materialized column, nothing else in the query reads that persons join, and the join would be a LEFT JOIN.'
                     ),
+                optimizeCrossJoins: zod
+                    .union([zod.boolean(), zod.null()])
+                    .optional()
+                    .describe(
+                        'Move eligible non-nullable equality filters from CROSS JOIN queries into ALL INNER JOIN constraints'
+                    ),
                 optimizeJoinedFilters: zod.union([zod.boolean(), zod.null()]).optional(),
                 optimizeProjections: zod.union([zod.boolean(), zod.null()]).optional(),
                 parserMode: zod
@@ -2172,6 +2310,12 @@ export const FileDownloadBatchExportsCountRowsCreateBody = () => zod
                 propertyGroupsMode: zod.union([zod.enum(['enabled', 'disabled', 'optimized']), zod.null()]).optional(),
                 pushDownPredicates: zod.union([zod.boolean(), zod.null()]).optional(),
                 s3TableUseInvalidColumns: zod.union([zod.boolean(), zod.null()]).optional(),
+                sessionFilterGlobalJoin: zod
+                    .union([zod.boolean(), zod.null()])
+                    .optional()
+                    .describe(
+                        'Filter the sessions join of an events query by its session property filters and run it as a `GLOBAL LEFT JOIN`, so the sessions are read once instead of once per events shard. Applies only when every session filter is an equality or `IN` against non-empty strings, which are false for an event with no matching session.'
+                    ),
                 sessionIdPushdown: zod
                     .union([zod.boolean(), zod.null()])
                     .optional()

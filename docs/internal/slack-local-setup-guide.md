@@ -73,7 +73,7 @@ actually bound — fix that before continuing.
 > **Modal sandboxes:** this single Caddy tunnel is enough for Slack. Modal sandboxes
 > reach PostHog over the public URL and work fine through Caddy, so you do **not** need a
 > separate `:8000` tunnel for the Slack flow. If you're _also_ testing Modal sandboxes,
-> keep your existing `gateway` (3308) and `mcp` (8787) tunnels — they're independent of
+> keep your existing AI gateway (8080) and `mcp` (8787) tunnels, which are independent of
 > this one. See the [sandbox guide](./sandboxes-setup-guide.md#tunnel-gateway-api-and-mcp).
 
 ## Step 2 — create the Slack app
@@ -112,6 +112,8 @@ oauth_config:
       - reactions:write
       - users:read
       - users:read.email
+      - usergroups:read
+      - emoji:read
     user:
       - openid
       - email
@@ -168,9 +170,12 @@ Django must be up at that moment.
 > so a rule on `email` targets one tester once they linked. Before the link they fall back to the workspace.
 > To see the thread again in a dev workspace, clear the `onboarding` field of your row in
 > `slack_app_slacksettings`. That also lets the work focus DM run again the next time you link your account. With
-> the `slack-app-daily-work-focus` flag on, that first work focus DM also turns on a daily one. To run it without
+> the `slack-app-daily-work-focus` flag on, linking sends that first work focus DM, which also turns on a daily one; with
+> the flag off, no work focus DM is sent at all. To run it without
 > waiting for the next workday, set `next_run_at` on your row in `slack_app_slackdailyfocus` to a past time. The
-> `slack-app-daily-focus-sweep` schedule picks it up within 15 minutes. The
+> `slack-app-daily-focus-sweep` schedule picks it up within 15 minutes. With the `slack-app-daily-summary` flag on,
+> the daily DM opens with what moved in the channels you share with the bot, read with the bot's `channels:read`
+> and `channels:history` scopes (private channels need `groups:read` and `groups:history` too). The
 > Sign in with Slack (OpenID Connect) flow needs `user` scopes `openid` + `email` + `profile` and
 > the second redirect URL (`/complete/slack-link/`). With the `slack-app-link-search-scopes` flag on, the
 > link asks for the `search:read.*` and `users:read*` user scopes at `oauth.v2.authorize` instead, so the
@@ -241,14 +246,6 @@ curl -sS https://<you>-posthog.ngrok.dev/_preflight | jq '.slack_service'
 `SITE_URL` must point at your tunnel for the OAuth step (Step 5), or the redirect goes to
 `https://localhost:8010/...` and the browser fails with an SSL error. Put it in `.env.local` so
 it is available every time you run `hogli start`.
-
-> **A tunnel `SITE_URL` breaks local sandbox agents.** It reaches the sandbox as
-> `POSTHOG_API_URL`, and `getCloudTaskGatewayUrl` maps only `localhost` and
-> `host.docker.internal` to the local LLM gateway on 3308. Every other host falls through to
-> the production gateway, where a local run token does not authenticate. The agent starts, sends
-> its first prompt, and hangs until its inactivity window ends, with nothing in any log. Set
-> `SANDBOX_LLM_GATEWAY_URL=http://host.docker.internal:3308` alongside the tunnel `SITE_URL`, or
-> keep `SITE_URL` on localhost and hand-write the integration row (Step 5).
 
 > There's also an `NGROK_URL` env var that `redirect_uri()` checks before `SITE_URL` in DEBUG —
 > it would override just the OAuth redirect and leave `SITE_URL` alone. We used `SITE_URL` and

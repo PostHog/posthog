@@ -1,6 +1,7 @@
 import { MakeLogicType, actions, beforeUnmount, connect, kea, key, listeners, path, props, reducers } from 'kea'
 import posthog from 'posthog-js'
 
+import { shouldReportApiFailure } from 'lib/api-error'
 import { projectLogic } from 'scenes/projectLogic'
 
 import { tasksRunsCancelCreate, tasksWarmCreate, tasksWarmResumeCreate } from 'products/tasks/frontend/generated/api'
@@ -126,9 +127,11 @@ export interface taskWarmLogicActions {
     noteDraft: (
         hasText: boolean,
         request: TaskWarmRequest,
-        eligible?: boolean
+        eligible?: boolean,
+        focused?: boolean
     ) => {
         eligible: boolean
+        focused: boolean
         hasText: boolean
         request: TaskWarmRequest
     }
@@ -178,10 +181,16 @@ export const taskWarmLogic = kea<taskWarmLogicType>([
     }),
 
     actions({
-        noteDraft: (hasText: boolean, request: TaskWarmRequest, eligible: boolean = true) => ({
+        noteDraft: (
+            hasText: boolean,
+            request: TaskWarmRequest,
+            eligible: boolean = true,
+            focused: boolean = false
+        ) => ({
             hasText,
             request,
             eligible,
+            focused,
         }),
         prewarm: (request: TaskWarmRequest) => ({ request }),
         prepareSubmit: (submission: WarmSubmission) => ({ submission }),
@@ -200,8 +209,8 @@ export const taskWarmLogic = kea<taskWarmLogicType>([
     }),
 
     listeners(({ actions, values, cache, props }) => ({
-        noteDraft: ({ hasText, request, eligible }) => {
-            if (!hasText) {
+        noteDraft: ({ hasText, request, eligible, focused }) => {
+            if (!hasText && (!focused || cache.emptyDraftReleased)) {
                 // Draft emptied — drop a pending warm and schedule a release, so a user who clears the
                 // box and walks away doesn't leave a sandbox idling until the server-side reaper.
                 cache.disposables.dispose('warm-debounce')
@@ -213,6 +222,7 @@ export const taskWarmLogic = kea<taskWarmLogicType>([
                         () => {
                             const timer = setTimeout(() => {
                                 cache.warmAttempted = false
+                                cache.emptyDraftReleased = true
                                 actions.releaseWarm()
                             }, RELEASE_AFTER_EMPTY_MS)
                             return () => clearTimeout(timer)
@@ -330,7 +340,9 @@ export const taskWarmLogic = kea<taskWarmLogicType>([
                     actions.releaseWarm()
                 }
             } catch (error) {
-                posthog.captureException(error)
+                if (shouldReportApiFailure(error)) {
+                    posthog.captureException(error)
+                }
             } finally {
                 cache.warming = false
                 cache.warmingKey = null
@@ -393,6 +405,7 @@ export const taskWarmLogic = kea<taskWarmLogicType>([
             submission.runId = runId
             if (cache.submission === submission && runId) {
                 cache.warmAttempted = false
+                cache.emptyDraftReleased = false
             }
             await releaseUnusedWarm(submission)
         },

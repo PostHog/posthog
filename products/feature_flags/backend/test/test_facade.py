@@ -42,6 +42,7 @@ from products.feature_flags.backend.facade.filters import (
     set_feature_enrollment,
     set_holdout,
     set_release_condition_rollout,
+    stored_payloads,
     strip_group_cohort_restriction,
     without_payloads,
 )
@@ -1427,6 +1428,7 @@ TRANSFORMS = [
     ("_leads_with_unconditional_rollout", _leads_with_unconditional_rollout),
     ("roll_out_to_everyone", roll_out_to_everyone),
     ("without_payloads", without_payloads),
+    ("stored_payloads", stored_payloads),
 ]
 
 

@@ -1,9 +1,16 @@
-import { toSentenceCase } from 'lib/utils/strings'
+import { PROPERTY_ACCESS_LEVEL_OPTIONS } from 'lib/utils/accessControlUtils'
+import { fullNameOrEmail, toSentenceCase } from 'lib/utils/strings'
 
-import { APIScopeObject, AccessControlLevel, EffectiveAccessControlEntry } from '~/types'
+import { APIScopeObject, AccessControlLevel, EffectiveAccessControlEntry, RoleMemberType } from '~/types'
 
 import type { InheritedAccess } from '../accessControlLogic'
-import { AccessControlMemberEntry, AccessControlRoleEntry, AccessControlSettingsEntry, InheritedReason } from './types'
+import {
+    AccessControlMemberEntry,
+    AccessControlRoleEntry,
+    AccessControlSettingsEntry,
+    AccessControlsTab,
+    InheritedReason,
+} from './types'
 
 export function describeAccessControlLevel(
     level: AccessControlLevel | null | undefined,
@@ -44,6 +51,26 @@ export function humanizeAccessControlLevel(level: AccessControlLevel | null | un
     }
     return toSentenceCase(level)
 }
+
+/** The levels an object rule can take, with the ones below the resource's minimum unavailable. */
+export function objectRuleLevelOptions(
+    levels: AccessControlLevel[],
+    minimumLevel?: AccessControlLevel | null
+): { value: AccessControlLevel; label: string; disabledReason?: string }[] {
+    const minimumIndex = minimumLevel ? levels.indexOf(minimumLevel) : -1
+
+    return levels.map((level, index) => ({
+        value: level,
+        label: humanizeAccessControlLevel(level),
+        disabledReason: index < minimumIndex ? 'Not available for this resource type' : undefined,
+    }))
+}
+
+/** The property access levels with plain-text labels, for selects that lay out their own options. */
+export const PROPERTY_RULE_LEVEL_OPTIONS = PROPERTY_ACCESS_LEVEL_OPTIONS.map(({ value, label }) => ({
+    value,
+    label: typeof label === 'string' ? label : value,
+}))
 
 export function isRoleEntry(entry: AccessControlSettingsEntry): entry is AccessControlRoleEntry {
     return 'role_id' in entry
@@ -189,6 +216,20 @@ function inheritedReason(reason: InheritedReason, fallbackTo: string): string {
  * What applies to a resource when the subject has no rule of their own. The entry resolves it
  * server-side, down to the built-in default when no rule exists anywhere.
  */
+export function productLevelOptions(
+    availableLevels: AccessControlLevel[],
+    rule: { minimum?: AccessControlLevel | null; maximum?: AccessControlLevel | null } | undefined,
+    productLabel: string
+): ReturnType<typeof getLevelOptionsForResource> {
+    return getLevelOptionsForResource(availableLevels, {
+        minimum: rule?.minimum ?? null,
+        maximum: rule?.maximum ?? null,
+        inheritedLevel: null,
+        inheritedReason: null,
+        resourceLabel: productLabel,
+    })
+}
+
 export function inheritedFor(res: EffectiveAccessControlEntry | undefined, fallbackTo: string): InheritedAccess | null {
     const inherited = res?.inherited_access ?? null
     if (!inherited) {
@@ -217,4 +258,32 @@ export function subjectDisabledReason(
         return 'Organization admins always have full access'
     }
     return undefined
+}
+
+export function roleMemberNames(members: RoleMemberType[]): string {
+    return members
+        .map((m) => fullNameOrEmail(m.user))
+        .sort()
+        .join(', ')
+}
+
+export interface AccessDeepLink {
+    tab: AccessControlsTab | null
+    roleId: string | null
+    memberId: string | null
+    rest: Record<string, any>
+}
+
+export function parseAccessDeepLink(searchParams: Record<string, any>): AccessDeepLink | null {
+    const { access_tab, access_role_id, access_member_id, ...rest } = searchParams
+    if (access_tab === undefined && access_role_id === undefined && access_member_id === undefined) {
+        return null
+    }
+    const tab = ['roles', 'members', 'defaults'].includes(access_tab) ? (access_tab as AccessControlsTab) : null
+    return {
+        tab,
+        roleId: tab === 'roles' && access_role_id ? String(access_role_id) : null,
+        memberId: tab === 'members' && access_member_id ? String(access_member_id) : null,
+        rest,
+    }
 }

@@ -1043,8 +1043,13 @@ export interface VisionQuotaApi {
     readonly scanners_period_credits: number
     /** Committed-but-unspent credits of the organization's active backfills. A one-off charge rather than a rate, so it lands in full regardless of how much of the period is left. */
     readonly backfills_committed_credits: number
-    /** Credits per period included for free. Already counted inside `credit_limit`; only credits beyond this number are billed. */
-    readonly free_monthly_credits: number
+    /**
+     * Credits per period included for free. Already counted inside `credit_limit`; only credits beyond this number are billed. Null when every credit is free.
+     * @nullable
+     */
+    readonly free_monthly_credits: number | null
+    /** True while billing has not yet synced this organization's limit and free credits. Nothing can run until it does, which usually takes seconds; poll this endpoint until it turns false. */
+    readonly awaiting_billing_sync: boolean
 }
 
 export interface VisionSpendDayApi {
@@ -1300,6 +1305,56 @@ export interface ScannerExperimentTargetingApi {
 }
 
 /**
+ * * `experiment` - Experiment
+ */
+export type ScannerScopeKindEnumApi = (typeof ScannerScopeKindEnumApi)[keyof typeof ScannerScopeKindEnumApi]
+
+export const ScannerScopeKindEnumApi = {
+    Experiment: 'experiment',
+} as const
+
+/**
+ * * `all_at_creation` - Every variant the experiment had when the scanner was made
+ * * `user` - A subset someone picked
+ */
+export type VariantsSourceEnumApi = (typeof VariantsSourceEnumApi)[keyof typeof VariantsSourceEnumApi]
+
+export const VariantsSourceEnumApi = {
+    AllAtCreation: 'all_at_creation',
+    User: 'user',
+} as const
+
+/**
+ * An experiment scope: the sessions of people exposed to an experiment, labeled by variant.
+ */
+export interface ScannerExperimentScopeApi {
+    /** The kind of scope. Only `experiment` exists today.
+     *
+     * * `experiment` - Experiment */
+    kind: ScannerScopeKindEnumApi
+    /**
+     * The experiment whose exposed sessions the scanner watches.
+     * @minimum 1
+     */
+    experiment_id: number
+    /**
+     * Every variant the scanner watches, named explicitly, with no repeats. Read them from the experiment first, because a variant added to the experiment later is not watched until it is added here. Absent only on a scope carried over from the older targeting shapes, which watches every variant.
+     * @maxItems 128
+     * @items.maxLength 400
+     */
+    variants?: string[]
+    /** Whether `variants` was the experiment's full variant set when the scanner was made, or a subset someone picked. The launch receiver adds new variants only to the first.
+     *
+     * * `all_at_creation` - Every variant the experiment had when the scanner was made
+     * * `user` - A subset someone picked */
+    variants_source?: VariantsSourceEnumApi
+    /** Whether the budget is spent about evenly across the watched variants. False samples them proportionally to the experiment's rollout. Defaults to true. */
+    balance?: boolean
+    /** Whether a scanner saved off against a draft experiment turns itself on when that experiment launches. Cleared once it starts. Defaults to false. */
+    start_on_launch?: boolean
+}
+
+/**
  * * `manual` - Turned off by a person
  * * `free_credits_used` - Free credits used
  * * `no_ai_consent` - No AI consent
@@ -1403,6 +1458,13 @@ export interface ReplayScannerApi {
     emits_signals?: boolean
     /** The experiment this scanner's targeting watches, if any. Set null when the experiment targeting is removed. */
     experiment_targeting?: ScannerExperimentTargetingApi | null
+    /** Which sessions the scanner watches beyond its filters, and the label it gives each one. Null watches every session the filters match. Set null to remove the scope. */
+    scope?: ScannerExperimentScopeApi | null
+    /**
+     * What this scanner's scope watches, for a reader that cannot see the experiment.
+     * @nullable
+     */
+    readonly scope_summary: string | null
     /** Increments on every config-changing save. Observations snapshot this value. */
     readonly scanner_version: number
     /**
@@ -1567,6 +1629,13 @@ export interface PatchedReplayScannerApi {
     emits_signals?: boolean
     /** The experiment this scanner's targeting watches, if any. Set null when the experiment targeting is removed. */
     experiment_targeting?: ScannerExperimentTargetingApi | null
+    /** Which sessions the scanner watches beyond its filters, and the label it gives each one. Null watches every session the filters match. Set null to remove the scope. */
+    scope?: ScannerExperimentScopeApi | null
+    /**
+     * What this scanner's scope watches, for a reader that cannot see the experiment.
+     * @nullable
+     */
+    readonly scope_summary?: string | null
     /** Increments on every config-changing save. Observations snapshot this value. */
     readonly scanner_version?: number
     /**
@@ -2253,6 +2322,17 @@ export interface SignalScoutConfigOptionsApi {
      * @maxItems 16
      */
     write_scopes?: string[]
+    /**
+     * Report actions this scout may start on inbox reports, from `make_it_green` and `resolve_conflicts`. Empty by default. A scout cannot send its own message with an action. Each action starts an agent run with the full access of the person the scout's runs act as, so only that person can add one. A project admin can remove one. A scoped API key needs `inbox:write` and `task:write`. A dry run never holds the grant. Applies from the scout's next run.
+     * @maxItems 2
+     */
+    report_actions?: string[]
+    /**
+     * Report actions this scout may start per rolling 24 hours, across all its runs. Defaults to 3. Only the person the scout's runs act as can raise it. A project admin can lower it.
+     * @minimum 0
+     * @maximum 20
+     */
+    max_report_actions_per_day?: number
     /** Opt-in guard on this scout's lifecycle. Off by default, so anyone with scout write access may pause, resume, switch the scout to dry run, or delete it. On, only the person the scout's runs act as or a project admin may do any of those, or change this flag. Use it on a scout whose output people depend on: `signal_scout:write` is a project-wide scope held by people and by unattended agents alike, and a resume has to pass the project's enabled-scout maximum that a pause does not, so a bulk pause is not undone in one step. The lock never stops an automatic pause, such as the inactivity sweep or the repeated-failure breaker. */
     lifecycle_locked?: boolean
     /**
@@ -2458,6 +2538,69 @@ export const SignalScoutConfigManagedByEnumApi = {
     Background: 'background',
 } as const
 
+/**
+ * * `slack_dm` - Slack direct message
+ * * `slack_channel` - Slack channel
+ */
+export type SignalScoutMessageDeliveryTargetTypeEnumApi =
+    (typeof SignalScoutMessageDeliveryTargetTypeEnumApi)[keyof typeof SignalScoutMessageDeliveryTargetTypeEnumApi]
+
+export const SignalScoutMessageDeliveryTargetTypeEnumApi = {
+    SlackDm: 'slack_dm',
+    SlackChannel: 'slack_channel',
+} as const
+
+export interface SignalScoutMessageTargetApi {
+    type: SignalScoutMessageDeliveryTargetTypeEnumApi
+    /**
+     * Slack member ID, for `slack_dm`.
+     * @maxLength 255
+     */
+    user?: string
+    /**
+     * Slack channel ID, for `slack_channel`. Never a shared channel.
+     * @maxLength 255
+     */
+    channel?: string
+}
+
+export interface SignalScoutMessageRouteApi {
+    /**
+     * Slug the scout names to send on this route.
+     * @maxLength 64
+     * @pattern ^[a-z0-9]+(?:-[a-z0-9]+)*$
+     */
+    key: string
+    /**
+     * When the scout should send, shown in its run prompt.
+     * @maxLength 300
+     */
+    when: string
+    /**
+     * @minItems 1
+     * @maxItems 5
+     */
+    to: SignalScoutMessageTargetApi[]
+}
+
+/**
+ * Output destinations plus message routes. Only the config create and update paths take routes, so the
+ * scout and source-product create tools keep their schemas small.
+ */
+export interface SignalScoutRoutedOutputDestinationsApi {
+    /** Slack destination for each emitted scout finding or report. Null or omitted disables Slack delivery. */
+    slack?: SignalScoutSlackDestinationApi | null
+    /** The CDP destination another product provisioned for this scout's reports. Null or omitted means no webhook. Unlike Slack, Signals does not deliver this itself: the reference lives here so the owning product can manage the destination's lifecycle. */
+    webhook?: SignalScoutWebhookDestinationApi | null
+    /** Whether this scout's reports appear in the shared inbox. Defaults to true. Set false to keep the reports this scout authors out of the inbox and its Slack notifications, for example for a digest scout read in Slack. Reports this scout only edits are not affected. An update that omits this key keeps the stored value. */
+    inbox?: boolean
+    /**
+     * Routes the scout may message on, through `slack.integration_id`. Omit to keep, `[]` to clear.
+     * @maxItems 10
+     */
+    messages?: SignalScoutMessageRouteApi[]
+}
+
 export type ScoutPrecheckQuerySourceEnumApi =
     (typeof ScoutPrecheckQuerySourceEnumApi)[keyof typeof ScoutPrecheckQuerySourceEnumApi]
 
@@ -2549,7 +2692,7 @@ export interface SignalScoutConfigApi {
      */
     readonly run_cron_schedule: string | null
     /** Destinations that receive each finding or report this scout emits. Empty when none is configured. */
-    readonly output_destinations: SignalScoutOutputDestinationsApi
+    readonly output_destinations: SignalScoutRoutedOutputDestinationsApi
     /**
      * Optional JSON Schema (draft 2020-12) describing ONE structured record this scout produces via `scout-record-output` — e.g. a per-report quality judgment (`{"type": "object", "properties": {"verdict": {"enum": ["good", "bad", "unsure"]}, "reason": {"type": "string"}}, "required": ["verdict", "reason"]}`). The root must be `"type": "object"`. Setting a schema turns the structured-output channel on: the run prompt renders the schema and every submitted record is validated against it and recorded in the project as a `$scout_structured_output` event, queryable like any event. The channel also requires emit — a dry-run scout has nowhere to record to. Cardinality is the scout's call (one record per run, one per judged entity, ...). Null = channel off. Setting a schema requires skill-authoring authorization (the `llm_skill:write` scope and skill editor access) since the scout reads it verbatim in its prompt; clearing it needs only the config write. Records validate against the schema in force when the run was dispatched.
      * @nullable
@@ -2586,6 +2729,17 @@ export interface SignalScoutConfigApi {
      * @maxItems 16
      */
     readonly write_scopes: readonly string[]
+    /**
+     * Report actions this scout may start on inbox reports, from `make_it_green` and `resolve_conflicts`. Empty by default. A scout cannot send its own message with an action. Each action starts an agent run with the full access of the person the scout's runs act as, so only that person can add one. A project admin can remove one. A scoped API key needs `inbox:write` and `task:write`. A dry run never holds the grant. Applies from the scout's next run.
+     * @maxItems 2
+     */
+    readonly report_actions: readonly string[]
+    /**
+     * Report actions this scout may start per rolling 24 hours, across all its runs. Defaults to 3. Only the person the scout's runs act as can raise it. A project admin can lower it.
+     * @minimum 0
+     * @maximum 20
+     */
+    readonly max_report_actions_per_day: number
     /** Opt-in guard on this scout's lifecycle. Off by default, so anyone with scout write access may pause, resume, switch the scout to dry run, or delete it. On, only the person the scout's runs act as or a project admin may do any of those, or change this flag. Use it on a scout whose output people depend on: `signal_scout:write` is a project-wide scope held by people and by unattended agents alike, and a resume has to pass the project's enabled-scout maximum that a pause does not, so a bulk pause is not undone in one step. The lock never stops an automatic pause, such as the inactivity sweep or the repeated-failure breaker. */
     readonly lifecycle_locked: boolean
     /**
@@ -2610,7 +2764,7 @@ export interface SignalScoutConfigApi {
      * @nullable
      */
     readonly effective_precheck_query: string | null
-    /** Where `effective_precheck_query` comes from: `config` (this scout's `precheck_query`), `skill_default` (the default its skill ships), or `off` (no pre-check runs). */
+    /** Where `effective_precheck_query` comes from: `config` (this scout's `precheck_query`), `skill_default` (the default its skill ships), or `off` (no pre-check runs). `skill_default` with a null `effective_precheck_query` means the scout runs a built-in check in code. */
     readonly precheck_query_source: ScoutPrecheckQuerySourceEnumApi
     /**
      * When a scheduled run last evaluated this scout's pre-check. A skipped run writes no run row, so this stays recent while `last_run_at` ages. Null if no pre-check has run.
@@ -3493,7 +3647,7 @@ export type VisionScannersListParams = {
      */
     enabled?: string
     /**
-     * Filter to scanners whose targeting watches the given experiment.
+     * Filter to scanners whose scope watches the given experiment.
      */
     experiment_id?: string
     /**
@@ -3513,6 +3667,12 @@ export type VisionScannersListParams = {
      */
     scanner_type?: string
     /**
+     * Filter to scanners whose scope is of this kind.
+     *
+     * * `experiment` - Experiment
+     */
+    scope_kind?: VisionScannersListScopeKind
+    /**
      * Case-insensitive substring match across name, description, and the prompt in scanner_config.
      */
     search?: string
@@ -3521,6 +3681,12 @@ export type VisionScannersListParams = {
      */
     tags?: string
 }
+
+export type VisionScannersListScopeKind = (typeof VisionScannersListScopeKind)[keyof typeof VisionScannersListScopeKind]
+
+export const VisionScannersListScopeKind = {
+    Experiment: 'experiment',
+} as const
 
 export type VisionScannersImpactRetrieveParams = {
     /**

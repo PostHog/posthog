@@ -2,14 +2,28 @@ from datetime import UTC, datetime, time
 from zoneinfo import ZoneInfo
 
 import pytest
+import time_machine
+from unittest.mock import patch
+
+from django.core.cache import cache
 
 from posthog.models.integration import Integration
 
-from products.slack_app.backend.logic.daily_focus import claim_due_daily_focus, next_run_after, previous_run_before
+from products.slack_app.backend.logic.daily_focus import (
+    DailyFocusAccess,
+    claim_due_daily_focus,
+    daily_focus_access,
+    next_run_after,
+    previous_run_before,
+    turn_on_daily_focus_on_mention,
+)
 from products.slack_app.backend.models import SlackDailyFocus, SlackUserProfileCache
-from products.slack_app.backend.temporal.activities.slack_app_work_focus import find_slack_app_work_focus_activity
+from products.slack_app.backend.temporal.activities.slack_app_work_focus import (
+    find_slack_app_work_focus_activity,
+    run_slack_app_daily_focus_agent_activity,
+)
 from products.slack_app.backend.temporal.types import SlackAppWorkFocusInputs
-from products.slack_app.backend.tests.conftest import SLACK_TEAM_ID
+from products.slack_app.backend.tests.conftest import SLACK_TEAM_ID, SLACK_USER_ID
 
 PRAGUE = ZoneInfo("Europe/Prague")
 NINE = time(9, 0)
@@ -113,10 +127,110 @@ def test_a_run_whose_installation_is_gone_turns_the_daily_work_focus_off(org_tea
 
 @pytest.mark.django_db
 def test_a_daily_run_queued_without_its_claimed_time_sends_nothing(workspace_integration) -> None:
-    outcome = find_slack_app_work_focus_activity(
-        SlackAppWorkFocusInputs(
-            integration_id=workspace_integration.id, slack_team_id=SLACK_TEAM_ID, slack_user_id="U_QUEUED", since=1
+    with patch("products.slack_app.backend.logic.daily_focus.capture_slack_event") as captured:
+        outcome = find_slack_app_work_focus_activity(
+            SlackAppWorkFocusInputs(
+                integration_id=workspace_integration.id, slack_team_id=SLACK_TEAM_ID, slack_user_id="U_QUEUED", since=1
+            )
         )
-    )
 
     assert outcome == "superseded"
+    # A run that sends nothing is still counted, so adoption has a denominator of runs.
+    assert captured.call_args.args[1] == "slack app daily work focus run finished"
+    assert captured.call_args.kwargs["outcome"] == "superseded"
+
+
+@pytest.mark.django_db
+def test_an_agent_run_is_counted_once_with_its_final_outcome(workspace_integration) -> None:
+    inputs = SlackAppWorkFocusInputs(
+        integration_id=workspace_integration.id,
+        slack_team_id=SLACK_TEAM_ID,
+        slack_user_id="U_AGENT",
+        since=1,
+        run_at=2,
+    )
+    with (
+        patch("products.slack_app.backend.logic.daily_focus.capture_slack_event") as captured,
+        patch(
+            "products.slack_app.backend.logic.onboarding.work_focus.find_and_send_daily_focus",
+            return_value="agent_started",
+        ),
+        patch(
+            "products.slack_app.backend.logic.onboarding.daily_focus_agent.run_daily_focus_agent",
+            return_value="nothing_actionable",
+        ),
+        patch("products.slack_app.backend.logic.daily_focus.person_zone", return_value=ZoneInfo("UTC")),
+    ):
+        find_slack_app_work_focus_activity(inputs)
+        run_slack_app_daily_focus_agent_activity(inputs)
+
+    # A quiet day and a failed send stay apart in adoption, so the hand-off to the agent is not a finished run.
+    assert [call.kwargs["outcome"] for call in captured.call_args_list] == ["nothing_actionable"]
+
+
+@pytest.mark.parametrize(
+    "linked, scopes, daily_flag, search_flag, expected",
+    [
+        (True, "search:read.public", True, True, DailyFocusAccess.READY),
+        # The link predates the search scopes, and a new link would ask for them.
+        (True, "users:read", True, True, DailyFocusAccess.RELINK),
+        # A new link would not ask for them either, so there is nothing to prompt.
+        (True, "users:read", True, False, DailyFocusAccess.NONE),
+        (True, "users:read", False, True, DailyFocusAccess.NONE),
+        (False, "", True, True, DailyFocusAccess.NONE),
+    ],
+    ids=["can search", "needs relink", "relink would not help", "flag off", "not linked"],
+)
+@pytest.mark.django_db
+def test_daily_focus_access_tells_a_relink_from_no_access(
+    org_team_user, workspace_integration, link_user, linked, scopes, daily_flag, search_flag, expected
+) -> None:
+    _, _, user = org_team_user
+    if linked:
+        link_user(user, user_scopes=scopes)
+    flags = {"slack-app-daily-work-focus": daily_flag, "slack-app-link-search-scopes": search_flag}
+
+    with patch("posthoganalytics.feature_enabled", side_effect=lambda key, *a, **k: flags[key]):
+        assert daily_focus_access(workspace_integration, SLACK_USER_ID) is expected
+
+
+@pytest.mark.parametrize(
+    "turned_off_before, expected_next_run",
+    [(False, datetime(2026, 11, 10, 8, 0, tzinfo=UTC)), (True, None)],
+    ids=["never chose", "turned it off"],
+)
+@pytest.mark.django_db
+def test_a_mention_turns_it_on_once_a_day_for_a_person_who_never_chose(
+    workspace_integration, link_user, org_team_user, turned_off_before, expected_next_run
+) -> None:
+    _, team, user = org_team_user
+    cache.clear()
+    link_user(user, user_scopes="search:read.public")
+    SlackUserProfileCache.objects.create(
+        integration=workspace_integration,
+        slack_user_id=SLACK_USER_ID,
+        tz="Europe/Prague",
+        refreshed_at=datetime(2026, 11, 9, 11, 30, tzinfo=UTC),
+    )
+    if turned_off_before:
+        SlackDailyFocus.objects.for_team(team.id).create(
+            team_id=team.id,
+            slack_workspace_id=SLACK_TEAM_ID,
+            slack_user_id=SLACK_USER_ID,
+            integration_id=workspace_integration.id,
+            next_run_at=None,
+        )
+
+    with (
+        time_machine.travel(datetime(2026, 11, 9, 12, 0, tzinfo=UTC), tick=False),
+        patch("posthoganalytics.feature_enabled", return_value=True) as flag,
+        patch("products.slack_app.backend.logic.daily_focus.capture_slack_event"),
+    ):
+        turn_on_daily_focus_on_mention(workspace_integration, SLACK_USER_ID)
+        checks = flag.call_count
+        # The rest of the day's mentions cost a cache read: no row read, no flag check.
+        turn_on_daily_focus_on_mention(workspace_integration, SLACK_USER_ID)
+        assert flag.call_count == checks
+
+    row = SlackDailyFocus.objects.unscoped().get(slack_workspace_id=SLACK_TEAM_ID, slack_user_id=SLACK_USER_ID)
+    assert row.next_run_at == expected_next_run

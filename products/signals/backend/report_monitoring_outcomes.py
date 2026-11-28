@@ -29,7 +29,11 @@ from products.signals.backend.report_monitoring_aggregation import (
     MonitoringMemberState,
     aggregate_monitoring_members,
 )
-from products.signals.backend.report_monitoring_attempts import check_definition_version, current_monitoring_attempt
+from products.signals.backend.report_monitoring_attempts import (
+    attempt_credit,
+    check_definition_version,
+    current_monitoring_attempt,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -59,6 +63,16 @@ def _member_results(
         and result.window_end == end
         and end <= result.evaluated_at <= now
     ]
+
+
+# The outcome read on inbox rows tells how a period ended from these exact strings, so change them together.
+AGGREGATION_REASONS: dict[str, str] = {
+    MonitoringAggregation.WAITING: "Verification is waiting for the remaining follow-up checks.",
+    MonitoringAggregation.PASSED: "All follow-up checks passed with sufficient evidence.",
+    MonitoringAggregation.FAILED: "A follow-up check failed with sufficient evidence.",
+    MonitoringAggregation.ASSESSMENT_REQUIRED: "Final verification needs a report-level assessment.",
+}
+ALL_CHECKS_CANCELLED_REASON = "All follow-up checks were canceled, so the report was resolved without verification."
 
 
 def _cancelled_checks(report_id: UUID | OuterRef) -> QuerySet[SignalReportCheck]:
@@ -131,14 +145,9 @@ def aggregate_monitoring_attempt(*, team_id: int, report_id: UUID, attempt_id: U
             "aggregation_result_ids",
             "aggregation_cancelled_check_count",
         ]
-        reason = {
-            MonitoringAggregation.WAITING: "Verification is waiting for the remaining follow-up checks.",
-            MonitoringAggregation.PASSED: "All follow-up checks passed with sufficient evidence.",
-            MonitoringAggregation.FAILED: "A follow-up check failed with sufficient evidence.",
-            MonitoringAggregation.ASSESSMENT_REQUIRED: "Final verification needs a report-level assessment.",
-        }[decision]
+        reason = AGGREGATION_REASONS[decision]
         if states and all(state == MonitoringMemberState.CANCELLED for state in states.values()):
-            reason = "All follow-up checks were canceled, so the report was resolved without verification."
+            reason = ALL_CHECKS_CANCELLED_REASON
         attempt.aggregation_reason = reason
         fields.append("aggregation_reason")
         if decision == MonitoringAggregation.ASSESSMENT_REQUIRED and attempt.assessment_requested_at is None:
@@ -189,6 +198,7 @@ def aggregate_monitoring_attempt(*, team_id: int, report_id: UUID, attempt_id: U
             target = (
                 SignalReport.Status.RESOLVED if decision == MonitoringAggregation.PASSED else SignalReport.Status.CLOSED
             )
+            report._transition_credit = attempt_credit(attempt)  # type: ignore[attr-defined]
             report.save(update_fields=report.transition_to(target))
         if decision != MonitoringAggregation.WAITING and decision != previous:
             SignalReportArtefact.add_log(

@@ -51,6 +51,7 @@ function ReleaseAllContent(): JSX.Element {
         useValues(releaseAllLogic)
     const { setSearchInput, setFilters, clearFilters, loadMore, retry } = useActions(releaseAllLogic)
     const { showAutoImport } = useValues(releaseImportLogic)
+    const { releasesEnabled } = useValues(releaseLogic)
     const [tableViewport, setTableViewport] = useState<HTMLDivElement | null>(null)
     const { ref: tableEndRef, inView: tableEndInView } = useNearTableEnd(tableViewport, SCROLL_PREFETCH_MARGIN)
     const nearEnd = !tableViewport || tableEndInView
@@ -120,8 +121,9 @@ function ReleaseAllContent(): JSX.Element {
                         </EmptyMedia>
                         <EmptyTitle>Nothing to release yet</EmptyTitle>
                         <EmptyDescription>
-                            Releases, feature flags, experiments and early access features show up here as people create
-                            them.
+                            {releasesEnabled
+                                ? 'Releases, feature flags, experiments and early access features show up here as people create them.'
+                                : 'Feature flags, experiments and early access features show up here as people create them.'}
                         </EmptyDescription>
                     </EmptyHeader>
                     <EmptyContent>
@@ -162,7 +164,11 @@ function ReleaseAllContent(): JSX.Element {
         <SceneContent className="min-h-0 flex-1 pb-4">
             <SceneTitleSection
                 name="View all"
-                description="Releases, feature flags, experiments and early access features in this project."
+                description={
+                    releasesEnabled
+                        ? 'Releases, feature flags, experiments and early access features in this project.'
+                        : 'Feature flags, experiments and early access features in this project.'
+                }
                 resourceType={{ type: 'release', forceIcon: <IconList /> }}
                 actions={
                     <div data-quill className="flex items-center gap-2">
@@ -175,13 +181,17 @@ function ReleaseAllContent(): JSX.Element {
                     <AnalyticsSearchInput
                         value={searchInput}
                         onChange={setSearchInput}
-                        label="Search releases, flags, experiments and early access features"
+                        label={
+                            releasesEnabled
+                                ? 'Search releases, flags, experiments and early access features'
+                                : 'Search flags, experiments and early access features'
+                        }
                         placeholder="Search"
                         dataAttr="release-all-search"
                     />
                     <ReleaseAllFilterMenu />
                 </div>
-                <ReleaseImportFailedNotice />
+                {releasesEnabled && <ReleaseImportFailedNotice />}
                 {listState === 'ready' && failedTypes.length > 0 && (
                     <div className="flex flex-wrap items-center gap-2" role="alert">
                         <Text size="sm" variant="destructive">
@@ -202,14 +212,14 @@ function ReleaseAllContent(): JSX.Element {
                 )}
                 {renderBody()}
             </div>
-            <NewReleaseDialog />
+            {releasesEnabled && <NewReleaseDialog />}
         </SceneContent>
     )
 }
 
 export function ReleaseAll(): JSX.Element {
     return (
-        <ReleasesGate>
+        <ReleasesGate area>
             <ReleaseAllContent />
         </ReleasesGate>
     )

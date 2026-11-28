@@ -555,7 +555,7 @@ export const reportActivityTool = defineLocalTool({
   alwaysLoad: true,
   isEnabled: (ctx, meta) =>
     meta?.environment === "cloud" &&
-    meta?.taskOriginProduct === "task_analysis" &&
+    meta?.reportActivityTool === true &&
     !!ctx.taskId &&
     !!ctx.taskRunId,
   handler: (ctx, args): Promise<LocalToolResult> =>

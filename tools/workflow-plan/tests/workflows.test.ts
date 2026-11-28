@@ -98,6 +98,8 @@ const DEPOT_BACKEND = '.depot/workflows/ci-backend.yml'
 const depotBackend = suite(DEPOT_BACKEND, backendSelectors)
 const frontend = suite('ci-frontend.yml', frontendSelectors)
 const deltalite = suite('build-deltalite.yml')
+const agentEgress = suite('ci-agent-egress.yml')
+const storybook = suite('ci-storybook.yml')
 const PINNED_WORKFLOWS = [DEPOT_BACKEND, 'ci-frontend.yml']
 
 interface ReleaseWorkflow {
@@ -244,6 +246,14 @@ const EXPECTATIONS: Expectation[] = [
             ],
             skipped: ['handle-snapshots', 'cancel-backend-on-openapi-check-failure'],
         }
+    ),
+    depotBackend(
+        { name: 'ready PR with Trunk uploads', vars: { TRUNK_UPLOAD_ENABLED: 'true' } },
+        { runs: ['trunk-ownership-map', 'turbo-tests', 'django'] }
+    ),
+    depotBackend(
+        { name: 'master push with Trunk uploads', github: push(), vars: { TRUNK_UPLOAD_ENABLED: 'true' } },
+        { skipped: ['trunk-ownership-map'] }
     ),
     depotBackend(
         { name: 'merge queue', github: mergeQueue() },
@@ -413,7 +423,109 @@ const EXPECTATIONS: Expectation[] = [
             results: { frontend_tests: 'cancelled' },
         }
     ),
+    // vr-skip posts the Visual Review status for a commit that needs no visual run. Without it
+    // that required status never arrives, and no gate job turns red to show it.
+    storybook(
+        {
+            name: 'ready PR without frontend changes',
+            vars: { VISUAL_REVIEW_REPORT_NO_RUN: 'true' },
+            jobOutputs: { changes: { frontend: 'false' } },
+        },
+        { runs: ['vr-skip'], skipped: ['build-storybook', 'vr-setup'] }
+    ),
+    storybook(
+        {
+            name: 'ready PR without frontend changes, report variable unset',
+            jobOutputs: { changes: { frontend: 'false' } },
+        },
+        { skipped: ['vr-skip'] }
+    ),
+    storybook(
+        {
+            name: 'fork PR without frontend changes',
+            github: pullRequest({ fork: true }),
+            vars: { VISUAL_REVIEW_REPORT_NO_RUN: 'true' },
+            jobOutputs: { changes: { frontend: 'false' } },
+        },
+        { skipped: ['vr-skip'] }
+    ),
+    storybook(
+        {
+            name: 'merge queue without frontend changes',
+            github: mergeQueue(),
+            vars: { VISUAL_REVIEW_REPORT_NO_RUN: 'true' },
+            jobOutputs: { changes: { frontend: 'false' } },
+        },
+        { runs: ['vr-skip'] }
+    ),
+    storybook(
+        { name: 'master push', github: push(), vars: { VISUAL_REVIEW_REPORT_NO_RUN: 'true' } },
+        { skipped: ['vr-skip'] }
+    ),
+    storybook(
+        {
+            name: 'ready PR whose frontend changes select no stories',
+            vars: { VISUAL_REVIEW_REPORT_NO_RUN: 'true' },
+            jobOutputs: { changes: { frontend: 'true' } },
+            steps: { 'select-stories': { classify: { outputs: { should_run: 'false' } } } },
+        },
+        { runs: ['build-storybook', 'select-stories', 'vr-skip'] }
+    ),
+    storybook(
+        {
+            name: 'ready PR whose frontend changes select stories',
+            vars: { VISUAL_REVIEW_REPORT_NO_RUN: 'true' },
+            jobOutputs: { changes: { frontend: 'true' } },
+            steps: { 'select-stories': { classify: { outputs: { should_run: 'true' } } } },
+        },
+        { runs: ['select-stories'], skipped: ['vr-skip'] }
+    ),
     ...RELEASE_WORKFLOWS.flatMap(releaseExpectations),
+    ...[pullRequest(), pullRequest({ fork: true })].map((github, index) =>
+        agentEgress(
+            { name: index ? 'fork PR' : 'ready PR', github, vars: { CD_DEPLOY_ENABLED: 'true' } },
+            { runs: ['test', 'images'], skipped: ['publish'] }
+        )
+    ),
+    ...[push(), workflowDispatch()].map((github, index) =>
+        agentEgress(
+            { name: index ? 'master dispatch' : 'master push', github, vars: { CD_DEPLOY_ENABLED: 'true' } },
+            { runs: ['test', 'images', 'publish'] }
+        )
+    ),
+    agentEgress(
+        { name: 'branch dispatch', github: workflowDispatch('feat/example'), vars: { CD_DEPLOY_ENABLED: 'true' } },
+        { runs: ['test', 'images'], skipped: ['publish'] }
+    ),
+    agentEgress(
+        { name: 'publishing disabled', github: push(), vars: { CD_DEPLOY_ENABLED: 'false' } },
+        { skipped: ['publish'] }
+    ),
+    agentEgress(
+        {
+            name: 'publication paused',
+            github: push(),
+            vars: { CD_DEPLOY_ENABLED: 'true', ORDERED_IMAGE_ALIAS_PAUSED: 'true' },
+        },
+        { runs: ['test', 'images'], skipped: ['publish'] }
+    ),
+    agentEgress(
+        {
+            name: 'foreign repository',
+            github: { ...push(), repository_owner: 'octocat' },
+            vars: { CD_DEPLOY_ENABLED: 'true' },
+        },
+        { skipped: ['publish'] }
+    ),
+    agentEgress(
+        {
+            name: 'failed image smoke check',
+            github: push(),
+            vars: { CD_DEPLOY_ENABLED: 'true' },
+            steps: { images: { 'Check runtime startup, relay transport and enrollment': { outcome: 'failure' } } },
+        },
+        { results: { images: 'failure', publish: 'skipped' } }
+    ),
     deltalite({ name: 'ready PR' }, { runs: ['check-version', 'build-wheels'], skipped: ['publish'] }),
     deltalite(
         { name: 'fork PR', github: pullRequest({ fork: true }) },
@@ -489,6 +601,31 @@ const STEP_EXPECTATIONS: StepExpectation[] = [
                     },
                 },
             },
+        },
+        runs,
+    })),
+    // The backend test selector runs on a legacy diff, and on a ready PR's product-only diff,
+    // where turbo-discover.js trusts a product cascade's selection by phase.
+    ...[
+        { name: 'ready legacy PR', legacy: true, github: pullRequest(), runs: true },
+        { name: 'ready product-only PR', legacy: false, github: pullRequest(), runs: true },
+        { name: 'draft legacy PR', legacy: true, github: pullRequest({ draft: true }), runs: true },
+        { name: 'draft product-only PR', legacy: false, github: pullRequest({ draft: true }), runs: false },
+        {
+            name: 'product-only PR labeled run-ci-backend',
+            legacy: false,
+            github: pullRequest({ labels: ['run-ci-backend'] }),
+            runs: false,
+        },
+        { name: 'merge queue product-only PR', legacy: false, github: mergeQueue(), runs: false },
+    ].map(({ name, legacy, github, runs }) => ({
+        file: DEPOT_BACKEND,
+        job: 'turbo-discover',
+        step: 'select',
+        scenario: {
+            name,
+            github,
+            steps: { changes: { filter: pathsFilter({ backend: true, legacy }) } },
         },
         runs,
     })),
@@ -591,6 +728,22 @@ const STEP_EXPECTATIONS: StepExpectation[] = [
     { file: 'ci-e2e-playwright.yml', job: 'changes', step: 'schema-key', scenario: E2E_DISPATCH, runs: true },
     { file: 'ci-e2e-playwright.yml', job: 'playwright', step: 'schema-cache', scenario: E2E_DISPATCH, runs: true },
     ...[
+        { name: 'ready PR', github: pullRequest(), runs: true },
+        { name: 'hourly schedule', github: schedule(), runs: true },
+        { name: 'manual dispatch', github: workflowDispatch(), runs: false },
+    ].flatMap(({ name, github, runs }) =>
+        [
+            { job: 'turbo-discover', step: 'schema-key' },
+            { job: 'django', step: 'prime-schema' },
+        ].map(({ job, step }) => ({
+            file: DEPOT_BACKEND,
+            job,
+            step,
+            scenario: { name, github, steps: { ...allFiltersChanged(workflow(DEPOT_BACKEND)), ...backendSelectors } },
+            runs,
+        }))
+    ),
+    ...[
         { name: 'ready PR labeled run-ci-backend', github: pullRequest({ labels: ['run-ci-backend'] }), runs: true },
         {
             name: 'draft PR labeled run-ci-backend',
@@ -612,6 +765,79 @@ const STEP_EXPECTATIONS: StepExpectation[] = [
         },
         runs,
     })),
+    ...(
+        [
+            {
+                name: 'passing shard',
+                tests: 'success',
+                gate: 'success',
+                quarantine: 'true',
+                rerun: 'success',
+                reruns: false,
+                verdictFails: false,
+            },
+            {
+                name: 'masked failure the rerun clears',
+                tests: 'failure',
+                gate: 'success',
+                quarantine: 'true',
+                rerun: 'success',
+                reruns: true,
+                verdictFails: false,
+            },
+            {
+                name: 'masked failure the rerun does not clear',
+                tests: 'failure',
+                gate: 'success',
+                quarantine: 'true',
+                rerun: 'failure',
+                reruns: true,
+                verdictFails: true,
+            },
+            {
+                name: 'failure the gate does not clear',
+                tests: 'failure',
+                gate: 'failure',
+                quarantine: 'true',
+                rerun: 'success',
+                reruns: false,
+                verdictFails: true,
+            },
+            {
+                name: 'failure with quarantine off',
+                tests: 'failure',
+                gate: 'success',
+                quarantine: 'false',
+                rerun: 'success',
+                reruns: false,
+                verdictFails: true,
+            },
+        ] as const
+    ).flatMap(({ name, tests, gate, quarantine, rerun, reruns, verdictFails }) =>
+        [
+            { step: 'quarantine_rerun', runs: reruns },
+            { step: 'test_verdict', runs: verdictFails },
+        ].map(({ step, runs }) => ({
+            file: DEPOT_BACKEND,
+            job: 'turbo-tests',
+            step,
+            scenario: {
+                name: `merge queue, ${name}`,
+                github: mergeQueue(),
+                vars: { TRUNK_UPLOAD_ENABLED: 'true', TRUNK_QUARANTINE_ENABLED: quarantine },
+                steps: {
+                    ...allFiltersChanged(workflow(DEPOT_BACKEND)),
+                    ...backendSelectors,
+                    'turbo-tests': {
+                        'run-product-tests': { outcome: tests },
+                        quarantine_gate: { outcome: gate },
+                        quarantine_rerun: { outcome: rerun },
+                    },
+                },
+            },
+            runs,
+        }))
+    ),
 ]
 
 const namedJobs = (file: string): Set<string> =>
@@ -1359,39 +1585,54 @@ describe('CI workflow run plans', () => {
     })
 
     it.each([
-        ['PR without baseline changes', pullRequest(), 'false', true, false],
-        ['PR with baseline changes', pullRequest(), 'true', true, true],
-        ['draft PR with baseline changes', pullRequest({ draft: true }), 'true', true, true],
-        ['fork PR with baseline changes', pullRequest({ fork: true }), 'true', true, true],
-        ['forced full PR', pullRequest({ labels: ['run-ci-frontend'] }), 'true', true, true],
-        ['merge queue', mergeQueue(), 'true', true, true],
-        ['master push', push(), 'true', false, false],
-        ['nightly', schedule(), 'true', false, false],
-    ] as const)('Storybook selection artifacts on %s', (name, github, snapshotsBaseline, graphUpload, indexUpload) => {
-        const plan = planWorkflow(workflow('ci-storybook.yml'), {
+        ['the exact migration-set dump', ['posthog-schema-mig-v2-base'], false],
+        ['the exact base dump', ['posthog-schema-master-base'], false],
+        ['only an older migration set', ['posthog-schema-mig-v2-older'], false],
+        ['no dump', [], true],
+    ])('prime-schema-cache build step when the cache holds %s', (name, cached, builds) => {
+        const github = pullRequest()
+        const schemaKey = {
+            migrations_key: 'posthog-schema-mig-v2-base',
+            key: 'posthog-schema-master-base',
+            ancestor_keys: 'posthog-schema-mig-v2-older\nposthog-schema-mig-v2-oldest',
+        }
+        const turboDiscover = {
+            outputs: {
+                schema_migrations_key: schemaKey.migrations_key,
+                schema_cache_key: schemaKey.key,
+                schema_ancestor_keys: schemaKey.ancestor_keys,
+            },
+        }
+        const functions = planFunctions({ dependenciesSucceeded: true, dependenciesFailed: false, cancelled: false })
+        const lookup = workflow(DEPOT_BACKEND).jobs['prime-schema-cache']?.steps?.find(
+            (step) => step.id === 'schema-cache'
+        )
+        const context = { github, needs: { 'turbo-discover': turboDiscover } }
+        const primaryKey = evaluateTemplate(lookup?.with?.key, context, functions)
+        const restoreKeys = evaluateTemplate(lookup?.with?.['restore-keys'], context, functions)
+            .split('\n')
+            .map((key) => key.trim())
+            .filter(Boolean)
+        const matched =
+            cached.find((entry) => entry === primaryKey) ??
+            restoreKeys.map((prefix) => cached.find((entry) => entry.startsWith(prefix))).find(Boolean) ??
+            ''
+
+        const plan = planWorkflow(workflow(DEPOT_BACKEND), {
             name,
             github,
-            jobOutputs: {
-                changes: {
-                    frontend: 'true',
-                    snapshots_baseline: snapshotsBaseline,
-                    merge_queue: name === 'merge queue' ? 'true' : 'false',
-                },
+            steps: {
+                ...allFiltersChanged(workflow(DEPOT_BACKEND)),
+                ...backendSelectors,
+                'turbo-discover': { ...backendSelectors['turbo-discover'], 'schema-key': { outputs: schemaKey } },
+                'prime-schema-cache': { 'schema-cache': { outputs: { 'cache-matched-key': matched } } },
             },
-            steps: { 'select-stories': { classify: { outputs: { mode: 'selective' } } } },
         })
+
         expect(plan.errors).toEqual([])
-        const steps = plan.jobs['build-storybook']?.steps
-        const uploadsGraph = steps?.find((step) => step.name === 'Upload module-graph artifact')?.runs
-        const uploadsIndex = steps?.find((step) => step.name === 'Upload story index artifact')?.runs
-        expect(uploadsGraph).toBe(graphUpload)
-        expect(uploadsIndex).toBe(indexUpload)
-        if (plan.jobs['select-stories']?.result === 'success') {
-            expect(uploadsGraph).toBe(true)
-        }
-        if (plan.jobs['check-baseline-removals']?.result === 'success') {
-            expect(uploadsIndex).toBe(true)
-        }
+        expect(plan.jobs['prime-schema-cache']?.steps.find((step) => step.name === 'Build schema dump')?.runs).toBe(
+            builds
+        )
     })
 
     it.each([
@@ -1406,11 +1647,11 @@ describe('CI workflow run plans', () => {
             github,
             steps: {
                 ...allFiltersChanged(wf),
-                'code-quality': { 'Check static typing': { outcome } },
+                mypy: { 'Check static typing': { outcome } },
             },
         })
         expect(plan.errors).toEqual([])
-        expect(plan.jobs['code-quality']?.steps.find((step) => step.name === 'Save mypy cache')?.runs).toBe(runs)
+        expect(plan.jobs['mypy']?.steps.find((step) => step.name === 'Save mypy cache')?.runs).toBe(runs)
     })
 
     it.each([
@@ -1460,6 +1701,25 @@ describe('CI workflow run plans', () => {
         const functions = planFunctions({ dependenciesSucceeded: true, dependenciesFailed: false, cancelled: false })
         const groupFor = (github: Scenario['github']): unknown => evaluateValue(group, { github }, functions)
         expect(groupFor(pullRequest({ headRef: 'scheduled' }))).not.toBe(groupFor(schedule()))
+    })
+
+    it('agent egress serializes publication by commit and cancels only superseded PR runs', () => {
+        const concurrency = workflow('ci-agent-egress.yml').concurrency
+        const functions = planFunctions({ dependenciesSucceeded: true, dependenciesFailed: false, cancelled: false })
+        const groupFor = (github: Scenario['github']): unknown =>
+            evaluateValue(concurrency?.group, { github }, functions)
+        const otherCommit = 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'
+
+        expect(groupFor(push())).toBe(groupFor(workflowDispatch()))
+        expect(groupFor(push())).not.toBe(groupFor({ ...push(), sha: otherCommit }))
+        expect(groupFor(pullRequest())).toBe(groupFor({ ...pullRequest(), sha: otherCommit }))
+        expect(groupFor(pullRequest())).not.toBe(groupFor(pullRequest({ headRef: 'feat/other' })))
+        expect(groupFor(pullRequest({ fork: true, headRef: String(push().sha) }))).not.toBe(groupFor(push()))
+        for (const github of [push(), workflowDispatch(), pullRequest()]) {
+            expect(evaluateValue(concurrency?.['cancel-in-progress'], { github }, functions)).toBe(
+                github.event_name === 'pull_request'
+            )
+        }
     })
 
     it.each([

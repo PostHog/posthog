@@ -84,6 +84,8 @@ export const POSTHOG_NOTIFICATIONS = {
   /** PostHog products used during a turn (derived from MCP exec calls) */
   RESOURCES_USED: "_posthog/resources_used",
 
+  MEMORY_READ: "_posthog/memory_read",
+
   /** Response to a relayed permission request (plan approval, question) */
   PERMISSION_RESPONSE: "_posthog/permission_response",
 
@@ -105,6 +107,7 @@ export const POSTHOG_NOTIFICATIONS = {
   CREDENTIAL_REQUEST: "_posthog/credential_request",
   CREDENTIAL_RESPONSE: "_posthog/credential_response",
   PROCESS_KILLED: "_posthog/process_killed",
+  SESSION_LOG_GAP: "_posthog/session_log_gap",
 } as const;
 
 export type ProcessKilledParams = {

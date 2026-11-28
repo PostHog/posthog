@@ -7,6 +7,7 @@ import pytest
 from unittest.mock import Mock, patch
 
 import requests
+from botocore.credentials import Credentials
 
 from products.warehouse_sources.sources.aws_glue_data_catalog import aws_glue_data_catalog as glue
 from products.warehouse_sources.sources.aws_glue_data_catalog._config import AwsGlueDataCatalogSourceConfig
@@ -15,13 +16,17 @@ from products.warehouse_sources.sources.aws_glue_data_catalog.source import AwsG
 from products.warehouse_sources.sources.sdk import ResumableSourceManager
 from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
+CREDENTIALS = Credentials("AKIAEXAMPLE", "example-secret")
+
 
 def config(region: str = "eu-west-1", token: str | None = None) -> AwsGlueDataCatalogSourceConfig:
-    return AwsGlueDataCatalogSourceConfig(
-        aws_access_key_id="AKIAEXAMPLE",
-        aws_secret_access_key="example-secret",
-        aws_session_token=token,
-        aws_region=region,
+    return AwsGlueDataCatalogSourceConfig.from_dict(
+        {
+            "aws_access_key_id": "AKIAEXAMPLE",
+            "aws_secret_access_key": "example-secret",
+            "aws_session_token": token,
+            "aws_region": region,
+        }
     )
 
 
@@ -54,7 +59,9 @@ def driver() -> SourceDriver:
 )
 def test_signed_request_uses_tracked_transport(region: str, token: str | None, host: str) -> None:
     with scripted_network([ScriptedResponse(json={"DatabaseList": []})]) as network:
-        client = glue.AwsGlueClient(config(region, token), GLUE_API_VERSION)
+        client = glue.AwsGlueClient(
+            config(region), Credentials("AKIAEXAMPLE", "example-secret", token), GLUE_API_VERSION
+        )
         try:
             assert client.request("GetDatabases", {"MaxResults": 1}) == {"DatabaseList": []}
         finally:
@@ -81,7 +88,9 @@ def test_signed_request_uses_tracked_transport(region: str, token: str | None, h
     assert not retry_policy.is_retry("POST", 403)
 
     with scripted_network([ScriptedResponse(status=302, headers={"Location": "https://example.com/"})]) as redirect:
-        client = glue.AwsGlueClient(config(region, token), GLUE_API_VERSION)
+        client = glue.AwsGlueClient(
+            config(region), Credentials("AKIAEXAMPLE", "example-secret", token), GLUE_API_VERSION
+        )
         try:
             with pytest.raises(glue.AwsGlueError):
                 client.request("GetDatabases", {"MaxResults": 1})
@@ -101,7 +110,7 @@ def test_signed_request_uses_tracked_transport(region: str, token: str | None, h
 def test_rejects_invalid_region_or_version_before_http(region: str, version: str, expected: str) -> None:
     with scripted_network([]) as network:
         with pytest.raises(ValueError, match=expected):
-            glue.AwsGlueClient(config(region), version)
+            glue.AwsGlueClient(config(region), CREDENTIALS, version)
     assert network.requests_log == []
     assert network.session_options == []
 
@@ -173,6 +182,11 @@ def test_body_retry_does_not_repeat_transport_retries(status: int, attempts: int
         ("data_quality_results", "Results"),
         ("data_quality_results_v2", "Results"),
         ("sessions", "Sessions"),
+        ("data_quality_rulesets", "Rulesets"),
+        ("triggers", "Triggers"),
+        ("schema_registries", "Registries"),
+        ("schemas", "Schemas"),
+        ("connections", "ConnectionList"),
     ],
 )
 def test_top_level_resume_checkpoints_before_yield_and_clears_after_completion(endpoint: str, result_key: str) -> None:
@@ -180,17 +194,58 @@ def test_top_level_resume_checkpoints_before_yield_and_clears_after_completion(e
     with patch.object(glue, "make_tracked_session") as factory:
         session = factory.return_value
         session.post.return_value = response({result_key: [{"Name": "example"}]})
-        source = glue.aws_glue_data_catalog_source(config(), endpoint, GLUE_API_VERSION, resume)
+        source = glue.aws_glue_data_catalog_source(config(), CREDENTIALS, endpoint, GLUE_API_VERSION, resume)
         batches = iter(cast(Iterable[list[dict[str, Any]]], source.items()))
         assert next(batches)[0]["name"] == "example"
         resume.save_state.assert_called_once_with(glue.AwsGlueDataCatalogResumeConfig(completed=True))
         resume.clear_state.assert_not_called()
         assert list(batches) == []
         session.close.assert_called_once()
-        assert json.loads(session.post.call_args.kwargs["data"]) == {"MaxResults": 100, "NextToken": "saved"}
+        assert json.loads(session.post.call_args.kwargs["data"]) == {
+            "MaxResults": 100,
+            **dict(glue.ENDPOINTS[endpoint].request_params),
+            "NextToken": "saved",
+        }
         assert source.on_complete is not None
         source.on_complete()
         resume.clear_state.assert_called_once()
+
+
+def test_triggers_drop_job_arguments() -> None:
+    trigger = {
+        "Name": "nightly",
+        "Type": "SCHEDULED",
+        "Actions": [
+            {"JobName": "load", "Arguments": {"--db_password": "example-secret"}, "Timeout": 60},
+            {"CrawlerName": "crawl"},
+        ],
+    }
+    result = driver().run("triggers", [ScriptedResponse(json={"Triggers": [trigger]})])
+    assert result.raised is None
+    [row] = result.rows
+    assert row["actions"] == [{"JobName": "load", "Timeout": 60}, {"CrawlerName": "crawl"}]
+
+
+@pytest.mark.parametrize(
+    "url,expected",
+    [
+        ("jdbc:postgresql://db.example.com:5432/app", "jdbc:postgresql://db.example.com:5432/app"),
+        ("jdbc:mysql://etl:example@db.example.com:3306/app", "jdbc:mysql://db.example.com:3306/app"),
+        ("jdbc:mysql://etl:p@ss@db.example.com/app", "jdbc:mysql://db.example.com/app"),
+        ("jdbc:postgresql://db.example.com/app?user=etl&password=example", "jdbc:postgresql://db.example.com/app"),
+        (
+            "jdbc:sqlserver://db.example.com:1433;databaseName=app;password=example",
+            "jdbc:sqlserver://db.example.com:1433",
+        ),
+        ("jdbc:oracle:thin:@//db.example.com:1521/orcl", "jdbc:oracle:thin:@//db.example.com:1521/orcl"),
+        ("jdbc:oracle:thin:scott/example@db.example.com:1521:orcl", None),
+        ("jdbc:oracle:thin:scott/example@//db.example.com:1521/orcl", None),
+        ("mongodb://db.example.com/app/etl:example@other", None),
+        ("s3://bucket/connector.jar", "s3://bucket/connector.jar"),
+    ],
+)
+def test_without_url_credentials(url: str, expected: str | None) -> None:
+    assert glue.without_url_credentials(url) == expected
 
 
 def test_completed_resume_does_not_restart_and_empty_pages_reach_safe_points() -> None:
@@ -233,7 +288,7 @@ def test_partition_walk_pages_each_parent_and_preserves_table_wide_keys() -> Non
             response({"TableList": [{"Name": "events"}]}),
             response({"Partitions": [{"Values": ["a,b", "c"]}]}),
         ]
-        source = glue.aws_glue_data_catalog_source(config(), "partitions", GLUE_API_VERSION, resume)
+        source = glue.aws_glue_data_catalog_source(config(), CREDENTIALS, "partitions", GLUE_API_VERSION, resume)
         rows = [row for batch in cast(Iterable[list[dict[str, Any]]], source.items()) for row in batch]
 
     assert len(rows) == 3
@@ -285,6 +340,10 @@ def test_job_run_full_refresh_keeps_old_runs_and_namespaces_ids_by_job() -> None
         {"MaxResults": 100, "JobName": "first", "NextToken": "older"},
         {"MaxResults": 100, "JobName": "second"},
     ]
+
+
+DATABASE_PAGE = ScriptedResponse(json={"DatabaseList": [{"Name": "analytics", "CatalogId": "123456789012"}]})
+NOT_FOUND = ScriptedResponse(status=400, json={"__type": "EntityNotFoundException", "Message": "Not found"})
 
 
 @pytest.mark.parametrize(
@@ -342,15 +401,73 @@ def test_job_run_full_refresh_keeps_old_runs_and_namespaces_ids_by_job() -> None
             ],
             [("eu-west-1", "analytics", "events", "1"), ("eu-west-1", "analytics", "users", "1")],
         ),
+        (
+            "schema_versions",
+            [
+                {
+                    "Schemas": [
+                        {"SchemaName": "orders", "SchemaArn": "arn:aws:glue:eu-west-1:123456789012:schema/a/orders"},
+                        {"SchemaName": "gone", "SchemaArn": "arn:aws:glue:eu-west-1:123456789012:schema/a/gone"},
+                        {"SchemaName": "orders", "SchemaArn": "arn:aws:glue:eu-west-1:123456789012:schema/b/orders"},
+                    ]
+                },
+                {
+                    "Schemas": [
+                        {
+                            "SchemaArn": "arn:aws:glue:eu-west-1:123456789012:schema/a/orders",
+                            "SchemaVersionId": "version-2",
+                            "VersionNumber": 2,
+                        }
+                    ],
+                    "NextToken": "older",
+                },
+                {
+                    "Schemas": [
+                        {
+                            "SchemaArn": "arn:aws:glue:eu-west-1:123456789012:schema/a/orders",
+                            "SchemaVersionId": "version-1",
+                            "VersionNumber": 1,
+                        }
+                    ]
+                },
+                NOT_FOUND,
+                {
+                    "Schemas": [
+                        {
+                            "SchemaArn": "arn:aws:glue:eu-west-1:123456789012:schema/b/orders",
+                            "SchemaVersionId": "version-3",
+                            "VersionNumber": 1,
+                        }
+                    ]
+                },
+            ],
+            [
+                {"MaxResults": 100},
+                {"MaxResults": 100, "SchemaId": {"SchemaArn": "arn:aws:glue:eu-west-1:123456789012:schema/a/orders"}},
+                {
+                    "MaxResults": 100,
+                    "SchemaId": {"SchemaArn": "arn:aws:glue:eu-west-1:123456789012:schema/a/orders"},
+                    "NextToken": "older",
+                },
+                {"MaxResults": 100, "SchemaId": {"SchemaArn": "arn:aws:glue:eu-west-1:123456789012:schema/a/gone"}},
+                {"MaxResults": 100, "SchemaId": {"SchemaArn": "arn:aws:glue:eu-west-1:123456789012:schema/b/orders"}},
+            ],
+            [
+                ("eu-west-1", "arn:aws:glue:eu-west-1:123456789012:schema/a/orders", "version-2"),
+                ("eu-west-1", "arn:aws:glue:eu-west-1:123456789012:schema/a/orders", "version-1"),
+                ("eu-west-1", "arn:aws:glue:eu-west-1:123456789012:schema/b/orders", "version-3"),
+            ],
+        ),
     ],
 )
 def test_history_fan_out_pages_each_parent_and_keys_rows_by_parent(
     endpoint: str,
-    script: list[dict[str, Any]],
+    script: list[dict[str, Any] | ScriptedResponse],
     expected_requests: list[dict[str, Any]],
     expected_keys: list[tuple[str, ...]],
 ) -> None:
-    result = driver().run(endpoint, [ScriptedResponse(json=body) for body in script])
+    responses = [body if isinstance(body, ScriptedResponse) else ScriptedResponse(json=body) for body in script]
+    result = driver().run(endpoint, responses)
     assert result.raised is None
     assert [request.json() for request in result.requests] == expected_requests
     primary_keys = glue.ENDPOINTS[endpoint].primary_keys
@@ -358,10 +475,6 @@ def test_history_fan_out_pages_each_parent_and_keys_rows_by_parent(
     if endpoint == "crawls":
         assert result.rows[0]["start_time"] == datetime(2025, 1, 1, tzinfo=UTC)
         assert result.rows[0]["dpu_hour"] == 0.5
-
-
-DATABASE_PAGE = ScriptedResponse(json={"DatabaseList": [{"Name": "analytics", "CatalogId": "123456789012"}]})
-NOT_FOUND = ScriptedResponse(status=400, json={"__type": "EntityNotFoundException", "Message": "Not found"})
 
 
 def iceberg_table(name: str) -> dict[str, Any]:
@@ -528,7 +641,7 @@ def test_table_fan_out_probe_accepts_tables_without_child_data(
 ) -> None:
     script = [DATABASE_PAGE, ScriptedResponse(json={"TableList": tables}), *([child] if child else [])]
     with scripted_network(script) as network:
-        assert glue.validate_credentials(config(), GLUE_API_VERSION, schema_name) == (True, None)
+        assert glue.validate_credentials(config(), CREDENTIALS, GLUE_API_VERSION, schema_name) == (True, None)
     assert len(network.requests_log) == expected_requests
     if schema_name == "column_statistics" and child:
         assert network.requests_log[-1].json() == {
@@ -554,7 +667,7 @@ def test_table_fan_out_probe_accepts_tables_without_child_data(
 def test_validation_maps_errors_and_accepts_create_time_permission_denials(schema_name: str | None, code: str) -> None:
     with patch.object(glue, "make_tracked_session") as factory:
         factory.return_value.post.return_value = response({"__type": code, "Message": "Request denied"}, 403)
-        valid, reason = glue.validate_credentials(config(), GLUE_API_VERSION, schema_name)
+        valid, reason = glue.validate_credentials(config(), CREDENTIALS, GLUE_API_VERSION, schema_name)
     accepted = schema_name is None and code in {"AccessDenied", "AccessDeniedException"}
     assert valid is accepted
     if accepted:
@@ -567,9 +680,65 @@ def test_validation_maps_errors_and_accepts_create_time_permission_denials(schem
     factory.return_value.close.assert_called_once()
 
 
+def test_connections_keep_only_safe_fields_in_requests_and_rows() -> None:
+    connection = {
+        "Name": "warehouse",
+        "ConnectionType": "KAFKA",
+        "CreationTime": 1735689600,
+        "ConnectionProperties": {
+            "KAFKA_BOOTSTRAP_SERVERS": "broker.example.com:9094",
+            "JDBC_CONNECTION_URL": "jdbc:mysql://etl:example-url-password@db.example.com:3306/app?password=example-query",
+            "PASSWORD": "example-password",
+            "KAFKA_SASL_SCRAM_PASSWORD": "example-scram",
+            "ENCRYPTED_KAFKA_CLIENT_KEY_PASSWORD": "example-encrypted",
+            "CUSTOM_JDBC_CERT_STRING": "example-cert",
+            "FUTURE_SECRET_TOKEN": "example-unknown",
+        },
+        "SparkProperties": {"spark.user": "etl", "spark.hadoop.fs.s3a.secret.key": "example-spark"},
+        "AthenaProperties": {"athena.token": "example-athena"},
+        "PythonProperties": {"api_key": "example-python"},
+        "AuthenticationConfiguration": {
+            "AuthenticationType": "OAUTH2",
+            "SecretArn": "arn:aws:secretsmanager:us-east-1:123456789012:secret:glue",
+            "OAuth2Properties": {
+                "OAuth2GrantType": "CLIENT_CREDENTIALS",
+                "TokenUrl": "https://auth.example.com/token?client_secret=example-token-url",
+                "TokenUrlParametersMap": {"client_secret": "example-oauth"},
+            },
+        },
+    }
+    result = driver().run(
+        "connections",
+        [ScriptedResponse(json={"ConnectionList": [connection], "NextToken": "more"}), ScriptedResponse(json={})],
+    )
+    assert result.raised is None
+    assert [request.json() for request in result.requests] == [
+        {"MaxResults": 100, "HidePassword": True},
+        {"MaxResults": 100, "HidePassword": True, "NextToken": "more"},
+    ]
+    [row] = result.rows
+    assert row["connection_properties"] == {
+        "KAFKA_BOOTSTRAP_SERVERS": "broker.example.com:9094",
+        "JDBC_CONNECTION_URL": "jdbc:mysql://db.example.com:3306/app",
+    }
+    assert row["authentication_configuration"] == {
+        "AuthenticationType": "OAUTH2",
+        "SecretArn": "arn:aws:secretsmanager:us-east-1:123456789012:secret:glue",
+        "OAuth2Properties": {"OAuth2GrantType": "CLIENT_CREDENTIALS", "TokenUrl": "https://auth.example.com/token"},
+    }
+    assert not {"spark_properties", "athena_properties", "python_properties"} & row.keys()
+    assert row["creation_time"] == datetime(2025, 1, 1, tzinfo=UTC)
+    serialized = json.dumps(row, default=str)
+    assert "example-" not in serialized
+
+    with scripted_network([ScriptedResponse(json={"ConnectionList": []})]) as network:
+        assert glue.validate_credentials(config(), CREDENTIALS, GLUE_API_VERSION, "connections") == (True, None)
+    assert network.requests_log[0].json() == {"MaxResults": 1, "HidePassword": True}
+
+
 def test_creation_probes_once() -> None:
     with scripted_network([ScriptedResponse(json={"DatabaseList": []})]) as creation:
-        assert glue.validate_credentials(config(), GLUE_API_VERSION) == (True, None)
+        assert glue.validate_credentials(config(), CREDENTIALS, GLUE_API_VERSION) == (True, None)
     assert len(creation.requests_log) == 1
     assert creation.requests_log[0].json() == {"MaxResults": 1}
 
@@ -590,7 +759,7 @@ def test_selected_child_checks_parent_and_child(
             ScriptedResponse(status=403, json={"__type": "AccessDeniedException"}),
         ]
     ) as selected:
-        valid, reason = glue.validate_credentials(config(), GLUE_API_VERSION, schema_name)
+        valid, reason = glue.validate_credentials(config(), CREDENTIALS, GLUE_API_VERSION, schema_name)
     assert not valid and reason
     assert len(selected.requests_log) == 2
     assert selected.requests_log[1].json() == child_payload
@@ -599,19 +768,19 @@ def test_selected_child_checks_parent_and_child(
 @pytest.mark.parametrize("endpoint", ["tables", "partitions", "job_runs"])
 def test_probe_with_no_parents_makes_no_child_request(endpoint: str) -> None:
     with scripted_network([ScriptedResponse(json={"Jobs": [], "DatabaseList": []})]) as network:
-        assert glue.validate_credentials(config(), GLUE_API_VERSION, endpoint) == (True, None)
+        assert glue.validate_credentials(config(), CREDENTIALS, GLUE_API_VERSION, endpoint) == (True, None)
     assert len(network.requests_log) == 1
 
 
 def test_invalid_config_and_unknown_tables_fail_without_requests() -> None:
     with scripted_network([]) as network:
         invalid = config()
-        invalid.aws_secret_access_key = ""
-        assert glue.validate_credentials(invalid, GLUE_API_VERSION) == (
+        invalid.aws_auth.aws_secret_access_key = ""
+        assert AwsGlueDataCatalogSource().validate_credentials(invalid, team_id=1, api_version=GLUE_API_VERSION) == (
             False,
             "Enter both an AWS access key ID and a secret access key.",
         )
-        assert glue.validate_credentials(config(), GLUE_API_VERSION, "unknown") == (
+        assert glue.validate_credentials(config(), CREDENTIALS, GLUE_API_VERSION, "unknown") == (
             False,
             "Unknown AWS Glue table: unknown",
         )
@@ -628,13 +797,13 @@ def test_network_validation_error_and_failed_iteration_close_session() -> None:
     with patch.object(glue, "make_tracked_session") as factory:
         session = factory.return_value
         session.post.side_effect = requests.Timeout("example timeout")
-        assert glue.validate_credentials(config(), GLUE_API_VERSION) == (
+        assert glue.validate_credentials(config(), CREDENTIALS, GLUE_API_VERSION) == (
             False,
             "Could not connect to AWS Glue. Check the region and try again.",
         )
         session.close.assert_called_once()
         session.reset_mock()
-        source = glue.aws_glue_data_catalog_source(config(), "databases", GLUE_API_VERSION, manager())
+        source = glue.aws_glue_data_catalog_source(config(), CREDENTIALS, "databases", GLUE_API_VERSION, manager())
         with pytest.raises(requests.Timeout):
             list(cast(Iterable[Any], source.items()))
         session.close.assert_called_once()
@@ -650,16 +819,16 @@ def test_permission_probes_do_not_hide_tables_on_transient_failures(error: Excep
         else always(error)
     )
     with scripted_network(script):
-        assert glue.probe_endpoint_permissions(config(), GLUE_API_VERSION, ["databases", "unknown"]) == {
+        assert glue.probe_endpoint_permissions(config(), CREDENTIALS, GLUE_API_VERSION, ["databases", "unknown"]) == {
             "databases": None
         }
 
 
 def test_permission_probe_reports_denial_and_invalid_config() -> None:
     with scripted_network([ScriptedResponse(status=403, json={"__type": "AccessDeniedException"})]) as network:
-        permissions = glue.probe_endpoint_permissions(config(), GLUE_API_VERSION, ["databases"])
+        permissions = glue.probe_endpoint_permissions(config(), CREDENTIALS, GLUE_API_VERSION, ["databases"])
         assert permissions["databases"] and "Grant" in permissions["databases"]
     assert len(network.requests_log) == 1
-    assert glue.probe_endpoint_permissions(config("bad"), GLUE_API_VERSION, ["jobs"]) == {
+    assert glue.probe_endpoint_permissions(config("bad"), CREDENTIALS, GLUE_API_VERSION, ["jobs"]) == {
         "jobs": "Enter an AWS region such as us-east-1."
     }

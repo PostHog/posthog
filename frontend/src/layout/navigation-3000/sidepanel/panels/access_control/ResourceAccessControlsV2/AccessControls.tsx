@@ -2,18 +2,17 @@ import { useActions, useValues } from 'kea'
 
 import { LemonTabs } from '@posthog/lemon-ui'
 
-import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
-
-import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
-import { AvailableFeature, SidePanelTab } from '~/types'
+import { useQuillSurface } from 'lib/ui/QuillSurface/quillSurfaceContext'
 
 import { AccessControlDefaultSettings } from './AccessControlDefaultSettings'
 import { AccessControlFilters } from './AccessControlFilters'
 import { accessControlsLogic } from './accessControlsLogic'
+import { AccessControlTabContainer } from './AccessControlTabContainer'
 import { AccessControlTable } from './AccessControlTable'
 import { GroupedAccessControlRuleModal } from './GroupedAccessControlRuleModal'
 import { getEntryId } from './helpers'
-import type { AccessControlsTab, ScopeType } from './types'
+import { QuillAccessControls } from './QuillAccessControls'
+import type { AccessControlSettingsEntry, AccessControlsTab, ScopeType } from './types'
 
 export function AccessControls({
     projectId,
@@ -38,24 +37,38 @@ export function AccessControls({
         canEdit,
         terraformDisabledReason,
         loading,
-        activePanelSubject,
         visibleResourceKeySet,
         filteredResourceKeySet,
         accessDetailPanelEnabled,
+        openDetailSubject,
         ruleModalState,
     } = useValues(logic)
 
-    const { setActiveTab, setSearchText, setFilters, openAccessDetailPanel, openRuleModal } = useActions(logic)
-    const { openSidePanel } = useActions(sidePanelStateLogic)
-    const { selectedTab, sidePanelOpen } = useValues(sidePanelStateLogic)
+    const { setActiveTab, setSearchText, setFilters, openAccessDetail, openRuleModal } = useActions(logic)
+    const quillSurface = useQuillSurface()
 
     const scopeType: ScopeType = activeTab === 'roles' ? 'role' : 'member'
 
-    // Highlight the row whose detail is open in the side panel
-    const openInPanelId =
-        sidePanelOpen && selectedTab === SidePanelTab.AccessDetail && activePanelSubject?.scopeType === scopeType
-            ? activePanelSubject.subjectId
-            : null
+    const openInPanelId = openDetailSubject?.scopeType === scopeType ? openDetailSubject.subjectId : null
+
+    const onEdit = (entry: AccessControlSettingsEntry): void => {
+        if (!accessDetailPanelEnabled) {
+            openRuleModal({ scopeType, entry, projectId })
+            return
+        }
+        openAccessDetail(scopeType, getEntryId(entry))
+    }
+
+    if (quillSurface) {
+        return (
+            <QuillAccessControls
+                projectId={projectId}
+                tabsRightSlot={tabsRightSlot}
+                selectedEntryId={openInPanelId}
+                onEdit={onEdit}
+            />
+        )
+    }
 
     return (
         <>
@@ -102,14 +115,7 @@ export function AccessControls({
                                 visibleResources={visibleResourceKeySet}
                                 filteredResources={filteredResourceKeySet}
                                 selectedEntryId={openInPanelId}
-                                onEdit={(entry) => {
-                                    if (!accessDetailPanelEnabled) {
-                                        openRuleModal({ scopeType, entry, projectId })
-                                        return
-                                    }
-                                    openAccessDetailPanel(scopeType, getEntryId(entry))
-                                    openSidePanel(SidePanelTab.AccessDetail, `${scopeType}:${getEntryId(entry)}`)
-                                }}
+                                onEdit={onEdit}
                             />
                         </div>
                     )}
@@ -119,25 +125,4 @@ export function AccessControls({
             {ruleModalState && <GroupedAccessControlRuleModal state={ruleModalState} />}
         </>
     )
-}
-
-function AccessControlTabContainer(props: { activeTab: AccessControlsTab; children?: React.ReactNode }): JSX.Element {
-    if (props.activeTab === 'roles') {
-        return (
-            <PayGateMini feature={AvailableFeature.ROLE_BASED_ACCESS} featureDetail="resource-access-controls-roles">
-                <PayGateMini feature={AvailableFeature.ACCESS_CONTROL} featureDetail="access-control-roles">
-                    {props.children}
-                </PayGateMini>
-            </PayGateMini>
-        )
-    }
-    if (props.activeTab === 'members') {
-        return (
-            <PayGateMini feature={AvailableFeature.ACCESS_CONTROL} featureDetail="access-control-members">
-                {props.children}
-            </PayGateMini>
-        )
-    }
-
-    return <>{props.children}</>
 }

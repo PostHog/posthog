@@ -97,6 +97,15 @@ supersession, run creation) must be pinned via `.using(router.db_for_write(Model
 reader silently skips retractions, resurrects disabled channels, or strands queued runs. If you
 add a read-then-act path, pin it; this class of bug has been found on five separate paths.
 
+## Broadcast requests
+
+A broadcast request's Slack message never shows a verdict or a finding that GitHub does not show.
+It reads a run's outcome only when `verdict_posted_at` is set, or `may_publish()` allows a failure, so a silent run's withheld verdict stays hidden.
+Every read that decides what the message shows, or whether to post it, is writer-pinned.
+A broadcast ask reviews a head whose newest run is a delivered engine WAIT again at most `_BROADCAST_REVISITS_PER_HEAD` times, so repeated asks cannot start an unbounded series of LLM reviews.
+A stamphog approval ends a request only while GitHub still shows it, because a maintainer dismissing it by hand updates nothing in the product DB.
+A request from a pull request link posted in the Broadcast channel (`requested_via=slack_link`) starts no review and waits for none. A run that has not decided reads as OPEN, so the only stamphog outcome that changes the request is an approval.
+
 ## Sandbox credentials and egress
 
 - The sandbox holds NO long-lived secret. `_mint_reviewer_scoped_token` mints a per-run `phe_`
@@ -187,13 +196,46 @@ Admission needs the login and the numeric account id to match one entry, `user.t
 A draft stays skipped before admission is considered.
 An admitted delivery passes the bot-author skip, which also stands in for the author-association check, the review-mode gate and the write-permission gate, and nothing else.
 The run is stamped `bot_admission` provenance and the `bot_admission` trigger, and retention never keeps its approvals.
-The engine reads the stamped login as `admitted_bot`, checks it against `POLICY.bot_authors` again, keeps every gate including the draft prerequisite, and adds `every_file_attested`, which refuses the run unless an attestation that declares `publisher_files` proved every file in the PR.
-An attestation without `publisher_files` never counts for a bot, because a job of any PR could post it.
+The engine reads the stamped login as `admitted_bot`, checks it against `POLICY.bot_authors` again, keeps every gate including the draft prerequisite, and adds `every_file_attested`, which refuses the run unless an attestation that pins its publisher (`Attestation.pins_publisher`) proved every file in the PR.
+An attestation pins its publisher through `publisher_files` or through an `issuer` manifest, never both, and one that does neither never counts for a bot, because a job of any PR could post it.
 Neither does a `sibling_files` companion, because the publisher did not name it.
 That proof is the PR's independent assurance (`assurance.every_file_proven`), and the reviewer prompt carries a provenance block for the admitted bot, because its bot-author rule would otherwise refuse the PR.
 A pending pinned attestation that could cover every unproven file turns that gate into a WAIT, and the check-run wake carries the `bot_admission` stamp into the re-run, because the refetched PR fails the bot pre-filter on its own.
 Removing the policy entry is enough to stop reviews.
 The next delivery skips and dismisses the standing approval, and the engine refuses a woken re-run.
+
+## Attestation issuers (who the publisher is, and what it may lift)
+
+An attestation entry splits who the publisher is from what it may do.
+`check` with an `app_id`, or with a `workflow` (see "Workflow publishers" below), identifies the publisher, and `paths` and `lifts` say what it may lift.
+The default-branch paths the publisher runs from are its own description, kept in one place: an `issuer` manifest that the publisher owns, such as `tools/change-prover/issuer.yml`, which holds only `paths`.
+A key ending in `/` is a directory, which the marker pins by its git tree id, so a file added under it changes the pin too. Any other key is a file pinned by its blob id.
+The manifest must cover its own path, so an edit to it changes a pin as well.
+The policy only names the manifest. It never copies the list, so the two cannot drift apart.
+
+- Only trusted configuration selects the source. An entry with both `issuer` and `publisher_files` fails the policy load, and nothing falls back from one to the other.
+- The manifest path must match a `stamphog_policy` path pattern (not `edit_paths`), or the policy load fails. The manifest decides what a proof pins, so an edit to it needs the human review an edit to the policy gets.
+- The engine has no network, so the server reads each manifest the default-branch policy names (`logic/issuer_manifests.py`) from the default branch with the policy files, as the git blob at its path (`get_default_branch_blob_text`). A symlink reads as its link text and leaves the entry unusable, because the contents API would follow it to a target that neither self-governance nor the pins cover. The server stores it in `run.output["policy_files"]`, and writes it into both the sandbox payload and the worker's pre-check and attest tree. The sandbox payload command wipes the PR head's copy first, as it does for the optional policy files, so a manifest the default branch lacks is absent rather than read from the PR.
+- A missing or invalid manifest leaves the entry with no required pins (`Attestation.usable` is false). Such an entry lifts nothing, never counts as pending, and never proves a bot's file.
+- A result counts only when its `blobs` keys hold every manifest path verbatim and the server confirmed every pinned object still current. `logic/attestation_pins.py` compares a `/` key against the default branch's tree id and any other key against the blob id. A type mismatch, or an object that is gone, is not current. The posting-time `_attest_gates` reads the check runs through the same function, so the final check uses the same comparison.
+- The policy, the manifest and the pins are each read from the default branch by name, not from one resolved commit. The manifest covers itself, so an edit to it changes a pinned id and a proof made before the edit reads as stale. A proof made after it is checked against the copy the run read: it lifts when it pins every path that copy lists, and lifts nothing when the edit dropped one.
+
+## Workflow publishers (identity without an App)
+
+An entry names either an `app_id` or a default-branch `workflow` with its publishing `job` and the `events` it runs on, never both.
+Any job's built-in token can create a check run under any name and edit any check run a workflow wrote, so a workflow entry trusts only a result its publishing job signed with a GitHub Actions OIDC token.
+`logic/workflow_proofs.py` verifies it, and its module docstring lists the accepted limits. Read it before you change how a result is selected or verified. The publisher's side of the contract is in the engine README's attestation section.
+
+A change to the verification keeps these true:
+
+- Every completed check run of the name is read with `filter=all` and verified once per signed content (token, conclusion, marker). No window of the newest check run ids is safe, because a writer orders them. A listing at the API page cap, or on a commit with more than 1000 check suites, proves nothing.
+- The claims name this repository id, one of the entry's events, and the entry's file on the default branch as both `workflow_ref` and `job_workflow_ref`. The expiry is not checked, on purpose.
+- The newest run (`run_id`, `run_attempt`) whose token the Actions API ties to the entry's `job` through `check_run_id` decides, never the newest check run. A token whose key cannot be read and that claims a later run than that result makes the publisher unreadable.
+- A success lifts only while the run's commit (`job_workflow_sha`) and the default branch hold the same workflow file and pinned paths, recorded as `pinned_blobs_current`.
+- A read that fails leaves the entry pending, never a completed result that lifts nothing. The poll wakes only when `verified_result` returns a result, the same test that ends the engine's wait.
+- Both review paths, the context fetch and `_attest_gates`, and reviewer routing's proof build the engine's check runs through `proven_check_runs`, and the App pin check skips the verified result.
+- The review re-run and reviewer routing parse a pending check with `attestation_check` and poll it with `all_reported` (`logic/attestation_checks.py`), so both wait on a workflow entry until `verified_result` returns a result.
+- Each verified result records its run. The context fetch and `_attest_gates` store the newest run they verified under `seen_workflow_runs` in the run's output, raised under the run's row lock and never lowered, and they and the attestation poll refuse a result older than the newest any run of the head stored (`seen_on_head`, a writer-pinned read). A writer's job can hide the newer check run, and a context retry rewrites `check_runs`, so the floor is its own key.
 
 ## The manual trigger (the one exception to label mode)
 
@@ -203,6 +245,19 @@ Every other webhook-path gate still refuses: closed PRs, drafts, bot authors, un
 The requester's own GitHub access is not checked; the `code_review_approval:write` scope and the product's access control are the gate.
 The run is stamped `manual_review` provenance and the `manual` trigger, and it enters the workflow through `dismiss_stale_approvals` like every other run.
 A refusal writes nothing to GitHub and creates no run, so it cannot leave or remove an approval.
+
+A request for a head whose covering run is a completed refusal or escalation reviews that head again only on new evidence (`logic/rerun_evidence.py`).
+A gate denial is stored as a GATED WAIT, so it is never re-run this way.
+The evidence is the title, the body, and what people with a trusted association wrote in reviews, the discussion and unresolved threads, plus resolving or reopening a thread, a bot's finding included.
+Bots never count otherwise, stamphog's own verdicts and machine users included, so a verdict posted after the context read, or a new bot finding, cannot unlock a re-run.
+Unlike `decision_fingerprint`, the hash leaves out the engine and the policy, so a deploy never re-rolls a refusal.
+A field that goes into the hash must be one a person changes, or the cap is the only thing between a noisy bot and repeated LLM runs.
+Evidence that a finished review of the head already saw re-runs nothing, and a head gets at most `_EVIDENCE_RERUNS_PER_HEAD` evidence re-runs that did not fail or get superseded, so nobody can re-roll the reviewer by switching between two descriptions.
+Every other case, a failed evidence read included, returns the covering run with `created: false`, as before.
+The workflow reads the context again, so evidence that someone restores between the request and that read is reviewed once more. The cap bounds that, and a pushed commit buys a new review anyway, so the workflow does not check the evidence a second time.
+
+In ALL mode an added trigger label shares this gate (`_review_label_request_in_all_mode`), after every webhook gate, with the `label` trigger and no provenance.
+A label add moves no head, so it retracts nothing. One that starts no run removes the label and says why in the sticky comment, so the next add fires again.
 
 ## The silent trigger (a clean external review)
 
@@ -221,6 +276,8 @@ Publication is its own state: a withheld verdict keeps `verdict_posted_at` empty
 
 FALLBACK routing is the one consumer of a withheld verdict, and the one PR write that does not ask `may_publish`: `_notify_finished_review` queues routing for every outcome of a silent run, because with the switch on `_stamphog_will_review` counts the head as reviewed and it waits for this run.
 Routing writes review requests and a comment that names cuts or the approval, never a withheld verdict, so keep it that way: a routing comment that names the outcome would publish what the run withheld.
+Stamphog's own judgment, and the state of that judgment, goes out as the stamphog App: the approval and its dismissal, the verdict review, the 👀, the trigger label, and the bot-author and cooldown comments. Coordinating who looks at a PR goes out as the PostHog App: routing's review requests, fork labels and routing comment.
+Routing writes through the PostHog App integration of the repo config's own project on the repository owner (`logic/posthog_app_client.py`). Without one, routing fails and retries. It never writes as stamphog instead.
 When ReviewHog will not start a silent review of a head (findings, a failed turn, or no automatic turn), it calls `facade/tasks.py::queue_routing_after_external_review`. The task routes the live head in full only while the record waits on the reported head, the repo is FALLBACK with the switch on, no non-superseded stamphog run covers the live head, and the live PR has no trigger label (a push starts no silent review, so a moved head routes too), with writer-pinned reads and the same claim as every other routing trigger. Anything else is a no-op, so the 30-minute safety net stays only a backstop for failures.
 The report and the opening event come from one delivery, in either order. A report that finds no record raises `RoutingBusy`, so the task retries after the opening event saved its waiting record. A record that waits on the live head instead (the author pushed before the opening event ran) routes that head, because a push starts no silent review. Do not turn that into a no-op, or a report that comes first is lost until the safety net.
 A silent review that a gate refuses reports the same way, and a withheld WAIT routes in full, because nothing reviews a silent WAIT again. That holds for the verdict task, for the opening event that finds the WAIT already stored, and for a silent WAIT on a head that only got its pinned owners.
@@ -273,9 +330,10 @@ A field added to the engine context belongs in the fingerprint, or a stale verdi
   able to rewrite the policy that gates it. Same for the `digest:` channel declaration and the
   root `owners.yaml` team registry the digest routes through.
 - A manually-created repo config (blank `installation_id`) binds **disabled** when a sync adopts it,
-  and its review policy (`review_mode`, `trigger_label`, `review_on_clean_external_review`) resets to the model defaults: all of those
-  fields were set by someone who never proved GitHub access, so a pre-selected review mode or label
-  would otherwise go live the moment someone enables the row. `add_repository` resets a placeholder's
+  and its review policy (`review_mode`, `trigger_label`, `review_on_clean_external_review`, `broadcast_enabled`,
+  `broadcast_slack_channel_id`, `broadcast_slack_channel_name`) resets to the model defaults: all of those
+  fields were set by someone who never proved GitHub access, so a pre-selected review mode, label or Broadcast
+  channel would otherwise go live the moment someone enables the row. `add_repository` resets a placeholder's
   policy the same way when it binds one. Reinstall rebinds keep settings — those
   were configured under a verified binding. Such a row is also kept out of the digest candidates:
   a blank installation can fetch no routing file, and every candidate is read, so leaving it in let
@@ -351,7 +409,7 @@ any failing gate other than the deny-list, and a migrations deny always drags th
 T2-never with it, so it answers False for every PR it exists to catch.
 
 The engine records the checks it waited on in `classification.attestations`, and the server acts on that record, never on the policy.
-After a WAIT whose only cause is those checks, the workflow polls GitHub on a workflow timer (`poll_pending_attestations`) until each one has a completed run from its pinned App, the engine's own test for pending.
+After a WAIT whose only cause is those checks, the workflow polls GitHub on a workflow timer (`poll_pending_attestations`) until each one has a completed run from its pinned App, or for a workflow entry a result the server verified, the engine's own test for pending.
 It then queues a re-review through the same gates as the external re-review, the inbox exclusion included, and at most `_ATTESTATION_WAKES_PER_HEAD` times per head.
 Stamphog subscribes to no `check_run` webhook, because a subscription delivers every check of every PR, and the poll asks GitHub for each pending check by name and App, one request per check.
 A run that no report can wake, an inbox run or one at the per-head cap, does not poll.

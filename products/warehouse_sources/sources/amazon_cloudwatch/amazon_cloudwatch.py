@@ -10,7 +10,6 @@ from typing import Any, Optional
 from urllib.parse import urlencode
 
 import requests
-from botocore.auth import SigV4Auth
 from botocore.awsrequest import AWSRequest
 from botocore.credentials import Credentials
 from botocore.loaders import Loader
@@ -33,6 +32,7 @@ from products.warehouse_sources.sources.amazon_cloudwatch.settings import (
     AMAZON_CLOUDWATCH_ENDPOINTS,
     LOG_EVENTS_PAGE_SIZE,
     LOG_GROUPS_PAGE_SIZE,
+    LOGS_DESCRIBE_PAGE_SIZE,
     LOGS_SERVICE,
     MAX_DISCOVERED_LOG_GROUPS,
     METRIC_DATA_MAX_DATAPOINTS,
@@ -46,10 +46,13 @@ from products.warehouse_sources.sources.sdk import (
     NO_RETRY,
     ResumableSourceManager,
     SourceResponse,
+    aws_redact_values,
+    camel_to_snake,
     capture_exception,
     interruptible_wait,
     make_tracked_session,
     reach_safe_point,
+    sign_aws_request,
 )
 
 # (connect, read) seconds for one try.
@@ -69,7 +72,6 @@ THROTTLING_ERROR_CODES = frozenset(
     }
 )
 
-_CAMEL_BOUNDARY = re.compile(r"(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])")
 
 ALARM_TYPES = ["CompositeAlarm", "MetricAlarm"]
 
@@ -118,13 +120,8 @@ class TimeWindow:
     end: dt.datetime
 
 
-def _snake(name: str) -> str:
-    """`AlarmConfigurationUpdatedTimestamp` -> `alarm_configuration_updated_timestamp`."""
-    return _CAMEL_BOUNDARY.sub("_", name).lower()
-
-
 def _snake_keys(obj: dict[str, Any]) -> dict[str, Any]:
-    return {_snake(key): value for key, value in obj.items()}
+    return {camel_to_snake(key): value for key, value in obj.items()}
 
 
 def _from_millis(value: Any) -> Optional[dt.datetime]:
@@ -299,8 +296,8 @@ def _operation(service: AwsService, operation: str) -> OperationModel:
     return _service_model(service).operation_model(operation)
 
 
-def make_session(secret_access_key: str, session_token: Optional[str]) -> requests.Session:
-    redact = tuple(value for value in (secret_access_key, session_token) if value)
+def make_session(credentials: Credentials) -> requests.Session:
+    redact = aws_redact_values(credentials)
     return make_tracked_session(retry=NO_RETRY, redact_values=redact, allow_redirects=False)
 
 
@@ -365,7 +362,7 @@ def send_operation(
     url = f"https://{model.endpoint_prefix}.{region}.{suffix}{serialized['url_path']}"
 
     aws_request = AWSRequest(method="POST", url=url, data=body, headers=dict(serialized["headers"]))
-    SigV4Auth(credentials, model.signing_name, region).add_auth(aws_request)
+    sign_aws_request(aws_request, credentials, model.signing_name, region)
 
     response = session.post(url, data=body, headers=dict(aws_request.headers.items()), timeout=REQUEST_TIMEOUT)
 
@@ -385,6 +382,12 @@ def send_operation(
     return parsed
 
 
+ACCESS_DENIED_MESSAGE = (
+    "These AWS credentials cannot read CloudWatch. Grant logs:DescribeLogGroups, logs:DescribeLogStreams, "
+    "logs:DescribeMetricFilters, logs:FilterLogEvents, logs:ListAnomalies, cloudwatch:DescribeAlarms, "
+    "cloudwatch:DescribeAlarmHistory, cloudwatch:GetMetricData and cloudwatch:ListMetrics to the IAM user or role."
+)
+
 # AWS error code -> the message the setup wizard shows. A denial names the calling identity's
 # IAM ARN, so the raw AWS text never reaches the user.
 VALIDATION_ERROR_MESSAGES: dict[str, str] = {
@@ -394,24 +397,20 @@ VALIDATION_ERROR_MESSAGES: dict[str, str] = {
     "InvalidSignatureException": "AWS rejected the request signature. If you are using temporary credentials, the session token has expired.",
     "ExpiredTokenException": "The AWS session token has expired. Reconnect with fresh credentials.",
     "ExpiredToken": "The AWS session token has expired. Reconnect with fresh credentials.",
-    "AccessDeniedException": "These AWS credentials cannot read CloudWatch. Grant logs:DescribeLogGroups, logs:FilterLogEvents, cloudwatch:DescribeAlarms, cloudwatch:DescribeAlarmHistory and cloudwatch:GetMetricData to the IAM user or role.",
-    "AccessDenied": "These AWS credentials cannot read CloudWatch. Grant logs:DescribeLogGroups, logs:FilterLogEvents, cloudwatch:DescribeAlarms, cloudwatch:DescribeAlarmHistory and cloudwatch:GetMetricData to the IAM user or role.",
+    "AccessDeniedException": ACCESS_DENIED_MESSAGE,
+    "AccessDenied": ACCESS_DENIED_MESSAGE,
     # A rejection without an error body reaches `_error_from` as its bare status.
     "HTTP 401": "AWS rejected the access key. Check the access key ID and secret access key, and that the key is still active.",
-    "HTTP 403": "These AWS credentials cannot read CloudWatch. Grant logs:DescribeLogGroups, logs:FilterLogEvents, cloudwatch:DescribeAlarms, cloudwatch:DescribeAlarmHistory and cloudwatch:GetMetricData to the IAM user or role.",
+    "HTTP 403": ACCESS_DENIED_MESSAGE,
 }
 
 TRANSIENT_VALIDATION_ERROR = "Amazon CloudWatch is busy or temporarily unavailable. Wait a moment and try again."
 
-GENERIC_VALIDATION_ERROR = (
-    "AWS didn't accept the CloudWatch request. Check the access key is active and can read CloudWatch, then try again."
-)
+GENERIC_VALIDATION_ERROR = "AWS didn't accept the CloudWatch request. Check that the access key or IAM role can read CloudWatch, then try again."
 
 
 def validate_credentials(
-    aws_access_key_id: str,
-    aws_secret_access_key: str,
-    aws_session_token: Optional[str],
+    credentials: Credentials,
     aws_region: str,
     metric_queries: Optional[str],
     start_date: Optional[str] = None,
@@ -420,8 +419,6 @@ def validate_credentials(
 
     STS answers any valid key without an IAM permission, so a key scoped to metrics or alarms only
     still connects. A missing permission for a table surfaces when that table syncs."""
-    if not aws_access_key_id or not aws_secret_access_key:
-        return False, "AWS access key ID and secret access key are required"
     if not aws_region or not is_valid_region(aws_region):
         return False, "Enter an AWS region code, for example us-east-1."
     try:
@@ -432,8 +429,8 @@ def validate_credentials(
 
     try:
         send_operation(
-            make_session(aws_secret_access_key, aws_session_token),
-            Credentials(aws_access_key_id, aws_secret_access_key, aws_session_token or None),
+            make_session(credentials),
+            credentials,
             aws_region.strip(),
             STS_SERVICE,
             "GetCallerIdentity",
@@ -531,15 +528,9 @@ def build_windows(window: TimeWindow, window_days: Optional[int]) -> list[TimeWi
 
 
 class CloudWatchClient:
-    def __init__(
-        self,
-        aws_access_key_id: str,
-        aws_secret_access_key: str,
-        aws_session_token: Optional[str],
-        aws_region: str,
-    ) -> None:
-        self._session = make_session(aws_secret_access_key, aws_session_token)
-        self._credentials = Credentials(aws_access_key_id, aws_secret_access_key, aws_session_token or None)
+    def __init__(self, credentials: Credentials, aws_region: str) -> None:
+        self._session = make_session(credentials)
+        self._credentials = credentials
         self._region = aws_region.strip()
 
     def call(self, service: AwsService, operation: str, params: dict[str, Any]) -> dict[str, Any]:
@@ -590,6 +581,50 @@ def log_event_rows(log_group_name: str, body: dict[str, Any]) -> list[dict[str, 
         }
         for event in body.get("events") or []
     ]
+
+
+def log_stream_rows(log_group_name: str, body: dict[str, Any]) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for stream in body.get("logStreams") or []:
+        row = _snake_keys(stream)
+        row["log_group_name"] = log_group_name
+        # AWS stopped filling these for log streams in 2019 and sends zero or an ignored token.
+        row.pop("stored_bytes", None)
+        row.pop("upload_sequence_token", None)
+        for key in ("creation_time", "first_event_timestamp", "last_event_timestamp", "last_ingestion_time"):
+            row[key] = _from_millis(row.get(key))
+        rows.append(row)
+    return rows
+
+
+def metric_filter_rows(body: dict[str, Any]) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for metric_filter in body.get("metricFilters") or []:
+        row = _snake_keys(metric_filter)
+        row["creation_time"] = _from_millis(row.get("creation_time"))
+        rows.append(row)
+    return rows
+
+
+def anomaly_rows(body: dict[str, Any]) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for anomaly in body.get("anomalies") or []:
+        row = _snake_keys(anomaly)
+        for key in ("first_seen", "last_seen", "suppressed_date", "suppressed_until"):
+            row[key] = _from_millis(row.get(key))
+        rows.append(row)
+    return rows
+
+
+def metric_rows(body: dict[str, Any]) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for metric in body.get("Metrics") or []:
+        row = _snake_keys(metric)
+        dimensions = sorted((d.get("Name"), d.get("Value")) for d in row.get("dimensions") or [])
+        identity = [row.get("namespace"), row.get("metric_name"), dimensions]
+        row["metric_id"] = hashlib.sha256(json.dumps(identity, default=str).encode()).hexdigest()
+        rows.append(row)
+    return rows
 
 
 def alarm_rows(body: dict[str, Any]) -> list[dict[str, Any]]:
@@ -664,7 +699,7 @@ def _slices(
     logger: FilteringBoundLogger,
 ) -> list[tuple[str, Optional[str]]]:
     """The request series of one run: (slice key, log group) pairs for logs, window starts otherwise."""
-    if endpoint_config.operation == "FilterLogEvents":
+    if endpoint_config.per_log_group:
         groups = log_group_names or client.list_log_group_names(logger)
         return [(name, name) for name in groups]
     if endpoint_config.lookback_days is None:
@@ -687,17 +722,25 @@ def _params(
         if next_token:
             params["nextToken"] = next_token
         return params
-    if operation == "FilterLogEvents":
-        params = {
-            "logGroupName": log_group,
-            "startTime": _to_millis(window.start),
-            "endTime": _to_millis(window.end),
-            "limit": LOG_EVENTS_PAGE_SIZE,
-        }
+    if endpoint_config.service == LOGS_SERVICE:
+        if operation == "FilterLogEvents":
+            params = {
+                "logGroupName": log_group,
+                "startTime": _to_millis(window.start),
+                "endTime": _to_millis(window.end),
+                "limit": LOG_EVENTS_PAGE_SIZE,
+            }
+        elif operation == "DescribeLogStreams":
+            params = {"logGroupName": log_group, "limit": LOGS_DESCRIBE_PAGE_SIZE}
+        else:
+            # DescribeMetricFilters and ListAnomalies with no log group or detector list the whole region.
+            params = {"limit": LOGS_DESCRIBE_PAGE_SIZE}
         if next_token:
             params["nextToken"] = next_token
         return params
-    if operation == "DescribeAlarms":
+    if operation == "ListMetrics":
+        params = {}
+    elif operation == "DescribeAlarms":
         params = {"AlarmTypes": ALARM_TYPES, "MaxRecords": ALARMS_PAGE_SIZE}
     elif operation == "DescribeAlarmHistory":
         params = {
@@ -732,6 +775,14 @@ def _rows(
         return log_group_rows(body)
     if operation == "FilterLogEvents":
         return log_event_rows(log_group or "", body)
+    if operation == "DescribeLogStreams":
+        return log_stream_rows(log_group or "", body)
+    if operation == "DescribeMetricFilters":
+        return metric_filter_rows(body)
+    if operation == "ListAnomalies":
+        return anomaly_rows(body)
+    if operation == "ListMetrics":
+        return metric_rows(body)
     if operation == "DescribeAlarms":
         return alarm_rows(body)
     if operation == "DescribeAlarmHistory":
@@ -744,9 +795,7 @@ def _next_token(endpoint_config: CloudWatchEndpointConfig, body: dict[str, Any])
 
 
 def get_rows(
-    aws_access_key_id: str,
-    aws_secret_access_key: str,
-    aws_session_token: Optional[str],
+    credentials: Credentials,
     aws_region: str,
     log_group_names: Optional[str],
     metric_queries: Optional[str],
@@ -758,7 +807,7 @@ def get_rows(
     logger: FilteringBoundLogger,
 ) -> Iterator[list[dict[str, Any]]]:
     endpoint_config = AMAZON_CLOUDWATCH_ENDPOINTS[endpoint]
-    client = CloudWatchClient(aws_access_key_id, aws_secret_access_key, aws_session_token, aws_region)
+    client = CloudWatchClient(credentials, aws_region)
 
     queries = parse_metric_queries(metric_queries) if endpoint_config.operation == "GetMetricData" else []
     if endpoint_config.operation == "GetMetricData" and not queries:
@@ -831,9 +880,7 @@ def get_rows(
 
 
 def amazon_cloudwatch_source(
-    aws_access_key_id: str,
-    aws_secret_access_key: str,
-    aws_session_token: Optional[str],
+    credentials: Credentials,
     aws_region: str,
     log_group_names: Optional[str],
     metric_queries: Optional[str],
@@ -849,9 +896,7 @@ def amazon_cloudwatch_source(
     return SourceResponse(
         name=endpoint,
         items=lambda: get_rows(
-            aws_access_key_id=aws_access_key_id,
-            aws_secret_access_key=aws_secret_access_key,
-            aws_session_token=aws_session_token,
+            credentials=credentials,
             aws_region=aws_region,
             log_group_names=log_group_names,
             metric_queries=metric_queries,

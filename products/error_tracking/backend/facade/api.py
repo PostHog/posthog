@@ -3,6 +3,7 @@
 This is the ONLY module other apps are allowed to import.
 """
 
+from collections.abc import Callable
 from datetime import datetime
 from typing import Any
 from uuid import UUID
@@ -12,7 +13,10 @@ from django.db.models import QuerySet
 
 import posthoganalytics
 
+from posthog.hogql.property_access_types import RestrictedProperty
+
 from posthog.event_usage import AnalyticsProps, groups
+from posthog.ingress.contracts import DeliveryOwnership
 from posthog.integrations import IntegrationManager, IntegrationRecord
 from posthog.models.user import User
 from posthog.paging import Page, PageRequest
@@ -22,11 +26,27 @@ from products.access_control.backend.facade.api import valid_role_member_user_id
 
 from .. import logic, weekly_digest, weekly_digest_delivery
 from ..indexed_embedding import DOCUMENT_EMBEDDINGS_BUFFER_SHARDED_TABLE, EMBEDDING_TABLES
-from ..logic import built_in_filters, external_references, github_external_references, rules
+from ..logic import (
+    built_in_filters,
+    external_references,
+    github_external_references,
+    linear_external_references,
+    rules,
+    sentry_migration,
+    team_flags,
+)
+from ..logic.issue_summary_config import ISSUE_SUMMARY_FLAG
 from ..logic.issue_tags import (
     enabled as issue_tag_enabled,
+    gate as issue_tag_gate,
     reader as issue_tag_reader,
+    rules as issue_tag_rules,
 )
+from ..logic.sentry_migration import (
+    client as sentry_client,
+    errors as sentry_migration_errors,
+)
+from ..logic.team_purge import delete_stack_frames_and_symbol_sets_for_team as _delete_frames_and_symbol_sets
 from ..models import (
     ErrorTrackingIssue,
     override_error_tracking_issue_fingerprint as override_error_tracking_issue_fingerprint,
@@ -46,7 +66,13 @@ ExternalReferenceValidationError = external_references.ErrorTrackingExternalRefe
 ReleaseHashInUseError = logic.ErrorTrackingReleaseHashInUseError
 InvalidBytecodeError = rules.ErrorTrackingInvalidBytecodeError
 SeverityRuleLimitError = rules.ErrorTrackingSeverityRuleLimitError
+IssueTagRuleFiltersError = issue_tag_rules.IssueTagRuleFiltersError
+IssueTagRuleLimitError = issue_tag_rules.IssueTagRuleLimitError
+UNCHANGED = issue_tag_rules.UNCHANGED
+IssueTagsDisabledError = issue_tag_gate.IssueTagsDisabledError
 UnknownBuiltInFilterError = built_in_filters.UnknownBuiltInFilterError
+SentryApiError = sentry_client.SentryApiError
+SentryMigrationSelectionError = sentry_migration_errors.SentryMigrationSelectionError
 
 SOURCE_MAPS_DOCS_URL = contracts.SOURCE_MAPS_DOCS_URL
 
@@ -218,10 +244,18 @@ def get_issue(issue_id: UUID, team_id: int, *, with_tags_for: User | None = None
 def list_issue_tag_definitions(team_id: int, user: User) -> list[contracts.ErrorTrackingIssueTagDefinition]:
     return [
         contracts.ErrorTrackingIssueTagDefinition(
-            key=definition.key, label=definition.label, description=definition.description
+            key=definition.key,
+            label=definition.label,
+            description=definition.description,
+            color=contracts.IssueTagColor(definition.color) if definition.color else None,
         )
         for definition in issue_tag_enabled.enabled_issue_tag_definitions(team_id, user)
     ]
+
+
+def readable_issue_tag_keys(team_id: int, restrictions: set[RestrictedProperty]) -> frozenset[str] | None:
+    """The issue tag keys whose rows a member with these property restrictions may read, or None for every key."""
+    return issue_tag_enabled.readable_issue_tag_keys(team_id, restrictions)
 
 
 def list_issues_detailed(team_id: int, *, page: PageRequest) -> Page[contracts.ErrorTrackingIssue]:
@@ -274,6 +308,22 @@ def get_settings(team_id: int) -> contracts.ErrorTrackingSettings:
     return _to_settings(logic.get_or_create_settings(team_id), logic.is_exception_ingestion_enabled(team_id))
 
 
+_AI_FEATURE_FLAGS = {contracts.ErrorTrackingAIFeature.ISSUE_SUMMARIES: ISSUE_SUMMARY_FLAG}
+
+
+def available_ai_features(team_id: int) -> list[contracts.ErrorTrackingAIFeature]:
+    """The AI features whose flag is on for the project. The project's settings show only these.
+
+    This is the flag check of the backend gate, but it never falls back to a remote call, because the team serializer
+    runs it on every page load. A feature that local evaluation cannot decide is left out.
+    """
+    return [
+        feature
+        for feature, flag in _AI_FEATURE_FLAGS.items()
+        if team_flags.team_flag_enabled(flag, team_id, only_evaluate_locally=True)
+    ]
+
+
 def update_settings(team_id: int, fields: dict[str, int | bool | None]) -> contracts.ErrorTrackingSettings:
     ingestion_enabled = fields.get("ingestion_enabled")
     with transaction.atomic():
@@ -313,7 +363,7 @@ def _to_spike_event(event) -> contracts.ErrorTrackingSpikeEvent:
 def list_spike_events(
     *,
     team_id: int,
-    issue_ids: list[str] | None = None,
+    issue_ids: list[UUID] | None = None,
     date_from: str | None = None,
     date_to: str | None = None,
     order_by: str | None = None,
@@ -537,6 +587,71 @@ def reorder_severity_rules(team_id: int, orders: dict[str, int]) -> None:
     rules.reorder_severity_rules(team_id, orders)
 
 
+def _to_issue_tag_rule(rule) -> contracts.ErrorTrackingIssueTagRule:
+    return contracts.ErrorTrackingIssueTagRule(
+        id=rule.id,
+        key=rule.key,
+        label=rule.label,
+        description=rule.description,
+        color=contracts.IssueTagColor(rule.color) if rule.color else None,
+        filters=rule.filters,
+        version=rule.version,
+        order_key=rule.order_key,
+        disabled_data=rule.disabled_data,
+        created_at=rule.created_at,
+        updated_at=rule.updated_at,
+    )
+
+
+def list_issue_tag_rules(team_id: int, user: User) -> list[contracts.ErrorTrackingIssueTagRule]:
+    return [_to_issue_tag_rule(rule) for rule in issue_tag_rules.list_issue_tag_rules(team_id, user)]
+
+
+def get_issue_tag_rule(team_id: int, rule_id: str, user: User) -> contracts.ErrorTrackingIssueTagRule | None:
+    rule = issue_tag_rules.get_issue_tag_rule(team_id, rule_id, user)
+    return _to_issue_tag_rule(rule) if rule is not None else None
+
+
+def create_issue_tag_rule(
+    team_id: int,
+    user: User,
+    *,
+    label: str,
+    description: str,
+    filters: dict,
+    order_key: int = 0,
+    color: contracts.IssueTagColor | None = None,
+) -> contracts.ErrorTrackingIssueTagRule:
+    rule = issue_tag_rules.create_issue_tag_rule(
+        team_id, user, label=label, description=description, filters=filters, order_key=order_key, color=color
+    )
+    return _to_issue_tag_rule(rule)
+
+
+def update_issue_tag_rule(
+    team_id: int,
+    rule_id: str,
+    user: User,
+    *,
+    label: str | None = None,
+    description: str | None = None,
+    filters: dict | None = None,
+    color: contracts.IssueTagColor | None | issue_tag_rules.Unchanged = UNCHANGED,
+) -> contracts.ErrorTrackingIssueTagRule | None:
+    rule = issue_tag_rules.update_issue_tag_rule(
+        team_id, rule_id, user, label=label, description=description, filters=filters, color=color
+    )
+    return _to_issue_tag_rule(rule) if rule is not None else None
+
+
+def delete_issue_tag_rule(team_id: int, rule_id: str, user: User) -> bool:
+    return issue_tag_rules.delete_issue_tag_rule(team_id, rule_id, user)
+
+
+def reorder_issue_tag_rules(team_id: int, orders: dict[str, int], user: User) -> None:
+    issue_tag_rules.reorder_issue_tag_rules(team_id, orders, user)
+
+
 def _to_grouping_rule(rule, issue: tuple[UUID, str | None] | None = None) -> contracts.ErrorTrackingGroupingRule:
     return contracts.ErrorTrackingGroupingRule(
         id=rule.id,
@@ -648,6 +763,25 @@ def list_built_in_filters(team_id: int) -> list[contracts.ErrorTrackingBuiltInFi
 
 def set_built_in_filter_enabled(team_id: int, key: str, *, enabled: bool) -> contracts.ErrorTrackingBuiltInFilter:
     return _to_built_in_filter(built_in_filters.set_built_in_filter_enabled(team_id, key, enabled=enabled))
+
+
+def list_sentry_projects(connection: contracts.SentryConnection) -> list[contracts.SentryProject]:
+    return sentry_migration.list_sentry_projects(connection)
+
+
+def preview_sentry_migration(
+    team_id: int, connection: contracts.SentryConnection, project: contracts.SentryProjectRef
+) -> list[contracts.SentryMigrationItem]:
+    return sentry_migration.preview_sentry_migration(team_id, connection, project)
+
+
+def apply_sentry_migration(
+    team_id: int,
+    connection: contracts.SentryConnection,
+    project: contracts.SentryProjectRef,
+    item_ids: list[str],
+) -> contracts.SentryMigrationResult:
+    return sentry_migration.apply_sentry_migration(team_id, connection, project, item_ids)
 
 
 def _to_bypass_rule(rule) -> contracts.ErrorTrackingBypassRule:
@@ -810,6 +944,22 @@ def link_github_external_reference(job: contracts.GitHubExternalReferenceJob) ->
     return github_external_references.link_reference(job)
 
 
+def prepare_linear_external_reference_jobs(payload: dict[str, Any]) -> list[contracts.LinearExternalReferenceJob]:
+    return linear_external_references.prepare_jobs(payload)
+
+
+def link_linear_external_reference(job: contracts.LinearExternalReferenceJob) -> bool:
+    return linear_external_references.link_reference(job)
+
+
+def link_linear_external_references(jobs: list[contracts.LinearExternalReferenceJob]) -> list[bool]:
+    return linear_external_references.link_references(jobs)
+
+
+def linear_external_reference_delivery_ownership(payload: dict[str, Any]) -> DeliveryOwnership:
+    return linear_external_references.delivery_ownership(payload)
+
+
 def get_issue_values(team_id: int, key: str | None, value: str | None) -> list[str]:
     return logic.get_issue_values(team_id=team_id, key=key, value=value)
 
@@ -910,3 +1060,11 @@ def document_embedding_tables() -> list[DocumentEmbeddingTable]:
 def document_embeddings_buffer_table() -> str:
     """The sharded buffer that holds every new document, in each model, until its TTL drops it."""
     return DOCUMENT_EMBEDDINGS_BUFFER_SHARDED_TABLE
+
+
+def delete_stack_frames_and_symbol_sets_for_team(team_id: int, should_stop: Callable[[], bool] | None = None) -> bool:
+    """Batch-delete the team's stack frames and symbol sets. Called from team deletion, before the Team cascade.
+
+    Return False when ``should_stop`` ended the purge before it finished.
+    """
+    return _delete_frames_and_symbol_sets(team_id, should_stop=should_stop)

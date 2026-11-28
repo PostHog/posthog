@@ -3,7 +3,7 @@ import json
 import time
 import uuid
 import hashlib
-from collections.abc import Iterator
+from collections.abc import Iterator, Sequence
 from contextlib import contextmanager, suppress
 from datetime import timedelta
 from functools import lru_cache
@@ -13,6 +13,7 @@ from django.conf import settings
 from django.core.cache import cache, caches
 from django.urls import resolve
 from django.utils import timezone
+from django.utils.connection import ConnectionProxy
 
 from prometheus_client import Counter
 from redis.exceptions import RedisError
@@ -167,7 +168,17 @@ def hashed_personal_api_key_for_throttling(request: "Request") -> str | None:
     return hash_key_value(key_with_source[0]) if key_with_source is not None else None
 
 
+THROTTLE_HISTORY_CACHE_ALIAS = "throttle_history"
+
+
 class PersonalApiKeyRateThrottle(SimpleRateThrottle):
+    DRF_UNITS_PER_REQUEST = 1
+    reads_history_from_primary = False
+    primary_cache = ConnectionProxy(caches, THROTTLE_HISTORY_CACHE_ALIAS)
+    units_to_check: int | None = None
+    units_to_charge = 0
+    retry_wait = 0.0
+
     @staticmethod
     def safely_get_team_id_from_view(view):
         """
@@ -211,6 +222,56 @@ class PersonalApiKeyRateThrottle(SimpleRateThrottle):
 
         self.num_requests, self.duration = self.parse_rate(self.rate)
 
+    def allow_units(self, request: "Request", view: "APIView", units: int) -> bool:
+        self.units_to_check = units
+        try:
+            return self.allow_request(request, view)
+        finally:
+            self.units_to_check = None
+
+    def charge_units(self) -> None:
+        if not self.units_to_charge:
+            return
+        try:
+            self.primary_cache.set(self.key, [self.now] * self.units_to_charge + self.history, self.duration)
+        except Exception as e:
+            capture_exception(e)
+
+    def _has_room_for_units(self, request: "Request", view: "APIView", units: int) -> bool:
+        self.key = None
+        num_requests, duration = self.num_requests, self.duration
+        if num_requests is None or duration is None:
+            return True
+        self.key = self.get_cache_key(request, view)
+        if self.key is None:
+            return True
+        history = self.primary_cache.get(self.key, [])
+        self.now = self.timer()
+        self.history = [hit for hit in history if hit > self.now - duration]
+        self.retry_wait = self._wait_for_room(units + self.DRF_UNITS_PER_REQUEST, num_requests, duration)
+        if len(self.history) + units > num_requests:
+            return False
+        self.units_to_charge = units
+        return True
+
+    def _wait_for_room(self, units: int, num_requests: int, duration: int) -> float:
+        expiries_needed = len(self.history) + units - num_requests
+        if expiries_needed <= 0:
+            return 0.0
+        if expiries_needed > len(self.history):
+            return float(duration)
+        return self.history[-expiries_needed] + duration - self.now
+
+    def _would_allow(self, request: "Request", view: "APIView") -> bool:
+        if self.units_to_check is not None:
+            return self._has_room_for_units(request, view, self.units_to_check)
+        if not self.reads_history_from_primary:
+            return SimpleRateThrottle.allow_request(self, request, view)
+        if not self._has_room_for_units(request, view, self.DRF_UNITS_PER_REQUEST):
+            return False
+        self.charge_units()
+        return True
+
     def _allow_request_internal(self, request, view, *, personal_api_key_only: bool) -> bool:
         if not is_rate_limit_enabled(round(time.time() / 60)):
             return True
@@ -224,7 +285,7 @@ class PersonalApiKeyRateThrottle(SimpleRateThrottle):
             if team_id is not None and self.scope == HogQLQueryThrottle.scope:
                 self.load_team_rate_limit(team_id)
 
-            request_would_be_allowed = SimpleRateThrottle.allow_request(self, request, view)
+            request_would_be_allowed = self._would_allow(request, view)
             if request_would_be_allowed:
                 return True
 
@@ -632,6 +693,21 @@ class ProjectSecretApiKeyTeamRateThrottle(PersonalApiKeyRateThrottle):
         return self.cache_format % {"scope": self.scope, "ident": f"psak-team:{team_id}"}
 
 
+def reserve_units(
+    throttles: Sequence[PersonalOrProjectSecretApiKeyRateThrottle | ProjectSecretApiKeyTeamRateThrottle],
+    request: "Request",
+    view: "APIView",
+    units: int,
+) -> None:
+    if units < 1:
+        return
+    admitted = [throttle.allow_units(request, view, units) for throttle in throttles]
+    if not all(admitted):
+        raise exceptions.Throttled(wait=max(throttle.retry_wait for throttle in throttles))
+    for throttle in throttles:
+        throttle.charge_units()
+
+
 class ClickHouseBurstRateThrottle(PersonalApiKeyRateThrottle):
     # Throttle class that's a bit more aggressive and is used specifically on endpoints that hit ClickHouse
     # Intended to block quick bursts of requests, per project
@@ -705,16 +781,19 @@ class _TeamBucketRateThrottle(PersonalApiKeyOrUserRateThrottle):
 
 
 class _UserBucketRateThrottle(PersonalApiKeyOrUserRateThrottle):
-    """One bucket per credential (personal API key hash, else user) even on team-scoped views, for
+    """One bucket per credential (personal API key hash, unless `bucket_per_api_key` is off, else user) even on team-scoped views, for
     endpoints where one user must not be able to drain the whole team's budget.
 
     The parent's cache key idents a session-authenticated request on a team view by team id, which
     would collapse every member of the team into one bucket.
     """
 
+    # Off where rolling a personal API key must not start a fresh budget.
+    bucket_per_api_key = True
+
     def get_cache_key(self, request: "Request", view: "APIView") -> str:
         if request.user.is_authenticated:
-            ident = hashed_personal_api_key_for_throttling(request) or request.user.pk
+            ident = (self.bucket_per_api_key and hashed_personal_api_key_for_throttling(request)) or request.user.pk
         else:
             ident = self.get_ident(request)
         return self.cache_format % {"scope": self.scope, "ident": ident}
@@ -858,6 +937,19 @@ class AEOSetupSustainedRateThrottle(_TeamBucketRateThrottle):
 # on each request, matching each keyword against each answer text in Postgres or scanning every search in
 # Python. The project-global Burst/Sustained pair never throttles the session-authenticated UI, so this
 # team bucket bounds how often a browser or a script can start that work. The two endpoints share it.
+class AEOTopicRelabelBurstRateThrottle(_TeamBucketRateThrottle):
+    """A topic rename, merge or removal rewrites the label on every past check of the topic, so the project's
+    rewrites are capped, whoever sends them."""
+
+    scope = "aeo_topic_relabel_burst"
+    rate = "10/minute"
+
+
+class AEOTopicRelabelSustainedRateThrottle(_TeamBucketRateThrottle):
+    scope = "aeo_topic_relabel_sustained"
+    rate = "60/hour"
+
+
 class AEOKeywordReportBurstRateThrottle(_TeamBucketRateThrottle):
     scope = "aeo_keyword_report_burst"
     rate = "30/minute"
@@ -866,6 +958,19 @@ class AEOKeywordReportBurstRateThrottle(_TeamBucketRateThrottle):
 class AEOKeywordReportSustainedRateThrottle(_TeamBucketRateThrottle):
     scope = "aeo_keyword_report_sustained"
     rate = "300/hour"
+
+
+# An AEO search detail runs one aggregation over the window's searches per distinct search, and each
+# distinct search is a new cache entry. Expanding rows is a click per request, so the rates clear a
+# person reading the overview while bounding a loop of searches that start cold reads.
+class AEOSearchDetailBurstRateThrottle(_TeamBucketRateThrottle):
+    scope = "aeo_search_detail_burst"
+    rate = "60/minute"
+
+
+class AEOSearchDetailSustainedRateThrottle(_TeamBucketRateThrottle):
+    scope = "aeo_search_detail_sustained"
+    rate = "600/hour"
 
 
 # The batch session-context endpoint computes experiment context for up to 20 recordings per
@@ -1172,31 +1277,26 @@ class AIObservabilityTextReprSustainedThrottle(PersonalApiKeyRateThrottle):
     rate = "600/hour"
 
 
-class AIObservabilityTranslationBurstThrottle(PersonalApiKeyRateThrottle):
+class _TranslationMemberRateThrottle(_UserBucketRateThrottle):
+    """One bucket per member, so one member translating a lot cannot lock the rest of the team out. A team-wide
+    bucket would also count the requests these refuse, so one member could still drain it in seconds."""
+
+    bucket_per_api_key = False
+
+
+class AIObservabilityTranslationBurstThrottle(_TranslationMemberRateThrottle):
     scope = "llm_analytics_translation_burst"
     rate = "30/minute"
 
 
-class AIObservabilityTranslationSustainedThrottle(PersonalApiKeyRateThrottle):
+class AIObservabilityTranslationSustainedThrottle(_TranslationMemberRateThrottle):
     scope = "llm_analytics_translation_sustained"
     rate = "200/hour"
 
 
-class AIObservabilityTranslationDailyThrottle(PersonalApiKeyRateThrottle):
-    # Daily cap for LLM-powered translation endpoint
-    # Hard limit to prevent runaway costs
+class AIObservabilityTranslationDailyThrottle(_TranslationMemberRateThrottle):
     scope = "llm_analytics_translation_daily"
     rate = "500/day"
-
-
-class AIObservabilitySentimentBurstThrottle(PersonalApiKeyRateThrottle):
-    scope = "llm_analytics_sentiment_burst"
-    rate = "60/minute"
-
-
-class AIObservabilitySentimentSustainedThrottle(PersonalApiKeyRateThrottle):
-    scope = "llm_analytics_sentiment_sustained"
-    rate = "600/hour"
 
 
 class AIObservabilitySummarizationBurstThrottle(PersonalApiKeyOrUserRateThrottle):
@@ -1368,33 +1468,21 @@ class CodeBasedVerificationThrottle(UserOrEmailRateThrottle):
     rate = "6/20minutes"
 
     def get_cache_key(self, request, view):
-        # Key on the pending login's user id (from the session), not on request data. The base class
-        # would fall back to a request-body "email" field, which the code-verification request never
-        # legitimately carries - letting an attacker mint a fresh throttle bucket per guess by varying
-        # it. The session is the source of truth for who is being verified.
+        # An unproven IdP subject must not spend another subject's or a password login's budget.
+        # Session state also prevents request-body email changes from minting fresh buckets per guess.
         from posthog.helpers.two_factor_session import code_based_verifier
 
-        user_id = code_based_verifier.get_pending_code_based_verification_user_id(request)
-        if user_id:
-            ident = hashlib.sha256(str(user_id).encode()).hexdigest()
+        identity = code_based_verifier.get_pending_budget_identity(request)
+        if identity:
+            ident = hashlib.sha256(identity.encode()).hexdigest()
             return self.cache_format % {"scope": self.scope, "ident": ident}
 
         return super().get_cache_key(request, view)
 
 
-class CodeBasedVerificationResendThrottle(UserOrEmailRateThrottle):
+class CodeBasedVerificationResendThrottle(CodeBasedVerificationThrottle):
     scope = "code_based_verification_resend"
     rate = "1/minute"
-
-    def get_cache_key(self, request, view):
-        from posthog.helpers.two_factor_session import code_based_verifier
-
-        user_id = code_based_verifier.get_pending_code_based_verification_user_id(request)
-        if user_id:
-            ident = hashlib.sha256(str(user_id).encode()).hexdigest()
-            return self.cache_format % {"scope": self.scope, "ident": ident}
-
-        return super().get_cache_key(request, view)
 
 
 class TwoFactorThrottle(UserOrEmailRateThrottle):
@@ -2240,11 +2328,21 @@ class EmailForwardingChallengeThrottle(UserRateThrottle):
 
 class ComposeTicketBurstThrottle(UserRateThrottle):
     scope = "compose_ticket_burst"
-    rate = "10/minute"
+    rate = "30/minute"
 
 
 class ComposeTicketSustainedThrottle(UserRateThrottle):
     scope = "compose_ticket_sustained"
+    rate = "180/hour"
+
+
+class TicketAiRerunBurstThrottle(UserRateThrottle):
+    scope = "ticket_ai_rerun_burst"
+    rate = "10/minute"
+
+
+class TicketAiRerunSustainedThrottle(UserRateThrottle):
+    scope = "ticket_ai_rerun_sustained"
     rate = "60/hour"
 
 

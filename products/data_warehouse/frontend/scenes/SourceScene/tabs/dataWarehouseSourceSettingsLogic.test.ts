@@ -5,6 +5,7 @@ import api from 'lib/api'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { urls } from 'scenes/urls'
 
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { initKeaTests } from '~/test/init'
@@ -94,7 +95,7 @@ describe('sourceSettingsLogic', () => {
         const bulkUpdateSchemasSpy = jest
             .spyOn(api.externalDataSources, 'bulkUpdateSchemas')
             .mockImplementation(async (_id, updates) => updates.map((update) => ({ ...schema, ...update })))
-        const dialogSpy = jest.spyOn(LemonDialog, 'open').mockImplementation()
+        const dialogSpy = jest.spyOn(LemonDialog, 'openForm').mockImplementation()
 
         logic = sourceSettingsLogic({ id: 'source-1' })
         logic.mount()
@@ -108,12 +109,13 @@ describe('sourceSettingsLogic', () => {
         await jest.advanceTimersByTimeAsync(500)
         expect(bulkUpdateSchemasSpy).not.toHaveBeenCalled()
 
-        const confirm = dialogSpy.mock.calls[0][0].primaryButton?.onClick as () => void
-        confirm()
+        const { initialValues, onSubmit } = dialogSpy.mock.calls[0][0]
+        await onSubmit(initialValues)
         await jest.advanceTimersByTimeAsync(500)
 
+        // The migrated table gets the dialog's daily default, not the 6 hour default nobody chose.
         expect(bulkUpdateSchemasSpy).toHaveBeenCalledWith('source-1', [
-            expect.objectContaining({ id: 'schema-1', should_sync: true }),
+            expect.objectContaining({ id: 'schema-1', should_sync: true, sync_frequency: '24hour' }),
         ])
     })
 
@@ -387,7 +389,7 @@ describe('sourceSettingsLogic', () => {
         expect(loadJobsSpy).not.toHaveBeenCalled()
     })
 
-    it('dispatches breadcrumb name to the sourceSceneLogic for the source', async () => {
+    it('names the source scene and its Data recent, which pins by source id', async () => {
         const sceneLogicForSource = sourceSceneLogic({ id: 'managed-source-1' })
         sceneLogicForSource.mount()
 
@@ -397,6 +399,12 @@ describe('sourceSettingsLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
 
         expect(sceneLogicForSource.values.breadcrumbName).toEqual('warehouse')
+        expect(sceneLogicForSource.values.todayRecent).toEqual({
+            type: 'data_source',
+            name: 'Postgres (warehouse)',
+            href: urls.dataWarehouseSource('managed-source-1', 'schemas'),
+            ref: 'source-1',
+        })
 
         sceneLogicForSource.unmount()
     })

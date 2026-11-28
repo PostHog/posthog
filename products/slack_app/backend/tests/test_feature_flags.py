@@ -1,6 +1,10 @@
 import pytest
 from unittest.mock import patch
 
+from django.core.cache import cache
+
+from posthog.models.integration import Integration
+
 from products.slack_app.backend import feature_flags
 from products.slack_app.backend.tests.conftest import SLACK_TEAM_ID
 
@@ -39,6 +43,7 @@ USER_KEYED_GATES = [
     feature_flags.is_slack_app_connect_tool_from_chat_enabled,
     feature_flags.is_slack_app_daily_work_focus_enabled,
     feature_flags.is_slack_app_slack_mcp_enabled,
+    feature_flags.is_slack_app_daily_summary_enabled,
 ]
 
 
@@ -69,17 +74,48 @@ def test_user_keyed_gate_resolves_against_the_acting_user(
 
 
 @pytest.mark.parametrize(
-    ("plan_rollout_on", "slack_flag_on", "expected"),
-    [(True, True, True), (False, True, False), (True, False, False)],
-    ids=["both on", "plan rollout off", "slack flag off"],
+    ("adapter", "distinct_id", "plan_rollout_on", "expected"),
+    [
+        ("codex", "user-1", False, True),
+        ("codex", None, True, False),
+        ("claude", "user-1", True, True),
+        ("claude", "user-1", False, False),
+    ],
+    ids=["codex is open", "codex needs a user", "claude rollout on", "claude rollout off"],
 )
-def test_byos_gate_depends_on_the_plan_rollout_flag(workspace_integration, plan_rollout_on, slack_flag_on, expected):
-    # A Slack run marked for a plan whose rollout is off fails when it starts, so the Slack
-    # flag alone must never open the gate.
-    def feature_enabled(key, *args, **kwargs):
-        if key == feature_flags.SLACK_APP_BYOS_FLAG:
-            return slack_flag_on
-        return plan_rollout_on
+def test_byos_gate_follows_the_plan_rollout(
+    workspace_integration: Integration, adapter: str, distinct_id: str | None, plan_rollout_on: bool, expected: bool
+) -> None:
+    # A Slack run marked for a plan whose rollout is off fails when it starts, so the gate
+    # must match the tasks rollout for that plan exactly.
+    with patch("posthoganalytics.feature_enabled", return_value=plan_rollout_on):
+        assert feature_flags.is_slack_app_byos_enabled(workspace_integration, distinct_id, adapter=adapter) is expected
 
-    with patch("posthoganalytics.feature_enabled", side_effect=feature_enabled):
-        assert feature_flags.is_slack_app_byos_enabled(workspace_integration, "user-1") is expected
+
+@pytest.mark.parametrize(
+    ("flag_result", "expected"),
+    [(True, True), (False, False), (None, True), (RuntimeError("flags unavailable"), True)],
+    ids=["on", "off", "not evaluated", "error"],
+)
+def test_chatgpt_apps_gate_counts_a_failed_evaluation_as_on(
+    workspace_integration: Integration, flag_result: object, expected: bool
+) -> None:
+    # Off keeps the plan's apps in Slack runs, so a flag outage must not turn the owner's setting off.
+    kwargs = {"side_effect": flag_result} if isinstance(flag_result, Exception) else {"return_value": flag_result}
+    with patch("posthoganalytics.feature_enabled", **kwargs):
+        assert feature_flags.is_slack_app_chatgpt_apps_setting_enabled(workspace_integration, "user-1") is expected
+
+
+@pytest.mark.parametrize(
+    ("flag_result", "expected"),
+    [(True, True), (False, False), (None, True), (RuntimeError("flags unavailable"), True)],
+    ids=["on", "off", "not evaluated", "error"],
+)
+def test_web_settings_enforcement_counts_a_failed_evaluation_as_on(
+    workspace_integration: Integration, flag_result: object, expected: bool
+) -> None:
+    # The gate keeps an admin's restriction, such as the shared channels switch, so a flag outage must not lift it.
+    cache.clear()
+    kwargs = {"side_effect": flag_result} if isinstance(flag_result, Exception) else {"return_value": flag_result}
+    with patch("posthoganalytics.feature_enabled", **kwargs):
+        assert feature_flags.is_slack_app_web_settings_enforced(workspace_integration) is expected

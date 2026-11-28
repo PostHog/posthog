@@ -417,6 +417,14 @@ def pluralize(count: int, singular: str, plural: str | None = None) -> str:
     return f"{count} {singular if count == 1 else plural}"
 
 
+def ordinal(number: int) -> str:
+    """English ordinal of a whole number, such as "1st", "12th" or "22nd"."""
+    if 11 <= number % 100 <= 13:
+        return f"{number}th"
+    suffix = {1: "st", 2: "nd", 3: "rd"}.get(number % 10, "th")
+    return f"{number}{suffix}"
+
+
 def human_list(items: Sequence[str]) -> str:
     """Join iterable of strings into a human-readable list ("a, b, and c").
     Uses the Oxford comma only when there are at least 3 items."""
@@ -740,6 +748,7 @@ def _build_template_context(
             "project_access_denied": getattr(request, "project_access_denied", None),
             "commit_sha": context["git_rev"],
             "livestream_host": settings.LIVESTREAM_HOST,
+            "uploaded_media_origin": settings.UPLOADED_MEDIA_PUBLIC_URL or None,
             **posthog_app_context,
         }
 
@@ -772,6 +781,8 @@ def _build_template_context(
         "oauth_consent_access_controls_apply",
         "oauth_scope_resolution",
         "oauth_ema_issuer_consent",
+        "oauth_reauthentication_required",
+        "toolbar_oauth_error",
     ):
         if caller_key in context:
             posthog_app_context[caller_key] = context.pop(caller_key)
@@ -1836,6 +1847,8 @@ def get_instance_available_sso_providers() -> dict[str, bool]:
         "github": bool(settings.SOCIAL_AUTH_GITHUB_KEY and settings.SOCIAL_AUTH_GITHUB_SECRET),
         "gitlab": bool(settings.SOCIAL_AUTH_GITLAB_KEY and settings.SOCIAL_AUTH_GITLAB_SECRET),
         "google-oauth2": False,
+        # Demo social signups get is_staff, and ChatGPT has no trusted-domain restriction like Google has there
+        "chatgpt": not settings.DEMO and bool(settings.SOCIAL_AUTH_CHATGPT_KEY and settings.SOCIAL_AUTH_CHATGPT_SECRET),
     }
 
     # Get license information

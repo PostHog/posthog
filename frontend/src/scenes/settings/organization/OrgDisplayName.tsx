@@ -1,18 +1,25 @@
 import { useActions, useValues } from 'kea'
-import { useEffect, useState } from 'react'
+import { MouseEvent, useEffect, useState } from 'react'
 
 import { IconUpload, IconX } from '@posthog/icons'
 import { LemonButton, LemonFileInput, LemonInput, lemonToast } from '@posthog/lemon-ui'
 
 import { useRestrictedArea } from 'lib/components/RestrictedArea'
 import { OrganizationMembershipLevel } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useUploadFiles } from 'lib/hooks/useUploadFiles'
+import { Link } from 'lib/lemon-ui/Link'
 import { UploadedLogo } from 'lib/lemon-ui/UploadedLogo/UploadedLogo'
+import { billingLogic } from 'lib/logic/billing/billingLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
+import { urls } from 'scenes/urls'
+
+import { QuillOrganizationDisplayName } from './QuillOrganizationDisplayName'
 
 export function OrganizationDisplayName(): JSX.Element {
     const { currentOrganization, currentOrganizationLoading } = useValues(organizationLogic)
     const { updateOrganization } = useActions(organizationLogic)
+    const { isDirectlyBilledPayingCustomer, canAccessBilling } = useValues(billingLogic)
 
     const [name, setName] = useState(currentOrganization?.name || '')
     const [logoMediaId, setLogoMediaId] = useState(currentOrganization?.logo_media_id || null)
@@ -33,10 +40,12 @@ export function OrganizationDisplayName(): JSX.Element {
     })
 
     const restrictionReason = useRestrictedArea({ minimumAccessLevel: OrganizationMembershipLevel.Admin })
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     const nameChanged = name !== (currentOrganization?.name || '')
     const logoChanged = logoMediaId !== (currentOrganization?.logo_media_id || null)
     const hasChanges = nameChanged || logoChanged
+    const showBillingNameNote = nameChanged && isDirectlyBilledPayingCustomer
 
     const saveDisabledReason = restrictionReason
         ? restrictionReason
@@ -48,6 +57,44 @@ export function OrganizationDisplayName(): JSX.Element {
               ? 'Organization not loaded'
               : undefined
     const saving = currentOrganizationLoading || uploading
+
+    const resetLogo = (e: MouseEvent): void => {
+        setLogoMediaId(null)
+        e.preventDefault()
+    }
+
+    const save = (e: MouseEvent): void => {
+        e.preventDefault()
+        const updates: Record<string, unknown> = {}
+        if (nameChanged) {
+            updates.name = name
+        }
+        if (logoChanged) {
+            updates.logo_media_id = logoMediaId
+        }
+        updateOrganization(updates)
+    }
+
+    if (todayRailNav) {
+        return (
+            <QuillOrganizationDisplayName
+                organization={currentOrganization}
+                name={name}
+                onNameChange={setName}
+                showBillingNameNote={showBillingNameNote}
+                canAccessBilling={canAccessBilling}
+                logoMediaId={logoMediaId}
+                onResetLogo={resetLogo}
+                filesToUpload={filesToUpload}
+                onFilesToUploadChange={setFilesToUpload}
+                uploading={uploading}
+                restrictionReason={restrictionReason}
+                saveDisabledReason={saveDisabledReason}
+                saving={saving}
+                onSave={save}
+            />
+        )
+    }
 
     return (
         <div className="flex gap-6 items-start">
@@ -70,10 +117,7 @@ export function OrganizationDisplayName(): JSX.Element {
                             <div className="absolute -inset-2 group">
                                 <LemonButton
                                     icon={<IconX />}
-                                    onClick={(e) => {
-                                        setLogoMediaId(null)
-                                        e.preventDefault()
-                                    }}
+                                    onClick={resetLogo}
                                     size="small"
                                     tooltip="Reset back to lettermark"
                                     tooltipPlacement="right"
@@ -97,23 +141,21 @@ export function OrganizationDisplayName(): JSX.Element {
                     data-attr="organization-name-input-settings"
                     placeholder="Organization name"
                 />
+                {showBillingNameNote && (
+                    <p className="text-xs text-secondary -mt-1 mb-1.5">
+                        This doesn't change the company name on your invoices.{' '}
+                        {canAccessBilling ? (
+                            <>
+                                To change that, update your billing details from the{' '}
+                                <Link to={urls.organizationBilling()}>billing page</Link>.
+                            </>
+                        ) : (
+                            'To change that, ask an organization owner to update the billing details.'
+                        )}
+                    </p>
+                )}
                 <div className="flex items-center gap-2">
-                    <LemonButton
-                        type="primary"
-                        onClick={(e) => {
-                            e.preventDefault()
-                            const updates: Record<string, unknown> = {}
-                            if (nameChanged) {
-                                updates.name = name
-                            }
-                            if (logoChanged) {
-                                updates.logo_media_id = logoMediaId
-                            }
-                            updateOrganization(updates)
-                        }}
-                        disabledReason={saveDisabledReason}
-                        loading={saving}
-                    >
+                    <LemonButton type="primary" onClick={save} disabledReason={saveDisabledReason} loading={saving}>
                         Save
                     </LemonButton>
                 </div>

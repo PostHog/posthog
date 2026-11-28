@@ -1,6 +1,6 @@
-node "small" {
+node "ingestion_small" {
   macros = {
-    hostClusterRole = "small"
+    hostClusterRole = "ingestion_small"
     hostClusterType = "online"
     replica         = "small"
     shard           = "01"
@@ -107,10 +107,13 @@ database "posthog" {
       type = "DateTime64(6, 'UTC')"
     }
     engine "kafka" {
-      collection = "warpstream_ingestion"
-      topic_list = "clickhouse_billing_usage_records"
-      group_name = "clickhouse_billing_usage_records"
-      format     = "JSONEachRow"
+      collection           = "warpstream_ingestion"
+      topic_list           = "clickhouse_billing_usage_records"
+      group_name           = "clickhouse_billing_usage_records"
+      format               = "JSONEachRow"
+      num_consumers        = 1
+      skip_broken_messages = 100
+      thread_per_consumer  = true
     }
   }
 
@@ -1087,6 +1090,9 @@ database "posthog" {
     }
     column "lc_estimated_bytes" {
       type = "SimpleAggregateFunction(max, Int64)"
+    }
+    column "log_comment" {
+      type = "SimpleAggregateFunction(max, String)"
     }
     column "query_id" {
       type = "String"
@@ -3134,10 +3140,6 @@ SQL
 }
 
 named_collection "msk_cluster" {
-  external = true
-}
-
-named_collection "warpstream_calculated_events" {
   external = true
 }
 

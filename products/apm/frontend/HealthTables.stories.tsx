@@ -19,7 +19,9 @@ const WINDOW = { date_from: '2026-06-02T07:00:00Z', date_to: '2026-06-02T08:00:0
 
 function health(request_rate: number, error_rate: number, p95_ms: number | null): HealthRowApi {
     const span_count = Math.round(request_rate * 3600)
-    return { request_rate, error_rate, p95_ms, span_count, error_count: Math.round(span_count * error_rate) }
+    // A rough score that falls with errors and latency, so the column has a believable spread.
+    const apdex = p95_ms === null ? null : Math.round(Math.max(0, 1 - error_rate * 3 - p95_ms / 5000) * 100) / 100
+    return { request_rate, error_rate, p95_ms, span_count, error_count: Math.round(span_count * error_rate), apdex }
 }
 
 function service(service_name: string, status: HealthStatusEnumApi, row: HealthRowApi): ServiceHealthApi {

@@ -433,17 +433,17 @@ class TestBotIPClassification:
         assert result.name == "if"
         # The unmatched-UA branch is now the IP lookup, itself defaulting to the constant
         fallback = result.args[1]
-        assert isinstance(fallback, ast.Call)
-        assert fallback.name == "if"
-        ip_default = fallback.args[1]
+        assert isinstance(fallback, ast.ArrayAccess)
+        assert isinstance(fallback.array, ast.Array)
+        ip_default = fallback.array.exprs[0]
         assert isinstance(ip_default, ast.Constant)
         assert ip_default.value == expected_default
         # IP definition index is a multiIf over the per-definition range matches
-        ip_index_comparison = fallback.args[0]
-        assert isinstance(ip_index_comparison, ast.CompareOperation)
-        assert isinstance(ip_index_comparison.left, ast.Call)
-        assert ip_index_comparison.left.name == "multiIf"
-        assert len(ip_index_comparison.left.args) == 2 * len(BOT_IP_DEFINITIONS) + 1
+        ip_index = fallback.property
+        assert isinstance(ip_index, ast.ArithmeticOperation)
+        assert isinstance(ip_index.left, ast.Call)
+        assert ip_index.left.name == "multiIf"
+        assert len(ip_index.left.args) == 2 * len(BOT_IP_DEFINITIONS) + 1
 
 
 class TestBotIPDefinitionsDataStructure:
@@ -1092,6 +1092,8 @@ class TestServerAndMobileSdkClassification(ClickhouseTestMixin, BaseTest):
             ("python_empty_user_agent", "posthog-python", {"$raw_user_agent": ""}),
             ("laravel", "posthog-laravel", {}),
             ("laravel_empty_user_agent", "posthog-laravel", {"$raw_user_agent": ""}),
+            ("rust_ffi", "posthog-rs-ffi", {}),
+            ("electron", "posthog-electron", {}),
             ("react_native", "posthog-react-native", {}),
             ("ios", "posthog-ios", {}),
         ]

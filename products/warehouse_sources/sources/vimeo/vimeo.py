@@ -21,9 +21,11 @@ from products.warehouse_sources.sources.vimeo.settings import (
     BASE_URL,
     ENDPOINTS,
     FANOUT_ENDPOINTS,
+    NESTED_ENDPOINTS,
     PAGE_SIZE,
     PERMISSION_ERROR,
     PRIMARY_KEYS,
+    VimeoNestedList,
 )
 
 
@@ -43,6 +45,8 @@ def vimeo_headers(api_version: str) -> dict[str, str]:
 
 
 def _top_level_endpoint(endpoint: str) -> str:
+    if endpoint in NESTED_ENDPOINTS:
+        endpoint = NESTED_ENDPOINTS[endpoint].parent
     while endpoint in FANOUT_ENDPOINTS:
         endpoint = FANOUT_ENDPOINTS[endpoint].parent
     return endpoint
@@ -80,6 +84,13 @@ def _connection_link(connection: str) -> Callable[[dict[str, Any]], dict[str, An
     return _link
 
 
+def _nested_rows(nested: VimeoNestedList) -> Callable[[dict[str, Any]], list[dict[str, Any]]]:
+    def _rows(row: dict[str, Any]) -> list[dict[str, Any]]:
+        return [{**item, nested.parent_uri_column: row["uri"]} for item in row.get(nested.field) or []]
+
+    return _rows
+
+
 def _resource_chain(endpoint: str, connection: str | None = None) -> list[EndpointResource]:
     """Resources from a top-level list down to `endpoint`.
 
@@ -89,7 +100,12 @@ def _resource_chain(endpoint: str, connection: str | None = None) -> list[Endpoi
     resource: EndpointResource = {"name": endpoint, "write_disposition": "replace", "endpoint": {}}
     chain: list[EndpointResource] = []
     fanout = FANOUT_ENDPOINTS.get(endpoint)
-    if fanout is None:
+    nested = NESTED_ENDPOINTS.get(endpoint)
+    if nested is not None:
+        path = schema_for_resource(ENDPOINTS, nested.parent)
+        params.update({"sort": "date", "direction": "asc", "fields": f"uri,{nested.field}"})
+        resource["data_map"] = _nested_rows(nested)
+    elif fanout is None:
         path = schema_for_resource(ENDPOINTS, endpoint)
         params.update({"sort": "date", "direction": "asc"})
     else:
@@ -170,5 +186,11 @@ def vimeo_source(
     fanout = FANOUT_ENDPOINTS.get(endpoint)
     if fanout is not None:
         resource.add_map(rename_parent_fields(fanout.parent, {"uri": fanout.parent_uri_column}))
-    primary_keys = fanout.primary_keys if fanout is not None else PRIMARY_KEYS
+    nested = NESTED_ENDPOINTS.get(endpoint)
+    if fanout is not None:
+        primary_keys = fanout.primary_keys
+    elif nested is not None:
+        primary_keys = nested.primary_keys
+    else:
+        primary_keys = PRIMARY_KEYS
     return SourceResponse(name=endpoint, items=lambda: resource, primary_keys=primary_keys)

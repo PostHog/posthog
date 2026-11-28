@@ -750,18 +750,26 @@ function composeToolSchema(
                 return optionalParamNames.has(paramName) ? `${wrapped}.optional()` : wrapped
             }
 
+            const overrideSuffix = override.required ? '' : optionalSuffix
             if (override.input_schema) {
                 toolInputsImports.push(override.input_schema)
-                schemaOverrides.push(`${paramName}: ${override.input_schema}${optionalSuffix}`)
+                schemaOverrides.push(`${paramName}: ${override.input_schema}${overrideSuffix}`)
                 if (isWriteOp && !bodyFieldNames.includes(paramName)) {
                     bodyFieldNames.push(paramName)
                 }
             } else if (override.schema_ref) {
                 const excludeProps = override.exclude_properties ?? []
-                const zodCode = generateZodFromSchemaRef(getQuerySchema(), override.schema_ref, excludeProps)
+                // A write stores this value, so its objects keep undeclared keys (see SchemaRefOptions).
+                const schemaRefOptions = { keepUnknownKeys: isWriteOp }
+                const zodCode = generateZodFromSchemaRef(
+                    getQuerySchema(),
+                    override.schema_ref,
+                    excludeProps,
+                    schemaRefOptions
+                )
                 schemaRefBlocks.push(zodCode)
-                const varName = getEntryVarName(override.schema_ref)
-                schemaOverrides.push(`${paramName}: ${varName}${optionalSuffix}`)
+                const varName = getEntryVarName(override.schema_ref, schemaRefOptions)
+                schemaOverrides.push(`${paramName}: ${varName}${overrideSuffix}`)
                 if (isWriteOp && !bodyFieldNames.includes(paramName)) {
                     bodyFieldNames.push(paramName)
                 }
@@ -943,7 +951,10 @@ function buildPathExpr(
 
 type ResponseFilterHelper = 'pickResponseFields' | 'omitResponseFields' | 'stripNullFields'
 
-function buildResponseFilter(config: ToolConfig): {
+function buildResponseFilter(
+    config: ToolConfig,
+    responseType?: string
+): {
     code: string
     helperImports: ResponseFilterHelper[]
 } {
@@ -985,6 +996,14 @@ function buildResponseFilter(config: ToolConfig): {
         return { code: '', helperImports: [] }
     }
 
+    // A list endpoint with `pagination_class = None` returns its rows as a bare array, not a page. The page
+    // branch stays as a fallback so the compiled tool shapes a response the way the CLI catalog executor does.
+    if (config.list && responseType?.endsWith('[]')) {
+        return {
+            code: `        const filtered = (Array.isArray(result) ? result.map((item: any) => ${shapeItem('item')}) : { ...(result as any), results: ((result as any).results ?? []).map((item: any) => ${shapeItem('item')}) }) as typeof result\n`,
+            helperImports,
+        }
+    }
     if (config.list) {
         return {
             code: `        const filtered = { ...result, results: (result.results ?? []).map((item: any) => ${shapeItem('item')}) } as typeof result\n`,
@@ -1412,7 +1431,7 @@ function generateToolCode(
     handlerBody += `        })\n`
 
     // Response filtering — pick/omit fields before enrichment
-    const responseFilter = buildResponseFilter(config)
+    const responseFilter = buildResponseFilter(config, responseType)
     if (responseFilter.code) {
         // Warn if filtering might break enrich_url — only for response-sourced fields;
         // '{params.x}' fields are read from the request params, so filtering can't break them.
@@ -1457,7 +1476,7 @@ function generateToolCode(
     const hasAgentNote = !!config.agent_note
     const needsWithAgentNote = hasAgentNote && !!responseType
     if (needsWithAgentNote) {
-        resultType = `WithAgentNote<${resultType}>`
+        resultType = `WithAgentNote<${resultType}${config.hooks ? ', false' : ''}>`
     }
     const needsWithInformationalResponse = !!config.response?.informational_wrapper
     if (needsWithInformationalResponse) {
@@ -1830,7 +1849,7 @@ function generateCustomSchemaToolCode(
     handlerBody += `        })\n`
 
     // Response filtering — pick/omit fields before enrichment
-    const responseFilter = buildResponseFilter(config)
+    const responseFilter = buildResponseFilter(config, responseType)
     handlerBody += responseFilter.code
 
     const enrichmentVar = responseFilter.code ? 'filtered' : 'result'
@@ -1858,7 +1877,9 @@ function generateCustomSchemaToolCode(
 
     const hasAgentNote = !!config.agent_note
     const needsWithAgentNote = hasAgentNote && !!responseType
-    let customResultType = needsWithAgentNote ? `WithAgentNote<${responseType}>` : (responseType ?? 'unknown')
+    let customResultType = needsWithAgentNote
+        ? `WithAgentNote<${responseType}${config.hooks ? ', false' : ''}>`
+        : (responseType ?? 'unknown')
     const needsWithInformationalResponse = !!config.response?.informational_wrapper
     if (needsWithInformationalResponse) {
         customResultType = `WithInformationalResponse<${customResultType}>`

@@ -26,6 +26,7 @@ import { deleteFromTree, refreshTreeItem } from '~/layout/panel-layout/ProjectTr
 import { CohortType, FilterLogicalOperator } from '~/types'
 
 import * as cohortsApi from 'products/cohorts/frontend/generated/api'
+import type { CohortApi } from 'products/cohorts/frontend/generated/api.schemas'
 
 import type { TeamPublicType, TeamType } from '../types'
 
@@ -137,7 +138,7 @@ export interface cohortsModelActions {
     cacheCohort: (cohort: CohortType) => {
         cohort: CohortType
     }
-    cohortCreated: (cohort: CohortType) => {
+    cohortCreated: (cohort: CohortApi | CohortType) => {
         cohort: CohortType
     }
     deleteCohort: (cohort: Partial<CohortType>) => {
@@ -215,7 +216,9 @@ export const cohortsModel = kea<cohortsModelType>([
         updateCohort: (cohort: CohortType) => ({ cohort }),
         cacheCohort: (cohort: CohortType) => ({ cohort }),
         deleteCohort: (cohort: Partial<CohortType>) => ({ cohort }),
-        cohortCreated: (cohort: CohortType) => ({ cohort }),
+        // `allCohorts` holds the handwritten CohortType, like `cacheCohort`, so a cohort the generated client
+        // created enters the cache in that shape here.
+        cohortCreated: (cohort: CohortType | CohortApi) => ({ cohort: cohort as CohortType }),
         hydrateAllCohortsFromExport: (cohorts: Pick<CohortType, 'id' | 'name'>[]) => ({ cohorts }),
     })),
     loaders(({ actions, values, cache }) => ({

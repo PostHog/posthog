@@ -1,5 +1,6 @@
-import { useValues } from 'kea'
+import { useMountedLogic, useValues } from 'kea'
 import { router, combineUrl } from 'kea-router'
+import { Suspense } from 'react'
 
 import { LemonButton, LemonTab, LemonTabs, LemonTag } from '@posthog/lemon-ui'
 import { Button } from '@posthog/quill'
@@ -9,6 +10,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { lazyWithRetry } from 'lib/utils/retryImport'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
@@ -21,6 +23,7 @@ import { MCPAnalyticsActivityDashboard } from './earlyData/MCPAnalyticsEarlyData
 import { mcpAnalyticsEmptyState } from './emptyState/mcpAnalyticsEmptyState'
 import { FirstDataSeen } from './FirstDataSeen'
 import { MCPAnalyticsLeaderboardHome } from './leaderboardHome/MCPAnalyticsLeaderboardHome'
+import { mcpAnalyticsFiltersLogic, pickSharedFilterParams } from './mcpAnalyticsFiltersLogic'
 import { mcpAnalyticsOnboardingLogic } from './mcpAnalyticsOnboardingLogic'
 import { MCPAnalyticsTab, TAB_DESCRIPTIONS, mcpAnalyticsSceneLogic } from './mcpAnalyticsSceneLogic'
 import { MCPAnalyticsSceneMenuBar } from './MCPAnalyticsSceneMenuBar'
@@ -31,6 +34,9 @@ import { mcpAnalyticsNotificationsLogic } from './notifications/mcpAnalyticsNoti
 import { MCPSessionsPlaylist } from './sessions/MCPSessionsPlaylist'
 import { MCPSetupMode } from './setupMode/MCPSetupMode'
 import { SetupGuideButton } from './setupMode/SetupGuideButton'
+import { MCPAnalyticsUsers } from './users/MCPAnalyticsUsers'
+import { MCPWrapped } from './wrapped/MCPWrapped'
+import { WrappedButton } from './wrapped/WrappedButton'
 
 export const scene: SceneExport = {
     component: MCPAnalyticsScene,
@@ -41,7 +47,19 @@ export const scene: SceneExport = {
 
 const MCP_DOCS_URL = 'https://posthog.com/docs/mcp-analytics/installation'
 
+const LegacyMCPAnalyticsScene = lazyWithRetry(() =>
+    import('./legacy/MCPAnalyticsScene').then((m) => ({ default: m.MCPAnalyticsScene }))
+)
+
 export function MCPAnalyticsScene(): JSX.Element {
+    const redesign = useFeatureFlag('MCP_ANALYTICS_REDESIGN')
+    if (!redesign) {
+        return (
+            <Suspense fallback={null}>
+                <LegacyMCPAnalyticsScene />
+            </Suspense>
+        )
+    }
     return (
         <>
             <FirstDataSeen />
@@ -51,6 +69,8 @@ export function MCPAnalyticsScene(): JSX.Element {
 }
 
 function MCPAnalyticsSceneBody(): JSX.Element {
+    // The scene logic is shared with the legacy UI, so the redesign mounts its own filters logic.
+    useMountedLogic(mcpAnalyticsFiltersLogic)
     const { searchParams } = useValues(router)
     const { activeTab } = useValues(mcpAnalyticsSceneLogic)
     const { onboardingState } = useValues(mcpAnalyticsOnboardingLogic)
@@ -63,10 +83,9 @@ function MCPAnalyticsSceneBody(): JSX.Element {
         return <NotFound object="page" />
     }
 
-    // landing is a one-shot redirect marker, while search belongs to Sessions and Missing capabilities.
-    // The date range stays shared across every tab.
-    const { landing: _landing, ...tabParams } = searchParams
-    const { search: _search, ...sharedParams } = tabParams
+    // Only the shared filters and search carry across tabs.
+    const sharedParams = pickSharedFilterParams(searchParams)
+    const tabParams = searchParams.search ? { ...sharedParams, search: searchParams.search } : sharedParams
 
     const activityTab: LemonTab<MCPAnalyticsTab> = {
         key: 'activity',
@@ -92,6 +111,13 @@ function MCPAnalyticsSceneBody(): JSX.Element {
             content: <MCPSessionsPlaylist />,
             link: combineUrl(urls.mcpAnalyticsSessions(), tabParams).url,
             'data-attr': 'mcp-analytics-sessions-tab',
+        },
+        {
+            key: 'users',
+            label: 'Users',
+            content: <MCPAnalyticsUsers />,
+            link: combineUrl(urls.mcpAnalyticsUsers(), tabParams).url,
+            'data-attr': 'mcp-analytics-users-tab',
         },
         {
             key: 'tool-quality',
@@ -139,6 +165,7 @@ function MCPAnalyticsSceneBody(): JSX.Element {
     return (
         <SceneContent>
             <MCPSetupMode />
+            <MCPWrapped />
             <MCPAnalyticsSceneMenuBar />
             <SceneTitleSection
                 name="MCP analytics"
@@ -147,6 +174,7 @@ function MCPAnalyticsSceneBody(): JSX.Element {
                 actions={
                     todayRailNav ? (
                         <>
+                            <WrappedButton quill />
                             <SetupGuideButton quill />
                             <Button variant="outline" render={<LinkPrimitive to={MCP_DOCS_URL} target="_blank" />}>
                                 Documentation
@@ -154,6 +182,7 @@ function MCPAnalyticsSceneBody(): JSX.Element {
                         </>
                     ) : (
                         <>
+                            <WrappedButton quill={false} />
                             <SetupGuideButton quill={false} />
                             <LemonButton to={MCP_DOCS_URL} type="secondary" targetBlank size="small">
                                 Documentation

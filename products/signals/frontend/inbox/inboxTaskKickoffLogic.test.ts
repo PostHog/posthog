@@ -183,27 +183,32 @@ describe('inboxTaskKickoffLogic', () => {
             expect(logic.values.reportDiscussionIntent).toBeNull()
         })
 
-        it.each([false, true])('shows the repository error without a picker (access mounted: %s)', async (mounted) => {
+        it.each([false, true])('asks for a repository before the request (access mounted: %s)', async (mounted) => {
             const toast = jest.spyOn(lemonToast, 'error').mockImplementation(() => 'toast-id')
             const reportWithoutRepository = { ...report, repo_slug: null }
             const access = reportGithubAccessLogic({ report: reportWithoutRepository })
             const unmount = mounted ? access.mount() : undefined
+            let taskRequests = 0
             useMocks({
                 post: {
-                    '/api/projects/:team/tasks/': () => [
-                        400,
-                        {
-                            code: 'report_implementation_repository_unresolved',
-                            detail: 'Select a repository to continue.',
-                        },
-                    ],
+                    '/api/projects/:team/tasks/': () => {
+                        taskRequests += 1
+                        return [
+                            400,
+                            {
+                                code: 'report_implementation_repository_unresolved',
+                                detail: 'Select a repository to continue.',
+                            },
+                        ]
+                    },
                 },
             })
             try {
                 await expectLogic(logic, () =>
                     logic.actions.createPrFromReport(reportWithoutRepository)
                 ).toFinishAllListeners()
-                expect(toast).toHaveBeenCalledWith('Select a repository to continue.')
+                expect(taskRequests).toBe(mounted ? 0 : 1)
+                expect(toast.mock.calls).toEqual(mounted ? [] : [['Select a repository to continue.']])
                 expect(startedRuns).toHaveLength(0)
             } finally {
                 unmount?.()
@@ -314,6 +319,53 @@ describe('inboxTaskKickoffLogic', () => {
             expect(humanTexts()).toEqual(['Explain the recommendation'])
         })
 
+        it.each(['create', 'run'] as const)('treats leaving the report mid-kickoff as a cancel (%s)', async (phase) => {
+            const toastError = jest.spyOn(lemonToast, 'error').mockImplementation(() => 'toast-id')
+            const capture = jest.spyOn(posthog, 'capture')
+            capture.mockClear()
+            let requestStarted = (): void => {}
+            const started = new Promise<void>((resolve) => {
+                requestStarted = resolve
+            })
+            let releaseCreate = (): void => {}
+            const createGate = new Promise<void>((resolve) => {
+                releaseCreate = resolve
+            })
+            useMocks({
+                post: {
+                    '/api/projects/:team/tasks/': async ({ request }) => {
+                        createdTasks.push((await request.json()) as Record<string, unknown>)
+                        requestStarted()
+                        if (phase === 'create') {
+                            await createGate
+                        }
+                        return [201, { id: 'report-task' }]
+                    },
+                },
+            })
+            onRunRequest = () => logic.unmount()
+            try {
+                const kickoff = logic.asyncActions.discussReport(
+                    report,
+                    'https://example.com/report',
+                    'Explain the recommendation'
+                )
+                if (phase === 'create') {
+                    await started
+                    logic.unmount()
+                    releaseCreate()
+                }
+                await kickoff
+
+                expect(toastError).not.toHaveBeenCalled()
+                const completed = capture.mock.calls.filter(([event]) => event === INBOX_EVENTS.REPORT_ACTION_COMPLETED)
+                expect(completed).toEqual([])
+            } finally {
+                toastError.mockRestore()
+                capture.mockRestore()
+            }
+        })
+
         it('warms a repo-less sandbox for the report when Ask AI opens, and only once per report', async () => {
             warmResponse = { task_id: 'warm-task', run_id: 'warm-run' }
 
@@ -337,6 +389,25 @@ describe('inboxTaskKickoffLogic', () => {
                 runId: 'warm-run',
             })
             expect(cancelledRuns).toHaveLength(0)
+        })
+
+        it.each([
+            [
+                'a billing-limit 429',
+                0,
+                429,
+                { type: 'billing_limit', code: 'fake_limit_code', error: 'Limit reached.' },
+            ],
+            ['a 500', 1, 500, { detail: 'Server error.' }],
+        ])('captures a report warm that failed with %s %i times', async (_, expectedReports, status, body) => {
+            useMocks({ post: { '/api/projects/:team/tasks/warm/': () => [status, body] } })
+
+            await expectLogic(logic, () => {
+                logic.actions.openReportDiscussion(report, 'https://example.com/report')
+            }).toFinishAllListeners()
+
+            expect(posthog.captureException).toHaveBeenCalledTimes(expectedReports)
+            expect(logic.values.reportWarmLease).toBeNull()
         })
 
         it.each(['implementation', 'discussion'] as const)(
@@ -410,43 +481,64 @@ describe('inboxTaskKickoffLogic', () => {
         })
 
         it.each([
-            ['report_implementation_repository_unresolved', true],
-            ['invalid_input', false],
-            ['permission_denied', false],
-        ])('offers repository recovery only for an unresolved repository (%s)', async (code, expected) => {
-            useMocks({
-                get: {
-                    '/api/projects/:team/integrations/': {
-                        results: [{ id: 1, kind: 'github', installation_status: 'connected' }],
-                        next: null,
-                    },
-                },
-            })
-            const reportWithoutRepository = { ...report, repo_slug: null }
-            const access = reportGithubAccessLogic({ report: reportWithoutRepository })
-            const unmount = access.mount()
-            try {
-                await waitFor(() => expect(access.values.loading).toBe(false))
+            ['report_implementation_repository_unresolved', false, true],
+            ['report_implementation_repository_unresolved', true, false],
+            ['invalid_input', false, false],
+            ['permission_denied', false, false],
+        ])(
+            'offers repository recovery only for an unresolved repository (%s, left report: %s)',
+            async (code, leavesReport, expected) => {
+                const toast = jest.spyOn(lemonToast, 'error').mockImplementation(() => 'toast-id')
                 useMocks({
-                    post: {
-                        '/api/projects/:team/tasks/': () => [
-                            400,
-                            { type: 'validation_error', code, attr: 'repository', detail: 'The request failed.' },
-                        ],
+                    get: {
+                        '/api/projects/:team/integrations/': {
+                            results: [{ id: 1, kind: 'github', installation_status: 'connected' }],
+                            next: null,
+                        },
                     },
                 })
-                await expectLogic(logic, () =>
-                    logic.actions.createPrFromReport(reportWithoutRepository)
-                ).toFinishAllListeners()
+                const reportWithRepository = { ...report, repo_slug: 'example/app' }
+                const access = reportGithubAccessLogic({ report: reportWithRepository })
+                let unmount: (() => void) | null = access.mount()
+                const unmountAccess = (): void => {
+                    unmount?.()
+                    unmount = null
+                }
+                try {
+                    await waitFor(() => expect(access.values.loading).toBe(false))
+                    expect(access.values.repositoryRequired).toBe(false)
+                    useMocks({
+                        post: {
+                            '/api/projects/:team/tasks/': () => {
+                                if (leavesReport) {
+                                    unmountAccess()
+                                }
+                                return [
+                                    400,
+                                    {
+                                        type: 'validation_error',
+                                        code,
+                                        attr: 'repository',
+                                        detail: 'The request failed.',
+                                    },
+                                ]
+                            },
+                        },
+                    })
+                    await expectLogic(logic, () =>
+                        logic.actions.createPrFromReport(reportWithRepository)
+                    ).toFinishAllListeners()
 
-                expect(access.values.repositoryRequired).toBe(expected)
-                expect(startedRuns).toHaveLength(0)
-                expect(logic.values.isCreatingPr).toBe(false)
-                expect(logic.values.activeCreation).toBeNull()
-            } finally {
-                unmount()
+                    expect(toast.mock.calls).toEqual(expected ? [] : [['The request failed.']])
+                    expect(access.isMounted() && access.values.repositoryRequired).toBe(expected)
+                    expect(startedRuns).toHaveLength(0)
+                    expect(logic.values.isCreatingPr).toBe(false)
+                    expect(logic.values.activeCreation).toBeNull()
+                } finally {
+                    unmountAccess()
+                }
             }
-        })
+        )
 
         it.each([201, 503])('saves the repository before task creation (status %i)', async (status) => {
             const selections: Record<string, unknown>[] = []

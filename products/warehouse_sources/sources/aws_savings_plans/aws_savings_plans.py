@@ -1,4 +1,3 @@
-import re
 import json
 import datetime as dt
 import itertools
@@ -7,7 +6,6 @@ from decimal import Decimal
 from typing import Any
 
 import requests
-from botocore.auth import SigV4Auth
 from botocore.awsrequest import AWSRequest
 from botocore.credentials import Credentials
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
@@ -29,8 +27,11 @@ from products.warehouse_sources.sources.sdk import (
     BoundedRetry,
     ResumableSourceManager,
     SourceResponse,
+    aws_redact_values,
+    camel_to_snake,
     frozen,
     make_tracked_session,
+    sign_aws_request,
 )
 
 TRANSPORT_RETRY = BoundedRetry(
@@ -41,7 +42,6 @@ TRANSPORT_RETRY = BoundedRetry(
     raise_on_status=False,
 )
 THROTTLE_CODES = {"ThrottlingException", "TooManyRequestsException", "LimitExceededException", "RequestLimitExceeded"}
-CAMEL_BOUNDARY = re.compile(r"(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])")
 
 
 @frozen
@@ -65,17 +65,13 @@ class AwsSavingsPlansThrottledError(AwsSavingsPlansError):
 
 
 class AwsSavingsPlansClient:
-    def __init__(self, config: AwsSavingsPlansSourceConfig, api_version: str) -> None:
+    def __init__(self, config: AwsSavingsPlansSourceConfig, credentials: Credentials, api_version: str) -> None:
         if api_version != SAVINGS_PLANS_API_VERSION:
             raise ValueError(f"Unsupported AWS Savings Plans API version: {api_version}")
-        self.credentials = Credentials(config.aws_access_key_id, config.aws_secret_access_key, config.aws_session_token)
+        self.credentials = credentials
         self.session = make_tracked_session(
             retry=TRANSPORT_RETRY,
-            redact_values=tuple(
-                value
-                for value in (config.aws_access_key_id, config.aws_secret_access_key, config.aws_session_token)
-                if value
-            ),
+            redact_values=aws_redact_values(credentials),
         )
 
     @retry(
@@ -97,7 +93,7 @@ class AwsSavingsPlansClient:
             }
         body = json.dumps(payload).encode()
         request = AWSRequest(method="POST", url=url, data=body, headers=headers)
-        SigV4Auth(self.credentials, endpoint.service, SIGNING_REGION).add_auth(request)
+        sign_aws_request(request, self.credentials, endpoint.service, SIGNING_REGION)
         response = self.session.post(url, data=body, headers=dict(request.headers), timeout=60)
         if response.status_code >= 400:
             try:
@@ -145,7 +141,7 @@ def build_payload(
 
 
 def snake_case(item: dict[str, Any]) -> dict[str, Any]:
-    return {CAMEL_BOUNDARY.sub("_", key).lower(): value for key, value in item.items()}
+    return {camel_to_snake(key): value for key, value in item.items()}
 
 
 def recommendation_details(body: dict[str, Any]) -> list[dict[str, Any]]:
@@ -195,9 +191,7 @@ def normalize_rows(endpoint: SavingsPlansEndpoint, body: dict[str, Any]) -> list
             row["period_end"] = dt.datetime.fromisoformat(period["End"]).replace(tzinfo=dt.UTC)
             for field in ("utilization", "savings", "amortized_commitment", "coverage"):
                 for key, value in row.pop(field, {}).items():
-                    row[f"{field}_{CAMEL_BOUNDARY.sub('_', key).lower()}"] = (
-                        Decimal(value) if value not in (None, "") else None
-                    )
+                    row[f"{field}_{camel_to_snake(key)}"] = Decimal(value) if value not in (None, "") else None
         rows.append(row)
     return rows
 
@@ -279,11 +273,10 @@ def validation_error(code: str, endpoint: SavingsPlansEndpoint) -> str:
 
 def validate_credentials(
     config: AwsSavingsPlansSourceConfig,
+    credentials: Credentials,
     schema_name: str | None = None,
     api_version: str = SAVINGS_PLANS_API_VERSION,
 ) -> tuple[bool, str | None]:
-    if not config.aws_access_key_id or not config.aws_secret_access_key:
-        return False, "Enter an AWS access key ID and secret access key."
     endpoint = ENDPOINTS.get(schema_name or "savings_plans")
     if endpoint is None:
         return False, "Unknown AWS Savings Plans table."
@@ -291,7 +284,7 @@ def validate_credentials(
         parse_date(config.start_date)
     except ValueError:
         return False, "Enter the start date as YYYY-MM-DD."
-    client = AwsSavingsPlansClient(config, api_version)
+    client = AwsSavingsPlansClient(config, credentials, api_version)
     try:
         end = dt.datetime.now(dt.UTC).date() - dt.timedelta(days=1)
         payload = build_payload(endpoint, end - dt.timedelta(days=1), end)
@@ -319,6 +312,7 @@ def validate_credentials(
 
 def get_rows(
     config: AwsSavingsPlansSourceConfig,
+    credentials: Credentials,
     endpoint: SavingsPlansEndpoint,
     manager: ResumableSourceManager[AwsSavingsPlansResumeConfig],
     incremental: bool,
@@ -340,7 +334,7 @@ def get_rows(
         start + dt.timedelta(days=endpoint.window_days), end
     )
     token = resume.next_token if resume else None
-    client = AwsSavingsPlansClient(config, api_version)
+    client = AwsSavingsPlansClient(config, credentials, api_version)
     try:
         if endpoint.fan_out:
             yield from get_fan_out_rows(client, endpoint, manager, resume)
@@ -420,6 +414,7 @@ def get_fan_out_rows(
 
 def aws_savings_plans_source(
     config: AwsSavingsPlansSourceConfig,
+    credentials: Credentials,
     endpoint_name: str,
     manager: ResumableSourceManager[AwsSavingsPlansResumeConfig],
     incremental: bool,
@@ -430,7 +425,7 @@ def aws_savings_plans_source(
     metrics = endpoint.windowed
     return SourceResponse(
         name=endpoint_name,
-        items=lambda: get_rows(config, endpoint, manager, incremental, last_value, api_version),
+        items=lambda: get_rows(config, credentials, endpoint, manager, incremental, last_value, api_version),
         primary_keys=list(endpoint.primary_keys),
         partition_keys=["period_start"] if metrics else None,
         partition_mode="datetime" if metrics else None,

@@ -31,6 +31,8 @@ from django.utils import timezone
 
 import structlog
 
+from posthog.models.scoping.manager import resolve_effective_team_id
+
 from ..logic.change_summary import ReviewedSummary, split_clauses
 from ..logic.installations import reset_unverified_review_policy
 from ..logic.merge_approval import approved_at_head, retained_at_head
@@ -41,6 +43,9 @@ from ..logic.routing.fork_labels import fork_labels
 from ..logic.routing.owners_file import owners_file_status
 from ..logic.scrubbing import neutralize_active_markdown, scrub_credentials
 from ..models import (
+    BroadcastRequest,
+    BroadcastRequestDelivery,
+    BroadcastRequestParticipant,
     DigestRun,
     PullRequest,
     ReviewRun,
@@ -52,6 +57,9 @@ from ..models import (
 from . import contracts
 from .enums import (
     TERMINAL_STATUSES,
+    BroadcastRequestDeliveryKind,
+    BroadcastRequestSource,
+    BroadcastRequestStatus,
     ChannelResolutionSource,
     DigestRunStatus,
     LlmSkipReason,
@@ -121,6 +129,9 @@ def _repo_config_to_dto(obj: StamphogRepoConfig) -> contracts.RepoConfigDTO:
         routing_mode=obj.routing_mode,
         routing_fork_labels=fork_labels(obj),
         review_on_clean_external_review=obj.review_on_clean_external_review,
+        broadcast_enabled=obj.broadcast_enabled,
+        broadcast_slack_channel_id=obj.broadcast_slack_channel_id,
+        broadcast_slack_channel_name=obj.broadcast_slack_channel_name,
         created_at=obj.created_at,
         updated_at=obj.updated_at,
     )
@@ -161,6 +172,70 @@ def _routing_to_dto(record: object) -> contracts.PullRequestRoutingDTO | None:
     )
 
 
+# The attribute that _with_broadcast_requests prefetches onto each pull request. It holds only the newest request.
+_BROADCAST_REQUESTS_ATTR = "prefetched_broadcast_requests"
+
+
+def _broadcast_request_to_dto(obj: BroadcastRequest) -> contracts.BroadcastRequestDTO:
+    """Expects the looking participants and the posted deliveries that _with_broadcast_requests prefetches."""
+    return contracts.BroadcastRequestDTO(
+        id=obj.id,
+        status=BroadcastRequestStatus(obj.status),
+        head_sha=obj.head_sha,
+        requested_via=BroadcastRequestSource(obj.requested_via),
+        note=obj.note,
+        looking=[participant.display_name or participant.slack_user_id for participant in obj.participants.all()],
+        approved_by_login=obj.approved_by_login,
+        deliveries=[
+            contracts.BroadcastRequestDeliveryDTO(
+                kind=BroadcastRequestDeliveryKind(delivery.kind), url=delivery.permalink or None
+            )
+            for delivery in obj.deliveries.all()
+        ],
+        requester_card_count=obj.requester_card_count,
+        created_at=obj.created_at,
+        updated_at=obj.updated_at,
+    )
+
+
+def _broadcast_request_reads(team_id: int) -> QuerySet[BroadcastRequest]:
+    team_id = resolve_effective_team_id(team_id)
+    participants = BroadcastRequestParticipant.objects.for_team(team_id, canonical=True).filter(looking=True)
+    deliveries = (
+        BroadcastRequestDelivery.objects.for_team(team_id, canonical=True)
+        .filter(state=BroadcastRequestDelivery.State.POSTED)
+        .exclude(message_ts="")
+    )
+    return (
+        BroadcastRequest.objects.for_team(team_id, canonical=True)
+        .prefetch_related(Prefetch("participants", queryset=participants.order_by("created_at")))
+        .prefetch_related(Prefetch("deliveries", queryset=deliveries.order_by("created_at")))
+    )
+
+
+def _with_broadcast_requests(qs: _QS, team_id: int, pull_request_path: str) -> _QS:
+    """Prefetch the newest Broadcast request of each row's pull request, so a page of rows reads them in three queries."""
+    return qs.prefetch_related(
+        Prefetch(
+            pull_request_path,
+            queryset=_broadcast_request_reads(team_id).order_by("-created_at")[:1],
+            to_attr=_BROADCAST_REQUESTS_ATTR,
+        )
+    )
+
+
+def _latest_broadcast_request(pull_request: PullRequest) -> contracts.BroadcastRequestDTO | None:
+    """The newest Broadcast request of a pull request, or None when there is none or the read did not prefetch them."""
+    requests = getattr(pull_request, _BROADCAST_REQUESTS_ATTR, None)
+    return _broadcast_request_to_dto(requests[0]) if requests else None
+
+
+def broadcast_request_to_dto(team_id: int, broadcast_request_id: UUID) -> contracts.BroadcastRequestDTO:
+    """One Broadcast request with its participants and deliveries, from the writer, so it includes a request just made."""
+    obj = _broadcast_request_reads(team_id).using(router.db_for_write(BroadcastRequest)).get(id=broadcast_request_id)
+    return _broadcast_request_to_dto(obj)
+
+
 def _pull_request_to_dto(obj: PullRequest) -> contracts.PullRequestDTO:
     return contracts.PullRequestDTO(
         id=obj.id,
@@ -181,6 +256,7 @@ def _pull_request_to_dto(obj: PullRequest) -> contracts.PullRequestDTO:
         posted_comment_id=obj.posted_comment_id,
         routing_mode=RoutingMode(obj.repo_config.routing_mode),
         routing=_routing_to_dto(obj.routing),
+        broadcast_request=_latest_broadcast_request(obj),
         created_at=obj.created_at,
         updated_at=obj.updated_at,
     )
@@ -214,9 +290,16 @@ _BOT_ADMISSION = Q(output__has_key="bot_admission")
 # A silent run has no provenance dict. Its stamped trigger is the only record. Containment, not key
 # equality: equality is NULL for a run without the key, and an exclude() would then drop that run.
 _SILENT = Q(output__contains={"review_trigger": ReviewTrigger.REVIEWHOG_CLEAN.value})
+# A run stamped at creation keeps the mode that admitted it. In ALL mode a trigger label still starts a
+# run, stamped LABEL, and a later review_mode change must not relabel older runs either.
+_STAMPED_LABEL = Q(output__contains={"review_trigger": ReviewTrigger.LABEL.value})
+_STAMPED_ALL = Q(output__contains={"review_trigger": ReviewTrigger.ALL.value})
+# Stamps that _derive_trigger reads when the run has no provenance dict.
+_STAMPED_WITHOUT_PROVENANCE = frozenset({ReviewTrigger.REVIEWHOG_CLEAN, ReviewTrigger.LABEL, ReviewTrigger.ALL})
 
 # Preserves the caller's queryset type, so a team-scoped queryset stays team-scoped through the filter.
 _RunQS = TypeVar("_RunQS", bound=QuerySet)
+_QS = TypeVar("_QS", bound=QuerySet)
 
 
 def _derive_trigger(
@@ -230,12 +313,13 @@ def _derive_trigger(
     """Why stamphog looked at this PR. The rule itself lives in logic/review_trigger.py, because
     the reviewer invocation has to answer the same question before a run exists to read.
 
-    Of the stamped triggers only a silent one is read, because ``_SILENT`` matches it in SQL. Every
-    other trigger is derived, for the reason ``trigger_for_run`` gives.
+    A run without a provenance dict reads its stamped silent, label or all trigger, which
+    ``_filter_by_trigger`` matches in SQL. A run created before the stamp existed falls back to the
+    repo's current review_mode.
     """
     has_provenance = has_inbox_review or has_bot_admission or has_manual_review
-    if not has_provenance and stamped_trigger == ReviewTrigger.REVIEWHOG_CLEAN:
-        return ReviewTrigger.REVIEWHOG_CLEAN
+    if not has_provenance and stamped_trigger in _STAMPED_WITHOUT_PROVENANCE:
+        return ReviewTrigger(stamped_trigger)
     return derive_review_trigger(
         has_inbox_review=has_inbox_review,
         has_manual_review=has_manual_review,
@@ -262,9 +346,11 @@ def _filter_by_trigger(qs: _RunQS, trigger: str) -> _RunQS:
     if trigger == ReviewTrigger.REVIEWHOG_CLEAN:
         return qs.exclude(provenance).filter(_SILENT)
     if trigger == ReviewTrigger.LABEL:
-        return qs.exclude(provenance | _SILENT).filter(pull_request__repo_config__review_mode=ReviewMode.LABEL)
+        unstamped_label = ~_STAMPED_ALL & Q(pull_request__repo_config__review_mode=ReviewMode.LABEL)
+        return qs.exclude(provenance | _SILENT).filter(_STAMPED_LABEL | unstamped_label)
     if trigger == ReviewTrigger.ALL:
-        return qs.exclude(provenance | _SILENT).filter(pull_request__repo_config__review_mode=ReviewMode.ALL)
+        unstamped_all = ~_STAMPED_LABEL & Q(pull_request__repo_config__review_mode=ReviewMode.ALL)
+        return qs.exclude(provenance | _SILENT).filter(_STAMPED_ALL | unstamped_all)
     return qs.none()
 
 
@@ -290,6 +376,7 @@ def _build_review_run_dto(obj: ReviewRun, *, output: dict[str, Any], trigger: Re
         posted_review_id=obj.posted_review_id,
         verdict_posted_at=obj.verdict_posted_at,
         approval_dismissed_at=obj.approval_dismissed_at,
+        broadcast_request=_latest_broadcast_request(obj.pull_request),
         created_at=obj.created_at,
         updated_at=obj.updated_at,
         completed_at=obj.completed_at,
@@ -383,9 +470,41 @@ def has_reviewable_repo_config(team_id: int) -> bool:
     )
 
 
+def reviewable_repositories(team_id: int) -> frozenset[str]:
+    """Lowercased names of the repositories with a config that hosted reviews can run on, as in `has_reviewable_repo_config`.
+
+    The Code review scene shows a repository's Deep review switch only for these, because the switch reads the
+    repository's approval rules.
+    """
+    names = (
+        StamphogRepoConfig.objects.for_team(team_id)
+        .filter(provider="github", enabled=True, connected_by_user_id__isnull=False)
+        .exclude(installation_id="")
+        .values_list("repository", flat=True)
+    )
+    return frozenset(name.lower() for name in names)
+
+
+def check_approval_gates(
+    *, team_id: int, repository: str, pr_number: int, head_sha: str
+) -> contracts.ApprovalGateCheck | None:
+    """Whether stamphog's gates send this PR head to a person, or None when that is unknown. Never raises.
+
+    PostHog Review asks before it starts an automatic review, to choose how deep that review goes.
+    The check runs the engine's gate pre-check on the PR as GitHub shows it at ``head_sha``. It
+    writes nothing to GitHub, creates no run and starts no review.
+    """
+    # Imported here so the engine runner and the Temporal constants it reads stay out of the
+    # import graph of every product that imports this facade.
+    from ..logic.approval_gates import check_approval_gates as run_check  # noqa: PLC0415
+
+    return run_check(team_id=team_id, repository=repository, pr_number=pr_number, head_sha=head_sha)
+
+
 def get_review_run(team_id: int, review_run_id: str) -> contracts.ReviewRunDTO | None:
     """One run for the API. Its `output` carries only the summary keys and `reviewer_raw`."""
     qs = ReviewRun.objects.for_team(team_id).filter(id=review_run_id).select_related("pull_request__repo_config")
+    qs = _with_broadcast_requests(qs, team_id, "pull_request__broadcast_requests")
     obj = _slim_review_runs(qs, _RETRIEVE_OUTPUT_KEYS).first()
     return _slim_review_run_to_dto(obj, _RETRIEVE_OUTPUT_KEYS) if obj is not None else None
 
@@ -445,7 +564,8 @@ def get_digest_run(team_id: int, digest_run_id: str) -> contracts.DigestRunDTO |
 
 
 def get_pull_request(team_id: int, pull_request_id: str) -> contracts.PullRequestDTO | None:
-    obj = PullRequest.objects.for_team(team_id).filter(id=pull_request_id).select_related("repo_config").first()
+    qs = PullRequest.objects.for_team(team_id).filter(id=pull_request_id).select_related("repo_config")
+    obj = _with_broadcast_requests(qs, team_id, "broadcast_requests").first()
     return _pull_request_to_dto(obj) if obj is not None else None
 
 
@@ -469,6 +589,9 @@ def create_repo_config(
     routing_mode: str | None = None,
     routing_fork_labels: dict[str, str] | None = None,
     review_on_clean_external_review: bool | None = None,
+    broadcast_enabled: bool | None = None,
+    broadcast_slack_channel_id: str | None = None,
+    broadcast_slack_channel_name: str | None = None,
 ) -> contracts.RepoConfigDTO:
     """Create a repo config, refusing a repository another team already owns.
 
@@ -489,6 +612,12 @@ def create_repo_config(
         fields["routing_fork_labels"] = routing_fork_labels
     if review_on_clean_external_review is not None:
         fields["review_on_clean_external_review"] = review_on_clean_external_review
+    if broadcast_enabled is not None:
+        fields["broadcast_enabled"] = broadcast_enabled
+    if broadcast_slack_channel_id is not None:
+        fields["broadcast_slack_channel_id"] = broadcast_slack_channel_id
+    if broadcast_slack_channel_name is not None:
+        fields["broadcast_slack_channel_name"] = broadcast_slack_channel_name
     # unique_stamphog_installation_repo backs this at the DB level, so a race that slips past the
     # read still fails closed on the create below and surfaces as the same domain error.
     try:
@@ -685,6 +814,7 @@ def list_review_runs(
         qs = qs.filter(status=status)
     if trigger:
         qs = _filter_by_trigger(qs, trigger)
+    qs = _with_broadcast_requests(qs, team_id, "pull_request__broadcast_requests")
     return LazyDTOList(_slim_review_runs(qs, contracts.REVIEW_RUN_OUTPUT_SUMMARY_KEYS), _review_run_list_row_to_dto)
 
 
@@ -699,7 +829,7 @@ def list_pull_requests(
         qs = qs.filter(pr_number=pr_number)
     if merged is not None:
         qs = qs.filter(merged_at__isnull=not merged)
-    return LazyDTOList(qs, _pull_request_to_dto)
+    return LazyDTOList(_with_broadcast_requests(qs, team_id, "broadcast_requests"), _pull_request_to_dto)
 
 
 # --- Reviewer routing runs ---

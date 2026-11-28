@@ -1,10 +1,13 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
+import posthog, { PostHog } from 'posthog-js'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import { confirmOrganizationLogic } from './confirmOrganizationLogic'
+
+const AI_REFERRING_DOMAIN = 'chatgpt.com'
 
 const ORGANIZATION_NAME_ERROR =
     "Please enter an organization name. You can use your own name if you don't belong to one."
@@ -58,6 +61,69 @@ describe('confirmOrganizationLogic', () => {
     })
 
     describe('form', () => {
+        describe('signup continuation', () => {
+            const originalLocation = window.location
+
+            beforeEach(() => {
+                Object.defineProperty(window, 'location', {
+                    configurable: true,
+                    value: {
+                        ...originalLocation,
+                        search: '?next=%2Finsights',
+                        href: `${originalLocation.origin}/organization/confirm-creation`,
+                    },
+                })
+            })
+
+            afterEach(() => {
+                Object.defineProperty(window, 'location', { configurable: true, value: originalLocation })
+                posthog.persistence = undefined
+            })
+
+            it('sends the first-visit referrer posthog-js stored', async () => {
+                const captured: { body: Record<string, any> | null } = { body: null }
+                useMocks({
+                    post: {
+                        '/api/social_signup/': async (info) => {
+                            captured.body = (await info.request.clone().json()) as Record<string, any>
+                            return [201, {}]
+                        },
+                    },
+                })
+                posthog.persistence = {
+                    get_initial_props: () => ({ $initial_referring_domain: AI_REFERRING_DOMAIN }),
+                } as unknown as PostHog['persistence']
+                logic.actions.setConfirmOrganizationValues({
+                    first_name: 'Example',
+                    organization_name: 'Example organization',
+                    role_at_organization: 'engineering',
+                })
+
+                await expectLogic(logic, () => logic.actions.submitConfirmOrganization()).toDispatchActions([
+                    'submitConfirmOrganizationSuccess',
+                ])
+
+                expect(captured.body).toMatchObject({ initial_referring_domain: AI_REFERRING_DOMAIN })
+            })
+
+            it.each([
+                ['/complete/oidc/', '/complete/oidc/'],
+                [undefined, '/insights'],
+                ['https://example.net/complete/oidc/', '/insights'],
+            ])('follows the safe continuation %p before the next destination', async (continueUrl, expected) => {
+                useMocks({ post: { '/api/social_signup/': () => [201, { continue_url: continueUrl }] } })
+                logic.actions.setConfirmOrganizationValues({
+                    first_name: 'Example',
+                    organization_name: 'Example organization',
+                    role_at_organization: 'engineering',
+                })
+                await expectLogic(logic, () => logic.actions.submitConfirmOrganization()).toDispatchActions([
+                    'submitConfirmOrganizationSuccess',
+                ])
+                expect(window.location.href).toEqual(expected)
+            })
+        })
+
         it('requires a name, an organization name and a role', async () => {
             await expectLogic(logic, () => {
                 logic.actions.submitConfirmOrganization()

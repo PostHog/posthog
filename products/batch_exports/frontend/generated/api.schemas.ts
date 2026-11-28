@@ -68,6 +68,8 @@ export const DatabricksDestinationConfigApiType = {
  * `DatabricksBatchExportInputs` in `products/batch_exports/backend/service.py`.
  */
 export interface DatabricksDestinationConfigApi {
+    /** Whether this export reads the new events table. Use it to try the new table on one export, such as a copy of a production export, before your other exports move. Setting it to false does not keep the export on the old table after all exports move. */
+    use_new_events_schema?: boolean
     /** Databricks SQL warehouse HTTP path. */
     http_path: string
     /** Unity Catalog name. */
@@ -125,6 +127,8 @@ export const AzureBlobDestinationConfigApiType = {
  * `AzureBlobBatchExportInputs` in `products/batch_exports/backend/service.py`.
  */
 export interface AzureBlobDestinationConfigApi {
+    /** Whether this export reads the new events table. Use it to try the new table on one export, such as a copy of a production export, before your other exports move. Setting it to false does not keep the export on the old table after all exports move. */
+    use_new_events_schema?: boolean
     /** Azure Blob Storage container name. */
     container_name: string
     /** Object key prefix applied to every exported file. */
@@ -167,6 +171,8 @@ export const BigQueryDestinationConfigApiType = {
  * `products/batch_exports/backend/service.py`.
  */
 export interface BigQueryDestinationConfigApi {
+    /** Whether this export reads the new events table. Use it to try the new table on one export, such as a copy of a production export, before your other exports move. Setting it to false does not keep the export on the old table after all exports move. */
+    use_new_events_schema?: boolean
     /** BigQuery dataset ID to write to. */
     dataset_id: string
     /** BigQuery table ID inside the dataset. */
@@ -190,6 +196,8 @@ export const PostgresDestinationConfigApiType = {
  * non-credential fields of `PostgresBatchExportInputs` in `products/batch_exports/backend/service.py`.
  */
 export interface PostgresDestinationConfigApi {
+    /** Whether this export reads the new events table. Use it to try the new table on one export, such as a copy of a production export, before your other exports move. Setting it to false does not keep the export on the old table after all exports move. */
+    use_new_events_schema?: boolean
     /** PostgreSQL database name to connect to. */
     database: string
     /** PostgreSQL schema name containing the destination table. */
@@ -215,6 +223,8 @@ export const AwsS3DestinationConfigApiType = {
  * `AwsS3BatchExportInputs` in `products/batch_exports/backend/service.py`.
  */
 export interface AwsS3DestinationConfigApi {
+    /** Whether this export reads the new events table. Use it to try the new table on one export, such as a copy of a production export, before your other exports move. Setting it to false does not keep the export on the old table after all exports move. */
+    use_new_events_schema?: boolean
     /** Name of the destination bucket. */
     bucket_name: string
     /** Region the bucket is in (e.g. 'us-east-1'). */
@@ -270,6 +280,8 @@ export const S3CompatibleDestinationConfigApiType = {
  * `products/batch_exports/backend/service.py`.
  */
 export interface S3CompatibleDestinationConfigApi {
+    /** Whether this export reads the new events table. Use it to try the new table on one export, such as a copy of a production export, before your other exports move. Setting it to false does not keep the export on the old table after all exports move. */
+    use_new_events_schema?: boolean
     /** Name of the destination bucket. */
     bucket_name: string
     /** Region the bucket is in (e.g. 'us-east-1'). */
@@ -316,6 +328,8 @@ export const SnowflakeDestinationConfigApiType = {
  * `products/batch_exports/backend/service.py`.
  */
 export interface SnowflakeDestinationConfigApi {
+    /** Whether this export reads the new events table. Use it to try the new table on one export, such as a copy of a production export, before your other exports move. Setting it to false does not keep the export on the old table after all exports move. */
+    use_new_events_schema?: boolean
     /** Snowflake database to write to. */
     database: string
     /** Snowflake compute warehouse to use. */
@@ -384,6 +398,8 @@ export const RedshiftDestinationConfigApiType = {
  * `products/batch_exports/backend/service.py`.
  */
 export interface RedshiftDestinationConfigApi {
+    /** Whether this export reads the new events table. Use it to try the new table on one export, such as a copy of a production export, before your other exports move. Setting it to false does not keep the export on the old table after all exports move. */
+    use_new_events_schema?: boolean
     /** Redshift database name to connect to. */
     database: string
     /** Redshift cluster or Serverless workgroup endpoint. Required when using an AWS Redshift integration; plain Redshift integrations store the host themselves. */
@@ -816,6 +832,8 @@ export interface HogQLQueryModifiersApi {
     mergeFederatedAggregateJoins?: boolean | null
     /** Replace negated person-property filters in the WHERE of an `events` query (such as `email not_icontains`) with `person_id NOT IN (SELECT id FROM persons WHERE <the filters fail>)`, so the query no longer joins every person. Applies only when every filtered person property has a materialized column, nothing else in the query reads that persons join, and the join would be a LEFT JOIN. */
     negatedPersonFiltersNotIn?: boolean | null
+    /** Move eligible non-nullable equality filters from CROSS JOIN queries into ALL INNER JOIN constraints */
+    optimizeCrossJoins?: boolean | null
     optimizeJoinedFilters?: boolean | null
     optimizeProjections?: boolean | null
     /** HogQL parser backend; absent → `rust_py_with_cpp_shadow` (rust-py is primary, cpp runs as a sampled shadow). `*_shadow` modes return the primary result and sample-compare against the other parser, reporting divergences without failing the request. The `rust_py_*` modes drive the same hand-rolled Rust parser as `rust_*` but build `posthog.hogql.ast` dataclass instances directly via PyO3, skipping the JSON round-trip. */
@@ -828,6 +846,8 @@ export interface HogQLQueryModifiersApi {
     propertyGroupsMode?: PropertyGroupsModeApi | null
     pushDownPredicates?: boolean | null
     s3TableUseInvalidColumns?: boolean | null
+    /** Filter the sessions join of an events query by its session property filters and run it as a `GLOBAL LEFT JOIN`, so the sessions are read once instead of once per events shard. Applies only when every session filter is an equality or `IN` against non-empty strings, which are false for an event with no matching session. */
+    sessionFilterGlobalJoin?: boolean | null
     /** Push a `session_id_v7 IN (SELECT … FROM events WHERE …)` predicate into the raw_sessions subquery to limit aggregation to sessions that participate in the outer events filter. */
     sessionIdPushdown?: boolean | null
     /** Pre-filter raw_sessions aggregation by `session_id_v7 IN (cheap pre-aggregation that only materializes the columns referenced by the outer-WHERE session predicate)`. Useful when the breakdown/SELECT pulls in many session columns (e.g. `$channel_type`) but the filter only references one (e.g. `$entry_current_url`). */

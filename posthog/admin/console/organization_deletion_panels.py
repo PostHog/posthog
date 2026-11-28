@@ -6,10 +6,8 @@ from django import forms
 from django.apps import apps
 from django.conf import settings
 from django.contrib import messages
-from django.core.exceptions import ValidationError
 from django.db.models import Model
 from django.http import HttpRequest, HttpResponse
-from django.urls import reverse
 
 import structlog
 from temporalio.exceptions import WorkflowAlreadyStartedError
@@ -18,7 +16,6 @@ from posthog.admin.authorization import DELETION_AUTHORIZED_GROUP
 from posthog.admin.console.panels import Fact, Gate, Operation, Panel, ReasonForm
 from posthog.admin.console.records import RECORD_TYPES
 from posthog.admin.console.registry import console
-from posthog.admin.console.team_panels import DEV_EXPERIENCE
 from posthog.admin.console.tools import Cell, ConsoleTool, Notice, Page, Row, Table
 from posthog.event_usage import report_organization_deleted, report_organization_deletion_initiated
 from posthog.models.organization import Organization
@@ -91,7 +88,7 @@ def data_counts(organization: Organization) -> list[Notice | Table]:
 
 
 def data_tool_url(organization: Organization) -> str:
-    return f"{reverse('admin_console_tool', kwargs={'tool_key': DATA_TOOL_KEY})}?organization={organization.pk}"
+    return OrganizationDataTool.url_for(organization)
 
 
 def preview_deletion(request: HttpRequest, obj: Model, form: forms.Form) -> Page:
@@ -172,7 +169,7 @@ class OrganizationDeletionPanel(Panel):
     record = "organization"
     key = "deletion"
     title = "Deletion"
-    owner = DEV_EXPERIENCE
+    owner = None
     order = 10
     danger = True
 
@@ -208,17 +205,14 @@ class OrganizationDeletionPanel(Panel):
 class OrganizationDataTool(ConsoleTool):
     key = DATA_TOOL_KEY
     title = "Organization data"
-    owner = DEV_EXPERIENCE
+    owner = None
     group = "Organizations"
     description = "Counts the data that deleting one organization removes."
+    subject = "organization"
 
     def page(self, request: HttpRequest) -> Page:
-        organization_id = request.GET.get("organization", "")
-        try:
-            organization = Organization.objects.filter(pk=organization_id).first() if organization_id else None
-        except ValidationError:
-            organization = None
-        if organization is None:
+        organization = self.subject_of(request)
+        if not isinstance(organization, Organization):
             return Page(
                 blocks=(Notice(text="Open an organization's data counts from the Deletion panel on its page."),)
             )

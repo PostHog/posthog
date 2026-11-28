@@ -8,6 +8,7 @@ import time_machine
 from unittest.mock import Mock, patch
 
 import requests
+from botocore.credentials import Credentials
 from botocore.session import Session
 
 from products.warehouse_sources.sources.aws_security_hub import aws_security_hub
@@ -31,6 +32,8 @@ from products.warehouse_sources.sources.sdk.testing import (
     scripted_network,
 )
 
+CREDENTIALS = Credentials("AKIAEXAMPLE", "fake-secret")
+
 VERSION = "2018-10-26"
 SUBSCRIPTION_A = "arn:aws:securityhub:eu-west-1:111111111111:subscription/example-standard/v/1.0.0"
 SUBSCRIPTION_B = "arn:aws:securityhub:eu-west-1:111111111111:subscription/other-standard/v/2.0.0"
@@ -48,11 +51,13 @@ def insight_results_path(insight_arn: str) -> str:
 
 
 def config(region: str = "eu-west-1", token: str | None = "fake-session-token") -> AwsSecurityHubSourceConfig:
-    return AwsSecurityHubSourceConfig(
-        aws_access_key_id="AKIAEXAMPLE",
-        aws_secret_access_key="fake-secret",
-        aws_session_token=token,
-        region=region,
+    return AwsSecurityHubSourceConfig.from_dict(
+        {
+            "aws_access_key_id": "AKIAEXAMPLE",
+            "aws_secret_access_key": "fake-secret",
+            "aws_session_token": token,
+            "region": region,
+        }
     )
 
 
@@ -96,13 +101,19 @@ def test_region_is_a_connection_host_field() -> None:
         ("GetInsights", "POST", "/insights/get"),
         ("GetRemediationsV2", "POST", "/GetRemediationsV2"),
         ("ListExposuresByRemediationV2", "POST", "/ListExposuresByRemediationV2"),
+        ("DescribeProductsV2", "GET", "/productsV2"),
+        ("GetSoftwareV2", "POST", "/softwarev2"),
+        ("GetFindingsTrendsV2", "POST", "/findingsTrendsv2"),
+        ("GetResourcesTrendsV2", "POST", "/resourcesTrendsv2"),
     ],
 )
 def test_signed_rest_requests(operation: str, method: str, path: str) -> None:
     payload = {"MaxResults": 100, "NextToken": "example/+="}
     redirect = ScriptedResponse(status=302, json={}, headers={"Location": "https://example.com/redirect"})
     with scripted_network([redirect]) as network:
-        AwsSecurityHubClient(config(), VERSION).request(operation, payload)
+        AwsSecurityHubClient(
+            config(), Credentials("AKIAEXAMPLE", "fake-secret", "fake-session-token"), VERSION
+        ).request(operation, payload)
     assert len(network.requests_log) == 1
     request = network.requests_log[0]
     assert request.method == method
@@ -125,7 +136,7 @@ def test_signed_rest_requests(operation: str, method: str, path: str) -> None:
 @pytest.mark.parametrize("region,suffix", [("us-east-1", "amazonaws.com"), ("cn-north-1", "amazonaws.com.cn")])
 def test_region_and_long_lived_credentials(region: str, suffix: str) -> None:
     with scripted_network([ScriptedResponse(json={})]) as network:
-        AwsSecurityHubClient(config(region, token=None), VERSION).request("GetInsights", {"MaxResults": 1})
+        AwsSecurityHubClient(config(region, token=None), CREDENTIALS, VERSION).request("GetInsights", {"MaxResults": 1})
     request = network.requests_log[0]
     assert request.url == f"https://securityhub.{region}.{suffix}/insights/get"
     assert "x-amz-security-token" not in request.headers
@@ -134,7 +145,7 @@ def test_region_and_long_lived_credentials(region: str, suffix: str) -> None:
 @pytest.mark.parametrize("region", ["us-east-1.example.com", "us-east-1/path", "", "https://example.com"])
 def test_invalid_region_never_sends_credentials(region: str) -> None:
     with scripted_network([]) as network:
-        success, message = validate_credentials(config(region), VERSION)
+        success, message = validate_credentials(config(region), CREDENTIALS, VERSION)
     assert not success
     assert message and "valid AWS region" in message
     assert network.requests_log == []
@@ -143,7 +154,7 @@ def test_invalid_region_never_sends_credentials(region: str) -> None:
 def test_unsupported_version_never_sends_request() -> None:
     with scripted_network([]) as network:
         with pytest.raises(ValueError, match="Unsupported AWS Security Hub API version"):
-            AwsSecurityHubClient(config(), "2099-01-01")
+            AwsSecurityHubClient(config(), CREDENTIALS, "2099-01-01")
     assert network.requests_log == []
 
 
@@ -155,7 +166,7 @@ def test_pagination_empty_pages_and_terminal_checkpoint(session: Mock, terminal_
         response({"Findings": [{"Id": "last"}], "NextToken": terminal_token}),
     ]
     resume = manager()
-    source = aws_security_hub_source(config(), "findings", VERSION, resume, False, None)
+    source = aws_security_hub_source(config(), CREDENTIALS, "findings", VERSION, resume, False, None)
     items = iter(cast(Iterable[Any], source.items()))
     assert next(items) == [{"id": "first", "created_at": dt.datetime(2025, 1, 1, tzinfo=dt.UTC)}]
     assert resume.save_state.call_args.args[0].next_token == "second"
@@ -278,7 +289,7 @@ def test_credential_validation(
     session: Mock, schema: str | None, code: str | None, message: str, success: bool, reason: str | None
 ) -> None:
     session.request.return_value = response({"message": message}, 403 if code else 200, code)
-    valid, error = validate_credentials(config(), VERSION, schema)
+    valid, error = validate_credentials(config(), CREDENTIALS, VERSION, schema)
     assert valid is success
     assert error is None if reason is None else reason in (error or "")
     assert session.request.call_count == 1
@@ -293,7 +304,7 @@ def test_permission_probes_do_not_hide_tables_on_transient_errors(failure: Excep
     else:
         script = always(failure)
     with scripted_network(script) as network:
-        assert probe_endpoint_permissions(config(), VERSION, ["findings"]) == {"findings": None}
+        assert probe_endpoint_permissions(config(), CREDENTIALS, VERSION, ["findings"]) == {"findings": None}
     assert network.requests_log
     assert {request.path for request in network.requests_log} == {"/findings"}
 
@@ -333,7 +344,7 @@ def test_permission_probe_names_missing_permission(
     endpoint: str, script: list[ScriptedResponse], missing: str | None, paths: list[str]
 ) -> None:
     with scripted_network(script) as network:
-        permissions = probe_endpoint_permissions(config(), VERSION, [endpoint])
+        permissions = probe_endpoint_permissions(config(), CREDENTIALS, VERSION, [endpoint])
     if missing:
         assert f"securityhub:{missing}" in (permissions[endpoint] or "")
     else:
@@ -452,7 +463,7 @@ def test_standards_controls_resume_skips_finished_subscriptions(next_token: str 
 
 
 @pytest.mark.parametrize(
-    "endpoint", ["security_control_definitions", "products", "members", "findings_v2", "resources_v2"]
+    "endpoint", ["security_control_definitions", "products", "members", "findings_v2", "resources_v2", "products_v2"]
 )
 def test_page_size_stays_within_vendor_limit(endpoint: str) -> None:
     endpoint_config = ENDPOINTS[endpoint]
@@ -510,9 +521,9 @@ def test_finding_identity_and_timestamps_survive_normalization() -> None:
 @pytest.mark.parametrize("missing_field", ["aws_access_key_id", "aws_secret_access_key"])
 def test_missing_credentials_do_not_send_request(missing_field: str) -> None:
     source_config = config()
-    setattr(source_config, missing_field, "")
+    setattr(source_config.aws_auth, missing_field, "")
     with scripted_network([]) as network:
-        valid, message = validate_credentials(source_config, VERSION)
+        valid, message = AwsSecurityHubSource().validate_credentials(source_config, team_id=1, api_version=VERSION)
     assert not valid
     assert message == "Enter both an AWS access key ID and a secret access key."
     assert network.requests_log == []
@@ -520,7 +531,7 @@ def test_missing_credentials_do_not_send_request(missing_field: str) -> None:
 
 def test_unknown_schema_does_not_send_request() -> None:
     with scripted_network([]) as network:
-        valid, message = validate_credentials(config(), VERSION, "unknown")
+        valid, message = validate_credentials(config(), CREDENTIALS, VERSION, "unknown")
     assert not valid
     assert message == "Unknown AWS Security Hub table: unknown"
     assert network.requests_log == []
@@ -528,7 +539,10 @@ def test_unknown_schema_does_not_send_request() -> None:
 
 def test_validation_network_error(session: Mock) -> None:
     session.request.side_effect = requests.Timeout()
-    assert validate_credentials(config(), VERSION) == (False, "Could not reach AWS Security Hub. Try again.")
+    assert validate_credentials(config(), CREDENTIALS, VERSION) == (
+        False,
+        "Could not reach AWS Security Hub. Try again.",
+    )
     session.close.assert_called_once()
 
 
@@ -715,3 +729,113 @@ def test_findings_v2_filters_on_modified_time_and_lifts_identity(watermark: str 
     assert (row["product_uid"], row["finding_uid"]) == (PRODUCT, "example-finding")
     assert row["modified_time"] == dt.datetime(2025, 5, 2, tzinfo=dt.UTC)
     assert row["finding_info"] == finding["finding_info"]
+
+
+@pytest.mark.parametrize(
+    "endpoint,body,expected",
+    [
+        (
+            "software_v2",
+            {"Software": [{"PackageName": "openssl", "PackageType": "library", "ResourceCount": 3}]},
+            {"package_name": "openssl", "package_version": "", "package_type": "library", "resource_count": 3},
+        ),
+        (
+            "software_v2",
+            {"Software": [{"PackageName": "openssl", "PackageVersion": "3.0.2", "PackageType": "library"}]},
+            {"package_name": "openssl", "package_version": "3.0.2", "package_type": "library"},
+        ),
+        (
+            "findings_trends_v2",
+            {
+                "Granularity": "Daily",
+                "TrendsMetrics": [
+                    {
+                        "Timestamp": "2025-05-01T00:00:00Z",
+                        "TrendsValues": {"SeverityTrends": {"Critical": 2, "High": 5, "Unknown": 0}},
+                    }
+                ],
+            },
+            {
+                "granularity": "Daily",
+                "timestamp": dt.datetime(2025, 5, 1, tzinfo=dt.UTC),
+                "critical": 2,
+                "high": 5,
+                "unknown": 0,
+            },
+        ),
+        (
+            "resources_trends_v2",
+            {
+                "Granularity": "Weekly",
+                "TrendsMetrics": [
+                    {"Timestamp": "2025-05-01T00:00:00Z", "TrendsValues": {"ResourcesCount": {"AllResources": 40}}}
+                ],
+            },
+            {"granularity": "Weekly", "timestamp": dt.datetime(2025, 5, 1, tzinfo=dt.UTC), "all_resources": 40},
+        ),
+        (
+            "products_v2",
+            {"ProductsV2": [{"ProductV2Name": "Example scanner", "CompanyName": "Example", "Categories": ["CVE"]}]},
+            {"product_v2_name": "Example scanner", "company_name": "Example", "categories": ["CVE"]},
+        ),
+    ],
+)
+def test_v2_aggregate_rows_fill_their_primary_keys(
+    endpoint: str, body: dict[str, Any], expected: dict[str, Any]
+) -> None:
+    result = driver().run(endpoint, [ScriptedResponse(json=body)])
+    assert result.raised is None
+    assert result.rows == [expected]
+    assert all(expected.get(key) is not None for key in ENDPOINTS[endpoint].primary_keys)
+
+
+@pytest.mark.parametrize("endpoint", ["findings_trends_v2", "resources_trends_v2"])
+def test_trends_keep_their_window_across_a_resume(endpoint: str) -> None:
+    metric = {"Timestamp": "2025-05-01T00:00:00Z", "TrendsValues": {}}
+    first_page = ScriptedResponse(json={"Granularity": "Daily", "TrendsMetrics": [metric], "NextToken": "page-2"})
+    failure = ScriptedResponse(status=400, json={}, headers={"x-amzn-ErrorType": "InternalException"})
+    with time_machine.travel(dt.datetime(2025, 6, 1, 12, tzinfo=dt.UTC), tick=False):
+        first = driver().run(endpoint, [first_page, failure])
+    assert isinstance(first.raised, AwsSecurityHubError)
+    window = ("2025-03-03T12:00:00Z", "2025-06-01T12:00:00Z")
+    assert [(r.json()["StartTime"], r.json()["EndTime"]) for r in first.requests] == [window, window]
+    assert first.requests[1].json()["NextToken"] == "page-2"
+    checkpoint = first.committed_states[-1]
+
+    last_page = ScriptedResponse(json={"Granularity": "Daily", "TrendsMetrics": [], "NextToken": None})
+    with time_machine.travel(dt.datetime(2025, 6, 1, 14, tzinfo=dt.UTC), tick=False):
+        resumed = driver().run(endpoint, [last_page], resume_state=checkpoint)
+    assert resumed.raised is None
+    payload = resumed.requests[0].json()
+    assert (payload["StartTime"], payload["EndTime"], payload["NextToken"]) == (*window, "page-2")
+    assert resumed.response is not None and resumed.response.sort_mode is None
+
+    with time_machine.travel(dt.datetime(2025, 6, 1, 12, tzinfo=dt.UTC), tick=False):
+        with scripted_network([last_page]) as network:
+            assert validate_credentials(config(), CREDENTIALS, VERSION, endpoint) == (True, None)
+    probe = network.requests_log[0].json()
+    assert (probe["StartTime"], probe["EndTime"]) == ("2025-05-31T12:00:00Z", "2025-06-01T12:00:00Z")
+
+
+@pytest.mark.parametrize(
+    "endpoint,error_type,cleared",
+    [
+        ("software_v2", "ValidationException", True),
+        ("software_v2", "ThrottlingException", False),
+        ("findings_trends_v2", "ValidationException", False),
+    ],
+)
+def test_rejected_software_token_clears_the_checkpoint(endpoint: str, error_type: str, cleared: bool) -> None:
+    saved = AwsSecurityHubResumeConfig(
+        next_token="old-token", updated_after="2025-03-03T12:00:00Z", cutoff="2025-06-01T12:00:00Z"
+    )
+    rejection = ScriptedResponse(
+        status=400, json={"message": "Invalid token"}, headers={"x-amzn-ErrorType": error_type}
+    )
+    result = driver().run(endpoint, [rejection], resume_state=saved)
+    assert isinstance(result.raised, AwsSecurityHubError)
+    assert result.raised.code == error_type
+    assert result.requests[0].json()["NextToken"] == "old-token"
+    assert (result.final_state is None) is cleared
+    errors = AwsSecurityHubSource().get_non_retryable_errors()
+    assert not any(pattern in str(result.raised) for pattern in errors)

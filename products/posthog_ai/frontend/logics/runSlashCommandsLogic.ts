@@ -14,6 +14,7 @@ import {
 import posthog from 'posthog-js'
 
 import { supportLogic } from 'lib/components/Support/supportLogic'
+import type { SupportFormFields } from 'lib/components/Support/supportLogic'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { projectLogic } from 'scenes/projectLogic'
@@ -34,6 +35,7 @@ import {
     getAppCommand,
     parseSlashCommand,
 } from '../utils/slashCommands'
+import { feedbackContextUrl } from '../utils/ticketMetadata'
 import { runInteractionLogic, type RunInteractionLogicProps } from './runInteractionLogic'
 import { runStreamLogic } from './runStreamLogic'
 
@@ -84,7 +86,7 @@ export interface runSlashCommandsLogicValues {
     bootstrappedRunId: string | null // runStreamLogic
     bootstrappedTaskId: string | null // runStreamLogic
     contextUsage: ContextUsage | null // runStreamLogic
-    traceId: string | null // runStreamLogic
+    latestTurnTraceId: string | null // runStreamLogic
     appCommands: AppCommand[]
     commandResult: CommandResult | null
     slashCommands: SlashCommand[]
@@ -110,11 +112,11 @@ export interface runSlashCommandsLogicActions {
         value: boolean
     } // runInteractionLogic
     openSupportForm: (
-        values: Partial<import('lib/components/Support/supportLogic').SupportFormFields> & {
+        values: Partial<SupportFormFields> & {
             target?: 'modal' | 'sidePanel'
         }
-    ) => Partial<import('lib/components/Support/supportLogic').SupportFormFields> & {
-        target?: 'modal' | 'sidePanel' | undefined
+    ) => Partial<SupportFormFields> & {
+        target?: 'modal' | 'sidePanel'
     } // supportLogic
     askSideQuestion: (question: string) => {
         question: string
@@ -168,7 +170,7 @@ export const runSlashCommandsLogic: LogicWrapper<runSlashCommandsLogicType> = ke
             projectLogic,
             ['currentProjectId'],
             runStreamLogic({ streamKey: props.streamKey ?? props.runId }),
-            ['availableCommands', 'bootstrappedRunId', 'bootstrappedTaskId', 'contextUsage', 'traceId'],
+            ['availableCommands', 'bootstrappedRunId', 'bootstrappedTaskId', 'contextUsage', 'latestTurnTraceId'],
             runInteractionLogic(props),
             ['composerForm', 'isTerminal', 'dataProcessingAccepted'],
         ],
@@ -279,7 +281,13 @@ export const runSlashCommandsLogic: LogicWrapper<runSlashCommandsLogicType> = ke
                     case 'good':
                     case 'bad':
                     case 'feedback':
-                        captureCommandFeedback(taskId, values.traceId, name === 'feedback' ? null : name, run, args)
+                        captureCommandFeedback(
+                            taskId,
+                            values.latestTurnTraceId,
+                            name === 'feedback' ? null : name,
+                            run,
+                            args
+                        )
                         lemonToast.success('Thanks for the feedback')
                         return
                     case 'usage':
@@ -299,7 +307,15 @@ export const runSlashCommandsLogic: LogicWrapper<runSlashCommandsLogicType> = ke
                                 .join('\n\n'),
                             // Attributes the ticket to this run, like the other PostHog AI ticket handovers.
                             ai_conversation_id: taskId ?? null,
-                            ai_trace_id: values.traceId,
+                            ai_trace_id: values.latestTurnTraceId,
+                            ai_context_url: taskId
+                                ? feedbackContextUrl({
+                                      sessionId: taskId,
+                                      sessionKind: 'task',
+                                      traceId: values.latestTurnTraceId,
+                                      run,
+                                  })
+                                : null,
                         })
                         return
                     }

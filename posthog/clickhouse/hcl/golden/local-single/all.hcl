@@ -1,24 +1,24 @@
-node "events" {
+node "ingestion_events" {
   macros = {
-    hostClusterRole = "events"
+    hostClusterRole = "ingestion_events"
     hostClusterType = "online"
-    replica         = "events"
+    replica         = "ingestion_events"
     shard           = "01"
   }
 }
 
-node "medium" {
+node "ingestion_medium" {
   macros = {
-    hostClusterRole = "medium"
+    hostClusterRole = "ingestion_medium"
     hostClusterType = "online"
     replica         = "medium"
     shard           = "01"
   }
 }
 
-node "small" {
+node "ingestion_small" {
   macros = {
-    hostClusterRole = "small"
+    hostClusterRole = "ingestion_small"
     hostClusterType = "online"
     replica         = "small"
     shard           = "01"
@@ -247,7 +247,7 @@ database "posthog" {
       cluster_name    = "ai_events"
       remote_database = "posthog"
       remote_table    = "sharded_ai_events"
-      sharding_key    = "cityHash64(concat(toString(team_id), '-', trace_id, '-', toString(toDate(timestamp))))"
+      sharding_key    = "rand()"
     }
   }
 
@@ -540,34 +540,6 @@ database "posthog" {
       zoo_path       = "/clickhouse/tables/noshard/posthog.clickhouse_cleanup_revived_persons"
       replica_name   = "{replica}-{shard}"
       version_column = "created_at"
-    }
-  }
-
-  table "cohort_membership" {
-    order_by = ["team_id", "cohort_id", "person_id"]
-    settings = {
-      index_granularity = "8192"
-    }
-    column "team_id" {
-      type = "Int64"
-    }
-    column "cohort_id" {
-      type = "Int64"
-    }
-    column "person_id" {
-      type = "UUID"
-    }
-    column "status" {
-      type = "Enum8('entered'=1, 'left'=2)"
-    }
-    column "last_updated" {
-      type    = "DateTime64(6)"
-      default = "now64()"
-    }
-    engine "replicated_replacing_merge_tree" {
-      zoo_path       = "/clickhouse/tables/noshard/posthog.cohort_membership"
-      replica_name   = "{replica}-{shard}"
-      version_column = "last_updated"
     }
   }
 
@@ -1913,6 +1885,120 @@ database "posthog" {
     }
   }
 
+  table "events_json_recent" {
+    column "uuid" {
+      type = "UUID"
+    }
+    column "event" {
+      type = "String"
+    }
+    column "properties" {
+      type = "String"
+    }
+    column "temporary_properties" {
+      type = "String"
+    }
+    column "properties_null_keys" {
+      type = "Array(LowCardinality(String))"
+    }
+    column "temporary_properties_null_keys" {
+      type = "Array(LowCardinality(String))"
+    }
+    column "timestamp" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "team_id" {
+      type = "Int64"
+    }
+    column "distinct_id" {
+      type = "String"
+    }
+    column "created_at" {
+      type    = "DateTime64(6, 'UTC')"
+      default = "now()"
+    }
+    column "_timestamp" {
+      type = "DateTime"
+    }
+    column "_offset" {
+      type = "UInt64"
+    }
+    column "elements_chain" {
+      type = "String"
+    }
+    column "person_id" {
+      type = "UUID"
+    }
+    column "person_properties" {
+      type = "String"
+    }
+    column "person_properties_null_keys" {
+      type = "Array(LowCardinality(String))"
+    }
+    column "group0_properties" {
+      type = "String"
+    }
+    column "group1_properties" {
+      type = "String"
+    }
+    column "group2_properties" {
+      type = "String"
+    }
+    column "group3_properties" {
+      type = "String"
+    }
+    column "group4_properties" {
+      type = "String"
+    }
+    column "person_created_at" {
+      type = "DateTime64(3)"
+    }
+    column "group0_created_at" {
+      type = "DateTime64(3)"
+    }
+    column "group1_created_at" {
+      type = "DateTime64(3)"
+    }
+    column "group2_created_at" {
+      type = "DateTime64(3)"
+    }
+    column "group3_created_at" {
+      type = "DateTime64(3)"
+    }
+    column "group4_created_at" {
+      type = "DateTime64(3)"
+    }
+    column "inserted_at" {
+      type    = "DateTime64(6, 'UTC')"
+      default = "now64()"
+    }
+    column "person_mode" {
+      type = "Enum8('full'=0, 'propertyless'=1, 'force_upgrade'=2)"
+    }
+    column "consumer_breadcrumbs" {
+      type = "Array(String)"
+    }
+    column "historical_migration" {
+      type = "Bool"
+    }
+    column "total_event_size" {
+      type = "UInt32"
+    }
+    column "captured_at" {
+      type    = "DateTime64(6, 'UTC')"
+      default = "now()"
+    }
+    column "_partition" {
+      type = "UInt64"
+    }
+    engine "distributed" {
+      cluster_name    = "posthog_primary_replica"
+      remote_database = "posthog"
+      remote_table    = "sharded_events_json_recent"
+      sharding_key    = "sipHash64(distinct_id)"
+    }
+  }
+
   table "events_recent" {
     column "uuid" {
       type = "UUID"
@@ -2282,12 +2368,6 @@ database "posthog" {
       type    = "String"
       comment = "column_materializer::properties::$feature_flag_request_id"
     }
-    column "properties_group_custom" {
-      type = "Map(String, String)"
-    }
-    column "person_properties_map_custom" {
-      type = "Map(String, String)"
-    }
     column "_timestamp" {
       type = "DateTime"
     }
@@ -2296,6 +2376,15 @@ database "posthog" {
     }
     column "_partition" {
       type = "UInt64"
+    }
+    column "properties_group_custom" {
+      type = "Map(String, String)"
+    }
+    column "person_properties_map_custom" {
+      type = "Map(String, String)"
+    }
+    column "properties_group_feature_flags" {
+      type = "Map(LowCardinality(String), LowCardinality(String))"
     }
     engine "distributed" {
       cluster_name    = "posthog"
@@ -2937,34 +3026,13 @@ database "posthog" {
       type = "DateTime64(6, 'UTC')"
     }
     engine "kafka" {
-      collection = "warpstream_ingestion"
-      topic_list = "clickhouse_billing_usage_records"
-      group_name = "clickhouse_billing_usage_records"
-      format     = "JSONEachRow"
-    }
-  }
-
-  table "kafka_cohort_membership" {
-    column "team_id" {
-      type = "Int64"
-    }
-    column "cohort_id" {
-      type = "Int64"
-    }
-    column "person_id" {
-      type = "UUID"
-    }
-    column "status" {
-      type = "Enum8('entered'=1, 'left'=2, 'member'=3, 'not_member'=4)"
-    }
-    column "last_updated" {
-      type = "DateTime64(6)"
-    }
-    engine "kafka" {
-      collection = "msk_cluster"
-      topic_list = "cohort_membership_changed"
-      group_name = "clickhouse_cohort_membership_changed"
-      format     = "JSONEachRow"
+      collection           = "warpstream_ingestion"
+      topic_list           = "clickhouse_billing_usage_records"
+      group_name           = "clickhouse_billing_usage_records"
+      format               = "JSONEachRow"
+      num_consumers        = 1
+      skip_broken_messages = 100
+      thread_per_consumer  = true
     }
   }
 
@@ -3543,6 +3611,125 @@ database "posthog" {
       collection           = "msk_cluster"
       topic_list           = "clickhouse_events_json"
       group_name           = "clickhouse_events_json_native_json"
+      format               = "JSONEachRow"
+      skip_broken_messages = 100
+    }
+  }
+
+  table "kafka_events_json_recent" {
+    column "uuid" {
+      type = "UUID"
+    }
+    column "event" {
+      type = "String"
+    }
+    column "properties" {
+      type  = "String"
+      codec = "ZSTD(3)"
+    }
+    column "timestamp" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "team_id" {
+      type = "Int64"
+    }
+    column "distinct_id" {
+      type = "String"
+    }
+    column "elements_chain" {
+      type = "String"
+    }
+    column "created_at" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "person_id" {
+      type = "UUID"
+    }
+    column "person_created_at" {
+      type = "DateTime64(3)"
+    }
+    column "person_properties" {
+      type  = "String"
+      codec = "ZSTD(3)"
+    }
+    column "group0_properties" {
+      type  = "String"
+      codec = "ZSTD(3)"
+    }
+    column "group1_properties" {
+      type  = "String"
+      codec = "ZSTD(3)"
+    }
+    column "group2_properties" {
+      type  = "String"
+      codec = "ZSTD(3)"
+    }
+    column "group3_properties" {
+      type  = "String"
+      codec = "ZSTD(3)"
+    }
+    column "group4_properties" {
+      type  = "String"
+      codec = "ZSTD(3)"
+    }
+    column "group0_created_at" {
+      type = "DateTime64(3)"
+    }
+    column "group1_created_at" {
+      type = "DateTime64(3)"
+    }
+    column "group2_created_at" {
+      type = "DateTime64(3)"
+    }
+    column "group3_created_at" {
+      type = "DateTime64(3)"
+    }
+    column "group4_created_at" {
+      type = "DateTime64(3)"
+    }
+    column "person_mode" {
+      type = "Enum8('full'=0, 'propertyless'=1, 'force_upgrade'=2)"
+    }
+    column "historical_migration" {
+      type = "Bool"
+    }
+    column "dmat_string_0" {
+      type = "Nullable(String)"
+    }
+    column "dmat_string_1" {
+      type = "Nullable(String)"
+    }
+    column "dmat_string_2" {
+      type = "Nullable(String)"
+    }
+    column "dmat_string_3" {
+      type = "Nullable(String)"
+    }
+    column "dmat_string_4" {
+      type = "Nullable(String)"
+    }
+    column "dmat_string_5" {
+      type = "Nullable(String)"
+    }
+    column "dmat_string_6" {
+      type = "Nullable(String)"
+    }
+    column "dmat_string_7" {
+      type = "Nullable(String)"
+    }
+    column "dmat_string_8" {
+      type = "Nullable(String)"
+    }
+    column "dmat_string_9" {
+      type = "Nullable(String)"
+    }
+    column "captured_at" {
+      type = "Nullable(DateTime64(6, 'UTC'))"
+    }
+    engine "kafka" {
+      collection           = "msk_cluster"
+      topic_list           = "clickhouse_events_json"
+      group_name           = "clickhouse_events_json_recent"
       format               = "JSONEachRow"
       skip_broken_messages = 100
     }
@@ -5721,6 +5908,10 @@ SQL
       type    = "LowCardinality(String)"
       default = "''"
     }
+    column "auth_type" {
+      type    = "LowCardinality(String)"
+      default = "''"
+    }
     index "idx_severity_text_set" {
       expr        = "severity_text"
       type        = "set(10)"
@@ -5950,6 +6141,10 @@ SQL
       type = "UInt8"
     }
     column "internal_source" {
+      type    = "LowCardinality(String)"
+      default = "''"
+    }
+    column "auth_type" {
       type    = "LowCardinality(String)"
       default = "''"
     }
@@ -9384,6 +9579,9 @@ SQL
     column "lc_estimated_bytes" {
       type = "SimpleAggregateFunction(max, Int64)"
     }
+    column "log_comment" {
+      type = "SimpleAggregateFunction(max, String)"
+    }
     column "query_id" {
       type = "String"
     }
@@ -9772,6 +9970,9 @@ SQL
     }
     column "lc_estimated_bytes" {
       type = "SimpleAggregateFunction(max, Int64)"
+    }
+    column "log_comment" {
+      type = "SimpleAggregateFunction(max, String)"
     }
     engine "buffer" {
       database   = "posthog"
@@ -10217,6 +10418,41 @@ SQL
     }
   }
 
+  table "series_values_preaggregated" {
+    column "team_id" {
+      type = "Int64"
+    }
+    column "job_id" {
+      type = "UUID"
+    }
+    column "time_window_start" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "time_window_end" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "series_key" {
+      type = "String"
+    }
+    column "value" {
+      type = "Float64"
+    }
+    column "computed_at" {
+      type    = "DateTime64(6, 'UTC')"
+      default = "now()"
+    }
+    column "expires_at" {
+      type    = "DateTime64(6, 'UTC')"
+      default = "now() + toIntervalDay(7)"
+    }
+    engine "distributed" {
+      cluster_name    = "aux"
+      remote_database = "posthog"
+      remote_table    = "sharded_series_values_preaggregated"
+      sharding_key    = "sipHash64(job_id)"
+    }
+  }
+
   table "session_replay_embeddings" {
     column "session_id" {
       type = "String"
@@ -10331,9 +10567,6 @@ SQL
     column "ai_highlighted" {
       type    = "SimpleAggregateFunction(max, UInt8)"
       default = "0"
-    }
-    column "surfacing_score" {
-      type = "SimpleAggregateFunction(max, Nullable(Float32))"
     }
     column "snapshot_mode_v2" {
       type = "AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC'))"
@@ -10455,7 +10688,7 @@ SQL
   }
 
   table "sharded_ai_events" {
-    order_by     = ["team_id", "trace_id", "timestamp"]
+    order_by     = ["team_id", "trace_id", "timestamp", "uuid"]
     partition_by = "toYYYYMM(drop_date)"
     ttl          = "drop_date"
     settings = {
@@ -10694,9 +10927,10 @@ SQL
       type        = "set(50)"
       granularity = 1
     }
-    engine "replicated_merge_tree" {
-      zoo_path     = "/clickhouse/tables/{shard}/posthog.ai_events"
-      replica_name = "{replica}"
+    engine "replicated_replacing_merge_tree" {
+      zoo_path       = "/clickhouse/tables/{shard}/posthog.ai_events"
+      replica_name   = "{replica}"
+      version_column = "_timestamp"
     }
   }
 
@@ -11547,6 +11781,126 @@ SQL
     }
   }
 
+  table "sharded_events_json_recent" {
+    order_by     = ["team_id", "toStartOfHour(inserted_at)", "event", "cityHash64(distinct_id)", "cityHash64(uuid)"]
+    partition_by = "toStartOfDay(inserted_at)"
+    ttl          = "toDate(inserted_at) + toIntervalDay(9)"
+    settings = {
+      index_granularity   = "8192"
+      ttl_only_drop_parts = "1"
+    }
+    column "uuid" {
+      type = "UUID"
+    }
+    column "event" {
+      type = "String"
+    }
+    column "properties" {
+      type = "String"
+    }
+    column "temporary_properties" {
+      type = "String"
+    }
+    column "properties_null_keys" {
+      type = "Array(LowCardinality(String))"
+    }
+    column "temporary_properties_null_keys" {
+      type = "Array(LowCardinality(String))"
+    }
+    column "timestamp" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "team_id" {
+      type = "Int64"
+    }
+    column "distinct_id" {
+      type = "String"
+    }
+    column "created_at" {
+      type    = "DateTime64(6, 'UTC')"
+      default = "now()"
+    }
+    column "_timestamp" {
+      type = "DateTime"
+    }
+    column "_offset" {
+      type = "UInt64"
+    }
+    column "elements_chain" {
+      type = "String"
+    }
+    column "person_id" {
+      type = "UUID"
+    }
+    column "person_properties" {
+      type = "String"
+    }
+    column "person_properties_null_keys" {
+      type = "Array(LowCardinality(String))"
+    }
+    column "group0_properties" {
+      type = "String"
+    }
+    column "group1_properties" {
+      type = "String"
+    }
+    column "group2_properties" {
+      type = "String"
+    }
+    column "group3_properties" {
+      type = "String"
+    }
+    column "group4_properties" {
+      type = "String"
+    }
+    column "person_created_at" {
+      type = "DateTime64(3)"
+    }
+    column "group0_created_at" {
+      type = "DateTime64(3)"
+    }
+    column "group1_created_at" {
+      type = "DateTime64(3)"
+    }
+    column "group2_created_at" {
+      type = "DateTime64(3)"
+    }
+    column "group3_created_at" {
+      type = "DateTime64(3)"
+    }
+    column "group4_created_at" {
+      type = "DateTime64(3)"
+    }
+    column "inserted_at" {
+      type    = "DateTime64(6, 'UTC')"
+      default = "now64()"
+    }
+    column "person_mode" {
+      type = "Enum8('full'=0, 'propertyless'=1, 'force_upgrade'=2)"
+    }
+    column "consumer_breadcrumbs" {
+      type = "Array(String)"
+    }
+    column "historical_migration" {
+      type = "Bool"
+    }
+    column "total_event_size" {
+      type = "UInt32"
+    }
+    column "captured_at" {
+      type    = "DateTime64(6, 'UTC')"
+      default = "now()"
+    }
+    column "_partition" {
+      type = "UInt64"
+    }
+    engine "replicated_replacing_merge_tree" {
+      zoo_path       = "/clickhouse/tables/{shard}/posthog.sharded_events_json_recent"
+      replica_name   = "{replica}"
+      version_column = "_timestamp"
+    }
+  }
+
   table "sharded_events_recent" {
     order_by     = ["team_id", "toStartOfHour(inserted_at)", "event", "cityHash64(distinct_id)", "cityHash64(uuid)"]
     partition_by = "toStartOfDay(inserted_at)"
@@ -11787,7 +12141,9 @@ SQL
     ttl          = "toDate(timestamp) + toIntervalDay(92)"
     settings = {
       index_granularity                = "8192"
+      map_serialization_version        = "with_buckets"
       materialize_ttl_recalculate_only = "1"
+      max_buckets_in_map               = "32"
       ttl_only_drop_parts              = "1"
     }
     column "uuid" {
@@ -11873,14 +12229,6 @@ SQL
       default = "replaceRegexpAll(JSONExtractRaw(properties, '$feature_flag_request_id'), '^\"|\"$', '')"
       comment = "column_materializer::properties::$feature_flag_request_id"
     }
-    column "properties_group_custom" {
-      type         = "Map(String, String)"
-      materialized = "mapSort(mapFilter((key, _) -> ((key NOT LIKE '$%') AND (key NOT IN ('token', 'distinct_id', 'utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_term', 'gclid', 'gad_source', 'gclsrc', 'dclid', 'gbraid', 'wbraid', 'fbclid', 'msclkid', 'twclid', 'li_fat_id', 'mc_cid', 'igshid', 'ttclid', 'rdt_cid', 'epik', 'qclid', 'sccid', 'irclid', '_kx'))), CAST(JSONExtractKeysAndValues(properties, 'String'), 'Map(String, String)')))"
-    }
-    column "person_properties_map_custom" {
-      type         = "Map(String, String)"
-      materialized = "mapSort(mapFilter((key, _) -> (key NOT LIKE '$%'), CAST(JSONExtractKeysAndValues(person_properties, 'String'), 'Map(String, String)')))"
-    }
     column "_timestamp" {
       type = "DateTime"
     }
@@ -11889,6 +12237,18 @@ SQL
     }
     column "_partition" {
       type = "UInt64"
+    }
+    column "properties_group_custom" {
+      type         = "Map(String, String)"
+      materialized = "mapSort(mapFilter((key, _) -> ((key NOT LIKE '$%') AND (key NOT IN ('token', 'distinct_id', 'utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_term', 'gclid', 'gad_source', 'gclsrc', 'dclid', 'gbraid', 'wbraid', 'fbclid', 'msclkid', 'twclid', 'li_fat_id', 'mc_cid', 'igshid', 'ttclid', 'rdt_cid', 'epik', 'qclid', 'sccid', 'irclid', '_kx'))), CAST(JSONExtractKeysAndValues(properties, 'String'), 'Map(String, String)')))"
+    }
+    column "person_properties_map_custom" {
+      type         = "Map(String, String)"
+      materialized = "mapSort(mapFilter((key, _) -> (key NOT LIKE '$%'), CAST(JSONExtractKeysAndValues(person_properties, 'String'), 'Map(String, String)')))"
+    }
+    column "properties_group_feature_flags" {
+      type         = "Map(LowCardinality(String), LowCardinality(String))"
+      materialized = "mapSort(mapFilter((key, _) -> (key LIKE '$feature/%'), CAST(JSONExtractKeysAndValues(properties, 'String'), 'Map(LowCardinality(String), LowCardinality(String))')))"
     }
     index "distinct_id_idx" {
       expr        = "distinct_id"
@@ -13280,6 +13640,10 @@ SQL
     column "lc_estimated_bytes" {
       type = "SimpleAggregateFunction(max, Int64)"
     }
+    column "log_comment" {
+      type = "SimpleAggregateFunction(max, String)"
+      ttl  = "toDateTime(initial_query_start_time) + toIntervalMonth(1)"
+    }
     column "query_id" {
       type  = "String"
       alias = "initial_query_id"
@@ -13700,6 +14064,47 @@ SQL
     }
   }
 
+  table "sharded_series_values_preaggregated" {
+    order_by     = ["team_id", "job_id", "series_key", "time_window_start"]
+    partition_by = "toYYYYMMDD(expires_at)"
+    ttl          = "toDateTime(expires_at)"
+    settings = {
+      index_granularity   = "8192"
+      ttl_only_drop_parts = "1"
+    }
+    column "team_id" {
+      type = "Int64"
+    }
+    column "job_id" {
+      type = "UUID"
+    }
+    column "time_window_start" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "time_window_end" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "series_key" {
+      type = "String"
+    }
+    column "value" {
+      type = "Float64"
+    }
+    column "computed_at" {
+      type    = "DateTime64(6, 'UTC')"
+      default = "now()"
+    }
+    column "expires_at" {
+      type    = "DateTime64(6, 'UTC')"
+      default = "now() + toIntervalDay(7)"
+    }
+    engine "replicated_replacing_merge_tree" {
+      zoo_path       = "/clickhouse/tables/{shard}/posthog.series_values_preaggregated"
+      replica_name   = "{replica}"
+      version_column = "computed_at"
+    }
+  }
+
   table "sharded_session_replay_embeddings" {
     order_by     = ["toDate(generation_timestamp)", "team_id", "session_id"]
     partition_by = "toYYYYMM(generation_timestamp)"
@@ -13823,9 +14228,6 @@ SQL
     column "ai_highlighted" {
       type    = "SimpleAggregateFunction(max, UInt8)"
       default = "0"
-    }
-    column "surfacing_score" {
-      type = "SimpleAggregateFunction(max, Nullable(Float32))"
     }
     column "snapshot_mode_v2" {
       type = "AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC'))"
@@ -14213,7 +14615,7 @@ SQL
 
   table "sharded_web_bounces_dimensional_preaggregated" {
     primary_key  = ["team_id", "job_id", "period_bucket", "host", "device_type", "entry_pathname", "end_pathname", "browser", "os", "viewport_width", "viewport_height", "referring_domain", "utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content", "country_code", "city_name", "region_code", "region_name", "has_gclid", "has_gad_source_paid_search", "has_fbclid", "mat_metadata_backend", "mat_metadata_loggedIn"]
-    order_by     = ["team_id", "job_id", "period_bucket", "host", "device_type", "entry_pathname", "end_pathname", "browser", "os", "viewport_width", "viewport_height", "referring_domain", "utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content", "country_code", "city_name", "region_code", "region_name", "has_gclid", "has_gad_source_paid_search", "has_fbclid", "mat_metadata_backend", "mat_metadata_loggedIn", "channel_type"]
+    order_by     = ["team_id", "job_id", "period_bucket", "host", "device_type", "entry_pathname", "end_pathname", "browser", "os", "viewport_width", "viewport_height", "referring_domain", "utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content", "country_code", "city_name", "region_code", "region_name", "has_gclid", "has_gad_source_paid_search", "has_fbclid", "mat_metadata_backend", "mat_metadata_loggedIn", "channel_type", "session_hosts"]
     partition_by = "toYYYYMMDD(expires_at)"
     ttl          = "toDateTime(expires_at)"
     settings = {
@@ -14302,6 +14704,9 @@ SQL
     column "channel_type" {
       type = "LowCardinality(String)"
     }
+    column "session_hosts" {
+      type = "Array(String)"
+    }
     column "persons_uniq_state" {
       type = "AggregateFunction(uniq, UUID)"
     }
@@ -14318,6 +14723,9 @@ SQL
       type = "AggregateFunction(sum, Int64)"
     }
     column "total_session_count_state" {
+      type = "AggregateFunction(sum, Int64)"
+    }
+    column "bounce_eligible_sessions_state" {
       type = "AggregateFunction(sum, Int64)"
     }
     column "computed_at" {
@@ -15618,6 +16026,9 @@ SQL
     column "channel_type" {
       type = "LowCardinality(String)"
     }
+    column "session_hosts" {
+      type = "Array(String)"
+    }
     column "persons_uniq_state" {
       type = "AggregateFunction(uniq, UUID)"
     }
@@ -15634,6 +16045,9 @@ SQL
       type = "AggregateFunction(sum, Int64)"
     }
     column "total_session_count_state" {
+      type = "AggregateFunction(sum, Int64)"
+    }
+    column "bounce_eligible_sessions_state" {
       type = "AggregateFunction(sum, Int64)"
     }
     column "computed_at" {
@@ -16672,30 +17086,6 @@ SQL
     }
   }
 
-  table "writable_cohort_membership" {
-    column "team_id" {
-      type = "Int64"
-    }
-    column "cohort_id" {
-      type = "Int64"
-    }
-    column "person_id" {
-      type = "UUID"
-    }
-    column "status" {
-      type = "Enum8('entered'=1, 'left'=2)"
-    }
-    column "last_updated" {
-      type    = "DateTime64(6)"
-      default = "now64()"
-    }
-    engine "distributed" {
-      cluster_name    = "posthog_single_shard"
-      remote_database = "posthog"
-      remote_table    = "cohort_membership"
-    }
-  }
-
   table "writable_distinct_id_usage" {
     column "team_id" {
       type = "Int64"
@@ -17237,6 +17627,120 @@ SQL
     }
   }
 
+  table "writable_events_json_recent" {
+    column "uuid" {
+      type = "UUID"
+    }
+    column "event" {
+      type = "String"
+    }
+    column "properties" {
+      type = "String"
+    }
+    column "temporary_properties" {
+      type = "String"
+    }
+    column "properties_null_keys" {
+      type = "Array(LowCardinality(String))"
+    }
+    column "temporary_properties_null_keys" {
+      type = "Array(LowCardinality(String))"
+    }
+    column "timestamp" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "team_id" {
+      type = "Int64"
+    }
+    column "distinct_id" {
+      type = "String"
+    }
+    column "created_at" {
+      type    = "DateTime64(6, 'UTC')"
+      default = "now()"
+    }
+    column "_timestamp" {
+      type = "DateTime"
+    }
+    column "_offset" {
+      type = "UInt64"
+    }
+    column "elements_chain" {
+      type = "String"
+    }
+    column "person_id" {
+      type = "UUID"
+    }
+    column "person_properties" {
+      type = "String"
+    }
+    column "person_properties_null_keys" {
+      type = "Array(LowCardinality(String))"
+    }
+    column "group0_properties" {
+      type = "String"
+    }
+    column "group1_properties" {
+      type = "String"
+    }
+    column "group2_properties" {
+      type = "String"
+    }
+    column "group3_properties" {
+      type = "String"
+    }
+    column "group4_properties" {
+      type = "String"
+    }
+    column "person_created_at" {
+      type = "DateTime64(3)"
+    }
+    column "group0_created_at" {
+      type = "DateTime64(3)"
+    }
+    column "group1_created_at" {
+      type = "DateTime64(3)"
+    }
+    column "group2_created_at" {
+      type = "DateTime64(3)"
+    }
+    column "group3_created_at" {
+      type = "DateTime64(3)"
+    }
+    column "group4_created_at" {
+      type = "DateTime64(3)"
+    }
+    column "inserted_at" {
+      type    = "DateTime64(6, 'UTC')"
+      default = "now64()"
+    }
+    column "person_mode" {
+      type = "Enum8('full'=0, 'propertyless'=1, 'force_upgrade'=2)"
+    }
+    column "consumer_breadcrumbs" {
+      type = "Array(String)"
+    }
+    column "historical_migration" {
+      type = "Bool"
+    }
+    column "total_event_size" {
+      type = "UInt32"
+    }
+    column "captured_at" {
+      type    = "DateTime64(6, 'UTC')"
+      default = "now()"
+    }
+    column "_partition" {
+      type = "UInt64"
+    }
+    engine "distributed" {
+      cluster_name    = "posthog_writable"
+      remote_database = "posthog"
+      remote_table    = "sharded_events_json_recent"
+      sharding_key    = "sipHash64(distinct_id)"
+    }
+  }
+
   table "writable_events_recent" {
     column "uuid" {
       type = "UUID"
@@ -17686,6 +18190,10 @@ SQL
       type = "UInt8"
     }
     column "internal_source" {
+      type    = "LowCardinality(String)"
+      default = "''"
+    }
+    column "auth_type" {
       type    = "LowCardinality(String)"
       default = "''"
     }
@@ -18722,6 +19230,9 @@ SQL
     column "lc_estimated_bytes" {
       type = "SimpleAggregateFunction(max, Int64)"
     }
+    column "log_comment" {
+      type = "SimpleAggregateFunction(max, String)"
+    }
     engine "distributed" {
       cluster_name    = "ops"
       remote_database = "posthog"
@@ -19516,7 +20027,7 @@ SQL
   }
 
   materialized_view "ai_events_json_mv" {
-    to_table = "posthog.ai_events"
+    to_table = "posthog.sharded_ai_events"
     query    = <<SQL
 SELECT
   uuid,
@@ -19587,6 +20098,15 @@ SELECT
   nullIf(JSONExtractRaw(src.properties, '$ai_input_state'), '') AS input_state,
   nullIf(JSONExtractRaw(src.properties, '$ai_output_state'), '') AS output_state,
   nullIf(JSONExtractRaw(src.properties, '$ai_tools'), '') AS tools,
+  toInt16(
+    least(
+      greatest(
+        toInt16OrDefault(_headers.value[indexOf(_headers.name, 'retention-days')], toInt16(30)),
+        30
+      ),
+      365
+    )
+  ) AS retention_days,
   _timestamp,
   _offset,
   _partition
@@ -19757,6 +20277,9 @@ SQL
     }
     column "tools" {
       type = "Nullable(String)"
+    }
+    column "retention_days" {
+      type = "Int16"
     }
     column "_timestamp" {
       type = "Nullable(DateTime)"
@@ -19998,35 +20521,6 @@ SQL
     }
     column "_partition" {
       type = "UInt64"
-    }
-  }
-
-  materialized_view "cohort_membership_mv" {
-    to_table = "posthog.writable_cohort_membership"
-    query    = <<SQL
-SELECT
-  team_id,
-  cohort_id,
-  person_id,
-  multiIf(status = 'member', 'entered', status = 'not_member', 'left', status) AS status,
-  last_updated
-FROM posthog.kafka_cohort_membership
-SQL
-
-    column "team_id" {
-      type = "Int64"
-    }
-    column "cohort_id" {
-      type = "Int64"
-    }
-    column "person_id" {
-      type = "UUID"
-    }
-    column "status" {
-      type = "String"
-    }
-    column "last_updated" {
-      type = "DateTime64(6)"
     }
   }
 
@@ -20692,6 +21186,172 @@ SQL
     }
     column "consumer_breadcrumbs" {
       type = "Array(String)"
+    }
+  }
+
+  materialized_view "events_json_recent_mv" {
+    to_table = "posthog.writable_events_json_recent"
+    query    = <<SQL
+SELECT
+  *,
+  accurateCast(byteSize(*) + byteSize(toUInt32(0)), 'UInt32') AS total_event_size
+FROM
+  (
+    SELECT
+      uuid,
+      event,
+      cleaned.properties AS properties,
+      cleaned.temporary_properties AS temporary_properties,
+      cleaned.properties_null_keys AS properties_null_keys,
+      cleaned.temporary_properties_null_keys AS temporary_properties_null_keys,
+      now64() AS inserted_at,
+      timestamp,
+      team_id,
+      distinct_id,
+      elements_chain,
+      created_at,
+      person_id,
+      cleaned.person_properties AS person_properties,
+      cleaned.person_properties_null_keys AS person_properties_null_keys,
+      person_created_at,
+      group0_properties,
+      group1_properties,
+      group2_properties,
+      group3_properties,
+      group4_properties,
+      group0_created_at,
+      group1_created_at,
+      group2_created_at,
+      group3_created_at,
+      group4_created_at,
+      person_mode,
+      historical_migration,
+      coalesce(captured_at, created_at) AS captured_at,
+      _timestamp,
+      _offset,
+      _partition,
+      consumer_breadcrumbs
+    FROM
+      (
+        SELECT
+          *,
+          _timestamp,
+          _offset,
+          _partition,
+          arrayMap(
+            i -> (_headers.value[i]),
+            arrayFilter(
+              i -> ((_headers.name[i]) = 'kafka-consumer-breadcrumbs'),
+              arrayEnumerate(_headers.name)
+            )
+          ) AS consumer_breadcrumbs,
+          JSONCleanPostHogEventForExport(properties, person_properties) AS cleaned
+        FROM posthog.kafka_events_json_recent
+      ) AS source
+  )
+SQL
+
+    column "uuid" {
+      type = "UUID"
+    }
+    column "event" {
+      type = "String"
+    }
+    column "properties" {
+      type = "String"
+    }
+    column "temporary_properties" {
+      type = "String"
+    }
+    column "properties_null_keys" {
+      type = "Array(String)"
+    }
+    column "temporary_properties_null_keys" {
+      type = "Array(String)"
+    }
+    column "inserted_at" {
+      type = "DateTime64(3)"
+    }
+    column "timestamp" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "team_id" {
+      type = "Int64"
+    }
+    column "distinct_id" {
+      type = "String"
+    }
+    column "elements_chain" {
+      type = "String"
+    }
+    column "created_at" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "person_id" {
+      type = "UUID"
+    }
+    column "person_properties" {
+      type = "String"
+    }
+    column "person_properties_null_keys" {
+      type = "Array(String)"
+    }
+    column "person_created_at" {
+      type = "DateTime64(3)"
+    }
+    column "group0_properties" {
+      type = "String"
+    }
+    column "group1_properties" {
+      type = "String"
+    }
+    column "group2_properties" {
+      type = "String"
+    }
+    column "group3_properties" {
+      type = "String"
+    }
+    column "group4_properties" {
+      type = "String"
+    }
+    column "group0_created_at" {
+      type = "DateTime64(3)"
+    }
+    column "group1_created_at" {
+      type = "DateTime64(3)"
+    }
+    column "group2_created_at" {
+      type = "DateTime64(3)"
+    }
+    column "group3_created_at" {
+      type = "DateTime64(3)"
+    }
+    column "group4_created_at" {
+      type = "DateTime64(3)"
+    }
+    column "person_mode" {
+      type = "Enum8('full'=0, 'propertyless'=1, 'force_upgrade'=2)"
+    }
+    column "historical_migration" {
+      type = "Bool"
+    }
+    column "captured_at" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "_timestamp" {
+      type = "Nullable(DateTime)"
+    }
+    column "_offset" {
+      type = "UInt64"
+    }
+    column "_partition" {
+      type = "UInt64"
+    }
+    column "consumer_breadcrumbs" {
+      type = "Array(String)"
+    }
+    column "total_event_size" {
+      type = "UInt32"
     }
   }
 
@@ -21361,7 +22021,8 @@ SELECT
   toInt64OrNull(_headers.value[indexOf(_headers.name, 'bytes_compressed')]) / _record_count AS _bytes_compressed,
   ifNull(pattern, '') AS pattern,
   toUInt8(ifNull(pattern_version, 0)) AS pattern_version,
-  _headers.value[indexOf(_headers.name, 'internal-source')] AS internal_source
+  _headers.value[indexOf(_headers.name, 'internal-source')] AS internal_source,
+  _headers.value[indexOf(_headers.name, 'auth-type')] AS auth_type
 FROM posthog.kafka_logs_avro
 SQL
 
@@ -21438,6 +22099,9 @@ SQL
       type = "UInt8"
     }
     column "internal_source" {
+      type = "LowCardinality(String)"
+    }
+    column "auth_type" {
       type = "LowCardinality(String)"
     }
   }
@@ -22936,7 +23600,25 @@ SELECT
   lc.precompute_window_end AS lc_precompute_window_end,
   lc.plan_fingerprint AS lc_plan_fingerprint,
   lc.estimated_rows AS lc_estimated_rows,
-  lc.estimated_bytes AS lc_estimated_bytes
+  lc.estimated_bytes AS lc_estimated_bytes,
+  if(
+    ql.is_initial_query AND notEmpty(ql.log_comment),
+    concat(
+      '{',
+      arrayStringConcat(
+        arrayMap(
+          kv -> concat(toJSONString(kv.1), ':', kv.2),
+          arrayFilter(
+            kv -> ((kv.1) NOT IN ('timings', 'query')),
+            JSONExtractKeysAndValuesRaw(ql.log_comment)
+          )
+        ),
+        ','
+      ),
+      '}'
+    ),
+    ''
+  ) AS log_comment
 FROM system.query_log AS ql
 WHERE ql.type != 'QueryStart'
 SQL
@@ -23288,6 +23970,9 @@ SQL
     }
     column "lc_estimated_bytes" {
       type = "SimpleAggregateFunction(max, Int64)"
+    }
+    column "log_comment" {
+      type = "SimpleAggregateFunction(max, String)"
     }
   }
 
@@ -26504,10 +27189,6 @@ SQL
 }
 
 named_collection "msk_cluster" {
-  external = true
-}
-
-named_collection "warpstream_calculated_events" {
   external = true
 }
 

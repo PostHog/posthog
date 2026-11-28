@@ -11,8 +11,10 @@ import { Client } from 'pg'
 import { setTimeout as nextTimers } from 'timers/promises'
 import { promisify } from 'util'
 
+import { getDefaultCdpConfig } from '~/cdp/config'
 import { RateLimiterService } from '~/cdp/services/rate-limiter/rate-limiter.service'
-import { defaultConfig } from '~/common/config/config'
+import { PluginServerMode } from '~/common/config'
+import { defaultConfig, overrideConfigWithEnv } from '~/common/config/config'
 import { RedisClient, RedisClientPipeline, RedisV2 } from '~/common/redis/redis-v2'
 import { parseJSON } from '~/common/utils/json-parse'
 import { internalFetch } from '~/common/utils/request'
@@ -20,7 +22,9 @@ import { waitForExpect } from '~/tests/helpers/expectations'
 import { isPortFree } from '~/tests/helpers/service-process'
 
 import { CdpRole } from '../cards'
-import { Environment, createEnvironment } from './environment'
+import { Environment, ROLE_COMMAND, createEnvironment, proxiesOf } from './environment'
+import { nameOf } from './identity'
+import { startProbeProcess } from './probe-process'
 import * as processes from './processes'
 import {
     ProcEntry,
@@ -32,12 +36,22 @@ import {
     strangerConflict,
     terminate,
 } from './processes'
-import { ROLE_PORTS, Role, consumerGroupsOf, fetchRetriesOf, roleSpecs, secretsOf } from './roles'
+import {
+    MODES_WITHOUT_A_ROLE,
+    ROLE_PORTS,
+    Role,
+    configHashOf,
+    consumerGroupsOf,
+    fetchRetriesOf,
+    intakeTopicsOf,
+    roleSpecs,
+    secretsOf,
+} from './roles'
 import {
     RESIDENT_TEAMS_FROM,
     SES_RATE_LIMIT_KEY,
     STACK,
-    downServices,
+    cyclotronUrlOf,
     forgetSesBucket,
     lagOf,
     membersOf,
@@ -46,7 +60,9 @@ import {
     scratchSchema,
     seekFailures,
     terminateRoleConnections,
+    topicCreateFailures,
     withPostgres,
+    writerUrlOf,
 } from './stack'
 import { createSupervisor } from './supervisor'
 
@@ -400,6 +416,25 @@ describe('scenario environment', () => {
             expect(postgresServersOf(spec, POSTHOG)).toEqual(servers)
         })
 
+        it("lists the database behind the edge's proxy, not the proxy, for a role that reaches Cyclotron through it", () => {
+            const cyclotron = 'postgres://posthog:posthog@localhost:5432/cyclotron_node'
+            const [spec] = roleSpecs(
+                base,
+                EDGE,
+                secretsOf({}),
+                STATE_DIR,
+                {},
+                undefined,
+                {},
+                {
+                    urls: { [cyclotron]: 'postgres://posthog:posthog@127.0.0.1:7001/cyclotron_node' },
+                    fallback: cyclotron,
+                }
+            )
+
+            expect(postgresServersOf(spec, POSTHOG)).toEqual([POSTHOG])
+        })
+
         const hogflowWorker = (settings: Record<string, string>) =>
             roleSpecs(base, EDGE, secretsOf({}), STATE_DIR, settings).find(
                 ({ role }) => role === 'cdp-cyclotron-worker-hogflow'
@@ -417,6 +452,32 @@ describe('scenario environment', () => {
             expect(() => fetchRetriesOf(hogflowWorker({ CDP_FETCH_RETRIES: 'Infinity' }))).toThrow(
                 'CDP_FETCH_RETRIES Infinity is not a number of retries'
             )
+        })
+
+        it('configures sealed state and the intake dead-letter check, as production does', () => {
+            const cdpApi = overrideConfigWithEnv(
+                getDefaultCdpConfig(),
+                specs.find(({ role }) => role === 'cdp-api')!.env
+            )
+
+            expect({
+                sealed: Boolean(cdpApi.CDP_SEALED_STATE_KEYS),
+                parksUnreadableRuns: specs
+                    .filter(({ role }) => role.startsWith('cdp-intake-'))
+                    .map(({ env }) => overrideConfigWithEnv(getDefaultCdpConfig(), env).CDP_DLQ_ENABLED),
+            }).toEqual({ sealed: true, parksUnreadableRuns: [true, true] })
+        })
+
+        it('runs a role for every CDP plugin server mode, or names why the scenarios leave it out', () => {
+            const cdpModes: string[] = Object.values(PluginServerMode).filter((mode) => mode.startsWith('cdp-'))
+            const roles: string[] = [...CdpRole.options]
+            const excluded = Object.keys(MODES_WITHOUT_A_ROLE)
+
+            expect({
+                unscenarioed: cdpModes.filter((mode) => !roles.includes(mode) && !excluded.includes(mode)),
+                excludedYetRun: excluded.filter((mode) => roles.includes(mode)),
+                rolesWithoutAMode: roles.filter((role) => !cdpModes.includes(role)),
+            }).toEqual({ unscenarioed: [], excludedYetRun: [], rolesWithoutAMode: [] })
         })
 
         it('gives every role its own port, cdp-api the one Django calls', () => {
@@ -477,22 +538,82 @@ describe('scenario environment', () => {
 
         it('splits the role processes evenly across the poolers the host names, spreading a role over them', () => {
             const poolers = ['postgres://a@127.0.0.1:6432/cyclotron_node', 'postgres://a@127.0.0.1:6433/cyclotron_node']
+            const writer = 'postgres://posthog:posthog@localhost:5432/cyclotron_writer'
+            const pooled = { ...base, SCENARIO_POOLER_URLS: poolers.join(','), SCENARIO_WRITER_URL: writer }
             const split = roleSpecs(
-                { ...base, SCENARIO_POOLER_URLS: poolers.join(',') },
+                pooled,
                 EDGE,
                 secretsOf({}),
                 STATE_DIR,
-                { CYCLOTRON_NODE_DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/cyclotron_node' },
+                { CYCLOTRON_NODE_DATABASE_URL: writer },
                 undefined,
                 { 'cdp-cyclotron-worker-hogflow': 2 }
             )
             const shares = poolers.map((url) => split.filter(({ env }) => env.CYCLOTRON_NODE_DATABASE_URL === url))
 
-            expect(shares.map((share) => share.length)).toEqual([4, 3])
+            expect(shares.map((share) => share.length)).toEqual([5, 4])
             expect(
                 shares.map((share) => share.filter(({ role }) => role === 'cdp-cyclotron-worker-hogflow').length)
             ).toEqual([1, 1])
-            expect(split.filter(({ env }) => 'SCENARIO_POOLER_URLS' in env)).toEqual([])
+            expect(split.filter(({ env }) => 'SCENARIO_POOLER_URLS' in env || 'SCENARIO_WRITER_URL' in env)).toEqual([])
+        })
+
+        it.each([
+            ['the host names', { SCENARIO_WRITER_URL: 'postgres://a@writer.example.com:5432/cyclotron_node' }, {}],
+            [
+                "a cloud run's host names",
+                {
+                    SCENARIO_RUN_MANIFEST: '/opt/scenario/input/manifest.json',
+                    SCENARIO_WRITER_URL: 'postgres://a@writer.example.com:5432/cyclotron_node',
+                    CYCLOTRON_NODE_DATABASE_URL: 'postgres://a@127.0.0.1:5432/cyclotron_node',
+                },
+                { CYCLOTRON_NODE_DATABASE_URL: 'postgres://a@profile.example.com:5432/cyclotron_node' },
+            ],
+            [
+                'the profile sets',
+                {},
+                { CYCLOTRON_NODE_DATABASE_URL: 'postgres://a@writer.example.com:5432/cyclotron_node' },
+            ],
+        ])('probes the writer %s itself, past the poolers the roles reach it through', (_, env, settings) => {
+            const pooled = { ...base, SCENARIO_POOLER_URLS: 'postgres://a@127.0.0.1:6432/cyclotron_node', ...env }
+
+            expect(writerUrlOf(pooled, settings)).toBe('postgres://a@writer.example.com:5432/cyclotron_node')
+        })
+
+        const POOLERS = ['postgres://a@127.0.0.1:6432/cyclotron_node', 'postgres://a@127.0.0.1:6433/cyclotron_node']
+        const SECOND = 'postgres://a@127.0.0.1:5432/cyclotron_second'
+        const proxyFor = (database: string): string => `postgres://a@127.0.0.1:7000/proxy-for-${database}`
+        const routed = (env: NodeJS.ProcessEnv, settings: Record<string, string>) => {
+            const args = [{ ...base, ...env }, EDGE, secretsOf({}), STATE_DIR, settings, undefined, {}] as const
+            const direct = roleSpecs(...args)
+            return {
+                direct,
+                through: (proxies: Record<string, string>) =>
+                    roleSpecs(...args, { urls: proxies, fallback: POOLERS[0] }),
+            }
+        }
+
+        it.each<[string, NodeJS.ProcessEnv, Record<string, string>, (index: number) => string]>([
+            ['each pooler', { SCENARIO_POOLER_URLS: POOLERS.join(',') }, {}, (index) => POOLERS[index % 2]],
+            ['the database a profile names', {}, { CYCLOTRON_NODE_DATABASE_URL: SECOND }, () => SECOND],
+        ])(
+            "reaches %s through the edge's proxy for it, while the runner reads that database itself",
+            async (_story, env, settings, databaseOf) => {
+                const { direct, through } = routed(env, settings)
+                const specs = through(await proxiesOf((database) => Promise.resolve(proxyFor(database)), direct))
+
+                expect(specs.map((spec) => [spec.env.CYCLOTRON_NODE_DATABASE_URL, cyclotronUrlOf(spec)])).toEqual(
+                    specs.map((_, index) => [proxyFor(databaseOf(index)), databaseOf(index)])
+                )
+            }
+        )
+
+        it('refuses to route a role to a database the edge has no proxy for', () => {
+            const { through } = routed({}, { CYCLOTRON_NODE_DATABASE_URL: SECOND })
+
+            expect(() => through({ [POOLERS[0]]: proxyFor(POOLERS[0]) })).toThrow(
+                'the edge has no Postgres proxy for the Cyclotron database the profile names'
+            )
         })
 
         it.each(CdpRole.options)(
@@ -555,15 +676,41 @@ describe('scenario environment', () => {
             })
         })
 
-        it('drops an inherited consumer group id, so the events role joins the group a reset moves', () => {
-            const specs = roleSpecs(
-                { KAFKA_CONSUMER_GROUP_ID: 'dev-group' },
-                { url: 'http://edge' },
-                secretsOf({}),
-                STATE_DIR
-            )
+        it.each([
+            ['KAFKA_CONSUMER_GROUP_ID', 'so the events role joins the group a reset moves', 'dev-group'],
+            [
+                'CDP_RATE_LIMITER_REFILL_RATE',
+                "since a setting the loader's rate check reads comes from the profile or the server default only",
+                '1000',
+            ],
+            [
+                'CDP_SES_RATE_LIMIT_REFILL_PER_SECOND',
+                "since a setting the loader's SES check reads comes from the profile or the server default only",
+                '1000',
+            ],
+            [
+                'CDP_SES_RATE_LIMIT_CAPACITY',
+                "since a setting the loader's SES check reads comes from the profile or the server default only",
+                '1000',
+            ],
+            [
+                'CONSUMER_BATCH_SIZE',
+                "since a setting the loader's SES check reads comes from the profile or the server default only",
+                '10',
+            ],
+            ...[
+                'CDP_INTAKE_DLQ_DRAIN',
+                'CDP_INTAKE_TRANSACTIONAL_EMAIL_TOPIC',
+                'CDP_INTAKE_WORKFLOW_WEBHOOK_TOPIC',
+            ].map((name): [string, string, string] => [
+                name,
+                "since the loader's intake check refuses it in a profile, and convergence cannot judge it",
+                'true',
+            ]),
+        ])('drops an inherited %s, %s', (name, _reason, value) => {
+            const specs = roleSpecs({ [name]: value }, { url: 'http://edge' }, secretsOf({}), STATE_DIR)
 
-            expect(specs.filter(({ env }) => 'KAFKA_CONSUMER_GROUP_ID' in env)).toEqual([])
+            expect(specs.filter(({ env }) => name in env)).toEqual([])
         })
 
         it("shares the runner's secrets with the roles", () => {
@@ -578,6 +725,131 @@ describe('scenario environment', () => {
                 ENCRYPTION_SALT_KEYS: 'run-key',
                 WORKFLOWS_TRANSACTIONAL_EMAIL_JWT_SECRET: 'run-jwt',
             })
+        })
+
+        const MACHINE = { PATH: '/usr/bin', HOME: '/home/a' }
+        const hashOf = (machine: Record<string, string>, stateDir: string, settings = {}): string =>
+            configHashOf(roleSpecs(machine, EDGE, secretsOf({}), stateDir, settings))
+        const withSetting = (settings: Record<string, string>): string => hashOf(MACHINE, STATE_DIR, settings)
+
+        it('hashes the server config the roles start with, apart from the machine around them', () => {
+            const here = hashOf(MACHINE, STATE_DIR)
+            const database = withSetting({ DATABASE_URL: 'postgres://posthog:one@cluster-a:5432/posthog' })
+
+            expect({
+                elsewhere: hashOf({ PATH: '/opt/bin', HOME: '/home/b' }, '/other-state'),
+                settings: withSetting({ CDP_WATCHER_HOG_COST_TIMING: '7' }),
+                inherited: hashOf({ ...MACHINE, CDP_WATCHER_HOG_COST_TIMING_UPPER_MS: '9' }, STATE_DIR),
+                processEnv: hashOf({ ...MACHINE, HOG_BYTECODE_CACHE_REWRITE: '1' }, STATE_DIR),
+                databaseEmptied: withSetting({ DATABASE_URL: '' }),
+                certificate: withSetting({ KAFKA_CLIENT_CERT_KEY_B64: 'bm90LWEta2V5' }),
+                sealingOff: hashOf({ ...MACHINE, CDP_SEALED_STATE_KEYS: '' }, STATE_DIR),
+                sealingCommas: hashOf({ ...MACHINE, CDP_SEALED_STATE_KEYS: ',,' }, STATE_DIR),
+                commaPassword: withSetting({ POSTHOG_DB_PASSWORD: ',' }),
+                certificateCheckOff: withSetting({
+                    KAFKA_WAREHOUSE_PRODUCER_ENABLE_SSL_CERTIFICATE_VERIFICATION: 'false',
+                }),
+                otherHost: withSetting({ CDP_REDIS_HOST: 'redis-b' }),
+                otherBaseDir: hashOf({ ...MACHINE, BASE_DIR: '/srv/b' }, STATE_DIR),
+            }).toEqual({
+                elsewhere: here,
+                settings: expect.not.stringMatching(here),
+                inherited: expect.not.stringMatching(here),
+                processEnv: expect.not.stringMatching(here),
+                databaseEmptied: expect.not.stringMatching(database),
+                certificate: withSetting({ KAFKA_CLIENT_CERT_KEY_B64: 'YW5vdGhlci1rZXk=' }),
+                sealingOff: expect.not.stringMatching(here),
+                sealingCommas: hashOf({ ...MACHINE, CDP_SEALED_STATE_KEYS: '' }, STATE_DIR),
+                commaPassword: expect.not.stringMatching(withSetting({ POSTHOG_DB_PASSWORD: '' })),
+                certificateCheckOff: expect.not.stringMatching(
+                    withSetting({ KAFKA_WAREHOUSE_PRODUCER_ENABLE_SSL_CERTIFICATE_VERIFICATION: 'true' })
+                ),
+                otherHost: withSetting({ CDP_REDIS_HOST: 'redis-a' }),
+                otherBaseDir: hashOf({ ...MACHINE, BASE_DIR: '/srv/a' }, STATE_DIR),
+            })
+            expect(here).toMatch(/^[0-9a-f]{64}$/)
+        })
+
+        it.each<[string, string, string, string]>([
+            [
+                'URL whose userinfo holds a slash',
+                'DATABASE_URL',
+                'postgres://posthog:o/ne@cluster-b:5432/posthog',
+                'postgres://reader:t/wo@cluster-c:6432/other',
+            ],
+            [
+                'URL whose userinfo holds a comma',
+                'DATABASE_URL',
+                'postgres://posthog:o,ne@cluster-b:5432/posthog',
+                'postgres://reader:t,wo@cluster-c:6432/other',
+            ],
+            [
+                'URL whose userinfo holds an at sign',
+                'DATABASE_URL',
+                'postgres://posthog:o@ne@cluster-b/posthog',
+                'postgres://reader:t@wo@cluster-c/other',
+            ],
+            [
+                'URL whose userinfo is percent-encoded',
+                'DATABASE_URL',
+                'postgres://posthog:o%2Fn%40e@cluster-b/posthog',
+                'postgres://reader:t%2Cwo@cluster-c/other',
+            ],
+            [
+                'value holding several URLs',
+                'DATABASE_URL',
+                'postgres://a:one@h1/db,postgres://b:two@h2/db',
+                'redis://c:three@h3/0,redis://d:four@h4/1',
+            ],
+            [
+                'URL with a password in its query',
+                'DATABASE_URL',
+                'postgres://cluster-a/posthog?password=one&sslrootcert=/srv/a/ca.pem',
+                'postgres://cluster-b/other?password=two',
+            ],
+            ['bare password setting', 'POSTHOG_DB_PASSWORD', 'one', 'two'],
+            [
+                'keyword-form connection string',
+                'DATABASE_URL',
+                'host=cluster-a user=posthog password=one dbname=posthog',
+                'host=cluster-b user=reader password=two dbname=other',
+            ],
+            [
+                'keyword-form password under a setting not named as one',
+                'CDP_WATCHER_HOG_COST_TIMING',
+                'host=cluster-a password=one',
+                'host=cluster-b PASSWORD = two',
+            ],
+            ['URL setting without a scheme', 'POSTHOG_HOST_URL', 'cluster-a:8000/one', 'cluster-b:9000/two'],
+            ['broker list', 'KAFKA_HOSTS', 'kafka-a:9092,kafka-b:9092', 'kafka-c:9093'],
+            [
+                'broker list named as a list',
+                'KAFKA_WARPSTREAM_INGESTION_PRODUCER_METADATA_BROKER_LIST',
+                'kafka-a:9092',
+                'kafka-b:9093',
+            ],
+            [
+                'URL under a setting not named as one',
+                'CDP_WATCHER_HOG_COST_TIMING',
+                'https://user:one@host-a/x',
+                'https://other:two@host-b/y',
+            ],
+            [
+                'credentials without a scheme under a setting not named as one',
+                'CDP_WATCHER_HOG_COST_TIMING',
+                'user:one@host-a',
+                'other:two@host-b',
+            ],
+            ['SASL user name', 'KAFKA_WAREHOUSE_PRODUCER_SASL_USERNAME', 'reader-a', 'reader-b'],
+            ['bare address', 'PERSONHOG_LEADER_ADDR', 'router-a:50051', 'router-b:50052'],
+            [
+                'host and port under a setting not named as one',
+                'CDP_WATCHER_HOG_COST_TIMING',
+                'router-a:50051',
+                'router-b:50052',
+            ],
+        ])('keeps every part of a %s out of the config hash', (_class, key, value, other) => {
+            expect(withSetting({ [key]: value })).toEqual(withSetting({ [key]: other }))
         })
     })
 
@@ -601,6 +873,18 @@ describe('scenario environment', () => {
             0,
         ],
         ['output it cannot read', 'unable to dial: dial tcp 127.0.0.1:9092: connect: connection refused\n', null, null],
+        [
+            'a group whose coordinator answered an error',
+            'GROUP        cdp-intake-transactional-email-consumer\nCOORDINATOR  0\nSTATE        \nBALANCER     \nMEMBERS      0\nTOTAL-LAG    0\nERROR        COORDINATOR_LOAD_IN_PROGRESS\n',
+            0,
+            null,
+        ],
+        [
+            'a group with a partition whose offsets rpk could not read',
+            'GROUP        cdp-intake-transactional-email-consumer\nCOORDINATOR  0\nSTATE        Stable\nBALANCER     range\nMEMBERS      1\nTOTAL-LAG    0\n\nTOPIC                           PARTITION  CURRENT-OFFSET  LOG-START-OFFSET  LOG-END-OFFSET  LAG  MEMBER-ID  CLIENT-ID  HOST  ERROR\ncdp_intake_transactional_email  0          -               -                 -               -    m-1        intake     host  NOT_LEADER_FOR_PARTITION\n',
+            1,
+            null,
+        ],
     ])('reads the members and lag of %s from rpk', (_name, output, members, lag) => {
         expect(membersOf(output)).toBe(members)
         expect(lagOf(output)).toBe(lag)
@@ -614,6 +898,8 @@ describe('scenario environment', () => {
             [
                 { group: 'cdp-processed-events-consumer', topics: ['clickhouse_events_json'] },
                 { group: 'cdp-ses-webhooks-consumer', topics: ['cdp_ses_webhooks'] },
+                { group: 'cdp-intake-transactional-email-consumer', topics: ['cdp_intake_transactional_email'] },
+                { group: 'cdp-intake-workflow-webhook-consumer', topics: ['cdp_intake_workflow_webhook'] },
             ],
         ],
         [
@@ -623,6 +909,8 @@ describe('scenario environment', () => {
             [
                 { group: 'scenario-events', topics: ['clickhouse_events_json'] },
                 { group: 'cdp-ses-webhooks-consumer', topics: ['cdp_ses_webhooks'] },
+                { group: 'cdp-intake-transactional-email-consumer', topics: ['cdp_intake_transactional_email'] },
+                { group: 'cdp-intake-workflow-webhook-consumer', topics: ['cdp_intake_workflow_webhook'] },
             ],
         ],
         [
@@ -632,6 +920,11 @@ describe('scenario environment', () => {
             [
                 { group: 'cdp-processed-events-consumer', topics: ['scenario_clickhouse_events_json'] },
                 { group: 'cdp-ses-webhooks-consumer', topics: ['scenario_cdp_ses_webhooks'] },
+                {
+                    group: 'cdp-intake-transactional-email-consumer',
+                    topics: ['scenario_cdp_intake_transactional_email'],
+                },
+                { group: 'cdp-intake-workflow-webhook-consumer', topics: ['scenario_cdp_intake_workflow_webhook'] },
             ],
         ],
         [
@@ -641,12 +934,63 @@ describe('scenario environment', () => {
             [
                 { group: 'scenario-events', topics: ['scenario_events_json'] },
                 { group: 'cdp-ses-webhooks-consumer', topics: ['cdp_ses_webhooks'] },
+                { group: 'cdp-intake-transactional-email-consumer', topics: ['cdp_intake_transactional_email'] },
+                { group: 'cdp-intake-workflow-webhook-consumer', topics: ['cdp_intake_workflow_webhook'] },
             ],
         ],
     ])('moves %s', (_name, env, settings, groups) => {
         expect(consumerGroupsOf(roleSpecs(env, { url: 'http://edge' }, secretsOf({}), STATE_DIR, settings))).toEqual(
             groups
         )
+    })
+
+    it.each<[string, NodeJS.ProcessEnv, Record<string, string>, string[]]>([
+        [
+            'their configured names',
+            {},
+            {},
+            ['cdp_intake_transactional_email', 'cdp_intake_workflow_webhook', 'cdp_intake_dlq'],
+        ],
+        [
+            'the Kafka prefix the roles inherit',
+            { KAFKA_PREFIX: 'scenario_' },
+            {},
+            [
+                'scenario_cdp_intake_transactional_email',
+                'scenario_cdp_intake_workflow_webhook',
+                'scenario_cdp_intake_dlq',
+            ],
+        ],
+        [
+            'the dead-letter topic a profile sets',
+            {},
+            { CDP_INTAKE_DLQ_TOPIC: 'scenario_intake_dlq' },
+            ['cdp_intake_transactional_email', 'cdp_intake_workflow_webhook', 'scenario_intake_dlq'],
+        ],
+    ])('creates the intake topics and their dead-letter topic under %s', (_name, env, settings, topics) => {
+        expect(intakeTopicsOf(roleSpecs(env, { url: 'http://edge' }, secretsOf({}), STATE_DIR, settings))).toEqual(
+            topics
+        )
+    })
+
+    it.each<[string, string, string[]]>([
+        [
+            'topics it created and topics that were there',
+            'TOPIC                   STATUS\ncdp_intake_dlq          OK\ncdp_intake_transactional_email  TOPIC_ALREADY_EXISTS: The topic has already been created\n',
+            [],
+        ],
+        [
+            'a topic the broker refused',
+            'TOPIC           STATUS\ncdp_intake_dlq  POLICY_VIOLATION: Unsupported configuration\n',
+            ['cdp_intake_dlq: POLICY_VIOLATION: Unsupported configuration'],
+        ],
+        [
+            'a create rpk could not run',
+            'unable to dial: dial tcp 127.0.0.1:9092: connect: connection refused\n',
+            ['unable to dial: dial tcp 127.0.0.1:9092: connect: connection refused'],
+        ],
+    ])('reads the failures of a topic create from rpk: %s', (_name, output, failures) => {
+        expect(topicCreateFailures(output)).toEqual(failures)
     })
 
     it.each<[string, string, string[]]>([
@@ -687,23 +1031,20 @@ describe('scenario environment', () => {
         }
     }, 4_000)
 
-    it('reports a running Kafka as up when the probes run under tsx like the CLI', async () => {
-        const args: Parameters<typeof downServices> = [
-            undefined,
-            'postgres://127.0.0.1:1/none',
-            { host: '127.0.0.1', port: 1 },
-        ]
-        const probe = `import('./tests/scenarios/environment/stack').then(({ downServices }) => downServices(...${JSON.stringify(args)})).then((down) => console.log(JSON.stringify(down)))`
-        const { stdout } = await promisify(childProcess.execFile)(
-            path.join(NODEJS_DIR, 'node_modules', '.bin', 'tsx'),
-            ['-e', probe],
-            { cwd: NODEJS_DIR }
-        )
-        const down: string[] = parseJSON(stdout.trim().split('\n').pop() ?? '[]')
-        expect({ postgres: down.includes('postgres'), kafka: down.includes('kafka') }).toEqual({
-            postgres: true,
-            kafka: false,
+    it('reports a running Kafka as up from the probe process under tsx', async () => {
+        const probes = startProbeProcess({
+            edgeUrl: undefined,
+            postgresUrl: 'postgres://127.0.0.1:1/none',
+            sesValkey: { host: '127.0.0.1', port: 1 },
+            only: ['postgres', 'kafka'],
         })
+        try {
+            const down = (await probes.check()).map(({ name }) => name)
+
+            expect(down).toEqual(['postgres'])
+        } finally {
+            probes.close()
+        }
     }, 30_000)
 
     describe('run lock', () => {
@@ -978,7 +1319,9 @@ describe('scenario environment', () => {
                 await missing.start([spec])
 
                 await waitForExpect(() => expect(missing.exits().length).toBeGreaterThanOrEqual(2), 5000, 20)
-                expect(missing.exits()[0]).toMatchObject({ role: spec.role, error: expect.stringContaining('ENOENT') })
+                const [first] = missing.exits()
+                expect(first).toMatchObject({ role: spec.role, error: expect.stringContaining('ENOENT') })
+                expect(first.relaunchedAt).toBeUndefined()
             } finally {
                 await missing.stop()
             }
@@ -993,6 +1336,142 @@ describe('scenario environment', () => {
                 Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10)
             }
         }
+
+        const READY = "process.on('SIGTERM', ON_SIGTERM); console.log('ready'); setInterval(() => {}, 1000)"
+
+        const BUSY = 'Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 1000)'
+
+        it.each([
+            [
+                'lets a role that stops on SIGTERM exit within its grace',
+                '() => setTimeout(() => process.exit(0), 100)',
+                { code: 0, signal: null },
+                1000,
+                false,
+            ],
+            [
+                'kills a role that outlasts its grace and records when the SIGKILL went out',
+                '() => {}',
+                { killedAt: expect.any(String), code: null, signal: 'SIGKILL' },
+                1000,
+                false,
+            ],
+            [
+                'lets a role launched as the environment launches it finish a SIGTERM that found its event loop busy',
+                '() => setTimeout(() => process.exit(0), 100)',
+                { code: 0, signal: null },
+                5000,
+                true,
+            ],
+        ])(
+            'terminate %s, and records the exit as the valve',
+            async (_story, onSigterm, exit, graceMs, launchedAsRole) => {
+                const logDir = mkdtempSync(path.join(tempRoot, 'logs-'))
+                const script = READY.replace('ON_SIGTERM', onSigterm)
+                const terminating = createSupervisor({
+                    ...(launchedAsRole
+                        ? { command: ROLE_COMMAND.command, args: [...ROLE_COMMAND.args, '-e', `${script}; ${BUSY}`] }
+                        : { command: process.execPath, args: ['-e', script] }),
+                    cwd: os.tmpdir(),
+                    logDir,
+                    graceMs: 1000,
+                    restartBackoffMs: 60_000,
+                })
+                const [spec] = roleSpecs(process.env, EDGE, secretsOf({}), STATE_DIR)
+                try {
+                    await terminating.start([spec])
+                    await waitForExpect(
+                        () => expect(readFileSync(path.join(logDir, `${nameOf(spec)}.log`), 'utf8')).toContain('ready'),
+                        5000,
+                        20
+                    )
+
+                    const termination = terminating.terminate(spec, graceMs)
+                    await termination.release()
+
+                    expect(termination.journal()).toEqual({
+                        exit: { signalledAt: expect.any(String), exitedAt: expect.any(String), ...exit },
+                    })
+                    expect(terminating.exits()).toEqual([
+                        expect.objectContaining({
+                            role: spec.role,
+                            code: exit.code,
+                            signal: exit.signal,
+                            byValve: true,
+                        }),
+                    ])
+                } finally {
+                    await terminating.stop()
+                }
+            },
+            15_000
+        )
+
+        it.each([
+            [
+                'fails the release of a role still running after its SIGKILL, and keeps its exit unfinished',
+                false,
+                { signalledAt: expect.any(String), killedAt: expect.any(String) },
+            ],
+            [
+                'fails the release of a role that exited after its deadline, though the release began later',
+                true,
+                {
+                    signalledAt: expect.any(String),
+                    killedAt: expect.any(String),
+                    exitedAt: expect.any(String),
+                    code: null,
+                    signal: 'SIGKILL',
+                },
+            ],
+        ])(
+            '%s',
+            async (_story, killLate, exit) => {
+                const logDir = mkdtempSync(path.join(tempRoot, 'logs-'))
+                const surviving = createSupervisor({
+                    command: process.execPath,
+                    args: ['-e', READY.replace('ON_SIGTERM', '() => {}')],
+                    cwd: os.tmpdir(),
+                    logDir,
+                    graceMs: 1000,
+                    restartBackoffMs: 60_000,
+                    killedExitWithinMs: 200,
+                })
+                const [spec] = roleSpecs(process.env, EDGE, secretsOf({}), STATE_DIR)
+                const realSignal = processes.signal
+                const heldKill = jest.spyOn(processes, 'signal').mockImplementation((target, sig) => {
+                    if (sig !== 'SIGKILL') {
+                        return realSignal(target, sig)
+                    }
+                    if (killLate) {
+                        setTimeout(() => realSignal(target, sig), 500)
+                    }
+                    return true
+                })
+                try {
+                    await surviving.start([spec])
+                    await waitForExpect(
+                        () => expect(readFileSync(path.join(logDir, `${nameOf(spec)}.log`), 'utf8')).toContain('ready'),
+                        5000,
+                        20
+                    )
+
+                    const termination = surviving.terminate(spec, 100)
+                    if (killLate) {
+                        await waitForExpect(() => expect(surviving.exits()).toHaveLength(1), 5000, 20)
+                    }
+
+                    await expect(termination.release()).rejects.toThrow(
+                        `${nameOf(spec)} did not exit 0.2s after its grace`
+                    )
+                    expect(termination.journal()).toEqual({ exit })
+                } finally {
+                    heldKill.mockRestore()
+                    await surviving.stop()
+                }
+            },
+            15_000
+        )
 
         it('refuses to kill a role that something else killed before its exit was reported', async () => {
             const killedElsewhere = createSupervisor({
@@ -1038,6 +1517,14 @@ describe('scenario environment', () => {
             "require('http').createServer((_request, response) => response.end(String(process.pid))).listen(Number(process.env.HTTP_SERVER_PORT))"
         const stubRoleExitingAfterHealth =
             "let answered = false; require('http').createServer((_request, response) => (answered ? process.exit(1) : response.end(() => (answered = true)))).listen(Number(process.env.HTTP_SERVER_PORT))"
+        const deadLetterCheck = (topicsFile: string): string => `
+            const created = require('fs').existsSync(${JSON.stringify(topicsFile)}) ? JSON.parse(require('fs').readFileSync(${JSON.stringify(topicsFile)}, 'utf8')) : []
+            const deadLetter = process.env.CDP_INTAKE_DLQ_TOPIC || 'cdp_intake_dlq'
+            if (process.env.CDP_DLQ_ENABLED === 'true' && !created.includes(deadLetter)) {
+                console.error('the dead-letter topic ' + deadLetter + ' is not reachable')
+                process.exit(1)
+            }
+        `
         const stubRoleNeverAnswering =
             "require('http').createServer(() => undefined).listen(Number(process.env.HTTP_SERVER_PORT))"
         const stubRoleBindingAfterHolder = `
@@ -1121,7 +1608,16 @@ describe('scenario environment', () => {
                     process.stderr.write('timeout: still not ready: capture (pending)\\n')
                     process.exit(2)
                 }
-                fs.writeFileSync(stateFile, JSON.stringify({ running: true, ready: true }))
+                fs.writeFileSync(
+                    stateFile,
+                    JSON.stringify({
+                        running: true,
+                        ready: true,
+                        services: stack.services,
+                        restarted: stack.restarted,
+                        inspectFails: stack.inspectFails,
+                    })
+                )
             } else if (verb === 'dev:generate') {
                 const saved = fs.existsSync(process.env.HOGLI_MPROCS_PATH)
                     ? JSON.parse(fs.readFileSync(process.env.HOGLI_MPROCS_PATH, 'utf8'))._posthog
@@ -1130,9 +1626,15 @@ describe('scenario environment', () => {
                 const units = ['backend', 'frontend', 'nodejs', 'ingestion', 'ngrok', ...saved.intents, ...flags.with].filter(
                     (unit) => !excluded.includes(unit)
                 )
+                const compose = 'docker compose -p posthog -f docker-compose.dev.yml -f docker-compose.profiles.yml'
+                const composeShell =
+                    'if [ "\${POSTHOG_SANDBOX:-}" = "1" ]; then echo "Sandbox" && echo "docker-compose ready" && sleep infinity; else ' +
+                    compose + ' up --pull always -d || { echo "docker compose up failed"; exit 1; } && echo "docker-compose ready" && ' +
+                    compose + ' logs --tail=100 -f; fi'
                 fs.writeFileSync(
                     process.env.HOGLI_MPROCS_PATH,
-                    'procs:\\n' + units.map((unit) => '  ' + unit + ':\\n    shell: bin/start-' + unit + '\\n').join('')
+                    'procs:\\n  docker-compose:\\n    shell: ' + JSON.stringify(composeShell) + '\\n' +
+                        units.map((unit) => '  ' + unit + ':\\n    shell: bin/start-' + unit + '\\n').join('')
                 )
             } else if (verb === 'up' && flags.d && flags.custom) {
                 if (stack.running) {
@@ -1145,6 +1647,10 @@ describe('scenario environment', () => {
                 if (started) {
                     fail('The config at ' + flags.custom + ' starts ' + started[1])
                 }
+                const ups = [...fs.readFileSync(flags.custom, 'utf8').matchAll(/ up (-.*?) -d /g)].map((up) => up[1])
+                if (ups.join() !== '--pull always --no-recreate') {
+                    fail('The config at ' + flags.custom + ' runs docker compose up ' + (ups.join(', then ') || 'nowhere') + ', which recreates the running containers')
+                }
                 fs.writeFileSync(
                     stateFile,
                     JSON.stringify({
@@ -1153,6 +1659,9 @@ describe('scenario environment', () => {
                         firstStartS: stack.firstStartS,
                         hangs: stack.hangs,
                         ignoresTerm: stack.ignoresTerm,
+                        services: stack.services,
+                        restarted: stack.restartsDuringStart,
+                        inspectFails: stack.inspectFailsAfterStart,
                     })
                 )
             } else if (verb === 'dev:sync-hog-templates') {
@@ -1174,8 +1683,58 @@ describe('scenario environment', () => {
             const fs = require('fs')
             const path = require('path')
             const args = process.argv.slice(2)
+            const stack = JSON.parse(fs.readFileSync(path.join(__dirname, 'stack.json'), 'utf8'))
+            const containers = (stack.services || ['kafka running', 'db running']).map((line, i) => {
+                const [service, listed, policy = 'on-failure', code = '0', afterStart = listed] = line.split(' ')
+                const id = 'c' + i
+                const restarted = (stack.restarted || []).includes(service)
+                return { id, service, state: restarted ? afterStart : listed, policy, code, restarted }
+            })
+            if (args[0] === 'ps') {
+                const lists = ['--all', '--filter', 'label=com.docker.compose.project=posthog', '--filter', 'label=com.docker.compose.oneoff=False', '--format', '{{.ID}} {{.Label "com.docker.compose.service"}} {{.State}}']
+                if (args.slice(1).join(' ') !== lists.join(' ')) {
+                    process.stderr.write('unknown flag: ' + args.join(' ') + '\\n')
+                    process.exit(125)
+                }
+                process.stdout.write(containers.map((c) => [c.id, c.service, c.state].join(' ') + '\\n').join(''))
+                process.exit(0)
+            }
+            if (args.slice(0, 3).join(' ') === 'inspect --format {{.Id}} {{.HostConfig.RestartPolicy.Name}} {{.State.Status}} {{.State.ExitCode}}') {
+                const asked = containers.filter((c) => args.slice(3).includes(c.id))
+                process.stdout.write(asked.map((c) => [c.id + '0000', c.policy, c.state, c.code].join(' ') + '\\n').join(''))
+                process.exit(0)
+            }
+            if (args.slice(0, 3).join(' ') === 'inspect --format {{.Id}} {{index .Config.Labels "com.docker.compose.service"}} {{.HostConfig.RestartPolicy.Name}} {{.State.Status}} {{.State.ExitCode}} {{.State.StartedAt}}') {
+                if (stack.inspectFails) {
+                    process.stderr.write(stack.inspectFails + '\\n')
+                    process.exit(1)
+                }
+                const row = (c) => [c.id + '0000', c.service, c.policy, c.state, c.code, c.restarted ? 'restarted' : 'first']
+                const asked = args.slice(3).map((id) => [id, containers.find((c) => id === c.id || id === c.id + '0000')])
+                process.stdout.write(asked.filter(([, c]) => c).map(([, c]) => row(c).join(' ') + '\\n').join(''))
+                process.stderr.write(asked.filter(([, c]) => !c).map(([id]) => 'Error: No such object: ' + id + '\\n').join(''))
+                process.exit(asked.every(([, c]) => c) ? 0 : 1)
+            }
+            if (args.join(' ') === 'volume ls --format {{.Name}}') {
+                process.stdout.write((stack.volumes || []).join('\\n') + '\\n')
+                process.exit(0)
+            }
             const [exec, container, rpk, noun, verb, group] = args
             const [, , , , , , to, position, topicsFlag, topic, allowNew] = args
+            if ([exec, container, rpk, noun, verb, args[5]].join(' ') === 'exec posthog-kafka-1 rpk topic create --') {
+                const created = path.join(__dirname, 'topics.json')
+                const topics = fs.existsSync(created) ? JSON.parse(fs.readFileSync(created, 'utf8')) : []
+                const asked = args.slice(6)
+                const present = asked.filter((topic) => topics.includes(topic))
+                fs.writeFileSync(created, JSON.stringify([...new Set([...topics, ...asked])]))
+                process.stdout.write(
+                    'TOPIC  STATUS\\n' +
+                        asked
+                            .map((topic) => topic + '  ' + (present.includes(topic) ? 'TOPIC_ALREADY_EXISTS: The topic has already been created' : 'OK') + '\\n')
+                            .join('')
+                )
+                process.exit(present.length > 0 ? 1 : 0)
+            }
             const describes = args.length === 6 && verb === 'describe'
             const seeks =
                 args.length === 11 &&
@@ -1247,6 +1806,10 @@ describe('scenario environment', () => {
                     ({ group, topics }) => [group, Object.fromEntries(topics.map((topic) => [topic, 'end']))]
                 )
             )
+        const topicsCreated = (): string[] =>
+            existsSync(path.join(fakes, 'topics.json'))
+                ? (parseJSON(readFileSync(path.join(fakes, 'topics.json'), 'utf8')) as string[]).sort()
+                : []
         const offsetsOf = (): Record<string, Record<string, string>> =>
             existsSync(path.join(fakes, 'offsets.json'))
                 ? parseJSON(readFileSync(path.join(fakes, 'offsets.json'), 'utf8'))
@@ -1331,6 +1894,10 @@ describe('scenario environment', () => {
             firstStartS?: number
             hangs?: boolean
             ignoresTerm?: boolean
+            services?: string[]
+            volumes?: string[]
+            restartsDuringStart?: string[]
+            inspectFailsAfterStart?: string
         }): void => writeFileSync(path.join(fakes, 'stack.json'), JSON.stringify(stack))
         const stackOf = (): { running: boolean; ready: boolean } =>
             parseJSON(readFileSync(path.join(fakes, 'stack.json'), 'utf8'))
@@ -1379,7 +1946,9 @@ describe('scenario environment', () => {
                 if (command.endsWith(path.join('bin', 'hogli')) && command !== path.join(fakes, 'hogli')) {
                     throw new Error('The up test reached the dev stack.')
                 }
-                if (!command.endsWith(path.join('node_modules', '.bin', 'tsx'))) {
+                const launchesRole =
+                    command === ROLE_COMMAND.command && ROLE_COMMAND.args.every((arg, i) => args[i] === arg)
+                if (!launchesRole) {
                     return realSpawn(command, args, options)
                 }
                 if (options.env?.PLUGIN_SERVER_MODE === unspawnable) {
@@ -1395,7 +1964,11 @@ describe('scenario environment', () => {
                             ? stubRoleNeverAnswering
                             : stubRole
                 const groupAtStart = `if (require('fs').existsSync(${JSON.stringify(path.join(fakes, 'dead-member-held'))})) console.log(${JSON.stringify(STARTED_WHILE_HELD)})\n`
-                const role = realSpawn(process.execPath, ['-e', groupAtStart + script], options)
+                const role = realSpawn(
+                    process.execPath,
+                    ['-e', groupAtStart + deadLetterCheck(path.join(fakes, 'topics.json')) + script],
+                    options
+                )
                 if (mode === losesItsPort) {
                     void holdPort(ROLE_PORTS[losesItsPort!], once(role, 'exit'))
                     losesItsPort = undefined
@@ -1546,6 +2119,97 @@ describe('scenario environment', () => {
             30_000
         )
 
+        it('names the existing dev services it keeps when it starts the stack', async () => {
+            writeStack({
+                running: false,
+                ready: false,
+                services: [
+                    'kafka running',
+                    'kafka-init exited no 0',
+                    'db running',
+                    'clickhouse running',
+                    'opensearch-init running no 0 exited',
+                ],
+                volumes: ['posthog_clickhouse-data'],
+                restartsDuringStart: ['opensearch-init'],
+            })
+            const said = jest.spyOn(process.stderr, 'write')
+            environment = environmentOf()
+
+            try {
+                await environment.up(NEVER_ABORTED)
+
+                expect(said).toHaveBeenCalledWith(
+                    expect.stringContaining(
+                        'Keeping the existing dev services as they are: clickhouse, db, kafka, opensearch-init.'
+                    )
+                )
+            } finally {
+                said.mockRestore()
+            }
+        }, 30_000)
+
+        it.each([
+            [
+                'a container that is not running, which would start with its old mounts',
+                ['db running', 'kafka-init exited no 0', 'clickhouse exited on-failure 0'],
+                ['posthog_clickhouse-data'],
+                'The dev services clickhouse have containers that are not running',
+            ],
+            [
+                'a ClickHouse container whose data is not on its named volume yet',
+                ['db running', 'clickhouse running'],
+                ['posthog_postgres-15-data'],
+                'The dev services clickhouse still keep their data on anonymous volumes',
+            ],
+        ])(
+            'refuses to keep %s, before hogli starts anything',
+            async (_case, services, volumes, refusal) => {
+                writeStack({ running: false, ready: false, services, volumes })
+                environment = environmentOf()
+
+                await expect(environment.up(NEVER_ABORTED)).rejects.toMatchObject({
+                    name: 'StackNotReadyError',
+                    message: expect.stringContaining(refusal),
+                })
+                expect(stackOf()).toMatchObject({ running: false, ready: false })
+            },
+            30_000
+        )
+
+        it.each([
+            [
+                'started again',
+                {},
+                'The dev services kafka, temporal-ui started again while the runner started the stack',
+            ],
+            [
+                'cannot be read again',
+                {
+                    inspectFailsAfterStart:
+                        'Cannot connect to the Docker daemon at unix:///tmp/No such container/docker.sock. Is the docker daemon running?',
+                },
+                'Cannot connect to the Docker daemon',
+            ],
+        ])(
+            'refuses a stack whose kept containers %s after hogli started it',
+            async (_case, stack, message) => {
+                writeStack({
+                    running: false,
+                    ready: false,
+                    services: ['kafka running', 'db running', 'temporal-ui running no 0'],
+                    restartsDuringStart: ['kafka', 'temporal-ui'],
+                    ...stack,
+                })
+                environment = environmentOf()
+
+                await expect(environment.up(NEVER_ABORTED)).rejects.toMatchObject({
+                    message: expect.stringContaining(message),
+                })
+            },
+            30_000
+        )
+
         it.each([
             ['stop on SIGTERM', false],
             ['ignore SIGTERM', true],
@@ -1584,7 +2248,9 @@ describe('scenario environment', () => {
                 expect(answer.status).toBe(200)
                 expect(Number(await answer.text())).not.toBe(killed)
             }, 15_000)
-            expect(environment.exits()).toEqual([expect.objectContaining({ role, signal: 'SIGKILL', byValve: false })])
+            expect(environment.exits()).toEqual([
+                expect.objectContaining({ role, signal: 'SIGKILL', byValve: false, relaunchedAt: expect.any(String) }),
+            ])
         }, 30_000)
 
         it('kills a role on a valve, sees the old process gone, records the exit as the valve and starts it again', async () => {
@@ -1791,7 +2457,7 @@ describe('scenario environment', () => {
             expect({
                 health: Object.fromEntries(health),
                 edge,
-                rolesDown: down.filter((name) => name in ROLE_PORTS),
+                rolesDown: down.filter(({ name }) => name in ROLE_PORTS),
             }).toEqual({
                 health: Object.fromEntries(CdpRole.options.map((role) => [role, 200])),
                 edge: 200,
@@ -1919,6 +2585,28 @@ describe('scenario environment', () => {
             30_000
         )
 
+        it("starts every consumer group past the records an interrupted run left, before the first card's reset", async () => {
+            environment = environmentOf()
+
+            await environment.up(NEVER_ABORTED)
+
+            expect(offsetsOf()).toEqual(everyGroupAtEnd())
+        })
+
+        it('creates the intake topics a profile names when the card starts', async () => {
+            environment = environmentOf()
+            await environment.up(NEVER_ABORTED)
+
+            await environment.reset({ CDP_INTAKE_DLQ_TOPIC: 'scenario_intake_dlq' })
+
+            expect(topicsCreated()).toEqual([
+                'cdp_intake_dlq',
+                'cdp_intake_transactional_email',
+                'cdp_intake_workflow_webhook',
+                'scenario_intake_dlq',
+            ])
+        })
+
         it("starts the next card without the last card's unfinished jobs, spent SES tokens or events backlog, keeping the resident backlog", async () => {
             const { limiter, close } = sesLimiterOn(testRedis)
             const claim = { key: SES_RATE_LIMIT_KEY, requested: 5, capacity: 5, refillPerSecond: 0.001 }
@@ -2012,9 +2700,9 @@ describe('scenario environment', () => {
         ])(
             'moves the events group past %s only when rpk reports no failed partition',
             async (_name, rpkSeek, failure) => {
-                writeFileSync(path.join(fakes, 'seek'), JSON.stringify(rpkSeek))
                 environment = environmentOf()
                 await environment.up(NEVER_ABORTED)
+                writeFileSync(path.join(fakes, 'seek'), JSON.stringify(rpkSeek))
 
                 const outcome = await environment
                     .reset({

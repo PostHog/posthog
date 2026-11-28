@@ -165,6 +165,7 @@ describe('RecipientPreferencesService', () => {
                 expect(mockRecipientsManagerGet).toHaveBeenCalledWith({
                     teamId: team.id,
                     identifier: 'test@example.com',
+                    anyCase: true,
                 })
                 expect(mockRecipientsManagerGetPreference).toHaveBeenCalledWith(
                     recipient,
@@ -186,6 +187,18 @@ describe('RecipientPreferencesService', () => {
                 ])
 
                 expect(result).toBe(expected)
+            })
+
+            it('uses an opt-out this run made for another spelling of the address', async () => {
+                const action = createEmailAction('Test@Example.com', '123e4567-e89b-12d3-a456-426614174000')
+                const invocation = createFunctionStepInvocation(action)
+                mockRecipientsManagerGet.mockResolvedValue(null)
+
+                const result = await service.shouldSkipAction(invocation, action, [
+                    { identifier: 'test@example.com', categoryId: '$all' },
+                ])
+
+                expect(result).toBe('opted_out')
             })
 
             it('should return false if recipient is opted in', async () => {
@@ -230,6 +243,7 @@ describe('RecipientPreferencesService', () => {
                 expect(mockRecipientsManagerGet).toHaveBeenCalledWith({
                     teamId: team.id,
                     identifier: 'test@example.com',
+                    anyCase: true,
                 })
                 expect(mockRecipientsManagerGetPreference).not.toHaveBeenCalled()
             })
@@ -616,6 +630,26 @@ describe('RecipientPreferencesService', () => {
                     })
                 }
             )
+
+            it('keeps a push distinct ID that looks like an email address case-sensitive for run opt-outs', async () => {
+                const action = createPushAction('123e4567-e89b-12d3-a456-426614174000', 'marketing')
+                const invocation = createFunctionStepInvocation(action)
+                invocation.state.globals.person = {
+                    ...invocation.state.globals.person!,
+                    distinct_id: 'User@example.com',
+                }
+                mockRecipientsManagerGet.mockResolvedValue(null)
+
+                const result = await service.shouldSkipAction(invocation, action, [
+                    { identifier: 'user@example.com', categoryId: '$all' },
+                ])
+
+                expect(result).toBeNull()
+                expect(mockRecipientsManagerGet).toHaveBeenCalledWith({
+                    teamId: team.id,
+                    identifier: 'User@example.com',
+                })
+            })
 
             it('should return false for a transactional push without checking preferences', async () => {
                 const action = createPushAction('123e4567-e89b-12d3-a456-426614174000', 'transactional')

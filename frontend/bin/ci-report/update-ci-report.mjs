@@ -15,10 +15,12 @@ export const MARKER = '<!-- posthog-ci-report -->'
 // reviewed decision rather than an accident of which job happened to write first.
 export const SECTIONS = [
     { id: 'trunk-lane', title: 'Trunk lane' },
+    { id: 'required-reviewers', title: 'Required reviewers' },
     { id: 'complexity-python', title: 'Complexity (Python)' },
     { id: 'complexity-ts', title: 'Complexity (TypeScript)' },
     { id: 'duplication-python', title: 'Duplication (Python)' },
     { id: 'duplication-ts', title: 'Duplication (TypeScript)' },
+    { id: 'touched-typing', title: 'Typing (touched functions)' },
     { id: 'comment-density', title: 'Comment density' },
     { id: 'dependency-scan', title: 'Dependency scan' },
     { id: 'call-assertions', title: 'Call assertions' },
@@ -35,6 +37,7 @@ export const SECTIONS = [
     { id: 'playwright-snapshots', title: 'Playwright snapshots' },
     { id: 'backend-snapshots', title: 'Backend snapshots' },
     { id: 'backend-coverage', title: 'Backend coverage' },
+    { id: 'quarantined-failures', title: 'Quarantined failures' },
     { id: 'mcp-snapshots', title: 'MCP snapshots' },
     { id: 'django-migration-sql', title: 'Django migration SQL' },
     { id: 'django-migration-risk', title: 'Django migration risk' },

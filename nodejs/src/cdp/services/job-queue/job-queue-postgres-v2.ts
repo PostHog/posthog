@@ -8,7 +8,14 @@ import { PromiseScheduler } from '~/common/utils/promise-scheduler'
 
 import { HealthCheckResult, HealthCheckResultError, HealthCheckResultOk } from '../../../types'
 import { CdpConfig } from '../../config'
-import { CyclotronJobInvocation, CyclotronJobInvocationResult, CyclotronJobQueueKind } from '../../types'
+import {
+    CYCLOTRON_QUEUE_ROLES,
+    CyclotronJobInvocation,
+    CyclotronJobInvocationResult,
+    CyclotronJobQueueKind,
+    isEmailQueue,
+    queueToStore,
+} from '../../types'
 import { EncryptedFields } from '../../utils/encryption-utils'
 import { settleAllThenThrowFirst } from '../../utils/settle-all'
 import {
@@ -18,13 +25,19 @@ import {
     CyclotronV2Worker,
     countStaleCommit,
 } from '../cyclotron-v2'
-import { StateOpener, encodeJob, encodeStateColumns, v2JobToInvocation } from '../cyclotron-v2/job-codec'
+import {
+    StateOpener,
+    acceptsPendingWake,
+    encodeJob,
+    encodeStateColumns,
+    v2JobToInvocation,
+} from '../cyclotron-v2/job-codec'
 import { IDEMPOTENCY_CLAIM_LOCK_TIMEOUT_MS } from '../cyclotron-v2/manager'
 import { CyclotronV2IdempotencyKey, CyclotronV2IdempotentClaim, CyclotronV2WorkerConfig } from '../cyclotron-v2/types'
 import { IdempotentInvocation, IdempotentJobQueue } from './job-queue.interface'
 import { cdpJobSizeCompressedKb, cdpJobSizeKb, createInvocationSanitizer, observeConsumedBatch } from './shared'
 
-export { extractActionId, extractDistinctId, extractPersonId } from '../cyclotron-v2/job-codec'
+export { acceptsPendingWake, extractActionId, extractDistinctId, extractPersonId } from '../cyclotron-v2/job-codec'
 
 const pendingJobsGauge = new Gauge({
     name: 'cdp_cyclotron_v2_pending_jobs',
@@ -54,7 +67,7 @@ function priorityPersistedOnlyAcrossEmailQueueTransitions(
     invocation: CyclotronJobInvocation,
     fromQueue: string
 ): number | undefined {
-    return invocation.queue === 'email' || fromQueue === 'email' ? invocation.queuePriority : undefined
+    return isEmailQueue(invocation.queue) || isEmailQueue(fromQueue) ? invocation.queuePriority : undefined
 }
 
 async function settleBefore(deadline: number, work: Promise<unknown>): Promise<boolean> {
@@ -124,6 +137,7 @@ export class CyclotronJobQueuePostgresV2 implements IdempotentJobQueue {
             pool: { dbUrl: this.config.CYCLOTRON_NODE_DATABASE_URL },
             depthLimit: this.config.CYCLOTRON_SHARD_DEPTH_LIMIT,
             backgroundDepthCheck: this.config.CDP_CYCLOTRON_BACKGROUND_DEPTH_CHECK,
+            ...CYCLOTRON_QUEUE_ROLES,
         })
         await this.manager.connect()
     }
@@ -151,6 +165,7 @@ export class CyclotronJobQueuePostgresV2 implements IdempotentJobQueue {
         this.worker = this.createWorker({
             pool: { dbUrl: this.config.CYCLOTRON_NODE_DATABASE_URL },
             queueName: queue,
+            fairDequeueQueues: CYCLOTRON_QUEUE_ROLES.fairDequeueQueues,
             batchMaxSize: this.consumerBatchSize,
             pollDelayMs: this.config.CDP_CYCLOTRON_BATCH_DELAY_MS,
             pollDelayMaxMs: this.config.CDP_CYCLOTRON_BATCH_DELAY_MAX_MS,
@@ -329,11 +344,11 @@ export class CyclotronJobQueuePostgresV2 implements IdempotentJobQueue {
         )
     }
 
-    public async findIdempotencyKey(id: string): Promise<CyclotronV2IdempotencyKey | null> {
+    public async findIdempotencyKeys(ids: string[]): Promise<(CyclotronV2IdempotencyKey | null)[]> {
         if (!this.manager) {
             throw new Error('CyclotronV2Manager not initialized')
         }
-        return await this.manager.findIdempotencyKey(id)
+        return await this.manager.findIdempotencyKeys(ids)
     }
 
     public async queueInvocationResults(invocationResults: CyclotronJobInvocationResult[]): Promise<void> {
@@ -376,7 +391,8 @@ export class CyclotronJobQueuePostgresV2 implements IdempotentJobQueue {
             await job.reschedule({
                 ...encodeStateColumns(result.invocation),
                 scheduledAt: result.invocation.queueScheduledAt?.toJSDate(),
-                queueName: result.invocation.queue,
+                wakeOnPendingWake: acceptsPendingWake(result.invocation),
+                queueName: queueToStore(result.invocation),
                 priority: priorityPersistedOnlyAcrossEmailQueueTransitions(result.invocation, job.queueName),
             })
         }

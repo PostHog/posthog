@@ -1,5 +1,7 @@
 import type { LiveQueryKey } from '@/api/live'
+import type { LivePreference } from '@/features/live/livePreference'
 import { type LiveProjectState, UNKNOWN_BREAKDOWN } from '@/model/live'
+import { DEFAULT_LIVE_TRAFFIC_FILTERS, type LiveTrafficFilters } from '@/model/liveTrafficFilters'
 
 // Live demo traffic for hedgebox.net, a fictional file-sharing site. Every id, path and number is invented. A seeded
 // generator writes events up to the moment of each read, and each read answers in the shape of its live query, so demo
@@ -127,6 +129,87 @@ interface DemoEvent {
     path: string | null
     screen: string | null
     url: string | null
+    isBot: boolean
+}
+
+// Each cohort represents distinct native visitors before the current Live window.
+const MOBILE_HISTORY = [
+    {
+        country: 'US',
+        device: 'Mobile',
+        referrer: 'google.com',
+        daily: 120,
+        weekly: 504,
+        installsToday: 9,
+        installsWeek: 46,
+    },
+    {
+        country: 'US',
+        device: 'Mobile',
+        referrer: '$direct',
+        daily: 70,
+        weekly: 371,
+        installsToday: 6,
+        installsWeek: 41,
+    },
+    {
+        country: 'GB',
+        device: 'Mobile',
+        referrer: 'twitter.com',
+        daily: 57,
+        weekly: 283,
+        installsToday: 5,
+        installsWeek: 33,
+    },
+    {
+        country: 'DE',
+        device: 'Tablet',
+        referrer: 'github.com',
+        daily: 35,
+        weekly: 221,
+        installsToday: 3,
+        installsWeek: 28,
+    },
+    {
+        country: 'BR',
+        device: 'Mobile',
+        referrer: 'reddit.com',
+        daily: 31,
+        weekly: 195,
+        installsToday: 2,
+        installsWeek: 20,
+    },
+    { country: 'CA', device: 'Mobile', referrer: null, daily: 29, weekly: 272, installsToday: 2, installsWeek: 25 },
+]
+
+function channelOf(referrer: string): string {
+    switch (referrer) {
+        case '$direct':
+            return 'Direct'
+        case 'google.com':
+        case 'bing.com':
+        case 'duckduckgo.com':
+            return 'Organic Search'
+        case 'twitter.com':
+        case 'reddit.com':
+            return 'Organic Social'
+        default:
+            return 'Referral'
+    }
+}
+
+function matchesVisitorFilters(
+    filters: LiveTrafficFilters,
+    country: string,
+    device: string,
+    sessionReferrer: string | null
+): boolean {
+    return (
+        (!filters.countryCode || filters.countryCode === country) &&
+        (!filters.deviceType || filters.deviceType === device) &&
+        (!filters.referringDomain || filters.referringDomain === sessionReferrer) &&
+        (!filters.channelType || (sessionReferrer !== null && filters.channelType === channelOf(sessionReferrer)))
+    )
 }
 
 function domainOf(path: string): string {
@@ -162,10 +245,33 @@ export class LiveDemo {
         this.advance(start)
     }
 
-    respond(key: LiveQueryKey, now: number): unknown {
+    respond(
+        key: LiveQueryKey,
+        now: number,
+        trafficFilters: LiveTrafficFilters = DEFAULT_LIVE_TRAFFIC_FILTERS,
+        audience: LivePreference = 'all'
+    ): unknown {
         this.advance(now)
         const from = Math.floor(now / MINUTE) * MINUTE - (WINDOW_MINUTES - 1) * MINUTE
-        const inWindow = this.events.filter((event) => event.at >= from && event.at <= now)
+        const inWindow = this.events.filter(
+            ({ at, path, isBot, person }) =>
+                at >= from &&
+                at <= now &&
+                (audience !== 'web' || path !== null) &&
+                (audience !== 'mobile' || path === null) &&
+                (!trafficFilters.excludeBots || !isBot) &&
+                (!trafficFilters.hostname || (path !== null && domainOf(path) === trafficFilters.hostname)) &&
+                (!trafficFilters.pathPrefix ||
+                    (trafficFilters.pathMode === 'exact'
+                        ? path === trafficFilters.pathPrefix
+                        : path?.startsWith(trafficFilters.pathPrefix))) &&
+                matchesVisitorFilters(
+                    trafficFilters,
+                    person.country,
+                    person.device,
+                    person.sessionId ? person.referrer : null
+                )
+        )
         const pageviews = inWindow.filter((event) => event.event === '$pageview')
         const mobile = inWindow.filter((event) => event.url === null && event.screen !== null)
         switch (key) {
@@ -175,8 +281,22 @@ export class LiveDemo {
                     (person) => person.os,
                     (person) => person.distinctId
                 )
-            case 'mobileMetrics':
-                return { results: [[342, 1846, 27, 193, 5241]] }
+            case 'mobileMetrics': {
+                const recentUsers = new Set(mobile.map((event) => event.person.distinctId)).size
+                const totals: [number, number, number, number, number] = [recentUsers, recentUsers, 0, 0, mobile.length]
+                if (!trafficFilters.hostname && !trafficFilters.pathPrefix && audience !== 'web') {
+                    for (const cohort of MOBILE_HISTORY) {
+                        if (!matchesVisitorFilters(trafficFilters, cohort.country, cohort.device, cohort.referrer))
+                            continue
+                        totals[0] += cohort.daily
+                        totals[1] += cohort.weekly
+                        totals[2] += cohort.installsToday
+                        totals[3] += cohort.installsWeek
+                        totals[4] += cohort.weekly
+                    }
+                }
+                return { results: [totals] }
+            }
             case 'mobileSessions':
                 return {
                     results: [
@@ -244,7 +364,7 @@ export class LiveDemo {
                         ]),
                 }
             case 'usersOnline': {
-                const recent = this.events.filter((event) => event.at > now - MINUTE && event.at <= now)
+                const recent = inWindow.filter((event) => event.at > now - MINUTE)
                 return { results: [[new Set(recent.map((event) => event.person.distinctId)).size]] }
             }
         }
@@ -390,6 +510,7 @@ export class LiveDemo {
             path,
             screen: event === '$screen' ? this.pick(SCREENS) : null,
             url: path ? `https://${domainOf(path)}${path}` : null,
+            isBot: path !== null && parseInt(person.distinctId.slice(-2), 16) % 5 === 0,
         }
     }
 
@@ -399,8 +520,14 @@ export class LiveDemo {
         return {
             ...event,
             event: this.weighted(APP_EVENT_WEIGHTS),
+            person: {
+                ...event.person,
+                device: event.person.device === 'Tablet' ? 'Tablet' : 'Mobile',
+                browser: UNKNOWN_BREAKDOWN,
+            },
             path: null,
             url: null,
+            isBot: false,
             screen: this.weighted(APP_SCREEN_WEIGHTS),
         }
     }

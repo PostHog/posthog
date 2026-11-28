@@ -5,6 +5,7 @@ import { HostSchema } from '@/posthog/host'
 
 import { HogError } from './errors'
 import { JsonObject, parseJson } from './json'
+import { confinedWritePath } from './paths'
 import type { Runtime } from './runtime'
 
 export const CONFIG_FILE = 'posthog.json'
@@ -17,7 +18,10 @@ export type ArtifactKind = (typeof ARTIFACT_KINDS)[number]
 
 const Source = z
     .strictObject({
-        path: z.string().min(1).describe('A folder or file to scan, relative to posthog.json.'),
+        path: z
+            .string()
+            .min(1)
+            .describe('A folder or file to scan, relative to posthog.json. It must be inside the project.'),
         kind: z
             .enum(ARTIFACT_KINDS)
             .optional()
@@ -59,16 +63,20 @@ const ErrorTracking = z
 
 export const TYPESCRIPT_SDKS = ['posthog-js', 'none'] as const
 export type TypeScriptSdk = (typeof TYPESCRIPT_SDKS)[number]
+export const GO_SDKS = ['posthog-go', 'posthog-go-v2'] as const
+export type GoSdk = (typeof GO_SDKS)[number]
+export const SCHEMA_SDKS = [...TYPESCRIPT_SDKS, ...GO_SDKS] as const
+export type SchemaSdk = (typeof SCHEMA_SDKS)[number]
 
 // Snake case, because posthog-cli writes and reads the same entries in `exp schema pull`.
 const SchemaLanguage = z
     .strictObject({
         output_path: z.string().min(1).describe('Where the generated module goes, relative to posthog.json.'),
         sdk: z
-            .enum(TYPESCRIPT_SDKS)
+            .enum(SCHEMA_SDKS)
             .optional()
             .describe(
-                'TypeScript only: the SDK the module wraps. `none` generates only the event types. Without it, `posthog-js`.'
+                'The SDK the module wraps. TypeScript: `none` generates only the event types; without it, `posthog-js`. Go: `posthog-go` for 1.x or `posthog-go-v2` for 2.x; without it, hog reads the posthog-go version from go.mod.'
             ),
         schema_hash: z.string().optional().describe('The hash of the event definitions the module was generated from.'),
         updated_at: z.string().optional().describe('When the module was last generated.'),
@@ -218,21 +226,43 @@ export function configPathFor(runtime: Runtime, loaded: LoadedConfig | undefined
     return loaded?.path ?? join(runtime.cwd(), CONFIG_FILE)
 }
 
-// Changes one part of posthog.json and keeps everything else as written, including keys hog
-// doesn't know. Creates the file in the working folder when there is none.
+const DEFAULT_INDENT = 2
+// The whitespace in front of the first indented line: the file's own indentation.
+const INDENTATION = /^([ \t]+)\S/m
+
+// Writes the file the way it was formatted, so a change shows up as the changed lines only.
+function formatLike(original: string | undefined, raw: Record<string, unknown>): string {
+    if (original === undefined) {
+        return `${JSON.stringify(raw, null, DEFAULT_INDENT)}\n`
+    }
+    const indent = INDENTATION.exec(original)?.[1] ?? DEFAULT_INDENT
+    return `${JSON.stringify(raw, null, indent)}${original.endsWith('\n') ? '\n' : ''}`
+}
+
+// Changes one part of posthog.json and keeps everything else as written: keys hog doesn't know,
+// the key order and the file's indentation. Creates the file in the working folder when there is none.
 export async function updateConfig(
     runtime: Runtime,
     loaded: LoadedConfig | undefined,
     change: (raw: Record<string, unknown>) => void
 ): Promise<string> {
     const path = configPathFor(runtime, loaded)
-    const raw = loaded
-        ? parseJson(await runtime.readFile(path), JsonObject, {
-              code: 'invalid_config',
-              context: `${path} is not valid.`,
-          })
-        : { $schema: SCHEMA_URL }
+    const original = loaded ? await runtime.readFile(path) : undefined
+    const raw =
+        original === undefined
+            ? { $schema: SCHEMA_URL }
+            : parseJson(original, JsonObject, { code: 'invalid_config', context: `${path} is not valid.` })
     change(raw)
-    await runtime.writeFile(path, `${JSON.stringify(raw, null, 2)}\n`)
+
+    const target = await confinedWritePath(runtime, dirname(path), path)
+    if (target === undefined) {
+        throw new HogError(
+            'unsafe_config_path',
+            `${path} links to a file outside its folder, so hog won't write there.`,
+            'Replace the link with a posthog.json file, or remove it.'
+        )
+    }
+
+    await runtime.writeFile(target, formatLike(original, raw))
     return path
 }

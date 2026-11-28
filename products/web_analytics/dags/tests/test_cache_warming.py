@@ -1,8 +1,8 @@
 import gzip
 import json
 import threading
-from concurrent.futures import Future
-from datetime import datetime, timedelta
+from concurrent.futures import Future, ThreadPoolExecutor
+from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
 from posthog.test.base import BaseTest, ClickhouseTestMixin
@@ -24,6 +24,7 @@ from posthog.models.instance_setting import override_instance_config
 from posthog.query_cache import EntryFreshness
 from posthog.scheduling.jitter import deterministic_offset
 
+from products.web_analytics.backend.hogql_queries.web_analytics_query_runner import WebAnalyticsQueryRunner
 from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import is_background_warming_request
 from products.web_analytics.backend.models.web_analytics_filter_preset import WebAnalyticsFilterPreset
 from products.web_analytics.dags import cache_warming
@@ -526,7 +527,7 @@ class TestFleetQuerySelection(BaseTest):
             ("preset_lane_query_log", True, "system.query_log", "query_log_archive"),
         ]
     )
-    @patch("products.web_analytics.dags.cache_warming._apply_preset_lane", side_effect=lambda _c, rows, _m: rows)
+    @patch("products.web_analytics.dags.cache_warming._apply_preset_lane", side_effect=lambda _c, rows, _m, _e: rows)
     @patch("products.web_analytics.dags.cache_warming.sync_execute", return_value=[])
     def test_selection_reads_the_source_its_lane_needs(
         self,
@@ -669,6 +670,22 @@ class TestFleetQuerySelectionFromArchive(ClickhouseTestMixin, BaseTest):
         self.assertEqual(rows[0]["query_count"], 2)
         self.assertEqual(sorted(rows[0]["observed_date_froms"]), ["-30d", "-7d"])
 
+    @parameterized.expand([("experiment_team", True, 1), ("other_team", False, 0)])
+    def test_experiment_teams_select_shapes_below_the_demand_floor(
+        self, _name: str, in_experiment: bool, expected_rows: int
+    ) -> None:
+        self._insert_chain("single-read", {"kind": "WebOverviewQuery", "dateRange": {"date_from": "-7d"}})
+
+        result = queries_to_keep_fresh(
+            dagster.build_op_context(),
+            days=1,
+            minimum_query_count=2,
+            max_shapes=100,
+            experiment_team_ids=frozenset({self.team.pk}) if in_experiment else frozenset(),
+        )
+
+        self.assertEqual(len([row for row in result if row["team_id"] == self.team.pk]), expected_rows)
+
 
 class TestPresetLane(BaseTest):
     """The preset lane selects shapes a team ran under a saved filter preset, below the
@@ -703,7 +720,9 @@ class TestPresetLane(BaseTest):
             representative_tagged,
         )
 
-    def _select(self, rows: list[tuple], minimum_query_count: int = 5) -> list[dict]:
+    def _select(
+        self, rows: list[tuple], minimum_query_count: int = 5, experiment_team_ids: frozenset[int] = frozenset()
+    ) -> list[dict]:
         with patch("products.web_analytics.dags.cache_warming.sync_execute", return_value=rows):
             return queries_to_keep_fresh(
                 dagster.build_op_context(),
@@ -711,6 +730,7 @@ class TestPresetLane(BaseTest):
                 minimum_query_count=minimum_query_count,
                 max_shapes=1000,
                 preset_lane=True,
+                experiment_team_ids=experiment_team_ids,
             )
 
     def test_preset_sql_bounds_ids_and_caps_priority(self) -> None:
@@ -741,6 +761,17 @@ class TestPresetLane(BaseTest):
 
         self.assertEqual([row["query_json"]["properties"][0]["key"] for row in result], ["tagged"])
         self.assertEqual(result[0]["preset_ids"], ["abc123"])
+
+    @parameterized.expand([("experiment_team", True, ["untagged"]), ("other_team", False, [])])
+    def test_experiment_teams_keep_untagged_shapes_below_the_demand_floor(
+        self, _name: str, in_experiment: bool, expected_shapes: list[str]
+    ) -> None:
+        result = self._select(
+            [self._row([], query_count=1, shape="untagged")],
+            experiment_team_ids=frozenset({self.team.pk}) if in_experiment else frozenset(),
+        )
+
+        self.assertEqual([row["query_json"]["properties"][0]["key"] for row in result], expected_shapes)
 
     @parameterized.expand(
         [
@@ -939,6 +970,45 @@ class TestWarmQueriesOp(BaseTest):
                         "normalized_query_hash": "h",
                         "preset_ids": preset_ids,
                         "representative_preset_tagged": representative_preset_tagged,
+                    }
+                ],
+            )
+
+        self.assertEqual(runner.run.call_count, expected_runs)
+
+    @parameterized.expand(
+        [
+            ("predictive_unlikely_skipped", "predictive", 0.05, 0),
+            ("predictive_likely_warms", "predictive", 0.5, 1),
+            ("predictive_unscored_warms", "predictive", None, 1),
+            ("current_unlikely_still_warms", "current", 0.05, 1),
+        ]
+    )
+    def test_model_only_gates_the_predictive_arm(
+        self, _name: str, arm: str, probability: float | None, expected_runs: int
+    ) -> None:
+        runner = MagicMock(spec=WebAnalyticsQueryRunner)
+        runner.get_cache_key.return_value = f"key-{_name}"
+        with (
+            patch(
+                "products.web_analytics.dags.cache_warming.build_replay_runner",
+                return_value=(runner, {}, True),
+            ),
+            patch("products.web_analytics.dags.cache_warming.QueryCache") as mock_cm,
+            patch("products.web_analytics.dags.cache_warming.warming_arm", return_value=arm),
+            patch.object(cache_warming._TeamDemand, "request_probability", return_value=probability),
+        ):
+            mock_cm.return_value.freshness.return_value = None
+            warm_queries_op(
+                dagster.build_op_context(),
+                WarmQueriesConfig(),
+                [
+                    {
+                        "team_id": self.team.pk,
+                        "query_json": {"kind": "WebOverviewQuery", "properties": []},
+                        "query_count": 5,
+                        "representative_query_count": 5,
+                        "normalized_query_hash": "h",
                     }
                 ],
             )
@@ -1541,3 +1611,28 @@ class TestWarmQueriesOp(BaseTest):
         )
 
         mock_capture.assert_not_called()
+
+
+class TestTeamDemand(SimpleTestCase):
+    NOW = datetime(2026, 11, 18, 10, 30, tzinfo=UTC)
+
+    @parameterized.expand(
+        [
+            ("read_history", True, {"shape": [datetime(2026, 11, 17, 10, tzinfo=UTC)]}, True, 1),
+            ("no_read_history", True, {}, False, 1),
+            ("redis_down", True, ConnectionError("down"), False, 1),
+            ("recording_off", False, {"shape": [datetime(2026, 11, 17, 10, tzinfo=UTC)]}, False, 0),
+        ]
+    )
+    def test_each_team_loads_its_history_once_and_is_scored_only_with_history(
+        self, _name: str, history_available: bool, history: object, scored: bool, expected_loads: int
+    ) -> None:
+        load = MagicMock(side_effect=history) if isinstance(history, Exception) else MagicMock(return_value=history)
+        demand = cache_warming._TeamDemand(now=self.NOW, history_available=history_available)
+
+        with patch("products.web_analytics.dags.cache_warming.shape_read_hours", load):
+            with ThreadPoolExecutor(max_workers=8) as pool:
+                probabilities = list(pool.map(lambda _: demand.request_probability(1, "shape"), range(16)))
+
+        self.assertEqual({probability is not None for probability in probabilities}, {scored})
+        self.assertEqual(load.call_count, expected_loads)

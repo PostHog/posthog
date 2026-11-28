@@ -323,7 +323,7 @@ describe('unlayerToEmailDocument', () => {
             name: 'a line height in pixels and tighter letter spacing',
             block: content('heading', { text: 'Title', fontSize: '32px', lineHeight: '40px', letterSpacing: '-0.5px' }),
             exported: undefined,
-            sent: ['line-height:125%', 'letter-spacing:-0.5px'],
+            sent: ['line-height:1.25', 'letter-spacing:-0.5px'],
         },
         {
             name: 'bold text at its own weight',
@@ -335,14 +335,14 @@ describe('unlayerToEmailDocument', () => {
             name: 'the size of an unsubscribe block',
             block: content('custom', { unsubscribe_link_content: '<div>Bye</div>' }, { slug: 'unsubscribe_link' }),
             exported: undefined,
-            sent: ['font-size:16px;line-height:115%'],
+            sent: ['font-size:16px;line-height:1.15'],
         },
         {
             name: 'the size of text that earlier versions of the old editor left unset',
             block: content('text', { text: '<p>Plain</p>', lineHeight: '140%' }),
             exported:
                 '<html><body><div class="u-row-container"><table><tr><td style="overflow-wrap:break-word;word-break:break-word;padding:10px;"><div style="line-height: 140%;"><p>Plain</p></div></td></tr></table></div></body></html>',
-            sent: ['font-size:16px;line-height:140%'],
+            sent: ['font-size:16px;line-height:1.4'],
         },
         {
             name: 'a heading holding another heading, which browsers show at its own default size',
@@ -819,6 +819,39 @@ describe('unlayerToEmailDocument', () => {
                     ],
                 },
                 { type: 'emailHtml', attrs: { html: '<p>Custom markup</p>' } },
+                {
+                    type: 'emailSection',
+                    attrs: {
+                        emailStyle: { backgroundColor: '#ddeeff' },
+                        emailVisibility: { condition: { before: '{% if vip %}', after: '{% endif %}' } },
+                    },
+                    content: [
+                        paragraph(text('In the section')),
+                        {
+                            type: 'emailColumns',
+                            attrs: {
+                                emailVisibility: { condition: { before: '{% if nested %}', after: '{% endif %}' } },
+                            },
+                            content: [
+                                {
+                                    type: 'emailColumn',
+                                    attrs: { ratio: 1 },
+                                    content: [
+                                        {
+                                            ...paragraph(text('Nested left')),
+                                            attrs: { emailVisibility: { hideMobile: true } },
+                                        },
+                                    ],
+                                },
+                                {
+                                    type: 'emailColumn',
+                                    attrs: { ratio: 1 },
+                                    content: [paragraph(text('Nested right'))],
+                                },
+                            ],
+                        },
+                    ],
+                },
             ],
         }
 
@@ -836,7 +869,9 @@ describe('unlayerToEmailDocument', () => {
             'emailSpacer',
             'emailColumns',
             'emailHtml',
+            'emailColumns',
         ])
+        expect(back?.content?.[10].attrs?.emailVisibility).toMatchObject(doc.content[10].attrs?.emailVisibility)
         expect(back?.attrs?.page.bodyBackgroundColor).toEqual('#fafafa')
         expect(back?.content?.[6].attrs).toEqual({ height: 16 })
         expect(back?.content?.[7].attrs).toEqual({ height: 20, backgroundColor: '#123456' })
@@ -861,6 +896,13 @@ describe('unlayerToEmailDocument', () => {
             'https://example.com/start',
             'Right column',
             'Custom markup',
+            'In the section',
+            'Nested left',
+            'Nested right',
+            '#ddeeff',
+            '{% if nested %}',
+            '.ph-hide-mobile {',
+            '.ph-col { max-width: 100% !important; }',
         ]) {
             expect(json).toContain(expected)
         }

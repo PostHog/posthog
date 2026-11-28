@@ -8,7 +8,6 @@ import EmailEditor, { EditorRef } from 'react-email-editor'
 import { IconCollapse, IconExpand, IconExternal, IconPlus, IconX } from '@posthog/icons'
 import {
     LemonButton,
-    LemonCard,
     LemonInputSelect,
     LemonLabel,
     LemonModal,
@@ -25,7 +24,6 @@ import {
     insertTemplateReference,
     templateReferenceForOption,
 } from 'lib/components/CyclotronJob/cyclotronJobTemplateSuggestionsLogic'
-import { TagSelect } from 'lib/components/TagSelect'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -33,6 +31,7 @@ import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea'
 import { CodeEditorInline } from 'lib/monaco/CodeEditorInline'
 import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
+import { uuid } from 'lib/utils/dom'
 import { lazyWithRetry } from 'lib/utils/retryImport'
 import { sceneAgentPanelLogic } from 'scenes/max/sceneAgentPanelLogic'
 import { urls } from 'scenes/urls'
@@ -40,8 +39,8 @@ import { urls } from 'scenes/urls'
 import { sceneLayoutLogic } from '~/layout/scenes/sceneLayoutLogic'
 
 import 'products/workflows/frontend/TemplateLibrary/MessageTemplatesGrid.scss'
-import { filterMessageTemplates } from 'products/workflows/frontend/TemplateLibrary/filterMessageTemplates'
-import { MessageTemplateCard } from 'products/workflows/frontend/TemplateLibrary/MessageTemplateCard'
+import { MessageTemplatePicker } from 'products/workflows/frontend/TemplateLibrary/MessageTemplatePicker'
+import { MessageTemplatePickerFilters } from 'products/workflows/frontend/TemplateLibrary/MessageTemplatePickerFilters'
 
 import { AddHeaderFieldButton } from './AddHeaderFieldButton'
 import { collapseToolsPanelCustomJs } from './custom-tools/collapseToolsPanel'
@@ -57,6 +56,8 @@ import { EmailSenderRow } from './EmailSenderRow'
 import { EMAIL_TYPE_SUPPORTED_FIELDS, EmailTemplaterLogicProps, emailTemplaterLogic } from './emailTemplaterLogic'
 import { LiquidSupportedText } from './LiquidSupportedText'
 import { OptionalHeaderFieldRow } from './OptionalHeaderFieldRow'
+import { EmailPersonPreview } from './preview/EmailPersonPreview'
+import { QuillEmailHeaderFields } from './QuillEmailHeaderFields'
 import { SandboxSenderChoiceContext } from './SandboxSenderChoiceContext'
 import {
     SANDBOX_SENDER_VALUE,
@@ -489,76 +490,24 @@ export function NativeEmailIntegrationChoice({
 }
 
 export function TemplatePickerModal({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }): JSX.Element {
-    const { templates } = useValues(emailTemplaterLogic)
     const { applyTemplate } = useActions(emailTemplaterLogic)
-    const [search, setSearch] = useState('')
-    const [tags, setTags] = useState<string[]>([])
-    const filteredTemplates = filterMessageTemplates(templates, { search, tags })
-
-    const close = (): void => {
-        setSearch('')
-        setTags([])
-        onClose()
-    }
 
     return (
         <LemonModal
             isOpen={isOpen}
-            onClose={close}
+            onClose={onClose}
             title="Choose a starting point"
             width={880}
-            description={
-                <div className="flex flex-wrap gap-2 items-center">
-                    <LemonInput
-                        type="search"
-                        placeholder="Search templates"
-                        value={search}
-                        onChange={setSearch}
-                        className="flex-1 min-w-48"
-                        autoFocus
-                        data-attr="template-picker-search"
-                    />
-                    {templates.some((template) => template.tags?.length) && (
-                        <TagSelect
-                            size="small"
-                            defaultLabel="Any tags"
-                            value={tags}
-                            onChange={setTags}
-                            listDataAttr="template-picker-tags-filter-list"
-                        />
-                    )}
-                </div>
-            }
+            // The description slot stays put while the list scrolls under it.
+            description={<MessageTemplatePickerFilters />}
         >
-            <div className="flex flex-col gap-3">
-                <div className="flex flex-wrap gap-3">
-                    <LemonCard
-                        className="w-48 h-56 flex flex-col gap-2 items-center justify-center cursor-pointer"
-                        onClick={close}
-                        data-attr="template-picker-blank"
-                    >
-                        <IconPlus className="text-2xl" />
-                        <span>Blank template</span>
-                    </LemonCard>
-                    {filteredTemplates.map((template, index) => (
-                        <div key={template.id} className="w-48 h-56">
-                            <MessageTemplateCard
-                                template={template}
-                                index={index}
-                                onClick={() => {
-                                    applyTemplate(template)
-                                    close()
-                                }}
-                            />
-                        </div>
-                    ))}
-                </div>
-                {templates.length > 0 && filteredTemplates.length === 0 && (
-                    <p className="text-secondary m-0" data-attr="template-picker-no-matches">
-                        No templates match. Try another search or clear the tag filter.
-                    </p>
-                )}
-            </div>
+            <MessageTemplatePicker
+                onBlank={onClose}
+                onPick={(template) => {
+                    applyTemplate(template)
+                    onClose()
+                }}
+            />
         </LemonModal>
     )
 }
@@ -597,14 +546,14 @@ function NativeEmailTemplaterForm({
     const isWorkflowEmail = logicProps.type === 'native_email' || logicProps.type === 'native_email_sandbox'
     const documentEditorActive = usesDocumentEditor && mode === 'full'
     // Each header field gets one short row to keep vertical space for the canvas. A transactional template adds its
-    // sender as one summary line above, and a workflow email adds the sender and the recipients. The new editor has
-    // its own visual/plain-text switch, so a template it edits keeps the full header.
+    // sender as one summary line above, and a workflow email adds the sender and the recipients. A transactional
+    // template in the new editor keeps the full header.
     const workflowHeader = isWorkflowEmail && emailHeaderEnabled
     const compactHeader =
         workflowHeader ||
         ((logicProps.type === 'native_email_template' || logicProps.type === 'native_email_transactional_template') &&
             mode === 'full' &&
-            !documentEditorActive)
+            (!documentEditorActive || logicProps.type === 'native_email_template'))
     const showSenderRow = workflowHeader || logicProps.type === 'native_email_transactional_template'
     // A modal shows the visual/plain-text switch in its own header, and a preview has no editor to switch.
     const showContentSwitch = mode === 'full' && logicProps.layout === 'inline' && !switchInHeader
@@ -619,17 +568,28 @@ function NativeEmailTemplaterForm({
                 formKey="emailTemplate"
             >
                 <div className={fieldsHidden ? 'h-0 overflow-hidden' : ''}>
-                    {compactHeader ? (
+                    {compactHeader && logicProps.quillHeader && mode === 'preview' ? (
+                        <QuillEmailHeaderFields />
+                    ) : compactHeader ? (
                         <>
                             {showSenderRow && <EmailSenderRow />}
                             {workflowHeader && <EmailRecipientFields />}
-                            <EmailHeaderRow label="Subject" error={logicProps.fieldErrors?.subject}>
-                                <LemonField name="subject" className="flex-1 min-w-0" renderError={() => null}>
+                            <EmailHeaderRow
+                                label="Subject"
+                                error={logicProps.fieldErrors?.subject}
+                                wrap={showContentSwitch}
+                            >
+                                <LemonField
+                                    name="subject"
+                                    className={clsx('flex-1', showContentSwitch ? 'min-w-32' : 'min-w-0')}
+                                    renderError={() => null}
+                                >
                                     {({ value, onChange }: ChildFunctionProps) => (
                                         <LiquidSupportedText
                                             value={value}
                                             onChange={onChange}
                                             globals={logicProps.variables}
+                                            placeholder="Add a subject line"
                                         />
                                     )}
                                 </LemonField>
@@ -860,32 +820,38 @@ function NativeEmailTemplaterForm({
 }
 
 function EmailContentPreview({ buttonsAt }: { buttonsAt: 'bottom' | 'center' }): JSX.Element {
-    const { emailTemplate } = useValues(emailTemplaterLogic)
+    const { emailTemplate, templatingEngine } = useValues(emailTemplaterLogic)
+    const { setIsModalOpen } = useActions(emailTemplaterLogic)
+    const personPreviewEnabled = useFeatureFlag('WORKFLOWS_EMAIL_PERSON_PREVIEW')
 
     return (
         <LemonField name="html" className="group/email-preview flex relative flex-col flex-1">
-            {({ value }: ChildFunctionProps) => (
-                <>
-                    <div
-                        className={clsx(
-                            'EmailTemplater__preview-overlay flex absolute inset-0 justify-center p-2 transition-opacity pointer-events-none',
-                            buttonsAt === 'bottom' ? 'items-end' : 'items-center',
-                            // Persistent start buttons while empty; hover-reveal once there is content
-                            value || emailTemplate.text
-                                ? 'opacity-0 group-hover/email-preview:opacity-100 focus-within:opacity-100'
-                                : 'opacity-100'
-                        )}
-                    >
-                        <div className="absolute inset-0 opacity-50 bg-surface-primary" />
-                        {/* A plain-text-only email has no html, so content is judged on every shape */}
-                        <EmailPreviewOverlayButtons
-                            hasContent={!!value || !!emailTemplate.text || !!emailTemplate.design}
-                        />
-                    </div>
+            {({ value }: ChildFunctionProps) =>
+                personPreviewEnabled && templatingEngine === 'liquid' && (value || emailTemplate.text) ? (
+                    <EmailPersonPreview html={value} text={emailTemplate.text} onEdit={() => setIsModalOpen(true)} />
+                ) : (
+                    <>
+                        <div
+                            className={clsx(
+                                'EmailTemplater__preview-overlay flex absolute inset-0 justify-center p-2 transition-opacity pointer-events-none',
+                                buttonsAt === 'bottom' ? 'items-end' : 'items-center',
+                                // Persistent start buttons while empty; hover-reveal once there is content
+                                value || emailTemplate.text
+                                    ? 'opacity-0 group-hover/email-preview:opacity-100 focus-within:opacity-100'
+                                    : 'opacity-100'
+                            )}
+                        >
+                            <div className="absolute inset-0 opacity-50 bg-surface-primary" />
+                            {/* A plain-text-only email has no html, so content is judged on every shape */}
+                            <EmailPreviewOverlayButtons
+                                hasContent={!!value || !!emailTemplate.text || !!emailTemplate.design}
+                            />
+                        </div>
 
-                    <EmailBodyPreview html={value} text={emailTemplate.text} />
-                </>
-            )}
+                        <EmailBodyPreview html={value} text={emailTemplate.text} />
+                    </>
+                )
+            }
         </LemonField>
     )
 }
@@ -1239,6 +1205,7 @@ function EmailTemplaterInline(): JSX.Element {
 
 export function EmailTemplater({
     saveIndicator,
+    emailKey,
     ...props
 }: EmailTemplaterLogicProps & {
     // Presentation-only slot rendered in the modal header: hosts using liveChanges surface their
@@ -1246,8 +1213,10 @@ export function EmailTemplater({
     // props so a fresh JSX element per render doesn't churn propsChanged.
     saveIndicator?: ReactNode
 }): JSX.Element {
+    const [mountKey] = useState(() => uuid())
+    const openEmailKey = emailKey ?? mountKey
     return (
-        <BindLogic logic={emailTemplaterLogic} props={props}>
+        <BindLogic key={openEmailKey} logic={emailTemplaterLogic} props={{ ...props, emailKey: openEmailKey }}>
             {/* The new editor fits the page, so the email and its style panel scroll on their own. Short windows scroll the page instead. */}
             <div className="flex flex-col flex-1 has-[[data-attr=email-document-editor]]:min-h-[38rem]">
                 {props.layout === 'inline' ? (

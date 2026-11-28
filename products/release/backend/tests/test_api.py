@@ -13,6 +13,7 @@ from posthog.utils import generate_short_id
 
 from products.product_analytics.backend.facade.api import get_or_create_saved_insight
 from products.release.backend.facade import api
+from products.release.backend.facade.api import releases_enabled
 from products.release.backend.facade.contracts import ImportFlag
 from products.release.backend.models import Release, ReleaseImportState
 from products.workflows.backend.facade.testing import create_workflow_for_test
@@ -41,6 +42,32 @@ class TestReleaseAPI(APIBaseTest):
         response = self.client.post(self._url(), {"name": "Dark mode", "owner_id": owner_id}, format="json")
 
         assert response.status_code == expected, response.json()
+
+    @parameterized.expand([("created", [], ["release created", "release deleted"]), ("rejected", [999999], [])])
+    def test_creating_and_deleting_a_release_report_each_step(
+        self, _name: str, flag_ids: list[int], expected: list[str]
+    ) -> None:
+        with patch("products.release.backend.presentation.views.report_user_action") as report:
+            response = self.client.post(self._url(), {"name": "Dark mode", "feature_flag_ids": flag_ids}, format="json")
+            retried = None
+            if response.status_code == status.HTTP_201_CREATED:
+                self.client.delete(self._url(f"{response.json()['id']}/"))
+                retried = self.client.delete(self._url(f"{response.json()['id']}/"))
+
+        lifecycle = [call for call in report.call_args_list if call.args[1] in ("release created", "release deleted")]
+        assert [call.args[1] for call in lifecycle] == expected, response.json()
+        assert all(
+            call.kwargs["team"] == self.team and call.kwargs["organization"] == self.organization for call in lifecycle
+        )
+        if expected:
+            assert retried is not None and retried.status_code == status.HTTP_404_NOT_FOUND
+            release_id = response.json()["id"]
+            assert lifecycle[0].args[2] == {
+                "release_id": release_id,
+                "creation_source": "manual",
+                "feature_flag_count": 0,
+            }
+            assert lifecycle[1].args[2] == {"release_id": release_id}
 
     @parameterized.expand(
         [
@@ -140,6 +167,19 @@ class TestReleaseAPI(APIBaseTest):
             response = getattr(self.client, method)(self._url(suffix), {"name": "Dark mode"}, format="json")
 
         assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+
+    @parameterized.expand([(False, False), (False, True), (True, False), (True, True)])
+    def test_area_and_object_catalogs_have_independent_flags(self, area: bool, objects: bool) -> None:
+        enabled = {"releases-area": area, "release-objects": objects}
+        with (
+            patch(FLAG_PATCH, side_effect=releases_enabled),
+            patch("posthoganalytics.feature_enabled", side_effect=lambda key, *args, **kwargs: enabled[key]),
+        ):
+            flags = self.client.get(self._url("catalog_flags/"))
+            releases = self.client.get(self._url("catalog_releases/"))
+
+        assert flags.status_code == (status.HTTP_200_OK if area else status.HTTP_403_FORBIDDEN)
+        assert releases.status_code == (status.HTTP_200_OK if objects else status.HTTP_403_FORBIDDEN)
 
     def _restrict_as_admin(self, resource_path: str, endpoint: str = "access_controls", **extra: str) -> None:
         self.organization.available_product_features = [
@@ -834,11 +874,16 @@ class TestReleaseAPI(APIBaseTest):
             ("project_never_opened_releases", True, False, False, []),
         ]
     )
+    @patch("products.release.backend.logic.imports.get_instance_region", return_value="EU")
     def test_a_new_flag_gets_its_own_release(
-        self, _name: str, enabled: bool, starts_inactive: bool, imported: bool, expected: list[str]
+        self, _name: str, enabled: bool, starts_inactive: bool, imported: bool, expected: list[str], _region: object
     ) -> None:
         if imported:
             self.client.post(self._url("import_all/"))
+        scoped = patch("products.release.backend.logic.imports.ph_scoped_capture")
+        scoped_client = scoped.start()
+        report = scoped_client.return_value.__enter__.return_value
+        self.addCleanup(scoped.stop)
         with patch(FLAG_PATCH, return_value=enabled), self.captureOnCommitCallbacks(execute=True):
             flag_id = self._flag("quiet-theme", active=not starts_inactive)
         if starts_inactive:
@@ -849,3 +894,7 @@ class TestReleaseAPI(APIBaseTest):
                 )
 
         assert [release["name"] for release in self.client.get(self._url()).json()["results"]] == expected
+        assert [call.kwargs["properties"]["creation_source"] for call in report.call_args_list] == ["new_flag"] * len(
+            expected
+        )
+        assert [call.kwargs for call in scoped_client.call_args_list] == [{"event_region": "EU"}] * len(expected)

@@ -594,6 +594,7 @@ FILTER_FUNCTIONS: dict[str, tuple[int, Optional[int]]] = {
 }
 # Input templates run against the invocation globals, a different shape from the flattened filter globals.
 TEMPLATE_GLOBALS: set[str] = set(_RUNTIME["template_roots"])
+TEMPLATE_GLOBALS_WITHOUT_VARIABLES: set[str] = TEMPLATE_GLOBALS - {"variables"}
 TEMPLATE_CALLABLES: set[str] = set(_RUNTIME["callables"])
 
 _UNKNOWN_GLOBAL = "Unknown global variable: "
@@ -801,6 +802,10 @@ def build_behavioral_event_expr(behavioral_filter: dict, team: Team) -> ast.Expr
     value = behavioral_filter.get("value")
     if value not in {"performed_event", "performed_event_multiple"}:
         # Unsupported behavioral types do not contribute to realtime bytecode
+        return None
+
+    # The daily calculation matches an action whenever `event_type` says so, whatever type its id is stored as.
+    if behavioral_filter.get("event_type") == "actions":
         return None
 
     event_name = behavioral_filter.get("key")

@@ -30,6 +30,7 @@ fn storage_over(pool: PgPool, hash_key_override_statement_timeout_ms: u64) -> Ar
         pool,
         BULK_CHUNK_SIZE,
         5,  // bulk_max_concurrent_chunks
+        3,  // team_delete_max_concurrent_chunks
         12, // tombstoned_delete_max_rows, small enough that the clamp is observable
         hash_key_override_statement_timeout_ms,
     ))
@@ -84,9 +85,8 @@ impl TestContext {
 
         sqlx::query(
             r#"INSERT INTO posthog_person
-            (id, uuid, team_id, properties, properties_last_updated_at,
-             properties_last_operation, created_at, version, is_identified, is_user_id)
-            VALUES ($1, $2, $3, $4, '{}', '{}', NOW(), 0, false, NULL)
+            (id, uuid, team_id, properties, created_at, version, is_identified, is_user_id)
+            VALUES ($1, $2, $3, $4, NOW(), 0, false, NULL)
             ON CONFLICT DO NOTHING"#,
         )
         .bind(person_id)

@@ -14,8 +14,11 @@ description: >
 Visual Review is PostHog's screenshot-regression product: CI captures storybook + playwright screenshots,
 diffs them against committed baseline hashes, and gates the PR until every changed snapshot is resolved.
 A PR with visual changes carries a `visual-review` GitHub status check, and usually a required CI job that reports the same verdict.
-Both stay red until each diffed snapshot is approved and finalized, tolerated, or quarantined, and the job re-runs:
-finalize does that for approvals, `recompute-create` for tolerations and quarantines. The run's `_posthogUrl` opens the VR UI, which offers the same actions.
+Both stay red until each diffed snapshot is accepted and finalized, tolerated, or quarantined, and the job re-runs:
+finalize does that for accepts, `recompute-create` for tolerations and quarantines. The run's `_posthogUrl` opens the VR UI, which offers the same actions.
+In ledger mode a reviewer can also reject a snapshot, and a rejection blocks finalize until the picture changes, the rejecter undoes it, or another person overrides it on purpose.
+Accepts and rejections made on an earlier run of the pull request still count on the newest run while the pictures are the same.
+That holds for a run whose `gate` is `ci_job`. Read `gate` on the run first: see [Which gate the run has](#which-gate-the-run-has).
 A PR from a fork is usually the exception: it gets no Visual Review run at all.
 See [Fork PRs have no Visual Review run](#fork-prs-have-no-visual-review-run).
 
@@ -23,6 +26,17 @@ This skill teaches an agent how to answer the questions a human reviewer would a
 the VR MCP tools — instead of reaching for `gh pr view` and tab-hopping to the VR web UI. The read tools
 cover status / scope / history / triage. An agent may resolve flakes on its own, with a quarantine or, rarely, a toleration.
 It may not ship a visual change on its own: `finalize-create` commits the baseline and needs explicit per-run human confirmation.
+
+## Which gate the run has
+
+`posthog:visual-review-runs-retrieve` returns `gate`, fixed when the run was created.
+
+- `ci_job`: the CI job is the gate. The rest of this skill describes this case.
+- `commit_status`: the status `Visual Review gate / <run type>` is the required check, and the CI job passes on unresolved snapshots.
+  The status turns green on finalize, and on a toleration or quarantine that resolves the last snapshot.
+  Nothing is committed, no recompute is needed, and nothing in CI re-runs.
+  `recompute-create` still recounts and publishes the status, with `ci_rerun_triggered: false`, which is expected.
+  A finalized run with `stale_approval_count` above 0 stays red because another merge changed the baseline: update the branch from the default branch and review the new run.
 
 ## Decide first
 
@@ -32,7 +46,11 @@ then take the first row that matches each changed snapshot.
 | Evidence                                                                                                           | Action                                                                                                                                                                                                      | Human yes needed                   |
 | ------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------- |
 | PR comes from a fork (`isCrossRepository: true`)                                                                   | Report only. See [Fork PRs](#fork-prs-have-no-visual-review-run)                                                                                                                                            | No VR writes possible              |
-| The diff comes from your change and is intended                                                                    | `approve-create`, then ask for finalize                                                                                                                                                                     | Yes, for each run, before finalize |
+| `decision.state: approved` by a person                                                                             | Leave it. Report "accepted by X on `sha`"                                                                                                                                                                   | No                                 |
+| `decision.state: rejected` by a person                                                                             | Read `reason`. If the reason is right, fix the code and push. If you think it is wrong, report it and stop. Never accept over it                                                                            | Yes, the rejecter or the user      |
+| `decision.state: cleared` by a person                                                                              | Leave it pending. A person undid it on purpose. Report it                                                                                                                                                   | Yes                                |
+| `earlier_decision` set, `decision` null                                                                            | Judge the new picture like any change. In the report, name the earlier decision and what `changed` (before or after)                                                                                        | As for any change                  |
+| The diff comes from your change and is intended                                                                    | `approve-create`, then ask for finalize of the head run                                                                                                                                                     | Yes, for each run, before finalize |
 | The diff comes from your change and is not intended                                                                | Fix the code and push. No VR write                                                                                                                                                                          | No                                 |
 | Your change renders a quarantined story `changed` or `new`, and the change is intended                             | `approve-create` for that identifier, then ask for finalize. If the change also fixes the flake, add `lift-on-merge-create` after the approval. See [Quarantined stories](#quarantined-stories-in-your-run) | Yes, for each run, before finalize |
 | Your change fixes a quarantined story's flake, and the story renders `unchanged`                                   | `lift-on-merge-create` for that identifier. See [Quarantined stories](#quarantined-stories-in-your-run)                                                                                                     | No                                 |
@@ -43,6 +61,13 @@ then take the first row that matches each changed snapshot.
 
 Each theme is its own identifier.
 Judge the `--light` and `--dark` snapshots of a story separately, and quarantine only the ones that match.
+
+Rules for decisions that the server also enforces:
+
+- An agent never changes a person's decision. An accept, reject or undo over it returns `409 decided_by_person`.
+- An agent never accepts over a rejection, its own or anyone else's, and never undoes a rejection another user's agent made (`409 rejected_by_other`).
+- Never reject your own change: fix the code instead. Reject only when the user asked you to review someone else's change, and give a reason the author can act on.
+- A picture that is wrong on the default branch gets a quarantine, not a reject.
 
 Expect tolerations to be rare.
 The diff already absorbs most real render noise below the threshold, and a small diff percentage is often a real structural change.
@@ -145,7 +170,7 @@ Read tools (safe to call freely):
 | Tool                                                      | Purpose                                                                                                                                                                                                                                                                                                                           |
 | --------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `posthog:visual-review-runs-list`                         | List runs, filter by `pr_number` / `commit_sha` / `branch` / `review_state`. Start here.                                                                                                                                                                                                                                          |
-| `posthog:visual-review-runs-retrieve`                     | Full detail for a single run (status, summary counts, supersession). Carries the `repo_id` the repo tools need.                                                                                                                                                                                                                   |
+| `posthog:visual-review-runs-retrieve`                     | Full detail for a single run (status, summary counts, supersession, `gate`). Carries the `repo_id` the repo tools need.                                                                                                                                                                                                           |
 | `posthog:visual-review-runs-snapshots-list`               | Per-snapshot results inside a run: identifier, `result`, diff %, classification, baseline + current artifact URLs. Quarantined snapshots are excluded by default (see `quarantined_count`); pass `include_quarantined=true` to see them. Pass `exclude_unchanged=true` to skip the thousands of unchanged rows a large run holds. |
 | `posthog:visual-review-repos-flakiness-retrieve`          | Repo snapshots whose rendering is untrusted, with a `flakiness_state` and flake rates for each. The flake check starts here.                                                                                                                                                                                                      |
 | `posthog:visual-review-runs-snapshot-history-list`        | One story's baseline timeline on the default branch: one row per baseline change. Takes `{ id: <run_id>, identifier: <identifier> }`.                                                                                                                                                                                             |
@@ -157,11 +182,13 @@ Read tools (safe to call freely):
 | `posthog:visual-review-repos-toleration-pileups-retrieve` | Stories that keep getting tolerated: candidates for a fix in the story.                                                                                                                                                                                                                                                           |
 | `posthog:visual-review-runs-quarantine-lifts-list`        | Requests to lift a quarantine when the run's PR merges, with `state` and the latest check's `detail`. Takes `{ id: <run_id> }`.                                                                                                                                                                                                   |
 
-Triage tools (they do NOT change the baseline; the gate changes only after `recompute-create`, except a lift on merge, which a default-branch run applies on its own and needs no recompute):
+Triage tools (they do NOT change the baseline; on a `ci_job` run the gate changes only after `recompute-create`, except a lift on merge, which a default-branch run applies on its own and needs no recompute):
 
 | Tool                                                        | Purpose                                                                                                                                                                                      |
 | ----------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `posthog:visual-review-runs-approve-create`                 | Mark `changed` / `new` snapshots reviewed (approved) in the DB. Does NOT commit or green the gate — ship via finalize.                                                                       |
+| `posthog:visual-review-runs-approve-create`                 | Accept `changed`, `new` and `removed` snapshots (stored as `approved`). Works on any run of the PR in ledger mode. Does NOT pass the gate: ship via finalize.                                |
+| `posthog:visual-review-runs-reject-create`                  | Reject snapshots with a `reason`, in ledger mode. Blocks finalize and the gate. Only when asked to review someone else's change.                                                             |
+| `posthog:visual-review-runs-clear-create`                   | Undo an accept or reject, in ledger mode. Never a person's decision.                                                                                                                         |
 | `posthog:visual-review-runs-tolerate-create`                | Accept one changed snapshot's current hash as an alternate in every future run. Render noise only, see [Decide first](#decide-first). Cannot be undone through the API.                      |
 | `posthog:visual-review-repos-quarantine-create`             | Remove one identifier of one run type from pass or fail on every PR until it expires (30 days if `expires_at` is omitted). Undo with `quarantine-expire-create`.                             |
 | `posthog:visual-review-repos-quarantine-expire-create`      | Lift a quarantine, so the story gates runs again.                                                                                                                                            |
@@ -171,18 +198,24 @@ Triage tools (they do NOT change the baseline; the gate changes only after `reco
 
 Branch protection usually requires the CI job checks, not the `visual-review` status.
 So a quarantine or toleration unblocks the PR only after `recompute-create` re-runs the CI job recorded on the run.
-Approved changes keep the gate red until finalize commits them, so recompute never ships an approval.
+On a `commit_status` run the status is the required check, and it updates without `recompute-create`.
+Accepted changes keep the gate red until finalize records or commits them, so recompute never ships an accept.
 
 Ship tool (irreversible, outward-facing — requires explicit per-run human confirmation; see [the gate](#the-finalize-gate)):
 
-| Tool                                         | Purpose                                                                                                          |
-| -------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
-| `posthog:visual-review-runs-finalize-create` | Commit the approved baseline to the PR branch and green the GitHub `visual-review` check. This ships the change. |
+| Tool                                         | Purpose                                                                                                                                                                                  |
+| -------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `posthog:visual-review-runs-finalize-create` | Commit the approved baseline to the PR branch and green the GitHub `visual-review` check. On a `commit_status` run it records the approval instead of committing. This ships the change. |
 
-Mark-reviewed call shape (`approve-create`):
+Decision call shapes (`approve-create`, `reject-create`, `clear-create`):
 
 - `id` (required) — the run UUID. It's the route parameter, so the call fails without it.
-- `snapshots: [{identifier, new_hash}]` — `new_hash` is the `content_hash` of each snapshot's `current_artifact`. This only records the review in the DB; nothing is committed and the gate stays red until you finalize.
+- `approve-create`: `snapshots: [{identifier, new_hash}]` — `new_hash` is the `content_hash` of each snapshot's `current_artifact` on that run, or null for a `removed` snapshot. This only records the decision; nothing is committed and the gate stays red until you finalize.
+- `reject-create`: `snapshots: [{identifier, new_hash, reason}]`, with a `reason` of 1 to 500 characters.
+- `clear-create`: `identifiers: [...]`. A person who undoes someone else's rejection passes `override_rejection: true`; an agent cannot.
+- Optional `expected_seq`: the highest `decision.seq` you read on these snapshots, or 0 when you read none. A decision someone made after your read returns `409 decided_since`; read the snapshots again.
+- All or nothing: one refused snapshot refuses the call, and `snapshots` in the error names each one with its `code`. Fix the call or report the refusal; never retry it unchanged.
+- The response has `head_run` and its `progress`, so you know what is left on the newest run.
 
 Quarantine call shape (`quarantine-create`):
 
@@ -190,7 +223,7 @@ Quarantine call shape (`quarantine-create`):
 - `identifier`, and a `reason` with the evidence, for example "unstable on master: 7 failed default-branch runs in 7 days, chart animation timing; unrelated to PR 1234".
 - `source_run_id` — the run that failed. `expires_at` — omit it for 30 days, or set an earlier date, never a later one.
 - `notify_owners: true` — posts the quarantine to the owning team's Slack channel, so the people who must fix the story hear about it.
-- Then call `recompute-create { id: <run_id> }` on the PR's newest non-stale run of the same `run_type`, and check `ci_rerun_triggered`.
+- Then call `recompute-create { id: <run_id> }` on the PR's newest non-stale run of the same `run_type`, and check `ci_rerun_triggered`. Skip this on a `commit_status` run.
 
 Toleration call shape — both fields are required:
 
@@ -200,11 +233,13 @@ Toleration call shape — both fields are required:
 Finalize call shape (`finalize-create`) — the all-or-nothing ship action:
 
 - `id` (required) — the run UUID.
-- `approve_all: true` — approve every still-pending `changed`/`new` snapshot before finalizing (tolerated ones are left alone). Use when you've verified every remaining diff is intended.
-- Omit `approve_all` (default false) to finalize a run you've already reviewed snapshot-by-snapshot. Finalize is all-or-nothing: it fails with `409 not_fully_resolved` (and lists what's left) unless every changed/new snapshot is approved, tolerated, or quarantined.
+- Finalize the PR's newest run: `head_run` on `runs-retrieve`. `can_finalize: true` says finalize without `approve_all` would pass now. `progress.needs_review` also counts removed snapshots nobody decided on, which finalize accepts by itself, so `can_finalize` can be true while it is above 0.
+- `approve_all: true` — accept every `changed`/`new` snapshot nobody decided on before finalizing (tolerated and quarantined ones are left alone, and a rejected one is never accepted). Use when you've verified every remaining diff is intended.
+- Omit `approve_all` (default false) to finalize a run you've already reviewed snapshot-by-snapshot. Finalize is all-or-nothing: it fails with `409 not_fully_resolved` unless every change is accepted, tolerated, or quarantined and none is rejected. The error lists `rejected` (with `by` and `reason`) and `needs_review` separately: a rejected snapshot clears with a new picture, the rejecter's undo, or a person's explicit override ("accept anyway"), never by an agent.
 - It commits exactly the snapshots approved in the DB — tolerated snapshots keep their baseline and are never overwritten. When a baseline commit is pushed, its SHA comes back on the run's `metadata.baseline_commit_sha`. It's absent when nothing needed committing (everything resolved by toleration/quarantine — finalize posts a green status, and the required check turns green when its job re-runs) or when the commit was skipped: no PR, or a `409 sha_mismatch` because the PR has newer commits (that one leaves the gate red — re-run CI on the latest commit and finalize again).
 
-If finalize fails with `409 stale_run`, the run has been superseded — `visual-review-runs-list { pr_number }` and finalize the newest one. A successful finalize often kicks off a fresh CI run, which is normal.
+If finalize fails with `409 stale_run`, the run has been superseded: the error names `head_run_id`. Ask again before you finalize that run, because a yes covers one run. A successful finalize often kicks off a fresh CI run, which is normal.
+On a `commit_status` run finalize commits nothing and starts no CI run: the status turns green at once, and `metadata.baseline_commit_sha` stays absent.
 
 ### The finalize gate
 
@@ -218,7 +253,7 @@ Before _any_ `finalize-create` call, all of these must hold:
 2. **You presented the verdict and waited.** Show the user, per snapshot, what changed and your recommendation, then stop.
 3. **The user explicitly approved _this_ run.** A broad "get the gate green" / "fix the PR" is permission to
    investigate and recommend — NOT to finalize. When the task implies finalizing but the human hasn't said it for
-   this specific run, ask.
+   this specific run, ask. A yes covers one run: after a push, the new head run needs a new yes. Say so when you ask.
 
 `approve-create`, `tolerate-create`, `quarantine-create` and `recompute-create` don't need this gate when [Decide first](#decide-first) allows them.
 The moment you're about to `finalize-create` and can't point to a specific human "yes" for this run, stop and ask.
@@ -233,7 +268,10 @@ These appear in tool output and matter for interpretation:
 - **Snapshot `result`**: `unchanged`, `changed` (real diff), `new` (no baseline yet), `removed`.
 - **Snapshot `classification_reason`**: `tolerated_hash` (matches a known-tolerated hash, no action needed),
   `below_threshold` (under the noise floor), `exact` (byte-identical), `""` (real diff requiring review).
-- **Snapshot `review_state`**: `pending` or `approved`.
+- **Snapshot `review_state`**: `pending`, `approved` (accepted), `rejected` or `tolerated`. It is the effective state on that run, so an accept made on an earlier commit of the PR shows as `approved` while the pictures are the same.
+- **Snapshot `decision`**: who decided (`by`), how (`via`: `web`, `api` or `mcp`), on which commit, whether it was an earlier commit, and the `reason` of a rejection. Null when nobody decided on this exact pair of pictures.
+- **Snapshot `earlier_decision`**: a decision on another picture of the story, with `changed` (`before`, `after` or `both`). It no longer counts.
+- **Run `progress`** (on `runs-retrieve`): `approved`, `approved_on_earlier_commits`, `approved_via_mcp`, `rejected`, `needs_review`, `tolerated`, and their `total`.
 - **Run `summary`**: `total / changed / new / removed / unchanged / unresolved / tolerated_matched` —
   `unresolved` is what's actually blocking review.
 
@@ -251,6 +289,13 @@ A fork PR has no run, and `visual-review-runs-list` returns an empty list for it
 
 Report back: PR number, run UUID, `review_state`, summary counts, and the `_posthogUrl` deep link so the
 user can click straight to the diff viewer.
+To list what is left, call `posthog:visual-review-runs-snapshots-list { id: <run_id>, review_state: pending, exclude_unchanged: true }`, and `review_state: rejected` for the rejections.
+
+Report template:
+
+> PR #4821, run on `def5678`: 20 changes. 18 accepted (12 on earlier commits, 6 by me), 1 rejected by bob:
+> `insights-trends--dark`, "Legend overlaps the last data point". 1 needs review: `settings-billing--dark`.
+> Finalize needs every change accepted and none rejected.
 
 ### "Is the diff real or unrelated?"
 
@@ -363,6 +408,8 @@ For triage / aggregate questions, a short table beats prose. Group by what the u
 ## What NOT to do
 
 - Do not tolerate to get past a gate, and do not quarantine a diff your own change caused or a `broken` entry.
+- Do not accept over a rejection, and do not undo or replace a decision a person made. Fix the code, or report and stop.
+- Do not re-accept snapshots whose `decision` is already an accept: it changes nothing.
 - Do not read a green gate as proof that your change left quarantined stories alone. See [Quarantined stories](#quarantined-stories-in-your-run).
 - Do not assume the failing GitHub check on a PR is unrelated to VR — if a `visual-review` check is red on
   a PR you're working on, that's the trigger to run this skill.

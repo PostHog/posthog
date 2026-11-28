@@ -51,6 +51,11 @@ _TRANSIENT_DB_ERROR_MARKERS = (
     # database would. Self-healing: a slot frees the moment another backend connection closes,
     # which happens continuously under normal load.
     "sorry, too many clients already",
+    # The same connection-limit condition once only the superuser_reserved_connections slots are
+    # left: Postgres raises this instead of the "too many clients" message above when non-superuser
+    # slots are exhausted but a few reserved slots remain. Same self-healing shape, no SQLSTATE at
+    # connect time.
+    "remaining connection slots are reserved",
     # getaddrinfo EAI_AGAIN (errno -3): the resolver could not get an answer now, for example during
     # a short cluster DNS outage. It clears when DNS comes back, so a retry self-heals. EAI_NONAME
     # (errno -2, "Name or service not known") and EAI_NODATA (errno -5, "No address associated with
@@ -62,6 +67,12 @@ _TRANSIENT_DB_ERROR_MARKERS = (
     # from the excluded prefix above, which wraps a definite failure response. A handshake that
     # hasn't finished is a load/network blip that clears on retry, not a configuration problem.
     "connection timeout expired",
+    # libpq's message when the TLS socket hits EOF while it reads a query result: the server or a
+    # pooler dropped an open connection mid-query. Same dead-socket condition as "server closed the
+    # connection unexpectedly" above, so a retry on a fresh connection self-heals. The "consuming
+    # input failed:" prefix keeps the connect-time "connection failed: ... SSL SYSCALL error" form
+    # unmatched, because a TLS failure at connect can be a persistent misconfiguration.
+    "consuming input failed: SSL SYSCALL error",
 )
 
 # SQLSTATE class 57P (operator intervention): the server is shutting down or restarting and

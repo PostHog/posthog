@@ -38,6 +38,8 @@ class TestGetSdkVersionsForTeam(SimpleTestCase):
             ("posthog-aspnetcore",),
             ("posthog-rs",),
             ("posthog-rs-mcp",),
+            ("posthog-rs-ffi",),
+            ("posthog-electron",),
             ("posthog-godot",),
             ("posthog-unreal",),
             ("posthog-go-mcp",),

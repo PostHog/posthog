@@ -1,20 +1,19 @@
+import re
 import dataclasses
 from collections import Counter
 from dataclasses import dataclass
 
-from anthropic import Anthropic, APIError
-
 from ..backend.facade.contracts import CriterionResult, MergeCheckReport
 from ..backend.facade.enums import CriterionEffect, DocsChangeKind
-from .deadline import CheckDeadline
-from .facts import DOCS_DOC_IMPACTS, FACTS_MODEL, Audience, DocImpact, MergeFacts, ReleaseState, verified_page_findings
+from .facts import DOCS_DOC_IMPACTS, FACTS_MODEL, Audience, MergeFacts, ReleaseState
 from .gather import MergeEvidence
-from .judge import Decision
 
 FACTS_SOURCE = f"model:{FACTS_MODEL}"
 GATHER_SOURCE = "gather"
 RULE_GATE_SOURCE = "rule_gate"
 MAX_LISTED_PAGE_URLS = 5
+AUTHOR_FLAGGED_MARKER = "behind-feature-flag"
+RELEASE_STATUS_MARKER = re.compile(r"release-status:\s*([a-z]+(?:-[a-z]+)*)")
 
 
 @dataclass(frozen=True)
@@ -33,6 +32,7 @@ def rule_gates(evidence: MergeEvidence) -> GateResult:
         bool(evidence.docs_versions) and shipping_version is not None and shipping_version not in evidence.docs_versions
     )
     has_docs_pages = bool(evidence.editable_pages or evidence.not_editable_page_urls)
+    is_marked_flagged_by_author = author_marks_flagged(evidence.body)
     rows = [
         CriterionResult(
             criterion="code_changed",
@@ -47,6 +47,13 @@ def rule_gates(evidence: MergeEvidence) -> GateResult:
             source=RULE_GATE_SOURCE,
             evidence="\n".join(writer_docs_pull_requests),
             effect=CriterionEffect.BLOCKS if writer_docs_pull_requests else CriterionEffect.NEUTRAL,
+        ),
+        CriterionResult(
+            criterion="author_release_status",
+            value=str(is_marked_flagged_by_author).lower(),
+            source=RULE_GATE_SOURCE,
+            evidence=AUTHOR_FLAGGED_MARKER if is_marked_flagged_by_author else "",
+            effect=CriterionEffect.BLOCKS if is_marked_flagged_by_author else CriterionEffect.NEUTRAL,
         ),
         CriterionResult(
             criterion="other_docs_pr",
@@ -116,17 +123,18 @@ def fact_gates(facts: MergeFacts | None, *, are_quotes_verified: bool) -> GateRe
     is_flagged = release_state.value == ReleaseState.FLAGGED_OR_UNRELEASED
     is_flag_only_on_marker = is_flagged and release_state.rests_only_on_release_marker
     rows = [
-        fact_row(
-            "release_state", release_state.value, release_state.quote, blocks=is_flagged and not is_flag_only_on_marker
+        fact_hint_row("release_state", release_state.value, release_state.quote, would_block=is_flagged),
+        fact_hint_row(
+            "audience",
+            facts.audience.value,
+            facts.audience.quote,
+            would_block=facts.audience.value != Audience.CUSTOMER,
         ),
-        fact_row(
-            "audience", facts.audience.value, facts.audience.quote, blocks=facts.audience.value != Audience.CUSTOMER
-        ),
-        fact_row(
+        fact_hint_row(
             "doc_impact",
             facts.doc_impact.value,
             facts.doc_impact.quote,
-            blocks=facts.doc_impact.value not in DOCS_DOC_IMPACTS,
+            would_block=facts.doc_impact.value not in DOCS_DOC_IMPACTS,
         ),
         fact_row(
             "generated_only",
@@ -134,107 +142,17 @@ def fact_gates(facts: MergeFacts | None, *, are_quotes_verified: bool) -> GateRe
             facts.generated_only.quote,
             blocks=facts.generated_only.value,
         ),
-        fact_row(
+        fact_hint_row(
             "no_public_page_fits",
             str(facts.no_public_page_fits.value).lower(),
             facts.no_public_page_fits.quote,
-            blocks=facts.no_public_page_fits.value,
+            would_block=facts.no_public_page_fits.value,
         ),
     ]
     return GateResult(
         blocking_reason=first_blocking_criterion(rows),
         low_confidence=is_flag_only_on_marker or not are_quotes_verified,
         rows=tuple(rows),
-    )
-
-
-def decide_with_rules(
-    anthropic_client: Anthropic,
-    evidence: MergeEvidence,
-    *,
-    facts: MergeFacts | None,
-    page_text_by_key: dict[str, str],
-    is_final_attempt: bool,
-    deadline: CheckDeadline | None = None,
-) -> Decision:
-    if facts is None:
-        return rules_decision(False, None, (), reason="facts_unavailable", low_confidence=True)
-    is_removal = facts.doc_impact.value == DocImpact.REMOVED
-    change_kind = DocsChangeKind.REMOVE if is_removal else DocsChangeKind.UPDATE
-    named_page_keys = tuple(dict.fromkeys(page.page_path for page in facts.changed_pages))
-    if not named_page_keys:
-        if is_removal:
-            return rules_decision(False, None, (), reason="removed_with_no_page")
-        return rules_decision(True, DocsChangeKind.CREATE, (), reason="no_page_covers_change")
-    readable_pages = {key: page_text_by_key[key] for key in named_page_keys if key in page_text_by_key}
-    if not readable_pages:
-        return rules_decision(True, change_kind, named_page_keys, reason="named_pages_unread", low_confidence=True)
-    unread_page_keys = tuple(key for key in named_page_keys if key not in readable_pages)
-    try:
-        verified_findings = verified_page_findings(
-            anthropic_client, evidence, page_text_by_key=readable_pages, deadline=deadline
-        )
-    except APIError:
-        if not is_final_attempt:
-            raise
-        verified_findings = None
-    if verified_findings is None:
-        return rules_decision(True, change_kind, named_page_keys, reason="page_check_unavailable", low_confidence=True)
-    page_check_row = CriterionResult(
-        criterion="page_check",
-        value=str(bool(verified_findings)).lower(),
-        source=FACTS_SOURCE,
-        evidence="\n".join(
-            f"{finding.page_path}: {finding.outdated_sentence or finding.missing_detail}"
-            for finding in verified_findings
-        ),
-        effect=CriterionEffect.SUPPORTS if verified_findings else CriterionEffect.BLOCKS,
-    )
-    if not verified_findings and unread_page_keys:
-        return rules_decision(
-            True,
-            change_kind,
-            unread_page_keys,
-            reason="named_pages_unread",
-            low_confidence=True,
-            rows=(page_check_row,),
-        )
-    if not verified_findings:
-        return rules_decision(False, None, (), reason="named_pages_still_accurate", rows=(page_check_row,))
-    flagged_page_keys = tuple(dict.fromkeys(finding.page_path for finding in verified_findings))
-    return rules_decision(
-        True,
-        change_kind,
-        flagged_page_keys,
-        reason="page_check",
-        low_confidence=bool(unread_page_keys),
-        rows=(page_check_row,),
-    )
-
-
-def rules_decision(
-    needs_docs: bool,
-    change_kind: DocsChangeKind | None,
-    page_keys: tuple[str, ...],
-    *,
-    reason: str,
-    low_confidence: bool = False,
-    rows: tuple[CriterionResult, ...] = (),
-) -> Decision:
-    rule_row = CriterionResult(
-        criterion="rules",
-        value=str(change_kind) if needs_docs else "no_docs",
-        source=RULE_GATE_SOURCE,
-        evidence=reason,
-        effect=CriterionEffect.SUPPORTS if needs_docs else CriterionEffect.BLOCKS,
-    )
-    return Decision(
-        needs_docs=needs_docs,
-        change_kind=change_kind,
-        page_keys=page_keys,
-        low_confidence=low_confidence,
-        reason=reason,
-        rows=(*rows, rule_row),
     )
 
 
@@ -246,6 +164,20 @@ def fact_row(criterion: str, value: str, quote: str, *, blocks: bool) -> Criteri
         evidence=quote,
         effect=CriterionEffect.BLOCKS if blocks else CriterionEffect.SUPPORTS,
     )
+
+
+def fact_hint_row(criterion: str, value: str, quote: str, *, would_block: bool) -> CriterionResult:
+    return CriterionResult(
+        criterion=criterion,
+        value=value,
+        source=FACTS_SOURCE,
+        evidence=quote,
+        effect=CriterionEffect.NEUTRAL if would_block else CriterionEffect.SUPPORTS,
+    )
+
+
+def author_marks_flagged(body: str) -> bool:
+    return RELEASE_STATUS_MARKER.findall(body) == [AUTHOR_FLAGGED_MARKER]
 
 
 def first_blocking_criterion(rows: list[CriterionResult]) -> str | None:

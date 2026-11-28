@@ -1,4 +1,5 @@
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -69,6 +70,19 @@ describe('taskWarmLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
         expect(warmCalls).toBe(1)
         expect(logic.values.warmLease).toMatchObject({ taskId: 'warm-task-1', runId: 'warm-run-1' })
+    })
+
+    it.each([
+        ['a usage-limit 429', 0, 429, { type: 'rate_limited', code: 'usage_limit_exceeded', error: 'Limit reached.' }],
+        ['a 500', 1, 500, { detail: 'Server error.' }],
+    ])('captures a warm that failed with %s %i times', async (_, expectedReports, status, body) => {
+        useMocks({ post: { '/api/projects/:team/tasks/warm/': () => [status, body] } })
+
+        logic.actions.prewarm(WARM_REQUEST)
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(posthog.captureException).toHaveBeenCalledTimes(expectedReports)
+        expect(logic.values.warmLease).toBeNull()
     })
 
     it.each(['warm-run-1', 'cold-run'])(
@@ -256,6 +270,48 @@ describe('taskWarmLogic', () => {
         expect(cancelledRuns).toEqual(['warm-run-1'])
         expect(logic.values.warmLease).toMatchObject({ runId: 'warm-run-2' })
     })
+
+    it.each([
+        { steps: ['focus', 'blur', 'focus'], leased: true, expectedWarms: 1 },
+        { steps: ['focus', 'blur', 'focus'], leased: false, expectedWarms: 1 },
+        { steps: ['focus', 'blur', 'type'], leased: true, expectedWarms: 2 },
+        { steps: ['focus', 'blur', 'type', 'submit', 'focus'], leased: true, expectedWarms: 3 },
+    ])(
+        'warms on focus once until a submit uses a warm ($steps, leased: $leased)',
+        async ({ steps, leased, expectedWarms }) => {
+            useMocks({
+                post: {
+                    '/api/projects/:team/tasks/warm/': async () => {
+                        warmCalls += 1
+                        return [
+                            200,
+                            leased ? { task_id: `warm-task-${warmCalls}`, run_id: `warm-run-${warmCalls}` } : {},
+                        ]
+                    },
+                },
+            })
+            for (const step of steps) {
+                jest.useFakeTimers()
+                if (step === 'focus') {
+                    logic.actions.noteDraft(false, WARM_REQUEST, true, true)
+                    await jest.advanceTimersByTimeAsync(700)
+                } else if (step === 'blur') {
+                    logic.actions.noteDraft(false, WARM_REQUEST, true, false)
+                    await jest.advanceTimersByTimeAsync(5000)
+                } else if (step === 'type') {
+                    logic.actions.noteDraft(true, WARM_REQUEST, true, true)
+                    await jest.advanceTimersByTimeAsync(700)
+                } else {
+                    const submission: WarmSubmission = { projectId: '997', lease: null }
+                    logic.actions.prepareSubmit(submission)
+                    logic.actions.consumeWarm(submission, `warm-run-${warmCalls}`)
+                }
+                jest.useRealTimers()
+                await expectLogic(logic).toFinishAllListeners()
+            }
+            expect(warmCalls).toBe(expectedWarms)
+        }
+    )
 
     it('does not reset the budget when a non-empty draft becomes ineligible', async () => {
         logic.actions.prewarm(WARM_REQUEST)

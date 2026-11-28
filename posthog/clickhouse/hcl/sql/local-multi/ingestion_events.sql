@@ -1,5 +1,5 @@
 -- AUTO-GENERATED from the declarative HCL by ops/gen-sql.sh — do not edit.
--- Full CREATE schema for the local-multi/events node. Apply to a fresh ClickHouse to build it.
+-- Full CREATE schema for the local-multi/ingestion_events node. Apply to a fresh ClickHouse to build it.
 
 CREATE TABLE posthog.distributed_person_group_membership_config (
   team_id Int64,
@@ -43,6 +43,42 @@ CREATE TABLE posthog.kafka_events_json_native_json (
   dmat_string_9 Nullable(String),
   captured_at Nullable(DateTime64(6, 'UTC'))
 ) ENGINE = Kafka(msk_cluster) SETTINGS kafka_format = 'JSONEachRow', kafka_group_name = 'clickhouse_events_json_native_json', kafka_skip_broken_messages = 100, kafka_topic_list = 'clickhouse_events_json';
+CREATE TABLE posthog.kafka_events_json_recent (
+  uuid UUID,
+  event String,
+  properties String CODEC(ZSTD(3)),
+  timestamp DateTime64(6, 'UTC'),
+  team_id Int64,
+  distinct_id String,
+  elements_chain String,
+  created_at DateTime64(6, 'UTC'),
+  person_id UUID,
+  person_created_at DateTime64(3),
+  person_properties String CODEC(ZSTD(3)),
+  group0_properties String CODEC(ZSTD(3)),
+  group1_properties String CODEC(ZSTD(3)),
+  group2_properties String CODEC(ZSTD(3)),
+  group3_properties String CODEC(ZSTD(3)),
+  group4_properties String CODEC(ZSTD(3)),
+  group0_created_at DateTime64(3),
+  group1_created_at DateTime64(3),
+  group2_created_at DateTime64(3),
+  group3_created_at DateTime64(3),
+  group4_created_at DateTime64(3),
+  person_mode Enum8('full'=0, 'propertyless'=1, 'force_upgrade'=2),
+  historical_migration Bool,
+  dmat_string_0 Nullable(String),
+  dmat_string_1 Nullable(String),
+  dmat_string_2 Nullable(String),
+  dmat_string_3 Nullable(String),
+  dmat_string_4 Nullable(String),
+  dmat_string_5 Nullable(String),
+  dmat_string_6 Nullable(String),
+  dmat_string_7 Nullable(String),
+  dmat_string_8 Nullable(String),
+  dmat_string_9 Nullable(String),
+  captured_at Nullable(DateTime64(6, 'UTC'))
+) ENGINE = Kafka(msk_cluster) SETTINGS kafka_format = 'JSONEachRow', kafka_group_name = 'clickhouse_events_json_recent', kafka_skip_broken_messages = 100, kafka_topic_list = 'clickhouse_events_json';
 CREATE TABLE posthog.kafka_logs_avro (
   uuid String,
   trace_id String,
@@ -186,6 +222,7 @@ CREATE TABLE posthog.query_log_archive (
   lc_plan_fingerprint SimpleAggregateFunction(max, String),
   lc_estimated_rows SimpleAggregateFunction(max, Int64),
   lc_estimated_bytes SimpleAggregateFunction(max, Int64),
+  log_comment SimpleAggregateFunction(max, String),
   query_id String,
   event_time DateTime('UTC'),
   event_date Date,
@@ -234,6 +271,42 @@ CREATE TABLE posthog.writable_events_json (
   captured_at DateTime64(6, 'UTC') DEFAULT now(),
   _partition UInt64
 ) ENGINE = Distributed('posthog', 'posthog', 'sharded_events_json', sipHash64(distinct_id));
+CREATE TABLE posthog.writable_events_json_recent (
+  uuid UUID,
+  event String,
+  properties String,
+  temporary_properties String,
+  properties_null_keys Array(LowCardinality(String)),
+  temporary_properties_null_keys Array(LowCardinality(String)),
+  timestamp DateTime64(6, 'UTC'),
+  team_id Int64,
+  distinct_id String,
+  created_at DateTime64(6, 'UTC') DEFAULT now(),
+  _timestamp DateTime,
+  _offset UInt64,
+  elements_chain String,
+  person_id UUID,
+  person_properties String,
+  person_properties_null_keys Array(LowCardinality(String)),
+  group0_properties String,
+  group1_properties String,
+  group2_properties String,
+  group3_properties String,
+  group4_properties String,
+  person_created_at DateTime64(3),
+  group0_created_at DateTime64(3),
+  group1_created_at DateTime64(3),
+  group2_created_at DateTime64(3),
+  group3_created_at DateTime64(3),
+  group4_created_at DateTime64(3),
+  inserted_at DateTime64(6, 'UTC') DEFAULT now64(),
+  person_mode Enum8('full'=0, 'propertyless'=1, 'force_upgrade'=2),
+  consumer_breadcrumbs Array(String),
+  historical_migration Bool,
+  total_event_size UInt32,
+  captured_at DateTime64(6, 'UTC') DEFAULT now(),
+  _partition UInt64
+) ENGINE = Distributed('posthog_writable', 'posthog', 'sharded_events_json_recent', sipHash64(distinct_id));
 CREATE TABLE posthog.writable_logs34 (
   time_bucket DateTime MATERIALIZED toStartOfDay(timestamp),
   original_expiry_timestamp DateTime64(6),
@@ -268,7 +341,8 @@ CREATE TABLE posthog.writable_logs34 (
   _record_count UInt64,
   pattern String,
   pattern_version UInt8,
-  internal_source LowCardinality(String) DEFAULT ''
+  internal_source LowCardinality(String) DEFAULT '',
+  auth_type LowCardinality(String) DEFAULT ''
 ) ENGINE = Distributed('logs', 'posthog', 'logs34') SETTINGS background_insert_batch = 1;
 CREATE TABLE posthog.writable_person_group_membership (
   team_id Int64,
@@ -278,6 +352,63 @@ CREATE TABLE posthog.writable_person_group_membership (
   first_seen SimpleAggregateFunction(min, DateTime64(6, 'UTC')),
   last_seen SimpleAggregateFunction(max, DateTime64(6, 'UTC'))
 ) ENGINE = Distributed('aux', 'posthog', 'sharded_person_group_membership', sipHash64(team_id, group_type_index, group_key));
+CREATE MATERIALIZED VIEW posthog.events_json_recent_mv TO posthog.writable_events_json_recent (uuid UUID, event String, properties String, temporary_properties String, properties_null_keys Array(String), temporary_properties_null_keys Array(String), inserted_at DateTime64(3), timestamp DateTime64(6, 'UTC'), team_id Int64, distinct_id String, elements_chain String, created_at DateTime64(6, 'UTC'), person_id UUID, person_properties String, person_properties_null_keys Array(String), person_created_at DateTime64(3), group0_properties String, group1_properties String, group2_properties String, group3_properties String, group4_properties String, group0_created_at DateTime64(3), group1_created_at DateTime64(3), group2_created_at DateTime64(3), group3_created_at DateTime64(3), group4_created_at DateTime64(3), person_mode Enum8('full'=0, 'propertyless'=1, 'force_upgrade'=2), historical_migration Bool, captured_at DateTime64(6, 'UTC'), _timestamp Nullable(DateTime), _offset UInt64, _partition UInt64, consumer_breadcrumbs Array(String), total_event_size UInt32) AS SELECT
+  *,
+  accurateCast(byteSize(*) + byteSize(toUInt32(0)), 'UInt32') AS total_event_size
+FROM
+  (
+    SELECT
+      uuid,
+      event,
+      cleaned.properties AS properties,
+      cleaned.temporary_properties AS temporary_properties,
+      cleaned.properties_null_keys AS properties_null_keys,
+      cleaned.temporary_properties_null_keys AS temporary_properties_null_keys,
+      now64() AS inserted_at,
+      timestamp,
+      team_id,
+      distinct_id,
+      elements_chain,
+      created_at,
+      person_id,
+      cleaned.person_properties AS person_properties,
+      cleaned.person_properties_null_keys AS person_properties_null_keys,
+      person_created_at,
+      group0_properties,
+      group1_properties,
+      group2_properties,
+      group3_properties,
+      group4_properties,
+      group0_created_at,
+      group1_created_at,
+      group2_created_at,
+      group3_created_at,
+      group4_created_at,
+      person_mode,
+      historical_migration,
+      coalesce(captured_at, created_at) AS captured_at,
+      _timestamp,
+      _offset,
+      _partition,
+      consumer_breadcrumbs
+    FROM
+      (
+        SELECT
+          *,
+          _timestamp,
+          _offset,
+          _partition,
+          arrayMap(
+            i -> (_headers.value[i]),
+            arrayFilter(
+              i -> ((_headers.name[i]) = 'kafka-consumer-breadcrumbs'),
+              arrayEnumerate(_headers.name)
+            )
+          ) AS consumer_breadcrumbs,
+          JSONCleanPostHogEventForExport(properties, person_properties) AS cleaned
+        FROM posthog.kafka_events_json_recent
+      ) AS source
+  );
 CREATE MATERIALIZED VIEW posthog.events_json_table_mv TO posthog.writable_events_json (uuid UUID, event String, properties String, temporary_properties String, inserted_at DateTime64(3), timestamp DateTime64(6, 'UTC'), team_id Int64, distinct_id String, elements_chain String, created_at DateTime64(6, 'UTC'), person_id UUID, person_properties String, person_created_at DateTime64(3), group0_properties String, group1_properties String, group2_properties String, group3_properties String, group4_properties String, group0_created_at DateTime64(3), group1_created_at DateTime64(3), group2_created_at DateTime64(3), group3_created_at DateTime64(3), group4_created_at DateTime64(3), person_mode Enum8('full'=0, 'propertyless'=1, 'force_upgrade'=2), historical_migration Bool, captured_at DateTime64(6, 'UTC'), _timestamp Nullable(DateTime), _offset UInt64, _partition UInt64, consumer_breadcrumbs Array(String), total_event_size UInt32) AS SELECT
   *,
   accurateCast(byteSize(*) + byteSize(toUInt32(0)), 'UInt32') AS total_event_size
@@ -338,7 +469,7 @@ FROM
 SETTINGS
   input_format_try_infer_dates = 0,
   input_format_try_infer_datetimes = 0;
-CREATE MATERIALIZED VIEW posthog.kafka_logs34_avro_mv TO posthog.writable_logs34 (uuid String, trace_id String, span_id String, trace_flags Int32, timestamp DateTime64(6), observed_timestamp DateTime64(6), body String, severity_text String, severity_number Int32, service_name String, instrumentation_scope String, event_name String, attributes_map_str Map(String, String), resource_attributes Map(String, String), team_id Int32, original_expiry_timestamp DateTime64(6), _partition UInt64, _topic LowCardinality(String), _offset UInt64, _record_count Int64, _bytes_uncompressed Nullable(Int64), _bytes_compressed Nullable(Int64), pattern String, pattern_version UInt8, internal_source LowCardinality(String)) AS SELECT
+CREATE MATERIALIZED VIEW posthog.kafka_logs34_avro_mv TO posthog.writable_logs34 (uuid String, trace_id String, span_id String, trace_flags Int32, timestamp DateTime64(6), observed_timestamp DateTime64(6), body String, severity_text String, severity_number Int32, service_name String, instrumentation_scope String, event_name String, attributes_map_str Map(String, String), resource_attributes Map(String, String), team_id Int32, original_expiry_timestamp DateTime64(6), _partition UInt64, _topic LowCardinality(String), _offset UInt64, _record_count Int64, _bytes_uncompressed Nullable(Int64), _bytes_compressed Nullable(Int64), pattern String, pattern_version UInt8, internal_source LowCardinality(String), auth_type LowCardinality(String)) AS SELECT
   uuid,
   trace_id,
   span_id,
@@ -370,7 +501,8 @@ CREATE MATERIALIZED VIEW posthog.kafka_logs34_avro_mv TO posthog.writable_logs34
   toInt64OrNull(_headers.value[indexOf(_headers.name, 'bytes_compressed')]) / _record_count AS _bytes_compressed,
   ifNull(pattern, '') AS pattern,
   toUInt8(ifNull(pattern_version, 0)) AS pattern_version,
-  _headers.value[indexOf(_headers.name, 'internal-source')] AS internal_source
+  _headers.value[indexOf(_headers.name, 'internal-source')] AS internal_source,
+  _headers.value[indexOf(_headers.name, 'auth-type')] AS auth_type
 FROM posthog.kafka_logs_avro;
 CREATE MATERIALIZED VIEW posthog.person_group_membership_mv TO posthog.writable_person_group_membership (team_id Int64, group_type_index UInt8, group_key String, distinct_id String, first_seen DateTime64(6, 'UTC'), last_seen DateTime64(6, 'UTC')) AS SELECT
   team_id,

@@ -261,7 +261,8 @@ const aeoKeywordsModifiersGet = (): ToolBase<
             path: `/api/projects/${encodeURIComponent(String(projectId))}/aeo_keywords/modifiers/`,
             query: {
                 branded: params.branded,
-                days: params.days,
+                date_from: params.date_from,
+                date_to: params.date_to,
                 engine: params.engine,
                 keyword: params.keyword,
                 topic: params.topic,
@@ -286,7 +287,8 @@ const aeoKeywordsReportGet = (): ToolBase<ReturnType<typeof AeoKeywordsReportGet
             path: `/api/projects/${encodeURIComponent(String(projectId))}/aeo_keywords/report/`,
             query: {
                 branded: params.branded,
-                days: params.days,
+                date_from: params.date_from,
+                date_to: params.date_to,
                 engine: params.engine,
                 topic: params.topic,
             },
@@ -418,13 +420,15 @@ const aeoPromptsCitationsList = (): ToolBase<
             path: `/api/projects/${encodeURIComponent(String(projectId))}/aeo_prompts/citations/`,
             query: {
                 branded: params.branded,
-                days: params.days,
+                date_from: params.date_from,
+                date_to: params.date_to,
                 domain: params.domain,
                 engine: params.engine,
                 include_answer_text: params.include_answer_text,
                 limit: params.limit,
                 offset: params.offset,
                 search: params.search,
+                topic: params.topic,
                 url: params.url,
             },
         })
@@ -512,7 +516,8 @@ const aeoPromptsList = (): ToolBase<
             query: {
                 active: params.active,
                 branded: params.branded,
-                days: params.days,
+                date_from: params.date_from,
+                date_to: params.date_to,
                 engine: params.engine,
                 include_archived: params.include_archived,
                 limit: params.limit,
@@ -554,7 +559,9 @@ const aeoPromptsOverviewGet = (): ToolBase<
             path: `/api/projects/${encodeURIComponent(String(projectId))}/aeo_prompts/overview/`,
             query: {
                 branded: params.branded,
-                days: params.days,
+                current_prompts: params.current_prompts,
+                date_from: params.date_from,
+                date_to: params.date_to,
                 engine: params.engine,
                 topic: params.topic,
             },
@@ -581,10 +588,38 @@ const aeoPromptsRankingsGet = (): ToolBase<
             path: `/api/projects/${encodeURIComponent(String(projectId))}/aeo_prompts/rankings/`,
             query: {
                 branded: params.branded,
-                days: params.days,
+                current_prompts: params.current_prompts,
+                date_from: params.date_from,
+                date_to: params.date_to,
                 engine: params.engine,
                 topic: params.topic,
             },
+        })
+        return result
+    },
+})
+
+const AeoPromptsSetTopicSchema = () => {
+    const AeoPromptsBulkSetTopicBody = orvalSchemas.AeoPromptsBulkSetTopicBody()
+    return AeoPromptsBulkSetTopicBody
+}
+
+const aeoPromptsSetTopic = (): ToolBase<ReturnType<typeof AeoPromptsSetTopicSchema>, Schemas.AEOPromptTopicChange> => ({
+    name: 'aeo-prompts-set-topic',
+    schema: AeoPromptsSetTopicSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof AeoPromptsSetTopicSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.prompt_ids !== undefined) {
+            body['prompt_ids'] = params.prompt_ids
+        }
+        if (params.topic !== undefined) {
+            body['topic'] = params.topic
+        }
+        const result = await context.api.request<Schemas.AEOPromptTopicChange>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/aeo_prompts/bulk_set_topic/`,
+            body,
         })
         return result
     },
@@ -687,6 +722,90 @@ const aeoPromptsTopicsList = (): ToolBase<ReturnType<typeof AeoPromptsTopicsList
     },
 })
 
+const AeoPromptsTopicsMergeSchema = () => {
+    const AeoPromptsTopicsMergeBody = orvalSchemas.AeoPromptsTopicsMergeBody()
+    return AeoPromptsTopicsMergeBody
+}
+
+const aeoPromptsTopicsMerge = (): ToolBase<
+    ReturnType<typeof AeoPromptsTopicsMergeSchema>,
+    Schemas.AEOPromptTopicChange
+> => ({
+    name: 'aeo-prompts-topics-merge',
+    schema: AeoPromptsTopicsMergeSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof AeoPromptsTopicsMergeSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.topic !== undefined) {
+            body['topic'] = params.topic
+        }
+        if (params.into_topic !== undefined) {
+            body['into_topic'] = params.into_topic
+        }
+        const result = await context.api.request<Schemas.AEOPromptTopicChange>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/aeo_prompts/topics/merge/`,
+            body,
+        })
+        return result
+    },
+})
+
+const AeoPromptsTopicsRemoveSchema = () => {
+    const AeoPromptsTopicsRemoveBody = orvalSchemas.AeoPromptsTopicsRemoveBody()
+    return AeoPromptsTopicsRemoveBody
+}
+
+const aeoPromptsTopicsRemove = (): ToolBase<
+    ReturnType<typeof AeoPromptsTopicsRemoveSchema>,
+    Schemas.AEOPromptTopicChange
+> => ({
+    name: 'aeo-prompts-topics-remove',
+    schema: AeoPromptsTopicsRemoveSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof AeoPromptsTopicsRemoveSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.topic !== undefined) {
+            body['topic'] = params.topic
+        }
+        const result = await context.api.request<Schemas.AEOPromptTopicChange>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/aeo_prompts/topics/remove/`,
+            body,
+        })
+        return result
+    },
+})
+
+const AeoPromptsTopicsRenameSchema = () => {
+    const AeoPromptsTopicsRenameBody = orvalSchemas.AeoPromptsTopicsRenameBody()
+    return AeoPromptsTopicsRenameBody
+}
+
+const aeoPromptsTopicsRename = (): ToolBase<
+    ReturnType<typeof AeoPromptsTopicsRenameSchema>,
+    Schemas.AEOPromptTopicChange
+> => ({
+    name: 'aeo-prompts-topics-rename',
+    schema: AeoPromptsTopicsRenameSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof AeoPromptsTopicsRenameSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.topic !== undefined) {
+            body['topic'] = params.topic
+        }
+        if (params.new_topic !== undefined) {
+            body['new_topic'] = params.new_topic
+        }
+        const result = await context.api.request<Schemas.AEOPromptTopicChange>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/aeo_prompts/topics/rename/`,
+            body,
+        })
+        return result
+    },
+})
+
 const AeoPromptsUpdateSchema = () => {
     const AeoPromptsPartialUpdateBody = orvalSchemas.AeoPromptsPartialUpdateBody()
     const AeoPromptsPartialUpdateParams = orvalSchemas.AeoPromptsPartialUpdateParams()
@@ -756,6 +875,26 @@ const aeoPromptsVersionsList = (): ToolBase<
     },
 })
 
+const AeoSetupCancelSchema = () => {
+    const AeoSetupCancelParams = orvalSchemas.AeoSetupCancelParams()
+    return AeoSetupCancelParams.omit({ project_id: true }).extend({
+        id: AeoSetupCancelParams.shape['id'].describe('The setup job id, from `aeo-setup-start`.'),
+    })
+}
+
+const aeoSetupCancel = (): ToolBase<ReturnType<typeof AeoSetupCancelSchema>, Schemas.AEOSetupJob> => ({
+    name: 'aeo-setup-cancel',
+    schema: AeoSetupCancelSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof AeoSetupCancelSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.AEOSetupJob>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/aeo_setup/${encodeURIComponent(String(params.id))}/cancel/`,
+        })
+        return result
+    },
+})
+
 const AeoSetupContextGetSchema = () => z.object({})
 
 const aeoSetupContextGet = (): ToolBase<ReturnType<typeof AeoSetupContextGetSchema>, Schemas.AEOSetupContext> => ({
@@ -786,6 +925,21 @@ const aeoSetupGet = (): ToolBase<ReturnType<typeof AeoSetupGetSchema>, Schemas.A
         const result = await context.api.request<Schemas.AEOSetupJob>({
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/aeo_setup/${encodeURIComponent(String(params.id))}/`,
+        })
+        return result
+    },
+})
+
+const AeoSetupResetSchema = () => z.object({})
+
+const aeoSetupReset = (): ToolBase<ReturnType<typeof AeoSetupResetSchema>, unknown> => ({
+    name: 'aeo-setup-reset',
+    schema: AeoSetupResetSchema(),
+    handler: async (context: Context, _params: z.infer<ReturnType<typeof AeoSetupResetSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<unknown>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/aeo_setup/reset/`,
         })
         return result
     },
@@ -823,10 +977,28 @@ const aeoSetupStart = (): ToolBase<ReturnType<typeof AeoSetupStartSchema>, unkno
         if (params.activate_paused_prompts !== undefined) {
             body['activate_paused_prompts'] = params.activate_paused_prompts
         }
+        if (params.prompt_count !== undefined) {
+            body['prompt_count'] = params.prompt_count
+        }
         const result = await context.api.request<unknown>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/aeo_setup/`,
             body,
+        })
+        return result
+    },
+})
+
+const AeoSetupStopChecksSchema = () => z.object({})
+
+const aeoSetupStopChecks = (): ToolBase<ReturnType<typeof AeoSetupStopChecksSchema>, unknown> => ({
+    name: 'aeo-setup-stop-checks',
+    schema: AeoSetupStopChecksSchema(),
+    handler: async (context: Context, _params: z.infer<ReturnType<typeof AeoSetupStopChecksSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<unknown>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/aeo_setup/stop_checks/`,
         })
         return result
     },
@@ -856,13 +1028,20 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'aeo-prompts-list': aeoPromptsList,
     'aeo-prompts-overview-get': aeoPromptsOverviewGet,
     'aeo-prompts-rankings-get': aeoPromptsRankingsGet,
+    'aeo-prompts-set-topic': aeoPromptsSetTopic,
     'aeo-prompts-stats-get': aeoPromptsStatsGet,
     'aeo-prompts-suggest': aeoPromptsSuggest,
     'aeo-prompts-suggestion-get': aeoPromptsSuggestionGet,
     'aeo-prompts-topics-list': aeoPromptsTopicsList,
+    'aeo-prompts-topics-merge': aeoPromptsTopicsMerge,
+    'aeo-prompts-topics-remove': aeoPromptsTopicsRemove,
+    'aeo-prompts-topics-rename': aeoPromptsTopicsRename,
     'aeo-prompts-update': aeoPromptsUpdate,
     'aeo-prompts-versions-list': aeoPromptsVersionsList,
+    'aeo-setup-cancel': aeoSetupCancel,
     'aeo-setup-context-get': aeoSetupContextGet,
     'aeo-setup-get': aeoSetupGet,
+    'aeo-setup-reset': aeoSetupReset,
     'aeo-setup-start': aeoSetupStart,
+    'aeo-setup-stop-checks': aeoSetupStopChecks,
 }

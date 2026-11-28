@@ -13,6 +13,8 @@ from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -29,7 +31,9 @@ from products.signals.backend.activity_summary.read import ActivitySummaryStatus
 from products.signals.backend.models import (
     PersonalInboxRanking,
     SignalReport,
+    SignalReportArtefact,
     SignalReportAssignment,
+    SignalReportSuggestedReviewer,
     SignalSourceConfig,
     UserActivitySummary,
     UserActivitySummaryQueueState,
@@ -161,6 +165,88 @@ class TestTickEnrollment(_TickTest):
             expected,
         )
 
+    def _fleet(self) -> dict[str, Team]:
+        # Fixed organization ids, so the 50 percent rollouts below enroll some of them and leave out others.
+        teams: dict[str, Team] = {}
+        for index in range(6):
+            organization = Organization.objects.create(
+                id=uuid.UUID(int=index + 1), name=f"Org {index}", is_ai_data_processing_approved=True
+            )
+            teams[f"source_{index}"] = Team.objects.create(organization=organization, name=f"Source {index}")
+            teams[f"no_source_{index}"] = Team.objects.create(organization=organization, name=f"No source {index}")
+        unapproved = Organization.objects.create(
+            id=uuid.UUID(int=7), name="Unapproved", is_ai_data_processing_approved=False
+        )
+        teams["unapproved"] = Team.objects.create(organization=unapproved, name="Unapproved")
+        for name, team in teams.items():
+            if not name.startswith("no_source"):
+                SignalSourceConfig.objects.create(
+                    team=team, source_product="error_tracking", source_type="issue_created", enabled=True
+                )
+        self.source_team_ids = {team.id for name, team in teams.items() if not name.startswith("no_source")}
+        return teams
+
+    @parameterized.expand(
+        [
+            ("the_tick_off", {}, {"enabled": False}),
+            ("the_summary_off", {"enabled": False}, {}),
+            ("every_approved_team_with_a_source", {}, {}),
+            ("the_summary_listed_organizations", {"enroll_all_approved": False, "organization_ids": (0, 7)}, {}),
+            ("the_summary_rollout", {"enroll_all_approved": False, "self_driving_organization_percentage": 50}, {}),
+            ("the_summary_skip_and_deny_lists", {"skip_team_ids": ("source_0",), "deny_organization_ids": (1,)}, {}),
+            ("the_tick_skip_and_deny_lists", {}, {"skip_team_ids": ["source_0"], "deny_organization_ids": [1]}),
+            ("the_tick_listed_organizations", {}, {"self_driving_organization_percentage": 0, "organization_ids": [2]}),
+            ("the_tick_rollout", {}, {"self_driving_organization_percentage": 50}),
+            (
+                "both_rollouts",
+                {"enroll_all_approved": False, "self_driving_organization_percentage": 50},
+                {"self_driving_organization_percentage": 50},
+            ),
+        ]
+    )
+    def test_the_single_team_check_agrees_with_the_enrollment(
+        self, _name: str, summary: dict[str, Any], tick: dict[str, Any]
+    ) -> None:
+        teams = self._fleet()
+
+        def resolve(key: str, values: Any) -> Any:
+            if key.endswith("organization_ids"):
+                return type(values)(str(uuid.UUID(int=index + 1)) for index in values)
+            if key == "skip_team_ids":
+                return type(values)(teams[name].id for name in values)
+            return values
+
+        self.activity_summary_config = ActivitySummaryConfig(
+            **{
+                "enabled": True,
+                "enroll_all_approved": True,
+                **{key: resolve(key, value) for key, value in summary.items()},
+            }
+        )
+        self.tick = {
+            "enabled": True,
+            "self_driving_organization_percentage": 100,
+            **{key: resolve(key, value) for key, value in tick.items()},
+        }
+        config = self._config()
+        fleet = Team.objects.select_related("organization").filter(id__in=[team.id for team in teams.values()])
+
+        assert sorted(team.id for team in fleet if is_team_enrolled(config, team)) == [
+            team_id for team_id in enrollment(config).team_ids if team_id in {team.id for team in fleet}
+        ]
+
+    def test_the_single_team_check_reads_no_other_team(self) -> None:
+        teams = self._fleet()
+        self.activity_summary_config = ActivitySummaryConfig(enabled=True, self_driving_organization_percentage=100)
+        self.tick = {"enabled": True, "self_driving_organization_percentage": 100}
+        config = self._config()
+        team = Team.objects.select_related("organization").get(id=teams["source_0"].id)
+
+        with CaptureQueriesContext(connection) as queries:
+            assert is_team_enrolled(config, team)
+
+        assert [query["sql"] for query in queries if '"posthog_team"' in query["sql"]] == []
+
 
 class TestTickSelection(_TickTest):
     def test_selects_overdue_pairs_first_then_paying_and_recent_activity_within_the_org_share(self) -> None:
@@ -221,10 +307,10 @@ class TestTickPair(_TickTest):
         )
         scoped_capture = MagicMock()
         self.capture = scoped_capture.return_value.__enter__.return_value
-        summary = ActivitySummaryView(status=ActivitySummaryStatus.READY, version=1)
+        self.get_summary = MagicMock(return_value=ActivitySummaryView(status=ActivitySummaryStatus.READY, version=1))
         for target, value in (
             ("products.signals.backend.personal_ranking.logic.build_openai_client", MagicMock(return_value=self.llm)),
-            ("products.signals.backend.personal_ranking.logic.get_summary", MagicMock(return_value=summary)),
+            ("products.signals.backend.personal_ranking.logic.get_summary", self.get_summary),
             ("products.signals.backend.personal_ranking.logic.ph_scoped_capture", scoped_capture),
             (
                 "products.signals.backend.personal_ranking.candidates.fetch_source_products_for_reports",
@@ -234,10 +320,12 @@ class TestTickPair(_TickTest):
             patcher = patch(target, value)
             patcher.start()
             self.addCleanup(patcher.stop)
-        report = SignalReport.objects.create(
+        self.report = SignalReport.objects.create(
             team=self.team, title="Claimed", summary="Claimed", signal_count=1, total_weight=1.0, status="ready"
         )
-        SignalReportAssignment.all_teams.create(team=self.team, report=report, actor_kind="user", actor_user=self.user)
+        SignalReportAssignment.all_teams.create(
+            team=self.team, report=self.report, actor_kind="user", actor_user=self.user
+        )
         UserActivitySummary.objects.for_team(self.team.id).create(
             team_id=self.team.id,
             user_id=self.user.id,
@@ -311,6 +399,90 @@ class TestTickPair(_TickTest):
         assert self.create.call_count == model_calls
         assert select_pairs(self._config(), timezone.now(), 10, [self.team.id]).pairs == []
 
+    def _name_person_on_new_report(self) -> None:
+        report = SignalReport.objects.create(
+            team=self.team, title="Named", summary="Named", signal_count=1, total_weight=1.0, status="ready"
+        )
+        artefact = SignalReportArtefact.objects.create(
+            team=self.team, report=report, type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS, content="[]"
+        )
+        SignalReportSuggestedReviewer.all_teams.create(
+            team=self.team, report=report, artefact=artefact, user_uuid=self.user.uuid
+        )
+
+    @parameterized.expand(
+        [
+            ("no_change", lambda test: None, "hit"),
+            # `update()` leaves `updated_at` as it was.
+            (
+                "a_title_edit",
+                lambda test: SignalReport.objects.filter(id=test.report.id).update(title="Renamed"),
+                "miss",
+            ),
+            (
+                "a_status_change",
+                lambda test: SignalReport.objects.filter(id=test.report.id).update(status="pending_input"),
+                "miss",
+            ),
+            (
+                "a_new_priority",
+                lambda test: SignalReportArtefact.objects.create(
+                    team=test.team,
+                    report=test.report,
+                    type=SignalReportArtefact.ArtefactType.PRIORITY_JUDGMENT,
+                    content=json.dumps({"priority": "P0"}),
+                ),
+                "miss",
+            ),
+            ("a_report_that_names_the_person", lambda test: test._name_person_on_new_report(), "miss"),
+            (
+                "a_new_summary_version",
+                lambda test: setattr(
+                    test.get_summary,
+                    "return_value",
+                    ActivitySummaryView(status=ActivitySummaryStatus.READY, version=2),
+                ),
+                "miss",
+            ),
+            ("a_config_change", lambda test: test.payload.update({"rank_top": 10}), "miss"),
+            # The report leaves the window of the `for_you_recommended` pool with no write.
+            ("a_day_passes", lambda test: test.traveller.shift(datetime.timedelta(days=1, hours=1)), "miss"),
+            ("a_lost_fingerprint", lambda test: cache.clear(), "miss"),
+        ]
+    )
+    def test_the_precheck_confirms_a_list_only_when_no_input_changed(
+        self, _name: str, change: Callable[["TestTickPair"], Any], outcome: str
+    ) -> None:
+        self.payload = {"window_days": 1}
+        self.tick = {**self.tick, "precheck_hours": 48, "precheck_sample_share": 0}
+        SignalReport.objects.filter(id=self.report.id).update(created_at=NOW)
+        with time_machine.travel(NOW, tick=False) as self.traveller:
+            assert self._run().status == "built"
+            # The first check of a new list is a full check, which stores the fingerprint.
+            assert self._run() == PersonalRankingPairResult(status="unchanged", precheck="miss")
+            change(self)
+            self.traveller.shift(datetime.timedelta(minutes=5))
+            result = self._run()
+
+            assert result.precheck == outcome
+            if outcome == "hit":
+                assert result.status == "unchanged"
+                assert self._rows().get().checked_at == timezone.now()
+
+    @parameterized.expand([("agreed", False, "unchanged"), ("disagreed", True, "built")])
+    def test_a_sampled_hit_follows_the_full_check(self, outcome: str, edit: bool, status: str) -> None:
+        self.tick = {**self.tick, "precheck_hours": 48, "precheck_sample_share": 1}
+        # A fingerprint that misses the edit stands for an input that the pre-check cannot see.
+        with patch("products.signals.backend.personal_ranking.logic.input_fingerprint", return_value="same"):
+            assert self._run().status == "built"
+            assert self._run() == PersonalRankingPairResult(status="unchanged", precheck="miss")
+            if edit:
+                SignalReport.objects.filter(id=self.report.id).update(title="Renamed")
+
+            result = self._run()
+
+        assert (result.status, result.precheck) == (status, outcome)
+
     @parameterized.expand([("running",), ("tick_limited",), ("shared_limited",), ("not_enrolled",)])
     def test_a_pair_that_may_not_build_calls_no_model(self, status: str) -> None:
         self.payload = {"max_builds_per_day": 1}
@@ -352,7 +524,7 @@ def _plan(pairs: int, **overrides: Any) -> PersonalRankingTickPlan:
 
 async def _run_tick(
     plan: PersonalRankingTickPlan,
-    pair_status: str | Callable[[TickPair], Awaitable[str]],
+    pair_status: str | Callable[[TickPair], Awaitable[str | PersonalRankingPairResult]],
     *,
     sliding_window: bool = True,
 ) -> tuple[PersonalRankingTickResult, int, list[PersonalRankingTickResult]]:
@@ -368,12 +540,15 @@ async def _run_tick(
         nonlocal running, peak
         running += 1
         peak = max(peak, running)
+        status: str | PersonalRankingPairResult
         if isinstance(pair_status, str):
             status = pair_status
             await asyncio.sleep(0.01)
         else:
             status = await pair_status(pair)
         running -= 1
+        if isinstance(status, PersonalRankingPairResult):
+            return status
         return PersonalRankingPairResult(
             status=status,  # type: ignore[arg-type]
             model_called=status in ("built", "failed"),
@@ -511,6 +686,18 @@ async def test_fast_pairs_start_while_a_slow_pair_runs() -> None:
         None,
         2,
     )
+
+
+@pytest.mark.asyncio
+async def test_the_tick_counts_prechecks_and_times_prechecked_pairs_apart() -> None:
+    async def pair_status(pair: TickPair) -> PersonalRankingPairResult:
+        return PersonalRankingPairResult(status="unchanged", precheck="hit" if pair.user_id % 2 else "miss")
+
+    result, _, captured = await _run_tick(_plan(4), pair_status)
+
+    assert (result.statuses, result.prechecks) == ({"unchanged": 4}, {"hit": 2, "miss": 2})
+    assert set(result.pair_seconds_p50) == {"prechecked", "unchanged"}
+    assert captured == [result]
 
 
 @pytest.mark.asyncio

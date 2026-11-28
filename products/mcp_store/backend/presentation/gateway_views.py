@@ -72,6 +72,7 @@ from ..policy import (
     is_policy_state_allowed,
     is_read_only_connector_tool,
 )
+from .run_scope import DenyRunWithConnectionSelection
 
 logger = structlog.get_logger(__name__)
 
@@ -946,7 +947,7 @@ class MCPGatewayServerViewSet(
     scope_object_read_actions = ["list", "retrieve", "tools"]
     scope_object_write_actions = ["update", "partial_update", "destroy", "policies", "set_template_enabled"]
     serializer_class = MCPGatewayServerSerializer
-    permission_classes = [IsAuthenticated, DenyMCPBuiltInAgentOAuth]
+    permission_classes = [IsAuthenticated, DenyMCPBuiltInAgentOAuth, DenyRunWithConnectionSelection]
     # Fail-closed manager raises if `.all()` runs at import; the real per-request
     # scoping happens in safely_get_queryset.
     queryset = MCPGatewayServer.objects.unscoped()
@@ -1749,7 +1750,7 @@ class MCPGatewayMemberViewSet(GatewayAdminMixin, TeamAndOrgViewSetMixin, viewset
             rows.append(
                 {
                     "user": UserBasicSerializer(membership.user).data,
-                    "is_org_admin": membership.level >= OrganizationMembership.Level.ADMIN,
+                    "is_org_admin": membership.effective_level >= OrganizationMembership.Level.ADMIN,
                     "connected_server_ids": connected.get(membership.user_id, []),
                     "revoked_server_ids": revoked.get(membership.user_id, []),
                 }

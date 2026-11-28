@@ -26,6 +26,8 @@ export const SDK_TYPE_READABLE_NAME: Record<SdkType, string> = {
     'posthog-aspnetcore': 'ASP.NET Core',
     'posthog-rs': 'Rust',
     'posthog-rs-mcp': 'Rust MCP',
+    'posthog-rs-ffi': 'C/C++',
+    'posthog-electron': 'Electron',
     'posthog-godot': 'Godot',
     'posthog-unreal': 'Unreal Engine',
     'posthog-go-mcp': 'Go MCP',
@@ -134,6 +136,14 @@ export const SDK_DOCS_LINKS: Record<SdkType, { releases: string; docs: string }>
     'posthog-rs-mcp': {
         releases: 'https://github.com/PostHog/posthog-rs/releases',
         docs: 'https://posthog.com/docs/mcp-analytics',
+    },
+    'posthog-rs-ffi': {
+        releases: 'https://github.com/PostHog/posthog-rs/releases?q=posthog-rs-ffi-v',
+        docs: 'https://posthog.com/docs/libraries/c-cpp',
+    },
+    'posthog-electron': {
+        releases: 'https://github.com/PostHog/posthog-js/releases?q=%40posthog%2Felectron',
+        docs: 'https://posthog.com/docs/libraries/electron',
     },
     'posthog-godot': {
         releases: 'https://github.com/PostHog/posthog-godot/releases',

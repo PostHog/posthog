@@ -180,6 +180,8 @@ class GitHubRecorder:
         # Set to make posting a COMMENT review blow up, e.g. a rate limit on the failure notice.
         self.comment_review_side_effect: Exception | None = None
         self.teams_by_login: dict[str, list[str]] = {}
+        # Answer the team lookup with GraphQL errors, as GitHub does when the App lacks "Members: read".
+        self.team_lookup_refused = False
         # The merge base the compare API reports for every PR, and the familiarity GraphQL answers:
         # path -> blame ranges, and path -> the author's history nodes. Unscripted paths answer empty.
         self.merge_base_sha = "mergebase000"
@@ -198,7 +200,10 @@ class GitHubRecorder:
         # The files every compare lists, for a caller that pins a PR's file list to two commits.
         self.compare_files: list[dict] = []
         self.check_runs: dict[tuple[str, str], list[dict]] = {}
+        self.default_branch_blob_shas: dict[str, str] = {}
         self.shed_batch = False
+        # (path, priority) of every request, in order, so a test can check the egress lane of each read.
+        self.request_priorities: list[tuple[str, Priority | None]] = []
         # Repositories with no commits at all. GitHub answers their head lookup with a null
         # defaultBranchRef, which is what a freshly created connected repo looks like.
         self.empty_repositories: set[str] = set()
@@ -213,6 +218,9 @@ class GitHubRecorder:
         # How many times the ownership reader looked up the default branch head.
         self.head_lookups = 0
         self.github_writes: list[dict[str, Any]] = []
+        # The bearer token of the request being served, recorded on its write, so a test can tell
+        # which App made the write.
+        self._request_token = ""
         self._next_id = 90000
 
     def _alloc_id(self) -> int:
@@ -240,6 +248,8 @@ class GitHubRecorder:
         path = url[len(_API_PREFIX) :] if url.startswith(_API_PREFIX) else url
         json_body = kwargs.get("json")
         params = kwargs.get("params") or {}
+        self.request_priorities.append((path, kwargs.get("priority")))
+        self._request_token = (kwargs.get("headers") or {}).get("Authorization", "").removeprefix("Bearer ")
 
         if self.shed_batch and kwargs.get("priority") is Priority.BATCH:
             raise GitHubEgressBudgetExhausted("the installation budget is spent")
@@ -302,7 +312,14 @@ class GitHubRecorder:
         if method == "PATCH" and (m := _COMMENT_PATCH_RE.match(path)):
             return self._record_write("issue_comment_edit", m.group("repo"), 0, json_body)
         if method == "DELETE" and (m := _COMMENT_PATCH_RE.match(path)):
-            self.github_writes.append({"kind": "delete_comment", "repo": m.group("repo"), "id": int(m.group("cid"))})
+            self.github_writes.append(
+                {
+                    "kind": "delete_comment",
+                    "repo": m.group("repo"),
+                    "id": int(m.group("cid")),
+                    "token": self._request_token,
+                }
+            )
             return FakeResponse(204)
         if method == "POST" and (m := _REQUESTED_REVIEWERS_RE.match(path)):
             return self._request_reviewers(m.group("repo"), int(m.group("number")), json_body or {})
@@ -388,6 +405,12 @@ class GitHubRecorder:
             scripted = repr(sorted(self.policy_files.items()) + sorted(self.repo_files.items()))
             oid = hashlib.sha256(scripted.encode()).hexdigest()
             return FakeResponse(200, json_data={"data": {"repository": {"defaultBranchRef": {"target": {"oid": oid}}}}})
+        if "{ __typename oid }" in query:
+            return self._default_branch_blob_shas(variables)
+        if "isBinary" in query:
+            return self._default_branch_blob_text(
+                f"{variables.get('owner', '')}/{variables.get('name', '')}", variables
+            )
         if "object(expression:" in query:
             return self._ownership_blobs(f"{variables.get('owner', '')}/{variables.get('name', '')}", query, variables)
         if "reviewThreads" in query:
@@ -404,6 +427,8 @@ class GitHubRecorder:
                 }
             }
             return FakeResponse(200, json_data=data)
+        if self.team_lookup_refused:
+            return FakeResponse(200, json_data={"errors": [{"message": "Resource not accessible by integration"}]})
         login = str(variables.get("login") or "")
         slugs = self.teams_by_login.get(login, [])
         teams_data = {"data": {"organization": {"teams": {"nodes": [{"slug": s} for s in slugs]}}}}
@@ -412,6 +437,26 @@ class GitHubRecorder:
     def _is_directory(self, repo: str, path: str) -> bool:
         scripted = [*self.policy_files, *(file for owner, file in self.repo_files if owner == repo)]
         return any(file.startswith(f"{path}/") for file in scripted)
+
+    def _default_branch_blob_shas(self, variables: dict) -> FakeResponse:
+        """The blob sha lookups of the attestation pins. Each variable holds a ``HEAD:<path>`` expression."""
+        field: dict[str, Any] = {}
+        for name, expression in variables.items():
+            if name in ("owner", "name"):
+                continue
+            sha = self.default_branch_blob_shas.get(str(expression).split(":", 1)[1])
+            field[name] = None if sha is None else {"__typename": "Blob", "oid": sha}
+        return FakeResponse(200, json_data={"data": {"repository": field}})
+
+    def _default_branch_blob_text(self, repo: str, variables: dict) -> FakeResponse:
+        """The single blob read of an issuer manifest, served from the same files the contents API
+        answers with, except that a symlink reads as its link text."""
+        path = str(variables.get("expression") or "").split(":", 1)[1]
+        content = self.repo_files.get((repo, path), self.policy_files.get(path))
+        if (repo, path) in self.repo_symlinks:
+            content = self.repo_symlinks[(repo, path)]
+        blob = None if content is None else {"text": content, "isBinary": False, "isTruncated": False}
+        return FakeResponse(200, json_data={"data": {"repository": {"object": blob}}})
 
     def _ownership_blobs(self, repo: str, query: str, variables: dict) -> FakeResponse:
         """The aliased blob lookups the shared ownership reader sends, served from the same files the
@@ -448,7 +493,16 @@ class GitHubRecorder:
 
     def _record_write(self, kind: str, repo: str, number: int, body: dict | None) -> FakeResponse:
         new_id = self._alloc_id()
-        self.github_writes.append({"kind": kind, "repo": repo, "number": number, "body": body or {}, "id": new_id})
+        self.github_writes.append(
+            {
+                "kind": kind,
+                "repo": repo,
+                "number": number,
+                "body": body or {},
+                "id": new_id,
+                "token": self._request_token,
+            }
+        )
         return FakeResponse(201 if kind != "issue_comment_edit" else 200, json_data={"id": new_id})
 
     def _add_reaction(self, repo: str, number: int, body: dict | None) -> FakeResponse:
@@ -547,32 +601,60 @@ def noop_raise_if_github_rate_limited(*args: Any, **kwargs: Any) -> None:
 
 
 class FakeSlackClient:
-    """Records ``chat_postMessage`` calls; returns a Slack-shaped ``{"ok", "ts"}``.
+    """Records ``chat_postMessage`` and ``chat_update`` calls and answers in Slack's shape.
 
-    A channel in ``needs_join`` rejects the post with ``not_in_channel`` until ``conversations_join``
-    lands, which is what Slack does for a public channel the app was never invited to.
+    Each post gets its own ts, the first one ``1234.5678``. A channel in ``needs_join`` rejects the post with
+    ``not_in_channel`` until ``conversations_join`` lands, which is what Slack does for a public channel the
+    app was never invited to.
     """
 
     def __init__(
-        self, posted: list[dict[str, Any]], needs_join: set[str], joined: list[str], fail_thread_replies: bool
+        self,
+        posted: list[dict[str, Any]],
+        updated: list[dict[str, Any]],
+        needs_join: set[str],
+        joined: list[str],
+        fail_thread_replies: bool,
+        fail_permalinks: bool = False,
     ) -> None:
         self._posted = posted
+        self._updated = updated
         self._needs_join = needs_join
         self._joined = joined
         self._fail_thread_replies = fail_thread_replies
+        self._fail_permalinks = fail_permalinks
 
     def chat_postMessage(self, *, channel: str, blocks: list[dict], text: str, **kwargs: Any) -> dict[str, Any]:
         if channel in self._needs_join and channel not in self._joined:
             raise SlackApiError("not_in_channel", {"ok": False, "error": "not_in_channel"})
         thread_ts = kwargs.get("thread_ts")
-        self._posted.append({"channel": channel, "blocks": blocks, "text": text, "thread_ts": thread_ts})
+        ts = f"1234.{5678 + len(self._posted)}"
+        self._posted.append({"channel": channel, "blocks": blocks, "text": text, "thread_ts": thread_ts, "ts": ts})
         if thread_ts and self._fail_thread_replies:
             raise SlackApiError("msg_too_long", {"ok": False, "error": "msg_too_long"})
-        return {"ok": True, "ts": "1234.5678"}
+        return {"ok": True, "ts": ts}
+
+    def chat_update(self, *, channel: str, ts: str, blocks: list[dict], text: str, **kwargs: Any) -> dict[str, Any]:
+        if not any(post["channel"] == channel and post["ts"] == ts for post in self._posted):
+            raise SlackApiError("message_not_found", {"ok": False, "error": "message_not_found"})
+        self._updated.append({"channel": channel, "ts": ts, "blocks": blocks, "text": text})
+        return {"ok": True, "ts": ts}
+
+    def chat_getPermalink(self, *, channel: str, message_ts: str) -> dict[str, Any]:
+        if self._fail_permalinks:
+            raise SlackApiError("ratelimited", {"ok": False, "error": "ratelimited"})
+        if not any(post["channel"] == channel and post["ts"] == message_ts for post in self._posted):
+            raise SlackApiError("message_not_found", {"ok": False, "error": "message_not_found"})
+        return {"ok": True, "permalink": slack_permalink(channel, message_ts)}
 
     def conversations_join(self, *, channel: str) -> dict[str, Any]:
         self._joined.append(channel)
         return {"ok": True}
+
+
+def slack_permalink(channel: str, ts: str) -> str:
+    """The link the fake Slack gives for a posted message, on a workspace domain like Slack's own."""
+    return f"https://example.slack.com/archives/{channel}/p{ts.replace('.', '')}"
 
 
 class FakeSlackIntegration:
@@ -584,6 +666,7 @@ class FakeSlackIntegration:
     """
 
     posted_messages: list[dict[str, Any]] = []
+    updated_messages: list[dict[str, Any]] = []
     workspace_channels: list[dict[str, str]] = []
     # Channels the app has not been invited to, and the ones it joined by itself during the run.
     channels_needing_join: set[str] = set()
@@ -591,6 +674,8 @@ class FakeSlackIntegration:
     # Makes the threaded reply fail while the lead still succeeds, which is the only Slack failure
     # the digest is expected to swallow.
     fail_thread_replies: bool = False
+    # Makes every permalink lookup fail, as Slack does when it rate limits the call.
+    fail_permalinks: bool = False
 
     def __init__(self, integration: Any, *, source: str = "integration") -> None:
         self.integration = integration
@@ -599,9 +684,11 @@ class FakeSlackIntegration:
     def client(self) -> FakeSlackClient:
         return FakeSlackClient(
             FakeSlackIntegration.posted_messages,
+            FakeSlackIntegration.updated_messages,
             FakeSlackIntegration.channels_needing_join,
             FakeSlackIntegration.joined_channels,
             FakeSlackIntegration.fail_thread_replies,
+            FakeSlackIntegration.fail_permalinks,
         )
 
     def list_channels(self, should_include_private_channels: bool = False, authed_user: str = "") -> list[dict]:
@@ -618,10 +705,12 @@ class FakeSlackIntegration:
         cls, channels: list[dict[str, str]], *, needs_join: Iterable[str] = (), fail_thread_replies: bool = False
     ) -> None:
         cls.posted_messages = []
+        cls.updated_messages = []
         cls.workspace_channels = list(channels)
         cls.channels_needing_join = set(needs_join)
         cls.joined_channels = []
         cls.fail_thread_replies = fail_thread_replies
+        cls.fail_permalinks = False
 
 
 # --- Sandbox fake at the ``get_sandbox_class_for_backend`` seam ---

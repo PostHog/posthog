@@ -2,7 +2,12 @@ import { DateTime } from 'luxon'
 
 import { HogFlowAction } from '~/cdp/schema/hogflow'
 
-import { CyclotronJobInvocationHogFlow, CyclotronJobInvocationResult, SandboxEmailOutcome } from '../../../types'
+import {
+    CyclotronJobInvocationHogFlow,
+    CyclotronJobInvocationResult,
+    SandboxEmailOutcome,
+    isEmailQueue,
+} from '../../../types'
 import { EmailStatusService, isTransactionalEmailRun, messageCreatedAtOf } from '../../messaging/email-status.service'
 import { actionIdForLogging, findContinueAction } from '../hogflow-utils'
 import { ActionHandler, ActionHandlerOptions, ActionHandlerResult } from './action.interface'
@@ -148,7 +153,8 @@ export class SandboxEmailActionHandler implements ActionHandler {
             teamId: invocation.teamId,
             messageId: invocation.id,
             status: outcome === 'accepted' ? 'sent' : 'failed',
-            reason,
+            // The PostHog test sender adds no open or click tracking, so every email it sends is untracked.
+            reason: outcome === 'accepted' ? 'untracked' : reason,
             messageCreatedAt: messageCreatedAtOf(invocation.state.event),
         })
     }
@@ -175,6 +181,6 @@ function toStepResult({ outcome, reason, messageId }: SandboxEmailOutcome): Sand
 }
 
 function priorityOutsideEmailQueue(invocation: CyclotronJobInvocationHogFlow): number {
-    const originPriority = invocation.queue === 'email' ? invocation.queueMetadata?.originPriority : undefined
+    const originPriority = isEmailQueue(invocation.queue) ? invocation.queueMetadata?.originPriority : undefined
     return typeof originPriority === 'number' ? originPriority : invocation.queuePriority
 }

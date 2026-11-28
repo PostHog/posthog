@@ -32,8 +32,6 @@ function makeProtoPerson(id: number, uuid: string, teamId: number) {
         uuid,
         teamId: BigInt(teamId),
         properties: jsonBytes({ name: `person-${id}` }),
-        propertiesLastUpdatedAt: jsonBytes({}),
-        propertiesLastOperation: jsonBytes({}),
         createdAt: BigInt(Date.now()),
         version: 1n,
         isIdentified: true,

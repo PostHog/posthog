@@ -70,6 +70,12 @@ ENDPOINTS: dict[str, Endpoint] = {
         primary_keys=("resource_arn",),
         description="Idle resources across resource types, with utilization metrics and estimated savings.",
     ),
+    "license_recommendations": Endpoint(
+        operation="GetLicenseRecommendations",
+        result_key="licenseRecommendations",
+        primary_keys=("resource_arn",),
+        description="License recommendations for EC2 instances that run licensed software, with estimated savings.",
+    ),
     "ec2_recommendation_projected_metrics": Endpoint(
         operation="GetEC2RecommendationProjectedMetrics",
         result_key="recommendedOptionProjectedMetrics",
@@ -86,6 +92,15 @@ ENDPOINTS: dict[str, Endpoint] = {
         description="Daily peak CPU and memory utilization bounds projected for each recommended ECS service size.",
         fanout=ProjectedMetricsFanout(
             parent="ecs_service_recommendations", arn_field="serviceArn", lookback_field="lookbackPeriodInDays"
+        ),
+    ),
+    "rds_database_recommendation_projected_metrics": Endpoint(
+        operation="GetRDSDatabaseRecommendationProjectedMetrics",
+        result_key="recommendedOptionProjectedMetrics",
+        primary_keys=("resource_arn", "rank", "metric_name", "timestamp"),
+        description="Daily peak utilization projected for each recommended Aurora or RDS DB instance class.",
+        fanout=ProjectedMetricsFanout(
+            parent="rds_database_recommendations", arn_field="resourceArn", lookback_field="lookbackPeriodInDays"
         ),
     ),
     "recommendation_summaries": Endpoint(
@@ -109,3 +124,33 @@ ERROR_MESSAGES = {
     "OptInRequiredException": "Enable AWS Compute Optimizer for this account before you sync recommendations.",
     "SubscriptionRequiredException": "Enable AWS Compute Optimizer for this account before you sync recommendations.",
 }
+
+
+# The IAM actions this source calls. A role session can use only these.
+# Compute Optimizer also checks that the caller can read each resource behind a recommendation.
+AWS_SESSION_ACTIONS = (
+    "autoscaling:DescribeAutoScalingGroups",
+    "autoscaling:DescribeAutoScalingInstances",
+    "cloudwatch:GetMetricData",
+    "compute-optimizer:GetAutoScalingGroupRecommendations",
+    "compute-optimizer:GetEBSVolumeRecommendations",
+    "compute-optimizer:GetEC2InstanceRecommendations",
+    "compute-optimizer:GetEC2RecommendationProjectedMetrics",
+    "compute-optimizer:GetECSServiceRecommendationProjectedMetrics",
+    "compute-optimizer:GetECSServiceRecommendations",
+    "compute-optimizer:GetEnrollmentStatus",
+    "compute-optimizer:GetIdleRecommendations",
+    "compute-optimizer:GetLambdaFunctionRecommendations",
+    "compute-optimizer:GetLicenseRecommendations",
+    "compute-optimizer:GetRDSDatabaseRecommendationProjectedMetrics",
+    "compute-optimizer:GetRDSDatabaseRecommendations",
+    "compute-optimizer:GetRecommendationSummaries",
+    "ec2:DescribeInstances",
+    "ec2:DescribeVolumes",
+    "ecs:ListClusters",
+    "ecs:ListServices",
+    "lambda:ListFunctions",
+    "lambda:ListProvisionedConcurrencyConfigs",
+    "rds:DescribeDBClusters",
+    "rds:DescribeDBInstances",
+)

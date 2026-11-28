@@ -4,7 +4,7 @@ use std::{
 };
 
 use async_trait::async_trait;
-use chrono::Utc;
+use chrono::{DateTime, Utc};
 
 use common_types::error_tracking::RawFrameId;
 use moka::{
@@ -12,7 +12,7 @@ use moka::{
     Expiry,
 };
 
-use sqlx::PgPool;
+use sqlx::{pool::PoolConnection, Connection, PgPool, Postgres};
 
 use crate::{
     core::config::ResolverConfig,
@@ -21,7 +21,7 @@ use crate::{
     frames::{releases::ReleaseRecord, Frame, RawFrame},
     langs::native::DebugImage,
     metric_consts::{
-        FRAME_CACHE_HITS, FRAME_CACHE_MISSES, FRAME_DB_HITS, FRAME_DB_MISSES,
+        FRAME_CACHE_HITS, FRAME_CACHE_MISSES, FRAME_DB_HITS, FRAME_DB_MISSES, FRAME_SAVE_TIME,
         RELEASE_ID_CACHE_HITS, RELEASE_ID_CACHE_MISSES, SUSPICIOUS_FRAMES_DETECTED,
     },
     symbolication::resolve::Resolve,
@@ -29,7 +29,10 @@ use crate::{
         classify_frame_snapshot, unchanged_snapshot_needs_refresh, ErrorTrackingStackFrame,
         FrameResultTtlPolicy,
     },
-    symbolication::symbol::SymbolResolver,
+    symbolication::symbol::{
+        miss_breaker::{FrameMissBreaker, FrameMissBreakerConfig},
+        SymbolResolver,
+    },
     symbolication::symbol_store::{
         chunk_id::OrChunkId,
         dart_minified_names::lookup_minified_type,
@@ -42,6 +45,33 @@ use crate::{
 use uuid::Uuid;
 
 const FRAME_EXPIRY_FALLBACK_SECONDS: u64 = 300;
+
+// `SET LOCAL` ends with the transaction, so it never reaches the next client of the pooled or
+// pgbouncer connection. One simple query carries both statements in one round trip.
+const BEGIN_ASYNC_COMMIT: &str = "BEGIN; SET LOCAL synchronous_commit = off";
+
+// sqlx counts a transaction as open only after BEGIN returns, so a save dropped mid-BEGIN (the
+// item deadline cancels it) queues no rollback. The pool would then hand out a connection that
+// is still inside this transaction. Closing the connection unless the save finished prevents it.
+struct CloseUnlessFinished(Option<PoolConnection<Postgres>>);
+
+impl CloseUnlessFinished {
+    fn conn(&mut self) -> &mut PoolConnection<Postgres> {
+        self.0.as_mut().expect("connection is held until finish")
+    }
+
+    fn finish(mut self) {
+        self.0.take();
+    }
+}
+
+impl Drop for CloseUnlessFinished {
+    fn drop(&mut self) {
+        if let Some(conn) = self.0.as_mut() {
+            conn.close_on_drop();
+        }
+    }
+}
 
 #[derive(Clone)]
 pub struct LocalSymbolResolver {
@@ -58,6 +88,8 @@ pub struct LocalSymbolResolver {
     // Lines of pre/post source context to attach per resolved frame.
     context_lines: usize,
     skip_unchanged_rewrites: bool,
+    frame_save_async_commit: bool,
+    miss_breaker: FrameMissBreaker,
 }
 
 // Each entry carries the per-frame policy that judged its Postgres freshness, so the
@@ -132,6 +164,15 @@ impl LocalSymbolResolver {
             base_ttl_policy,
             context_lines: config.context_line_count,
             skip_unchanged_rewrites: config.skip_unchanged_frame_rewrites,
+            frame_save_async_commit: config.frame_save_async_commit,
+            miss_breaker: FrameMissBreaker::new(FrameMissBreakerConfig {
+                mode: config.frame_miss_breaker_mode,
+                window: Duration::from_secs(config.frame_miss_breaker_window_seconds),
+                min_lookups: config.frame_miss_breaker_min_lookups,
+                miss_ratio: config.frame_miss_breaker_miss_ratio,
+                cooldown: Duration::from_secs(config.frame_miss_breaker_cooldown_seconds),
+                probe_lookups: config.frame_miss_breaker_probe_lookups,
+            }),
         }
     }
 
@@ -151,9 +192,12 @@ impl LocalSymbolResolver {
             .cache
             .try_get_with(raw_id.clone(), async {
                 cache_miss = true;
-                let records = self
-                    .resolve_impl(frame, raw_id.clone(), debug_images, ttl_policy)
-                    .await?;
+                let records = if self.miss_breaker.admits(team_id, Instant::now()) {
+                    self.resolve_impl(frame, raw_id.clone(), debug_images, ttl_policy)
+                        .await?
+                } else {
+                    self.resolve_unsaved(frame, &raw_id, debug_images).await?
+                };
                 Ok::<_, UnhandledError>(CachedFrames {
                     records,
                     ttl_policy,
@@ -179,7 +223,16 @@ impl LocalSymbolResolver {
         ttl_policy: FrameResultTtlPolicy,
     ) -> Result<Vec<ErrorTrackingStackFrame>, UnhandledError> {
         let stored =
-            ErrorTrackingStackFrame::load_snapshot(&self.pool, &raw_id, ttl_policy).await?;
+            match ErrorTrackingStackFrame::load_snapshot(&self.pool, &raw_id, ttl_policy).await {
+                Ok(stored) => stored,
+                Err(error) => {
+                    self.miss_breaker
+                        .record(raw_id.team_id, true, Instant::now());
+                    return Err(error);
+                }
+            };
+        self.miss_breaker
+            .record(raw_id.team_id, !stored.fresh, Instant::now());
         if stored.fresh {
             metrics::counter!(FRAME_DB_HITS).increment(1);
             return Ok(stored.records);
@@ -208,17 +261,7 @@ impl LocalSymbolResolver {
             None
         };
 
-        let mut records = Vec::with_capacity(resolved.len());
-        for r_frame in &resolved {
-            let record = ErrorTrackingStackFrame::new(
-                r_frame.frame_id.clone(),
-                set.as_ref().map(|s| s.id),
-                r_frame.clone(),
-                r_frame.resolved,
-                r_frame.context.clone(),
-            );
-            records.push(record);
-        }
+        let records = frame_records(&resolved, set.as_ref().map(|s| s.id));
 
         let write_outcome = classify_frame_snapshot(&stored.records, &records);
         let persisted = self.skip_unchanged_rewrites
@@ -236,7 +279,47 @@ impl LocalSymbolResolver {
             let refresh_if_older_than = self
                 .skip_unchanged_rewrites
                 .then(|| Utc::now() - ttl_policy.refresh_age(&raw_id, &stored.records));
-            for record in &records {
+            self.save_records(&records, write_outcome, refresh_if_older_than)
+                .await?;
+        }
+
+        count_suspicious(&records);
+        Ok(records)
+    }
+
+    // Skips the stored frame read, the symbol set lookup and the save. The UI then shows
+    // these frames without source context.
+    async fn resolve_unsaved(
+        &self,
+        frame: &RawFrame,
+        raw_id: &RawFrameId,
+        debug_images: &[DebugImage],
+    ) -> Result<Vec<ErrorTrackingStackFrame>, UnhandledError> {
+        let resolved = frame
+            .resolve(
+                raw_id.team_id,
+                &self.catalog,
+                debug_images,
+                self.context_lines,
+            )
+            .await?;
+        assert!(!resolved.is_empty());
+
+        let records = frame_records(&resolved, None);
+        count_suspicious(&records);
+        Ok(records)
+    }
+
+    async fn save_records(
+        &self,
+        records: &[ErrorTrackingStackFrame],
+        write_outcome: FrameWriteOutcome,
+        refresh_if_older_than: Option<DateTime<Utc>>,
+    ) -> Result<(), UnhandledError> {
+        if !self.frame_save_async_commit {
+            let _save_time = common_metrics::timing_guard_high_precision(FRAME_SAVE_TIME, &[])
+                .label("commit", "sync");
+            for record in records {
                 let rows_affected = match record
                     .save_with_refresh_guard(&self.pool, refresh_if_older_than)
                     .await
@@ -249,15 +332,46 @@ impl LocalSymbolResolver {
                 };
                 record_frame_write(write_outcome, rows_affected);
             }
+            return Ok(());
         }
 
-        for record in &records {
-            if record.contents.suspicious {
-                metrics::counter!(SUSPICIOUS_FRAMES_DETECTED, "frame_type" => "resolved")
-                    .increment(1);
+        let _save_time = common_metrics::timing_guard_high_precision(FRAME_SAVE_TIME, &[])
+            .label("commit", "async");
+        match self
+            .save_records_async_commit(records, refresh_if_older_than)
+            .await
+        {
+            Ok(rows_affected) => {
+                for rows in rows_affected {
+                    record_frame_write(write_outcome, rows);
+                }
+                Ok(())
+            }
+            Err(error) => {
+                record_frame_write(FrameWriteOutcome::Error, 0);
+                Err(error)
             }
         }
-        Ok(records)
+    }
+
+    async fn save_records_async_commit(
+        &self,
+        records: &[ErrorTrackingStackFrame],
+        refresh_if_older_than: Option<DateTime<Utc>>,
+    ) -> Result<Vec<u64>, UnhandledError> {
+        let mut conn = CloseUnlessFinished(Some(self.pool.acquire().await?));
+        let mut txn = conn.conn().begin_with(BEGIN_ASYNC_COMMIT).await?;
+        let mut rows_affected = Vec::with_capacity(records.len());
+        for record in records {
+            rows_affected.push(
+                record
+                    .save_with_refresh_guard(&mut *txn, refresh_if_older_than)
+                    .await?,
+            );
+        }
+        txn.commit().await?;
+        conn.finish();
+        Ok(rows_affected)
     }
 
     // Persists an unchanged snapshot without rewriting the rows: skips outright while
@@ -273,8 +387,7 @@ impl LocalSymbolResolver {
         part_count: u64,
         ttl_policy: FrameResultTtlPolicy,
     ) -> Result<bool, UnhandledError> {
-        // The per-part upsert loop is not transactional, so a racing writer can
-        // leave a multi-part snapshot half written. A timestamp-only refresh
+        // A racing writer can leave a multi-part snapshot half written. A timestamp-only refresh
         // spanning every part would mark that mixed snapshot fresh for a full
         // TTL. A single-part save is atomic, so only single-part snapshots take
         // the timestamp-only path.
@@ -302,6 +415,29 @@ impl LocalSymbolResolver {
 
         record_frame_write(FrameWriteOutcome::Refreshed, rows_affected);
         Ok(true)
+    }
+}
+
+fn frame_records(resolved: &[Frame], symbol_set_id: Option<Uuid>) -> Vec<ErrorTrackingStackFrame> {
+    resolved
+        .iter()
+        .map(|r_frame| {
+            ErrorTrackingStackFrame::new(
+                r_frame.frame_id.clone(),
+                symbol_set_id,
+                r_frame.clone(),
+                r_frame.resolved,
+                r_frame.context.clone(),
+            )
+        })
+        .collect()
+}
+
+fn count_suspicious(records: &[ErrorTrackingStackFrame]) {
+    for record in records {
+        if record.contents.suspicious {
+            metrics::counter!(SUSPICIOUS_FRAMES_DETECTED, "frame_type" => "resolved").increment(1);
+        }
     }
 }
 
@@ -399,17 +535,23 @@ mod test {
     use httpmock::MockServer;
     use mockall::predicate;
     use posthog_symbol_data::{write_symbol_data, SourceAndMap};
-    use sqlx::PgPool;
+    use sqlx::{
+        postgres::{PgConnectOptions, PgPoolOptions},
+        PgPool,
+    };
     use symbolic::sourcemapcache::SourceMapCacheWriter;
     use uuid::Uuid;
 
+    use super::{CloseUnlessFinished, BEGIN_ASYNC_COMMIT};
     use crate::{
         core::config::ResolverConfig,
         core::types::Stacktrace,
         frames::RawFrame,
         langs::{hermes::RawHermesFrame, CommonFrameMetadata},
         symbolication::symbol::records::ErrorTrackingStackFrame,
-        symbolication::symbol::{local::LocalSymbolResolver, SymbolResolver},
+        symbolication::symbol::{
+            local::LocalSymbolResolver, miss_breaker::FrameMissBreakerMode, SymbolResolver,
+        },
         symbolication::symbol_store::{
             apple::AppleProvider,
             chunk_id::ChunkIdFetcher,
@@ -705,6 +847,115 @@ mod test {
         assert!(rows[0].1 > created_1);
     }
 
+    // Records the synchronous_commit value each frame and symbol set write runs under.
+    async fn record_synchronous_commit_per_write(pool: &PgPool) {
+        sqlx::raw_sql(
+            r#"
+            CREATE TABLE synchronous_commit_seen (table_name text, setting text);
+            CREATE FUNCTION record_synchronous_commit() RETURNS trigger AS $$
+            BEGIN
+                INSERT INTO synchronous_commit_seen
+                VALUES (TG_TABLE_NAME, current_setting('synchronous_commit'));
+                RETURN NEW;
+            END
+            $$ LANGUAGE plpgsql;
+            CREATE TRIGGER record_frame_writes BEFORE INSERT OR UPDATE
+                ON posthog_errortrackingstackframe
+                FOR EACH ROW EXECUTE FUNCTION record_synchronous_commit();
+            CREATE TRIGGER record_symbol_set_writes BEFORE INSERT OR UPDATE
+                ON posthog_errortrackingsymbolset
+                FOR EACH ROW EXECUTE FUNCTION record_synchronous_commit();
+            "#,
+        )
+        .execute(pool)
+        .await
+        .unwrap();
+    }
+
+    #[sqlx::test(migrations = "./tests/test_migrations")]
+    pub async fn frame_save_async_commit_applies_only_to_the_frame_save_transaction(
+        pool_options: PgPoolOptions,
+        connect_options: PgConnectOptions,
+    ) {
+        // One connection, so a setting that leaks past commit shows on the next query.
+        let pool = pool_options
+            .max_connections(1)
+            .connect_with(connect_options.options([("synchronous_commit", "on")]))
+            .await
+            .unwrap();
+        record_synchronous_commit_per_write(&pool).await;
+        let (mut config, catalog, server) =
+            setup_test_context(pool.clone(), |c, cl| expect_puts_and_gets(c, cl, 2, 0)).await;
+        let catalog = Arc::new(catalog);
+        let frame = get_test_frame(&server);
+
+        for (team_id, async_commit, frame_write_setting) in [(1, true, "off"), (2, false, "on")] {
+            config.frame_save_async_commit = async_commit;
+            let resolver = LocalSymbolResolver::new(&config, catalog.clone(), pool.clone());
+            resolver
+                .resolve_raw_frame(team_id, &frame, &[])
+                .await
+                .unwrap();
+
+            let seen: Vec<(String, String)> = sqlx::query_as(
+                "SELECT DISTINCT table_name, setting FROM synchronous_commit_seen ORDER BY table_name",
+            )
+            .fetch_all(&pool)
+            .await
+            .unwrap();
+            assert_eq!(
+                seen,
+                vec![
+                    (
+                        "posthog_errortrackingstackframe".to_string(),
+                        frame_write_setting.to_string()
+                    ),
+                    (
+                        "posthog_errortrackingsymbolset".to_string(),
+                        "on".to_string()
+                    ),
+                ],
+                "async_commit={async_commit}"
+            );
+
+            let session_setting: String = sqlx::query_scalar("SHOW synchronous_commit")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+            assert_eq!(session_setting, "on", "async_commit={async_commit}");
+
+            sqlx::query("TRUNCATE synchronous_commit_seen")
+                .execute(&pool)
+                .await
+                .unwrap();
+        }
+    }
+
+    #[sqlx::test(migrations = "./tests/test_migrations")]
+    pub async fn abandoned_frame_save_does_not_return_its_transaction_to_the_pool(
+        pool_options: PgPoolOptions,
+        connect_options: PgConnectOptions,
+    ) {
+        let pool = pool_options
+            .max_connections(1)
+            .connect_with(connect_options.options([("synchronous_commit", "on")]))
+            .await
+            .unwrap();
+        let mut conn = CloseUnlessFinished(Some(pool.acquire().await.unwrap()));
+        // The server state a save leaves when it is cancelled after BEGIN reached Postgres.
+        sqlx::raw_sql(BEGIN_ASYNC_COMMIT)
+            .execute(&mut **conn.conn())
+            .await
+            .unwrap();
+        drop(conn);
+
+        let next_user_setting: String = sqlx::query_scalar("SHOW synchronous_commit")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(next_user_setting, "on");
+    }
+
     #[sqlx::test(migrations = "./tests/test_migrations")]
     pub async fn hermes_frame_without_chunk_id_keeps_its_failure_for_the_resolved_ttl(
         pool: PgPool,
@@ -751,6 +1002,52 @@ mod test {
                 "{chunk_id:?}"
             );
         }
+    }
+
+    #[sqlx::test(migrations = "./tests/test_migrations")]
+    pub async fn open_frame_miss_breaker_stops_saving_only_that_teams_frames(pool: PgPool) {
+        let (mut config, catalog, _server) = setup_test_context(pool.clone(), |_, cl| cl).await;
+        config.frame_miss_breaker_mode = FrameMissBreakerMode::Enforce;
+        config.frame_miss_breaker_min_lookups = 3;
+        let resolver = LocalSymbolResolver::new(&config, Arc::new(catalog), pool.clone());
+        // A Hermes frame without a chunk id needs no S3 or HTTP mock.
+        let frame = |column| {
+            RawFrame::Hermes(RawHermesFrame {
+                column: Some(column),
+                source: "index.android.bundle".to_string(),
+                fn_name: "anonymous".to_string(),
+                chunk_id: None,
+                meta: CommonFrameMetadata::default(),
+            })
+        };
+        let (flood_team, normal_team) = (1, 2);
+
+        for column in 0..10 {
+            // A repeated frame between the new ones hits the in-memory cache, which must not
+            // hide the flood.
+            resolver
+                .resolve_raw_frame(flood_team, &frame(0), &[])
+                .await
+                .unwrap();
+            let resolved = resolver
+                .resolve_raw_frame(flood_team, &frame(column), &[])
+                .await
+                .unwrap();
+            assert_eq!(resolved.len(), 1, "column {column}");
+        }
+        resolver
+            .resolve_raw_frame(normal_team, &frame(0), &[])
+            .await
+            .unwrap();
+
+        // The third frame opens the breaker after its own save.
+        let saved: Vec<(i32, i64)> = sqlx::query_as(
+            "SELECT team_id, COUNT(*) FROM posthog_errortrackingstackframe GROUP BY team_id ORDER BY team_id",
+        )
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+        assert_eq!(saved, vec![(flood_team, 3), (normal_team, 1)]);
     }
 
     async fn insert_release(pool: &PgPool, team_id: i32, days_ago: i32) -> Uuid {

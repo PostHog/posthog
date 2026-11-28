@@ -72,11 +72,9 @@ class SourceRegistry:
         load_source(source_type)
 
     @classmethod
-    def get_source(cls, source_type: SourceKey) -> "AnySource":
-        """Get a source instance by type"""
-
+    def _load_for(cls, source_type: SourceKey) -> SourceKey:
         # Callers may hand us the raw string value (e.g. an `oauth_accounts` query param). The
-        # str-mixin enum compares equal to its value, so the `in cls._sources` checks below still
+        # str-mixin enum compares equal to its value, so the `in cls._sources` checks still
         # work, but the lazy single-module load reads `source_type.name`, which a plain str lacks.
         # Coerce to a real enum member first so both the lazy and full-load paths resolve, and so
         # an unknown value surfaces as ValueError rather than AttributeError.
@@ -87,6 +85,13 @@ class SourceRegistry:
         # which the single-module load already tried. An unknown string must not start the full load.
         if source_type not in cls._sources and isinstance(source_type, ExternalDataSourceType):
             cls._ensure_loaded()
+        return source_type
+
+    @classmethod
+    def get_source(cls, source_type: SourceKey) -> "AnySource":
+        """Get a source instance by type"""
+
+        source_type = cls._load_for(source_type)
         if source_type not in cls._sources:
             raise ValueError(f"Unknown source type: {source_type}")
         return cls._sources[source_type]
@@ -102,8 +107,7 @@ class SourceRegistry:
     def is_registered(cls, source_type: SourceKey) -> bool:
         """Check if a source type is registered"""
 
-        cls._ensure_loaded()
-        return source_type in cls._sources
+        return cls._load_for(source_type) in cls._sources
 
     @classmethod
     def get_registered_types(cls) -> list[SourceKey]:

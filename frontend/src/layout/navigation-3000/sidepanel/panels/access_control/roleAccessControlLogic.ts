@@ -6,7 +6,7 @@ import { actionToUrl, router, urlToAction } from 'kea-router'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
-import api from 'lib/api'
+import api, { ApiConfig } from 'lib/api'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -14,6 +14,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import { membersLogic } from '~/models/membersLogic'
 import { AccessControlResponseType, RoleType } from '~/types'
+import type { OrganizationType } from '~/types'
 
 import type { AvailableFeature, OrganizationMemberType } from '../../../../../types'
 
@@ -21,7 +22,7 @@ import type { AvailableFeature, OrganizationMemberType } from '../../../../../ty
 export interface roleAccessControlLogicValues {
     sortedMembers: OrganizationMemberType[] | null // membersLogic
     currentProjectId: number | string // teamLogic
-    hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean // userLogic
+    hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number) => boolean // userLogic
     canEditRoles: boolean | null
     editingRole: {
         name: string
@@ -62,6 +63,13 @@ export interface roleAccessControlLogicActions {
         value: true
     } // membersLogic
     loadCurrentOrganization: () => any // organizationLogic
+    loadCurrentOrganizationSuccess: (
+        currentOrganization: OrganizationType | null,
+        payload?: any
+    ) => {
+        currentOrganization: OrganizationType | null
+        payload?: any
+    } // organizationLogic
     addMembersToRole: (
         role: RoleType,
         members: string[]
@@ -207,6 +215,15 @@ export interface roleAccessControlLogicActions {
             name: string
         }>
     }
+    setMemberRoles: (
+        userUuid: string,
+        roleIds: string[],
+        newRoleNames: string[]
+    ) => {
+        newRoleNames: string[]
+        roleIds: string[]
+        userUuid: string
+    }
     submitEditingRole: () => {
         value: boolean
     }
@@ -251,7 +268,12 @@ export const roleAccessControlLogic = kea<roleAccessControlLogicType>([
     path(['scenes', 'accessControl', 'roleAccessControlLogic']),
     connect(() => ({
         values: [membersLogic, ['sortedMembers'], teamLogic, ['currentProjectId'], userLogic, ['hasAvailableFeature']],
-        actions: [membersLogic, ['ensureAllMembersLoaded'], organizationLogic, ['loadCurrentOrganization']],
+        actions: [
+            membersLogic,
+            ['ensureAllMembersLoaded'],
+            organizationLogic,
+            ['loadCurrentOrganization', 'loadCurrentOrganizationSuccess'],
+        ],
     })),
     actions({
         selectRoleId: (roleId: RoleType['id'] | null) => ({ roleId }),
@@ -259,6 +281,12 @@ export const roleAccessControlLogic = kea<roleAccessControlLogicType>([
         removeMemberFromRole: (role: RoleType, roleMemberId: string) => ({ role, roleMemberId }),
         addMembersToRole: (role: RoleType, members: string[]) => ({ role, members }),
         createRoleWithMember: (name: string, userUuid: string) => ({ name, userUuid }),
+        /** Makes the member's roles exactly `roleIds`, plus a new role for each of `newRoleNames`. */
+        setMemberRoles: (userUuid: string, roleIds: string[], newRoleNames: string[]) => ({
+            userUuid,
+            roleIds,
+            newRoleNames,
+        }),
         /** Fired whenever a member is added to or removed from a role, so other logics can refresh. */
         roleMembershipsChanged: true,
         setEditingRoleId: (roleId: string | null) => ({ roleId }),
@@ -277,11 +305,16 @@ export const roleAccessControlLogic = kea<roleAccessControlLogicType>([
             },
         ],
     }),
-    loaders(({ values }) => ({
+    loaders(({ values, cache }) => ({
         roles: [
             [] as RoleType[],
             {
                 loadRoles: async () => {
+                    if (!ApiConfig.hasCurrentOrganizationId()) {
+                        // The loadCurrentOrganizationSuccess listener runs this load again when the ID is known.
+                        cache.rolesLoadSkipped = true
+                        return values.roles
+                    }
                     const response = await api.roles.list()
                     return response?.results || []
                 },
@@ -379,7 +412,28 @@ export const roleAccessControlLogic = kea<roleAccessControlLogicType>([
         ],
     }),
 
-    listeners(({ actions, values }) => ({
+    listeners(({ actions, values, cache }) => ({
+        loadCurrentOrganizationSuccess: () => {
+            if (cache.rolesLoadSkipped) {
+                cache.rolesLoadSkipped = false
+                actions.loadRoles()
+            }
+        },
+        setMemberRoles: ({ userUuid, roleIds, newRoleNames }) => {
+            const wanted = new Set(roleIds)
+            for (const role of values.sortedRoles) {
+                // `user_uuid` on role members is write-only in the API, so the readable id is `member.user.uuid`
+                const roleMember = role.members.find((member) => member.user.uuid === userUuid)
+                if (wanted.has(role.id) && !roleMember) {
+                    actions.addMembersToRole(role, [userUuid])
+                } else if (!wanted.has(role.id) && roleMember) {
+                    actions.removeMemberFromRole(role, roleMember.id)
+                }
+            }
+            for (const name of newRoleNames) {
+                actions.createRoleWithMember(name, userUuid)
+            }
+        },
         createRoleWithMember: async ({ name, userUuid }) => {
             try {
                 const role = await api.roles.create(name)

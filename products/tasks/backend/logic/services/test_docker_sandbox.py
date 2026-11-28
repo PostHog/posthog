@@ -319,7 +319,6 @@ class TestDockerSandboxUnit:
             name="test-sandbox",
             template=SandboxTemplate.DEFAULT_BASE,
             environment_variables={
-                "LLM_GATEWAY_URL": "http://localhost:13308",
                 "POSTHOG_API_URL": "http://localhost:8000",
                 "AI_GATEWAY_URL": "http://127.0.0.1:8080",
                 "POSTHOG_PROJECT_ID": "1",
@@ -333,7 +332,6 @@ class TestDockerSandboxUnit:
         docker_args = docker_run_call[0][0]
 
         env_args = " ".join(docker_args)
-        assert "LLM_GATEWAY_URL=http://host.docker.internal:13308" in env_args
         assert "POSTHOG_API_URL=http://host.docker.internal:8000" in env_args
         assert "AI_GATEWAY_URL=http://host.docker.internal:8080" in env_args
         assert "POSTHOG_PROJECT_ID=1" in env_args
@@ -531,7 +529,7 @@ class TestDockerSandboxUnit:
                 command = mock_execute.call_args[0][0]
 
         assert f"cd {shlex.quote(expected_parent)} &&" in command
-        assert command.endswith(f"{shlex.quote(expected_url)} {shlex.quote(expected_dir)}")
+        assert f"{shlex.quote(expected_url)} {shlex.quote(expected_dir)} &&" in command
 
     def test_clone_repository_branch_flag(self):
         sandbox = DockerSandbox.__new__(DockerSandbox)

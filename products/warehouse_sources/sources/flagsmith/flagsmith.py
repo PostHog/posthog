@@ -24,6 +24,7 @@ from products.warehouse_sources.sources.sdk import (
 )
 
 DEFAULT_BASE_URL = "https://api.flagsmith.com"
+API_PATH = "/api/v1"
 
 REQUEST_TIMEOUT_SECONDS = 60
 MAX_RETRY_ATTEMPTS = 5
@@ -77,6 +78,19 @@ _READ_CHUNK_BYTES = 1024 * 1024
 MAX_RESPONSE_SECONDS = 600
 # Bytes pulled from an error body for a diagnostic message — error bodies are never needed in full.
 _ERROR_SNIPPET_BYTES = 2048
+
+
+# Keys of the labels object on a usage row. Missing labels become "" so the key columns never hold null.
+USAGE_LABEL_KEYS = ("client_application_name", "client_application_version", "user_agent")
+
+
+def _flatten_labels(row: dict[str, Any]) -> None:
+    labels = row.get("labels")
+    if not isinstance(labels, dict):
+        labels = {}
+    for key in USAGE_LABEL_KEYS:
+        value = labels.get(key)
+        row[f"_{key}"] = "" if value is None else str(value)
 
 
 class FlagsmithRetryableError(Exception):
@@ -199,6 +213,9 @@ def normalize_base_url(base_url: str | None) -> str:
         raise ValueError(f"Invalid Flagsmith base URL: {base_url}")
     if parsed.query or parsed.fragment or parsed.params:
         raise ValueError(f"Invalid Flagsmith base URL: {base_url}")
+    # Self-hosted users often paste the API root, and _api_base would append the path again.
+    if parsed.path.lower().endswith(API_PATH):
+        host = host[: -len(API_PATH)].rstrip("/")
     return host
 
 
@@ -211,7 +228,7 @@ def scheme_of(base_url: str | None) -> str:
 
 
 def _api_base(base: str) -> str:
-    return f"{base}/api/v1"
+    return f"{base}{API_PATH}"
 
 
 def _headers(api_key: str) -> dict[str, str]:
@@ -427,6 +444,45 @@ def _uses_v2_versioning(environment: dict[str, Any]) -> bool:
     return bool(environment.get("use_v2_feature_versioning"))
 
 
+def _may_have_multivariate_options(feature: dict[str, Any]) -> bool:
+    # Feature rows embed their options, so a feature with an empty list needs no request. A row
+    # without the field (an older self-hosted version) is still queried.
+    return "multivariate_options" not in feature or bool(feature["multivariate_options"])
+
+
+def _fetch_project_feature_parents(
+    session: requests.Session,
+    base: str,
+    headers: dict[str, str],
+    logger: FilteringBoundLogger,
+    project_ids: list[str],
+    budget: _PageBudget,
+) -> list[FanoutParent]:
+    parents: list[FanoutParent] = []
+    for project_id in project_ids:
+        listing = _iter_pages(
+            session,
+            base,
+            _initial_url(base, f"/projects/{project_id}/features/", {"page_size": 100}),
+            headers,
+            logger,
+            budget,
+        )
+        feature_ids: list[str] = []
+        capped = _extend_capped(
+            feature_ids,
+            listing,
+            "id",
+            logger,
+            limit=MAX_FANOUT_PARENTS - len(parents),
+            predicate=_may_have_multivariate_options,
+        )
+        parents.extend(FanoutParent(project_id, feature_id) for feature_id in feature_ids)
+        if capped:
+            break
+    return parents
+
+
 def _fetch_environment_feature_parents(
     session: requests.Session,
     base: str,
@@ -546,6 +602,9 @@ def _fetch_parent_keys(
     if parent == "project":
         return [FanoutParent(project_id) for project_id in project_ids]
 
+    if parent == "project_feature":
+        return _fetch_project_feature_parents(session, base, headers, logger, project_ids, budget)
+
     if parent == "environment_feature":
         return _fetch_environment_feature_parents(session, base, headers, logger, project_ids, budget)
 
@@ -591,6 +650,7 @@ def _paginate_resource(
     child_field: str | None,
     extra_field: str | None,
     budget: _PageBudget,
+    flatten_labels: bool = False,
 ) -> Iterator[list[dict[str, Any]]]:
     url: str | None = start_url
     while url:
@@ -610,6 +670,8 @@ def _paginate_resource(
                 row[child_field] = parent.child
             if extra_field:
                 row[extra_field] = parent.extra
+            if flatten_labels:
+                _flatten_labels(row)
 
         if rows:
             yield rows
@@ -676,6 +738,7 @@ def _get_fan_out_rows(
             config.child_field,
             config.extra_field,
             budget,
+            flatten_labels=config.flatten_labels,
         )
 
 
