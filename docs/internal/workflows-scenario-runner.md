@@ -997,7 +997,9 @@ When Cyclotron gains its own read of the same counts, that read replaces this mo
 Each read is one catalog query with no table scan: live and dead tuples, the autovacuum and vacuum counts, the last autovacuum, the start of an autovacuum running on the table, and the sizes of the heap, its TOAST and each index.
 A failed read is kept with its error.
 At the start, the probe reads the autovacuum and vacuum settings and the storage options of the table and its indexes into `vacuumSettings`.
-A role without `pg_read_all_stats`, or a server with `track_activities` off, never sees an autovacuum worker's start, so no run is timed.
+A role without `pg_read_all_stats`, or a server with `track_activities` off, never sees an autovacuum worker's start.
+So `vacuumSettings.statsHidden` records whether any other session's activity is hidden from the probe role, and each read counts in `untrackedWorkers` the autovacuum workers in this database that run with `track_activities` off.
+When `statsHidden` is set, or `untrackedWorkers` is above zero, a sample's `vacuumingSince` can be `null` while autovacuum runs on the table.
 
 ### Scorecard
 
