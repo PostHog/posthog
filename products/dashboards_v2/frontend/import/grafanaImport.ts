@@ -240,6 +240,9 @@ function unrunnableQuery(
     return { language: /sql/i.test(language) ? 'sql' : '', text: `-- ${refId} · ${language}\n${text}` }
 }
 
+// Far more than a chart keeps, so the cap only bites on a crafted export, and every per-target step stays bounded.
+const MAX_READ_TARGETS = MAX_TARGETS * 4
+
 interface RefIds {
     used: Set<string>
     // The next suffix to try for each shortened refId, so many targets that shorten alike don't rescan from 2.
@@ -269,7 +272,11 @@ function convertTargets(
     const skipped: OriginalQuery[] = []
     const panelType = converter.datasourceType(panel.datasource)
     const refIds: RefIds = { used: new Set(), next: new Map() }
-    for (const [index, target] of (Array.isArray(panel.targets) ? panel.targets : []).entries()) {
+    const all: Json[] = Array.isArray(panel.targets) ? panel.targets : []
+    if (all.length > MAX_READ_TARGETS) {
+        reasons.push(`Only the first ${MAX_READ_TARGETS} of its ${all.length} queries are read.`)
+    }
+    for (const [index, target] of all.slice(0, MAX_READ_TARGETS).entries()) {
         if (!target || typeof target !== 'object' || target.hide) {
             continue
         }
