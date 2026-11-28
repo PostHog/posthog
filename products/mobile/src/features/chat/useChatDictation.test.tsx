@@ -2,6 +2,8 @@ import { act, renderHook } from '@testing-library/react-native'
 import { requireOptionalNativeModule } from 'expo'
 import { AppState, type AppStateStatus, Platform } from 'react-native'
 
+import { setAnalyticsClient } from '@/lib/analytics'
+
 import { chatDictationPhrases } from './chatDictationPhrases'
 import { useChatDictation } from './useChatDictation'
 
@@ -47,10 +49,12 @@ function speech(transcript: string, isFinal = false): void {
 describe('chat dictation', () => {
     let changeAppState: (state: AppStateStatus) => void
     const onTranscript = jest.fn()
+    const capture = jest.fn()
 
     beforeEach(() => {
         jest.useFakeTimers()
         jest.clearAllMocks()
+        setAnalyticsClient({ capture, identify: jest.fn(), reset: jest.fn() })
         jest.replaceProperty(Platform, 'OS', 'ios')
         jest.mocked(requireOptionalNativeModule).mockReturnValue(recognizer)
         jest.spyOn(AppState, 'addEventListener').mockImplementation((_event, handler) => {
@@ -62,13 +66,14 @@ describe('chat dictation', () => {
     afterEach(() => {
         emit('end')
         listeners.clear()
+        setAnalyticsClient(null)
         jest.restoreAllMocks()
     })
 
     afterAll(() => jest.useRealTimers())
 
     function renderDictation(): ReturnType<typeof renderHook<ReturnType<typeof useChatDictation>, string>> {
-        return renderHook((scopeKey: string) => useChatDictation({ onTranscript, scopeKey }), {
+        return renderHook((scopeKey: string) => useChatDictation({ composer: 'tasks', onTranscript, scopeKey }), {
             initialProps: 'chat-a',
         })
     }
@@ -79,6 +84,7 @@ describe('chat dictation', () => {
         expect(result.current.available).toBe(false)
         act(() => result.current.toggle())
         expect(result.current.phase).toBe('idle')
+        expect(capture).not.toHaveBeenCalled()
     })
 
     test('blocks Android versions where the native package would use the default recognizer', () => {
@@ -110,6 +116,10 @@ describe('chat dictation', () => {
         expect(result.current.preview).toBe('')
         expect(onTranscript).not.toHaveBeenCalled()
         expect(recognizer.start).toHaveBeenCalledTimes(1)
+        expect(capture.mock.calls).toEqual([
+            ['mobile_chat_dictation_started', { composer: 'tasks' }],
+            ['mobile_chat_dictation_finished', { composer: 'tasks', outcome: 'failed' }],
+        ])
     })
 
     test.each([
@@ -226,6 +236,32 @@ describe('chat dictation', () => {
         expect(result.current.phase).toBe('idle')
         expect(onTranscript).toHaveBeenCalledTimes(1)
         expect(onTranscript).toHaveBeenCalledWith('Track the cohort.')
+        expect(capture.mock.calls).toEqual([
+            ['mobile_chat_dictation_started', { composer: 'tasks' }],
+            ['mobile_chat_dictation_finished', { composer: 'tasks', outcome: 'transcribed' }],
+        ])
+    })
+
+    test('can finish an active phrase while the draft is temporarily unavailable for new attempts', async () => {
+        const { result, rerender } = renderHook(
+            (startDisabled: boolean) =>
+                useChatDictation({ composer: 'tasks', onTranscript, scopeKey: 'chat-a', startDisabled }),
+            { initialProps: false }
+        )
+        await act(async () => result.current.toggle())
+        emit('start')
+        speech('Keep recording')
+
+        rerender(true)
+        expect(result.current.preview).toBe('Keep recording')
+        act(() => result.current.toggle())
+        expect(result.current.phase).toBe('finishing')
+        speech('Keep recording the follow-up.', true)
+        emit('end')
+        expect(onTranscript).toHaveBeenCalledWith('Keep recording the follow-up.')
+        await act(async () => result.current.toggle())
+        expect(result.current.phase).toBe('idle')
+        expect(capture.mock.calls).toHaveLength(2)
     })
 
     test('keeps successive final segments when the recognizer stops on its own', async () => {
@@ -392,5 +428,11 @@ describe('chat dictation', () => {
         speech('After unmounting', true)
         emit('end')
         expect(onTranscript).not.toHaveBeenCalled()
+        expect(capture.mock.calls).toEqual([
+            ['mobile_chat_dictation_started', { composer: 'tasks' }],
+            ['mobile_chat_dictation_finished', { composer: 'tasks', outcome: 'cancelled' }],
+            ['mobile_chat_dictation_started', { composer: 'tasks' }],
+            ['mobile_chat_dictation_finished', { composer: 'tasks', outcome: 'cancelled' }],
+        ])
     })
 })

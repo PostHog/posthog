@@ -11,7 +11,11 @@ import { iconSizes, inputReset, radii, type } from '@/ui/tokens'
 
 import { MAX_ATTACHMENTS_PER_MESSAGE } from './attachments/attachmentRules'
 
+import { type ComposerDictation, ComposerInput, DictationButton } from './ComposerInput'
+
 interface ComposerProps {
+    dictation: ComposerDictation
+    dictationDisabled: boolean
     compact?: boolean
     text: string
     onChangeText: (text: string) => void
@@ -84,6 +88,8 @@ function OptionChip({
 export const Composer = forwardRef<TextInputInstance, ComposerProps>(function Composer(
     {
         compact = false,
+        dictation,
+        dictationDisabled,
         text,
         onChangeText,
         chips,
@@ -109,6 +115,18 @@ export const Composer = forwardRef<TextInputInstance, ComposerProps>(function Co
     const { colors, shadows, scheme } = useTheme()
     const styles = useStyles()
     const typed = text.trim().length > 0
+    const showSend = !isStreaming || typed
+    const stopReply = isStreaming ? (
+        <Pressable44
+            onPress={onStop}
+            accessibilityLabel="Stop the reply"
+            pressedBackground={typed ? colors.pressed : colors.inkHover}
+            style={[styles.send, typed ? styles.stopSecondary : styles.sendReady]}
+            testID="chat-stop"
+        >
+            <View style={[styles.stopSquare, typed && styles.stopSquareSecondary]} />
+        </Pressable44>
+    ) : null
     return (
         <View style={[styles.card, shadows.popover, compact && styles.cardCompact]}>
             {chips ? (
@@ -126,96 +144,93 @@ export const Composer = forwardRef<TextInputInstance, ComposerProps>(function Co
                     <View style={styles.chips}>{chips}</View>
                 )
             ) : null}
-            <TextInput
-                ref={ref}
-                value={text}
-                onChangeText={onChangeText}
-                placeholder="Ask anything…"
-                placeholderTextColor={colors.tertiary}
-                keyboardAppearance={scheme}
-                style={[styles.input, compact && styles.inputCompact]}
-                multiline
-                disableFullscreenUI
-                returnKeyType="send"
-                // Keeps the keyboard up after sending, so a follow-up is one tap away.
-                submitBehavior="submit"
-                onSubmitEditing={onSend}
-                accessibilityLabel="Message"
-                testID="chat-input"
-            />
+            <ComposerInput compact={compact} dictation={dictation}>
+                <TextInput
+                    ref={ref}
+                    value={text}
+                    onChangeText={onChangeText}
+                    placeholder="Ask anything…"
+                    placeholderTextColor={colors.tertiary}
+                    keyboardAppearance={scheme}
+                    style={[styles.input, compact && styles.inputCompact]}
+                    multiline
+                    disableFullscreenUI
+                    returnKeyType="send"
+                    // Keeps the keyboard up after sending, so a follow-up is one tap away.
+                    submitBehavior="submit"
+                    onSubmitEditing={onSend}
+                    accessibilityLabel="Message"
+                    testID="chat-input"
+                />
+            </ComposerInput>
             <View style={[styles.toolbar, compact && styles.toolbarCompact]}>
-                <Pressable44
-                    onPress={onAttach}
-                    disabled={attachDisabled || attachFull}
-                    accessibilityLabel="Attach a file"
-                    accessibilityHint={
-                        attachFull ? `Up to ${MAX_ATTACHMENTS_PER_MESSAGE} files fit in one message` : undefined
-                    }
-                    accessibilityState={{ expanded: attachOpen, disabled: attachDisabled || attachFull }}
-                    pressedBackground={colors.background}
-                    style={[
-                        styles.tool,
-                        styles.attach,
-                        attachOpen && styles.toolActive,
-                        (attachDisabled || attachFull) && styles.toolDisabled,
-                    ]}
-                    testID="chat-attach"
-                >
-                    <PaperclipIcon size={iconSizes.control} />
-                </Pressable44>
-                <Pressable44
-                    onPress={onToggleMention}
-                    accessibilityLabel="Add a report"
-                    accessibilityState={{ expanded: mentionOpen }}
-                    pressedBackground={colors.background}
-                    style={[styles.tool, mentionOpen && styles.toolActive]}
-                    testID="chat-mention"
-                >
-                    <Text style={styles.at}>@</Text>
-                </Pressable44>
-                <OptionChip
-                    label={modelLabel}
-                    accessibilityLabel={`Model: ${modelLabel}`}
-                    open={openOption === 'model'}
-                    disabled={optionsDisabled}
-                    onPress={onOpenModel}
-                    shrinks
-                    testID="chat-model"
-                />
-                <OptionChip
-                    label={modeLabel}
-                    accessibilityLabel={`Mode: ${modeLabel}`}
-                    open={openOption === 'mode'}
-                    disabled={optionsDisabled}
-                    onPress={onOpenMode}
-                    shrinks={false}
-                    testID="chat-mode"
-                />
-                <View style={styles.spacer} />
-                {isStreaming ? (
+                <View style={[styles.tools, compact && styles.toolbarCompactGap]}>
                     <Pressable44
-                        onPress={onStop}
-                        accessibilityLabel="Stop the reply"
-                        pressedBackground={typed ? colors.pressed : colors.inkHover}
-                        style={[styles.send, typed ? styles.stopSecondary : styles.sendReady]}
-                        testID="chat-stop"
+                        onPress={onAttach}
+                        disabled={attachDisabled || attachFull}
+                        accessibilityLabel="Attach a file"
+                        accessibilityHint={
+                            attachFull ? `Up to ${MAX_ATTACHMENTS_PER_MESSAGE} files fit in one message` : undefined
+                        }
+                        accessibilityState={{ expanded: attachOpen, disabled: attachDisabled || attachFull }}
+                        pressedBackground={colors.background}
+                        style={[
+                            styles.tool,
+                            styles.attach,
+                            attachOpen && styles.toolActive,
+                            (attachDisabled || attachFull) && styles.toolDisabled,
+                        ]}
+                        testID="chat-attach"
                     >
-                        <View style={[styles.stopSquare, typed && styles.stopSquareSecondary]} />
+                        <PaperclipIcon size={iconSizes.control} />
                     </Pressable44>
-                ) : null}
-                {/* While the agent works, Send queues the message, so it shows beside Stop once there is text. */}
-                {!isStreaming || typed ? (
                     <Pressable44
-                        onPress={onSend}
-                        disabled={!canSend}
-                        accessibilityLabel="Send"
-                        accessibilityState={{ disabled: !canSend }}
-                        style={[styles.send, canSend ? styles.sendReady : styles.sendIdle]}
-                        testID="chat-send"
+                        onPress={onToggleMention}
+                        accessibilityLabel="Add a report"
+                        accessibilityState={{ expanded: mentionOpen }}
+                        pressedBackground={colors.background}
+                        style={[styles.tool, mentionOpen && styles.toolActive]}
+                        testID="chat-mention"
                     >
-                        <ArrowUpIcon size={iconSizes.control} color={canSend ? colors.onInk : colors.onDisabled} />
+                        <Text style={styles.at}>@</Text>
                     </Pressable44>
-                ) : null}
+                    <OptionChip
+                        label={modelLabel}
+                        accessibilityLabel={`Model: ${modelLabel}`}
+                        open={openOption === 'model'}
+                        disabled={optionsDisabled}
+                        onPress={onOpenModel}
+                        shrinks
+                        testID="chat-model"
+                    />
+                    <OptionChip
+                        label={modeLabel}
+                        accessibilityLabel={`Mode: ${modeLabel}`}
+                        open={openOption === 'mode'}
+                        disabled={optionsDisabled}
+                        onPress={onOpenMode}
+                        shrinks={false}
+                        testID="chat-mode"
+                    />
+                </View>
+                <View style={[styles.actions, compact && styles.toolbarCompactGap]} testID="chat-composer-actions">
+                    {showSend ? stopReply : null}
+                    <DictationButton dictation={dictation} disabled={dictationDisabled} />
+                    {showSend ? (
+                        <Pressable44
+                            onPress={onSend}
+                            disabled={!canSend}
+                            accessibilityLabel="Send"
+                            accessibilityState={{ disabled: !canSend }}
+                            style={[styles.send, canSend ? styles.sendReady : styles.sendIdle]}
+                            testID="chat-send"
+                        >
+                            <ArrowUpIcon size={iconSizes.control} color={canSend ? colors.onInk : colors.onDisabled} />
+                        </Pressable44>
+                    ) : (
+                        stopReply
+                    )}
+                </View>
             </View>
         </View>
     )
@@ -248,8 +263,6 @@ const useStyles = createStyles(({ colors }) => ({
         maxHeight: 36,
     },
     inputCompact: {
-        flex: 1,
-        minWidth: 100,
         maxHeight: 40,
     },
     chips: {
@@ -270,12 +283,31 @@ const useStyles = createStyles(({ colors }) => ({
     },
     toolbarCompact: {
         flexShrink: 1,
+        width: '65%',
         gap: 4,
-        maxWidth: '65%',
+    },
+    toolbarCompactGap: {
+        gap: 4,
     },
     toolbar: {
         flexDirection: 'row',
+        flexWrap: 'wrap',
         alignItems: 'center',
+        gap: 6,
+    },
+    tools: {
+        flexBasis: 164,
+        flexGrow: 1,
+        flexShrink: 1,
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 6,
+    },
+    actions: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'flex-end',
+        marginLeft: 'auto',
         gap: 6,
     },
     tool: {
@@ -326,9 +358,6 @@ const useStyles = createStyles(({ colors }) => ({
         lineHeight: 24,
         fontWeight: '500',
         color: colors.ink,
-    },
-    spacer: {
-        flex: 1,
     },
     send: {
         width: 40,

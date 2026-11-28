@@ -1,6 +1,8 @@
 export type AnalyticsEvent =
     | '$ai_metric'
     | '$ai_feedback'
+    | 'mobile_chat_dictation_started'
+    | 'mobile_chat_dictation_finished'
     | 'mobile_chat_message_copy_pressed'
     | 'mobile_chat_message_copied'
     | 'mobile_chat_message_copy_failed'
