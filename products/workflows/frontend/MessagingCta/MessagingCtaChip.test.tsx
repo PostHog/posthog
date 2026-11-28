@@ -208,7 +208,7 @@ describe('MessagingCtaChip', () => {
     )
 
     it('reports its arm once, and links to email setup with clicks that share one attempt', async () => {
-        const { renderChip, chip, click, auxClick, sent } = open('player_chip')
+        const { renderChip, chip, click, auxClick, sent, switchViewer } = open('player_chip')
         renderChip()
         renderChip()
 
@@ -245,6 +245,12 @@ describe('MessagingCtaChip', () => {
             )
         )
         expect(new Set(clicks.map((properties) => properties.attempt_id)).size).toBe(1)
+
+        switchViewer('ANOTHER_USER_UUID')
+        click(chip()!.querySelector('a')!)
+        const [, , , , nextShowing] = await sent('message audience clicked')
+        expect(nextShowing.attempt_id).toEqual(expect.any(String))
+        expect(nextShowing.attempt_id).not.toBe(clicks[0].attempt_id)
     })
 
     it("waits for this page load's flags before it shows or reports, even with an arm cached from an earlier one", async () => {
