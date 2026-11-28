@@ -167,12 +167,13 @@ SPLUNK_OBSERVABILITY_CLOUD_ENDPOINTS: dict[str, SplunkObservabilityCloudEndpoint
         should_sync_default=False,
     ),
     # Tag metadata search. Like the metric search, `name:*` matches every tag, and an explicit
-    # sort keeps offset pages stable.
+    # sort keeps offset pages stable. The reference page names the sort `order_by`, but the
+    # official signalfx-go client sends `orderBy`.
     "tags": SplunkObservabilityCloudEndpointConfig(
         name="tags",
         path="/tag",
         primary_keys=["name"],
-        extra_params={"query": "name:*", "order_by": "name"},
+        extra_params={"query": "name:*", "orderBy": "name"},
     ),
     # SLO definitions. The search endpoint takes a JSON body of optional filters; an empty
     # body matches every SLO. Off by default: the search needs the admin or power role,

@@ -117,7 +117,7 @@ class TestRestPagination:
             assert set(result.params("orderBy")) == {"created"}
         if endpoint == "tags":
             # The tag search matches nothing without a query; offset pages need a stable sort.
-            assert set(zip(result.params("query"), result.params("order_by"))) == {("name:*", "name")}
+            assert set(zip(result.params("query"), result.params("orderBy"))) == {("name:*", "name")}
         # Resume state is saved only while there is a next page to resume to, and after
         # the page has been yielded.
         assert result.saved_states == [SplunkObservabilityCloudResumeConfig(offset=PAGE_SIZE)]
