@@ -1,3 +1,5 @@
+from collections.abc import Iterator
+from contextlib import contextmanager
 from typing import Any, cast
 
 import pytest
@@ -12,7 +14,12 @@ import psycopg
 from parameterized import parameterized
 
 from posthog.entitlements.contracts import EntitlementChange, EntitlementReactor, Entitlements, FeatureEntry
-from posthog.entitlements.execution import execute_entitlement_reactor, get_behind_reactor_keys, load_entitlements
+from posthog.entitlements.execution import (
+    execute_entitlement_reactor,
+    get_behind_reactor_keys,
+    list_behind_reactor_keys,
+    load_entitlements,
+)
 from posthog.entitlements.registry import EntitlementReactorRegistry
 from posthog.models.events_retention_config import OrganizationEventsRetentionConfig
 from posthog.models.organization import Organization
@@ -20,6 +27,18 @@ from posthog.models.organization_entitlement_applied_state import OrganizationEn
 
 from ee.billing.billing_manager import BillingManager
 from ee.billing.billing_types import BillingStatus
+
+SECOND_REACTOR = EntitlementReactor(
+    key="second", feature_flag="second-flag", feature_keys=frozenset({"second"}), react=lambda change: None
+)
+
+
+@contextmanager
+def flags_on(*flags: str) -> Iterator[None]:
+    with patch(
+        "posthog.entitlements.flags.feature_enabled_or_false", side_effect=lambda flag, *args, **kwargs: flag in flags
+    ):
+        yield
 
 
 class TestEntitlementExecution(TestCase):
@@ -37,7 +56,11 @@ class TestEntitlementExecution(TestCase):
             ).update(default_events_retention_months=change.current.limit("fixture"))
 
         self.registry = EntitlementReactorRegistry(
-            reactors=(EntitlementReactor(key="fixture", feature_keys=frozenset({"fixture"}), react=react),)
+            reactors=(
+                EntitlementReactor(
+                    key="fixture", feature_flag="fixture-flag", feature_keys=frozenset({"fixture"}), react=react
+                ),
+            )
         )
         for target in (
             "posthog.entitlements.execution.get_entitlement_reactor_registry",
@@ -48,10 +71,12 @@ class TestEntitlementExecution(TestCase):
             registry_patch.start()
             self.addCleanup(registry_patch.stop)
 
-    def checkpoint(self, features: list[FeatureEntry]) -> OrganizationEntitlementAppliedState:
+    def checkpoint(
+        self, features: list[FeatureEntry], *, reactor_key: str = "fixture"
+    ) -> OrganizationEntitlementAppliedState:
         return OrganizationEntitlementAppliedState.objects.create(
             organization=self.organization,
-            reactor_key="fixture",
+            reactor_key=reactor_key,
             snapshot=Entitlements.from_features(features).to_snapshot(),
             applied_at=timezone.now(),
         )
@@ -108,21 +133,37 @@ class TestEntitlementExecution(TestCase):
             {"key": "fixture", "limit": 1, "unit": None}
         ]
 
+    def test_workflow_list_skips_behind_reactor_whose_flag_is_off(self) -> None:
+        organization_id = str(self.organization.id)
+        self.checkpoint([{"key": "fixture", "limit": 1}])
+        self.checkpoint([], reactor_key=SECOND_REACTOR.key)
+        current = self.set_source([{"key": "fixture", "limit": 2}, {"key": "second"}])
+        registry = EntitlementReactorRegistry(reactors=(*self.registry.reactors, SECOND_REACTOR))
+        with patch("posthog.entitlements.execution.get_entitlement_reactor_registry", return_value=registry):
+            assert get_behind_reactor_keys(organization_id, current) == ["fixture", "second"]
+            with flags_on("fixture-flag"):
+                assert list_behind_reactor_keys(organization_id) == ["fixture"]
+
     @parameterized.expand(
         [
-            ("enabled", True, [{"key": "fixture", "limit": 2}], True),
-            ("disabled", False, [{"key": "fixture", "limit": 2}], False),
-            ("presentation", True, [{"key": "fixture", "limit": 1, "name": "Renamed"}], False),
-            ("unwatched", True, [{"key": "fixture", "limit": 1}, {"key": "other"}], False),
-            ("empty", True, [], False),
+            ("enabled", ["fixture-flag"], [{"key": "fixture", "limit": 2}], True),
+            ("disabled", [], [{"key": "fixture", "limit": 2}], False),
+            ("only_another_reactor_enabled", ["second-flag"], [{"key": "fixture", "limit": 2}], False),
+            ("presentation", ["fixture-flag"], [{"key": "fixture", "limit": 1, "name": "Renamed"}], False),
+            ("unwatched", ["fixture-flag"], [{"key": "fixture", "limit": 1}, {"key": "other"}], False),
+            ("empty", ["fixture-flag"], [], False),
         ]
     )
     def test_writer_initializes_only_changed_reactors_on_enabled_path(
-        self, _name: str, enabled: bool, features: list[dict[str, Any]], creates_checkpoint: bool
+        self, _name: str, enabled_flags: list[str], features: list[dict[str, Any]], creates_checkpoint: bool
     ) -> None:
         self.set_source([{"key": "fixture", "limit": 1}])
         self.organization.refresh_from_db()
-        with patch("posthog.entitlements.dispatch.feature_enabled_or_false", return_value=enabled):
+        registry = EntitlementReactorRegistry(reactors=(*self.registry.reactors, SECOND_REACTOR))
+        with (
+            patch("ee.billing.billing_manager.get_entitlement_reactor_registry", return_value=registry),
+            flags_on(*enabled_flags),
+        ):
             BillingManager(None).update_org_details(
                 self.organization, cast(BillingStatus, {"customer": {"available_product_features": features}})
             )
@@ -142,7 +183,7 @@ class TestEntitlementExecution(TestCase):
         self.set_source([{"key": "fixture", "limit": 2}])
         assert execute_entitlement_reactor(str(self.organization.id), "fixture").applied
         applied = OrganizationEntitlementAppliedState.objects.get(organization=self.organization)
-        with patch("posthog.entitlements.dispatch.feature_enabled_or_false", return_value=True):
+        with flags_on("fixture-flag"):
             BillingManager(None).update_org_details(
                 self.organization,
                 cast(BillingStatus, {"customer": {"available_product_features": [{"key": "fixture", "limit": 3}]}}),
@@ -167,7 +208,7 @@ class TestEntitlementExecution(TestCase):
             return result
 
         with (
-            patch("posthog.entitlements.dispatch.feature_enabled_or_false", return_value=True),
+            flags_on("fixture-flag"),
             patch.object(QuerySet, "bulk_create", fail_after_insert),
             self.assertRaisesMessage(RuntimeError, "Checkpoint insert failed"),
         ):
@@ -198,7 +239,11 @@ class TestReactorTransaction(TransactionTestCase):
         self.lock_timeouts: list[str] = []
         self.fail_after_write = False
         registry = EntitlementReactorRegistry(
-            reactors=(EntitlementReactor(key="fixture", feature_keys=frozenset({"fixture"}), react=self.react),)
+            reactors=(
+                EntitlementReactor(
+                    key="fixture", feature_flag="fixture-flag", feature_keys=frozenset({"fixture"}), react=self.react
+                ),
+            )
         )
         registry_patch = patch("posthog.entitlements.execution.get_entitlement_reactor_registry", return_value=registry)
         registry_patch.start()

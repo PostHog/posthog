@@ -77,9 +77,13 @@ class EntitlementReactor:
 
     `change.previous` is the last value the framework applied; it does not show the steps in between.
     A reactor whose action depends on `previous` checks it against its own state first.
+
+    While `feature_flag` is on for an organization, the reactor owns the change, so a caller that also
+    applies it inline skips that call for the organization.
     """
 
     key: str
+    feature_flag: str
     feature_keys: frozenset[str]
     react: Callable[[EntitlementChange], None]
 

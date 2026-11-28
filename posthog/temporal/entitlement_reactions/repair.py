@@ -5,7 +5,8 @@ from temporalio.exceptions import ActivityError
 
 with workflow.unsafe.imports_passed_through():
     from posthog.dataclasses import frozen
-    from posthog.entitlements.dispatch import entitlement_reactions_enabled, start_entitlement_reactions
+    from posthog.entitlements.dispatch import start_entitlement_reactions
+    from posthog.entitlements.execution import list_behind_reactor_keys
     from posthog.entitlements.repair import BehindOrganizationsPage, list_behind_organizations_page
     from posthog.sync import database_sync_to_async_pool
     from posthog.temporal.common.base import PostHogWorkflow
@@ -26,7 +27,7 @@ async def list_behind_entitlement_organizations_activity(inputs: EntitlementRepa
 
 @activity.defn(name="dispatch-entitlement-repair")
 async def dispatch_entitlement_repair_activity(organization_id: str) -> None:
-    if await database_sync_to_async_pool(entitlement_reactions_enabled)(organization_id):
+    if await database_sync_to_async_pool(list_behind_reactor_keys)(organization_id):
         await start_entitlement_reactions(organization_id)
 
 

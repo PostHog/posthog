@@ -27,7 +27,8 @@ from rest_framework.exceptions import NotAuthenticated, NotFound, PermissionDeni
 from posthog.cloud_utils import get_cached_instance_license
 from posthog.dataclasses import frozen
 from posthog.entitlements.contracts import Entitlements
-from posthog.entitlements.dispatch import dispatch_entitlement_reactions, entitlement_reactions_enabled
+from posthog.entitlements.dispatch import dispatch_entitlement_reactions
+from posthog.entitlements.flags import enabled_reactor_keys
 from posthog.entitlements.registry import get_entitlement_reactor_registry
 from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
@@ -42,7 +43,7 @@ from posthog.models.team.event_retention import (
     has_standard_retention,
     organization_events_retention_months,
 )
-from posthog.models.team.logs_retention import reset_revoked_logs_retention
+from posthog.models.team.logs_retention import LOGS_RETENTION_REACTOR_KEY, reset_revoked_logs_retention
 from posthog.models.user import User
 
 from ee.billing.access_token import mint_billing_access_token
@@ -864,8 +865,11 @@ class BillingManager:
 
         data = billing_status["customer"]
         available_product_features = data.get("available_product_features", None)
-        use_entitlement_reactions = bool(available_product_features) and entitlement_reactions_enabled(
-            str(organization.id), fail_on_error=False
+        reactor_registry = get_entitlement_reactor_registry()
+        enabled_reactors = (
+            enabled_reactor_keys(str(organization.id), registry=reactor_registry, fail_on_error=False)
+            if available_product_features
+            else frozenset()
         )
 
         if data.get("customer_id") and organization.customer_id != data["customer_id"]:
@@ -932,7 +936,7 @@ class BillingManager:
         # reports) and a partial or error-path billing response must not downgrade the org.
         # Genuine cancellations still send the (non-empty) free-tier feature list.
         if available_product_features and available_product_features != organization.available_product_features:
-            if use_entitlement_reactions:
+            if enabled_reactors:
                 previous_entitlements = Entitlements.from_features(organization.available_product_features or [])
             previous_feature_keys = {
                 feature.get("key") for feature in (organization.available_product_features or []) if feature
@@ -998,7 +1002,9 @@ class BillingManager:
         if previous_entitlements is not None:
             current_entitlements = Entitlements.from_features(available_product_features or [])
             applied_at = timezone.now()
-            for reactor in get_entitlement_reactor_registry():
+            for reactor in reactor_registry:
+                if reactor.key not in enabled_reactors:
+                    continue
                 previous = previous_entitlements.restricted_to(reactor.feature_keys)
                 if previous != current_entitlements.restricted_to(reactor.feature_keys):
                     checkpoints.append(
@@ -1021,7 +1027,7 @@ class BillingManager:
         if events_retention_changed:
             apply_events_retention_change(organization, previous_retention_months, previous_standard_retention)
 
-        if revoked_feature_keys:
+        if revoked_feature_keys and LOGS_RETENTION_REACTOR_KEY not in enabled_reactors:
             reset_revoked_logs_retention(organization, revoked_feature_keys)
 
         if should_update_org_billing_quotas:
@@ -1032,7 +1038,7 @@ class BillingManager:
                 str(organization.id),
                 Entitlements.from_features(available_product_features),
                 watched_value_changed=bool(checkpoints),
-                enabled=use_entitlement_reactions,
+                enabled_reactors=enabled_reactors,
             )
 
         return organization

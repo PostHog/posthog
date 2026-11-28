@@ -30,7 +30,7 @@ from temporalio.worker import (
 )
 
 from posthog.dataclasses import frozen
-from posthog.entitlements import execution
+from posthog.entitlements import execution, flags
 from posthog.entitlements.contracts import EntitlementChange, EntitlementReactor, Entitlements
 from posthog.entitlements.registry import EntitlementReactorRegistry
 from posthog.models.events_retention_config import OrganizationEventsRetentionConfig
@@ -143,7 +143,7 @@ async def persisted(organization_id: str) -> dict[str, Any]:
                 .filter(organization_id=organization_id)
                 .values_list("reactor_key", "snapshot")
             ],
-            "behind": execution.list_behind_reactor_keys(organization_id),
+            "behind": execution.get_behind_reactor_keys(organization_id, execution.load_entitlements(organization_id)),
         }
 
     return await database_sync_to_async_pool(read)()
@@ -163,9 +163,17 @@ async def worker(
 ) -> AsyncIterator[str]:
     queue = str(uuid4())
     registry = EntitlementReactorRegistry(
-        reactors=(EntitlementReactor(key="fixture", feature_keys=frozenset({"fixture"}), react=react), *extra_reactors)
+        reactors=(
+            EntitlementReactor(
+                key="fixture", feature_flag="fixture-flag", feature_keys=frozenset({"fixture"}), react=react
+            ),
+            *extra_reactors,
+        )
     )
-    with patch.object(execution, "get_entitlement_reactor_registry", return_value=registry):
+    with (
+        patch.object(execution, "get_entitlement_reactor_registry", return_value=registry),
+        patch.object(flags, "feature_enabled_or_false", return_value=True),
+    ):
         async with Worker(
             env.client,
             task_queue=queue,
@@ -464,7 +472,11 @@ async def test_failure_preserves_successful_sibling_and_reports_required_failure
     async with worker(
         temporal_environment,
         success,
-        extra_reactors=(EntitlementReactor(key="failure", feature_keys=frozenset({"fixture"}), react=failure),),
+        extra_reactors=(
+            EntitlementReactor(
+                key="failure", feature_flag="failure-flag", feature_keys=frozenset({"fixture"}), react=failure
+            ),
+        ),
     ) as queue:
         handle = await start(temporal_environment, queue, org)
         result = await handle.result()

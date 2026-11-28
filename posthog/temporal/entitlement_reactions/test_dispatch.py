@@ -14,7 +14,7 @@ from django.db import transaction
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
-from posthog.entitlements import dispatch, execution, repair
+from posthog.entitlements import dispatch, execution, flags, repair
 from posthog.entitlements.contracts import EntitlementChange, EntitlementReactor
 from posthog.entitlements.registry import EntitlementReactorRegistry
 from posthog.models.events_retention_config import OrganizationEventsRetentionConfig
@@ -58,11 +58,15 @@ def integration(monkeypatch) -> Iterator[dict[str, Any]]:
             raise RuntimeError("Fixture reactor failure")
 
     registry = EntitlementReactorRegistry(
-        reactors=(EntitlementReactor(key="fixture", feature_keys=frozenset({"fixture"}), react=react),)
+        reactors=(
+            EntitlementReactor(
+                key="fixture", feature_flag="fixture-flag", feature_keys=frozenset({"fixture"}), react=react
+            ),
+        )
     )
-    for module in (dispatch, execution, repair, billing_manager):
+    for module in (dispatch, execution, flags, repair, billing_manager):
         monkeypatch.setattr(module, "get_entitlement_reactor_registry", lambda: registry)
-    monkeypatch.setattr(dispatch, "feature_enabled_or_false", lambda *a, **kw: True)
+    monkeypatch.setattr(flags, "feature_enabled_or_false", lambda *a, **kw: True)
     yield state
 
 
@@ -165,7 +169,7 @@ async def test_dispatch_failure_acknowledges_and_stays_discoverable(integration,
 
 async def test_flag_failure_acknowledges_on_legacy_path(integration, monkeypatch) -> None:
     organization_id = await setup_organization(baseline=False)
-    monkeypatch.setattr(dispatch, "feature_enabled_or_false", MagicMock(side_effect=RuntimeError("flag")))
+    monkeypatch.setattr(flags, "feature_enabled_or_false", MagicMock(side_effect=RuntimeError("flag")))
     instance = consumer()
     connect = AsyncMock()
     with patch("posthog.entitlements.dispatch.async_connect", connect):
@@ -185,7 +189,7 @@ async def test_no_work_acknowledges_without_temporal(integration, monkeypatch, c
     elif case in ("flag-off", "no-registry"):
         features[0]["limit"] = 2
         if case == "flag-off":
-            monkeypatch.setattr(dispatch, "feature_enabled_or_false", lambda *a, **kw: False)
+            monkeypatch.setattr(flags, "feature_enabled_or_false", lambda *a, **kw: False)
         else:
             monkeypatch.setattr(
                 dispatch, "get_entitlement_reactor_registry", lambda: EntitlementReactorRegistry(reactors=())
@@ -259,7 +263,7 @@ async def test_reversal_during_running_reaction_converges(temporal_environment, 
 async def test_best_effort_billing_refresh_survives_dispatch_errors(integration, monkeypatch, failure: str) -> None:
     organization_id = await setup_organization(baseline=True)
     if failure == "flag":
-        monkeypatch.setattr(dispatch, "feature_enabled_or_false", MagicMock(side_effect=RuntimeError("flag")))
+        monkeypatch.setattr(flags, "feature_enabled_or_false", MagicMock(side_effect=RuntimeError("flag")))
 
     def update() -> None:
         org = Organization.objects.get(id=organization_id)
