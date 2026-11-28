@@ -1,5 +1,5 @@
 import type { GuidanceCall } from './engine'
-import type { GuidanceCondition, GuidanceRule } from './rule-schema'
+import type { GuidanceCondition, GuidanceRule, TextGuidanceRule } from './rule-schema'
 
 export const MCP_GUIDANCE_EMPTY_STATES_FLAG = 'mcp-guidance-empty-states'
 
@@ -23,7 +23,7 @@ export function emptyResultRule(rule: {
     tool: string
     flag?: string
     when: GuidanceCondition
-    text: GuidanceRule['text']
+    text: TextGuidanceRule['text']
     maxPerSession?: number
     suppressIfCalled?: string[]
     requiresTool?: string[]

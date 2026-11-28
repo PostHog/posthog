@@ -1,13 +1,15 @@
-import { createHash } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 
 import { resolveScopePreset } from '@/lib/scope-preset'
+
+import { placementState } from 'products/workflows/mcp/messagingPlacements'
 
 import type { RedisLike } from '../cache/RedisCache'
 import { resolveSessionKey } from '../mcp-context'
 import { guidanceEvaluationErrorsTotal, guidanceNoticesTotal } from '../metrics'
 import type { ResolvedState } from '../request-state-resolver'
 import { GuidanceProductState } from './product-state'
-import type { GuidanceRule } from './rule-schema'
+import type { ExperimentGuidanceRule, GuidanceRule } from './rule-schema'
 import { GUIDANCE_RULES } from './rules'
 import { selfDrivingActivationGuidance } from './self-driving-activation'
 
@@ -32,13 +34,14 @@ export interface GuidanceCall {
     resultEmpty?: boolean | undefined
 }
 
-export type GuidanceOutcome = 'shown' | 'flag_off' | 'suppressed' | 'no_consent'
+export type GuidanceOutcome = 'shown' | 'flag_off' | 'suppressed' | 'no_consent' | 'holdout'
 
 export interface GuidanceNotice {
     ruleId: string
     outcome: GuidanceOutcome
     /** Only present when the notice is shown to the agent. */
     text?: string
+    attemptId?: string
 }
 
 export function matchesToolPattern(pattern: string, toolName: string): boolean {
@@ -210,14 +213,7 @@ export class GuidanceEngine {
             for (const rule of rules) {
                 const result = await this.touchRule(rule, scopes, call, winner === undefined, productState)
                 if (result === RuleResult.Fired) {
-                    const outcome = firedOutcome(rule, state)
-                    winner = {
-                        ruleId: rule.id,
-                        outcome,
-                        ...(outcome === 'shown'
-                            ? { text: typeof rule.text === 'string' ? rule.text : rule.text(call) }
-                            : {}),
-                    }
+                    winner = firedNotice(rule, state, call)
                 } else if (result === RuleResult.Suppressed && !winner) {
                     winner = { ruleId: rule.id, outcome: 'suppressed' }
                 }
@@ -350,11 +346,46 @@ function scopeKey(distinctId: string, handle: string | undefined): string {
     return `mcp:guidance:{${hashKey(`${distinctId}|${handle ?? ''}`)}}`
 }
 
-function firedOutcome(rule: GuidanceRule, state: ResolvedState): GuidanceOutcome {
+function firedNotice(rule: GuidanceRule, state: ResolvedState, call: GuidanceCall): GuidanceNotice {
     if (rule.requiresAiConsent && state.aiConsentGiven !== true) {
-        return 'no_consent'
+        return { ruleId: rule.id, outcome: 'no_consent' }
     }
-    return state.toolFeatureFlags?.[rule.flag] === true ? 'shown' : 'flag_off'
+    if ('experiment' in rule) {
+        return experimentNotice(rule, state)
+    }
+    if (state.toolFeatureFlags?.[rule.flag] !== true) {
+        return { ruleId: rule.id, outcome: 'flag_off' }
+    }
+    return { ruleId: rule.id, outcome: 'shown', text: typeof rule.text === 'string' ? rule.text : rule.text(call) }
+}
+
+function experimentNotice(rule: ExperimentGuidanceRule, state: ResolvedState): GuidanceNotice {
+    const placement = placementState(rule.experiment.placement, {
+        value: (flag) => state.toolFeatureFlags?.[flag],
+        payload: (flag) => state.guidanceFlagPayloads?.[flag],
+    })
+    reportExposureOfServedVariant(rule.flag, state)
+    if (!placement.active) {
+        return { ruleId: rule.id, outcome: placement.reason === 'holdout' ? 'holdout' : 'flag_off' }
+    }
+    const attemptId = randomUUID()
+    return {
+        ruleId: rule.id,
+        outcome: 'shown',
+        text: rule.experiment.text({ copy: placement.copy, attemptId }),
+        attemptId,
+    }
+}
+
+function reportExposureOfServedVariant(flag: string, state: ResolvedState): void {
+    if (typeof state.toolFeatureFlags?.[flag] !== 'string') {
+        return
+    }
+    try {
+        state.reportFlagExposure?.(flag)
+    } catch (error) {
+        console.warn('[Guidance] exposure report failed:', error instanceof Error ? error.message : String(error))
+    }
 }
 
 function hashKey(value: string): string {
@@ -385,5 +416,11 @@ export function attachGuidanceNotice(
 }
 
 export function guidanceAnalyticsProperties(notice: GuidanceNotice | undefined): Record<string, unknown> {
-    return notice ? { mcp_guidance_rule: notice.ruleId, mcp_guidance_outcome: notice.outcome } : {}
+    return notice
+        ? {
+              mcp_guidance_rule: notice.ruleId,
+              mcp_guidance_outcome: notice.outcome,
+              ...(notice.attemptId ? { mcp_guidance_attempt_id: notice.attemptId } : {}),
+          }
+        : {}
 }

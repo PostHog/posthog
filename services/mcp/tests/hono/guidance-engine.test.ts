@@ -1,9 +1,9 @@
 import { readdirSync } from 'node:fs'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { ApiClient } from '@/api/client'
-import { GuidanceEngine, triggerMatches, type GuidanceCall } from '@/hono/guidance/engine'
-import type { GuidanceRule } from '@/hono/guidance/rule-schema'
+import { GuidanceEngine, guidanceAnalyticsProperties, triggerMatches, type GuidanceCall } from '@/hono/guidance/engine'
+import { guidanceRuleSchema, type GuidanceRule } from '@/hono/guidance/rule-schema'
 import { GUIDANCE_RULES, MCP_GUIDANCE_SELF_DRIVING_ACTIVATION_FLAG } from '@/hono/guidance/rules'
 import type { ResolvedState } from '@/hono/request-state-resolver'
 import { MCPClientProfile } from '@/lib/client-detection'
@@ -438,6 +438,197 @@ describe('GuidanceEngine', () => {
             replayQuery
         )
         expect(shown?.text).toBe('Used execute-sql.')
+    })
+
+    describe('the cohorts-create messaging experiment', () => {
+        const messagingRule = GUIDANCE_RULES.find((r) => r.id === 'cohorts-create-messaging')!
+        const cohortsCreate: GuidanceCall = { toolName: 'cohorts-create', args: { name: 'Churned' }, isError: false }
+        const behavioralFilters = {
+            properties: {
+                type: 'OR',
+                values: [
+                    {
+                        type: 'OR',
+                        values: [
+                            {
+                                key: '$pageview',
+                                type: 'behavioral',
+                                value: 'performed_event',
+                                event_type: 'events',
+                                time_value: 30,
+                                time_interval: 'day',
+                            },
+                        ],
+                    },
+                ],
+            },
+        }
+        let exposures: string[] = []
+        const messagingState = (
+            flagValue: boolean | string | undefined,
+            overrides: Partial<ResolvedState> = {}
+        ): ResolvedState =>
+            makeToolExecutorState([{ name: 'cohorts-create' }, { name: 'broadcasts-create' }], {
+                toolFeatureFlags: { 'xpm-mcp-placement': flagValue },
+                suppressAnalytics: false,
+                reportFlagExposure: (flag) => exposures.push(flag),
+                ...overrides,
+            })
+
+        beforeEach(() => {
+            exposures = []
+        })
+
+        it.each([
+            ['the treated arm', 'after_cohorts_create', 'shown', true],
+            ['control', 'control', 'flag_off', true],
+            ['the holdout', 'holdout-42', 'holdout', true],
+            ['a flag that is off', false, 'flag_off', false],
+            ['an unevaluated flag', undefined, 'flag_off', false],
+        ])('stamps %s and reports the exposure only for a served variant', async (_label, value, outcome, exposed) => {
+            const state = messagingState(value)
+            const notice = await new GuidanceEngine(makeGuidanceRedis(), [messagingRule]).evaluate(state, cohortsCreate)
+
+            expect(notice).toMatchObject({ ruleId: 'cohorts-create-messaging', outcome })
+            expect(notice?.text === undefined).toBe(outcome !== 'shown')
+            expect(notice?.attemptId === undefined).toBe(outcome !== 'shown')
+            expect(exposures).toEqual(exposed ? ['xpm-mcp-placement'] : [])
+        })
+
+        it('offers the broadcast with a fresh attempt id in the treated arm', async () => {
+            const notice = await new GuidanceEngine(makeGuidanceRedis(), [messagingRule]).evaluate(
+                messagingState('after_cohorts_create'),
+                cohortsCreate
+            )
+
+            expect(notice?.attemptId).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/)
+            expect(notice?.text).toBe(
+                'You can offer the user an email to the people in the cohort this call returned. ' +
+                    'They review and launch it in the broadcast editor. ' +
+                    'If they want it, call broadcasts-create with a batch trigger on that cohort, ' +
+                    `and pass entry_attempt_id: "${notice?.attemptId}".`
+            )
+            expect(guidanceAnalyticsProperties(notice)).toEqual({
+                mcp_guidance_rule: 'cohorts-create-messaging',
+                mcp_guidance_outcome: 'shown',
+                mcp_guidance_attempt_id: notice?.attemptId,
+            })
+        })
+
+        it.each([
+            ['a static cohort that filters on event behavior', { is_static: true, filters: behavioralFilters }],
+            [
+                'a person property whose value holds a type key',
+                {
+                    filters: {
+                        properties: {
+                            type: 'OR',
+                            values: [{ key: 'plan', type: 'person', operator: 'exact', value: { type: 'behavioral' } }],
+                        },
+                    },
+                },
+            ],
+        ])('offers the broadcast for %s', async (_label, args) => {
+            const call = { ...cohortsCreate, args: { name: 'Active', ...args } }
+            await expect(
+                new GuidanceEngine(makeGuidanceRedis(), [messagingRule]).evaluate(
+                    messagingState('after_cohorts_create'),
+                    call
+                )
+            ).resolves.toMatchObject({ outcome: 'shown' })
+        })
+
+        it('withholds a consent-gated experiment without org consent and reports no exposure', async () => {
+            const notice = await new GuidanceEngine(makeGuidanceRedis(), [
+                { ...messagingRule, requiresAiConsent: true },
+            ]).evaluate(messagingState('after_cohorts_create', { aiConsentGiven: false }), cohortsCreate)
+
+            expect(notice).toEqual({ ruleId: 'cohorts-create-messaging', outcome: 'no_consent' })
+            expect(exposures).toEqual([])
+        })
+
+        it('still shows the notice when reporting the exposure throws', async () => {
+            const state = messagingState('after_cohorts_create', {
+                reportFlagExposure: () => {
+                    throw new Error('capture down')
+                },
+            })
+            await expect(
+                new GuidanceEngine(makeGuidanceRedis(), [messagingRule]).evaluate(state, cohortsCreate)
+            ).resolves.toMatchObject({ outcome: 'shown', text: expect.stringContaining('broadcasts-create') })
+        })
+
+        it.each([
+            ['a roster without broadcasts-create', [{ name: 'cohorts-create' }], cohortsCreate],
+            [
+                'a failed cohorts-create',
+                [{ name: 'cohorts-create' }, { name: 'broadcasts-create' }],
+                { ...cohortsCreate, isError: true },
+            ],
+            [
+                'a dynamic cohort that filters on event behavior',
+                [{ name: 'cohorts-create' }, { name: 'broadcasts-create' }],
+                { ...cohortsCreate, args: { name: 'Active', filters: behavioralFilters } },
+            ],
+            [
+                'a dynamic cohort that references another cohort',
+                [{ name: 'cohorts-create' }, { name: 'broadcasts-create' }],
+                {
+                    ...cohortsCreate,
+                    args: {
+                        name: 'Wrapper',
+                        filters: {
+                            properties: {
+                                type: 'OR',
+                                values: [{ type: 'OR', values: [{ key: 'id', type: 'cohort', value: 3 }] }],
+                            },
+                        },
+                    },
+                },
+            ],
+            [
+                'a dynamic cohort whose canonical static flag is false',
+                [{ name: 'cohorts-create' }, { name: 'broadcasts-create' }],
+                {
+                    ...cohortsCreate,
+                    args: { name: 'Active', is_static: false, isStatic: true, filters: behavioralFilters },
+                },
+            ],
+            [
+                'a behavioral cohort whose static flag is spelled another way',
+                [{ name: 'cohorts-create' }, { name: 'broadcasts-create' }],
+                { ...cohortsCreate, args: { name: 'Active', isStatic: true, filters: behavioralFilters } },
+            ],
+            [
+                'a behavioral cohort whose filters are spelled another way',
+                [{ name: 'cohorts-create' }, { name: 'broadcasts-create' }],
+                { ...cohortsCreate, args: { name: 'Active', Filters: behavioralFilters } },
+            ],
+            [
+                'a dynamic cohort defined by a query',
+                [{ name: 'cohorts-create' }, { name: 'broadcasts-create' }],
+                { ...cohortsCreate, args: { name: 'Active', query: { kind: 'HogQLQuery', query: 'select 1' } } },
+            ],
+            [
+                'a call whose arguments did not parse',
+                [{ name: 'cohorts-create' }, { name: 'broadcasts-create' }],
+                { ...cohortsCreate, args: undefined },
+            ],
+        ])('stays silent and reports no exposure for %s', async (_label, tools, call) => {
+            const state = messagingState('after_cohorts_create', { allTools: tools as ResolvedState['allTools'] })
+            await expect(
+                new GuidanceEngine(makeGuidanceRedis(), [messagingRule]).evaluate(state, call)
+            ).resolves.toBeUndefined()
+            expect(exposures).toEqual([])
+        })
+
+        it.each([
+            ['without text or an experiment', { experiment: undefined }],
+            ['with both text and an experiment', { text: 'Both.' }],
+            ['with a flag that is not the placement area flag', { flag: 'mcp-guidance-test' }],
+        ])('rejects a rule %s', (_label, overrides) => {
+            expect(guidanceRuleSchema.safeParse({ ...messagingRule, ...overrides }).success).toBe(false)
+        })
     })
 
     it('shows nothing and logs when Redis fails', async () => {

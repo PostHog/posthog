@@ -167,6 +167,82 @@ describe('ToolExecutor guidance notices', () => {
         })
     })
 
+    describe('the cohorts-create messaging experiment', () => {
+        type CohortCall = { result: SqlResult; properties: Record<string, unknown> | undefined }
+
+        async function callCohortsCreate(
+            mode: string,
+            engine: GuidanceEngine,
+            flagValue: boolean | string | undefined,
+            exposures: string[] = []
+        ): Promise<CohortCall> {
+            const tools = [
+                makeTool('cohorts-create', () => ({ id: 7, name: 'Churned' })),
+                makeTool('broadcasts-create', () => ({})),
+            ]
+            vi.spyOn(catalog, 'getToolByName').mockImplementation((name) => {
+                const tool = tools.find((t) => t.name === name)
+                return tool
+                    ? { build: () => tool, meta: undefined, rawInputSchema: undefined, definition: undefined }
+                    : undefined
+            })
+            let properties: CohortCall['properties']
+            vi.spyOn(getPostHogClient(), 'captureToolCall').mockImplementation((event) => {
+                properties = event.properties
+            })
+            const executor = new ToolExecutor(catalog, new InstructionsBuilder(''), undefined, engine)
+            const state = makeToolExecutorState(tools, {
+                useSingleExec: mode === 'exec',
+                suppressAnalytics: false,
+                toolFeatureFlags: { 'xpm-mcp-placement': flagValue },
+                reportFlagExposure: (flag) => exposures.push(flag),
+            })
+            const result = (await executor.handleToolCall(
+                mode === 'exec'
+                    ? { name: 'exec', arguments: { command: 'call cohorts-create {}' } }
+                    : { name: 'cohorts-create', arguments: {} },
+                state
+            )) as SqlResult
+            await new Promise((resolve) => setImmediate(resolve))
+            return { result, properties }
+        }
+
+        it.each([
+            ['direct', false],
+            ['direct', undefined],
+            ['exec', false],
+            ['exec', undefined],
+        ])('returns the result of a run without guidance rules in %s mode when the flag is %s', async (mode, value) => {
+            const withoutRules = await callCohortsCreate(mode, new GuidanceEngine(makeGuidanceRedis(), []), value)
+            const exposures: string[] = []
+            const dark = await callCohortsCreate(mode, new GuidanceEngine(makeGuidanceRedis()), value, exposures)
+
+            expect(dark.result).toEqual(withoutRules.result)
+            expect(exposures).toEqual([])
+            expect(dark.properties).toMatchObject({
+                mcp_guidance_rule: 'cohorts-create-messaging',
+                mcp_guidance_outcome: 'flag_off',
+            })
+            expect(dark.properties).not.toHaveProperty('mcp_guidance_attempt_id')
+        })
+
+        it.each(['direct', 'exec'])('adds the hint and stamps its attempt id in %s mode', async (mode) => {
+            const { result, properties } = await callCohortsCreate(
+                mode,
+                new GuidanceEngine(makeGuidanceRedis()),
+                'after_cohorts_create'
+            )
+
+            const attemptId = properties?.mcp_guidance_attempt_id
+            expect(attemptId).toEqual(expect.any(String))
+            expect(result.content.map((part) => part.text).join('\n')).toContain(`entry_attempt_id: "${attemptId}"`)
+            expect(properties).toMatchObject({
+                mcp_guidance_rule: 'cohorts-create-messaging',
+                mcp_guidance_outcome: 'shown',
+            })
+        })
+    })
+
     it.each(['direct', 'exec'])('prepends the schema notice to the third failed query in %s mode', async (mode) => {
         const { callSql, capture } = setup(
             mode,
