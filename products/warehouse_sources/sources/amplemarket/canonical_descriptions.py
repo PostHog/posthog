@@ -141,6 +141,15 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "updated_at": "When the mailbox was last updated, in ISO 8601 format.",
         },
     },
+    "personas": {
+        "description": "A buyer persona defined in Amplemarket.",
+        "docs_url": "https://docs.amplemarket.com/api-reference/personas/get-personas",
+        "columns": {
+            "id": "Unique identifier for the persona.",
+            "name": "The name of the persona.",
+            "enabled": "Whether the persona is enabled.",
+        },
+    },
     "sequences": {
         "description": "A sequence: a multi-stage outreach flow that engages leads over email, LinkedIn, and phone.",
         "docs_url": "https://docs.amplemarket.com/guides/sequences",
@@ -171,6 +180,14 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "user_id": "The ID of the user assigned to the task.",
             "user_email": "The email of the user assigned to the task.",
             "contact": "The contact associated with the task.",
+        },
+    },
+    "territories": {
+        "description": "A sales territory defined in Amplemarket.",
+        "docs_url": "https://docs.amplemarket.com/api-reference/territories/get-territories",
+        "columns": {
+            "id": "Unique identifier for the territory.",
+            "name": "The name of the territory.",
         },
     },
     "users": {

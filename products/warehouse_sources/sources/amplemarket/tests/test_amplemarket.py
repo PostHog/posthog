@@ -2,6 +2,8 @@ from typing import Any
 
 import pytest
 
+from parameterized import parameterized
+
 from products.warehouse_sources.sources.amplemarket._config import AmplemarketSourceConfig
 from products.warehouse_sources.sources.amplemarket.amplemarket import AmplemarketResumeConfig, validate_credentials
 from products.warehouse_sources.sources.amplemarket.settings import BASE_URL
@@ -31,22 +33,23 @@ class TestValidateCredentials:
 
 
 class TestPagination:
-    def test_follows_relative_next_link(self) -> None:
+    @parameterized.expand([("sequences",), ("personas",), ("territories",)])
+    def test_follows_relative_next_link(self, endpoint: str) -> None:
         # Amplemarket returns HAL-style relative next hrefs with bracketed cursor params; the
         # paginator must resolve them against the base URL and drop the original params.
-        next_href = "/sequences?page[after]=b&page[size]=20"
+        next_href = f"/{endpoint}?page[after]=b&page[size]=20"
         result = _driver().run(
-            "sequences",
+            endpoint,
             [
-                _page("sequences", [{"id": "a"}, {"id": "b"}], next_href),
-                _page("sequences", [{"id": "c"}]),
+                _page(endpoint, [{"id": "a"}, {"id": "b"}], next_href),
+                _page(endpoint, [{"id": "c"}]),
             ],
         )
 
         assert result.raised is None
         assert [row["id"] for row in result.rows] == ["a", "b", "c"]
         assert {request.origin for request in result.requests} == {BASE_URL}
-        assert result.paths == ["/sequences", "/sequences"]
+        assert result.paths == [f"/{endpoint}", f"/{endpoint}"]
         assert result.queries == [{}, {"page[after]": ("b",), "page[size]": ("20",)}]
         # State is saved only while a next page exists, with the resolved absolute URL.
         assert result.saved_states == [AmplemarketResumeConfig(next_url=f"{BASE_URL}{next_href}")]
