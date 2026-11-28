@@ -101,6 +101,8 @@ class TextValue:
     liquid: str | None = None
     # A variable the app passes, printed like a Handlebars value.
     value_path: str | None = None
+    # Where a send without an app, such as a broadcast, finds the same value.
+    person_path: str | None = None
     # Prints HTML unescaped, so it's only valid in page text.
     raw: bool = False
     # Prints the tag itself when the app passes no value.
@@ -230,6 +232,11 @@ class HandlebarsToLiquid:
         if piece.value_path is None:
             return piece.liquid or ""
         value = self._print_piece(piece.value_path, raw=piece.raw)
+        if piece.person_path is not None:
+            person = self._print_piece(piece.person_path, raw=False)
+            # A send through the API prints only what the app passes. An event or a workflow can also pass the value.
+            condition = f'event.event == "$transactional_email" or {piece.value_path} != nil'
+            value = f"{{% if {condition} %}}{value}{{% else %}}{person}{{% endif %}}"
         if not piece.stays_when_missing:
             return value
         return f"{{% if {piece.value_path} == nil %}}{_literal_text(piece.source)}{{% else %}}{value}{{% endif %}}"

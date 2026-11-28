@@ -569,6 +569,7 @@ describe('LiquidRenderer', () => {
             liquid: string
             variables: Record<string, unknown>
             expected: string
+            globals?: Record<string, unknown>
             collapse_whitespace?: boolean
         }[] = parseJSON(
             fs.readFileSync(
@@ -606,6 +607,7 @@ describe('LiquidRenderer', () => {
                 LiquidRenderer.renderWithHogFunctionGlobals(testCase.liquid, {
                     ...globals,
                     variables: testCase.variables,
+                    ...testCase.globals,
                 } as HogFunctionInvocationGlobalsWithInputs)
             )
             const expected = decodeEntities(testCase.expected)

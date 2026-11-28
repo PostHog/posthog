@@ -354,5 +354,81 @@
     },
     "liquid": "{% assign go_value1 = variables.plan | json | slice: 0 %}<p> a{% if go_value1 == \"[\" %}[{{ variables.plan | join: ' ' | escape | replace: \"=\", \"&amp;#x3D;\" | replace: \"`\", \"&amp;#x60;\" | raw }}]{% elsif go_value1 == \"{\" %}map[{% for pair in variables.plan %}{% unless forloop.first %} {% endunless %}{{ pair[0] | escape | replace: \"=\", \"&amp;#x3D;\" | replace: \"`\", \"&amp;#x60;\" | raw }}:{{ pair[1] | escape | replace: \"=\", \"&amp;#x3D;\" | replace: \"`\", \"&amp;#x60;\" | raw }}{% endfor %}]{% else %}{{ variables.plan | escape | replace: \"=\", \"&amp;#x3D;\" | replace: \"`\", \"&amp;#x60;\" | raw }}{% endif %}b </p>",
     "expected": "<p> aprob </p>"
+  },
+  {
+    "name": "a recipient value in a broadcast",
+    "engine": "handlebars",
+    "template": "<p>%recipient.home-city%</p>",
+    "variables": {},
+    "globals": {
+      "event": {
+        "event": "$broadcast"
+      },
+      "person": {
+        "properties": {
+          "home-city": "Oslo <b>"
+        }
+      }
+    },
+    "liquid": "<p>{% if event.event == \"$transactional_email\" or variables.home-city != nil %}{{ variables.home-city | join: \",\" }}{% else %}{{ person.properties.home-city | join: \",\" }}{% endif %}</p>",
+    "expected": "<p>Oslo &lt;b&gt;</p>"
+  },
+  {
+    "name": "a recipient value the app passes",
+    "engine": "handlebars",
+    "template": "<p>%recipient.home-city%</p>",
+    "variables": {
+      "home-city": "Rome"
+    },
+    "globals": {
+      "event": {
+        "event": "$transactional_email"
+      },
+      "person": {
+        "properties": {
+          "home-city": "Oslo <b>"
+        }
+      }
+    },
+    "liquid": "<p>{% if event.event == \"$transactional_email\" or variables.home-city != nil %}{{ variables.home-city | join: \",\" }}{% else %}{{ person.properties.home-city | join: \",\" }}{% endif %}</p>",
+    "expected": "<p>Rome</p>"
+  },
+  {
+    "name": "a recipient value the app leaves out",
+    "engine": "handlebars",
+    "template": "<p>%recipient.home-city%</p>",
+    "variables": {},
+    "globals": {
+      "event": {
+        "event": "$transactional_email"
+      },
+      "person": {
+        "properties": {
+          "home-city": "Oslo <b>"
+        }
+      }
+    },
+    "liquid": "<p>{% if event.event == \"$transactional_email\" or variables.home-city != nil %}{{ variables.home-city | join: \",\" }}{% else %}{{ person.properties.home-city | join: \",\" }}{% endif %}</p>",
+    "expected": "<p></p>"
+  },
+  {
+    "name": "a recipient value an event or workflow passes",
+    "engine": "handlebars",
+    "template": "<p>%recipient.home-city%</p>",
+    "variables": {
+      "home-city": "Rome"
+    },
+    "globals": {
+      "event": {
+        "event": "$broadcast"
+      },
+      "person": {
+        "properties": {
+          "home-city": "Oslo <b>"
+        }
+      }
+    },
+    "liquid": "<p>{% if event.event == \"$transactional_email\" or variables.home-city != nil %}{{ variables.home-city | join: \",\" }}{% else %}{{ person.properties.home-city | join: \",\" }}{% endif %}</p>",
+    "expected": "<p>Rome</p>"
   }
 ]
