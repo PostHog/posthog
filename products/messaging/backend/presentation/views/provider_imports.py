@@ -17,7 +17,7 @@ from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.event_usage import report_user_action
 from posthog.exceptions import Conflict
-from posthog.permissions import get_authenticator_scopes
+from posthog.permissions import OrganizationAdminWritePermissions, get_authenticator_scopes
 from posthog.scopes.checks import scopes_not_covered
 
 from products.authorization.backend.facade import api as authorization
@@ -241,6 +241,9 @@ class ProviderImportViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             400: OpenApiResponse(
                 description="The provider or a step is unknown, or the API key is missing or rejected."
             ),
+            403: OpenApiResponse(
+                description="No project-wide workflow edit access, or the provider stores its API key and the caller isn't an organization admin."
+            ),
             409: OpenApiResponse(description="An import from this provider is running, or a different key is stored."),
             503: OpenApiResponse(description="The provider did not respond while checking the API key."),
         },
@@ -290,6 +293,10 @@ class ProviderImportViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         # A step whose feature flag is off isn't offered. `start_provider_import` doesn't know the flags.
         if unknown := sorted(set(data["steps"]) - {step.key for step in provider.steps}):
             raise ValidationError(f"{provider.label} has no step named {', '.join(unknown)}.")
+        if provider.retains_credentials and not OrganizationAdminWritePermissions().has_permission(request, self):
+            raise PermissionDenied(
+                "Only organization admins can start this import, because it stores the provider's API key as an integration."
+            )
         try:
             run = start_provider_import(
                 self.team_id,
