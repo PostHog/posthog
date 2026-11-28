@@ -133,6 +133,7 @@ How often each link position of one step gets clicked.
 It reads the per-link click counter instead of the click events.
 The counter stores each web URL without its query string, replaces long token- and id-shaped path segments with `*`, and cuts URLs at 200 characters.
 The click events keep the full URL, tokens included, so group links only through this counter, never by `$link_url`.
+A link that carries a recipient's preferences token, such as the unsubscribe link, keeps only its origin in `$link_url`.
 
 ```sql
 SELECT
