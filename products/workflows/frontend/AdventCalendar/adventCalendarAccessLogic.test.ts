@@ -20,7 +20,6 @@ type Step =
 type Visit = {
     pageFlags: Record<string, boolean | string> | null | 'no page object'
     errorsBeforeMount?: unknown
-    flagDetails?: unknown
     steps: Step[]
 }
 
@@ -31,18 +30,18 @@ const tabHidden: Step = { outcome: 'tab hidden' }
 
 type View = 'waiting' | 'calendar' | 'not found'
 
+type FlagsReply =
+    | 'blocked'
+    | 'answers on'
+    | 'answers off'
+    | 'unrelated error, answers on'
+    | 'unrelated error, answers off'
+
 type DecisionRow = {
     page: 'on' | 'off' | 'absent'
     persisted: 'persisted' | 'not persisted'
     cached: 'first visit' | 'stored without it' | 'stored on' | 'stored off'
-    load:
-        | 'not yet'
-        | 'blocked'
-        | 'answers on'
-        | 'answers off'
-        | 'calendar flag failed'
-        | 'unrelated error, answers on'
-        | 'unrelated error, answers off'
+    load: 'not yet' | FlagsReply | `${FlagsReply}, then ${FlagsReply}`
     timeout: 'before timeout' | 'after timeout' | 'flags arrived'
     sees: View
 }
@@ -62,145 +61,169 @@ const DECISION_TABLE: DecisionTableRow[] = [
     ['on', 'not persisted', 'first visit', 'blocked', 'flags arrived', 'calendar'],
     ['on', 'not persisted', 'first visit', 'answers on', 'flags arrived', 'calendar'],
     ['on', 'not persisted', 'first visit', 'answers off', 'flags arrived', 'not found'],
-    ['on', 'not persisted', 'first visit', 'calendar flag failed', 'flags arrived', 'calendar'],
     ['on', 'not persisted', 'first visit', 'unrelated error, answers on', 'flags arrived', 'calendar'],
     ['on', 'not persisted', 'first visit', 'unrelated error, answers off', 'flags arrived', 'not found'],
+    ['on', 'not persisted', 'first visit', 'blocked, then answers on', 'flags arrived', 'calendar'],
+    ['on', 'not persisted', 'first visit', 'blocked, then answers off', 'flags arrived', 'not found'],
+    ['on', 'not persisted', 'first visit', 'answers off, then blocked', 'flags arrived', 'calendar'],
     ['on', 'not persisted', 'stored without it', 'not yet', 'before timeout', 'waiting'],
     ['on', 'not persisted', 'stored without it', 'not yet', 'after timeout', 'not found'],
     ['on', 'not persisted', 'stored without it', 'blocked', 'flags arrived', 'calendar'],
     ['on', 'not persisted', 'stored without it', 'answers on', 'flags arrived', 'calendar'],
     ['on', 'not persisted', 'stored without it', 'answers off', 'flags arrived', 'not found'],
-    ['on', 'not persisted', 'stored without it', 'calendar flag failed', 'flags arrived', 'calendar'],
     ['on', 'not persisted', 'stored without it', 'unrelated error, answers on', 'flags arrived', 'calendar'],
     ['on', 'not persisted', 'stored without it', 'unrelated error, answers off', 'flags arrived', 'not found'],
+    ['on', 'not persisted', 'stored without it', 'blocked, then answers on', 'flags arrived', 'calendar'],
+    ['on', 'not persisted', 'stored without it', 'blocked, then answers off', 'flags arrived', 'not found'],
+    ['on', 'not persisted', 'stored without it', 'answers off, then blocked', 'flags arrived', 'calendar'],
     ['on', 'not persisted', 'stored on', 'not yet', 'before timeout', 'waiting'],
     ['on', 'not persisted', 'stored on', 'not yet', 'after timeout', 'calendar'],
     ['on', 'not persisted', 'stored on', 'blocked', 'flags arrived', 'calendar'],
     ['on', 'not persisted', 'stored on', 'answers on', 'flags arrived', 'calendar'],
     ['on', 'not persisted', 'stored on', 'answers off', 'flags arrived', 'not found'],
-    ['on', 'not persisted', 'stored on', 'calendar flag failed', 'flags arrived', 'calendar'],
     ['on', 'not persisted', 'stored on', 'unrelated error, answers on', 'flags arrived', 'calendar'],
     ['on', 'not persisted', 'stored on', 'unrelated error, answers off', 'flags arrived', 'not found'],
+    ['on', 'not persisted', 'stored on', 'blocked, then answers on', 'flags arrived', 'calendar'],
+    ['on', 'not persisted', 'stored on', 'blocked, then answers off', 'flags arrived', 'not found'],
+    ['on', 'not persisted', 'stored on', 'answers off, then blocked', 'flags arrived', 'calendar'],
     ['on', 'not persisted', 'stored off', 'not yet', 'before timeout', 'waiting'],
     ['on', 'not persisted', 'stored off', 'not yet', 'after timeout', 'not found'],
     ['on', 'not persisted', 'stored off', 'blocked', 'flags arrived', 'calendar'],
     ['on', 'not persisted', 'stored off', 'answers on', 'flags arrived', 'calendar'],
     ['on', 'not persisted', 'stored off', 'answers off', 'flags arrived', 'not found'],
-    ['on', 'not persisted', 'stored off', 'calendar flag failed', 'flags arrived', 'not found'],
     ['on', 'not persisted', 'stored off', 'unrelated error, answers on', 'flags arrived', 'calendar'],
     ['on', 'not persisted', 'stored off', 'unrelated error, answers off', 'flags arrived', 'not found'],
+    ['on', 'not persisted', 'stored off', 'blocked, then answers on', 'flags arrived', 'calendar'],
+    ['on', 'not persisted', 'stored off', 'blocked, then answers off', 'flags arrived', 'not found'],
+    ['on', 'not persisted', 'stored off', 'answers off, then blocked', 'flags arrived', 'calendar'],
     ['on', 'persisted', 'first visit', 'not yet', 'before timeout', 'waiting'],
     ['on', 'persisted', 'first visit', 'not yet', 'after timeout', 'calendar'],
     ['on', 'persisted', 'first visit', 'blocked', 'flags arrived', 'calendar'],
     ['on', 'persisted', 'first visit', 'answers on', 'flags arrived', 'calendar'],
-    ['on', 'persisted', 'first visit', 'calendar flag failed', 'flags arrived', 'calendar'],
     ['on', 'persisted', 'first visit', 'unrelated error, answers on', 'flags arrived', 'calendar'],
+    ['on', 'persisted', 'first visit', 'blocked, then answers on', 'flags arrived', 'calendar'],
     ['on', 'persisted', 'stored without it', 'not yet', 'before timeout', 'waiting'],
     ['on', 'persisted', 'stored without it', 'not yet', 'after timeout', 'not found'],
     ['on', 'persisted', 'stored without it', 'blocked', 'flags arrived', 'calendar'],
     ['on', 'persisted', 'stored without it', 'answers on', 'flags arrived', 'calendar'],
-    ['on', 'persisted', 'stored without it', 'calendar flag failed', 'flags arrived', 'calendar'],
     ['on', 'persisted', 'stored without it', 'unrelated error, answers on', 'flags arrived', 'calendar'],
+    ['on', 'persisted', 'stored without it', 'blocked, then answers on', 'flags arrived', 'calendar'],
     ['on', 'persisted', 'stored on', 'not yet', 'before timeout', 'waiting'],
     ['on', 'persisted', 'stored on', 'not yet', 'after timeout', 'calendar'],
     ['on', 'persisted', 'stored on', 'blocked', 'flags arrived', 'calendar'],
     ['on', 'persisted', 'stored on', 'answers on', 'flags arrived', 'calendar'],
-    ['on', 'persisted', 'stored on', 'calendar flag failed', 'flags arrived', 'calendar'],
     ['on', 'persisted', 'stored on', 'unrelated error, answers on', 'flags arrived', 'calendar'],
+    ['on', 'persisted', 'stored on', 'blocked, then answers on', 'flags arrived', 'calendar'],
     ['on', 'persisted', 'stored off', 'not yet', 'before timeout', 'waiting'],
     ['on', 'persisted', 'stored off', 'not yet', 'after timeout', 'not found'],
     ['on', 'persisted', 'stored off', 'blocked', 'flags arrived', 'calendar'],
     ['on', 'persisted', 'stored off', 'answers on', 'flags arrived', 'calendar'],
-    ['on', 'persisted', 'stored off', 'calendar flag failed', 'flags arrived', 'calendar'],
     ['on', 'persisted', 'stored off', 'unrelated error, answers on', 'flags arrived', 'calendar'],
+    ['on', 'persisted', 'stored off', 'blocked, then answers on', 'flags arrived', 'calendar'],
     ['off', 'not persisted', 'first visit', 'not yet', 'before timeout', 'waiting'],
     ['off', 'not persisted', 'first visit', 'not yet', 'after timeout', 'not found'],
     ['off', 'not persisted', 'first visit', 'blocked', 'flags arrived', 'not found'],
     ['off', 'not persisted', 'first visit', 'answers on', 'flags arrived', 'calendar'],
     ['off', 'not persisted', 'first visit', 'answers off', 'flags arrived', 'not found'],
-    ['off', 'not persisted', 'first visit', 'calendar flag failed', 'flags arrived', 'not found'],
     ['off', 'not persisted', 'first visit', 'unrelated error, answers on', 'flags arrived', 'calendar'],
     ['off', 'not persisted', 'first visit', 'unrelated error, answers off', 'flags arrived', 'not found'],
+    ['off', 'not persisted', 'first visit', 'blocked, then answers on', 'flags arrived', 'calendar'],
+    ['off', 'not persisted', 'first visit', 'blocked, then answers off', 'flags arrived', 'not found'],
+    ['off', 'not persisted', 'first visit', 'answers off, then blocked', 'flags arrived', 'not found'],
     ['off', 'not persisted', 'stored without it', 'not yet', 'before timeout', 'waiting'],
     ['off', 'not persisted', 'stored without it', 'not yet', 'after timeout', 'not found'],
     ['off', 'not persisted', 'stored without it', 'blocked', 'flags arrived', 'not found'],
     ['off', 'not persisted', 'stored without it', 'answers on', 'flags arrived', 'calendar'],
     ['off', 'not persisted', 'stored without it', 'answers off', 'flags arrived', 'not found'],
-    ['off', 'not persisted', 'stored without it', 'calendar flag failed', 'flags arrived', 'not found'],
     ['off', 'not persisted', 'stored without it', 'unrelated error, answers on', 'flags arrived', 'calendar'],
     ['off', 'not persisted', 'stored without it', 'unrelated error, answers off', 'flags arrived', 'not found'],
+    ['off', 'not persisted', 'stored without it', 'blocked, then answers on', 'flags arrived', 'calendar'],
+    ['off', 'not persisted', 'stored without it', 'blocked, then answers off', 'flags arrived', 'not found'],
+    ['off', 'not persisted', 'stored without it', 'answers off, then blocked', 'flags arrived', 'not found'],
     ['off', 'not persisted', 'stored on', 'not yet', 'before timeout', 'waiting'],
     ['off', 'not persisted', 'stored on', 'not yet', 'after timeout', 'calendar'],
     ['off', 'not persisted', 'stored on', 'blocked', 'flags arrived', 'not found'],
     ['off', 'not persisted', 'stored on', 'answers on', 'flags arrived', 'calendar'],
     ['off', 'not persisted', 'stored on', 'answers off', 'flags arrived', 'not found'],
-    ['off', 'not persisted', 'stored on', 'calendar flag failed', 'flags arrived', 'calendar'],
     ['off', 'not persisted', 'stored on', 'unrelated error, answers on', 'flags arrived', 'calendar'],
     ['off', 'not persisted', 'stored on', 'unrelated error, answers off', 'flags arrived', 'not found'],
+    ['off', 'not persisted', 'stored on', 'blocked, then answers on', 'flags arrived', 'calendar'],
+    ['off', 'not persisted', 'stored on', 'blocked, then answers off', 'flags arrived', 'not found'],
+    ['off', 'not persisted', 'stored on', 'answers off, then blocked', 'flags arrived', 'not found'],
     ['off', 'not persisted', 'stored off', 'not yet', 'before timeout', 'waiting'],
     ['off', 'not persisted', 'stored off', 'not yet', 'after timeout', 'not found'],
     ['off', 'not persisted', 'stored off', 'blocked', 'flags arrived', 'not found'],
     ['off', 'not persisted', 'stored off', 'answers on', 'flags arrived', 'calendar'],
     ['off', 'not persisted', 'stored off', 'answers off', 'flags arrived', 'not found'],
-    ['off', 'not persisted', 'stored off', 'calendar flag failed', 'flags arrived', 'not found'],
     ['off', 'not persisted', 'stored off', 'unrelated error, answers on', 'flags arrived', 'calendar'],
     ['off', 'not persisted', 'stored off', 'unrelated error, answers off', 'flags arrived', 'not found'],
+    ['off', 'not persisted', 'stored off', 'blocked, then answers on', 'flags arrived', 'calendar'],
+    ['off', 'not persisted', 'stored off', 'blocked, then answers off', 'flags arrived', 'not found'],
+    ['off', 'not persisted', 'stored off', 'answers off, then blocked', 'flags arrived', 'not found'],
     ['absent', 'not persisted', 'first visit', 'not yet', 'before timeout', 'waiting'],
     ['absent', 'not persisted', 'first visit', 'not yet', 'after timeout', 'not found'],
     ['absent', 'not persisted', 'first visit', 'blocked', 'flags arrived', 'not found'],
     ['absent', 'not persisted', 'first visit', 'answers on', 'flags arrived', 'calendar'],
     ['absent', 'not persisted', 'first visit', 'answers off', 'flags arrived', 'not found'],
-    ['absent', 'not persisted', 'first visit', 'calendar flag failed', 'flags arrived', 'not found'],
     ['absent', 'not persisted', 'first visit', 'unrelated error, answers on', 'flags arrived', 'calendar'],
     ['absent', 'not persisted', 'first visit', 'unrelated error, answers off', 'flags arrived', 'not found'],
+    ['absent', 'not persisted', 'first visit', 'blocked, then answers on', 'flags arrived', 'calendar'],
+    ['absent', 'not persisted', 'first visit', 'blocked, then answers off', 'flags arrived', 'not found'],
+    ['absent', 'not persisted', 'first visit', 'answers off, then blocked', 'flags arrived', 'not found'],
     ['absent', 'not persisted', 'stored without it', 'not yet', 'before timeout', 'waiting'],
     ['absent', 'not persisted', 'stored without it', 'not yet', 'after timeout', 'not found'],
     ['absent', 'not persisted', 'stored without it', 'blocked', 'flags arrived', 'not found'],
     ['absent', 'not persisted', 'stored without it', 'answers on', 'flags arrived', 'calendar'],
     ['absent', 'not persisted', 'stored without it', 'answers off', 'flags arrived', 'not found'],
-    ['absent', 'not persisted', 'stored without it', 'calendar flag failed', 'flags arrived', 'not found'],
     ['absent', 'not persisted', 'stored without it', 'unrelated error, answers on', 'flags arrived', 'calendar'],
     ['absent', 'not persisted', 'stored without it', 'unrelated error, answers off', 'flags arrived', 'not found'],
+    ['absent', 'not persisted', 'stored without it', 'blocked, then answers on', 'flags arrived', 'calendar'],
+    ['absent', 'not persisted', 'stored without it', 'blocked, then answers off', 'flags arrived', 'not found'],
+    ['absent', 'not persisted', 'stored without it', 'answers off, then blocked', 'flags arrived', 'not found'],
     ['absent', 'not persisted', 'stored on', 'not yet', 'before timeout', 'waiting'],
     ['absent', 'not persisted', 'stored on', 'not yet', 'after timeout', 'calendar'],
     ['absent', 'not persisted', 'stored on', 'blocked', 'flags arrived', 'calendar'],
     ['absent', 'not persisted', 'stored on', 'answers on', 'flags arrived', 'calendar'],
     ['absent', 'not persisted', 'stored on', 'answers off', 'flags arrived', 'not found'],
-    ['absent', 'not persisted', 'stored on', 'calendar flag failed', 'flags arrived', 'calendar'],
     ['absent', 'not persisted', 'stored on', 'unrelated error, answers on', 'flags arrived', 'calendar'],
     ['absent', 'not persisted', 'stored on', 'unrelated error, answers off', 'flags arrived', 'not found'],
+    ['absent', 'not persisted', 'stored on', 'blocked, then answers on', 'flags arrived', 'calendar'],
+    ['absent', 'not persisted', 'stored on', 'blocked, then answers off', 'flags arrived', 'not found'],
+    ['absent', 'not persisted', 'stored on', 'answers off, then blocked', 'flags arrived', 'not found'],
     ['absent', 'not persisted', 'stored off', 'not yet', 'before timeout', 'waiting'],
     ['absent', 'not persisted', 'stored off', 'not yet', 'after timeout', 'not found'],
     ['absent', 'not persisted', 'stored off', 'blocked', 'flags arrived', 'not found'],
     ['absent', 'not persisted', 'stored off', 'answers on', 'flags arrived', 'calendar'],
     ['absent', 'not persisted', 'stored off', 'answers off', 'flags arrived', 'not found'],
-    ['absent', 'not persisted', 'stored off', 'calendar flag failed', 'flags arrived', 'not found'],
     ['absent', 'not persisted', 'stored off', 'unrelated error, answers on', 'flags arrived', 'calendar'],
     ['absent', 'not persisted', 'stored off', 'unrelated error, answers off', 'flags arrived', 'not found'],
+    ['absent', 'not persisted', 'stored off', 'blocked, then answers on', 'flags arrived', 'calendar'],
+    ['absent', 'not persisted', 'stored off', 'blocked, then answers off', 'flags arrived', 'not found'],
+    ['absent', 'not persisted', 'stored off', 'answers off, then blocked', 'flags arrived', 'not found'],
     ['absent', 'persisted', 'first visit', 'not yet', 'before timeout', 'waiting'],
     ['absent', 'persisted', 'first visit', 'not yet', 'after timeout', 'calendar'],
     ['absent', 'persisted', 'first visit', 'blocked', 'flags arrived', 'calendar'],
     ['absent', 'persisted', 'first visit', 'answers on', 'flags arrived', 'calendar'],
-    ['absent', 'persisted', 'first visit', 'calendar flag failed', 'flags arrived', 'calendar'],
     ['absent', 'persisted', 'first visit', 'unrelated error, answers on', 'flags arrived', 'calendar'],
+    ['absent', 'persisted', 'first visit', 'blocked, then answers on', 'flags arrived', 'calendar'],
     ['absent', 'persisted', 'stored without it', 'not yet', 'before timeout', 'waiting'],
     ['absent', 'persisted', 'stored without it', 'not yet', 'after timeout', 'not found'],
     ['absent', 'persisted', 'stored without it', 'blocked', 'flags arrived', 'calendar'],
     ['absent', 'persisted', 'stored without it', 'answers on', 'flags arrived', 'calendar'],
-    ['absent', 'persisted', 'stored without it', 'calendar flag failed', 'flags arrived', 'calendar'],
     ['absent', 'persisted', 'stored without it', 'unrelated error, answers on', 'flags arrived', 'calendar'],
+    ['absent', 'persisted', 'stored without it', 'blocked, then answers on', 'flags arrived', 'calendar'],
     ['absent', 'persisted', 'stored on', 'not yet', 'before timeout', 'waiting'],
     ['absent', 'persisted', 'stored on', 'not yet', 'after timeout', 'calendar'],
     ['absent', 'persisted', 'stored on', 'blocked', 'flags arrived', 'calendar'],
     ['absent', 'persisted', 'stored on', 'answers on', 'flags arrived', 'calendar'],
-    ['absent', 'persisted', 'stored on', 'calendar flag failed', 'flags arrived', 'calendar'],
     ['absent', 'persisted', 'stored on', 'unrelated error, answers on', 'flags arrived', 'calendar'],
+    ['absent', 'persisted', 'stored on', 'blocked, then answers on', 'flags arrived', 'calendar'],
     ['absent', 'persisted', 'stored off', 'not yet', 'before timeout', 'waiting'],
     ['absent', 'persisted', 'stored off', 'not yet', 'after timeout', 'not found'],
     ['absent', 'persisted', 'stored off', 'blocked', 'flags arrived', 'calendar'],
     ['absent', 'persisted', 'stored off', 'answers on', 'flags arrived', 'calendar'],
-    ['absent', 'persisted', 'stored off', 'calendar flag failed', 'flags arrived', 'calendar'],
     ['absent', 'persisted', 'stored off', 'unrelated error, answers on', 'flags arrived', 'calendar'],
+    ['absent', 'persisted', 'stored off', 'blocked, then answers on', 'flags arrived', 'calendar'],
 ]
 
 function toView(calendarOn: boolean | undefined): View {
@@ -242,23 +265,18 @@ function servePage(row: DecisionRow): void {
     }
 }
 
-function loadOutcome(row: DecisionRow): {
-    after: 'on' | 'off' | 'none'
-    errors: string[]
-    details: Record<string, { failed: boolean }>
-} {
-    const before = sdkValueBeforeLoad(row)
-    const evaluatedNothing = row.load === 'blocked' || row.load === 'calendar flag failed'
-    const after = evaluatedNothing ? before : row.load.endsWith('answers on') ? 'on' : 'off'
-    const errors =
-        row.load === 'blocked'
-            ? ['connection_error']
-            : row.load === 'calendar flag failed' || row.load.startsWith('unrelated error')
-              ? ['errors_while_computing_flags']
-              : []
-    const details: Record<string, { failed: boolean }> =
-        row.load === 'calendar flag failed' && before === 'none' ? { [FLAG]: { failed: true } } : {}
-    return { after, errors, details }
+function replyErrors(reply: FlagsReply): string[] {
+    if (reply === 'blocked') {
+        return ['connection_error']
+    }
+    return reply.startsWith('unrelated error') ? ['errors_while_computing_flags'] : []
+}
+
+function replyValue(reply: FlagsReply, previous: 'on' | 'off' | 'none'): 'on' | 'off' | 'none' {
+    if (reply === 'blocked') {
+        return previous
+    }
+    return reply.endsWith('answers on') ? 'on' : 'off'
 }
 
 function setTabHidden(hidden: boolean): void {
@@ -306,33 +324,34 @@ describe('adventCalendarAccessLogic', () => {
         appLogic.mount()
         const logic = adventCalendarAccessLogic()
 
-        const blocked = row.load === 'blocked'
-        const { after, errors, details } = loadOutcome(row)
-        const loadFlags = (): void => {
-            if (blocked) {
+        let value = sdkValueBeforeLoad(row)
+        let errors: string[] = []
+        jest.mocked(posthog.get_property).mockImplementation((key) =>
+            key === '$feature_flag_errors' ? errors : undefined
+        )
+        const answer = (reply: FlagsReply): void => {
+            if (reply === 'blocked') {
                 window.POSTHOG_GLOBAL_ERRORS = { onFeatureFlagsLoadError: true }
             }
-            jest.mocked(posthog.get_property).mockImplementation((key) =>
-                key === '$feature_flag_errors' ? errors : key === '$feature_flag_details' ? details : undefined
-            )
-            const enabled: Record<string, boolean> = after === 'on' ? { [FLAG]: true } : {}
+            errors = replyErrors(reply)
+            value = replyValue(reply, value)
+            const enabled: Record<string, boolean> = value === 'on' ? { [FLAG]: true } : {}
             loadedFlags = enabled
             for (const callback of flagCallbacks) {
-                callback(Object.keys(enabled), enabled, { errorsLoading: blocked })
+                callback(Object.keys(enabled), enabled, { errorsLoading: reply === 'blocked' })
             }
         }
+        const replies = row.load === 'not yet' ? [] : (row.load.split(', then ') as FlagsReply[])
 
-        if (row.load === 'not yet') {
+        if (opened === 'before the load') {
             logic.mount()
-            if (row.timeout === 'after timeout') {
-                appLogic.actions.ignoreFeatureFlags()
-            }
-        } else if (opened === 'after the load') {
-            loadFlags()
+        }
+        replies.forEach(answer)
+        if (opened === 'after the load') {
             logic.mount()
-        } else {
-            logic.mount()
-            loadFlags()
+        }
+        if (row.timeout === 'after timeout') {
+            appLogic.actions.ignoreFeatureFlags()
         }
 
         const result = { sees: toView(logic.values.calendarOn), master: masterView() }
@@ -341,12 +360,12 @@ describe('adventCalendarAccessLogic', () => {
         return result
     }
 
-    describe('decision table: a persisted flag never decides off because it is rolled out to everyone, and the timeout stops mattering once flags arrive', () => {
+    describe('decision table: a persisted flag never decides off because it is rolled out to everyone, each reply comes through its own flag callback, and the timeout stops mattering once flags arrive', () => {
         it.each(DECISION_TABLE)(
             'page %s, %s, %s, flags %s, %s: sees %s',
             (page, persisted, cached, load, timeout, expected) => {
                 const row: DecisionRow = { page, persisted, cached, load, timeout, sees: expected }
-                const undecided = load === 'blocked' || load === 'calendar flag failed'
+                const lastReplyBlocked = load.endsWith('blocked')
                 const pageView: View | null = page === 'absent' ? null : page === 'on' ? 'calendar' : 'not found'
                 const openings =
                     load === 'not yet'
@@ -359,8 +378,9 @@ describe('adventCalendarAccessLogic', () => {
                         opened,
                         sees,
                         master,
-                        sameAsMasterOrPageAfterAnUndecidedLoad: sees === master || (undecided && sees === pageView),
-                    }).toMatchObject({ sameAsMasterOrPageAfterAnUndecidedLoad: true })
+                        sameAsMasterOrPageAfterABlockedReply:
+                            sees === master || (lastReplyBlocked && sees === pageView),
+                    }).toMatchObject({ sameAsMasterOrPageAfterABlockedReply: true })
                 }
             }
         )
@@ -386,6 +406,11 @@ describe('adventCalendarAccessLogic', () => {
         [
             'a successful retry hides the calendar even when no enabled flag changed',
             { pageFlags: { [FLAG]: true }, steps: [failed({ 'other-flag': true }), succeeded({ 'other-flag': true })] },
+            [true, false],
+        ],
+        [
+            'a 200 after a failed load switches the tab off when the flag is off',
+            { pageFlags: { [FLAG]: true }, steps: [failed({ [FLAG]: true }), succeeded()] },
             [true, false],
         ],
         [
@@ -429,41 +454,6 @@ describe('adventCalendarAccessLogic', () => {
             [false],
         ],
         [
-            'a successful retry that failed to evaluate the calendar flag shows the page decision',
-            { pageFlags: { [FLAG]: true }, flagDetails: { [FLAG]: { failed: true } }, steps: [failed(), succeeded()] },
-            [true, true],
-        ],
-        [
-            'a successful load that failed to evaluate the calendar flag shows the page decision',
-            { pageFlags: { [FLAG]: true }, flagDetails: { [FLAG]: { failed: true } }, steps: [succeeded()] },
-            [true],
-        ],
-        [
-            'a calendar flag that failed to evaluate before mount shows the page decision',
-            { pageFlags: { [FLAG]: true }, flagDetails: { [FLAG]: { failed: true } }, steps: [noOutcome()] },
-            [true],
-        ],
-        [
-            'flag details that are not an object keep the flag',
-            { pageFlags: { [FLAG]: true }, flagDetails: 'failed', steps: [succeeded()] },
-            [false],
-        ],
-        [
-            'flag details without the calendar flag keep the flag',
-            { pageFlags: { [FLAG]: true }, flagDetails: { 'other-flag': { failed: true } }, steps: [succeeded()] },
-            [false],
-        ],
-        [
-            'a calendar flag detail that is not an object keeps the flag',
-            { pageFlags: { [FLAG]: true }, flagDetails: { [FLAG]: null }, steps: [succeeded()] },
-            [false],
-        ],
-        [
-            'a failed marker that is not a boolean keeps the flag',
-            { pageFlags: { [FLAG]: true }, flagDetails: { [FLAG]: { failed: 'true' } }, steps: [succeeded()] },
-            [false],
-        ],
-        [
             'a failed load on a page without the identity object keeps the stored flag',
             { pageFlags: 'no page object', steps: [failed({ [FLAG]: true })] },
             [true],
@@ -483,7 +473,7 @@ describe('adventCalendarAccessLogic', () => {
             { pageFlags: { [FLAG]: 'true' }, steps: [failed()] },
             [false],
         ],
-    ])('%s', (_name, { pageFlags, errorsBeforeMount, flagDetails, steps }, expected) => {
+    ])('%s', (_name, { pageFlags, errorsBeforeMount, steps }, expected) => {
         if (pageFlags !== 'no page object') {
             window.POSTHOG_USER_IDENTITY_WITH_FLAGS = { distinctID: 'person-1', featureFlags: pageFlags }
         }
@@ -491,11 +481,7 @@ describe('adventCalendarAccessLogic', () => {
             window.POSTHOG_GLOBAL_ERRORS = { onFeatureFlagsLoadError: true }
         }
         jest.mocked(posthog.get_property).mockImplementation((key) =>
-            key === '$feature_flag_errors'
-                ? errorsBeforeMount
-                : key === '$feature_flag_details'
-                  ? flagDetails
-                  : undefined
+            key === '$feature_flag_errors' ? errorsBeforeMount : undefined
         )
         initKeaTests()
         const logic = adventCalendarAccessLogic()
