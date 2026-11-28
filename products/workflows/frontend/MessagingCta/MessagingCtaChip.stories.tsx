@@ -9,7 +9,10 @@ const meta: Meta<typeof MessagingCtaChip> = {
     component: MessagingCtaChip,
     args: { placement: 'replay.player_chip' },
     parameters: {
-        featureFlags: { [FEATURE_FLAGS.XPM_REPLAY_PLACEMENT]: 'player_chip' },
+        featureFlags: {
+            [FEATURE_FLAGS.WORKFLOWS_TRANSACTIONAL_EMAIL_API]: true,
+            [FEATURE_FLAGS.XPM_REPLAY_PLACEMENT]: 'player_chip',
+        },
         testOptions: { waitForSelector: '[data-attr="messaging-cta-chip-replay.player_chip"]' },
     },
 }
