@@ -95,7 +95,7 @@ export function TransactionalTabs({
                         ),
                         key: 'smtp',
                         tooltip: hasRecordedInterest
-                            ? 'You told us you want SMTP. Click to add or change your note.'
+                            ? 'You told us you want SMTP. Click to add or change your answers.'
                             : 'Coming soon: send email through PostHog from any app or tool that supports SMTP, with no code changes. Click to tell us you want this.',
                         'data-attr': 'transactional-smtp-coming-soon',
                     },
