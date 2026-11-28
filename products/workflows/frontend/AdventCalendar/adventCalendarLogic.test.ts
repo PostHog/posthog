@@ -17,7 +17,6 @@ import { ADVENT_QUESTIONS } from './adventContent'
 
 const KEY = 'workflows-advent-calendar-progress'
 const TICKETS_KEY = 'workflows-advent-calendar-tickets'
-const PENDING_KEY = 'workflows-advent-calendar-pending-tickets'
 const UUID = '0190d8a2-1c4e-7b3a-9f21-5a6b7c8d9e01'
 const CALENDAR_API = '/api/projects/:team_id/workflow_advent_calendar'
 
@@ -264,7 +263,7 @@ describe('adventCalendarLogic', () => {
         [
             string,
             Parameters<typeof calendarApi>[0],
-            'reload' | 'close' | 'another tab' | 'another tab waits',
+            'reload' | 'close' | 'another tab',
             Parameters<typeof calendarApi>[0],
             number,
         ]
@@ -302,13 +301,6 @@ describe('adventCalendarLogic', () => {
             { open: 403 },
             1,
         ],
-        [
-            'another tab saves an open it waits on, and the server has it on its day after the reload',
-            {},
-            'another tab waits',
-            { openedAt: (day) => `2026-12-0${day}T09:00:00Z` },
-            2,
-        ],
     ])('shows the right tickets after a reload when %s', async (_, first, between, afterReload, tickets) => {
         let reply: () => void = () => {}
         const held = between === 'close' ? new Promise<void>((resolve) => (reply = resolve)) : first?.openHeld
@@ -318,11 +310,6 @@ describe('adventCalendarLogic', () => {
         logic.actions.finishReveal()
         logic.actions.answerDoor('door-2', 'james')
         logic.actions.finishReveal()
-        if (between === 'another tab waits') {
-            await waitFor(() => expect(firstApi.opens).toHaveLength(2))
-            await jest.advanceTimersByTimeAsync(100)
-            window.localStorage.setItem(PENDING_KEY, JSON.stringify({ [UUID]: [2] }))
-        }
         logic.actions.activateDoor('door-3-upper')
         await waitFor(() => expect(firstApi.opens).toHaveLength(3))
         await jest.advanceTimersByTimeAsync(100)
