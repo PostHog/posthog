@@ -1,5 +1,7 @@
 from typing import Any, cast
 
+from unittest.mock import patch
+
 import requests
 from parameterized import parameterized
 
@@ -8,6 +10,7 @@ from products.warehouse_sources.sources.bigmailer.bigmailer import (
     AUTH_ERROR_MESSAGE,
     BigMailerAuthError,
     BigMailerResumeConfig,
+    BigMailerRssPageLimitError,
     validate_credentials,
 )
 from products.warehouse_sources.sources.bigmailer.source import BigMailerSource
@@ -147,6 +150,60 @@ class TestBrandFanOut:
             {"id": "update3", "brand_id": "b1", "rss_campaign_id": "rss3"},
             {"id": "update1", "brand_id": "b2", "rss_campaign_id": "rss0"},
         ]
+
+    def test_rss_campaign_listing_fails_at_page_limit(self) -> None:
+        with patch("products.warehouse_sources.sources.bigmailer.bigmailer.RSS_MAX_PAGES_PER_PARENT", 2):
+            result = _driver().run(
+                "rss_update_campaigns",
+                [
+                    _page([{"id": "b1"}]),
+                    _page([{"id": "rss1"}], has_more=True, cursor="campaigns-2"),
+                    _page([{"id": "update1"}]),
+                    _page([{"id": "rss2"}], has_more=True, cursor="campaigns-3"),
+                ],
+            )
+
+        assert isinstance(result.raised, BigMailerRssPageLimitError)
+        assert result.paths == [
+            "/v1/brands",
+            "/v1/brands/b1/rss-campaigns",
+            "/v1/brands/b1/rss-campaigns/rss1/updates",
+            "/v1/brands/b1/rss-campaigns",
+        ]
+        assert [row["id"] for row in result.rows] == ["update1"]
+
+    @parameterized.expand([("terminal", False), ("continuation", True)])
+    def test_rss_updates_page_limit_preserves_progress(self, _name: str, has_more: bool) -> None:
+        brands = _page([{"id": "b1"}])
+        campaigns = _page([{"id": "rss1"}, {"id": "rss2"}])
+        pages = [
+            brands,
+            campaigns,
+            _page([{"id": "update1"}], has_more=True, cursor="updates-2"),
+            _page([{"id": "update2"}], has_more=has_more, cursor="updates-3"),
+        ]
+        with patch("products.warehouse_sources.sources.bigmailer.bigmailer.RSS_MAX_PAGES_PER_PARENT", 2):
+            if not has_more:
+                result = _driver().run("rss_update_campaigns", [*pages, _page([{"id": "update3"}])])
+                assert result.raised is None
+                assert [row["id"] for row in result.rows] == ["update1", "update2", "update3"]
+                return
+
+            result = _driver().run("rss_update_campaigns", pages)
+            assert isinstance(result.raised, BigMailerRssPageLimitError)
+            assert len(result.requests) == 4
+            assert [row["id"] for row in result.rows] == ["update1"]
+            assert isinstance(result.final_state, BigMailerResumeConfig)
+
+            resumed = _driver().run(
+                "rss_update_campaigns",
+                [brands, campaigns, pages[-1], _page([{"id": "update3"}]), _page([{"id": "update4"}])],
+                resume_state=result.final_state,
+            )
+
+        assert resumed.raised is None
+        assert resumed.params("cursor") == [None, None, "updates-2", "updates-3", None]
+        assert [row["id"] for row in resumed.rows] == ["update2", "update3", "update4"]
 
     def test_resume_skips_completed_brands_and_resumes_cursor(self) -> None:
         # Resuming mid-fan-out must not re-request brands completed before the crash, and must start

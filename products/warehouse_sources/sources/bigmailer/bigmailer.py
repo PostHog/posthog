@@ -2,8 +2,9 @@ import dataclasses
 from collections.abc import Callable, Iterator
 from functools import partial
 from typing import Any, Optional, TypedDict
-from urllib.parse import quote
+from urllib.parse import quote, urlsplit
 
+import structlog
 from requests import Response
 from requests.exceptions import HTTPError
 
@@ -27,6 +28,9 @@ BIGMAILER_BASE_URL = "https://api.bigmailer.io/v1"
 # The API caps list responses at 100 objects per page; request the max to minimise round trips
 # against the 10 req/s account rate limit.
 PAGE_SIZE = 100
+RSS_MAX_PAGES_PER_PARENT = 1_000
+
+logger = structlog.get_logger(__name__)
 
 # Stable substring matched by BigMailerSource.get_non_retryable_errors to permanently fail the sync
 # on a credential problem instead of retrying. Kept identical to the raised exception text.
@@ -80,6 +84,30 @@ class BigMailerCursorPaginator(JSONResponseCursorPaginator):
             self._has_next_page = True
         else:
             self._has_next_page = False
+
+
+class BigMailerRssPageLimitError(Exception):
+    pass
+
+
+class BigMailerRssPaginator(BigMailerCursorPaginator):
+    def __init__(self, resource: str) -> None:
+        super().__init__()
+        self._resource = resource
+        self._page_count = 0
+
+    def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
+        super().update_state(response, data)
+        self._page_count += 1
+        if self.has_next_page and self._page_count >= RSS_MAX_PAGES_PER_PARENT:
+            parent_path = urlsplit(response.url).path.rpartition("/")[0]
+            logger.warning(
+                "bigmailer_rss_page_limit_reached",
+                resource=self._resource,
+                parent_path=parent_path,
+                max_pages=RSS_MAX_PAGES_PER_PARENT,
+            )
+            raise BigMailerRssPageLimitError(f"BigMailer {self._resource} exceeded the page limit for {parent_path}")
 
 
 def _client_config(api_key: str) -> ClientConfig:
@@ -259,6 +287,7 @@ def _brand_rss_updates_resource(
                     "path": parent.path,
                     "params": {"limit": PAGE_SIZE, "brand_id": brand_path_id},
                     "data_selector": "data",
+                    "paginator": BigMailerRssPaginator(parent.name),
                 },
             },
             {
@@ -271,6 +300,7 @@ def _brand_rss_updates_resource(
                         "parent_id": {"type": "resolve", "resource": parent.name, "field": "id"},
                     },
                     "data_selector": "data",
+                    "paginator": BigMailerRssPaginator(config.name),
                 },
                 "include_from_parent": ["id"],
                 "data_map": partial(_inject_rss_campaign_ids, brand_id),
@@ -332,6 +362,8 @@ def _rss_updates_pages(
             if brand_id in completed_brands:
                 continue
             initial_state = saved["campaign_state"] if saved and saved["active_brand"] == brand_id else None
+            save_checkpoint(initial_state, active_brand=brand_id)
+            manager.safe_point()
             yield from _brand_rss_updates_resource(
                 api_key,
                 config,
@@ -342,15 +374,10 @@ def _rss_updates_pages(
                 partial(save_checkpoint, active_brand=brand_id),
             )
             completed_brands.add(brand_id)
-            save_checkpoint()
-            manager.safe_point()
 
         saved = None
-        if next_brand_cursor is not None:
-            brand_cursor = next_brand_cursor
-            completed_brands.clear()
-            save_checkpoint()
-            manager.safe_point()
+        brand_cursor = next_brand_cursor
+        completed_brands.clear()
 
 
 def bigmailer_source(
