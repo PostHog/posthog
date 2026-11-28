@@ -44,7 +44,13 @@ from posthog.models import User
 from posthog.models.organization import OrganizationMembership
 from posthog.permissions import DenyMCPBuiltInAgentOAuth
 
-from ..agents import BUILT_IN_AGENTS, built_in_agent_handles, get_built_in_agent_spec, sync_built_in_agents
+from ..agents import (
+    BUILT_IN_AGENTS,
+    built_in_agent_handles,
+    eligible_credential_owners,
+    get_built_in_agent_spec,
+    sync_built_in_agents,
+)
 from ..gateway import installation_for_agent_access, installation_for_agent_grant, members_can_manage_agent_access
 from ..models import (
     AGENT_GRANT_SCOPE_CHOICES,
@@ -707,7 +713,11 @@ class MCPServiceAccountSerializer(serializers.ModelSerializer):
     @extend_schema_field(MCPServiceAccountServerSerializer(many=True))
     def get_servers(self, obj: MCPServiceAccount) -> list[dict[str, Any]]:
         servers: list[dict[str, Any]] = []
-        for access in obj.server_access.all():
+        accesses = obj.server_access.all()
+        eligible_owner_ids = eligible_credential_owners(
+            {access.user_id for access in accesses if access.user_id is not None}, obj.team_id
+        )
+        for access in accesses:
             server = access.gateway_server
             installation = installation_for_agent_access(access)
             connection_state = "ready"
@@ -733,7 +743,11 @@ class MCPServiceAccountSerializer(serializers.ModelSerializer):
                     "connection_state": connection_state,
                     # Mirrors the run path's grant and server checks so
                     # pickers can hide grants a run cannot mount.
-                    "reachable": (server.is_team_enabled and not getattr(access, "grant_owner_revoked", False)),
+                    "reachable": (
+                        server.is_team_enabled
+                        and access.user_id in eligible_owner_ids
+                        and not getattr(access, "grant_owner_revoked", False)
+                    ),
                 }
             )
         return servers

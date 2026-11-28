@@ -1952,6 +1952,31 @@ class TestMCPServiceAccountAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert mock_proxy.call_args.args[1].id == theirs.id
 
+    @patch("products.mcp_store.backend.presentation.agent_views.proxy_mcp_request")
+    def test_proxy_cost_does_not_grow_with_teammates_who_also_shared_the_server(self, mock_proxy) -> None:
+        mock_proxy.return_value = HttpResponse('{"jsonrpc": "2.0"}', content_type="application/json")
+        account = self._active_scout_account()
+        url = "https://mcp.many-shares.example.com/mcp"
+        server, _mine = self._server_granted_by(account, self.user, scope="team", url=url)
+        client = self._agent_client(account, create_gateway_agent_token(account, credential_owner_id=None))
+
+        def proxy_query_count() -> int:
+            with CaptureQueriesContext(connection) as queries:
+                response = client.post(
+                    f"/api/mcp_store/gateway/servers/{server.id}/proxy/?credential_owner={self.user.id}",
+                    data={"jsonrpc": "2.0", "method": "tools/list", "id": 1},
+                    format="json",
+                )
+            assert response.status_code == status.HTTP_200_OK
+            return len(queries)
+
+        alone = proxy_query_count()
+        for i in range(3):
+            teammate = User.objects.create_and_join(self.organization, f"many-shares-{i}@posthog.com", "password")
+            self._server_granted_by(account, teammate, scope="team", url=url)
+
+        assert proxy_query_count() <= alone
+
     def test_only_admin_can_update_member_agent_access_setting(self) -> None:
         self._make_member()
         config_url = f"/api/projects/{self.team.id}/mcp_gateway/config/"
@@ -2459,7 +2484,8 @@ class TestMCPServiceAccountAPI(APIBaseTest):
         assert revoked_catalog_response.status_code == status.HTTP_200_OK
         assert revoked_catalog_response.json()["results"] == []
 
-    def test_revoked_grant_owner_serializes_reachable_false_for_their_grant_only(self) -> None:
+    @parameterized.expand([("server_revoked",), ("deactivated",), ("removed_from_org",)])
+    def test_grant_owner_who_lost_access_serializes_reachable_false_for_their_grant_only(self, loss: str) -> None:
         account = self._active_scout_account()
         server = MCPGatewayServer.objects.for_team(self.team.id).create(
             team=self.team,
@@ -2476,12 +2502,18 @@ class TestMCPServiceAccountAPI(APIBaseTest):
                 scope="team",
                 granted_by=grant_user,
             )
-        MCPMemberServerRevocation.objects.for_team(self.team.id).create(
-            team=self.team,
-            gateway_server=server,
-            user=revoked_member,
-            revoked_by=self.user,
-        )
+        if loss == "server_revoked":
+            MCPMemberServerRevocation.objects.for_team(self.team.id).create(
+                team=self.team,
+                gateway_server=server,
+                user=revoked_member,
+                revoked_by=self.user,
+            )
+        elif loss == "deactivated":
+            revoked_member.is_active = False
+            revoked_member.save()
+        else:
+            OrganizationMembership.objects.filter(user=revoked_member, organization=self.organization).delete()
 
         response = self.client.get(self._api_url())
 

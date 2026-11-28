@@ -325,7 +325,7 @@ def _mounts_for_agent_run(
     rows = (
         MCPServiceAccountServerAccess.objects.for_team(team_id)
         .filter(service_account=agent_account)
-        .filter(reachable_agent_grants(team_id, credential_owner_id))
+        .filter(reachable_agent_grants(team_id, credential_owner_id, service_account_id=agent_account.id))
         .select_related(
             "gateway_server",
             "installation__template",
@@ -900,7 +900,7 @@ def resolve_agent_gateway_server_ids(
     reachable_server_ids = set(
         MCPServiceAccountServerAccess.objects.for_team(team_id)
         .filter(service_account=account, gateway_server__is_team_enabled=True)
-        .filter(reachable_agent_grants(team_id, credential_owner_id))
+        .filter(reachable_agent_grants(team_id, credential_owner_id, service_account_id=account.id))
         .values_list("gateway_server_id", flat=True)
     )
     reachable = {str(server_id) for server_id in reachable_server_ids}

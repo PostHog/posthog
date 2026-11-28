@@ -122,7 +122,9 @@ class MCPGatewayAgentViewSet(viewsets.ViewSet):
         return list(
             MCPServiceAccountServerAccess.objects.for_team(account.team_id)
             .filter(service_account=account, gateway_server__is_team_enabled=True)
-            .filter(reachable_agent_grants(account.team_id, principal.credential_owner_id))
+            .filter(
+                reachable_agent_grants(account.team_id, principal.credential_owner_id, service_account_id=account.id)
+            )
             .select_related("gateway_server__template", "installation", "user")
             .order_by("gateway_server__name", "created_at")
         )
@@ -222,17 +224,28 @@ class MCPGatewayAgentViewSet(viewsets.ViewSet):
         fallback, matching how the sandbox mounts them.
         """
         account = principal.account
-        candidates = (
-            MCPServiceAccountServerAccess.objects.for_team(account.team_id)
-            .filter(service_account=account, gateway_server_id=gateway_server_id)
-            .filter(reachable_agent_grants(account.team_id, principal.credential_owner_id))
-            .select_related("gateway_server", "installation")
-            .order_by("created_at", "id")
-        )
+        grant_owner_id = None
         if credential_owner_param:
             if not credential_owner_param.isdigit():
                 return None
-            return candidates.filter(user_id=int(credential_owner_param)).first()
+            grant_owner_id = int(credential_owner_param)
+        candidates = (
+            MCPServiceAccountServerAccess.objects.for_team(account.team_id)
+            .filter(service_account=account, gateway_server_id=gateway_server_id)
+            .filter(
+                reachable_agent_grants(
+                    account.team_id,
+                    principal.credential_owner_id,
+                    service_account_id=account.id,
+                    gateway_server_id=gateway_server_id,
+                    grant_owner_id=grant_owner_id,
+                )
+            )
+            .select_related("gateway_server", "installation")
+            .order_by("created_at", "id")
+        )
+        if grant_owner_id is not None:
+            return candidates.filter(user_id=grant_owner_id).first()
         rows = list(candidates)
         own = [row for row in rows if row.user_id == principal.credential_owner_id]
         return next(iter(own or rows), None)
