@@ -125,11 +125,27 @@ def _in_job_window(row: dict[str, Any], window: DateWindow) -> bool:
     return window.start <= created.date() <= window.end
 
 
+def _job_endpoint(window: DateWindow, params: dict[str, Any] | None) -> Endpoint:
+    # The API requires startDate < endDate. Filter the extra day out of single-day windows.
+    query_start = window.start if window.start < window.end else window.start - timedelta(days=1)
+    return _endpoint(
+        ENDPOINTS["jobs"],
+        {
+            **(params or {}),
+            "startDate": query_start.isoformat(),
+            "endDate": window.end.isoformat(),
+            "dateFilterType": "CreatedDate",
+        },
+        jobs=True,
+    )
+
+
 def _job_pages(
     client: ClientConfig,
     inputs: SourceInputs,
     manager: ResumableSourceManager[AcculynxResumeConfig] | None = None,
     *,
+    name: str = "jobs",
     params: dict[str, Any] | None = None,
 ) -> Iterator[list[dict[str, Any]]]:
     saved = manager.load_state() if manager and manager.can_resume() else None
@@ -144,27 +160,18 @@ def _job_pages(
             if manager:
                 manager.save_state(AcculynxResumeConfig(windows=[list(w) for w in pending], paginator_state=state))
 
-        # The API requires startDate < endDate. Filter the extra day out of single-day windows.
-        query_start = window.start if window.start < window.end else window.start - timedelta(days=1)
-        endpoint = _endpoint(
-            ENDPOINTS["jobs"],
-            {
-                **(params or {}),
-                "startDate": query_start.isoformat(),
-                "endDate": window.end.isoformat(),
-                "dateFilterType": "CreatedDate",
-            },
-            jobs=True,
-        )
-        config: RESTAPIConfig = {"client": client, "resources": [_resource("jobs", endpoint)]}
-        resource = rest_api_resource(
-            config,
-            inputs.team_id,
-            inputs.job_id,
-            None,
-            resume_hook=checkpoint,
-            initial_paginator_state=initial_state,
-        ).add_filter(partial(_in_job_window, window=window))
+        if name == "jobs":
+            config: RESTAPIConfig = {"client": client, "resources": [_resource("jobs", _job_endpoint(window, params))]}
+            resource = rest_api_resource(
+                config,
+                inputs.team_id,
+                inputs.job_id,
+                None,
+                resume_hook=checkpoint,
+                initial_paginator_state=initial_state,
+            ).add_filter(partial(_in_job_window, window=window))
+        else:
+            resource = _fanout_resource(name, client, inputs, {}, checkpoint, initial_state, job_window=window)
         try:
             yield from resource
         except JobWindowTooLarge:
@@ -209,6 +216,8 @@ def _fanout_resource(
     params: dict[str, Any],
     checkpoint: Callable[[dict[str, Any] | None], None],
     initial_state: dict[str, Any] | None,
+    *,
+    job_window: DateWindow | None = None,
 ) -> Resource:
     resources: list[str | EndpointResource] = []
     chain = _fanout_chain(name)
@@ -218,8 +227,11 @@ def _fanout_resource(
         config = PARENT_ENDPOINTS[level]
         fanout = config.fanout
         if fanout is None:
-            parent = _resource(level, _endpoint(config, root_child.parent_params))
-            if level == "jobs":
+            if job_window is not None:
+                parent = _resource(level, _job_endpoint(job_window, root_child.parent_params))
+            else:
+                parent = _resource(level, _endpoint(config, root_child.parent_params))
+            if level == "jobs" and job_window is None:
                 # Job date windows must also apply to the parent walk, or child tables hit the same offset cap.
                 parent["data_iterator"] = partial(_job_pages, client, inputs, params=root_child.parent_params)
             resources.append(parent)
@@ -243,6 +255,8 @@ def _fanout_resource(
         ]
         child = _resource(level, endpoint)
         child["include_from_parent"] = fanout.include_from_parent
+        if job_window is not None:
+            child["resume_parent_pagination"] = True
         resources.append(child)
     fanout = ENDPOINTS[name].fanout
     assert fanout is not None
@@ -254,7 +268,10 @@ def _fanout_resource(
         resume_hook=checkpoint,
         initial_paginator_state=initial_state,
     )
-    resource = next(r for r in built if r.name == name)
+    resources_by_name = {resource.name: resource for resource in built}
+    if job_window is not None:
+        resources_by_name["jobs"].add_filter(partial(_in_job_window, window=job_window))
+    resource = resources_by_name[name]
     resource.add_map(rename_parent_fields(fanout.parent_name, fanout.parent_field_renames))
     return resource.add_map(_payment_rows) if name == "payments" else resource
 
@@ -266,8 +283,8 @@ def _pages(
     manager: ResumableSourceManager[AcculynxResumeConfig],
     appointments: DateWindow,
 ) -> Iterator[list[dict[str, Any]]]:
-    if name == "jobs":
-        yield from _job_pages(client, inputs, manager)
+    if name in ("jobs", "lead_history"):
+        yield from _job_pages(client, inputs, manager, name=name)
         return
     saved = manager.load_state() if manager.can_resume() else None
     if saved and saved.finished:

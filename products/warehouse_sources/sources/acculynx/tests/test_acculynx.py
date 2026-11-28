@@ -84,7 +84,9 @@ def test_resume_stages_after_yield_and_replays_only_uncommitted_pages(
     assert list(pipeline("contacts").items()) == []
 
 
+@pytest.mark.parametrize("name", ["jobs", "lead_history"])
 def test_jobs_split_before_offset_cap_without_duplicate_boundary_rows(
+    name: str,
     pipeline: Callable[..., SyncSourceResponse],
     manager: ResumableSourceManager[AcculynxResumeConfig],
     http_send: MagicMock,
@@ -97,8 +99,12 @@ def test_jobs_split_before_offset_cap_without_duplicate_boundary_rows(
 
     def send(request: PreparedRequest, **_: Any) -> Response:
         nonlocal attempts
+        url = urlsplit(request.url or "")
+        if url.path.startswith("/api/v2/leads/"):
+            lead_id = url.path.split("/")[-2]
+            return response(request, {"items": [{"date": lead_id + "T12:00:00Z", "action": "Lead was created."}]})
         attempts += 1
-        params = parse_qs(urlsplit(request.url or "").query)
+        params = parse_qs(url.query)
         assert params["sortBy"] == ["CreatedDate"]
         assert params["sortOrder"] == ["Ascending"]
         assert params["dateFilterType"] == ["CreatedDate"]
@@ -112,8 +118,15 @@ def test_jobs_split_before_offset_cap_without_duplicate_boundary_rows(
         return response(request, {"count": len(items), "pageSize": 25, "pageStartIndex": 0, "items": items})
 
     http_send.side_effect = send
-    rows = [row for page in pipeline("jobs").items() for row in page]
-    assert [row["id"] for row in rows] == ["2025-01-01", "2025-01-02"]
+    rows = [row for page in pipeline(name).items() for row in page]
+    id_field = "id" if name == "jobs" else "lead_id"
+    assert [row[id_field] for row in rows] == ["2025-01-01", "2025-01-02"]
+    if name == "lead_history":
+        assert [urlsplit(call.args[0].url).path for call in http_send.call_args_list[2:]] == [
+            "/api/v2/leads/2025-01-01/history",
+            "/api/v2/jobs",
+            "/api/v2/leads/2025-01-02/history",
+        ]
     assert attempts == 3
 
 
@@ -366,6 +379,53 @@ def test_type_lookups_use_the_vendor_collection_and_pagination(
     assert queries == (
         [{"pageSize": ["25"], "pageStartIndex": [str(offset)]} for offset in range(2)] if paginated else [{}]
     )
+
+
+def test_lead_history_resumes_from_bounded_parent_checkpoint(
+    pipeline: Callable[..., SyncSourceResponse],
+    manager: ResumableSourceManager[AcculynxResumeConfig],
+    http_send: MagicMock,
+    response: Callable[..., Response],
+) -> None:
+    parent_offsets: list[int] = []
+    child_ids: list[str] = []
+    action = {"date": "2025-01-02T00:00:00Z", "action": "Lead was created."}
+
+    def send(request: PreparedRequest, **_: Any) -> Response:
+        url = urlsplit(request.url or "")
+        if url.path == "/api/v2/jobs":
+            offset = int(parse_qs(url.query)["recordStartIndex"][0])
+            parent_offsets.append(offset)
+            return response(
+                request,
+                {
+                    "count": 6,
+                    "pageSize": 1,
+                    "pageStartIndex": offset,
+                    "items": [{"id": f"lead-{offset}", "createdDate": action["date"]}],
+                },
+            )
+        child_ids.append(url.path.split("/")[-2])
+        return response(request, {"items": [action]})
+
+    http_send.side_effect = send
+    pages = pipeline("lead_history").items()
+    for offset in range(5):
+        assert next(pages) == [{**action, "lead_id": f"lead-{offset}"}]
+    manager.confirm()
+    manager.commit()
+    pages.close()
+
+    saved = manager.load_state()
+    assert saved is not None and saved.paginator_state is not None
+    assert saved.paginator_state["parent"] == {"offset": 2}
+    assert len(saved.paginator_state["completed"]) == 2
+
+    parent_offsets.clear()
+    child_ids.clear()
+    assert list(pipeline("lead_history").items()) == [[{**action, "lead_id": f"lead-{offset}"}] for offset in (4, 5)]
+    assert parent_offsets == [2, 3, 4, 5]
+    assert child_ids == ["lead-4", "lead-5"]
 
 
 def test_lead_history_filters_parent_jobs_and_keeps_lead_ids(
