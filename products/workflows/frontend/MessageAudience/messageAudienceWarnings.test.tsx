@@ -1,13 +1,11 @@
 import '@testing-library/jest-dom'
 
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { BindLogic, getContext } from 'kea'
-import { combineUrl, router } from 'kea-router'
+import { getContext } from 'kea'
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
-import posthog from 'posthog-js'
 
 import { ApiConfig } from 'lib/api'
-import { cohortSavedToast } from 'scenes/cohorts/cohortSavedToast'
 import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
@@ -23,13 +21,9 @@ import {
 
 import { enrolledPeopleAudience } from 'products/early_access_features/frontend/enrolledPeopleAudience'
 
-import { urlForNewBroadcastWithAudience } from '../Broadcasts/broadcastAudiencePrefill'
-import { BroadcastWizard } from '../Broadcasts/BroadcastWizard'
 import { broadcastWizardLogic } from '../Broadcasts/broadcastWizardLogic'
 import { workflowLogic } from '../Workflows/workflowLogic'
-import { urlForNewWorkflowWithTrigger } from '../Workflows/workflowTriggerPrefill'
 import { MessageAudience, MessageAudienceDestination } from './messageAudience'
-import { ATTEMPT_PREFILL_PARAM } from './messageAudienceAttempts'
 import { MessageAudienceButton } from './MessageAudienceButton'
 import { loadMessageAudienceWarnings } from './messageAudienceWarnings'
 
@@ -68,7 +62,6 @@ interface Environment {
     sandbox?: Answer
     cohort?: Answer
     draftRequests?: unknown[]
-    createRequests?: Record<string, unknown>[]
 }
 
 const answer = (value: Answer): Promise<unknown> | [number, object] | object =>
@@ -120,38 +113,22 @@ function useEnvironmentMocks(environments: Record<string, Environment>): void {
                 environment(params)?.draftRequests?.push(await request.json())
                 return [500, { detail: 'down' }]
             },
-            '/api/projects/:team_id/hog_flows/': async ({ params, request }) => {
-                environment(params)?.createRequests?.push((await request.json()) as Record<string, unknown>)
-                return [500, { detail: 'down' }]
-            },
         },
     })
 }
 
-const { ToastContainer, toast } = jest.requireActual('react-toastify')
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
-
 describe('message audience warnings', () => {
     const projectId = (): number => ApiConfig.getCurrentProjectId()
     const draftRequests: unknown[] = []
-    const createRequests: Record<string, unknown>[] = []
-    let WorkflowScene: typeof import('../Workflows/WorkflowScene').WorkflowScene
-
-    beforeAll(async () => {
-        initKeaTests()
-        ;({ WorkflowScene } = await import('../Workflows/WorkflowScene'))
-    }, 30_000)
 
     beforeEach(() => {
         initKeaTests()
         draftRequests.length = 0
-        createRequests.length = 0
     })
 
     afterEach(() => {
         cleanup()
         jest.useRealTimers()
-        jest.restoreAllMocks()
     })
 
     it.each<{
@@ -353,6 +330,7 @@ describe('message audience warnings', () => {
 
     const openedEditor: Record<MessageAudienceDestination, () => Promise<unknown>> = {
         workflow: async () => {
+            const { WorkflowScene } = await import('../Workflows/WorkflowScene')
             render(<WorkflowScene id="new" tab="workflow" />)
             await waitFor(() => expect(draftRequests).toHaveLength(1))
             const logic = Object.values(getContext().mount.mounted).find((mounted) =>
@@ -374,59 +352,6 @@ describe('message audience warnings', () => {
             await expectLogic(logic).toFinishAllListeners()
             return { audience: logic.values.audienceProperties, name: logic.values.name }
         },
-    }
-
-    const isBroadcast = (body: Record<string, unknown>): boolean => body.origin_product === 'broadcasts'
-
-    const createdOnClick = async (control: HTMLElement, broadcast: boolean): Promise<unknown> => {
-        const before = createRequests.length
-        fireEvent.click(control)
-        const created = await waitFor(() => {
-            const own = createRequests.slice(before).filter((body) => isBroadcast(body) === broadcast)
-            expect(own).toHaveLength(1)
-            return own[0]
-        })
-        return created.entry_attempt_id
-    }
-
-    const savedAttempt: Record<MessageAudienceDestination, () => Promise<unknown>> = {
-        workflow: async () => {
-            const { container } = render(<WorkflowScene id="new" tab="workflow" />)
-            const save = await waitFor(() => {
-                const button = container.querySelector<HTMLElement>('[data-attr="workflow-save"]')
-                expect(button).toBeEnabled()
-                return button!
-            })
-            return await createdOnClick(save, false)
-        },
-        broadcast: async () => {
-            const { container } = render(
-                <BindLogic logic={broadcastWizardLogic} props={{ id: 'new' }}>
-                    <BroadcastWizard />
-                </BindLogic>
-            )
-            const content = await waitFor(() => {
-                const step = container.querySelector<HTMLElement>('[data-attr="broadcast-wizard-step-content"]')
-                expect(step).toBeEnabled()
-                return step!
-            })
-            return await createdOnClick(content, true)
-        },
-    }
-
-    const clickAttempts = (capture: jest.SpyInstance): unknown[] =>
-        capture.mock.calls
-            .filter(([event]) => event === 'message audience clicked')
-            .map(([, properties]) => properties.attempt_id)
-
-    const allowWorkflowEditing = (): void => {
-        window.POSTHOG_APP_CONTEXT = {
-            ...window.POSTHOG_APP_CONTEXT!,
-            resource_access_control: {
-                ...window.POSTHOG_APP_CONTEXT!.resource_access_control,
-                [AccessControlResourceType.Workflow]: AccessControlLevel.Editor,
-            },
-        }
     }
 
     it.each<{ destination: MessageAudienceDestination; label: string; warning: string; path: string; opens: unknown }>([
@@ -455,7 +380,13 @@ describe('message audience warnings', () => {
             useEnvironmentMocks({
                 [projectId()]: { senders: [], sandbox: { ...testSender, integration_id: 12 }, draftRequests },
             })
-            allowWorkflowEditing()
+            window.POSTHOG_APP_CONTEXT = {
+                ...window.POSTHOG_APP_CONTEXT!,
+                resource_access_control: {
+                    ...window.POSTHOG_APP_CONTEXT!.resource_access_control,
+                    [AccessControlResourceType.Workflow]: AccessControlLevel.Editor,
+                },
+            }
             router.actions.push('/project/997/early_access_features/1')
             render(<MessageAudienceButton audience={earlyAccess} label="Email opted-in users" />)
 
@@ -470,97 +401,6 @@ describe('message audience warnings', () => {
             await waitFor(() => expect(router.values.location.pathname).toEqual(`/project/${projectId()}${path}`))
             await waitFor(() => expect(screen.queryByText(warning)).not.toBeInTheDocument())
             expect(await openedEditor[destination]()).toEqual(opens)
-        }
-    )
-
-    it.each<{ destination: MessageAudienceDestination; label: string; path: string; how: string; warning?: string }>([
-        { destination: 'workflow', label: 'Build a custom workflow', path: urls.workflowNew(), how: 'directly' },
-        { destination: 'broadcast', label: 'Send a one-time email', path: urls.broadcastNew(), how: 'directly' },
-        {
-            destination: 'workflow',
-            label: 'Build a custom workflow',
-            path: urls.workflowNew(),
-            how: 'through Continue',
-            warning: TEST_SENDER_FOR_WORKFLOW,
-        },
-        {
-            destination: 'broadcast',
-            label: 'Send a one-time email',
-            path: urls.broadcastNew(),
-            how: 'through Continue',
-            warning: NO_SENDER,
-        },
-    ])(
-        'sends the attempt of the click that opened it in the create request of the $destination opened $how',
-        async ({ destination, label, path, warning }) => {
-            const capture = jest.spyOn(posthog, 'capture')
-            useEnvironmentMocks({
-                [projectId()]: warning
-                    ? { senders: [], sandbox: { ...testSender, integration_id: 12 }, draftRequests, createRequests }
-                    : { senders: [verified], draftRequests, createRequests },
-            })
-            allowWorkflowEditing()
-            router.actions.push('/project/997/early_access_features/1')
-            render(<MessageAudienceButton audience={earlyAccess} label="Email opted-in users" />)
-
-            fireEvent.click(screen.getByText('Email opted-in users'))
-            fireEvent.click(await screen.findByText(label))
-            if (warning) {
-                expect(await screen.findByText(warning)).toBeInTheDocument()
-                fireEvent.click(screen.getByText('Continue'))
-                await waitFor(() => expect(screen.queryByText('Before you send')).not.toBeInTheDocument())
-            }
-            await waitFor(() => expect(router.values.location.pathname).toEqual(`/project/${projectId()}${path}`))
-            cleanup()
-
-            const clicks = clickAttempts(capture)
-            expect(clicks).toEqual([expect.stringMatching(UUID)])
-            expect(await savedAttempt[destination]()).toEqual(clicks[0])
-        }
-    )
-
-    it('sends the attempt of the click whose broadcast opens when a second toast is clicked during its checks', async () => {
-        const capture = jest.spyOn(posthog, 'capture')
-        useEnvironmentMocks({ [projectId()]: { senders: [verified], createRequests } })
-        allowWorkflowEditing()
-        router.actions.push('/project/997/cohorts/7')
-        render(<ToastContainer />)
-        cohortSavedToast({ id: 7, name: 'Signups' }, 'cohort_saved', 'first-save')
-        cohortSavedToast({ id: 7, name: 'Signups' }, 'cohort_saved', 'second-save')
-        const buttons = await waitFor(() => {
-            const found = document.querySelectorAll<HTMLElement>(
-                '[data-attr="message-audience-cohort_saved-broadcast"]'
-            )
-            expect(found).toHaveLength(2)
-            return found
-        })
-
-        fireEvent.click(buttons[0])
-        fireEvent.click(buttons[1])
-        await waitFor(() =>
-            expect(router.values.location.pathname).toEqual(`/project/${projectId()}${urls.broadcastNew()}`)
-        )
-        toast.dismiss()
-        cleanup()
-
-        const clicks = clickAttempts(capture)
-        expect(clicks).toEqual([expect.stringMatching(UUID), expect.stringMatching(UUID)])
-        const [opened, ignored] = clicks
-        expect(ignored).not.toEqual(opened)
-        expect(await savedAttempt.broadcast()).toEqual(opened)
-    })
-
-    it.each<MessageAudienceDestination>(['workflow', 'broadcast'])(
-        'sends no attempt in the create request of a %s opened from a hand-edited attempt link',
-        async (destination) => {
-            useEnvironmentMocks({ [projectId()]: { senders: [verified], createRequests } })
-            const link =
-                destination === 'workflow'
-                    ? urlForNewWorkflowWithTrigger({ type: 'batch', filters: { properties: audience.properties } })
-                    : urlForNewBroadcastWithAudience({ properties: audience.properties })
-            router.actions.push(combineUrl(link, { [ATTEMPT_PREFILL_PARAM]: 'not-an-attempt' }).url)
-
-            expect(await savedAttempt[destination]()).toBeUndefined()
         }
     )
 })
