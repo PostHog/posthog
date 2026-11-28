@@ -57,7 +57,6 @@ from products.metrics.backend.facade.contracts import (
     MetricQueryProvenance as MetricQueryProvenanceContract,
     MetricQueryRequest,
     MetricQueryResult,
-    MetricQueryShadowCheck,
     MetricSeries,
 )
 from products.metrics.backend.facade.enums import (
@@ -117,7 +116,7 @@ class MetricsQueryRunner(TailRefreshMixin, AnalyticsQueryRunner[MetricsQueryResp
     _loaded_variables: dict[str, Variable] | None = None
     _tile_dashboard_id: int | None = None
     _provenance: MetricQueryProvenanceContract | None = None
-    _shadow: MetricQueryShadowCheck | None = None
+    _shadow_scheduled = False
 
     def validate_query_runner_access(self, user: "User") -> bool:
         user_access_control = UserAccessControl(user=user, team=self.team)
@@ -402,7 +401,7 @@ class MetricsQueryRunner(TailRefreshMixin, AnalyticsQueryRunner[MetricsQueryResp
         return self._keep_precompute(result)
 
     def _keep_precompute(self, result: MetricQueryResult) -> list[MetricSeries]:
-        self._provenance, self._shadow = result.provenance, result.shadow
+        self._provenance, self._shadow_scheduled = result.provenance, result.shadow_scheduled
         return result.series
 
     def _query_executed_event_properties(self) -> dict[str, Any]:
@@ -410,9 +409,8 @@ class MetricsQueryRunner(TailRefreshMixin, AnalyticsQueryRunner[MetricsQueryResp
             return {}
         return {
             "precompute_provenance": _EVENT_PROVENANCE[self._provenance.mode],
-            "precompute_shadow_checked": self._shadow is not None,
-            "precompute_shadow_max_rel_diff": self._shadow.max_relative_difference if self._shadow else None,
-            "precompute_shadow_mismatched_points": self._shadow.mismatched_points if self._shadow else None,
+            # A sampled run queues its shadow check. The result comes on a `metrics precompute shadow checked` event.
+            "precompute_shadow_checked": self._shadow_scheduled,
         }
 
     @cached_property

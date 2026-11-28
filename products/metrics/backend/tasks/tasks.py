@@ -14,6 +14,7 @@ from posthog.models.scoping import with_team_scope
 from posthog.tasks.utils import CeleryQueue
 
 from products.metrics.backend.facade import api
+from products.metrics.backend.precompute.shadow import SHADOW_CHECK_QUEUE, SHADOW_CHECK_TASK
 
 FINALIZE_SOFT_TIME_LIMIT_SECONDS = 5 * 60
 HARD_TIME_LIMIT_GRACE_SECONDS = 60
@@ -66,3 +67,19 @@ def schedule_metrics_precompute_fills() -> None:
 def fill_metrics_precomputed_metrics(team_id: int) -> None:
     with tags_context(product=Product.METRICS, feature=Feature.QUERY, team_id=team_id):
         api.fill_precomputed_metrics(team_id=team_id)
+
+
+SHADOW_SOFT_TIME_LIMIT_SECONDS = 2 * 60
+
+
+@shared_task(
+    name=SHADOW_CHECK_TASK,
+    ignore_result=True,
+    queue=SHADOW_CHECK_QUEUE,
+    soft_time_limit=SHADOW_SOFT_TIME_LIMIT_SECONDS,
+    time_limit=SHADOW_SOFT_TIME_LIMIT_SECONDS + HARD_TIME_LIMIT_GRACE_SECONDS,
+)
+@with_team_scope()
+def check_precomputed_shadow(team_id: int, kind: str, payload: dict) -> None:
+    with tags_context(product=Product.METRICS, feature=Feature.QUERY, team_id=team_id):
+        api.run_shadow_check(team_id=team_id, kind=kind, payload=payload)

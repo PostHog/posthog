@@ -261,7 +261,8 @@ class MetricQueryShadowCheck:
 class MetricQueryResult:
     series: list[MetricSeries]
     provenance: MetricQueryProvenance
-    shadow: MetricQueryShadowCheck | None = None
+    # A shadow check of this answer was queued. Its result is reported when the check finishes, not here.
+    shadow_scheduled: bool = False
 
 
 @dataclass(frozen=True, slots=True)
