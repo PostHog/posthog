@@ -31504,7 +31504,7 @@ export namespace Schemas {
     } as const;
 
     export interface CohortRealtimeReadiness {
-      /** Whether feature flags can target this cohort now. `ready`: they can, and they see membership changes within about a minute. `building` / `rebuilding`: PostHog is preparing the cohort from past events, and flags cannot target it yet. `needs_attention`: the cohort qualifies but nothing is preparing it. `off`: the cohort qualifies and realtime is off for it, so feature flags cannot target it until it is turned on. When `reason` is set, it can't be turned on, and `reason` says why. `daily`: the cohort can't be realtime, so its membership only comes from the once-a-day calculation. See `reason`. `person_properties`: it matches on person properties, which flags read directly, so they can always target it. `static`: it is a fixed list of people.
+      /** Whether feature flags can target this cohort now. `ready`: they can, and they see membership changes within about a minute. `building` / `rebuilding`: PostHog is preparing the cohort from past events, and flags cannot target it yet. `needs_attention`: the cohort qualifies but nothing is preparing it. `off`: the cohort qualifies and real-time is off for it, so feature flags cannot target it until it is turned on. When `reason` is set, it can't be turned on, and `reason` says why. `daily`: the cohort can't be real-time, so its membership only comes from the once-a-day calculation. See `reason`. `person_properties`: it matches on person properties, which flags read directly, so they can always target it. `static`: it is a fixed list of people.
        *
        * * `static` - Static
        * * `person_properties` - Person properties
@@ -31522,7 +31522,7 @@ export namespace Schemas {
       ready_at: string | null;
       /** The build preparing the cohort. Null unless the state is `building` or `rebuilding`. */
       build: CohortHistoryBuild | null;
-      /** Why feature flags can't target the cohort. On a `daily` cohort, the first of these that keeps it off realtime: `unsupported_criteria`, one of its criteria can't be matched in realtime, such as a sequence of events or a lifecycle criterion. `action_criteria`, one of its criteria matches on an action. `includes_non_realtime_cohort`, it includes a cohort that was not realtime when it was last saved. `history_over_limit`, its criteria look back further than realtime cohorts can. `members_over_limit`, it matches more people than a realtime cohort can hold. `test_account_filter`, it filters out internal and test users. On an `off` cohort, the first of these that keeps it from being turned on: `unsupported_time_range`, one of its event criteria uses a time range realtime cohorts don't support. `history_over_limit`, its criteria look back further than the project's plan allows. On a `needs_attention` cohort, why nothing can prepare it: `too_large_to_build`, the events in its criteria happen too often for PostHog to prepare it automatically. `unsupported_time_range`, one of its event criteria uses a time range realtime cohorts don't support, so PostHog can't prepare it. Null in every other case, including a `daily` cohort whose stored criteria don't show why.
+      /** Why feature flags can't target the cohort. On a `daily` cohort, the first of these that keeps it off real-time: `unsupported_criteria`, one of its criteria can't be matched in real time, such as a sequence of events or a lifecycle criterion. `action_criteria`, one of its criteria matches on an action. `includes_non_realtime_cohort`, it includes a cohort that was not real-time when it was last saved. `history_over_limit`, its criteria look back further than real-time cohorts can. `members_over_limit`, it matches more people than a real-time cohort can hold. `test_account_filter`, it filters out internal and test users. On an `off` cohort, the first of these that keeps it from being turned on: `unsupported_time_range`, one of its event criteria uses a time range real-time cohorts don't support. `history_over_limit`, its criteria look back further than the project's plan allows. On a `needs_attention` cohort, why nothing can prepare it: `too_large_to_build`, the events in its criteria happen too often for PostHog to prepare it automatically. `unsupported_time_range`, one of its event criteria uses a time range real-time cohorts don't support, so PostHog can't prepare it. Null in every other case, including a `daily` cohort whose stored criteria don't show why.
        *
        * * `history_over_limit` - History over limit
        * * `too_large_to_build` - Too large to build
@@ -31534,7 +31534,7 @@ export namespace Schemas {
        * * `unsupported_time_range` - Unsupported time range */
       reason: CohortRealtimeUnavailableReasonEnum | null;
       /**
-         * The most days realtime cohort criteria can look back on the project's plan. Null unless the reason is `history_over_limit`.
+         * The most days real-time cohort criteria can look back on the project's plan. Null unless the reason is `history_over_limit`.
          * @nullable
          */
       history_limit_days: number | null;
@@ -31591,9 +31591,9 @@ export namespace Schemas {
       cohort_type?: CohortTypeEnum | BlankEnum | null;
       /** Flags describing which kinds of conditions the cohort's filters contain. Null when the cohort has no filters to classify. */
       readonly condition_type: CohortConditionTypeFlags | null;
-      /** Whether feature flags can target this cohort, and the progress of the build that gets it there. Null outside the realtime cohort flag targeting rollout, on projects the realtime pipeline does not cover, and for cohorts that match on neither events nor person properties, which nothing in the flag API decides on. */
+      /** Whether feature flags can target this cohort, and the progress of the build that gets it there. Null outside the real-time cohort flag targeting rollout, on projects the realtime pipeline does not cover, and for cohorts that match on neither events nor person properties, which nothing in the flag API decides on. */
       readonly realtime: CohortRealtimeReadiness | null;
-      /** Whether realtime is on for this cohort, so PostHog keeps its membership current for feature flags and workflows. Send true when you create a cohort to turn realtime on for it. It stays false when the project has no realtime cohorts or the cohort's criteria can't be realtime. For an existing cohort, use the `realtime` endpoint to turn it on or off. */
+      /** Whether real-time is on for this cohort, so PostHog keeps its membership current for feature flags and workflows. Send true when you create a cohort to turn real-time on for it. It stays false when the project has no real-time cohorts or the cohort's criteria can't be real-time. For an existing cohort, use the `realtime` endpoint to turn it on or off. */
       realtime_enabled?: boolean;
       readonly experiment_set: readonly number[];
       /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match, returned only when no exact match exists). Null when the list is not filtered by `search`. */
@@ -31792,7 +31792,7 @@ export namespace Schemas {
     }
 
     export interface CohortRealtimeRequest {
-      /** True turns realtime on for the cohort and for every realtime cohort it includes as criteria, and starts preparing them from past events. PostHog refuses that when the project's plan allows no more cohorts with realtime on, or when the criteria look back further than the plan allows. True for a cohort that is already on, and that nothing is preparing, asks PostHog to prepare it again. False turns realtime off. PostHog refuses that while a feature flag, an active workflow, or another cohort with realtime on reads the cohort. */
+      /** True turns real-time on for the cohort and for every real-time cohort it includes as criteria, and starts preparing them from past events. PostHog refuses that when the project's plan allows no more cohorts with real-time on, or when the criteria look back further than the plan allows. True for a cohort that is already on, and that nothing is preparing, asks PostHog to prepare it again. False turns real-time off. PostHog refuses that while a feature flag, an active workflow, or another cohort with real-time on reads the cohort. */
       enabled: boolean;
     }
 
@@ -36178,7 +36178,7 @@ export namespace Schemas {
       name: string;
       /** The segment's type: `dynamic`, or `static` for a hand-made list. */
       type: string;
-      /** The segment's rules: the `conditions` object from `GET /v1/environments/{environment_id}/segments/{segment_id}`. Never its members. With rules, a real import turns a dynamic segment the automations check into a realtime cohort when every rule has an exact cohort condition, and uses that cohort. */
+      /** The segment's rules: the `conditions` object from `GET /v1/environments/{environment_id}/segments/{segment_id}`. Never its members. With rules, a real import turns a dynamic segment the automations check into a real-time cohort when every rule has an exact cohort condition, and uses that cohort. */
       conditions?: unknown;
     }
 
@@ -57315,7 +57315,7 @@ export namespace Schemas {
       /** The reason for the evaluation result */
       reason: string;
       /**
-         * Human-readable explanation of the evaluation result. Set when the reason code is coarse, for example a non-match decided by a behavioral or realtime cohort whose membership is not fully evaluated here, which can disagree with the cohort's member list.
+         * Human-readable explanation of the evaluation result. Set when the reason code is coarse, for example a non-match decided by a behavioral or real-time cohort whose membership is not fully evaluated here, which can disagree with the cohort's member list.
          * @nullable
          */
       reason_description?: string | null;
@@ -93365,9 +93365,9 @@ export namespace Schemas {
       cohort_type?: CohortTypeEnum | BlankEnum | null;
       /** Flags describing which kinds of conditions the cohort's filters contain. Null when the cohort has no filters to classify. */
       readonly condition_type?: CohortConditionTypeFlags | null;
-      /** Whether feature flags can target this cohort, and the progress of the build that gets it there. Null outside the realtime cohort flag targeting rollout, on projects the realtime pipeline does not cover, and for cohorts that match on neither events nor person properties, which nothing in the flag API decides on. */
+      /** Whether feature flags can target this cohort, and the progress of the build that gets it there. Null outside the real-time cohort flag targeting rollout, on projects the realtime pipeline does not cover, and for cohorts that match on neither events nor person properties, which nothing in the flag API decides on. */
       readonly realtime?: CohortRealtimeReadiness | null;
-      /** Whether realtime is on for this cohort, so PostHog keeps its membership current for feature flags and workflows. Send true when you create a cohort to turn realtime on for it. It stays false when the project has no realtime cohorts or the cohort's criteria can't be realtime. For an existing cohort, use the `realtime` endpoint to turn it on or off. */
+      /** Whether real-time is on for this cohort, so PostHog keeps its membership current for feature flags and workflows. Send true when you create a cohort to turn real-time on for it. It stays false when the project has no real-time cohorts or the cohort's criteria can't be real-time. For an existing cohort, use the `realtime` endpoint to turn it on or off. */
       realtime_enabled?: boolean;
       readonly experiment_set?: readonly number[];
       /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match, returned only when no exact match exists). Null when the list is not filtered by `search`. */
@@ -98723,18 +98723,18 @@ export namespace Schemas {
     } as const;
 
     export interface TeamRealtimeCohorts {
-      /** `serving` when the request's user sees realtime cohorts in this project: whether feature flags can target each cohort, and the control to turn realtime on and off for it. `off` otherwise.
+      /** `serving` when the request's user sees real-time cohorts in this project: whether feature flags can target each cohort, and the control to turn real-time on and off for it. `off` otherwise.
        *
        * * `off` - Off
        * * `serving` - Serving */
       access: RealtimeCohortsAccessEnum;
       /**
-         * How many cohorts in this project have realtime on. Null when `access` is `off`.
+         * How many cohorts in this project have real-time on. Null when `access` is `off`.
          * @nullable
          */
       cohorts_used: number | null;
       /**
-         * How many cohorts in this project the plan allows to have realtime on. Null when `access` is `off`, or when the plan sets no limit.
+         * How many cohorts in this project the plan allows to have real-time on. Null when `access` is `off`, or when the plan sets no limit.
          * @nullable
          */
       max_cohorts: number | null;
@@ -99743,7 +99743,7 @@ export namespace Schemas {
          */
       readonly user_access_level?: string | null;
       readonly managed_viewsets?: PatchedProjectBackwardCompatManagedViewsets;
-      /** Realtime cohorts as the request's user sees them in this project. */
+      /** Real-time cohorts as the request's user sees them in this project. */
       readonly realtime_cohorts?: TeamRealtimeCohorts;
       /** Error tracking AI features available to this project. Its error tracking settings show a switch for each one. Empty when the project has none. */
       readonly available_error_tracking_ai_features?: readonly ErrorTrackingAIFeatureEnum[];
@@ -106339,7 +106339,7 @@ export namespace Schemas {
          */
       readonly user_access_level: string | null;
       readonly managed_viewsets: ProjectBackwardCompatManagedViewsets;
-      /** Realtime cohorts as the request's user sees them in this project. */
+      /** Real-time cohorts as the request's user sees them in this project. */
       readonly realtime_cohorts: TeamRealtimeCohorts;
       /** Error tracking AI features available to this project. Its error tracking settings show a switch for each one. Empty when the project has none. */
       readonly available_error_tracking_ai_features: readonly ErrorTrackingAIFeatureEnum[];
@@ -112939,7 +112939,7 @@ export namespace Schemas {
     } as const;
 
     export interface RealtimeCohortsJoinState {
-      /** Where this project stands in joining the realtime cohorts beta. `serving`: the project has realtime cohorts. `setting_up`: a join is in progress. `available`: a POST to `join` starts one. `not_open`: this region takes no new projects. `refused`: the project cannot join by itself, and support can turn realtime cohorts on for it. `failed`: the last join did not finish, and a join an hour later tries again.
+      /** Where this project stands in joining the real-time cohorts beta. `serving`: the project has real-time cohorts. `setting_up`: a join is in progress. `available`: a POST to `join` starts one. `not_open`: this region takes no new projects. `refused`: the project cannot join by itself, and support can turn real-time cohorts on for it. `failed`: the last join did not finish, and a join an hour later tries again.
        *
        * * `serving` - Serving
        * * `setting_up` - Setting up
@@ -125769,7 +125769,7 @@ export namespace Schemas {
     }
 
     export interface StaffFlagEvaluationsModeMutation {
-      /** Target flag_evaluations mode. 0 reads events. 1 reads flag_evaluations for the flag Usage tab, the per-project counts on a flag's Projects tab, events lists filtered to only $feature_flag_called, such as the Activity page, and the flag call and experiment enrollment counts on the home page. On 1, a HogQL query, such as an insight, also reads flag_evaluations when it pins $feature_flag_called and $feature_flag to string keys, and its date range starts within the table's coverage. Other queries, including default experiment exposures, read events. 1 also hides $feature_flag_called from event pickers, and refuses a new action step on it and a new cohort criterion on it that the batch calculation would read from events. 2 also stops ingestion writing $feature_flag_called to events for the teams it copies to flag_evaluations, which on PostHog Cloud is every team outside INGESTION_FLAG_EVALUATIONS_EXCLUDED_TEAMS, unless the organization keeps writing flag calls to events. With that kept, every reader behaves as described here, and FLAG_EVALUATIONS_READS_FORCE_EVENTS moves the organization back to events. The events copy starts when that takes effect and holds no earlier calls, so a read that moves back to events misses the calls only flag_evaluations holds. On 2, a HogQL query reads flag_evaluations for any date range and fails when it can't, a query that mixes flag calls with other events reads both tables, realtime cohorts refuse new flag-call criteria, and flags keep no last called time unless it syncs from flag_evaluations. On PostHog Cloud the table is available in SQL on every mode. Self-hosted, it is available on 1 and 2.
+      /** Target flag_evaluations mode. 0 reads events. 1 reads flag_evaluations for the flag Usage tab, the per-project counts on a flag's Projects tab, events lists filtered to only $feature_flag_called, such as the Activity page, and the flag call and experiment enrollment counts on the home page. On 1, a HogQL query, such as an insight, also reads flag_evaluations when it pins $feature_flag_called and $feature_flag to string keys, and its date range starts within the table's coverage. Other queries, including default experiment exposures, read events. 1 also hides $feature_flag_called from event pickers, and refuses a new action step on it and a new cohort criterion on it that the batch calculation would read from events. 2 also stops ingestion writing $feature_flag_called to events for the teams it copies to flag_evaluations, which on PostHog Cloud is every team outside INGESTION_FLAG_EVALUATIONS_EXCLUDED_TEAMS, unless the organization keeps writing flag calls to events. With that kept, every reader behaves as described here, and FLAG_EVALUATIONS_READS_FORCE_EVENTS moves the organization back to events. The events copy starts when that takes effect and holds no earlier calls, so a read that moves back to events misses the calls only flag_evaluations holds. On 2, a HogQL query reads flag_evaluations for any date range and fails when it can't, a query that mixes flag calls with other events reads both tables, real-time cohorts refuse new flag-call criteria, and flags keep no last called time unless it syncs from flag_evaluations. On PostHog Cloud the table is available in SQL on every mode. Self-hosted, it is available on 1 and 2.
        *
        * * `0` - Events
        * * `1` - Read flag evaluations
@@ -125859,7 +125859,7 @@ export namespace Schemas {
       max_feature_flags_override: number | null;
       /** The flag-count limit actually enforced for this team: the override when one is set, otherwise the global MAX_FEATURE_FLAGS_PER_TEAM setting. */
       effective_max_feature_flags: number;
-      /** Which table the $feature_flag_called data of this team's organization is read from. Every team of an organization shares one mode. 0 reads events. 1 reads flag_evaluations for the flag Usage tab, the per-project counts on a flag's Projects tab, events lists filtered to only $feature_flag_called, such as the Activity page, and the flag call and experiment enrollment counts on the home page. On 1, a HogQL query, such as an insight, also reads flag_evaluations when it pins $feature_flag_called and $feature_flag to string keys, and its date range starts within the table's coverage. Other queries, including default experiment exposures, read events. 1 also hides $feature_flag_called from event pickers, and refuses a new action step on it and a new cohort criterion on it that the batch calculation would read from events. 2 also stops ingestion writing $feature_flag_called to events for the teams it copies to flag_evaluations, which on PostHog Cloud is every team outside INGESTION_FLAG_EVALUATIONS_EXCLUDED_TEAMS, unless the organization keeps writing flag calls to events. With that kept, every reader behaves as described here, and FLAG_EVALUATIONS_READS_FORCE_EVENTS moves the organization back to events. The events copy starts when that takes effect and holds no earlier calls, so a read that moves back to events misses the calls only flag_evaluations holds. On 2, a HogQL query reads flag_evaluations for any date range and fails when it can't, a query that mixes flag calls with other events reads both tables, realtime cohorts refuse new flag-call criteria, and flags keep no last called time unless it syncs from flag_evaluations. On PostHog Cloud the table is available in SQL on every mode. Self-hosted, it is available on 1 and 2. This is the stored mode: while the FLAG_EVALUATIONS_READS_FORCE_EVENTS instance setting is on, an organization on 1, or on 2 with its events writes kept, reads events anyway. An organization on 0 or 1 whose every team reads the native JSON events table reads as 2 with its events writes kept, so that setting moves it back to events as well.
+      /** Which table the $feature_flag_called data of this team's organization is read from. Every team of an organization shares one mode. 0 reads events. 1 reads flag_evaluations for the flag Usage tab, the per-project counts on a flag's Projects tab, events lists filtered to only $feature_flag_called, such as the Activity page, and the flag call and experiment enrollment counts on the home page. On 1, a HogQL query, such as an insight, also reads flag_evaluations when it pins $feature_flag_called and $feature_flag to string keys, and its date range starts within the table's coverage. Other queries, including default experiment exposures, read events. 1 also hides $feature_flag_called from event pickers, and refuses a new action step on it and a new cohort criterion on it that the batch calculation would read from events. 2 also stops ingestion writing $feature_flag_called to events for the teams it copies to flag_evaluations, which on PostHog Cloud is every team outside INGESTION_FLAG_EVALUATIONS_EXCLUDED_TEAMS, unless the organization keeps writing flag calls to events. With that kept, every reader behaves as described here, and FLAG_EVALUATIONS_READS_FORCE_EVENTS moves the organization back to events. The events copy starts when that takes effect and holds no earlier calls, so a read that moves back to events misses the calls only flag_evaluations holds. On 2, a HogQL query reads flag_evaluations for any date range and fails when it can't, a query that mixes flag calls with other events reads both tables, real-time cohorts refuse new flag-call criteria, and flags keep no last called time unless it syncs from flag_evaluations. On PostHog Cloud the table is available in SQL on every mode. Self-hosted, it is available on 1 and 2. This is the stored mode: while the FLAG_EVALUATIONS_READS_FORCE_EVENTS instance setting is on, an organization on 1, or on 2 with its events writes kept, reads events anyway. An organization on 0 or 1 whose every team reads the native JSON events table reads as 2 with its events writes kept, so that setting moves it back to events as well.
        *
        * * `0` - Events
        * * `1` - Read flag evaluations
@@ -135109,7 +135109,7 @@ export namespace Schemas {
       layouts?: WorkflowImportRequestLayouts;
       /** Customer.io sender identities, from `GET /v1/environments/{environment_id}/identities?type=email`. Each email gets the PostHog sender with the same address. */
       sender_identities?: CustomerioSenderIdentity[];
-      /** Customer.io segments, without members: ids, names and types, so the notes can name each segment and flag static ones, and the rules of each segment the automations check, so the import can turn it into a realtime cohort. */
+      /** Customer.io segments, without members: ids, names and types, so the notes can name each segment and flag static ones, and the rules of each segment the automations check, so the import can turn it into a real-time cohort. */
       segments?: CustomerioSegment[];
       /** When true, translate and check the automations but save nothing, to preview the import. */
       dry_run?: boolean;
@@ -135178,7 +135178,7 @@ export namespace Schemas {
       segment_id: string;
       /** The segment's name. */
       segment_name: string;
-      /** `created`: the import made a realtime cohort from the segment's rules. `reused`: an earlier import made it. `would_create`: a real import makes one, in a preview. `not_converted`: no cohort is used, see `reason`.
+      /** `created`: the import made a real-time cohort from the segment's rules. `reused`: an earlier import made it. `would_create`: a real import makes one, in a preview. `not_converted`: no cohort is used, see `reason`.
        *
        * * `created` - Created
        * * `reused` - Reused

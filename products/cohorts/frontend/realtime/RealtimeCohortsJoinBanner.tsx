@@ -17,23 +17,23 @@ interface JoinBanner {
 const BANNERS: Record<ShownJoinState, JoinBanner> = {
     setting_up: {
         type: 'info',
-        text: 'Setting up realtime cohorts for this project. This usually takes about a minute.',
+        text: 'Setting up real-time cohorts for this project. This usually takes about a minute.',
     },
     // pinned: the dismiss keys are localStorage keys, so renaming one shows the banner again to everyone who closed it
     not_open: {
         type: 'info',
-        text: "Realtime cohorts aren't open to new projects yet. This project will join once they are.",
+        text: "Real-time cohorts aren't open to new projects yet. This project will join once they are.",
         dismissKey: () => 'realtime-cohorts-join-not-open',
     },
     refused: {
         type: 'warning',
-        text: "Realtime cohorts couldn't be turned on for this project automatically. Contact support and we'll take a look.",
+        text: "Real-time cohorts couldn't be turned on for this project automatically. Contact support and we'll take a look.",
         // A refusal belongs to one project, so closing it in one project leaves it showing in the others.
         dismissKey: (teamId) => `realtime-cohorts-join-refused-${teamId}`,
     },
     failed: {
         type: 'warning',
-        text: "Setting up realtime cohorts for this project didn't finish. We'll try again in about an hour.",
+        text: "Setting up real-time cohorts for this project didn't finish. We'll try again in about an hour.",
     },
 }
 

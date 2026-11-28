@@ -53,7 +53,7 @@ function rowContent(realtime: CohortRealtimeReadinessApi): RowContent | null {
                 tooltip: (
                     <div className="space-y-1">
                         <div>
-                            This is a realtime cohort. Feature flags can target it and see membership changes within
+                            This is a real-time cohort. Feature flags can target it and see membership changes within
                             about a minute. The member count and the people listed on this page still update once a day.
                         </div>
                         {realtime.ready_at && (
@@ -125,7 +125,7 @@ function rowContent(realtime: CohortRealtimeReadinessApi): RowContent | null {
                     ),
                     tooltip: (
                         <div>
-                            {`Realtime is off for this cohort, so feature flags can't target it. Realtime cohorts on your plan can look back at most ${realtime.history_limit_days} days, and its criteria look back further. Shorten the time range in its criteria to turn realtime on.`}
+                            {`Real-time is off for this cohort, so feature flags can't target it. Real-time cohorts on your plan can look back at most ${realtime.history_limit_days} days, and its criteria look back further. Shorten the time range in its criteria to turn real-time on.`}
                         </div>
                     ),
                     reason: unpreparableReasonSentence(realtime),
@@ -142,7 +142,7 @@ function rowContent(realtime: CohortRealtimeReadinessApi): RowContent | null {
                 label: <span className="text-secondary">Off</span>,
                 tooltip: (
                     <div>
-                        Realtime is off for this cohort, so feature flags can't target it. When you turn it on, PostHog
+                        Real-time is off for this cohort, so feature flags can't target it. When you turn it on, PostHog
                         prepares the cohort from past events. This usually takes under 30 minutes.
                     </div>
                 ),
@@ -221,7 +221,7 @@ export function CohortRealtimeStatus({
                         onClick={() => onSwitch(true)}
                         data-attr="cohort-realtime-turn-on"
                     >
-                        Turn on realtime
+                        Turn on real-time
                     </LemonButton>
                 )}
                 {canRetry(realtime) && switchAction !== null && (
@@ -246,11 +246,11 @@ export function CohortRealtimeStatus({
                         {...inFlightProps(switching, switchingTo, false)}
                         onClick={() =>
                             LemonDialog.open({
-                                title: 'Turn off realtime for this cohort?',
+                                title: 'Turn off real-time for this cohort?',
                                 description:
                                     realtime?.state === 'person_properties'
                                         ? "Workflows won't see membership changes for this cohort as they happen. Feature flags read its person properties directly, so they keep targeting it."
-                                        : "Feature flags won't be able to target this cohort. If you turn realtime on again, PostHog prepares the cohort from past events again.",
+                                        : "Feature flags won't be able to target this cohort. If you turn real-time on again, PostHog prepares the cohort from past events again.",
                                 primaryButton: {
                                     children: 'Turn off',
                                     status: 'danger',
@@ -265,7 +265,7 @@ export function CohortRealtimeStatus({
                         }
                         data-attr="cohort-realtime-turn-off"
                     >
-                        Turn off realtime
+                        Turn off real-time
                     </LemonButton>
                 )}
             </div>

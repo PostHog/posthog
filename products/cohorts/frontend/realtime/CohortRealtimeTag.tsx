@@ -17,30 +17,30 @@ type TagContent = { label: string; icon?: JSX.Element; explanation: string }
 // full, including for those two.
 const TAG_BY_STATE: Partial<Record<CohortRealtimeStateEnumApi, TagContent>> = {
     ready: {
-        label: 'Realtime',
+        label: 'Real-time',
         icon: <IconBolt />,
         explanation:
-            'A realtime cohort. Feature flags can target it and see membership changes within about a minute. Insights and the member count still update once a day.',
+            'A real-time cohort. Feature flags can target it and see membership changes within about a minute. Insights and the member count still update once a day.',
     },
     building: {
-        label: 'Realtime · preparing',
+        label: 'Real-time · preparing',
         icon: <Spinner textColored />,
         explanation:
-            "A realtime cohort. PostHog is still preparing it, so feature flags can't target it yet. Open the cohort to see the progress.",
+            "A real-time cohort. PostHog is still preparing it, so feature flags can't target it yet. Open the cohort to see the progress.",
     },
     rebuilding: {
-        label: 'Realtime · preparing',
+        label: 'Real-time · preparing',
         icon: <Spinner textColored />,
         explanation:
-            "A realtime cohort. The criteria changed, so PostHog is preparing it again and feature flags can't target it until that finishes. Open the cohort to see the progress.",
+            "A real-time cohort. The criteria changed, so PostHog is preparing it again and feature flags can't target it until that finishes. Open the cohort to see the progress.",
     },
     needs_attention: {
-        label: 'Realtime · unavailable',
-        explanation: "A realtime cohort that feature flags can't target yet. Open the cohort for details.",
+        label: 'Real-time · unavailable',
+        explanation: "A real-time cohort that feature flags can't target yet. Open the cohort for details.",
     },
     off: {
-        label: 'Realtime off',
-        explanation: "Realtime is off for this cohort, so feature flags can't target it until it's turned on.",
+        label: 'Real-time off',
+        explanation: "Real-time is off for this cohort, so feature flags can't target it until it's turned on.",
     },
     daily: {
         label: 'No flag targeting',

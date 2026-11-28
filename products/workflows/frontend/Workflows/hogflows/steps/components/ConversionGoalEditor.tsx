@@ -74,7 +74,7 @@ export function ConversionGoalEditor({ conversion, onChange, pageKey }: Conversi
                 <div className="flex flex-col gap-1 items-start w-full">
                     <LemonLabel>Detect conversion from cohort membership</LemonLabel>
                     <span className="text-xs text-muted">
-                        The person converts when they join or leave this cohort. Only realtime cohorts report these
+                        The person converts when they join or leave this cohort. Only real-time cohorts report these
                         changes.
                     </span>
                     <CohortMembershipEventPicker

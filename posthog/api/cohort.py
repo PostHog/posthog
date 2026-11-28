@@ -791,11 +791,11 @@ class AddPersonsToStaticCohortRequestSerializer(serializers.Serializer):
 
 class CohortRealtimeRequestSerializer(serializers.Serializer):
     enabled = serializers.BooleanField(
-        help_text="True turns realtime on for the cohort and for every realtime cohort it includes as criteria, and "
+        help_text="True turns real-time on for the cohort and for every real-time cohort it includes as criteria, and "
         "starts preparing them from past events. PostHog refuses that when the project's plan allows no more cohorts "
-        "with realtime on, or when the criteria look back further than the plan allows. True for a cohort that is "
-        "already on, and that nothing is preparing, asks PostHog to prepare it again. False turns realtime off. "
-        "PostHog refuses that while a feature flag, an active workflow, or another cohort with realtime on reads the "
+        "with real-time on, or when the criteria look back further than the plan allows. True for a cohort that is "
+        "already on, and that nothing is preparing, asks PostHog to prepare it again. False turns real-time off. "
+        "PostHog refuses that while a feature flag, an active workflow, or another cohort with real-time on reads the "
         "cohort.",
     )
 
@@ -1417,8 +1417,8 @@ class CohortRealtimeReadinessSerializer(serializers.Serializer):
         "see membership changes within about a minute. `building` / `rebuilding`: PostHog is "
         "preparing the cohort from past events, and flags cannot target it yet. "
         "`needs_attention`: the cohort qualifies but nothing is preparing it. `off`: the cohort qualifies and "
-        "realtime is off for it, so feature flags cannot target it until it is turned on. When `reason` is set, "
-        "it can't be turned on, and `reason` says why. `daily`: the cohort can't be realtime, so its membership only comes from the "
+        "real-time is off for it, so feature flags cannot target it until it is turned on. When `reason` is set, "
+        "it can't be turned on, and `reason` says why. `daily`: the cohort can't be real-time, so its membership only comes from the "
         "once-a-day calculation. See `reason`. `person_properties`: it matches on person properties, which flags read "
         "directly, so they can always target it. `static`: it is a fixed list of people.",
     )
@@ -1434,22 +1434,22 @@ class CohortRealtimeReadinessSerializer(serializers.Serializer):
         choices=CohortRealtimeUnavailableReason.choices,
         allow_null=True,
         help_text="Why feature flags can't target the cohort. On a `daily` cohort, the first of these that keeps it off "
-        "realtime: `unsupported_criteria`, one of its criteria can't be matched in realtime, such as a sequence of "
+        "real-time: `unsupported_criteria`, one of its criteria can't be matched in real time, such as a sequence of "
         "events or a lifecycle criterion. `action_criteria`, one of its criteria matches on an action. "
-        "`includes_non_realtime_cohort`, it includes a cohort that was not realtime when it was last saved. "
-        "`history_over_limit`, its criteria look back further than realtime cohorts can. `members_over_limit`, it "
-        "matches more people than a realtime cohort can hold. `test_account_filter`, it filters out internal and test "
+        "`includes_non_realtime_cohort`, it includes a cohort that was not real-time when it was last saved. "
+        "`history_over_limit`, its criteria look back further than real-time cohorts can. `members_over_limit`, it "
+        "matches more people than a real-time cohort can hold. `test_account_filter`, it filters out internal and test "
         "users. On an `off` cohort, the first of these that keeps it from being turned on: `unsupported_time_range`, "
-        "one of its event criteria uses a time range realtime cohorts don't support. `history_over_limit`, its criteria "
+        "one of its event criteria uses a time range real-time cohorts don't support. `history_over_limit`, its criteria "
         "look back further than the project's plan allows. On a `needs_attention` cohort, why nothing can prepare it: "
         "`too_large_to_build`, the events in its criteria happen too often for PostHog to prepare it automatically. "
-        "`unsupported_time_range`, one of its event criteria uses a time range realtime cohorts don't support, so "
+        "`unsupported_time_range`, one of its event criteria uses a time range real-time cohorts don't support, so "
         "PostHog can't prepare it. Null in every other case, including a `daily` cohort whose stored criteria don't "
         "show why.",
     )
     history_limit_days = serializers.IntegerField(
         allow_null=True,
-        help_text="The most days realtime cohort criteria can look back on the project's plan. Null unless the reason "
+        help_text="The most days real-time cohort criteria can look back on the project's plan. Null unless the reason "
         "is `history_over_limit`.",
     )
 
@@ -1506,9 +1506,9 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
     realtime = serializers.SerializerMethodField()
     realtime_enabled = serializers.BooleanField(
         required=False,
-        help_text="Whether realtime is on for this cohort, so PostHog keeps its membership current for feature flags "
-        "and workflows. Send true when you create a cohort to turn realtime on for it. It stays false when the project "
-        "has no realtime cohorts or the cohort's criteria can't be realtime. For an existing cohort, use the `realtime` "
+        help_text="Whether real-time is on for this cohort, so PostHog keeps its membership current for feature flags "
+        "and workflows. Send true when you create a cohort to turn real-time on for it. It stays false when the project "
+        "has no real-time cohorts or the cohort's criteria can't be real-time. For an existing cohort, use the `realtime` "
         "endpoint to turn it on or off.",
     )
 
@@ -1586,7 +1586,7 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
         CohortRealtimeReadinessSerializer(
             allow_null=True,
             help_text="Whether feature flags can target this cohort, and the progress of the build "
-            "that gets it there. Null outside the realtime cohort flag targeting rollout, on projects "
+            "that gets it there. Null outside the real-time cohort flag targeting rollout, on projects "
             "the realtime pipeline does not cover, and for cohorts that match on neither events nor "
             "person properties, which nothing in the flag API decides on.",
         )
@@ -1631,7 +1631,7 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
             and value != cast(Cohort, self.instance).realtime_enabled
         ):
             raise ValidationError(
-                "To turn realtime on or off for an existing cohort, send `enabled` to the cohort's `realtime` endpoint.",
+                "To turn real-time on or off for an existing cohort, send `enabled` to the cohort's `realtime` endpoint.",
                 code="realtime_enabled_read_only",
             )
         return value
@@ -2414,8 +2414,8 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
                 )
                 raise ValidationError(
                     {
-                        "filters": "Realtime is on for this cohort, and PostHog can't prepare one of its criteria in "
-                        "realtime. Change that criterion, or turn realtime off first."
+                        "filters": "Real-time is on for this cohort, and PostHog can't prepare one of its criteria in "
+                        "real time. Change that criterion, or turn real-time off first."
                     },
                     code="realtime_criteria_unsupported",
                 )
@@ -3368,7 +3368,7 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
     @validated_request(
         request_serializer=CohortRealtimeRequestSerializer,
         responses={200: CohortSerializer},
-        description="Turn realtime on or off for a cohort. Turning it on also turns it on for every realtime cohort "
+        description="Turn real-time on or off for a cohort. Turning it on also turns it on for every real-time cohort "
         "it includes as criteria, and PostHog prepares them from past events before feature flags can target them. "
         "Turning it on for a cohort that is already on, and that nothing is preparing, asks PostHog to prepare it again.",
     )
@@ -3376,7 +3376,7 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
     def realtime(self, request: ValidatedRequest, **kwargs) -> Response:
         cohort: Cohort = self.get_object()
         if not is_realtime_cohort_flag_targeting_enabled(request, team=self.team):
-            raise ValidationError("Realtime cohorts aren't available for this project.", code="realtime_unavailable")
+            raise ValidationError("Real-time cohorts aren't available for this project.", code="realtime_unavailable")
 
         enabled: bool = request.validated_data["enabled"]
         before = cohort.to_dict()
@@ -3439,7 +3439,7 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
                     cohort,
                     "feature_flags",
                     f"This cohort is used in {len(flags)} feature flag(s){names}. Remove the cohort from these flags, "
-                    "or archive the flags, before turning realtime off.",
+                    "or archive the flags, before turning real-time off.",
                 )
 
         workflows = _workflows_relying_on_cohort(cohort)
@@ -3450,7 +3450,7 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
                 cohort,
                 "workflows",
                 f"This cohort is used in {len(workflows)} active workflow(s){names}. Remove the cohort from these "
-                "workflows before turning realtime off.",
+                "workflows before turning real-time off.",
                 code=COHORT_USED_BY_WORKFLOWS_ERROR_CODE,
             )
 
@@ -3467,8 +3467,8 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
                 request,
                 cohort,
                 "cohorts",
-                f"Realtime is on for {count} cohort(s) that include this cohort as criteria{names}. "
-                "Turn realtime off for those cohorts first.",
+                f"Real-time is on for {count} cohort(s) that include this cohort as criteria{names}. "
+                "Turn real-time off for those cohorts first.",
             )
 
     def _refuse_turning_off(

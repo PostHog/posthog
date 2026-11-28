@@ -104,7 +104,7 @@ const cohortFieldMapping: Record<string, (change?: ActivityChange) => ChangeMapp
         return { description: [<>updated the matching criteria</>] }
     },
     realtime_enabled: function onRealtimeEnabled(change) {
-        return { description: [<>turned realtime {detectBoolean(change?.after) ? 'on' : 'off'}</>] }
+        return { description: [<>turned real-time {detectBoolean(change?.after) ? 'on' : 'off'}</>] }
     },
     // fields that we don't want to surface (excluded on backend or noisy)
     id: () => null,

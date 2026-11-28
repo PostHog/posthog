@@ -74,7 +74,7 @@ export const CohortsCreateBody = /* @__PURE__ */ zod.object({
         .boolean()
         .optional()
         .describe(
-            "Whether realtime is on for this cohort, so PostHog keeps its membership current for feature flags and workflows. Send true when you create a cohort to turn realtime on for it. It stays false when the project has no realtime cohorts or the cohort's criteria can't be realtime. For an existing cohort, use the `realtime` endpoint to turn it on or off."
+            "Whether real-time is on for this cohort, so PostHog keeps its membership current for feature flags and workflows. Send true when you create a cohort to turn real-time on for it. It stays false when the project has no real-time cohorts or the cohort's criteria can't be real-time. For an existing cohort, use the `realtime` endpoint to turn it on or off."
         ),
     _create_in_folder: zod.string().optional(),
     _create_static_person_ids: zod
@@ -127,7 +127,7 @@ export const CohortsUpdateBody = /* @__PURE__ */ zod.object({
         .boolean()
         .optional()
         .describe(
-            "Whether realtime is on for this cohort, so PostHog keeps its membership current for feature flags and workflows. Send true when you create a cohort to turn realtime on for it. It stays false when the project has no realtime cohorts or the cohort's criteria can't be realtime. For an existing cohort, use the `realtime` endpoint to turn it on or off."
+            "Whether real-time is on for this cohort, so PostHog keeps its membership current for feature flags and workflows. Send true when you create a cohort to turn real-time on for it. It stays false when the project has no real-time cohorts or the cohort's criteria can't be real-time. For an existing cohort, use the `realtime` endpoint to turn it on or off."
         ),
     _create_in_folder: zod.string().optional(),
     _create_static_person_ids: zod
@@ -180,7 +180,7 @@ export const CohortsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .boolean()
         .optional()
         .describe(
-            "Whether realtime is on for this cohort, so PostHog keeps its membership current for feature flags and workflows. Send true when you create a cohort to turn realtime on for it. It stays false when the project has no realtime cohorts or the cohort's criteria can't be realtime. For an existing cohort, use the `realtime` endpoint to turn it on or off."
+            "Whether real-time is on for this cohort, so PostHog keeps its membership current for feature flags and workflows. Send true when you create a cohort to turn real-time on for it. It stays false when the project has no real-time cohorts or the cohort's criteria can't be real-time. For an existing cohort, use the `realtime` endpoint to turn it on or off."
         ),
     _create_in_folder: zod.string().optional(),
     _create_static_person_ids: zod
@@ -203,13 +203,13 @@ export const CohortsAddPersonsToStaticCohortPartialUpdateBody = /* @__PURE__ */ 
 })
 
 /**
- * Turn realtime on or off for a cohort. Turning it on also turns it on for every realtime cohort it includes as criteria, and PostHog prepares them from past events before feature flags can target them. Turning it on for a cohort that is already on, and that nothing is preparing, asks PostHog to prepare it again.
+ * Turn real-time on or off for a cohort. Turning it on also turns it on for every real-time cohort it includes as criteria, and PostHog prepares them from past events before feature flags can target them. Turning it on for a cohort that is already on, and that nothing is preparing, asks PostHog to prepare it again.
  */
 export const CohortsRealtimeCreateBody = /* @__PURE__ */ zod.object({
     enabled: zod
         .boolean()
         .describe(
-            "True turns realtime on for the cohort and for every realtime cohort it includes as criteria, and starts preparing them from past events. PostHog refuses that when the project's plan allows no more cohorts with realtime on, or when the criteria look back further than the plan allows. True for a cohort that is already on, and that nothing is preparing, asks PostHog to prepare it again. False turns realtime off. PostHog refuses that while a feature flag, an active workflow, or another cohort with realtime on reads the cohort."
+            "True turns real-time on for the cohort and for every real-time cohort it includes as criteria, and starts preparing them from past events. PostHog refuses that when the project's plan allows no more cohorts with real-time on, or when the criteria look back further than the plan allows. True for a cohort that is already on, and that nothing is preparing, asks PostHog to prepare it again. False turns real-time off. PostHog refuses that while a feature flag, an active workflow, or another cohort with real-time on reads the cohort."
         ),
 })
 

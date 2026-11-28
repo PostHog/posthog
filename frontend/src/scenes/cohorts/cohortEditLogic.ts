@@ -1106,7 +1106,7 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                                 actions.refreshCurrentTeam()
                                 if (!cohort.realtime_enabled) {
                                     lemonToast.warning(
-                                        "The cohort was saved, but realtime couldn't be turned on for it. Its page says why."
+                                        "The cohort was saved, but real-time couldn't be turned on for it. Its page says why."
                                     )
                                 }
                             }

@@ -140,7 +140,7 @@ export const realtimeCohortsJoinLogic = kea<realtimeCohortsJoinLogicType>([
                     const onCohortsList =
                         stripTrailingSlash(removeProjectIdIfPresent(router.values.location.pathname)) === urls.cohorts()
                     lemonToast.success(
-                        'Realtime cohorts are on for this project. Open a cohort and turn on realtime so feature flags can target it.',
+                        'Real-time cohorts are on for this project. Open a cohort and turn on real-time so feature flags can target it.',
                         {
                             button: onCohortsList
                                 ? undefined

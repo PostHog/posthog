@@ -147,7 +147,7 @@ _FLAG_CALL_KEY_REFUSAL = '"Feature flag" equals'
 _FLAG_CALL_COMPILE_REFUSAL = "can't calculate this criterion"
 _FLAG_CALL_FILTER_REFUSAL = "instead of a SQL expression"
 _FLAG_CALL_SQL_EXPRESSION_REFUSAL = "on another criterion"
-_REALTIME_CRITERIA_REFUSAL = "Realtime is on for this cohort"
+_REALTIME_CRITERIA_REFUSAL = "Real-time is on for this cohort"
 
 
 class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):

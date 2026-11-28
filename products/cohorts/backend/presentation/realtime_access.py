@@ -20,10 +20,10 @@ from products.cohorts.backend.facade.realtime_join import RealtimeCohortsJoinSta
 class RealtimeCohortsJoinStateSerializer(serializers.Serializer):
     state = serializers.ChoiceField(
         choices=RealtimeCohortsJoinState.choices,
-        help_text="Where this project stands in joining the realtime cohorts beta. `serving`: the project has "
-        "realtime cohorts. `setting_up`: a join is in progress. `available`: a POST to `join` starts one. "
+        help_text="Where this project stands in joining the real-time cohorts beta. `serving`: the project has "
+        "real-time cohorts. `setting_up`: a join is in progress. `available`: a POST to `join` starts one. "
         "`not_open`: this region takes no new projects. `refused`: the project cannot join by itself, and support "
-        "can turn realtime cohorts on for it. `failed`: the last join did not finish, and a join an hour later "
+        "can turn real-time cohorts on for it. `failed`: the last join did not finish, and a join an hour later "
         "tries again.",
     )
 
@@ -37,7 +37,7 @@ class RealtimeCohortsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     # realtime on for no cohort, and a member who cannot edit cohorts cannot turn it on for one.
     @validated_request(
         responses={200: OpenApiResponse(response=RealtimeCohortsJoinStateSerializer)},
-        description="Where this project stands in joining the realtime cohorts beta.",
+        description="Where this project stands in joining the real-time cohorts beta.",
     )
     @action(methods=["GET"], detail=False, required_scopes=["cohort:read"])
     def join(self, request: Request, **kwargs: Any) -> Response:
@@ -45,17 +45,17 @@ class RealtimeCohortsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
     @validated_request(
         responses={200: OpenApiResponse(response=RealtimeCohortsJoinStateSerializer)},
-        description="Join the realtime cohorts beta for this project when it can join by itself, and return where "
+        description="Join the real-time cohorts beta for this project when it can join by itself, and return where "
         "it stands. A repeated call starts nothing more.",
     )
     @join.mapping.post
-    @disallow_if_impersonated(message="Impersonated sessions cannot join the realtime cohorts beta.")
+    @disallow_if_impersonated(message="Impersonated sessions cannot join the real-time cohorts beta.")
     def start_join(self, request: Request, **kwargs: Any) -> Response:
         # The read scope also admits tokens, and a read-only token must not start the work of `enable`, which resaves
         # the project's cohorts.
         if not isinstance(request.successful_authenticator, SessionAuthentication):
             raise PermissionDenied(
-                "API keys and tokens cannot join the realtime cohorts beta. Join from the PostHog app."
+                "API keys and tokens cannot join the real-time cohorts beta. Join from the PostHog app."
             )
         user = cast(User, request.user)
         if request_join(self._root_team_id, requested_by_id=user.id):

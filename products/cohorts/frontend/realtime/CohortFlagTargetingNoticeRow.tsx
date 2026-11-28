@@ -55,7 +55,7 @@ export function CohortFlagTargetingNoticeRow({ cohortId }: { cohortId: number })
                     <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
                         <span>
                             Feature flags can't target {name}.{' '}
-                            <span>{`Realtime cohorts on your plan can look back at most ${realtime.history_limit_days} days, and its criteria look back further. Shorten the time range in its criteria to turn realtime on.`}</span>
+                            <span>{`Real-time cohorts on your plan can look back at most ${realtime.history_limit_days} days, and its criteria look back further. Shorten the time range in its criteria to turn real-time on.`}</span>
                         </span>
                         <RealtimePlanLimitsLink limit="history_days" location="flag_editor" />
                     </div>
@@ -73,7 +73,7 @@ export function CohortFlagTargetingNoticeRow({ cohortId }: { cohortId: number })
                 <div className="flex flex-col gap-1">
                     <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
                         <span>
-                            Realtime is off for {name}, so feature flags can't target it yet. When you turn it on,
+                            Real-time is off for {name}, so feature flags can't target it yet. When you turn it on,
                             PostHog prepares the cohort from past events. This usually takes under 30 minutes. You can
                             save once it's ready.
                         </span>
@@ -81,22 +81,22 @@ export function CohortFlagTargetingNoticeRow({ cohortId }: { cohortId: number })
                             <Button
                                 variant="outline"
                                 loading={realtimeSwitchLoading}
-                                aria-label={`Turn on realtime for ${cohort.name}`}
+                                aria-label={`Turn on real-time for ${cohort.name}`}
                                 onClick={turnOn}
                                 data-attr="cohort-realtime-turn-on-flag-editor"
                             >
-                                Turn on realtime
+                                Turn on real-time
                             </Button>
                         ) : (
                             <LemonButton
                                 type="secondary"
                                 size="xsmall"
                                 loading={realtimeSwitchLoading}
-                                aria-label={`Turn on realtime for ${cohort.name}`}
+                                aria-label={`Turn on real-time for ${cohort.name}`}
                                 onClick={turnOn}
                                 data-attr="cohort-realtime-turn-on-flag-editor"
                             >
-                                Turn on realtime
+                                Turn on real-time
                             </LemonButton>
                         )}
                     </div>

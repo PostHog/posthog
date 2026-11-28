@@ -132,7 +132,7 @@ export function RealtimeCohortsWaitlistBanner(): JSX.Element | null {
             <LemonBanner type="info" dismissKey={WAITLIST_DISMISS_KEY} alignItems="start">
                 <div className="flex flex-col gap-2">
                     <div className="flex flex-wrap items-center gap-1.5">
-                        <span className="font-semibold">Realtime cohorts are coming soon</span>
+                        <span className="font-semibold">Real-time cohorts are coming soon</span>
                         <LemonTag type="completion">Beta</LemonTag>
                     </div>
                     <p className="m-0">
@@ -147,7 +147,7 @@ export function RealtimeCohortsWaitlistBanner(): JSX.Element | null {
                         // confirmation never shows; the toast outlives it.
                         onSignUp={() =>
                             lemonToast.success(
-                                "You're on the realtime cohorts waitlist. We'll email you when it's ready."
+                                "You're on the real-time cohorts waitlist. We'll email you when it's ready."
                             )
                         }
                     />

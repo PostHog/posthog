@@ -6026,7 +6026,7 @@ export namespace Schemas {
         | "unsupported_time_range";
     export type CohortRealtimeReadiness = {
         /**
-         * Whether feature flags can target this cohort now. `ready`: they can, and they see membership changes within about a minute. `building` / `rebuilding`: PostHog is preparing the cohort from past events, and flags cannot target it yet. `needs_attention`: the cohort qualifies but nothing is preparing it. `off`: the cohort qualifies and realtime is off for it, so feature flags cannot target it until it is turned on. When `reason` is set, it can't be turned on, and `reason` says why. `daily`: the cohort can't be realtime, so its membership only comes from the once-a-day calculation. See `reason`. `person_properties`: it matches on person properties, which flags read directly, so they can always target it. `static`: it is a fixed list of people.
+         * Whether feature flags can target this cohort now. `ready`: they can, and they see membership changes within about a minute. `building` / `rebuilding`: PostHog is preparing the cohort from past events, and flags cannot target it yet. `needs_attention`: the cohort qualifies but nothing is preparing it. `off`: the cohort qualifies and real-time is off for it, so feature flags cannot target it until it is turned on. When `reason` is set, it can't be turned on, and `reason` says why. `daily`: the cohort can't be real-time, so its membership only comes from the once-a-day calculation. See `reason`. `person_properties`: it matches on person properties, which flags read directly, so they can always target it. `static`: it is a fixed list of people.
          *
          * * `static` - Static
          * * `person_properties` - Person properties
@@ -6047,7 +6047,7 @@ export namespace Schemas {
          */
         build: CohortHistoryBuild | null;
         /**
-         * Why feature flags can't target the cohort. On a `daily` cohort, the first of these that keeps it off realtime: `unsupported_criteria`, one of its criteria can't be matched in realtime, such as a sequence of events or a lifecycle criterion. `action_criteria`, one of its criteria matches on an action. `includes_non_realtime_cohort`, it includes a cohort that was not realtime when it was last saved. `history_over_limit`, its criteria look back further than realtime cohorts can. `members_over_limit`, it matches more people than a realtime cohort can hold. `test_account_filter`, it filters out internal and test users. On an `off` cohort, the first of these that keeps it from being turned on: `unsupported_time_range`, one of its event criteria uses a time range realtime cohorts don't support. `history_over_limit`, its criteria look back further than the project's plan allows. On a `needs_attention` cohort, why nothing can prepare it: `too_large_to_build`, the events in its criteria happen too often for PostHog to prepare it automatically. `unsupported_time_range`, one of its event criteria uses a time range realtime cohorts don't support, so PostHog can't prepare it. Null in every other case, including a `daily` cohort whose stored criteria don't show why.
+         * Why feature flags can't target the cohort. On a `daily` cohort, the first of these that keeps it off real-time: `unsupported_criteria`, one of its criteria can't be matched in real time, such as a sequence of events or a lifecycle criterion. `action_criteria`, one of its criteria matches on an action. `includes_non_realtime_cohort`, it includes a cohort that was not real-time when it was last saved. `history_over_limit`, its criteria look back further than real-time cohorts can. `members_over_limit`, it matches more people than a real-time cohort can hold. `test_account_filter`, it filters out internal and test users. On an `off` cohort, the first of these that keeps it from being turned on: `unsupported_time_range`, one of its event criteria uses a time range real-time cohorts don't support. `history_over_limit`, its criteria look back further than the project's plan allows. On a `needs_attention` cohort, why nothing can prepare it: `too_large_to_build`, the events in its criteria happen too often for PostHog to prepare it automatically. `unsupported_time_range`, one of its event criteria uses a time range real-time cohorts don't support, so PostHog can't prepare it. Null in every other case, including a `daily` cohort whose stored criteria don't show why.
          *
          * * `history_over_limit` - History over limit
          * * `too_large_to_build` - Too large to build
@@ -6060,7 +6060,7 @@ export namespace Schemas {
          */
         reason: CohortRealtimeUnavailableReasonEnum | NullEnum;
         /**
-         * The most days realtime cohort criteria can look back on the project's plan. Null unless the reason is `history_over_limit`.
+         * The most days real-time cohort criteria can look back on the project's plan. Null unless the reason is `history_over_limit`.
          */
         history_limit_days: number | null;
     };
@@ -6098,7 +6098,7 @@ export namespace Schemas {
          */
         condition_type: CohortConditionTypeFlags | null;
         /**
-         * Whether feature flags can target this cohort, and the progress of the build that gets it there. Null outside the realtime cohort flag targeting rollout, on projects the realtime pipeline does not cover, and for cohorts that match on neither events nor person properties, which nothing in the flag API decides on.
+         * Whether feature flags can target this cohort, and the progress of the build that gets it there. Null outside the real-time cohort flag targeting rollout, on projects the realtime pipeline does not cover, and for cohorts that match on neither events nor person properties, which nothing in the flag API decides on.
          */
         realtime: CohortRealtimeReadiness | null;
         realtime_enabled?: boolean | undefined;
@@ -17667,18 +17667,18 @@ export namespace Schemas {
     export type RealtimeCohortsAccessEnum = "off" | "serving";
     export type TeamRealtimeCohorts = {
         /**
-         * `serving` when the request's user sees realtime cohorts in this project: whether feature flags can target each cohort, and the control to turn realtime on and off for it. `off` otherwise.
+         * `serving` when the request's user sees real-time cohorts in this project: whether feature flags can target each cohort, and the control to turn real-time on and off for it. `off` otherwise.
          *
          * * `off` - Off
          * * `serving` - Serving
          */
         access: RealtimeCohortsAccessEnum;
         /**
-         * How many cohorts in this project have realtime on. Null when `access` is `off`.
+         * How many cohorts in this project have real-time on. Null when `access` is `off`.
          */
         cohorts_used: number | null;
         /**
-         * How many cohorts in this project the plan allows to have realtime on. Null when `access` is `off`, or when the plan sets no limit.
+         * How many cohorts in this project the plan allows to have real-time on. Null when `access` is `off`, or when the plan sets no limit.
          */
         max_cohorts: number | null;
     };
@@ -18198,7 +18198,7 @@ export namespace Schemas {
         user_access_level: string | null;
         managed_viewsets: Record<string, boolean>;
         /**
-         * Realtime cohorts as the request's user sees them in this project.
+         * Real-time cohorts as the request's user sees them in this project.
          */
         realtime_cohorts: TeamRealtimeCohorts & unknown;
         /**

@@ -1295,7 +1295,7 @@ describe('broadcastWizardLogic', () => {
             [`"Upgraded" is still calculating who's in it. You can launch when it finishes.`],
         ],
         [
-            'a realtime cohort the send waits for',
+            'a real-time cohort the send waits for',
             dynamicCohort,
             { id: 42, name: 'Upgraded', state: 'building', percent_complete: null },
             [],
