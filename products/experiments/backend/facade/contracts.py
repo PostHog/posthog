@@ -15,7 +15,7 @@ from pydantic import JsonValue
 
 from posthog.hogql.property_access_types import RestrictedProperty
 
-from posthog.dataclasses import frozen
+from posthog.dataclasses import described, frozen
 from posthog.enums import LabeledStrEnum
 
 from products.experiments.backend.facade.enums import MetricSourceRole, RecalculationStartOutcome, SharedMetricType
@@ -1188,208 +1188,386 @@ class SetupContextInputs:
 
 @frozen
 class TeamDefaults:
-    stats_method: str | None
-    confidence_level: float | None
-    minimum_detectable_effect: int | None
-    product_default_minimum_detectable_effect: int
-    product_default_stats_method: str
-    product_default_confidence_level: float
-    only_count_matured_users: bool
-    cuped_enabled: bool
-    sequential_testing_enabled: bool
-    flags_persistence_default: bool
-    test_account_filter_count: int
-    new_experiments_filter_test_accounts: bool
-    default_exposure_event: str
+    stats_method: str | None = described("Default statistical method for new experiments: 'bayesian' or 'frequentist'.")
+    confidence_level: float | None = described(
+        "Default confidence level for new experiments, for example 0.95. Null when unset."
+    )
+    minimum_detectable_effect: int | None = described(
+        "The team's default minimum detectable effect, as a percentage. Null when the team has not set one; "
+        "product_default_minimum_detectable_effect applies then."
+    )
+    product_default_minimum_detectable_effect: int = described(
+        "The minimum detectable effect, as a percentage, that applies when the team has no default."
+    )
+    product_default_stats_method: str = described("The statistical method that applies when the team has no default.")
+    product_default_confidence_level: float = described(
+        "The confidence level that applies when the team has no default. Both methods use the same one."
+    )
+    only_count_matured_users: bool = described("Default for counting only users whose metric window has fully passed.")
+    cuped_enabled: bool = described("Default for CUPED variance reduction on new experiments.")
+    sequential_testing_enabled: bool = described(
+        "Default for sequential testing. Applies only to the frequentist method."
+    )
+    flags_persistence_default: bool = described(
+        "Default for persisting flag values across authentication steps on new flags. It becomes the flag's "
+        "ensure_experience_continuity."
+    )
+    test_account_filter_count: int = described("How many filters the team uses to identify internal and test users.")
+    new_experiments_filter_test_accounts: bool = described(
+        "A new experiment filters test accounts this way unless its own exposure criteria say otherwise. It "
+        "does not follow the project's insight default."
+    )
+    default_exposure_event: str = described(
+        "The exposure event a new experiment launched now counts by default: '$experiment_exposure' or "
+        "'$feature_flag_called'."
+    )
 
 
 @frozen
 class SdkLibProfile:
-    lib: str | None
-    category: SdkLibCategory
-    calls: int
-    distinct_ids: int
-    device_id_share: float
+    lib: str | None = described("The $lib value of the SDK, for example 'web'.")
+    category: SdkLibCategory = described(
+        "'web' for the JavaScript web SDK, 'mobile', 'server', or 'other' for libraries not classified."
+    )
+    calls: int = described("Multivariate flag calls this SDK sent in the window.")
+    distinct_ids: int = described("Distinct ids that sent those calls.")
+    device_id_share: float = described(
+        "Share of calls that carry a $device_id. 0 when this SDK never sends one, as server SDKs don't."
+    )
     # None when no call from this SDK carried the property at all, so a 0 is never mistaken for a
     # fact. Derived from what the rows carry rather than from the SDK's name, because the name
     # lists are incomplete and each SDK decides for itself what it sends.
-    locally_evaluated_share: float | None
-    anonymous_share: float | None
+    locally_evaluated_share: float | None = described(
+        "Share of calls evaluated locally in the SDK instead of by the flags service. Null when no call from "
+        "this SDK reported it, as the web SDK doesn't."
+    )
+    anonymous_share: float | None = described(
+        "Share of distinct ids that were anonymous, among those that report whether they are identified. "
+        "Null when no call from this SDK reported it."
+    )
 
 
 @frozen
 class LibActivity:
-    lib: str | None
-    category: SdkLibCategory
-    events: int
-    distinct_ids: int
+    lib: str | None = described("The $lib value of the SDK, for example 'web'.")
+    category: SdkLibCategory = described("'web', 'mobile', 'server', or 'other'.")
+    events: int = described("Events this SDK sent in the window, of any kind.")
+    distinct_ids: int = described("Distinct ids that sent those events.")
 
 
 @frozen
 class SdkProfile:
-    window_days: int
-    source_event: str
-    computed_at: datetime
-    libs: list[SdkLibProfile]
-    libs_truncated: bool
-    flags_seen: int
-    flags_evaluated_on_server_and_web: int
-    evaluated_on_server_and_web: bool
-    libs_on_any_event: list[LibActivity] | None
-    libs_on_any_event_truncated: bool
+    window_days: int = described("Days of flag calls read, ending now.")
+    source_event: str = described(
+        "The event read: '$experiment_exposure' when the project receives it, otherwise "
+        "'$feature_flag_called'. Only one is read, because one copies the other, and only multivariate "
+        "responses count either way. This says what the project's events carry today, so it can differ from "
+        "team_defaults.default_exposure_event, which says what a new experiment would count."
+    )
+    computed_at: datetime = described("When the numbers were computed. They are cached for hours.")
+    libs: list[SdkLibProfile] = described("One row per SDK, most calls first.")
+    libs_truncated: bool = described("True when more SDKs sent flag calls than libs lists.")
+    flags_seen: int = described("Distinct multivariate flag keys called in the window.")
+    flags_evaluated_on_server_and_web: int = described(
+        "How many of those flag keys were called by both a server SDK and the web SDK."
+    )
+    evaluated_on_server_and_web: bool = described(
+        "True when at least one flag key was called by both a server SDK and the web SDK. The same flag "
+        "decided on the server and read in the browser can bucket one user into two variants."
+    )
+    libs_on_any_event: list[LibActivity] | None = described(
+        "Up to 10 SDKs seen on any event over the last day, most events first. Set only when libs is empty, "
+        "so a project creating its first experiment still says which platforms it sends from. Null when flag "
+        "calls exist, and null when this extra read timed out."
+    )
+    libs_on_any_event_truncated: bool = described(
+        "True when more SDKs sent events than libs_on_any_event lists. False when it is null."
+    )
 
 
 @frozen
 class LibReach:
-    lib: str | None
-    category: SdkLibCategory
-    unique_persons: int
-    anonymous_share: float | None
-    device_id_share: float
+    lib: str | None = described("The $lib value that sent the target events.")
+    category: SdkLibCategory = described("'web', 'mobile', 'server', or 'other'.")
+    unique_persons: int = described("Persons who sent the target event from this SDK.")
+    anonymous_share: float | None = described(
+        "Among this SDK's distinct ids that report whether they are identified, the share that was "
+        "anonymous. Null when no target event from this SDK reported it."
+    )
+    device_id_share: float = described(
+        "Share of this SDK's target events that carry a $device_id. 0 when it never sends one."
+    )
 
 
 @frozen
 class TargetSurface:
-    window_days: int
-    source_event: str
-    target_url_contains: str | None
-    target_properties: list[dict[str, Any]]
-    computed_at: datetime
-    test_accounts_filtered: bool
-    unique_persons: int
-    exposures_per_day_estimate: float
-    libs: list[LibReach]
-    libs_truncated: bool
-    anonymous_share: float | None
-    device_id_share: float | None
+    window_days: int = described("Days of target events read, ending now.")
+    source_event: str = described("The target event that was counted.")
+    target_url_contains: str | None = described("The URL filter that was applied, or null.")
+    target_properties: list[dict[str, Any]] = described(
+        "The property filters that were applied to the target event. Empty when none were passed."
+    )
+    computed_at: datetime = described("When the numbers were computed. They are cached for an hour.")
+    test_accounts_filtered: bool = described(
+        "Whether test accounts were left out. It follows the default a new experiment gets, so the counts "
+        "match the population that experiment analyzes. False when the project defines no test-account filters."
+    )
+    unique_persons: int = described("Persons who sent the target event in the window.")
+    exposures_per_day_estimate: float = described(
+        "unique_persons divided by window_days. Pass it as exposure_rate_per_day to "
+        "experiment-calculate-running-time, scaled by the share of traffic the experiment will include."
+    )
+    libs: list[LibReach] = described("Up to 5 SDKs, most persons reached first.")
+    libs_truncated: bool = described("True when more SDKs sent target events than libs lists.")
+    anonymous_share: float | None = described(
+        "Among all distinct ids that report whether they are identified, whichever SDK they came from, the "
+        "share that was anonymous. Null when no target event reported it."
+    )
+    device_id_share: float | None = described(
+        "Share of all target events that carry a $device_id. Null when there were no target events."
+    )
 
 
 @frozen
 class FunnelBaselineStats:
-    number_of_samples: int
+    number_of_samples: int = described("Persons who reached the target.")
     # The calculator's input contract requires `sum` on every baseline, so the funnel carries it too.
-    sum: float
-    step_counts: list[float]
+    sum: float = described("Persons who converted.")
+    step_counts: list[float] = described("One entry: the persons who converted.")
 
 
 @frozen
 class MeanCountBaselineStats:
-    number_of_samples: int
-    sum: float
-    sum_squares: float
+    number_of_samples: int = described("Persons who reached the target.")
+    sum: float = described("Metric events those persons sent in the whole window.")
+    sum_squares: float = described("Sum over persons of their metric event count squared.")
 
 
 @frozen
 class CandidateMetric:
-    window_days: int
-    source_event: str
-    metric_properties: list[dict[str, Any]]
-    target_event: str | None
-    computed_at: datetime
-    test_accounts_filtered: bool
-    persons_reached: int | None = None
-    persons_converted: int | None = None
-    conversion_rate: float | None = None
-    funnel_baseline_stats: FunnelBaselineStats | None = None
-    mean_count_baseline_stats: MeanCountBaselineStats | None = None
-    note: str | None = None
-    event_volume: int | None = None
-    unique_persons: int | None = None
+    window_days: int = described("Days of events read, ending now.")
+    source_event: str = described("The metric event that was counted.")
+    metric_properties: list[dict[str, Any]] = described(
+        "The property filters that were applied to the metric event. Empty when none were passed."
+    )
+    target_event: str | None = described("The target event the baseline starts from, or null when none was passed.")
+    computed_at: datetime = described("When the numbers were computed. They are cached for an hour.")
+    test_accounts_filtered: bool = described(
+        "Whether test accounts were left out. It follows the default a new experiment gets, so the baseline "
+        "matches the population that experiment analyzes. False when the project defines no test-account "
+        "filters."
+    )
+    persons_reached: int | None = described(
+        "Persons who sent the target event. Null without target_event.", default=None
+    )
+    persons_converted: int | None = described(
+        "Persons who sent the metric event at or after their first target event. Null without target_event.",
+        default=None,
+    )
+    conversion_rate: float | None = described(
+        "persons_converted divided by persons_reached. Null without target_event.", default=None
+    )
+    funnel_baseline_stats: FunnelBaselineStats | None = described(
+        "Pass as baseline_stats to experiment-calculate-running-time with metric_type 'funnel'. Null without "
+        "target_event.",
+        default=None,
+    )
+    mean_count_baseline_stats: MeanCountBaselineStats | None = described(
+        "Pass as baseline_stats to experiment-calculate-running-time with metric_type 'mean_count'. It counts "
+        "metric events in the whole window, not only after the first target event, so it can overstate the "
+        "baseline. Null without target_event.",
+        default=None,
+    )
+    note: str | None = described("What the mean count baseline counts.", default=None)
+    event_volume: int | None = described(
+        "Metric events in the window, with metric_properties applied. 0 means the event did not occur under "
+        "those filters, so check the event name before you trust a conversion_rate of 0.",
+        default=None,
+    )
+    unique_persons: int | None = described(
+        "Persons who sent the metric event, with metric_properties applied.", default=None
+    )
 
 
 @frozen
 class ExperimentOutcome:
-    metric_type: str
+    metric_type: str = described(
+        "metric_type of the metric this outcome describes: 'funnel', 'mean', 'ratio', 'retention' or 'quantile'."
+    )
     # None when the stored result carries no sample counts at all, which must not read as a zero:
     # "the experiment analyzed nobody" is the signal this section exists to surface.
-    metric_samples: int | None
-    analyzed_exposures: int | None
-    control_baseline_value: float | None
-    any_variant_significant: bool
-    result_completed_at: datetime | None
-    result_data_through: datetime | None
+    metric_samples: int | None = described(
+        "Units the result counted across all variants. What a unit is depends on metric_type, so read "
+        "analyzed_exposures where you need exposures. Null when the result stores no sample counts."
+    )
+    analyzed_exposures: int | None = described(
+        "metric_samples, but only where the metric type makes it the analyzed population: 'funnel' and "
+        "'mean'. Users seen in several variants are left out under the default handling, so it can be lower "
+        "than exposures. Null for 'retention', whose samples are the units that did the start event, and for "
+        "'ratio', whose samples are not exposures either. Also null when the result stores no sample counts, "
+        "which is not the same as analyzing nobody."
+    )
+    control_baseline_value: float | None = described(
+        "What control measured: a conversion rate for 'funnel', an average per unit for 'mean'. Compare it "
+        "with the rate on the surface itself to see whether the exposure was diluted by users who never "
+        "reached the surface. Null for other metric types and when control analyzed no units."
+    )
+    any_variant_significant: bool = described("Whether any variant was significant on that metric in that result.")
+    result_completed_at: datetime | None = described("When that result was computed.")
+    result_data_through: datetime | None = described(
+        "The last moment the result covers. A backfill writes an older day with a recent completed_at, so "
+        "this says how current the numbers are."
+    )
 
 
 @frozen
 class PreviousExperiment:
-    id: int
-    name: str
-    state: PreviousExperimentState
-    created_at: datetime
-    start_date: datetime | None
-    end_date: datetime | None
-    conclusion: str | None
-    feature_flag_key: str
-    variant_count: int
-    split_even: bool | None
-    serving_single_variant: str | None
-    rollout_percentage: float | None
+    id: int = described("Experiment id.")
+    name: str = described("Experiment name.")
+    state: PreviousExperimentState = described(
+        "'draft', 'running', 'paused' (running with its flag turned off), 'exposure_frozen' (running with "
+        "enrollment closed to the already-exposed users) or 'stopped'."
+    )
+    created_at: datetime = described("When the experiment was created.")
+    start_date: datetime | None = described("When it launched. Null for drafts.")
+    end_date: datetime | None = described("When it ended. Null unless stopped.")
+    conclusion: str | None = described("The recorded conclusion, for example 'won' or 'inconclusive', or null.")
+    feature_flag_key: str = described("Key of the feature flag the experiment runs on.")
+    variant_count: int = described("Variants on the flag, control included.")
+    split_even: bool | None = described(
+        "Whether variants split traffic evenly, read from the flag as it stands now. 34/33/33 counts as "
+        "even. Null on a boolean flag, which has no variants, and null when serving_single_variant is set."
+    )
+    serving_single_variant: str | None = described(
+        "The one variant the flag now serves to everyone it matches, or null. Shipping a variant rewrites "
+        "the flag this way, so the split the experiment ran with cannot be read from the flag any more. "
+        "Only a launched experiment can be shipped, so a draft at 100/0 reports its split as it stands."
+    )
+    rollout_percentage: float | None = described(
+        "Rollout percentage of the flag's first release condition, read from the flag as it stands now."
+    )
     multiple_variant_handling: str
-    multiple_variant_handling_set: bool
-    ensure_experience_continuity: bool
-    bucketing_identifier: str
-    evaluation_runtime: str
-    group_aggregation: bool
-    custom_exposure_event: str | None
-    custom_exposure_action_id: int | None
-    exposure_property_filters: list[dict[str, Any]]
-    activation_event: str | None
-    activation_action_id: int | None
-    filter_test_accounts: bool
-    primary_metric_count: int
-    secondary_metric_count: int
-    shared_metric_count: int
-    primary_metric_types: list[str]
-    primary_metric_events: list[str]
-    primary_metric_action_ids: list[int]
-    minimum_detectable_effect: float | None
-    stats_method: str
-    has_holdout: bool
-    outcome: ExperimentOutcome | None
+    multiple_variant_handling_set: bool = described(
+        "Whether the experiment sets multiple_variant_handling itself instead of using the default."
+    )
+    ensure_experience_continuity: bool = described(
+        "Whether the flag keeps a user's variant across authentication steps, read from the flag as it stands now."
+    )
+    bucketing_identifier: str = described(
+        "What the flag buckets users on: 'distinct_id' (default) or 'device_id'. Read from the flag as it stands now."
+    )
+    evaluation_runtime: str = described(
+        "Where the flag may be evaluated: 'server', 'client' or 'all'. Read from the flag as it stands now."
+    )
+    group_aggregation: bool = described("Whether the flag buckets groups instead of persons.")
+    custom_exposure_event: str | None = described(
+        "An exposure event other than the default one, or null. A default event narrowed by "
+        "exposure_property_filters is still the default event, so it stays null here."
+    )
+    custom_exposure_action_id: int | None = described("Action used as the custom exposure, or null.")
+    exposure_property_filters: list[dict[str, Any]] = described(
+        "Property filters the exposure is narrowed by, whichever event it counts. An experiment that counts "
+        "exposure only where $pathname is '/' is the precedent for a new test on that page. Any filter type "
+        "can appear, cohorts included. Empty when the exposure is not narrowed."
+    )
+    activation_event: str | None = described(
+        "Event a user must send after their first exposure event before they count as exposed, or null. "
+        "This is activation mode, which sits on top of the default exposure event."
+    )
+    activation_action_id: int | None = described("Action used for activation instead of an event, or null.")
+    filter_test_accounts: bool = described("Whether exposures leave out test accounts.")
+    primary_metric_count: int = described("Primary metrics, shared ones included.")
+    secondary_metric_count: int = described("Secondary metrics, shared ones included.")
+    shared_metric_count: int = described("Shared metrics attached to the experiment.")
+    primary_metric_types: list[str] = described(
+        "metric_type of each primary metric, for example 'mean', 'funnel', 'ratio', 'retention' or 'quantile'."
+    )
+    primary_metric_events: list[str] = described("Event names the primary metrics count.")
+    primary_metric_action_ids: list[int] = described("Actions the primary metrics count.")
+    minimum_detectable_effect: float | None = described(
+        "Minimum detectable effect saved from the running time calculator, or null."
+    )
+    stats_method: str = described("'bayesian' or 'frequentist'.")
+    has_holdout: bool = described("Whether the experiment uses a holdout group.")
+    outcome: ExperimentOutcome | None = described(
+        "From the completed result that covers the latest data under the experiment's current configuration. "
+        "A funnel or a mean primary metric is chosen over a retention or a ratio one, because only its samples "
+        "are the analyzed population. Null when no result exists for that configuration, for example after a "
+        "relaunch or a settings edit until the results are recalculated, and for older metric definitions that "
+        "results are never stored for."
+    )
 
 
 @frozen
 class PreviousExperimentsSummary:
-    total: int
-    launched: int
-    launched_without_results: int
-    launched_with_unknown_analyzed_exposures: int
-    launched_with_zero_analyzed_exposures: int
-    launched_with_under_100_analyzed_exposures: int
-    using_device_id_bucketing: int
-    using_persistence: int
-    using_custom_exposure: int
-    using_exposure_property_filters: int
-    using_activation: int
-    using_uneven_split: int
-    serving_single_variant: int
+    total: int = described("Experiments listed.")
+    launched: int = described("Listed experiments that launched.")
+    launched_without_results: int = described("Launched experiments with no completed result.")
+    launched_with_unknown_analyzed_exposures: int = described(
+        "Launched experiments whose result says nothing about exposures: it stores no sample counts, or its "
+        "metric is a retention or a ratio one, whose samples are not exposures."
+    )
+    launched_with_zero_analyzed_exposures: int = described("Launched experiments whose latest result analyzed no one.")
+    launched_with_under_100_analyzed_exposures: int = described(
+        "Launched experiments whose latest result analyzed fewer than 100 units, zero included."
+    )
+    using_device_id_bucketing: int = described("Experiments that bucket on device id.")
+    using_persistence: int = described("Experiments that keep variants across authentication steps.")
+    using_custom_exposure: int = described("Experiments with a custom exposure event or action.")
+    using_exposure_property_filters: int = described("Experiments whose exposure is narrowed by property filters.")
+    using_activation: int = described("Experiments that use an activation event or action.")
+    using_uneven_split: int = described(
+        "Experiments whose variants split traffic unevenly. A flag that now serves one variant is left out, "
+        "because its split no longer says what the experiment ran with."
+    )
+    serving_single_variant: int = described(
+        "Launched experiments whose flag now serves one variant to everyone it matches, usually after shipping."
+    )
 
 
 @frozen
 class PreviousExperiments:
-    experiments: list[PreviousExperiment]
-    summary: PreviousExperimentsSummary
+    experiments: list[PreviousExperiment] = described(
+        "Most recently launched first, then drafts. Archived experiments are included, deleted ones are not."
+    )
+    summary: PreviousExperimentsSummary = described("Counts over the listed experiments.")
 
 
 @frozen
 class SharedMetricUsage:
-    id: int
-    name: str
-    metric_type: str | None
-    events: list[str]
-    action_ids: list[int]
-    used_as_primary: int
-    used_as_secondary: int
-    last_used_at: datetime | None
-    matches_metric_event: bool | None
-    metric_event_roles: list[str] | None
+    id: int = described("Shared metric id, to attach it instead of creating an inline metric.")
+    name: str = described("Shared metric name.")
+    metric_type: str | None = described(
+        "'mean', 'funnel', 'ratio', 'retention' or 'quantile', or null for older metrics."
+    )
+    events: list[str] = described("Event names the metric counts.")
+    action_ids: list[int] = described("Actions the metric counts.")
+    used_as_primary: int = described("Experiments that use it as a primary metric.")
+    used_as_secondary: int = described("Experiments that use it as a secondary metric.")
+    last_used_at: datetime | None = described("When it was last attached to an experiment, or null.")
+    matches_metric_event: bool | None = described(
+        "Whether the metric counts metric_event, directly or through an action. Null when no metric_event was passed."
+    )
+    metric_event_roles: list[str] | None = described(
+        "Where metric_event sits in the metric: 'funnel_step' and 'funnel_final_step' for a funnel, "
+        "'mean_source', 'quantile_source', 'ratio_numerator', 'ratio_denominator', 'retention_start' or "
+        "'retention_completion'. A metric that only starts from the event is a different precedent from one "
+        "that converts on it. Empty when the metric does not count it, and null when no metric_event was "
+        "passed."
+    )
 
 
 @frozen
 class SharedMetrics:
-    metric_event: str | None
-    metric_event_match_truncated: bool
-    metrics: list[SharedMetricUsage]
+    metric_event: str | None = described("The metric_event that was matched, or null.")
+    metric_event_match_truncated: bool = described(
+        "True when the project has more shared metrics than the event match could read, so a match further "
+        "down the list may be missing. Matching is capped for cost."
+    )
+    metrics: list[SharedMetricUsage] = described(
+        "Metrics that match metric_event first, then most reused. A use counts when it is on an experiment "
+        "you can open and that is not deleted, so the counts follow your access."
+    )
 
 
 # hoglint reads an unbound type variable as an unknown type, so the bound is what lets the facade hand a section out.
@@ -1401,18 +1579,27 @@ _SectionData = TypeVar("_SectionData", bound=SetupContextSectionData)
 
 @frozen
 class SetupContextSection(Generic[_SectionData]):
-    status: SetupContextSectionStatus
+    status: SetupContextSectionStatus = described(
+        "'ok' when data holds the section. 'skipped' when an input the section needs was not passed. "
+        "'timed_out' when the query was too expensive to finish. 'error' when the read failed. Every "
+        "status other than 'ok' leaves data null, and the other sections are still valid."
+    )
+    # Each section serializer documents `data`, because what it holds depends on the section.
     data: _SectionData | None = None
 
 
 @frozen
 class ExperimentSetupContext:
-    team_defaults: SetupContextSection[TeamDefaults]
-    sdk_profile: SetupContextSection[SdkProfile]
-    target_surface: SetupContextSection[TargetSurface]
-    candidate_metric: SetupContextSection[CandidateMetric]
-    previous_experiments: SetupContextSection[PreviousExperiments]
-    shared_metrics: SetupContextSection[SharedMetrics]
+    team_defaults: SetupContextSection[TeamDefaults] = described("The project's experiment defaults.")
+    sdk_profile: SetupContextSection[SdkProfile] = described(
+        "Which SDKs call feature flags and where flags are evaluated."
+    )
+    target_surface: SetupContextSection[TargetSurface] = described("Traffic on the surface under test.")
+    candidate_metric: SetupContextSection[CandidateMetric] = described(
+        "Traffic and baseline of the candidate primary metric."
+    )
+    previous_experiments: SetupContextSection[PreviousExperiments] = described("Recent experiments in the project.")
+    shared_metrics: SetupContextSection[SharedMetrics] = described("Most reused shared metrics.")
 
 
 @dataclass(frozen=True)
