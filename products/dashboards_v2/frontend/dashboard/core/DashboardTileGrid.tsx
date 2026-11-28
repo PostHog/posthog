@@ -54,8 +54,11 @@ function DashboardContentTile({ id, panel, editable, movable }: DashboardContent
  */
 function WindowedContentTile({ id, panel, editable, panels }: WindowedContentTileProps): JSX.Element {
     const sentinel = useRef<HTMLSpanElement>(null)
-    const mounted = useTileMounted(sentinel)
+    const inView = useTileMounted(sentinel)
     const panelType = findPanel(panels, panel.type)
+    const wasInView = useRef(false)
+    wasInView.current ||= inView
+    const mounted = inView || (wasInView.current && !!panelType?.keepMounted(panel))
     const movable = panelType?.movable(panel) ?? true
     const canArrange = editable && movable
     return (

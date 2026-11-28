@@ -36,7 +36,7 @@ Read `products/dashboards_v2/.agents/composing.md` ("Your own component in a til
 
    Load the component with `React.lazy`, so code that only checks documents never loads it. The name is saved in documents too: renaming one breaks saved dashboards.
 
-3. **Make the component take no props.** A content gets no props from the document.
+3. **Decide what the tile sets.** A value that differs between two tiles of the same content, such as which service a list shows, is a prop: wrap the content in `defineContent` with a `propsSchema` (a `z.strictObject`), and the tile saves the values in `config.props`. The prop names are saved in documents, so renaming one breaks saved dashboards. Everything else is not a prop:
    - Data it loaded from its scene's props or logic comes from a logic keyed on what the component can read itself, such as the current team.
    - The dashboard's time range and filters come from `FiltersContext`.
    - A control that changes them uses the controllers in `FilterControlsContext`. Each is missing when the dashboard has none, so disable the control with a `disabledReason` then.
@@ -47,12 +47,14 @@ Read `products/dashboards_v2/.agents/composing.md` ("Your own component in a til
 7. **Opt in only to what the product wants people to do.** By default a content cannot be moved and has an empty menu.
    - `movable: true` lets a person drag, resize, move and remove the tile.
    - `menuActions(actions, context)` returns the built-in actions to show, such as `actions.filter((action) => action.key === 'download-image')`. Left out, the menu is empty.
+   - `keepMounted: true` keeps the component mounted after it scrolls out of view. Set it when the component holds state a person would lose, such as a picked tab or a draft, and leave it out otherwise, because the tile then stays in memory.
    - `showOnInteractiveOnly: true` leaves the tile out of images and printed pages. Use it for prompts, buttons and live counters, which mean nothing in a snapshot.
 8. **Register the package** in the host's panel list, `createCustomPanel({ packages: [webAnalyticsContents] })`, and add the tile to the dashboard JSON. A product page passes only its own package: products never import another product's package.
 
 ## Before you report done
 
 - The tile renders on the host page, with no "not valid" message and no scrollbar at its default size.
+- A content with a `propsSchema` renders from the props its tile saved, and a tile with a wrong prop shows the "not valid" message.
 - Every control works and changes the dashboard's filters or time range when it should.
 - The tile has no drag handle or menu entries unless the content opted in.
 - An image download leaves out the content when `showOnInteractiveOnly` is set.

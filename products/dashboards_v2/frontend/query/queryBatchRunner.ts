@@ -37,7 +37,15 @@ type Running = { batch: Pending[]; controller: AbortController; unanswered: Map<
 export interface QueryBatchRunnerOptions {
     /** Read when a query is asked, and added to its batch's timing event, such as the tab on screen. */
     context?: () => Record<string, unknown>
+    /**
+     * Whether a query may read this project. Left out, a query may read only the runner's own project. A saved board
+     * names its projects, so without this check a board could run queries as its viewer in a project the viewer never
+     * chose, such as one in another organization.
+     */
+    allowsProject?: (project: number) => boolean
 }
+
+export const PROJECT_NOT_ALLOWED_ERROR = 'This chart queries a project outside your organization, so it was not run.'
 
 // TODO(2026-11-25): Send no time when the request has none, once the query batch endpoint accepts that.
 // The endpoint requires a time range on every query, so a query with no range of its own here gets this one.
@@ -116,7 +124,7 @@ function abortError(): Error {
 }
 
 async function postBatch(
-    teamId: number,
+    project: number,
     body: QueryBatchRequestApi,
     timer: QueryBatchTimer,
     signal: AbortSignal
@@ -126,7 +134,7 @@ async function postBatch(
             throw abortError()
         }
         timer.attempt()
-        const response = await fetch(getDashboardV2QueryBatchCreateUrl(String(teamId)), {
+        const response = await fetch(getDashboardV2QueryBatchCreateUrl(String(project)), {
             method: 'POST',
             credentials: 'same-origin',
             signal,
@@ -148,7 +156,7 @@ async function postBatch(
 }
 
 async function runBatch(
-    teamId: number,
+    project: number,
     { batch, controller, unanswered }: Running,
     timer: QueryBatchTimer,
     retry: (pending: Pending) => void
@@ -156,7 +164,7 @@ async function runBatch(
     let error = new Error(NO_ANSWER)
     try {
         const response = await postBatch(
-            teamId,
+            project,
             {
                 format: 'frames',
                 queries: batch.map((pending, index) => batchTarget(pending.request, index)),
@@ -213,7 +221,7 @@ async function runBatch(
 /**
  * Runs chart queries through `POST dashboard_v2/query_batch/`. The charts that ask within a short window, such as
  * every tile a dashboard mounts, share one stream, and each chart's promise settles as soon as its own line arrives.
- * Up to `MAX_STREAMS` streams run at once, which stays inside the server's per-person shares
+ * Up to `MAX_STREAMS` streams run at once, across every project, which stays inside the server's per-person shares
  * (`MAX_BATCHES_PER_USER` and `MAX_OPEN_BATCHES_PER_USER`). Charts that ask while every stream is open are sent
  * together once one ends. A query whose signal aborts leaves the queue, and a stream stops once every query still
  * waiting on it has aborted, so a closed dashboard or an old time range frees the slot.
@@ -230,6 +238,7 @@ export function createQueryBatchRunner(teamId: number, options: QueryBatchRunner
     // running queries on the server.
     let held: { busy: Pending[]; waitingOn: Set<number>; due: boolean }[] = []
     const running = new Set<Running>()
+    const projectOf = (pending: Pending): number => pending.request.project ?? teamId
 
     const abandon = (pending: Pending): void => {
         pending.reject(abortError())
@@ -258,8 +267,14 @@ export function createQueryBatchRunner(teamId: number, options: QueryBatchRunner
             return !ready
         })
         while (streams < MAX_STREAMS && queued.length > 0) {
-            const batch = queued.slice(0, MAX_QUERIES_PER_BATCH)
-            queued = queued.slice(MAX_QUERIES_PER_BATCH)
+            // TODO(2026-11-26): Run each query in its own project on the server too, once subscriptions are reworked.
+            // Only this client runner reads `project`, so a board rendered on the server would read one project.
+            // The endpoint belongs to one project and checks this person's access to it, so a stream carries one
+            // project's queries.
+            const project = projectOf(queued[0])
+            const batch = queued.filter((pending) => projectOf(pending) === project).slice(0, MAX_QUERIES_PER_BATCH)
+            const sent = new Set(batch)
+            queued = queued.filter((pending) => !sent.has(pending))
             streams++
             const id = nextStream++
             open.add(id)
@@ -271,7 +286,7 @@ export function createQueryBatchRunner(teamId: number, options: QueryBatchRunner
             }
             running.add(current)
             const batchTimer = new QueryBatchTimer(board, batch)
-            void runBatch(teamId, current, batchTimer, (pending) => busy.push(pending)).finally(() => {
+            void runBatch(project, current, batchTimer, (pending) => busy.push(pending)).finally(() => {
                 running.delete(current)
                 try {
                     batchTimer.capture(batch[0].context)
@@ -300,6 +315,11 @@ export function createQueryBatchRunner(teamId: number, options: QueryBatchRunner
         new Promise<QueryResult>((resolve, reject) => {
             if (signal?.aborted) {
                 reject(abortError())
+                return
+            }
+            const project = request.project ?? teamId
+            if (project !== teamId && !options.allowsProject?.(project)) {
+                reject(new Error(PROJECT_NOT_ALLOWED_ERROR))
                 return
             }
             const pending: Pending = {
