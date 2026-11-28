@@ -18,16 +18,23 @@ import type {
     BillingAlertDestinationResponseApi,
     BillingAlertsEventsListParams,
     BillingAlertsListParams,
-    BillingApi,
     BillingAuthorizationResponseApi,
     BillingAuthorizationStatusRequestApi,
     BillingAuthorizationStatusResponseApi,
+    BillingCouponClaimResponseApi,
+    BillingCouponsOverviewResponseApi,
+    BillingCreditsOverviewResponseApi,
+    BillingCreditsPurchaseRequestApi,
+    BillingDeactivateRequestApi,
     BillingFeaturesApi,
     BillingForecastApi,
+    BillingGetInvoicesRetrieveParams,
+    BillingInvoiceSummaryResponseApi,
     BillingInvoicesApi,
     BillingInvoicesListParams,
     BillingLimitsApi,
     BillingListParams,
+    BillingOrganizationGetInvoicesRetrieveParams,
     BillingOrganizationListParams,
     BillingOverviewResponseApi,
     BillingPaymentOrganizationApi,
@@ -48,9 +55,12 @@ import type {
     BillingSpendSummaryApi,
     BillingSpendTimeSeriesResponseApi,
     BillingSpendTimeseriesRetrieveParams,
+    BillingStartupApplicationRequestApi,
     BillingSubscriptionApi,
+    BillingSwitchPlanRequestApi,
     BillingTeamOptionsResponseApi,
     BillingTimeSeriesResponseApi,
+    BillingTrialActivationRequestApi,
     BillingUsageExportDownloadParams,
     BillingUsageExportRetrieveParams,
     BillingUsageRetrieveParams,
@@ -63,7 +73,8 @@ import type {
     PaginatedBillingSpendTimeSeriesListApi,
     PaginatedBillingTimeSeriesPointListApi,
     PatchedBillingAlertConfigurationApi,
-    PatchedBillingApi,
+    PatchedBillingLimitsUpdateRequestApi,
+    PatchedLicenseKeyApi,
     ProjectUsageSummaryApi,
 } from './api.schemas'
 
@@ -105,6 +116,22 @@ export const billingList = async (
     return apiMutator<BillingOverviewResponseApi>(getBillingListUrl(params), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getBillingPartialUpdateUrl = () => {
+    return `/api/billing///`
+}
+
+export const billingPartialUpdate = async (
+    patchedBillingLimitsUpdateRequestApi?: PatchedBillingLimitsUpdateRequestApi,
+    options?: RequestInit
+): Promise<BillingOverviewResponseApi> => {
+    return apiMutator<BillingOverviewResponseApi>(getBillingPartialUpdateUrl(), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedBillingLimitsUpdateRequestApi),
     })
 }
 
@@ -163,8 +190,8 @@ export const getBillingCouponsClaimCreateUrl = () => {
 export const billingCouponsClaimCreate = async (
     claimCouponApi?: ClaimCouponApi,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getBillingCouponsClaimCreateUrl(), {
+): Promise<BillingCouponClaimResponseApi> => {
+    return apiMutator<BillingCouponClaimResponseApi>(getBillingCouponsClaimCreateUrl(), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -176,8 +203,10 @@ export const getBillingCouponsOverviewRetrieveUrl = () => {
     return `/api/billing/coupons/overview/`
 }
 
-export const billingCouponsOverviewRetrieve = async (options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getBillingCouponsOverviewRetrieveUrl(), {
+export const billingCouponsOverviewRetrieve = async (
+    options?: RequestInit
+): Promise<BillingCouponsOverviewResponseApi> => {
+    return apiMutator<BillingCouponsOverviewResponseApi>(getBillingCouponsOverviewRetrieveUrl(), {
         ...options,
         method: 'GET',
     })
@@ -187,8 +216,10 @@ export const getBillingCreditsOverviewRetrieveUrl = () => {
     return `/api/billing/credits/overview/`
 }
 
-export const billingCreditsOverviewRetrieve = async (options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getBillingCreditsOverviewRetrieveUrl(), {
+export const billingCreditsOverviewRetrieve = async (
+    options?: RequestInit
+): Promise<BillingCreditsOverviewResponseApi> => {
+    return apiMutator<BillingCreditsOverviewResponseApi>(getBillingCreditsOverviewRetrieveUrl(), {
         ...options,
         method: 'GET',
     })
@@ -198,12 +229,15 @@ export const getBillingCreditsPurchaseCreateUrl = () => {
     return `/api/billing/credits/purchase/`
 }
 
-export const billingCreditsPurchaseCreate = async (billingApi: BillingApi, options?: RequestInit): Promise<void> => {
+export const billingCreditsPurchaseCreate = async (
+    billingCreditsPurchaseRequestApi: BillingCreditsPurchaseRequestApi,
+    options?: RequestInit
+): Promise<void> => {
     return apiMutator<void>(getBillingCreditsPurchaseCreateUrl(), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(billingApi),
+        body: JSON.stringify(billingCreditsPurchaseRequestApi),
     })
 }
 
@@ -211,21 +245,39 @@ export const getBillingDeactivateCreateUrl = () => {
     return `/api/billing/deactivate/`
 }
 
-export const billingDeactivateCreate = async (billingApi: BillingApi, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getBillingDeactivateCreateUrl(), {
+export const billingDeactivateCreate = async (
+    billingDeactivateRequestApi: BillingDeactivateRequestApi,
+    options?: RequestInit
+): Promise<BillingOverviewResponseApi> => {
+    return apiMutator<BillingOverviewResponseApi>(getBillingDeactivateCreateUrl(), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(billingApi),
+        body: JSON.stringify(billingDeactivateRequestApi),
     })
 }
 
-export const getBillingGetInvoicesRetrieveUrl = () => {
-    return `/api/billing/get_invoices/`
+export const getBillingGetInvoicesRetrieveUrl = (params?: BillingGetInvoicesRetrieveParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/billing/get_invoices/?${stringifiedParams}`
+        : `/api/billing/get_invoices/`
 }
 
-export const billingGetInvoicesRetrieve = async (options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getBillingGetInvoicesRetrieveUrl(), {
+export const billingGetInvoicesRetrieve = async (
+    params?: BillingGetInvoicesRetrieveParams,
+    options?: RequestInit
+): Promise<BillingInvoiceSummaryResponseApi> => {
+    return apiMutator<BillingInvoiceSummaryResponseApi>(getBillingGetInvoicesRetrieveUrl(params), {
         ...options,
         method: 'GET',
     })
@@ -236,14 +288,14 @@ export const getBillingLicensePartialUpdateUrl = () => {
 }
 
 export const billingLicensePartialUpdate = async (
-    patchedBillingApi?: PatchedBillingApi,
+    patchedLicenseKeyApi?: PatchedLicenseKeyApi,
     options?: RequestInit
 ): Promise<void> => {
     return apiMutator<void>(getBillingLicensePartialUpdateUrl(), {
         ...options,
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(patchedBillingApi),
+        body: JSON.stringify(patchedLicenseKeyApi),
     })
 }
 
@@ -332,12 +384,15 @@ export const getBillingStartupsApplyCreateUrl = () => {
     return `/api/billing/startups/apply/`
 }
 
-export const billingStartupsApplyCreate = async (billingApi: BillingApi, options?: RequestInit): Promise<void> => {
+export const billingStartupsApplyCreate = async (
+    billingStartupApplicationRequestApi: BillingStartupApplicationRequestApi,
+    options?: RequestInit
+): Promise<void> => {
     return apiMutator<void>(getBillingStartupsApplyCreateUrl(), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(billingApi),
+        body: JSON.stringify(billingStartupApplicationRequestApi),
     })
 }
 
@@ -346,14 +401,14 @@ export const getBillingSubscriptionSwitchPlanCreateUrl = () => {
 }
 
 export const billingSubscriptionSwitchPlanCreate = async (
-    billingApi: BillingApi,
+    billingSwitchPlanRequestApi: BillingSwitchPlanRequestApi,
     options?: RequestInit
 ): Promise<void> => {
     return apiMutator<void>(getBillingSubscriptionSwitchPlanCreateUrl(), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(billingApi),
+        body: JSON.stringify(billingSwitchPlanRequestApi),
     })
 }
 
@@ -361,12 +416,15 @@ export const getBillingTrialsActivateCreateUrl = () => {
     return `/api/billing/trials/activate/`
 }
 
-export const billingTrialsActivateCreate = async (billingApi: BillingApi, options?: RequestInit): Promise<void> => {
+export const billingTrialsActivateCreate = async (
+    billingTrialActivationRequestApi: BillingTrialActivationRequestApi,
+    options?: RequestInit
+): Promise<void> => {
     return apiMutator<void>(getBillingTrialsActivateCreateUrl(), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(billingApi),
+        body: JSON.stringify(billingTrialActivationRequestApi),
     })
 }
 
@@ -374,12 +432,10 @@ export const getBillingTrialsCancelCreateUrl = () => {
     return `/api/billing/trials/cancel/`
 }
 
-export const billingTrialsCancelCreate = async (billingApi: BillingApi, options?: RequestInit): Promise<void> => {
+export const billingTrialsCancelCreate = async (options?: RequestInit): Promise<void> => {
     return apiMutator<void>(getBillingTrialsCancelCreateUrl(), {
         ...options,
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(billingApi),
     })
 }
 
@@ -486,6 +542,30 @@ export const billingOrganizationList = async (
     return apiMutator<BillingOverviewResponseApi>(getBillingOrganizationListUrl(organizationId, params), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getBillingOrganizationPartialUpdateUrl = (organizationId: string) => {
+    return `/api/organizations/${organizationId}/billing///`
+}
+
+/**
+ * The billing API at /api/organizations/:organization_id/billing/, which names the organization instead of
+ * following the user's current project.
+ *
+ * It shares that prefix with OrganizationBillingViewSet, which serves usage, spend and their exports at the same
+ * paths in its own shapes, so this viewset leaves those reads to it.
+ */
+export const billingOrganizationPartialUpdate = async (
+    organizationId: string,
+    patchedBillingLimitsUpdateRequestApi?: PatchedBillingLimitsUpdateRequestApi,
+    options?: RequestInit
+): Promise<BillingOverviewResponseApi> => {
+    return apiMutator<BillingOverviewResponseApi>(getBillingOrganizationPartialUpdateUrl(organizationId), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedBillingLimitsUpdateRequestApi),
     })
 }
 
@@ -787,8 +867,8 @@ export const billingOrganizationCouponsClaimCreate = async (
     organizationId: string,
     claimCouponApi?: ClaimCouponApi,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getBillingOrganizationCouponsClaimCreateUrl(organizationId), {
+): Promise<BillingCouponClaimResponseApi> => {
+    return apiMutator<BillingCouponClaimResponseApi>(getBillingOrganizationCouponsClaimCreateUrl(organizationId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -810,11 +890,14 @@ export const getBillingOrganizationCouponsOverviewRetrieveUrl = (organizationId:
 export const billingOrganizationCouponsOverviewRetrieve = async (
     organizationId: string,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getBillingOrganizationCouponsOverviewRetrieveUrl(organizationId), {
-        ...options,
-        method: 'GET',
-    })
+): Promise<BillingCouponsOverviewResponseApi> => {
+    return apiMutator<BillingCouponsOverviewResponseApi>(
+        getBillingOrganizationCouponsOverviewRetrieveUrl(organizationId),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
 }
 
 export const getBillingOrganizationCreditsOverviewRetrieveUrl = (organizationId: string) => {
@@ -831,11 +914,14 @@ export const getBillingOrganizationCreditsOverviewRetrieveUrl = (organizationId:
 export const billingOrganizationCreditsOverviewRetrieve = async (
     organizationId: string,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getBillingOrganizationCreditsOverviewRetrieveUrl(organizationId), {
-        ...options,
-        method: 'GET',
-    })
+): Promise<BillingCreditsOverviewResponseApi> => {
+    return apiMutator<BillingCreditsOverviewResponseApi>(
+        getBillingOrganizationCreditsOverviewRetrieveUrl(organizationId),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
 }
 
 export const getBillingOrganizationCreditsPurchaseCreateUrl = (organizationId: string) => {
@@ -851,14 +937,14 @@ export const getBillingOrganizationCreditsPurchaseCreateUrl = (organizationId: s
  */
 export const billingOrganizationCreditsPurchaseCreate = async (
     organizationId: string,
-    billingApi: BillingApi,
+    billingCreditsPurchaseRequestApi: BillingCreditsPurchaseRequestApi,
     options?: RequestInit
 ): Promise<void> => {
     return apiMutator<void>(getBillingOrganizationCreditsPurchaseCreateUrl(organizationId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(billingApi),
+        body: JSON.stringify(billingCreditsPurchaseRequestApi),
     })
 }
 
@@ -875,14 +961,14 @@ export const getBillingOrganizationDeactivateCreateUrl = (organizationId: string
  */
 export const billingOrganizationDeactivateCreate = async (
     organizationId: string,
-    billingApi: BillingApi,
+    billingDeactivateRequestApi: BillingDeactivateRequestApi,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getBillingOrganizationDeactivateCreateUrl(organizationId), {
+): Promise<BillingOverviewResponseApi> => {
+    return apiMutator<BillingOverviewResponseApi>(getBillingOrganizationDeactivateCreateUrl(organizationId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(billingApi),
+        body: JSON.stringify(billingDeactivateRequestApi),
     })
 }
 
@@ -930,8 +1016,23 @@ export const billingForecastRetrieve = async (
     })
 }
 
-export const getBillingOrganizationGetInvoicesRetrieveUrl = (organizationId: string) => {
-    return `/api/organizations/${organizationId}/billing/get_invoices/`
+export const getBillingOrganizationGetInvoicesRetrieveUrl = (
+    organizationId: string,
+    params?: BillingOrganizationGetInvoicesRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/organizations/${organizationId}/billing/get_invoices/?${stringifiedParams}`
+        : `/api/organizations/${organizationId}/billing/get_invoices/`
 }
 
 /**
@@ -943,12 +1044,16 @@ export const getBillingOrganizationGetInvoicesRetrieveUrl = (organizationId: str
  */
 export const billingOrganizationGetInvoicesRetrieve = async (
     organizationId: string,
+    params?: BillingOrganizationGetInvoicesRetrieveParams,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getBillingOrganizationGetInvoicesRetrieveUrl(organizationId), {
-        ...options,
-        method: 'GET',
-    })
+): Promise<BillingInvoiceSummaryResponseApi> => {
+    return apiMutator<BillingInvoiceSummaryResponseApi>(
+        getBillingOrganizationGetInvoicesRetrieveUrl(organizationId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
 }
 
 export const getBillingInvoicesListUrl = (organizationId: string, params?: BillingInvoicesListParams) => {
@@ -1019,14 +1124,14 @@ export const getBillingOrganizationLicensePartialUpdateUrl = (organizationId: st
  */
 export const billingOrganizationLicensePartialUpdate = async (
     organizationId: string,
-    patchedBillingApi?: PatchedBillingApi,
+    patchedLicenseKeyApi?: PatchedLicenseKeyApi,
     options?: RequestInit
 ): Promise<void> => {
     return apiMutator<void>(getBillingOrganizationLicensePartialUpdateUrl(organizationId), {
         ...options,
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(patchedBillingApi),
+        body: JSON.stringify(patchedLicenseKeyApi),
     })
 }
 
@@ -1321,14 +1426,14 @@ export const getBillingOrganizationStartupsApplyCreateUrl = (organizationId: str
  */
 export const billingOrganizationStartupsApplyCreate = async (
     organizationId: string,
-    billingApi: BillingApi,
+    billingStartupApplicationRequestApi: BillingStartupApplicationRequestApi,
     options?: RequestInit
 ): Promise<void> => {
     return apiMutator<void>(getBillingOrganizationStartupsApplyCreateUrl(organizationId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(billingApi),
+        body: JSON.stringify(billingStartupApplicationRequestApi),
     })
 }
 
@@ -1367,14 +1472,14 @@ export const getBillingOrganizationSubscriptionSwitchPlanCreateUrl = (organizati
  */
 export const billingOrganizationSubscriptionSwitchPlanCreate = async (
     organizationId: string,
-    billingApi: BillingApi,
+    billingSwitchPlanRequestApi: BillingSwitchPlanRequestApi,
     options?: RequestInit
 ): Promise<void> => {
     return apiMutator<void>(getBillingOrganizationSubscriptionSwitchPlanCreateUrl(organizationId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(billingApi),
+        body: JSON.stringify(billingSwitchPlanRequestApi),
     })
 }
 
@@ -1391,14 +1496,14 @@ export const getBillingOrganizationTrialsActivateCreateUrl = (organizationId: st
  */
 export const billingOrganizationTrialsActivateCreate = async (
     organizationId: string,
-    billingApi: BillingApi,
+    billingTrialActivationRequestApi: BillingTrialActivationRequestApi,
     options?: RequestInit
 ): Promise<void> => {
     return apiMutator<void>(getBillingOrganizationTrialsActivateCreateUrl(organizationId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(billingApi),
+        body: JSON.stringify(billingTrialActivationRequestApi),
     })
 }
 
@@ -1415,14 +1520,11 @@ export const getBillingOrganizationTrialsCancelCreateUrl = (organizationId: stri
  */
 export const billingOrganizationTrialsCancelCreate = async (
     organizationId: string,
-    billingApi: BillingApi,
     options?: RequestInit
 ): Promise<void> => {
     return apiMutator<void>(getBillingOrganizationTrialsCancelCreateUrl(organizationId), {
         ...options,
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(billingApi),
     })
 }
 

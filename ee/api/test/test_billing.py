@@ -431,7 +431,7 @@ class TestBillingAPI(APILicensedTest):
             "available_product_features": [],
             "custom_limits_usd": {},
             "has_active_subscription": True,
-            "stripe_portal_url": "http://localhost:8010/api/billing/portal",
+            "stripe_portal_url": f"http://localhost:8010/api/organizations/{self.organization.id}/billing/portal",
             "current_total_amount_usd": "100.00",
             "current_total_amount_usd_after_discount": "100.00",
             "discount_percent": None,
@@ -637,7 +637,7 @@ class TestBillingAPI(APILicensedTest):
             "current_total_amount_usd_after_discount": "0.00",
             "discount_percent": None,
             "discount_amount_usd": None,
-            "stripe_portal_url": "http://localhost:8010/api/billing/portal",
+            "stripe_portal_url": f"http://localhost:8010/api/organizations/{self.organization.id}/billing/portal",
             "billing_managed_by_partner": None,
         }
 
@@ -1304,13 +1304,14 @@ class TestActivateBillingAPI(APILicensedTest):
 
     @parameterized.expand(
         [
-            ("overview", "", "get_billing", {"products": [], "available_product_features": []}),
-            ("coupons", "coupons/overview", "coupons_overview", {}),
-            ("credits", "credits/overview", "credits_overview", {}),
+            ("overview", "get", "", "get_billing", {"products": [], "available_product_features": []}),
+            ("coupons", "get", "coupons/overview", "coupons_overview", {}),
+            ("credits", "get", "credits/overview", "credits_overview", {}),
+            ("limits", "patch", "//", "update_billing", {}),
         ]
     )
     def test_organization_in_the_path_wins_over_the_current_project(
-        self, _name: str, path: str, manager_method: str, billing_response: dict[str, Any]
+        self, _name: str, method: str, path: str, manager_method: str, billing_response: dict[str, Any]
     ) -> None:
         organization = Organization.objects.create(name="Another organization")
         team = Team.objects.create(organization=organization, name="Another project")
@@ -1321,8 +1322,18 @@ class TestActivateBillingAPI(APILicensedTest):
         self.user.current_organization = organization
         self.user.save()
 
-        with patch.object(BillingManager, manager_method, return_value=billing_response) as manager:
-            response = self.client.get(f"/api/organizations/{self.organization.id}/billing/{path}")
+        with (
+            patch.object(
+                BillingManager, "get_billing", return_value={"products": [], "available_product_features": []}
+            ),
+            patch.object(BillingManager, manager_method, return_value=billing_response) as manager,
+        ):
+            response = self.client.generic(
+                method.upper(),
+                f"/api/organizations/{self.organization.id}/billing/{path}",
+                json.dumps({"custom_limits_usd": {"events": 10}}) if method == "patch" else "",
+                content_type="application/json",
+            )
 
         assert response.status_code == status.HTTP_200_OK, response.content
         assert manager.call_args.args[0] == self.organization
@@ -2624,6 +2635,7 @@ class TestBillingUsageAndSpendAPI(APILicensedTest):
             ("list_route", "/api/billing/", status.HTTP_403_FORBIDDEN),
             ("read_only_route", "/api/billing/period/", status.HTTP_405_METHOD_NOT_ALLOWED),
             ("organization_list_route", "/api/organizations/{organization_id}/billing/", status.HTTP_403_FORBIDDEN),
+            ("organization_limits_route", "/api/organizations/{organization_id}/billing///", status.HTTP_403_FORBIDDEN),
         ]
     )
     @patch("ee.billing.billing_manager.BillingManager.update_billing")
