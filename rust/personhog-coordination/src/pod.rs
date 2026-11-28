@@ -679,11 +679,10 @@ impl PodHandle {
                 }
                 // Only now do we stop being the owner. On this path the
                 // lease is still alive and the registration still stands:
-                // surrendering before the drain would refuse reads the
-                // protocol deliberately keeps serving — the old owner's
-                // cache is the latest state right up to cutover — while
-                // the coordinator, seeing a live owner, reassigns
-                // nothing.
+                // surrendering before the drain would fail the in-flight
+                // writes the drain waits on, because every ack re-checks
+                // the claim, while the coordinator, seeing a live owner,
+                // reassigns nothing.
                 self.authority.surrender();
                 registration_cancel.cancel();
                 drop(registration_watch.await);

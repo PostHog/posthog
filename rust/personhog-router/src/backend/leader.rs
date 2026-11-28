@@ -532,7 +532,7 @@ impl LeaderBackend {
                             if held_by_op {
                                 "person is held by a lifecycle operation; retries exhausted"
                             } else if matches!(reason, BounceReason::Fenced) {
-                                "leader refused the write precondition (handoff or ownership); retries exhausted"
+                                "leader refused the request precondition (handoff or ownership); retries exhausted"
                             } else {
                                 "leader unreachable or transitioning; retry"
                             },

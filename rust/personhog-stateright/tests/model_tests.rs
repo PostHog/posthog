@@ -103,6 +103,7 @@ fn base() -> HandoffModel {
         reads: 1,
         crashes: 0,
         rejoins: 0,
+        router_expiries: 0,
         router_joins: 0,
         zombie_window: 0,
         hold_pods: 0,
@@ -120,6 +121,7 @@ fn base() -> HandoffModel {
         quiet_start: true,
         freeze_checks_strays: true,
         park_behind_key: true,
+        reads_fenced: true,
     }
 }
 
@@ -286,6 +288,46 @@ fn strong_reads_are_complete_across_cutover() {
     }
     .explore("strong_reads_are_complete_across_cutover")
     .assert_properties();
+}
+
+/// A lease-expired router across a handoff between two live pods: a pod
+/// dies, its partition moves, and the rejoin moves a partition back.
+fn stale_router_across_a_live_handoff() -> HandoffModel {
+    HandoffModel {
+        partitions: 2,
+        writes: 1,
+        reads: 1,
+        crashes: 1,
+        rejoins: 1,
+        router_expiries: 1,
+        ..base()
+    }
+}
+
+/// The handoff fence refuses the stale router's strong read.
+#[test]
+fn a_stale_router_cannot_read_past_cutover() {
+    stale_router_across_a_live_handoff()
+        .explore("a_stale_router_cannot_read_past_cutover")
+        .assert_properties();
+}
+
+/// The rejected rule: an unfenced old owner answers the stale router
+/// from its frozen cache.
+#[test]
+fn without_the_read_fence_a_stale_router_reads_past_cutover() {
+    let checker = HandoffModel {
+        reads_fenced: false,
+        ..stale_router_across_a_live_handoff()
+    }
+    .explore_until(
+        "without_the_read_fence_a_stale_router_reads_past_cutover",
+        &["strong_reads_complete"],
+    );
+    assert!(
+        checker.discovery("strong_reads_complete").is_some(),
+        "an unfenced old owner must serve the stale router a stale read"
+    );
 }
 
 /// Epoch fencing must close the residual at two partitions too — each

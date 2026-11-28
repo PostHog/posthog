@@ -52,6 +52,7 @@ fn main() {
         reads: 1,
         crashes,
         rejoins: 0,
+        router_expiries: 0,
         router_joins: 0,
         zombie_window,
         hold_pods: 0,
@@ -69,6 +70,7 @@ fn main() {
         quiet_start: true,
         freeze_checks_strays: true,
         park_behind_key: true,
+        reads_fenced: true,
     };
     println!("exploring {:?} at http://localhost:3000 …", args.scenario);
     model.checker().serve("localhost:3000");

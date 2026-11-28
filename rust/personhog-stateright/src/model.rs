@@ -238,6 +238,9 @@ pub struct HandoffModel {
     pub reads: u8,
     /// Total failure events (crash-restarts + lease expiries).
     pub crashes: u8,
+    /// Router lease expiries on top of `crashes`, so a scenario can pair
+    /// one pod failure with one router failure without `crashes: 2`.
+    pub router_expiries: u8,
     /// Total deadline cancellations the checker may inject.
     pub cancels: u8,
     /// Times a dead pod may rejoin under its old name.
@@ -286,6 +289,9 @@ pub struct HandoffModel {
     /// Whether a request parks behind its key's parked requests; `false`
     /// keeps the rejected bucket rule, which lets a later request overtake.
     pub park_behind_key: bool,
+    /// Whether the handoff fence refuses strong reads as well as writes;
+    /// `false` keeps the rejected rule.
+    pub reads_fenced: bool,
 }
 
 /// Derive one pod's desired state by calling the production
@@ -643,6 +649,9 @@ impl HandoffModel {
         let Some(warm) = pod.warmed.get(&partition) else {
             return false;
         };
+        if self.reads_fenced && pod.fenced.contains(&partition) {
+            return false;
+        }
         if !self.validates(state, x, partition, key) {
             return false;
         }
@@ -1018,7 +1027,10 @@ impl HandoffModel {
                 let pod = &state.pods[&x];
                 state.rejoins_left > 0 && !pod.registered && !pod.running
             }
-            Action::RouterLeaseExpire(r) => state.crashes_left > 0 && state.routers[&r].registered,
+            Action::RouterLeaseExpire(r) => {
+                (state.router_expiries_left > 0 || state.crashes_left > 0)
+                    && state.routers[&r].registered
+            }
             Action::RouterSelfFence(r) => {
                 let router = &state.routers[&r];
                 !router.registered && router.running
@@ -1601,6 +1613,7 @@ impl Model for HandoffModel {
             writes_left: self.writes,
             reads_left: self.reads,
             crashes_left: self.crashes,
+            router_expiries_left: self.router_expiries,
             rejoins_left: self.rejoins,
             router_joins_left: self.router_joins,
             cancels_left: self.cancels,
@@ -1859,7 +1872,11 @@ impl Model for HandoffModel {
                 pod.claims_authority = false;
             }),
             Action::RouterLeaseExpire(r) => mutate(last, |state| {
-                state.crashes_left -= 1;
+                if state.router_expiries_left > 0 {
+                    state.router_expiries_left -= 1;
+                } else {
+                    state.crashes_left -= 1;
+                }
                 state.routers.get_mut(&r).unwrap().registered = false;
             }),
             Action::RouterSelfFence(r) => mutate(last, |state| {

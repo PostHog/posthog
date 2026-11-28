@@ -2305,6 +2305,51 @@ async fn a_heal_that_cannot_acquire_does_not_fail_the_run() {
     );
 }
 
+/// A cancelled handoff must serve reads again without the broker round
+/// trip that re-admits writes.
+#[tokio::test]
+async fn a_resume_that_cannot_acquire_still_admits_strong_reads() {
+    let topic = format!("fence_resume_reads_{}", uuid::Uuid::new_v4().simple());
+    let mut kafka = test_kafka_config();
+    kafka.kafka_hosts = "127.0.0.1:1".to_string();
+    let producers = Arc::new(FencedChangelogProducers::new(FencedProducerConfig {
+        kafka,
+        init_timeout: Duration::from_secs(2),
+        commit_timeout: Duration::from_secs(2),
+        broker_txn_timeout: BROKER_TXN_TIMEOUT,
+        window: Duration::from_millis(5),
+        window_max_writes: 32,
+        lanes: 1,
+        settle_budget: Duration::from_secs(1),
+    }));
+    let inflight = Arc::new(InflightTracker::new());
+    let handler = common::test_handoff_handler_with_inflight(
+        &topic,
+        Arc::clone(&producers),
+        Arc::clone(&inflight),
+    );
+
+    handler
+        .drain_partition_inflight(0)
+        .await
+        .expect("the drain fences");
+    assert!(inflight.is_read_fenced(0));
+
+    handler
+        .resume_partition(0)
+        .await
+        .expect_err("a resume with no broker cannot re-take the epoch");
+
+    assert!(
+        !inflight.is_read_fenced(0),
+        "strong reads must flow as soon as the handoff is cancelled"
+    );
+    assert!(
+        inflight.is_fenced(0),
+        "writes stay fenced until the epoch is back"
+    );
+}
+
 /// A heal is an acquisition like any other: the same convergence's
 /// resume step must trust its fence rather than bump the epoch again.
 /// Re-acquiring on resume would fence the very window the heal just made

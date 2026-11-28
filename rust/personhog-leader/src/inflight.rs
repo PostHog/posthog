@@ -18,6 +18,7 @@ use dashmap::{DashMap, DashSet};
 ///   began, so a late write can only come from a router serving with a
 ///   stale view — accepting it would advance the Kafka HWM past the point
 ///   warming snapshots, silently losing the write from the new owner.
+///   Strong reads are refused too (`is_read_fenced`).
 ///
 /// Callers obtain a guard via `begin(partition)` and drop it once the
 /// write's outcome is known; the handoff protocol fences the partition,
@@ -27,6 +28,7 @@ use dashmap::{DashMap, DashSet};
 pub struct InflightTracker {
     partitions: DashMap<u32, Arc<AtomicUsize>>,
     fenced: DashSet<u32>,
+    reads_fenced: DashSet<u32>,
 }
 
 impl InflightTracker {
@@ -84,7 +86,14 @@ impl InflightTracker {
     /// starts waiting on the inflight count, so no write can slip in
     /// between the count reaching zero and the drained ack being written.
     pub fn fence(&self, partition: u32) {
+        self.reads_fenced.insert(partition);
         self.fenced.insert(partition);
+    }
+
+    /// Serve strong reads again while writes stay rejected. A cancelled
+    /// handoff's owner needs no broker round trip to answer reads.
+    pub fn admit_reads(&self, partition: u32) {
+        self.reads_fenced.remove(&partition);
     }
 
     /// Re-admit writes for the partition: the handoff completed (the
@@ -92,11 +101,17 @@ impl InflightTracker {
     /// the partition through a fresh warm. Idempotent.
     pub fn unfence(&self, partition: u32) {
         self.fenced.remove(&partition);
+        self.reads_fenced.remove(&partition);
     }
 
     /// Whether writes for the partition are currently rejected.
     pub fn is_fenced(&self, partition: u32) -> bool {
         self.fenced.contains(&partition)
+    }
+
+    /// Whether strong reads for the partition are currently rejected.
+    pub fn is_read_fenced(&self, partition: u32) -> bool {
+        self.reads_fenced.contains(&partition)
     }
 
     #[cfg(test)]

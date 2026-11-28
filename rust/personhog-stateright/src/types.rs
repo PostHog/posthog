@@ -271,6 +271,8 @@ pub struct SystemState {
     pub writes_left: u8,
     pub reads_left: u8,
     pub crashes_left: u8,
+    /// Router lease expiries left that do not spend `crashes_left`.
+    pub router_expiries_left: u8,
     pub rejoins_left: u8,
     /// Times a router may (re)join: a late slot coming up for the first
     /// time, or a dead router returning as a fresh process.

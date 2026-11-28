@@ -230,6 +230,20 @@ impl PersonHogLeaderService {
         )))
     }
 
+    /// Refuse a strong read once the partition has drained for handoff:
+    /// this pod keeps its cache past cutover, and only a router with a
+    /// stale table can still reach it.
+    #[allow(clippy::result_large_err)]
+    fn check_read_admission(&self, partition: u32) -> Result<(), Status> {
+        if !self.inflight.is_read_fenced(partition) {
+            return Ok(());
+        }
+        counter!("personhog_leader_handoff_fenced_reads_total").increment(1);
+        Err(Status::failed_precondition(format!(
+            "partition {partition} is fenced for handoff; strong reads are rejected"
+        )))
+    }
+
     /// The gate every ack passes: a valid lease and in-process ownership.
     #[allow(clippy::result_large_err)]
     fn assert_authoritative(&self, partition: u32) -> Result<(), Status> {
@@ -1157,6 +1171,7 @@ impl PersonHogLeader for PersonHogLeaderService {
         let req = request.into_inner();
         self.validate_partition(partition, req.team_id, req.person_id)?;
         self.check_authority(partition)?;
+        self.check_read_admission(partition)?;
         let cache_key = PersonCacheKey {
             team_id: req.team_id,
             person_id: req.person_id,
@@ -1206,8 +1221,7 @@ impl PersonHogLeader for PersonHogLeaderService {
         // owner's warming snapshots, silently losing the write. Admission
         // and the fence check are one atomic operation (`try_begin`): the
         // inflight increment precedes the check, so the drain either waits
-        // for this write or this write sees the fence. Reads are unaffected
-        // — the frozen state stays the latest until cutover. The handoff
+        // for this write or this write sees the fence. The handoff
         // protocol waits for the per-partition inflight count to drop to
         // zero before advancing; combined with sync-acked produces, a zero
         // count implies every acked write is durable in Kafka. The guard
