@@ -646,8 +646,8 @@ describe('adventCalendarLogic', () => {
         logic.mount()
         await waitFor(() => expect(failing.reads).toEqual([1]))
         signIn({ uuid: UUID, is_staff: false })
-        logic.actions.openDoor(UUID, 1, null, true)
-        logic.actions.openDoor(UUID, 2, 'tim', true)
+        logic.actions.openDoor(UUID, 1, null, true, false)
+        logic.actions.openDoor(UUID, 2, 'tim', true, false)
         release()
         await expectLogic(logic).toFinishAllListeners()
 
