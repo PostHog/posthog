@@ -11,6 +11,8 @@ import type { Mocks } from '~/mocks/utils'
 import { initKeaTests } from '~/test/init'
 import { UserType } from '~/types'
 
+import type { AdventCalendarDoorOpenRequestApi } from 'products/workflows/frontend/generated/api.schemas'
+
 import { workflowsSetupLogic } from '../emptyState/workflowsSetupLogic'
 import { adventCalendarLogic } from './adventCalendarLogic'
 import { ADVENT_QUESTIONS } from './adventContent'
@@ -50,9 +52,9 @@ function calendarApi(
     } = {},
     results = resultsOf(DAY_TWO_ANSWERED),
     resultsHeld: Promise<void> = Promise.resolve()
-): { mocks: Mocks; answers: unknown[]; opens: unknown[]; reads: number[] } {
+): { mocks: Mocks; answers: unknown[]; opens: AdventCalendarDoorOpenRequestApi[]; reads: number[] } {
     const answers: unknown[] = []
-    const opens: unknown[] = []
+    const opens: AdventCalendarDoorOpenRequestApi[] = []
     const reads: number[] = []
     const mocks: Mocks = {
         get: {
@@ -68,7 +70,7 @@ function calendarApi(
                 return replyWith(replies.answer ?? 200, results)
             },
             [`${CALENDAR_API}/open/`]: async ({ request }) => {
-                const open = (await request.json()) as { day: number; utc_offset_minutes: number }
+                const open = (await request.json()) as AdventCalendarDoorOpenRequestApi
                 opens.push(open)
                 await replies.openHeld
                 const openedAt = replies.openedAt?.(open.day) ?? '2026-12-03T09:00:00Z'
@@ -945,7 +947,7 @@ describe('adventCalendarLogic', () => {
 
             expect(doorOf(logic, 'door-2')?.status).toBe('open')
             expect({
-                opens: api.opens.map((open) => (open as { day: number }).day),
+                opens: api.opens.map((open) => open.day),
                 answers: api.answers.length,
                 storesProgress: window.localStorage.getItem('workflows-advent-calendar-progress') !== storedBefore,
                 openEvents: sent.filter(([event]) => event === 'workflows advent door opened').length,
@@ -977,7 +979,7 @@ describe('adventCalendarLogic', () => {
         logic.actions.answerDoor('door-2', ADVENT_QUESTIONS[2].options[0].id)
         await waitFor(() => expect(api.answers).toHaveLength(1))
 
-        expect({ doorsBefore, opens: api.opens.map((open) => (open as { day: number }).day) }).toEqual({
+        expect({ doorsBefore, opens: api.opens.map((open) => open.day) }).toEqual({
             doorsBefore: ['ready', 'locked'],
             opens: [1, 2],
         })
