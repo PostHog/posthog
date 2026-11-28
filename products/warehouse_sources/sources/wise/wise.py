@@ -14,6 +14,7 @@ from products.warehouse_sources.sources.sdk import (
     JSONResponseCursorPaginator,
     OffsetPaginator,
     RESTClient,
+    RESTClientNonRetryableError,
     ResumableSourceManager,
     SinglePagePaginator,
     SourceResponse,
@@ -28,10 +29,15 @@ from products.warehouse_sources.sources.wise.settings import BALANCE_STATEMENTS,
 
 INVALID_TOKEN_MESSAGE = "Wise rejected your API token. Create a new personal API token in Wise and reconnect."
 FORBIDDEN_MESSAGE = "Your Wise API token can't read this data. Check that the token belongs to a business account."
-STATEMENT_FORBIDDEN_MESSAGE = "Your Wise API token can't read balance statements. Wise limits access by country."
+STATEMENT_FORBIDDEN_MESSAGE = (
+    "Your Wise API token can't read balance statements. Wise limits access by country. "
+    "Leave balance statements off and continue syncing your other tables."
+)
 
-STATEMENT_WINDOW = timedelta(days=469)
+STATEMENT_WINDOW = timedelta(days=30)
+MIN_STATEMENT_WINDOW = timedelta(seconds=1)
 STATEMENT_WINDOW_OVERLAP = timedelta(milliseconds=1)
+MAX_STATEMENT_BYTES = 8 * 1024 * 1024
 
 
 @frozen
@@ -42,6 +48,13 @@ class WiseResumeConfig:
 class StatementInterval(TypedDict):
     start: str
     seen_references: list[str]
+
+
+class WiseStatementTooLargeError(RESTClientNonRetryableError):
+    def __init__(self) -> None:
+        super().__init__(
+            "Wise returned too much statement data for this interval. Contact support for help syncing this balance."
+        )
 
 
 class WiseCursorPaginator(JSONResponseCursorPaginator):
@@ -125,6 +138,46 @@ def _statement_params(currency: str, start: datetime, end: datetime) -> dict[str
     }
 
 
+def _cap_statement_response(response: Response, **_kwargs: Any) -> None:
+    """Cap decoded bytes in the Requests hook, before Requests buffers the body."""
+    with response:
+        if response.status_code == 413:
+            raise WiseStatementTooLargeError()
+        body = bytearray()
+        for chunk in response.iter_content(chunk_size=64 * 1024):
+            body.extend(chunk)
+            if len(body) > MAX_STATEMENT_BYTES:
+                if response.ok:
+                    raise WiseStatementTooLargeError()
+                del body[MAX_STATEMENT_BYTES:]
+                break
+        response._content = bytes(body)
+
+
+def _read_statement_window(
+    client: RESTClient,
+    endpoint: WiseEndpoint,
+    path: str,
+    currency: str,
+    start: datetime,
+    end: datetime,
+    safe_point: Callable[[], None],
+) -> tuple[datetime, list[dict[str, Any]]]:
+    while True:
+        params = {**endpoint.params, **_statement_params(currency, start, end)}
+        try:
+            page = next(
+                client.paginate(path, params=params, data_selector=endpoint.data_selector, data_selector_required=True)
+            )
+        except WiseStatementTooLargeError:
+            safe_point()
+            if end - start <= MIN_STATEMENT_WINDOW:
+                raise
+            end = start + (end - start) / 2
+        else:
+            return end, page
+
+
 def _statement_pages(
     token: str,
     endpoint: WiseEndpoint,
@@ -139,6 +192,9 @@ def _statement_pages(
         paginator=SinglePagePaginator(),
         capture=False,
     )
+    session = make_tracked_session(redact_values=(token,), capture=False)
+    session.hooks["response"].append(_cap_statement_response)
+    statement_client = RESTClient(base_url=BASE_URL, auth=BearerTokenAuth(token), session=session)
     run_end = datetime.fromisoformat(initial_state["end"]) if initial_state else datetime.now(UTC)
     next_intervals: dict[str, StatementInterval | None] = dict(initial_state["next_intervals"]) if initial_state else {}
 
@@ -161,31 +217,30 @@ def _statement_pages(
 
             while start < run_end:
                 end = min(start + STATEMENT_WINDOW, run_end)
+                end, page = _read_statement_window(
+                    statement_client, endpoint, path, balance["currency"], start, end, safe_point
+                )
                 next_start = end - STATEMENT_WINDOW_OVERLAP if end < run_end else None
-                params = {**endpoint.params, **_statement_params(balance["currency"], start, end)}
-                for page in client.paginate(
-                    path, params=params, data_selector=endpoint.data_selector, data_selector_required=True
-                ):
-                    rows = [
-                        {**row, "profileId": profile_id, "balanceId": balance_id}
-                        for row in page
-                        if row["referenceNumber"] not in seen_references
-                    ]
-                    seen_references = (
-                        {row["referenceNumber"] for row in page if datetime.fromisoformat(row["date"]) >= next_start}
-                        if next_start is not None
-                        else set()
-                    )
-                    next_intervals[path] = (
-                        {"start": next_start.isoformat(), "seen_references": sorted(seen_references)}
-                        if next_start is not None
-                        else None
-                    )
-                    save_state({"end": run_end.isoformat(), "next_intervals": next_intervals})
-                    if rows:
-                        yield rows
-                    else:
-                        safe_point()
+                rows = [
+                    {**row, "profileId": profile_id, "balanceId": balance_id}
+                    for row in page
+                    if row["referenceNumber"] not in seen_references
+                ]
+                seen_references = (
+                    {row["referenceNumber"] for row in page if datetime.fromisoformat(row["date"]) >= next_start}
+                    if next_start is not None
+                    else set()
+                )
+                next_intervals[path] = (
+                    {"start": next_start.isoformat(), "seen_references": sorted(seen_references)}
+                    if next_start is not None
+                    else None
+                )
+                save_state({"end": run_end.isoformat(), "next_intervals": next_intervals})
+                if rows:
+                    yield rows
+                else:
+                    safe_point()
 
                 if next_start is None:
                     break
@@ -284,13 +339,16 @@ def wise_source(
     )
 
 
-def _get(token: str, path: str, params: dict[str, Any] | None = None, *, capture: bool = True) -> Response:
+def _get(
+    token: str, path: str, params: dict[str, Any] | None = None, *, capture: bool = True, stream: bool = False
+) -> Response:
     session = make_tracked_session(redact_values=(token,), capture=capture)
     return session.get(
         f"{BASE_URL}{path}",
         params=params,
         headers={"Authorization": f"Bearer {token}", "Accept": "application/json"},
         timeout=30,
+        stream=stream,
     )
 
 
@@ -325,8 +383,8 @@ def _probe_statement_access(token: str, profile_id: str) -> str | None:
     path = endpoint.path.format(profile_id=int(profile_id), balance_id=int(balance["id"]))
     end = datetime.now(UTC)
     params = {**endpoint.params, **_statement_params(balance["currency"], end - timedelta(days=1), end)}
-    status = _get(token, path, params, capture=False).status_code
-    return STATEMENT_FORBIDDEN_MESSAGE if status in (401, 403) else None
+    with _get(token, path, params, capture=False, stream=True) as statement:
+        return STATEMENT_FORBIDDEN_MESSAGE if statement.status_code in (401, 403) else None
 
 
 def get_endpoint_permissions(token: str, endpoint_names: list[str]) -> dict[str, str | None]:

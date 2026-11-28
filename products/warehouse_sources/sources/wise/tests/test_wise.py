@@ -1,17 +1,19 @@
+import gzip
 from datetime import UTC, datetime
 from typing import Any
 
 import pytest
 import time_machine
-from unittest.mock import patch
 
-from products.warehouse_sources.sources.sdk import ResumableSourceManager
 from products.warehouse_sources.sources.sdk.testing import (
     RecordedRequest,
     ScriptedResponse,
     SourceDriver,
+    activate_safe_point,
     scripted_network,
+    source_inputs,
 )
+from products.warehouse_sources.sources.wise import wise
 from products.warehouse_sources.sources.wise._config import WiseSourceConfig
 from products.warehouse_sources.sources.wise.source import WiseSource
 from products.warehouse_sources.sources.wise.wise import (
@@ -19,6 +21,7 @@ from products.warehouse_sources.sources.wise.wise import (
     INVALID_TOKEN_MESSAGE,
     STATEMENT_FORBIDDEN_MESSAGE,
     WiseResumeConfig,
+    WiseStatementTooLargeError,
     format_wise_datetime,
     get_endpoint_permissions,
     validate_credentials,
@@ -27,7 +30,7 @@ from products.warehouse_sources.sources.wise.wise import (
 PROFILES = [{"id": 101, "type": "BUSINESS"}, {"id": 202, "type": "PERSONAL"}]
 INVALID_TOKEN_BODY = {"error": "invalid_token", "error_description": "Invalid token"}
 STATEMENT_PATH = "/profiles/101/balance-statements/1/statement.json"
-STATEMENT_BALANCE = {"id": 1, "currency": "EUR", "creationTime": "2023-01-01T00:00:00.000Z"}
+STATEMENT_BALANCE = {"id": 1, "currency": "EUR", "creationTime": "2024-03-15T00:00:00.000Z"}
 
 
 def driver() -> SourceDriver:
@@ -238,7 +241,7 @@ def test_balance_statements_walk_past_empty_windows_and_keep_balance_keys() -> N
     assert [request.param("currency") for request in statement_requests] == ["EUR", "EUR", "GBP"]
     assert [request.param("type") for request in statement_requests] == ["COMPACT"] * 3
     assert [request.param("intervalStart") for request in statement_requests] == [
-        "2023-01-01T00:00:00.000Z",
+        "2024-03-15T00:00:00.000Z",
         "2024-04-13T23:59:59.999Z",
         "2024-04-30T00:00:00.000Z",
     ]
@@ -252,20 +255,88 @@ def test_balance_statements_walk_past_empty_windows_and_keep_balance_keys() -> N
 
 def test_balance_statements_can_stop_after_a_profile_with_no_balances() -> None:
     shutdown = RuntimeError("Worker shutdown")
-    with patch.object(ResumableSourceManager, "safe_point", side_effect=[None, shutdown]):
-        result = driver().run(
-            "balance_statements",
-            responder(
-                {
-                    ("/profiles", None): [ScriptedResponse(json=PROFILES)],
-                    ("/profiles/101/balances", None): [ScriptedResponse(json=[])],
-                    ("/profiles/202/balances", None): [ScriptedResponse(json=[])],
-                }
-            ),
-        )
+    with scripted_network([ScriptedResponse(json=PROFILES), ScriptedResponse(json=[])]) as network:
 
-    assert result.raised is shutdown
-    assert result.paths == ["/2026Q4/profiles", "/2026Q4/profiles/101/balances"]
+        def stop_after_empty_balance() -> None:
+            if len(network.requests_log) == 2:
+                raise shutdown
+
+        source = WiseSource()
+        inputs = source_inputs("balance_statements")
+        manager = source.get_resumable_source_manager(inputs)
+        with (
+            activate_safe_point(stop_after_empty_balance, covers_framework_checkpoints=False),
+            pytest.raises(RuntimeError) as error,
+        ):
+            response = source.source_for_pipeline(WiseSourceConfig(api_token="wise-token"), manager, inputs)
+            list(response.items())
+
+    assert error.value is shutdown
+    assert [request.path for request in network.requests_log] == ["/2026Q4/profiles", "/2026Q4/profiles/101/balances"]
+
+
+@pytest.mark.parametrize(
+    "oversized",
+    [
+        pytest.param(
+            ScriptedResponse(
+                body=gzip.compress(b'{"transactions":[],"padding":"' + b"x" * 1024 + b'"}'),
+                headers={"Content-Encoding": "gzip"},
+            ),
+            id="decoded-body-over-limit",
+        ),
+        pytest.param(ScriptedResponse(status=413), id="http-413"),
+    ],
+)
+@time_machine.travel("2024-05-01T00:00:00Z", tick=False)
+def test_oversized_statement_window_splits_without_losing_or_repeating_rows(
+    oversized: ScriptedResponse, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(wise, "MAX_STATEMENT_BYTES", 512)
+    balance = {**STATEMENT_BALANCE, "creationTime": "2024-04-01T00:00:00.000Z"}
+    boundary = {"referenceNumber": "TRANSFER-1", "date": "2024-04-16T00:00:00.000Z"}
+    later = {"referenceNumber": "TRANSFER-2", "date": "2024-04-17T00:00:00.000Z"}
+    result = driver().run(
+        "balance_statements",
+        [
+            ScriptedResponse(json=PROFILES[:1]),
+            ScriptedResponse(json=[balance]),
+            oversized,
+            ScriptedResponse(json={"transactions": [boundary]}),
+            ScriptedResponse(json={"transactions": [boundary, later]}),
+        ],
+    )
+
+    assert result.raised is None
+    assert result.params("intervalStart")[2:] == [
+        "2024-04-01T00:00:00.000Z",
+        "2024-04-01T00:00:00.000Z",
+        "2024-04-15T23:59:59.999Z",
+    ]
+    assert result.params("intervalEnd")[2:] == [
+        "2024-05-01T00:00:00.000Z",
+        "2024-04-16T00:00:00.000Z",
+        "2024-05-01T00:00:00.000Z",
+    ]
+    assert result.committed_states[0].paginator_state["next_intervals"][STATEMENT_PATH]["start"] == (
+        "2024-04-15T23:59:59.999000+00:00"
+    )
+    assert result.rows == [{**row, "profileId": 101, "balanceId": 1} for row in (boundary, later)]
+
+
+@time_machine.travel("2024-05-01T00:00:00Z", tick=False)
+def test_oversized_statement_at_minimum_window_does_not_advance() -> None:
+    result = driver().run(
+        "balance_statements",
+        [
+            ScriptedResponse(json=PROFILES[:1]),
+            ScriptedResponse(json=[{**STATEMENT_BALANCE, "creationTime": "2024-04-30T23:59:59.500Z"}]),
+            ScriptedResponse(status=413),
+        ],
+    )
+
+    assert isinstance(result.raised, WiseStatementTooLargeError)
+    assert not result.committed_states
 
 
 @pytest.mark.parametrize(
