@@ -14,7 +14,6 @@ from products.ai_observability.backend.api import (
     DatasetViewSet,
     EvalSuggestionViewSet,
     EvaluationBackfillViewSet,
-    EvaluationConfigViewSet,
     EvaluationDirectoryViewSet,
     EvaluationReportViewSet,
     EvaluationRunViewSet,
@@ -171,12 +170,6 @@ def register_routes(routers: RouterRegistry) -> None:
         ["team_id"],
     )
     routers.projects.register(r"llm_analytics/models", LLMModelsViewSet, "project_llm_analytics_models", ["team_id"])
-    routers.projects.register(
-        r"llm_analytics/evaluation_config",
-        EvaluationConfigViewSet,
-        "project_llm_analytics_evaluation_config",
-        ["team_id"],
-    )
     routers.projects.register(
         r"llm_analytics/clustering_runs",
         AIObservabilityClusteringRunViewSet,

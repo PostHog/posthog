@@ -48569,6 +48569,14 @@ export namespace Schemas {
       backfill_units: number | null;
     }
 
+    export interface EvalSuggestionAcceptRequest {
+      /**
+         * For an LLM judge, the judge_key_id from accept_estimate, so accept pins the key the person confirmed.
+         * @nullable
+         */
+      provider_key_id?: string | null;
+    }
+
     export interface EvalSuggestionDismiss {
       /** Optional reason: not_relevant, already_covered, too_noisy, or fixed_cause.
        *
@@ -48613,10 +48621,20 @@ export namespace Schemas {
          */
       window_end: string | null;
       /**
-         * Model a judge runs on: the default for the project's active key. Null for Hog checks.
+         * Model a judge runs on: the default model of judge_key_name. Null for Hog checks, and when no OpenAI, Anthropic or Gemini key works.
          * @nullable
          */
       judge_model: string | null;
+      /**
+         * Id of judge_key_name. Pass it to accept so the judge runs on this key.
+         * @nullable
+         */
+      judge_key_id: string | null;
+      /**
+         * Provider key accept pins: a working key for the provider the judge was drafted on, else the one most of the project's judges use. Null for Hog checks, and when no key works.
+         * @nullable
+         */
+      judge_key_name: string | null;
       /**
          * units x input tokens one judge run reads x the input price of the model accept uses, in USD. 0 for Hog checks, null when the price or token count is unknown.
          * @nullable
@@ -49144,87 +49162,6 @@ export namespace Schemas {
       conditions?: EvaluationCondition[];
       /** Evaluate units again even when this evaluation already has a result for them. */
       rerun_existing?: boolean;
-    }
-
-    /**
-     * * `unknown` - Unknown
-     * * `ok` - Ok
-     * * `invalid` - Invalid
-     * * `error` - Error
-     */
-    export type LLMProviderKeyStateEnum = typeof LLMProviderKeyStateEnum[keyof typeof LLMProviderKeyStateEnum];
-
-
-    export const LLMProviderKeyStateEnum = {
-      Unknown: 'unknown',
-      Ok: 'ok',
-      Invalid: 'invalid',
-      Error: 'error',
-    } as const;
-
-    export interface LLMProviderKey {
-      readonly id: string;
-      provider: LLMProviderEnum;
-      /** @maxLength 255 */
-      name: string;
-      readonly state: LLMProviderKeyStateEnum;
-      /** @nullable */
-      readonly error_message: string | null;
-      api_key?: string;
-      readonly api_key_masked: string;
-      /** Public HTTPS base URL of an OpenAI-compatible or System One API. For System One, end before /systemone. */
-      base_url?: string;
-      /**
-         * Model ID served by the System One endpoint.
-         * @maxLength 100
-         */
-      system_one_model?: string;
-      /**
-         * Configured provider base URL (read-only, for display)
-         * @nullable
-         */
-      readonly base_url_display: string | null;
-      /**
-         * Configured System One model ID.
-         * @nullable
-         */
-      readonly system_one_model_display: string | null;
-      /** Azure OpenAI endpoint URL. For an Anthropic key, the endpoint of the Microsoft Foundry resource that serves Claude, e.g. https://my-resource.services.ai.azure.com/. Omit it for a key from the Anthropic API. */
-      azure_endpoint?: string;
-      /**
-         * Azure OpenAI API version
-         * @maxLength 20
-         */
-      api_version?: string;
-      /**
-         * Azure endpoint (read-only, for display)
-         * @nullable
-         */
-      readonly azure_endpoint_display: string | null;
-      /**
-         * Azure API version (read-only, for display)
-         * @nullable
-         */
-      readonly api_version_display: string | null;
-      set_as_active?: boolean;
-      readonly created_at: string;
-      readonly created_by: UserBasic;
-      /** @nullable */
-      readonly last_used_at: string | null;
-    }
-
-    export interface EvaluationConfig {
-      /** Provider key used to run llm_judge evals; null if none configured yet. */
-      readonly active_provider_key: LLMProviderKey | null;
-      /** Timestamp when the evaluation config row was created. */
-      readonly created_at: string;
-      /** Timestamp when the evaluation config row was last modified. */
-      readonly updated_at: string;
-    }
-
-    export interface EvaluationConfigSetActiveKeyRequest {
-      /** UUID of an existing LLM provider key (state must be 'ok') to mark as the active key for running llm_judge evaluations team-wide. */
-      key_id: string;
     }
 
     export interface EvaluationContextSuggestionRequest {
@@ -70959,6 +70896,72 @@ export namespace Schemas {
          * @minimum 1
          */
       version: number;
+    }
+
+    /**
+     * * `unknown` - Unknown
+     * * `ok` - Ok
+     * * `invalid` - Invalid
+     * * `error` - Error
+     */
+    export type LLMProviderKeyStateEnum = typeof LLMProviderKeyStateEnum[keyof typeof LLMProviderKeyStateEnum];
+
+
+    export const LLMProviderKeyStateEnum = {
+      Unknown: 'unknown',
+      Ok: 'ok',
+      Invalid: 'invalid',
+      Error: 'error',
+    } as const;
+
+    export interface LLMProviderKey {
+      readonly id: string;
+      provider: LLMProviderEnum;
+      /** @maxLength 255 */
+      name: string;
+      readonly state: LLMProviderKeyStateEnum;
+      /** @nullable */
+      readonly error_message: string | null;
+      api_key?: string;
+      readonly api_key_masked: string;
+      /** Public HTTPS base URL of an OpenAI-compatible or System One API. For System One, end before /systemone. */
+      base_url?: string;
+      /**
+         * Model ID served by the System One endpoint.
+         * @maxLength 100
+         */
+      system_one_model?: string;
+      /**
+         * Configured provider base URL (read-only, for display)
+         * @nullable
+         */
+      readonly base_url_display: string | null;
+      /**
+         * Configured System One model ID.
+         * @nullable
+         */
+      readonly system_one_model_display: string | null;
+      /** Azure OpenAI endpoint URL. For an Anthropic key, the endpoint of the Microsoft Foundry resource that serves Claude, e.g. https://my-resource.services.ai.azure.com/. Omit it for a key from the Anthropic API. */
+      azure_endpoint?: string;
+      /**
+         * Azure OpenAI API version
+         * @maxLength 20
+         */
+      api_version?: string;
+      /**
+         * Azure endpoint (read-only, for display)
+         * @nullable
+         */
+      readonly azure_endpoint_display: string | null;
+      /**
+         * Azure API version (read-only, for display)
+         * @nullable
+         */
+      readonly api_version_display: string | null;
+      readonly created_at: string;
+      readonly created_by: UserBasic;
+      /** @nullable */
+      readonly last_used_at: string | null;
     }
 
     export interface LLMProxyModelInfo {
@@ -97099,7 +97102,6 @@ export namespace Schemas {
          * @nullable
          */
       readonly api_version_display?: string | null;
-      set_as_active?: boolean;
       readonly created_at?: string;
       readonly created_by?: UserBasic;
       /** @nullable */
@@ -108308,8 +108310,8 @@ export namespace Schemas {
       id: string;
       /** Evaluation name. */
       name: string;
-      /** Model configuration that pins this key. Absent for evaluations on the active key. */
-      model_configuration_id?: string;
+      /** Model configuration that pins this key. */
+      model_configuration_id: string;
       /** Whether the evaluation is running. */
       enabled: boolean;
       /**
@@ -108324,8 +108326,6 @@ export namespace Schemas {
       evaluations: ProviderKeyDependentEvaluation[];
       /** Working keys for the same provider that could replace this one. */
       alternative_keys: ProviderKeyAlternative[];
-      /** Errored evaluations with no pinned key, which run on this key while it is the project's active key. */
-      active_key_evaluations: ProviderKeyDependentEvaluation[];
     }
 
     export interface ProvisionWarehouseRequest {

@@ -64,6 +64,7 @@ import type {
     DatasetsRetentionRetrieveParams,
     DatasetsRevisionsListParams,
     EvalSuggestionAcceptApi,
+    EvalSuggestionAcceptRequestApi,
     EvalSuggestionApi,
     EvalSuggestionDismissApi,
     EvalSuggestionEstimateApi,
@@ -73,8 +74,6 @@ import type {
     EvaluationBackfillApi,
     EvaluationBackfillEstimateApi,
     EvaluationBackfillRequestApi,
-    EvaluationConfigApi,
-    EvaluationConfigSetActiveKeyRequestApi,
     EvaluationDirectoryApi,
     EvaluationReportApi,
     EvaluationReportGenerateResponseApi,
@@ -2394,11 +2393,14 @@ export const getEvaluationSuggestionsAcceptCreateUrl = (projectId: string, id: s
 export const evaluationSuggestionsAcceptCreate = async (
     projectId: string,
     id: string,
+    evalSuggestionAcceptRequestApi?: EvalSuggestionAcceptRequestApi,
     options?: RequestInit
 ): Promise<EvalSuggestionAcceptApi> => {
     return apiMutator<EvalSuggestionAcceptApi>(getEvaluationSuggestionsAcceptCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(evalSuggestionAcceptRequestApi),
     })
 }
 
@@ -3094,43 +3096,6 @@ export const llmAnalyticsClusteringRunsCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(clusteringRunRequestApi),
-    })
-}
-
-export const getLlmAnalyticsEvaluationConfigRetrieveUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/llm_analytics/evaluation_config/`
-}
-
-/**
- * Get the evaluation config for this team
- */
-export const llmAnalyticsEvaluationConfigRetrieve = async (
-    projectId: string,
-    options?: RequestInit
-): Promise<EvaluationConfigApi> => {
-    return apiMutator<EvaluationConfigApi>(getLlmAnalyticsEvaluationConfigRetrieveUrl(projectId), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export const getLlmAnalyticsEvaluationConfigSetActiveKeyCreateUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/llm_analytics/evaluation_config/set_active_key/`
-}
-
-/**
- * Set the active provider key for evaluations
- */
-export const llmAnalyticsEvaluationConfigSetActiveKeyCreate = async (
-    projectId: string,
-    evaluationConfigSetActiveKeyRequestApi: EvaluationConfigSetActiveKeyRequestApi,
-    options?: RequestInit
-): Promise<EvaluationConfigApi> => {
-    return apiMutator<EvaluationConfigApi>(getLlmAnalyticsEvaluationConfigSetActiveKeyCreateUrl(projectId), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(evaluationConfigSetActiveKeyRequestApi),
     })
 }
 

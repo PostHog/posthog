@@ -93,9 +93,6 @@ describe('llmPlaygroundRunLogic', () => {
                 '/api/llm_proxy/models/': [
                     { id: 'gpt-5-mini', name: 'GPT-5 Mini', provider: 'OpenAI', description: '' },
                 ],
-                '/api/environments/:team_id/llm_analytics/evaluation_config/': {
-                    active_provider_key: null,
-                },
                 '/api/environments/:team_id/llm_analytics/provider_keys/': {
                     results: [],
                 },

@@ -14,7 +14,6 @@ describe('llmPlaygroundVariablesLogic', () => {
                 '/api/environments/:team_id/llm_analytics/provider_keys/': {
                     results: [{ id: 'key-s1', provider: 'system_one', name: 'System One', state: 'ok' }],
                 },
-                '/api/environments/:team_id/llm_analytics/evaluation_config/': { active_provider_key: null },
                 '/api/llm_proxy/models/': ({ request }) => [
                     200,
                     new URL(request.url).searchParams.get('provider_key_id')

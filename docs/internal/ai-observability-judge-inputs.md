@@ -158,7 +158,7 @@ Validation uses 10 seconds and decision model evaluations use 60 seconds.
 The transport rejects response bodies above 1 MiB, including errors.
 It requests uncompressed responses and rejects compressed responses to prevent decompression from bypassing the size limit.
 Responses stream incrementally, with a separate connection per request; connections are not pooled across requests.
-Select the connection and configured model on each evaluation; these connections cannot become the shared active provider key used by other AI features.
+Select the connection and configured model on each evaluation.
 Provider keys keep the provider they were created with; switching providers requires a new key.
 The evaluation integration uses Noul for boolean outputs, with the same formatted text for generation, trace, and session targets.
 The product client reuses the request builder and response parser in `posthog/llm/system_one.py` and constructs a DNS-pinned client from `posthog/security/pinned_httpx.py` with the bounded transport.

@@ -11,6 +11,15 @@ const meta: Meta<typeof EvaluationTemplatesScene> = {
         layout: 'fullscreen',
         viewMode: 'story',
     },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/environments/:team_id/llm_analytics/provider_keys/': {
+                    results: [{ id: 'key-1', provider: 'openai', name: 'OpenAI', state: 'ok' }],
+                },
+            },
+        }),
+    ],
 }
 export default meta
 
@@ -29,9 +38,7 @@ export const Narrow: Story = {
 export const WithoutApiKey: Story = {
     decorators: [
         mswDecorator({
-            get: {
-                '/api/environments/:team_id/llm_analytics/evaluation_config/': { active_provider_key: null },
-            },
+            get: { '/api/environments/:team_id/llm_analytics/provider_keys/': { results: [] } },
         }),
     ],
 }

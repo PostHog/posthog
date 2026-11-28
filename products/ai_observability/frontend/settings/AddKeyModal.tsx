@@ -51,7 +51,7 @@ export function AddKeyModal(): JSX.Element {
         minimumAccessLevel: TeamMembershipLevel.Admin,
     })
     const { systemOneBaseUrl, systemOneModel } = useValues(llmProviderKeysLogic)
-    const { newKeyModalOpen, providerKeysLoading, preValidationResult, preValidationResultLoading, evaluationConfig } =
+    const { newKeyModalOpen, providerKeysLoading, preValidationResult, preValidationResultLoading } =
         useValues(llmProviderKeysLogic)
     const { setNewKeyModalOpen, createProviderKey, preValidateKey, clearPreValidation } =
         useActions(llmProviderKeysLogic)
@@ -110,7 +110,6 @@ export function AddKeyModal(): JSX.Element {
                     provider,
                     name,
                     api_key: apiKey,
-                    set_as_active: provider !== 'system_one' && !evaluationConfig?.active_provider_key,
                     ...endpointPayload,
                 }
                 if (isOpenAICompatible) {
@@ -133,7 +132,6 @@ export function AddKeyModal(): JSX.Element {
         apiVersion,
         isOpenAICompatible,
         baseUrl,
-        evaluationConfig?.active_provider_key,
     ]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     const handleClose = (): void => {
@@ -159,7 +157,6 @@ export function AddKeyModal(): JSX.Element {
                 provider,
                 name,
                 api_key: apiKey,
-                set_as_active: !evaluationConfig?.active_provider_key,
                 ...endpointPayload,
             }
             if (isOpenAICompatible) {

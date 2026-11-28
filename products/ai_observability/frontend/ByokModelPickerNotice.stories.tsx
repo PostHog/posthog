@@ -82,7 +82,6 @@ const meta: Meta<StoryArgs> = {
                           ]
                         : [],
                 },
-                '/api/environments/:team_id/llm_analytics/evaluation_config/': { active_provider_key: null },
                 // Only the per-key request fails. The playground list uses the same path without a key id.
                 '/api/llm_proxy/models/': ({ request }) =>
                     modelsFail && new URL(request.url).searchParams.get('provider_key_id')

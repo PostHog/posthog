@@ -248,11 +248,6 @@ describe('llmEvaluationLogic', () => {
                 '/api/llm_proxy/models/': [],
                 '/api/projects/:teamId/llm_analytics/provider_keys/:keyId/models/': [],
                 '/api/environments/:teamId/llm_analytics/provider_keys/': { results: mockProviderKeys },
-                '/api/environments/:teamId/llm_analytics/evaluation_config/': {
-                    active_provider_key: null,
-                    created_at: '2024-01-01T00:00:00Z',
-                    updated_at: '2024-01-01T00:00:00Z',
-                },
                 '/api/projects/:teamId/evaluations/:id/': mockEvaluation,
                 '/api/environments/:teamId/llm_analytics/models/': {
                     models: [
@@ -1333,11 +1328,6 @@ return result`,
     describe('async flows', () => {
         describe('loadEvaluation', () => {
             it('initializes a new evaluation paused until a model with a key is picked', async () => {
-                keysLogic.actions.loadEvaluationConfigSuccess({
-                    active_provider_key: mockProviderKeys[0],
-                    created_at: '2024-01-01T00:00:00Z',
-                    updated_at: '2024-01-01T00:00:00Z',
-                })
                 logic = llmEvaluationLogic({ evaluationId: 'new' })
                 logic.mount()
 
@@ -2670,11 +2660,6 @@ return result`,
             useMocks({
                 get: {
                     '/api/environments/:teamId/llm_analytics/provider_keys/': { results: mockProviderKeys },
-                    '/api/environments/:teamId/llm_analytics/evaluation_config/': {
-                        active_provider_key: null,
-                        created_at: '2024-01-01T00:00:00Z',
-                        updated_at: '2024-01-01T00:00:00Z',
-                    },
                     '/api/projects/:teamId/evaluations/:id/': mockEvaluation,
                 },
                 patch: {

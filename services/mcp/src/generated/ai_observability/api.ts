@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 102 enabled ops
+ * PostHog API - MCP 100 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -2934,36 +2934,6 @@ export const LlmAnalyticsClusteringJobsDestroyParams = () => zod.object({
         .string()
         .describe(
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
-        ),
-})
-
-/**
- * Get the evaluation config for this team
- */
-export const LlmAnalyticsEvaluationConfigRetrieveParams = () => zod.object({
-    project_id: zod
-        .string()
-        .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
-        ),
-})
-
-/**
- * Set the active provider key for evaluations
- */
-export const LlmAnalyticsEvaluationConfigSetActiveKeyCreateParams = () => zod.object({
-    project_id: zod
-        .string()
-        .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
-        ),
-})
-
-export const LlmAnalyticsEvaluationConfigSetActiveKeyCreateBody = () => zod.object({
-    key_id: zod
-        .string()
-        .describe(
-            "UUID of an existing LLM provider key (state must be 'ok') to mark as the active key for running llm_judge evaluations team-wide."
         ),
 })
 

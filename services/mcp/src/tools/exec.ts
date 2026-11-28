@@ -687,6 +687,10 @@ const DEPRECATED_TOOL_REDIRECTS: Record<string, (allTools: Tool<ZodObjectAny>[])
             ? `${base} For governed business metrics, call "metric-list" instead of searching \`system.insights\`.`
             : base
     },
+    'llma-evaluation-config-get': () =>
+        'Tool "llma-evaluation-config-get" was removed because projects no longer have an active provider key. Use "llma-provider-key-list" to find a key in the ok state, and pin it on the judge with model_configuration.provider_key_id.',
+    'llma-evaluation-config-set-active-key': () =>
+        'Tool "llma-evaluation-config-set-active-key" was removed because projects no longer have an active provider key. Pin a key on each judge instead: "llma-evaluation-update" with model_configuration.provider_key_id set to a key from "llma-provider-key-list".',
     'vision-scanners-suggest-tags': () =>
         'Tool "vision-scanners-suggest-tags" was removed. Set a classifier\'s tags yourself with "vision-scanners-update", or let "vision-scanners-draft" propose a full classifier config, tags included.',
     'event-definitions-list': () =>

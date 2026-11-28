@@ -55,7 +55,6 @@ describe('modelPickerLogic', () => {
                                 { id: 'key-system-one', provider: 'system_one', name: 'System One', state: 'ok' },
                             ],
                         },
-                        '/api/environments/:team_id/llm_analytics/evaluation_config/': { active_provider_key: null },
                         '/api/llm_proxy/models/': ({ request }) =>
                             new URL(request.url).searchParams.get('provider_key_id')
                                 ? [
@@ -104,9 +103,6 @@ describe('modelPickerLogic', () => {
                     '/api/environments/:team_id/llm_analytics/provider_keys/': {
                         results: [{ id: 'key-1', provider: 'openai', state: 'ok' }],
                     },
-                    '/api/environments/:team_id/llm_analytics/evaluation_config/': {
-                        active_provider_key: null,
-                    },
                     '/api/llm_proxy/models/': ({ request }) => {
                         if (new URL(request.url).searchParams.get('provider_key_id') === 'key-1') {
                             return [200, BYOK_OPENAI_MODELS]
@@ -147,7 +143,6 @@ describe('modelPickerLogic', () => {
                     '/api/environments/:team_id/llm_analytics/provider_keys/': {
                         results: [{ id: 'key-openrouter', provider: 'openrouter', name: 'OpenRouter', state: 'ok' }],
                     },
-                    '/api/environments/:team_id/llm_analytics/evaluation_config/': { active_provider_key: null },
                     '/api/llm_proxy/models/': ({ request }) => [
                         200,
                         new URL(request.url).searchParams.get('provider_key_id')
@@ -207,9 +202,6 @@ describe('modelPickerLogic', () => {
                     '/api/environments/:team_id/llm_analytics/provider_keys/': {
                         results: [{ id: 'key-1', provider: 'openai', state: 'ok' }],
                     },
-                    '/api/environments/:team_id/llm_analytics/evaluation_config/': {
-                        active_provider_key: null,
-                    },
                     '/api/llm_proxy/models/': ({ request }) => {
                         if (new URL(request.url).searchParams.get('provider_key_id') === 'key-1') {
                             return [200, BYOK_OPENAI_MODELS_MIXED]
@@ -246,9 +238,6 @@ describe('modelPickerLogic', () => {
                     '/api/environments/:team_id/llm_analytics/provider_keys/': {
                         results: [{ id: 'key-1', provider: 'openai', state: 'invalid' }],
                     },
-                    '/api/environments/:team_id/llm_analytics/evaluation_config/': {
-                        active_provider_key: null,
-                    },
                 },
             })
 
@@ -267,9 +256,6 @@ describe('modelPickerLogic', () => {
                             { id: 'key-1', provider: 'openai', state: 'ok' },
                             { id: 'key-2', provider: 'anthropic', state: 'ok' },
                         ],
-                    },
-                    '/api/environments/:team_id/llm_analytics/evaluation_config/': {
-                        active_provider_key: null,
                     },
                     '/api/llm_proxy/models/': ({ request }) => {
                         const keyId = new URL(request.url).searchParams.get('provider_key_id')
@@ -313,9 +299,6 @@ describe('modelPickerLogic', () => {
                             { id: 'key-1', provider: 'openai', state: 'ok' },
                             { id: 'key-2', provider: 'anthropic', state: 'ok' },
                         ],
-                    },
-                    '/api/environments/:team_id/llm_analytics/evaluation_config/': {
-                        active_provider_key: null,
                     },
                     '/api/llm_proxy/models/': ({ request }) => {
                         const keyId = new URL(request.url).searchParams.get('provider_key_id')
@@ -404,9 +387,6 @@ describe('modelPickerLogic', () => {
             useMocks({
                 get: {
                     '/api/environments/:team_id/llm_analytics/provider_keys/': { results: keys },
-                    '/api/environments/:team_id/llm_analytics/evaluation_config/': {
-                        active_provider_key: null,
-                    },
                     '/api/llm_proxy/models/': () => [200, models],
                     '/api/projects/:team_id/llm_analytics/provider_keys/:key_id/models/': () => [200, models],
                 },
@@ -431,9 +411,6 @@ describe('modelPickerLogic', () => {
                             { id: 'key-2', provider: 'anthropic', state: 'ok' },
                         ],
                     },
-                    '/api/environments/:team_id/llm_analytics/evaluation_config/': {
-                        active_provider_key: null,
-                    },
                     '/api/llm_proxy/models/': () => [200, []],
                 },
             })
@@ -455,9 +432,6 @@ describe('modelPickerLogic', () => {
                             { id: 'key-2', provider: 'anthropic', state: 'error' },
                         ],
                     },
-                    '/api/environments/:team_id/llm_analytics/evaluation_config/': {
-                        active_provider_key: null,
-                    },
                 },
             })
 
@@ -474,9 +448,6 @@ describe('modelPickerLogic', () => {
                     '/api/llm_proxy/models/': () => [200, []],
                     '/api/environments/:team_id/llm_analytics/provider_keys/': {
                         results: [],
-                    },
-                    '/api/environments/:team_id/llm_analytics/evaluation_config/': {
-                        active_provider_key: null,
                     },
                 },
             })
@@ -498,9 +469,6 @@ describe('modelPickerLogic', () => {
                             { id: 'key-1', provider: 'openai', name: 'My OpenAI Key', state: 'ok' },
                             { id: 'key-2', provider: 'anthropic', name: 'My Anthropic Key', state: 'ok' },
                         ],
-                    },
-                    '/api/environments/:team_id/llm_analytics/evaluation_config/': {
-                        active_provider_key: null,
                     },
                     '/api/llm_proxy/models/': ({ request }) => {
                         const keyId = new URL(request.url).searchParams.get('provider_key_id')
@@ -557,9 +525,6 @@ describe('modelPickerLogic', () => {
                             { id: 'key-anthropic', provider: 'anthropic', name: 'My Anthropic Key', state: 'ok' },
                         ],
                     },
-                    '/api/environments/:team_id/llm_analytics/evaluation_config/': {
-                        active_provider_key: null,
-                    },
                     '/api/llm_proxy/models/': ({ request }) => {
                         const keyId = new URL(request.url).searchParams.get('provider_key_id')
                         return [200, keyId === 'key-1' ? BYOK_OPENAI_MODELS : []]
@@ -592,9 +557,6 @@ describe('modelPickerLogic', () => {
                             { id: 'key-1', provider: 'openai', name: 'Production', state: 'ok' },
                             { id: 'key-2', provider: 'openai', name: 'Staging', state: 'ok' },
                         ],
-                    },
-                    '/api/environments/:team_id/llm_analytics/evaluation_config/': {
-                        active_provider_key: null,
                     },
                     '/api/llm_proxy/models/': ({ request }) => {
                         const keyId = new URL(request.url).searchParams.get('provider_key_id')

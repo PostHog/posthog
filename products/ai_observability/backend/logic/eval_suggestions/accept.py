@@ -9,6 +9,7 @@ import time
 import uuid
 from datetime import datetime, timedelta
 from typing import Any, cast
+from uuid import UUID
 
 from django.db import transaction
 from django.db.models import QuerySet
@@ -32,6 +33,7 @@ from products.ai_observability.backend.api.evaluation_backfills import (
 from products.ai_observability.backend.api.evaluations import EvaluationSerializer, create_evaluation, update_evaluation
 from products.ai_observability.backend.backfill_candidates import count_backfill_candidates
 from products.ai_observability.backend.llm import DEFAULT_MODEL_BY_PROVIDER
+from products.ai_observability.backend.logic.eval_suggestions.judge_key import judge_key, provider_for_model
 from products.ai_observability.backend.logic.eval_suggestions.ranking import judge_input_price
 from products.ai_observability.backend.logic.evaluations.settle import settle_horizon
 from products.ai_observability.backend.models.eval_suggestions import (
@@ -40,7 +42,6 @@ from products.ai_observability.backend.models.eval_suggestions import (
     EvalSuggestionStatus,
 )
 from products.ai_observability.backend.models.evaluation_backfill import EvaluationBackfill
-from products.ai_observability.backend.models.evaluation_config import EvaluationConfig
 from products.ai_observability.backend.models.evaluations import Evaluation
 from products.ai_observability.backend.models.provider_keys import LLMProviderKey
 
@@ -58,6 +59,9 @@ PLAN_BUDGET_SECONDS = 10
 NO_KEY_MESSAGE = (
     "LLM judges run on your own AI provider API key, and this project doesn't have a working one yet. "
     "A project admin can add one in Settings > AI observability > Bring your own key (BYOK), then add this evaluation."
+)
+KEY_CHANGED_MESSAGE = (
+    "The provider key shown for this eval no longer works. Close this and add the eval again to see the current key."
 )
 CLOSED_MESSAGE = "This suggestion is no longer open. Refresh the page to see the current suggestions."
 TARGET_CHANGED_MESSAGE = (
@@ -79,6 +83,8 @@ class AcceptEstimate:
     window_start: datetime | None
     window_end: datetime | None
     judge_model: str | None
+    judge_key_id: UUID | None
+    judge_key_name: str | None
     estimated_cost_usd: float | None
 
 
@@ -146,12 +152,25 @@ def plan_backfill(
     return BackfillPlan(window=last_with_traffic, units=cap) if last_with_traffic else None
 
 
-def judge_model_configuration(team: Team) -> dict[str, Any]:
-    """The team's active key with its provider's default model. Raises when the team has no working key."""
-    config = EvaluationConfig.objects.filter(team_id=team.pk).select_related("active_provider_key").first()
-    key = config.active_provider_key if config else None
-    if key is None or key.state != LLMProviderKey.State.OK or key.provider not in DEFAULT_MODEL_BY_PROVIDER:
+def suggestion_judge_key(suggestion: EvalSuggestion, team: Team) -> LLMProviderKey:
+    """The key an accepted judge runs on, preferring the provider whose model calibrated it. Raises without one."""
+    key = judge_key(team.pk, provider=provider_for_model(suggestion.judge_model))
+    if key is None:
         raise ValidationError(NO_KEY_MESSAGE)
+    return key
+
+
+def confirmed_judge_key(team: Team, provider_key_id: UUID) -> LLMProviderKey:
+    """The key the person confirmed in the estimate, refused once it no longer qualifies to run a judge."""
+    key = LLMProviderKey.objects.filter(
+        team_id=team.pk, id=provider_key_id, state=LLMProviderKey.State.OK, provider__in=list(DEFAULT_MODEL_BY_PROVIDER)
+    ).first()
+    if key is None or key.encrypted_config.get("azure_endpoint") or key.encrypted_config.get("base_url"):
+        raise ValidationError(KEY_CHANGED_MESSAGE)
+    return key
+
+
+def judge_model_configuration(key: LLMProviderKey) -> dict[str, Any]:
     return {"provider": key.provider, "model": DEFAULT_MODEL_BY_PROVIDER[key.provider], "provider_key_id": str(key.id)}
 
 
@@ -168,11 +187,14 @@ def estimate(suggestion: EvalSuggestion, team: Team) -> AcceptEstimate:
     )
     units = plan.units if plan else 0
     model = None
+    key_id = None
+    key_name = None
     cost: float | None = 0.0
     if suggestion.draft.get("evaluation_type") == "llm_judge":
         # The same key and model accept uses. Without a working key, accept refuses, so nothing is priced.
         try:
-            model = judge_model_configuration(team)["model"]
+            key = suggestion_judge_key(suggestion, team)
+            model, key_id, key_name = DEFAULT_MODEL_BY_PROVIDER[key.provider], key.id, key.name
         except ValidationError:
             model = None
         # The suggestion stores the tokens one run reads, a whole transcript for trace and session judges.
@@ -184,6 +206,8 @@ def estimate(suggestion: EvalSuggestion, team: Team) -> AcceptEstimate:
         window_start=plan.window.start if plan else None,
         window_end=plan.window.end if plan else None,
         judge_model=model,
+        judge_key_id=key_id,
+        judge_key_name=key_name,
         estimated_cost_usd=cost,
     )
 
@@ -221,7 +245,14 @@ def _start_recent_backfill(team: Team, evaluation: Evaluation, cap: int, user: U
         return None
 
 
-def accept(suggestion_id: str, *, team: Team, request: Request, serializer_context: dict[str, Any]) -> AcceptResult:
+def accept(
+    suggestion_id: str,
+    *,
+    team: Team,
+    request: Request,
+    serializer_context: dict[str, Any],
+    provider_key_id: UUID | None = None,
+) -> AcceptResult:
     """Create the evaluation once. A second accept returns the evaluation the first one created."""
     user = cast(User, request.user)
     with transaction.atomic():
@@ -242,7 +273,12 @@ def accept(suggestion_id: str, *, team: Team, request: Request, serializer_conte
 
         data: dict[str, Any] = {**suggestion.draft, "enabled": True, "conditions": conditions_for(suggestion)}
         if data.get("evaluation_type") == "llm_judge":
-            data["model_configuration"] = judge_model_configuration(team)
+            key = (
+                confirmed_judge_key(team, provider_key_id)
+                if provider_key_id
+                else suggestion_judge_key(suggestion, team)
+            )
+            data["model_configuration"] = judge_model_configuration(key)
         serializer = EvaluationSerializer(data=data, context=serializer_context)
         serializer.is_valid(raise_exception=True)
         evaluation = create_evaluation(

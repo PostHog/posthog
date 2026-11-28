@@ -13,7 +13,6 @@ const meta: Meta<typeof SystemOneConnectionFields> = {
             useStorybookMocks({
                 get: {
                     '/api/environments/:team_id/llm_analytics/provider_keys/': { results: [] },
-                    '/api/environments/:team_id/llm_analytics/evaluation_config/': { active_provider_key: null },
                 },
             })
             return <Story />

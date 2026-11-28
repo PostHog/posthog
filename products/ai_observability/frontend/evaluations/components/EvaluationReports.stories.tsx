@@ -140,7 +140,6 @@ const scene = mswDecorator({
         '/api/projects/:team_id/llm_analytics/evaluation_reports/:id/runs/': { results: RUNS, next: null },
         '/api/environments/:team_id/llm_analytics/provider_keys/': toPaginatedResponse([]),
         '/api/projects/:team_id/llm_analytics/provider_keys/': toPaginatedResponse([]),
-        '/api/environments/:team_id/llm_analytics/evaluation_config/': { active_provider_key: null },
     },
 })
 

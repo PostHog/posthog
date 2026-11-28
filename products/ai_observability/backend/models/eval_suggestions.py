@@ -115,7 +115,7 @@ class EvalSuggestion(UUIDModel):
     estimated_weekly_runs = models.PositiveIntegerField(null=True, blank=True)
     estimated_weekly_cost_usd = models.FloatField(null=True, blank=True)
     mean_input_tokens = models.PositiveIntegerField(null=True, blank=True)
-    # The model whose price the weekly cost assumes. Accept runs a judge on the active key's default model.
+    # The model the judge was drafted and priced on. Accept prefers a key whose provider runs it by default.
     judge_model = models.CharField(max_length=128, blank=True, default="")
     status = models.CharField(
         max_length=16, choices=EvalSuggestionStatus.choices, default=EvalSuggestionStatus.PROPOSED

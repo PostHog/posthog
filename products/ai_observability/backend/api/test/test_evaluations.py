@@ -32,7 +32,6 @@ from products.ai_observability.backend.api.evaluations import (
     _TargetConfigField,
 )
 from products.ai_observability.backend.llm.errors import AuthenticationError, RetryableRateLimitError
-from products.ai_observability.backend.models.evaluation_config import EvaluationConfig
 from products.ai_observability.backend.models.evaluation_configs import validate_target_config
 from products.ai_observability.backend.models.evaluation_reports import EvaluationReport
 from products.ai_observability.backend.models.evaluations import Evaluation
@@ -634,7 +633,7 @@ class TestEvaluationConfigsApi(APIBaseTest):
         key = LLMProviderKey.objects.create(
             team=self.team,
             provider=provider,
-            name="Active Key",
+            name="Key",
             state=LLMProviderKey.State.OK,
             encrypted_config={"api_key": "sk-test"},
             created_by=self.user,
@@ -2468,7 +2467,7 @@ class TestEvaluationSamplePreviews(ClickhouseTestMixin, APIBaseTest):
 
 
 class TestEnableBlockingWhenKeyRequired(APIBaseTest):
-    """Enabling an llm_judge eval needs a pinned provider key. The project's active key does not count."""
+    """Enabling an llm_judge eval needs a pinned provider key."""
 
     def _create_keyless_eval(self, model_configuration=...):
         if model_configuration is ...:
@@ -2485,11 +2484,11 @@ class TestEnableBlockingWhenKeyRequired(APIBaseTest):
             enabled=False,
         )
 
-    def _create_active_key(self):
+    def _create_key(self):
         key = LLMProviderKey.objects.create(
             team=self.team,
             provider="openai",
-            name="Active Key",
+            name="Key",
             state=LLMProviderKey.State.OK,
             encrypted_config={"api_key": "sk-test"},
             created_by=self.user,
@@ -2509,15 +2508,11 @@ class TestEnableBlockingWhenKeyRequired(APIBaseTest):
             ("null_config_no_key", False, None, "doesn't have a working one yet"),
             ("explicit_config_unused_key", True, "unused", "doesn't use one"),
             ("null_config_unused_key", False, "unused", "doesn't use one"),
-            ("explicit_config_active_key", True, "active", "doesn't use one"),
-            ("null_config_active_key", False, "active", "doesn't use one"),
         ]
     )
     def test_blocks_enabling_keyless_eval_without_key(self, _name, explicit_config, project_key, expected):
         if project_key:
-            key = self._create_active_key()
-            if project_key == "active":
-                EvaluationConfig.objects.create(team=self.team, active_provider_key=key)
+            self._create_key()
         eval_obj = (
             self._create_keyless_eval() if explicit_config else self._create_keyless_eval(model_configuration=None)
         )
@@ -2536,7 +2531,7 @@ class TestEnableBlockingWhenKeyRequired(APIBaseTest):
         ]
     )
     def test_an_enabled_judge_cannot_lose_its_key(self, _name, payload, expected_status):
-        key = self._create_active_key()
+        key = self._create_key()
         eval_obj = self._create_keyless_eval(
             model_configuration=LLMModelConfiguration.objects.create(
                 team=self.team, provider="openai", model="gpt-5-mini", provider_key=key

@@ -9,7 +9,6 @@ from temporalio.exceptions import ApplicationError
 from posthog.models import Organization, Team
 from posthog.temporal.ai_observability.model_resolution import ExplicitModelSpec, UnconfiguredModelSpec, model_spec
 
-from products.ai_observability.backend.models.evaluation_config import EvaluationConfig
 from products.ai_observability.backend.models.provider_keys import LLMProviderKey
 
 
@@ -112,11 +111,8 @@ class TestExplicitModelSpec:
         assert expected_phrase in exc_info.value.message
         assert "disabled" not in exc_info.value.message
 
-    @pytest.mark.parametrize("active_key_provider", [None, "openai", "anthropic"])
-    def test_keyless_requires_provider_key_whatever_the_active_key(self, team, active_key_provider):
-        # A judge runs only on its pinned key; the project's active key is no longer a fallback.
-        if active_key_provider:
-            EvaluationConfig.objects.create(team=team, active_provider_key=_key(team, active_key_provider))
+    def test_keyless_requires_provider_key_even_when_the_team_has_one(self, team):
+        _key(team, "openai")
 
         for spec in (ExplicitModelSpec("openai", "gpt-5-mini", None), UnconfiguredModelSpec()):
             with pytest.raises(ApplicationError) as exc_info:

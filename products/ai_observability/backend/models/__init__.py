@@ -3,7 +3,6 @@ from .clustering_job import ClusteringJob
 from .datasets import Dataset, DatasetItem, DatasetItemVersion, DatasetRevision
 from .eval_suggestions import EvalSuggestion, EvalSuggestionRun, EvalSuggestionTeamState
 from .evaluation_backfill import EvaluationBackfill
-from .evaluation_config import EvaluationConfig
 from .evaluation_directories import EvaluationDirectory
 from .evaluation_reports import EvaluationReport, EvaluationReportRun
 from .evaluations import Evaluation
@@ -39,7 +38,6 @@ __all__ = [
     "EvalSuggestionTeamState",
     "Evaluation",
     "EvaluationBackfill",
-    "EvaluationConfig",
     "EvaluationDirectory",
     "EvaluationReport",
     "EvaluationReportRun",

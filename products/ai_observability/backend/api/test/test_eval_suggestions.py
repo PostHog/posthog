@@ -33,8 +33,8 @@ from products.ai_observability.backend.models.eval_suggestions import (
     EvalSuggestionStatus,
 )
 from products.ai_observability.backend.models.evaluation_backfill import EvaluationBackfill
-from products.ai_observability.backend.models.evaluation_config import EvaluationConfig
 from products.ai_observability.backend.models.evaluations import Evaluation
+from products.ai_observability.backend.models.model_configuration import LLMModelConfiguration
 from products.ai_observability.backend.models.provider_keys import LLMProviderKey
 from products.event_definitions.backend.models.property_definition import PropertyDefinition
 
@@ -131,15 +131,14 @@ class TestEvalSuggestionsApi(APIBaseTest):
         return EvalSuggestion.objects.for_team(values["team"].pk).create(kind=kind, **values)
 
     def _judge_key(self) -> None:
-        key = LLMProviderKey.objects.create(
+        LLMProviderKey.objects.create(
             team=self.team,
             provider="openai",
-            name="Active key",
+            name="Judge key",
             state=LLMProviderKey.State.OK,
             encrypted_config={"api_key": "sk-test"},
             created_by=self.user,
         )
-        EvaluationConfig.objects.create(team=self.team, active_provider_key=key)
 
     @parameterized.expand(
         [
@@ -414,6 +413,89 @@ class TestEvalSuggestionsApi(APIBaseTest):
 
         assert (estimate["units"], estimate["judge_model"]) == (20, model)
         assert estimate["estimated_cost_usd"] == (None if cost is None else pytest.approx(cost))
+
+    @parameterized.expand(
+        [
+            # The key most judges already use wins over a newer one, so playground use can't move the choice.
+            (
+                "the_key_most_judges_use",
+                [("anthropic", "Team key", {}, 2), ("openai", "Newer key", {}, 0)],
+                "",
+                "Team key",
+            ),
+            (
+                "a_key_for_the_drafted_model",
+                [("anthropic", "Team key", {}, 2), ("openai", "OpenAI key", {}, 0)],
+                "gpt-6-luna",
+                "OpenAI key",
+            ),
+            (
+                "not_a_custom_endpoint",
+                [
+                    ("openai", "Direct key", {}, 0),
+                    ("anthropic", "Foundry key", {"azure_endpoint": "https://x.services.ai.azure.com/"}, 3),
+                ],
+                "",
+                "Direct key",
+            ),
+            ("not_a_provider_without_a_default_model", [("openrouter", "Router key", {}, 3)], "", None),
+        ]
+    )
+    @patch(f"{ACCEPT_MODULE}.count_backfill_candidates", return_value=BackfillScope(to_evaluate=20, already_judged=0))
+    def test_judge_estimate_names_the_key_accept_pins(
+        self, _name: str, keys: list, drafted_on: str, expected: str | None, _count: MagicMock
+    ) -> None:
+        for provider, name, config, judges in keys:
+            key = LLMProviderKey.objects.create(
+                team=self.team,
+                provider=provider,
+                name=name,
+                state=LLMProviderKey.State.OK,
+                encrypted_config={"api_key": "sk-test", **config},
+                created_by=self.user,
+            )
+            for _ in range(judges):
+                _evaluation(
+                    self.team,
+                    evaluation_type="llm_judge",
+                    evaluation_config={"prompt": "Is this good?"},
+                    model_configuration=LLMModelConfiguration.objects.create(
+                        team=self.team, provider=provider, model="m", provider_key=key
+                    ),
+                )
+        suggestion = self._suggestion(EvalSuggestionKind.NEW_LLM_JUDGE, draft=JUDGE_DRAFT, judge_model=drafted_on)
+
+        estimate = self.client.get(f"{self.url}/{suggestion.id}/accept_estimate/").json()
+
+        assert estimate["judge_key_name"] == expected
+
+    @parameterized.expand(
+        [
+            ("the_confirmed_key_still_works", LLMProviderKey.State.OK, 200),
+            ("it_broke_since", LLMProviderKey.State.INVALID, 400),
+        ]
+    )
+    @patch(f"{BACKFILLS_MODULE}.connect_with_deadline")
+    @patch(f"{ACCEPT_MODULE}.count_backfill_candidates", return_value=BackfillScope(to_evaluate=0, already_judged=0))
+    def test_accept_pins_the_key_the_estimate_named(
+        self, _name: str, state: str, expected_status: int, _count: MagicMock, connect: MagicMock
+    ) -> None:
+        connect.return_value = _temporal_client()
+        self._judge_key()
+        confirmed = LLMProviderKey.objects.create(
+            team=self.team, provider="anthropic", name="Confirmed key", state=state, encrypted_config={"api_key": "sk"}
+        )
+        suggestion = self._suggestion(EvalSuggestionKind.NEW_LLM_JUDGE, draft=JUDGE_DRAFT)
+
+        response = self.client.post(
+            f"{self.url}/{suggestion.id}/accept/", {"provider_key_id": str(confirmed.id)}, format="json"
+        )
+
+        assert response.status_code == expected_status, response.json()
+        if expected_status == 200:
+            evaluation = Evaluation.objects.get(id=response.json()["evaluation_id"])
+            assert evaluation.model_configuration is not None
+            assert evaluation.model_configuration.provider_key_id == confirmed.id
 
     @parameterized.expand([("untouched", False, True), ("edited_after_the_run", True, False)])
     def test_retrieve_says_whether_a_fix_still_applies(self, _name: str, edited: bool, applies: bool) -> None:

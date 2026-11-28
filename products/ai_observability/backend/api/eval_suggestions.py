@@ -215,6 +215,14 @@ class EvalSuggestionSettingsSerializer(serializers.Serializer):
     )
 
 
+class EvalSuggestionAcceptRequestSerializer(serializers.Serializer):
+    provider_key_id = serializers.UUIDField(
+        required=False,
+        allow_null=True,
+        help_text="For an LLM judge, the judge_key_id from accept_estimate, so accept pins the key the person confirmed.",
+    )
+
+
 class EvalSuggestionDismissSerializer(serializers.Serializer):
     reason = serializers.ChoiceField(
         choices=EvalSuggestionDismissReason.choices,
@@ -245,7 +253,20 @@ class EvalSuggestionEstimateSerializer(serializers.Serializer):
     window_end = serializers.DateTimeField(allow_null=True, help_text="End of the recent window accept covers.")
     judge_model = serializers.CharField(
         allow_null=True,
-        help_text="Model a judge runs on: the default for the project's active key. Null for Hog checks.",
+        help_text=(
+            "Model a judge runs on: the default model of judge_key_name. Null for Hog checks, and when no OpenAI, "
+            "Anthropic or Gemini key works."
+        ),
+    )
+    judge_key_id = serializers.UUIDField(
+        allow_null=True, help_text="Id of judge_key_name. Pass it to accept so the judge runs on this key."
+    )
+    judge_key_name = serializers.CharField(
+        allow_null=True,
+        help_text=(
+            "Provider key accept pins: a working key for the provider the judge was drafted on, else the one most of "
+            "the project's judges use. Null for Hog checks, and when no key works."
+        ),
     )
     estimated_cost_usd = serializers.FloatField(
         allow_null=True,
@@ -349,13 +370,19 @@ class EvalSuggestionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             raise NotFound(NOT_FOUND_MESSAGE)
         return Response(EvalSuggestionEstimateSerializer(estimate).data)
 
-    @extend_schema(request=None, responses={200: EvalSuggestionAcceptSerializer})
+    @extend_schema(request=EvalSuggestionAcceptRequestSerializer, responses={200: EvalSuggestionAcceptSerializer})
     @action(detail=True, methods=["post"], pagination_class=None)
     def accept(self, request: Request, pk: str, **kwargs: Any) -> Response:
         """Create the evaluation from the suggestion, enabled, and run it on recent data. Safe to repeat."""
+        body = EvalSuggestionAcceptRequestSerializer(data=request.data)
+        body.is_valid(raise_exception=True)
         try:
             result = facade.accept_eval_suggestion(
-                self.team, self._access(), self._suggestion_id(pk), self.get_serializer_context()
+                self.team,
+                self._access(),
+                self._suggestion_id(pk),
+                self.get_serializer_context(),
+                provider_key_id=body.validated_data.get("provider_key_id"),
             )
         except EvalSuggestionNotFoundError:
             raise NotFound(NOT_FOUND_MESSAGE)

@@ -568,7 +568,6 @@ export function LLMProviderKeysSettings(): JSX.Element {
     const {
         providerKeys,
         providerKeysLoading,
-        evaluationConfigLoading,
         editingKey,
         validatingKeyId,
         keyToDelete,
@@ -676,7 +675,7 @@ export function LLMProviderKeysSettings(): JSX.Element {
         },
     ]
 
-    const isLoading = (providerKeysLoading || evaluationConfigLoading) && providerKeys.length === 0
+    const isLoading = providerKeysLoading && providerKeys.length === 0
 
     if (todayRailNav) {
         return (

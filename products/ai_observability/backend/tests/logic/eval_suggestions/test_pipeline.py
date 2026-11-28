@@ -22,6 +22,7 @@ from posthog.hogql_queries.ai.utils import HEAVY_PROPERTY_NAMES
 from posthog.models.ai_events.test_util import bulk_create_ai_events
 from posthog.models.team import Team
 
+from products.ai_observability.backend.llm import DEFAULT_MODEL_BY_PROVIDER
 from products.ai_observability.backend.logic.eval_suggestions import call_review, pipeline, runs
 from products.ai_observability.backend.logic.eval_suggestions.call_review import REVIEW_TEMPLATE_KEY
 from products.ai_observability.backend.logic.eval_suggestions.call_review_queries import CallTypeRow, SnippetMatches
@@ -51,6 +52,7 @@ from products.ai_observability.backend.models.eval_suggestions import (
     EvalSuggestionStatus,
 )
 from products.ai_observability.backend.models.evaluations import Evaluation
+from products.ai_observability.backend.models.provider_keys import LLMProviderKey
 
 ALL_TRAFFIC = [{"id": "all", "rollout_percentage": 100, "properties": []}]
 SECURITY_LENS = {"key": "review_lens", "value": ["security-1", "security-2"], "operator": "exact", "type": "event"}
@@ -967,3 +969,23 @@ def test_an_unnamed_call_type_gets_a_prompt_text_filter_only_when_safe_to_count(
         snippets = pipeline._prompt_snippets(MagicMock(pk=1), MagicMock(), 1000, [call_type], [card], None)
 
     assert snippets == expected
+
+
+class TestJudgeModel(BaseTest):
+    @parameterized.expand(
+        [
+            ("no_working_key", None, DEFAULT_JUDGE_MODEL),
+            ("a_key_that_runs_judges", "openai", DEFAULT_MODEL_BY_PROVIDER["openai"]),
+            # Accept would refuse every judge card, so the paid stages skip judges.
+            ("only_keys_that_cannot_run_judges", "openrouter", None),
+        ]
+    )
+    def test_judge_model_follows_the_keys_that_can_run_a_judge(
+        self, _name: str, provider: str | None, expected: str | None
+    ) -> None:
+        if provider:
+            LLMProviderKey.objects.create(
+                team=self.team, provider=provider, name=provider, state=LLMProviderKey.State.OK, encrypted_config={}
+            )
+
+        assert pipeline.judge_model(self.team) == expected

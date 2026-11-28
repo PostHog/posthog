@@ -161,6 +161,9 @@ export const EvaluationsNeedsSetup: ProductEmptyStateStory = productEmptyStateSt
             get: {
                 '/api/projects/:team_id/evaluations/': [200, emptyEntityList],
                 '/api/projects/:team_id/evaluation_directories/': [200, []],
+                '/api/environments/:team_id/llm_analytics/provider_keys/': {
+                    results: [{ id: 'key-1', provider: 'openai', name: 'OpenAI', state: 'ok' }],
+                },
             },
         },
     }

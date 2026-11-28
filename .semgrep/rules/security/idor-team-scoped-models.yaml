@@ -1274,7 +1274,6 @@ rules:
                         |EvalSuggestionRun
                         |EvalSuggestionTeamState
                         |Evaluation
-                        |EvaluationConfig
                         |EvaluationContext
                         |EvaluationReport
                         |Event

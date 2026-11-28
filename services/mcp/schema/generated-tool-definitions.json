@@ -10749,36 +10749,6 @@
             "readOnlyHint": true
         }
     },
-    "llma-evaluation-config-get": {
-        "description": "Retrieve the team's evaluation config and active provider key. Call before creating an llm_judge eval to confirm a provider key is configured — evals should run on the team's own key. Returns the active key and timestamps.",
-        "category": "AI observability",
-        "feature": "llm_analytics",
-        "summary": "Get evaluation config",
-        "title": "Get evaluation config",
-        "required_scopes": ["llm_analytics:read"],
-        "api_operations": ["GET /api/projects/{project_id}/llm_analytics/evaluation_config/"],
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
-        }
-    },
-    "llma-evaluation-config-set-active-key": {
-        "description": "Assign the LLM provider key used to run llm_judge evaluations team-wide. Pass key_id (UUID of an existing provider key whose state is 'ok'). Switching the active key affects every llm_judge evaluation that doesn't pin its own key. The key must already be in the 'ok' state — if it isn't, ask the user to validate it from the PostHog UI before retrying.",
-        "category": "AI observability",
-        "feature": "llm_analytics",
-        "summary": "Set active evaluation provider key",
-        "title": "Set active evaluation provider key",
-        "required_scopes": ["evaluation:write"],
-        "api_operations": ["POST /api/projects/{project_id}/llm_analytics/evaluation_config/set_active_key/"],
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        }
-    },
     "llma-evaluation-create": {
         "description": "Create an evaluation that scores live traffic. Don't use it to record evals that run elsewhere (CI, local eval suites); those are offline experiments. 'llm_judge': set evaluation_config.prompt and model_configuration with provider and model. An llm_judge runs only on the key pinned in model_configuration.provider_key_id, and keys can't be added through MCP. Check llma-provider-key-list first and pin an ok-state key; enabling needs one. With no usable key, create the judge with enabled=false and provider_key_id null, and tell the user it starts scoring once a project admin adds a key in Settings > AI observability > Bring your own key (BYOK), picks it as the judge's model, and enables it. 'hog': evaluation_config.source (Hog returning a boolean, a finite number, or category keys). For 'hog' and 'llm_judge', choose output_type='boolean', 'numeric', or 'categorical'; numeric output_config accepts min, max, step, allows_na, and passing_rule; categorical output_config accepts options, selection_mode, allows_na, and passing_rule. 'sentiment': output_type='sentiment', omit model_configuration, optional evaluation_config.source='user_messages'. To tag or classify generations into labels (what taggers used to do), use output_type='categorical' with selection_mode='multiple'. `target` accepts 'generation' (default), 'trace', or 'session'. A session target runs once per `$ai_session_id` and defaults to the 'inactivity' settle strategy. Pass `enabled` as a boolean (true to start scoring new $ai_generation events immediately, false to create it paused). To organize the evaluation, pass a `directory_id` returned by llma-evaluation-directory-list. Omit `directory_id` or pass null to keep it at the top level. Results are '$ai_evaluation' events. An evaluation only scores data that arrives after it is enabled, so once it is enabled, offer the user a backfill over past data with llma-evaluation-backfill-estimate.",
         "category": "AI observability",

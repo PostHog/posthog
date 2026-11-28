@@ -46,13 +46,6 @@ USER_ERROR_SPECS: dict[str, EvaluationErrorSpec] = {
         status_reason=EvaluationStatusReason.PROVIDER_KEY_REQUIRED,
         disables_evaluation=True,
     ),
-    "no_default_model": EvaluationErrorSpec(
-        error_type="no_default_model",
-        owner="user",
-        safe_message="This provider has no default model. Set a model on the evaluation.",
-        status_reason=EvaluationStatusReason.NO_DEFAULT_MODEL,
-        disables_evaluation=True,
-    ),
     "key_invalid": EvaluationErrorSpec(
         error_type="key_invalid",
         owner="user",

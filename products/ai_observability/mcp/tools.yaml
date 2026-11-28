@@ -560,35 +560,6 @@ tools:
                 description: UUID of the evaluation that owns the backfill. Get it from llma-evaluation-list.
                 aliases:
                     - evaluationId
-    llma-evaluation-config-get:
-        operation: llm_analytics_evaluation_config_retrieve
-        enabled: true
-        scopes:
-            - llm_analytics:read
-        annotations:
-            readOnly: true
-            destructive: false
-            idempotent: true
-        title: Get evaluation config
-        description: >
-            Retrieve the team's evaluation config and active provider key. Call before creating an llm_judge eval to
-            confirm a provider key is configured — evals should run on the team's own key. Returns the active key and
-            timestamps.
-    llma-evaluation-config-set-active-key:
-        operation: llm_analytics_evaluation_config_set_active_key_create
-        enabled: true
-        scopes:
-            - evaluation:write
-        annotations:
-            readOnly: false
-            destructive: false
-            idempotent: true
-        title: Set active evaluation provider key
-        description: >
-            Assign the LLM provider key used to run llm_judge evaluations team-wide. Pass key_id (UUID of an existing
-            provider key whose state is 'ok'). Switching the active key affects every llm_judge evaluation that doesn't
-            pin its own key. The key must already be in the 'ok' state — if it isn't, ask the user to validate it from
-            the PostHog UI before retrying.
     llma-evaluation-create:
         operation: evaluations_create
         enabled: true

@@ -30,10 +30,6 @@ const meta: Meta<typeof EvaluationsScene> = {
                 '/api/projects/:team/evaluations/': { count: 0, results: [], next: null, previous: null },
                 '/api/projects/:team/evaluation_directories/': [],
                 '/api/environments/:team/llm_analytics/provider_keys/': { results: [] },
-                '/api/environments/:team/llm_analytics/evaluation_config/': {
-                    active_provider_key: null,
-                    trial_evals_enabled: false,
-                },
             },
         }),
     ],
