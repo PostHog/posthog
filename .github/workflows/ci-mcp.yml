@@ -625,6 +625,18 @@ jobs:
               if: steps.flags-binary.outputs.hit != 'true'
               uses: ./.github/actions/setup-protoc
 
+            # sccache compiles a crate once per Cargo.lock and serves it from Depot's
+            # WebDAV cache afterwards, which is what makes the dev build in the
+            # `parallel:` block below cheap. rust-cache alone does not: it restored in
+            # every measured run and cargo still recompiled the whole tree (175s median
+            # over 8 runs), so target/ arrives but the objects in it are stale. The key
+            # prefix is the same Cargo.lock hash ci-rust.yml and ci-nodejs.yml use.
+            - name: Set sccache WebDAV key prefix (Cargo.lock hash)
+              run: echo "SCCACHE_WEBDAV_KEY_PREFIX=cargo-${{ hashFiles('rust/Cargo.lock') }}" >> "$GITHUB_ENV"
+
+            - name: Install sccache
+              uses: ./.github/actions/setup-sccache
+
             - name: Cache Rust dependencies
               if: steps.flags-binary.outputs.hit != 'true'
               uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
@@ -848,6 +860,16 @@ jobs:
 
                   - name: Run ClickHouse migrations
                     run: python manage.py migrate_clickhouse --skip-checks
+
+            # Numbers only: the full report prints the cache endpoint, which carries the
+            # Depot token. This is the line that shows whether the build above hit.
+            - name: Report sccache counters
+              if: always()
+              continue-on-error: true
+              run: |
+                  if command -v sccache >/dev/null; then
+                      sccache --show-stats 2>/dev/null | awk '/^(Compile requests|Cache hits|Cache misses|Non-cacheable calls)[[:space:]]+[0-9]+$/ { print }'
+                  fi
 
             - name: Start Rust flags service
               working-directory: rust
