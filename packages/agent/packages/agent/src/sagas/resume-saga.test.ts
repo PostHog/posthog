@@ -9,7 +9,6 @@ import {
   createMockApiClient,
   createMockLogger,
   createNotification,
-  createTaskRun,
   createTestRepo,
   createToolCall,
   createToolResult,
@@ -33,30 +32,7 @@ describe("ResumeSaga", () => {
   });
 
   describe("empty state handling", () => {
-    it("returns empty result when task run has no log URL", async () => {
-      (mockApiClient.getTaskRun as ReturnType<typeof vi.fn>).mockResolvedValue(
-        createTaskRun({ log_url: "" }),
-      );
-
-      const saga = new ResumeSaga(mockLogger);
-      const result = await saga.run({
-        taskId: "task-1",
-        runId: "run-1",
-        repositoryPath: repo.path,
-        apiClient: mockApiClient,
-      });
-
-      expect(result.success).toBe(true);
-      if (result.success) {
-        expect(result.data.conversation).toHaveLength(0);
-        expect(result.data.logEntryCount).toBe(0);
-      }
-    });
-
     it("returns empty result when log has no entries", async () => {
-      (mockApiClient.getTaskRun as ReturnType<typeof vi.fn>).mockResolvedValue(
-        createTaskRun(),
-      );
       (
         mockApiClient.fetchTaskRunLogs as ReturnType<typeof vi.fn>
       ).mockResolvedValue([]);
@@ -79,9 +55,6 @@ describe("ResumeSaga", () => {
 
   describe("conversation rebuilding", () => {
     it("rebuilds user and assistant turns", async () => {
-      (mockApiClient.getTaskRun as ReturnType<typeof vi.fn>).mockResolvedValue(
-        createTaskRun(),
-      );
       (
         mockApiClient.fetchTaskRunLogs as ReturnType<typeof vi.fn>
       ).mockResolvedValue([
@@ -114,9 +87,6 @@ describe("ResumeSaga", () => {
     });
 
     it("drops turns before a conversation_cleared marker (/clear boundary)", async () => {
-      (mockApiClient.getTaskRun as ReturnType<typeof vi.fn>).mockResolvedValue(
-        createTaskRun(),
-      );
       (
         mockApiClient.fetchTaskRunLogs as ReturnType<typeof vi.fn>
       ).mockResolvedValue([
@@ -149,9 +119,6 @@ describe("ResumeSaga", () => {
     });
 
     it("restores injected references from prompts after the last compaction", async () => {
-      (mockApiClient.getTaskRun as ReturnType<typeof vi.fn>).mockResolvedValue(
-        createTaskRun(),
-      );
       const reference = (chunkId: string) => ({
         type: "text",
         text: [
@@ -193,9 +160,6 @@ describe("ResumeSaga", () => {
     });
 
     it("merges consecutive text chunks", async () => {
-      (mockApiClient.getTaskRun as ReturnType<typeof vi.fn>).mockResolvedValue(
-        createTaskRun(),
-      );
       (
         mockApiClient.fetchTaskRunLogs as ReturnType<typeof vi.fn>
       ).mockResolvedValue([
@@ -221,9 +185,6 @@ describe("ResumeSaga", () => {
     });
 
     it("rebuilds from coalesced agent_message events", async () => {
-      (mockApiClient.getTaskRun as ReturnType<typeof vi.fn>).mockResolvedValue(
-        createTaskRun(),
-      );
       (
         mockApiClient.fetchTaskRunLogs as ReturnType<typeof vi.fn>
       ).mockResolvedValue([
@@ -258,9 +219,6 @@ describe("ResumeSaga", () => {
     });
 
     it("merges multiple agent_message events within a single turn", async () => {
-      (mockApiClient.getTaskRun as ReturnType<typeof vi.fn>).mockResolvedValue(
-        createTaskRun(),
-      );
       (
         mockApiClient.fetchTaskRunLogs as ReturnType<typeof vi.fn>
       ).mockResolvedValue([
@@ -317,9 +275,6 @@ describe("ResumeSaga", () => {
       ];
 
       // Run with chunks (old format)
-      (mockApiClient.getTaskRun as ReturnType<typeof vi.fn>).mockResolvedValue(
-        createTaskRun(),
-      );
       (
         mockApiClient.fetchTaskRunLogs as ReturnType<typeof vi.fn>
       ).mockResolvedValue(chunkEntries);
@@ -364,9 +319,6 @@ describe("ResumeSaga", () => {
     });
 
     it("tracks tool calls with results", async () => {
-      (mockApiClient.getTaskRun as ReturnType<typeof vi.fn>).mockResolvedValue(
-        createTaskRun(),
-      );
       (
         mockApiClient.fetchTaskRunLogs as ReturnType<typeof vi.fn>
       ).mockResolvedValue([
@@ -397,9 +349,6 @@ describe("ResumeSaga", () => {
     });
 
     it("handles multiple tool calls in sequence", async () => {
-      (mockApiClient.getTaskRun as ReturnType<typeof vi.fn>).mockResolvedValue(
-        createTaskRun(),
-      );
       (
         mockApiClient.fetchTaskRunLogs as ReturnType<typeof vi.fn>
       ).mockResolvedValue([
@@ -427,9 +376,6 @@ describe("ResumeSaga", () => {
     });
 
     it("handles orphaned tool calls (no result due to interruption)", async () => {
-      (mockApiClient.getTaskRun as ReturnType<typeof vi.fn>).mockResolvedValue(
-        createTaskRun(),
-      );
       (
         mockApiClient.fetchTaskRunLogs as ReturnType<typeof vi.fn>
       ).mockResolvedValue([
@@ -460,9 +406,6 @@ describe("ResumeSaga", () => {
     });
 
     it("handles multiple orphaned tool calls", async () => {
-      (mockApiClient.getTaskRun as ReturnType<typeof vi.fn>).mockResolvedValue(
-        createTaskRun(),
-      );
       (
         mockApiClient.fetchTaskRunLogs as ReturnType<typeof vi.fn>
       ).mockResolvedValue([
@@ -493,29 +436,7 @@ describe("ResumeSaga", () => {
   });
 
   describe("failure handling", () => {
-    it("fails when getTaskRun throws", async () => {
-      (mockApiClient.getTaskRun as ReturnType<typeof vi.fn>).mockRejectedValue(
-        new Error("API error"),
-      );
-
-      const saga = new ResumeSaga(mockLogger);
-      const result = await saga.run({
-        taskId: "task-1",
-        runId: "run-1",
-        repositoryPath: repo.path,
-        apiClient: mockApiClient,
-      });
-
-      expect(result.success).toBe(false);
-      if (!result.success) {
-        expect(result.error).toContain("API error");
-      }
-    });
-
     it("fails when fetchTaskRunLogs throws", async () => {
-      (mockApiClient.getTaskRun as ReturnType<typeof vi.fn>).mockResolvedValue(
-        createTaskRun(),
-      );
       (
         mockApiClient.fetchTaskRunLogs as ReturnType<typeof vi.fn>
       ).mockRejectedValue(new Error("Log fetch failed"));
@@ -620,9 +541,6 @@ describe("ResumeSaga", () => {
         expected: "session-restarted",
       },
     ])("$name", async ({ entries, expected }) => {
-      (mockApiClient.getTaskRun as ReturnType<typeof vi.fn>).mockResolvedValue(
-        createTaskRun(),
-      );
       (
         mockApiClient.fetchTaskRunLogs as ReturnType<typeof vi.fn>
       ).mockResolvedValue(entries());
@@ -684,9 +602,6 @@ describe("ResumeSaga", () => {
         expected: undefined,
       },
     ])("$name", async ({ entries, expected }) => {
-      (mockApiClient.getTaskRun as ReturnType<typeof vi.fn>).mockResolvedValue(
-        createTaskRun(),
-      );
       (
         mockApiClient.fetchTaskRunLogs as ReturnType<typeof vi.fn>
       ).mockResolvedValue(entries);
@@ -706,9 +621,6 @@ describe("ResumeSaga", () => {
 
   describe("log entry count", () => {
     it("reports correct log entry count", async () => {
-      (mockApiClient.getTaskRun as ReturnType<typeof vi.fn>).mockResolvedValue(
-        createTaskRun(),
-      );
       (
         mockApiClient.fetchTaskRunLogs as ReturnType<typeof vi.fn>
       ).mockResolvedValue([

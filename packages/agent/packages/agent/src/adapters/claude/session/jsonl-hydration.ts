@@ -742,13 +742,10 @@ export async function hydrateSessionJsonl(params: {
       // File doesn't exist, proceed with hydration
     }
 
-    const taskRun = await posthogAPI.getTaskRun(params.taskId, params.runId);
-    if (!taskRun.log_url) {
-      log.info("No log URL, skipping JSONL hydration");
-      return { hasSession: false };
-    }
-
-    const entries = await posthogAPI.fetchTaskRunLogs(taskRun);
+    const entries = await posthogAPI.fetchTaskRunLogs(
+      params.taskId,
+      params.runId,
+    );
     if (entries.length === 0) {
       log.info("No S3 log entries, skipping JSONL hydration");
       return { hasSession: false };

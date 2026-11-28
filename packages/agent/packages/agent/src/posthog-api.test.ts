@@ -73,15 +73,16 @@ describe("PostHogAPIClient", () => {
           ),
       });
 
-    const logs = await client.fetchTaskRunLogs({
-      id: "run-1",
-      task: "task-1",
-    } as never);
+    const logs = await client.fetchTaskRunLogs("task-1", "run-1");
 
     expect(logs).toHaveLength(1);
     expect(getApiKey).toHaveBeenCalledTimes(1);
     expect(refreshApiKey).toHaveBeenCalledTimes(1);
     expect(mockFetch).toHaveBeenCalledTimes(2);
+    expect(mockFetch).toHaveBeenLastCalledWith(
+      "https://app.posthog.com/api/projects/1/tasks/task-1/runs/run-1/log_entries/",
+      expect.anything(),
+    );
   });
 
   it("does not refresh or retry when the API answers 403", async () => {
@@ -243,8 +244,7 @@ describe("PostHogAPIClient", () => {
     ],
     [
       "fetchTaskRunLogs",
-      (client: PostHogAPIClient) =>
-        client.fetchTaskRunLogs({ id: "run-1", task: "task-1" } as never),
+      (client: PostHogAPIClient) => client.fetchTaskRunLogs("task-1", "run-1"),
     ],
   ])("gives %s the download timeout", async (_method, call) => {
     const timeout = vi.spyOn(AbortSignal, "timeout");

@@ -1857,14 +1857,13 @@ describe("hydrateSessionJsonl", () => {
 
   function makeDeps() {
     return {
-      posthogAPI: { getTaskRun: vi.fn() } as unknown as PostHogAPIClient,
+      posthogAPI: { fetchTaskRunLogs: vi.fn() } as unknown as PostHogAPIClient,
       log: { info: vi.fn(), warn: vi.fn() },
     };
   }
 
   it("returns the selected conversation when hydrating from logs", async () => {
     const posthogAPI = {
-      getTaskRun: vi.fn().mockResolvedValue({ log_url: "https://logs.test" }),
       fetchTaskRunLogs: vi.fn().mockResolvedValue([
         entry("user_message", {
           content: { type: "text", text: "previous request" },
@@ -1907,10 +1906,7 @@ describe("hydrateSessionJsonl", () => {
     });
 
     expect(result).toEqual({ hasSession: true });
-    expect(
-      (posthogAPI as unknown as { getTaskRun: ReturnType<typeof vi.fn> })
-        .getTaskRun,
-    ).not.toHaveBeenCalled();
+    expect(posthogAPI.fetchTaskRunLogs).not.toHaveBeenCalled();
     expect(log.info).toHaveBeenCalledWith(
       "Healed existing session JSONL (empty and/or unprocessable-image blocks)",
       expect.anything(),
@@ -1938,10 +1934,7 @@ describe("hydrateSessionJsonl", () => {
       "Failed to sanitize existing session JSONL",
       expect.anything(),
     );
-    expect(
-      (posthogAPI as unknown as { getTaskRun: ReturnType<typeof vi.fn> })
-        .getTaskRun,
-    ).not.toHaveBeenCalled();
+    expect(posthogAPI.fetchTaskRunLogs).not.toHaveBeenCalled();
 
     await fs.chmod(path.dirname(file), 0o755);
     expect(await fs.readFile(file, "utf8")).toBe(before);

@@ -94,6 +94,11 @@ export function createPostHogHandlers(options: PostHogHandlersOptions = {}) {
       },
     ),
 
+    http.get(
+      `${baseUrl}/api/projects/:projectId/tasks/:taskId/runs/:runId/log_entries/`,
+      () => new HttpResponse(null, { status: 404 }),
+    ),
+
     // PATCH /runs/:runId - Update task run
     http.patch(
       `${baseUrl}/api/projects/:projectId/tasks/:taskId/runs/:runId/`,
