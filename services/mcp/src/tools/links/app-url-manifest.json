@@ -2064,6 +2064,11 @@
         "params": [],
         "scope": "project"
     },
+    "webAnalyticsContentAutopilotBrand": {
+        "template": "/web/ai-visibility/brands/{id}",
+        "params": ["id"],
+        "scope": "project"
+    },
     "webAnalyticsContentAutopilotPrompt": {
         "template": "/web/ai-visibility/prompts/{id}",
         "params": ["id"],
