@@ -1360,6 +1360,8 @@ tools:
             Slack delivery, find channel ids with `integrations-channels-retrieve` and member ids with
             `integrations-users-retrieve`. Try a `precheck_query` with `scout-config-precheck-test` before you save it.
             Enabling records who flipped it on and is activity-logged, since running a scout drives spend.
+        exclude_params:
+            - max_messages_per_day
     scout-create:
         operation: signals_scout_create
         enabled: true
@@ -2267,6 +2269,8 @@ tools:
         description:
             'DEPRECATED: renamed to scout-config-update. This alias forwards to the same endpoint and will be removed.
             Call scout-config-update directly with the same arguments.'
+        exclude_params:
+            - max_messages_per_day
     signals-scout-edit-report:
         operation: signals_scout_edit_report
         enabled: true

@@ -93,6 +93,7 @@ from products.signals.backend.scout_harness.message_routes import (
     MESSAGE_TARGET_SLACK_DM,
     ROUTE_KEY_RE,
     SLACK_CHANNEL_TARGET_RE,
+    resolve_scout_message_cap,
 )
 from products.signals.backend.scout_harness.model_selection import scout_model_config_enabled, scout_model_pin_catalog
 from products.signals.backend.scout_harness.note_targets import PIPELINE_AUDIENCES
@@ -110,6 +111,7 @@ from products.signals.backend.scout_harness.slack_delivery import (
     find_project_slack_integration,
 )
 from products.signals.backend.scout_harness.tags import slugify_tag
+from products.signals.backend.scout_harness.team_limits import team_config_layers_for_team
 from products.signals.backend.scout_harness.tool_catalogue import SCOUT_RUN_CONTEXT_TOOLS, get_scout_tool_catalogue
 from products.signals.backend.scout_harness.tools.checks import MAX_CHECK_EXPLANATION_LENGTH
 from products.signals.backend.scout_harness.tools.emit import (
@@ -4041,6 +4043,20 @@ def _max_report_actions_per_day_field(*, read_only: bool = False) -> serializers
     )
 
 
+_MAX_MESSAGES_PER_DAY_HELP = (
+    "Messages this scout may send in any 24 hours. Null uses the project default, 0 stops sending. "
+    "At most the project ceiling. Changing it needs skill editor access."
+)
+
+
+def _message_cap_layers(context: dict[str, Any], team_id: int) -> list[dict]:
+    # The layers come from the flag payload, so a list of configs reads it once rather than once per row.
+    cache: dict[int, list[dict]] = context.setdefault("_message_cap_layers_by_team", {})
+    if team_id not in cache:
+        cache[team_id] = team_config_layers_for_team(team_id)
+    return cache[team_id]
+
+
 def _allowed_mcp_tools_field(*, read_only: bool = False) -> serializers.ListField:
     return serializers.ListField(
         child=serializers.CharField(),
@@ -4369,6 +4385,15 @@ class SignalScoutConfigSerializer(serializers.ModelSerializer):
     write_scopes = _write_scopes_field(read_only=True)
     report_actions = _report_actions_field(read_only=True)
     max_report_actions_per_day = _max_report_actions_per_day_field(read_only=True)
+    max_messages_per_day = serializers.IntegerField(
+        read_only=True, allow_null=True, help_text=_MAX_MESSAGES_PER_DAY_HELP
+    )
+    message_cap = serializers.SerializerMethodField(
+        help_text=(
+            "The message limit this scout's runs apply in any 24 hours: `max_messages_per_day`, or the project "
+            "default when it is null, capped at the project's ceiling."
+        ),
+    )
     lifecycle_locked = serializers.BooleanField(read_only=True, help_text=_LIFECYCLE_LOCKED_HELP)
     allowed_mcp_tools = _allowed_mcp_tools_field(read_only=True)
     tool_preset = serializers.CharField(
@@ -4396,6 +4421,10 @@ class SignalScoutConfigSerializer(serializers.ModelSerializer):
         # Same single-query `skill_info` map as `get_description`.
         info = (self.context.get("skill_info") or {}).get(obj.skill_name)
         return info.role if info else "specialist"
+
+    @extend_schema_field(OpenApiTypes.INT)
+    def get_message_cap(self, obj: SignalScoutConfig) -> int:
+        return resolve_scout_message_cap(obj.max_messages_per_day, _message_cap_layers(self.context, obj.team_id)).limit
 
     def _effective_precheck(self, obj: SignalScoutConfig) -> EffectivePrecheck:
         # Two fields read it, and the skill default reads the flag payload, so resolve it once per row.
@@ -4468,6 +4497,8 @@ class SignalScoutConfigSerializer(serializers.ModelSerializer):
             "write_scopes",
             "report_actions",
             "max_report_actions_per_day",
+            "max_messages_per_day",
+            "message_cap",
             "lifecycle_locked",
             "allowed_mcp_tools",
             "tool_preset",
@@ -4563,6 +4594,9 @@ class _ScoutConfigCapabilityFieldsMixin(serializers.Serializer):
     write_scopes = _write_scopes_field()
     report_actions = _report_actions_field()
     max_report_actions_per_day = _max_report_actions_per_day_field()
+    max_messages_per_day = serializers.IntegerField(
+        required=False, allow_null=True, min_value=0, max_value=32767, help_text=_MAX_MESSAGES_PER_DAY_HELP
+    )
     lifecycle_locked = serializers.BooleanField(required=False, help_text=_LIFECYCLE_LOCKED_HELP)
     allowed_mcp_tools = _allowed_mcp_tools_field()
     tool_preset = serializers.ChoiceField(
@@ -4625,6 +4659,27 @@ class _ScoutConfigCapabilityFieldsMixin(serializers.Serializer):
 
     def validate_write_scopes(self, value: list[str]) -> list[str]:
         return _validate_write_scopes(value)
+
+    def validate_max_messages_per_day(self, value: int | None) -> int | None:
+        if value is None:
+            return value
+        if isinstance(self.instance, SignalScoutConfig):
+            # A stored value above a since-lowered ceiling is clamped at run time, so resending it must not block other edits.
+            if value == self.instance.max_messages_per_day:
+                return value
+            team_id = self.instance.team_id
+        else:
+            get_team = self.context.get("get_team")
+            # Some create paths pass a `team` object instead of the routed `get_team` lambda.
+            team = get_team() if callable(get_team) else self.context["team"]
+            team_id = team.parent_team_id or team.id
+        ceiling = resolve_scout_message_cap(value, _message_cap_layers(self.context, team_id)).ceiling
+        if value > ceiling:
+            raise serializers.ValidationError(
+                f"This project allows a scout at most {ceiling} messages a day. Set {ceiling} or less, or "
+                "leave it empty to use the project default."
+            )
+        return value
 
     def validate_precheck_query(self, value: str | None) -> str | None:
         return _validate_precheck_query(value)
@@ -4838,6 +4893,7 @@ class SignalScoutConfigUpdateSerializer(_ScoutConfigCapabilityFieldsMixin, seria
             "write_scopes",
             "report_actions",
             "max_report_actions_per_day",
+            "max_messages_per_day",
             "precheck_query",
             "precheck_disabled",
             "suggestion_id",

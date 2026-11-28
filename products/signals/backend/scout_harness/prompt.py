@@ -37,6 +37,7 @@ from products.signals.backend.scout_harness.limits import (
 )
 from products.signals.backend.scout_harness.message_routes import (
     DEDUPE_WINDOW,
+    DEFAULT_SCOUT_MESSAGES_PER_DAY,
     MAX_MESSAGE_BODY_LENGTH,
     MAX_MESSAGE_TITLE_LENGTH,
     MessageRoute,
@@ -1244,19 +1245,19 @@ This scout's config carries a structured output schema, so producing records is 
 - Records complement your other outputs, they don't replace them: still write your scratchpad entries and close-out summary, and mention how many records you produced."""
 
 
-def _messages_section(routes: Sequence[MessageRoute], *, dry_run: bool) -> str:
+def _messages_section(routes: Sequence[MessageRoute], *, dry_run: bool, message_cap: int) -> str:
     """Compose the messages section, or empty when the run may not send messages.
 
     Renders each route's `key` and `when` from the stored config and nothing else, so the section
     changes only when the config does. Recently sent keys stay out: they change every run, and the
     tool result already returns them on a duplicate. The runner passes no routes when the flag is
-    off, on a private trial, or when the config has none, so the prompt never names a tool that
-    fails closed.
+    off, on a private trial, or when the config has none, and a cap of 0 renders nothing too, so
+    the prompt never names a tool that fails closed.
 
     The cap's number stays out too, because a number in the prompt reads as an allowance to fill. A
     scout only needs to know that `over_cap` means stop.
     """
-    if not routes:
+    if not routes or message_cap <= 0:
         return ""
     route_lines = "\n".join(f"- `{route.key}`: {route.when}" for route in routes)
     report_rule = (
@@ -1878,6 +1879,7 @@ def build_run_prompt(
     structured_output_schema: dict | None = None,
     message_routes: Sequence[MessageRoute] = (),
     messages_dry_run: bool = False,
+    message_cap: int = DEFAULT_SCOUT_MESSAGES_PER_DAY,
     write_scopes: Sequence[str] | None = None,
     tool_allowlist_narrowed: bool = False,
     project_has_governed_metrics: bool = False,
@@ -2103,7 +2105,7 @@ def build_run_prompt(
             _NARROWED_TOOLS_SECTION if tool_allowlist_narrowed else "",
             checkout_section,
             structured_output_section,
-            _messages_section(message_routes, dry_run=messages_dry_run),
+            _messages_section(message_routes, dry_run=messages_dry_run, message_cap=message_cap),
             run_identity,
             _own_scratchpad_section(own_scratchpad, is_private_trial=is_private_trial),
             _precheck_result_section(precheck_rows),

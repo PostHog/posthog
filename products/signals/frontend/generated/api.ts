@@ -3332,7 +3332,7 @@ export const getSignalsScoutSendMessageUrl = (projectId: string, runId: string) 
 }
 
 /**
- * Ask to message a person or channel through one of the scout config's routes (`output_destinations.messages`). Name the route `key`, never a recipient. Outside a dry run the message must point at a report this run wrote or edited. Nothing is posted during the run: the message is queued and sent when the run ends, and a second call with the same route and `dedupe_key` replaces it. A scout sends at most 5 messages in any 24 hours, and a route and key sent in the last 30 days is refused as a duplicate.
+ * Ask to message a person or channel through one of the scout config's routes (`output_destinations.messages`). Name the route `key`, never a recipient. Outside a dry run the message must point at a report this run wrote or edited. Nothing is posted during the run: the message is queued and sent when the run ends, and a second call with the same route and `dedupe_key` replaces it. Each scout has its own limit on messages in any 24 hours, set on its config, and a route and key sent in the last 30 days is refused as a duplicate.
  * @summary Send a message through an owner-set route
  */
 export const signalsScoutSendMessage = async (

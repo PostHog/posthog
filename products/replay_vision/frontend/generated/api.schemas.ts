@@ -2333,6 +2333,13 @@ export interface SignalScoutConfigOptionsApi {
      * @maximum 20
      */
     max_report_actions_per_day?: number
+    /**
+     * Messages this scout may send in any 24 hours. Null uses the project default, 0 stops sending. At most the project ceiling. Changing it needs skill editor access.
+     * @minimum 0
+     * @maximum 32767
+     * @nullable
+     */
+    max_messages_per_day?: number | null
     /** Opt-in guard on this scout's lifecycle. Off by default, so anyone with scout write access may pause, resume, switch the scout to dry run, or delete it. On, only the person the scout's runs act as or a project admin may do any of those, or change this flag. Use it on a scout whose output people depend on: `signal_scout:write` is a project-wide scope held by people and by unattended agents alike, and a resume has to pass the project's enabled-scout maximum that a pause does not, so a bulk pause is not undone in one step. The lock never stops an automatic pause, such as the inactivity sweep or the repeated-failure breaker. */
     lifecycle_locked?: boolean
     /**
@@ -2740,6 +2747,13 @@ export interface SignalScoutConfigApi {
      * @maximum 20
      */
     readonly max_report_actions_per_day: number
+    /**
+     * Messages this scout may send in any 24 hours. Null uses the project default, 0 stops sending. At most the project ceiling. Changing it needs skill editor access.
+     * @nullable
+     */
+    readonly max_messages_per_day: number | null
+    /** The message limit this scout's runs apply in any 24 hours: `max_messages_per_day`, or the project default when it is null, capped at the project's ceiling. */
+    readonly message_cap: number
     /** Opt-in guard on this scout's lifecycle. Off by default, so anyone with scout write access may pause, resume, switch the scout to dry run, or delete it. On, only the person the scout's runs act as or a project admin may do any of those, or change this flag. Use it on a scout whose output people depend on: `signal_scout:write` is a project-wide scope held by people and by unattended agents alike, and a resume has to pass the project's enabled-scout maximum that a pause does not, so a bulk pause is not undone in one step. The lock never stops an automatic pause, such as the inactivity sweep or the repeated-failure breaker. */
     readonly lifecycle_locked: boolean
     /**
