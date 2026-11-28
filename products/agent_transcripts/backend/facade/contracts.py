@@ -93,6 +93,15 @@ class StartUploadInput:
 
 
 @dataclass(frozen=True)
+class TranscriptFile:
+    """The stored transcript, for staff tools that read it in the browser instead of downloading it."""
+
+    filename: str
+    content_type: str
+    content: bytes
+
+
+@dataclass(frozen=True)
 class PresignedUpload:
     upload_url: str
     form_fields: dict[str, str]
