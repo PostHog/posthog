@@ -33,6 +33,7 @@ import { isLiveOnSandboxSender } from '../Channels/sandboxSender'
 import { AutomationEmptyState } from '../setupGuide/AutomationEmptyState'
 import { AutomationSuggestionBanner } from '../setupGuide/AutomationSuggestionBanner'
 import { MessagingSetupReminderBanner } from '../setupGuide/MessagingSetupReminderBanner'
+import { confirmWorkflowStatusChange } from './confirmWorkflowStatusChange'
 import { getHogFlowStep } from './hogflows/steps/HogFlowSteps'
 import { HogFlow } from './hogflows/types'
 import { workflowSuggestionsAvailabilityLogic } from './suggestions/workflowSuggestionsAvailabilityLogic'
@@ -389,7 +390,15 @@ export function WorkflowsTable(): JSX.Element {
                                             data-attr="workflow-edit"
                                             fullWidth
                                             status={workflow.status === 'draft' ? 'default' : 'danger'}
-                                            onClick={() => toggleWorkflowStatus(workflow)}
+                                            onClick={() =>
+                                                confirmWorkflowStatusChange({
+                                                    workflowId: workflow.id,
+                                                    status: workflow.status === 'draft' ? 'active' : 'draft',
+                                                    trigger: workflow.trigger,
+                                                    surface: 'list',
+                                                    onConfirm: () => toggleWorkflowStatus(workflow),
+                                                })
+                                            }
                                             tooltip={
                                                 workflow.status === 'draft'
                                                     ? 'Enables the workflow to start sending messages'
