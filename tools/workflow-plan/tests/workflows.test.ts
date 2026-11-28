@@ -539,6 +539,20 @@ const EXPECTATIONS: Expectation[] = [
         { name: 'branch dispatch', github: workflowDispatch('feat/example') },
         { runs: ['check-version', 'build-wheels'], skipped: ['publish'] }
     ),
+    // The base branch's size reports are built beside the required check, not after it, and only
+    // for a pull request that has a base commit to compare against.
+    frontend(
+        { name: 'ready PR, vs-base reports built beside the size check' },
+        { runs: ['frontend-base-reports', 'frontend-size-report'] }
+    ),
+    frontend(
+        { name: 'merge queue, no base to compare against', github: mergeQueue() },
+        { skipped: ['frontend-base-reports', 'frontend-size-report'] }
+    ),
+    frontend(
+        { name: 'master push, no base to compare against', github: push() },
+        { skipped: ['frontend-base-reports', 'frontend-size-report'] }
+    ),
 ]
 
 interface StepExpectation {
@@ -838,6 +852,14 @@ const STEP_EXPECTATIONS: StepExpectation[] = [
             runs,
         }))
     ),
+    frontend(
+        { name: 'ready PR, vs-base reports built beside the size check', github: pullRequest() },
+        { job: 'frontend-base-reports', step: 'base-reports-build', runs: true }
+    ),
+    frontend(
+        { name: 'ready PR, vs-base sections posted after both builds', github: pullRequest() },
+        { job: 'frontend-size-report', step: 'layer-graph', runs: true }
+    ),
 ]
 
 const namedJobs = (file: string): Set<string> =>
@@ -1046,9 +1068,15 @@ describe('CI workflow run plans', () => {
         })
         expect(plan.errors).toEqual([])
         const steps = plan.jobs['frontend-bundle-size']?.steps ?? []
-        expect(steps.find((step) => step.name === 'Build base branch for size comparison')?.runs ?? false).toBe(
-            baseBuild
-        )
+        // The base build and the vs-base sections live in their own jobs now, so the required
+        // check neither waits on them nor reads their artifact.
+        expect(plan.jobs['frontend-base-reports']?.result).toBe(baseBuild ? 'success' : 'skipped')
+        expect(plan.jobs['frontend-size-report']?.result).toBe(baseBuild ? 'success' : 'skipped')
+        expect(
+            plan.jobs['frontend-base-reports']?.steps.find(
+                (step) => step.name === 'Build base branch for size comparison'
+            )?.runs ?? false
+        ).toBe(baseBuild)
         for (const step of [
             'Build frontend (bundle-size + eager-graph report)',
             'Measure PR dist size',
@@ -1062,7 +1090,10 @@ describe('CI workflow run plans', () => {
         expect(
             steps.find((step) => step.name === 'Check eager graph budgets and forbidden imports')?.runs ?? false
         ).toBe(headBuild && github.event_name === 'pull_request')
-        expect(steps.find((step) => step.name === 'Post CI report — bundle size')?.runs ?? false).toBe(baseBuild)
+        expect(
+            plan.jobs['frontend-size-report']?.steps.find((step) => step.name === 'Post CI report — bundle size')
+                ?.runs ?? false
+        ).toBe(baseBuild)
         expect(plan.jobs.frontend_tests?.result).toBe('success')
     })
 
