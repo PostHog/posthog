@@ -19,6 +19,7 @@ from posthog.slack.channels import MAX_HEADER_CHARS, MAX_SECTION_CHARS
 from products.alerts_platform.backend.delivery.dispatch import deliver
 from products.alerts_platform.backend.delivery.message import UNTRACKED_GROUPS_LABEL
 from products.alerts_platform.backend.delivery.slack import (
+    MAX_LINK_LINES,
     SLACK_EDIT_TIMEOUT_SECONDS,
     SLACK_SEND_TIMEOUT_SECONDS,
     SlackTransport,
@@ -113,6 +114,77 @@ class TestSlackBlocks(SimpleTestCase):
         assert "&lt;!channel&gt;" in body
         assert context == "Services: &lt;!channel&gt;"
         assert project == "Project: <https://app.example.com/project/2|Prod &lt;!channel&gt;>"
+
+    def test_a_url_under_a_url_label_is_a_link_and_all_text_stays_verbatim(self) -> None:
+        message = alert_message(
+            details=(MessageDetail(label="Service", value="https://evil.example.com/login"),),
+            rule_details=(
+                MessageDetail(label="dashboard_url", value="https://grafana.example.com/d/abc?a=1&viewPanel=2"),
+                MessageDetail(label="wiki_url", value="https://x.example.com/ see wiki"),
+                MessageDetail(label="runbook_url", value="https://x.example.com/|https://good.example.com"),
+                MessageDetail(label="status_url", value="https://x.example.com/<!channel>"),
+                MessageDetail(label="docs", value="https://docs.example.com/alerts"),
+                MessageDetail(label="team", value="payments"),
+            ),
+        )
+
+        text, links = blocks_for(message)[1:3]
+
+        assert links["text"]["text"] == "*dashboard_url:* <https://grafana.example.com/d/abc?a=1&amp;viewPanel=2>"
+        assert links["text"]["verbatim"] is True
+        assert text["text"]["verbatim"] is True
+        assert "*Service:* https://evil.example.com/login" in text["text"]["text"]
+        assert "*docs:* https://docs.example.com/alerts" in text["text"]["text"]
+        assert "*team:* payments" in text["text"]["text"]
+        assert "&lt;!channel&gt;" in text["text"]["text"]
+        assert "<!" not in text["text"]["text"] + links["text"]["text"]
+
+    def test_a_source_detail_under_a_url_label_stays_plain_text(self) -> None:
+        message = alert_message(details=(MessageDetail(label="source_url", value="https://evil.example.com/login"),))
+
+        blocks = blocks_for(message)
+
+        assert [block["type"] for block in blocks] == ["header", "section", "actions"]
+        assert blocks[1]["text"]["text"] == "*source_url:* https://evil.example.com/login"
+
+    def test_a_card_with_only_links_carries_no_empty_text_section(self) -> None:
+        message = alert_message(rule_details=(MessageDetail(label="runbook_url", value="https://x.example.com/r"),))
+
+        blocks = blocks_for(message)
+
+        assert [block["type"] for block in blocks] == ["header", "section", "actions"]
+        assert blocks[1]["text"]["text"] == "*runbook_url:* <https://x.example.com/r>"
+
+    def test_a_long_url_under_a_long_label_is_still_a_link(self) -> None:
+        label = "x" * 46 + "_url"
+        url = "https://x.example.com/" + "a" * 400
+
+        links = blocks_for(alert_message(rule_details=(MessageDetail(label=label, value=url),)))[1]
+
+        assert links["text"]["text"] == f"*{label}:* <{url}>"
+
+    @parameterized.expand([("with_its_own_url", MAX_LINK_LINES), ("that_repeats_the_first_link", 0)])
+    def test_a_url_detail_past_the_link_limit_stays_as_plain_text(self, _name: str, last: int) -> None:
+        details = tuple(
+            MessageDetail(label=f"link_{i}_url", value=f"https://x.example.com/{i}")
+            for i in (*range(MAX_LINK_LINES), last)
+        )
+
+        text, links = blocks_for(alert_message(rule_details=details))[1:3]
+
+        assert len(links["text"]["text"].splitlines()) == MAX_LINK_LINES
+        assert text["text"]["text"] == f"*link_{last}_url:* https://x.example.com/{last}"
+
+    def test_escaped_links_stay_inside_what_slack_accepts(self) -> None:
+        url = "https://grafana.example.com/d?" + "&".join(f"p{i}=1" for i in range(40))
+        message = alert_message(rule_details=tuple(MessageDetail(label=f"link_{i}_url", value=url) for i in range(8)))
+
+        text, links = blocks_for(message)[1:3]
+
+        assert len(links["text"]["text"]) <= MAX_SECTION_CHARS
+        assert links["text"]["text"].endswith(">")
+        assert text["text"]["verbatim"] is True
+        assert "*link_7_url:*" in text["text"]["text"]
 
     def test_escaped_context_stays_inside_what_slack_accepts(self) -> None:
         message = alert_message(context=("&" * 300,) * 3)
@@ -498,7 +570,10 @@ class TestSourceRendererKeepsGroupLimitNotice(SimpleTestCase):
                 MessageDetail(label="Value", value="300"),
                 MessageDetail(label=UNTRACKED_GROUPS_LABEL, value="2 more groups not tracked"),
             ),
-            rule_details=(MessageDetail(label="team", value="payments"),),
+            rule_details=(
+                MessageDetail(label="runbook_url", value="https://x.example.com/r"),
+                MessageDetail(label="team", value="payments"),
+            ),
         )
         with patch("products.alerts_platform.backend.delivery.slack.slack_renderer_for") as renderer:
             renderer.return_value.return_value = content
@@ -509,5 +584,8 @@ class TestSourceRendererKeepsGroupLimitNotice(SimpleTestCase):
         notice = next(block for block in blocks if "*team:* payments" in block.get("text", {}).get("text", ""))
         assert notice["text"]["verbatim"] is True
         assert "*Value:*" not in str(blocks)
+        links = blocks[blocks.index(notice) + 1]
+        assert links["text"]["text"] == "*runbook_url:* <https://x.example.com/r>"
+        assert blocks[-1 if without_actions else -2] is links
         # Above the buttons when there are buttons, so the notice is never read as one of them.
         assert blocks[-1]["type"] == ("section" if without_actions else "actions")
