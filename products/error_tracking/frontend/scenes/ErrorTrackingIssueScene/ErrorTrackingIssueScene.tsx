@@ -51,7 +51,6 @@ import {
 import { issueListUrlWithTag } from '../../components/IssueQueryOptions/issueQueryOptionsLogic'
 import { IssueSeveritySelect } from '../../components/IssueSeveritySelect'
 import { IssueStatusButton } from '../../components/IssueStatusButton'
-import { IssueStatusSelect } from '../../components/IssueStatusSelect'
 import { IssueTagsButton } from '../../components/IssueTagsButton/IssueTagsButton'
 import { ErrorTrackingSetupPrompt } from '../../components/SetupPrompt/SetupPrompt'
 import { StyleVariables } from '../../components/StyleVariables'
@@ -64,6 +63,7 @@ import { IssueEmailMenu } from './IssueEmailMenu'
 import { IssueEmailMenuItems } from './IssueEmailMenuItems'
 import { IssueEventsPanel } from './IssueEventsPanel'
 import { issueRecordingFilterLogic } from './issueRecordingFilterLogic'
+import { IssueSceneStatusSelect } from './IssueSceneStatusSelect'
 import { IssueSummary } from './IssueSummary'
 import { LinkedReports } from './LinkedReports'
 import { ErrorTrackingIssueScenePanel } from './ScenePanel'
@@ -80,11 +80,19 @@ function isDisplayed(element: HTMLElement | null): boolean {
 }
 
 export function ErrorTrackingIssueScene(): JSX.Element {
-    const { issue, issueId, issueIdValid, lastSeen, initialEventTimestamp, selectedEvent, mobileDetailOpen } =
-        useValues(errorTrackingIssueSceneLogic)
+    const {
+        issue,
+        issueId,
+        issueIdValid,
+        lastSeen,
+        initialEventTimestamp,
+        selectedEvent,
+        mobileDetailOpen,
+        stillSeenAfterResolve,
+    } = useValues(errorTrackingIssueSceneLogic)
     const { updateAssignee, updateSeverity, updateStatus, updateName, setMobileDetailOpen } =
         useActions(errorTrackingIssueSceneLogic)
-    const { severityUpdateInFlightIds } = useValues(issueActionsLogic)
+    const { severityUpdateInFlightIds, statusUpdateInFlightIds } = useValues(issueActionsLogic)
     const { isWindowLessThan } = useWindowSize()
     const isMobile = isWindowLessThan('md')
     const hasIssueSplitting = useFeatureFlag('ERROR_TRACKING_ISSUE_SPLITTING')
@@ -187,10 +195,12 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                                         isMobile ? undefined : (
                                             <div className="flex flex-wrap items-center justify-end gap-1">
                                                 <ButtonGroup>
-                                                    <IssueStatusSelect
+                                                    <IssueSceneStatusSelect
                                                         status={issue.status}
+                                                        resolvedUntil={issue.resolved_until}
+                                                        latestRelease={issue.latest_release}
+                                                        stillSeen={stillSeenAfterResolve}
                                                         onChange={updateStatus}
-                                                        size="default"
                                                     />
                                                     <IssueSeveritySelect
                                                         severity={issue.severity}
@@ -282,7 +292,12 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                                                     collapseWhenNarrow={!!issue.name}
                                                     wrapperRef={inlineEmailMenuRef}
                                                 />
-                                                <IssueStatusButton status={issue.status} onChange={updateStatus} />
+                                                <IssueStatusButton
+                                                    status={issue.status}
+                                                    latestRelease={issue.latest_release}
+                                                    onChange={updateStatus}
+                                                    loading={statusUpdateInFlightIds.includes(issue.id)}
+                                                />
                                             </div>
                                         )
                                     }
@@ -291,10 +306,12 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                                 {isMobile && (
                                     <div className="flex items-center gap-1.5 px-2 py-1.5 border-b flex-wrap">
                                         <ButtonGroup>
-                                            <IssueStatusSelect
+                                            <IssueSceneStatusSelect
                                                 status={issue.status}
+                                                resolvedUntil={issue.resolved_until}
+                                                latestRelease={issue.latest_release}
+                                                stillSeen={stillSeenAfterResolve}
                                                 onChange={updateStatus}
-                                                size="default"
                                             />
                                             <IssueSeveritySelect
                                                 severity={issue.severity}
@@ -317,7 +334,12 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                                             )}
                                         </ButtonGroup>
                                         <IssueEmailMenu issueId={issue.id} issueName={issue.name} />
-                                        <IssueStatusButton status={issue.status} onChange={updateStatus} />
+                                        <IssueStatusButton
+                                            status={issue.status}
+                                            latestRelease={issue.latest_release}
+                                            onChange={updateStatus}
+                                            loading={statusUpdateInFlightIds.includes(issue.id)}
+                                        />
                                         {!mobileDetailOpen && (
                                             <LemonButton
                                                 size="small"

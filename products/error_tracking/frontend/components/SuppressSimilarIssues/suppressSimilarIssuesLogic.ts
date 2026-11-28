@@ -16,6 +16,7 @@ import { PropertyGroupFilterValue } from '~/types'
 
 import { errorTrackingSuppressionRulesCreate } from '../../generated/api'
 import type { ErrorTrackingSuppressionRuleApi } from '../../generated/api.schemas'
+import type { ResolvedUntilEnumApi } from '../../generated/api.schemas'
 import { issueActionsLogic } from '../IssueActions/issueActionsLogic'
 import {
     ScopeImpact,
@@ -102,9 +103,11 @@ export interface suppressSimilarIssuesLogicActions {
     } // issueActionsLogic
     updateIssueStatus: (
         id: string,
-        status: ErrorTrackingIssueStatus
+        status: ErrorTrackingIssueStatus,
+        resolvedUntil?: ResolvedUntilEnumApi | undefined
     ) => {
         id: string
+        resolvedUntil: ResolvedUntilEnumApi | undefined
         status: ErrorTrackingIssueStatus
     } // issueActionsLogic
     closeSuggestion: () => {

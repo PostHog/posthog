@@ -1,6 +1,7 @@
 import { MakeLogicType, connect, kea, key, listeners, path, props } from 'kea'
 
 import { issueActionsLogic } from 'products/error_tracking/frontend/components/IssueActions/issueActionsLogic'
+import type { ResolvedUntilEnumApi } from 'products/error_tracking/frontend/generated/api.schemas'
 
 import type {
     ErrorTrackingIssueAssignee,
@@ -36,9 +37,11 @@ export interface errorTrackingWidgetLogicActions {
     } // issueActionsLogic
     updateIssueStatus: (
         id: string,
-        status: ErrorTrackingIssueStatus
+        status: ErrorTrackingIssueStatus,
+        resolvedUntil?: ResolvedUntilEnumApi | undefined
     ) => {
         id: string
+        resolvedUntil: ResolvedUntilEnumApi | undefined
         status: ErrorTrackingIssueStatus
     } // issueActionsLogic
 }
