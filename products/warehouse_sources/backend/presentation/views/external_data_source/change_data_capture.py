@@ -36,12 +36,12 @@ from products.warehouse_sources.backend.facade.source_management import (
     CDCRepairError,
     CDCRepairInProgress,
     CDCSourceAdapter,
+    cdc_engine_for_team,
     cdc_supported_source_types,
     get_cdc_adapter,
     history_tables,
     incremental_history_table,
     repair_cdc_source,
-    source_type_supports_cdc,
 )
 from products.warehouse_sources.backend.presentation.history_tracking import report_history_toggled
 
@@ -231,6 +231,27 @@ class CdcStatusSerializer(serializers.Serializer):
         required=False,
         help_text="Tables in the publication, when the source was reachable and a publication exists.",
     )
+    capture_resources_present = serializers.BooleanField(
+        required=False,
+        help_text=(
+            "Whether every resource capture reads from is present on the source, when the source was reachable. "
+            "False means changes can't be read until Repair CDC runs."
+        ),
+    )
+    server_uuid = serializers.CharField(
+        required=False, help_text="MySQL: server_uuid of the server whose binary log capture reads."
+    )
+    binlog_position = serializers.CharField(
+        allow_null=True, required=False, help_text="MySQL: the binary log position capture has read up to."
+    )
+    same_server = serializers.BooleanField(
+        required=False,
+        help_text="MySQL: whether the source still reaches the server capture started on. False after a failover.",
+    )
+    binlog_file_exists = serializers.BooleanField(
+        required=False,
+        help_text="MySQL: whether the server still keeps the binary log file of the stored position.",
+    )
 
 
 def parse_cdc_tuning(
@@ -368,8 +389,14 @@ class ExternalDataSourceCDCMixin(base.ExternalDataSourceViewSetBase):
         serializer.is_valid(raise_exception=True)
         source_type = serializer.validated_data["source_type"]
 
-        if not source_type_supports_cdc(source_type):
-            supported = ", ".join(sorted(str(supported_type) for supported_type in cdc_supported_source_types()))
+        if cdc_engine_for_team(source_type, self.team_id) is None:
+            supported = ", ".join(
+                sorted(
+                    str(supported_type)
+                    for supported_type in cdc_supported_source_types()
+                    if cdc_engine_for_team(supported_type, self.team_id) is not None
+                )
+            )
             return setup_error_response(
                 SourceSetupErrorCode.CDC_UNSUPPORTED_SOURCE_TYPE,
                 f"Source type '{source_type}' does not support change data capture (CDC). "
@@ -443,16 +470,16 @@ class ExternalDataSourceCDCMixin(base.ExternalDataSourceViewSetBase):
                 setup=config_data,
                 team_id=self.team_id,
             )
-        except base._EXPECTED_CONNECTION_ERRORS as e:
-            # Probing a user-supplied database to validate it is expected to fail when the host,
-            # credentials, or SSH tunnel are wrong or the server drops the connection. Surface it
-            # to the wizard as a 400, but don't capture it — these are user/upstream connection
-            # problems, not bugs in our code, and capturing every one floods error tracking.
-            return setup_error_response(
-                SourceSetupErrorCode.CONNECTION_FAILED,
-                f"Could not connect to {source_type} to check prerequisites: {e}",
-            )
         except Exception as e:
+            if base.is_expected_connection_error(e, source_type):
+                # Probing a user-supplied database to validate it is expected to fail when the host,
+                # credentials, or SSH tunnel are wrong or the server drops the connection. Surface it
+                # to the wizard as a 400, but don't capture it — these are user/upstream connection
+                # problems, not bugs in our code, and capturing every one floods error tracking.
+                return setup_error_response(
+                    SourceSetupErrorCode.CONNECTION_FAILED,
+                    f"Could not connect to {source_type} to check prerequisites: {e}",
+                )
             base.capture_exception(e, {"source_type": source_type, "team_id": self.team_id})
             return setup_error_response(
                 SourceSetupErrorCode.CONNECTION_FAILED,
@@ -494,6 +521,11 @@ class ExternalDataSourceCDCMixin(base.ExternalDataSourceViewSetBase):
         if err is not None:
             return err
         assert adapter is not None  # narrowed by _get_cdc_adapter_or_400
+        if cdc_engine_for_team(instance.source_type, self.team_id) is None:
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": f"CDC is not available for {instance.source_type} sources yet."},
+            )
 
         management_mode = request.data.get("cdc_management_mode", "posthog")
         if management_mode not in ("posthog", "self_managed"):
@@ -511,17 +543,17 @@ class ExternalDataSourceCDCMixin(base.ExternalDataSourceViewSetBase):
                 schema=schema_hint,
                 setup=request.data,
             )
-        except base._EXPECTED_CONNECTION_ERRORS as e:
-            # Probing the source's database to validate it is expected to fail when the host,
-            # credentials, or SSH tunnel are wrong, the server requires/refuses SSL, or it drops the
-            # connection. Surface it as a 400, but don't capture it — these are user/upstream
-            # connection problems, not bugs in our code, and capturing every one floods error
-            # tracking. Mirrors the detail=False check_cdc_prerequisites handler.
-            return Response(
-                status=status.HTTP_400_BAD_REQUEST,
-                data={"message": f"Could not connect to source to check prerequisites: {e}"},
-            )
         except Exception as e:
+            if base.is_expected_connection_error(e, instance.source_type):
+                # Probing the source's database to validate it is expected to fail when the host,
+                # credentials, or SSH tunnel are wrong, the server requires/refuses SSL, or it drops the
+                # connection. Surface it as a 400, but don't capture it — these are user/upstream
+                # connection problems, not bugs in our code, and capturing every one floods error
+                # tracking. Mirrors the detail=False check_cdc_prerequisites handler.
+                return Response(
+                    status=status.HTTP_400_BAD_REQUEST,
+                    data={"message": f"Could not connect to source to check prerequisites: {e}"},
+                )
             base.capture_exception(e, {"source_id": str(instance.id), "team_id": self.team_id})
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
@@ -568,6 +600,11 @@ class ExternalDataSourceCDCMixin(base.ExternalDataSourceViewSetBase):
         if err is not None:
             return err
         assert adapter is not None  # narrowed by _get_cdc_adapter_or_400
+        if cdc_engine_for_team(instance.source_type, self.team_id) is None:
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": f"CDC is not available for {instance.source_type} sources yet."},
+            )
 
         existing = adapter.parse_cdc_config(instance)
         if existing.enabled:
@@ -602,15 +639,15 @@ class ExternalDataSourceCDCMixin(base.ExternalDataSourceViewSetBase):
                 schema=schema_hint,
                 setup=payload,
             )
-        except base._EXPECTED_CONNECTION_ERRORS as e:
-            # Expected user/upstream connection failure (bad host/credentials/SSH tunnel, server
-            # requires/refuses SSL, dropped connection). Surface as a 400 without capturing — see the
-            # check_cdc_prerequisites_for_source handler above.
-            return Response(
-                status=status.HTTP_400_BAD_REQUEST,
-                data={"message": f"Could not connect to source to check prerequisites: {e}"},
-            )
         except Exception as e:
+            if base.is_expected_connection_error(e, instance.source_type):
+                # Expected user/upstream connection failure (bad host/credentials/SSH tunnel, server
+                # requires/refuses SSL, dropped connection). Surface as a 400 without capturing — see the
+                # check_cdc_prerequisites_for_source handler above.
+                return Response(
+                    status=status.HTTP_400_BAD_REQUEST,
+                    data={"message": f"Could not connect to source to check prerequisites: {e}"},
+                )
             base.capture_exception(e, {"source_id": str(instance.id), "team_id": self.team_id})
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
@@ -857,14 +894,14 @@ class ExternalDataSourceCDCMixin(base.ExternalDataSourceViewSetBase):
             return Response(status=status.HTTP_409_CONFLICT, data={"message": str(e)})
         except CDCRepairError as e:
             return Response(status=status.HTTP_400_BAD_REQUEST, data={"message": str(e)})
-        except base._EXPECTED_CONNECTION_ERRORS as e:
-            # Expected user/upstream connection failure — surface as a 400 without capturing,
-            # mirroring the enable_cdc handler.
-            return Response(
-                status=status.HTTP_400_BAD_REQUEST,
-                data={"message": f"Could not connect to source to repair CDC: {e}"},
-            )
         except Exception as e:
+            if base.is_expected_connection_error(e, instance.source_type):
+                # Expected user/upstream connection failure — surface as a 400 without capturing,
+                # mirroring the enable_cdc handler.
+                return Response(
+                    status=status.HTTP_400_BAD_REQUEST,
+                    data={"message": f"Could not connect to source to repair CDC: {e}"},
+                )
             base.capture_exception(e, {"source_id": str(instance.id), "team_id": self.team_id})
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
@@ -941,14 +978,14 @@ class ExternalDataSourceCDCMixin(base.ExternalDataSourceViewSetBase):
         # back into the same deterministic failure.
         try:
             live_status = adapter.get_status(instance)
-        except base._EXPECTED_CONNECTION_ERRORS as e:
-            return Response(
-                status=status.HTTP_400_BAD_REQUEST,
-                data={
-                    "message": f"Could not connect to source to resume CDC — check the credentials and try again: {e}"
-                },
-            )
         except Exception as e:
+            if base.is_expected_connection_error(e, instance.source_type):
+                return Response(
+                    status=status.HTTP_400_BAD_REQUEST,
+                    data={
+                        "message": f"Could not connect to source to resume CDC — check the credentials and try again: {e}"
+                    },
+                )
             base.capture_exception(e, {"source_id": str(instance.id), "team_id": self.team_id})
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
@@ -1097,6 +1134,7 @@ class ExternalDataSourceCDCMixin(base.ExternalDataSourceViewSetBase):
                     "lag_warning_threshold_mb": cdc_config.lag_warning_threshold_mb,
                     "lag_critical_threshold_mb": cdc_config.lag_critical_threshold_mb,
                     "schedule_paused": schedule_paused,
+                    "capture_resources_present": adapter.capture_resources_present(live_status),
                     **live_status,
                 }
             ).data,

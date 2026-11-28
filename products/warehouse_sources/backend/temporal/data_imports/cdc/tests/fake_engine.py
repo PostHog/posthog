@@ -148,6 +148,7 @@ class FakeCDCStreamReader:
 class FakeCDCAdapter:
     # The catalog never lists the fake engine, so any member satisfies the interface.
     engine = CDCEngine.POSTGRES
+    release_flag: str | None = None
 
     def __init__(self, db: SourceDatabase) -> None:
         self._db = db
@@ -227,6 +228,9 @@ class FakeCDCAdapter:
         raise NotImplementedError(_NOT_EXERCISED)
 
     def manages_capture_set(self, source: ExternalDataSource) -> bool:
+        raise NotImplementedError(_NOT_EXERCISED)
+
+    def primary_key_columns(self, conn: Any, schema: str, tables: list[str]) -> dict[str, list[str]]:
         raise NotImplementedError(_NOT_EXERCISED)
 
 

@@ -7,9 +7,9 @@ Each database engine needs its own adapter that knows how to:
 - Clean up resources (drop slot, drop publication)
 - Check replication lag
 
-Postgres (and Supabase, which is Postgres on the wire) are implemented. When adding
-MySQL or another engine, create an adapter in ``sources/<engine>/cdc/adapter.py`` and
-register it in ``_cdc_adapters`` below.
+Postgres (with Supabase and Neon, which are Postgres on the wire) and MySQL are implemented.
+A new engine gets an adapter in ``sources/<engine>/cdc/adapter.py`` and an entry in
+``_cdc_adapters`` below.
 """
 
 from __future__ import annotations
@@ -21,6 +21,7 @@ from typing import TYPE_CHECKING, Any, Literal, Protocol, TypeVar
 from posthog.exceptions_capture import capture_exception
 
 from products.warehouse_sources.backend.temporal.data_imports.cdc.types import CDCConfig, CDCLag
+from products.warehouse_sources.backend.temporal.data_imports.sources.mysql.cdc.adapter import MySQLCDCAdapter
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter import PostgresCDCAdapter
 from products.warehouse_sources.backend.types import CDCEngine, ExternalDataSourceType
 
@@ -42,6 +43,8 @@ class CDCSourceAdapter(Protocol[CDCConfigT_co]):
 
     # The catalog serves it as `cdcEngine`. Engines that are the same database on the wire share one.
     engine: CDCEngine
+    # PostHog feature flag that releases the engine to a team, or None once every team has it.
+    release_flag: str | None
 
     def create_reader(self, source: ExternalDataSource) -> CDCStreamReader: ...
 
@@ -90,7 +93,8 @@ class CDCSourceAdapter(Protocol[CDCConfigT_co]):
     def is_stream_lost_error(self, exc: BaseException) -> bool:
         """Whether the exception means the engine invalidated or dropped the
         change-stream resource (PG: replication slot lost to max_slot_wal_keep_size)
-        such that it cannot be resumed and must be recreated."""
+        such that it cannot be resumed and must be recreated (MySQL: the binlog was purged past the
+        stored position, or the source now reaches another server)."""
         ...
 
     def is_connection_error(self, exc: BaseException) -> bool:
@@ -183,6 +187,11 @@ class CDCSourceAdapter(Protocol[CDCConfigT_co]):
         so ``add_table`` and ``remove_table`` change it."""
         ...
 
+    def primary_key_columns(self, conn: Any, schema: str, tables: list[str]) -> dict[str, list[str]]:
+        """The primary key columns of each of ``tables`` in ``schema`` that has one, read over a
+        ``management_connection``."""
+        ...
+
 
 def _cdc_adapters() -> dict[ExternalDataSourceType, CDCSourceAdapter[CDCConfig]]:
     """Registry of CDC adapters keyed by source type. Adding a new CDC-capable source
@@ -193,6 +202,7 @@ def _cdc_adapters() -> dict[ExternalDataSourceType, CDCSourceAdapter[CDCConfig]]
         ExternalDataSourceType.POSTGRES: postgres_adapter,
         ExternalDataSourceType.SUPABASE: postgres_adapter,
         ExternalDataSourceType.NEON: postgres_adapter,
+        ExternalDataSourceType.MYSQL: MySQLCDCAdapter(),
     }
 
 
@@ -231,20 +241,45 @@ def cdc_supported_source_types() -> list[ExternalDataSourceType]:
 
 
 def cdc_engine(source_type: ExternalDataSourceType) -> CDCEngine | None:
-    """The engine name of the source type's CDC adapter, or None when it has no change stream."""
+    """The engine name of the source type's CDC adapter for every team, or None when it has no change
+    stream or its engine is still behind a release flag."""
     adapter = _cdc_adapters().get(source_type)
-    return adapter.engine if adapter is not None else None
+    return adapter.engine if adapter is not None and adapter.release_flag is None else None
+
+
+def cdc_engine_for_team(source_type: ExternalDataSourceType | str | None, team_id: int) -> CDCEngine | None:
+    """The engine name of the source type's CDC adapter when the team may turn CDC on for it."""
+    adapter = _adapter_for(source_type)
+    if adapter is None:
+        return None
+    if adapter.release_flag is not None:
+        from products.warehouse_sources.backend.temporal.data_imports.schema_flags import is_team_flag_enabled
+
+        if not is_team_flag_enabled(team_id, adapter.release_flag):
+            return None
+    return adapter.engine
 
 
 def source_type_supports_cdc(source_type: ExternalDataSourceType | str | None) -> bool:
-    """Whether the given source type (enum or raw string) supports CDC."""
+    """Whether the given source type (enum or raw string) supports CDC. Use ``cdc_engine_for_team`` to
+    decide whether a team may turn it on."""
+    return _adapter_for(source_type) is not None
+
+
+def is_cdc_connection_error(source_type: ExternalDataSourceType | str | None, exc: BaseException) -> bool:
+    """Whether the source type's CDC engine reads ``exc`` as a failure to reach the customer's database."""
+    adapter = _adapter_for(source_type)
+    return adapter is not None and adapter.is_connection_error(exc)
+
+
+def _adapter_for(source_type: ExternalDataSourceType | str | None) -> CDCSourceAdapter[CDCConfig] | None:
     if source_type is None:
-        return False
+        return None
     try:
         resolved = ExternalDataSourceType(source_type)
     except ValueError:
-        return False
-    return resolved in _cdc_adapters()
+        return None
+    return _cdc_adapters().get(resolved)
 
 
 def add_table_failure_message(

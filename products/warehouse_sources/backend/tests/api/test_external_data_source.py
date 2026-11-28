@@ -141,6 +141,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.custom.sou
     ManifestValidationError,
     PreviewResult,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.mysql.cdc.adapter import MySQLCDCAdapter
+from products.warehouse_sources.backend.temporal.data_imports.sources.mysql.source import MySQLSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter import PostgresCDCAdapter
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres import (
     PostgresDiscoveredSchema,
@@ -234,6 +236,9 @@ def _configure_source_mock_versioning(mock_get_source) -> None:
     mock_get_source.return_value.has_preserved_row_backed_credentials.return_value = False
     mock_get_source.return_value.serialize_config.side_effect = lambda config: config.to_dict()
     mock_get_source.return_value.uploaded_file_name.return_value = None
+
+
+_TEAM_FLAG = "products.warehouse_sources.backend.temporal.data_imports.schema_flags.is_team_flag_enabled"
 
 
 @config.config
@@ -1883,6 +1888,45 @@ class TestExternalDataSource(APIBaseTest):
         assert str(source.job_inputs["cdc_lag_warning_threshold_mb"]) == "512"
         assert str(source.job_inputs["cdc_lag_critical_threshold_mb"]) == "1024"
         assert source.job_inputs["cdc_consistent_point"] == "0/AA"
+
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.mysql.source.MySQLSource.validate_credentials_for_access_method"
+    )
+    def test_patch_mysql_source_keeps_its_binlog_stream(self, mock_validate):
+        connection = {"host": "localhost", "port": 3306, "database": "app", "user": "test", "schema": "app"}
+        stream = {"cdc_binlog_position": "0/1/1:4", "cdc_server_uuid": "uuid-a", "cdc_server_id": 424242}
+        source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="MySQL",
+            created_by=self.user,
+            job_inputs={**connection, "password": "test", "cdc_enabled": True, **stream},
+        )
+
+        def capture_confirms_a_newer_position(*_args, **_kwargs):
+            SourceInputsStore.update_runtime(
+                ExternalDataSource.objects.get(pk=source.pk), {"cdc_binlog_position": "0/1/2:4"}
+            )
+            return True, None
+
+        mock_validate.side_effect = capture_confirms_a_newer_position
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/",
+            data={"job_inputs": {**connection, "port": 3307, "cdc_binlog_position": "0/1/9:4"}},
+            format="json",
+        )
+
+        assert response.status_code == 200, response.json()
+        mock_validate.assert_called_once()
+        source.refresh_from_db()
+        assert {key: source.job_inputs.get(key) for key in stream} == {
+            "cdc_binlog_position": "0/1/2:4",
+            "cdc_server_uuid": "uuid-a",
+            "cdc_server_id": "424242",
+        }
 
     @patch(
         "products.warehouse_sources.backend.presentation.views.external_data_schema.external_data_workflow_exists",
@@ -5777,8 +5821,10 @@ class TestExternalDataSource(APIBaseTest):
     @patch(
         "products.warehouse_sources.backend.presentation.views.external_data_source.viewset.ExternalDataSourceViewSet._setup_cdc_resources"
     )
-    @patch("products.warehouse_sources.backend.presentation.views.external_data_source.base.get_primary_key_columns")
-    @patch("products.warehouse_sources.backend.presentation.views.external_data_source.base.cdc_pg_connection")
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter.get_primary_key_columns"
+    )
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter.cdc_pg_connection")
     @patch("products.warehouse_sources.backend.presentation.views.external_data_source.base.SourceRegistry.get_source")
     def test_create_postgres_cdc_with_blank_schema_uses_physical_schema_metadata(
         self,
@@ -5805,6 +5851,62 @@ class TestExternalDataSource(APIBaseTest):
         mock_add_table.assert_called_once()
         assert mock_add_table.call_args.args[1:] == ("analytics", "events")
 
+    @parameterized.expand([("flag_on", True), ("flag_off", False)])
+    @patch(
+        "products.warehouse_sources.backend.presentation.views.external_data_source.viewset.ExternalDataSourceViewSet._setup_cdc_resources",
+        return_value=None,
+    )
+    @patch.object(MySQLCDCAdapter, "primary_key_columns", return_value={"orders": ["id"]})
+    @patch.object(MySQLCDCAdapter, "management_connection", return_value=contextlib.nullcontext(object()))
+    @patch("products.warehouse_sources.backend.presentation.views.external_data_source.base.SourceRegistry.get_source")
+    def test_create_mysql_cdc_reads_primary_keys_through_its_engine(
+        self, _name, flag_enabled, mock_get_source, _mock_connection, mock_primary_keys, _mock_setup
+    ):
+        _configure_source_mock_versioning(mock_get_source)
+        source_mock = mock_get_source.return_value
+        source_mock.validate_config.return_value = (True, [])
+        connection = {"host": "localhost", "port": 3306, "database": "app", "user": "user", "schema": "app"}
+        parsed_config = Mock()
+        parsed_config.schema = "app"
+        parsed_config.to_dict.return_value = {**connection, "password": "pass"}
+        source_mock.parse_config.return_value = parsed_config
+        source_mock.validate_credentials.return_value = (True, None)
+        source_mock.get_schemas.return_value = [
+            SourceSchema(
+                name="orders",
+                supports_incremental=False,
+                supports_append=False,
+                supports_cdc=True,
+                columns=[("id", "int", False)],
+                foreign_keys=[],
+            )
+        ]
+
+        with patch(_TEAM_FLAG, new=lambda *_args, **_kwargs: flag_enabled):
+            response = self.client.post(
+                f"/api/environments/{self.team.pk}/external_data_sources/",
+                data={
+                    "source_type": "MySQL",
+                    "created_via": "web",
+                    "payload": {
+                        **connection,
+                        "password": "pass",
+                        "cdc_enabled": True,
+                        "schemas": [{"name": "orders", "should_sync": True, "sync_type": "cdc"}],
+                    },
+                },
+            )
+
+        if not flag_enabled:
+            assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+            assert "CDC must be enabled on the source" in response.json()["message"]
+            mock_primary_keys.assert_not_called()
+            return
+        assert response.status_code == status.HTTP_201_CREATED, response.content
+        assert mock_primary_keys.call_args.args[1:] == ("app", ["orders"])
+        schema = ExternalDataSchema.objects.get(team_id=self.team.pk, name="orders")
+        assert schema.sync_type_config["primary_key_columns"] == ["id"]
+
     @parameterized.expand(
         [
             ("masked_primary_key", {"masked_columns": ["id"]}),
@@ -5818,8 +5920,10 @@ class TestExternalDataSource(APIBaseTest):
     @patch(
         "products.warehouse_sources.backend.presentation.views.external_data_source.viewset.ExternalDataSourceViewSet._setup_cdc_resources"
     )
-    @patch("products.warehouse_sources.backend.presentation.views.external_data_source.base.get_primary_key_columns")
-    @patch("products.warehouse_sources.backend.presentation.views.external_data_source.base.cdc_pg_connection")
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter.get_primary_key_columns"
+    )
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter.cdc_pg_connection")
     @patch("products.warehouse_sources.backend.presentation.views.external_data_source.base.SourceRegistry.get_source")
     def test_create_postgres_cdc_refused_table_drops_the_replication_slot(
         self,
@@ -5854,8 +5958,10 @@ class TestExternalDataSource(APIBaseTest):
     @patch(
         "products.warehouse_sources.backend.presentation.views.external_data_source.viewset.ExternalDataSourceViewSet._setup_cdc_resources"
     )
-    @patch("products.warehouse_sources.backend.presentation.views.external_data_source.base.get_primary_key_columns")
-    @patch("products.warehouse_sources.backend.presentation.views.external_data_source.base.cdc_pg_connection")
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter.get_primary_key_columns"
+    )
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter.cdc_pg_connection")
     @patch("products.warehouse_sources.backend.presentation.views.external_data_source.base.SourceRegistry.get_source")
     def test_create_postgres_cdc_refused_when_a_table_cannot_join_the_publication(
         self,
@@ -5889,8 +5995,10 @@ class TestExternalDataSource(APIBaseTest):
     @patch(
         "products.warehouse_sources.backend.presentation.views.external_data_source.viewset.ExternalDataSourceViewSet._setup_cdc_resources"
     )
-    @patch("products.warehouse_sources.backend.presentation.views.external_data_source.base.get_primary_key_columns")
-    @patch("products.warehouse_sources.backend.presentation.views.external_data_source.base.cdc_pg_connection")
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter.get_primary_key_columns"
+    )
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter.cdc_pg_connection")
     @patch("products.warehouse_sources.backend.presentation.views.external_data_source.base.SourceRegistry.get_source")
     def test_create_postgres_cdc_leaves_unenabled_schemas_without_sync_type(
         self,
@@ -6073,8 +6181,10 @@ class TestExternalDataSource(APIBaseTest):
     @patch(
         "products.warehouse_sources.backend.presentation.views.external_data_source.viewset.ExternalDataSourceViewSet._setup_cdc_resources"
     )
-    @patch("products.warehouse_sources.backend.presentation.views.external_data_source.base.get_primary_key_columns")
-    @patch("products.warehouse_sources.backend.presentation.views.external_data_source.base.cdc_pg_connection")
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter.get_primary_key_columns"
+    )
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter.cdc_pg_connection")
     @patch("products.warehouse_sources.backend.presentation.views.external_data_source.base.SourceRegistry.get_source")
     @patch(_PH_HISTORY_NAMING_FLAG, new=lambda *_: True)
     def test_create_postgres_cdc_rejects_a_table_it_cannot_capture(
@@ -6189,8 +6299,10 @@ class TestExternalDataSource(APIBaseTest):
     @patch(
         "products.warehouse_sources.backend.presentation.views.external_data_source.viewset.ExternalDataSourceViewSet._setup_cdc_resources"
     )
-    @patch("products.warehouse_sources.backend.presentation.views.external_data_source.base.get_primary_key_columns")
-    @patch("products.warehouse_sources.backend.presentation.views.external_data_source.base.cdc_pg_connection")
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter.get_primary_key_columns"
+    )
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter.cdc_pg_connection")
     @patch("products.warehouse_sources.backend.presentation.views.external_data_source.base.SourceRegistry.get_source")
     def test_create_postgres_cdc_returns_400_when_pk_detection_connection_fails(
         self,
@@ -10224,6 +10336,16 @@ class TestExternalDataSource(APIBaseTest):
         else:
             assert set(response.json().keys()) == expected_keys
 
+    @parameterized.expand([("flag_off", False, None), ("flag_on", True, "mysql")])
+    def test_mysql_cdc_engine_follows_the_release_flag(self, _name, flag_enabled, expected_engine):
+        with patch(_TEAM_FLAG, new=lambda *_args, **_kwargs: flag_enabled):
+            response = self.client.get(
+                f"/api/environments/{self.team.pk}/external_data_sources/wizard?source_type=MySQL,Postgres"
+            )
+        assert response.status_code == 200
+        assert response.json()["MySQL"]["cdcEngine"] == expected_engine
+        assert response.json()["Postgres"]["cdcEngine"] == "postgres"
+
     def test_get_wizard_sources_unknown_source_type_returns_400(self):
         response = self.client.get(
             f"/api/environments/{self.team.pk}/external_data_sources/wizard?source_type=NotARealSource"
@@ -12143,6 +12265,22 @@ class TestCheckCDCPrerequisitesForSource(APIBaseTest):
         assert response.status_code == 400
         assert "CDC is not supported" in response.json()["message"]
 
+    @parameterized.expand([("flag_off", False, 400), ("flag_on", True, 200)])
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.mysql.cdc.adapter.MySQLCDCAdapter.validate_prerequisites",
+        return_value=[],
+    )
+    def test_mysql_needs_the_release_flag(self, _name, flag_enabled, expected_status, mock_validate) -> None:
+        source = _make_postgres_source(self.team.pk, self.user, source_type="MySQL")
+        with patch(_TEAM_FLAG, new=lambda *_args, **_kwargs: flag_enabled):
+            response = self.client.post(
+                f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/check_cdc_prerequisites_for_source/",
+                data={"cdc_management_mode": "posthog"},
+                format="json",
+            )
+        assert response.status_code == expected_status, response.content
+        assert mock_validate.called is flag_enabled
+
     def test_rejects_invalid_management_mode(self) -> None:
         source = _make_postgres_source(self.team.pk, self.user)
         response = self.client.post(
@@ -12320,6 +12458,17 @@ class TestCheckCDCPrerequisitesWizard(APIBaseTest):
     def test_blank_optional_cdc_names_are_accepted(self, _name, names, _mock_prereqs, _mock_ssh, _mock_host) -> None:
         response = self._post(**names)
         assert response.status_code == 200, response.content
+
+    @parameterized.expand([("flag_off", False, 400), ("flag_on", True, 200)])
+    @patch.object(MySQLSource, "is_database_host_valid", return_value=(True, None))
+    @patch.object(MySQLSource, "ssh_tunnel_is_valid", return_value=(True, None))
+    @patch.object(MySQLSource, "check_cdc_prerequisites", return_value=[])
+    def test_mysql_needs_the_release_flag(
+        self, _name, flag_enabled, expected_status, _mock_prereqs, _mock_ssh, _mock_host
+    ) -> None:
+        with patch(_TEAM_FLAG, new=lambda *_args, **_kwargs: flag_enabled):
+            response = self._post(source_type="MySQL", port=3306, database="app", using_ssl="false", tables=["users"])
+        assert response.status_code == expected_status, response.content
 
     def test_unsupported_source_type_is_rejected(self) -> None:
         response = self._post(source_type="Stripe")
@@ -12502,6 +12651,18 @@ class TestEnableCDC(APIBaseTest):
         )
         assert response.status_code == 400
         assert "CDC is not supported" in response.json()["message"]
+
+    @patch.object(MySQLCDCAdapter, "validate_prerequisites", return_value=[])
+    def test_enable_cdc_needs_the_engine_release_flag(self, mock_validate) -> None:
+        source = _make_postgres_source(self.team.pk, self.user, source_type="MySQL")
+        with patch(_TEAM_FLAG, new=lambda *_args, **_kwargs: False):
+            response = self.client.post(
+                f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/enable_cdc/",
+                data={"cdc_management_mode": "posthog"},
+                format="json",
+            )
+        assert response.status_code == 400, response.content
+        mock_validate.assert_not_called()
 
     def test_enable_cdc_rejects_when_already_enabled(self) -> None:
         source = _make_postgres_source(self.team.pk, self.user, cdc_enabled=True)
@@ -17010,8 +17171,13 @@ class TestCreateSourceCredentialsRow(APIBaseTest):
     def _post(self, payload: dict[str, Any], *, get_schemas_error: Exception | None = None):
         with (
             patch.object(PostgresSource, "get_schemas", return_value=self._discovered(), side_effect=get_schemas_error),
-            patch(f"{_VIEWS}.base.cdc_pg_connection"),
-            patch(f"{_VIEWS}.base.get_primary_key_columns", return_value={"orders": ["id"]}),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter.cdc_pg_connection"
+            ),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter.get_primary_key_columns",
+                return_value={"orders": ["id"]},
+            ),
             patch.object(ExternalDataSourceViewSet, "_setup_cdc_resources", return_value="Could not create the slot"),
         ):
             return self.client.post(

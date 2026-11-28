@@ -1683,6 +1683,33 @@ class TestExternalDataSchema(APIBaseTest):
 
     @parameterized.expand(
         [
+            ("switching_to_cdc_is_refused", ExternalDataSchema.SyncType.FULL_REFRESH, status.HTTP_400_BAD_REQUEST),
+            ("a_table_already_on_cdc_still_saves", ExternalDataSchema.SyncType.CDC, status.HTTP_200_OK),
+        ]
+    )
+    def test_the_engine_release_flag_gates_only_switching_to_cdc(self, _name, sync_type, expected_status):
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_type=ExternalDataSourceType.MYSQL,
+            job_inputs={"host": "h", "port": 3306, "database": "d", "user": "u", "password": "p", "schema": "d"},
+        )
+        schema = ExternalDataSchema.objects.create(name="orders", team=self.team, source=source, sync_type=sync_type)
+
+        with mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.schema_flags.is_team_flag_enabled",
+            new=lambda *_args, **_kwargs: False,
+        ):
+            response = self.client.patch(
+                f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}",
+                data={"sync_type": "cdc", "primary_key_columns": ["id"]},
+            )
+
+        assert response.status_code == expected_status, response.content
+        schema.refresh_from_db()
+        assert schema.sync_type == sync_type
+
+    @parameterized.expand(
+        [
             # CDC uses the PK as the UPDATE/DELETE merge key, so it can't be swapped once data has synced.
             (
                 "swapping_an_established_key_is_rejected",

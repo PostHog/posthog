@@ -372,6 +372,13 @@ class TestSchemaDiscovery:
 
         assert primary_keys == {"app.users": ["id"], "billing.users": ["billing_id"]}
 
+    def test_get_cdc_support_requires_a_primary_key(self, impl, cursor):
+        cursor.fetchall.return_value = [("app", "users", "id")]
+
+        support = impl.get_cdc_support(_connection_for_cursor(cursor), _make_config(schema="app"), ["users", "events"])
+
+        assert support == {"users": True, "events": False}
+
     def test_get_leading_index_columns_maps_duplicate_table_names_to_qualified_names(self, impl, cursor):
         cursor.fetchall.return_value = [
             ("app", "users", "created_at"),

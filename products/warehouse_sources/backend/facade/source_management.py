@@ -21,6 +21,8 @@ _LAZY = {
     "CDCSourceAdapter": "cdc.adapters",
     "add_table_failure_message": "cdc.adapters",
     "cdc_engine": "cdc.adapters",
+    "cdc_engine_for_team": "cdc.adapters",
+    "is_cdc_connection_error": "cdc.adapters",
     "get_cdc_adapter": "cdc.adapters",
     "source_type_supports_cdc": "cdc.adapters",
     "cdc_supported_source_types": "cdc.adapters",

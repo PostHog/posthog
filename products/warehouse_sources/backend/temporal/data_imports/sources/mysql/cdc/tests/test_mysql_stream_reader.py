@@ -353,3 +353,16 @@ class TestMySQLCDCStreamReader:
 )
 def test_truncated_table_reads_valid_truncate_syntax(statement, expected):
     assert truncated_table(statement, "db") == expected
+
+
+class TestMySQLCDCAdapter:
+    def test_reads_the_primary_keys_of_tables_being_set_up(self, source, root_conn):
+        _execute(root_conn, f"CREATE TABLE {DATABASE}.keyless (v INT)")
+        try:
+            adapter = MySQLCDCAdapter()
+            with adapter.management_connection(source) as conn:
+                keys = adapter.primary_key_columns(conn, DATABASE, ["orders", "keyless"])
+        finally:
+            _execute(root_conn, f"DROP TABLE {DATABASE}.keyless")
+
+        assert keys == {"orders": ["id"]}
