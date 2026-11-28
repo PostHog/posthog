@@ -5,6 +5,8 @@ import { IconCalendar } from '@posthog/icons'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { type DateFilterExclusions } from 'lib/components/DateFilter/DateFilterExclusionsControl'
+import { QuillDateFilterMenu, type QuillDateFilterMenuProps } from 'lib/components/DateFilter/QuillDateFilterMenu'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { dateMapping } from 'lib/utils/dateFilters'
 import { alignResolvedDateRangeToInterval } from 'lib/utils/datetime'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -29,6 +31,7 @@ export function InsightDateFilter({ disabled }: InsightDateFilterProps): JSX.Ele
     const { updateDateRange, updateQuerySource } = useActions(insightVizDataLogic(insightProps))
     const { insightData } = useValues(insightVizDataLogic(insightProps))
     const { reportInsightDatePickerOpened, reportInsightDateExclusionsChanged } = useActions(eventUsageLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     // The picker speaks excluded days; the query schema stores included days
     const excludedDaysOfWeek = getExcludedDaysOfWeek(dateRange)
@@ -70,39 +73,41 @@ export function InsightDateFilter({ disabled }: InsightDateFilterProps): JSX.Ele
         }
     }
 
-    return (
-        <DateFilter
-            showExplicitDateToggle
-            dateTo={dateRange?.date_to ?? undefined}
-            dateFrom={dateRange?.date_from ?? '-7d'}
-            explicitDate={dateRange?.explicitDate ?? false}
-            exclusions={exclusions}
-            onExclusionsChange={handleExclusionsChange}
-            showIncompletePeriodExclusion
-            showDaysOfWeekExclusions={showDaysOfWeekExclusions}
-            optionsSize="small"
-            allowTimePrecision
-            allowFixedRangeWithTime
-            disabled={disabled}
-            disabledReason={editingDisabledReason}
-            onOpenChange={(open) => {
-                if (open) {
-                    reportInsightDatePickerOpened(querySource?.kind)
-                }
-            }}
-            onChange={(date_from, date_to, explicit_date) => {
-                // Prevent debouncing when toggling the exact time range toggle as it glitches the animation
-                const ignoreDebounce = dateRange?.explicitDate !== explicit_date
-                updateDateRange({ date_from, date_to, explicitDate: explicit_date }, ignoreDebounce)
-            }}
-            dateOptions={dateMapping}
-            allowedRollingDateOptions={['hours', 'days', 'weeks', 'months', 'years']}
-            resolvedDateRange={alignResolvedDateRangeToInterval(insightData?.resolved_date_range, interval)}
-            makeLabel={(key) => (
-                <>
-                    <IconCalendar /> {key}
-                </>
-            )}
-        />
+    const dateFilterProps: QuillDateFilterMenuProps = {
+        showExplicitDateToggle: true,
+        dateTo: dateRange?.date_to ?? undefined,
+        dateFrom: dateRange?.date_from ?? '-7d',
+        explicitDate: dateRange?.explicitDate ?? false,
+        exclusions,
+        onExclusionsChange: handleExclusionsChange,
+        showIncompletePeriodExclusion: true,
+        showDaysOfWeekExclusions,
+        allowTimePrecision: true,
+        allowFixedRangeWithTime: true,
+        disabledReason: editingDisabledReason,
+        onOpenChange: (open) => {
+            if (open) {
+                reportInsightDatePickerOpened(querySource?.kind)
+            }
+        },
+        onChange: (date_from, date_to, explicit_date) => {
+            // Prevent debouncing when toggling the exact time range toggle as it glitches the animation
+            const ignoreDebounce = dateRange?.explicitDate !== explicit_date
+            updateDateRange({ date_from, date_to, explicitDate: explicit_date }, ignoreDebounce)
+        },
+        dateOptions: dateMapping,
+        allowedRollingDateOptions: ['hours', 'days', 'weeks', 'months', 'years'],
+        resolvedDateRange: alignResolvedDateRangeToInterval(insightData?.resolved_date_range, interval),
+        makeLabel: (key) => (
+            <>
+                <IconCalendar /> {key}
+            </>
+        ),
+    }
+
+    return todayRailNav ? (
+        <QuillDateFilterMenu {...dateFilterProps} />
+    ) : (
+        <DateFilter {...dateFilterProps} optionsSize="small" disabled={disabled} />
     )
 }
