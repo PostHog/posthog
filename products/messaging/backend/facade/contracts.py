@@ -27,6 +27,7 @@ class MessageTemplateListFilter:
     search: str = ""
     created_by_id: int | None = None
     tags: tuple[str, ...] = ()
+    template_type: str | None = None
 
 
 @dataclass(frozen=True)
@@ -70,12 +71,24 @@ class SenderUnavailable(TransactionalEmailError):
     code = "sender_unavailable"
 
 
+class TemplateTypeChanged(TransactionalEmailError):
+    code = "template_type_mismatch"
+
+
+class TemplateChanged(TransactionalEmailError):
+    code = "template_changed"
+
+
 class TemplateNotTransactional(TransactionalEmailError):
     code = "template_not_transactional"
 
 
 class TransactionalEmailPaused(TransactionalEmailError):
     code = "transactional_email_paused"
+
+
+class TransactionalPushPaused(TransactionalEmailError):
+    code = "transactional_push_paused"
 
 
 class InvalidRecipient(TransactionalEmailError):
@@ -283,6 +296,10 @@ class DeliveryUnavailable(Exception):
     """The email pipeline did not accept the send. Safe to retry."""
 
 
+class PushBusy(Exception):
+    """This web process already waits on as many pushes as it may. Nothing was sent."""
+
+
 class SendWarningCode(LabeledStrEnum):
     SANDBOX_SENDER = "sandbox_sender", "Sent from the PostHog test sender"
 
@@ -325,6 +342,13 @@ class BatchRecipient:
     distinct_id: str | None = None
     message_data: dict[str, Any] = field(default_factory=dict)
     refusal: InvalidRecipient | None = None
+
+
+@frozen
+class PushBatchRecipient:
+    distinct_id: str
+    idempotency_key: str
+    message_data: dict[str, Any] = field(default_factory=dict)
 
 
 @frozen

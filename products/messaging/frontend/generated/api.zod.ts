@@ -190,6 +190,78 @@ export const MessagingSendEmailCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
+ * Send one push notification from a push template made transactional to every device of one person. `message_data` fills the template's `{{ variables.* }}` placeholders. Transactional push notifications skip opt-outs and frequency caps. Send an `Idempotency-Key` header to retry safely without sending the notification twice. Needs the `transactional_push:write` scope. A key with `hog_flow:write` also works, but that scope reaches the rest of Workflows too.
+ * @summary Send a transactional push notification
+ */
+export const messagingSendPushCreateBodyDistinctIdMax = 400
+
+export const MessagingSendPushCreateBody = /* @__PURE__ */ zod.object({
+    template_id: zod
+        .uuid()
+        .describe(
+            "ID of a push template made transactional, which holds the notification's title, body and push channels."
+        ),
+    distinct_id: zod
+        .string()
+        .max(messagingSendPushCreateBodyDistinctIdMax)
+        .describe(
+            "Distinct ID of the person to notify. The notification goes to every device this person registered for the template's push channels. A person with no registered device gets nothing, and the send shows as skipped in the template's sends. The template can't read the person's properties, so pass everything it needs in `message_data`."
+        ),
+    message_data: zod
+        .record(zod.string(), zod.unknown())
+        .optional()
+        .describe("Values for the template's {{ variables.\* }} placeholders, keyed by variable name."),
+})
+
+/**
+ * Send one push notification from a push template made transactional to up to 100 people in one request. Each person gets their own notification on every device they registered, with its own `message_id` and `idempotency_key`, the same notification a single send to that person makes. Each recipient's `message_data` is merged over the shared `message_data`. The response holds one result per recipient, in the order of the request: a recipient can fail while the others are queued. A refusal of the whole batch, such as a turned-off workflow or an exhausted quota, answers with an error and no `results`. Each recipient counts against the send rate limit. Needs the `transactional_push:write` scope.
+ * @summary Send a transactional push notification to a batch of people
+ */
+export const messagingSendPushBatchCreateBodyRecipientsItemDistinctIdMax = 400
+
+export const messagingSendPushBatchCreateBodyRecipientsMax = 100
+
+export const MessagingSendPushBatchCreateBody = /* @__PURE__ */ zod.object({
+    template_id: zod
+        .uuid()
+        .describe(
+            "ID of a push template made transactional, which holds the notification's title, body and push channels."
+        ),
+    message_data: zod
+        .record(zod.string(), zod.unknown())
+        .optional()
+        .describe(
+            "Values for the template's {{ variables.\* }} placeholders that every recipient shares, keyed by variable name. At most 256 KiB as JSON."
+        ),
+    recipients: zod
+        .array(
+            zod.object({
+                distinct_id: zod
+                    .string()
+                    .max(messagingSendPushBatchCreateBodyRecipientsItemDistinctIdMax)
+                    .describe(
+                        "Distinct ID of the person to notify. The notification goes to every device this person registered for the template's push channels. A person with no registered device gets nothing, and the send shows as skipped in the template's sends."
+                    ),
+                message_data: zod
+                    .record(zod.string(), zod.unknown())
+                    .optional()
+                    .describe(
+                        "Values for this recipient's {{ variables.\* }} placeholders, merged over the batch's `message_data`: a top-level key set here replaces the same key there."
+                    ),
+                idempotency_key: zod
+                    .string()
+                    .describe(
+                        "A unique key for this recipient's notification, 1 to 255 visible ASCII characters, different for each recipient of the batch. Retrying with the same key and the same notification within 24 hours sends nothing new and returns the first send's `message_id`, also when the first send was a single send."
+                    ),
+            })
+        )
+        .max(messagingSendPushBatchCreateBodyRecipientsMax)
+        .describe(
+            'Who gets the notification: 1 to 100 people, each sent their own notification with its own `message_id`.'
+        ),
+})
+
+/**
  * Before sending an email with files, ask where to upload each one. Name each file by the SHA-256 of its bytes and its size. A file this project already uploaded answers `present` and needs no upload. Any other file answers `upload`: PUT its bytes to `url` with exactly the `headers` given and without your PostHog API key, before `url_expires_at`. Once every upload succeeded, send the email with the files' hashes in `attachments`. Needs the `transactional_email:write` scope.
  * @summary Prepare attachment uploads
  */
@@ -1998,9 +2070,11 @@ export const MessagingTemplatesDesignPartialUpdateBody = /* @__PURE__ */ zod.obj
 })
 
 /**
- * Make this template sendable over the transactional email API, or the transactional push API for a push template. This creates the workflow that sends it, with its own metrics, run history and versions. This can't be undone: the template stays transactional. Transactional sends ignore marketing opt-outs. Calling it again on a transactional template changes nothing. Needs the `transactional_email:write` scope, the same scope as sending. A key with `hog_flow:write` also works, but that scope reaches the rest of Workflows too. Without `hog_flow:read`, the response leaves out `content` and `draft_content`.
+ * Make this template sendable over the transactional email API, or the transactional push API for a push template. This creates the workflow that sends it, with its own metrics, run history and versions. This can't be undone: the template stays transactional. Transactional sends ignore marketing opt-outs. Calling it again on a transactional template changes nothing. Needs the scope that sends the template: `transactional_email:write` for an email template, `transactional_push:write` for a push template. A key with `hog_flow:write` also works, but that scope reaches the rest of Workflows too. Without `hog_flow:read`, the response leaves out `content` and `draft_content`.
  * @summary Make a template transactional
  */
+export const messagingTemplatesMakeTransactionalCreateBodyConfirmedDigestMax = 64
+
 export const MessagingTemplatesMakeTransactionalCreateBody = /* @__PURE__ */ zod.object({
     from_integration_id: zod
         .number()
@@ -2014,6 +2088,13 @@ export const MessagingTemplatesMakeTransactionalCreateBody = /* @__PURE__ */ zod
         .optional()
         .describe(
             "The template type the caller means to make transactional. A template of another type is refused, so a push tool can't make an email template transactional, and the other way round.\n\n\* `email` - email\n\* `push` - push"
+        ),
+    confirmed_digest: zod
+        .string()
+        .max(messagingTemplatesMakeTransactionalCreateBodyConfirmedDigestMax)
+        .optional()
+        .describe(
+            'Digest of the push template that a person confirmed. The template is refused with the code `template_changed` when it has changed since, and nothing happens. Only for push templates.'
         ),
 })
 

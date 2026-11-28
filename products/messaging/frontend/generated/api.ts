@@ -49,8 +49,12 @@ import type {
     RemoveOptOutRequestApi,
     RemoveSuppressionRequestApi,
     SendEmailApi,
+    SendPushApi,
+    SendPushBatchApi,
+    SendPushBatchResponseApi,
     SendTransactionalEmailApi,
     SendTransactionalEmailResponseApi,
+    SendTransactionalPushResponseApi,
     SetPreferencesApi,
     StartProviderImportApi,
     SupabaseAuthEmailSettingsApi,
@@ -112,6 +116,48 @@ export const messagingSendEmailCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(sendEmailApi),
+    })
+}
+
+export const getMessagingSendPushCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/messaging/send/push/`
+}
+
+/**
+ * Send one push notification from a push template made transactional to every device of one person. `message_data` fills the template's `{{ variables.* }}` placeholders. Transactional push notifications skip opt-outs and frequency caps. Send an `Idempotency-Key` header to retry safely without sending the notification twice. Needs the `transactional_push:write` scope. A key with `hog_flow:write` also works, but that scope reaches the rest of Workflows too.
+ * @summary Send a transactional push notification
+ */
+export const messagingSendPushCreate = async (
+    projectId: string,
+    sendPushApi: SendPushApi,
+    options?: RequestInit
+): Promise<SendTransactionalPushResponseApi> => {
+    return apiMutator<SendTransactionalPushResponseApi>(getMessagingSendPushCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(sendPushApi),
+    })
+}
+
+export const getMessagingSendPushBatchCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/messaging/send/push_batch/`
+}
+
+/**
+ * Send one push notification from a push template made transactional to up to 100 people in one request. Each person gets their own notification on every device they registered, with its own `message_id` and `idempotency_key`, the same notification a single send to that person makes. Each recipient's `message_data` is merged over the shared `message_data`. The response holds one result per recipient, in the order of the request: a recipient can fail while the others are queued. A refusal of the whole batch, such as a turned-off workflow or an exhausted quota, answers with an error and no `results`. Each recipient counts against the send rate limit. Needs the `transactional_push:write` scope.
+ * @summary Send a transactional push notification to a batch of people
+ */
+export const messagingSendPushBatchCreate = async (
+    projectId: string,
+    sendPushBatchApi: SendPushBatchApi,
+    options?: RequestInit
+): Promise<SendPushBatchResponseApi> => {
+    return apiMutator<SendPushBatchResponseApi>(getMessagingSendPushBatchCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(sendPushBatchApi),
     })
 }
 
@@ -1096,7 +1142,7 @@ export const getMessagingTemplatesMakeTransactionalCreateUrl = (projectId: strin
 }
 
 /**
- * Make this template sendable over the transactional email API, or the transactional push API for a push template. This creates the workflow that sends it, with its own metrics, run history and versions. This can't be undone: the template stays transactional. Transactional sends ignore marketing opt-outs. Calling it again on a transactional template changes nothing. Needs the `transactional_email:write` scope, the same scope as sending. A key with `hog_flow:write` also works, but that scope reaches the rest of Workflows too. Without `hog_flow:read`, the response leaves out `content` and `draft_content`.
+ * Make this template sendable over the transactional email API, or the transactional push API for a push template. This creates the workflow that sends it, with its own metrics, run history and versions. This can't be undone: the template stays transactional. Transactional sends ignore marketing opt-outs. Calling it again on a transactional template changes nothing. Needs the scope that sends the template: `transactional_email:write` for an email template, `transactional_push:write` for a push template. A key with `hog_flow:write` also works, but that scope reaches the rest of Workflows too. Without `hog_flow:read`, the response leaves out `content` and `draft_content`.
  * @summary Make a template transactional
  */
 export const messagingTemplatesMakeTransactionalCreate = async (

@@ -10,7 +10,7 @@ from contextlib import contextmanager
 from datetime import UTC, datetime
 from email.utils import parseaddr
 from functools import cache
-from typing import Any, Literal, Protocol, TypeGuard
+from typing import Any, Literal, NoReturn, Protocol, TypeGuard
 from uuid import UUID
 
 from django.db import transaction
@@ -73,8 +73,10 @@ from products.messaging.backend.facade.contracts import (
     SendWarning,
     SendWarningCode,
     SensitiveTemplate,
+    TemplateChanged,
     TemplateNotSendable,
     TemplateNotTransactional,
+    TemplateTypeChanged,
     TooManyKeys,
     TransactionalEmailError,
     TransactionalEmailPaused,
@@ -85,6 +87,7 @@ from products.messaging.backend.models.message_category import MessageCategoryTy
 from products.messaging.backend.models.transactional_email_key import lock_team_keys as _lock_team_keys
 from products.messaging.backend.services.code_email_source import source_detection_enabled
 from products.messaging.backend.services.html_text import text_from_html
+from products.messaging.backend.services.push_digest import push_digest
 from products.messaging.backend.services.transactional_email_status import keyed_message_id
 from products.messaging.backend.tasks import detect_code_email_source_task
 from products.workflows.backend.facade.api import WorkflowNotFound, get_workflow_summary
@@ -459,13 +462,26 @@ def _push_content(template: MessageTemplate) -> TransactionalPushContent:
 
 
 def make_transactional(
-    team_id: int, template_id: UUID, *, user_id: int | None, from_integration_id: int | None
+    team_id: int,
+    template_id: UUID,
+    *,
+    user_id: int | None,
+    from_integration_id: int | None,
+    template_type: str | None = None,
+    confirmed_digest: str | None = None,
 ) -> UUID:
     """Create the template's workflow and link it, and return the workflow's id. A template that is already
-    transactional keeps the workflow it has."""
+    transactional keeps the workflow it has. `template_type` is the type the caller was allowed to convert.
+    `confirmed_digest` is the `push_digest` of what a person confirmed."""
     with transaction.atomic():
         # The row lock keeps two concurrent calls from creating two workflows.
         template = MessageTemplate.objects.select_for_update().get(team_id=team_id, id=template_id, deleted=False)
+        if template_type is not None and template.type != template_type:
+            raise TemplateTypeChanged("The template's type changed while it was being made transactional. Try again.")
+        if confirmed_digest is not None and confirmed_digest != push_digest(template):
+            raise TemplateChanged(
+                "The template changed after it was confirmed, so it was not made transactional. Check it again."
+            )
         if template.transactional_hog_flow_id and _workflow_exists(team_id, template.transactional_hog_flow_id):
             return template.transactional_hog_flow_id
         check_sendable(
@@ -818,13 +834,13 @@ def send_code_email_batch(team: Team, email: CodeEmail, recipients: Sequence[Bat
 
 def _within_batch_shared_limit(shared: dict[str, Any] | CodeEmail | None) -> bool:
     if not isinstance(shared, CodeEmail):
-        return _encoded_size(shared or {}) <= BATCH_SHARED_MAX_BYTES
-    if _encoded_size([shared.subject, shared.html, shared.text]) > BATCH_SHARED_MAX_BYTES:
+        return encoded_size(shared or {}) <= BATCH_SHARED_MAX_BYTES
+    if encoded_size([shared.subject, shared.html, shared.text]) > BATCH_SHARED_MAX_BYTES:
         return False
-    return _encoded_size(_accepted_content(shared)) <= BATCH_SHARED_MAX_BYTES
+    return encoded_size(_accepted_content(shared)) <= BATCH_SHARED_MAX_BYTES
 
 
-def _encoded_size(value: Any) -> int:
+def encoded_size(value: Any) -> int:
     return len(json.dumps(value, ensure_ascii=False).encode(errors="surrogatepass"))
 
 
@@ -1021,23 +1037,18 @@ def _queue(
         refusal = PIPELINE_REFUSALS.get(refusal_code or "")
         if refusal is None and response.status_code == 400:
             refusal = PIPELINE_REFUSALS["invalid_request"]
-        if refusal is None or refusal[0] is InvalidRequest:
-            logger.error(
-                "transactional_email_queue_rejected",
-                team_id=team_id,
-                hog_flow_id=str(hog_flow_id),
-                status_code=response.status_code,
-                refusal_code=refusal_code,
-            )
-        if refusal is None:
-            raise DeliveryUnavailable()
-        error_class, message = refusal
-        if "{setup_url}" in message:
+        if refusal is not None and "{setup_url}" in refusal[1]:
             setup_url = sandbox_warning.setup_url if sandbox_warning else sending_domain_setup(team_id).setup_url
-            message = message.format(setup_url=setup_url)
-        error = error_class(message)
-        error.attachment_bytes = _attachment_bytes(answer)
-        raise error
+            refusal = (refusal[0], refusal[1].format(setup_url=setup_url))
+        raise_refusal(
+            refusal,
+            log_event="transactional_email_queue_rejected",
+            team_id=team_id,
+            hog_flow_id=hog_flow_id,
+            status_code=response.status_code,
+            refusal_code=refusal_code,
+            attachment_bytes=_attachment_bytes(answer),
+        )
 
     sent_from_sandbox = answer.get("sender_kind") == SANDBOX_SENDER_KIND
     replayed = bool(answer.get("replayed", False))
@@ -1051,6 +1062,42 @@ def _queue(
         sent_from_sandbox=sent_from_sandbox or (sandbox_warning is not None and not replayed),
         **_schedule(answer),
     )
+
+
+def raise_refusal(
+    refusal: tuple[type[TransactionalEmailError], str] | None,
+    *,
+    log_event: str,
+    team_id: int,
+    hog_flow_id: UUID,
+    status_code: int,
+    refusal_code: str | None,
+    attachment_bytes: int | None = None,
+) -> NoReturn:
+    """Raise the error for a send the CDP service did not queue. An unknown refusal is retryable."""
+    if refusal is None or refusal[0] is InvalidRequest:
+        logger.error(
+            log_event,
+            team_id=team_id,
+            hog_flow_id=str(hog_flow_id),
+            status_code=status_code,
+            refusal_code=refusal_code,
+        )
+    if refusal is None:
+        raise DeliveryUnavailable()
+    error_class, message = refusal
+    error = error_class(message)
+    error.attachment_bytes = attachment_bytes
+    raise error
+
+
+def queued_send(response: requests.Response) -> QueuedEmail:
+    answer = _answer(response)
+    return QueuedEmail(message_id=str(answer["invocation_id"]), replayed=bool(answer.get("replayed", False)))
+
+
+def refusal_code_of(response: requests.Response) -> str | None:
+    return _refusal_code(_answer(response))
 
 
 def _queue_batch(

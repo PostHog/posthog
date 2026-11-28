@@ -605,6 +605,10 @@ if not CDP_API_URL:
         "http://localhost:6738" if DEBUG or TEST else "http://ingestion-cdp-api.posthog.svc.cluster.local"
     )  # localhost is correct — plugin server runs on host in dev
 
+# The CDP API that takes only transactional push sends, so a push can't slow an email send. It never falls back to
+# CDP_API_URL outside dev and test: without it, a push is refused.
+CDP_TRANSACTIONAL_PUSH_API_URL = get_from_env("CDP_TRANSACTIONAL_PUSH_API_URL", CDP_API_URL if DEBUG or TEST else "")
+
 # Shared secret for internal API authentication between Django and Node.js services.
 # Only the services that make/serve internal calls get this injected, so a missing value must not
 # block startup. Defaults to the public dev secret in DEBUG/TEST; elsewhere it defaults to empty and
@@ -658,6 +662,15 @@ WORKFLOWS_TRANSACTIONAL_EMAIL_JWT_SECRETS = get_list(
     get_from_env(
         "WORKFLOWS_TRANSACTIONAL_EMAIL_JWT_SECRET",
         "local-dev-workflows-transactional-email-jwt" if DEBUG or TEST else "",
+    )
+)
+
+# Scoped JWT keys for the transactional push route. Never the email key, so a holder of that key can't send a push.
+# Same rotation and fail-closed semantics; the dev/test value must match nodejs/src/cdp/config.ts.
+WORKFLOWS_TRANSACTIONAL_PUSH_JWT_SECRETS = get_list(
+    get_from_env(
+        "WORKFLOWS_TRANSACTIONAL_PUSH_JWT_SECRET",
+        "local-dev-workflows-transactional-push-jwt" if DEBUG or TEST else "",
     )
 )
 

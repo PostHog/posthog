@@ -113,6 +113,7 @@ tools:
             and posthog.emails.get or GET /api/messaging/emails/{message_id}/ reads its status.
         exclude_params:
             - expected_type
+            - confirmed_digest
         inject_body:
             expected_type: email
         feature_flag: workflows-transactional-email-api

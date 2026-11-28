@@ -116,6 +116,7 @@ const workflowsListEmailTemplates = (): ToolBase<
                 offset: params.offset,
                 search: params.search,
                 transactional: params.transactional,
+                type: params.type,
             },
         })
         const filtered = {

@@ -58963,6 +58963,11 @@
                     "param": "transactional",
                     "key": "transactional",
                     "csv": false
+                },
+                {
+                    "param": "type",
+                    "key": "type",
+                    "csv": false
                 }
             ],
             "body": null,

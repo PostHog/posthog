@@ -34,6 +34,30 @@
                 }
             ],
             "description": "With true, list only templates sent over the transactional email API. With false, only the others. Leave out to list all templates."
+        },
+        "type": {
+            "anyOf": [
+                {
+                    "anyOf": [
+                        {
+                            "const": "email",
+                            "type": "string"
+                        },
+                        {
+                            "const": "push",
+                            "type": "string"
+                        },
+                        {
+                            "const": null,
+                            "type": "null"
+                        }
+                    ]
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "List only templates of this type. Leave out to list every type.\n\n* `email` - Email\n* `push` - Push"
         }
     },
     "type": "object"

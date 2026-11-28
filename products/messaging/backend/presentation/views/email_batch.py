@@ -273,14 +273,6 @@ def email_batch_response(sent: EmailBatchSent) -> dict[str, Any]:
     ).data
 
 
-def email_batch_outcome(result: QueuedEmail | EmailNotQueued) -> dict[str, Any]:
-    if isinstance(result, QueuedEmail):
-        return {"outcome": "replayed" if result.replayed else "queued"}
-    if isinstance(result.error, DeliveryUnavailable):
-        return {"outcome": "unavailable"}
-    return {"outcome": "rejected", "error_code": result.error.code}
-
-
 def _result(result: QueuedEmail | EmailNotQueued) -> dict[str, Any]:
     if isinstance(result, QueuedEmail):
         return {"message_id": result.message_id, "status": EmailBatchResultStatus.QUEUED, "replayed": result.replayed}
