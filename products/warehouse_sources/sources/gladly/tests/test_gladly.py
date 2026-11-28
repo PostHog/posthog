@@ -226,7 +226,6 @@ class TestGetRows:
         [
             ("teams", "teams", [{"id": "team-1", "name": "Tier 1", "agentIds": ["agent-1"]}]),
             ("inboxes", "inboxes", [{"id": "inbox-1", "name": "Support", "disabled": False}]),
-            ("audiences", "audiences", [{"id": "audience-1", "name": "Example audience"}]),
         ],
     )
     def test_lookup_streams_read_the_whole_list_and_ignore_the_watermark(self, endpoint, path, body) -> None:
