@@ -91,15 +91,28 @@ class TestMetricAttributesAPI(ClickhouseTestMixin, APIBaseTest):
             {"name": "region", "value_count": 1},
         ]
 
-    def test_attributes_metric_name_limits_keys_to_that_metric(self):
-        response = self._get("attributes", {"metricName": "http_requests"})
-        assert response.status_code == status.HTTP_200_OK, response.json()
-        assert response.json()["results"] == [
-            {"name": "env", "value_count": 2},
-            {"name": "service_name", "value_count": 2},
-            {"name": "k8s.pod.name", "value_count": 1},
-            {"name": "region", "value_count": 1},
+    @parameterized.expand(
+        [
+            (
+                "no_search",
+                "",
+                [
+                    {"name": "env", "value_count": 2},
+                    {"name": "service_name", "value_count": 2},
+                    {"name": "k8s.pod.name", "value_count": 1},
+                    {"name": "region", "value_count": 1},
+                ],
+            ),
+            ("search_attribute_key", "env", [{"name": "env", "value_count": 2}]),
+            ("search_dotted_service_name", "service.name", [{"name": "service_name", "value_count": 2}]),
         ]
+    )
+    def test_attributes_metric_name_limits_keys_to_that_metric(
+        self, _name: str, search: str, expected: list[dict]
+    ) -> None:
+        response = self._get("attributes", {"metricName": "http_requests", "search": search})
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["results"] == expected
 
     def test_attributes_without_recent_series_return_zero_service_values(self):
         response = self._get("attributes", {"metricName": "missing_metric"})

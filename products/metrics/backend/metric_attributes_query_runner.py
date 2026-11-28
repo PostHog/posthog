@@ -224,23 +224,30 @@ class MetricAttributeKeysQueryRunner:
         )
 
     def _series_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
+        # The arrayJoin runs in a subquery so that the outer GROUP BY key is a plain column.
+        # When the key is the arrayJoin expression itself, ClickHouse rewrites `mapKeys(resource_attributes)`
+        # to the `.keys` subcolumn, and a step after the aggregation can fail with
+        # `Not found column __table1.attributes in block`.
         return parse_select(
             """
-                SELECT
-                    arrayJoin(arrayDistinct(arrayConcat(
-                        mapKeys(attributes), mapKeys(resource_attributes),
-                        if(mapContains(resource_attributes, 'service.name'), [], ['service_name'])
-                    ))) AS attribute_key,
-                    uniqCombined64(if(attribute_key IN ('service_name', 'service.name'), service_name,
-                        if(arrayElement(resource_attributes, attribute_key) != '',
-                            arrayElement(resource_attributes, attribute_key),
-                            arrayElement(attributes, attribute_key)))) AS value_count
-                FROM posthog.metric_series
-                WHERE last_seen >= {date_from}
-                  AND {metric_name_filter}
-                  AND (attribute_key ILIKE {search_pattern}
-                       OR (attribute_key = 'service_name' AND 'service.name' ILIKE {search_pattern})
-                       OR (attribute_key = 'service.name' AND 'service_name' ILIKE {search_pattern}))
+                SELECT attribute_key, uniqCombined64(attribute_value) AS value_count
+                FROM (
+                    SELECT
+                        arrayJoin(arrayDistinct(arrayConcat(
+                            mapKeys(attributes), mapKeys(resource_attributes),
+                            if(mapContains(resource_attributes, 'service.name'), [], ['service_name'])
+                        ))) AS attribute_key,
+                        if(attribute_key IN ('service_name', 'service.name'), service_name,
+                            if(arrayElement(resource_attributes, attribute_key) != '',
+                                arrayElement(resource_attributes, attribute_key),
+                                arrayElement(attributes, attribute_key))) AS attribute_value
+                    FROM posthog.metric_series
+                    WHERE last_seen >= {date_from}
+                      AND {metric_name_filter}
+                )
+                WHERE attribute_key ILIKE {search_pattern}
+                   OR (attribute_key = 'service_name' AND 'service.name' ILIKE {search_pattern})
+                   OR (attribute_key = 'service.name' AND 'service_name' ILIKE {search_pattern})
                 GROUP BY attribute_key
                 ORDER BY value_count DESC, attribute_key ASC
                 LIMIT {limit}
