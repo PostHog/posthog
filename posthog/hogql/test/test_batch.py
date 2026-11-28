@@ -11,16 +11,33 @@ from posthog.hogql.visitor import clone_expr
 class TestCountBatchPlanner(SimpleTestCase):
     bounds = "timestamp >= '2026-01-01' AND timestamp < '2026-01-08'"
 
-    def test_split_preserves_missing_groups_column_order_and_names(self) -> None:
+    @parameterized.expand(
+        [
+            (bucket,)
+            for bucket in (
+                "toDate",
+                "toStartOfDay",
+                "toStartOfWeek",
+                "toStartOfMonth",
+                "toStartOfQuarter",
+                "toStartOfYear",
+            )
+        ]
+    )
+    def test_split_preserves_missing_groups_column_order_and_names(self, bucket: str) -> None:
         plan = CountBatchPlanner().plan(
             {
-                "all": f"SELECT toDate(timestamp) AS day, count() AS n FROM events WHERE {self.bounds} "
-                "GROUP BY toDate(timestamp) ORDER BY day DESC",
-                "filtered": f"SELECT count() AS filtered, toDate(timestamp) AS date FROM events WHERE {self.bounds} "
-                "AND properties.browser = 'Chrome' GROUP BY toDate(timestamp) ORDER BY date DESC",
+                "all": f"SELECT {bucket}(timestamp) AS day, count() AS n FROM events WHERE {self.bounds} "
+                f"GROUP BY {bucket}(timestamp) ORDER BY day DESC",
+                "filtered": f"SELECT count() AS filtered, {bucket}(timestamp) AS date FROM events WHERE {self.bounds} "
+                f"AND properties.browser = 'Chrome' GROUP BY {bucket}(timestamp) ORDER BY date DESC",
             }
         )
         self.assertEqual(len(plan.steps), 1)
+        assert isinstance(plan.steps[0].query, ast.SelectQuery)
+        expected_bucket = clone_expr(parse_expr(f"{bucket}(timestamp)"), clear_types=True, clear_locations=True)
+        self.assertEqual(plan.steps[0].query.group_by, [expected_bucket])
+        self.assertEqual(plan.steps[0].query.select[0], ast.Alias(alias="__batch_bucket", expr=expected_bucket))
         results = plan.steps[0].split(
             BatchQueryResult(
                 columns=("__batch_day", "__batch_count_0", "__batch_count_1"),
@@ -72,6 +89,18 @@ class TestCountBatchPlanner(SimpleTestCase):
             ("shadow_alias", "SELECT count() AS event FROM events WHERE {bounds} AND event = 'purchase'"),
             ("other_aggregate", "SELECT uniqExact(distinct_id) FROM events WHERE {bounds}"),
             ("group_alias", "SELECT toDate(timestamp) AS day, count() FROM events WHERE {bounds} GROUP BY day"),
+            (
+                "hour_bucket",
+                "SELECT toStartOfHour(timestamp) AS hour, count() FROM events WHERE {bounds} GROUP BY toStartOfHour(timestamp)",
+            ),
+            (
+                "week_mode",
+                "SELECT toStartOfWeek(timestamp, 1) AS week, count() FROM events WHERE {bounds} GROUP BY toStartOfWeek(timestamp, 1)",
+            ),
+            (
+                "bucket_of_other_column",
+                "SELECT toDate(created_at) AS day, count() FROM events WHERE {bounds} GROUP BY toDate(created_at)",
+            ),
             (
                 "count_order",
                 "SELECT toDate(timestamp) AS day, count() AS n FROM events WHERE {bounds} GROUP BY toDate(timestamp) ORDER BY n",
@@ -197,13 +226,14 @@ class TestCountBatchPlanner(SimpleTestCase):
         self.assertEqual([len(step.query_ids) for step in planner.plan(queries).steps], [2, 2, 1])
         self.assertEqual(len(planner.plan(queries, combine=False).steps), 5)
 
-    def test_duplicate_nullable_daily_counts_preserve_zero_groups_and_column_order(self) -> None:
+    @parameterized.expand([("toDate",), ("toStartOfMonth",)])
+    def test_duplicate_nullable_daily_counts_preserve_zero_groups_and_column_order(self, bucket: str) -> None:
         step = (
             CountBatchPlanner()
             .plan(
                 {
-                    "a": "SELECT count(properties.optional) AS n, toDate(timestamp) AS date FROM events GROUP BY toDate(timestamp) ORDER BY date DESC",
-                    "b": "SELECT toDate(timestamp) AS day, count(properties.optional) AS total FROM events GROUP BY toDate(timestamp) ORDER BY day DESC",
+                    "a": f"SELECT count(properties.optional) AS n, {bucket}(timestamp) AS date FROM events GROUP BY {bucket}(timestamp) ORDER BY date DESC",
+                    "b": f"SELECT {bucket}(timestamp) AS day, count(properties.optional) AS total FROM events GROUP BY {bucket}(timestamp) ORDER BY day DESC",
                 }
             )
             .steps[0]
@@ -211,6 +241,10 @@ class TestCountBatchPlanner(SimpleTestCase):
         self.assertEqual(step.query_ids, ("a", "b"))
         assert isinstance(step.query, ast.SelectQuery)
         self.assertEqual(len(step.query.select), 2)
+        expected_bucket = clone_expr(parse_expr(f"{bucket}(timestamp)"), clear_types=True, clear_locations=True)
+        self.assertEqual(step.query.group_by, [expected_bucket])
+        assert step.query.order_by is not None
+        self.assertEqual(step.query.order_by[0].expr, expected_bucket)
         split = step.split(
             BatchQueryResult(columns=("day", "count"), types=("Date", "UInt64"), rows=(("2026-01-01", 0),))
         )

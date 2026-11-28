@@ -25,6 +25,10 @@ class TestMultiQueryHarness(ClickhouseTestMixin, BaseTest):
                 "overlapping_windows",
                 "mixed_dashboard",
                 "table_alias",
+                "daily_alias",
+                "weekly_and_monthly",
+                "mixed_spellings",
+                "unsupported_buckets",
                 "trends_series",
             )
         ]

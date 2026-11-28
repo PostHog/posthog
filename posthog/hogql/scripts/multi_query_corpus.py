@@ -86,6 +86,14 @@ def _daily(window: DateWindow, alias: str, event: str) -> str:
     )
 
 
+def _bucketed(window: DateWindow, function: str, alias: str, event: str, *arguments: str) -> str:
+    bucket = f"{function}({', '.join(('timestamp', *arguments))})"
+    return (
+        f"SELECT {bucket} AS {alias}, count() AS events FROM events "
+        f"WHERE event = '{event}' AND {window.where()} GROUP BY {alias} ORDER BY {alias}"
+    )
+
+
 def _top_events(window: DateWindow, order: str) -> str:
     return (
         "SELECT event, count() AS events, uniqExact(distinct_id) AS people FROM events "
@@ -167,13 +175,76 @@ def build_corpus(window: DateWindow = DEFAULT_WINDOW) -> tuple[CorpusBatch, ...]
                     hogql=f"SELECT count() AS n FROM events AS e WHERE e.event = 'signup' AND {window.where(table='e')}",
                 ),
             ),
+            expected_groups=(ExpectedGroup(rule="count_fusion", query_ids=("aliased_pageviews", "aliased_signups")),),
+        ),
+        CorpusBatch(
+            name="daily_alias",
+            description="Two daily counts that group by the day's SELECT alias",
+            sources=(
+                HogQLSource(query_id="daily_pageviews", hogql=_bucketed(window, "toDate", "day", "$pageview")),
+                HogQLSource(query_id="daily_signups", hogql=_bucketed(window, "toDate", "day", "signup")),
+            ),
+            expected_groups=(ExpectedGroup(rule="count_fusion", query_ids=("daily_pageviews", "daily_signups")),),
+        ),
+        CorpusBatch(
+            name="weekly_and_monthly",
+            description="Weekly and monthly counts, each pair grouped by its bucket's alias",
+            sources=(
+                HogQLSource(query_id="weekly_pageviews", hogql=_bucketed(window, "toStartOfWeek", "week", "$pageview")),
+                HogQLSource(
+                    query_id="monthly_pageviews", hogql=_bucketed(window, "toStartOfMonth", "month", "$pageview")
+                ),
+                HogQLSource(query_id="weekly_signups", hogql=_bucketed(window, "toStartOfWeek", "week", "signup")),
+                HogQLSource(query_id="monthly_signups", hogql=_bucketed(window, "toStartOfMonth", "month", "signup")),
+            ),
+            expected_groups=(
+                ExpectedGroup(rule="count_fusion", query_ids=("weekly_pageviews", "weekly_signups")),
+                ExpectedGroup(rule="count_fusion", query_ids=("monthly_pageviews", "monthly_signups")),
+            ),
+        ),
+        CorpusBatch(
+            name="mixed_spellings",
+            description="The same shapes written with and without aliases, on a table alias and on the bare table",
+            sources=(
+                HogQLSource(query_id="daily_by_alias", hogql=_bucketed(window, "toDate", "day", "$pageview")),
+                HogQLSource(
+                    query_id="aliased_total",
+                    hogql=f"SELECT count(e.properties.$browser) FROM events AS e WHERE e.event = 'signup' "
+                    f"AND {window.where(table='e')}",
+                ),
+                HogQLSource(query_id="daily_by_expression", hogql=_daily(window, "signups", "signup")),
+                HogQLSource(
+                    query_id="plain_total",
+                    hogql=f"SELECT count(properties.$browser) FROM events WHERE event = 'purchase' AND {window.where()}",
+                ),
+            ),
+            expected_groups=(
+                ExpectedGroup(rule="count_fusion", query_ids=("daily_by_alias", "daily_by_expression")),
+                ExpectedGroup(rule="count_fusion", query_ids=("aliased_total", "plain_total")),
+            ),
+        ),
+        CorpusBatch(
+            name="unsupported_buckets",
+            description="Hourly buckets and weeks with an explicit week mode, which count fusion refuses",
+            sources=(
+                HogQLSource(query_id="hourly_pageviews", hogql=_bucketed(window, "toStartOfHour", "hour", "$pageview")),
+                HogQLSource(query_id="hourly_signups", hogql=_bucketed(window, "toStartOfHour", "hour", "signup")),
+                HogQLSource(
+                    query_id="monday_pageviews", hogql=_bucketed(window, "toStartOfWeek", "week", "$pageview", "1")
+                ),
+                HogQLSource(query_id="monday_signups", hogql=_bucketed(window, "toStartOfWeek", "week", "signup", "1")),
+            ),
             expected_groups=(),
-            # The resolver keeps the user's table alias in the prepared form.
             expected_rejections=(
                 ExpectedRejection(
-                    query_id="aliased_pageviews",
+                    query_id="hourly_pageviews",
                     rule="count_fusion",
-                    reason="only an unaliased events source without joins or sampling can combine",
+                    reason="only totals or GROUP BY one date bucket of timestamp, without a mode or timezone, can combine",
+                ),
+                ExpectedRejection(
+                    query_id="monday_pageviews",
+                    rule="count_fusion",
+                    reason="only totals or GROUP BY one date bucket of timestamp, without a mode or timezone, can combine",
                 ),
             ),
         ),
