@@ -74,8 +74,8 @@ function CohortSceneMenuBarInner({ id }: { id?: CohortType['id'] }): JSX.Element
                         <SceneMenuBarSubMenu label="Create">
                             <SceneMenuBarItem
                                 onClick={() => {
-                                    captureMessageAudienceClicked('cohort', 'broadcast')
-                                    void openMessageAudience(cohortBroadcastAudience(cohort), 'broadcast')
+                                    const attemptId = captureMessageAudienceClicked('cohort', 'broadcast')
+                                    void openMessageAudience(cohortBroadcastAudience(cohort), 'broadcast', attemptId)
                                 }}
                                 disabled={!!broadcastDisabledReason}
                                 tooltip={broadcastDisabledReason ?? undefined}
@@ -86,8 +86,8 @@ function CohortSceneMenuBarInner({ id }: { id?: CohortType['id'] }): JSX.Element
                             </SceneMenuBarItem>
                             <SceneMenuBarItem
                                 onClick={() => {
-                                    captureMessageAudienceClicked('cohort', 'workflow')
-                                    router.actions.push(urlForCohortWorkflow(cohort))
+                                    const attemptId = captureMessageAudienceClicked('cohort', 'workflow')
+                                    router.actions.push(urlForCohortWorkflow(cohort, attemptId))
                                 }}
                                 disabled={!!accessDisabledReason}
                                 tooltip={accessDisabledReason ?? undefined}

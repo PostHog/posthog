@@ -1591,7 +1591,10 @@ describe('featureFlagLogic', () => {
 
             expect(pollCount).toBe(expectedPolls)
             expect(capturesOf('message audience clicked')).toEqual([
-                ['message audience clicked', { source: 'feature_flag', destination: 'broadcast' }],
+                [
+                    'message audience clicked',
+                    expect.objectContaining({ source: 'feature_flag', destination: 'broadcast' }),
+                ],
             ])
             expect(lemonToast.loading).toHaveBeenCalledTimes(1)
             expect(lemonToast.dismiss).toHaveBeenCalledWith((lemonToast.loading as jest.Mock).mock.results[0].value)

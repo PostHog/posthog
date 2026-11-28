@@ -330,8 +330,8 @@ export function CohortEdit({ id, attachTo }: CohortEditProps): JSX.Element {
 
                         <ButtonPrimitive
                             onClick={() => {
-                                captureMessageAudienceClicked('cohort', 'workflow')
-                                router.actions.push(urlForCohortWorkflow(cohort))
+                                const attemptId = captureMessageAudienceClicked('cohort', 'workflow')
+                                router.actions.push(urlForCohortWorkflow(cohort, attemptId))
                             }}
                             disabledReasons={{
                                 'Save the cohort first': isNewCohort,

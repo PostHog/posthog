@@ -871,7 +871,8 @@ function showFlagCohortOutcome(
     cohort: CohortApi,
     flagId: FeatureFlagLogicProps['id'],
     flagKey: string,
-    source: string
+    source: string,
+    attemptId: string
 ): void {
     if (cohort.errors_calculating > 0) {
         lemonToast.error("Couldn't find the people who have this flag. Try again in a few minutes.")
@@ -895,7 +896,8 @@ function showFlagCohortOutcome(
             properties: cohortAudienceProperties(cohort),
             broadcastName: `${flagKey} announcement`,
         },
-        'broadcast'
+        'broadcast',
+        attemptId
     )
     if (isOnFeatureFlagPage(flagId)) {
         router.actions.push(broadcastUrl)
@@ -4037,6 +4039,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             null as CohortApi | null,
             {
                 findOrCreateBroadcastCohort: async (source: string = FLAG_BROADCAST_SOURCE, breakpoint) => {
+                    const attemptId = captureMessageAudienceClicked(source, 'broadcast')
                     if (!props.id || props.id === 'new' || props.id === 'link' || !values.currentProjectId) {
                         return null
                     }
@@ -4084,7 +4087,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     // The cohort fills in the background. Opening the broadcast earlier would let it send to no one.
                     const status = await waitForFlagCohort(projectId, cohortId)
                     dismissBroadcastProgress(cache)
-                    showFlagCohortOutcome(status, props.id, flag.key, source)
+                    showFlagCohortOutcome(status, props.id, flag.key, source, attemptId)
                     return status
                 },
             },
@@ -5131,8 +5134,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 actions.loadCopyDependencyRequirements()
             }
         },
-        findOrCreateBroadcastCohort: (source = FLAG_BROADCAST_SOURCE) => {
-            captureMessageAudienceClicked(source, 'broadcast')
+        findOrCreateBroadcastCohort: () => {
             dismissBroadcastProgress(cache)
             cache.broadcastToastId = lemonToast.loading(FINDING_FLAG_PEOPLE_MESSAGE, {
                 // A fresh id per click: a dismissed id stays cancelled, which would hide the next click's toast.
