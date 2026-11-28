@@ -41,6 +41,11 @@ def bind_metric_query(
         name: ast.Constant(value=value) for name, value in metric_definition.values.items()
     }
     metric_query = _parse(metric_definition.query, "Could not parse the metric query.", metric_placeholders)
+    if find_placeholders(metric_query).has_filters:
+        # The binder does not receive the metric's stored filters, so every {filters} form resolves
+        # without them or fails to print. A predicate then reads all time instead of the metric's
+        # window, and {filters.interval} falls back to its default instead of the stored interval.
+        raise CheckConfigError("Metric checks cannot use a metric whose query uses {filters}.")
     check_ast = _parse(check_query, "Could not parse the metric custom_sql query.")
     _validate_metric_placeholder(check_ast)
     _MetricCheckCteValidator().visit(check_ast)

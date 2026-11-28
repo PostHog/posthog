@@ -24,6 +24,11 @@ from products.data_catalog.backend.logic.metrics import upsert_metric
 from products.data_catalog.backend.models import Metric
 
 _HOGQL = {"kind": "HogQLQuery", "query": "select count() as c from events"}
+_HOGQL_WITH_FILTERS = {
+    "kind": "HogQLQuery",
+    "query": "select count() as c from events where {filters}",
+    "filters": {"dateRange": {"date_from": "-7d"}, "filterTestAccounts": True},
+}
 _EVENTS_NODE = {"kind": "EventsNode", "event": "purchase"}
 _PROCESS_QUERY = "products.data_catalog.backend.logic.execution.process_query_dict"
 _OK_PAYLOAD = {"results": [[1]], "hogql": "SELECT 1"}
@@ -47,10 +52,11 @@ class TestMetricRunExecution(ClickhouseTestMixin, APIBaseTest):
             _create_event(team=self.team, event="purchase", distinct_id=f"user_{i}")
         flush_persons_and_events()
 
-    def test_run_envelope_matches_direct_execution(self) -> None:
+    @parameterized.expand([("plain_sql", _HOGQL), ("sql_with_filters", _HOGQL_WITH_FILTERS)])
+    def test_run_envelope_matches_direct_execution(self, _name: str, definition: dict) -> None:
         # The RFC's same-engine guarantee: metric-run must return exactly what running the definition
         # directly returns, wrapped in the envelope.
-        metric = upsert_metric(team=self.team, user=self.user, name="mrr", description="d", definition=_HOGQL)
+        metric = upsert_metric(team=self.team, user=self.user, name="mrr", description="d", definition=definition)
         response = self.client.post(self.run_url)
         assert response.status_code == status.HTTP_200_OK, response.json()
 
@@ -175,6 +181,24 @@ class TestMetricRunPreparation(APIBaseTest):
         assert linked["kind"] == "InsightVizNode"
         assert linked["source"] == executed
 
+    @parameterized.expand(
+        [
+            ("new_start_drops_the_stored_end", {"date_from": "-7d"}, {"date_from": "-7d"}),
+            ("end_alone_keeps_the_stored_start", {"date_to": "-1d"}, {"date_from": "-90d", "date_to": "-1d"}),
+            ("both_bounds", {"date_from": "-30d", "date_to": "-1d"}, {"date_from": "-30d", "date_to": "-1d"}),
+        ]
+    )
+    def test_hogql_date_overrides_replace_only_the_stored_window(
+        self, _name: str, overrides: dict, expected_range: dict
+    ) -> None:
+        definition = {
+            **_HOGQL_WITH_FILTERS,
+            "filters": {"dateRange": {"date_from": "-90d", "date_to": "-60d"}, "filterTestAccounts": True},
+        }
+        executed, envelope = self._run(definition, **overrides)
+        assert executed["filters"] == {"dateRange": expected_range, "filterTestAccounts": True}
+        assert _decoded_sql_editor_link(envelope["posthog_url"])["source"] == executed
+
     def test_hogql_values_round_trip_through_deep_link(self) -> None:
         # Multi-line SQL: json.dumps escapes the newline with a backslash, which quote() encodes as
         # %5C — a byte absolute_uri rejects. The deep link must survive real, multi-line queries.
@@ -240,6 +264,19 @@ class TestMetricRunPreparation(APIBaseTest):
             ("date_from", _HOGQL, {"date_from": "-7d"}, "date_from"),
             ("date_to", _HOGQL, {"date_to": "-1d"}, "date_to"),
             ("interval", _HOGQL, {"interval": "week"}, "interval"),
+            ("interval_on_sql_with_filters", _HOGQL_WITH_FILTERS, {"interval": "week"}, "interval"),
+            (
+                "date_from_on_bound_filters_without_a_timestamp",
+                {"kind": "HogQLQuery", "query": "select count() as c from events where {filters(null AS timestamp)}"},
+                {"date_from": "-7d"},
+                "date_from",
+            ),
+            (
+                "date_to_on_native_filters_without_a_timestamp",
+                {"kind": "HogQLQuery", "query": "select count() as c from events where {filters.native(null)}"},
+                {"date_to": "-1d"},
+                "date_to",
+            ),
             ("offset_on_trends", _EVENTS_NODE, {"offset": 1000}, "offset"),
             (
                 "offset_past_page_limit",

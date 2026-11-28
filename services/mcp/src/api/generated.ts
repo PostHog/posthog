@@ -37644,7 +37644,7 @@ export namespace Schemas {
      * Optional run-time overrides. The whole body may be omitted; a metric runs by its URL name.
      */
     export interface DataCatalogMetricRunRequest {
-      /** Override the start of the query window (e.g. '-7d'). Rejected for HogQLQuery metrics, whose window is fixed in SQL. */
+      /** Override the start of the query window (e.g. '-7d'). A HogQLQuery metric accepts date overrides only when its {filters} applies the date range. There, a date_from replaces the stored window, so an omitted date_to means up to today. A date_to alone keeps the stored start. */
       date_from?: string;
       /** Override the end of the query window. */
       date_to?: string;

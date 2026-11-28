@@ -37,28 +37,36 @@ class TestParser(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("filters", True),
-            ("filters.native(timestamp)", True),
-            ("filters.previous", True),
-            ("filters.previous.native(timestamp)", True),
-            ("filters.previous(timestamp AS timestamp)", True),
-            ("filters.dateRange.from", False),
-            ("filters.dateRange.to", False),
-            ("filters.previous.dateRange.from", False),
-            ("filters.previous.dateRange.to", False),
+            ("filters", True, True),
+            ("filters.native(timestamp)", True, True),
+            ("filters.previous", True, True),
+            ("filters.previous.native(timestamp)", True, True),
+            ("filters.previous(timestamp AS timestamp)", True, True),
+            ("filters(timestamp AS timestamp)", True, True),
+            ("filters.dateRange.from", False, True),
+            ("filters.dateRange.to", False, True),
+            ("filters.previous.dateRange.from", False, True),
+            ("filters.previous.dateRange.to", False, True),
+            ("filters(null AS timestamp)", True, False),
+            ("filters(event AS 'event')", True, False),
+            ("filters.native(null)", True, False),
+            ("filters.previous.native(null)", True, False),
+            ("filters.previous(null AS timestamp)", True, False),
         ]
     )
-    def test_find_placeholders_chain_filters(self, placeholder: str, is_predicate: bool) -> None:
+    def test_find_placeholders_chain_filters(self, placeholder: str, is_predicate: bool, applies_dates: bool) -> None:
         finder = find_placeholders(parse_select("select 1 from events where {" + placeholder + "}"))
         self.assertTrue(finder.has_filters)
         self.assertTrue(finder.has_date_filters)
         self.assertEqual(finder.has_predicate_filters, is_predicate)
+        self.assertEqual(finder.applies_date_range, applies_dates)
 
     @parameterized.expand([("filters.interval",), ("filters.interval('week')",), ("filters.breakdown(a AS 'plan')",)])
     def test_filter_values_do_not_apply_date_or_property_predicates(self, placeholder: str) -> None:
         finder = find_placeholders(parse_select("SELECT {" + placeholder + "} FROM events"))
         self.assertTrue(finder.has_filters)
         self.assertFalse(finder.has_date_filters)
+        self.assertFalse(finder.applies_date_range)
         self.assertFalse(finder.has_predicate_filters)
 
     @parameterized.expand(

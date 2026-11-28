@@ -47,9 +47,9 @@ def has_executable_definition(metric: Metric) -> bool:
 def _referenced_names(metric: Metric) -> list[str]:
     """What the metric reads, by the names its own definition uses.
 
-    ``referenced_table_names`` is collected after the query is resolved, and resolution replaces a
-    non-materialized view with its body, so the view's name is not in there. Every other definition
-    kind records direct references already, so it keeps using the field.
+    ``referenced_table_names`` also holds the tables that a non-materialized view's body reads,
+    because the denied-table filter needs them. Lineage needs only the names the definition uses.
+    Every other definition kind records direct references already, so it keeps using the field.
     """
     if metric.definition_kind == HOGQL_DEFINITION_KIND and metric.definition:
         return table_names_as_written(metric.definition)

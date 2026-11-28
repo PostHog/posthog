@@ -28,10 +28,12 @@ from products.data_catalog.backend.logic.metrics import (
 )
 from products.data_catalog.backend.logic.validation import MAX_DESCRIPTION_LENGTH, validate_metric_definition
 from products.data_catalog.backend.models import Metric
+from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.product_analytics.backend.facade.models import Insight
 
 _HOGQL_A = {"kind": "HogQLQuery", "query": "select count() from events"}
 _HOGQL_B = {"kind": "HogQLQuery", "query": "select count() from persons"}
+_FILTERS_SQL = "select count() from events where {filters}"
 
 
 class TestMetricUpsert(BaseTest):
@@ -205,6 +207,42 @@ class TestValidateMetricDefinition(BaseTest):
         _, tables = validate_metric_definition({"kind": "HogQLQuery", "query": query}, self.team, self.user)
         assert tables == expected
 
+    @parameterized.expand(
+        [
+            (
+                "test_account_filter",
+                _FILTERS_SQL,
+                {"dateRange": {"date_from": "-30d"}, "filterTestAccounts": True},
+                ["events"],
+            ),
+            (
+                "view_read_only_through_a_property_filter",
+                _FILTERS_SQL,
+                {
+                    "dateRange": {"date_from": "-30d"},
+                    "properties": [{"type": "hogql", "key": "1 in (select 1 from signups_view)"}],
+                },
+                ["events", "signups_view"],
+            ),
+            (
+                "saved_view_keeps_its_name_and_the_tables_it_reads",
+                "select {filters.interval('day')} as grain, count() from signups_view",
+                {"interval": "week"},
+                ["events", "signups_view"],
+            ),
+        ]
+    )
+    def test_filters_definition_keeps_its_window_and_reads_its_tables(
+        self, _name: str, query: str, filters: dict, expected_tables: list[str]
+    ) -> None:
+        DataWarehouseSavedQuery.objects.create(
+            team=self.team, name="signups_view", query={"kind": "HogQLQuery", "query": "select event from events"}
+        )
+        definition = {"kind": "HogQLQuery", "query": query, "filters": filters}
+        canonical, tables = validate_metric_definition(definition, self.team, self.user)
+        assert canonical["filters"] == filters
+        assert tables == expected_tables
+
     @parameterized.expand([("InsightVizNode",), ("DataVisualizationNode",)])
     def test_insight_wrapper_is_unwrapped(self, wrapper_kind: str) -> None:
         canonical, _ = validate_metric_definition(
@@ -228,6 +266,15 @@ class TestValidateMetricDefinition(BaseTest):
             ("unsupported_kind", {"kind": "RetentionQuery"}),
             ("raw_connection", {"kind": "HogQLQuery", "query": "select 1", "connectionId": "abc"}),
             ("raw_query", {"kind": "HogQLQuery", "query": "select 1", "sendRawQuery": True}),
+            ("filters_without_date_range", {"kind": "HogQLQuery", "query": _FILTERS_SQL}),
+            (
+                "filters_over_a_table_with_no_timestamp",
+                {
+                    "kind": "HogQLQuery",
+                    "query": "select count() from numbers(10) where {filters}",
+                    "filters": {"dateRange": {"date_from": "-7d"}},
+                },
+            ),
             ("bad_sql", {"kind": "HogQLQuery", "query": "not valid sql !!!"}),
             ("no_kind", {"query": "select 1"}),
             ("markdown_empty", {"kind": "MarkdownDefinition", "markdown": "   "}),
@@ -263,6 +310,22 @@ class TestCreateFromInsight(BaseTest):
         assert metric.source_insight_short_id == insight.short_id
         assert metric.source_insight_query_hash
         assert compute_drift([metric])[metric.id] is False
+
+    @parameterized.expand([("bare_hogql", False), ("sql_insight", True)])
+    def test_insight_without_a_date_range_snapshots_all_time(self, _name: str, wrapped: bool) -> None:
+        hogql = {"kind": "HogQLQuery", "query": _FILTERS_SQL, "filters": {"filterTestAccounts": True}}
+        insight = self._insight({"kind": "DataVisualizationNode", "source": hogql} if wrapped else hogql)
+        expected_filters = {"filterTestAccounts": True, "dateRange": {"date_from": "all"}}
+
+        metric = upsert_metric(
+            team=self.team, user=self.user, name="mrr", description="d", source_insight_short_id=insight.short_id
+        )
+        assert metric.definition is not None
+        assert metric.definition["filters"] == expected_filters
+
+        refreshed = refresh_metric_from_insight(metric, self.user)
+        assert refreshed.definition is not None
+        assert refreshed.definition["filters"] == expected_filters
 
     def test_definition_and_source_are_mutually_exclusive(self) -> None:
         insight = self._insight()
