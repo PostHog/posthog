@@ -2,6 +2,8 @@ from typing import Any
 
 import pytest
 
+from parameterized import parameterized
+
 from products.warehouse_sources.sources.amplemarket._config import AmplemarketSourceConfig
 from products.warehouse_sources.sources.amplemarket.amplemarket import AmplemarketResumeConfig, validate_credentials
 from products.warehouse_sources.sources.amplemarket.settings import BASE_URL
@@ -31,7 +33,7 @@ class TestValidateCredentials:
 
 
 class TestPagination:
-    @pytest.mark.parametrize("endpoint", ["sequences", "personas", "territories"])
+    @parameterized.expand([("sequences",), ("personas",), ("territories",)])
     def test_follows_relative_next_link(self, endpoint: str) -> None:
         # Amplemarket returns HAL-style relative next hrefs with bracketed cursor params; the
         # paginator must resolve them against the base URL and drop the original params.
