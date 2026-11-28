@@ -136,6 +136,7 @@ function rowsHover(tile: AdventFlowRect): AdventFlowHover {
 
 const rowOfDay = (day: number): number => ROW_BREAKS.filter((start) => day >= start).length
 const rowCenter = (row: number): number => ROWS_MARGIN.top + ROW_REACH + row * ROW_PITCH
+export const ADVENT_FLOW_ROWS_SIZE = { width: ROWS_WIDTH, height: rowCenter(2) + ROW_REACH + ROWS_MARGIN.top }
 
 function rowsSlot(slot: Slot, x: number, row: number): AdventFlowNode {
     const sign = slot.lane === 'upper' ? -1 : slot.lane === 'lower' ? 1 : 0
@@ -375,8 +376,7 @@ export function adventFlowLayout(
     const ranks = ranksOf(graph)
     if (orientation === 'rows') {
         const nodes = rowsNodes(ranks)
-        const height = rowCenter(2) + ROW_REACH + ROWS_MARGIN.top
-        return { orientation, width: ROWS_WIDTH, height, nodes, edges: edgesOf(graph, nodes, shares, orientation) }
+        return { orientation, ...ADVENT_FLOW_ROWS_SIZE, nodes, edges: edgesOf(graph, nodes, shares, orientation) }
     }
     const { nodes, height } = columnNodes(ranks)
     return {
