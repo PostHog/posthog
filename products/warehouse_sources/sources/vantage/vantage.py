@@ -63,6 +63,15 @@ class VantageTrustedJSONPaginator(JSONResponsePaginator):
             )
 
 
+class VantageForecastPaginator(VantageTrustedJSONPaginator):
+    def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
+        super().update_state(response, data)
+        if data:
+            currency = response.json()["currency"]
+            for row in data:
+                row["currency"] = currency
+
+
 @frozen
 class VantageResumeConfig:
     # Full URL of the next page to fetch, taken verbatim from the response `links.next`. Vantage
@@ -205,7 +214,9 @@ def _fanout_resource(
                 "data_selector": config.data_key,
                 # A path that ends in a placeholder (`/costs?cost_report_token={...}`) reads as a
                 # single-entity path to the framework, which then fetches only one page.
-                "paginator": VantageTrustedJSONPaginator(),
+                "paginator": VantageForecastPaginator()
+                if config.name == "forecasted_costs"
+                else VantageTrustedJSONPaginator(),
             },
             parent_data_map=_PARENT_DATA_MAPS.get(config.name),
             resume_hook=save_checkpoint,

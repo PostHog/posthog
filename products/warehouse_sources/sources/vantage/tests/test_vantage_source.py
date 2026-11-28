@@ -61,5 +61,8 @@ class TestSchemaDefaults:
             "unit_costs",
             "business_metric_values",
             "network_flow_logs",
+            "cost_alert_events",
+            "forecasted_costs",
+            "recommendation_resources",
         }
         assert {name for name, schema in schemas.items() if not schema.should_sync_default} == off_by_default
