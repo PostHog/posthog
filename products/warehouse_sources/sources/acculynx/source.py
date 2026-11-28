@@ -111,6 +111,7 @@ class AcculynxSource(ResumableSource[AcculynxSourceConfig, AcculynxResumeConfig]
                 "supplement_items": False,
                 "supplement_notations": False,
                 "job_insurance": False,
+                "lead_history": False,
             },
             descriptions={
                 "calendar_appointments": "Appointments within the configured date range.",
@@ -122,6 +123,7 @@ class AcculynxSource(ResumableSource[AcculynxSourceConfig, AcculynxResumeConfig]
                 "supplement_items": "Off by default because it makes extra requests for every supplement.",
                 "supplement_notations": "Off by default because it makes extra requests for every supplement.",
                 "job_insurance": "Off by default because it makes extra requests for every job.",
+                "lead_history": "Off by default because it makes an extra request for each current lead.",
             },
         )
 

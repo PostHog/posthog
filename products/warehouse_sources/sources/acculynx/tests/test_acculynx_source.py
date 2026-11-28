@@ -90,7 +90,7 @@ def test_child_permission_probe_uses_a_real_parent(
     def send(request: PreparedRequest, **_: Any) -> Response:
         if request.url and "/jobs?" in request.url:
             return response(request, {"items": [{"id": "job-one"}]})
-        assert request.url and "/jobs/job-one/financials?" in request.url
+        assert request.url and request.url.endswith("/jobs/job-one/financials")
         return response(request, {"id": "financial-one"}, child_status)
 
     http_send.side_effect = send

@@ -17,7 +17,8 @@ from products.warehouse_sources.sources.acculynx.acculynx import (
     validate_credentials,
 )
 from products.warehouse_sources.sources.acculynx.source import AcculynxSource
-from products.warehouse_sources.sources.sdk import RESTClient, ResumableSourceManager
+from products.warehouse_sources.sources.sdk import Resource, RESTClient, ResumableSourceManager
+from products.warehouse_sources.sources.sdk.testing import activate_safe_point
 
 
 class SyncSourceResponse(Protocol):
@@ -84,7 +85,9 @@ def test_resume_stages_after_yield_and_replays_only_uncommitted_pages(
     assert list(pipeline("contacts").items()) == []
 
 
+@pytest.mark.parametrize("name", ["jobs", "lead_history"])
 def test_jobs_split_before_offset_cap_without_duplicate_boundary_rows(
+    name: str,
     pipeline: Callable[..., SyncSourceResponse],
     manager: ResumableSourceManager[AcculynxResumeConfig],
     http_send: MagicMock,
@@ -97,8 +100,12 @@ def test_jobs_split_before_offset_cap_without_duplicate_boundary_rows(
 
     def send(request: PreparedRequest, **_: Any) -> Response:
         nonlocal attempts
+        url = urlsplit(request.url or "")
+        if url.path.startswith("/api/v2/leads/"):
+            lead_id = url.path.split("/")[-2]
+            return response(request, {"items": [{"date": lead_id + "T12:00:00Z", "action": "Lead was created."}]})
         attempts += 1
-        params = parse_qs(urlsplit(request.url or "").query)
+        params = parse_qs(url.query)
         assert params["sortBy"] == ["CreatedDate"]
         assert params["sortOrder"] == ["Ascending"]
         assert params["dateFilterType"] == ["CreatedDate"]
@@ -112,8 +119,15 @@ def test_jobs_split_before_offset_cap_without_duplicate_boundary_rows(
         return response(request, {"count": len(items), "pageSize": 25, "pageStartIndex": 0, "items": items})
 
     http_send.side_effect = send
-    rows = [row for page in pipeline("jobs").items() for row in page]
-    assert [row["id"] for row in rows] == ["2025-01-01", "2025-01-02"]
+    rows = [row for page in pipeline(name).items() for row in page]
+    id_field = "id" if name == "jobs" else "lead_id"
+    assert [row[id_field] for row in rows] == ["2025-01-01", "2025-01-02"]
+    if name == "lead_history":
+        assert [urlsplit(call.args[0].url).path for call in http_send.call_args_list[2:]] == [
+            "/api/v2/leads/2025-01-01/history",
+            "/api/v2/jobs",
+            "/api/v2/leads/2025-01-02/history",
+        ]
     assert attempts == 3
 
 
@@ -330,6 +344,164 @@ def test_optional_appointment_range_has_a_future_horizon() -> None:
 
 def _page(items: list[dict[str, Any]]) -> dict[str, Any]:
     return {"count": len(items), "pageSize": 25, "pageStartIndex": 0, "items": items}
+
+
+@pytest.mark.parametrize(
+    "name, path, paginated",
+    [
+        ("contact_types", "/api/v2/contacts/contact-types", True),
+        ("account_types", "/api/v2/company-settings/location-settings/account-types", False),
+    ],
+)
+def test_type_lookups_use_the_vendor_collection_and_pagination(
+    name: str,
+    path: str,
+    paginated: bool,
+    pipeline: Callable[..., SyncSourceResponse],
+    http_send: MagicMock,
+    response: Callable[..., Response],
+) -> None:
+    rows = [{"id": "type-1", "name": "Customer"}, {"id": "type-2", "name": "Supplier"}]
+    queries: list[dict[str, list[str]]] = []
+
+    def send(request: PreparedRequest, **_: Any) -> Response:
+        url = urlsplit(request.url or "")
+        assert url.path == path
+        queries.append(parse_qs(url.query))
+        if not paginated:
+            return response(request, {"items": rows})
+        offset = int(queries[-1]["pageStartIndex"][0])
+        return response(
+            request, {"count": 2, "pageSize": 25, "pageStartIndex": offset, "items": rows[offset : offset + 1]}
+        )
+
+    http_send.side_effect = send
+    assert [row for page in pipeline(name).items() for row in page] == rows
+    assert queries == (
+        [{"pageSize": ["25"], "pageStartIndex": [str(offset)]} for offset in range(2)] if paginated else [{}]
+    )
+
+
+def test_lead_history_resumes_after_processed_leads_leave_the_listing(
+    pipeline: Callable[..., SyncSourceResponse],
+    manager: ResumableSourceManager[AcculynxResumeConfig],
+    http_send: MagicMock,
+    response: Callable[..., Response],
+) -> None:
+    parent_offsets: list[int] = []
+    child_ids: list[str] = []
+    current_leads = [f"lead-{offset}" for offset in range(8)]
+    action = {"date": "2025-01-02T00:00:00Z", "action": "Lead was created."}
+
+    def send(request: PreparedRequest, **_: Any) -> Response:
+        url = urlsplit(request.url or "")
+        if url.path == "/api/v2/jobs":
+            offset = int(parse_qs(url.query)["recordStartIndex"][0])
+            parent_offsets.append(offset)
+            return response(
+                request,
+                {
+                    "count": len(current_leads),
+                    "pageSize": 1,
+                    "pageStartIndex": offset,
+                    "items": [{"id": current_leads[offset], "createdDate": action["date"]}],
+                },
+            )
+        child_ids.append(url.path.split("/")[-2])
+        return response(request, {"items": [action]})
+
+    http_send.side_effect = send
+    pages = iter(pipeline("lead_history").items())
+    for offset in range(5):
+        assert next(pages) == [{**action, "lead_id": f"lead-{offset}"}]
+    manager.confirm()
+    manager.commit()
+
+    del current_leads[:3]
+    parent_offsets.clear()
+    child_ids.clear()
+    assert list(pipeline("lead_history").items()) == [[{**action, "lead_id": f"lead-{offset}"}] for offset in (5, 6, 7)]
+    assert parent_offsets == [0, 1, 2, 3, 4]
+    assert child_ids == ["lead-5", "lead-6", "lead-7"]
+
+
+@pytest.mark.parametrize("status", [200, 404])
+def test_lead_history_hands_off_after_an_empty_history(
+    status: int,
+    pipeline: Callable[..., SyncSourceResponse],
+    manager: ResumableSourceManager[AcculynxResumeConfig],
+    http_send: MagicMock,
+    response: Callable[..., Response],
+) -> None:
+    class Handoff(Exception):
+        pass
+
+    child_ids: list[str] = []
+    action = {"date": "2025-01-02T00:00:00Z", "action": "Lead was created."}
+
+    def send(request: PreparedRequest, **_: Any) -> Response:
+        path = urlsplit(request.url or "").path
+        if path == "/api/v2/jobs":
+            return response(request, _page([{"id": lead_id, "createdDate": action["date"]} for lead_id in ("a", "b")]))
+        lead_id = path.split("/")[-2]
+        child_ids.append(lead_id)
+        if lead_id == "a":
+            return response(request, {"items": []}, status)
+        return response(request, {"items": [action]})
+
+    def hand_off() -> None:
+        manager.confirm()
+        manager.commit()
+        raise Handoff()
+
+    http_send.side_effect = send
+    items = pipeline("lead_history").items()
+    with (
+        activate_safe_point(hand_off, covers_framework_checkpoints=isinstance(items, Resource)),
+        pytest.raises(Handoff),
+    ):
+        next(iter(items))
+    assert child_ids == ["a"]
+
+    assert list(pipeline("lead_history").items()) == [[{**action, "lead_id": "b"}]]
+    assert child_ids == ["a", "b"]
+
+
+def test_lead_history_filters_parent_jobs_and_keeps_lead_ids(
+    pipeline: Callable[..., SyncSourceResponse],
+    http_send: MagicMock,
+    response: Callable[..., Response],
+) -> None:
+    action = {"date": "2025-01-02T00:00:00Z", "action": "Lead was created."}
+    parent_queries: list[dict[str, list[str]]] = []
+
+    def send(request: PreparedRequest, **_: Any) -> Response:
+        url = urlsplit(request.url or "")
+        if url.path == "/api/v2/jobs":
+            parent_queries.append(parse_qs(url.query))
+            return response(
+                request, _page([{"id": lead_id, "createdDate": action["date"]} for lead_id in ("lead-1", "lead-2")])
+            )
+        assert url.path in {"/api/v2/leads/lead-1/history", "/api/v2/leads/lead-2/history"}
+        assert not url.query
+        return response(request, {"items": [action]})
+
+    http_send.side_effect = send
+    result = pipeline("lead_history")
+    rows = [row for page in result.items() for row in page]
+    assert sorted(rows, key=lambda row: row["lead_id"]) == [
+        {**action, "lead_id": "lead-1"},
+        {**action, "lead_id": "lead-2"},
+    ]
+    assert result.primary_keys
+    assert len({tuple(row[key] for key in result.primary_keys) for row in rows}) == len(rows)
+    assert parent_queries[0]["dateFilterType"] == ["CreatedDate"]
+
+    assert validate_credentials(
+        "fake-key", "v2", "lead_history", DateWindow(start=date(2025, 1, 1), end=date(2025, 1, 2))
+    ) == (True, None)
+    assert parent_queries[-1] == {"pageSize": ["1"], "milestones": ["lead"]}
+    assert all(query["milestones"] == ["lead"] for query in parent_queries)
 
 
 TWO_LEVEL_ROUTES: dict[str, dict[str, Any]] = {

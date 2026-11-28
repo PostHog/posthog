@@ -3,6 +3,7 @@ from dataclasses import field
 from datetime import UTC, date, datetime, timedelta
 from functools import partial
 from typing import Any
+from urllib.parse import quote
 
 from requests import Response
 from requests.exceptions import HTTPError
@@ -28,6 +29,8 @@ from products.warehouse_sources.sources.sdk import (
     SinglePagePaginator,
     SourceInputs,
     SourceResponse,
+    create_auth,
+    create_response_hooks,
     frozen,
     parse_datetime_value,
     rename_parent_fields,
@@ -125,10 +128,68 @@ def _in_job_window(row: dict[str, Any], window: DateWindow) -> bool:
     return window.start <= created.date() <= window.end
 
 
+def _job_endpoint(window: DateWindow, params: dict[str, Any] | None) -> Endpoint:
+    # The API requires startDate < endDate. Filter the extra day out of single-day windows.
+    query_start = window.start if window.start < window.end else window.start - timedelta(days=1)
+    return _endpoint(
+        ENDPOINTS["jobs"],
+        {
+            **(params or {}),
+            "startDate": query_start.isoformat(),
+            "endDate": window.end.isoformat(),
+            "dateFilterType": "CreatedDate",
+        },
+        jobs=True,
+    )
+
+
+def _lead_history_pages(
+    parents: Resource,
+    client: RESTClient,
+    manager: ResumableSourceManager[AcculynxResumeConfig],
+) -> Iterator[list[dict[str, Any]]]:
+    endpoint = ENDPOINTS["lead_history"]
+    hooks = create_response_hooks([{"status_code": 404, "action": "ignore"}], resource_name="lead_history")
+    seen: set[str] = set()
+    for page in parents:
+        for parent in page:
+            lead_id = parent["id"]
+            if lead_id in seen:
+                continue
+            seen.add(lead_id)
+            done = manager.with_namespace(f"lead_history:{lead_id}")
+            if not done.can_resume():
+                history = next(
+                    client.paginate(
+                        path=_bind_path(endpoint.path, {"leadId": quote(lead_id, safe="")}),
+                        paginator=SinglePagePaginator(),
+                        data_selector=endpoint.data_selector,
+                        data_selector_required=True,
+                        hooks=hooks,
+                    ),
+                    [],
+                )
+                rows = [{**action, "lead_id": lead_id} for action in history]
+                done.save_state(AcculynxResumeConfig(finished=True))
+                if rows:
+                    yield rows
+            manager.safe_point()
+
+
+def _save_lead_history_window(
+    manager: ResumableSourceManager[AcculynxResumeConfig], state: AcculynxResumeConfig
+) -> None:
+    manager.save_state(state)
+    manager.safe_point()
+
+
 def _job_pages(
     client: ClientConfig,
     inputs: SourceInputs,
     manager: ResumableSourceManager[AcculynxResumeConfig] | None = None,
+    *,
+    params: dict[str, Any] | None = None,
+    history_client: RESTClient | None = None,
 ) -> Iterator[list[dict[str, Any]]]:
     saved = manager.load_state() if manager and manager.can_resume() else None
     if saved and saved.finished:
@@ -142,28 +203,24 @@ def _job_pages(
             if manager:
                 manager.save_state(AcculynxResumeConfig(windows=[list(w) for w in pending], paginator_state=state))
 
-        # The API requires startDate < endDate. Filter the extra day out of single-day windows.
-        query_start = window.start if window.start < window.end else window.start - timedelta(days=1)
-        endpoint = _endpoint(
-            ENDPOINTS["jobs"],
-            {
-                "startDate": query_start.isoformat(),
-                "endDate": window.end.isoformat(),
-                "dateFilterType": "CreatedDate",
-            },
-            jobs=True,
-        )
-        config: RESTAPIConfig = {"client": client, "resources": [_resource("jobs", endpoint)]}
+        if history_client is not None:
+            # Lead promotions shift the listing offsets. Resume the window from its start.
+            checkpoint(None)
+        config: RESTAPIConfig = {"client": client, "resources": [_resource("jobs", _job_endpoint(window, params))]}
         resource = rest_api_resource(
             config,
             inputs.team_id,
             inputs.job_id,
             None,
-            resume_hook=checkpoint,
-            initial_paginator_state=initial_state,
+            resume_hook=checkpoint if history_client is None else None,
+            initial_paginator_state=initial_state if history_client is None else None,
         ).add_filter(partial(_in_job_window, window=window))
         try:
-            yield from resource
+            if history_client is None:
+                yield from resource
+            else:
+                assert manager is not None
+                yield from _lead_history_pages(resource, history_client, manager)
         except JobWindowTooLarge:
             if window.start == window.end:
                 raise ValueError("AccuLynx job date window exceeds the 100,000-record offset limit.") from None
@@ -178,7 +235,11 @@ def _job_pages(
             windows = windows[1:]
         initial_state = None
         if manager:
-            manager.save_state(AcculynxResumeConfig(windows=[list(w) for w in windows], finished=not windows))
+            state = AcculynxResumeConfig(windows=[list(w) for w in windows], finished=not windows)
+            if history_client is None:
+                manager.save_state(state)
+            else:
+                _save_lead_history_window(manager, state)
 
 
 def _payment_rows(row: dict[str, Any]) -> list[dict[str, Any]]:
@@ -208,14 +269,17 @@ def _fanout_resource(
     initial_state: dict[str, Any] | None,
 ) -> Resource:
     resources: list[str | EndpointResource] = []
-    for level in _fanout_chain(name):
+    chain = _fanout_chain(name)
+    root_child = PARENT_ENDPOINTS[chain[1]].fanout
+    assert root_child is not None
+    for level in chain:
         config = PARENT_ENDPOINTS[level]
         fanout = config.fanout
         if fanout is None:
-            parent = _resource(level, _endpoint(config))
+            parent = _resource(level, _endpoint(config, root_child.parent_params))
             if level == "jobs":
                 # Job date windows must also apply to the parent walk, or child tables hit the same offset cap.
-                parent["data_iterator"] = lambda: _job_pages(client, inputs)
+                parent["data_iterator"] = partial(_job_pages, client, inputs, params=root_child.parent_params)
             resources.append(parent)
             continue
         endpoint = _endpoint(
@@ -312,9 +376,29 @@ def acculynx_source(
 ) -> SourceResponse:
     config = schema_for_resource(ENDPOINTS, inputs.schema_name)
     client = _client_config(api_key, api_version)
+
+    def items() -> Resource | Iterator[list[dict[str, Any]]]:
+        if inputs.schema_name != "lead_history":
+            return _pages(inputs.schema_name, client, inputs, manager, appointments)
+        fanout = ENDPOINTS["lead_history"].fanout
+        assert fanout is not None
+        history_client = RESTClient(
+            base_url=client.get("base_url"),
+            headers=client.get("headers"),
+            auth=create_auth(client.get("auth")),
+            request_timeout=client.get("request_timeout"),
+            allowed_hosts=client.get("allowed_hosts"),
+            allow_redirects=False,
+        )
+        return Resource(
+            partial(_job_pages, client, inputs, manager, params=fanout.parent_params, history_client=history_client),
+            name="lead_history",
+            hints={},
+        )
+
     return SourceResponse(
         name=inputs.schema_name,
-        items=lambda: _pages(inputs.schema_name, client, inputs, manager, appointments),
+        items=items,
         primary_keys=list(config.primary_keys),
         partition_keys=[config.partition_key] if config.partition_key else None,
         partition_mode="datetime" if config.partition_key else None,
@@ -347,7 +431,9 @@ def validate_credentials(
     try:
         config = ENDPOINTS[schema_name or "jobs"]
         path = config.path
-        params: dict[str, Any] = {**config.params, "pageSize": 1}
+        params: dict[str, Any] = dict(config.params)
+        if config.offset_param:
+            params["pageSize"] = 1
         if config.fanout:
             # Bind each level's path parameters from the first row of the level above it.
             bindings: dict[str, str] = {}
@@ -359,7 +445,7 @@ def validate_credentials(
                 parents = next(
                     client.paginate(
                         path=_bind_path(parent.path, bindings),
-                        params={"pageSize": 1},
+                        params={"pageSize": 1, **child_fanout.parent_params},
                         paginator=SinglePagePaginator(),
                         data_selector=parent.data_selector,
                         data_selector_required=True,

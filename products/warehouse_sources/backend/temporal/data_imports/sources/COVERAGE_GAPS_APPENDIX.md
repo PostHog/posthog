@@ -107,7 +107,7 @@ Note: Fetched and parsed the official Postman collection linked by developers.ac
 
 ## AccuLynx — gaps
 
-Today (20): `calendar_appointments`, `calendars`, `contacts`, `custom_field_definitions`, `estimate_section_items`, `estimates`, `financial_amendments`, `financials`, `invoices`, `job_contacts`, `job_custom_fields`, `job_history`, `job_milestone_history`, `job_representatives`, `jobs`, `lead_sources`, `payments`, `supplement_items`, `supplements`, `users`
+Today (27): `account_types`, `calendar_appointments`, `calendars`, `contact_types`, `contacts`, `custom_field_definitions`, `estimate_section_items`, `estimates`, `financial_amendments`, `financials`, `insurance_companies`, `invoices`, `job_contacts`, `job_custom_fields`, `job_history`, `job_insurance`, `job_milestone_history`, `job_representatives`, `jobs`, `lead_history`, `lead_sources`, `payments`, `supplement_items`, `supplement_notations`, `supplements`, `users`, `workflow_milestones`
 
 Diffed against: <https://apidocs.acculynx.com/llms.txt>
 
@@ -128,10 +128,10 @@ Re-audited 2026-11-19 against: <https://apidocs.acculynx.com/llms.txt>
 - [x] `Insurance companies (GET /api/v2/company-settings/job-file-settings/insurance-companies)` — lookup of insurance carriers for claim and insurance analysis (medium)
 - [x] `Job insurance (GET /api/v2/jobs/{jobId}/insurance)` — per-job insurance claim details, a fan-out over jobs (medium)
 - [x] `Supplement notations (GET /api/v2/supplements/{supplementId}/notations)` — notes explaining each supplement, a fan-out under the synced supplements (medium)
-- [ ] `Contact types (GET /api/v2/contacts/contact-types)` — lookup that decodes the type of each synced contact (medium)
-- [ ] `Lead history (GET /api/v2/leads/{leadId}/history)` — status and change history of each lead (medium)
-- [ ] `Account types (GET /api/v2/company-settings/location-settings/account-types)` — lookup of active company account types (low)
-- [ ] `Job external references (GET /api/v2/jobs/external-references)` — maps jobs to IDs in outside systems, for joins to accounting or CRM data (low)
+- [x] `Contact types (GET /api/v2/contacts/contact-types)` — contact types defined for the company (medium)
+- [x] `Lead history (GET /api/v2/leads/{leadId}/history)` — actions for jobs at the Lead milestone (medium)
+- [x] `Account types (GET /api/v2/company-settings/location-settings/account-types)` — lookup of active company account types (low)
+- [ ] `Job external references (GET /api/v2/jobs/external-references)` — skipped: the endpoint requires a known integration name and a job or project ID. The API does not list integration names.
 
 Note (2026-11-19): Parsed the llms.txt index and read the OpenAPI embedded in each candidate reference page (.md) to confirm paths. Excluded webhooks, uploads, report schedules, single-record GETs and writes. Job categories, trade types and work types are already carried as names on jobs, so they are not listed. Job-level items need a request per job or supplement.
 
