@@ -44,7 +44,7 @@ const eventTypeOptions: LemonSelectOptions<EventDefinitionType> = [
 ]
 
 export function EventDefinitionsTable(): JSX.Element {
-    const { eventDefinitions, eventDefinitionsLoading, filters, showVerifiedFilter, bulkEditLoading } =
+    const { eventDefinitions, eventDefinitionsLoading, filters, showVerifiedFilter, showBulkHide, bulkEditLoading } =
         useValues(eventDefinitionsTableLogic)
     const { loadEventDefinitions, setFilters, applyBulkTagUpdates, bulkUpdateVerified, bulkUpdateHidden } =
         useActions(eventDefinitionsTableLogic)
@@ -304,7 +304,7 @@ export function EventDefinitionsTable(): JSX.Element {
                                             },
                                         ],
                                     },
-                                    showVerifiedFilter && {
+                                    showBulkHide && {
                                         items: [
                                             {
                                                 label: 'Hide',

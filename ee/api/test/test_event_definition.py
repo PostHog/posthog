@@ -4,7 +4,7 @@ from uuid import uuid4
 
 import time_machine
 from posthog.test.base import APIBaseTest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from django.core.cache.backends.locmem import LocMemCache
 from django.db import connection
@@ -15,7 +15,7 @@ import dateutil.parser
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog.api.event_definition import BulkHideBurstRateThrottle, BulkHideSustainedRateThrottle
+from posthog.api.event_definition import BULK_HIDE_FLAG, BulkHideBurstRateThrottle, BulkHideSustainedRateThrottle
 from posthog.api.test.test_event_definition import EventFixture, capture_event
 from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
@@ -526,6 +526,7 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
             ),
         ]
     )
+    @patch("posthog.api.event_definition.posthoganalytics.feature_enabled", new=Mock(return_value=True))
     def test_bulk_update_hidden_flips_state_and_skips_noops(self, _name, target, enterprise_fields, expected_changes):
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
             plan="enterprise", valid_until=datetime(2500, 1, 19, 3, 14, 7)
@@ -561,6 +562,7 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
         assert log.detail is not None
         assert sorted((c["field"], c["before"], c["after"]) for c in log.detail["changes"]) == expected_changes
 
+    @patch("posthog.api.event_definition.posthoganalytics.feature_enabled", new=Mock(return_value=True))
     def test_bulk_update_hidden_query_count_does_not_grow_with_the_batch(self):
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
             plan="enterprise", valid_until=datetime(2500, 1, 19, 3, 14, 7)
@@ -595,6 +597,7 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
         ).count() == len(events)
 
     @parameterized.expand([(BulkHideBurstRateThrottle,), (BulkHideSustainedRateThrottle,)])
+    @patch("posthog.api.event_definition.posthoganalytics.feature_enabled", new=Mock(return_value=True))
     def test_bulk_update_hidden_throttles_session_callers(self, throttle_class: type[BulkHideBurstRateThrottle]):
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
             plan="enterprise", valid_until=datetime(2500, 1, 19, 3, 14, 7)
@@ -615,6 +618,7 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
         assert second.status_code == status.HTTP_429_TOO_MANY_REQUESTS
         assert listed.status_code == status.HTTP_200_OK
 
+    @patch("posthog.api.event_definition.posthoganalytics.feature_enabled", new=Mock(return_value=True))
     def test_bulk_update_hidden_ignores_event_definitions_in_other_project(self):
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
             plan="enterprise", valid_until=datetime(2500, 1, 19, 3, 14, 7)
@@ -632,6 +636,30 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
         assert response.json()["skipped"] == [{"id": str(other.id), "reason": "Not found"}]
         other.refresh_from_db()
         assert other.hidden is False
+
+    @parameterized.expand(
+        [("flag_off", False, status.HTTP_403_FORBIDDEN, False), ("flag_on", True, status.HTTP_200_OK, True)]
+    )
+    def test_bulk_update_hidden_requires_the_feature_flag(self, _name, flag_on, expected_status, expected_hidden):
+        super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            plan="enterprise", valid_until=datetime(2500, 1, 19, 3, 14, 7)
+        )
+        event = EnterpriseEventDefinition.objects.create(team=self.demo_team, name="bulk_hide_flagged", hidden=False)
+
+        with patch(
+            "posthog.api.event_definition.posthoganalytics.feature_enabled",
+            side_effect=lambda key, *args, **kwargs: flag_on and key == BULK_HIDE_FLAG,
+        ):
+            response = self.client.post(
+                f"/api/projects/{self.demo_team.pk}/event_definitions/bulk_update_hidden/",
+                {"ids": [str(event.id)], "hidden": True},
+            )
+
+        assert response.status_code == expected_status, response.json()
+        if not flag_on:
+            assert "Bulk hide isn't turned on" in response.json()["detail"]
+        event.refresh_from_db()
+        assert event.hidden is expected_hidden
 
     def test_bulk_update_hidden_requires_enterprise_build(self):
         event = EnterpriseEventDefinition.objects.create(team=self.demo_team, name="bulk_hide_foss", hidden=False)

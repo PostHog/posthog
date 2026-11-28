@@ -507,6 +507,9 @@ class GeneratedGolangDefinitionsSerializer(GeneratedDefinitionsSerializer):
     )
 
 
+BULK_HIDE_FLAG = "event-definitions-bulk-hide"
+
+
 class BulkHideBurstRateThrottle(PersonalApiKeyOrUserRateThrottle):
     """Each bulk hide writes up to 500 rows and as many activity logs, so session callers get a budget too."""
 
@@ -968,6 +971,20 @@ class EventDefinitionViewSet(
             return existing
         return new_enterprise_event
 
+    def _bulk_hide_enabled(self, user: User) -> bool:
+        team = self.team
+        organization_id = str(team.organization_id)
+        return bool(
+            posthoganalytics.feature_enabled(
+                BULK_HIDE_FLAG,
+                str(user.distinct_id),
+                groups={"organization": organization_id, "project": str(team.id)},
+                group_properties={"organization": {"id": organization_id}, "project": {"id": str(team.id)}},
+                only_evaluate_locally=False,
+                send_feature_flag_events=False,
+            )
+        )
+
     # `builtins.list` because this class's own `list` action shadows the builtin in annotations
     def get_throttles(self) -> builtins.list[BaseThrottle]:
         throttles = super().get_throttles()
@@ -1171,6 +1188,10 @@ class EventDefinitionViewSet(
         """
         if not EE_AVAILABLE:
             raise serializers.ValidationError("Hiding event definitions requires an enterprise license.")
+        if not self._bulk_hide_enabled(cast(User, request.user)):
+            raise exceptions.PermissionDenied(
+                "Bulk hide isn't turned on for this project yet. Hide events one at a time from each event's page."
+            )
 
         from ee.models.event_definition import EnterpriseEventDefinition
 

@@ -4,7 +4,8 @@ import { combineUrl, router } from 'kea-router'
 import { expectLogic, partial } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
-import { EVENT_DEFINITIONS_PER_PAGE, PROPERTY_DEFINITIONS_PER_EVENT } from 'lib/constants'
+import { EVENT_DEFINITIONS_PER_PAGE, FEATURE_FLAGS, PROPERTY_DEFINITIONS_PER_EVENT } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { eventDefinitionsTableLogic } from 'scenes/data-management/events/eventDefinitionsTableLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { urls } from 'scenes/urls'
@@ -319,6 +320,21 @@ describe('eventDefinitionsTableLogic', () => {
             })
             // Unverifying leaves the event hidden, so its delete stays scheduled
             expect(results.find((d) => d.id === unverifiedRow.id)).toMatchObject({ verified: false, ...scheduled })
+        })
+
+        it.each([
+            [false, {}],
+            [true, { [FEATURE_FLAGS.EVENT_DEFINITIONS_BULK_HIDE]: true }],
+        ])('offers bulk hide only behind its flag (%s)', async (expected, flags) => {
+            featureFlagLogic.actions.setFeatureFlags(Object.keys(flags), flags)
+            router.actions.push(urls.eventDefinitions())
+            await expectLogic(logic).toDispatchActions(['loadEventDefinitionsSuccess'])
+            await expectLogic(logic, () => {
+                logic.actions.setFilters({ verified: true }, false)
+            }).toDispatchActions(['loadEventDefinitionsSuccess'])
+
+            expect(logic.values.showVerifiedFilter).toBe(true)
+            expect(logic.values.showBulkHide).toBe(expected)
         })
 
         it('bulk hide on a search shows the new state after clearing the search', async () => {
