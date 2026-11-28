@@ -470,7 +470,7 @@ CONSTANCE_CONFIG = {
     ),
     "WEB_ANALYTICS_PREDICTIVE_WARMING_THRESHOLD_PERCENT": (
         get_from_env("WEB_ANALYTICS_PREDICTIVE_WARMING_THRESHOLD_PERCENT", default=20, type_cast=int),
-        "For projects in the web-analytics-predictive-warming flag, the cache warmer only warms a query shape "
+        "For projects in the predictive warming rollout, the cache warmer only warms a query shape "
         "when the demand model gives at least this percent chance of a request in the next four hours. "
         "Lower values warm more shapes at a higher cost.",
         int,

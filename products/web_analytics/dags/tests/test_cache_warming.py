@@ -8,7 +8,7 @@ from types import SimpleNamespace
 from posthog.test.base import BaseTest, ClickhouseTestMixin
 from unittest.mock import MagicMock, call, patch
 
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, override_settings
 from django.utils.dateparse import parse_datetime
 
 import dagster
@@ -670,9 +670,9 @@ class TestFleetQuerySelectionFromArchive(ClickhouseTestMixin, BaseTest):
         self.assertEqual(rows[0]["query_count"], 2)
         self.assertEqual(sorted(rows[0]["observed_date_froms"]), ["-30d", "-7d"])
 
-    @parameterized.expand([("experiment_team", True, 1), ("other_team", False, 0)])
-    def test_experiment_teams_select_shapes_below_the_demand_floor(
-        self, _name: str, in_experiment: bool, expected_rows: int
+    @parameterized.expand([("inside_rollout", 1, 1), ("outside_rollout", 0, 0)])
+    def test_predictive_rollout_teams_select_shapes_below_the_demand_floor(
+        self, _name: str, percent_above_bucket: int, expected_rows: int
     ) -> None:
         self._insert_chain("single-read", {"kind": "WebOverviewQuery", "dateRange": {"date_from": "-7d"}})
 
@@ -681,7 +681,7 @@ class TestFleetQuerySelectionFromArchive(ClickhouseTestMixin, BaseTest):
             days=1,
             minimum_query_count=2,
             max_shapes=100,
-            experiment_team_ids=frozenset({self.team.pk}) if in_experiment else frozenset(),
+            rollout_percent=self.team.pk % 100 + percent_above_bucket,
         )
 
         self.assertEqual(len([row for row in result if row["team_id"] == self.team.pk]), expected_rows)
@@ -720,9 +720,7 @@ class TestPresetLane(BaseTest):
             representative_tagged,
         )
 
-    def _select(
-        self, rows: list[tuple], minimum_query_count: int = 5, experiment_team_ids: frozenset[int] = frozenset()
-    ) -> list[dict]:
+    def _select(self, rows: list[tuple], minimum_query_count: int = 5, rollout_percent: int = 0) -> list[dict]:
         with patch("products.web_analytics.dags.cache_warming.sync_execute", return_value=rows):
             return queries_to_keep_fresh(
                 dagster.build_op_context(),
@@ -730,7 +728,7 @@ class TestPresetLane(BaseTest):
                 minimum_query_count=minimum_query_count,
                 max_shapes=1000,
                 preset_lane=True,
-                experiment_team_ids=experiment_team_ids,
+                rollout_percent=rollout_percent,
             )
 
     def test_preset_sql_bounds_ids_and_caps_priority(self) -> None:
@@ -762,13 +760,13 @@ class TestPresetLane(BaseTest):
         self.assertEqual([row["query_json"]["properties"][0]["key"] for row in result], ["tagged"])
         self.assertEqual(result[0]["preset_ids"], ["abc123"])
 
-    @parameterized.expand([("experiment_team", True, ["untagged"]), ("other_team", False, [])])
-    def test_experiment_teams_keep_untagged_shapes_below_the_demand_floor(
-        self, _name: str, in_experiment: bool, expected_shapes: list[str]
+    @parameterized.expand([("inside_rollout", 100, ["untagged"]), ("outside_rollout", 0, [])])
+    def test_predictive_rollout_teams_keep_untagged_shapes_below_the_demand_floor(
+        self, _name: str, rollout_percent: int, expected_shapes: list[str]
     ) -> None:
         result = self._select(
             [self._row([], query_count=1, shape="untagged")],
-            experiment_team_ids=frozenset({self.team.pk}) if in_experiment else frozenset(),
+            rollout_percent=rollout_percent,
         )
 
         self.assertEqual([row["query_json"]["properties"][0]["key"] for row in result], expected_shapes)
@@ -978,14 +976,14 @@ class TestWarmQueriesOp(BaseTest):
 
     @parameterized.expand(
         [
-            ("predictive_unlikely_skipped", "predictive", 0.05, 0),
-            ("predictive_likely_warms", "predictive", 0.5, 1),
-            ("predictive_unscored_warms", "predictive", None, 1),
-            ("current_unlikely_still_warms", "current", 0.05, 1),
+            ("predictive_unlikely_skipped", 100, 0.05, 0),
+            ("predictive_likely_warms", 100, 0.5, 1),
+            ("predictive_unscored_warms", 100, None, 1),
+            ("current_unlikely_still_warms", 0, 0.05, 1),
         ]
     )
     def test_model_only_gates_the_predictive_arm(
-        self, _name: str, arm: str, probability: float | None, expected_runs: int
+        self, _name: str, rollout_percent: int, probability: float | None, expected_runs: int
     ) -> None:
         runner = MagicMock(spec=WebAnalyticsQueryRunner)
         runner.get_cache_key.return_value = f"key-{_name}"
@@ -995,7 +993,7 @@ class TestWarmQueriesOp(BaseTest):
                 return_value=(runner, {}, True),
             ),
             patch("products.web_analytics.dags.cache_warming.QueryCache") as mock_cm,
-            patch("products.web_analytics.dags.cache_warming.warming_arm", return_value=arm),
+            override_settings(WEB_ANALYTICS_PREDICTIVE_WARMING_ROLLOUT_PERCENT=rollout_percent),
             patch.object(cache_warming._TeamDemand, "request_probability", return_value=probability),
         ):
             mock_cm.return_value.freshness.return_value = None
