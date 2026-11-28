@@ -1,5 +1,12 @@
-import type { PanelQuery } from '../dashboard/dashboardSchema'
-import type { ContentPanel, Dashboard, TilePlace, TimeRange, Tile } from '../dashboard/dashboardTypes'
+import type { PanelQuery } from '../dashboard/document/dashboardSchema'
+import type {
+    ContentPanel,
+    Dashboard,
+    SavedPanel,
+    TilePlace,
+    TimeRange,
+    Tile,
+} from '../dashboard/document/dashboardTypes'
 import type { ChartConfig, ChartTarget } from '../panels/chart/chartSpec'
 import { barSpec } from '../panels/chart/viz/bar/barSpec'
 import { lineSpec } from '../panels/chart/viz/line/lineSpec'
@@ -141,7 +148,7 @@ export function notePanel(
     title: string | undefined,
     heading: string,
     queries: { language: string; text: string }[]
-): ContentPanel {
+): SavedPanel {
     const original = queries.map((query) => fence(query.language, query.text)).join('\n\n')
     return {
         type: 'markdown',

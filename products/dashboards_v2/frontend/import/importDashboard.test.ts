@@ -1,5 +1,5 @@
-import type { Tile } from '../dashboard/dashboardTypes'
-import { validateDashboard } from '../dashboard/validateDashboard'
+import type { Tile } from '../dashboard/document/dashboardTypes'
+import { validateDashboard } from '../dashboard/document/validateDashboard'
 import { DEFAULT_PANELS } from '../panels/defaultPanels'
 import { type ImportResult, importDashboard } from './importDashboard'
 import { grafanaClassic, grafanaV2 } from './importFixtures'

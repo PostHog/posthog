@@ -1,5 +1,5 @@
-import { MAX_QUERY_TEXT, type PanelQuery, panelQuerySchema } from '../dashboard/dashboardSchema'
-import { type Dashboard, GRID, type GridTab, type Tile } from '../dashboard/dashboardTypes'
+import { MAX_QUERY_TEXT, type PanelQuery, panelQuerySchema } from '../dashboard/document/dashboardSchema'
+import { type Dashboard, GRID, type GridTab, type Tile } from '../dashboard/document/dashboardTypes'
 import type { ChartConfig } from '../panels/chart/chartSpec'
 import type { StatOptions } from '../panels/chart/viz/stat/statSpec'
 import { fromV2 } from './grafanaV2'
