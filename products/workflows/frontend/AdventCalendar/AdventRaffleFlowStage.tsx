@@ -1,6 +1,7 @@
 import './AdventCalendar.scss'
 
 import { useValues } from 'kea'
+import { useCallback, useMemo } from 'react'
 
 import { adventCalendarLogic } from './adventCalendarLogic'
 import { AdventFlowPresent } from './AdventFlowPresent'
@@ -16,13 +17,20 @@ const EXIT_NOTE: AdventFlowExitNote = {
 
 export function AdventRaffleFlowStage(): JSX.Element {
     const { graph, ticketDays } = useValues(adventCalendarLogic)
-    const earning = new Set(
-        graph.doors.filter((door) => door.status === 'open' && ticketDays.includes(door.day)).map((door) => door.id)
+    const earning = useMemo(
+        () =>
+            new Set(
+                graph.doors
+                    .filter((door) => door.status === 'open' && ticketDays.includes(door.day))
+                    .map((door) => door.id)
+            ),
+        [graph, ticketDays]
     )
+    const isEdgeEmphasized = useCallback((edge: AdventFlowEdge) => earning.has(edge.target), [earning])
     return (
         <AdventFlowStage
             renderLastDoor={(step) => <AdventFlowPresent {...step} />}
-            isEdgeEmphasized={(edge: AdventFlowEdge) => earning.has(edge.target)}
+            isEdgeEmphasized={isEdgeEmphasized}
             renderOverlay={(view, layout) => <AdventRaffleOverlay view={view} layout={layout} />}
             exitNote={EXIT_NOTE}
         />
