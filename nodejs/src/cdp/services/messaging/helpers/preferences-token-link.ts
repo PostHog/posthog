@@ -54,19 +54,20 @@ const fullyDecodedChars = (link: string): number[] => {
     return chars
 }
 
+const AUDIENCE = PosthogJwtAudience.SUBSCRIPTION_PREFERENCES
+const MIN_PAYLOAD_LENGTH = Math.ceil((AUDIENCE.length * 4) / 3)
+
 const isPreferencesPayload = (segment: number[]): boolean => {
+    if (segment.length < MIN_PAYLOAD_LENGTH) {
+        return false
+    }
     const json = Buffer.from(Buffer.from(segment).toString('latin1'), 'base64url')
-    if (json[0] !== 0x7b) {
+    if (json[0] !== 0x7b || !json.includes(AUDIENCE)) {
         return false
     }
     try {
         const payload: unknown = parseJSON(json.toString('utf8'))
-        return (
-            typeof payload === 'object' &&
-            payload !== null &&
-            'aud' in payload &&
-            payload.aud === PosthogJwtAudience.SUBSCRIPTION_PREFERENCES
-        )
+        return typeof payload === 'object' && payload !== null && 'aud' in payload && payload.aud === AUDIENCE
     } catch {
         return false
     }
