@@ -9,6 +9,7 @@ from posthog.models.identity_provider_config import IdentityProviderConfig
 from posthog.models.linked_identity_provider_config import LinkedIdentityProviderConfig
 from posthog.models.organization_domain import OrganizationDomain
 from posthog.models.scim_provisioned_user import SCIMProvisionedUser
+from posthog.models.user import UserType
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.access_control.backend.models.access_control import AccessControl
@@ -58,6 +59,37 @@ class TestSCIMUsersAPI(APILicensedTest):
         data = response.json()
         assert "Resources" in data
         assert data["totalResults"] >= 1  # At least the test user
+
+    def test_service_account_is_hidden_from_user_endpoints(self):
+        service_account = User.objects.create_and_join(
+            self.organization, "deploys@example.com", None, type=UserType.SERVICE_ACCOUNT
+        )
+        base = f"/scim/v2/{self.config.scim_slug}/Users"
+
+        listed = self.client.get(base).json()["Resources"]
+        assert str(service_account.id) not in [user["id"] for user in listed]
+        filtered = self.client.get(base, {"filter": 'emails.value eq "deploys@example.com"'}).json()
+        assert filtered["Resources"] == []
+
+        detail = f"{base}/{service_account.id}"
+        assert self.client.get(detail).status_code == status.HTTP_404_NOT_FOUND
+        assert self.client.delete(detail).status_code == status.HTTP_404_NOT_FOUND
+        deactivate = {
+            "schemas": ["urn:ietf:params:scim:api:messages:2.0:PatchOp"],
+            "Operations": [{"op": "replace", "path": "active", "value": False}],
+        }
+        response = self.client.patch(detail, data=deactivate, content_type="application/scim+json")
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+        assert OrganizationMembership.objects.filter(user=service_account, organization=self.organization).exists()
+
+        create = {
+            "schemas": ["urn:ietf:params:scim:schemas:core:2.0:User"],
+            "userName": "deploys@example.com",
+            "emails": [{"value": "deploys@example.com", "primary": True}],
+        }
+        response = self.client.post(base, data=create, content_type="application/scim+json")
+        assert response.status_code == status.HTTP_409_CONFLICT
+        assert not SCIMProvisionedUser.objects.filter(user=service_account).exists()
 
     def test_users_list_filter_exact_match(self):
         user_a = User.objects.create_user(

@@ -48,7 +48,12 @@ class PostHogSCIMGroup(SCIMGroup):
         """
         Return list of group members in SCIM format.
         """
-        role_memberships = RoleMembership.objects.filter(role=self.obj).valid_for_authorization().select_related("user")
+        role_memberships = (
+            RoleMembership.objects.filter(role=self.obj)
+            .valid_for_authorization()
+            .filter(user__in=User.objects.humans())
+            .select_related("user")
+        )
         return [
             {
                 "value": str(rm.user.id),
@@ -130,9 +135,14 @@ class PostHogSCIMGroup(SCIMGroup):
             return None
 
     @staticmethod
+    def _managed_memberships(role: Role) -> QuerySet[RoleMembership]:
+        """Exclude non-human memberships so group syncs preserve them."""
+        return RoleMembership.objects.filter(role=role, user__in=User.objects.humans())
+
+    @staticmethod
     def _assign_role_member(role: Role, user_pk: int, config: IdentityProviderConfig) -> None:
         try:
-            user = User.objects.get(id=user_pk)
+            user = User.objects.humans().get(id=user_pk)
         except User.DoesNotExist:
             return
 
@@ -158,7 +168,7 @@ class PostHogSCIMGroup(SCIMGroup):
             if parsed is not None:
                 member_user_ids.add(parsed)
 
-        current_memberships = RoleMembership.objects.filter(role=role).select_related("user", "organization_member")
+        current_memberships = cls._managed_memberships(role).select_related("user", "organization_member")
         current_user_ids = {str(rm.user.id) for rm in current_memberships}
         to_add = member_user_ids - current_user_ids
         to_remove = current_user_ids - member_user_ids
@@ -166,7 +176,7 @@ class PostHogSCIMGroup(SCIMGroup):
         for raw_member_id in to_add:
             cls._assign_role_member(role, int(raw_member_id), config)
 
-        RoleMembership.objects.filter(role=role, user__id__in=to_remove).delete()
+        cls._managed_memberships(role).filter(user__id__in=to_remove).delete()
 
     def put(self, data: dict) -> None:
         """
@@ -264,7 +274,7 @@ class PostHogSCIMGroup(SCIMGroup):
                     # Path like: members[value eq "<user-id>"]
                     user_id = path.params_by_attr_paths.get(("members", "value", None))
                     if user_id:
-                        RoleMembership.objects.filter(role=self.obj, user__id=str(user_id)).delete()
+                        self._managed_memberships(self.obj).filter(user__id=str(user_id)).delete()
                 elif isinstance(value, (list, dict)):
                     # Simple path with value: remove only specified members
                     # Entra ID uses this format: {"op": "Remove", "path": "members", "value": [{"value": "user-id"}]}
@@ -273,7 +283,7 @@ class PostHogSCIMGroup(SCIMGroup):
                         str(m.get("value")) for m in members_to_remove if isinstance(m, dict) and m.get("value")
                     ]
                     if user_ids:
-                        RoleMembership.objects.filter(role=self.obj, user__id__in=user_ids).delete()
+                        self._managed_memberships(self.obj).filter(user__id__in=user_ids).delete()
                     else:
                         logger.warning(
                             "SCIM group remove: path='members' with value but no extractable user IDs, "
@@ -282,7 +292,7 @@ class PostHogSCIMGroup(SCIMGroup):
                         )
                 else:
                     # Bare simple path with no value: remove all members
-                    RoleMembership.objects.filter(role=self.obj).delete()
+                    self._managed_memberships(self.obj).delete()
 
     @classmethod
     def get_queryset_for_organization(cls, config: IdentityProviderConfig) -> QuerySet[Role]:

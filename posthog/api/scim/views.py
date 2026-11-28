@@ -288,14 +288,15 @@ class PostHogUserFilterQuery(UserFilterQuery):
             scim_user_ids = (
                 SCIMProvisionedUser.objects.for_config(config).filter(q_obj).values_list("user_id", flat=True)
             )
-            return User.objects.filter(id__in=scim_user_ids).order_by("id")
+            return User.objects.humans().filter(id__in=scim_user_ids).order_by("id")
 
         raw_queryset = super().search(filter_query, request)
         user_ids = [user.id for user in raw_queryset]
-        return User.objects.filter(
-            id__in=user_ids,
-            organization_membership__organization=config.organization,
-        ).order_by("id")
+        return (
+            User.objects.humans()
+            .filter(id__in=user_ids, organization_membership__organization=config.organization)
+            .order_by("id")
+        )
 
 
 class PostHogGroupFilterQuery(GroupFilterQuery):
@@ -385,12 +386,16 @@ class SCIMUsersView(SCIMBaseView):
 class SCIMUserDetailView(SCIMBaseView):
     def get_object(self, user_id: int) -> PostHogSCIMUser:
         config = cast(IdentityProviderConfig, self.request.auth)
-        user = User.objects.filter(
-            Q(organization_membership__organization=config.organization)
-            | Q(scim_provisions__identity_provider_config=config)
-            | Q(scim_provisions__organization_domain__in=config.organization_domains),
-            id=user_id,
-        ).first()
+        user = (
+            User.objects.humans()
+            .filter(
+                Q(organization_membership__organization=config.organization)
+                | Q(scim_provisions__identity_provider_config=config)
+                | Q(scim_provisions__organization_domain__in=config.organization_domains),
+                id=user_id,
+            )
+            .first()
+        )
         if not user:
             raise User.DoesNotExist()
         return PostHogSCIMUser(user, config)

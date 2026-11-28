@@ -18,7 +18,7 @@ from products.access_control.backend.models.role import RoleMembership
 
 
 class SCIMUserConflict(Exception):
-    """User is already SCIM-provisioned for this identity provider configuration."""
+    """The email belongs to an account that SCIM cannot provision."""
 
 
 def _validate_email_domain_is_verified(email: str, organization: Organization) -> None:
@@ -200,6 +200,11 @@ class PostHogSCIMUser(SCIMUser):
                 is_member = OrganizationMembership.objects.filter(user=user, organization=config.organization).exists()
                 if not is_member:
                     _validate_email_domain_is_verified(email, config.organization)
+
+                # After the domain validation, so that the conflict is only reported for an address this
+                # organization may provision.
+                if not user.is_human:
+                    raise SCIMUserConflict()
 
                 if first_name:
                     user.first_name = first_name
@@ -440,4 +445,4 @@ class PostHogSCIMUser(SCIMUser):
 
     @classmethod
     def get_queryset_for_organization(cls, config: IdentityProviderConfig) -> QuerySet[User]:
-        return User.objects.filter(organization_membership__organization=config.organization).order_by("id")
+        return User.objects.humans().filter(organization_membership__organization=config.organization).order_by("id")
