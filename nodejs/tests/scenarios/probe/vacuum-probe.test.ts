@@ -8,6 +8,7 @@ import { createVacuumProbe } from './vacuum-probe'
 const SERVER_URL = defaultConfig.CYCLOTRON_NODE_DATABASE_URL!
 const DATABASE = `scenario_vacuum_${randomUUID().replaceAll('-', '')}`
 const PROBE_URL = Object.assign(new URL(SERVER_URL), { pathname: `/${DATABASE}` }).toString()
+let created = false
 
 const run = (sql: string): Promise<unknown> =>
     withPostgres(async (client) => {
@@ -33,6 +34,7 @@ const sizesOfTable = (): Promise<{ heap: number; toast: number }> =>
 describe('vacuum probe', () => {
     beforeAll(async () => {
         await withPostgres((client) => client.query(`CREATE DATABASE ${DATABASE}`), SERVER_URL)
+        created = true
         await run(
             `CREATE TABLE cyclotron_jobs (
                  id uuid PRIMARY KEY, team_id int NOT NULL, queue_name text NOT NULL, status text NOT NULL,
@@ -43,7 +45,9 @@ describe('vacuum probe', () => {
     })
 
     afterAll(async () => {
-        await withPostgres((client) => client.query(`DROP DATABASE IF EXISTS ${DATABASE} WITH (FORCE)`), SERVER_URL)
+        if (created) {
+            await withPostgres((client) => client.query(`DROP DATABASE ${DATABASE} WITH (FORCE)`), SERVER_URL)
+        }
     })
 
     it('reads the live and dead tuples and the sizes of cyclotron_jobs, its TOAST and its indexes', async () => {
