@@ -423,6 +423,14 @@ class TestSafePoints:
         "endpoint, script, expected_safe_points",
         [
             (
+                "updates",
+                [
+                    ScriptedResponse(json={"data": {"updates": [None] * UPDATES_PAGE_SIZE}}),
+                    ScriptedResponse(json={"data": {"updates": []}}),
+                ],
+                1,
+            ),
+            (
                 "tags",
                 [
                     ScriptedResponse(json={"data": {"tags": []}}),

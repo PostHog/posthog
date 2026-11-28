@@ -319,7 +319,7 @@ def _parse_activity_log_created_at(value: Any) -> Any:
         return value
 
 
-def _ids(entities: Any) -> list[str]:
+def _ids(entities: list[dict[str, Any] | None] | None) -> list[str]:
     return [entity["id"] for entity in (entities or []) if entity is not None]
 
 
@@ -528,13 +528,15 @@ def get_rows(
         # Updates come newest first, so a comment posted mid-walk pushes the previous page's last rows onto
         # the next page. Deletions mid-walk can still skip a row until the next refresh.
         previous_page_ids: set[str] = set()
-        for page in iterate_paged(_UPDATES_QUERY, "updates", page_size=UPDATES_PAGE_SIZE):
-            updates = [update for update in page if update is not None]
+        for updates_page in iterate_paged(_UPDATES_QUERY, "updates", page_size=UPDATES_PAGE_SIZE):
+            updates = [update for update in updates_page if update is not None]
             page_ids = {update["id"] for update in updates}
             fresh_updates = [update for update in updates if update["id"] not in previous_page_ids]
             previous_page_ids = page_ids
             if fresh_updates:
                 yield fresh_updates
+            else:
+                reach_safe_point()
         return
 
     if endpoint == "teams":
