@@ -1,4 +1,5 @@
 import re
+from bisect import bisect_left
 from collections.abc import Iterator
 from dataclasses import replace
 from datetime import UTC, date, datetime, timedelta
@@ -125,7 +126,7 @@ def _management_id(row: dict[str, Any]) -> str:
 
 
 def _resume_index(ids: list[str], next_id: str | None) -> int:
-    return ids.index(next_id) if next_id is not None and next_id in ids else 0
+    return bisect_left(ids, next_id) if next_id is not None else 0
 
 
 def _management_page(client: RESTClient, url: str) -> list[dict[str, Any]]:
@@ -154,6 +155,10 @@ def _management_app_rows(
     bid_path = endpoint.replace("_", "-")
     campaign_ids = sorted(_management_id(campaign) for campaign in campaigns)
     first_campaign = _resume_index(campaign_ids, current_app.next_campaign_id)
+    if first_campaign == len(campaign_ids):
+        manager.save_state(next_app)
+        manager.safe_point()
+        return
     for campaign_index in range(first_campaign, len(campaign_ids)):
         campaign_id = campaign_ids[campaign_index]
         bids = _management_page(client, f"{campaigns_url}/{campaign_id}/{bid_path}")
@@ -190,7 +195,11 @@ def _management_rows(
         else:
             app_ids = sorted(_management_id(app) for app in apps)
             next_app_id = resume.next_app_id if offset == resume.apps_offset else None
-            for app_index in range(_resume_index(app_ids, next_app_id), len(app_ids)):
+            first_app = _resume_index(app_ids, next_app_id)
+            if first_app == len(app_ids):
+                manager.save_state(next_page)
+                manager.safe_point()
+            for app_index in range(first_app, len(app_ids)):
                 app_id = app_ids[app_index]
                 next_app = (
                     UnityAdsResumeConfig(apps_offset=offset, next_app_id=app_ids[app_index + 1])

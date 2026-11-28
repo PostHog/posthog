@@ -233,7 +233,8 @@ class TestManagementTables:
             UnityAdsResumeConfig(apps_offset=1000),
         ]
 
-    def test_bid_sync_resumes_at_the_next_campaign_after_a_failed_request(self) -> None:
+    @pytest.mark.parametrize("remaining_campaign", ["d" * 24, "e" * 24, None])
+    def test_bid_sync_resumes_at_the_next_campaign_after_a_failed_request(self, remaining_campaign: str | None) -> None:
         completed_app = "a" * 24
         current_app = "b" * 24
         first_campaign = "c" * 24
@@ -256,22 +257,55 @@ class TestManagementTables:
             {"country": "US", "bid": "0.201", "campaignSetId": current_app, "campaignId": first_campaign}
         ]
 
+        campaigns = [{"id": first_campaign}]
+        bid_responses = []
+        expected_paths = [campaign_path]
+        expected_rows = []
+        if remaining_campaign is not None:
+            campaigns.insert(0, {"id": remaining_campaign})
+            bid_responses.append(_results({"country": "CA", "bid": "0.304"}))
+            expected_paths.append(f"{campaign_path}/{remaining_campaign}/cpi-bids")
+            expected_rows.append(
+                {"country": "CA", "bid": "0.304", "campaignSetId": current_app, "campaignId": remaining_campaign}
+            )
+
         resumed = _run(
             "cpi_bids",
-            [
-                _results({"id": current_app}, {"id": completed_app}),
-                _results({"id": next_campaign}, {"id": first_campaign}),
-                _results({"country": "CA", "bid": "0.304"}),
-            ],
+            [_results({"id": current_app}, {"id": completed_app}), _results(*campaigns), *bid_responses],
             resume_state=first.final_state,
         )
 
         assert resumed.raised is None
         assert resumed.params("offset")[0] == "1000"
-        assert resumed.paths[1:] == [campaign_path, f"{campaign_path}/{next_campaign}/cpi-bids"]
-        assert resumed.rows == [
-            {"country": "CA", "bid": "0.304", "campaignSetId": current_app, "campaignId": next_campaign}
-        ]
+        assert resumed.paths[1:] == expected_paths
+        assert resumed.rows == expected_rows
+        assert resumed.final_state == UnityAdsResumeConfig(apps_offset=2000)
+
+    @pytest.mark.parametrize("remaining_app", ["c" * 24, None])
+    def test_bid_sync_skips_completed_apps_when_the_resume_app_is_deleted(self, remaining_app: str | None) -> None:
+        apps = [{"id": "a" * 24}]
+        child_responses = []
+        expected_paths = []
+        expected_rows = []
+        if remaining_app is not None:
+            campaign_id = "d" * 24
+            campaign_path = f"/advertise/v1/organizations/5772916123937/apps/{remaining_app}/campaigns"
+            bid = {"country": "CA", "bid": "0.304"}
+            apps.insert(0, {"id": remaining_app})
+            child_responses = [_results({"id": campaign_id}), _results(bid)]
+            expected_paths = [campaign_path, f"{campaign_path}/{campaign_id}/cpi-bids"]
+            expected_rows = [{**bid, "campaignSetId": remaining_app, "campaignId": campaign_id}]
+
+        resumed = _run(
+            "cpi_bids",
+            [_results(*apps), *child_responses],
+            resume_state=UnityAdsResumeConfig(apps_offset=1000, next_app_id="b" * 24, next_campaign_id="e" * 24),
+        )
+
+        assert resumed.raised is None
+        assert resumed.paths[1:] == expected_paths
+        assert resumed.rows == expected_rows
+        assert resumed.final_state == UnityAdsResumeConfig(apps_offset=2000)
 
 
 class TestValidateCredentials:
