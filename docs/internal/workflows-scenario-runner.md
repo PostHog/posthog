@@ -283,18 +283,17 @@ Each card is drawn from a failure class on the delivery path.
 The `attach-*` cards run `event_email` and `transactional_email_files` on the `attachments` profile, so the object store and the email worker's admission sit on the path under test.
 Every send of `transactional_email_files` carries files, and `event_email` supplies the plain mail at its profile rate.
 `attachments-tight` lowers the worker's cap on sends with files in flight, so the overload card defers.
-The five fault cards add an SES 503 on 3 sends, a lost SES answer on 3 accepted sends and a throttle of 1 send a second, 15 seconds apart, after their S3 condition starts.
+The four S3 fault cards add an SES 503 on 3 sends, a lost SES answer on 3 accepted sends and a throttle of 1 send a second, 15 seconds apart, after their S3 condition starts.
 They judge no `no_loss`, because an S3 fault can end a send for good.
 
-| Card                         | Condition                                                                                                              |
-| ---------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
-| `attach-s3-outage`           | Half of downloads fail with 503 and 30% of uploads with 500 for 30 seconds, then 30% of downloads stall for 30 seconds |
-| `attach-s3-slow-upload`      | Uploads paced at 2 MB a second for 90 seconds                                                                          |
-| `attach-s3-slow-download`    | Downloads paced at 5 MB a second for 90 seconds                                                                        |
-| `attach-worker-overloaded`   | Downloads paced at 10 MB a second on `attachments-tight`, so sends with files hold their admission longer              |
-| `attach-killed-mid-download` | `role.kill` on the email worker partway through its first download from 197 seconds, once the first 64 KB have passed  |
-| `attach-killed-mid-ses-call` | `role.kill` on the email worker after SES accepts a seed-selected send with files, before the worker hears the answer  |
-| `attach-files-ramp`          | Sends with files ramp through 1x, 2x, 3x, 4x and 6x for a minute each, while plain mail stays at its profile rate      |
+| Card                         | Condition                                                                                                             |
+| ---------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| `attach-s3-outage`           | Half of downloads fail with 503 for 30 seconds, then 30% of downloads stall for 30 seconds, and uploads pass          |
+| `attach-s3-slow-upload`      | Uploads paced at 2 MB a second for 90 seconds                                                                         |
+| `attach-s3-slow-download`    | Downloads paced at 5 MB a second for 90 seconds                                                                       |
+| `attach-worker-overloaded`   | Downloads paced at 10 MB a second on `attachments-tight`, so sends with files hold their admission longer             |
+| `attach-killed-mid-ses-call` | `role.kill` on the email worker after SES accepts a seed-selected send with files, before the worker hears the answer |
+| `attach-files-ramp`          | Sends with files ramp through 1x, 2x, 3x, 4x and 6x for a minute each, while plain mail stays at its profile rate     |
 
 `attach-files-ramp` runs on `attachments-tight` for `at_cap`.
 Run it with `--profile tests/scenarios/profiles/attachments-ramp-budget.yaml` for `over_budget`, which lifts the cap and shrinks the memory budget, and with `--profile tests/scenarios/profiles/attachments-ramp-heap.yaml` for `over_heap`, which lifts the cap and shrinks the heap through `NODE_OPTIONS`.
@@ -306,12 +305,12 @@ On a host under about 22 GB its budget cannot hold one send at the size limit, s
 
 The scorecard answers four questions, each from one reading and one bar:
 
-| Question                                                                                         | Cards                                                      | Reading                                                                                                                  | Bar                                                                                                                                                                              |
-| ------------------------------------------------------------------------------------------------ | ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Is any email sent twice under an S3 fault, an SES 5xx, a lost SES answer or throttling?          | every `attach-*` card                                      | `duplicate_sends`, `attachments_intact`                                                                                  | `duplicate_sends` within its gate, `attachments_intact` passes                                                                                                                   |
-| Does memory stay inside the budget, with no container kill?                                      | `attach-worker-overloaded`, `attach-files-ramp`            | `attachment_budget_bytes`, `attachment_reserved_share_max`, `role_restarts`, `role_rss_max_bytes`, `role_heap_max_bytes` | `attachment_reserved_share_max` at most 1 against the stated budget, and as a second bar no email worker restart and its `role_rss_max_bytes` below its container's memory limit |
-| What does a worker stop mid-download or mid-SES-call do to the email?                            | `attach-killed-mid-download`, `attach-killed-mid-ses-call` | `at_least_once`, `no_loss`, `duplicate_sends`                                                                            | The email arrives once: `at_least_once` and `no_loss` pass, and `duplicate_sends` stays within the janitor's resets                                                              |
-| At what load of sends with files does each reason start to defer, and when does plain mail slow? | `attach-files-ramp` on its three profiles                  | `ramp_onset_scale`, `step_attachment_deferrals_per_second`, `step_delivery_latency_ms`                                   | The scale each reason starts at, and the deferral rate at the step where `plain_p95_doubled` lands, which is no earlier than the step after the first deferral                   |
+| Question                                                                                         | Cards                                           | Reading                                                                                                                  | Bar                                                                                                                                                                              |
+| ------------------------------------------------------------------------------------------------ | ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Is any email sent twice under an S3 fault, an SES 5xx, a lost SES answer or throttling?          | every `attach-*` card                           | `duplicate_sends`, `attachments_intact`                                                                                  | `duplicate_sends` within its gate, `attachments_intact` passes                                                                                                                   |
+| Does memory stay inside the budget, with no container kill?                                      | `attach-worker-overloaded`, `attach-files-ramp` | `attachment_budget_bytes`, `attachment_reserved_share_max`, `role_restarts`, `role_rss_max_bytes`, `role_heap_max_bytes` | `attachment_reserved_share_max` at most 1 against the stated budget, and as a second bar no email worker restart and its `role_rss_max_bytes` below its container's memory limit |
+| What does a worker stop mid-SES-call do to the email?                                            | `attach-killed-mid-ses-call`                    | `at_least_once`, `no_loss`, `duplicate_sends`                                                                            | The email arrives once: `at_least_once` and `no_loss` pass, and `duplicate_sends` stays within the janitor's resets                                                              |
+| At what load of sends with files does each reason start to defer, and when does plain mail slow? | `attach-files-ramp` on its three profiles       | `ramp_onset_scale`, `step_attachment_deferrals_per_second`, `step_delivery_latency_ms`                                   | The scale each reason starts at, and the deferral rate at the step where `plain_p95_doubled` lands, which is no earlier than the step after the first deferral                   |
 
 `chaos-under-load` runs event email, event webhooks and transactional email at steady profile rates against the provider edge. It gives ambiguous provider responses, refused enqueues, lost commit replies and an email worker kill separate windows. Each run judges `no_loss` from the edge's delivery records and measures `counter_drift`. The pair compares the whole-run verdicts. The `faults.json` evidence shows which valves fired and the targets observed in each window. To run the pair locally, use `pnpm --dir nodejs exec tsx tests/scenarios/main.ts run chaos-under-load --pair`.
 
@@ -638,9 +637,8 @@ measure:
 A valve entry names a valve, its target (a role, `postgres`, `ses` or `hooks.example.com`), its dose, `at` (an offset from the start of the drive), `when`, or both, and `for`.
 With both, `at` arms the entry: `when` starts to wait only once that offset passes.
 On a profile with `load` or `host` admission, the loader refuses an entry that can fire less than 30 seconds into the drive, an entry with `when` and no `at` included, because admission needs that fault-free baseline before the first valve. When the load targets name claim rates, the floor is 37 seconds: the roles are scraped 5 seconds after each scrape ends, and a scrape can take 2 seconds, so the last scrape before the valve can lag it by 7. On a card with `drive.warmUp`, both floors count from the end of the warm-up, and the loader refuses an entry inside the warm-up on any profile. It also refuses an `at` at or past the drive's end.
-`when` takes one predicate: `running_on_queue` with `queue` and `atLeast`, or `edge_accepted` with `channel: ses` or `channel: s3`.
+`when` takes one predicate: `running_on_queue` with `queue` and `atLeast`, or `edge_accepted` with `channel: ses`.
 An optional `share` on `edge_accepted` with `channel: ses` uses the card seed to select eligible sends, then holds the answer to the first eligible send.
-With `channel: s3`, the S3 proxy passes the first 64 KB of the first download from the object store, then paces the rest at 1 KB a second, so the email worker dies partway through the file. It takes no `share`, because a download names no unit.
 
 `load` returns the card, the profile and their hashes, or throws one `CardError` that lists every problem at once.
 It rejects:
@@ -653,7 +651,7 @@ It rejects:
 - a `stopOnBreak` ramp with a step of `0ms`, because a held step repeats its own length;
 - `bounced_suppressed` on a card with no `ses.reject` entry of type `bounce`, because only a hard bounce blocks transactional email;
 - a card whose traffic is answered at its intake rather than on Kafka, such as `transactional_email`, without `refused_at_intake`, because such a unit counts as offered whatever its intake answered;
-- an `edge_accepted` entry on any valve but `role.kill` or `role.terminate` on the email worker, because the held send or download is an email worker's;
+- an `edge_accepted` entry on any valve but `role.kill` or `role.terminate` on the email worker, because the held send is an email worker's;
 - an `edge_accepted` entry under a profile that runs more than one email worker, because the valve stops replica 0 and another replica may own the held send;
 - a `role.terminate` entry armed on `running_on_queue`, because a worker given SIGTERM drains its running jobs before it exits, so the read jobs may have finished by the signal; arm it on `edge_accepted` or `at`;
 - a profile setting no role or the load producer reads, and traffic rates that fail their kind's profile schema.

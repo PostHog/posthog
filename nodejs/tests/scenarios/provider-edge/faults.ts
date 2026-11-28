@@ -144,7 +144,7 @@ export type PgAnswer = { kind: 'pg-refuse' } | { kind: 'pg-commit-reply-lost' }
 export type S3Answer =
     | { kind: 's3-status'; status: number }
     | { kind: 's3-stall' }
-    | { kind: 's3-slow'; bytesPerSecond: number; freeBytes?: number }
+    | { kind: 's3-slow'; bytesPerSecond: number }
 
 type Answer = SesAnswer | WebhookAnswer | PgAnswer | S3Answer
 
@@ -208,24 +208,11 @@ export function ruleOf(fault: CardFault): FaultRule {
     }
 }
 
-const HELD_BODY_FREE_BYTES = 64 * 1024
-const HELD_BODY_BYTES_PER_SECOND = 1000
-
-export const heldAnswerRule = (
-    boundary: { channel: 'ses'; share?: number } | { channel: 's3' } = { channel: 'ses' }
-): FaultRule =>
-    boundary.channel === 's3'
-        ? {
-              name: 'edge.accepted',
-              answer: { kind: 's3-slow', bytesPerSecond: HELD_BODY_BYTES_PER_SECOND, freeBytes: HELD_BODY_FREE_BYTES },
-              match: { op: 'get' },
-              dose: { count: 1 },
-          }
-        : {
-              name: 'edge.accepted',
-              answer: { kind: 'hold-answer' },
-              dose: boundary.share === undefined ? { count: 1 } : { share: boundary.share },
-          }
+export const heldAnswerRule = (share?: number): FaultRule => ({
+    name: 'edge.accepted',
+    answer: { kind: 'hold-answer' },
+    dose: share === undefined ? { count: 1 } : { share },
+})
 
 type ActiveFault = {
     id: string

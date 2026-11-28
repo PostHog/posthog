@@ -325,7 +325,7 @@ describe('load', () => {
             `edge_accepted on ${valve} of ${target}`,
             { ...card, valves: [{ ...emailWorkerKill, valve, target, when: edgeAccepted }] },
             { ...profile, replicas: { 'cdp-cyclotron-worker-email': 2 } },
-            "valves.0.when: edge_accepted holds an email worker's send or download, so it fires only role.kill or role.terminate on cdp-cyclotron-worker-email",
+            "valves.0.when: edge_accepted holds an email worker's send, so it fires only role.kill or role.terminate on cdp-cyclotron-worker-email",
         ]),
         ...[
             ['role.kill', {}],
@@ -334,7 +334,7 @@ describe('load', () => {
             `edge_accepted on ${valve} while the profile runs more than one email worker`,
             { ...card, valves: [{ ...emailWorkerKill, valve, dose, when: edgeAccepted }] },
             { ...profile, replicas: { 'cdp-cyclotron-worker-email': 2 } },
-            `valves.0.target: ${valve} stops cdp-cyclotron-worker-email replica 0 only, and edge_accepted can hold another replica's send or download; run one email worker replica on this card`,
+            `valves.0.target: ${valve} stops cdp-cyclotron-worker-email replica 0 only, and edge_accepted can hold another replica's send; run one email worker replica on this card`,
         ]),
         [
             'an unknown valve',

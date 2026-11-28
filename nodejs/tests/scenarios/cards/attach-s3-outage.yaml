@@ -19,14 +19,6 @@ valves:
           share: 0.5
       at: 30s
       for: 30s
-    - valve: s3.status
-      target: s3
-      dose:
-          code: 500
-          op: put
-          share: 0.3
-      at: 30s
-      for: 30s
     - valve: s3.stall
       target: s3
       dose:

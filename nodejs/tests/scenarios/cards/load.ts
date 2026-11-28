@@ -228,7 +228,7 @@ function checkAcceptedBoundary(card: Card): string[] {
     return card.valves.flatMap((entry, i) =>
         entry.when?.name === 'edge_accepted' && !killsEmailWorker(entry)
             ? [
-                  `valves.${i}.when: edge_accepted holds an email worker's send or download, so it fires only ${SEND_STRANDING_VALVES.join(' or ')} on ${EMAIL_WORKER}`,
+                  `valves.${i}.when: edge_accepted holds an email worker's send, so it fires only ${SEND_STRANDING_VALVES.join(' or ')} on ${EMAIL_WORKER}`,
               ]
             : []
     )
@@ -263,7 +263,7 @@ function checkAcceptedBoundaryReplicas(card: Card, profile: Profile): string[] {
     return card.valves.flatMap((entry, i) =>
         entry.when?.name === 'edge_accepted' && killsEmailWorker(entry)
             ? [
-                  `valves.${i}.target: ${entry.valve} stops ${EMAIL_WORKER} replica 0 only, and edge_accepted can hold another replica's send or download; run one email worker replica on this card`,
+                  `valves.${i}.target: ${entry.valve} stops ${EMAIL_WORKER} replica 0 only, and edge_accepted can hold another replica's send; run one email worker replica on this card`,
               ]
             : []
     )
