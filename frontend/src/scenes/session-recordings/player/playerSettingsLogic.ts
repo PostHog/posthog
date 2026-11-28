@@ -462,11 +462,6 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
         setAmbientBackground: ({ ambientBackground }) => {
             posthog.capture('recording player ambient background toggled', { ambient_background: ambientBackground })
         },
-        setPreferClassicReplayLayout: ({ preferClassicReplayLayout }) => {
-            posthog.capture('session recording layout changed', {
-                layout: preferClassicReplayLayout ? 'classic' : 'watch',
-            })
-        },
         setDebugMode: ({ open }) => {
             if (open && values.watchDebugDock === 'bottom' && !isFeedReplayLayout(values.replayLayout)) {
                 actions.openWatchPanelSection('debug')
