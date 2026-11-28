@@ -28,7 +28,7 @@ BIGMAILER_BASE_URL = "https://api.bigmailer.io/v1"
 # The API caps list responses at 100 objects per page; request the max to minimise round trips
 # against the 10 req/s account rate limit.
 PAGE_SIZE = 100
-RSS_MAX_PAGES_PER_PARENT = 1_000
+MAX_PAGES_PER_PARENT = 1_000
 
 logger = structlog.get_logger(__name__)
 
@@ -86,28 +86,38 @@ class BigMailerCursorPaginator(JSONResponseCursorPaginator):
             self._has_next_page = False
 
 
-class BigMailerRssPageLimitError(Exception):
+class BigMailerPaginationError(Exception):
     pass
 
 
-class BigMailerRssPaginator(BigMailerCursorPaginator):
+class BigMailerBoundedCursorPaginator(BigMailerCursorPaginator):
     def __init__(self, resource: str) -> None:
         super().__init__()
         self._resource = resource
         self._page_count = 0
 
     def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
+        previous_cursor = self._cursor_value
         super().update_state(response, data)
         self._page_count += 1
-        if self.has_next_page and self._page_count >= RSS_MAX_PAGES_PER_PARENT:
-            parent_path = urlsplit(response.url).path.rpartition("/")[0]
-            logger.warning(
-                "bigmailer_rss_page_limit_reached",
-                resource=self._resource,
-                parent_path=parent_path,
-                max_pages=RSS_MAX_PAGES_PER_PARENT,
-            )
-            raise BigMailerRssPageLimitError(f"BigMailer {self._resource} exceeded the page limit for {parent_path}")
+        if not self.has_next_page:
+            return
+        if self._cursor_value == previous_cursor:
+            reason = "returned a repeated cursor"
+        elif self._page_count >= MAX_PAGES_PER_PARENT:
+            reason = "exceeded the page limit"
+        else:
+            return
+
+        parent_path = urlsplit(response.url).path.rpartition("/")[0]
+        logger.warning(
+            "bigmailer_pagination_stopped",
+            resource=self._resource,
+            parent_path=parent_path,
+            reason=reason,
+            max_pages=MAX_PAGES_PER_PARENT,
+        )
+        raise BigMailerPaginationError(f"BigMailer {self._resource} {reason} for {parent_path}")
 
 
 def _client_config(api_key: str) -> ClientConfig:
@@ -252,6 +262,7 @@ def _brand_scoped_resource(
                         "brand_id": {"type": "resolve", "resource": "brands", "field": "id"},
                     },
                     "data_selector": "data",
+                    "paginator": BigMailerBoundedCursorPaginator(config.name) if config.bounded_pagination else None,
                 },
                 "include_from_parent": ["id"],
                 "data_map": _inject_brand_id,
@@ -287,7 +298,7 @@ def _brand_rss_updates_resource(
                     "path": parent.path,
                     "params": {"limit": PAGE_SIZE, "brand_id": brand_path_id},
                     "data_selector": "data",
-                    "paginator": BigMailerRssPaginator(parent.name),
+                    "paginator": BigMailerBoundedCursorPaginator(parent.name),
                 },
             },
             {
@@ -300,7 +311,7 @@ def _brand_rss_updates_resource(
                         "parent_id": {"type": "resolve", "resource": parent.name, "field": "id"},
                     },
                     "data_selector": "data",
-                    "paginator": BigMailerRssPaginator(config.name),
+                    "paginator": BigMailerBoundedCursorPaginator(config.name),
                 },
                 "include_from_parent": ["id"],
                 "data_map": partial(_inject_rss_campaign_ids, brand_id),

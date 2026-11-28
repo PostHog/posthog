@@ -16,6 +16,7 @@ class BigMailerEndpointConfig:
     primary_keys: list[str] = field(default_factory=lambda: ["id"])
     # Whether the table is selected for sync by default in the connection wizard.
     should_sync_default: bool = True
+    bounded_pagination: bool = False
 
 
 # BigMailer is brand-scoped: an account holds many brands and most resources hang off a brand. The
@@ -91,6 +92,7 @@ BIGMAILER_ENDPOINTS: dict[str, BigMailerEndpointConfig] = {
         brand_scoped=True,
         primary_keys=_BRAND_COMPOSITE_KEY,
         should_sync_default=False,
+        bounded_pagination=True,
     ),
     "test_campaigns": BigMailerEndpointConfig(
         name="test_campaigns",
@@ -98,6 +100,7 @@ BIGMAILER_ENDPOINTS: dict[str, BigMailerEndpointConfig] = {
         brand_scoped=True,
         primary_keys=_BRAND_COMPOSITE_KEY,
         should_sync_default=False,
+        bounded_pagination=True,
     ),
     "message_types": BigMailerEndpointConfig(
         name="message_types",
