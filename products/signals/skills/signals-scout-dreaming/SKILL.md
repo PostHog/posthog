@@ -134,9 +134,7 @@ From smallest to largest:
 - **Retire** an entry by rewriting it with its content unchanged and `expires_at` a few minutes ahead. `remember` drops an `expires_at` that is already past and leaves the entry durable, so never set it to now or earlier. A retired entry stays readable with `include_expired=true` until the janitor removes it, so rewriting it without an expiry undoes the retirement.
 
 A superseded snapshot rarely has only one older sibling.
-When you retire an entry because a newer entry replaces it, list the owner's keys in the same family in that pass: `key_prefix` set to the family and `keys_only=true`.
-Retire every older snapshot of the same scan, check or chart that the same successor covers, including keys with a date in them and other spellings of the same key.
-This tells you where to look, not how many to retire: leave a sibling the successor does not cover, and read a sibling before you retire it.
+A listing of the owner's keys in the same family (`key_prefix` set to the family, `keys_only=true`) shows the others, which may have a date in the key or another spelling of it.
 
 Every rewrite carries the whole entry, content and expiry together, so a rewrite without `expires_at` clears the expiry the entry had.
 Every write passes `if_updated_at` with the `updated_at` you read.
