@@ -262,11 +262,29 @@ class TestOrganizationBillingAPI(OrganizationBillingTestMixin, APILicensedTest):
         response = self.client.get("/api/organizations/@current/billing/subscription/")
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
 
+    @parameterized.expand(
+        [
+            ("without_daily_counts", {}, 3120400 + 120),
+            (
+                "with_daily_counts",
+                {"daily_usage": {"2026-09-14": 500, "2026-09-15": 300, "2026-09-16": 120}},
+                3120400 + 300 + 120,
+            ),
+        ]
+    )
     @patch("ee.billing.billing_manager.http_session.get")
-    def test_usage_merges_todays_usage_and_the_quota_state(self, mock_get):
+    def test_usage_merges_todays_usage_and_the_quota_state(
+        self, _name: str, daily_counts: dict[str, Any], expected_usage: int, mock_get: MagicMock
+    ) -> None:
         mock_get.return_value = _response(USAGE)
         self.organization.usage = {
-            "events": {"usage": 3120400, "limit": 5000000, "todays_usage": 120, "quota_limited_until": None},
+            "events": {
+                "usage": 3120400,
+                "limit": 5000000,
+                "todays_usage": 120,
+                "quota_limited_until": None,
+                **daily_counts,
+            },
             "recordings": {"usage": 15000, "limit": 15000, "todays_usage": 0, "quota_limited_until": PERIOD_END},
         }
         self.organization.save()
@@ -278,9 +296,8 @@ class TestOrganizationBillingAPI(OrganizationBillingTestMixin, APILicensedTest):
         self.assertIsNone(rows["events"]["quota_limited_until"])
         self.assertEqual(rows["recordings"]["quota_limited_until"], "2026-10-01T00:00:00Z")
         self.assertEqual(body["usage_reported_through"], "2026-09-14")
-        # Today's 120 events are added to the product row, as the root billing read does.
-        self.assertEqual(body["products"][0]["current_usage"], 3120520)
-        self.assertEqual(body["products"][0]["usage_ratio"], 3120520 / 5000000)
+        self.assertEqual(body["products"][0]["current_usage"], expected_usage)
+        self.assertEqual(body["products"][0]["usage_ratio"], expected_usage / 5000000)
 
     @patch("ee.billing.billing_manager.http_session.get")
     def test_member_reads_the_usage_status_and_never_the_organization_counts(self, mock_get):
