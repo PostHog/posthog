@@ -362,6 +362,7 @@ rules:
                               |Node
                               |NotificationEvent
                               |Notebook
+                              |NotebookAppEmbed
                               |NotebookAppRelease
                               |NotebookAppViewGrant
                               |NotebookNodeRun
@@ -918,6 +919,7 @@ rules:
                         |Node
                         |NotificationEvent
                         |Notebook
+                        |NotebookAppEmbed
                         |NotebookAppRelease
                         |NotebookAppViewGrant
                         |NotebookNodeRun

@@ -1,0 +1,8 @@
+{% extends 'notebooks/app_output.html' %}
+{% block app_tabs %}
+    {% for tab in tabs %}
+        <details{% if forloop.first %} open{% endif %}><summary>{{ tab.title }}</summary>
+            {% include 'notebooks/app_output.html#app_output_blocks' with blocks=tab.blocks %}
+        </details>
+    {% endfor %}
+{% endblock %}

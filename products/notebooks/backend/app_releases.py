@@ -1,9 +1,12 @@
 from datetime import datetime
 from uuid import UUID
 
+from django.db import transaction
 from django.db.models import QuerySet
 
 from rest_framework.exceptions import ValidationError
+
+from posthog.models import User
 
 from products.notebooks.backend.app_release_results import capture_published_sql_rows
 from products.notebooks.backend.facade.contracts import AppBlockSource, AppRelease, AppReleaseReview
@@ -54,8 +57,15 @@ def read_release(team_id: int, notebook_id: UUID, *, previous: bool = False) -> 
     )
 
 
-def record_release(team_id: int, notebook_id: UUID, *, restore_previous: bool = False) -> None:
-    notebook = Notebook.objects.get(team_id=team_id, pk=notebook_id)
+@transaction.atomic
+def record_release(
+    team_id: int, notebook_id: UUID, *, actor: User, was_impersonated: bool, restore_previous: bool = False
+) -> None:
+    from products.notebooks.backend.app_embeds import revoke_signed_embeds
+
+    notebook = (
+        Notebook.objects.select_for_update(of=("self",)).select_related("team").get(team_id=team_id, pk=notebook_id)
+    )
     releases = releases_for(notebook)
     restore = releases[1:2].first() if restore_previous else None
     markdown = get_markdown_notebook_markdown(notebook.content) or ""
@@ -82,7 +92,10 @@ def record_release(team_id: int, notebook_id: UUID, *, restore_previous: bool = 
         layout=layout,
         sql_rows=restore.sql_rows if restore else capture_published_sql_rows(notebook, markdown, layout),
     )
-    releases.exclude(pk__in=releases.values("pk")[:2]).delete()
+    obsolete_ids = list(releases.values_list("pk", flat=True)[2:])
+    if obsolete_ids:
+        revoke_signed_embeds(notebook, actor, was_impersonated, release_ids=obsolete_ids)
+        releases.filter(pk__in=obsolete_ids).delete()
 
 
 def review_release(team_id: int, notebook_id: UUID, blocks: list[AppBlockSource]) -> AppReleaseReview:

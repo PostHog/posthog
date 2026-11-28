@@ -310,7 +310,7 @@ def sync_direct_run(run: NotebookNodeRun) -> list[list[Any]] | None:
     types = [[str(name), str(type_name)] for name, type_name in (results.get("types") or [])]
     raw_rows = results.get("results") or []
     # Mirror the kernel's capped fetch: the +1 row past the ceiling only signals has_more.
-    fetched_has_more = len(raw_rows) > RESULT_CACHE_ROWS
+    fetched_has_more = len(raw_rows) > RESULT_CACHE_ROWS or results.get("hasMore") is True
     rows = kernel_envelope.json_safe_rows(raw_rows[:RESULT_CACHE_ROWS])
 
     if run.status == NotebookNodeRun.Status.RUNNING:
@@ -320,6 +320,8 @@ def sync_direct_run(run: NotebookNodeRun) -> list[list[Any]] | None:
             types,
             has_more=fetched_has_more or len(rows) > DISPLAY_PAGE_LIMIT,
         )
+        envelope["cache_truncated"] = fetched_has_more
+        envelope["cached_row_count"] = len(rows)
         timings = _query_status_timings(status)
         if timings:
             envelope["timings"] = timings

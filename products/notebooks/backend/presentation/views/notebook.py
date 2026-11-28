@@ -52,7 +52,7 @@ from posthog.models import User
 from posthog.models.activity_logging.activity_log import Change, changes_between, load_activity
 from posthog.models.activity_logging.activity_page import activity_page_response, parse_activity_page_params
 from posthog.models.utils import UUIDT
-from posthog.permissions import request_subject
+from posthog.permissions import TimeSensitiveActionPermission, request_allows_sensitive_action, request_subject
 from posthog.renderers import ServerSentEventRenderer
 from posthog.settings import SERVER_GATEWAY_INTERFACE
 from posthog.utils import relative_date_parse
@@ -77,7 +77,7 @@ from products.notebooks.backend.facade.api import to_markdown_notebook_content
 from products.notebooks.backend.facade.app_delivery import (
     active_view_grants,
     change_app_view_grant,
-    revoke_app_view_grants,
+    revoke_published_app_access,
 )
 from products.notebooks.backend.facade.app_releases import (
     plan_viewer_queries,
@@ -143,6 +143,7 @@ from products.notebooks.backend.kernel_runtime import (
     get_kernel_runtime,
 )
 from products.notebooks.backend.models import KernelRuntime, Notebook, NotebookNodeRun
+from products.notebooks.backend.presentation.app_embeds import ActiveAppEmbedSerializer, AppEmbedRequestSerializer
 from products.notebooks.backend.presentation.app_serializers import (
     NotebookAppLayoutField,
     NotebookAppLayoutSerializer,
@@ -520,7 +521,9 @@ class NotebookSerializer(NotebookMinimalSerializer):
                     **validated_data,
                 )
                 if notebook.app_published is not None:
-                    record_release(notebook.team_id, notebook.pk)
+                    record_release(
+                        notebook.team_id, notebook.pk, actor=request.user, was_impersonated=is_impersonated(request)
+                    )
         except IntegrityError:
             existing_notebook = (
                 Notebook.objects.filter(team=team, short_id=short_id)
@@ -640,11 +643,22 @@ class NotebookSerializer(NotebookMinimalSerializer):
                 was_deleted = locked_instance.deleted
                 updated_notebook = super().update(locked_instance, validated_data)
                 if validated_data.get("app_published") is not None:
-                    record_release(updated_notebook.team_id, updated_notebook.pk, restore_previous=restore)
+                    record_release(
+                        updated_notebook.team_id,
+                        updated_notebook.pk,
+                        actor=self.context["request"].user,
+                        was_impersonated=is_impersonated(self.context["request"]),
+                        restore_previous=restore,
+                    )
                 if updated_notebook.deleted != was_deleted or (
                     "app_published" in validated_data and updated_notebook.app_published is None
                 ):
-                    revoke_app_view_grants(updated_notebook.team_id, updated_notebook.pk)
+                    revoke_published_app_access(
+                        updated_notebook.team_id,
+                        updated_notebook.pk,
+                        self.context["request"].user,
+                        is_impersonated(self.context["request"]),
+                    )
                 if should_publish_update:
                     notify_team_id = updated_notebook.team_id
                     notify_notebook_id = str(updated_notebook.short_id)
@@ -930,6 +944,51 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
             notebook.team_id, notebook.pk, [AppBlockSource(**block) for block in layout.validated_data["blocks"]]
         )
         return Response(NotebookAppReleaseReviewSerializer(review).data)
+
+    @extend_schema(operation_id="notebooks_app_embeds_active_list", responses=ActiveAppEmbedSerializer(many=True))
+    @action(
+        methods=["GET"],
+        detail=True,
+        url_path="app_embeds/active",
+        pagination_class=None,
+        filter_backends=[],
+        required_scopes=["notebook:read", "sharing_configuration:read"],
+    )
+    def active_app_embeds(self, request: Request, **kwargs) -> Response:
+        from products.notebooks.backend.facade.app_embeds import active_embed_audiences
+
+        notebook = self.get_object()
+        if not isinstance(request.user, User) or not notebook_app_builder_enabled(request.user, notebook.team):
+            raise Http404()
+        self._require_app_sharing_access()
+        return Response(ActiveAppEmbedSerializer(active_embed_audiences(notebook.team_id, notebook.pk), many=True).data)
+
+    @extend_schema(request=AppEmbedRequestSerializer, responses=AppViewGrantResultSerializer)
+    @action(
+        methods=["POST"],
+        detail=True,
+        url_path="app_embeds",
+        required_scopes=["notebook:write", "sharing_configuration:write"],
+    )
+    def app_embeds(self, request: Request, **kwargs) -> Response:
+        from products.notebooks.backend.facade.app_embeds import change_signed_embed
+
+        notebook = self.get_object()
+        if not isinstance(request.user, User) or not notebook_app_builder_enabled(request.user, notebook.team):
+            raise Http404()
+        self._require_app_sharing_access()
+        data = AppEmbedRequestSerializer(data=request.data)
+        data.is_valid(raise_exception=True)
+        if not data.validated_data["revoke"] and not request_allows_sensitive_action(request):
+            raise PermissionDenied(TimeSensitiveActionPermission.message, code=TimeSensitiveActionPermission.code)
+        result = change_signed_embed(
+            notebook.team_id,
+            notebook.pk,
+            actor=request.user,
+            was_impersonated=is_impersonated(request),
+            **data.validated_data,
+        )
+        return Response(AppViewGrantResultSerializer(result).data)
 
     @extend_schema(request=AppViewGrantRequestSerializer, responses=AppViewGrantResultSerializer)
     @action(

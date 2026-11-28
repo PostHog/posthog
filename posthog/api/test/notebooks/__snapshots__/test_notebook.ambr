@@ -981,6 +981,15 @@
                                                                 'deleted'))
                    OR ("posthog_activitylog"."scope" = 'Integration'
                        AND "posthog_activitylog"."activity" IN ('github_diagnostic'))
+                   OR ("posthog_activitylog"."scope" = 'Notebook'
+                       AND "posthog_activitylog"."activity" IN ('updated')
+                       AND "posthog_activitylog"."detail" @> '{"changes": [{"field": "app_embed"}]}'::jsonb
+                       AND "posthog_activitylog"."detail" IS NOT NULL
+                       AND NOT ("posthog_activitylog"."organization_id" IN
+                                  (SELECT "U0"."organization_id" AS "organization_id"
+                                   FROM "posthog_organizationmembership" "U0"
+                                   WHERE ("U0"."level" >= 8
+                                          AND "U0"."user_id" = 99999))))
                    OR ("posthog_activitylog"."scope" = 'User'
                        AND "posthog_activitylog"."activity" IN ('logged_in',
                                                                 'logged_out')
@@ -1107,6 +1116,15 @@
                                                                 'deleted'))
                    OR ("posthog_activitylog"."scope" = 'Integration'
                        AND "posthog_activitylog"."activity" IN ('github_diagnostic'))
+                   OR ("posthog_activitylog"."scope" = 'Notebook'
+                       AND "posthog_activitylog"."activity" IN ('updated')
+                       AND "posthog_activitylog"."detail" @> '{"changes": [{"field": "app_embed"}]}'::jsonb
+                       AND "posthog_activitylog"."detail" IS NOT NULL
+                       AND NOT ("posthog_activitylog"."organization_id" IN
+                                  (SELECT "U0"."organization_id" AS "organization_id"
+                                   FROM "posthog_organizationmembership" "U0"
+                                   WHERE ("U0"."level" >= 8
+                                          AND "U0"."user_id" = 99999))))
                    OR ("posthog_activitylog"."scope" = 'User'
                        AND "posthog_activitylog"."activity" IN ('logged_in',
                                                                 'logged_out')

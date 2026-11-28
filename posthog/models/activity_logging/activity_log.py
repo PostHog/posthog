@@ -509,6 +509,14 @@ activity_visibility_restrictions: list[dict[str, Any]] = [
     },
     {"scope": "Integration", "activities": ["github_diagnostic"], "allow_staff": True},
     {
+        "scope": "Notebook",
+        "activities": ["updated"],
+        "change_field": "app_embed",
+        "allow_organization_admin": True,
+        "allow_staff": True,
+        "summarize_for_destinations": True,
+    },
+    {
         "scope": "User",
         "activities": ["logged_in", "logged_out"],
         "exclude_when": {"was_impersonated": True},

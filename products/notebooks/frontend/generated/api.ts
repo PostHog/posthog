@@ -9,6 +9,8 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    ActiveAppEmbedApi,
+    AppEmbedRequestApi,
     AppViewGrantRequestApi,
     AppViewGrantResultApi,
     NotebookApi,
@@ -470,6 +472,45 @@ export const notebooksActivityRetrieve = async (
     options?: RequestInit
 ): Promise<void> => {
     return apiMutator<void>(getNotebooksActivityRetrieveUrl(projectId, shortId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getNotebooksAppEmbedsCreateUrl = (projectId: string, shortId: string) => {
+    return `/api/projects/${projectId}/notebooks/${shortId}/app_embeds/`
+}
+
+/**
+ * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
+ */
+export const notebooksAppEmbedsCreate = async (
+    projectId: string,
+    shortId: string,
+    appEmbedRequestApi: AppEmbedRequestApi,
+    options?: RequestInit
+): Promise<AppViewGrantResultApi> => {
+    return apiMutator<AppViewGrantResultApi>(getNotebooksAppEmbedsCreateUrl(projectId, shortId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(appEmbedRequestApi),
+    })
+}
+
+export const getNotebooksAppEmbedsActiveListUrl = (projectId: string, shortId: string) => {
+    return `/api/projects/${projectId}/notebooks/${shortId}/app_embeds/active/`
+}
+
+/**
+ * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
+ */
+export const notebooksAppEmbedsActiveList = async (
+    projectId: string,
+    shortId: string,
+    options?: RequestInit
+): Promise<ActiveAppEmbedApi[]> => {
+    return apiMutator<ActiveAppEmbedApi[]>(getNotebooksAppEmbedsActiveListUrl(projectId, shortId), {
         ...options,
         method: 'GET',
     })

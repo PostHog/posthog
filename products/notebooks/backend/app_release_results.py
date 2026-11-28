@@ -66,11 +66,20 @@ def capture_published_sql_rows(notebook: Notebook, markdown: str, layout: dict[s
             rows = envelope.get("first_page")
         if not isinstance(rows, list):
             continue
+        row_count = envelope.get("cached_row_count", envelope.get("row_count"))
+        count_matches = type(row_count) is int and row_count == len(rows)
+        cache_truncated = envelope.get("cache_truncated")
+        complete: bool | None
+        if isinstance(cache_truncated, bool):
+            complete = not cache_truncated and count_matches
+        else:
+            complete = True if count_matches and envelope.get("has_more") is False else None
         metadata = {
             "node_id": run.node_id,
             "columns": envelope.get("columns") or [],
             "types": envelope.get("types") or [],
-            "row_count": envelope.get("row_count", len(rows)),
+            "row_count": row_count if type(row_count) is int else len(rows),
+            "complete": complete,
         }
         pinned = {key: rows, f"schema:{key}": metadata}
         size = len(json.dumps(pinned, ensure_ascii=False, allow_nan=False).encode())

@@ -1,6 +1,6 @@
 import { useValues } from 'kea'
 import posthog from 'posthog-js'
-import { useState } from 'react'
+import { lazy, Suspense, useState } from 'react'
 
 import { LemonButton, LemonInput, LemonModal } from '@posthog/lemon-ui'
 
@@ -187,6 +187,11 @@ function NotebookAppAccessControls({ project, shortId, revision }: NotebookAppAc
                     <p>No active recipients.</p>
                 ) : null}
             </LemonModal>
+            <Suspense fallback={null}>
+                <NotebookAppEmbed project={project} shortId={shortId} revision={revision} />
+            </Suspense>
         </>
     )
 }
+
+const NotebookAppEmbed = lazy(async () => ({ default: (await import('./NotebookAppEmbed')).NotebookAppEmbed }))

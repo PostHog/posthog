@@ -36,6 +36,7 @@ from products.notebooks.backend.util import _parse_markdown_component_props, ite
 
 APP_OUTPUT_VERSION = 8
 MAX_SHARED_CHART_SERIES = 200
+SHARE_CHART_AS_TABLE = "Publish this chart as a table or single number to share its values."
 APP_VIEW_RECIPIENT_BUDGET = Budget(burst=60, per_hour=960)
 APP_VIEW_PROJECT_RECIPIENT_BUDGET = Budget(burst=15, per_hour=240)
 
@@ -62,8 +63,18 @@ def active_view_grants(
     return grants.count(), rows
 
 
-def revoke_app_view_grants(team_id: int, notebook_id: UUID) -> None:
+@transaction.atomic
+def revoke_published_app_access(team_id: int, notebook_id: UUID, actor: User | None, was_impersonated: bool) -> None:
+    from products.notebooks.backend.app_embeds import revoke_signed_embeds
+
+    notebook = (
+        Notebook.objects.select_for_update(of=("self",))
+        .select_related("team")
+        .only("short_id", "title", "team__organization_id")
+        .get(pk=notebook_id, team_id=team_id)
+    )
     NotebookAppViewGrant.objects.for_team(team_id).filter(release__notebook_id=notebook_id).delete()
+    revoke_signed_embeds(notebook, actor, was_impersonated)
 
 
 @transaction.atomic
@@ -242,7 +253,7 @@ def verified_chart_columns(result: dict[str, Any], chart: dict[str, Any]) -> lis
 
 def chart_rows_match_axes(result: dict[str, Any], axes: list[str]) -> bool:
     rows = result["first_page"]
-    if not axes or result.get("row_count") != len(rows):
+    if not axes or result.get("complete") is False or result.get("row_count") != len(rows):
         return False
     category, *series = [result["columns"].index(name) for name in axes]
     seen: set[str] = set()
@@ -375,9 +386,56 @@ def shared_display_columns(props: dict[str, Any], result: dict[str, Any]) -> tup
     return (display, axes) if chart_rows_match_axes(result, axes) else None
 
 
-def app_output_tabs(release: NotebookAppRelease) -> list[AppOutputTab]:
+def tenant_output_blocks(
+    props: dict[str, Any],
+    result: dict[str, Any] | None,
+    title: str | None,
+    budget: SharedOutputBudget,
+    tenant_column: str,
+    tenant_value: str | None,
+) -> list[dict[str, Any]]:
+    if result is None:
+        raise serializers.ValidationError("Save and republish the complete SQL results before creating an embed.")
+    projection = shared_display_columns(props, result)
+    if projection is None:
+        return [{"title": title, "text": SHARE_CHART_AS_TABLE}]
+    columns = result["columns"]
+    rows = result["first_page"]
+    if result.get("complete") is not True or result.get("row_count") != len(rows):
+        raise serializers.ValidationError("Save and republish the complete SQL results before creating an embed.")
+    if columns.count(tenant_column) != 1:
+        raise serializers.ValidationError(
+            {"tenant_column": "Every displayed SQL output must include this tenant column exactly once."}
+        )
+    display, displayed = projection
+    visible = [column for column in displayed if column != tenant_column]
+    if not visible:
+        return []
+    tenant_index = columns.index(tenant_column)
+    matches = [
+        row for row in rows if isinstance(row, list) and len(row) > tenant_index and row[tenant_index] == tenant_value
+    ]
+    if display == "BoldNumber":
+        scalar = plain_scalar_rows(matches, result)
+        if scalar is None:
+            return [{"title": title, "text": SHARE_CHART_AS_TABLE}]
+        matches = scalar
+    headings = ["Value"] if display == "BoldNumber" else visible
+    budget.count(headings)
+    budget.count([props.get("title")])
+    indexes = [columns.index(column) for column in visible]
+    return [{"title": title, "columns": headings, "partial": False, "rows": budget.project_rows(matches, indexes)}]
+
+
+def app_output_tabs(
+    release: NotebookAppRelease,
+    *,
+    tenant_column: str | None = None,
+    tenant_value: str | None = None,
+    byte_limit: int | None = None,
+) -> list[AppOutputTab]:
     sql_cells = displayed_native_sql_cells(release)
-    budget = SharedOutputBudget(byte_limit=MAX_RELEASE_RESULT_BYTES)
+    budget = SharedOutputBudget(byte_limit=MAX_RELEASE_RESULT_BYTES if byte_limit is None else byte_limit)
     budget.count([tab["title"] for tab in release.layout["tabs"]])
     tabs = {tab["id"]: {"title": tab["title"], "blocks": []} for tab in release.layout["tabs"]}
     for block in release.layout["blocks"]:
@@ -388,13 +446,18 @@ def app_output_tabs(release: NotebookAppRelease) -> list[AppOutputTab]:
         if block["kind"] == "text":
             tab["blocks"].append({"title": block.get("title"), "text": block.get("text")})
             continue
-        if block["kind"] != "cell" or block.get("display") == "source":
-            continue
         node_id = block.get("node_id")
         props = sql_cells.get(node_id)
-        if not props:
+        if block["kind"] != "cell" or block.get("display") == "source" or not props:
             continue
         result = pinned_sql_result(release, node_id, props.get("runId"))
+        if tenant_column is not None:
+            tab["blocks"].extend(
+                tenant_output_blocks(
+                    props, result, block.get("title") or props.get("title"), budget, tenant_column, tenant_value
+                )
+            )
+            continue
         if result is None:
             tab["blocks"].append(
                 {"title": block.get("title"), "text": "Republish this app to share a verified SQL result."}
@@ -411,7 +474,7 @@ def app_output_tabs(release: NotebookAppRelease) -> list[AppOutputTab]:
             tab["blocks"].append(
                 {
                     "title": block.get("title"),
-                    "text": "Publish this chart as a table or single number to share its values.",
+                    "text": SHARE_CHART_AS_TABLE,
                 }
             )
             continue
@@ -424,6 +487,7 @@ def app_output_tabs(release: NotebookAppRelease) -> list[AppOutputTab]:
             budget.count(headings)
             budget.count([props.get("title")])
             indexes = [columns.index(column) for column in displayed]
+            partial = partial or result.get("complete") is False
             tab["blocks"].append(
                 {
                     "title": block.get("title") or props.get("title"),

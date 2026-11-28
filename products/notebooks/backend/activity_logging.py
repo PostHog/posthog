@@ -20,7 +20,7 @@ def log_notebook_activity(
     notebook: Notebook,
     organization_id: UUID,
     team_id: int,
-    user: User,
+    user: User | None,
     was_impersonated: bool,
     changes: Optional[list[Change]] = None,
     created_at: datetime | None = None,

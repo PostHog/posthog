@@ -6746,6 +6746,15 @@ export namespace Schemas {
       active_version: AppVersionContract;
     }
 
+    export interface ActiveAppEmbed {
+      embed_id: string;
+      origin: string;
+      tenant_column: string;
+      tenant_value: string;
+      revision: number;
+      expires_at: string;
+    }
+
     export interface ActiveAppViewGrant {
       recipient_uuid: string;
       email: string;
@@ -17353,6 +17362,31 @@ export namespace Schemas {
       status: string;
       created_at: string;
       updated_at: string;
+    }
+
+    export interface AppEmbedRequest {
+      /**
+         * Exact HTTPS origin that may frame the embed, without a path.
+         * @maxLength 255
+         */
+      origin: string;
+      /**
+         * String column present in each displayed SQL result that identifies the tenant.
+         * @maxLength 120
+         */
+      tenant_column: string;
+      /**
+         * Exact tenant value bound to the snapshot.
+         * @maxLength 256
+         */
+      tenant_value: string;
+      /**
+         * The displayed release to embed. Required when creating an embed.
+         * @minimum 1
+         */
+      revision?: number;
+      /** Revoke embeds for this origin, tenant column and value across all releases. */
+      revoke?: boolean;
     }
 
     export interface AppMetricSeries {

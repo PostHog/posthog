@@ -110,6 +110,25 @@ class NotebookAppViewGrant(TeamScopedRootMixin, UUIDModel):
         ]
 
 
+class NotebookAppEmbed(TeamScopedRootMixin, UUIDModel):
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
+    release = models.ForeignKey(NotebookAppRelease, on_delete=models.CASCADE, related_name="+")
+    issued_by = models.ForeignKey("posthog.User", on_delete=models.CASCADE, db_constraint=False, related_name="+")
+    origin = models.CharField(max_length=255)
+    tenant_column = models.CharField(max_length=120)
+    tenant_value = models.CharField(max_length=256)
+    verification_key = models.BinaryField()
+    snapshot = models.JSONField()
+    expires_at = models.DateTimeField(db_index=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["release", "origin", "tenant_column", "tenant_value"], name="notebook_app_embed_audience"
+            ),
+        ]
+
+
 RELATED_OBJECTS = ("group", "account")
 
 

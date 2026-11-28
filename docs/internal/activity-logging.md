@@ -16,12 +16,29 @@ Organization admins and owners can also read grants and revocations in their org
 Staff who can access a project’s audit log can read its grant records there. The organization-wide endpoint requires an admin or owner membership.
 The `system.activity_logs` SQL table omits these records.
 
+A security information and event management (SIEM) collector can follow the project audit feed directly.
+Use an `activity_log:read` credential belonging to a reader authorized to see notebook sharing records.
+
+```http
+GET /api/projects/{project_id}/advanced_activity_logs/?ordering=created_at&follow=true&schema=ocsf&scope=Notebook
+```
+
+Process each page, then save its `next` URL as the checkpoint. On the next poll, request that URL with the same credential.
+If the first page is empty and has no cursor, poll the initial URL again.
+Once the feed returns a cursor, an empty poll returns a `next` URL that the collector can continue to use.
+Deduplicate events by `metadata.uid` when retrying a page.
+Notebook grant and embed events identify `app_view_grant` and `app_embed` in `unmapped.changed_fields`.
+The source IP is in `src_endpoint.ip`, the client in `actor.app_name`, and the credential type in `unmapped.credential_type`.
+When visible to customers, the credential ID is in `actor.session.uid` for sessions or `actor.session.credential_uid` for keys.
+Each poll applies the reader’s current access and audit retention window.
+
 Activity rows show the actor, optional client tag, and time above the action summary and its target.
 Long action summaries collapse to two lines.
 Description changes include a two-line preview of the new value in normal text.
 The expand control on the right reveals the complete action, preview, and agent intent, along with the existing detail tabs.
 Diff compares the recorded values, and Raw shows the activity payload.
 Product-specific detail tabs remain the initial view when supplied by a describer.
+Signed embed changes follow the same audit and destination access rules as notebook grants. Their restricted detail retains the portal origin and tenant digest.
 Subscription ownership events show who took ownership or transferred it; transfers include the previous and new owners from the recorded change.
 Tag management records renames, merges, and unused-tag deletion.
 A merge records both names and assignment counts, plus relationship changes for items that support tag history.
