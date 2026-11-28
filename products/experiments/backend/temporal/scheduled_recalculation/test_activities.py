@@ -25,14 +25,13 @@ from products.experiments.backend.models.experiment import (
 )
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 from products.experiments.backend.recalculation.kill_switch import RECALCULATION_ENABLED_SETTING
-from products.experiments.backend.temporal.models import ScheduledRecalculationStartResult
-from products.experiments.backend.temporal.scheduled_recalculation_activities import (
+from products.experiments.backend.temporal.scheduled_recalculation.activities import (
     SKIPPED_EVENT,
     _check_experiment_exposures_sync,
     _discover_scheduled_recalculation_candidates_sync,
     _start_scheduled_recalculation_sync,
 )
-from products.experiments.backend.temporal.scheduled_recalculation_logic import (
+from products.experiments.backend.temporal.scheduled_recalculation.selection import (
     SKIP_ACTIVE_RUN,
     SKIP_DISPATCH_UNCERTAIN,
     SKIP_EXPOSURE_BACKOFF,
@@ -45,9 +44,10 @@ from products.experiments.backend.temporal.scheduled_recalculation_logic import 
     SKIP_ZERO_ROLLOUT,
     ScheduledRecalculationDiscovery,
 )
+from products.experiments.backend.temporal.scheduled_recalculation.types import ScheduledRecalculationStartResult
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
-MODULE = "products.experiments.backend.temporal.scheduled_recalculation_activities"
+MODULE = "products.experiments.backend.temporal.scheduled_recalculation.activities"
 DISPATCH = "products.experiments.backend.recalculation.admission.start_metrics_recalculation_workflow"
 
 # Unwrap the database_sync_to_async_pool decorator so the bodies run synchronously in the test
@@ -74,7 +74,7 @@ def _discover() -> ScheduledRecalculationDiscovery:
     with (
         patch(f"{MODULE}.close_old_connections"),
         patch(
-            "products.experiments.backend.temporal.scheduled_recalculation_logic.feature_enabled_or_false",
+            "products.experiments.backend.temporal.scheduled_recalculation.selection.feature_enabled_or_false",
             return_value=True,
         ),
     ):
@@ -250,7 +250,7 @@ class TestScheduledRecalculationActivities(BaseTest):
             patch(f"{MODULE}.count_total_exposures", return_value=total),
             patch(f"{MODULE}.capture_skip"),
             patch(
-                "products.experiments.backend.temporal.scheduled_recalculation_logic.get_client",
+                "products.experiments.backend.temporal.scheduled_recalculation.selection.get_client",
                 side_effect=ConnectionError("redis down"),
             ),
         ):

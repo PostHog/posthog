@@ -8,17 +8,19 @@ from temporalio.exceptions import ActivityError
 from posthog.temporal.common.base import PostHogWorkflow
 
 with temporalio.workflow.unsafe.imports_passed_through():
-    from products.experiments.backend.temporal.models import SCHEDULED_RECALCULATION_WORKFLOW_NAME
-    from products.experiments.backend.temporal.scheduled_recalculation_activities import (
+    from products.experiments.backend.temporal.scheduled_recalculation.activities import (
         check_experiment_exposures,
         discover_scheduled_recalculation_candidates,
         start_scheduled_recalculation,
         wait_for_scheduled_recalculation,
     )
-    from products.experiments.backend.temporal.scheduled_recalculation_logic import (
+    from products.experiments.backend.temporal.scheduled_recalculation.selection import (
         SKIP_DISPATCH_UNCERTAIN,
         SKIP_START_WINDOW_ELAPSED,
         ScheduledRecalculationDiscovery,
+    )
+    from products.experiments.backend.temporal.scheduled_recalculation.types import (
+        SCHEDULED_RECALCULATION_WORKFLOW_NAME,
     )
 
 MAX_CONCURRENT_EXPERIMENTS = 10

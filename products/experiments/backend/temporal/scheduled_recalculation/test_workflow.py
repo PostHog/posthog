@@ -19,16 +19,16 @@ from temporalio.worker import Replayer, UnsandboxedWorkflowRunner, Worker
 
 from products.experiments.backend.models.experiment import Experiment
 from products.experiments.backend.recalculation.runs import STALE_RECALC_THRESHOLD
-from products.experiments.backend.temporal.models import ScheduledRecalculationStartResult
-from products.experiments.backend.temporal.scheduled_recalculation_activities import (
+from products.experiments.backend.temporal.scheduled_recalculation.activities import (
     discover_scheduled_recalculation_candidates,
 )
-from products.experiments.backend.temporal.scheduled_recalculation_logic import (
+from products.experiments.backend.temporal.scheduled_recalculation.selection import (
     SKIP_DISPATCH_UNCERTAIN,
     ScheduledRecalculationCandidate,
     ScheduledRecalculationDiscovery,
 )
-from products.experiments.backend.temporal.scheduled_recalculation_workflow import (
+from products.experiments.backend.temporal.scheduled_recalculation.types import ScheduledRecalculationStartResult
+from products.experiments.backend.temporal.scheduled_recalculation.workflow import (
     RUN_START_WINDOW,
     RUN_WAIT_TIMEOUT,
     SCHEDULE_INTERVAL,
@@ -38,7 +38,7 @@ from products.experiments.backend.temporal.scheduled_recalculation_workflow impo
 )
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
-WORKFLOW_MODULE = "products.experiments.backend.temporal.scheduled_recalculation_workflow"
+WORKFLOW_MODULE = "products.experiments.backend.temporal.scheduled_recalculation.workflow"
 
 
 def _candidates(*experiment_ids: int) -> list[ScheduledRecalculationCandidate]:
@@ -136,25 +136,47 @@ async def test_every_candidate_starts(replay_legacy):
 
 @pytest.mark.asyncio
 async def test_runs_in_flight_never_exceed_the_cap():
+    cap = 3
+    total = 12
     running = 0
     peak = 0
+    started_total = 0
+    held: list[asyncio.Future[None]] = []
+    gate_timed_out = False
+
+    def cap_full_or_all_started() -> bool:
+        return running == cap or started_total == total
 
     def start(experiment_id: int) -> ScheduledRecalculationStartResult:
-        nonlocal running, peak
+        nonlocal running, peak, started_total
         running += 1
+        started_total += 1
         peak = max(peak, running)
+        if cap_full_or_all_started():
+            for future in held:
+                future.set_result(None)
+            held.clear()
         return _started(experiment_id)
 
     async def wait(recalculation_id: str) -> None:
-        nonlocal running
-        await asyncio.sleep(0.01)
+        nonlocal running, gate_timed_out
+        # Each run stays in flight until the cap is full, so a start past the cap would raise the peak.
+        if not cap_full_or_all_started():
+            future = asyncio.get_running_loop().create_future()
+            held.append(future)
+            try:
+                async with asyncio.timeout(10):
+                    await future
+            except TimeoutError:
+                gate_timed_out = True
         running -= 1
 
-    with patch(f"{WORKFLOW_MODULE}.MAX_CONCURRENT_EXPERIMENTS", 3):
-        result = await _run(lambda hour: _candidates(*range(1, 13)), lambda eid: True, start, wait=wait)
+    with patch(f"{WORKFLOW_MODULE}.MAX_CONCURRENT_EXPERIMENTS", cap):
+        result = await _run(lambda hour: _candidates(*range(1, total + 1)), lambda eid: True, start, wait=wait)
 
-    assert result["started"] == 12
-    assert peak <= 3
+    assert not gate_timed_out, "a run waited 10 seconds for the cap to fill"
+    assert result["started"] == total
+    assert peak == cap
 
 
 @pytest.mark.asyncio
@@ -299,10 +321,10 @@ class TestScheduledRecalculationWorkflowDiscovery(NonAtomicBaseTest):
 
         with (
             patch(
-                "products.experiments.backend.temporal.scheduled_recalculation_logic.feature_enabled_or_false",
+                "products.experiments.backend.temporal.scheduled_recalculation.selection.feature_enabled_or_false",
                 return_value=True,
             ),
-            patch("products.experiments.backend.temporal.scheduled_recalculation_activities.posthoganalytics"),
+            patch("products.experiments.backend.temporal.scheduled_recalculation.activities.posthoganalytics"),
         ):
             result = async_to_sync(_execute)(discover_scheduled_recalculation_candidates, exposures, lambda eid: None)
         assert checked == [candidate.id]

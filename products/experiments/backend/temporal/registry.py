@@ -17,13 +17,13 @@ from products.experiments.backend.temporal.recalculation.activities import (
     update_recalculation_progress,
 )
 from products.experiments.backend.temporal.recalculation.workflow import ExperimentMetricsRecalculationWorkflow
-from products.experiments.backend.temporal.scheduled_recalculation_activities import (
+from products.experiments.backend.temporal.scheduled_recalculation.activities import (
     check_experiment_exposures,
     discover_scheduled_recalculation_candidates,
     start_scheduled_recalculation,
     wait_for_scheduled_recalculation,
 )
-from products.experiments.backend.temporal.scheduled_recalculation_workflow import (
+from products.experiments.backend.temporal.scheduled_recalculation.workflow import (
     ScheduledExperimentRecalculationWorkflow,
 )
 from products.experiments.backend.temporal.timeseries.activities import (
