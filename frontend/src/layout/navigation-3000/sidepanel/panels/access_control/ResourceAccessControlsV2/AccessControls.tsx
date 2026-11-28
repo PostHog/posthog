@@ -9,7 +9,6 @@ import { AccessControlFilters } from './AccessControlFilters'
 import { accessControlsLogic } from './accessControlsLogic'
 import { AccessControlTabContainer } from './AccessControlTabContainer'
 import { AccessControlTable } from './AccessControlTable'
-import { GroupedAccessControlRuleModal } from './GroupedAccessControlRuleModal'
 import { getEntryId } from './helpers'
 import { QuillAccessControls } from './QuillAccessControls'
 import type { AccessControlSettingsEntry, AccessControlsTab, ScopeType } from './types'
@@ -39,12 +38,10 @@ export function AccessControls({
         loading,
         visibleResourceKeySet,
         filteredResourceKeySet,
-        accessDetailPanelEnabled,
         openDetailSubject,
-        ruleModalState,
     } = useValues(logic)
 
-    const { setActiveTab, setSearchText, setFilters, openAccessDetail, openRuleModal } = useActions(logic)
+    const { setActiveTab, setSearchText, setFilters, openAccessDetail } = useActions(logic)
     const quillSurface = useQuillSurface()
 
     const scopeType: ScopeType = activeTab === 'roles' ? 'role' : 'member'
@@ -52,10 +49,6 @@ export function AccessControls({
     const openInPanelId = openDetailSubject?.scopeType === scopeType ? openDetailSubject.subjectId : null
 
     const onEdit = (entry: AccessControlSettingsEntry): void => {
-        if (!accessDetailPanelEnabled) {
-            openRuleModal({ scopeType, entry, projectId })
-            return
-        }
         openAccessDetail(scopeType, getEntryId(entry))
     }
 
@@ -71,58 +64,54 @@ export function AccessControls({
     }
 
     return (
-        <>
-            <div className="space-y-4">
-                <LemonTabs
-                    activeKey={activeTab}
-                    onChange={setActiveTab}
-                    tabs={[
-                        { key: 'defaults' as AccessControlsTab, label: 'Defaults' },
-                        {
-                            key: 'roles' as AccessControlsTab,
-                            label: 'Roles',
-                            tooltip: !canUseRoles ? 'Requires role-based access' : undefined,
-                        },
-                        { key: 'members' as AccessControlsTab, label: 'Members' },
-                    ]}
-                    rightSlot={tabsRightSlot}
-                    rightSlotClassName="pr-0"
-                />
+        <div className="space-y-4">
+            <LemonTabs
+                activeKey={activeTab}
+                onChange={setActiveTab}
+                tabs={[
+                    { key: 'defaults' as AccessControlsTab, label: 'Defaults' },
+                    {
+                        key: 'roles' as AccessControlsTab,
+                        label: 'Roles',
+                        tooltip: !canUseRoles ? 'Requires role-based access' : undefined,
+                    },
+                    { key: 'members' as AccessControlsTab, label: 'Members' },
+                ]}
+                rightSlot={tabsRightSlot}
+                rightSlotClassName="pr-0"
+            />
 
-                <AccessControlTabContainer activeTab={activeTab}>
-                    {activeTab === 'defaults' ? (
-                        <AccessControlDefaultSettings projectId={projectId} />
-                    ) : (
-                        <div className="space-y-4">
-                            <AccessControlFilters
-                                activeTab={activeTab}
-                                searchText={searchText}
-                                setSearchText={setSearchText}
-                                filters={filters}
-                                setFilters={setFilters}
-                                roles={roles ?? []}
-                                members={allMembers}
-                                resources={resourcesWithProject}
-                                ruleOptions={ruleOptions}
-                                canUseRoles={canUseRoles}
-                            />
-                            <AccessControlTable
-                                activeTab={activeTab}
-                                entries={activeTab === 'roles' ? filteredRoles : filteredMembers}
-                                loading={loading}
-                                canEditAny={canEdit}
-                                cannotEditReason={terraformDisabledReason}
-                                visibleResources={visibleResourceKeySet}
-                                filteredResources={filteredResourceKeySet}
-                                selectedEntryId={openInPanelId}
-                                onEdit={onEdit}
-                            />
-                        </div>
-                    )}
-                </AccessControlTabContainer>
-            </div>
-
-            {ruleModalState && <GroupedAccessControlRuleModal state={ruleModalState} />}
-        </>
+            <AccessControlTabContainer activeTab={activeTab}>
+                {activeTab === 'defaults' ? (
+                    <AccessControlDefaultSettings projectId={projectId} />
+                ) : (
+                    <div className="space-y-4">
+                        <AccessControlFilters
+                            activeTab={activeTab}
+                            searchText={searchText}
+                            setSearchText={setSearchText}
+                            filters={filters}
+                            setFilters={setFilters}
+                            roles={roles ?? []}
+                            members={allMembers}
+                            resources={resourcesWithProject}
+                            ruleOptions={ruleOptions}
+                            canUseRoles={canUseRoles}
+                        />
+                        <AccessControlTable
+                            activeTab={activeTab}
+                            entries={activeTab === 'roles' ? filteredRoles : filteredMembers}
+                            loading={loading}
+                            canEditAny={canEdit}
+                            cannotEditReason={terraformDisabledReason}
+                            visibleResources={visibleResourceKeySet}
+                            filteredResources={filteredResourceKeySet}
+                            selectedEntryId={openInPanelId}
+                            onEdit={onEdit}
+                        />
+                    </div>
+                )}
+            </AccessControlTabContainer>
+        </div>
     )
 }

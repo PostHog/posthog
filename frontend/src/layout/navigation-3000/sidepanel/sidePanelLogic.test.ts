@@ -77,6 +77,18 @@ describe('sidePanelLogic', () => {
         expect(todayPanel.values.panelTabs[0]).toBe(SidePanelTab.Discussion)
     })
 
+    it.each(['project-access-control', 'environment-access-control'])(
+        'offers access details on %s without a rollout flag',
+        async (section) => {
+            featureFlagLogic.actions.setFeatureFlags([], {})
+            await navigate(`/project/997/settings/${section}`)
+            expect(logic.values.enabledTabs).toContain(SidePanelTab.AccessDetail)
+
+            await navigate(urls.settings('user'))
+            expect(logic.values.enabledTabs).not.toContain(SidePanelTab.AccessDetail)
+        }
+    )
+
     it('closes a context-bound tab when navigating to a different scene', async () => {
         sidePanelStateLogic.actions.openSidePanel(SidePanelTab.Activity)
         await navigate(urls.settings('user'))
