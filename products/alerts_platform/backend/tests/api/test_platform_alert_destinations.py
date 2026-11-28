@@ -28,6 +28,7 @@ from products.alerts_platform.backend.facade.contracts import (
     PlatformAlertConfigurationEdit,
     SourceKind,
 )
+from products.alerts_platform.backend.facade.enums import PlatformAlertState
 from products.alerts_platform.backend.models import PlatformAlertConfiguration
 from products.cdp.backend.facade.models import HogFunction
 
@@ -224,13 +225,14 @@ class TestPlatformAlertDestinations(APIBaseTest):
         with team_scope(self.team.id):
             assert list_alert_destinations(team_id=self.team.id, configuration_id=self.configuration_id) == ()
 
-    def test_a_pagerduty_destination_with_an_open_incident_cannot_be_removed(self) -> None:
+    @parameterized.expand([(PlatformAlertState.FIRING,), (PlatformAlertState.NO_DATA,)])
+    def test_a_pagerduty_destination_with_an_open_incident_cannot_be_removed(self, state: PlatformAlertState) -> None:
         created = self.client.post(
             self.url, {"type": "pagerduty", "pagerduty_routing_key": _ROUTING_KEY}, format="json"
         ).json()
         with team_scope(self.team.id):
             platform_testing.start_firing(
-                self.configuration_id, team_id=self.team.id, at=datetime(2026, 11, 5, 12, 0, tzinfo=UTC)
+                self.configuration_id, team_id=self.team.id, at=datetime(2026, 11, 5, 12, 0, tzinfo=UTC), state=state
             )
 
         refused = self.client.post(f"{self.url}delete/", {"destination_ids": [created["id"]]}, format="json")

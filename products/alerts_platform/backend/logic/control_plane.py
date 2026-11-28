@@ -103,7 +103,7 @@ def end_firings(configuration: PlatformAlertConfiguration, *, reason: str, now: 
             alert=alert,
             evaluation_key=evaluation_key,
             kind=AlertEventKind.CHECK.value,
-            previous_state=PlatformAlertState.FIRING.value,
+            previous_state=alert.state,
             state=PlatformAlertState.NOT_FIRING.value,
             # The episode the trigger named, which is the incident a resolve has to name.
             episode_started_at=alert.firing_started_at,

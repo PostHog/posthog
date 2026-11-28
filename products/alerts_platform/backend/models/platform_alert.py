@@ -227,6 +227,14 @@ class PlatformAlert(TeamScopedRootMixin, UUIDModel):
     # back into them.
     labels = models.JSONField(default=dict, db_default={})
 
+    @staticmethod
+    def inside_firing() -> models.Q:
+        """Matches the instances inside a firing, whose incident is open. A group that lost its data
+        while firing keeps its firing's start, and that firing is still open."""
+        return models.Q(state=PlatformAlertState.FIRING) | models.Q(
+            state=PlatformAlertState.NO_DATA, firing_started_at__isnull=False
+        )
+
     class Meta:
         db_table = "alerts_platformalert"
         constraints = [

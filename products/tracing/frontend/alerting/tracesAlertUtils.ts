@@ -12,7 +12,7 @@ import {
     TracesPlatformAlertConditionApi,
     TracesPlatformAlertConfigApi,
     WindowMinutesEnumApi,
-    BillingAlertConfigurationStateEnumApi as PlatformAlertStateApi,
+    PlatformAlertStateEnumApi as PlatformAlertStateApi,
 } from 'products/alerts_platform/frontend/generated/api.schemas'
 import { configurationStatus } from 'products/alerts_platform/frontend/platformAlertFormat'
 

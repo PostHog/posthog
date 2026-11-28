@@ -321,11 +321,13 @@ export const PlatformAlertsCreateBody = () => zod.union([
                 .optional()
                 .describe('How the alert splits its results into instances. Defaults to mode single.'),
             on_missing_data: zod
-                .enum(['resolve', 'keep_last_state', 'breaching'])
-                .describe('\* `resolve` - Resolve\n\* `keep_last_state` - Keep last state\n\* `breaching` - Breaching')
+                .enum(['resolve', 'keep_last_state', 'breaching', 'no_data', 'notify_no_data'])
+                .describe(
+                    '\* `resolve` - Resolve\n\* `keep_last_state` - Keep last state\n\* `breaching` - Breaching\n\* `no_data` - No data\n\* `notify_no_data` - No data, and notify'
+                )
                 .default(platformAlertsCreateBodyOneOnMissingDataDefault)
                 .describe(
-                    "What a group means once the source is sure the check did not return it. resolve counts it as not breaching. keep_last_state keeps the group's state until its data returns. breaching counts it as breaching, which suits a heartbeat alert, and needs an ungrouped alert. Metrics alerts accept every option, and other source kinds accept only resolve. Defaults to resolve.\n\n\* `resolve` - Resolve\n\* `keep_last_state` - Keep last state\n\* `breaching` - Breaching"
+                    "What a group means once the source is sure the check did not return it. resolve counts it as not breaching. keep_last_state keeps the group's state until its data returns. breaching counts it as breaching, which suits a heartbeat alert, and needs an ungrouped alert. no_data moves the group to the no_data state, and notify_no_data also sends one notification when it does. A group that was firing keeps its incident open while it has no data. Metrics alerts accept every option, and other source kinds accept only resolve. Defaults to resolve.\n\n\* `resolve` - Resolve\n\* `keep_last_state` - Keep last state\n\* `breaching` - Breaching\n\* `no_data` - No data\n\* `notify_no_data` - No data, and notify"
                 ),
             schedule_restriction: zod
                 .union([
@@ -2322,11 +2324,13 @@ export const PlatformAlertsCreateBody = () => zod.union([
                 .optional()
                 .describe('How the alert splits its results into instances. Defaults to mode single.'),
             on_missing_data: zod
-                .enum(['resolve', 'keep_last_state', 'breaching'])
-                .describe('\* `resolve` - Resolve\n\* `keep_last_state` - Keep last state\n\* `breaching` - Breaching')
+                .enum(['resolve', 'keep_last_state', 'breaching', 'no_data', 'notify_no_data'])
+                .describe(
+                    '\* `resolve` - Resolve\n\* `keep_last_state` - Keep last state\n\* `breaching` - Breaching\n\* `no_data` - No data\n\* `notify_no_data` - No data, and notify'
+                )
                 .default(platformAlertsCreateBodyTwoOnMissingDataDefault)
                 .describe(
-                    "What a group means once the source is sure the check did not return it. resolve counts it as not breaching. keep_last_state keeps the group's state until its data returns. breaching counts it as breaching, which suits a heartbeat alert, and needs an ungrouped alert. Metrics alerts accept every option, and other source kinds accept only resolve. Defaults to resolve.\n\n\* `resolve` - Resolve\n\* `keep_last_state` - Keep last state\n\* `breaching` - Breaching"
+                    "What a group means once the source is sure the check did not return it. resolve counts it as not breaching. keep_last_state keeps the group's state until its data returns. breaching counts it as breaching, which suits a heartbeat alert, and needs an ungrouped alert. no_data moves the group to the no_data state, and notify_no_data also sends one notification when it does. A group that was firing keeps its incident open while it has no data. Metrics alerts accept every option, and other source kinds accept only resolve. Defaults to resolve.\n\n\* `resolve` - Resolve\n\* `keep_last_state` - Keep last state\n\* `breaching` - Breaching\n\* `no_data` - No data\n\* `notify_no_data` - No data, and notify"
                 ),
             schedule_restriction: zod
                 .union([
@@ -2468,11 +2472,13 @@ export const PlatformAlertsCreateBody = () => zod.union([
                 .optional()
                 .describe('How the alert splits its results into instances. Defaults to mode single.'),
             on_missing_data: zod
-                .enum(['resolve', 'keep_last_state', 'breaching'])
-                .describe('\* `resolve` - Resolve\n\* `keep_last_state` - Keep last state\n\* `breaching` - Breaching')
+                .enum(['resolve', 'keep_last_state', 'breaching', 'no_data', 'notify_no_data'])
+                .describe(
+                    '\* `resolve` - Resolve\n\* `keep_last_state` - Keep last state\n\* `breaching` - Breaching\n\* `no_data` - No data\n\* `notify_no_data` - No data, and notify'
+                )
                 .default(platformAlertsCreateBodyThreeOnMissingDataDefault)
                 .describe(
-                    "What a group means once the source is sure the check did not return it. resolve counts it as not breaching. keep_last_state keeps the group's state until its data returns. breaching counts it as breaching, which suits a heartbeat alert, and needs an ungrouped alert. Metrics alerts accept every option, and other source kinds accept only resolve. Defaults to resolve.\n\n\* `resolve` - Resolve\n\* `keep_last_state` - Keep last state\n\* `breaching` - Breaching"
+                    "What a group means once the source is sure the check did not return it. resolve counts it as not breaching. keep_last_state keeps the group's state until its data returns. breaching counts it as breaching, which suits a heartbeat alert, and needs an ungrouped alert. no_data moves the group to the no_data state, and notify_no_data also sends one notification when it does. A group that was firing keeps its incident open while it has no data. Metrics alerts accept every option, and other source kinds accept only resolve. Defaults to resolve.\n\n\* `resolve` - Resolve\n\* `keep_last_state` - Keep last state\n\* `breaching` - Breaching\n\* `no_data` - No data\n\* `notify_no_data` - No data, and notify"
                 ),
             schedule_restriction: zod
                 .union([
@@ -4486,11 +4492,13 @@ export const PlatformAlertsCreateBody = () => zod.union([
                 .optional()
                 .describe('How the alert splits its results into instances. Defaults to mode single.'),
             on_missing_data: zod
-                .enum(['resolve', 'keep_last_state', 'breaching'])
-                .describe('\* `resolve` - Resolve\n\* `keep_last_state` - Keep last state\n\* `breaching` - Breaching')
+                .enum(['resolve', 'keep_last_state', 'breaching', 'no_data', 'notify_no_data'])
+                .describe(
+                    '\* `resolve` - Resolve\n\* `keep_last_state` - Keep last state\n\* `breaching` - Breaching\n\* `no_data` - No data\n\* `notify_no_data` - No data, and notify'
+                )
                 .default(platformAlertsCreateBodyFourOnMissingDataDefault)
                 .describe(
-                    "What a group means once the source is sure the check did not return it. resolve counts it as not breaching. keep_last_state keeps the group's state until its data returns. breaching counts it as breaching, which suits a heartbeat alert, and needs an ungrouped alert. Metrics alerts accept every option, and other source kinds accept only resolve. Defaults to resolve.\n\n\* `resolve` - Resolve\n\* `keep_last_state` - Keep last state\n\* `breaching` - Breaching"
+                    "What a group means once the source is sure the check did not return it. resolve counts it as not breaching. keep_last_state keeps the group's state until its data returns. breaching counts it as breaching, which suits a heartbeat alert, and needs an ungrouped alert. no_data moves the group to the no_data state, and notify_no_data also sends one notification when it does. A group that was firing keeps its incident open while it has no data. Metrics alerts accept every option, and other source kinds accept only resolve. Defaults to resolve.\n\n\* `resolve` - Resolve\n\* `keep_last_state` - Keep last state\n\* `breaching` - Breaching\n\* `no_data` - No data\n\* `notify_no_data` - No data, and notify"
                 ),
             schedule_restriction: zod
                 .union([
@@ -4622,11 +4630,13 @@ export const PlatformAlertsCreateBody = () => zod.union([
                 .optional()
                 .describe('How the alert splits its results into instances. Defaults to mode single.'),
             on_missing_data: zod
-                .enum(['resolve', 'keep_last_state', 'breaching'])
-                .describe('\* `resolve` - Resolve\n\* `keep_last_state` - Keep last state\n\* `breaching` - Breaching')
+                .enum(['resolve', 'keep_last_state', 'breaching', 'no_data', 'notify_no_data'])
+                .describe(
+                    '\* `resolve` - Resolve\n\* `keep_last_state` - Keep last state\n\* `breaching` - Breaching\n\* `no_data` - No data\n\* `notify_no_data` - No data, and notify'
+                )
                 .default(platformAlertsCreateBodyFiveOnMissingDataDefault)
                 .describe(
-                    "What a group means once the source is sure the check did not return it. resolve counts it as not breaching. keep_last_state keeps the group's state until its data returns. breaching counts it as breaching, which suits a heartbeat alert, and needs an ungrouped alert. Metrics alerts accept every option, and other source kinds accept only resolve. Defaults to resolve.\n\n\* `resolve` - Resolve\n\* `keep_last_state` - Keep last state\n\* `breaching` - Breaching"
+                    "What a group means once the source is sure the check did not return it. resolve counts it as not breaching. keep_last_state keeps the group's state until its data returns. breaching counts it as breaching, which suits a heartbeat alert, and needs an ungrouped alert. no_data moves the group to the no_data state, and notify_no_data also sends one notification when it does. A group that was firing keeps its incident open while it has no data. Metrics alerts accept every option, and other source kinds accept only resolve. Defaults to resolve.\n\n\* `resolve` - Resolve\n\* `keep_last_state` - Keep last state\n\* `breaching` - Breaching\n\* `no_data` - No data\n\* `notify_no_data` - No data, and notify"
                 ),
             schedule_restriction: zod
                 .union([
@@ -4770,11 +4780,13 @@ export const PlatformAlertsCreateBody = () => zod.union([
                 .optional()
                 .describe('How the alert splits its results into instances. Defaults to mode single.'),
             on_missing_data: zod
-                .enum(['resolve', 'keep_last_state', 'breaching'])
-                .describe('\* `resolve` - Resolve\n\* `keep_last_state` - Keep last state\n\* `breaching` - Breaching')
+                .enum(['resolve', 'keep_last_state', 'breaching', 'no_data', 'notify_no_data'])
+                .describe(
+                    '\* `resolve` - Resolve\n\* `keep_last_state` - Keep last state\n\* `breaching` - Breaching\n\* `no_data` - No data\n\* `notify_no_data` - No data, and notify'
+                )
                 .default(platformAlertsCreateBodySixOnMissingDataDefault)
                 .describe(
-                    "What a group means once the source is sure the check did not return it. resolve counts it as not breaching. keep_last_state keeps the group's state until its data returns. breaching counts it as breaching, which suits a heartbeat alert, and needs an ungrouped alert. Metrics alerts accept every option, and other source kinds accept only resolve. Defaults to resolve.\n\n\* `resolve` - Resolve\n\* `keep_last_state` - Keep last state\n\* `breaching` - Breaching"
+                    "What a group means once the source is sure the check did not return it. resolve counts it as not breaching. keep_last_state keeps the group's state until its data returns. breaching counts it as breaching, which suits a heartbeat alert, and needs an ungrouped alert. no_data moves the group to the no_data state, and notify_no_data also sends one notification when it does. A group that was firing keeps its incident open while it has no data. Metrics alerts accept every option, and other source kinds accept only resolve. Defaults to resolve.\n\n\* `resolve` - Resolve\n\* `keep_last_state` - Keep last state\n\* `breaching` - Breaching\n\* `no_data` - No data\n\* `notify_no_data` - No data, and notify"
                 ),
             schedule_restriction: zod
                 .union([
@@ -5122,11 +5134,13 @@ export const PlatformAlertsPartialUpdateBody = () => zod.union([
                 .optional()
                 .describe('How the alert splits its results into instances.'),
             on_missing_data: zod
-                .enum(['resolve', 'keep_last_state', 'breaching'])
-                .describe('\* `resolve` - Resolve\n\* `keep_last_state` - Keep last state\n\* `breaching` - Breaching')
+                .enum(['resolve', 'keep_last_state', 'breaching', 'no_data', 'notify_no_data'])
+                .describe(
+                    '\* `resolve` - Resolve\n\* `keep_last_state` - Keep last state\n\* `breaching` - Breaching\n\* `no_data` - No data\n\* `notify_no_data` - No data, and notify'
+                )
                 .optional()
                 .describe(
-                    "What a group means once the source is sure the check did not return it. resolve counts it as not breaching. keep_last_state keeps the group's state until its data returns. breaching counts it as breaching, which suits a heartbeat alert, and needs an ungrouped alert. Metrics alerts accept every option, and other source kinds accept only resolve.\n\n\* `resolve` - Resolve\n\* `keep_last_state` - Keep last state\n\* `breaching` - Breaching"
+                    "What a group means once the source is sure the check did not return it. resolve counts it as not breaching. keep_last_state keeps the group's state until its data returns. breaching counts it as breaching, which suits a heartbeat alert, and needs an ungrouped alert. no_data moves the group to the no_data state, and notify_no_data also sends one notification when it does. A group that was firing keeps its incident open while it has no data. Metrics alerts accept every option, and other source kinds accept only resolve.\n\n\* `resolve` - Resolve\n\* `keep_last_state` - Keep last state\n\* `breaching` - Breaching\n\* `no_data` - No data\n\* `notify_no_data` - No data, and notify"
                 ),
             schedule_restriction: zod
                 .union([
@@ -5338,11 +5352,13 @@ export const PlatformAlertsPartialUpdateBody = () => zod.union([
                 .optional()
                 .describe('How the alert splits its results into instances.'),
             on_missing_data: zod
-                .enum(['resolve', 'keep_last_state', 'breaching'])
-                .describe('\* `resolve` - Resolve\n\* `keep_last_state` - Keep last state\n\* `breaching` - Breaching')
+                .enum(['resolve', 'keep_last_state', 'breaching', 'no_data', 'notify_no_data'])
+                .describe(
+                    '\* `resolve` - Resolve\n\* `keep_last_state` - Keep last state\n\* `breaching` - Breaching\n\* `no_data` - No data\n\* `notify_no_data` - No data, and notify'
+                )
                 .optional()
                 .describe(
-                    "What a group means once the source is sure the check did not return it. resolve counts it as not breaching. keep_last_state keeps the group's state until its data returns. breaching counts it as breaching, which suits a heartbeat alert, and needs an ungrouped alert. Metrics alerts accept every option, and other source kinds accept only resolve.\n\n\* `resolve` - Resolve\n\* `keep_last_state` - Keep last state\n\* `breaching` - Breaching"
+                    "What a group means once the source is sure the check did not return it. resolve counts it as not breaching. keep_last_state keeps the group's state until its data returns. breaching counts it as breaching, which suits a heartbeat alert, and needs an ungrouped alert. no_data moves the group to the no_data state, and notify_no_data also sends one notification when it does. A group that was firing keeps its incident open while it has no data. Metrics alerts accept every option, and other source kinds accept only resolve.\n\n\* `resolve` - Resolve\n\* `keep_last_state` - Keep last state\n\* `breaching` - Breaching\n\* `no_data` - No data\n\* `notify_no_data` - No data, and notify"
                 ),
             schedule_restriction: zod
                 .union([
@@ -7339,11 +7355,13 @@ export const PlatformAlertsPartialUpdateBody = () => zod.union([
                 .optional()
                 .describe('How the alert splits its results into instances.'),
             on_missing_data: zod
-                .enum(['resolve', 'keep_last_state', 'breaching'])
-                .describe('\* `resolve` - Resolve\n\* `keep_last_state` - Keep last state\n\* `breaching` - Breaching')
+                .enum(['resolve', 'keep_last_state', 'breaching', 'no_data', 'notify_no_data'])
+                .describe(
+                    '\* `resolve` - Resolve\n\* `keep_last_state` - Keep last state\n\* `breaching` - Breaching\n\* `no_data` - No data\n\* `notify_no_data` - No data, and notify'
+                )
                 .optional()
                 .describe(
-                    "What a group means once the source is sure the check did not return it. resolve counts it as not breaching. keep_last_state keeps the group's state until its data returns. breaching counts it as breaching, which suits a heartbeat alert, and needs an ungrouped alert. Metrics alerts accept every option, and other source kinds accept only resolve.\n\n\* `resolve` - Resolve\n\* `keep_last_state` - Keep last state\n\* `breaching` - Breaching"
+                    "What a group means once the source is sure the check did not return it. resolve counts it as not breaching. keep_last_state keeps the group's state until its data returns. breaching counts it as breaching, which suits a heartbeat alert, and needs an ungrouped alert. no_data moves the group to the no_data state, and notify_no_data also sends one notification when it does. A group that was firing keeps its incident open while it has no data. Metrics alerts accept every option, and other source kinds accept only resolve.\n\n\* `resolve` - Resolve\n\* `keep_last_state` - Keep last state\n\* `breaching` - Breaching\n\* `no_data` - No data\n\* `notify_no_data` - No data, and notify"
                 ),
             schedule_restriction: zod
                 .union([
@@ -7485,11 +7503,13 @@ export const PlatformAlertsPartialUpdateBody = () => zod.union([
                 .optional()
                 .describe('How the alert splits its results into instances.'),
             on_missing_data: zod
-                .enum(['resolve', 'keep_last_state', 'breaching'])
-                .describe('\* `resolve` - Resolve\n\* `keep_last_state` - Keep last state\n\* `breaching` - Breaching')
+                .enum(['resolve', 'keep_last_state', 'breaching', 'no_data', 'notify_no_data'])
+                .describe(
+                    '\* `resolve` - Resolve\n\* `keep_last_state` - Keep last state\n\* `breaching` - Breaching\n\* `no_data` - No data\n\* `notify_no_data` - No data, and notify'
+                )
                 .optional()
                 .describe(
-                    "What a group means once the source is sure the check did not return it. resolve counts it as not breaching. keep_last_state keeps the group's state until its data returns. breaching counts it as breaching, which suits a heartbeat alert, and needs an ungrouped alert. Metrics alerts accept every option, and other source kinds accept only resolve.\n\n\* `resolve` - Resolve\n\* `keep_last_state` - Keep last state\n\* `breaching` - Breaching"
+                    "What a group means once the source is sure the check did not return it. resolve counts it as not breaching. keep_last_state keeps the group's state until its data returns. breaching counts it as breaching, which suits a heartbeat alert, and needs an ungrouped alert. no_data moves the group to the no_data state, and notify_no_data also sends one notification when it does. A group that was firing keeps its incident open while it has no data. Metrics alerts accept every option, and other source kinds accept only resolve.\n\n\* `resolve` - Resolve\n\* `keep_last_state` - Keep last state\n\* `breaching` - Breaching\n\* `no_data` - No data\n\* `notify_no_data` - No data, and notify"
                 ),
             schedule_restriction: zod
                 .union([
@@ -9503,11 +9523,13 @@ export const PlatformAlertsPartialUpdateBody = () => zod.union([
                 .optional()
                 .describe('How the alert splits its results into instances.'),
             on_missing_data: zod
-                .enum(['resolve', 'keep_last_state', 'breaching'])
-                .describe('\* `resolve` - Resolve\n\* `keep_last_state` - Keep last state\n\* `breaching` - Breaching')
+                .enum(['resolve', 'keep_last_state', 'breaching', 'no_data', 'notify_no_data'])
+                .describe(
+                    '\* `resolve` - Resolve\n\* `keep_last_state` - Keep last state\n\* `breaching` - Breaching\n\* `no_data` - No data\n\* `notify_no_data` - No data, and notify'
+                )
                 .optional()
                 .describe(
-                    "What a group means once the source is sure the check did not return it. resolve counts it as not breaching. keep_last_state keeps the group's state until its data returns. breaching counts it as breaching, which suits a heartbeat alert, and needs an ungrouped alert. Metrics alerts accept every option, and other source kinds accept only resolve.\n\n\* `resolve` - Resolve\n\* `keep_last_state` - Keep last state\n\* `breaching` - Breaching"
+                    "What a group means once the source is sure the check did not return it. resolve counts it as not breaching. keep_last_state keeps the group's state until its data returns. breaching counts it as breaching, which suits a heartbeat alert, and needs an ungrouped alert. no_data moves the group to the no_data state, and notify_no_data also sends one notification when it does. A group that was firing keeps its incident open while it has no data. Metrics alerts accept every option, and other source kinds accept only resolve.\n\n\* `resolve` - Resolve\n\* `keep_last_state` - Keep last state\n\* `breaching` - Breaching\n\* `no_data` - No data\n\* `notify_no_data` - No data, and notify"
                 ),
             schedule_restriction: zod
                 .union([
@@ -9639,11 +9661,13 @@ export const PlatformAlertsPartialUpdateBody = () => zod.union([
                 .optional()
                 .describe('How the alert splits its results into instances.'),
             on_missing_data: zod
-                .enum(['resolve', 'keep_last_state', 'breaching'])
-                .describe('\* `resolve` - Resolve\n\* `keep_last_state` - Keep last state\n\* `breaching` - Breaching')
+                .enum(['resolve', 'keep_last_state', 'breaching', 'no_data', 'notify_no_data'])
+                .describe(
+                    '\* `resolve` - Resolve\n\* `keep_last_state` - Keep last state\n\* `breaching` - Breaching\n\* `no_data` - No data\n\* `notify_no_data` - No data, and notify'
+                )
                 .optional()
                 .describe(
-                    "What a group means once the source is sure the check did not return it. resolve counts it as not breaching. keep_last_state keeps the group's state until its data returns. breaching counts it as breaching, which suits a heartbeat alert, and needs an ungrouped alert. Metrics alerts accept every option, and other source kinds accept only resolve.\n\n\* `resolve` - Resolve\n\* `keep_last_state` - Keep last state\n\* `breaching` - Breaching"
+                    "What a group means once the source is sure the check did not return it. resolve counts it as not breaching. keep_last_state keeps the group's state until its data returns. breaching counts it as breaching, which suits a heartbeat alert, and needs an ungrouped alert. no_data moves the group to the no_data state, and notify_no_data also sends one notification when it does. A group that was firing keeps its incident open while it has no data. Metrics alerts accept every option, and other source kinds accept only resolve.\n\n\* `resolve` - Resolve\n\* `keep_last_state` - Keep last state\n\* `breaching` - Breaching\n\* `no_data` - No data\n\* `notify_no_data` - No data, and notify"
                 ),
             schedule_restriction: zod
                 .union([
@@ -9787,11 +9811,13 @@ export const PlatformAlertsPartialUpdateBody = () => zod.union([
                 .optional()
                 .describe('How the alert splits its results into instances.'),
             on_missing_data: zod
-                .enum(['resolve', 'keep_last_state', 'breaching'])
-                .describe('\* `resolve` - Resolve\n\* `keep_last_state` - Keep last state\n\* `breaching` - Breaching')
+                .enum(['resolve', 'keep_last_state', 'breaching', 'no_data', 'notify_no_data'])
+                .describe(
+                    '\* `resolve` - Resolve\n\* `keep_last_state` - Keep last state\n\* `breaching` - Breaching\n\* `no_data` - No data\n\* `notify_no_data` - No data, and notify'
+                )
                 .optional()
                 .describe(
-                    "What a group means once the source is sure the check did not return it. resolve counts it as not breaching. keep_last_state keeps the group's state until its data returns. breaching counts it as breaching, which suits a heartbeat alert, and needs an ungrouped alert. Metrics alerts accept every option, and other source kinds accept only resolve.\n\n\* `resolve` - Resolve\n\* `keep_last_state` - Keep last state\n\* `breaching` - Breaching"
+                    "What a group means once the source is sure the check did not return it. resolve counts it as not breaching. keep_last_state keeps the group's state until its data returns. breaching counts it as breaching, which suits a heartbeat alert, and needs an ungrouped alert. no_data moves the group to the no_data state, and notify_no_data also sends one notification when it does. A group that was firing keeps its incident open while it has no data. Metrics alerts accept every option, and other source kinds accept only resolve.\n\n\* `resolve` - Resolve\n\* `keep_last_state` - Keep last state\n\* `breaching` - Breaching\n\* `no_data` - No data\n\* `notify_no_data` - No data, and notify"
                 ),
             schedule_restriction: zod
                 .union([

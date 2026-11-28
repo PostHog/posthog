@@ -140,10 +140,18 @@ class TestDeliverRoutes(APIBaseTest):
                 MessageDetail(label="runbook", value="https://example.com/runbook"),
             )
 
-    def test_a_verdict_follow_up_reaches_the_routes_that_hear_the_alert_fire(self) -> None:
+    @parameterized.expand(
+        [
+            ("no_data", AlertEventKind.NO_DATA, "$metrics_alert_no_data"),
+            ("verdict_follow_up", AlertEventKind.VERDICT_CHANGED, "$logs_alert_firing"),
+        ]
+    )
+    def test_a_firing_kind_reaches_the_routes_that_hear_the_alert_fire(
+        self, _name: str, kind: AlertEventKind, event_id: str
+    ) -> None:
         self._deliver(
-            transitions=(_transition(AlertEventKind.VERDICT_CHANGED),),
-            event_ids_by_kind={"verdict_changed": "$logs_alert_firing"},
+            transitions=(_transition(kind),),
+            event_ids_by_kind={kind.value: event_id},
         )
 
         assert [channel for channel, _ in RecordingTransport.sends] == ["C-infra", "C-all"]

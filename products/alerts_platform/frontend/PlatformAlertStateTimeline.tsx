@@ -8,7 +8,7 @@ import { cn } from 'lib/utils/css-classes'
 import { shortTimeZone } from 'lib/utils/timezones'
 
 import {
-    BillingAlertConfigurationStateEnumApi as PlatformAlertStateApi,
+    PlatformAlertStateEnumApi as PlatformAlertStateApi,
     PlatformAlertStateIntervalApi,
 } from './generated/api.schemas'
 import { STATUS_LABELS } from './platformAlertFormat'
@@ -40,6 +40,7 @@ const STATE_LABELS: Record<TimelineState, string> = { ...STATUS_LABELS, pending_
 const STATE_BG: Record<TimelineState, string> = {
     [PlatformAlertStateApi.NotFiring]: 'bg-success',
     [PlatformAlertStateApi.Firing]: 'bg-danger',
+    [PlatformAlertStateApi.NoData]: 'bg-warning-dark',
     pending_resolve: 'bg-warning',
     [PlatformAlertStateApi.Errored]: 'bg-warning',
     [PlatformAlertStateApi.Snoozed]: 'bg-muted',
@@ -57,6 +58,7 @@ function bgForInterval(state: TimelineState, enabled: boolean): string {
 const QUILL_STATE_BG: Record<TimelineState, string> = {
     [PlatformAlertStateApi.NotFiring]: 'bg-success-foreground',
     [PlatformAlertStateApi.Firing]: 'bg-destructive-foreground',
+    [PlatformAlertStateApi.NoData]: 'bg-muted-foreground',
     pending_resolve: 'bg-warning-foreground',
     [PlatformAlertStateApi.Errored]: 'bg-warning-foreground',
     [PlatformAlertStateApi.Snoozed]: 'bg-muted-foreground',

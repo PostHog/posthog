@@ -155,6 +155,8 @@ class GroupObservation:
     value: float | None = None
     labels: dict[str, str] = field(default_factory=dict)
     prior_missing: tuple[bool, ...] = ()
+    # The alert treats the group's missing data as its own state, so `current_breached` says nothing.
+    no_data: bool = False
 
 
 @frozen
@@ -211,15 +213,24 @@ def not_breaching(grouping_key: str) -> GroupObservation:
     return GroupObservation(grouping_key=grouping_key, current_breached=False)
 
 
+_NO_DATA_OPTIONS: Final = frozenset({OnMissingData.NO_DATA, OnMissingData.NOTIFY_NO_DATA})
+_JUDGES_EMPTY_UNGROUPED: Final = frozenset({OnMissingData.BREACHING, *_NO_DATA_OPTIONS})
+
+
 def _missing_keys(check: PlatformAlertCheckInput) -> list[str]:
     """The groups a check judges when it does not return them.
 
     Under Breaching, an ungrouped alert's one group is judged even with no open instance, because an
-    empty result is exactly what a heartbeat alert fires on.
+    empty result is exactly what a heartbeat alert fires on. Under the no-data options a healthy group
+    that stops reporting moves to NO_DATA too, so every group with an instance is judged. A group the
+    platform no longer tracks cannot be.
     """
-    keys = check.open_keys()
+    if check.on_missing_data in _NO_DATA_OPTIONS:
+        keys = [instance.grouping_key for instance in check.instances]
+    else:
+        keys = check.open_keys()
     if (
-        check.on_missing_data == OnMissingData.BREACHING
+        check.on_missing_data in _JUDGES_EMPTY_UNGROUPED
         and check.grouping.mode == GroupingMode.SINGLE
         and "" not in keys
     ):
@@ -252,6 +263,15 @@ def _decided_nothing(outcome: AlertCheckOutcome) -> bool:
     )
 
 
+def _stayed_in_no_data(snapshot: AlertSnapshot, outcome: AlertCheckOutcome) -> bool:
+    return (
+        snapshot.state == AlertState.NO_DATA
+        and outcome.new_state == AlertState.NO_DATA
+        and outcome.notification == NotificationAction.NONE
+        and outcome.muted_notification == NotificationAction.NONE
+    )
+
+
 def decide_groups(
     check: PlatformAlertCheckInput,
     observations: Sequence[GroupObservation],
@@ -264,7 +284,9 @@ def decide_groups(
 ) -> GroupDecision:
     """Each observed group run through the machine against its own instance.
 
-    A new group that decided nothing is left out, so a quiet group costs no row. An open group the
+    A new group that decided nothing is left out, so a quiet group costs no row. A missing group that
+    stays in NO_DATA is left out too, so it is not seen again, its `last_seen_at` ages, and a dead
+    group gives up its slot to eviction and the reaper. An open group the
     check did not return is judged through `absent`, as not breaching unless a source says what it
     measured, so a group that vanished resolves. `absent` returns None for a group the source cannot
     judge from its absence yet, which holds it whatever the alert's `on_missing_data` says. Only an
@@ -277,6 +299,7 @@ def decide_groups(
         kept = by_key.get(observation.grouping_key)
         if kept is None or (observation.current_breached and not kept.current_breached):
             by_key[observation.grouping_key] = observation
+    judged_missing: set[str] = set()
     for key in _missing_keys(check):
         if key in by_key or (missing := absent(key)) is None:
             continue
@@ -284,16 +307,29 @@ def decide_groups(
             continue
         if check.on_missing_data == OnMissingData.BREACHING:
             missing = replace(missing, current_breached=True)
+        elif check.on_missing_data in _NO_DATA_OPTIONS:
+            missing = replace(missing, no_data=True)
         by_key[key] = missing
+        judged_missing.add(key)
     if check.on_missing_data == OnMissingData.BREACHING:
         by_key = {key: _missing_as_breaching(observation) for key, observation in by_key.items()}
     judged: list[tuple[GroupObservation, AlertSnapshot, AlertCheckOutcome]] = []
     for observation in by_key.values():
         snapshot = snapshot_of(check.instance(observation.grouping_key), observation.prior_breached)
         outcome = evaluate_alert_check(
-            snapshot, CheckInput(threshold_breached=observation.current_breached, muted=muted), now, policy=policy
+            snapshot,
+            CheckInput(
+                threshold_breached=observation.current_breached,
+                muted=muted,
+                no_data=observation.no_data,
+                notify_no_data=check.on_missing_data == OnMissingData.NOTIFY_NO_DATA,
+            ),
+            now,
+            policy=policy,
         )
         if observation.grouping_key not in existing and _decided_nothing(outcome):
+            continue
+        if observation.grouping_key in judged_missing and _stayed_in_no_data(snapshot, outcome):
             continue
         judged.append((observation, snapshot, outcome))
 

@@ -14,6 +14,7 @@ EVENT_IDS_BY_KIND: Final[dict[str, str]] = {
     AlertEventKind.RESOLVED.value: "$metrics_alert_resolved",
     AlertEventKind.ERRORED.value: "$metrics_alert_errored",
     AlertEventKind.BROKEN.value: "$metrics_alert_broken",
+    AlertEventKind.NO_DATA.value: "$metrics_alert_no_data",
 }
 
 # The event id each incident action travels under. An incident follows every move into and out of

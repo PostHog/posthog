@@ -29,7 +29,7 @@ from products.alerts_platform.backend.facade.contracts import (
     SourceKind,
     StoredAlertDestination,
 )
-from products.alerts_platform.backend.facade.enums import PlatformAlertOwner, PlatformAlertState
+from products.alerts_platform.backend.facade.enums import PlatformAlertOwner
 from products.alerts_platform.backend.logic import source_configs
 from products.alerts_platform.backend.models import AlertDestination, PlatformAlert, PlatformAlertConfiguration
 
@@ -600,7 +600,7 @@ def has_firing_instance(*, team_id: int, public_id: UUID) -> bool:
     broken check leaves the firing, and the incident it opened, in place."""
     return (
         PlatformAlert.objects.for_team(team_id)
-        .filter(configuration__in=_configurations_by_public_id(team_id, public_id), state=PlatformAlertState.FIRING)
+        .filter(PlatformAlert.inside_firing(), configuration__in=_configurations_by_public_id(team_id, public_id))
         .exists()
     )
 

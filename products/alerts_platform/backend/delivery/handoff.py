@@ -32,7 +32,6 @@ from products.alerts_platform.backend.facade.contracts import (
     IncidentAction,
     MessageLink,
 )
-from products.alerts_platform.backend.facade.enums import PlatformAlertState
 from products.alerts_platform.backend.logic import delivery_holds, destination_handoff
 from products.alerts_platform.backend.logic.alert_destinations import INCIDENT_DESTINATION_TYPES
 from products.alerts_platform.backend.logic.platform_alert_events import opening_transitions
@@ -83,7 +82,7 @@ def send_handoff(request: AlertDeliveryRequest, targets: Sequence[HandoffTarget]
     still_firing = {
         (grouping_key, started_at)
         for grouping_key, started_at in PlatformAlert.objects.for_team(request.team_id)
-        .filter(configuration_id=request.configuration_id, state=PlatformAlertState.FIRING)
+        .filter(PlatformAlert.inside_firing(), configuration_id=request.configuration_id)
         .values_list("grouping_key", "firing_started_at")
     }
     current = destination_handoff.current_addresses(

@@ -100,7 +100,9 @@ RULE_ANNOTATIONS_HELP = (
 ON_MISSING_DATA_HELP = (
     "What a group means once the source is sure the check did not return it. resolve counts it as not "
     "breaching. keep_last_state keeps the group's state until its data returns. breaching counts it as "
-    "breaching, which suits a heartbeat alert, and needs an ungrouped alert. Metrics alerts accept every "
+    "breaching, which suits a heartbeat alert, and needs an ungrouped alert. no_data moves the group to the "
+    "no_data state, and notify_no_data also sends one notification when it does. A group that was firing "
+    "keeps its incident open while it has no data. Metrics alerts accept every "
     "option, and other source kinds accept only resolve."
 )
 
@@ -1240,7 +1242,9 @@ class PlatformAlertConfigurationViewSet(TeamAndOrgViewSetMixin, viewsets.Generic
         destination_ids: list[UUID] = serializer.validated_data["destination_ids"]
         # The resolve for an open incident goes to the destinations that remain when the firing ends,
         # so a removed incident manager would keep its incident open for good.
-        if any(alert.state == PlatformAlertState.FIRING.value for alert in configuration.alerts) and any(
+        if platform_api.has_firing_instance(
+            team_id=self._canonical_team_id(), public_id=configuration.destination_alert_id
+        ) and any(
             destination.id in destination_ids
             and destination.enabled
             and destination.data["type"] == DestinationType.PAGERDUTY

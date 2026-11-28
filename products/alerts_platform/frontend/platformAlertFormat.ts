@@ -4,7 +4,7 @@ import { urls } from 'scenes/urls'
 import { FileSystemIconType } from '~/queries/schema/schema-general'
 
 import {
-    BillingAlertConfigurationStateEnumApi as PlatformAlertStateApi,
+    PlatformAlertStateEnumApi as PlatformAlertStateApi,
     CalendarUnitEnumApi,
     GroupingModeEnumApi,
     PlatformAlertApi,
@@ -18,6 +18,7 @@ export type PlatformAlertConfigurationStatus = PlatformAlertStateApi | 'disabled
 export const STATUS_LABELS: Record<PlatformAlertConfigurationStatus, string> = {
     not_firing: 'OK',
     firing: 'Firing',
+    no_data: 'No data',
     errored: 'Errored',
     snoozed: 'Snoozed',
     broken: 'Broken',
@@ -84,6 +85,7 @@ const STATE_PRIORITY: PlatformAlertStateApi[] = [
     PlatformAlertStateApi.Broken,
     PlatformAlertStateApi.Errored,
     PlatformAlertStateApi.Firing,
+    PlatformAlertStateApi.NoData,
     PlatformAlertStateApi.Snoozed,
     PlatformAlertStateApi.NotFiring,
 ]

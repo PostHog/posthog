@@ -212,14 +212,18 @@ class InstanceCheckState:
     snooze_until: datetime | None = None
     firing_started_at: datetime | None = None
     last_seen_at: datetime | None = None
-    # A failing check status replaces the state, so this keeps whether the row still holds a firing.
+    # A failing check status replaces the state, so these keep whether the row still holds a firing,
+    # and whether it had no data before the check failed.
     failed_while_firing: bool = False
+    failed_without_data: bool = False
 
     def at_rest(self, now: datetime) -> bool:
-        """Holds a slot and nothing else: not firing, failing or muted."""
-        return self.state == PlatformAlertState.NOT_FIRING.value and (
-            self.snooze_until is None or self.snooze_until <= now
+        """Holds a slot and nothing else: not firing, failing or muted. A group with no data that was
+        not firing counts too, so groups that stop reporting for good do not fill `max_instances`."""
+        resting = self.state == PlatformAlertState.NOT_FIRING.value or (
+            self.state == PlatformAlertState.NO_DATA.value and self.firing_started_at is None
         )
+        return resting and (self.snooze_until is None or self.snooze_until <= now)
 
     @classmethod
     def composed(
@@ -242,6 +246,8 @@ class InstanceCheckState:
         records and what a reader sees cannot drift apart.
         """
         snoozes = [moment for moment in (configuration_snooze_until, snooze_until) if moment is not None]
+        failing = check_status != PlatformAlertCheckStatus.OK
+        no_data = state == PlatformAlertState.NO_DATA.value
         return cls(
             grouping_key=grouping_key,
             state=state if check_status == PlatformAlertCheckStatus.OK else check_status,
@@ -249,8 +255,10 @@ class InstanceCheckState:
             snooze_until=max(snoozes, default=None),
             firing_started_at=firing_started_at,
             last_seen_at=last_seen_at,
-            failed_while_firing=check_status != PlatformAlertCheckStatus.OK
-            and state == PlatformAlertState.FIRING.value,
+            # A group with no data that was firing still holds that firing while the check fails.
+            failed_while_firing=failing
+            and (state == PlatformAlertState.FIRING.value or (no_data and firing_started_at is not None)),
+            failed_without_data=failing and no_data,
         )
 
 
@@ -757,14 +765,19 @@ class AlertEventKind(StrEnum):
     RESOLVED = "resolved"
     ERRORED = "errored"
     BROKEN = "broken"
+    NO_DATA = "no_data"
     # A follow-up about a firing that already went out. History readers leave it out of the checks.
     VERDICT_CHANGED = "verdict_changed"
 
     @property
     def delivered_as(self) -> AlertEventKind:
         """The kind a destination hears this as. No destination can list a follow-up, so a follow-up
-        reaches the destinations of the firing it follows, the way that firing did."""
-        return AlertEventKind.FIRING if self is AlertEventKind.VERDICT_CHANGED else self
+        reaches the destinations of the firing it follows, the way that firing did. No destination
+        lists no data either: only an alert that chose to notify on it announces it, so it reaches
+        the destinations that hear the alert fire."""
+        if self in (AlertEventKind.VERDICT_CHANGED, AlertEventKind.NO_DATA):
+            return AlertEventKind.FIRING
+        return self
 
 
 @frozen

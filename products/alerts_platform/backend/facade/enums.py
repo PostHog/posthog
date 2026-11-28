@@ -43,6 +43,9 @@ class PlatformAlertState(LabeledStrEnum):
 
     NOT_FIRING = "not_firing", "Not firing"
     FIRING = "firing", "Firing"
+    # The source is sure the group's data is missing. `firing_started_at` stays set when the group
+    # was firing, so its incident stays open until the data says how the firing ended.
+    NO_DATA = "no_data", "No data"
     ERRORED = "errored", "Errored"
     SNOOZED = "snoozed", "Snoozed"
     BROKEN = "broken", "Broken"
@@ -58,6 +61,8 @@ class OnMissingData(LabeledStrEnum):
     RESOLVE = "resolve", "Resolve"
     KEEP_LAST_STATE = "keep_last_state", "Keep last state"
     BREACHING = "breaching", "Breaching"
+    NO_DATA = "no_data", "No data"
+    NOTIFY_NO_DATA = "notify_no_data", "No data, and notify"
 
 
 class PlatformAlertCheckStatus(LabeledStrEnum):

@@ -149,7 +149,10 @@ def _alerts_for_write(
 
 def _at_rest(now: datetime) -> Q:
     """Rows that hold a slot and nothing else, as `InstanceCheckState.at_rest` reads an instance."""
-    return Q(state=PlatformAlert.State.NOT_FIRING) & (Q(snooze_until__isnull=True) | Q(snooze_until__lte=now))
+    resting = Q(state=PlatformAlert.State.NOT_FIRING) | Q(
+        state=PlatformAlert.State.NO_DATA, firing_started_at__isnull=True
+    )
+    return resting & (Q(snooze_until__isnull=True) | Q(snooze_until__lte=now))
 
 
 # Long enough that a group which resolves and fires again inside a day keeps its cooldown.
@@ -564,6 +567,7 @@ def _without_stale_groups(
 _HELD_BY_MUTE: Final = {
     AlertEventKind.FIRING: NotificationAction.FIRE.value,
     AlertEventKind.RESOLVED: NotificationAction.RESOLVE.value,
+    AlertEventKind.NO_DATA: NotificationAction.NO_DATA.value,
 }
 
 
@@ -574,13 +578,15 @@ def _held_by_mute(
 
     A check reads the mute when it starts, so a snooze set while it runs reaches only this write.
     Held the way the machine holds a muted announcement: the state and the firing still move,
-    and `last_notified_at` stays behind, so a held fire goes out once the mute ends.
+    and `last_notified_at` stays behind, so a held fire goes out once the mute ends. A move into
+    NO_DATA is held whole, as the machine holds it, because nothing would announce it later.
     """
     held = _HELD_BY_MUTE.get(group.kind)
     snooze_until = _composed(configuration, alert).snooze_until
     if held is None or snooze_until is None or snooze_until <= now:
         return group
-    return replace(group, kind=AlertEventKind.CHECK, notified=False, muted_notification=held)
+    new_state = alert.state if group.kind == AlertEventKind.NO_DATA else group.new_state
+    return replace(group, kind=AlertEventKind.CHECK, notified=False, muted_notification=held, new_state=new_state)
 
 
 def record_outcomes(team_id: int, outcomes: Sequence[PlatformAlertOutcome], now: datetime) -> int:
@@ -997,7 +1003,7 @@ def end_firing_instances(configuration: PlatformAlertConfiguration, *, now: date
     records nothing. Otherwise it would write back the firing this just ended, with no incident open.
     """
     instances = PlatformAlert.objects.for_team(configuration.team_id, canonical=True).filter(
-        configuration=configuration, state=PlatformAlertState.FIRING
+        PlatformAlert.inside_firing(), configuration=configuration
     )
     firing = list(instances)
     if firing:

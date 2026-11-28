@@ -1,4 +1,12 @@
-import { IconBug, IconCheckCircle, IconCircleDashed, IconClock, IconPause, IconXCircle } from '@posthog/icons'
+import {
+    IconBug,
+    IconCheckCircle,
+    IconCircleDashed,
+    IconClock,
+    IconPause,
+    IconWarning,
+    IconXCircle,
+} from '@posthog/icons'
 
 import { IconErrorOutline } from 'lib/lemon-ui/icons'
 
@@ -7,6 +15,7 @@ import { PlatformAlertConfigurationStatus, STATUS_LABELS } from './platformAlert
 const STATUS_ICONS: Record<PlatformAlertConfigurationStatus, JSX.Element> = {
     not_firing: <IconCheckCircle className="text-success" />,
     firing: <IconErrorOutline className="text-danger" />,
+    no_data: <IconWarning className="text-warning" />,
     errored: <IconXCircle className="text-warning" />,
     broken: <IconBug className="text-warning" />,
     snoozed: <IconClock className="text-muted" />,

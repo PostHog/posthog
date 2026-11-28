@@ -1,5 +1,5 @@
 import {
-    BillingAlertConfigurationStateEnumApi as PlatformAlertStateApi,
+    PlatformAlertStateEnumApi as PlatformAlertStateApi,
     CalendarUnitEnumApi,
     PlatformAlertApi,
     PlatformAlertConfigurationApi,

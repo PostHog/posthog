@@ -26,7 +26,13 @@ from products.alerts_platform.backend.facade.contracts import (
     SourceCorrespondence,
     SourceKind,
 )
-from products.alerts_platform.backend.facade.enums import HoldRelease, HoldReleasedBy, PlatformAlertOwner
+from products.alerts_platform.backend.facade.enums import (
+    HoldRelease,
+    HoldReleasedBy,
+    OnMissingData,
+    PlatformAlertOwner,
+    PlatformAlertState,
+)
 from products.alerts_platform.backend.logic.platform_alert_events import PlatformAlertEventRow, insert_events
 from products.alerts_platform.backend.logic.platform_reads import instance_view
 from products.alerts_platform.backend.models import (
@@ -156,8 +162,10 @@ def start_firing(
     delivered_via: DeliveryPath | None = None,
     sent_natively: bool = False,
     grouping_key: str = "",
+    state: PlatformAlertState = PlatformAlertState.FIRING,
 ) -> None:
-    """Put a configuration's instance inside a firing, as live delivery can leave one.
+    """Put a configuration's instance inside a firing, as live delivery can leave one. A `no_data`
+    state is a firing group that lost its data, whose incident is still open.
 
     With `delivered_via`, the firing's first delivery took that path, so its resolve takes it too.
     With `sent_natively`, a native transport sent the firing, as live delivery does for an alert
@@ -167,7 +175,7 @@ def start_firing(
         team_id=team_id,
         configuration_id=configuration_id,
         grouping_key=grouping_key,
-        defaults={"state": "firing", "firing_started_at": at},
+        defaults={"state": state.value, "firing_started_at": at},
     )
     if delivered_via is not None:
         PlatformAlertDeliveryPath.objects.for_team(team_id).create(
@@ -226,6 +234,12 @@ def set_evaluation_window(configuration_id: UUID, *, periods: int, datapoints: i
     PlatformAlertConfiguration.objects.filter(id=configuration_id).update(
         evaluation_periods=periods, datapoints_to_alarm=datapoints
     )
+
+
+def set_on_missing_data(configuration_id: UUID, on_missing_data: OnMissingData) -> None:
+    """Set what a missing group means, without the source's validation. The caller holds the team scope."""
+    # nosemgrep: idor-lookup-without-team — fail-closed model; the caller holds the team scope
+    PlatformAlertConfiguration.objects.filter(id=configuration_id).update(on_missing_data=on_missing_data.value)
 
 
 def set_source_config(configuration_id: UUID, source_config: dict[str, Any]) -> None:
