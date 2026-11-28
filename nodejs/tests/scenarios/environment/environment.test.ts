@@ -40,6 +40,7 @@ import {
     MODES_WITHOUT_A_ROLE,
     ROLE_PORTS,
     Role,
+    attachmentStoreUpstreamOf,
     configHashOf,
     consumerGroupsOf,
     fetchRetriesOf,
@@ -359,6 +360,37 @@ describe('scenario environment', () => {
         expect(error).toMatchObject({ exitCode: 2 })
         expect(error.message).toContain('Run `kill 41 42`, then run the scenario again.')
     })
+
+    it.each<[string, NodeJS.ProcessEnv, Record<string, string>, string]>([
+        ['nothing names a store, as on a cloud launcher', {}, {}, 'http://localhost:19000'],
+        [
+            'the environment names one',
+            { CDP_EMAIL_ATTACHMENTS_S3_ENDPOINT: 'http://env.example' },
+            {},
+            'http://env.example',
+        ],
+        [
+            'the profile names one over the environment',
+            { CDP_EMAIL_ATTACHMENTS_S3_ENDPOINT: 'http://env.example' },
+            { CDP_EMAIL_ATTACHMENTS_S3_ENDPOINT: 'http://profile.example' },
+            'http://profile.example',
+        ],
+    ])(
+        'puts the S3 edge in front of the store when %s, outside a dev or test environment',
+        (_, base, settings, store) => {
+            const { NODE_ENV, DEBUG } = process.env
+            process.env.NODE_ENV = 'production'
+            delete process.env.DEBUG
+            try {
+                expect(attachmentStoreUpstreamOf(base, settings)).toBe(store)
+            } finally {
+                process.env.NODE_ENV = NODE_ENV
+                if (DEBUG !== undefined) {
+                    process.env.DEBUG = DEBUG
+                }
+            }
+        }
+    )
 
     describe('roleSpecs', () => {
         const base = {

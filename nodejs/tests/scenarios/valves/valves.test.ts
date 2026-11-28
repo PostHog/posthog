@@ -1071,10 +1071,12 @@ describe('valves', () => {
 
             const first = await failedIn(6, keys)
             const reordered = await failedIn(6, [...keys].reverse())
+            const otherSeed = await failedIn(7, keys)
 
             expect(first.length).toBeGreaterThan(0)
             expect(first.length).toBeLessThan(keys.length)
             expect(reordered).toEqual(first)
+            expect(otherSeed).not.toEqual(first)
         })
 
         it.each<[boolean, (number | string | undefined)[][]]>([
