@@ -203,7 +203,17 @@ pub struct Config {
     #[envconfig(default = "250")]
     pub global_rate_limit_write_timeout_ms: u64,
 
-    // --- Token-only limiter config (not currently used in production, retained for new_token()) ---
+    // --- Token-only limiter config ---
+    /// Builds the per-token limiter. Independent of `global_rate_limit_enabled`, which builds
+    /// only the per-(token, distinct_id) one.
+    #[envconfig(default = "false")]
+    pub global_rate_limit_token_enabled: bool,
+
+    /// Evaluate the per-token limiter without enforcing it. On by default, so enabling the
+    /// limiter starts a dry run; `global_rate_limit_dry_run` also forces one.
+    #[envconfig(default = "true")]
+    pub global_rate_limit_token_dry_run: bool,
+
     /// Per-token rate limit threshold per window interval
     /// Note: default is too high to trigger limiting in production
     #[envconfig(default = "5000000")]
@@ -233,7 +243,7 @@ pub struct Config {
     /// `redis_connection_timeout_ms`; ignored unless `global_rate_limit_redis_url` is set.
     pub global_rate_limit_redis_connection_timeout_ms: Option<u64>,
 
-    /// Redis clusters the per-(token, distinct_id) limiter shards its keys across: `1` uses
+    /// Redis clusters the per-(token, distinct_id) and per-token limiters shard their keys across: `1` uses
     /// `global_rate_limit_redis_url` only, `2` adds the shard 1 URLs. The AI byte limiter always uses the first.
     #[envconfig(default = "1")]
     pub global_rate_limit_redis_shards: usize,

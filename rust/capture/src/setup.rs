@@ -165,8 +165,9 @@ pub async fn build_components(
     );
 
     // With GLOBAL_RATE_LIMIT_REDIS_URL set, each limiter gets its own client so a slow
-    // drain on one cannot eat the other's timeout budget; without it, both share the main client.
-    // Only the per-(token, distinct_id) limiter shards across GLOBAL_RATE_LIMIT_REDIS_SHARDS clusters.
+    // drain on one cannot eat another's timeout budget; without it, all share the main client.
+    // The per-(token, distinct_id) and per-token limiters shard across
+    // GLOBAL_RATE_LIMIT_REDIS_SHARDS clusters; the AI byte limiter does not.
     let ai_byte_limit_enabled = ai_byte_limit_per_second(&config) > 0;
     let rate_limiter_redis = if config.global_rate_limit_enabled {
         Some(
@@ -196,6 +197,9 @@ pub async fn build_components(
                 .expect("failed to create global rate limiter"),
         )
     });
+    let global_rate_limiter_token = token_rate_limiter(&config, redis_client.clone())
+        .await
+        .expect("failed to create per-token global rate limiter");
 
     // add new "scoped" quota limiters here as new quota tracking buckets are added
     // to PostHog! Here a "scoped" limiter is one that should be INDEPENDENT of the
@@ -362,6 +366,7 @@ pub async fn build_components(
         outputs,
         redis_client,
         global_rate_limiter_token_distinctid,
+        global_rate_limiter_token,
         quota_limiter,
         token_dropper,
         event_restriction_service.clone(),
@@ -430,6 +435,21 @@ fn ai_byte_limit_per_second(config: &Config) -> u64 {
         return 0;
     }
     config.ai_byte_limit_per_second
+}
+
+/// The per-token limiter, or `None` unless `GLOBAL_RATE_LIMIT_TOKEN_ENABLED`
+/// is set. It opens its own Redis clients rather than reuse the
+/// per-(token, distinct_id) limiter's, so neither limiter's slow drain uses
+/// the other's timeout budget.
+async fn token_rate_limiter(
+    config: &Config,
+    shared_redis: Arc<dyn common_redis::Client + Send + Sync>,
+) -> anyhow::Result<Option<Arc<GlobalRateLimiter>>> {
+    if !config.global_rate_limit_token_enabled {
+        return Ok(None);
+    }
+    let redis = GlobalRateLimiter::build_redis_shards(config, shared_redis).await?;
+    Ok(Some(Arc::new(GlobalRateLimiter::new_token(config, redis)?)))
 }
 
 /// Warns when the per-event ceiling is at or above what the producer will
@@ -1022,6 +1042,7 @@ mod tests {
     #[rstest]
     #[case::ai_bytes(GlobalRateLimiter::new_ai_bytes)]
     #[case::token_distinct_id(GlobalRateLimiter::new_token_distinct_id)]
+    #[case::token(GlobalRateLimiter::new_token)]
     fn limiters_reject_a_zero_window(#[case] build: LimiterBuilder) {
         let cfg_env: HashMap<String, String> = [
             ("REDIS_URL", "redis://localhost:6379/"),
@@ -1048,6 +1069,52 @@ mod tests {
                 .contains("GLOBAL_RATE_LIMIT_WINDOW_INTERVAL_SECS"),
             "the error must name the offending setting, got: {err}"
         );
+    }
+
+    #[rstest]
+    #[case::off_by_default(&[], None)]
+    #[case::not_built_by_the_distinct_id_flag(&[("GLOBAL_RATE_LIMIT_ENABLED", "true")], None)]
+    #[case::enabling_starts_a_dry_run(&[("GLOBAL_RATE_LIMIT_TOKEN_ENABLED", "true")], Some(true))]
+    #[case::enforces_once_its_dry_run_is_off(
+        &[
+            ("GLOBAL_RATE_LIMIT_TOKEN_ENABLED", "true"),
+            ("GLOBAL_RATE_LIMIT_TOKEN_DRY_RUN", "false"),
+        ],
+        Some(false),
+    )]
+    #[case::shared_dry_run_still_applies(
+        &[
+            ("GLOBAL_RATE_LIMIT_TOKEN_ENABLED", "true"),
+            ("GLOBAL_RATE_LIMIT_TOKEN_DRY_RUN", "false"),
+            ("GLOBAL_RATE_LIMIT_DRY_RUN", "true"),
+        ],
+        Some(true),
+    )]
+    #[tokio::test]
+    async fn token_rate_limiter_follows_its_own_flags(
+        #[case] env: &[(&str, &str)],
+        #[case] expected_dry_run: Option<bool>,
+    ) {
+        let cfg_env: HashMap<String, String> = [
+            ("REDIS_URL", "redis://localhost:6379/"),
+            ("CAPTURE_MODE", "events"),
+            (
+                "CAPTURE_OUTPUT_ANALYTICS_MAIN_TOPIC",
+                "events_plugin_ingestion",
+            ),
+        ]
+        .iter()
+        .chain(env.iter())
+        .map(|(k, v)| (k.to_string(), v.to_string()))
+        .collect();
+        let config: Config =
+            envconfig::Envconfig::init_from_hashmap(&cfg_env).expect("test config");
+
+        let limiter = token_rate_limiter(&config, Arc::new(common_redis::MockRedisClient::new()))
+            .await
+            .expect("valid config");
+
+        assert_eq!(limiter.map(|l| l.is_dry_run()), expected_dry_run);
     }
 
     /// The AI byte limiter takes its window from its own knob when one is set,

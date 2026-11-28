@@ -2287,6 +2287,7 @@ dependencies = [
  "metrics",
  "metrics-exporter-prometheus",
  "metrics-util",
+ "moka",
  "multer",
  "once_cell",
  "opentelemetry 0.22.0",

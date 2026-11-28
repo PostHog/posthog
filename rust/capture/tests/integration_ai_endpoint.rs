@@ -177,6 +177,7 @@ fn setup_ai_test_router_with_caps(ai_max_event_bytes: AiEventSizeCaps) -> Router
         Arc::new(OutputRegistry::single(sink)),
         redis,
         None,
+        None, // global_rate_limiter_token
         quota_limiter,
         TokenDropper::default(),
         None, // event_restriction_service
@@ -233,6 +234,7 @@ fn setup_ai_router_collecting_warnings() -> (Router, Arc<CollectingEmitter>) {
         Arc::new(OutputRegistry::single(TestSink)),
         redis,
         None,
+        None, // global_rate_limiter_token
         quota_limiter,
         TokenDropper::default(),
         None, // event_restriction_service
@@ -1307,6 +1309,7 @@ fn setup_ai_test_router_with_capturing_sink() -> (Router, CapturingSink) {
         Arc::new(OutputRegistry::single(sink)),
         redis,
         None,
+        None, // global_rate_limiter_token
         quota_limiter,
         TokenDropper::default(),
         None, // event_restriction_service
@@ -1976,6 +1979,7 @@ fn setup_ai_test_router_with_token_dropper(token_dropper: TokenDropper) -> (Rout
         Arc::new(OutputRegistry::single(sink)),
         redis,
         None,
+        None, // global_rate_limiter_token
         quota_limiter,
         token_dropper,
         None, // event_restriction_service
@@ -2042,6 +2046,7 @@ fn setup_ai_test_router_with_byte_limiter() -> (Router, CapturingSink) {
         Arc::new(OutputRegistry::single(sink)),
         redis,
         None,
+        None, // global_rate_limiter_token
         quota_limiter,
         TokenDropper::default(),
         None, // event_restriction_service
@@ -2304,6 +2309,7 @@ fn setup_ai_test_router_with_llm_quota_limited(token: &str) -> (Router, Capturin
         Arc::new(OutputRegistry::single(sink)),
         redis,
         None,
+        None, // global_rate_limiter_token
         quota_limiter,
         TokenDropper::default(),
         None, // event_restriction_service
@@ -2452,6 +2458,7 @@ fn setup_ai_test_router_with_overflow_limiter(
         Arc::new(OutputRegistry::single(sink)),
         redis,
         None,
+        None, // global_rate_limiter_token
         quota_limiter,
         TokenDropper::default(),
         None, // event_restriction_service
@@ -2584,6 +2591,7 @@ fn ai_router(
         Arc::new(OutputRegistry::single(sink)),
         redis,
         None,
+        None, // global_rate_limiter_token
         quota_limiter,
         TokenDropper::default(),
         None,

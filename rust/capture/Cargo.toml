@@ -35,6 +35,7 @@ common-redis = { path = "../common/redis" }
 common-types = { path = "../common/types" }
 limiters = { path = "../common/limiters" }
 metrics = { workspace = true }
+moka = { workspace = true }
 metrics-exporter-prometheus = { workspace = true }
 opentelemetry = { workspace = true }
 opentelemetry-otlp = { workspace = true }
