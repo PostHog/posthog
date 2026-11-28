@@ -1,5 +1,4 @@
 import json
-from collections.abc import Callable
 from datetime import datetime
 from urllib.parse import urlencode
 from uuid import UUID
@@ -13,6 +12,7 @@ from django.urls import reverse
 from posthog.admin.console.panels import Owner, ReasonForm, Tone
 from posthog.admin.console.registry import console
 from posthog.admin.console.tools import (
+    PAGE_PARAM,
     Cell,
     ConsoleTool,
     FieldGroup,
@@ -120,23 +120,6 @@ def _uuid_param(request: HttpRequest, name: str) -> UUID | None:
         return None
 
 
-def _paging(
-    number: int,
-    num_pages: int,
-    count: int,
-    noun: str,
-    params: dict[str, str],
-    url: Callable[..., str] = _tool_url,
-) -> Paging:
-    return Paging(
-        number=number,
-        num_pages=num_pages,
-        summary=f"{count} {noun} in total",
-        previous_url=url(**params, page=str(number - 1)) if number > 1 else None,
-        next_url=url(**params, page=str(number + 1)) if number < num_pages else None,
-    )
-
-
 def _is_auto_disabled(schema: StaffSchemaSummary) -> bool:
     return schema.auto_disabled_at is not None and not schema.should_sync and not schema.deleted
 
@@ -191,8 +174,8 @@ class SchemaPage:
         return Table(columns=("Temporal schedule", "Link"), rows=tuple(rows))
 
     @staticmethod
-    def jobs(schema: StaffSchemaSummary, page_number: str | None) -> tuple[Table, Paging]:
-        page = list_schema_jobs_for_staff(schema.id, page_number)
+    def jobs(request: HttpRequest, schema: StaffSchemaSummary) -> tuple[Table, Paging]:
+        page = list_schema_jobs_for_staff(schema.id, request.GET.get(PAGE_PARAM))
         rows = []
         for job in page.rows:
             error = job.latest_error or ""
@@ -242,7 +225,7 @@ class SchemaPage:
             rows=tuple(rows),
             empty_text="No jobs found for this schema.",
         )
-        return table, _paging(page.number, page.num_pages, page.count, "jobs", {"schema": str(schema.id)})
+        return table, Paging.build(request, number=page.number, num_pages=page.num_pages, count=page.count, noun="job")
 
     @staticmethod
     def auto_disabled(schema: StaffSchemaSummary) -> tuple[Notice, ...]:
@@ -260,8 +243,8 @@ class SchemaPage:
         )
 
     @classmethod
-    def build(cls, schema: StaffSchemaSummary, page_number: str | None) -> Page:
-        jobs, paging = cls.jobs(schema, page_number)
+    def build(cls, request: HttpRequest, schema: StaffSchemaSummary) -> Page:
+        jobs, paging = cls.jobs(request, schema)
         return Page(
             blocks=(
                 Notice(
@@ -290,8 +273,8 @@ class SchemaPage:
 
 class SourcePage:
     @staticmethod
-    def build(source: StaffSourceSummary, page_number: str | None) -> Page:
-        page = list_source_schemas_for_staff(source.id, page_number)
+    def build(request: HttpRequest, source: StaffSourceSummary) -> Page:
+        page = list_source_schemas_for_staff(source.id, request.GET.get(PAGE_PARAM))
         rows = []
         for schema in page.rows:
             rows.append(
@@ -341,7 +324,7 @@ class SourcePage:
                     rows=tuple(rows),
                     empty_text="No schemas found for this source.",
                 ),
-                _paging(page.number, page.num_pages, page.count, "schemas", {"source": str(source.id)}),
+                Paging.build(request, number=page.number, num_pages=page.num_pages, count=page.count, noun="schema"),
             )
         )
 
@@ -470,15 +453,14 @@ class WarehouseSourcesTool(ConsoleTool):
     description = "The schemas of one warehouse source, and the partitioning, schedule and jobs of one schema."
 
     def page(self, request: HttpRequest) -> Page:
-        page_number = request.GET.get("page")
         schema_id = _uuid_param(request, "schema")
         schema = get_schema_for_staff(schema_id) if schema_id is not None else None
         if schema is not None:
-            return SchemaPage.build(schema, page_number)
+            return SchemaPage.build(request, schema)
         source_id = _uuid_param(request, "source")
         source = get_source_for_staff(source_id) if source_id is not None else None
         if source is not None:
-            return SourcePage.build(source, page_number)
+            return SourcePage.build(request, source)
         return Page(
             blocks=(
                 Notice(
@@ -719,7 +701,7 @@ class ReenableToolPage:
             )
         selection = form.selection() if form.is_bound else AutoDisabledSchemaFilter(days=DEFAULT_DAYS)
         summary = summarize_auto_disabled_schemas_for_staff(selection)
-        page = list_auto_disabled_schemas_for_staff(selection, request.GET.get("page"))
+        page = list_auto_disabled_schemas_for_staff(selection, request.GET.get(PAGE_PARAM))
         blocks: list[Notice | Filters | Stats | Table | Paging] = [
             Notice(text=cls.INTRO),
             filters,
@@ -748,7 +730,7 @@ class ReenableToolPage:
                 rows=_schema_rows(page.rows),
                 empty_text="No auto-disabled schemas match these filters.",
             ),
-            _paging(page.number, page.num_pages, page.count, "schemas", _filter_params(selection), _reenable_url),
+            Paging.build(request, number=page.number, num_pages=page.num_pages, count=page.count, noun="schema"),
         ]
         return Page(blocks=tuple(blocks))
 

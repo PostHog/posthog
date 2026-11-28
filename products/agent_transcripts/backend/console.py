@@ -1,6 +1,5 @@
 """PostHog Admin for agent transcripts: the review queue, and a panel on each organization's page."""
 
-import math
 from datetime import datetime
 from uuid import UUID
 
@@ -15,7 +14,17 @@ from django.urls import reverse
 from posthog.admin.console.panels import Fact, Handoff, Operation, Owner, Panel, ReasonForm, Tone
 from posthog.admin.console.records import RECORD_TYPES
 from posthog.admin.console.registry import console
-from posthog.admin.console.tools import Cell, ConsoleTool, FieldGroup, Filters, Notice, Page, Paging, Row, Table
+from posthog.admin.console.tools import (
+    Cell,
+    ConsoleTool,
+    FieldGroup,
+    Filters,
+    Notice,
+    Page,
+    Row,
+    Table,
+    paginate_facade,
+)
 
 from products.agent_transcripts.backend.facade import api
 from products.agent_transcripts.backend.facade.contracts import (
@@ -116,13 +125,6 @@ def _selected_status(form: QueueFilterForm) -> SubmissionStatus | None:
     return None if value == ANY_STATUS else SubmissionStatus(value)
 
 
-def _page_number(request: HttpRequest) -> int:
-    try:
-        return max(1, int(request.GET.get("page", "1")))
-    except ValueError:
-        return 1
-
-
 def _queue_row(item: SubmissionForReview) -> Row:
     submission = item.submission
     status = submission.status
@@ -155,18 +157,12 @@ class AgentTranscriptsTool(ConsoleTool):
         form = QueueFilterForm(request.GET if "status" in request.GET else None)
         status = _selected_status(form)
 
-        requested_page = _page_number(request)
-        submissions = api.list_submissions_for_review(
-            status=status, limit=SUBMISSIONS_PER_PAGE, offset=(requested_page - 1) * SUBMISSIONS_PER_PAGE
+        submissions = paginate_facade(
+            request,
+            lambda page: api.list_submissions_for_review(status=status, limit=page.limit, offset=page.offset),
+            noun="transcript",
+            per_page=SUBMISSIONS_PER_PAGE,
         )
-        num_pages = max(1, math.ceil(submissions.count / SUBMISSIONS_PER_PAGE))
-        page_number = min(requested_page, num_pages)
-
-        query = request.GET.copy()
-
-        def page_url(number: int) -> str:
-            query["page"] = str(number)
-            return f"?{query.urlencode()}"
 
         return Page(
             blocks=(
@@ -184,22 +180,10 @@ class AgentTranscriptsTool(ConsoleTool):
                 ),
                 Table(
                     columns=("Organization", "Agent", "Status", "Submitted", "File"),
-                    rows=tuple(_queue_row(item) for item in submissions.results),
+                    rows=tuple(_queue_row(item) for item in submissions.rows),
                     empty_text="No transcripts match.",
                 ),
-                *(
-                    (
-                        Paging(
-                            number=page_number,
-                            num_pages=num_pages,
-                            summary=f"{submissions.count} transcripts",
-                            previous_url=page_url(page_number - 1) if page_number > 1 else None,
-                            next_url=page_url(page_number + 1) if page_number < num_pages else None,
-                        ),
-                    )
-                    if submissions.count
-                    else ()
-                ),
+                *((submissions.paging,) if submissions.paging else ()),
             )
         )
 
