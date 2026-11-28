@@ -406,10 +406,12 @@ export async function loadScrolledInTiles<T extends InsightTile>(
         placement,
         report,
         breakpoint,
+        settle,
     }: {
         placement: DashboardPlacement
         report: TileRefreshReporter
         breakpoint: (ms: number) => Promise<void> | void
+        settle: (tile: T, outcome: TileOutcome) => void
     }
 ): Promise<BoardStreamOutcome<T> | null> {
     if (!refresh.currentTeamId || !usesBoardStream(placement, tiles.length)) {
@@ -435,7 +437,7 @@ export async function loadScrolledInTiles<T extends InsightTile>(
         teamId: refresh.currentTeamId,
         queryId: uuid(),
         report,
-        settle: () => {},
+        settle,
     })
 }
 
