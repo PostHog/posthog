@@ -41,6 +41,7 @@ ServiceOp = Literal[
     "read_by_external_id",
     "write_by_external_id",
     "delete_by_external_id",
+    "mirror",
 ]
 
 # Keyed by the step of an SDK operation that one token covers. A token with no owner may hold only
@@ -64,11 +65,20 @@ _OPS: dict[str, tuple[ServiceOp, ...]] = {
     "delete": ("read", "delete"),
     "update_by_external_id": ("write_by_external_id",),
     "delete_by_external_id": ("delete_by_external_id",),
+    # The Celery task that copies Django rows to the service writes them by legacy id.
+    "mirror": ("mirror",),
 }
 
 
 _CROSS_TEAM_OPS = frozenset(
-    {"list_across_teams", "read_by_external_id", "write_by_external_id", "delete_by_external_id"}
+    {
+        "list_across_teams",
+        "read_by_external_id",
+        "write_by_external_id",
+        "delete_by_external_id",
+        "reconcile",
+        "mirror_purge",
+    }
 )
 
 
