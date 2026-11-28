@@ -1,4 +1,5 @@
 import { SESv2Client, SendEmailCommand } from '@aws-sdk/client-sesv2'
+import { createHash } from 'crypto'
 import { mkdtempSync, rmSync } from 'fs'
 import http from 'http'
 import { AddressInfo } from 'net'
@@ -121,10 +122,11 @@ describe('judge', () => {
 
     const deliver = (
         unitId: string,
-        actionId = 'email',
+        actionId: string | null = 'email',
         flowId = 'flow-1',
         cc: string[] = [],
-        invocationId = `invocation-${unitId}`
+        invocationId = `invocation-${unitId}`,
+        files: Buffer[] = []
     ): Promise<unknown> =>
         ses
             .send(
@@ -135,17 +137,24 @@ describe('judge', () => {
                         Simple: {
                             Subject: { Data: 'Scenario delivery' },
                             Body: { Text: { Data: 'Scenario delivery' } },
-                            Headers: [
-                                {
-                                    Name: 'X-PostHog-Tracking-Code',
-                                    Value: new EmailTrackingCodeSigner(TRACKING_KEYS, '').generate({
-                                        functionId: flowId,
-                                        id: invocationId,
-                                        teamId: 7,
-                                        state: { actionId },
-                                    }),
-                                },
-                            ],
+                            Attachments: files.map((bytes, i) => ({
+                                FileName: `scenario-${i + 1}.pdf`,
+                                RawContent: bytes,
+                            })),
+                            Headers:
+                                actionId === null
+                                    ? []
+                                    : [
+                                          {
+                                              Name: 'X-PostHog-Tracking-Code',
+                                              Value: new EmailTrackingCodeSigner(TRACKING_KEYS, '').generate({
+                                                  functionId: flowId,
+                                                  id: invocationId,
+                                                  teamId: 7,
+                                                  state: { actionId },
+                                              }),
+                                          },
+                                      ],
                         },
                     },
                 })
@@ -420,6 +429,61 @@ describe('judge', () => {
         )
 
         expect(result).toMatchObject({ name: 'duplicate_sends', ...expected })
+    })
+
+    const INVOICE = Buffer.from('scenario invoice')
+    const RECEIPT = Buffer.from('scenario receipt')
+    const shaOf = (bytes: Buffer): string => createHash('sha256').update(bytes).digest('hex')
+
+    it.each<[string, Buffer[], Buffer[], object, JournalEntry['answer']?]>([
+        ['carried every file it uploaded', [INVOICE, RECEIPT], [RECEIPT, INVOICE], { passed: true, observed: 0 }],
+        ['carried no file, as it uploaded none', [], [], { passed: true, observed: 0 }],
+        [
+            'lost a file it uploaded',
+            [INVOICE, RECEIPT],
+            [INVOICE],
+            {
+                passed: false,
+                observed: 1,
+                violation: `${UNIT}: SES accepted the files [${shaOf(INVOICE).slice(0, 8)}] where the unit uploaded [${shaOf(INVOICE).slice(0, 8)}, ${shaOf(RECEIPT).slice(0, 8)}]`,
+                unitIds: [UNIT],
+            },
+        ],
+        ['carried other bytes than it uploaded', [INVOICE], [RECEIPT], { passed: false, observed: 1 }],
+        [
+            'lost its intake reply, and SES carried other bytes than it uploaded',
+            [INVOICE],
+            [RECEIPT],
+            { passed: false, observed: 1 },
+            { accepted: false, transportError: 'socket hang up' },
+        ],
+    ])(
+        'attachments_intact for a unit that %s',
+        async (_story, uploaded, sent, expected, answer = { accepted: true }) => {
+            judge.record({ ...offered(answer), expect: { deliveries: ['email'], attachments: uploaded.map(shaOf) } })
+            await deliver(UNIT, 'email', 'flow-1', [], `invocation-${UNIT}`, sent)
+
+            const [result] = await judge.check([{ name: 'attachments_intact', params: {} }], {}, NO_RESETS)
+
+            expect(result).toMatchObject({ name: 'attachments_intact', ...expected })
+            expect(result.crossedBy).toBeUndefined()
+        }
+    )
+
+    it('fails attachments_intact for files SES accepted in a send the edge could not tie to an action', async () => {
+        judge.record({ ...offered(), expect: { deliveries: ['email'], attachments: [shaOf(INVOICE)] } })
+        await deliver(UNIT, null, 'flow-1', [], `invocation-${UNIT}`, [RECEIPT])
+        await deliver(UNIT, 'email', 'flow-1', [], `invocation-${UNIT}`, [INVOICE])
+
+        const [result] = await judge.check([{ name: 'attachments_intact', params: {} }], {}, NO_RESETS)
+
+        expect(result).toMatchObject({
+            name: 'attachments_intact',
+            passed: false,
+            observed: 1,
+            violation: `${UNIT}: SES accepted a send the edge could not tie to an action, so its files go unchecked`,
+            unitIds: [UNIT],
+        })
     })
 
     it('crosses the duplicate_sends gate at the step whose unit counted every extra acceptance', async () => {

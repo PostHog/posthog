@@ -170,6 +170,54 @@ export const duplicateSends: InvariantDefinition = {
     },
 }
 
+const shortShas = (shas: readonly string[]): string => shas.map((sha) => sha.slice(0, 8)).join(', ')
+
+const sameFiles = (sent: readonly string[], expected: readonly string[]): boolean =>
+    isDeepStrictEqual([...sent].sort(), [...expected].sort())
+
+export const attachmentsIntact: InvariantDefinition = {
+    name: 'attachments_intact',
+    params: z.object({}).strict(),
+    check: ({ journal, truth }) => {
+        const byDelivery = recordsByDelivery(truth)
+        const altered = journal.flatMap(({ unitId, expect }) =>
+            expect.attachments
+                ? expect.deliveries.flatMap((actionId) =>
+                      (byDelivery.get(deliveryKey(unitId, actionId)) ?? [])
+                          .filter(({ status }) => isAccepted(status))
+                          .map((record) => record.detail.message?.attachments.map(({ sha256 }) => sha256) ?? [])
+                          .filter((sent) => !sameFiles(sent, expect.attachments!))
+                          .map((sent) => ({ unitId, sent, expected: expect.attachments! }))
+                  )
+                : []
+        )
+        const filesExpected = new Set(journal.filter(({ expect }) => expect.attachments).map(({ unitId }) => unitId))
+        const unattributed = truth.filter(
+            (record) =>
+                record.kind === 'ses.send' &&
+                isAccepted(record.status) &&
+                record.actionId === undefined &&
+                (record.unitId === undefined ||
+                    filesExpected.has(record.unitId) ||
+                    (record.detail.message?.attachments.length ?? 0) > 0)
+        )
+        const [first] = altered
+        const unit = (unitId: string | undefined): string => unitId ?? 'a unit the edge could not read'
+        return {
+            passed: altered.length + unattributed.length === 0,
+            observed: altered.length + unattributed.length,
+            violation: first
+                ? `${first.unitId}: SES accepted the files [${shortShas(first.sent)}] where the unit uploaded [${shortShas(first.expected)}]`
+                : unattributed[0] &&
+                  `${unit(unattributed[0].unitId)}: SES accepted a send the edge could not tie to an action, so its files go unchecked`,
+            unitIds: firstUnitIds([
+                ...altered.map(({ unitId }) => unitId),
+                ...unattributed.flatMap(({ unitId }) => (unitId === undefined ? [] : [unitId])),
+            ]),
+        }
+    },
+}
+
 type Refusal = JournalEntry & { answer: Extract<IntakeAnswer, { accepted: false }> }
 
 export const refusalsOf = (journal: readonly JournalEntry[]): Refusal[] =>
@@ -515,6 +563,7 @@ export const noLoss: InvariantDefinition = {
 export const INVARIANTS: InvariantDefinition[] = [
     atLeastOnce,
     duplicateSends,
+    attachmentsIntact,
     refusedAtIntake,
     bouncedSuppressed,
     residentBacklogIntact,

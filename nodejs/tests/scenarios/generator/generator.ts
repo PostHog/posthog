@@ -10,7 +10,7 @@ import { createTestTeamFixture } from '~/tests/helpers/sql'
 import { LoadedCard, stepsOf } from '../cards'
 import { pause } from '../duration'
 import type { FollowUpAnswer, Judge } from '../judge/judge'
-import { OfferContext, SENDER, TRAFFIC, TrafficKind } from './traffic'
+import { OfferAnswer, OfferContext, SENDER, TRAFFIC, TrafficKind } from './traffic'
 
 export type SeedState = { teamIds: number[]; flowIds: Record<string, Record<number, string>> }
 
@@ -132,6 +132,13 @@ function stepScheduleOf({ card, profile }: Pick<LoadedCard, 'card' | 'profile'>)
     )
 }
 
+function journaled({ attachments, ...answer }: OfferAnswer): {
+    answer: OfferAnswer
+    attachments?: readonly string[]
+} {
+    return { answer, attachments }
+}
+
 export async function drive(
     { card, profile }: LoadedCard,
     seeded: SeedState,
@@ -160,6 +167,7 @@ export async function drive(
 
     const offerUnit = (kind: TrafficKind, step: DrivenStep): void => {
         const teamId = chance.pickone(seeded.teamIds)
+        const files = kind.filesOf?.(chance, profile.traffic[kind.name])
         const flowIdOf = (key: string): string => {
             const flowId = seeded.flowIds[key]?.[teamId]
             if (flowId === undefined) {
@@ -175,7 +183,8 @@ export async function drive(
         if (kind.intake !== 'event') {
             answeredAts.get(step)?.push(-Infinity)
         }
-        const offer = kind.offer({ unitId, teamId, flowId }, context, stop).then(async (answer) => {
+        const offer = kind.offer({ unitId, teamId, flowId, files }, context, stop).then(async (offered) => {
+            const { answer, attachments } = journaled(offered)
             const answeredAt = kind.intake === 'event' ? Date.now() : -Infinity
             const counts = kind.intake !== 'event' || answer.accepted
             if (stop.aborted) {
@@ -200,7 +209,7 @@ export async function drive(
                 offeredAt,
                 step: step.index,
                 answer,
-                expect: { deliveries: kind.deliveries },
+                expect: { deliveries: kind.deliveries, ...(attachments && { attachments }) },
                 ...(followUp && { followUp }),
             })
             sendRetries += retriesOf(answer) + retriesOf(followUp)

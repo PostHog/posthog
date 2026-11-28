@@ -1078,4 +1078,26 @@ describe('drive', () => {
         }
         expect([offeredIn(0), offeredIn(1000)]).toEqual(expected)
     })
+
+    it('journals the file hashes a unit expects SES to carry, whatever its intake answered', async () => {
+        const traffic = 'transactional_email_files'
+        const plain = cardWith({ ratePerSecond: 2, driveFor: '1s', traffic })
+        const card: LoadedCard = {
+            ...plain,
+            profile: {
+                ...plain.profile,
+                traffic: { [traffic]: { ratePerSecond: 2, files: { share: 1, sizes: [{ bytes: 1000, weight: 1 }] } } },
+            },
+        }
+        const { driving, journal } = startDrive(card, ACKNOWLEDGED)
+
+        await jest.advanceTimersByTimeAsync(1000)
+        await driving
+
+        expect(journal.map(({ expect }) => expect.attachments)).toEqual([
+            [expect.stringMatching(/^[0-9a-f]{64}$/)],
+            [expect.stringMatching(/^[0-9a-f]{64}$/)],
+        ])
+        expect(journal[0].expect.attachments).not.toEqual(journal[1].expect.attachments)
+    })
 })

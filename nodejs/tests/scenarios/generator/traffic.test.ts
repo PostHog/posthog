@@ -1,14 +1,21 @@
+import Chance from 'chance'
+import { createHash } from 'crypto'
 import http from 'http'
 import { AddressInfo } from 'net'
 
 import { HogFlowSchema } from '~/cdp/schema/hogflow'
+import { filesWorkflowShape } from '~/cdp/services/hogflows/files-workflow-shape'
 import {
+    ATTACHMENT_UPLOAD_TOKEN_CLAIMS,
+    AcceptedSendRequestSchema,
+    CODE_SEND_TOKEN_CLAIMS,
     TEMPLATE_SEND_TOKEN_CLAIMS,
     TransactionalEmailRequestSchema,
 } from '~/cdp/services/hogflows/transactional-email'
 import { PosthogJwtAudience } from '~/cdp/utils/jwt-utils'
 import { ScopedServiceJwt } from '~/cdp/utils/scoped-service-jwt'
 import { parseJSON } from '~/common/utils/json-parse'
+import { waitForExpect } from '~/tests/helpers/expectations'
 
 import { UNIT_EMAIL_DOMAIN } from '../provider-edge'
 import {
@@ -18,7 +25,9 @@ import {
     TRAFFIC,
     bounceFollowup,
     captureWebhook,
+    fileBytes,
     transactionalEmail,
+    transactionalEmailFiles,
 } from './traffic'
 
 const SECRET = 'scenario-transactional-secret'
@@ -85,7 +94,7 @@ const contextFor = (url: string, settled: string | undefined = undefined, clock?
 describe('traffic', () => {
     it.each(
         TRAFFIC.filter((kind) => kind !== captureWebhook).flatMap((kind) =>
-            [0, 2].map((parks) => [kind.name, parks, kind] as const)
+            (kind === transactionalEmailFiles ? [0] : [0, 2]).map((parks) => [kind.name, parks, kind] as const)
         )
     )('%s parks its flow %i times on a short delay before its action', async (_name, parks, kind) => {
         const flow = HogFlowSchema.parse(await kind.flow(UNIT.teamId, 3, parks))
@@ -272,6 +281,310 @@ describe('traffic', () => {
                 }
             })
         })
+    })
+})
+
+const sha256Of = (bytes: Buffer): string => createHash('sha256').update(bytes).digest('hex')
+
+const firstPutsAnswer = (first: Record<string, number>): ((sha256: string) => number) => {
+    const answered = new Set<string>()
+    return (sha256) => {
+        const status = answered.has(sha256) ? 200 : first[sha256]
+        answered.add(sha256)
+        return status
+    }
+}
+
+const checksumOf = (sha256: string): string => Buffer.from(sha256, 'hex').toString('base64')
+
+type FilesAnswers = {
+    uploads: Answer[]
+    puts: number[] | ((sha256: string) => number)
+    send: Answer
+    putsHeld?: Promise<void>
+}
+
+type FilesCdpApi = { url: string; received: { route: string; body: unknown }[]; close(): Promise<void> }
+
+function startFilesCdpApi({ uploads, puts, send, putsHeld }: FilesAnswers): Promise<FilesCdpApi> {
+    const verifier = new ScopedServiceJwt(PosthogJwtAudience.WORKFLOWS_SEND_TRANSACTIONAL_EMAIL, SECRET)
+    const received: FilesCdpApi['received'] = []
+    let url = ''
+    const next = <T>(answers: T[], route: string): T =>
+        answers[Math.min(received.filter((request) => request.route === route).length - 1, answers.length - 1)]
+    const server = http.createServer((req, res) => {
+        const chunks: Buffer[] = []
+        req.on('data', (chunk: Buffer) => chunks.push(chunk))
+        req.on('end', async () => {
+            const raw = Buffer.concat(chunks)
+            const claims = req.headers.authorization
+                ? verifier.verify(String(req.headers.authorization).replace(/^Bearer /, ''))
+                : {}
+            const reply = ({ status, body }: Answer): void => {
+                res.writeHead(status, { 'content-type': 'application/json' }).end(JSON.stringify(body))
+            }
+            if (req.method === 'PUT') {
+                const sha256 = sha256Of(raw)
+                const signed =
+                    req.url === `/files/${sha256}` && req.headers['x-amz-checksum-sha256'] === checksumOf(sha256)
+                received.push({ route: signed ? 'put' : 'unsigned put', body: sha256 })
+                await putsHeld
+                reply({ status: typeof puts === 'function' ? puts(sha256) : next(puts, 'put'), body: {} })
+            } else if (req.url === `/api/projects/${UNIT.teamId}/transactional_email/attachments/uploads`) {
+                const body = parseJSON(raw.toString()) as { files: { sha256: string }[] }
+                received.push({
+                    route: claims.kind === ATTACHMENT_UPLOAD_TOKEN_CLAIMS.kind ? 'uploads' : 'unauthorized',
+                    body,
+                })
+                const answer = next(uploads, 'uploads')
+                reply(
+                    answer.status === 200 && Object.keys(answer.body).length === 0
+                        ? {
+                              status: 200,
+                              body: {
+                                  files: body.files.map(({ sha256 }) => ({
+                                      sha256,
+                                      status: 'upload',
+                                      url: `${url}/files/${sha256}`,
+                                      method: 'PUT',
+                                      headers: { 'x-amz-checksum-sha256': checksumOf(sha256) },
+                                  })),
+                              },
+                          }
+                        : answer
+                )
+            } else {
+                const authorized = claims.kind === CODE_SEND_TOKEN_CLAIMS.kind && claims.hog_flow_id === UNIT.flowId
+                received.push({
+                    route: authorized ? req.url! : 'unauthorized',
+                    body: AcceptedSendRequestSchema.parse(parseJSON(raw.toString())),
+                })
+                reply(send)
+            }
+        })
+    })
+    return new Promise((resolve) =>
+        server.listen(0, '127.0.0.1', () => {
+            url = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
+            resolve({
+                url,
+                received,
+                close: () =>
+                    new Promise((closed) => {
+                        server.closeAllConnections()
+                        server.close(() => closed())
+                    }),
+            })
+        })
+    )
+}
+
+describe('transactional_email_files traffic', () => {
+    const SEND_ROUTE = `${ROUTE}/send`
+    const FILES = [
+        { seed: 1, sizeBytes: 1000 },
+        { seed: 2, sizeBytes: 200_000 },
+    ]
+    const SHAS = FILES.map((file) => sha256Of(fileBytes(file)))
+    const QUEUED: Answer = { status: 202, body: { status: 'queued' } }
+    const UPLOADED = {
+        route: 'uploads',
+        body: { files: FILES.map(({ sizeBytes }, i) => ({ sha256: SHAS[i], size: sizeBytes })) },
+    }
+    const PUTS = SHAS.map((sha256) => ({ route: 'put', body: sha256 }))
+    const SENT = {
+        route: SEND_ROUTE,
+        body: {
+            to: `${UNIT.unitId}@${UNIT_EMAIL_DOMAIN}`,
+            distinct_id: UNIT.unitId,
+            variables: {},
+            idempotency_key: UNIT.unitId,
+            send: {
+                tracking: { captureEngagement: false },
+                attachments: SHAS.map((sha256, i) => ({
+                    sha256,
+                    filename: `scenario-${i + 1}.pdf`,
+                    content_type: 'application/pdf',
+                })),
+            },
+        },
+    }
+    const clock = (): SendClock => {
+        let now = 0
+        return {
+            now: () => now,
+            wait: (ms) => {
+                now += ms
+                return Promise.resolve()
+            },
+        }
+    }
+
+    const withPutsUnordered = (requests: readonly object[]): object[] =>
+        requests
+            .reduce<object[][]>((runs, request) => {
+                const last = runs.at(-1)
+                const isPut = (candidate: object | undefined): boolean =>
+                    (candidate as { route?: string })?.route === 'put'
+                if (isPut(request) && last !== undefined && isPut(last[0])) {
+                    last.push(request)
+                } else {
+                    runs.push([request])
+                }
+                return runs
+            }, [])
+            .flatMap((run) => [...run].sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b))))
+
+    it.each<[string, typeof FILES, FilesAnswers, object, object[]]>([
+        [
+            'uploads each file, puts the bytes it hashed, then sends with the hashes',
+            FILES,
+            { uploads: [{ status: 200, body: {} }], puts: [200], send: QUEUED },
+            { accepted: true, attachments: SHAS },
+            [UPLOADED, ...PUTS, SENT],
+        ],
+        [
+            'sends a unit without files through the code route without uploading',
+            [],
+            { uploads: [], puts: [], send: QUEUED },
+            { accepted: true, attachments: [] },
+            [{ route: SEND_ROUTE, body: { ...SENT.body, send: { tracking: { captureEngagement: false } } } }],
+        ],
+        [
+            'uploads again and sends once the object store stops answering a put with a 5xx',
+            FILES,
+            { uploads: [{ status: 200, body: {} }], puts: [503, 503, 200], send: QUEUED },
+            { accepted: true, retries: 1, attachments: SHAS },
+            [UPLOADED, ...PUTS, UPLOADED, ...PUTS, SENT],
+        ],
+        [
+            'uploads again once one put is refused and the other answers a 5xx, whatever order they land in',
+            FILES,
+            {
+                uploads: [{ status: 200, body: {} }],
+                puts: firstPutsAnswer({ [SHAS[0]]: 400, [SHAS[1]]: 503 }),
+                send: QUEUED,
+            },
+            { accepted: true, retries: 1, attachments: SHAS },
+            [UPLOADED, ...PUTS, UPLOADED, ...PUTS, SENT],
+        ],
+        [
+            'journals a refused upload with its stage and sends nothing',
+            FILES,
+            { uploads: [{ status: 400, body: { error: 'message_too_large' } }], puts: [], send: QUEUED },
+            { accepted: false, status: 400, outcome: 'uploads message_too_large', attachments: SHAS },
+            [UPLOADED],
+        ],
+        [
+            'journals an upload refusal without an error code as its stage alone',
+            FILES,
+            { uploads: [{ status: 400, body: { errors: [] } }], puts: [], send: QUEUED },
+            { accepted: false, status: 400, outcome: 'uploads', attachments: SHAS },
+            [UPLOADED],
+        ],
+        [
+            'journals an upload reply without slots as a transport error and sends nothing',
+            FILES,
+            { uploads: [{ status: 200, body: { slots: [] } }], puts: [], send: QUEUED },
+            {
+                accepted: false,
+                transportError: expect.stringMatching(/^uploads answered with no upload slots/),
+                attachments: SHAS,
+            },
+            [UPLOADED],
+        ],
+        [
+            'journals an upload reply that leaves a file without a slot as a transport error and sends nothing',
+            FILES,
+            { uploads: [{ status: 200, body: { files: [] } }], puts: [], send: QUEUED },
+            {
+                accepted: false,
+                transportError: 'uploads answered slots for 0 files where 2 were asked',
+                attachments: SHAS,
+            },
+            [UPLOADED],
+        ],
+    ])('%s', async (_story, files, answers, expected, requests) => {
+        const sendClock = clock()
+        const cdpApi = await startFilesCdpApi(answers)
+        try {
+            expect(
+                await transactionalEmailFiles.offer(
+                    { ...UNIT, files },
+                    contextFor(cdpApi.url, undefined, sendClock),
+                    NEVER_ABORTED
+                )
+            ).toEqual(expected)
+            expect(withPutsUnordered(cdpApi.received)).toEqual(withPutsUnordered(requests))
+        } finally {
+            await cdpApi.close()
+        }
+    })
+
+    it('seeds a workflow that cdp-api takes files for', async () => {
+        const flow = HogFlowSchema.parse(await transactionalEmailFiles.flow(UNIT.teamId, 3, 0))
+
+        expect(filesWorkflowShape(flow)).toEqual({ emailStep: expect.objectContaining({ type: 'function_email' }) })
+    })
+
+    it('sends nothing to cdp-api once the run is interrupted while a put is pending', async () => {
+        let releasePuts = (): void => {}
+        const putsHeld = new Promise<void>((resolve) => (releasePuts = resolve))
+        const cdpApi = await startFilesCdpApi({
+            uploads: [{ status: 200, body: {} }],
+            puts: [200],
+            send: QUEUED,
+            putsHeld,
+        })
+        const abort = new AbortController()
+        try {
+            const offered = transactionalEmailFiles.offer(
+                { ...UNIT, files: FILES },
+                contextFor(cdpApi.url),
+                abort.signal
+            )
+            await waitForExpect(() => expect(cdpApi.received.filter(({ route }) => route === 'put')).toHaveLength(2))
+            abort.abort()
+            releasePuts()
+
+            await expect(offered).rejects.toMatchObject({ name: 'AbortError' })
+            expect(cdpApi.received.map(({ route }) => route)).toEqual(['uploads', 'put', 'put'])
+        } finally {
+            releasePuts()
+            await cdpApi.close()
+        }
+    })
+
+    it.each([1, 3, 5])('fills a file of %d bytes from its seed', (sizeBytes) => {
+        const [one, again, two] = [1, 1, 2].map((seed) => fileBytes({ seed, sizeBytes }))
+
+        expect({ lengths: [one.length, two.length], sameSeed: one.equals(again), otherSeed: one.equals(two) }).toEqual({
+            lengths: [sizeBytes, sizeBytes],
+            sameSeed: true,
+            otherSeed: false,
+        })
+    })
+
+    const PROFILE = { ratePerSecond: 1, files: { share: 1, perSend: 2, sizes: [{ bytes: 1000, weight: 1 }] } }
+
+    it.each<[string, object, number[]]>([
+        ['draws perSend files from the sizes for a send that carries files', PROFILE, [1000, 1000]],
+        ['draws no files for a send outside the share', { ...PROFILE, files: { ...PROFILE.files, share: 0 } }, []],
+    ])('%s', (_story, profile, sizes) => {
+        const draw = (): object[] => transactionalEmailFiles.filesOf!(new Chance(5), profile)
+
+        expect(draw().map((file) => (file as { sizeBytes: number }).sizeBytes)).toEqual(sizes)
+        expect(draw()).toEqual(draw())
+    })
+
+    it.each<[string, object]>([
+        ['parks a send with files', { ...PROFILE, parks: 1 }],
+        [
+            'asks for more files per send than one email holds',
+            { ...PROFILE, files: { ...PROFILE.files, perSend: 2, sizes: [{ bytes: 20_000_000, weight: 1 }] } },
+        ],
+    ])('refuses a profile that %s', (_story, profile) => {
+        expect(transactionalEmailFiles.profile.safeParse(profile).success).toBe(false)
     })
 })
 

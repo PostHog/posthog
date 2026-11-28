@@ -1,10 +1,14 @@
+import type Chance from 'chance'
+import { createHash } from 'crypto'
 import { setTimeout as sleep } from 'timers/promises'
 import { z } from 'zod'
 
 import { FixtureHogFlowBuilder } from '~/cdp/_tests/builders/hogflow.builder'
 import { createIncomingEvent } from '~/cdp/_tests/fixtures'
-import { CyclotronInputType } from '~/cdp/schema/cyclotron'
+import { CyclotronInputType, MAX_EMAIL_ATTACHMENTS } from '~/cdp/schema/cyclotron'
 import { HogFlow } from '~/cdp/schema/hogflow'
+import { ATTACHMENT_UPLOAD_TOKEN_CLAIMS, CODE_SEND_TOKEN_CLAIMS } from '~/cdp/services/hogflows/transactional-email'
+import { MESSAGE_MAX_BYTES, estimateMessageBytes } from '~/cdp/services/messaging/message-estimate'
 import { compileHog } from '~/cdp/templates/compiler'
 import type { ScopedServiceJwt } from '~/cdp/utils/scoped-service-jwt'
 import type { KafkaProducerWrapper } from '~/common/kafka/producer'
@@ -18,7 +22,11 @@ import type { SesFeedback } from './ses-feedback'
 
 const Shape = z.object({ ratePerSecond: z.number().positive(), parks: z.number().int().min(0).default(0) }).strict()
 
-export type Unit = { unitId: string; teamId: number; flowId: string }
+export type UnitFile = { seed: number; sizeBytes: number }
+
+export type Unit = { unitId: string; teamId: number; flowId: string; files?: readonly UnitFile[] }
+
+export type OfferAnswer = JournalEntry['answer'] & { attachments?: readonly string[] }
 
 export type Emit = (unit: Unit, event: string, properties: object) => Promise<IntakeAnswer>
 
@@ -33,13 +41,14 @@ export type OfferContext = {
 export type UnitLoad = { claims: { hogflow: number; email: number }; newJobs: number }
 
 export type TrafficKind = Omit<TrafficDefinition, 'profile'> & {
-    profile: typeof Shape
+    profile: z.ZodType<z.infer<typeof Shape>>
     intake: JournalEntry['kind']
     deliveries: string[]
     needsLocal?: true
     unitLoad?(parks: number): UnitLoad
     flow(teamId: number, emailIntegrationId: number, parks: number): Promise<HogFlow>
-    offer(unit: Unit, context: OfferContext, signal: AbortSignal): Promise<JournalEntry['answer']>
+    offer(unit: Unit, context: OfferContext, signal: AbortSignal): Promise<OfferAnswer>
+    filesOf?(chance: Chance.Chance, profile: unknown): UnitFile[]
     followUp?: {
         flow(teamId: number, emailIntegrationId: number, parks: number): Promise<HogFlow>
         offer(unit: Unit, context: OfferContext, signal: AbortSignal): Promise<FollowUpAnswer>
@@ -62,13 +71,13 @@ const eventTrigger = (event: string): object => ({
     },
 })
 
+const BODY = { subject: 'Scenario delivery', text: 'Scenario delivery', html: '<p>Scenario delivery</p>' }
+
 async function emailInput(emailIntegrationId: number, recipient: string): Promise<CyclotronInputType> {
     const message = (to: unknown): Record<string, unknown> => ({
         to: { email: to, name: '' },
         from: { integrationId: emailIntegrationId, email: SENDER.email },
-        subject: 'Scenario delivery',
-        text: 'Scenario delivery',
-        html: '<p>Scenario delivery</p>',
+        ...BODY,
     })
     return {
         templating: 'hog',
@@ -77,9 +86,13 @@ async function emailInput(emailIntegrationId: number, recipient: string): Promis
     }
 }
 
-const emailStep = async (emailIntegrationId: number, recipient: string): Promise<object> => ({
+const emailStep = async (emailIntegrationId: number, recipient: string, config: object = {}): Promise<object> => ({
     type: 'function_email',
-    config: { template_id: 'template-email', inputs: { email: await emailInput(emailIntegrationId, recipient) } },
+    config: {
+        template_id: 'template-email',
+        inputs: { email: await emailInput(emailIntegrationId, recipient) },
+        ...config,
+    },
 })
 
 const webhookStep = async (): Promise<object> => {
@@ -267,17 +280,36 @@ export const REAL_CLOCK: SendClock = {
 const withRetries = (answer: IntakeAnswer, retries: number): JournalEntry['answer'] =>
     retries === 0 ? answer : { ...answer, retries }
 
-async function sendTransactional(
-    unit: Unit,
-    cdpApi: NonNullable<OfferContext['cdpApi']>,
-    signal: AbortSignal
+type CdpApi = NonNullable<OfferContext['cdpApi']>
+
+const transactionalRequest = (unit: Unit): object => ({
+    to: unitAddress(unit),
+    distinct_id: unit.unitId,
+    variables: {},
+    idempotency_key: unit.unitId,
+})
+
+const sendTransactional = (unit: Unit, cdpApi: CdpApi, signal: AbortSignal): Promise<JournalEntry['answer']> =>
+    retried(cdpApi, signal, () =>
+        post(
+            cdpApi,
+            unit,
+            flowRoute(unit, 'transactional_email'),
+            { hog_flow_id: unit.flowId },
+            transactionalRequest(unit)
+        )
+    )
+
+async function retried(
+    cdpApi: CdpApi,
+    signal: AbortSignal,
+    attempt: () => Promise<IntakeAnswer>
 ): Promise<JournalEntry['answer']> {
     const { backoffMs, maxWaitMs, deadlineMs } = SEND_RETRY
     const clock = cdpApi.clock ?? REAL_CLOCK
-    const request = { to: unitAddress(unit), distinct_id: unit.unitId, variables: {}, idempotency_key: unit.unitId }
     const deadline = clock.now() + deadlineMs
     for (let retry = 0; ; retry += 1) {
-        const answer = await postTransactional(unit, cdpApi, request)
+        const answer = await attempt()
         const waitMs = Math.min(backoffMs * 2 ** retry, maxWaitMs)
         if (!('status' in answer) || answer.status < 500 || clock.now() + waitMs > deadline) {
             return withRetries(answer, retry)
@@ -290,30 +322,219 @@ async function sendTransactional(
     }
 }
 
-async function postTransactional(
-    unit: Unit,
-    cdpApi: NonNullable<OfferContext['cdpApi']>,
+const flowRoute = (unit: Unit, route: string): string =>
+    `/api/projects/${unit.teamId}/hog_flows/${unit.flowId}/${route}`
+
+type Posted = { answer: IntakeAnswer; body?: string }
+
+async function post(cdpApi: CdpApi, unit: Unit, route: string, claims: object, request: object): Promise<IntakeAnswer> {
+    return (await postReading(cdpApi, unit, route, claims, request)).answer
+}
+
+async function postReading(
+    cdpApi: CdpApi,
+    { teamId }: Unit,
+    route: string,
+    claims: object,
     request: object
-): Promise<IntakeAnswer> {
+): Promise<Posted> {
     try {
-        const response = await internalFetch(
-            `${cdpApi.nextUrl()}/api/projects/${unit.teamId}/hog_flows/${unit.flowId}/transactional_email`,
-            {
-                method: 'POST',
-                headers: {
-                    'content-type': 'application/json',
-                    authorization: `Bearer ${cdpApi.jwt.mint({ team_id: unit.teamId, hog_flow_id: unit.flowId })}`,
-                },
-                body: JSON.stringify(request),
-            }
-        )
+        const response = await internalFetch(`${cdpApi.nextUrl()}${route}`, {
+            method: 'POST',
+            headers: {
+                'content-type': 'application/json',
+                authorization: `Bearer ${cdpApi.jwt.mint({ team_id: teamId, ...claims })}`,
+            },
+            body: JSON.stringify(request),
+        })
         const body = await response.text()
         return response.status >= 200 && response.status < 300
-            ? { accepted: true }
-            : { accepted: false, status: response.status, outcome: errorOf(body) }
+            ? { answer: { accepted: true }, body }
+            : { answer: { accepted: false, status: response.status, outcome: errorOf(body) } }
     } catch (error) {
-        return { accepted: false, transportError: String(error) }
+        return { answer: { accepted: false, transportError: String(error) } }
     }
+}
+
+const FILE_CONTENT_TYPE = 'application/pdf'
+const BLOCK_BYTES = 64 * 1024
+const PUT_TIMEOUT_MS = 60_000
+const TRACKED_BODY_GROWTH_BYTES = 16 * 1024
+
+const fitsOneEmail = (sizes: readonly number[]): boolean =>
+    estimateMessageBytes(sizes, [BODY.html, BODY.text], BODY.subject) + TRACKED_BODY_GROWTH_BYTES <= MESSAGE_MAX_BYTES
+
+export function fileBytes({ seed, sizeBytes }: UnitFile): Buffer {
+    const block = Buffer.alloc(Math.min(BLOCK_BYTES, sizeBytes))
+    let state = (seed ^ 0x9e3779b9) >>> 0 || 1
+    const word = Buffer.alloc(4)
+    for (let at = 0; at < block.length; at += 4) {
+        state ^= state << 13
+        state ^= state >>> 17
+        state ^= state << 5
+        word.writeUInt32LE(state >>> 0)
+        word.copy(block, at)
+    }
+    return Buffer.alloc(sizeBytes, block)
+}
+
+const sha256Of = (bytes: Buffer): string => createHash('sha256').update(bytes).digest('hex')
+
+const FilesShape = Shape.extend({
+    parks: z.literal(0, { error: 'a send with files cannot park, its workflow is trigger, email, exit' }).default(0),
+    files: z
+        .object({
+            share: z.number().min(0).max(1),
+            perSend: z.number().int().min(1).max(MAX_EMAIL_ATTACHMENTS).default(1),
+            sizes: z
+                .array(z.object({ bytes: z.number().int().positive(), weight: z.number().positive() }).strict())
+                .min(1),
+        })
+        .strict(),
+})
+    .strict()
+    .refine(
+        ({ files }) => fitsOneEmail(Array(files.perSend).fill(Math.max(...files.sizes.map(({ bytes }) => bytes)))),
+        {
+            message: 'perSend files of the largest size must fit one email',
+        }
+    )
+
+const UploadSlots = z.object({
+    files: z.array(
+        z.discriminatedUnion('status', [
+            z.object({ sha256: z.string(), status: z.literal('present') }),
+            z.object({
+                sha256: z.string(),
+                status: z.literal('upload'),
+                url: z.string(),
+                method: z.string(),
+                headers: z.record(z.string(), z.string()),
+            }),
+        ])
+    ),
+})
+
+type BuiltFile = { bytes: Buffer; sha256: string }
+
+async function upload(unit: Unit, cdpApi: CdpApi, files: BuiltFile[]): Promise<IntakeAnswer> {
+    const { answer, body } = await postReading(
+        cdpApi,
+        unit,
+        `/api/projects/${unit.teamId}/transactional_email/attachments/uploads`,
+        ATTACHMENT_UPLOAD_TOKEN_CLAIMS,
+        { files: files.map(({ bytes, sha256 }) => ({ sha256, size: bytes.length })) }
+    )
+    if (!answer.accepted) {
+        return 'status' in answer
+            ? { ...answer, outcome: answer.outcome ? `uploads ${answer.outcome}` : 'uploads' }
+            : answer
+    }
+    const bytesOf = new Map(files.map(({ bytes, sha256 }) => [sha256, bytes]))
+    const slots = slotsOf(body!, [...bytesOf.keys()])
+    if (typeof slots === 'string') {
+        return { accepted: false, transportError: `uploads ${slots}` }
+    }
+    const puts = slots.map(async (slot): Promise<IntakeAnswer> => {
+        if (slot.status === 'present') {
+            return { accepted: true }
+        }
+        try {
+            const { status } = await internalFetch(slot.url, {
+                method: slot.method,
+                headers: slot.headers,
+                body: bytesOf.get(slot.sha256),
+                timeoutMs: PUT_TIMEOUT_MS,
+            })
+            return status >= 200 && status < 300 ? { accepted: true } : { accepted: false, status, outcome: 'put' }
+        } catch (error) {
+            return { accepted: false, transportError: `put ${String(error)}` }
+        }
+    })
+    const failed = (await Promise.all(puts)).filter((put) => !put.accepted)
+    return failed.find((put) => 'status' in put && put.status >= 500) ?? failed[0] ?? { accepted: true }
+}
+
+function slotsOf(body: string, requested: readonly string[]): z.infer<typeof UploadSlots>['files'] | string {
+    let parsed: unknown
+    try {
+        parsed = parseJSON(body)
+    } catch {
+        return 'answered with a body that is not JSON'
+    }
+    const slots = UploadSlots.safeParse(parsed)
+    if (!slots.success) {
+        return `answered with no upload slots: ${slots.error.issues[0]?.message ?? 'invalid'}`
+    }
+    const answered = new Set(slots.data.files.map(({ sha256 }) => sha256))
+    return answered.size === requested.length && requested.every((sha256) => answered.has(sha256))
+        ? slots.data.files
+        : `answered slots for ${answered.size} files where ${requested.length} were asked`
+}
+
+async function sendWithFiles(unit: Unit, cdpApi: CdpApi, signal: AbortSignal): Promise<OfferAnswer> {
+    const files = (unit.files ?? []).map((file) => {
+        const bytes = fileBytes(file)
+        return { bytes, sha256: sha256Of(bytes) }
+    })
+    const attachments = files.map(({ sha256 }, i) => ({
+        sha256,
+        filename: `scenario-${i + 1}.pdf`,
+        content_type: FILE_CONTENT_TYPE,
+    }))
+    const request = {
+        ...transactionalRequest(unit),
+        send: { tracking: { captureEngagement: false }, ...(attachments.length > 0 && { attachments }) },
+    }
+    const answer = await retried(cdpApi, signal, async () => {
+        const uploaded = files.length > 0 ? await upload(unit, cdpApi, files) : { accepted: true as const }
+        signal.throwIfAborted()
+        return uploaded.accepted
+            ? post(
+                  cdpApi,
+                  unit,
+                  flowRoute(unit, 'transactional_email/send'),
+                  { hog_flow_id: unit.flowId, ...CODE_SEND_TOKEN_CLAIMS },
+                  request
+              )
+            : uploaded
+    })
+    return { ...answer, attachments: attachments.map(({ sha256 }) => sha256) }
+}
+
+export const transactionalEmailFiles: TrafficKind = {
+    name: 'transactional_email_files',
+    params: z.object({}).strict(),
+    profile: FilesShape,
+    intake: 'transactional',
+    deliveries: [EMAIL_ACTION],
+    needsLocal: true,
+    unitLoad: () => ({ claims: { hogflow: 0, email: 1 }, newJobs: 1 }),
+    flow: async (teamId, emailIntegrationId) =>
+        parkedFlow(teamId, {
+            name: 'Scenario transactional email with files',
+            trigger: { type: 'api' },
+            actionId: EMAIL_ACTION,
+            step: await emailStep(emailIntegrationId, 'event.properties.to', {
+                message_category_type: 'transactional',
+            }),
+            parks: 0,
+        }),
+    offer: (unit, { cdpApi }, signal) => sendWithFiles(unit, localOnly(cdpApi, 'CDP API'), signal),
+    filesOf: (chance, profile) => {
+        const { files } = FilesShape.parse(profile)
+        const seed = (): number => chance.integer({ min: 0, max: 2 ** 32 - 1 })
+        if (!chance.bool({ likelihood: files.share * 100 })) {
+            return []
+        }
+        const drawn = Array.from({ length: files.perSend }, () =>
+            chance.weighted(
+                files.sizes.map(({ bytes }) => bytes),
+                files.sizes.map(({ weight }) => weight)
+            )
+        )
+        return drawn.map((sizeBytes) => ({ seed: seed(), sizeBytes }))
+    },
 }
 
 const CAPTURE_EVENT = 'scenario_offer'
@@ -328,4 +549,11 @@ export const captureWebhook: TrafficKind = {
     offer: (unit, { emit }) => emit(unit, CAPTURE_EVENT, { unit_id: unit.unitId }),
 }
 
-export const TRAFFIC: TrafficKind[] = [eventEmail, eventWebhook, transactionalEmail, bounceFollowup, captureWebhook]
+export const TRAFFIC: TrafficKind[] = [
+    eventEmail,
+    eventWebhook,
+    transactionalEmail,
+    transactionalEmailFiles,
+    bounceFollowup,
+    captureWebhook,
+]
