@@ -43,14 +43,15 @@ class SchemaGeneratorNode(AssistantNode, Generic[Q]):
     OUTPUT_SCHEMA: dict
     """JSON schema of OUTPUT_MODEL for LLM's use."""
 
-    @property
-    def _model(self):
+    def _model(self, state: AssistantState):
         return MaxChatOpenAI(
             model="gpt-5.2",
             temperature=0.3,
             disable_streaming=True,
             user=self._user,
             team=self._team,
+            # The injected context puts this time before the static prompt, so a per-call time breaks prompt caching.
+            conversation_start_dt=state.start_dt,
             max_tokens=8192,
             billable=True,
             output_version="responses/v1",
@@ -95,7 +96,7 @@ class SchemaGeneratorNode(AssistantNode, Generic[Q]):
         generation_prompt = prompt + message_history
         merger = merge_message_runs()
 
-        chain = generation_prompt | merger | self._model | self._parse_output
+        chain = generation_prompt | merger | self._model(state) | self._parse_output
 
         try:
             result: SchemaGeneratorOutput[Q] = await chain.ainvoke(
