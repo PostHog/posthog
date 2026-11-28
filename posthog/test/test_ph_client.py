@@ -18,7 +18,9 @@ from posthog.ph_client import (
     SYNC_SEND_TIMEOUT_SECONDS,
     ScopedCapture,
     default_before_send,
+    feature_enabled_or_false,
     get_client,
+    get_feature_flag_or_none,
     ph_scoped_capture,
     self_hosted_capture_reaches_posthog,
 )
@@ -379,3 +381,26 @@ class TestGetClientTestGuard(SimpleTestCase):
 
     def test_unknown_region_returns_nothing(self) -> None:
         self.assertIsNone(get_client(region="MARS"))
+
+
+class TestPersistedFeatureFlags(SimpleTestCase):
+    @parameterized.expand(
+        [
+            (f"{helper.__name__}_{name}", helper, cloud_deployment, persisted, expected)
+            for helper in (feature_enabled_or_false, get_feature_flag_or_none)
+            for name, cloud_deployment, persisted, expected in [
+                ("persisted_on_self_hosted", None, ["today-rail-nav"], True),
+                ("persisted_on_cloud", "US", ["today-rail-nav"], False),
+                ("not_persisted_on_self_hosted", None, ["other-flag"], False),
+            ]
+        ]
+    )
+    def test_persisted_flags_are_on_only_for_self_hosted(
+        self, _name: str, helper: Any, cloud_deployment: str | None, persisted: list[str], expected: bool
+    ) -> None:
+        with (
+            override_settings(CLOUD_DEPLOYMENT=cloud_deployment, PERSISTED_FEATURE_FLAGS=persisted),
+            patch("posthoganalytics.feature_enabled", return_value=False),
+            patch("posthoganalytics.get_feature_flag", return_value=False),
+        ):
+            self.assertEqual(helper("today-rail-nav", "user-1"), expected)

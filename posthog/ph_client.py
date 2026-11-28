@@ -115,6 +115,13 @@ def default_before_send(*, private_scout_capture: bool, self_hosted: bool) -> Be
     return chained
 
 
+def _persisted_on_self_hosted(key: str) -> bool:
+    # A self-hosted install has no flag service to evaluate against, so the operator turns flags on
+    # with PERSISTED_FEATURE_FLAGS. The frontend already treats those keys as on, and the backend
+    # must agree, or the UI calls endpoints that its flag check rejects.
+    return key in settings.PERSISTED_FEATURE_FLAGS and not is_cloud()
+
+
 def feature_enabled_or_false(
     key: str,
     distinct_id: Number | str | UUID | int,
@@ -126,6 +133,8 @@ def feature_enabled_or_false(
     disable_geoip: bool | None = None,
     device_id: str | None = None,
 ) -> bool:
+    if _persisted_on_self_hosted(key):
+        return True
     return (
         posthoganalytics.feature_enabled(
             key,
@@ -157,6 +166,8 @@ def get_feature_flag_or_none(
     Local evaluation cannot read stored person properties, so a flag with person-property
     conditions needs `person_properties` passed here, or those conditions fall through and the
     result diverges from what /flags gives the browser for the same person."""
+    if _persisted_on_self_hosted(key):
+        return True
     try:
         # The library annotates the return as Optional[FeatureFlag], but at runtime a plain
         # variant string or bool comes back, so cast like ee/hogai/utils/feature_flags.py does.

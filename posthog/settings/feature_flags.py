@@ -8,8 +8,8 @@ from posthog.settings.access import SECRET_KEY
 from posthog.settings.base_variables import TEST
 from posthog.settings.utils import get_from_env, get_list, get_set, str_to_bool
 
-# Used mostly by the hobby install to have some feature flags enabled by default
-# NOTE: This only affects the frontend, the same FFs will still be considered disabled on the backend
+# Used mostly by the hobby install to have some feature flags enabled by default.
+# On cloud this only affects the frontend. Self-hosted backend checks through posthog.ph_client also treat these flags as on.
 PERSISTED_FEATURE_FLAGS = get_list(os.getenv("PERSISTED_FEATURE_FLAGS", ""))
 
 # Frontend flags for the warehouse person properties feature. Non-cloud deployments do not take part in
