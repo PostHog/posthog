@@ -3,7 +3,7 @@ use std::io::Write;
 use posthog_symbol_data::{
     read_symbol_data, read_symbol_data_with_byte_count_limited,
     symbol_data_known_decompressed_size, write_symbol_data, write_symbol_data_uncompressed,
-    AppleDsym, ElfDebugInfo, HermesMap, ProguardMapping, SourceAndMap, SymbolDataError,
+    AppleDsym, ElfDebugInfo, HermesMap, JvmBundle, ProguardMapping, SourceAndMap, SymbolDataError,
 };
 
 const MAGIC_LEN: usize = b"posthog_error_tracking".len();
@@ -172,6 +172,29 @@ roundtrip_test!(
     }
 );
 roundtrip_test!(
+    test_v2_roundtrip_jvm_bundle_with_mapping,
+    JvmBundle,
+    JvmBundle {
+        mapping: Some("proguard mapping data".to_string()),
+        sources: [
+            (
+                "com/acme/Foo.kt".to_string(),
+                "package com.acme\n".to_string()
+            ),
+            ("Bar.java".to_string(), String::new()),
+        ]
+        .into(),
+    }
+);
+roundtrip_test!(
+    test_v2_roundtrip_jvm_bundle_sources_only,
+    JvmBundle,
+    JvmBundle {
+        mapping: None,
+        sources: [("com/acme/Foo.java".to_string(), "class Foo {}".to_string())].into(),
+    }
+);
+roundtrip_test!(
     test_v2_roundtrip_elf_debug_info,
     ElfDebugInfo,
     ElfDebugInfo {
@@ -195,6 +218,19 @@ fn test_cross_type_reads_fail() {
     })
     .unwrap();
     assert!(read_symbol_data::<ElfDebugInfo>(&dsym_bytes).is_err());
+
+    // cymbal reads a JVM symbol set as a ProGuard mapping first and falls back to a JvmBundle
+    // on the type error, so neither may parse as the other.
+    let jvm_bytes = write_symbol_data(JvmBundle::default()).unwrap();
+    assert!(matches!(
+        read_symbol_data::<ProguardMapping>(&jvm_bytes),
+        Err(SymbolDataError::InvalidDataType(..))
+    ));
+    let proguard_bytes = write_symbol_data(ProguardMapping {
+        content: "proguard mapping data".to_string(),
+    })
+    .unwrap();
+    assert!(read_symbol_data::<JvmBundle>(&proguard_bytes).is_err());
 }
 
 #[test]

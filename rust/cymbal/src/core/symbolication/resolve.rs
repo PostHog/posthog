@@ -101,8 +101,8 @@ where
         team_id: i32,
         catalog: &C,
         _debug_images: &[DebugImage],
-        // Bounds the source context a client sent on a pass-through (no map_id) frame.
-        // ProGuard-remapped frames drop context, so it only matters on that path.
+        // Bounds the source context of a frame: the lines a client sent on a pass-through
+        // (no map_id) frame, or the lines read from the sources in the frame's symbol set.
         context_lines: usize,
     ) -> Result<Vec<Frame>, UnhandledError> {
         self.resolve_frame(team_id, catalog, context_lines).await

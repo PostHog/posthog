@@ -27,7 +27,7 @@ mod test {
 
     use chrono::Utc;
     use mockall::predicate;
-    use posthog_symbol_data::write_symbol_data;
+    use posthog_symbol_data::{write_symbol_data, JvmBundle};
     use sqlx::PgPool;
     use uuid::Uuid;
 
@@ -47,19 +47,20 @@ mod test {
     const PROGUARD_MAP: &str =
         include_str!("../../../../../tests/static/proguard/mapping_example.txt");
 
-    #[sqlx::test(migrations = "./tests/test_migrations")]
-    async fn test_proguard_resolution(db: PgPool) {
-        let team_id = 1;
+    async fn resolver_with_symbol_set(
+        db: PgPool,
+        team_id: i32,
+        set_ref: &str,
+        data: Vec<u8>,
+    ) -> LocalSymbolResolver {
         let mut config = ProcessingConfig::init_with_defaults().unwrap();
         config.resolver.object_storage_bucket = "test-bucket".to_string();
-
-        let map_id = "com.posthog.android.sample@3.0+3".to_string();
 
         let mut record = SymbolSetRecord {
             id: Uuid::now_v7(),
             team_id,
-            set_ref: map_id.clone(),
-            storage_ptr: Some(map_id.clone()),
+            set_ref: set_ref.to_string(),
+            storage_ptr: Some(set_ref.to_string()),
             failure_reason: None,
             created_at: Utc::now(),
             content_hash: Some("fake-hash".to_string()),
@@ -74,50 +75,54 @@ mod test {
             .expect_get()
             .with(
                 predicate::eq(config.resolver.object_storage_bucket.clone()),
-                predicate::eq(map_id.clone()), // We set the map id as the storage ptr above, in production it will be a different value with a prefix
+                predicate::eq(set_ref.to_string()), // We set the set ref as the storage ptr above, in production it will be a different value with a prefix
             )
-            .returning(|_, _| Ok(Some(bytes::Bytes::from(get_symbol_data_bytes()))));
+            .returning(move |_, _| Ok(Some(bytes::Bytes::from(data.clone()))));
 
         let client = Arc::new(client);
+        let bucket = config.resolver.object_storage_bucket.clone();
 
-        let hmp = HermesMapProvider::new(&config.resolver);
         let hmp = ChunkIdFetcher::new(
-            hmp,
+            HermesMapProvider::new(&config.resolver),
             client.clone(),
             db.clone(),
-            config.resolver.object_storage_bucket.clone(),
+            bucket.clone(),
         );
-
-        let smp = SourcemapProvider::new(&config.resolver);
         let smp = ChunkIdFetcher::new(
-            smp,
+            SourcemapProvider::new(&config.resolver),
             client.clone(),
             db.clone(),
-            config.resolver.object_storage_bucket.clone(),
+            bucket.clone(),
         );
-
         let pgp = ChunkIdFetcher::new(
             ProguardProvider::new(&config.resolver),
             client.clone(),
             db.clone(),
-            config.resolver.object_storage_bucket.clone(),
+            bucket.clone(),
         );
-
         let apple = ChunkIdFetcher::new(
             AppleProvider::new(&config.resolver),
             client.clone(),
             db.clone(),
-            config.resolver.object_storage_bucket.clone(),
+            bucket.clone(),
         );
-
         let native = ChunkIdFetcher::new(
             NativeProvider::new(&config.resolver),
             client.clone(),
             db.clone(),
-            config.resolver.object_storage_bucket.clone(),
+            bucket,
         );
 
         let c = Catalog::new(smp, hmp, pgp, apple, native);
+        LocalSymbolResolver::new(&config.resolver, Arc::new(c), db)
+    }
+
+    #[sqlx::test(migrations = "./tests/test_migrations")]
+    async fn test_proguard_resolution(db: PgPool) {
+        let team_id = 1;
+        let map_id = "com.posthog.android.sample@3.0+3".to_string();
+        let resolver =
+            resolver_with_symbol_set(db, team_id, &map_id, get_symbol_data_bytes()).await;
 
         let frame = RawJavaFrame {
             module: "a1.d".to_string(),
@@ -132,7 +137,6 @@ mod test {
             meta: CommonFrameMetadata::default(),
         };
 
-        let resolver = LocalSymbolResolver::new(&config.resolver, Arc::new(c), db);
         let exception = Exception {
             exception_type: "c".to_string(),
             module: Some("a1".to_string()),
@@ -156,6 +160,53 @@ mod test {
         );
 
         assert_eq!(result.exception_type, "MyCustomException3".to_string(),);
+    }
+
+    #[sqlx::test(migrations = "./tests/test_migrations")]
+    async fn test_jvm_sources_resolution(db: PgPool) {
+        let team_id = 1;
+        let map_id = "6f1c3c2e-6f61-5c1b-9a52-3b6e4f0d7a10".to_string();
+        let source = "package com.acme.billing;\n\nclass InvoiceService {\n    void charge() {\n        throw new IllegalStateException(\"boom\");\n    }\n}\n";
+        let data = write_symbol_data(JvmBundle {
+            mapping: None,
+            sources: [(
+                "com/acme/billing/InvoiceService.java".to_string(),
+                source.to_string(),
+            )]
+            .into(),
+        })
+        .unwrap();
+        let resolver = resolver_with_symbol_set(db, team_id, &map_id, data).await;
+
+        let frame = RawJavaFrame {
+            module: "com.acme.billing.InvoiceService".to_string(),
+            filename: Some("InvoiceService.java".to_string()),
+            function: "charge".to_string(),
+            lineno: Some(5),
+            map_id: Some(map_id),
+            context_line: None,
+            pre_context: Vec::new(),
+            post_context: Vec::new(),
+            method_synthetic: false,
+            meta: CommonFrameMetadata::default(),
+        };
+        let frames = resolver
+            .resolve_raw_frame(team_id, &RawFrame::Java(frame), &[])
+            .await
+            .unwrap();
+        assert_eq!(frames.len(), 1);
+        let resolved = &frames[0];
+        assert!(resolved.resolved);
+        assert_eq!(resolved.resolve_failure, None);
+        assert_eq!(resolved.resolved_name, None);
+        let context = resolved.context.as_ref().expect("source context");
+        assert_eq!(context.line.number, 5);
+        assert_eq!(
+            context.line.line,
+            "        throw new IllegalStateException(\"boom\");"
+        );
+        assert_eq!(context.before.len(), 4);
+        assert_eq!(context.after.len(), 2);
     }
 
     fn get_symbol_data_bytes() -> Vec<u8> {

@@ -13,6 +13,7 @@ pub enum SymbolDataType {
     ProguardMapping = 4,
     AppleDsym = 5,
     ElfDebugInfo = 6,
+    JvmBundle = 7,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
