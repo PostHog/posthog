@@ -190,15 +190,15 @@ def _with_untracked_groups(content: SlackMessageContent, message: AlertMessage) 
     ]
     if not notices:
         return content
-    notice = _details_blocks(tuple(notices))
+    notice_blocks = _details_blocks(tuple(notices))
     # The warning says the alert is at its group limit, so a reader who misses it reads a truncated
     # alert as a complete one. It goes wherever the renderer left room, never nowhere.
     if not content.attachments:
         return SlackMessageContent(
-            text=content.text, blocks=_above_actions(content.blocks, notice), attachments=content.attachments
+            text=content.text, blocks=_above_actions(content.blocks, notice_blocks), attachments=content.attachments
         )
     last = content.attachments[-1]
-    attachments = [*content.attachments[:-1], {**last, "blocks": _above_actions(last.get("blocks", []), notice)}]
+    attachments = [*content.attachments[:-1], {**last, "blocks": _above_actions(last.get("blocks", []), notice_blocks)}]
     return SlackMessageContent(text=content.text, blocks=content.blocks, attachments=attachments)
 
 
