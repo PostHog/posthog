@@ -223,7 +223,7 @@ describe('adventCalendarLogic', () => {
         ['fails, then takes the open on a retry', { open: [500, 200] }, 1, 2],
         ['throttles, then takes the open on a retry', { open: [429, 200] }, 1, 2],
         ['loses the reply, then takes the open on a retry', { open: ['network error', 200] }, 1, 2],
-        ['fails the open and every retry', { open: 500 }, 0, 4],
+        ['keeps failing the open', { open: 500 }, 1, 4],
     ])(
         'counts the tickets the server returns when it %s, with the retries on time while the tab is hidden',
         async (_, replies, tickets, sends) => {
@@ -243,6 +243,30 @@ describe('adventCalendarLogic', () => {
             expect(await showTab(false)).toEqual({ tickets, sends })
         }
     )
+
+    it.each<[string, Parameters<typeof calendarApi>[0], Date, number, number]>([
+        [
+            'comes back after an outage past the first retries',
+            { open: [500, 500, 500, 500, 200] },
+            new Date(2026, 11, 3, 9, 0),
+            1,
+            5,
+        ],
+        ['stays down until the day is over', { open: 500 }, new Date(2026, 11, 3, 23, 59, 30), 0, 4],
+    ])('retries the open of the day while the server %s', async (_, replies, openedAt, tickets, sends) => {
+        jest.setSystemTime(openedAt)
+        const api = calendarApi(replies)
+        useMocks(api.mocks)
+        await remount()
+
+        openThroughDoorThree()
+        await jest.advanceTimersByTimeAsync(120_000)
+
+        expect({ tickets: logic.values.tickets, sends: api.opens.filter(({ day }) => day === 3).length }).toEqual({
+            tickets,
+            sends,
+        })
+    })
 
     it('counts the ticket of an on-time open while it is in flight, and drops it when the server puts it on another day', async () => {
         let release: () => void = () => {}
@@ -268,11 +292,12 @@ describe('adventCalendarLogic', () => {
         expect(logic.values.tickets).toBe(tickets)
     })
 
-    it.each<[string, Reply, number[], number[]]>([
-        ['the open never reached the server', 200, [], [3]],
-        ['the earlier open is refused after the reload', 403, [], [3]],
-        ['the server already holds the open', 200, [3], []],
-    ])('counts the ticket after a reload during the open when %s', async (_, lateReply, serverDays, resent) => {
+    it.each<[string, Reply, number[], number[], boolean]>([
+        ['the open never reached the server', 200, [], [3], false],
+        ['the earlier open is refused after the reload', 403, [], [3], false],
+        ['the server already holds the open', 200, [3], [], false],
+        ['the open never reached the server and the reload mounts in a hidden tab', 200, [], [3], true],
+    ])('counts the ticket after a reload during the open when %s', async (_, lateReply, serverDays, resent, hidden) => {
         let release: () => void = () => {}
         useMocks(calendarApi({ open: lateReply, openHeld: new Promise<void>((resolve) => (release = resolve)) }).mocks)
         await remount()
@@ -280,8 +305,11 @@ describe('adventCalendarLogic', () => {
 
         const afterReload = calendarApi({ ticketDays: serverDays })
         useMocks(afterReload.mocks)
+        Object.defineProperty(document, 'hidden', { configurable: true, value: hidden })
         await remount()
         release()
+        Object.defineProperty(document, 'hidden', { configurable: true, value: false })
+        document.dispatchEvent(new Event('visibilitychange'))
         await jest.advanceTimersByTimeAsync(25_000)
 
         expect({ tickets: logic.values.tickets, resent: afterReload.opens.map(({ day }) => day) }).toEqual({

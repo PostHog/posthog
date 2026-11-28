@@ -49,7 +49,7 @@ const EVENTS = {
 } as const
 
 const CLOCK_REFRESH_MS = 60_000
-const OPEN_RETRY_DELAYS_MS = [2_000, 5_000, 15_000]
+const OPEN_RETRY_DELAYS_MS = [2_000, 5_000, 15_000, 60_000]
 
 // A preview picked with ?day= sends nothing, so the usage insights count real opens only.
 function captureLive(isLive: boolean, event: string, properties: Record<string, boolean | number | string>): void {
@@ -163,7 +163,6 @@ export interface adventCalendarLogicValues {
     pollResults: AdventCalendarResultsApi | null
     pollShares: AdventPollShares
     previewProgress: AdventProgress
-    previewTicketDays: number[]
     progress: AdventProgress
     progressByUser: Record<string, AdventProgress>
     revealingDoor: AdventDoor | null
@@ -305,7 +304,7 @@ export interface adventCalendarLogicMeta {
         ticketDays: (
             serverTicketDays: number[] | null,
             sendingTicketDay: number | null,
-            previewTicketDays: number[],
+            previewProgress: AdventProgress,
             isLive: boolean
         ) => number[]
         tickets: (ticketDays: number[], serverTicketDays: number[] | null, isLive: boolean) => number | null
@@ -415,12 +414,6 @@ export const adventCalendarLogic = kea<adventCalendarLogicType>([
                 dropOpen: (state, { day }) => (state === day ? null : state),
             },
         ],
-        previewTicketDays: [
-            [] as number[],
-            {
-                openDoor: (state, { day, isLive, isOnTime }) => (isLive ? [] : isOnTime ? withDay(state, day) : state),
-            },
-        ],
         previewProgress: [
             EMPTY_ADVENT_PROGRESS,
             {
@@ -523,15 +516,15 @@ export const adventCalendarLogic = kea<adventCalendarLogicType>([
         ],
         openCount: [(s) => [s.graph], (graph: adventCalendarLogicValues['graph']): number => openDoors(graph).length],
         ticketDays: [
-            (s) => [s.serverTicketDays, s.sendingTicketDay, s.previewTicketDays, s.isLive],
+            (s) => [s.serverTicketDays, s.sendingTicketDay, s.previewProgress, s.isLive],
             (
                 serverTicketDays: adventCalendarLogicValues['serverTicketDays'],
                 sendingTicketDay: adventCalendarLogicValues['sendingTicketDay'],
-                previewTicketDays: adventCalendarLogicValues['previewTicketDays'],
+                previewProgress: adventCalendarLogicValues['previewProgress'],
                 isLive: adventCalendarLogicValues['isLive']
             ): number[] =>
                 !isLive
-                    ? previewTicketDays
+                    ? previewProgress.opened
                     : sendingTicketDay === null
                       ? (serverTicketDays ?? [])
                       : withDay(serverTicketDays ?? [], sendingTicketDay),
@@ -610,16 +603,23 @@ export const adventCalendarLogic = kea<adventCalendarLogicType>([
                         if (mount.isDisposed) {
                             return
                         }
-                        if (isRefused(error) || retry >= OPEN_RETRY_DELAYS_MS.length) {
+                        if (isRefused(error)) {
                             actions.dropOpen(day)
                             return
                         }
                         mount.add(
                             () => {
-                                const timer = window.setTimeout(() => {
-                                    mount.dispose(`open-${day}`)
-                                    sendOpen(day, utcOffsetMinutes, userUuid, retry + 1)
-                                }, OPEN_RETRY_DELAYS_MS[retry])
+                                const timer = window.setTimeout(
+                                    () => {
+                                        mount.dispose(`open-${day}`)
+                                        if (isOnTime(day)) {
+                                            sendOpen(day, utcOffsetMinutes, userUuid, retry + 1)
+                                        } else {
+                                            actions.dropOpen(day)
+                                        }
+                                    },
+                                    OPEN_RETRY_DELAYS_MS[Math.min(retry, OPEN_RETRY_DELAYS_MS.length - 1)]
+                                )
                                 return () => window.clearTimeout(timer)
                             },
                             `open-${day}`,
@@ -627,6 +627,17 @@ export const adventCalendarLogic = kea<adventCalendarLogicType>([
                         )
                     }
                 )
+        }
+        const recoverToday = (): void => {
+            const day = values.today
+            const ticketDays = values.serverTicketDays
+            if (cache.checkedToday || !day || !values.isLive || !values.user || !ticketDays) {
+                return
+            }
+            cache.checkedToday = true
+            if (values.progress.opened.includes(day) && !ticketDays.includes(day) && values.sendingTicketDay !== day) {
+                sendOpen(day, -new Date().getTimezoneOffset(), values.user.uuid)
+            }
         }
         const isOnTime = (day: number): boolean => {
             const now = new Date()
@@ -679,20 +690,8 @@ export const adventCalendarLogic = kea<adventCalendarLogicType>([
                 }
                 actions.preloadImages()
             },
-            receivePollResults: ({ results }) => {
-                const day = values.today
-                if (cache.checkedToday || !values.isLive || !values.user || !results.ticket_days) {
-                    return
-                }
-                cache.checkedToday = true
-                if (
-                    values.progress.opened.includes(day) &&
-                    !results.ticket_days.includes(day) &&
-                    values.sendingTicketDay !== day
-                ) {
-                    sendOpen(day, -new Date().getTimezoneOffset(), values.user.uuid)
-                }
-            },
+            receivePollResults: recoverToday,
+            refreshClock: recoverToday,
             clickTip: ({ day }) => {
                 captureLive(values.isLive, EVENTS.tipClicked, { day })
             },
