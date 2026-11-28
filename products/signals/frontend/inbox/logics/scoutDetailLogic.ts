@@ -148,6 +148,7 @@ function touchedReportActions(runs: SignalScoutRunSummary[]): Map<string, ScoutR
 
 /** Fetch these reports by id. A report that can't be reached is remembered and left out. */
 async function fetchReports(ids: string[]): Promise<SignalReport[]> {
+    // nosemgrep: prefer-codegen-api-namespaced-signals -- the generated retrieve returns `SignalReportApi`, which `ScoutReportCard` does not accept yet
     const settled = await Promise.allSettled(ids.map((id) => api.signalReports.get(id)))
     settled.forEach((result, index) => {
         if (result.status === 'rejected') {
