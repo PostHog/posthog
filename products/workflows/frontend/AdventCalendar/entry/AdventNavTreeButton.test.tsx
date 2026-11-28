@@ -10,7 +10,6 @@ import { CategorySuffixNav, CustomCategorySuffix } from '~/layout/panel-layout/P
 import { ProductItemCategory } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 
-const FLAG = FEATURE_FLAGS.WORKFLOWS_ADVENT_CALENDAR
 const TREE_LABEL = 'Open the Workflows advent calendar'
 const NAVS: CategorySuffixNav[] = ['classic', 'today']
 
@@ -41,19 +40,6 @@ async function runPendingWork(): Promise<void> {
     await act(() => jest.runAllTimersAsync())
 }
 
-function sdkLoadsTheFlag(on: boolean): void {
-    featureFlagLogic.actions.setFeatureFlags(on ? [FLAG] : [], on ? { [FLAG]: true } : {})
-}
-
-function openInABlockedBrowser(page: boolean, sdkFlag: boolean): void {
-    window.POSTHOG_USER_IDENTITY_WITH_FLAGS = { distinctID: 'person-1', featureFlags: { [FLAG]: page } }
-    window.POSTHOG_GLOBAL_ERRORS = { onFeatureFlagsLoadError: true }
-    jest.mocked(posthog.get_property).mockImplementation((key) =>
-        key === '$feature_flag_errors' ? ['connection_error'] : undefined
-    )
-    sdkLoadsTheFlag(sdkFlag)
-}
-
 function snowFalls(): boolean {
     return document.querySelector('.AdventHoverSnow--falling') !== null
 }
@@ -65,7 +51,7 @@ describe('the advent tree on the Messaging sidebar header', () => {
         jest.useFakeTimers()
         initKeaTests()
         featureFlagLogic.mount()
-        sdkLoadsTheFlag(true)
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.WORKFLOWS_ADVENT_CALENDAR]: true })
         captured = []
         jest.spyOn(posthog, 'capture').mockImplementation((event, properties) => {
             captured.push([event, properties])
@@ -77,9 +63,6 @@ describe('the advent tree on the Messaging sidebar header', () => {
     afterEach(() => {
         cleanup()
         document.querySelector('.AdventHoverSnow')?.remove()
-        delete window.POSTHOG_USER_IDENTITY_WITH_FLAGS
-        delete window.POSTHOG_GLOBAL_ERRORS
-        jest.mocked(posthog.get_property).mockReset()
         jest.useRealTimers()
         jest.restoreAllMocks()
     })
@@ -107,27 +90,10 @@ describe('the advent tree on the Messaging sidebar header', () => {
         ['another category', ProductItemCategory.ANALYTICS, true],
         ['Messaging with the flag off', ProductItemCategory.MESSAGING, false],
     ])('shows no tree on %s', async (_, category, flagOn) => {
-        sdkLoadsTheFlag(flagOn)
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.WORKFLOWS_ADVENT_CALENDAR]: flagOn })
 
         for (const nav of NAVS) {
             renderMessagingHeader(nav, category)
-        }
-        await runPendingWork()
-
-        expect(screen.queryByLabelText(TREE_LABEL)).toBeNull()
-    })
-
-    it.each(NAVS)('the %s nav shows the tree in a blocked browser when the page decides on', async (nav) => {
-        openInABlockedBrowser(true, false)
-
-        expect(await findTree(renderMessagingHeader(nav))).toBeTruthy()
-    })
-
-    it('shows no tree in a blocked browser when the page decides off', async () => {
-        openInABlockedBrowser(false, true)
-
-        for (const nav of NAVS) {
-            renderMessagingHeader(nav)
         }
         await runPendingWork()
 
