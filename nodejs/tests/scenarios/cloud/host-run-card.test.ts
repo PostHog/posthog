@@ -185,26 +185,19 @@ describe('host-run-card.sh', () => {
         )
     })
 
-    it.each<[string, string | null, string]>([
-        [
-            'a quarter of the host memory',
-            'MemTotal:       16777216 kB\nMemFree:         1048576 kB\n',
-            '--max-old-space-size=4096 ',
-        ],
-        ["Node's default when the host memory cannot be read", null, ''],
-    ])('gives the runner a heap of %s', async (_story, meminfo, heapFlag) => {
-        const runner =
-            '#!/usr/bin/env bash\nmkdir -p "$XDG_CACHE_HOME"\nprintf \'%s\' "$*" >"$XDG_CACHE_HOME/runner-args"\n'
-        const file = path.join(dir, 'meminfo')
-        if (meminfo !== null) {
-            writeFileSync(file, meminfo)
-        }
+    it('gives the runner a heap of a quarter of the memory it may use', async () => {
+        const runner = `#!/usr/bin/env bash
+flags=()
+for arg; do [ "$arg" = --import ] && break; flags+=("$arg"); done
+mkdir -p "$XDG_CACHE_HOME"
+exec ${JSON.stringify(process.execPath)} "\${flags[@]}" -e 'require("fs").writeFileSync(process.env.XDG_CACHE_HOME + "/heap", JSON.stringify({ limit: require("v8").getHeapStatistics().heap_size_limit, memory: Math.min(process.constrainedMemory() || Infinity, require("os").totalmem()) }))'
+`
 
-        await exited(start({ SCENARIO_MEMINFO: file }, { card: 'cyclotron-scale' }, runner))
+        await exited(start({}, { card: 'cyclotron-scale' }, runner))
 
-        expect(readFileSync(path.join(dir, 'host', 'cache', 'runner-args'), 'utf8')).toMatch(
-            new RegExp(`^${heapFlag}--import tsx tests/scenarios/main\\.ts run `)
-        )
+        const { limit, memory } = parseJSON(readFileSync(path.join(dir, 'host', 'cache', 'heap'), 'utf8'))
+        expect(limit / memory).toBeGreaterThanOrEqual(0.25)
+        expect(limit / memory).toBeLessThan(0.3)
     })
 
     it("copies the control's live log of a pair beside the faulted run's", async () => {
