@@ -20,16 +20,19 @@ function storageKey({ viewerId, placement }: MessagingCtaDismissalLogicProps): s
 // Storage can be full or blocked, so a dismissal also lives here and holds until the page reloads.
 const dismissedOnThisPage = new Map<string, string>()
 
-function readDismissedAt(props: MessagingCtaDismissalLogicProps): string | null {
-    const onThisPage = dismissedOnThisPage.get(storageKey(props))
-    if (onThisPage) {
-        return onThisPage
-    }
+function readStoredDismissedAt(props: MessagingCtaDismissalLogicProps): string | null {
     try {
         return localStorage.getItem(storageKey(props))
     } catch {
         return null
     }
+}
+
+function readDismissedAt(props: MessagingCtaDismissalLogicProps): string | null {
+    const onThisPage = dismissedOnThisPage.get(storageKey(props)) ?? null
+    const stored = readStoredDismissedAt(props)
+    // Another tab may have saved a newer dismissal. ISO timestamps sort as strings.
+    return onThisPage && stored ? (onThisPage > stored ? onThisPage : stored) : (onThisPage ?? stored)
 }
 
 function writeDismissedAt(props: MessagingCtaDismissalLogicProps, dismissedAt: string): void {

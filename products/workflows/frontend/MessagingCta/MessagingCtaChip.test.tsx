@@ -15,7 +15,7 @@ interface Page {
     click: (element: HTMLElement, init?: MouseEventInit) => void
     auxClick: (element: HTMLElement, button: number) => void
     tab: () => Promise<void>
-    findText: (text: string) => Promise<HTMLElement>
+    text: (text: string) => HTMLElement | null
     captured: (event: string) => Record<string, unknown>[]
     switchViewer: (uuid: string) => void
     close: () => void
@@ -68,7 +68,7 @@ function openFreshPageLoad(replayArm: string | boolean | undefined, sendsFromCod
             auxClick: (element, button) =>
                 rtl.fireEvent(element, new MouseEvent('auxclick', { bubbles: true, button })),
             tab: () => userEvent.tab(),
-            findText: (text) => rtl.screen.findByText(text),
+            text: (text) => rtl.screen.queryByText(text),
             captured: (event) =>
                 capture.mock.calls.filter(([name]) => name === event).map(([, properties]) => properties ?? {}),
             switchViewer: (uuid) => rtl.act(() => userLogic.actions.loadUserSuccess({ ...MOCK_DEFAULT_USER, uuid })),
@@ -177,13 +177,13 @@ describe('MessagingCtaChip', () => {
     })
 
     it('shows its copy without a link when the host gives a reason it is disabled, and the reason on focus', async () => {
-        const { renderChip, chip, tab, findText } = open('player_chip')
+        const { renderChip, chip, tab, text } = open('player_chip')
         renderChip('Not available here')
 
         expect(chip()?.textContent).toContain('From an email?')
         expect(chip()!.querySelector('a')).toBeNull()
         await tab()
-        expect(await findText('Not available here')).toBeTruthy()
+        expect(text('Not available here')).not.toBeNull()
     })
 
     it('stays hidden for the rest of the page after its × is clicked, once storage fills after the app loaded', () => {
@@ -197,6 +197,22 @@ describe('MessagingCtaChip', () => {
         renderChip()
         expect(chip()).toBeNull()
         expect(captured('messaging cta dismissed')).toEqual([{ placement: 'replay.player_chip' }])
+    })
+
+    it('keeps a newer dismissal that another tab saved over its own', () => {
+        jest.useFakeTimers({ now: new Date('2026-03-01T12:00:00Z') })
+        const { renderChip, chip, click } = open('player_chip')
+        renderChip()
+        click(chip()!.querySelector<HTMLElement>('[aria-label="Hide for 90 days"]')!)
+
+        jest.setSystemTime(Date.now() + 30 * DAY_MS)
+        localStorage.setItem(
+            `messaging-cta-dismissed:${MOCK_DEFAULT_USER.uuid}:replay.player_chip`,
+            new Date().toISOString()
+        )
+        jest.setSystemTime(Date.now() + 61 * DAY_MS)
+        renderChip()
+        expect(chip()).toBeNull()
     })
 
     it('stays hidden and silent for 90 days after its × is clicked, for that viewer only', () => {
