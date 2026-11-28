@@ -57,6 +57,7 @@ import {
     getCohortSaveDisabledReason,
 } from 'products/data_warehouse/frontend/sql_editor/saveAsTargets'
 import type { SaveAsTarget, SaveAsTargetId } from 'products/data_warehouse/frontend/sql_editor/saveAsTargets'
+import { QuillSqlEditorWorkspace } from 'products/data_warehouse/frontend/sql_editor/workspace/QuillSqlEditorWorkspace'
 import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
 
 import { dataWarehouseViewsLogic } from '../saved_queries/dataWarehouseViewsLogic'
@@ -169,6 +170,7 @@ export function SQLEditor({
     const databaseTreeRef = useRef(null)
     const [hasShownDatabaseTree, setHasShownDatabaseTree] = useState(defaultShowDatabaseTree)
 
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
     const shouldShowDatabaseTree = showDatabaseTree ?? hasShownDatabaseTree
     const showQueryPanel = panel !== SQLEditorPanel.Output
     const showOutputPanel = panel !== SQLEditorPanel.Query
@@ -350,6 +352,24 @@ export function SQLEditor({
                                                 onShareTab={onShareTab}
                                             />
                                         </div>
+                                    ) : todayRailNav && mode === SQLEditorMode.FullScene && !children ? (
+                                        // The quill workspace lays out its own panels, so it skips the Lemon
+                                        // sizing logic but keeps the same logic bindings as the Lemon scene.
+                                        <BindLogic logic={editorSizingLogic} props={editorSizingLogicProps}>
+                                            <div className="flex h-full min-h-0 flex-col overflow-hidden">
+                                                {showSceneTitle ? <SQLEditorSceneTitle /> : null}
+                                                <div className="relative flex min-h-0 flex-1" ref={ref}>
+                                                    <ViewLoadingOverlay />
+                                                    <QuillSqlEditorWorkspace
+                                                        tabId={tabId || ''}
+                                                        onSetMonacoAndEditor={(nextMonaco, nextEditor) =>
+                                                            setMonacoAndEditor([nextMonaco, nextEditor])
+                                                        }
+                                                        onShareTab={onShareTab}
+                                                    />
+                                                </div>
+                                            </div>
+                                        </BindLogic>
                                     ) : (
                                         <BindLogic logic={editorSizingLogic} props={editorSizingLogicProps}>
                                             <div className="flex h-full min-h-0 flex-col overflow-hidden">

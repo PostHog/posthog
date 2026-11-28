@@ -369,6 +369,18 @@ export { MIN_TABLE_COLUMN_WIDTH, TableColumnResizer } from './table-column-resiz
 export { Tabs, TabsContent, TabsList, TabsTrigger } from './tabs'
 export { Text, textVariants } from './text'
 export { Textarea } from './textarea'
+export {
+    Tree,
+    TreeItemActions,
+    TreeItemIcon,
+    TreeItemLabel,
+    TreeItemMeta,
+    type TreeItemLabelProps,
+    type TreeItemState,
+    type TreeNode,
+    type TreeProps,
+    type TreeRef,
+} from './tree'
 export { Toggle, toggleVariants } from './toggle'
 export { ToggleGroup, ToggleGroupItem } from './toggle-group'
 export { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger, createTooltipHandle } from './tooltip'

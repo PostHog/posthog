@@ -1,0 +1,205 @@
+@layer components {
+    /* =========================================================================
+       Tree — the scroll container. Rows are a flat list; depth is a CSS var.
+       ========================================================================= */
+    .quill-tree {
+        --quill-tree-indent: 0.75rem;
+        --quill-tree-pad: 0.25rem;
+        --quill-tree-chevron: 1rem;
+
+        position: relative;
+        min-height: 0;
+        overflow-y: auto;
+        overscroll-behavior: contain;
+        outline: none;
+    }
+
+    .quill-tree__list {
+        position: relative;
+        display: flex;
+        flex-direction: column;
+    }
+
+    .quill-tree__item {
+        --quill-row-ring-color: color-mix(in oklab, var(--ring) 30%, transparent);
+        --quill-row-ring: 0 0 0 1px var(--card), 0 0 0 3px var(--quill-row-ring-color);
+
+        position: relative;
+        display: flex;
+        flex-shrink: 0;
+        gap: 0.375rem;
+        align-items: center;
+        min-width: 0;
+        height: var(--quill-tree-row-height, 1.75rem);
+        padding-inline: calc(var(--quill-tree-pad) + var(--quill-tree-depth, 0) * var(--quill-tree-indent))
+            var(--quill-tree-pad);
+        font-size: var(--text-ui, 0.8125rem);
+        line-height: 1.625;
+        color: var(--foreground);
+        cursor: default;
+        user-select: none;
+        border: 1px solid transparent;
+        border-radius: var(--radius-sm);
+        outline: none;
+        transition: background-color 0.1s ease;
+    }
+
+    /* Indent guides: one hairline under each ancestor's chevron, from the first level below a section. */
+    .quill-tree__item::before {
+        position: absolute;
+        inset-block: 0;
+        inset-inline-start: calc(
+            var(--quill-tree-pad) + var(--quill-tree-chevron) / 2 + var(--quill-tree-guide-from, 0) *
+                var(--quill-tree-indent)
+        );
+        width: calc((var(--quill-tree-depth, 0) - var(--quill-tree-guide-from, 0)) * var(--quill-tree-indent));
+        pointer-events: none;
+        content: '';
+        background-image: repeating-linear-gradient(
+            to right,
+            color-mix(in oklab, var(--border) 70%, transparent) 0 1px,
+            transparent 1px var(--quill-tree-indent)
+        );
+    }
+
+    .quill-tree__item:dir(rtl)::before {
+        background-image: repeating-linear-gradient(
+            to left,
+            color-mix(in oklab, var(--border) 70%, transparent) 0 1px,
+            transparent 1px var(--quill-tree-indent)
+        );
+    }
+
+    .quill-tree__item:hover,
+    .quill-tree__item[data-popup-open] {
+        background-color: var(--fill-hover);
+    }
+
+    .quill-tree__item[aria-selected='true']:not(:hover) {
+        background-color: var(--fill-selected);
+    }
+
+    .quill-tree__item:focus-visible {
+        z-index: 1;
+        border-color: var(--ring);
+        box-shadow: var(--quill-row-ring);
+    }
+
+    .quill-tree__item[aria-disabled='true'] {
+        color: var(--muted-foreground);
+        opacity: 0.6;
+    }
+
+    /* Section heading: small, muted, semibold, and no indent guide of its own. */
+    .quill-tree__item[data-section] {
+        font-size: var(--text-xxs, 0.625rem);
+        font-weight: 600;
+        color: var(--muted-foreground);
+        letter-spacing: 0.04em;
+    }
+
+    .quill-tree__item[data-section]::before {
+        content: none;
+    }
+
+    /* =========================================================================
+       Disclosure chevron — leaves keep an empty slot so labels line up.
+       ========================================================================= */
+    .quill-tree__chevron {
+        display: inline-flex;
+        flex-shrink: 0;
+        align-items: center;
+        justify-content: center;
+        width: var(--quill-tree-chevron);
+        height: var(--quill-tree-chevron);
+        color: var(--muted-foreground);
+    }
+
+    .quill-tree__chevron svg {
+        width: 0.875rem;
+        height: 0.875rem;
+        pointer-events: none;
+        transition: rotate 150ms cubic-bezier(0.215, 0.61, 0.355, 1);
+    }
+
+    .quill-tree__item:dir(rtl) .quill-tree__chevron svg {
+        rotate: 180deg;
+    }
+
+    .quill-tree__item[aria-expanded='true'] .quill-tree__chevron svg {
+        rotate: 90deg;
+    }
+
+    /* =========================================================================
+       Row parts
+       ========================================================================= */
+    .quill-tree__icon {
+        display: inline-flex;
+        flex-shrink: 0;
+        align-items: center;
+        justify-content: center;
+        width: 1rem;
+        height: 1rem;
+        color: var(--muted-foreground);
+    }
+
+    .quill-tree__icon svg {
+        flex-shrink: 0;
+        pointer-events: none;
+    }
+
+    .quill-tree__icon svg:not([class*='size-']) {
+        width: 1rem;
+        height: 1rem;
+    }
+
+    .quill-tree__label {
+        flex: 1 1 auto;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .quill-tree__meta {
+        flex-shrink: 0;
+        margin-inline-start: auto;
+        font-family: var(--font-mono, ui-monospace, monospace);
+        font-size: var(--text-xs, 0.75rem);
+        color: var(--subtle-foreground, var(--muted-foreground));
+        white-space: nowrap;
+    }
+
+    .quill-tree__label + .quill-tree__meta {
+        margin-inline-start: 0;
+    }
+
+    /* Hidden with opacity so its buttons stay in the tab order; shown on hover, focus, or while its popup is open. */
+    .quill-tree__actions {
+        display: inline-flex;
+        flex-shrink: 0;
+        gap: 0.125rem;
+        align-items: center;
+        margin-inline-start: auto;
+        opacity: 0;
+        transition: opacity 0.1s ease;
+    }
+
+    .quill-tree__label + .quill-tree__actions,
+    .quill-tree__meta + .quill-tree__actions {
+        margin-inline-start: 0;
+    }
+
+    .quill-tree__item:is(:hover, :focus-visible, :focus-within, [data-popup-open]) .quill-tree__actions,
+    .quill-tree__actions:has([data-popup-open]) {
+        opacity: 1;
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+        .quill-tree__item,
+        .quill-tree__chevron svg,
+        .quill-tree__actions {
+            transition: none;
+        }
+    }
+}

@@ -1,4 +1,3 @@
-import { useActions, useMountedLogic, useValues } from 'kea'
 import { memo, useState } from 'react'
 
 import { IconFilter, IconWarning } from '@posthog/icons'
@@ -10,82 +9,29 @@ import { DateRange } from '~/queries/nodes/DataNode/DateRange'
 import { TestAccountFilters } from '~/queries/nodes/DataNode/TestAccountFilters'
 import { EventPropertyFilters } from '~/queries/nodes/EventsNode/EventPropertyFilters'
 import { isHogQLQuery } from '~/queries/schema/node-guards'
-import type { HogQLFilters, HogQLQuery } from '~/queries/schema/schema-general'
 
-import { sqlEditorLogic } from './sqlEditorLogic'
-
-const hasDateRange = (filters?: HogQLFilters): boolean => {
-    return !!(filters?.dateRange?.date_from || filters?.dateRange?.date_to)
-}
-
-const hasPropertyFilters = (filters?: HogQLFilters): boolean => {
-    return !!filters?.properties?.length
-}
-
-const hasActiveFilters = (filters?: HogQLFilters): boolean => {
-    return hasDateRange(filters) || hasPropertyFilters(filters) || !!filters?.filterTestAccounts
-}
-
-const filtersTooltip = ({
-    filtersMissingPlaceholder,
-    bindingsMissingTimestamp,
-    usesFiltersPlaceholder,
-}: {
-    filtersMissingPlaceholder: boolean
-    bindingsMissingTimestamp: boolean
-    usesFiltersPlaceholder: boolean
-}): string | undefined => {
-    if (filtersMissingPlaceholder) {
-        return "Filters are present, but this SQL query doesn't include a {filters} tag"
-    }
-    if (bindingsMissingTimestamp) {
-        return "This query's {filters(...)} bindings have no timestamp key, so it can't take a date filter"
-    }
-    if (!usesFiltersPlaceholder) {
-        return 'Insert {filters} into your SQL query to apply filters'
-    }
-    return undefined
-}
+import { useQueryFiltersState } from './useQueryFiltersState'
 
 // QueryWindow subscribes to queryInput, so it renders on every keystroke. memo stops that render from
 // reaching this menu, and the selectors below keep the menu's own subscriptions off the keystroke path.
 export const QueryFiltersMenu = memo(function QueryFiltersMenu(): JSX.Element | null {
-    const { sourceQuery, hasFiltersPlaceholder, filtersPlaceholderBindings } = useValues(sqlEditorLogic)
-    const { setSourceQuery, runQuery, insertTextAtCursor } = useActions(sqlEditorLogic)
-    const logic = useMountedLogic(sqlEditorLogic)
+    const filtersState = useQueryFiltersState()
     const [isMenuOpen, setIsMenuOpen] = useState(false)
 
-    if (!isHogQLQuery(sourceQuery.source)) {
+    if (!filtersState) {
         return null
     }
 
-    const source = sourceQuery.source
-    const filters = source.filters
-    const hasFilters = hasActiveFilters(filters)
-    const usesFiltersPlaceholder = hasFiltersPlaceholder
-    const filtersMissingPlaceholder = hasFilters && !usesFiltersPlaceholder
-    const bindingsMissingTimestamp =
-        filtersPlaceholderBindings !== null && !filtersPlaceholderBindings.includes('timestamp')
-
-    const setHogQLQuery = (query: HogQLQuery): void => {
-        const nextSourceQuery = {
-            ...sourceQuery,
-            source: query,
-        }
-
-        setSourceQuery(nextSourceQuery)
-
-        if (usesFiltersPlaceholder) {
-            runQuery(logic.values.queryInput ?? query.query)
-        }
-    }
-
-    const resetFilters = (): void => {
-        setHogQLQuery({
-            ...source,
-            filters: {},
-        })
-    }
+    const {
+        source,
+        hasFilters,
+        filtersMissingPlaceholder,
+        bindingsMissingTimestamp,
+        tooltip,
+        setHogQLQuery,
+        resetFilters,
+        insertPlaceholder,
+    } = filtersState
 
     const menuItems: LemonMenuItems = [
         {
@@ -155,7 +101,7 @@ export const QueryFiltersMenu = memo(function QueryFiltersMenu(): JSX.Element | 
                         }}
                     />
                     <div className="flex gap-2">
-                        <LemonButton type="secondary" size="small" onClick={() => insertTextAtCursor('{filters}')}>
+                        <LemonButton type="secondary" size="small" onClick={insertPlaceholder}>
                             Insert placeholder
                         </LemonButton>
                         <LemonButton
@@ -191,11 +137,7 @@ export const QueryFiltersMenu = memo(function QueryFiltersMenu(): JSX.Element | 
                         <IconWarning className="text-warning" />
                     ) : undefined
                 }
-                tooltip={filtersTooltip({
-                    filtersMissingPlaceholder,
-                    bindingsMissingTimestamp,
-                    usesFiltersPlaceholder,
-                })}
+                tooltip={tooltip}
             >
                 Filters
             </LemonButton>

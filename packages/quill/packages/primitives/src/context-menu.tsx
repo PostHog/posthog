@@ -9,6 +9,7 @@ import { Checkbox } from './checkbox'
 import { Kbd } from './kbd'
 import { cn } from './lib/utils'
 import { RadioIndicator } from './radio-group'
+import { hasTooltipContent, withTooltip } from './with-tooltip'
 
 function ContextMenu({ ...props }: ContextMenuPrimitive.Root.Props): React.ReactElement {
     return <ContextMenuPrimitive.Root data-slot="context-menu" {...props} />
@@ -93,14 +94,22 @@ const ContextMenuItem = React.forwardRef<
     ContextMenuPrimitive.Item.Props & {
         inset?: boolean
         variant?: 'default' | 'destructive'
+        /** Text shown in a tooltip beside the item. */
+        tooltip?: React.ReactNode
+        /** Disables the item and says why in a tooltip beside it, like `DropdownMenuItem`. */
+        disabledReason?: React.ReactNode
     }
->(function ContextMenuItem({ className, inset, variant = 'default', children, ...props }, ref) {
-    return (
+>(function ContextMenuItem(
+    { className, inset, variant = 'default', disabled, tooltip, disabledReason, children, ...props },
+    ref
+) {
+    const item = (
         <ContextMenuPrimitive.Item
             ref={ref}
             data-slot="context-menu-item"
             data-inset={inset}
             data-variant={variant}
+            disabled={disabled || hasTooltipContent(disabledReason)}
             className={cn(
                 "group/context-menu-item relative flex cursor-default items-center outline-hidden select-none data-disabled:pointer-events-none data-disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-3.5",
                 inset && 'quill-menu-item--inset',
@@ -115,6 +124,9 @@ const ContextMenuItem = React.forwardRef<
             {children}
         </ContextMenuPrimitive.Item>
     )
+    // Disabled items ignore the pointer, so the tooltip listens on a wrapper and opens beside the row.
+    const content = hasTooltipContent(disabledReason) ? disabledReason : tooltip
+    return hasTooltipContent(content) ? withTooltip(item, content, { target: 'block', side: 'inline-end' }) : item
 })
 
 function ContextMenuSub({ ...props }: ContextMenuPrimitive.SubmenuRoot.Props): React.ReactElement {

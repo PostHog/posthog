@@ -152,6 +152,47 @@ export const HarnessLogoInResults: Story = {
     },
 }
 
+// The quill workspace behind today-rail-nav: Run as the only primary action, results below the
+// query, and the side panel on the right with the schema tab open.
+export const QuillWorkspace: Story = {
+    parameters: {
+        featureFlags: [FEATURE_FLAGS.TODAY_RAIL_NAV],
+        pageUrl: urls.sqlEditor({ query: HARNESS_SQL }),
+        msw: {
+            mocks: {
+                get: {
+                    '/api/projects/:team_id/mcp_analytics/custom_harnesses/': [],
+                    '/api/projects/:team_id/warehouse_expressions/': { results: [] },
+                    '/api/environments/:team_id/warehouse_expressions/': { results: [] },
+                },
+            },
+        },
+        testOptions: {
+            waitForSelector: '.OutputPane--quill .rdg [data-attr="hogqlx-brand-mark-label"]',
+            viewport: { width: 1440, height: 900 },
+        },
+    },
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        await waitFor(
+            () => {
+                const logic = sqlEditorLogic({ tabId: 'default' })
+                expect(logic.values.queryInput).toBe(HARNESS_SQL)
+                expect(dataNodeLogic.findMounted({ key: logic.values.dataLogicKey })).toBeTruthy()
+            },
+            { timeout: 15000 }
+        )
+        const runButton = await canvas.findByRole('button', { name: /^Run/ }, { timeout: 15000 })
+        await waitFor(() => expect(runButton).toHaveAttribute('aria-disabled', 'false'), { timeout: 15000 })
+        await userEvent.click(runButton)
+        await expect(
+            await canvas.findByText('Claude Code', { selector: '.rdg span' }, { timeout: 15000 })
+        ).toBeVisible()
+        const logic = sqlEditorLogic({ tabId: 'default' })
+        dataNodeLogic.findMounted({ key: logic.values.dataLogicKey })!.actions.setElapsedTime(180)
+    },
+}
+
 export const LoadingInsight: Story = {
     parameters: {
         pageUrl: `${urls.sqlEditor()}?open_insight=loading1`,

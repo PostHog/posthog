@@ -16,13 +16,8 @@ import { QueryDiffViewer } from './components/QueryDiffViewer'
 import { editorSceneLogic } from './editorSceneLogic'
 import { InsightHistory } from './InsightHistory'
 import { queryHistoryLogic } from './queryHistoryLogic'
+import { extractQuery, restorableQueryFromLog } from './queryHistoryUtils'
 import { sqlEditorLogic } from './sqlEditorLogic'
-
-// The query as of this edit — what "Restore" loads back into the editor.
-function restorableQueryFromLog(logItem: HumanizedActivityLogItem): string | null {
-    const change = logItem.unprocessed?.detail.changes?.find((c) => c.field === 'query' && extractQuery(c.after) !== '')
-    return change ? extractQuery(change.after) : null
-}
 
 function QueryHistoryLogRow({ logItem }: { logItem: HumanizedActivityLogItem }): JSX.Element {
     const [isExpanded, setIsExpanded] = useState(false)
@@ -82,14 +77,6 @@ function QueryHistoryLogRow({ logItem }: { logItem: HumanizedActivityLogItem }):
             )}
         </div>
     )
-}
-
-function extractQuery(value: unknown): string {
-    if (value && typeof value === 'object' && 'query' in value) {
-        const query = (value as { query?: unknown }).query
-        return typeof query === 'string' ? query : ''
-    }
-    return ''
 }
 
 function QueryHistoryLogDiff({ logItem }: { logItem: HumanizedActivityLogItem }): JSX.Element {

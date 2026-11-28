@@ -1,85 +1,30 @@
-import { useActions, useValues } from 'kea'
-import posthog from 'posthog-js'
-import { useMemo } from 'react'
-
 import { IconSparkles, IconWarning } from '@posthog/icons'
 import { Spinner } from '@posthog/lemon-ui'
 
 import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
 
-import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
-
-import { sqlEditorLogic } from '../sqlEditorLogic'
+import { FixErrorButtonSource, useFixErrorButtonState } from './useFixErrorButtonState'
 
 interface FixErrorButtonProps {
     type: LemonButtonProps['type']
     size?: LemonButtonProps['size']
     contentOverride?: string
-    source: 'action-bar' | 'query-error'
+    source: FixErrorButtonSource
 }
 
 export function FixErrorButton({ type, size, contentOverride, source }: FixErrorButtonProps): JSX.Element {
-    const {
-        queryInput,
-        fixErrorsError,
-        metadata,
-        selectedConnectionId,
-        fixErrorsLoading: fixHogQLErrorsLoading,
-    } = useValues(sqlEditorLogic)
-    const { fixErrors: fixHogQLErrors } = useActions(sqlEditorLogic)
-    const { responseError } = useValues(dataNodeLogic)
-
-    const queryError = responseError || metadata?.errors?.map((n) => n.message)?.join('. ') || undefined
-
-    const icon = useMemo(() => {
-        if (fixHogQLErrorsLoading) {
-            return <Spinner />
-        }
-
-        if (fixErrorsError) {
-            return <IconWarning className="text-warning" />
-        }
-
-        return <IconSparkles />
-    }, [fixHogQLErrorsLoading, fixErrorsError])
-
-    const disabledReason = useMemo(() => {
-        if (!queryError) {
-            return 'No query error to fix'
-        }
-
-        if (fixErrorsError) {
-            return fixErrorsError
-        }
-
-        return false
-    }, [queryError, fixErrorsError])
-
-    const content = useMemo(() => {
-        if (fixHogQLErrorsLoading) {
-            return 'Fixing...'
-        }
-
-        if (fixErrorsError) {
-            return "Can't fix"
-        }
-
-        return contentOverride ?? 'Fix errors with AI'
-    }, [fixErrorsError, fixHogQLErrorsLoading, contentOverride])
+    const { loading, failed, disabledReason, label, fix } = useFixErrorButtonState(source, contentOverride)
 
     return (
         <LemonButton
             type={type}
             size={size}
             disabledReason={disabledReason}
-            loading={fixHogQLErrorsLoading}
-            icon={icon}
-            onClick={() => {
-                fixHogQLErrors(queryInput ?? '', queryError, selectedConnectionId)
-                posthog.capture(`sql-editor-fix-error-click`, { source })
-            }}
+            loading={loading}
+            icon={loading ? <Spinner /> : failed ? <IconWarning className="text-warning" /> : <IconSparkles />}
+            onClick={fix}
         >
-            {content}
+            {label}
         </LemonButton>
     )
 }

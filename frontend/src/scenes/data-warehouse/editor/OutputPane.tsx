@@ -29,6 +29,16 @@ import {
     IconWarning,
 } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonDivider, LemonMenu, LemonModal, LemonTable, Tooltip } from '@posthog/lemon-ui'
+import {
+    Button,
+    Empty,
+    EmptyContent,
+    EmptyDescription,
+    EmptyHeader,
+    EmptyMedia,
+    EmptyTitle,
+    Spinner as QuillSpinner,
+} from '@posthog/quill'
 
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { JSONViewer } from 'lib/components/JSONViewer'
@@ -42,6 +52,7 @@ import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
 import { Resizer } from 'lib/lemon-ui/Resizer/Resizer'
 import { type ResizerLogicProps, resizerLogic } from 'lib/lemon-ui/Resizer/resizerLogic'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
+import { useQuillSurface } from 'lib/ui/QuillSurface/quillSurfaceContext'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { tryJsonParse } from 'lib/utils/json'
@@ -55,7 +66,6 @@ import { LoadPreviewText } from '~/queries/nodes/DataNode/LoadNext'
 import { QueryExecutionDetails } from '~/queries/nodes/DataNode/QueryExecutionDetails'
 import { WarehouseSyncWarningList } from '~/queries/nodes/DataNode/WarehouseSyncWarningList'
 import { warehouseSyncWarnings } from '~/queries/nodes/DataNode/warehouseSyncWarnings'
-import { DataTableRow } from '~/queries/nodes/DataTable/dataTableLogic'
 import { PartOfWholeChart } from '~/queries/nodes/DataVisualization/Components/Charts/PartOfWholeChart'
 import { SqlBoxPlot } from '~/queries/nodes/DataVisualization/Components/Charts/SqlBoxPlot'
 import { isSqlChartVisualizationType, SqlChart } from '~/queries/nodes/DataVisualization/Components/Charts/SqlChart'
@@ -72,12 +82,7 @@ import { dataVisualizationLogic } from '~/queries/nodes/DataVisualization/dataVi
 import { displayLogic } from '~/queries/nodes/DataVisualization/displayLogic'
 import { renderHogQLX } from '~/queries/nodes/HogQLX/render'
 import { extractValidationError, extractValidationErrorCode } from '~/queries/nodes/InsightViz/utils'
-import {
-    type AccessControlFilterWarning,
-    type DataTableNode,
-    type HogQLQueryResponse,
-    NodeKind,
-} from '~/queries/schema/schema-general'
+import { type AccessControlFilterWarning, type HogQLQueryResponse } from '~/queries/schema/schema-general'
 import {
     AccessControlLevel,
     AccessControlResourceType,
@@ -91,16 +96,14 @@ import { aiChartRecommendationLogic } from 'products/data_warehouse/frontend/sql
 import { HarnessLabel } from 'products/mcp_analytics/frontend/dashboard/HarnessLabel'
 import { HogQLBoldNumber } from 'products/product_analytics/frontend/insights/shared/BoldNumber/BoldNumber'
 
-import {
-    copyTableToCsv,
-    copyTableToExcel,
-    copyTableToJson,
-    copyTableToMarkdown,
-} from '../../../queries/nodes/DataTable/clipboardUtils'
 import { EditorQueryScanBanner } from './components/EditorQueryScanBanner'
 import { FixErrorButton } from './components/FixErrorButton'
 import { QueryIndexUsageBar } from './output-pane-tabs/QueryIndexUsageBar'
+import { RESULTS_COPY_FORMATS, copyResults } from './outputPaneCopy'
 import { OutputTab, outputPaneLogic } from './outputPaneLogic'
+import { QuillOutputEmptyState } from './QuillOutputEmptyState'
+import { QuillOutputErrorState } from './QuillOutputErrorState'
+import { QuillOutputToolbar } from './QuillOutputToolbar'
 import { sqlEditorLogic } from './sqlEditorLogic'
 import TabScroller from './TabScroller'
 
@@ -142,33 +145,6 @@ const CLICKHOUSE_TYPES = [
     'Decimal',
     'FixedString',
 ]
-
-const copyMap = {
-    [ExporterFormat.CSV]: {
-        label: 'CSV',
-        copyFn: copyTableToCsv,
-    },
-    [ExporterFormat.JSON]: {
-        label: 'JSON',
-        copyFn: copyTableToJson,
-    },
-    [ExporterFormat.XLSX]: {
-        label: 'Excel',
-        copyFn: copyTableToExcel,
-    },
-    [ExporterFormat.MARKDOWN]: {
-        label: 'Markdown',
-        copyFn: copyTableToMarkdown,
-    },
-}
-
-const createDataTableQuery = (): DataTableNode => ({
-    kind: NodeKind.DataTableNode,
-    source: {
-        kind: NodeKind.HogQLQuery,
-        query: '',
-    },
-})
 
 interface OutputTabConfig {
     key: OutputTab
@@ -439,23 +415,6 @@ function VisualizationActions({
     )
 }
 
-/**
- * Transforms DataTable format back to DataTableRow format for clipboard operations
- */
-function transformDataTableToDataTableRows(rows: Record<string, any>[], columns: string[]): DataTableRow[] {
-    if (!columns.length || !rows.length) {
-        return []
-    }
-
-    return rows.map((row) => ({
-        result: columns.map((col, index) => {
-            // Handle both direct column access and column_index format
-            const columnKey = `${col}_${index}`
-            return row[columnKey] !== undefined ? row[columnKey] : row[col]
-        }),
-    }))
-}
-
 interface ResultsActionsProps {
     response: HogQLQueryResponse | undefined
     rows: Record<string, any>[]
@@ -484,15 +443,9 @@ function ResultsActions({
     return (
         <>
             <LemonMenu
-                items={Object.values(copyMap).map(({ label, copyFn }) => ({
+                items={Object.entries(RESULTS_COPY_FORMATS).map(([format, { label }]) => ({
                     label,
-                    onClick: () => {
-                        if (response?.columns && rows.length > 0) {
-                            const dataTableRows = transformDataTableToDataTableRows(rows, response.columns)
-                            const query = createDataTableQuery()
-                            copyFn(dataTableRows, response.columns, query)
-                        }
-                    },
+                    onClick: () => copyResults(format as keyof typeof RESULTS_COPY_FORMATS, response, rows),
                 }))}
                 placement="bottom-end"
             >
@@ -629,6 +582,7 @@ export function extractGridCellValue(columnKey: string, row: Record<string, any>
 export function OutputPane({ tabId, showToolbar = true, biMode = false, onShareTab }: OutputPaneProps): JSX.Element {
     const { activeTab } = useValues(outputPaneLogic)
     const { setActiveTab } = useActions(outputPaneLogic)
+    const quillSurface = useQuillSurface()
 
     const {
         sourceQuery,
@@ -740,16 +694,18 @@ export function OutputPane({ tabId, showToolbar = true, biMode = false, onShareT
                             <span>{col.name}</span>
                             <div className="flex flex-col ml-1">
                                 <span
-                                    className={`text-[7px] leading-none ${
+                                    className={`OutputPane__sort-arrow text-[7px] leading-none ${
                                         sortDirection === 'ASC' ? 'text-black-600' : 'text-gray-400'
                                     }`}
+                                    data-active={sortDirection === 'ASC' || undefined}
                                 >
                                     ▲
                                 </span>
                                 <span
-                                    className={`text-[7px] leading-none ${
+                                    className={`OutputPane__sort-arrow text-[7px] leading-none ${
                                         sortDirection === 'DESC' ? 'text-black-600' : 'text-gray-400'
                                     }`}
+                                    data-active={sortDirection === 'DESC' || undefined}
                                 >
                                     ▼
                                 </span>
@@ -869,6 +825,7 @@ export function OutputPane({ tabId, showToolbar = true, biMode = false, onShareT
         showVisualizationSettings: showToolbar && isChartSettingsPanelOpen,
         showQueryScan: !biMode,
         isEmbeddedMode,
+        quillSurface,
     }
     const sharedActionsProps = {
         response,
@@ -899,50 +856,61 @@ export function OutputPane({ tabId, showToolbar = true, biMode = false, onShareT
             <Content activeTab={OutputTab.Visualization} {...sharedContentProps} />
         </div>
     ) : splitView ? (
-        <div className="flex flex-1 min-h-0 bg-dark @max-[48rem]/sql-output:flex-col @max-[48rem]/sql-output:overflow-y-auto">
-            <div
-                ref={splitPaneRef}
-                className="relative flex min-w-64 flex-col bg-white dark:bg-black @max-[48rem]/sql-output:!w-full @max-[48rem]/sql-output:!max-w-full @max-[48rem]/sql-output:min-h-64 @max-[48rem]/sql-output:shrink-0"
-                // eslint-disable-next-line react/forbid-dom-props
-                style={{ width: splitPaneWidth, maxWidth: 'calc(100% - 16rem)' }}
-            >
-                {showToolbar ? (
-                    <div className="flex flex-row justify-between align-center w-full min-h-[41px] overflow-y-auto border-r">
-                        <div className="flex min-h-[41px] gap-2 ml-4">
-                            {splitToggle}
-                            <OutputTabLabel tab={outputTabs[0]} active />
+        <>
+            {showToolbar && quillSurface ? (
+                <QuillOutputToolbar
+                    activeTab={OutputTab.Both}
+                    onActiveTabChange={setActiveTab}
+                    {...sharedActionsProps}
+                />
+            ) : null}
+            <div className="flex flex-1 min-h-0 bg-dark @max-[48rem]/sql-output:flex-col @max-[48rem]/sql-output:overflow-y-auto">
+                <div
+                    ref={splitPaneRef}
+                    className="relative flex min-w-64 flex-col bg-white dark:bg-black @max-[48rem]/sql-output:!w-full @max-[48rem]/sql-output:!max-w-full @max-[48rem]/sql-output:min-h-64 @max-[48rem]/sql-output:shrink-0"
+                    // eslint-disable-next-line react/forbid-dom-props
+                    style={{ width: splitPaneWidth, maxWidth: 'calc(100% - 16rem)' }}
+                >
+                    {showToolbar && !quillSurface ? (
+                        <div className="flex flex-row justify-between align-center w-full min-h-[41px] overflow-y-auto border-r">
+                            <div className="flex min-h-[41px] gap-2 ml-4">
+                                {splitToggle}
+                                <OutputTabLabel tab={outputTabs[0]} active />
+                            </div>
+                            <div className="flex gap-2 py-1 px-4 flex-shrink-0">
+                                <OutputActions activeTab={OutputTab.Results} {...sharedActionsProps} />
+                            </div>
                         </div>
-                        <div className="flex gap-2 py-1 px-4 flex-shrink-0">
-                            <OutputActions activeTab={OutputTab.Results} {...sharedActionsProps} />
-                        </div>
+                    ) : null}
+                    <div className="flex flex-1 min-h-0 relative bg-dark border-r">
+                        <Content activeTab={OutputTab.Results} {...sharedContentProps} />
                     </div>
-                ) : null}
-                <div className="flex flex-1 min-h-0 relative bg-dark border-r">
-                    <Content activeTab={OutputTab.Results} {...sharedContentProps} />
+                    <div className="@max-[48rem]/sql-output:hidden">
+                        <Resizer {...splitResizerProps} />
+                    </div>
                 </div>
-                <div className="@max-[48rem]/sql-output:hidden">
-                    <Resizer {...splitResizerProps} />
+                <div className="flex min-w-0 flex-1 flex-col bg-white dark:bg-black @max-[48rem]/sql-output:min-h-80 @max-[48rem]/sql-output:shrink-0">
+                    {showToolbar && !quillSurface ? (
+                        <div className="flex flex-row justify-between align-center w-full min-h-[41px] overflow-y-auto">
+                            <div className="flex min-h-[41px] gap-2 ml-4">
+                                <OutputTabLabel tab={outputTabs[1]} active />
+                            </div>
+                            <div className="flex gap-2 py-1 px-4 flex-shrink-0">
+                                <OutputActions activeTab={OutputTab.Visualization} {...sharedActionsProps} />
+                            </div>
+                        </div>
+                    ) : null}
+                    <div className="flex flex-1 min-h-0 relative bg-dark">
+                        <Content activeTab={OutputTab.Visualization} {...sharedContentProps} />
+                    </div>
                 </div>
             </div>
-            <div className="flex min-w-0 flex-1 flex-col bg-white dark:bg-black @max-[48rem]/sql-output:min-h-80 @max-[48rem]/sql-output:shrink-0">
-                {showToolbar ? (
-                    <div className="flex flex-row justify-between align-center w-full min-h-[41px] overflow-y-auto">
-                        <div className="flex min-h-[41px] gap-2 ml-4">
-                            <OutputTabLabel tab={outputTabs[1]} active />
-                        </div>
-                        <div className="flex gap-2 py-1 px-4 flex-shrink-0">
-                            <OutputActions activeTab={OutputTab.Visualization} {...sharedActionsProps} />
-                        </div>
-                    </div>
-                ) : null}
-                <div className="flex flex-1 min-h-0 relative bg-dark">
-                    <Content activeTab={OutputTab.Visualization} {...sharedContentProps} />
-                </div>
-            </div>
-        </div>
+        </>
     ) : (
         <>
-            {showToolbar ? (
+            {showToolbar && quillSurface ? (
+                <QuillOutputToolbar activeTab={activeTab} onActiveTabChange={setActiveTab} {...sharedActionsProps} />
+            ) : showToolbar ? (
                 <div className="flex flex-row justify-between align-center w-full min-h-[41px] overflow-y-auto">
                     <div className="flex min-h-[41px] gap-2 ml-4">
                         {splitToggle}
@@ -967,7 +935,12 @@ export function OutputPane({ tabId, showToolbar = true, biMode = false, onShareT
     )
 
     return (
-        <div className="OutputPane @container/sql-output flex flex-col w-full flex-1 min-h-0 bg-white dark:bg-black">
+        <div
+            className={clsx(
+                'OutputPane @container/sql-output flex flex-col w-full flex-1 min-h-0',
+                quillSurface ? 'OutputPane--quill bg-background' : 'bg-white dark:bg-black'
+            )}
+        >
             <QueryIndexUsageBar
                 predicates={metadata?.index_usage ?? []}
                 refreshing={metadataLoading}
@@ -976,7 +949,21 @@ export function OutputPane({ tabId, showToolbar = true, biMode = false, onShareT
                 onFixWithAI={fixIndexUsageWithAI}
                 fixWithAILoading={fixWithAILoading}
             />
-            {choosingChart ? (
+            {choosingChart && quillSurface ? (
+                <Empty className="flex-1" data-attr="sql-editor-chart-loading" aria-busy="true">
+                    <EmptyHeader>
+                        <EmptyMedia variant="icon">
+                            <QuillSpinner />
+                        </EmptyMedia>
+                        <EmptyTitle role="status">Choosing a chart…</EmptyTitle>
+                    </EmptyHeader>
+                    <EmptyContent>
+                        <Button variant="outline" onClick={skipRecommendation}>
+                            Show results now
+                        </Button>
+                    </EmptyContent>
+                </Empty>
+            ) : choosingChart ? (
                 <div
                     className="flex flex-1 min-h-0 flex-col items-center justify-center gap-3 p-4 border-t"
                     data-attr="sql-editor-chart-loading"
@@ -1204,6 +1191,7 @@ const ErrorState = ({
     queryCancelled,
     response,
     showQueryScan,
+    quillSurface,
 }: any): JSX.Element | null => {
     const { responseErrorObject } = useValues(dataNodeLogic)
     const validationError = !queryCancelled && extractValidationError(responseErrorObject)
@@ -1212,6 +1200,15 @@ const ErrorState = ({
         : response && 'error' in response && !!response.error
           ? response.error
           : responseError
+    if (quillSurface) {
+        return (
+            <QuillOutputErrorState
+                error={validationError || error}
+                cancelled={!!queryCancelled}
+                showQueryScan={!!showQueryScan}
+            />
+        )
+    }
     const fixWithAI = <FixErrorButton contentOverride="Fix error with AI" type="primary" source="query-error" />
 
     return (
@@ -1243,7 +1240,17 @@ const ErrorState = ({
     )
 }
 
-const EmptyResultsState = (): JSX.Element => {
+const EmptyResultsState = ({ quillSurface }: { quillSurface?: boolean }): JSX.Element => {
+    if (quillSurface) {
+        return (
+            <Empty className="flex-1" data-attr="sql-editor-output-pane-no-rows-state">
+                <EmptyHeader>
+                    <EmptyTitle>No rows</EmptyTitle>
+                    <EmptyDescription>The query ran and returned no rows.</EmptyDescription>
+                </EmptyHeader>
+            </Empty>
+        )
+    }
     return (
         <div
             className="flex flex-1 justify-center items-center gap-2 border-t px-4 py-6 text-center"
@@ -1276,6 +1283,7 @@ const Content = ({
     showVisualizationSettings,
     showQueryScan,
     isEmbeddedMode,
+    quillSurface,
 }: any): JSX.Element | null => {
     const { selectedDirectSource, singleStatement, showAgentHints } = useValues(sqlEditorLogic)
     // dataNodeLogic's timer resets on every loadData dispatch, so a rerun issued while a
@@ -1338,11 +1346,15 @@ const Content = ({
                 queryCancelled={queryCancelled}
                 response={response}
                 showQueryScan={showQueryScan}
+                quillSurface={quillSurface}
             />
         )
     }
 
     if (activeTab === OutputTab.Visualization) {
+        if (!response && !responseLoading && !insightLoading && quillSurface) {
+            return <QuillOutputEmptyState kind="chart" singleStatement={!!singleStatement} />
+        }
         if (!response && !responseLoading && !insightLoading) {
             return (
                 <div
@@ -1412,6 +1424,15 @@ const Content = ({
         )
     }
 
+    if (!response && quillSurface) {
+        return (
+            <QuillOutputEmptyState
+                kind={activeTab === OutputTab.Results ? 'results' : 'chart'}
+                singleStatement={!!singleStatement}
+            />
+        )
+    }
+
     if (!response) {
         const msg =
             activeTab === OutputTab.Results
@@ -1454,7 +1475,7 @@ const Content = ({
                 <QueryWarningsBanner warnings={response?.warnings} />
                 {showQueryScan && <EditorQueryScanBanner />}
                 {rows.length === 0 ? (
-                    <EmptyResultsState />
+                    <EmptyResultsState quillSurface={quillSurface} />
                 ) : (
                     <TabScroller data-attr="sql-editor-output-pane-results">
                         <DataGrid
