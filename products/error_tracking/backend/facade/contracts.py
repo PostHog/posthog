@@ -37,6 +37,14 @@ class LifecycleFilterOutcome(LabeledStrEnum):
     FILTER_ERROR = "filter_error"
 
 
+# Mirrors ErrorTrackingIssue.ResolvedUntil, which the facade cannot import.
+class IssueResolvedUntil(LabeledStrEnum):
+    """What reopens a resolved issue."""
+
+    NEXT_OCCURRENCE = "next_occurrence", "Next occurrence"
+    NEW_RELEASE = "new_release", "New release"
+
+
 class IssueTrendDirection(LabeledStrEnum):
     NEW = "new"
     INCREASING = "increasing"
@@ -81,6 +89,14 @@ class ErrorTrackingIssueAssignee:
 class ErrorTrackingIssueCohort:
     id: int
     name: str
+
+
+@dataclass(frozen=True)
+class ErrorTrackingIssueRelease:
+    id: UUID
+    version: str
+    project: str
+    created_at: datetime
 
 
 @dataclass(frozen=True)
@@ -236,6 +252,9 @@ class ErrorTrackingIssue:
     cohort: ErrorTrackingIssueCohort | None = None
     # None when the tags were not read, so a response leaves the field out.
     tags: list[ErrorTrackingIssueTag] | None = None
+    resolved_at: datetime | None = None
+    resolved_until: IssueResolvedUntil | None = None
+    latest_release: ErrorTrackingIssueRelease | None = None
 
 
 @dataclass(frozen=True)

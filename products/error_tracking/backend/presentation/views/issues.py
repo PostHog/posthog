@@ -108,6 +108,13 @@ class ErrorTrackingIssueTagDefinitionsResponseSerializer(serializers.Serializer)
     )
 
 
+class ErrorTrackingIssueReleaseReadSerializer(serializers.Serializer):
+    id = serializers.UUIDField(help_text="ID of the release.")
+    version = serializers.CharField(help_text="Version of the release, as the build reported it.")
+    project = serializers.CharField(help_text="Project the release belongs to.")
+    created_at = serializers.DateTimeField(help_text="When the release was created. Releases are ordered by it.")
+
+
 class ErrorTrackingIssueReadSerializer(serializers.Serializer):
     """Read-only serializer for issue contract types returned by the facade."""
 
@@ -130,6 +137,30 @@ class ErrorTrackingIssueReadSerializer(serializers.Serializer):
         help_text=(
             "The enabled tags that are applied to the issue. Only issue detail returns it, "
             "and only while the project has an enabled tag."
+        ),
+    )
+    resolved_at = serializers.DateTimeField(
+        allow_null=True,
+        help_text=(
+            "When the issue was resolved. Null unless the status is resolved, and for issues resolved before this "
+            "was recorded."
+        ),
+    )
+    resolved_until = serializers.ChoiceField(
+        choices=contracts.IssueResolvedUntil.choices,
+        allow_null=True,
+        help_text=(
+            "What reopens the issue while it is resolved. next_occurrence: any new exception. new_release: only an "
+            "exception from a release newer than latest_release, or an exception without a release. Null unless the "
+            "status is resolved. A resolved issue with null reopens on the next exception."
+        ),
+    )
+    latest_release = ErrorTrackingIssueReleaseReadSerializer(
+        allow_null=True,
+        help_text=(
+            "The newest release, by creation time, that an exception of this issue came from. An issue resolved until "
+            "a new release stays resolved for exceptions from this release or older ones. Null when no exception of "
+            "the issue had a release."
         ),
     )
 
@@ -219,6 +250,25 @@ class ErrorTrackingIssueWriteSerializer(serializers.Serializer):
         allow_blank=True,
         help_text="Optional issue description.",
     )
+    resolved_until = serializers.ChoiceField(
+        choices=contracts.IssueResolvedUntil.choices,
+        required=False,
+        allow_null=True,
+        help_text=(
+            "What reopens the issue while it is resolved. next_occurrence reopens it on any new exception. "
+            "new_release reopens it only on an exception from a newer release than any it was seen in, or on an "
+            "exception without a release. Send it together with status resolved. When omitted or null, an issue "
+            "that becomes resolved gets next_occurrence, and an issue that is already resolved keeps its value."
+        ),
+    )
+
+    def validate(self, attrs: dict[str, object]) -> dict[str, object]:
+        # Null counts as omitted, so a client can write back an issue it read, which carries null unless resolved.
+        if attrs.get("resolved_until") is None:
+            attrs.pop("resolved_until", None)
+        if "resolved_until" in attrs and attrs.get("status") != "resolved":
+            raise serializers.ValidationError({"resolved_until": "Send it together with status resolved."})
+        return attrs
 
 
 class ErrorTrackingIssueBulkRequestSerializer(serializers.Serializer):
@@ -240,6 +290,16 @@ class ErrorTrackingIssueBulkRequestSerializer(serializers.Serializer):
         required=False,
         allow_null=True,
         help_text="Assignment target. Required when action is assign; null unassigns.",
+    )
+    resolved_until = serializers.ChoiceField(
+        choices=contracts.IssueResolvedUntil.choices,
+        required=False,
+        allow_null=True,
+        help_text=(
+            "What reopens the issues while they are resolved, as on a single issue update. Only valid when action is "
+            "set_status and status is resolved. When omitted or null, issues that become resolved get "
+            "next_occurrence, and issues that are already resolved keep their value."
+        ),
     )
 
 
@@ -549,7 +609,7 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
                     "updated_fields": sorted(update.changed_fields),
                     **{
                         key: getattr(update.issue, key)
-                        for key in ("status", "severity")
+                        for key in ("status", "severity", "resolved_until")
                         if key in update.changed_fields
                     },
                 },
@@ -744,6 +804,12 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
         issue_ids = self._parse_issue_ids(request.data.get("ids", []))
         bulk_action = request.data.get("action")
         bulk_status = request.data.get("status")
+        bulk_resolved_until = request.data.get("resolved_until")
+        if bulk_resolved_until is not None:
+            if bulk_resolved_until not in contracts.IssueResolvedUntil.values:
+                raise ValidationError("Invalid resolved_until")
+            if bulk_action != "set_status" or bulk_status != "resolved":
+                raise ValidationError("Send resolved_until only with action set_status and status resolved.")
         try:
             changed_issue_count = issues_facade.bulk_update_issues(
                 self.team.id,
@@ -753,6 +819,7 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
                 assignee=request.data.get("assignee", None),
                 user=request.user,
                 was_impersonated=is_impersonated(request),
+                resolved_until=contracts.IssueResolvedUntil(bulk_resolved_until) if bulk_resolved_until else None,
             )
         except issues_facade.InvalidIssueStatusError:
             raise ValidationError("Invalid status")
@@ -765,6 +832,7 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
                 {
                     "issue_count": changed_issue_count,
                     **({"status": bulk_status} if bulk_action == "set_status" else {}),
+                    **({"resolved_until": bulk_resolved_until} if bulk_resolved_until else {}),
                 },
             )
         return Response({"success": True})

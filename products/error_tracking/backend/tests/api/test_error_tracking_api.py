@@ -68,6 +68,7 @@ from products.error_tracking.backend.models import (
 from products.error_tracking.backend.presentation.views.issues import (
     SUMMARIZE_ERRORS,
     ErrorTrackingIssueAssignRequestSerializer,
+    ErrorTrackingIssueWriteSerializer,
 )
 from products.error_tracking.backend.presentation.views.symbol_sets import (
     BULK_CHECK_UPLOAD_MAX_SYMBOL_SETS,
@@ -84,6 +85,9 @@ from products.error_tracking.backend.tests.api.issue_summary_states import (
 from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, add_limited_team_tokens
 
 TEST_BUCKET = "test_storage_bucket-TestErrorTracking"
+
+EARLIER = datetime(2025, 1, 1, tzinfo=UTC)
+NOW = datetime(2025, 1, 2, tzinfo=UTC)
 
 BLOCKS_CHECKOUT = IssueTagDefinition(
     key="blocks_checkout",
@@ -131,6 +135,20 @@ class TestErrorTrackingIssueAssignRequestSerializer(SimpleTestCase):
 
         assert not serializer.is_valid()
         assert "id" in serializer.errors["assignee"]
+
+
+class TestErrorTrackingIssueWriteSerializer(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("with_another_status", {"status": "active", "resolved_until": None}),
+            ("without_a_status", {"name": "Renamed", "resolved_until": None}),
+        ]
+    )
+    def test_null_resolve_mode_counts_as_omitted(self, _name: str, data: dict[str, object]) -> None:
+        serializer = ErrorTrackingIssueWriteSerializer(data=data)
+
+        assert serializer.is_valid(), serializer.errors
+        assert "resolved_until" not in serializer.validated_data
 
 
 class TestErrorTrackingSymbolSetBulkCheckUploadSerializer(SimpleTestCase):
@@ -294,6 +312,13 @@ class TestErrorTracking(APIBaseTest):
     @time_machine.travel("2025-01-01", tick=False)
     def test_issue_fetch(self, _name: str, enabled_flags: set[str]):
         issue = self.create_issue(["fingerprint"])
+        release = ErrorTrackingRelease.objects.create(
+            team=self.team, hash_id="web@2.0.0", version="2.0.0", project="web"
+        )
+        # An older cymbal build reopens an issue without clearing `resolved_at`, which only counts while resolved.
+        ErrorTrackingIssue.objects.filter(id=issue.id).update(
+            resolved_at=timezone.now(), latest_release_id=release.id, latest_release_created_at=release.created_at
+        )
         # A person removed `needs_login`, and `retired_tag` has no definition.
         for key, value, source in (
             (BLOCKS_CHECKOUT.key, True, "jev"),
@@ -319,6 +344,14 @@ class TestErrorTracking(APIBaseTest):
             "assignee": None,
             "first_seen": "2025-01-01T00:00:00Z",
             "external_issues": [],
+            "resolved_at": None,
+            "resolved_until": None,
+            "latest_release": {
+                "id": str(release.id),
+                "version": "2.0.0",
+                "project": "web",
+                "created_at": release.created_at.isoformat().replace("+00:00", "Z"),
+            },
         }
         if enabled_flags:
             expected["tags"] = [
@@ -561,9 +594,10 @@ class TestErrorTracking(APIBaseTest):
                 "action": "update",
                 "source": "mcp",
                 "issue_id": str(issue.id),
-                "updated_fields": ["severity", "status"],
+                "updated_fields": ["resolved_until", "severity", "status"],
                 "status": "resolved",
                 "severity": "high",
+                "resolved_until": "next_occurrence",
             }
         ]
         assert response.json() == {
@@ -576,6 +610,9 @@ class TestErrorTracking(APIBaseTest):
             "assignee": None,
             "first_seen": "2025-01-01T00:00:00Z",
             "external_issues": [],
+            "resolved_at": "2025-01-01T00:00:00Z",
+            "resolved_until": "next_occurrence",
+            "latest_release": None,
         }
         assert issue.status == ErrorTrackingIssue.Status.RESOLVED
         assert issue.severity == ErrorTrackingIssue.Severity.HIGH
@@ -601,6 +638,13 @@ class TestErrorTracking(APIBaseTest):
                                 "after": "high",
                                 "before": None,
                                 "field": "severity",
+                                "type": "ErrorTrackingIssue",
+                            },
+                            {
+                                "action": "changed",
+                                "after": "next_occurrence",
+                                "before": None,
+                                "field": "resolved_until",
                                 "type": "ErrorTrackingIssue",
                             },
                         ],
@@ -1166,6 +1210,156 @@ class TestErrorTracking(APIBaseTest):
         response = getattr(self.client, method)(f"/api/projects/{self.team.id}/error_tracking/{route}/{obj.id}")
 
         assert response.status_code == expected_status, response.content
+
+    @parameterized.expand(
+        [
+            (f"{endpoint}_{name}", endpoint, *case)
+            for endpoint in ("single", "bulk")
+            for name, *case in [
+                ("resolve", "active", None, None, {"status": "resolved"}, NOW, "next_occurrence"),
+                (
+                    "resolve_until_a_new_release",
+                    "active",
+                    None,
+                    None,
+                    {"status": "resolved", "resolved_until": "new_release"},
+                    NOW,
+                    "new_release",
+                ),
+                (
+                    "resolve_again_keeps_the_time_and_mode",
+                    "resolved",
+                    EARLIER,
+                    "new_release",
+                    {"status": "resolved"},
+                    EARLIER,
+                    "new_release",
+                ),
+                (
+                    "change_mode_while_resolved",
+                    "resolved",
+                    EARLIER,
+                    "next_occurrence",
+                    {"status": "resolved", "resolved_until": "new_release"},
+                    EARLIER,
+                    "new_release",
+                ),
+                ("reopen", "resolved", EARLIER, "new_release", {"status": "active"}, None, None),
+                ("suppress", "resolved", EARLIER, "new_release", {"status": "suppressed"}, None, None),
+            ]
+        ]
+        + [
+            (
+                "single_without_status",
+                "single",
+                "resolved",
+                EARLIER,
+                "new_release",
+                {"name": "Renamed"},
+                EARLIER,
+                "new_release",
+            )
+        ]
+    )
+    @time_machine.travel(NOW, tick=False)
+    def test_issue_status_write_records_when_and_until_the_issue_was_resolved(
+        self,
+        _name: str,
+        endpoint: str,
+        initial_status: str,
+        initial_resolved_at: datetime | None,
+        initial_resolved_until: str | None,
+        data: dict[str, str],
+        expected_resolved_at: datetime | None,
+        expected_resolved_until: str | None,
+    ) -> None:
+        issue = self.create_issue(status=initial_status)
+        ErrorTrackingIssue.objects.filter(id=issue.id).update(
+            resolved_at=initial_resolved_at, resolved_until=initial_resolved_until
+        )
+
+        if endpoint == "single":
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}/error_tracking/issues/{issue.id}", data=data, format="json"
+            )
+        else:
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/error_tracking/issues/bulk",
+                data={"ids": [str(issue.id)], "action": "set_status", **data},
+                format="json",
+            )
+
+        assert response.status_code == 200, response.json()
+        issue.refresh_from_db()
+        assert (issue.status, issue.resolved_at, issue.resolved_until) == (
+            data.get("status", initial_status),
+            expected_resolved_at,
+            expected_resolved_until,
+        )
+        if endpoint == "single":
+            assert response.json()["resolved_at"] == (
+                expected_resolved_at.isoformat().replace("+00:00", "Z") if expected_resolved_at else None
+            )
+            assert response.json()["resolved_until"] == expected_resolved_until
+
+    @parameterized.expand(
+        [
+            ("without_a_mode", {"status": "resolved"}, "next_occurrence", None),
+            ("with_a_mode", {"status": "resolved", "resolved_until": "new_release"}, "new_release", "new_release"),
+        ]
+    )
+    def test_bulk_resolve_sets_the_mode_of_every_changed_issue(
+        self,
+        _name: str,
+        data: dict[str, str],
+        expected_newly_resolved_mode: str,
+        expected_already_resolved_mode: str | None,
+    ) -> None:
+        newly_resolved = self.create_issue(fingerprints=["bulk_active"])
+        # Created second, so the bulk update locks and visits it last.
+        already_resolved = self.create_issue(fingerprints=["bulk_resolved"], status="resolved")
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/error_tracking/issues/bulk",
+            data={"ids": [str(newly_resolved.id), str(already_resolved.id)], "action": "set_status", **data},
+            format="json",
+        )
+
+        assert response.status_code == 200, response.json()
+        newly_resolved.refresh_from_db()
+        already_resolved.refresh_from_db()
+        assert (newly_resolved.resolved_until, already_resolved.resolved_until) == (
+            expected_newly_resolved_mode,
+            expected_already_resolved_mode,
+        )
+
+    @parameterized.expand(
+        [
+            ("single_with_another_status", "single", {"status": "active", "resolved_until": "new_release"}),
+            ("single_without_a_status", "single", {"resolved_until": "new_release"}),
+            ("bulk_with_another_status", "bulk", {"status": "active", "resolved_until": "new_release"}),
+            ("bulk_with_an_unknown_mode", "bulk", {"status": "resolved", "resolved_until": "eventually"}),
+        ]
+    )
+    def test_issue_status_write_rejects_a_misplaced_resolve_mode(
+        self, _name: str, endpoint: str, data: dict[str, str]
+    ) -> None:
+        issue = self.create_issue(status="resolved")
+
+        if endpoint == "single":
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}/error_tracking/issues/{issue.id}", data=data, format="json"
+            )
+        else:
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/error_tracking/issues/bulk",
+                data={"ids": [str(issue.id)], "action": "set_status", **data},
+                format="json",
+            )
+
+        assert response.status_code == 400, response.json()
+        issue.refresh_from_db()
+        assert (issue.status, issue.resolved_until) == ("resolved", None)
 
     @parameterized.expand(
         [

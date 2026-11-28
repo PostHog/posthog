@@ -2,6 +2,7 @@ import hmac
 import json
 import time
 from collections import Counter
+from datetime import timedelta
 from typing import Any
 
 from posthog.test.base import BaseTest
@@ -9,6 +10,7 @@ from unittest.mock import Mock, patch
 
 from django.core.cache import cache
 from django.test import SimpleTestCase, override_settings
+from django.utils import timezone
 
 import redis.exceptions as redis_exceptions
 from celery.exceptions import Retry
@@ -255,11 +257,20 @@ class TestLinearStatusSync(BaseTest):
         expected_status: str,
     ) -> None:
         issue = self._linked_issue(self.team, self._linear_integration(self.team), linked, status=initial_status)
+        earlier = timezone.now() - timedelta(days=1)
+        ErrorTrackingIssue.objects.filter(id=issue.id).update(resolved_at=earlier, resolved_until="new_release")
 
         self._sync(_FakeLinear(ticket_states, previous_state_type))
 
         issue.refresh_from_db()
         assert issue.status == expected_status
+        if expected_status == initial_status:
+            assert (issue.resolved_at, issue.resolved_until) == (earlier, "new_release")
+        elif expected_status == "resolved":
+            assert issue.resolved_at is not None and issue.resolved_at > earlier
+            assert issue.resolved_until == "next_occurrence"
+        else:
+            assert (issue.resolved_at, issue.resolved_until) == (None, None)
         system_status_changes = ActivityLog.objects.filter(
             team_id=self.team.id, scope="ErrorTrackingIssue", item_id=str(issue.id), is_system=True
         )

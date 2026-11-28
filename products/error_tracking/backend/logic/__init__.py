@@ -1,3 +1,4 @@
+from collections.abc import Iterable
 from datetime import datetime
 from urllib.parse import quote
 from uuid import UUID
@@ -345,6 +346,13 @@ def batch_get_stack_frames(
 
 def list_releases(team_id: int) -> QuerySet[ErrorTrackingRelease]:
     return ErrorTrackingRelease.objects.filter(team_id=team_id).order_by("-created_at")
+
+
+def get_releases_by_id(team_id: int, release_ids: Iterable[UUID]) -> dict[UUID, ErrorTrackingRelease]:
+    ids = set(release_ids)
+    if not ids:
+        return {}
+    return {release.id: release for release in ErrorTrackingRelease.objects.filter(team_id=team_id, id__in=ids)}
 
 
 def get_release(team_id: int, release_id: str) -> ErrorTrackingRelease | None:

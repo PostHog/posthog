@@ -1,7 +1,7 @@
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
 from threading import Barrier, Event
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import pytest
 import time_machine
@@ -29,6 +29,9 @@ from products.error_tracking.backend.models import (
     ErrorTrackingSpikeEvent,
     ErrorTrackingSymbolSet,
 )
+
+OLDER_RELEASE = datetime(2025, 1, 1, tzinfo=UTC)
+NEWER_RELEASE = datetime(2025, 2, 1, tzinfo=UTC)
 
 
 class ErrorTrackingIssueTestMixin:
@@ -118,13 +121,75 @@ class TestErrorTracking(ErrorTrackingIssueTestMixin, BaseTest):
         target = self.create_issue(["fingerprint_two"])
         ErrorTrackingIssue.objects.filter(id=source.id).update(status=source_status)
         target.status = target_status
-        target.save(update_fields=["status"])
+        target.resolved_at = datetime(2025, 1, 1, tzinfo=UTC)
+        target.save(update_fields=["status", "resolved_at"])
+        reopened = expected_status != target_status
 
         target.merge(issue_ids=[source.id])
 
-        assert target.status == expected_status
+        assert (target.status, target.resolved_at is None) == (expected_status, reopened)
         target.refresh_from_db()
-        assert target.status == expected_status
+        assert (target.status, target.resolved_at is None) == (expected_status, reopened)
+
+    @parameterized.expand(
+        [
+            ("source_from_an_older_release", "new_release", NEWER_RELEASE, "active", OLDER_RELEASE, "resolved"),
+            ("source_from_the_same_release", "new_release", NEWER_RELEASE, "active", NEWER_RELEASE, "resolved"),
+            ("source_from_a_newer_release", "new_release", OLDER_RELEASE, "active", NEWER_RELEASE, "active"),
+            ("source_without_release_history", "new_release", NEWER_RELEASE, "active", None, "active"),
+            ("target_without_release_history", "new_release", None, "active", OLDER_RELEASE, "active"),
+            ("resolved_until_next_occurrence", "next_occurrence", NEWER_RELEASE, "active", OLDER_RELEASE, "active"),
+            ("resolved_before_modes_were_recorded", None, NEWER_RELEASE, "active", OLDER_RELEASE, "active"),
+            (
+                "resolved_source_from_a_newer_release",
+                "new_release",
+                OLDER_RELEASE,
+                "resolved",
+                NEWER_RELEASE,
+                "resolved",
+            ),
+        ]
+    )
+    def test_merge_into_a_resolved_issue_follows_its_resolve_mode(
+        self,
+        _name: str,
+        resolved_until: str | None,
+        target_release: datetime | None,
+        source_status: str,
+        source_release: datetime | None,
+        expected_status: str,
+    ) -> None:
+        source = self.create_issue(["fingerprint_one"])
+        target = self.create_issue(["fingerprint_two"])
+        ErrorTrackingIssue.objects.filter(id=source.id).update(
+            status=source_status,
+            latest_release_id=uuid4() if source_release else None,
+            latest_release_created_at=source_release,
+        )
+        ErrorTrackingIssue.objects.filter(id=target.id).update(
+            status="resolved",
+            resolved_at=datetime(2025, 3, 1, tzinfo=UTC),
+            resolved_until=resolved_until,
+            latest_release_id=uuid4() if target_release else None,
+            latest_release_created_at=target_release,
+        )
+        target.refresh_from_db()
+
+        target.merge(issue_ids=[source.id])
+
+        target.refresh_from_db()
+        reopened = expected_status == "active"
+        assert (target.status, target.resolved_at is None, target.resolved_until is None) == (
+            expected_status,
+            reopened,
+            reopened or resolved_until is None,
+        )
+        expected_release = (
+            max((release for release in (target_release, source_release) if release is not None), default=None)
+            if reopened
+            else target_release
+        )
+        assert target.latest_release_created_at == expected_release
 
     def test_merging_multiple_issues_at_once(self):
         issue_one = self.create_issue(["fingerprint_one"])
