@@ -29,6 +29,33 @@ function isTheme(value: string | null): value is Theme {
     return THEME_VALUES.includes(value as Theme)
 }
 
+// A sandboxed frame or a browser that blocks site data throws on any access to localStorage.
+// The provider must still render there, so a refused read gives no stored theme and a refused write is dropped.
+function readStoredTheme(storageKey: string): Theme | null {
+    try {
+        const storedTheme = window.localStorage.getItem(storageKey)
+        return isTheme(storedTheme) ? storedTheme : null
+    } catch {
+        return null
+    }
+}
+
+function writeStoredTheme(storageKey: string, theme: Theme): void {
+    try {
+        window.localStorage.setItem(storageKey, theme)
+    } catch {
+        return
+    }
+}
+
+function isLocalStorage(storageArea: Storage | null): boolean {
+    try {
+        return storageArea === window.localStorage
+    } catch {
+        return false
+    }
+}
+
 function getSystemTheme(): ResolvedTheme {
     if (typeof window !== 'undefined' && window.matchMedia(COLOR_SCHEME_QUERY).matches) {
         return 'dark'
@@ -80,10 +107,7 @@ export function ThemeProvider({
 }: ThemeProviderProps): React.ReactElement {
     const [theme, setThemeState] = React.useState<Theme>(() => {
         if (typeof window !== 'undefined') {
-            const storedTheme = localStorage.getItem(storageKey)
-            if (isTheme(storedTheme)) {
-                return storedTheme
-            }
+            return readStoredTheme(storageKey) ?? defaultTheme
         }
 
         return defaultTheme
@@ -92,7 +116,7 @@ export function ThemeProvider({
     const setTheme = React.useCallback(
         (nextTheme: Theme) => {
             if (typeof window !== 'undefined') {
-                localStorage.setItem(storageKey, nextTheme)
+                writeStoredTheme(storageKey, nextTheme)
             }
             setThemeState(nextTheme)
         },
@@ -162,7 +186,7 @@ export function ThemeProvider({
                             ? 'light'
                             : 'dark'
 
-                localStorage.setItem(storageKey, nextTheme)
+                writeStoredTheme(storageKey, nextTheme)
                 return nextTheme
             })
         }
@@ -176,7 +200,7 @@ export function ThemeProvider({
 
     React.useEffect(() => {
         const handleStorageChange = (event: StorageEvent): void => {
-            if (event.storageArea !== localStorage) {
+            if (!isLocalStorage(event.storageArea)) {
                 return
             }
 
