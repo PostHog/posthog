@@ -14,13 +14,12 @@ import {
     Text,
 } from '@posthog/quill'
 
+import { QuillActivityLogRow } from 'lib/components/ActivityLog/QuillActivityLogRow'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
 
 import { sidePanelActivityLogic } from '~/layout/navigation-3000/sidepanel/panels/activity/sidePanelActivityLogic'
 import { todayContextPanelLogic } from '~/layout/today/todayContextPanelLogic'
-
-import { QuillActivityLogRow } from './QuillActivityLogRow'
 
 function BrowseAllButton(): JSX.Element {
     const { close } = useActions(todayContextPanelLogic)

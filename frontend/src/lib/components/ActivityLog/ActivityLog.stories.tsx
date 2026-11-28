@@ -1,4 +1,5 @@
-import { Meta } from '@storybook/react'
+import { Meta, StoryObj } from '@storybook/react'
+import { within } from '@testing-library/dom'
 
 import {
     featureFlagsActivityResponseJson,
@@ -7,10 +8,13 @@ import {
     teamActivityResponseJson,
 } from 'lib/components/ActivityLog/__mocks__/activityLogMocks'
 import { ActivityLog, ActivityLogProps } from 'lib/components/ActivityLog/ActivityLog'
+import { QuillActivityLog } from 'lib/components/ActivityLog/QuillActivityLog'
 
 import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
 import organizationCurrent from '~/mocks/fixtures/api/organizations/@current/@current.json'
 import { ActivityScope } from '~/types'
+
+import { expect, userEvent } from 'storybook/test'
 
 const meta: Meta<ActivityLogProps> = {
     title: 'Components/ActivityLog',
@@ -114,4 +118,28 @@ export function WithoutAuditLogsFeaure(): JSX.Element {
         },
     })
     return <ActivityLog scope={ActivityScope.FEATURE_FLAG} id={7} />
+}
+
+export const QuillFeatureFlagActivity: StoryObj<ActivityLogProps> = {
+    render: () => <QuillActivityLog scope={ActivityScope.FEATURE_FLAG} id={7} />,
+    parameters: { testOptions: { snapshotBrowsers: [] } },
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        const [expandButton] = await canvas.findAllByRole(
+            'button',
+            { name: 'Expand activity details' },
+            { timeout: 10000 }
+        )
+        await userEvent.click(expandButton)
+        await expect(await canvas.findByRole('tab', { name: 'Diff' })).toBeInTheDocument()
+    },
+}
+
+export const QuillWithNoData: StoryObj<ActivityLogProps> = {
+    render: () => <QuillActivityLog scope={ActivityScope.FEATURE_FLAG} id={6} />,
+    parameters: { testOptions: { snapshotBrowsers: [] } },
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        await expect(await canvas.findByText('No history records yet', {}, { timeout: 10000 })).toBeInTheDocument()
+    },
 }

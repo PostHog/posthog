@@ -1,7 +1,6 @@
 import './ActivityLog.scss'
 
 import clsx from 'clsx'
-import { router } from 'kea-router'
 import { useEffect, useId, useRef, useState } from 'react'
 
 import { IconCollapse, IconExpand } from '@posthog/icons'
@@ -10,14 +9,13 @@ import { LemonButton, LemonTabs, Tooltip } from '@posthog/lemon-ui'
 import { TZLabel } from 'lib/components/TZLabel'
 import { IconLink } from 'lib/lemon-ui/icons'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
-import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
 import { ActivityClientTag } from './ActivityClientTag'
 import { ActivityLogDescription } from './ActivityLogDescription'
 import { ActivityLogDiff } from './ActivityLogDiff'
-import { ACTIVITY_SEARCH_PARAM } from './activityLogLogic'
 import { AgentAttribution } from './AgentAttribution'
 import { HumanizedActivityLogItem } from './humanizeActivity'
+import { useCopyActivityLink } from './useCopyActivityLink'
 
 type ActivityLogTabs = 'details' | 'extended description' | 'diff' | 'raw'
 
@@ -137,21 +135,6 @@ function ExpandButton({
             data-attr="activity-log-expand"
         />
     )
-}
-
-function useCopyActivityLink(id?: string): () => void {
-    return (): void => {
-        if (!id) {
-            return
-        }
-        const { pathname, search, hash } = router.values.currentLocation
-        const url = new URL(pathname, window.location.origin)
-        url.search = search || ''
-        url.hash = hash || ''
-        url.searchParams.delete(ACTIVITY_SEARCH_PARAM)
-        url.searchParams.set(ACTIVITY_SEARCH_PARAM, id)
-        void copyToClipboard(url.toString(), 'activity link')
-    }
 }
 
 function CopyLinkButton({ onCopy }: { onCopy: () => void }): JSX.Element {

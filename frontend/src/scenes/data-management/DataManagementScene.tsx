@@ -4,7 +4,6 @@ import React from 'react'
 
 import { IconInfo } from '@posthog/icons'
 
-import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { TitleWithIcon } from 'lib/components/TitleWithIcon'
 import { FEATURE_FLAGS, FeatureFlagKey } from 'lib/constants'
 import { LemonTab } from 'lib/lemon-ui/LemonTabs'
@@ -27,6 +26,7 @@ import { NewActionButton } from 'products/actions/frontend/components/NewActionB
 import { RevenueAnalyticsSettings } from 'products/revenue_analytics/frontend/settings/RevenueAnalyticsSettings'
 
 import type { FeatureFlagsSet } from '../../lib/logic/featureFlagLogic'
+import { DataManagementHistory } from './DataManagementHistory'
 import { DefinitionsSceneTabs } from './DefinitionsSceneTabs'
 import { EventDefinitionsTable } from './events/EventDefinitionsTable'
 import { IngestionWarningsV2View } from './ingestion-warnings-v2/IngestionWarningsV2View'
@@ -121,12 +121,7 @@ const tabs: Record<DataManagementTab, TabConfig> = {
     [DataManagementTab.History]: {
         url: urls.dataManagementHistory(),
         label: 'History',
-        content: (
-            <ActivityLog
-                scope={ActivityScope.DATA_MANAGEMENT}
-                caption="Only actions taken in the UI are captured in History. Automatic creation of definitions by ingestion is not shown here."
-            />
-        ),
+        content: <DataManagementHistory />,
         tooltipDocLink: 'https://posthog.com/docs/data#history',
     },
     [DataManagementTab.Revenue]: {
