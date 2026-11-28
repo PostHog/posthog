@@ -12,10 +12,15 @@ import { initKeaTests } from '~/test/init'
 
 import {
     tasksRunsCommandCreate,
+    tasksRunsComputeUsageRetrieve,
     tasksRunsRetrieve,
     tasksRunsStreamTokenRetrieve,
 } from 'products/tasks/frontend/generated/api'
-import type { TaskRunDetailDTOApi } from 'products/tasks/frontend/generated/api.schemas'
+import {
+    ComputeBillingMeterEnumApi,
+    type TaskRunComputeUsageResponseApi,
+    type TaskRunDetailDTOApi,
+} from 'products/tasks/frontend/generated/api.schemas'
 
 import logPageFixtures from '../../../tasks/backend/tests/fixtures/log_pages.json'
 import { lookupToolRenderer, toolRegistry } from '../components/tool/toolRegistry'
@@ -63,7 +68,15 @@ jest.mock('products/tasks/frontend/generated/api', () => ({
     tasksRunsRetrieve: jest.fn(),
     tasksRunsCommandCreate: jest.fn(),
     tasksRunsStreamTokenRetrieve: jest.fn(),
+    tasksRunsComputeUsageRetrieve: jest.fn(),
 }))
+
+function runComputeUsage(computeCostUsd: number): TaskRunComputeUsageResponseApi {
+    return {
+        compute_cost_usd: computeCostUsd,
+        billing_meter: computeCostUsd ? ComputeBillingMeterEnumApi.AiCredits : null,
+    }
+}
 
 function notification(method: string, params: Record<string, unknown>): StoredLogEntry {
     return {
@@ -261,6 +274,7 @@ describe('runStreamLogic', () => {
             }
         })
         jest.mocked(turnSuggestionsStateRetrieve).mockReset().mockResolvedValue({ muted: false, resolved_turns: [] })
+        jest.mocked(tasksRunsComputeUsageRetrieve).mockReset().mockResolvedValue(runComputeUsage(0))
         projectLogic.mount()
         projectLogic.actions.loadCurrentProjectSuccess({ id: 997 } as any)
         ;(tasksRunsCommandCreate as jest.Mock)
@@ -1605,6 +1619,77 @@ describe('runStreamLogic', () => {
             }).toFinishAllListeners()
 
             expect(logic.values.latestTurnTraceId).toBe(TRACE)
+        })
+    })
+
+    describe('billed compute cost', () => {
+        it('loads the compute after the history replay and again after each live turn', async () => {
+            jest.mocked(tasksRunsComputeUsageRetrieve).mockResolvedValue(runComputeUsage(0.1))
+            await expectLogic(logic, () => {
+                logic.actions.bootstrapRun({ taskId: 'task-1', runId: 'run-1' })
+            }).toFinishAllListeners()
+            expect(logic.values.billedComputeCostUsd).toBe(0.1)
+
+            jest.mocked(tasksRunsComputeUsageRetrieve).mockResolvedValue(runComputeUsage(0.3))
+            await expectLogic(logic, () => {
+                logic.actions.ingestAcpFrame(notification('_posthog/turn_complete', { stopReason: 'end_turn' }))
+            }).toFinishAllListeners()
+            expect(logic.values.billedComputeCostUsd).toBe(0.3)
+        })
+
+        it('loads the compute of the run that openSseForRun opened, then of its successor', async () => {
+            jest.mocked(tasksRunsComputeUsageRetrieve).mockImplementation(async (_project, _task, runId) =>
+                runComputeUsage(runId === 'run-2' ? 0.7 : 0.2)
+            )
+            logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1' })
+            await flushPromises()
+            await expectLogic(logic, () => {
+                logic.actions.ingestAcpFrame(notification('_posthog/turn_complete', { stopReason: 'end_turn' }))
+            }).toFinishAllListeners()
+            expect(logic.values.billedComputeCostUsd).toBe(0.2)
+
+            logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-2' })
+            await flushPromises()
+            await expectLogic(logic, () => {
+                logic.actions.ingestAcpFrame(notification('_posthog/turn_complete', { stopReason: 'end_turn' }))
+            }).toFinishAllListeners()
+            expect(logic.values.billedComputeCostUsd).toBe(0.7)
+        })
+
+        it('keeps the run cost unknown until the run reports a model cost', async () => {
+            jest.mocked(tasksRunsComputeUsageRetrieve).mockResolvedValue(runComputeUsage(0.1))
+            await expectLogic(logic, () => {
+                logic.actions.bootstrapRun({ taskId: 'task-1', runId: 'run-1' })
+            }).toFinishAllListeners()
+            expect(logic.values.runCostUsd).toBeNull()
+
+            logic.actions.setContextUsage({ used: 10, size: 100, cost: 0.5 })
+            expect(logic.values.runCostUsd).toBeCloseTo(0.6)
+        })
+
+        it('drops a compute response that arrives after a reset', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.bootstrapRun({ taskId: 'task-1', runId: 'run-1' })
+            }).toFinishAllListeners()
+            let resolveUsage: (usage: TaskRunComputeUsageResponseApi) => void = () => {}
+            let markRequested: () => void = () => {}
+            const requested = new Promise<void>((resolve) => {
+                markRequested = resolve
+            })
+            jest.mocked(tasksRunsComputeUsageRetrieve).mockImplementation(() => {
+                markRequested()
+                return new Promise((resolve) => {
+                    resolveUsage = resolve
+                })
+            })
+
+            logic.actions.ingestAcpFrame(notification('_posthog/turn_complete', { stopReason: 'end_turn' }))
+            await requested
+            logic.actions.reset()
+            resolveUsage(runComputeUsage(0.9))
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.billedComputeCostUsd).toBe(0)
         })
     })
 

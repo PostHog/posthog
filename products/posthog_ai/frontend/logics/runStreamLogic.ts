@@ -29,12 +29,14 @@ import { attachedContextLogic } from '~/layout/ai/attachedContextLogic'
 
 import {
     tasksRunsCommandCreate,
+    tasksRunsComputeUsageRetrieve,
     tasksRunsRetrieve,
     tasksRunsStreamTokenRetrieve,
 } from 'products/tasks/frontend/generated/api'
 import {
     type TaskRunBootstrapCreateRequestInitialPermissionModeEnumApi,
     type TaskRunCommandRequestApi,
+    type TaskRunComputeUsageResponseApi,
     type TaskRunDetailDTOApi,
     TaskRuntimeEnumApi,
 } from 'products/tasks/frontend/generated/api.schemas'
@@ -2638,6 +2640,7 @@ export interface runStreamLogicValues {
     user: UserType | null // userLogic
     availableCommands: AgentCommand[]
     awaitingOptimisticAttach: boolean
+    billedComputeCostUsd: number
     bootstrapError: StreamErrorEnvelope | null
     bootstrapLoading: boolean
     bootstrappedRunId: string | null
@@ -2678,6 +2681,7 @@ export interface runStreamLogicValues {
     respondingToPermission: boolean
     runArtifacts: RunArtifacts
     runConnectionState: RunConnectionState | null
+    runCostUsd: number | null
     runOpening: boolean
     runStarted: boolean
     sdkSession: SdkSession | null
@@ -2816,6 +2820,9 @@ export interface runStreamLogicActions {
         record: PermissionRequestRecord
         replayedFromHistory: boolean
     }
+    loadBilledComputeCost: () => {
+        value: true
+    }
     loadOlderHistory: () => {
         value: true
     }
@@ -2940,6 +2947,9 @@ export interface runStreamLogicActions {
     setAvailableCommands: (commands: AgentCommand[]) => {
         commands: AgentCommand[]
     }
+    setBilledComputeCostUsd: (costUsd: number) => {
+        costUsd: number
+    }
     setContextUsage: (usage: ContextUsage) => {
         usage: ContextUsage
     }
@@ -3024,6 +3034,7 @@ export interface runStreamLogicActions {
 export interface runStreamLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
+        runCostUsd: (contextUsage: ContextUsage | null, billedComputeCostUsd: number) => number | null
         respondingToPermission: (
             permissionResponseRequestIds: Set<string>,
             pendingPermissionRequest: PermissionRequestRecord | null
@@ -3295,6 +3306,8 @@ export const runStreamLogic = kea<runStreamLogicType>([
         /** Records the agent's `/clear` capability, read off each `_posthog/run_started` frame. */
         setConversationClearSupported: (supported: boolean) => ({ supported }),
         markTurnComplete: (isReplay: boolean = false) => ({ isReplay }),
+        loadBilledComputeCost: true,
+        setBilledComputeCostUsd: (costUsd: number) => ({ costUsd }),
         setTurnSuggestionLedger: (ledger: TurnSuggestionLedger) => ({ ledger }),
         loadTurnSuggestionLedger: (taskId: string, attempt: number = 0) => ({ taskId, attempt }),
         /** Records an outcome this tab sent to the server, so the card closes before the frame echoes back. */
@@ -3804,6 +3817,13 @@ export const runStreamLogic = kea<runStreamLogicType>([
                 reset: () => null,
             },
         ],
+        billedComputeCostUsd: [
+            0,
+            {
+                setBilledComputeCostUsd: (_, { costUsd }) => costUsd,
+                reset: () => 0,
+            },
+        ],
         // Kept across a resume: the successor run re-advertises its list, and until then the old one holds.
         availableCommands: [
             [] as AgentCommand[],
@@ -3823,6 +3843,15 @@ export const runStreamLogic = kea<runStreamLogicType>([
         ],
     }),
     selectors(({ cache }) => ({
+        /**
+         * The run cost the footer shows: the model spend the run reports plus the run's billed sandbox
+         * compute. `null` until the run reports a model cost, so compute alone never reads as the run cost.
+         */
+        runCostUsd: [
+            (s) => [s.contextUsage, s.billedComputeCostUsd],
+            (contextUsage: ContextUsage | null, billedComputeCostUsd: number): number | null =>
+                typeof contextUsage?.cost === 'number' ? contextUsage.cost + billedComputeCostUsd : null,
+        ],
         respondingToPermission: [
             (s) => [s.permissionResponseRequestIds, s.pendingPermissionRequest],
             (ids: Set<string>, record: PermissionRequestRecord | null): boolean =>
@@ -4355,6 +4384,7 @@ export const runStreamLogic = kea<runStreamLogicType>([
                 if (replayContextUsage) {
                     actions.setContextUsage(replayContextUsage)
                 }
+                actions.loadBilledComputeCost()
             }
         }
         const rememberLegacyBacklog = (session: RunStreamRecovery, entries: unknown[], offset: number): void => {
@@ -5831,6 +5861,41 @@ export const runStreamLogic = kea<runStreamLogicType>([
                 )
                 if (resume.turnComplete) {
                     actions.markTurnComplete()
+                }
+            },
+            markTurnComplete: ({ isReplay }) => {
+                // A history replay marks every past turn complete, so the compute loads once when the replay ends.
+                if (!isReplay) {
+                    actions.loadBilledComputeCost()
+                }
+            },
+            loadBilledComputeCost: async (_, breakpoint) => {
+                // The recovery session names the run that streams now. `bootstrappedRunId` does not follow a
+                // run that `openSseForRun` opened, which is how Max starts and continues a conversation.
+                const session = sessionNow()
+                if (!session?.owns()) {
+                    return
+                }
+                await breakpoint(100)
+                let usage: TaskRunComputeUsageResponseApi
+                try {
+                    // The session's controller aborts the request when a reset or a successor run replaces it.
+                    usage = await tasksRunsComputeUsageRetrieve(
+                        String(session.projectId),
+                        session.taskId,
+                        session.runId,
+                        {
+                            signal: session.controller.signal,
+                        }
+                    )
+                } catch {
+                    // The compute only adds to the model cost that the run reports, so a failed read keeps the last value.
+                    return
+                }
+                breakpoint()
+                const costUsd: unknown = usage?.compute_cost_usd
+                if (session.owns() && typeof costUsd === 'number') {
+                    actions.setBilledComputeCostUsd(costUsd)
                 }
             },
             attachOptimisticResume: ({ taskId, run }) => {
