@@ -2,6 +2,7 @@ import { mockFetch } from '~/tests/helpers/mocks/request.mock'
 
 import { DateTime, Settings } from 'luxon'
 import { register } from 'prom-client'
+import supertest from 'supertest'
 
 import { FixtureHogFlowBuilder } from '~/cdp/_tests/builders/hogflow.builder'
 import { insertHogFunctionTemplate, insertIntegration } from '~/cdp/_tests/fixtures'
@@ -35,6 +36,7 @@ import { EmailStatusService } from '../../messaging/email-status.service'
 import { EmailSuppressionService, emailSuppressionConfigFromEnv } from '../../messaging/email-suppression.service'
 import { EmailValidationService } from '../../messaging/email-validation.service'
 import { EmailService } from '../../messaging/email.service'
+import { SesWebhookHandler } from '../../messaging/helpers/ses'
 import { EmailTrackingCodeSigner } from '../../messaging/helpers/tracking-code'
 import { RecipientPreferencesService } from '../../messaging/recipient-preferences.service'
 import { RecipientTokensService } from '../../messaging/recipient-tokens.service'
@@ -1201,6 +1203,7 @@ describe('HogFunctionHandler', () => {
 
         beforeEach(() => {
             fakeSes.deliveries.length = 0
+            fakeSes.clickEvents.length = 0
         })
 
         type EmailConfig = Partial<Extract<HogFlowAction, { type: 'function_email' }>['config']>
@@ -1525,6 +1528,31 @@ describe('HogFunctionHandler', () => {
                 const [delivery] = fakeSes.deliveries
                 expect(unsubscribeLinks(delivery.html)).toEqual(['{{ unsubscribe_url }}'])
                 expect(delivery.headers.map(({ name }) => name)).not.toContain('List-Unsubscribe')
+            })
+
+            it('records a click on the unsubscribe link without the token that changes the preferences', async () => {
+                hub.SITE_URL = 'https://app.example.com'
+                const { deliver } = await emailStepThroughSes(
+                    {},
+                    {
+                        ...codeSend({ id: newsletterId, type: 'marketing' }),
+                        tracking: { captureEngagement: true, clicks: true },
+                    }
+                )
+                await deliver()
+                for (const link of unsubscribeLinks(fakeSes.deliveries[0].html)) {
+                    await supertest(sesEndpoint).get(new URL(link).pathname)
+                }
+
+                const reported = await new SesWebhookHandler(
+                    new EmailTrackingCodeSigner(hub.ENCRYPTION_SALT_KEYS, hub.CDP_EMAIL_TRACKING_URL)
+                ).handleWebhook({ body: fakeSes.clickEvents, headers: {} })
+
+                expect(
+                    (reported.metrics ?? [])
+                        .filter(({ metricName }) => metricName === 'email_link_clicked')
+                        .map(({ properties }) => properties?.$link_url)
+                ).toEqual(['https://app.example.com'])
             })
         })
     })

@@ -7,6 +7,7 @@ import { logger } from '~/common/utils/logger'
 
 import { type EmailStatus, type EmailStatusReason } from '../email-status.service'
 import { removeWorkflowRunTag } from './link-tags'
+import { carriesPreferencesToken } from './preferences-token-link'
 import { SesBounce, SesEventRecord, sanitizeSesField } from './ses-events'
 import { SnsEnvelope, SnsEnvelopeVerifier } from './sns-envelope'
 import { unquoteMailbox } from './suppressed-recipients'
@@ -263,6 +264,9 @@ const isSensitiveMail = (mail: { tags?: Record<string, unknown> } | undefined): 
 
 // Applied to its own output, it returns that output, so a link redacted before queueing records the same value.
 const sensitiveClickLink = (link: string): string => sensitiveLinkOrigin(resolveClickDestination(link))
+
+const recordsOnlyLinkOrigin = (isSensitive: boolean, link: string): boolean =>
+    isSensitive || carriesPreferencesToken(link)
 
 type LooseSesRecord = {
     mail?: { tags?: Record<string, unknown>; commonHeaders?: Record<string, unknown>; headers?: unknown }
@@ -640,7 +644,7 @@ export class SesWebhookHandler extends SnsEnvelopeVerifier {
                     timestamp = rec.open.timestamp
                 } else if ('click' in rec && rec.click) {
                     timestamp = rec.click.timestamp
-                    properties.$link_url = isSensitive
+                    properties.$link_url = recordsOnlyLinkOrigin(isSensitive, rec.click.link)
                         ? sensitiveClickLink(rec.click.link)
                         : resolveClickDestination(rec.click.link)
                     const linkIndex = rec.click.linkTags?.[SES_LINK_INDEX_TAG]?.[0]
@@ -698,7 +702,7 @@ export class SesWebhookHandler extends SnsEnvelopeVerifier {
                         instanceIdOverride: buildLinkInstanceId(
                             actionId,
                             rec.click.linkTags?.[SES_LINK_INDEX_TAG]?.[0] ?? '',
-                            isSensitive
+                            recordsOnlyLinkOrigin(isSensitive, rec.click.link)
                                 ? sensitiveClickLink(rec.click.link)
                                 : normalizeClickUrl(resolveClickDestination(rec.click.link))
                         ),

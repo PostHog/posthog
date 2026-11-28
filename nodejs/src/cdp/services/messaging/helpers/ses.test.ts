@@ -6,6 +6,8 @@ import { parseJSON } from '~/common/utils/json-parse'
 import { logger } from '~/common/utils/logger'
 import { FetchResponse, fetch } from '~/common/utils/request'
 
+import { JWT, PosthogJwtAudience } from '../../../utils/jwt-utils'
+import { RecipientTokensService } from '../recipient-tokens.service'
 import { SesWebhookHandler, nonexistentRecipients, normalizeClickUrl, resolveClickDestination } from './ses'
 import { SNS_SIGNING_CERT_CACHE_SIZE } from './sns-envelope'
 import { EmailTrackingCodeSigner } from './tracking-code'
@@ -199,6 +201,94 @@ describe('SesWebhookHandler', () => {
             $link_index: '1',
         })
         expect(result.metrics?.[1].instanceIdOverride).toEqual('act789|1|https://app.posthog.com')
+    })
+
+    describe('a click on a link that carries a preferences token', () => {
+        const recipientTokens = new RecipientTokensService(
+            defaultConfig.ENCRYPTION_SALT_KEYS,
+            'https://app.posthog.com'
+        )
+        const token = recipientTokens.generatePreferencesToken({ team_id: 1, identifier: 'to@example.com' })
+        const preferencesUrl = recipientTokens.generatePreferencesUrl({ team_id: 1, identifier: 'to@example.com' })
+        const [header, payload, signature] = token.split('.')
+        const unsignedToken = `${header}.${payload}.`
+        const escapeEvery = (text: string) =>
+            [...text].map((char) => `%${char.charCodeAt(0).toString(16).padStart(2, '0')}`).join('')
+        const otherAudienceToken = new JWT(defaultConfig.ENCRYPTION_SALT_KEYS).sign(
+            { team_id: 1 },
+            PosthogJwtAudience.WORKFLOW_MESSAGE_OPT_OUT
+        )
+        const clickedLink = async (link: string) => {
+            const result = await handler.handleWebhook({
+                body: [{ eventType: 'Click', mail: baseMail, click: { link, timestamp: '2025-10-03T12:02:00Z' } }],
+                headers: {},
+            })
+            return {
+                recorded: result.metrics?.[0].properties?.$link_url,
+                perLink: result.metrics?.[1].instanceIdOverride,
+            }
+        }
+
+        it.each([
+            { case: 'the preferences page', link: preferencesUrl, origin: 'https://app.posthog.com' },
+            {
+                case: 'the one-click unsubscribe link',
+                link: recipientTokens.generateOneClickUnsubscribeUrl({ team_id: 1, identifier: 'to@example.com' }),
+                origin: 'https://app.posthog.com',
+            },
+            {
+                case: 'a site url with a path',
+                link: `https://example.com/posthog/messaging-preferences/${token}/`,
+                origin: 'https://example.com',
+            },
+            {
+                case: 'a customer redirect with the link encoded in its query',
+                link: `https://go.example.com/out?to=${encodeURIComponent(preferencesUrl)}`,
+                origin: 'https://go.example.com',
+            },
+            {
+                case: 'a link with every character escaped',
+                link: `https://go.example.com/out?to=${escapeEvery(preferencesUrl)}`,
+                origin: 'https://go.example.com',
+            },
+            {
+                case: 'a link with every character escaped twice',
+                link: `https://go.example.com/out?to=${escapeEvery(escapeEvery(preferencesUrl))}`,
+                origin: 'https://go.example.com',
+            },
+            {
+                case: 'a legacy tracking redirect',
+                link: `http://localhost:8010/public/m/redirect?ph_id=x&target=${encodeURIComponent(preferencesUrl)}`,
+                origin: 'https://app.posthog.com',
+            },
+            {
+                case: 'the token in a fragment',
+                link: `https://example.com/manage#${token}`,
+                origin: 'https://example.com',
+            },
+            {
+                case: 'a tab and a newline inside the token',
+                link: `https://example.com/p/${header}.${payload.slice(0, 8)}\t${payload.slice(8, 20)}\n${payload.slice(20)}.${signature}/`,
+                origin: 'https://example.com',
+            },
+            {
+                case: 'encoded control characters inside the token',
+                link: `https://example.com/p/${header}.${payload.slice(0, 10)}%0D%0A${payload.slice(10)}.${signature}/`,
+                origin: 'https://example.com',
+            },
+        ])('records only the origin for $case', async ({ link, origin }) => {
+            expect(await clickedLink(link)).toEqual({ recorded: origin, perLink: `act789||${origin}` })
+        })
+
+        it.each([
+            { case: 'a customer page under the same path', link: 'https://example.com/messaging-preferences/settings' },
+            { case: 'a token for another purpose', link: `https://example.com/opt-out/${otherAudienceToken}` },
+            { case: 'a preferences token without its signature', link: `https://example.com/p/${unsignedToken}` },
+            { case: 'a long run of escapes', link: `https://example.com/?q=${'%25'.repeat(200_000)}` },
+            { case: 'a long run of dots', link: `https://example.com/?q=${'eyJ.'.repeat(200_000)}` },
+        ])('records the whole link for $case', async ({ link }) => {
+            expect((await clickedLink(link)).recorded).toEqual(link)
+        })
     })
 
     it('emits a per-link companion metric keyed by action, link index and normalized url', async () => {
