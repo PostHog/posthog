@@ -1622,6 +1622,20 @@ describe('EmailService', () => {
                 expect(await sendsLeftInTheTeamBudget(sender)).toBe(left)
             })
 
+            it('charges a marketing code send only for its recipient', async () => {
+                invocation.state.send = {
+                    category: { id: 'newsletter', type: 'marketing' },
+                    tracking: { captureEngagement: true },
+                }
+                invocation.queueParameters = createEmailParams({ cc: 'cc@example.com', bcc: 'bcc@example.com' })
+                const sender = budgetedService('enforce', 3)
+
+                const result = await sender.executeSendEmail(invocation)
+
+                expect(result.finished).toBe(true)
+                expect(await sendsLeftInTheTeamBudget(sender)).toBe(2)
+            })
+
             const setSuspendedAt = async (suspendedAt: 'now()' | 'NULL'): Promise<void> => {
                 await hub.postgres.query(
                     PostgresUse.COMMON_WRITE,
@@ -3842,6 +3856,73 @@ describe('EmailService', () => {
                 )
             }
         )
+
+        describe('a marketing code send that names copies', () => {
+            const trackableHtml = '<body>Hi! <a href="https://example.com">Click me</a></body>'
+
+            beforeEach(() => {
+                invocation.state.send = {
+                    category: { id: 'newsletter', type: 'marketing' },
+                    tracking: { captureEngagement: true },
+                }
+                invocation.queueParameters = createEmailParams({
+                    from: { integrationId: 1 },
+                    html: trackableHtml,
+                    cc: 'cc@example.com',
+                    bcc: 'bcc@example.com',
+                })
+            })
+
+            it('sends only to its recipient and says the copies were not sent', async () => {
+                const result = await service.executeSendEmail(invocation)
+
+                expect(ses.sent.map(({ to, cc, bcc }) => ({ to, cc, bcc }))).toEqual([
+                    { to: [expect.stringContaining('test@example.com')], cc: undefined, bcc: undefined },
+                ])
+                expect(result.logs.map((l) => l.message)).toContainEqual(
+                    expect.stringContaining("Not sending this email's copies")
+                )
+            })
+
+            it('skips the send instead of moving a copy to To when its recipient is suppressed', async () => {
+                jest.spyOn(service['emailSuppressionService'], 'isSuppressed').mockImplementation((_teamId, email) =>
+                    Promise.resolve(email === 'test@example.com')
+                )
+
+                const result = await service.executeSendEmail(invocation)
+
+                expect(ses.sent).toEqual([])
+                expect(result.metrics.map((m) => m.metric_name)).toContain('email_suppressed')
+            })
+
+            it("tracks by its recipient's consent alone, not a copy's opt-out", async () => {
+                jest.spyOn(
+                    (service as any).teamWorkflowsConfigService,
+                    'getEmailTrackingConsentMode'
+                ).mockResolvedValue('opt_out')
+                jest.spyOn((service as any).recipientsManager, 'get').mockImplementation(
+                    (options: unknown): Promise<any> => {
+                        const { identifier } = options as { identifier: string }
+                        return Promise.resolve(
+                            identifier === 'cc@example.com'
+                                ? {
+                                      id: 'pref-1',
+                                      team_id: team.id,
+                                      identifier,
+                                      preferences: { $email_tracking: 'OPTED_OUT' },
+                                      created_at: '',
+                                      updated_at: '',
+                                  }
+                                : null
+                        )
+                    }
+                )
+
+                await service.executeSendEmail(invocation)
+
+                expect(ses.sent[0].html).toContain('ses:tags="phl:')
+            })
+        })
 
         describe('workflows message sent', () => {
             let memberEmail: string

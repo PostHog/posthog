@@ -44,6 +44,13 @@ import { TRANSACTIONAL_EMAIL_EVENT } from '../hogflow-sensitivity'
 import { findActionByType } from '../hogflow-utils'
 import { HogFunctionHandler, RENDER_TIMEOUT_RETRY_DELAYS_SECONDS, messageOptOutsAfterStep } from './hog_function'
 
+jest.mock('node:dns/promises', () => ({
+    ...jest.requireActual('node:dns/promises'),
+    Resolver: jest.fn().mockImplementation(() => ({
+        resolveMx: () => Promise.resolve([{ exchange: 'mx.example.com', priority: 10 }]),
+    })),
+}))
+
 describe('HogFunctionHandler', () => {
     describe('messageOptOutsAfterStep', () => {
         const optOut = { identifier: 'sam@example.com', categoryId: '$all' }
@@ -1289,7 +1296,7 @@ describe('HogFunctionHandler', () => {
             const emailHandler = new HogFunctionHandler(
                 new HogFlowFunctionsService(hub.SITE_URL, mockHogFunctionTemplateManager, executor),
                 new RecipientPreferencesService(recipientsManagerService, emailSuppressionService),
-                mockEmailValidationService,
+                new EmailValidationService(null),
                 'email',
                 null
             )
