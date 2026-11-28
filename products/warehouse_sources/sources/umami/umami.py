@@ -14,6 +14,7 @@ from products.warehouse_sources.sources.sdk import (
     Endpoint,
     PageNumberPaginator,
     Resource,
+    ResponseAction,
     RESTAPIConfig,
     ResumableSourceManager,
     SourceInputs,
@@ -34,6 +35,9 @@ LOGIN_ATTEMPTS = 3
 # A server-supplied date range outside this span is implausible. Rejecting it bounds the number of event windows.
 MIN_TIMESTAMP_MS = 631_152_000_000  # 1990-01-01
 MAX_FUTURE_MS = 366 * DAY_MS
+MAX_FAN_OUT_PAGES = 1_000
+BOUNDED_FAN_OUT_TABLES = {"event_properties", "goals", "session_properties", "funnels"}
+SELF_HOSTED_MIN_VERSIONS = {"event_properties": "3.1", "goals": "3.4", "funnels": "3.4"}
 
 
 class UmamiError(ValueError):
@@ -49,6 +53,7 @@ class UmamiResumeState:
     start_at: int | None = None
     end_at: int | None = None
     stop_at: int | None = None
+    session_index: int = 0
 
 
 def normalize_host(host: str | None) -> str:
@@ -174,21 +179,33 @@ class UmamiClient:
         params: dict[str, Any] | None = None,
         page: int = 1,
     ) -> Resource:
+        response_actions: list[ResponseAction] = [
+            {
+                "status_code": 200,
+                "json_field": "isCapped",
+                "json_values": [True],
+                "action": "raise",
+                "message": "Umami configuration: Umami capped the results. Increase the API result limit before syncing.",
+            }
+        ]
+        if not self.cloud and (min_version := SELF_HOSTED_MIN_VERSIONS.get(name)):
+            response_actions.append(
+                {
+                    "status_code": 404,
+                    "action": "raise",
+                    "message": (
+                        "Umami configuration: This route is not available on your Umami server. "
+                        f"Upgrade to Umami {min_version} or later, or turn off this table."
+                    ),
+                }
+            )
         endpoint: Endpoint = {
             "path": path or ENDPOINTS[name].path,
             "data_selector": "data",
             "data_selector_required": True,
             "params": {"pageSize": PAGE_SIZE, **(params or {})},
             "paginator": PageNumberPaginator(base_page=1, page=page),
-            "response_actions": [
-                {
-                    "status_code": 200,
-                    "json_field": "isCapped",
-                    "json_values": [True],
-                    "action": "raise",
-                    "message": "Umami configuration: Umami capped the results. Increase the API result limit before syncing.",
-                }
-            ],
+            "response_actions": response_actions,
         }
         config: RESTAPIConfig = {
             "client": self.client_config(),
@@ -216,6 +233,48 @@ class UmamiClient:
         )
         response.raise_for_status()
         return response.json()
+
+    def session_properties(self, website_id: str, session_id: str) -> list[dict[str, Any]]:
+        path = ENDPOINTS["session_properties"].path.format(
+            website_id=quote(website_id, safe=""), session_id=quote(session_id, safe="")
+        )
+        response = self.session.get(f"{self.base_url}/{path}", auth=self.auth, timeout=REQUEST_TIMEOUT)
+        response.raise_for_status()
+        properties = response.json()
+        if not isinstance(properties, list):
+            raise UmamiError("Umami did not return a session property list. Check the server API version.")
+        return properties
+
+
+def _read_session_properties_page(
+    client: UmamiClient,
+    manager: ResumableSourceManager[UmamiResumeState],
+    state: UmamiResumeState,
+    website_id: str,
+    batch: list[dict[str, Any]],
+    seen_sessions: set[str],
+) -> Iterator[list[dict[str, Any]]]:
+    next_page = replace(state, page=state.page + 1, session_index=0)
+    if state.session_index >= len(batch):
+        manager.save_state(next_page)
+        return
+    seen_sessions.update(str(session["id"]) for session in batch[: state.session_index])
+    for index, session in enumerate(batch[state.session_index :], start=state.session_index):
+        manager.safe_point()
+        session_id = str(session["id"])
+        properties = client.session_properties(website_id, session_id) if session_id not in seen_sessions else []
+        seen_sessions.add(session_id)
+        manager.save_state(next_page if index + 1 == len(batch) else replace(state, session_index=index + 1))
+        if properties:
+            yield [
+                {
+                    "websiteId": website_id,
+                    "sessionId": session_id,
+                    "createdAt": session["createdAt"],
+                    "sessionProperties": properties,
+                }
+            ]
+        manager.safe_point()
 
 
 def get_rows(
@@ -245,6 +304,8 @@ def get_rows(
 
         # Each website has its own date range, so each window needs a separately configured resource.
         endpoint = ENDPOINTS[inputs.schema_name]
+        bounded = inputs.schema_name in BOUNDED_FAN_OUT_TABLES
+        resource_name = "sessions" if inputs.schema_name == "session_properties" else inputs.schema_name
         for website_batch in websites:
             manager.safe_point()
             for website in website_batch:
@@ -253,7 +314,8 @@ def get_rows(
                 website_id = str(website["id"])
                 if website_id in state.completed_websites:
                     continue
-                if state.website_id != website_id:
+                seen_sessions: set[str] = set()
+                if state.website_id != website_id and endpoint.uses_date_range:
                     dates = client.date_range(website_id)
                     manager.safe_point()
                     if "startDate" not in dates or "endDate" not in dates:
@@ -270,38 +332,74 @@ def get_rows(
                     if start_at < MIN_TIMESTAMP_MS or stop_at > int(time.time() * 1000) + MAX_FUTURE_MS:
                         raise UmamiError("Umami returned an implausible date range. Check the server API version.")
                     state = replace(
-                        state, website_id=website_id, start_at=start_at, stop_at=stop_at, end_at=None, page=1
+                        state,
+                        website_id=website_id,
+                        start_at=start_at,
+                        stop_at=stop_at,
+                        end_at=None,
+                        page=1,
+                        session_index=0,
                     )
+                elif state.website_id != website_id:
+                    state = UmamiResumeState(website_id=website_id, completed_websites=state.completed_websites)
 
-                assert state.start_at is not None and state.stop_at is not None
-                while state.start_at <= state.stop_at:
-                    end_at = (
-                        state.end_at
-                        if state.end_at is not None
-                        else (
-                            min(state.start_at + endpoint.window_size_ms - 1, state.stop_at)
-                            if endpoint.window_size_ms
-                            else state.stop_at
-                        )
-                    )
+                while True:
+                    end_at = state.end_at
+                    params = None
+                    if endpoint.uses_date_range:
+                        assert state.start_at is not None and state.stop_at is not None
+                        if state.start_at > state.stop_at:
+                            break
+                        if end_at is None:
+                            end_at = (
+                                min(state.start_at + endpoint.window_size_ms - 1, state.stop_at)
+                                if endpoint.window_size_ms
+                                else state.stop_at
+                            )
+                        params = {"startAt": state.start_at, "endAt": end_at}
                     state = replace(state, end_at=end_at)
                     manager.save_state(state)
                     manager.safe_point()
                     resource = client.resource(
-                        inputs.schema_name,
+                        resource_name,
                         inputs,
-                        path=endpoint.path.format(website_id=quote(website_id, safe="")),
-                        params={"startAt": state.start_at, "endAt": end_at},
+                        path=ENDPOINTS[resource_name].path.format(website_id=quote(website_id, safe="")),
+                        params=params,
                         page=state.page,
                     )
                     for batch in resource:
-                        for row in batch:
-                            row["websiteId"] = website_id
-                        state = replace(state, page=state.page + 1)
-                        manager.save_state(state)
-                        yield batch
+                        if bounded and state.page > MAX_FAN_OUT_PAGES:
+                            inputs.logger.warning(
+                                "umami.fan_out_page_limit_reached",
+                                resource=inputs.schema_name,
+                                website_id=website_id,
+                                page=state.page,
+                                page_limit=MAX_FAN_OUT_PAGES,
+                            )
+                            scope = "date window" if endpoint.window_size_ms else "website"
+                            raise UmamiError(f"The sync exceeded the limit of {MAX_FAN_OUT_PAGES:,} pages per {scope}.")
+                        if inputs.schema_name == "session_properties":
+                            yield from _read_session_properties_page(
+                                client, manager, state, website_id, batch, seen_sessions
+                            )
+                            state = replace(state, page=state.page + 1, session_index=0)
+                        else:
+                            for row in batch:
+                                row["websiteId"] = website_id
+                                if inputs.schema_name == "event_properties":
+                                    row["createdAt"] = row["eventProperties"][0]["createdAt"]
+                            state = replace(state, page=state.page + 1)
+                            manager.save_state(state)
+                            yield batch
                         manager.safe_point()
-                    state = replace(state, start_at=end_at + 1, end_at=None, page=1)
+                    if end_at is None:
+                        break
+                    state = replace(
+                        state,
+                        start_at=end_at + 1,
+                        end_at=None,
+                        page=1,
+                    )
                 state = UmamiResumeState(completed_websites=[*state.completed_websites, website_id])
         manager.save_state(state)
         manager.safe_point()
@@ -320,7 +418,7 @@ def umami_source(
         partition_keys=[endpoint.partition_key],
         partition_mode="datetime",
         partition_format="month",
-        # Windows and websites have no global timestamp order. Full refresh needs no watermark.
+        # Windows and websites have no global timestamp order.
         sort_mode=None,
         on_complete=manager.clear_state,
     )

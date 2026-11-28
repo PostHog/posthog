@@ -1,6 +1,7 @@
 from typing import Any
 
 import pytest
+from unittest.mock import patch
 
 from requests.exceptions import HTTPError
 
@@ -8,7 +9,7 @@ from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, Sou
 from products.warehouse_sources.sources.umami._config import UmamiSourceConfig
 from products.warehouse_sources.sources.umami.settings import DAY_MS
 from products.warehouse_sources.sources.umami.source import UmamiSource
-from products.warehouse_sources.sources.umami.umami import UmamiResumeState
+from products.warehouse_sources.sources.umami.umami import UmamiError, UmamiResumeState
 
 START = 1704067200000
 
@@ -103,6 +104,204 @@ def test_resume_keeps_window_ceiling_and_skips_completed_websites() -> None:
     assert child.param("endAt") == str(START + 10)
     assert not any(request.path.endswith("/daterange") for request in result.requests)
     assert any(state.page == 3 and state.website_id == "site-b" for state in result.committed_states)
+
+
+def test_saved_definitions_resume_without_requesting_a_date_range() -> None:
+    result = driver().run(
+        "funnels",
+        route(
+            {
+                "/websites": [page([{"id": "site-a"}, {"id": "site-b"}, {"id": "site-c"}]), page([])],
+                "/site-b/funnels": [page([{"id": "saved-b", "parameters": "{}"}]), page([])],
+                "/site-c/funnels": [page([{"id": "saved-c"}]), page([])],
+            }
+        ),
+        resume_state=UmamiResumeState(page=2, website_id="site-b", completed_websites=["site-a"]),
+    )
+    assert result.raised is None
+    assert result.rows == [
+        {"id": "saved-b", "websiteId": "site-b", "parameters": "{}"},
+        {"id": "saved-c", "websiteId": "site-c"},
+    ]
+    definitions = [request for request in result.requests if request.path.endswith("/funnels")]
+    assert [request.param("page") for request in definitions] == ["2", "3", "1", "2"]
+    assert all(request.param("startAt") is None and request.param("endAt") is None for request in definitions)
+
+
+def test_event_properties_read_the_full_history_of_each_website() -> None:
+    created_at = "2024-01-01T00:00:00.123Z"
+    properties = [
+        {"createdAt": created_at, "dataKey": "plan", "stringValue": "basic"},
+        {"createdAt": created_at, "dataKey": "amount", "numberValue": 50},
+    ]
+    known_event = {"eventId": "purchase", "eventProperties": properties}
+    historical_event = {"eventId": "signup", "eventProperties": [{"createdAt": "2024-01-01T00:00:00Z"}]}
+    result = driver().run(
+        "event_properties",
+        route(
+            {
+                "/websites": [page([{"id": "site-b"}, {"id": "site-a"}]), page([])],
+                "/site-b/daterange": [ScriptedResponse(json={"startDate": START - 100, "endDate": START})],
+                "/site-b/event-data": [page([historical_event]), page([])],
+                "/site-a/daterange": [ScriptedResponse(json={"startDate": START, "endDate": START + 500})],
+                "/site-a/event-data": [page([known_event]), page([])],
+            }
+        ),
+    )
+    assert result.raised is None
+    assert [(row["websiteId"], row["eventId"]) for row in result.rows] == [("site-b", "signup"), ("site-a", "purchase")]
+    assert result.rows[1] == {
+        "websiteId": "site-a",
+        "eventId": "purchase",
+        "createdAt": created_at,
+        "eventProperties": properties,
+    }
+    events = [request for request in result.requests if request.path.endswith("/event-data")]
+    assert [request.param("startAt") for request in events] == [str(START - 100)] * 2 + [str(START)] * 2
+    assert [request.param("endAt") for request in events] == [str(START)] * 2 + [str(START + 500)] * 2
+
+
+def test_session_properties_resume_within_a_page_and_keep_repeated_keys() -> None:
+    created_at = "2024-01-01T00:00:00Z"
+    properties = [
+        {"dataKey": "plan", "stringValue": "basic"},
+        {"dataKey": "plan", "stringValue": "upgraded"},
+    ]
+    result = driver().run(
+        "session_properties",
+        route(
+            {
+                "/websites": [page([{"id": "site-a"}]), page([])],
+                "/site-a/sessions": [
+                    page([{"id": "finished"}, {"id": "with-properties", "createdAt": created_at}]),
+                    page([{"id": "with-properties"}, {"id": "no-properties"}]),
+                    page([]),
+                    page([{"id": "with-properties"}, {"id": "no-properties"}]),
+                    page([]),
+                ],
+                "/with-properties/properties": [ScriptedResponse(json=properties)],
+                "/no-properties/properties": [ScriptedResponse(json=[])],
+            }
+        ),
+        resume_state=UmamiResumeState(
+            page=2,
+            website_id="site-a",
+            start_at=START,
+            end_at=START + DAY_MS - 1,
+            stop_at=START + DAY_MS,
+            session_index=1,
+        ),
+    )
+    assert result.raised is None
+    assert result.rows == [
+        {
+            "websiteId": "site-a",
+            "sessionId": "with-properties",
+            "createdAt": created_at,
+            "sessionProperties": properties,
+        }
+    ]
+    assert [path for path in result.paths if path.endswith("/properties")] == [
+        "/v1/websites/site-a/sessions/with-properties/properties",
+        "/v1/websites/site-a/sessions/no-properties/properties",
+    ]
+    sessions = [request for request in result.requests if request.path.endswith("/sessions")]
+    assert [request.param("startAt") for request in sessions] == [str(START)] * 3 + [str(START + DAY_MS)] * 2
+    assert [request.param("page") for request in sessions] == ["2", "3", "4", "1", "2"]
+    assert result.committed_states[1].page == 3
+    assert result.committed_states[1].session_index == 0
+
+
+@pytest.mark.parametrize("repeats_last_page", [False, True])
+@pytest.mark.parametrize("table,path", [("session_properties", "sessions"), ("goals", "goals")])
+def test_fan_out_stops_at_the_website_page_limit(table: str, path: str, repeats_last_page: bool) -> None:
+    row = {"id": "item-a", "createdAt": "2024-01-01T00:00:00Z"}
+    routes = {
+        "/websites": [page([{"id": "site-a"}]), page([])],
+        f"/site-a/{path}": [page([row]), page([row] if repeats_last_page else [])],
+    }
+    resume_state = UmamiResumeState(page=2, website_id="site-a")
+    if table == "session_properties":
+        routes["/item-a/properties"] = [ScriptedResponse(json=[{"dataKey": "plan", "stringValue": "basic"}])]
+        resume_state = UmamiResumeState(page=2, website_id="site-a", start_at=START, end_at=START, stop_at=START)
+
+    with patch("products.warehouse_sources.sources.umami.umami.MAX_FAN_OUT_PAGES", 2):
+        result = driver("https://analytics.example.com").run(
+            table,
+            route(routes),
+            resume_state=resume_state,
+        )
+
+    assert [request.param("page") for request in result.requests if request.path.endswith(f"/{path}")] == ["2", "3"]
+    assert len(result.rows) == 1
+    if table == "session_properties":
+        assert result.paths.count("/api/websites/site-a/sessions/item-a/properties") == 1
+    if repeats_last_page:
+        assert isinstance(result.raised, UmamiError)
+        scope = "date window" if table == "session_properties" else "website"
+        assert f"exceeded the limit of 2 pages per {scope}" in str(result.raised)
+    else:
+        assert result.raised is None
+
+
+@pytest.mark.parametrize("overflow", [False, True])
+def test_event_properties_reset_the_page_budget_for_each_date_window(overflow: bool) -> None:
+    next_day = START + DAY_MS
+    later = {"eventId": "later", "eventProperties": [{"createdAt": next_day}]}
+    with patch("products.warehouse_sources.sources.umami.umami.MAX_FAN_OUT_PAGES", 1):
+        interrupted = driver().run(
+            "event_properties",
+            route(
+                {
+                    "/websites": [page([{"id": "site-a"}]), page([])],
+                    "/site-a/daterange": [ScriptedResponse(json={"startDate": START, "endDate": next_day})],
+                    "/site-a/event-data": [
+                        page([{"eventId": "first", "eventProperties": [{"createdAt": START}]}]),
+                        page([]),
+                        ScriptedResponse(status=400, json={}),
+                    ],
+                }
+            ),
+        )
+        assert isinstance(interrupted.raised, HTTPError)
+        assert [row["eventId"] for row in interrupted.rows] == ["first"]
+
+        resumed = driver().run(
+            "event_properties",
+            route(
+                {
+                    "/websites": [page([{"id": "site-a"}]), page([])],
+                    "/site-a/event-data": [page([later]), page([later] if overflow else [])],
+                }
+            ),
+            resume_state=interrupted.final_state,
+        )
+    assert [row["eventId"] for row in resumed.rows] == ["later"]
+    if overflow:
+        assert isinstance(resumed.raised, UmamiError)
+        assert "exceeded the limit of 1 pages per date window" in str(resumed.raised)
+    else:
+        assert resumed.raised is None
+
+
+@pytest.mark.parametrize(
+    "table,path,minimum_version", [("event_properties", "event-data", "3.1"), ("goals", "goals", "3.4")]
+)
+def test_missing_self_hosted_route_explains_how_to_fix_configuration(
+    table: str, path: str, minimum_version: str
+) -> None:
+    result = driver("https://analytics.example.com").run(
+        table,
+        route(
+            {
+                "/websites": [page([{"id": "site-a"}])],
+                "/site-a/daterange": [ScriptedResponse(json={"startDate": START, "endDate": START})],
+                f"/site-a/{path}": [ScriptedResponse(status=404, json={})],
+            }
+        ),
+    )
+    assert error_message_matches(str(result.raised), UmamiSource().get_non_retryable_errors())
+    assert f"Upgrade to Umami {minimum_version} or later, or turn off this table." in str(result.raised)
 
 
 @pytest.mark.parametrize("second_status", [200, 401])

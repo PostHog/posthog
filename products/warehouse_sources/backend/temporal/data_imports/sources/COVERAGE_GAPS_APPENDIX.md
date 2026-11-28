@@ -15514,14 +15514,14 @@ Note: docs.ubidots.com is a ReadMe site that renders endpoints client-side, so I
 
 ## Umami — gaps
 
-Today (3): `events`, `sessions`, `websites`
+Today (7): `event_properties`, `events`, `funnels`, `goals`, `session_properties`, `sessions`, `websites`
 
 Diffed against: <https://docs.umami.is/llms.txt>
 
-- [ ] `Event custom properties (GET /api/websites/{websiteId}/event-data)` — Custom property records attached to events we sync, needed for purchase, plan and other event attributes (high)
-- [ ] `Session custom properties (GET /api/websites/{websiteId}/sessions/{sessionId}/properties)` — Identify properties per session (user id, plan), joins to the sessions table (medium)
-- [ ] `Goals (GET /api/websites/{websiteId}/goals)` — Saved conversion goal definitions per website (medium)
-- [ ] `Funnels (GET /api/websites/{websiteId}/funnels)` — Saved funnel definitions with steps and window (medium)
+- [x] `Event custom properties (GET /api/websites/{websiteId}/event-data)` — `event_properties` groups properties by event (high)
+- [x] `Session custom properties (GET /api/websites/{websiteId}/sessions/{sessionId}/properties)` — `session_properties` groups properties by session (medium)
+- [x] `Goals (GET /api/websites/{websiteId}/goals)` — `goals` imports saved conversion definitions (medium)
+- [x] `Funnels (GET /api/websites/{websiteId}/funnels)` — `funnels` imports saved definitions with their parameters (medium)
 - [ ] `Error issues (GET /api/websites/{websiteId}/errors)` — Error issues with occurrence and affected visit counts (medium)
 - [ ] `Annotations (GET /api/websites/{websiteId}/annotations)` — Dated notes on a website, context for traffic changes (low)
 - [ ] `Segments and cohorts (GET /api/websites/{websiteId}/segments)` — Saved segment and cohort filter definitions (low)
@@ -15529,7 +15529,7 @@ Diffed against: <https://docs.umami.is/llms.txt>
 - [ ] `Tracking pixels (GET /api/pixels)` — Tracking pixel items with slug (low)
 - [ ] `Teams and members (GET /api/teams; GET /api/teams/{teamId}/users)` — Team list and membership roles, maps websites to teams (low)
 
-Note: Read llms.txt for the Umami docs and confirmed each path from the OpenAPI header on its .md page. Our tables cover websites, sessions and events. Excluded aggregate stats (metrics, pageviews, retention, journeys, revenue charts), tracking ingest, replays (large event payloads), shares, auth, admin and write routes. Per-website routes need fan-out over websites; session properties need fan-out over sessions, so prefer the event-data list. Cloud and self-hosted differ on some routes.
+Note: The four new tables are opt-in. Self-hosted Umami 3.1 or later supports the event property list. Goals and funnels require 3.4 or later. Session properties require one request per session. The audit excludes aggregate stats, tracking ingest, replays, shares, auth, admin, and write routes.
 
 ## Unity Ads — **thin**
 

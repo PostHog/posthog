@@ -151,6 +151,7 @@ class UmamiSource(ResumableSource[UmamiSourceConfig, UmamiResumeState], Validate
                 name=name,
                 supports_incremental=False,
                 supports_append=False,
+                should_sync_default=endpoint.should_sync_default,
                 description=endpoint.description,
                 detected_primary_keys=list(endpoint.primary_keys),
             )
