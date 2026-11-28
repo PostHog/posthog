@@ -610,6 +610,7 @@ CREDENTIAL_KINDS: Mapping[str, str] = {
     "HarnessSei": "harness-sei",
     "Harvest": "harvest",
     "Harvey": "harvey",
+    "Hasura": "hasura",
     "Hatchet": "hatchet",
     "Healthchecks": "healthchecks",
     "Healthie": "healthie",

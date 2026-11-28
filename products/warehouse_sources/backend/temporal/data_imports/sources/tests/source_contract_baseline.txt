@@ -39,6 +39,7 @@ GooglePlayConsole not-checkable:no-request
 GoogleSearchConsole not-checkable:database
 GoogleSheets not-checkable:schemas
 GrafanaIRM not-checkable:no-request
+Hasura not-checkable:schemas
 Hatchet not-checkable:no-request
 HelpScout not-checkable:database
 Hubspot not-checkable:database

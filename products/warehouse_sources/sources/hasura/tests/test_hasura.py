@@ -1,0 +1,476 @@
+import re
+from datetime import UTC, date, datetime
+from typing import Any
+
+import pytest
+from unittest import mock
+
+import requests
+
+from products.warehouse_sources.sources.hasura._config import HasuraSourceConfig
+from products.warehouse_sources.sources.hasura.hasura import (
+    HasuraAccessDeniedError,
+    HasuraGraphQLError,
+    HasuraResumeConfig,
+    resolve_graphql_url,
+)
+from products.warehouse_sources.sources.hasura.source import INVALID_SECRET_MESSAGE, HasuraSource
+from products.warehouse_sources.sources.sdk.testing import (
+    RecordedRequest,
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
+
+MODULE = "products.warehouse_sources.sources.hasura.hasura"
+CONFIG = HasuraSourceConfig(graphql_url="https://acme.hasura.app/v1/graphql", admin_secret="adm1n-s3cret")
+
+
+@pytest.fixture(autouse=True)
+def _allow_test_host():
+    # `is_url_allowed` resolves DNS outside dev mode; the hosts here are fake.
+    with mock.patch(f"{MODULE}.is_url_allowed", return_value=(True, None)):
+        yield
+
+
+def _ref(kind: str, name: str | None = None, of: dict[str, Any] | None = None) -> dict[str, Any]:
+    return {"kind": kind, "name": name, "ofType": of}
+
+
+def _scalar(name: str, required: bool = False) -> dict[str, Any]:
+    ref = _ref("SCALAR", name)
+    return _ref("NON_NULL", of=ref) if required else ref
+
+
+def _list_of(type_name: str) -> dict[str, Any]:
+    return _ref("NON_NULL", of=_ref("LIST", of=_ref("NON_NULL", of=_ref("OBJECT", type_name))))
+
+
+def _arg(name: str, type_ref: dict[str, Any]) -> dict[str, Any]:
+    return {"name": name, "type": type_ref}
+
+
+def _table_args(type_name: str) -> list[dict[str, Any]]:
+    return [
+        _arg("distinct_on", _ref("LIST", of=_ref("NON_NULL", of=_ref("ENUM", f"{type_name}_select_column")))),
+        _arg("limit", _scalar("Int")),
+        _arg("offset", _scalar("Int")),
+        _arg("order_by", _ref("LIST", of=_ref("NON_NULL", of=_ref("INPUT_OBJECT", f"{type_name}_order_by")))),
+        _arg("where", _ref("INPUT_OBJECT", f"{type_name}_bool_exp")),
+    ]
+
+
+def _object(name: str, columns: dict[str, dict[str, Any]], extra: list[dict[str, Any]] | None = None):
+    fields = [{"name": column, "args": [], "type": type_ref} for column, type_ref in columns.items()]
+    return {"kind": "OBJECT", "name": name, "fields": fields + (extra or []), "inputFields": None}
+
+
+def _order_by(name: str, columns: list[str], relationships: list[str] | None = None) -> dict[str, Any]:
+    inputs = [{"name": column, "type": _ref("ENUM", "order_by")} for column in columns]
+    inputs += [{"name": rel, "type": _ref("INPUT_OBJECT", "other_order_by")} for rel in relationships or []]
+    return {"kind": "INPUT_OBJECT", "name": f"{name}_order_by", "fields": None, "inputFields": inputs}
+
+
+def _schema() -> dict[str, Any]:
+    """An introspection result in the shape Hasura v2 answers, with each discovery edge case."""
+    orders = _object(
+        "orders",
+        {
+            "id": _scalar("Int", required=True),
+            "customer": _scalar("String"),
+            "meta": _scalar("jsonb"),
+            "status": _ref("ENUM", "order_status"),
+            "created_at": _scalar("timestamptz"),
+            "updated_at": _scalar("timestamptz"),
+            "ship_date": _scalar("date"),
+        },
+        extra=[
+            # An object relationship, an array relationship and a computed field that needs an argument.
+            {"name": "account", "args": [], "type": _ref("OBJECT", "accounts")},
+            {"name": "items", "args": _table_args("line_items"), "type": _list_of("line_items")},
+            {
+                "name": "discounted_total",
+                "args": [_arg("args", _ref("NON_NULL", of=_ref("INPUT_OBJECT", "discount_args")))],
+                "type": _scalar("numeric"),
+            },
+        ],
+    )
+    line_items = _object(
+        "line_items",
+        {"order_id": _scalar("Int", required=True), "line_no": _scalar("Int", required=True), "sku": _scalar("String")},
+    )
+    totals = _object("order_totals", {"customer": _scalar("String"), "total": _scalar("numeric")})
+    accounts = _object("accounts", {"id": _scalar("uuid", required=True), "name": _scalar("String")})
+    root_fields = [
+        {"name": "orders", "args": _table_args("orders"), "type": _list_of("orders")},
+        {"name": "orders_aggregate", "args": _table_args("orders"), "type": _ref("OBJECT", "orders_aggregate")},
+        {"name": "orders_by_pk", "args": [_arg("id", _scalar("Int", required=True))], "type": _ref("OBJECT", "orders")},
+        {"name": "line_items", "args": _table_args("line_items"), "type": _list_of("line_items")},
+        {
+            "name": "line_items_by_pk",
+            "args": [_arg("order_id", _scalar("Int", required=True)), _arg("line_no", _scalar("Int", required=True))],
+            "type": _ref("OBJECT", "line_items"),
+        },
+        {"name": "order_totals", "args": _table_args("order_totals"), "type": _list_of("order_totals")},
+        # Custom root field names: no `_by_pk` suffix to find the key by.
+        {"name": "allAccounts", "args": _table_args("accounts"), "type": _list_of("accounts")},
+        {
+            "name": "accountById",
+            "args": [_arg("id", _scalar("uuid", required=True))],
+            "type": _ref("OBJECT", "accounts"),
+        },
+        # A tracked function that needs arguments, and an action with no table arguments.
+        {
+            "name": "search_orders",
+            "args": [_arg("args", _ref("NON_NULL", of=_ref("INPUT_OBJECT", "search_args"))), *_table_args("orders")],
+            "type": _list_of("orders"),
+        },
+        {"name": "recentOrders", "args": [], "type": _list_of("orders")},
+    ]
+    types = [
+        {"kind": "OBJECT", "name": "query_root", "fields": root_fields, "inputFields": None},
+        orders,
+        line_items,
+        totals,
+        accounts,
+        _order_by("orders", ["id", "customer", "meta", "status", "created_at", "updated_at", "ship_date"], ["account"]),
+        _order_by("line_items", ["order_id", "line_no", "sku"]),
+        _order_by("order_totals", ["customer", "total"]),
+        _order_by("accounts", ["id", "name"]),
+    ]
+    return {"queryType": {"name": "query_root"}, "types": types}
+
+
+def _comparable(value: Any) -> Any:
+    if isinstance(value, str) and re.match(r"^\d{4}-\d{2}-\d{2}T", value):
+        return datetime.fromisoformat(value)
+    return value
+
+
+def _matches(row: dict[str, Any], where: dict[str, Any]) -> bool:
+    for key, condition in where.items():
+        if key == "_and":
+            if not all(_matches(row, clause) for clause in condition):
+                return False
+        elif key == "_or":
+            if not any(_matches(row, clause) for clause in condition):
+                return False
+        else:
+            value = _comparable(row.get(key))
+            for op, target in condition.items():
+                target = _comparable(target)
+                if op == "_is_null":
+                    ok = (value is None) == target
+                elif value is None:
+                    ok = False
+                else:
+                    ok = {"_eq": value == target, "_gt": value > target, "_gte": value >= target}[op]
+                if not ok:
+                    return False
+    return True
+
+
+class FakeHasura:
+    """Answers introspection and page queries from in-memory rows, applying where, order_by, limit and offset."""
+
+    def __init__(self, tables: dict[str, list[dict[str, Any]]]) -> None:
+        self.tables = tables
+        self.page_variables: list[dict[str, Any]] = []
+
+    def __call__(self, request: RecordedRequest) -> ScriptedResponse:
+        body = request.json()
+        query = body["query"]
+        if "__schema" in query:
+            return ScriptedResponse(json={"data": {"__schema": _schema()}})
+        table = re.search(r"\{ (\w+)\(limit:", query)
+        assert table is not None, query
+        variables = body["variables"]
+        self.page_variables.append(variables)
+        rows = [row for row in self.tables[table.group(1)] if _matches(row, variables.get("where") or {})]
+        for clause in reversed(variables["orderBy"]):
+            ((column, _),) = clause.items()
+            rows.sort(key=lambda row: (row.get(column) is None, _comparable(row.get(column))))
+        offset = variables.get("offset") or 0
+        return ScriptedResponse(json={"data": {table.group(1): rows[offset : offset + variables["limit"]]}})
+
+
+def _orders(count: int) -> list[dict[str, Any]]:
+    return [
+        {
+            "id": i,
+            "customer": f"c{i % 3}",
+            "meta": {"n": i},
+            "status": "OPEN",
+            "created_at": f"2024-01-{i:02d}T00:00:00+00:00",
+            # Descending in id, so an incremental read orders differently from a full refresh.
+            "updated_at": f"2024-02-{count + 1 - i:02d}T12:00:00+00:00",
+            "ship_date": f"2024-03-{i:02d}",
+        }
+        for i in range(1, count + 1)
+    ]
+
+
+def _driver() -> SourceDriver:
+    return SourceDriver(HasuraSource(), CONFIG)
+
+
+def test_get_schemas_discovers_tables_keys_and_incremental_columns() -> None:
+    with scripted_network(always(ScriptedResponse(json={"data": {"__schema": _schema()}}))):
+        schemas = {schema.name: schema for schema in HasuraSource().get_schemas(CONFIG, team_id=1)}
+
+    # Aggregates, `_by_pk` lookups, functions with required args and actions are not tables.
+    assert set(schemas) == {"orders", "line_items", "order_totals", "allAccounts"}
+    orders = schemas["orders"]
+    # Relationships and a computed field that needs an argument are not columns.
+    assert [column[0] for column in orders.columns] == [
+        "id",
+        "customer",
+        "meta",
+        "status",
+        "created_at",
+        "updated_at",
+        "ship_date",
+    ]
+    assert orders.detected_primary_keys == ["id"]
+    assert {field["field"]: field["type"] for field in orders.incremental_fields} == {
+        "id": "integer",
+        "created_at": "datetime",
+        "updated_at": "datetime",
+        "ship_date": "date",
+    }
+    assert orders.supports_incremental and orders.supports_append
+    assert schemas["line_items"].detected_primary_keys == ["order_id", "line_no"]
+    # The key comes from the single custom root field that looks a row up by required column args.
+    assert schemas["allAccounts"].detected_primary_keys == ["id"]
+    # A view has no key, so it can only be fully refreshed.
+    totals = schemas["order_totals"]
+    assert totals.detected_primary_keys is None
+    assert not totals.supports_incremental and not totals.supports_append and totals.incremental_fields == []
+
+
+def test_full_refresh_walks_keyset_pages_until_an_empty_page() -> None:
+    fake = FakeHasura({"orders": _orders(5)})
+
+    with mock.patch(f"{MODULE}.PAGE_SIZE", 2):
+        result = _driver().run("orders", fake, should_use_incremental_field=False)
+
+    assert result.raised is None
+    assert [row["id"] for row in result.rows] == [1, 2, 3, 4, 5]
+    # A short page does not end the read, because a server row limit can also make one.
+    assert [variables.get("where") for variables in fake.page_variables] == [
+        None,
+        {"id": {"_gt": 2}},
+        {"id": {"_gt": 4}},
+        {"id": {"_gt": 5}},
+    ]
+    assert all(variables["orderBy"] == [{"id": "asc"}] for variables in fake.page_variables)
+    assert result.response is not None
+    assert result.response.primary_keys == ["id"] and result.response.sort_mode is None
+    assert result.committed_states[-1] == HasuraResumeConfig(keys=["id"], last_values=[5])
+    # The admin secret rides in a header, so it must be redacted and never follow a redirect.
+    assert result.requests[0].headers["x-hasura-admin-secret"] == "adm1n-s3cret"
+    assert result.session_options[0]["redact_values"] == ("adm1n-s3cret",)
+    assert result.session_options[0]["allow_redirects"] is False
+
+
+@pytest.mark.parametrize(
+    ("incremental_field", "watermark", "expected_bound", "expected_ids"),
+    [
+        ("updated_at", None, None, [5, 4, 3, 2, 1]),
+        ("updated_at", datetime(2024, 2, 3, 12, tzinfo=UTC), "2024-02-03T12:00:00.000000Z", [3, 2, 1]),
+        ("id", 4, 4, [4, 5]),
+        ("ship_date", date(2024, 3, 2), "2024-03-02", [2, 3, 4, 5]),
+    ],
+)
+def test_incremental_read_filters_on_the_watermark_and_orders_by_the_field(
+    incremental_field: str, watermark: Any, expected_bound: Any, expected_ids: list[int]
+) -> None:
+    fake = FakeHasura({"orders": _orders(5)})
+
+    result = _driver().run(
+        "orders", fake, incremental_field=incremental_field, db_incremental_field_last_value=watermark
+    )
+
+    assert result.raised is None
+    assert [row["id"] for row in result.rows] == expected_ids
+    first = fake.page_variables[0]
+    expected_where: list[dict[str, Any]] = [{incremental_field: {"_is_null": False}}]
+    if expected_bound is not None:
+        expected_where.append({incremental_field: {"_gte": expected_bound}})
+    assert first.get("where") == (expected_where[0] if len(expected_where) == 1 else {"_and": expected_where})
+    # The key breaks ties, and an incremental column that is the key is not ordered twice.
+    expected_order = [{incremental_field: "asc"}] + ([] if incremental_field == "id" else [{"id": "asc"}])
+    assert first["orderBy"] == expected_order
+    assert result.response is not None and result.response.sort_mode == "asc"
+
+
+def test_incremental_keyset_continues_after_ties_on_the_incremental_field() -> None:
+    rows = [{**row, "updated_at": "2024-02-01T00:00:00+00:00"} for row in _orders(3)]
+    fake = FakeHasura({"orders": rows})
+
+    with mock.patch(f"{MODULE}.PAGE_SIZE", 2):
+        result = _driver().run("orders", fake, incremental_field="updated_at")
+
+    assert [row["id"] for row in result.rows] == [1, 2, 3]
+    tie = "2024-02-01T00:00:00+00:00"
+    assert fake.page_variables[1]["where"] == {
+        "_and": [
+            {"updated_at": {"_is_null": False}},
+            {"_or": [{"updated_at": {"_gt": tie}}, {"_and": [{"updated_at": {"_eq": tie}}, {"id": {"_gt": 2}}]}]},
+        ]
+    }
+
+
+@pytest.mark.parametrize(
+    ("schema_name", "rows", "expected_second_page"),
+    [
+        (
+            "line_items",
+            [{"order_id": o, "line_no": n, "sku": f"{o}-{n}"} for o in (1, 2) for n in (1, 2)],
+            {
+                "where": {
+                    "_or": [{"order_id": {"_gt": 2}}, {"_and": [{"order_id": {"_eq": 2}}, {"line_no": {"_gt": 1}}]}]
+                }
+            },
+        ),
+        (
+            "order_totals",
+            [{"customer": f"c{i}", "total": i} for i in range(4)],
+            {"offset": 3},
+        ),
+    ],
+)
+def test_composite_keys_page_by_keyset_and_keyless_views_by_offset(
+    schema_name: str, rows: list[dict[str, Any]], expected_second_page: dict[str, Any]
+) -> None:
+    fake = FakeHasura({schema_name: rows})
+
+    with mock.patch(f"{MODULE}.PAGE_SIZE", 3):
+        result = _driver().run(schema_name, fake, should_use_incremental_field=False)
+
+    assert result.raised is None
+    assert len(result.rows) == len(rows)
+    second = fake.page_variables[1]
+    assert {key: second[key] for key in expected_second_page} == expected_second_page
+
+
+@pytest.mark.parametrize(
+    ("resume_state", "expected_first_where"),
+    [
+        (HasuraResumeConfig(keys=["id"], last_values=[3]), {"id": {"_gt": 3}}),
+        # A cursor saved under other keys (the user switched to incremental) is not reused.
+        (HasuraResumeConfig(keys=["updated_at", "id"], last_values=["2024-02-01T12:00:00+00:00", 5]), None),
+    ],
+)
+def test_resume_continues_from_a_matching_cursor_only(
+    resume_state: HasuraResumeConfig, expected_first_where: dict[str, Any] | None
+) -> None:
+    fake = FakeHasura({"orders": _orders(5)})
+
+    result = _driver().run("orders", fake, should_use_incremental_field=False, resume_state=resume_state)
+
+    assert result.raised is None
+    assert fake.page_variables[0].get("where") == expected_first_where
+
+
+@pytest.mark.parametrize(
+    ("schema_name", "incremental_field", "answer", "expected_error", "expected_message"),
+    [
+        ("missing", None, None, ValueError, "no longer exposes the table missing"),
+        ("orders", "customer", None, HasuraGraphQLError, "can't sync this table incrementally on customer"),
+        ("order_totals", "total", None, HasuraGraphQLError, "can't sync this table incrementally on total"),
+        (
+            "orders",
+            None,
+            {"errors": [{"message": 'invalid "x-hasura-admin-secret"', "extensions": {"code": "access-denied"}}]},
+            HasuraAccessDeniedError,
+            "Hasura access denied",
+        ),
+        (
+            "orders",
+            None,
+            {"errors": [{"message": "field 'orders' not found", "extensions": {"code": "validation-failed"}}]},
+            HasuraGraphQLError,
+            "validation-failed",
+        ),
+        ("orders", None, {"data": {"orders": [{"id": 1}]}}, HasuraGraphQLError, "same page of orders twice"),
+    ],
+)
+def test_extraction_errors(
+    schema_name: str,
+    incremental_field: str | None,
+    answer: dict[str, Any] | None,
+    expected_error: type[Exception],
+    expected_message: str,
+) -> None:
+    def respond(request: RecordedRequest) -> ScriptedResponse:
+        if "__schema" in request.json()["query"] or answer is None:
+            return ScriptedResponse(json={"data": {"__schema": _schema()}})
+        return ScriptedResponse(json=answer)
+
+    result = _driver().run(schema_name, respond, incremental_field=incremental_field)
+
+    assert isinstance(result.raised, expected_error)
+    assert expected_message in str(result.raised)
+
+
+@pytest.mark.parametrize(
+    ("answer", "expected"),
+    [
+        (ScriptedResponse(json={"data": {"__schema": {"queryType": {"name": "query_root"}}}}), (True, None)),
+        (
+            ScriptedResponse(
+                json={"errors": [{"message": "invalid secret", "extensions": {"path": "$", "code": "access-denied"}}]}
+            ),
+            (False, INVALID_SECRET_MESSAGE),
+        ),
+        (ScriptedResponse(status=401), (False, INVALID_SECRET_MESSAGE)),
+        (ScriptedResponse(body=b"<html>not graphql</html>"), (False, "Could not reach a Hasura GraphQL API")),
+        (requests.ConnectionError("refused"), (False, "Could not reach a Hasura GraphQL API")),
+    ],
+)
+def test_validate_credentials(answer: Any, expected: tuple[bool, str | None]) -> None:
+    with scripted_network(always(answer)) as network:
+        valid, message = HasuraSource().validate_credentials(CONFIG, team_id=1)
+
+    assert valid is expected[0]
+    assert (message is None) if expected[1] is None else (expected[1] in (message or ""))
+    # The probe fails fast in the wizard: one request, no retry.
+    assert len(network.requests_log) == 1
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        ("acme.hasura.app", "https://acme.hasura.app/v1/graphql"),
+        (" https://acme.hasura.app/ ", "https://acme.hasura.app/v1/graphql"),
+        ("https://api.example.com/hasura/v1/graphql", "https://api.example.com/hasura/v1/graphql"),
+        ("https://api.example.com:8443/v1/graphql#frag", "https://api.example.com:8443/v1/graphql"),
+    ],
+)
+def test_resolve_graphql_url_normalizes_the_endpoint(raw: str, expected: str) -> None:
+    assert resolve_graphql_url(raw) == expected
+
+
+@pytest.mark.parametrize(
+    ("raw", "allowed", "expected_message"),
+    [
+        ("", (True, None), "Enter the URL"),
+        ("http://acme.hasura.app/v1/graphql", (True, None), "must be an https URL"),
+        ("https://10.0.0.5/v1/graphql", (False, "private IP"), "can't connect to this Hasura URL: private IP"),
+    ],
+)
+def test_unsafe_endpoints_fail_validation_before_the_secret_is_sent(
+    raw: str, allowed: tuple[bool, str | None], expected_message: str
+) -> None:
+    with (
+        mock.patch(f"{MODULE}.is_url_allowed", return_value=allowed),
+        scripted_network(always(ScriptedResponse(json={"data": {}}))) as network,
+    ):
+        valid, message = HasuraSource().validate_credentials(
+            HasuraSourceConfig(graphql_url=raw, admin_secret="secret"), team_id=1
+        )
+
+    assert valid is False and expected_message in (message or "")
+    assert network.requests_log == []
