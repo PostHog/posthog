@@ -291,6 +291,8 @@ class TestPostHogConnectionForward:
                 True,
             ),
             (["task:read", "task:write", "inbox:read", "inbox:write"], ["integration:write", "inbox:write"], False),
+            (["query:read"], ["integration:write", "query:write"], True),
+            (["query:write"], ["integration:write", "query:read"], False),
         ],
     )
     def test_forward_requires_caller_token_to_cover_connection_scopes(
@@ -309,6 +311,31 @@ class TestPostHogConnectionForward:
                 )
         assert response.status_code == (status.HTTP_200_OK if forwarded else status.HTTP_403_FORBIDDEN)
         assert mock_request.called == forwarded
+
+    def test_forward_legacy_fallback_survives_a_cache_outage(self, client: HttpClient):
+        self.integration.config["granted_scopes"] = ["inbox:read"]
+        self.integration.save()
+        client.force_login(self.user)
+        real_add = cache.add
+
+        def failing_add(key, *args, **kwargs):
+            if str(key).startswith("legacy_scope_fallback:"):
+                raise Exception("cache down")
+            return real_add(key, *args, **kwargs)
+
+        with patch(
+            "posthog.api.posthog_connection.get_authenticator_scopes", return_value=["integration:write", "task:write"]
+        ):
+            with patch.object(cache, "add", side_effect=failing_add):
+                with patch(FORWARD_PATH) as mock_request:
+                    mock_request.return_value = _mock_response(200, {"results": []})
+                    response = client.post(
+                        self._forward_url(),
+                        {"method": "GET", "path": "api/projects/2/insights/"},
+                        content_type="application/json",
+                    )
+        assert response.status_code == status.HTTP_200_OK
+        assert mock_request.called
 
     @pytest.mark.parametrize(
         "token_scopes,forwarded",

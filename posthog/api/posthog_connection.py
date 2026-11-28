@@ -50,7 +50,7 @@ from posthog.oauth_provenance import (
 )
 from posthog.permissions import DenyWorkloadAccessToken, get_authenticator_scopes
 from posthog.rate_limit import PostHogConnectionForwardThrottle
-from posthog.scopes.checks import scopes_covered_by_legacy_fallback
+from posthog.scopes.checks import scopes_covered_by_legacy_fallback, scopes_not_covered
 
 logger = structlog.get_logger(__name__)
 
@@ -115,7 +115,8 @@ def _enforce_caller_covers_connection_scopes(request: Request, integration: Inte
             "This PostHog connection's granted scopes are unknown, so it can only be used with a "
             "full-access API key or a session. Reconnect it to record its scopes."
         )
-    missing = granted - set(caller_scopes)
+    # `:write` covers `:read`, the same rule APIScopePermission applies.
+    missing = set(scopes_not_covered(caller_scopes, granted))
     # A legacy `task:*` key may use a connection granted the `inbox:*` scopes split off it, as the target accepts it.
     missing -= set(scopes_covered_by_legacy_fallback(caller_scopes, missing))
     if missing:
