@@ -1,5 +1,6 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import { userLogic } from 'scenes/userLogic'
 
@@ -12,9 +13,11 @@ import { analyticsPinnedLogic } from './analyticsPinnedLogic'
 
 describe('analyticsPinnedLogic', () => {
     let requests: string[]
+    let capture: jest.SpyInstance
 
     beforeEach(() => {
         requests = []
+        capture = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined)
         useMocks({
             get: {
                 '/api/projects/:team_id/file_system/': ({ request }) => {
@@ -57,6 +60,10 @@ describe('analyticsPinnedLogic', () => {
         initKeaTests()
     })
 
+    afterEach(() => {
+        capture.mockRestore()
+    })
+
     it('keeps only analytics items and collections, and unpins an item whatever subtype it was pinned as', async () => {
         const logic = analyticsPinnedLogic()
         logic.mount()
@@ -69,9 +76,10 @@ describe('analyticsPinnedLogic', () => {
         ])
 
         await expectLogic(logic, () =>
-            sidebarPinsLogic.actions.togglePinned({ type: 'insight', ref: 'abc123', name: 'Signups' })
+            sidebarPinsLogic.actions.togglePinned({ type: 'insight/trends', ref: 'abc123', name: 'Signups' })
         ).toDispatchActions(projectTreeDataLogic, ['deleteShortcutSuccess'])
         expect(requests).toEqual(['delete sc-insight'])
+        expect(capture).toHaveBeenCalledWith('sidebar item pinned', { pinned: false, object_type: 'insight' })
         expect(logic.values.pinnedAnalytics.map((pinned) => pinned.key)).toEqual(['folder:Growth', 'dashboard:7'])
         expect(sidebarPinsLogic.values.recentlyPinnedKey).toBeNull()
     })
@@ -90,6 +98,7 @@ describe('analyticsPinnedLogic', () => {
             })
         ).toDispatchActions(projectTreeDataLogic, ['addShortcutItemSuccess'])
         expect(requests).toEqual(['create notebook:nb1'])
+        expect(capture).toHaveBeenCalledWith('sidebar item pinned', { pinned: true, object_type: 'notebook' })
         const added = logic.values.pinnedAnalytics.at(-1)
         expect(added?.key).toBe('notebook:nb1')
         expect(sidebarPinsLogic.values.recentlyPinnedKey).toBe(added?.key)
