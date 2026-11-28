@@ -511,6 +511,87 @@ const errorTrackingRecommendationsList = (): ToolBase<
     },
 })
 
+const ErrorTrackingReleasesHashRetrieveSchema = () => {
+    const ErrorTrackingReleasesHashRetrieveParams = orvalSchemas.ErrorTrackingReleasesHashRetrieveParams()
+    return ErrorTrackingReleasesHashRetrieveParams.omit({ project_id: true })
+}
+
+const errorTrackingReleasesHashRetrieve = (): ToolBase<
+    ReturnType<typeof ErrorTrackingReleasesHashRetrieveSchema>,
+    unknown
+> => ({
+    name: 'error-tracking-releases-hash-retrieve',
+    schema: ErrorTrackingReleasesHashRetrieveSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ErrorTrackingReleasesHashRetrieveSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<unknown>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/error_tracking/releases/hash/${encodeURIComponent(String(params.hash_id))}/`,
+        })
+        return result
+    },
+})
+
+const ErrorTrackingReleasesListSchema = () => {
+    const ErrorTrackingReleasesListQueryParams = orvalSchemas.ErrorTrackingReleasesListQueryParams()
+    return ErrorTrackingReleasesListQueryParams
+}
+
+const errorTrackingReleasesList = (): ToolBase<
+    ReturnType<typeof ErrorTrackingReleasesListSchema>,
+    WithPostHogUrl<Schemas.PaginatedErrorTrackingReleaseList>
+> => ({
+    name: 'error-tracking-releases-list',
+    schema: ErrorTrackingReleasesListSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ErrorTrackingReleasesListSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.PaginatedErrorTrackingReleaseList>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/error_tracking/releases/`,
+            query: {
+                limit: params.limit,
+                offset: params.offset,
+            },
+        })
+        const filtered = {
+            ...result,
+            results: (result.results ?? []).map((item: any) =>
+                pickResponseFields(item, ['id', 'hash_id', 'version', 'project', 'created_at', 'metadata'])
+            ),
+        } as typeof result
+        return await withPostHogUrl(context, filtered, '/error-tracking')
+    },
+})
+
+const ErrorTrackingReleasesRetrieveSchema = () => {
+    const ErrorTrackingReleasesRetrieveParams = orvalSchemas.ErrorTrackingReleasesRetrieveParams()
+    return ErrorTrackingReleasesRetrieveParams.omit({ project_id: true })
+}
+
+const errorTrackingReleasesRetrieve = (): ToolBase<
+    ReturnType<typeof ErrorTrackingReleasesRetrieveSchema>,
+    Schemas.ErrorTrackingRelease
+> => ({
+    name: 'error-tracking-releases-retrieve',
+    schema: ErrorTrackingReleasesRetrieveSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ErrorTrackingReleasesRetrieveSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.ErrorTrackingRelease>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/error_tracking/releases/${encodeURIComponent(String(params.id))}/`,
+        })
+        const filtered = pickResponseFields(result, [
+            'id',
+            'hash_id',
+            'version',
+            'project',
+            'created_at',
+            'metadata',
+        ]) as typeof result
+        return filtered
+    },
+})
+
 const ErrorTrackingSettingsGetSchema = () => z.object({})
 
 const errorTrackingSettingsGet = (): ToolBase<
@@ -1192,6 +1273,9 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'error-tracking-issues-tag-definitions-retrieve': errorTrackingIssuesTagDefinitionsRetrieve,
     'error-tracking-issues-tag-partial-update': errorTrackingIssuesTagPartialUpdate,
     'error-tracking-recommendations-list': errorTrackingRecommendationsList,
+    'error-tracking-releases-hash-retrieve': errorTrackingReleasesHashRetrieve,
+    'error-tracking-releases-list': errorTrackingReleasesList,
+    'error-tracking-releases-retrieve': errorTrackingReleasesRetrieve,
     'error-tracking-settings-get': errorTrackingSettingsGet,
     'error-tracking-settings-update': errorTrackingSettingsUpdate,
     'error-tracking-severity-rules-create': errorTrackingSeverityRulesCreate,

@@ -19019,6 +19019,124 @@
             "validators": []
         }
     },
+    "error-tracking-releases-hash-retrieve": {
+        "name": "error-tracking-releases-hash-retrieve",
+        "kind": "http",
+        "requires": [],
+        "hooks": null,
+        "uiApp": null,
+        "request": {
+            "method": "GET",
+            "path": "/api/projects/{project_id}/error_tracking/releases/hash/{hash_id}/",
+            "pathParams": ["hash_id"],
+            "fallbacks": [],
+            "query": null,
+            "body": null,
+            "injectBody": {},
+            "softDelete": null,
+            "transformBody": false
+        },
+        "response": {
+            "list": false,
+            "filter": null,
+            "stripNulls": false,
+            "enrich": null,
+            "agentNote": null,
+            "informational": null,
+            "textInclude": []
+        },
+        "input": {
+            "aliases": {},
+            "casts": {},
+            "validators": []
+        }
+    },
+    "error-tracking-releases-list": {
+        "name": "error-tracking-releases-list",
+        "kind": "http",
+        "requires": [],
+        "hooks": null,
+        "uiApp": null,
+        "request": {
+            "method": "GET",
+            "path": "/api/projects/{project_id}/error_tracking/releases/",
+            "pathParams": [],
+            "fallbacks": [],
+            "query": [
+                {
+                    "param": "limit",
+                    "key": "limit",
+                    "csv": false
+                },
+                {
+                    "param": "offset",
+                    "key": "offset",
+                    "csv": false
+                }
+            ],
+            "body": null,
+            "injectBody": {},
+            "softDelete": null,
+            "transformBody": false
+        },
+        "response": {
+            "list": true,
+            "filter": {
+                "kind": "pick",
+                "fields": ["id", "hash_id", "version", "project", "created_at", "metadata"],
+                "selectable": false
+            },
+            "stripNulls": false,
+            "enrich": {
+                "kind": "list",
+                "baseUrl": "/error-tracking"
+            },
+            "agentNote": null,
+            "informational": null,
+            "textInclude": []
+        },
+        "input": {
+            "aliases": {},
+            "casts": {},
+            "validators": []
+        }
+    },
+    "error-tracking-releases-retrieve": {
+        "name": "error-tracking-releases-retrieve",
+        "kind": "http",
+        "requires": [],
+        "hooks": null,
+        "uiApp": null,
+        "request": {
+            "method": "GET",
+            "path": "/api/projects/{project_id}/error_tracking/releases/{id}/",
+            "pathParams": ["id"],
+            "fallbacks": [],
+            "query": null,
+            "body": null,
+            "injectBody": {},
+            "softDelete": null,
+            "transformBody": false
+        },
+        "response": {
+            "list": false,
+            "filter": {
+                "kind": "pick",
+                "fields": ["id", "hash_id", "version", "project", "created_at", "metadata"],
+                "selectable": false
+            },
+            "stripNulls": false,
+            "enrich": null,
+            "agentNote": null,
+            "informational": null,
+            "textInclude": []
+        },
+        "input": {
+            "aliases": {},
+            "casts": {},
+            "validators": []
+        }
+    },
     "error-tracking-settings-get": {
         "name": "error-tracking-settings-get",
         "kind": "http",

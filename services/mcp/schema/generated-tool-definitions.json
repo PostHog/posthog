@@ -6340,6 +6340,51 @@
         },
         "system_prompt_hint": "Error tracking setup recommendations and how to act on each (error-tracking category)"
     },
+    "error-tracking-releases-hash-retrieve": {
+        "description": "Get an error tracking release by its `hash_id`, the client-supplied identifier set at upload (often a git commit SHA). Git metadata, when uploaded, is in `metadata.git` (`commit_id`, `branch`, `repo_name`, `remote_url`).",
+        "category": "Error tracking",
+        "feature": "error_tracking",
+        "summary": "Get error tracking release by hash",
+        "title": "Get error tracking release by hash",
+        "required_scopes": ["error_tracking:read"],
+        "api_operations": ["GET /api/projects/{project_id}/error_tracking/releases/hash/{hash_id}/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "error-tracking-releases-list": {
+        "description": "List error tracking releases for the current project, newest first, with pagination. Each release has a `version`, a `project`, a `hash_id`, and free-form `metadata`. Git metadata, when uploaded, is in `metadata.git` (`commit_id`, `branch`, `repo_name`, `remote_url`).",
+        "category": "Error tracking",
+        "feature": "error_tracking",
+        "summary": "List error tracking releases",
+        "title": "List error tracking releases",
+        "required_scopes": ["error_tracking:read"],
+        "api_operations": ["GET /api/projects/{project_id}/error_tracking/releases/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "error-tracking-releases-retrieve": {
+        "description": "Get an error tracking release by ID, including its free-form `metadata`. Git metadata, when uploaded, is in `metadata.git` (`commit_id`, `branch`, `repo_name`, `remote_url`). Use this to find the commit and branch a release was built from.",
+        "category": "Error tracking",
+        "feature": "error_tracking",
+        "summary": "Get error tracking release",
+        "title": "Get error tracking release",
+        "required_scopes": ["error_tracking:read"],
+        "api_operations": ["GET /api/projects/{project_id}/error_tracking/releases/{id}/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "error-tracking-settings-get": {
         "description": "Get the error tracking ingestion settings for the current project. Returns `ingestion_enabled`, which is false when ingestion drops every exception the project sends, and the project-wide and per-issue exception rate limits, where each `*_rate_limit_value` is the maximum events ingested per bucket and each `*_rate_limit_bucket_size_minutes` is the bucket window. A null `*_rate_limit_value` means no limit is set. Also returns `ai_issue_summaries_enabled`, which is true when the project has turned on AI issue summaries. Read these before updating so you can preserve the fields you don't intend to change.",
         "category": "Error tracking",
