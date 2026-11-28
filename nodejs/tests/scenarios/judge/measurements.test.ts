@@ -260,6 +260,7 @@ describe('measurements', () => {
             const samples = [
                 withGauges(sample(0, -60, 1), 1, { reservedBytes: 20_000_000 }),
                 withGauges(sample(5, -60, 1, 100, 1), 1, { reservedBytes: 60_000_000 }),
+                { ...withGauges(sample(5, -60, 1), 1, { reservedBytes: 10_000_000 }), role: 'cdp-api' as const },
             ]
 
             expect(

@@ -227,7 +227,7 @@ export const attachmentReservedShareMax: MeasurementDefinition = {
     params: z.object({}).strict(),
     unit: 'share',
     measure: ({ samples, missed, attachmentBudgets }) =>
-        [...byRole(samples.filter(({ attachments }) => attachments !== undefined))].map(
+        [...byRole(emailWorkerOnly(samples).filter(({ attachments }) => attachments !== undefined))].map(
             ([role, ofRole]) =>
                 unbudgeted(role, attachmentBudgets) ?? {
                     key: role,
