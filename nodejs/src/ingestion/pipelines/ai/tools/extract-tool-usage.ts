@@ -83,7 +83,6 @@ function explicitError(result: Item): boolean | undefined {
     if (typeof result.isError === 'boolean') {
         return result.isError
     }
-    // OpenAI Responses output items carry a status.
     if (result.status === 'error') {
         return true
     }
