@@ -668,6 +668,23 @@ class TestLogsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.content)
         self.assertEqual(response.json()["attr"], "limit")
 
+    @parameterized.expand(
+        [
+            ("cursor_not_base64", "after", "not-base64!", "Invalid cursor format"),
+            ("cursor_not_utf8", "after", base64.b64encode(b"\x9e\x01").decode(), "Invalid cursor format"),
+            ("cursor_not_an_object", "after", base64.b64encode(b"[]").decode(), "Invalid cursor format"),
+            ("checkpoint_not_a_date", "liveLogsCheckpoint", "not-a-date", "Invalid liveLogsCheckpoint format"),
+        ]
+    )
+    def test_logs_query_rejects_a_malformed_cursor(self, _name: str, field: str, value: str, error: str) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/logs/query",
+            data={"query": {"dateRange": {"date_from": "-1h"}, field: value}},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.content)
+        self.assertIn(error, response.json()["error"])
+
     @time_machine.travel("2025-12-16T10:33:00Z", tick=False)
     def test_logs_slicing(self):
         # should slice the query, only return 100 results first time, then get the rest

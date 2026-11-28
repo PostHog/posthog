@@ -481,8 +481,8 @@ class LogsFilterBuilder:
         if self.query.liveLogsCheckpoint:
             try:
                 checkpoint = dt.datetime.fromisoformat(self.query.liveLogsCheckpoint)
-            except ValueError as e:
-                raise ValueError(f"Invalid liveLogsCheckpoint format: {e}")
+            except (TypeError, ValueError) as e:
+                raise QueryError(f"Invalid liveLogsCheckpoint format: {e}") from e
             if checkpoint.tzinfo is None:
                 checkpoint = checkpoint.replace(tzinfo=ZoneInfo("UTC"))
             exprs.append(
@@ -497,8 +497,8 @@ class LogsFilterBuilder:
                 cursor = json.loads(base64.b64decode(self.query.after).decode("utf-8"))
                 cursor_ts = dt.datetime.fromisoformat(cursor["timestamp"])
                 cursor_uuid = cursor["uuid"]
-            except (KeyError, ValueError, json.JSONDecodeError) as e:
-                raise ValueError(f"Invalid cursor format: {e}")
+            except (KeyError, TypeError, ValueError) as e:
+                raise QueryError(f"Invalid cursor format: {e}") from e
             # For ASC (earliest first): get rows where (timestamp, uuid) > cursor
             # For DESC (latest first, default): get rows where (timestamp, uuid) < cursor
             op = ">" if self.query.orderBy == "earliest" else "<"
