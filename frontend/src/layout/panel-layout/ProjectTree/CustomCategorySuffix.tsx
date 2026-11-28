@@ -4,7 +4,7 @@ import { Suspense } from 'react'
 import { PostHogErrorBoundary } from '@posthog/react'
 
 import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { featureFlagLogic, type FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { lazyWithRetry } from 'lib/utils/retryImport'
 
 import { ProductItemCategory } from '~/queries/schema/schema-general'
@@ -17,6 +17,11 @@ const AdventNavTreeButton = lazyWithRetry(() =>
     }))
 )
 
+function adventMayBeOn(featureFlags: FeatureFlagsSet): boolean {
+    const flag = FEATURE_FLAGS.WORKFLOWS_ADVENT_CALENDAR
+    return !!featureFlags[flag] || window.POSTHOG_USER_IDENTITY_WITH_FLAGS?.featureFlags?.[flag] === true
+}
+
 export function CustomCategorySuffix({
     category,
     nav,
@@ -25,7 +30,7 @@ export function CustomCategorySuffix({
     nav: CategorySuffixNav
 }): JSX.Element | null {
     const { featureFlags } = useValues(featureFlagLogic)
-    return category === ProductItemCategory.MESSAGING && featureFlags[FEATURE_FLAGS.WORKFLOWS_ADVENT_CALENDAR] ? (
+    return category === ProductItemCategory.MESSAGING && adventMayBeOn(featureFlags) ? (
         <PostHogErrorBoundary fallback={<></>}>
             <Suspense fallback={null}>
                 <AdventNavTreeButton nav={nav} />

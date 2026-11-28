@@ -23,6 +23,8 @@ export type CustomContent = {
     showOnInteractiveOnly?: boolean
     /** Lets a person drag, resize, move and remove the tile. Left out, the tile stays where the host put it. */
     movable?: boolean
+    /** Adds Duplicate to the tile's menu. Left out, a person cannot copy the tile. */
+    duplicable?: boolean
     keepMounted?: boolean
     /** Gets the tile's built-in actions and returns the ones to show. Left out, the tile's menu has none of them. */
     menuActions?: (actions: MenuAction[], context: PanelMenuContext<CustomConfig>) => MenuAction[]
@@ -97,6 +99,7 @@ export function customSpec(
         allowedCustomizations,
         showOnInteractiveOnly: (panel) => !!contents.get(panel.config.content)?.showOnInteractiveOnly,
         movable: (panel) => !!contents.get(panel.config.content)?.movable,
+        duplicable: (panel) => !!contents.get(panel.config.content)?.duplicable,
         keepMounted: (panel) => !!contents.get(panel.config.content)?.keepMounted,
     }
 }

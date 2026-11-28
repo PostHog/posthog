@@ -44,6 +44,13 @@ import { TRANSACTIONAL_EMAIL_EVENT } from '../hogflow-sensitivity'
 import { findActionByType } from '../hogflow-utils'
 import { HogFunctionHandler, RENDER_TIMEOUT_RETRY_DELAYS_SECONDS, messageOptOutsAfterStep } from './hog_function'
 
+jest.mock('node:dns/promises', () => ({
+    ...jest.requireActual('node:dns/promises'),
+    Resolver: jest.fn().mockImplementation(() => ({
+        resolveMx: () => Promise.resolve([{ exchange: 'mx.example.com', priority: 10 }]),
+    })),
+}))
+
 describe('HogFunctionHandler', () => {
     describe('messageOptOutsAfterStep', () => {
         const optOut = { identifier: 'sam@example.com', categoryId: '$all' }
@@ -1289,7 +1296,7 @@ describe('HogFunctionHandler', () => {
             const emailHandler = new HogFunctionHandler(
                 new HogFlowFunctionsService(hub.SITE_URL, mockHogFunctionTemplateManager, executor),
                 new RecipientPreferencesService(recipientsManagerService, emailSuppressionService),
-                mockEmailValidationService,
+                new EmailValidationService(null),
                 'email',
                 null
             )
@@ -1492,6 +1499,27 @@ describe('HogFunctionHandler', () => {
                         { name: 'List-Unsubscribe-Post', value: 'List-Unsubscribe=One-Click' },
                     ])
                 )
+            })
+
+            it.each([
+                { case: 'a marketing email only to its recipient', type: 'marketing' as const, copied: false },
+                { case: 'a transactional email with its copies', type: 'transactional' as const, copied: true },
+            ])('sends $case when its step names copies', async ({ type, copied }) => {
+                const { emailAction, deliver } = await emailStepThroughSes({}, codeSend({ id: newsletterId, type }))
+                Object.assign(emailAction.config.inputs.email.value, {
+                    cc: 'copy@example.com',
+                    bcc: 'hidden@example.com',
+                })
+
+                await deliver()
+
+                expect(fakeSes.deliveries.map(({ to, cc, bcc }) => ({ to, cc, bcc }))).toEqual([
+                    {
+                        to: [expect.stringContaining('user@example.com')],
+                        cc: copied ? ['copy@example.com'] : [],
+                        bcc: copied ? ['hidden@example.com'] : [],
+                    },
+                ])
             })
 
             it('does not send a marketing email that its unsubscribe links make too large to send', async () => {
