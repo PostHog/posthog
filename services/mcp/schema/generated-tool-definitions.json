@@ -12758,7 +12758,7 @@
         "summary": "Pause or resume a topic Scout",
         "title": "Pause or resume a topic Scout",
         "required_scopes": ["meep_scout:write"],
-        "api_operations": ["POST /api/projects/{project_id}/meep/topics/{id}/scout-status/"],
+        "api_operations": ["POST /api/projects/{project_id}/meep/topics/{id}/scout_status/"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,

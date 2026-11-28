@@ -159,7 +159,7 @@ export const meepTopicsBindRoutine = async (
 }
 
 export const getMeepTopicsSetScoutEnabledUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/meep/topics/${id}/scout-status/`
+    return `/api/projects/${projectId}/meep/topics/${id}/scout_status/`
 }
 
 export const meepTopicsSetScoutEnabled = async (

@@ -185,7 +185,7 @@ const meepScoutSetEnabled = (): ToolBase<ReturnType<typeof MeepScoutSetEnabledSc
         }
         const result = await context.api.request<Schemas.MeepScout>({
             method: 'POST',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/meep/topics/${encodeURIComponent(String(params.id))}/scout-status/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/meep/topics/${encodeURIComponent(String(params.id))}/scout_status/`,
             body,
         })
         return result

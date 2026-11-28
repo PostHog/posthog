@@ -1,6 +1,8 @@
 from typing import Any
 from uuid import UUID
 
+from django.db import models
+
 from drf_spectacular.utils import extend_schema
 from rest_framework import serializers, viewsets
 from rest_framework.decorators import action
@@ -55,9 +57,21 @@ class MeepRoutineBindSerializer(serializers.Serializer):
     )
 
 
+class MeepContextKind(models.TextChoices):
+    GOAL = "goal", "goal"
+    FACT = "fact", "fact"
+    RULE = "rule", "rule"
+
+
+class MeepRuleEffect(models.TextChoices):
+    ASK = "ask", "ask"
+    ALLOW = "allow", "allow"
+    DENY = "deny", "deny"
+
+
 class MeepContextAddSerializer(serializers.Serializer):
     kind = serializers.ChoiceField(
-        choices=["goal", "fact", "rule"], help_text="What to add: a goal, a fact, or a rule about what you may do."
+        choices=MeepContextKind.choices, help_text="What to add: a goal, a fact, or a rule about what you may do."
     )
     text = serializers.CharField(max_length=500, help_text="The goal, fact or rule, as one clear sentence.")
     current = serializers.FloatField(required=False, help_text="Goal only: the latest measured value.")
@@ -70,7 +84,7 @@ class MeepContextAddSerializer(serializers.Serializer):
         help_text="Goal only: the unit, such as 'per week'.",
     )
     effect = serializers.ChoiceField(
-        choices=["ask", "allow", "deny"],
+        choices=MeepRuleEffect.choices,
         required=False,
         default="ask",
         help_text="Rule only: ask first, allow, or deny.",
@@ -298,7 +312,7 @@ class TopicViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     @extend_schema(
         operation_id="meep_topics_set_scout_enabled", request=MeepScoutStatusSerializer, responses=MeepScoutSerializer
     )
-    @action(methods=["post"], detail=True, url_path="scout-status", required_scopes=["meep_scout:write"])
+    @action(methods=["post"], detail=True, required_scopes=["meep_scout:write"])
     def scout_status(self, request: Request, pk: UUID, **kwargs: Any) -> Response:
         task_id = self._conversation(request)
         if task_id is None or not canonical_scout_access(self):

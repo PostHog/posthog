@@ -1,4 +1,3 @@
-import dataclasses
 from typing import Any
 from uuid import UUID, uuid4
 
@@ -12,11 +11,13 @@ from rest_framework.parsers import BaseParser
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
+from rest_framework_dataclasses.serializers import DataclassSerializer
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.oauth_provenance import is_sandbox_oauth_request
 
 from products.meep.backend.facade import api
+from products.meep.backend.facade.contracts import RoutineDetails
 from products.meep.backend.presentation.scout_access import show_scouts
 
 
@@ -29,6 +30,24 @@ class FileParser(BaseParser):
         if len(contents) > limit:
             raise serializers.ValidationError("Files must be at most 16 MiB.")
         return {"contents": contents}
+
+
+class HealthSerializer(serializers.Serializer):
+    owner_id = serializers.UUIDField()
+    version = serializers.CharField(default="1")
+    cursor = serializers.IntegerField()
+    posthog = serializers.BooleanField(default=True)
+
+
+class ConnectionsSerializer(serializers.Serializer):
+    connections = serializers.ListField(child=serializers.DictField())
+
+
+class RoutineDetailsSerializer(DataclassSerializer):
+    runs = serializers.ListField(read_only=True, default=list)
+
+    class Meta:
+        dataclass = RoutineDetails
 
 
 class EnvelopeSerializer(serializers.Serializer):
@@ -59,12 +78,7 @@ class ReplicaViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     @action(detail=False, methods=["get"], required_scopes=["meep:read"])
     def health(self, request: Request, **kwargs: Any) -> Response:
         return Response(
-            {
-                "owner_id": request.user.uuid,
-                "version": "1",
-                "cursor": api.cursor(self.team_id, request.user.pk),
-                "posthog": True,
-            }
+            HealthSerializer({"owner_id": request.user.uuid, "cursor": api.cursor(self.team_id, request.user.pk)}).data
         )
 
     @action(detail=False, methods=["post"], required_scopes=["meep:write", "task:write"])
@@ -125,7 +139,7 @@ class ReplicaViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
     @action(detail=False, methods=["get"], required_scopes=["meep:read"])
     def connections(self, request: Request, **kwargs: Any) -> Response:
-        return Response({"connections": [self._connection()]})
+        return Response(ConnectionsSerializer({"connections": [self._connection()]}).data)
 
     def _connection(self) -> dict[str, Any]:
         return {
@@ -256,7 +270,7 @@ class ReplicaViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         details = api.routine_details(
             team_id=self.team_id, owner_id=request.user.pk, topic_id=topic_id, routine=routine
         )
-        return Response({**dataclasses.asdict(details), "runs": []})
+        return Response(RoutineDetailsSerializer(details).data)
 
     @routine_details.mapping.put
     def routine_enable(self, request: Request, topic_id: UUID, routine: str, **kwargs: Any) -> Response:

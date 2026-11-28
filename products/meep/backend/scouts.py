@@ -13,7 +13,9 @@ from rest_framework.request import Request
 
 from posthog.models import Team, User
 
-from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.authorization.backend.facade import api as authorization
+from products.authorization.backend.facade.contracts import Resource, Subject
+from products.authorization.backend.facade.enums import Action, ResourceType
 from products.meep.backend.models import CommandReceipt, Topic
 from products.signals.backend.facade import api as signals
 from products.signals.backend.facade.taxonomy import SignalSourceProduct
@@ -111,8 +113,10 @@ def pause_scouts(topic: Topic) -> None:
 
 
 def _bound_topic(team: Team, user: User, task_id: UUID, topic_id: UUID) -> Topic:
-    if not UserAccessControl(user=user, team=team.parent_team or team).check_access_level_for_resource(
-        "signal_scout", "editor"
+    if not authorization.check(
+        resource=Resource(type=ResourceType.SIGNAL_SCOUT, project_id=team.parent_team_id or team.pk),
+        action=Action.EDIT,
+        subject=Subject(user_id=user.pk),
     ):
         raise PermissionDenied("Managing a topic scout requires scout editor access.")
     return bound_topic(team, user, task_id, topic_id)

@@ -44,9 +44,9 @@ export interface MeepTopicDetailsApi {
  * * `fact` - fact
  * * `rule` - rule
  */
-export type MeepContextAddKindEnumApi = (typeof MeepContextAddKindEnumApi)[keyof typeof MeepContextAddKindEnumApi]
+export type MeepContextKindEnumApi = (typeof MeepContextKindEnumApi)[keyof typeof MeepContextKindEnumApi]
 
-export const MeepContextAddKindEnumApi = {
+export const MeepContextKindEnumApi = {
     Goal: 'goal',
     Fact: 'fact',
     Rule: 'rule',
@@ -57,9 +57,9 @@ export const MeepContextAddKindEnumApi = {
  * * `allow` - allow
  * * `deny` - deny
  */
-export type MeepContextAddEffectEnumApi = (typeof MeepContextAddEffectEnumApi)[keyof typeof MeepContextAddEffectEnumApi]
+export type MeepRuleEffectEnumApi = (typeof MeepRuleEffectEnumApi)[keyof typeof MeepRuleEffectEnumApi]
 
-export const MeepContextAddEffectEnumApi = {
+export const MeepRuleEffectEnumApi = {
     Ask: 'ask',
     Allow: 'allow',
     Deny: 'deny',
@@ -71,7 +71,7 @@ export interface MeepContextAddApi {
      * * `goal` - goal
      * * `fact` - fact
      * * `rule` - rule */
-    kind: MeepContextAddKindEnumApi
+    kind: MeepContextKindEnumApi
     /**
      * The goal, fact or rule, as one clear sentence.
      * @maxLength 500
@@ -91,7 +91,7 @@ export interface MeepContextAddApi {
      * * `ask` - ask
      * * `allow` - allow
      * * `deny` - deny */
-    effect?: MeepContextAddEffectEnumApi
+    effect?: MeepRuleEffectEnumApi
     /**
      * Rule only: the kind of action, such as 'feature-flag-change'.
      * @maxLength 80

@@ -38611,7 +38611,7 @@
         "uiApp": null,
         "request": {
             "method": "POST",
-            "path": "/api/projects/{project_id}/meep/topics/{id}/scout-status/",
+            "path": "/api/projects/{project_id}/meep/topics/{id}/scout_status/",
             "pathParams": ["id"],
             "fallbacks": [],
             "query": null,

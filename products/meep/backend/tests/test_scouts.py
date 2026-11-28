@@ -240,13 +240,13 @@ class TestTopicScouts(APIBaseTest):
         assert self.agent.post(self.url + "scouts/", self.create_body, format="json").status_code == 200
         assert (
             self.agent.post(
-                self.url + "scout-status/", {"scout_id": uuid4(), "enabled": False}, format="json"
+                self.url + "scout_status/", {"scout_id": uuid4(), "enabled": False}, format="json"
             ).status_code
             == 404
         )
         for enabled in (False, False, True):
             response = self.agent.post(
-                self.url + "scout-status/", {"scout_id": scout.id, "enabled": enabled}, format="json"
+                self.url + "scout_status/", {"scout_id": scout.id, "enabled": enabled}, format="json"
             )
             assert response.status_code == 200, response.content
             assert response.json()["enabled"] is enabled
@@ -299,7 +299,7 @@ class TestTopicScouts(APIBaseTest):
             enabled_by=self.user,
         )
         request = {"scout_id": str(foreign.pk), "enabled": False}
-        assert self.agent.post(self.url + "scout-status/", request, format="json").status_code == 404
+        assert self.agent.post(self.url + "scout_status/", request, format="json").status_code == 404
         foreign.refresh_from_db()
         assert foreign.enabled
 
@@ -310,8 +310,7 @@ class TestTopicScouts(APIBaseTest):
         url = f"/api/projects/{self.team.pk}/meep/topics/{other.pk}/scouts/"
         assert self.agent.post(url, self.create_body, format="json").status_code == 403
         assert self.client.post(self.url + "scouts/", self.create_body, format="json").status_code == 403
-        with patch("products.meep.backend.scouts.UserAccessControl") as acl:
-            acl.return_value.check_access_level_for_resource.return_value = False
+        with patch("products.meep.backend.scouts.authorization.check", return_value=False):
             assert self.agent.post(self.url + "scouts/", self.create_body, format="json").status_code == 403
         with patch("products.signals.backend.scout_harness.views.UserAccessControl") as acl:
             acl.return_value.check_access_level_for_resource.return_value = False

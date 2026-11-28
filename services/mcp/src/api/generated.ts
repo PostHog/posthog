@@ -76702,10 +76702,10 @@ export namespace Schemas {
      * * `fact` - fact
      * * `rule` - rule
      */
-    export type MeepContextAddKindEnum = typeof MeepContextAddKindEnum[keyof typeof MeepContextAddKindEnum];
+    export type MeepContextKindEnum = typeof MeepContextKindEnum[keyof typeof MeepContextKindEnum];
 
 
-    export const MeepContextAddKindEnum = {
+    export const MeepContextKindEnum = {
       Goal: 'goal',
       Fact: 'fact',
       Rule: 'rule',
@@ -76716,10 +76716,10 @@ export namespace Schemas {
      * * `allow` - allow
      * * `deny` - deny
      */
-    export type MeepContextAddEffectEnum = typeof MeepContextAddEffectEnum[keyof typeof MeepContextAddEffectEnum];
+    export type MeepRuleEffectEnum = typeof MeepRuleEffectEnum[keyof typeof MeepRuleEffectEnum];
 
 
-    export const MeepContextAddEffectEnum = {
+    export const MeepRuleEffectEnum = {
       Ask: 'ask',
       Allow: 'allow',
       Deny: 'deny',
@@ -76731,7 +76731,7 @@ export namespace Schemas {
        * * `goal` - goal
        * * `fact` - fact
        * * `rule` - rule */
-      kind: MeepContextAddKindEnum;
+      kind: MeepContextKindEnum;
       /**
          * The goal, fact or rule, as one clear sentence.
          * @maxLength 500
@@ -76751,7 +76751,7 @@ export namespace Schemas {
        * * `ask` - ask
        * * `allow` - allow
        * * `deny` - deny */
-      effect?: MeepContextAddEffectEnum;
+      effect?: MeepRuleEffectEnum;
       /**
          * Rule only: the kind of action, such as 'feature-flag-change'.
          * @maxLength 80

@@ -47,7 +47,7 @@ describe('Meep session tools', () => {
             [
                 {
                     method: 'POST',
-                    path: `/api/projects/42/meep/topics/${topic}/scout-status/`,
+                    path: `/api/projects/42/meep/topics/${topic}/scout_status/`,
                     body: { scout_id: scout, enabled: false },
                 },
             ],
