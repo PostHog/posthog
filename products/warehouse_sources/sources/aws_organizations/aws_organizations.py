@@ -96,9 +96,13 @@ def result_key(endpoint_config: AwsOrganizationsEndpointConfig) -> str:
     return endpoint_config.result_key
 
 
-def _parse_timestamp(value: Any) -> Any:
-    """Organizations serializes timestamps as epoch seconds; leave anything else untouched."""
+def _parse_timestamp(value: Any, *, accept_epoch_milliseconds: bool) -> Any:
+    """AWS uses epoch seconds, but its billing transfer example uses millisecond strings."""
+    if accept_epoch_milliseconds and isinstance(value, str) and value.isdecimal():
+        value = int(value)
     if isinstance(value, int | float) and not isinstance(value, bool):
+        if accept_epoch_milliseconds and value >= 10**11:
+            value /= 1000
         return dt.datetime.fromtimestamp(value, tz=dt.UTC)
     if isinstance(value, str) and value:
         try:
@@ -115,7 +119,9 @@ def normalize_row(endpoint_config: AwsOrganizationsEndpointConfig, obj: dict[str
     row = flatten_nested(kept)
     for column in endpoint_config.timestamp_columns:
         if column in row:
-            row[column] = _parse_timestamp(row[column])
+            row[column] = _parse_timestamp(
+                row[column], accept_epoch_milliseconds=endpoint_config.accept_epoch_milliseconds
+            )
     return row
 
 
@@ -303,7 +309,7 @@ def _list_rows(
     if start_token:
         logger.debug(f"Resuming from a saved page token. endpoint={endpoint_config.name}")
 
-    payload: dict[str, Any] = {}
+    payload: dict[str, Any] = dict(endpoint_config.request_params)
     if endpoint_config.page_size is not None:
         payload["MaxResults"] = endpoint_config.page_size
 
@@ -803,7 +809,7 @@ def endpoint_permission_reason(client: AwsOrganizationsClient, endpoint: str) ->
                     client.request("ListTagsForResource", {"ResourceId": account_id})
                 break
         else:
-            client.request(endpoint_config.operation, {"MaxResults": 1})
+            client.request(endpoint_config.operation, {**endpoint_config.request_params, "MaxResults": 1})
     except AwsOrganizationsError as error:
         return _permission_reason(error)
     except Exception:

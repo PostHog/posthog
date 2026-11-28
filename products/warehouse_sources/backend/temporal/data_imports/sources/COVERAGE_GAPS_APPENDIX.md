@@ -1632,10 +1632,10 @@ Note: Compared the official botocore operation model with the static endpoint ma
 
 Re-audited 2026-11-19 against: <https://raw.githubusercontent.com/boto/botocore/develop/botocore/data/organizations/2016-11-28/service-2.json>
 
-- [ ] `Enabled service access (ListAWSServiceAccessForOrganization, POST /)` — see which AWS services are trusted for organization-wide use and when each was enabled (medium)
-- [ ] `Handshakes (ListHandshakesForOrganization, POST /)` — track invitations to join the organization and their state, to explain account membership changes (low)
-- [ ] `Create account status (ListCreateAccountStatus, POST /)` — audit account creation requests and failure reasons (low)
-- [ ] `Inbound responsibility transfers (ListInboundResponsibilityTransfers, POST /)` — see billing or management responsibility transferred to this organization (low)
+- [x] `Enabled service access (ListAWSServiceAccessForOrganization, POST /)` — see which AWS services are trusted for organization-wide use and when each was enabled (medium)
+- [x] `Handshakes (ListHandshakesForOrganization, POST /)` — track invitations to join the organization and their state, to explain account membership changes (low)
+- [x] `Create account status (ListCreateAccountStatus, POST /)` — audit account creation requests and failure reasons (low)
+- [x] `Inbound responsibility transfers (ListInboundResponsibilityTransfers, POST /)` — see billing responsibility transferred to this organization (low)
 - [ ] `Outbound responsibility transfers (ListOutboundResponsibilityTransfers, POST /)` — see responsibility this organization handed to others (low)
 
 Note (2026-11-19): Parsed the botocore operation model and diffed List and Describe operations against the 10 synced tables and the existing appendix. ListChildren, ListAccountsForParent, ListOrganizationalUnitsForParent and ListPoliciesForTarget repeat data already in accounts, account_parents, organizational_units and policy_targets. Effective policy operations, DescribeResourcePolicy and single-record Describe calls were excluded. All operations are JSON RPC over POST / with NextToken paging. The responsibility transfer operations are new in the model and need the correct IAM permissions.
