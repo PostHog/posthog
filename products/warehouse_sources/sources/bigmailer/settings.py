@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
 
 
-@dataclass
+@dataclass(frozen=True)
 class BigMailerEndpointConfig:
     name: str
     # Path under the v1 base URL. Brand-scoped endpoints carry a `{brand_id}` placeholder that the
