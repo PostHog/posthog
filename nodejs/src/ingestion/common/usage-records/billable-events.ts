@@ -28,6 +28,7 @@ const NON_BILLABLE_EVENTS = new Set([
     '$anomaly_score',
     '$anomaly_score_shadow',
     '$recording_observed',
+    '$email_received',
 ])
 
 /**

@@ -116,6 +116,7 @@ export interface EmailStatusRow {
     function_id: string
     sending_domain: string
     scheduled_at?: string
+    provider_message_id: string
 }
 
 export interface EmailStatusUpdate {
@@ -134,6 +135,8 @@ export interface EmailStatusUpdate {
     functionId?: string
     sendingDomain?: string
     scheduledAt?: Date
+    // The id SES gave the email. A reply names it in `In-Reply-To`, which ties the reply to this send.
+    providerMessageId?: string
 }
 
 const isoMicroseconds = (date: Date): string => {
@@ -203,6 +206,7 @@ export const buildEmailStatusRow = (update: EmailStatusUpdate): EmailStatusRow =
         function_id: update.functionId ?? '',
         sending_domain: update.sendingDomain ?? '',
         ...(update.scheduledAt && { scheduled_at: isoMicroseconds(update.scheduledAt) }),
+        provider_message_id: update.providerMessageId ?? '',
     }
 }
 

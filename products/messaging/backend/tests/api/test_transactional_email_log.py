@@ -31,6 +31,7 @@ from products.access_control.backend.facade.testing import (
     set_member_property_access,
 )
 from products.messaging.backend.facade.contracts import EmailStatsInterval
+from products.messaging.backend.facade.transactional_email_log import find_sends_by_provider_message_ids
 from products.messaging.backend.models.email_status_sql import EMAIL_STATUS_DATA_TABLE, EMAIL_STATUS_EVENTS_DATA_TABLE
 from products.messaging.backend.models.message_template import MessageTemplate
 from products.messaging.backend.models.transactional_email_key import TransactionalEmailKey
@@ -99,6 +100,7 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
         status_consumer_behind: bool = False,
         first: str = "queued",
         message_id: str | None = None,
+        provider_message_id: str = "",
     ) -> str:
         queued_at = NOW - timedelta(minutes=minutes_ago)
         message_id = message_id or (
@@ -133,7 +135,7 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
             f"""
             INSERT INTO {EMAIL_STATUS_EVENTS_DATA_TABLE}
                 (team_id, message_id, status, version, created_at, status_at, reason, recipient, function_id,
-                 sending_domain, _timestamp, _offset, _partition)
+                 sending_domain, provider_message_id, _timestamp, _offset, _partition)
             VALUES
             """,
             [
@@ -149,6 +151,7 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
                     "recipient": recipient if row_status == first else "",
                     "function_id": (workflow_id or self.workflow_id) if row_status == first else "",
                     "sending_domain": domain if row_status == "sent" else "",
+                    "provider_message_id": provider_message_id if row_status == "sent" else "",
                     "_timestamp": queued_at,
                     "_offset": 0,
                     "_partition": 0,
@@ -1203,6 +1206,15 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
         assert listed.status_code == status.HTTP_200_OK, listed.json()
         assert [r["message_id"] for r in listed.json()["results"]] == [granted_id]
         assert self.client.get(self._url(f"{deleted_id}/")).status_code == status.HTTP_404_NOT_FOUND
+
+    def test_finds_the_send_a_reply_names_only_in_its_own_team(self, _flag) -> None:
+        other = self.create_team_with_organization(organization=self.organization)
+        mine = self._send(1, "a@example.com", [("sent", 1, "")], provider_message_id="ses-mine")
+        self._send(1, "b@example.com", [("sent", 1, "")], team=other, provider_message_id="ses-theirs")
+        found = find_sends_by_provider_message_ids(self.team.id, ["ses-mine", "ses-theirs", "ses-unknown"])
+        self.assertEqual(set(found), {"ses-mine"})
+        self.assertEqual(str(found["ses-mine"].message_id), mine)
+        self.assertEqual(str(found["ses-mine"].workflow_id), str(self.workflow_id))
 
 
 class TestStatsBuckets(SimpleTestCase):

@@ -55,6 +55,7 @@ class PersonDeletionStep(StrEnum):
     FETCH_DISTINCT_IDS = "fetch_distinct_ids"
     QUEUE_TRAINING_DELETION = "queue_training_deletion"
     QUEUE_RECORDING_DELETION = "queue_recording_deletion"
+    QUEUE_RECEIVED_EMAIL_DELETION = "queue_received_email_deletion"
     TOMBSTONE_POSTGRES = "tombstone_postgres"
     PUBLISH_CLICKHOUSE_TOMBSTONE = "publish_clickhouse_tombstone"
     LOG_ACTIVITY = "log_activity"
@@ -583,6 +584,7 @@ def _tombstone_and_delete_persons(
     raising would hide a completed deletion behind an error.
     """
     failures: builtins.list[PersonDeletionFailure] = []
+    persons = _queue_received_email_deletion(team_id, persons, failures)
     deleted = _tombstone_persons_at_exact_versions(team_id, persons, failures, run or DeletionRun.fresh())
 
     if organization_id is not None and deleted:
@@ -620,6 +622,36 @@ def _tombstone_and_delete_persons(
             )
 
     return PersonProfileDeletionResult(deleted_count=len(deleted), failures=failures)
+
+
+def _queue_received_email_deletion(
+    team_id: int, persons: builtins.list[Person], failures: builtins.list[PersonDeletionFailure]
+) -> builtins.list[Person]:
+    """Queue this before the tombstone, because a person's email and ID can't be read once the person is gone.
+
+    Persons are returned only when the queueing worked, so a failure keeps them for the retry.
+    """
+    if not persons:
+        return persons
+    from products.workflows.backend.facade.received_emails import (  # noqa: PLC0415 — keeps the workflows models off the person import path
+        queue_received_email_deletion_for_persons,
+    )
+
+    addresses = sorted(
+        {address.strip().lower() for person in persons if isinstance(address := person.email, str) and "@" in address}
+    )
+    try:
+        queue_received_email_deletion_for_persons(team_id, [str(person.uuid) for person in persons], addresses)
+    except Exception as exc:
+        _record_step_failure(
+            failures,
+            step=PersonDeletionStep.QUEUE_RECEIVED_EMAIL_DELETION,
+            team_id=team_id,
+            exc=exc,
+            person_uuids=[person.uuid for person in persons],
+        )
+        return []
+    return persons
 
 
 def _logged_deletion_versions(team_id: int, person_ids: builtins.list[int]) -> dict[str, set[int | None]]:

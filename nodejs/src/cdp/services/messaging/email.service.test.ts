@@ -3641,6 +3641,7 @@ describe('EmailService', () => {
                               reason,
                               sending_domain: sendingDomain,
                               created_at: createdAt,
+                              provider_message_id: status === 'sent' ? expect.stringMatching(/^provider-edge-/) : '',
                           }),
                       ]
                     : []
