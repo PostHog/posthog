@@ -380,6 +380,29 @@ describe('processAiEvent()', () => {
         })
     })
 
+    describe('tool usage', () => {
+        it('flags a tool called in $ai_output_choices that is missing from $ai_tools', () => {
+            event.properties = {
+                ...event.properties,
+                $ai_tools: [{ type: 'function', function: { name: 'get_weather' } }],
+                $ai_output_choices: JSON.stringify([
+                    {
+                        role: 'assistant',
+                        tool_calls: [
+                            { id: 'a', type: 'function', function: { name: 'get_weather', arguments: '{}' } },
+                            { id: 'b', type: 'function', function: { name: 'send_email', arguments: '{}' } },
+                        ],
+                    },
+                ]),
+            }
+
+            const result = processAiEvent(event)
+
+            expect(result.properties!.$ai_tools_called).toBe('get_weather,send_email')
+            expect(result.properties!.$ai_tools_unknown).toBe('send_email')
+        })
+    })
+
     describe('model matching', () => {
         it('matches exact model names', () => {
             const result = processAiEvent(event)

@@ -1,23 +1,35 @@
 import { parseJSON } from '~/common/utils/json-parse'
-import { aiToolCallExtractionCounter } from '~/ingestion/pipelines/ai/metrics'
+import { aiToolCallExtractionCounter, aiToolUsageExtractionCounter } from '~/ingestion/pipelines/ai/metrics'
 import { PluginEvent } from '~/plugin-scaffold'
 
 import { extractToolCallNames, sanitizeToolName } from './extract-tool-calls'
+import { extractDefinedToolNames, extractToolResults, findUnknownTools } from './extract-tool-usage'
 
-const TOOL_CALL_INDICATORS = ['tool_call', 'tool_use', 'function_call', '"function"', 'tool-call']
+const TOOL_CALL_INDICATORS = ['tool_call', 'tool_use', 'function_call', '"function"', 'tool-call', 'functionCall']
 export const MAX_OUTPUT_CHOICES_LENGTH = 500_000
 
-function stringMayContainToolCalls(s: string): boolean {
-    for (const indicator of TOOL_CALL_INDICATORS) {
-        if (s.includes(indicator)) {
-            return true
-        }
+type Parsed = { value: unknown } | { skipped: 'too_large' | 'no_indicators' | 'invalid_json' }
+
+function parseIfString(value: unknown, maxLength: number, indicators?: string[]): Parsed {
+    if (typeof value !== 'string') {
+        return { value }
     }
-    return false
+    if (value.length > maxLength) {
+        return { skipped: 'too_large' }
+    }
+    if (indicators && !indicators.some((indicator) => value.includes(indicator))) {
+        return { skipped: 'no_indicators' }
+    }
+    try {
+        return { value: parseJSON(value) }
+    } catch {
+        return { skipped: 'invalid_json' }
+    }
 }
 
 /**
- * Normalize a user-provided $ai_tools_called value to a comma-separated string.
+ * Normalize a user-provided tool name list ($ai_tools_called, $ai_tool_results, $ai_tool_errors,
+ * $ai_tools_unknown) to a comma-separated string.
  *
  * Downstream queries (e.g. the Tools view) assume a comma-separated string and
  * render via splitByChar(','). Users often send an array or a JSON-stringified
@@ -25,7 +37,7 @@ function stringMayContainToolCalls(s: string): boolean {
  *
  * Returns null if the value cannot be coerced into a usable string.
  */
-function normalizeUserProvidedToolsCalled(value: unknown): string | null {
+function normalizeUserProvidedToolNames(value: unknown): string | null {
     let names: unknown[] | null = null
 
     if (Array.isArray(value)) {
@@ -88,7 +100,7 @@ export function processAiToolCallExtraction<T extends PluginEvent>(event: T): T 
         // shapes into the comma-separated string that downstream queries expect, and ensure
         // $ai_tool_call_count is set.
         if (event.properties['$ai_tools_called'] !== undefined && event.properties['$ai_tools_called'] !== null) {
-            const normalized = normalizeUserProvidedToolsCalled(event.properties['$ai_tools_called'])
+            const normalized = normalizeUserProvidedToolNames(event.properties['$ai_tools_called'])
             if (normalized === null) {
                 delete event.properties['$ai_tools_called']
                 aiToolCallExtractionCounter.labels({ status: 'user_provided_invalid' }).inc()
@@ -113,34 +125,17 @@ export function processAiToolCallExtraction<T extends PluginEvent>(event: T): T 
             return event
         }
 
-        // Keep raw string for Python repr fallback
-        const rawString = typeof outputChoices === 'string' ? outputChoices : undefined
-
-        // Fast pre-checks for string values before expensive JSON parsing
-        if (typeof outputChoices === 'string') {
-            if (outputChoices.length > MAX_OUTPUT_CHOICES_LENGTH) {
-                aiToolCallExtractionCounter.labels({ status: 'skipped_too_large' }).inc()
-                return event
-            }
-
-            if (!stringMayContainToolCalls(outputChoices)) {
-                aiToolCallExtractionCounter.labels({ status: 'skipped_no_indicators' }).inc()
-                return event
-            }
+        const parsed = parseIfString(outputChoices, MAX_OUTPUT_CHOICES_LENGTH, TOOL_CALL_INDICATORS)
+        if ('skipped' in parsed && parsed.skipped !== 'invalid_json') {
+            aiToolCallExtractionCounter.labels({ status: `skipped_${parsed.skipped}` }).inc()
+            return event
         }
 
-        // Parse if string
-        let parsed: unknown = outputChoices
-        if (typeof outputChoices === 'string') {
-            try {
-                parsed = parseJSON(outputChoices)
-            } catch {
-                // Not valid JSON - pass through for Python repr fallback
-                parsed = undefined
-            }
-        }
-
-        const toolNames = extractToolCallNames(parsed, rawString)
+        // Invalid JSON still goes through, as the raw string, for the Python repr fallback.
+        const toolNames = extractToolCallNames(
+            'value' in parsed ? parsed.value : undefined,
+            typeof outputChoices === 'string' ? outputChoices : undefined
+        )
 
         if (toolNames.length === 0) {
             aiToolCallExtractionCounter.labels({ status: 'no_tools_found' }).inc()
@@ -156,4 +151,110 @@ export function processAiToolCallExtraction<T extends PluginEvent>(event: T): T 
         aiToolCallExtractionCounter.labels({ status: 'error' }).inc()
         return event
     }
+}
+
+const TOOL_RESULT_INDICATORS = [
+    'tool_result',
+    'tool-result',
+    'tool_call_response',
+    'function_call_output',
+    'custom_tool_call_output',
+    'function_call_result',
+    'computer_call_output',
+    'functionResponse',
+    '"tool"',
+    // Legacy OpenAI results use role "function".
+    '"function"',
+]
+
+const isSet = (value: unknown): boolean => value !== undefined && value !== null
+
+const RESULT_PROPERTIES = ['$ai_tool_result_count', '$ai_tool_error_count', '$ai_tool_results', '$ai_tool_errors']
+const TOOL_NAME_LIST_PROPERTIES = ['$ai_tool_results', '$ai_tool_errors', '$ai_tools_unknown']
+
+// Runs after processAiToolCallExtraction, because unknown tools read $ai_tools_called.
+export function processAiToolUsageExtraction<T extends PluginEvent>(event: T): T {
+    if (!event.properties || event.event !== '$ai_generation') {
+        return event
+    }
+    const properties = event.properties
+    // Any client-sent result property means the client describes its own results, so none are inferred.
+    const clientSentResults = RESULT_PROPERTIES.some((key) => isSet(properties[key]))
+    const clientSentUnknown = isSet(properties['$ai_tools_unknown'])
+
+    for (const key of TOOL_NAME_LIST_PROPERTIES) {
+        if (isSet(properties[key])) {
+            const normalized = normalizeUserProvidedToolNames(properties[key])
+            if (normalized === null) {
+                delete properties[key]
+            } else {
+                properties[key] = normalized
+            }
+        }
+    }
+
+    // A failed generation is usually retried with the same input, which would count its results twice.
+    const isError = properties['$ai_is_error'] === true || properties['$ai_is_error'] === 'true'
+
+    if (!clientSentResults && isSet(properties['$ai_input'])) {
+        try {
+            const input = isError
+                ? ({ skipped: 'generation_error' } as const)
+                : parseIfString(properties['$ai_input'], MAX_OUTPUT_CHOICES_LENGTH, TOOL_RESULT_INDICATORS)
+            if ('skipped' in input) {
+                aiToolUsageExtractionCounter.labels({ kind: 'results', status: input.skipped }).inc()
+            } else {
+                const results = extractToolResults(input.value)
+                if (results.length === 0) {
+                    aiToolUsageExtractionCounter.labels({ kind: 'results', status: 'none' }).inc()
+                } else {
+                    const named = results.filter((result) => result.name !== null)
+                    const errors = results.filter((result) => result.isError)
+                    const namedErrors = named.filter((result) => result.isError)
+                    properties['$ai_tool_result_count'] = results.length
+                    properties['$ai_tool_error_count'] = errors.length
+                    if (named.length > 0) {
+                        properties['$ai_tool_results'] = named.map((result) => result.name).join(',')
+                    }
+                    if (namedErrors.length > 0) {
+                        properties['$ai_tool_errors'] = namedErrors.map((result) => result.name).join(',')
+                    }
+                    aiToolUsageExtractionCounter
+                        .labels({ kind: 'results', status: named.length === results.length ? 'extracted' : 'unnamed' })
+                        .inc()
+                }
+            }
+        } catch {
+            aiToolUsageExtractionCounter.labels({ kind: 'results', status: 'error' }).inc()
+        }
+    }
+
+    const toolsCalled = properties['$ai_tools_called']
+    const called =
+        typeof toolsCalled === 'string' ? toolsCalled.split(',').flatMap((name) => sanitizeToolName(name) ?? []) : []
+    if (called.length === 0) {
+        return event
+    }
+
+    if (!clientSentUnknown && isSet(properties['$ai_tools'])) {
+        try {
+            const tools = parseIfString(properties['$ai_tools'], MAX_OUTPUT_CHOICES_LENGTH)
+            const defined = 'skipped' in tools ? null : extractDefinedToolNames(tools.value)
+            if (defined === null) {
+                aiToolUsageExtractionCounter.labels({ kind: 'unknown', status: 'unnamed_definitions' }).inc()
+            } else {
+                const unknown = findUnknownTools(called, defined)
+                if (unknown.length > 0) {
+                    properties['$ai_tools_unknown'] = unknown.join(',')
+                }
+                aiToolUsageExtractionCounter
+                    .labels({ kind: 'unknown', status: unknown.length > 0 ? 'found' : 'none' })
+                    .inc()
+            }
+        } catch {
+            aiToolUsageExtractionCounter.labels({ kind: 'unknown', status: 'error' }).inc()
+        }
+    }
+
+    return event
 }
