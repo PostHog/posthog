@@ -1,5 +1,5 @@
 use super::*;
-use meep_shell::settings::{self as set, group, header, section};
+use meep_shell::settings::{self as set, group, section};
 use meep_ui::gpui_kit::component::Icon;
 
 fn kind_label(watch: &Watch) -> &str {
@@ -113,12 +113,7 @@ impl Desktop {
                 .collect()
         };
         ui::column()
-            .child(header(
-                "Sources",
-                "What this topic reads for context. Topic chat reads these and never changes them.",
-                None,
-            ))
-            .child(section("Data", "", Some(add), true))
+            .child(section("Data and channels", "", Some(add), true))
             .child(group(rows))
             .when(self.identity.is_some(), |col| {
                 col.child(self.github_section(topic, cx))

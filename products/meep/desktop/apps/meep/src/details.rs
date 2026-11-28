@@ -70,6 +70,7 @@ impl TopicChatCache {
 pub(super) const PAGE_X: f32 = 24.;
 /// Space between the crumb bar and a screen's first line.
 pub(super) const PAGE_TOP: f32 = 16.;
+pub(super) const OWN_BAR_TOP: f32 = PAGE_TOP - 8.;
 
 #[derive(Clone, Debug, PartialEq)]
 pub(super) struct ChatTask {
@@ -736,14 +737,7 @@ impl Desktop {
                     },
                     ui::column()
                         .gap(px(14.))
-                        .child(item_title(
-                            if f.is_current() {
-                                "Fact"
-                            } else {
-                                "Historical fact"
-                            },
-                            f.text.clone(),
-                        ))
+                        .child(content_heading(f.text.clone()))
                         .child(self.fact_source(state, f, cx)),
                 )
             }),
@@ -958,7 +952,7 @@ impl Desktop {
             .child(
                 scroll("details-scroll")
                     .px(px(PAGE_X))
-                    .pt(px(PAGE_TOP - 8.))
+                    .pt(px(OWN_BAR_TOP))
                     // A footer note casts a fade over the scroll's end; the extra room lets
                     // the last line scroll clear of it.
                     .pb(px(if pane.footer.is_some() { 36. } else { 20. }))
@@ -975,7 +969,7 @@ impl Desktop {
                         .gap(px(10.))
                         .border_t_1()
                         .border_color(ui::ink(0x0f))
-                        .px(px(20.))
+                        .px(px(if pane.conversation { PAGE_X } else { 20. }))
                         .py(px(12.))
                         // A footer that holds a note covers part of the scroll; the shadow
                         // shows the content continues underneath.
@@ -1164,8 +1158,6 @@ impl Desktop {
                 .into_any_element(),
         };
 
-        // The headline and its lead; the rest of the write-up waits behind
-        // Full report.
         let (lead, rest) = match t.summary.trim().split_once("\n\n") {
             Some((lead, rest)) => (lead.trim().to_owned(), rest.trim().to_owned()),
             None => (t.summary.trim().to_owned(), String::new()),
@@ -1189,26 +1181,6 @@ impl Desktop {
                 ),
             ],
         );
-        let full_key = format!("report-full-{thread}");
-        let full = self.toggled_groups.contains(&full_key);
-        // The rest of the write-up opens from the action line, beside the verdicts.
-        let full_button = (!rest.is_empty()).then(|| {
-            let key = full_key.clone();
-            ui::button(
-                "report-full",
-                if full { "Hide report" } else { "Full report" },
-            )
-            .small()
-            .icon(Glyph::FileText)
-            .on_click(cx.listener(move |s, _, _, cx| {
-                let open = !s.toggled_groups.remove(&key);
-                if open {
-                    s.toggled_groups.insert(key.clone());
-                }
-                s.folds.toggled(key.clone(), open, cx);
-                cx.notify()
-            }))
-        });
         let mut headline = ui::column()
             .gap(px(14.))
             .child(
@@ -1270,17 +1242,14 @@ impl Desktop {
         }
         // The write-up under the lead, flat in the page's own type.
         if !rest.is_empty() {
-            headline = headline.children(self.folds.reveal(&full_key, full, cx, || {
+            headline = headline.child(
                 meep_shell::transcript::chat_markdown(format!("report-rest-{thread}").into(), rest)
                     .text_size(px(15.))
-                    .line_height(relative(1.55))
-                    .into_any_element()
-            }));
+                    .line_height(relative(1.55)),
+            );
         }
-        let headline = headline.children(full_button.map(|b| div().flex().ml(px(-6.)).child(b)));
         body = body.child(headline);
 
-        // Proposal: what the agent would do, and the buttons that do it.
         let heading = |text: &'static str| {
             div()
                 .text_size(px(16.))
@@ -1327,9 +1296,9 @@ impl Desktop {
                 s.open_chat(w, cx);
             }
         };
-        let mut next = ui::row().flex_wrap().gap(px(8.));
+        let mut actions: Vec<Button> = Vec::new();
         if let Some(task) = running {
-            next = next.child(
+            actions.push(
                 control(
                     "report-open-task",
                     "Open the running task",
@@ -1342,66 +1311,58 @@ impl Desktop {
                 .icon(Glyph::Clock),
             );
         } else if open {
-            next = next
-                .child(
-                    control(
-                        "report-implement",
-                        "Implement",
-                        true,
-                        cx,
-                        move |s, w, cx| start(s, true, w, cx),
-                    )
-                    .icon(Glyph::Wrench)
-                    .tooltip("Start an agent task that makes the change"),
+            actions.push(
+                control(
+                    "report-implement",
+                    "Implement",
+                    true,
+                    cx,
+                    move |s, w, cx| start(s, true, w, cx),
                 )
-                .child(
-                    control(
-                        "report-investigate",
-                        "Investigate",
-                        false,
-                        cx,
-                        move |s, w, cx| start(s, false, w, cx),
-                    )
-                    .icon(Glyph::Search)
-                    .tooltip("Start an agent task that finds the root cause"),
-                );
+                .icon(Glyph::Wrench)
+                .tooltip("Start an agent task that makes the change"),
+            );
+            actions.push(
+                control(
+                    "report-investigate",
+                    "Investigate",
+                    false,
+                    cx,
+                    move |s, w, cx| start(s, false, w, cx),
+                )
+                .icon(Glyph::Search)
+                .tooltip("Start an agent task that finds the root cause"),
+            );
         }
         let ask = format!(
             "About the report “{}”: ",
             meep_topic::title_line(&t.subject)
         );
         // Asking is the light option: text, not another box.
-        next = next.child(
-            ui::button("report-ask", "Ask about it")
-                .icon(Glyph::Sparkles)
-                .h(px(28.))
-                .px(px(10.))
-                .rounded(px(6.))
-                .on_click(cx.listener(move |s, _, w, cx| {
-                    cx.stop_propagation();
-                    s.ask_in_chat(&ask, w, cx);
-                    cx.notify()
-                })),
-        );
+        let ask_button = ui::button("report-ask", "Ask about it")
+            .icon(Glyph::Sparkles)
+            .h(px(28.))
+            .px(px(10.))
+            .rounded(px(6.))
+            .on_click(cx.listener(move |s, _, w, cx| {
+                cx.stop_propagation();
+                s.ask_in_chat(&ask, w, cx);
+                cx.notify()
+            }));
         // A closed report has nothing left to start.
-        body = body.when(open || running.is_some(), |body| {
-            body.child(
-                ui::column()
-                    .gap(px(10.))
-                    .child(heading(if sources.proposal.is_some() {
-                        "Proposal"
-                    } else {
-                        "Next step"
-                    }))
-                    .children(sources.proposal.clone().map(|p| {
-                        div()
-                            .text_size(px(15.))
-                            .line_height(relative(1.55))
-                            .child(p)
-                    }))
-                    .child(next.pt(px(4.))),
-            )
-        });
+        if open || running.is_some() {
+            actions.push(ask_button);
+        }
+        if let Some(p) = sources.proposal.clone() {
+            body = body.child(
+                ui::column().gap(px(10.)).child(heading("Proposal")).child(
+                    div()
+                        .text_size(px(15.))
+                        .line_height(relative(1.55))
+                        .child(p),
+                ),
+            );
+        }
 
         // Evidence: three first, the rest on request.
         // Named references read as evidence without a source to open.
@@ -1637,7 +1598,7 @@ impl Desktop {
             failed: false,
             body,
             footer: None,
-            actions: vec![],
+            actions,
             title: Some(super::pages::short_subject(&t.subject)),
             tools,
             conversation: true,
@@ -2693,7 +2654,6 @@ impl Desktop {
         });
         let body = ui::column()
             .gap(px(SECTION_GAP))
-            .child(item_title("Task", meep_topic::title_line(&t.title)))
             .children(origin)
             .child(body);
         ui::column()
@@ -2703,7 +2663,7 @@ impl Desktop {
                 scroll("task-chat-stream")
                     .track_scroll(&self.run_scroll)
                     .px(px(inset))
-                    .pt(px(PAGE_TOP - 8.))
+                    .pt(px(OWN_BAR_TOP))
                     .pb(px(16.))
                     .child(body),
             )
@@ -2923,7 +2883,10 @@ impl Desktop {
                         div()
                             .px(px(4.))
                             .pt(px(2.))
-                            .child(meep_shell::composer::input(input, "Ask about this task")),
+                            .child(meep_shell::composer::input(
+                                input,
+                                "Ask, or tell it what to do",
+                            )),
                     )
                     .child(
                         ui::row()
@@ -4387,7 +4350,7 @@ fn receipt(id: TopicId, state: &TopicState, a: &meep_topic::Activity) -> Option<
             (Glyph::Flag, Some(Page::Topic(id, Tab::Mission, None)))
         }
         Ref::Topic if lower.contains("goal") || lower.contains("progress") => {
-            (Glyph::Target, Some(Page::Topic(id, Tab::Goals, None)))
+            (Glyph::Target, Some(Page::Topic(id, Tab::Mission, None)))
         }
         Ref::Topic if lower.contains("source") || lower.contains("link") => {
             (Glyph::Link, Some(Page::Topic(id, Tab::Sources, None)))
@@ -4639,39 +4602,12 @@ pub(super) fn readable_answer(text: &str) -> String {
 }
 
 /// An item page's head, the same on every one: what kind of thing it is, then its name.
-pub(super) fn item_title_with(
-    kind: impl Into<SharedString>,
-    title: impl Into<SharedString>,
-    status: Div,
-) -> Div {
-    ui::column()
-        .gap(px(4.))
-        .child(
-            ui::row()
-                .gap(px(10.))
-                .child(ui::caption(kind.into()))
-                .child(status),
-        )
-        .child(
-            div()
-                .text_size(px(18.))
-                .line_height(relative(1.3))
-                .font_weight(FontWeight::SEMIBOLD)
-                .child(title.into()),
-        )
-}
-
-pub(super) fn item_title(kind: impl Into<SharedString>, title: impl Into<SharedString>) -> Div {
-    ui::column()
-        .gap(px(4.))
-        .child(ui::caption(kind.into()))
-        .child(
-            div()
-                .text_size(px(18.))
-                .line_height(relative(1.3))
-                .font_weight(FontWeight::SEMIBOLD)
-                .child(title.into()),
-        )
+pub(super) fn content_heading(text: impl Into<SharedString>) -> Div {
+    div()
+        .text_size(px(18.))
+        .line_height(relative(1.3))
+        .font_weight(FontWeight::SEMIBOLD)
+        .child(text.into())
 }
 
 #[cfg(test)]

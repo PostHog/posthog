@@ -701,14 +701,14 @@ impl Desktop {
                             }
                             reviews
                         }
-                        Tab::Goals => s.topic.goals.iter().map(|g| Detail::Goal(g.id)).collect(),
+                        Tab::Mission => s.topic.goals.iter().map(|g| Detail::Goal(g.id)).collect(),
                         Tab::Sources => s
                             .topic
                             .context_sources
                             .iter()
                             .map(|w| Detail::Source(w.key.clone()))
                             .collect(),
-                        Tab::Chat | Tab::Needs | Tab::Mission | Tab::Rules => vec![],
+                        Tab::Chat | Tab::Needs | Tab::Rules => vec![],
                     };
                     details
                         .into_iter()
@@ -1446,7 +1446,7 @@ impl Desktop {
                 .child(ui::nav::title("Settings"))
                 .on_click(cx.listener(|s, _, w, cx| s.go(Page::Settings, w, cx))),
         );
-        let side = meep_shell::sidebar(
+        meep_shell::sidebar(
             tree,
             top.into_any_element(),
             None,
@@ -1465,8 +1465,7 @@ impl Desktop {
                     let at = e.position();
                     s.show_new_menu(at, w, cx)
                 })),
-        );
-        side
+        )
     }
     /// New topic, shaped like New view: say what you want done, name it, create.
     /// It lands in the current section; the sidebar is where it gets moved.
@@ -1613,6 +1612,9 @@ impl Desktop {
             )
     }
     fn sheet_view(&self, sheet: &Sheet, progress: f32, w: &Window, cx: &Context<Self>) -> Div {
+        if let Some(dialog) = self.dialog(sheet, w, cx) {
+            return sheet_overlay(dialog, progress, 0.18, w);
+        }
         let title = match sheet {
             Sheet::New => "New topic",
             Sheet::Bind => "Bind a PostHog workflow",
@@ -1622,18 +1624,22 @@ impl Desktop {
             Sheet::Search => "Search",
         };
         let search = *sheet == Sheet::Search;
-        let mut body = ui::column()
-            .w(px(560.))
-            .max_w(relative(0.94))
-            .max_h(relative(if search { 0.94 } else { 0.78 }))
-            .gap(px(if search { 4. } else { 14. }))
-            .p(px(if search { 8. } else { 20. }))
-            .rounded(px(12.))
-            .bg(rgb(ui::theme::color(ui::CANVAS)))
-            .border_1()
-            .border_color(ui::ink(28))
-            .shadow_lg()
-            .occlude();
+        let mut body = if search {
+            ui::column()
+                .w(px(560.))
+                .max_w(relative(0.94))
+                .max_h(relative(0.94))
+                .gap(px(4.))
+                .p(px(8.))
+                .rounded(px(12.))
+                .bg(rgb(ui::theme::color(ui::CANVAS)))
+                .border_1()
+                .border_color(ui::ink(28))
+                .shadow_lg()
+                .occlude()
+        } else {
+            dialog_frame().w(px(440.)).max_h(relative(0.78))
+        };
         body = if search {
             body.child(
                 ui::row()
@@ -1652,14 +1658,27 @@ impl Desktop {
                             .text_size(px(15.)),
                     ),
             )
-        } else if matches!(sheet, Sheet::DeleteTopic(_) | Sheet::DeleteRoutine(..)) {
-            body.child(ui::heading("sheet-title", title))
         } else {
-            body.child(ui::heading("sheet-title", title)).child(
-                ui::field("Name", "", Input::new(&self.name).aria_label("Name"))
-                    .max_w_full()
-                    .pb_0(),
+            body.child(
+                div()
+                    .text_size(px(15.))
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .child(title),
             )
+            .child(filled_field(
+                "Name",
+                None,
+                self.name.focus_handle(cx).contains_focused(w, cx),
+                Input::new(&self.name)
+                    .aria_label("Name")
+                    .small()
+                    .appearance(false)
+                    .bordered(false)
+                    .p(px(0.))
+                    .w_full()
+                    .text_size(px(14.))
+                    .into_any_element(),
+            ))
         };
         match sheet {
             Sheet::New => {
@@ -1688,15 +1707,20 @@ impl Desktop {
                 body=body.child(options).child(ui::caption("Give it a goal. It works toward it with your PostHog data and tools, and asks before it acts."));
             }
             Sheet::Bind => {
-                body = body.child(
-                    ui::field(
-                        "Flow ID",
-                        "From the workflow in PostHog.",
-                        Textarea::new(&self.mission).aria_label("Flow ID"),
-                    )
-                    .max_w_full()
-                    .pb_0(),
-                )
+                body = body.child(filled_field(
+                    "Workflow ID",
+                    Some("Copy it from the workflow’s page in PostHog."),
+                    self.flow_id.focus_handle(cx).contains_focused(w, cx),
+                    Input::new(&self.flow_id)
+                        .aria_label("Workflow ID")
+                        .small()
+                        .appearance(false)
+                        .bordered(false)
+                        .p(px(0.))
+                        .w_full()
+                        .text_size(px(14.))
+                        .into_any_element(),
+                ))
             }
             Sheet::Search => {
                 let mut rows = scroll("search-hits")
@@ -1787,102 +1811,48 @@ impl Desktop {
                         .child(ui::caption(key).px(px(4.)).rounded(px(3.)).bg(ui::ink(16)))
                         .child(ui::caption(label))
                 };
-                body = body.child(rows).child(
-                    ui::row()
-                        .flex_none()
-                        .border_t_1()
-                        .border_color(ui::ink(24))
-                        .gap(px(14.))
-                        .px(px(9.))
-                        .pt(px(9.))
-                        .pb(px(2.))
-                        .when(has_hits, |r| {
-                            r.child(hint("↑ ↓", "Navigate")).child(hint("↵", "Open"))
-                        })
-                        .child(hint("Esc", "Close")),
-                );
+                let canvas = ui::theme::color(ui::CANVAS);
+                body = body
+                    .child(
+                        div()
+                            .relative()
+                            .flex_initial()
+                            .min_h_0()
+                            .child(rows.pb(px(if has_hits { 20. } else { 0. })))
+                            .when(has_hits, |list| {
+                                list.child(
+                                    div()
+                                        .absolute()
+                                        .left_0()
+                                        .right_0()
+                                        .bottom_0()
+                                        .h(px(28.))
+                                        .bg(linear_gradient(
+                                            180.,
+                                            linear_color_stop(rgb(canvas).opacity(0.), 0.),
+                                            linear_color_stop(rgb(canvas), 1.),
+                                        )),
+                                )
+                            }),
+                    )
+                    .child(
+                        ui::row()
+                            .flex_none()
+                            .border_t_1()
+                            .border_color(ui::ink(24))
+                            .gap(px(14.))
+                            .px(px(9.))
+                            .pt(px(9.))
+                            .pb(px(2.))
+                            .when(has_hits, |r| {
+                                r.child(hint("↑ ↓", "Navigate")).child(hint("↵", "Open"))
+                            })
+                            .child(hint("Esc", "Close")),
+                    );
             }
             _ => {}
         }
-        if let Sheet::DeleteRoutine(id, key, flow) = sheet.clone() {
-            let name = self
-                .states
-                .iter()
-                .find(|s| s.topic.id == id)
-                .and_then(|s| s.topic.routines.iter().find(|r| r.binding.id == key))
-                .map(|r| r.binding.name.as_str())
-                .unwrap_or(&key);
-            let message = format!(
-                "Deleting “{name}” stops its source subscriptions. Meep also deletes the linked PostHog workflow once no other routine in this workspace uses it."
-            );
-            let delete = control(
-                "confirm-delete-routine",
-                "Delete routine",
-                true,
-                cx,
-                move |s, w, cx| {
-                    s.dismiss_sheet(w, cx);
-                    let client = s.client().clone();
-                    let routine = key.clone();
-                    let page = Page::Topic(id, Tab::Routines, Some(Detail::Routine(key.clone())));
-                    s.job(
-                        async move { client.delete_workflow(id, &routine, flow).await },
-                        w,
-                        cx,
-                        move |s, result, w, cx| match result {
-                            Ok(()) => {
-                                s.reload();
-                                s.back.retain(|entry| entry != &page);
-                                if s.page == page {
-                                    s.navigate(Page::Topic(id, Tab::Routines, None), w, cx);
-                                }
-                            }
-                            Err(e) => {
-                                s.error =
-                                    Some(format!("Routine deletion could not be confirmed. {e}"))
-                            }
-                        },
-                    );
-                },
-            );
-            body = body.child(ui::caption(message)).child(
-                ui::row()
-                    .justify_end()
-                    .gap(px(6.))
-                    .child(control("cancel-sheet", "Cancel", false, cx, |s, w, cx| {
-                        s.dismiss_sheet(w, cx)
-                    }))
-                    .child(meep_shell::settings::danger(delete, cx)),
-            );
-        } else if let Sheet::DeleteTopic(id) = *sheet {
-            let name = self
-                .states
-                .iter()
-                .find(|s| s.topic.id == id)
-                .map(|s| s.topic.name.clone())
-                .unwrap_or_default();
-            body = body
-                .child(ui::caption(format!(
-                    "“{name}” and its inbox, tasks, facts, files and routines will be deleted on every device. This can’t be undone. Archive it instead to keep everything."
-                )))
-                .child(
-                    ui::row()
-                        .justify_end()
-                        .gap(px(6.))
-                        .child(control("cancel-sheet", "Cancel", false, cx, |s, w, cx| {
-                            s.dismiss_sheet(w, cx)
-                        }))
-                        .child(meep_shell::settings::danger(
-                            control("confirm-delete-topic", "Delete topic", true, cx, move |s, w, cx| {
-                                if s.issue(id, Command::DeleteTopic) {
-                                    s.sheet = None;
-                                    s.navigate(Page::Needs, w, cx)
-                                }
-                            }),
-                            cx,
-                        )),
-                );
-        } else if !search {
+        if !search {
             body = body.child(
                 ui::row()
                     .justify_end()
@@ -1907,21 +1877,177 @@ impl Desktop {
                     ),
             );
         }
-        div()
-            .absolute()
-            .inset_0()
-            .flex()
-            .items_center()
-            .flex_col()
-            .pt(px((f32::from(w.viewport_size().height) * 0.12).min(96.)))
-            .bg(rgba(if ui::theme::is_dark() {
-                0x00000080
-            } else {
-                0x00000030
-            }))
-            .occlude()
-            .opacity(progress)
-            .child(body.relative().top(px(ui::motion::travel(progress, 8.))))
+        sheet_overlay(body, progress, 0.12, w)
+    }
+    fn dialog(&self, sheet: &Sheet, w: &Window, cx: &Context<Self>) -> Option<Div> {
+        let topic = |id: TopicId| self.states.iter().find(|s| s.topic.id == id);
+        Some(match sheet.clone() {
+            Sheet::RenameTopic(id) => {
+                let icon = topic(id).map(|s| s.topic.display_icon())?;
+                let empty = self.name.read(cx).value().trim().is_empty();
+                let focused = self.name.focus_handle(cx).contains_focused(w, cx);
+                dialog_frame()
+                    .child(
+                        ui::row()
+                            .gap(px(12.))
+                            .items_center()
+                            .child(super::topic_icon::small_sidebar_tile(&icon, 36.))
+                            .child(
+                                div()
+                                    .text_size(px(15.))
+                                    .font_weight(FontWeight::SEMIBOLD)
+                                    .child("Rename topic"),
+                            ),
+                    )
+                    .child(
+                        div()
+                            .h(px(38.))
+                            .px(px(12.))
+                            .flex()
+                            .items_center()
+                            .rounded(px(9.))
+                            .bg(ui::ink(if focused { 0x04 } else { 0x08 }))
+                            .border_1()
+                            .border_color(ui::ink(if focused { 0x38 } else { 0x12 }))
+                            .child(
+                                Input::new(&self.name)
+                                    .aria_label("Topic name")
+                                    .small()
+                                    .appearance(false)
+                                    .bordered(false)
+                                    .p(px(0.))
+                                    .w_full()
+                                    .text_size(px(14.)),
+                            ),
+                    )
+                    .child(
+                        ui::row()
+                            .items_center()
+                            .gap(px(8.))
+                            .justify_end()
+                            .child(control("cancel-sheet", "Cancel", false, cx, |s, w, cx| {
+                                s.dismiss_sheet(w, cx)
+                            }))
+                            .child(
+                                control("submit-sheet", "Save", true, cx, |s, w, cx| {
+                                    s.submit(w, cx)
+                                })
+                                .disabled(empty),
+                            ),
+                    )
+            }
+            Sheet::DeleteTopic(id) => {
+                let state = topic(id)?;
+                let name = state.topic.name.clone();
+                confirm_dialog(
+                    super::topic_icon::small_sidebar_tile(&state.topic.display_icon(), 48.),
+                    format!("Delete “{name}”?"),
+                    "Its inbox, tasks, facts, files and routines are deleted on every device. This can’t be undone.",
+                )
+                .child(
+                    ui::column()
+                        .w_full()
+                        .gap(px(8.))
+                        .child(
+                            meep_shell::settings::danger(
+                                control("confirm-delete-topic", "Delete topic", true, cx, move |s, w, cx| {
+                                    if s.issue(id, Command::DeleteTopic) {
+                                        s.sheet = None;
+                                        s.navigate(Page::Needs, w, cx)
+                                    }
+                                }),
+                                cx,
+                            )
+                            .w_full()
+                            .h(px(32.)),
+                        )
+                        .child(
+                            control("archive-instead", "Archive instead", false, cx, move |s, w, cx| {
+                                s.dismiss_sheet(w, cx);
+                                s.run_row_action(&super::sidebar::RowAction::Archive(id, true), w, cx);
+                            })
+                            .w_full()
+                            .h(px(32.)),
+                        )
+                        .child(
+                            control("cancel-sheet", "Cancel", false, cx, |s, w, cx| {
+                                s.dismiss_sheet(w, cx)
+                            })
+                            .border_0()
+                            .w_full()
+                            .h(px(32.)),
+                        ),
+                )
+            }
+            Sheet::DeleteRoutine(id, key, flow) => {
+                let name = topic(id)
+                    .and_then(|s| s.topic.routines.iter().find(|r| r.binding.id == key))
+                    .map(|r| r.binding.name.clone())
+                    .unwrap_or_else(|| key.clone());
+                confirm_dialog(
+                    div()
+                        .size(px(48.))
+                        .rounded_full()
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .bg(ui::ink(0x0a))
+                        .child(
+                            Icon::new(Glyph::Repeat)
+                                .size(px(22.))
+                                .text_color(rgb(ui::theme::color(ui::SECONDARY))),
+                        ),
+                    format!("Delete “{name}”?"),
+                    "Its triggers stop, and its PostHog workflow is deleted when no other routine uses it.",
+                )
+                .child(
+                    ui::column()
+                        .w_full()
+                        .gap(px(8.))
+                        .child(
+                            meep_shell::settings::danger(
+                                control("confirm-delete-routine", "Delete routine", true, cx, move |s, w, cx| {
+                                    s.dismiss_sheet(w, cx);
+                                    let client = s.client().clone();
+                                    let routine = key.clone();
+                                    let page = Page::Topic(id, Tab::Routines, Some(Detail::Routine(key.clone())));
+                                    s.job(
+                                        async move { client.delete_workflow(id, &routine, flow).await },
+                                        w,
+                                        cx,
+                                        move |s, result, w, cx| match result {
+                                            Ok(()) => {
+                                                s.reload();
+                                                s.back.retain(|entry| entry != &page);
+                                                if s.page == page {
+                                                    s.navigate(Page::Topic(id, Tab::Routines, None), w, cx);
+                                                }
+                                            }
+                                            Err(e) => {
+                                                s.error = Some(format!(
+                                                    "Routine deletion could not be confirmed. {e}"
+                                                ))
+                                            }
+                                        },
+                                    );
+                                }),
+                                cx,
+                            )
+                            .w_full()
+                            .h(px(32.)),
+                        )
+                        .child(
+                            control("cancel-sheet", "Cancel", false, cx, |s, w, cx| {
+                                s.dismiss_sheet(w, cx)
+                            })
+                            .border_0()
+                            .w_full()
+                            .h(px(32.)),
+                        ),
+                )
+            }
+            _ => return None,
+        })
     }
     pub(super) fn task_drag(
         &self,
@@ -2227,7 +2353,7 @@ impl Desktop {
         )
     }
     fn settings(&self, w: &Window, cx: &mut Context<Self>) -> AnyElement {
-        use meep_shell::settings::{group, header, item, section};
+        use meep_shell::settings::{group, item, section};
         let width =
             w.viewport_size().width - px(meep_ui::design::current().sidebar + meep_shell::GUTTER);
         let content = match self.settings_page {
@@ -2315,11 +2441,6 @@ impl Desktop {
                 };
                 ui::column()
                     .gap_0()
-                    .child(header(
-                        "General",
-                        "The PostHog account your topics work with.",
-                        None,
-                    ))
                     .child(section("Account", "", None, true))
                     .child(group([account.into_any_element()]))
                     .when(self.identity.is_some(), |column| {
@@ -2766,4 +2887,129 @@ fn row_actions(id: String, title: &str, group: SharedString) -> Button {
     )
     .size(px(ui::nav::ACCESSORY))
     .rounded(px(5.))
+}
+
+fn dialog_frame() -> Div {
+    ui::column()
+        .w(px(400.))
+        .max_w(relative(0.94))
+        .gap(px(16.))
+        .p(px(20.))
+        .rounded(px(14.))
+        .bg(rgb(dialog_surface()))
+        .border_1()
+        .border_color(ui::ink(if ui::theme::is_dark() { 0x1c } else { 0x14 }))
+        .shadow_lg()
+        .occlude()
+}
+
+fn dialog_surface() -> u32 {
+    let canvas = ui::theme::color(ui::CANVAS);
+    if ui::theme::is_dark() {
+        meep_shell::icons::mix(canvas, 0xffffff, 0.06)
+    } else {
+        canvas
+    }
+}
+
+fn confirm_dialog(icon: Div, title: String, message: &'static str) -> Div {
+    dialog_frame()
+        .w(px(360.))
+        .items_center()
+        .pt(px(24.))
+        .child(
+            div().relative().child(icon).child(
+                div()
+                    .absolute()
+                    .right(px(-6.))
+                    .bottom(px(-6.))
+                    .size(px(22.))
+                    .rounded_full()
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .bg(rgb(meep_shell::settings::danger_color()))
+                    .border_2()
+                    .border_color(rgb(dialog_surface()))
+                    .child(
+                        Icon::new(Glyph::Trash)
+                            .size(px(11.))
+                            .text_color(rgb(0xffffff)),
+                    ),
+            ),
+        )
+        .child(
+            ui::column()
+                .w_full()
+                .items_center()
+                .gap(px(6.))
+                .child(
+                    div()
+                        .text_center()
+                        .text_size(px(15.))
+                        .line_height(px(21.))
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .child(title),
+                )
+                .child(
+                    div()
+                        .text_center()
+                        .text_size(px(13.))
+                        .line_height(px(19.))
+                        .text_color(rgb(ui::theme::color(ui::SECONDARY)))
+                        .child(message),
+                ),
+        )
+}
+
+fn sheet_overlay(body: Div, progress: f32, top: f32, w: &Window) -> Div {
+    div()
+        .absolute()
+        .inset_0()
+        .flex()
+        .items_center()
+        .flex_col()
+        .pt(px(
+            (f32::from(w.viewport_size().height) * top).min(top * 800.)
+        ))
+        .bg(rgba(if ui::theme::is_dark() {
+            0x00000080
+        } else {
+            0x00000030
+        }))
+        .occlude()
+        .opacity(progress)
+        .child(body.relative().top(px(ui::motion::travel(progress, 8.))))
+}
+
+fn filled_field(
+    label: &'static str,
+    hint: Option<&'static str>,
+    focused: bool,
+    input: AnyElement,
+) -> Div {
+    ui::column()
+        .w_full()
+        .gap(px(6.))
+        .child(
+            div()
+                .text_size(px(12.))
+                .font_weight(FontWeight::MEDIUM)
+                .text_color(rgb(ui::theme::color(ui::SECONDARY)))
+                .child(label),
+        )
+        .child(
+            div()
+                .min_h(px(38.))
+                .px(px(12.))
+                .py(px(9.))
+                .flex()
+                .items_center()
+                .rounded(px(9.))
+                .bg(ui::ink(if focused { 0x04 } else { 0x08 }))
+                .border_1()
+                .border_color(ui::ink(if focused { 0x38 } else { 0x12 }))
+                .child(input),
+        )
+        .children(hint.map(ui::caption))
 }

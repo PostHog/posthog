@@ -88,12 +88,22 @@ pub fn mark(service: &str) -> Option<(Arc<Image>, u32)> {
 
 /// A compact brand mark, or an honest neutral letter tile when no mark exists.
 pub fn logo(service: &str, size: f32) -> Div {
+    logo_with(service, None, size)
+}
+
+pub fn logo_with(service: &str, artwork: Option<Arc<Image>>, size: f32) -> Div {
     let size = if size.is_finite() {
         size.clamp(12., 32.)
     } else {
         16.
     };
     let tile = div().flex_none().size(px(size));
+    if let Some(image) = artwork {
+        return tile
+            .rounded(px(size / 5.))
+            .overflow_hidden()
+            .child(img(image).size_full().flex_none());
+    }
     match mark(service) {
         Some((image, _)) => tile.child(img(image).size_full().flex_none()),
         None => tile

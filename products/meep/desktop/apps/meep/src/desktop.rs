@@ -14,8 +14,8 @@ pub(super) enum Tab {
     /// Saved layouts from before the rename say `Data`.
     Files,
     Routines,
+    #[serde(alias = "Goals")]
     Mission,
-    Goals,
     Facts,
     /// What the topic reads for context. Saved layouts say `Linked`.
     #[serde(alias = "Linked")]
@@ -24,14 +24,13 @@ pub(super) enum Tab {
 }
 impl Tab {
     /// The Overview's sections, top to bottom.
-    pub(super) const OVERVIEW: [Self; 10] = [
+    pub(super) const OVERVIEW: [Self; 9] = [
         Self::Needs,
         Self::Tasks,
         Self::Inbox,
         Self::Files,
         Self::Routines,
         Self::Mission,
-        Self::Goals,
         Self::Facts,
         Self::Sources,
         Self::Rules,
@@ -44,8 +43,7 @@ impl Tab {
             Self::Tasks => "Tasks",
             Self::Files => "Files",
             Self::Routines => "Routines",
-            Self::Mission => "Mission",
-            Self::Goals => "Goals",
+            Self::Mission => "Mission and goals",
             Self::Facts => "Facts",
             Self::Sources => "Sources",
             Self::Rules => "Rules",
@@ -174,6 +172,7 @@ pub(super) struct Desktop {
     pub settings_page: SettingsPage,
     /// Whether the user has hidden the sidebar with the titlebar toggle.
     pub sidebar_hidden: bool,
+    pub board_room: std::cell::Cell<bool>,
     pub backend: Backend,
     pub rt: Arc<Runtime>,
     pub identity: Option<Identity>,
@@ -299,6 +298,7 @@ pub(super) struct Desktop {
     pub task_model: Option<String>,
     pub task_effort: Option<String>,
     pub mission: Entity<TextareaState>,
+    pub flow_id: Entity<InputState>,
     /// Single-line editor for the existing topic mission.
     pub mission_edit: Entity<TextareaState>,
     /// Feedback to send with a task returned for revision.
@@ -460,8 +460,15 @@ impl Desktop {
             }
         })
         .detach();
-        cx.subscribe(&name, |_: &mut Self, _, _: &InputEvent, cx| cx.notify())
-            .detach();
+        cx.subscribe_in(&name, w, |s: &mut Self, _, e: &InputEvent, w, cx| {
+            if matches!(e, InputEvent::PressEnter { .. })
+                && matches!(s.sheet, Some(Sheet::RenameTopic(_)))
+            {
+                s.submit(w, cx);
+            }
+            cx.notify()
+        })
+        .detach();
         cx.subscribe(&composer, |_: &mut Self, _, _: &InputEvent, cx| cx.notify())
             .detach();
         let chat_models = cx
@@ -473,7 +480,7 @@ impl Desktop {
         let run_input = cx.new(|cx| {
             let mut e = TextareaState::new(w, cx)
                 .auto_grow(1, 5)
-                .placeholder("Ask about this task");
+                .placeholder("Ask, or tell it what to do");
             e.set_submit_on_enter(true, cx);
             e
         });
@@ -574,6 +581,7 @@ impl Desktop {
             clear_confirm: false,
             settings_page: SettingsPage::General,
             sidebar_hidden: false,
+            board_room: std::cell::Cell::new(true),
             section: Uuid::nil(),
             drop_hint: None,
             task_display: Default::default(),
@@ -655,6 +663,7 @@ impl Desktop {
             task_files: vec![],
             task_description,
             mission,
+            flow_id: cx.new(|cx| InputState::new(w, cx).placeholder("PostHog workflow UUID")),
             mission_edit: cx.new(|cx| {
                 // Long goals wrap instead of scrolling out of a one-line field.
                 let mut input = TextareaState::new(w, cx).auto_grow(1, 4);
@@ -1280,7 +1289,6 @@ impl Desktop {
                 (Tab::Files, None) => "Ask about these files",
                 (Tab::Routines, None) => "Ask for a scout or a routine",
                 (Tab::Mission, None) => "Tell it how the mission should change",
-                (Tab::Goals, None) => "Ask for a new goal, or change one",
                 (Tab::Facts, None) => "Tell it something it should know",
                 (Tab::Sources, None) => "Link a dashboard, flag or channel",
                 (Tab::Rules, None) => "Ask it to always, or never, do something",
@@ -1492,21 +1500,22 @@ impl Desktop {
         } else {
             &self.name
         };
+        let confirm = matches!(sheet, Sheet::DeleteTopic(_) | Sheet::DeleteRoutine(..));
         input.update(cx, |e, cx| {
             e.set_value(val, w, cx);
-            e.focus(w, cx)
+            if !confirm {
+                e.focus(w, cx)
+            }
         });
-        if matches!(sheet, Sheet::Bind | Sheet::New) {
+        if confirm {
+            self.focus.focus(w, cx);
+        }
+        if sheet == Sheet::Bind {
+            self.flow_id.update(cx, |e, cx| e.set_value("", w, cx));
+        }
+        if sheet == Sheet::New {
             self.mission.update(cx, |e, cx| {
-                e.set_placeholder(
-                    if sheet == Sheet::Bind {
-                        "PostHog workflow UUID"
-                    } else {
-                        "What do you want to get done?"
-                    },
-                    w,
-                    cx,
-                );
+                e.set_placeholder("What do you want to get done?", w, cx);
                 e.set_value("", w, cx);
             });
         }
@@ -1568,7 +1577,7 @@ impl Desktop {
             }
             Some(Sheet::Bind) => {
                 if let Some(id) = self.topic_id() {
-                    let flow = self.mission.read(cx).value().trim().to_owned();
+                    let flow = self.flow_id.read(cx).value().trim().to_owned();
                     if Uuid::parse_str(&flow).is_err() {
                         self.error = Some("Enter the PostHog workflow’s flow ID (UUID).".into());
                         return;

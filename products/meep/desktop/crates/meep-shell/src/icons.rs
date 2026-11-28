@@ -70,7 +70,7 @@ pub fn relief(tile: Div, size: f32, radius: f32) -> Div {
     }
 }
 
-fn mix(color: u32, toward: u32, amount: f32) -> u32 {
+pub fn mix(color: u32, toward: u32, amount: f32) -> u32 {
     let channel = |shift: u32| {
         let a = ((color >> shift) & 0xff) as f32;
         let b = ((toward >> shift) & 0xff) as f32;

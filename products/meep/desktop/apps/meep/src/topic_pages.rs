@@ -2,7 +2,7 @@ use super::overview::{goal_measure, goal_on_track};
 use super::pages::ago;
 use super::*;
 use chrono::Utc;
-use meep_shell::settings::{self as set, Tone, group, header, section};
+use meep_shell::settings::{self as set, Tone, group, section};
 use meep_ui::gpui_kit::component::input::{Enter, Textarea};
 use meep_ui::gpui_kit::component::{Icon, Sizable, switch::Switch};
 
@@ -197,57 +197,13 @@ impl Desktop {
             })
             .into_any_element()
         });
-        let now = Utc::now();
-        let usage = &state.usage;
-        let day = usage
-            .days
-            .get(&now.date_naive())
-            .cloned()
-            .unwrap_or_default();
-        let (week_calls, week_runs) = usage.days.values().fold((0, 0), |(c, r), d| {
-            (c + d.system_one, r + d.routine_dispatches)
-        });
-        let usage_row = |label: &'static str, detail: &'static str, value: String| {
-            set::item(
-                label,
-                detail,
-                set::value_text(value).text_color(rgb(ui::theme::color(ui::INK))),
-            )
-            .into_any_element()
-        };
         ui::column()
-            .child(header(
-                "Mission",
-                "What this topic works toward. The agent reads it before every task.",
-                edit,
-            ))
+            .child(section("Mission", "", edit, true))
             .child(body)
-            .child(section(
-                "Usage",
-                "The work that the agent did for this topic.",
-                None,
-                false,
-            ))
-            .child(group([
-                usage_row(
-                    "Agent starts",
-                    "In the last hour, against the hourly limit",
-                    format!("{} of {}", usage.last_hour(now), usage.hourly_cap),
-                ),
-                usage_row(
-                    "Sorting calls",
-                    "Inbox items the agent sorted",
-                    format!("{} today · {week_calls} this week", day.system_one),
-                ),
-                usage_row(
-                    "Workflow runs",
-                    "Routines that the agent started",
-                    format!("{} today · {week_runs} this week", day.routine_dispatches),
-                ),
-            ]))
+            .child(self.goals_section(state, cx))
     }
 
-    pub(super) fn goals_page(&self, state: &TopicState, cx: &Context<Self>) -> Div {
+    fn goals_section(&self, state: &TopicState, cx: &Context<Self>) -> Div {
         let id = state.topic.id;
         let add = control("add-goal", "New goal", false, cx, |s, w, cx| {
             s.ask_in_chat("Add a goal for this topic: ", w, cx)
@@ -265,7 +221,11 @@ impl Desktop {
                 nav_row(format!("goal-{gid}"))
                     .aria_label(SharedString::from(g.text.clone()))
                     .on_click(cx.listener(move |s, _, w, cx| {
-                        s.go(Page::Topic(id, Tab::Goals, Some(Detail::Goal(gid))), w, cx)
+                        s.go(
+                            Page::Topic(id, Tab::Mission, Some(Detail::Goal(gid))),
+                            w,
+                            cx,
+                        )
                     }))
                     .child(glyph_tile(Glyph::Target))
                     .child(wrap_copy(g.text.clone(), goal_summary(g)))
@@ -275,11 +235,7 @@ impl Desktop {
             }))
         };
         ui::column()
-            .child(header(
-                "Goals",
-                "What success looks like for this topic. Open a goal to see its progress.",
-                Some(add),
-            ))
+            .child(section("Goals", "", Some(add), false))
             .child(body)
     }
 
@@ -337,11 +293,6 @@ impl Desktop {
             }))
         };
         ui::column()
-            .child(header(
-                "Facts",
-                "What the agent knows about this topic. Each fact links to its source.",
-                None,
-            ))
             .child(body)
             .children(self.removed_section(state, Tab::Facts, cx))
     }
@@ -430,11 +381,6 @@ impl Desktop {
             }))
         };
         ui::column()
-            .child(header(
-                "Rules",
-                "The checks that the agent does, and the rules that it obeys.",
-                None,
-            ))
             .child(section("Checks", "", None, true))
             .child(checks)
             .child(section(

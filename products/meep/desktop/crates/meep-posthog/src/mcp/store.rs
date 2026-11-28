@@ -53,6 +53,18 @@ pub struct Installed {
     pub pending_oauth: bool,
     /// Active upstream tools.
     pub tool_count: usize,
+    /// Domain whose mark represents the vendor.
+    #[serde(default)]
+    pub icon_domain: Option<String>,
+}
+
+/// A vendor mark served by the PostHog store's logo proxy.
+#[derive(Clone, Deserialize, Serialize)]
+pub struct Icon {
+    /// Brand domain the mark belongs to.
+    pub domain: String,
+    /// Encoded image bytes.
+    pub bytes: Vec<u8>,
 }
 
 /// States enforced by the PostHog store, in increasing order of restriction.
@@ -132,6 +144,11 @@ pub enum Operation {
         /// Requested approval state.
         policy: Policy,
     },
+    /// Read vendor marks for brand domains.
+    Icons {
+        /// Brand domains, such as `linear.app`.
+        domains: Vec<String>,
+    },
 }
 
 /// Result of a store operation. Credentials never form part of the response.
@@ -145,6 +162,47 @@ pub enum Outcome {
     Browser(String),
     /// The mutation succeeded.
     Updated,
+    /// Vendor marks that PostHog could serve.
+    Icons(Vec<Icon>),
+}
+
+const ICON_BYTES: usize = 1024 * 1024;
+const ICON_REQUESTS: usize = 256;
+
+fn icon_domain(domain: &str) -> bool {
+    (1..=253).contains(&domain.len())
+        && domain.contains('.')
+        && domain
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'.' || b == b'-')
+}
+
+async fn icons(endpoint: &ProjectEndpoint, token: &str, domains: Vec<String>) -> Vec<Icon> {
+    use futures_util::StreamExt;
+    let mut wanted: Vec<String> = domains
+        .into_iter()
+        .map(|d| d.trim().trim_end_matches('.').to_ascii_lowercase())
+        .filter(|d| icon_domain(d))
+        .collect();
+    wanted.sort();
+    wanted.dedup();
+    wanted.truncate(ICON_REQUESTS);
+    let reads = wanted.into_iter().map(|domain| async move {
+        let response = endpoint
+            .get_response(token, &format!("icon/?domain={domain}"))
+            .await
+            .ok()?;
+        let bytes = response.bytes().await.ok()?;
+        (!bytes.is_empty() && bytes.len() <= ICON_BYTES).then(|| Icon {
+            domain,
+            bytes: bytes.to_vec(),
+        })
+    });
+    futures_util::stream::iter(reads)
+        .buffer_unordered(8)
+        .filter_map(std::future::ready)
+        .collect()
+        .await
 }
 
 #[derive(Deserialize)]
@@ -186,6 +244,10 @@ pub async fn execute(
                 servers.extend(page.results);
             }
             return Ok(Outcome::Catalog(servers, catalog));
+        }
+        Operation::Icons { domains } => {
+            let endpoint = ProjectEndpoint::new(origin, project, "mcp_servers")?;
+            return Ok(Outcome::Icons(icons(&endpoint, token, domains).await));
         }
         Operation::Template { id, api_key } => {
             gateway

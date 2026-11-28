@@ -3,15 +3,6 @@ use chrono::Utc;
 use meep_ui::gpui_kit::component::{
     Disableable, Icon, Sizable, button::ButtonVariants as _, switch::Switch,
 };
-use std::collections::BTreeSet;
-
-pub(super) fn count(n: usize, word: &str) -> String {
-    match (n, word) {
-        (1, _) => format!("1 {word}"),
-        (_, "reply") => format!("{n} replies"),
-        _ => format!("{n} {word}s"),
-    }
-}
 
 pub(super) struct Attention {
     pub kind: &'static str,
@@ -194,17 +185,16 @@ pub(super) fn failure_reason(raw: &str) -> String {
 
 /// The "you're done here" state: a hedgehog bobbing on a pool float, and two
 /// lines on what would land here. Needs you and a skipped-only inbox both use it.
-fn all_clear(line: &'static str, reduced: bool) -> Div {
-    const W: f32 = 240.;
-    const HOG: f32 = 112.;
-    const WATER: f32 = 104.;
-    const H: f32 = WATER + 24.;
-    const BEAT: std::time::Duration = std::time::Duration::from_millis(3600);
-    let wave = |x: f32, y: f32, w: f32, phase: f32| {
+fn all_clear(line: &'static str, height: f32, reduced: bool) -> Div {
+    const W: f32 = 440.;
+    const HOG: f32 = 176.;
+    const WATER: f32 = HOG * 0.86;
+    const BEAT: std::time::Duration = std::time::Duration::from_millis(4200);
+    let ripple = |x: f32, y: f32, w: f32, phase: f32| {
         let at = move |el: Div, t: f32| {
             let swell = (t * std::f32::consts::TAU).sin();
-            el.left(px(x + swell * 4.))
-                .opacity(0.55 + 0.45 * swell.abs())
+            el.left(px(x + swell * 6.))
+                .opacity(0.35 + 0.4 * swell.abs())
         };
         let el = div()
             .absolute()
@@ -212,74 +202,53 @@ fn all_clear(line: &'static str, reduced: bool) -> Div {
             .w(px(w))
             .h(px(2.))
             .rounded_full()
-            .bg(ui::ink(0x30));
+            .bg(ui::ink(0x26));
         if reduced {
             at(el, phase).into_any_element()
         } else {
             el.with_animation(
-                SharedString::from(format!("all-clear-wave-{x}")),
+                SharedString::from(format!("all-clear-ripple-{x}-{y}")),
                 Animation::new(BEAT).repeat(),
                 move |el, t| at(el, (t + phase) % 1.),
             )
             .into_any_element()
         }
     };
-    let hog = super::topic_icon::bob(
-        "all-clear-float",
-        super::topic_icon::hero("float", HOG)
-            .absolute()
-            .left(px((W - HOG) / 2.))
-            .top(px(WATER - HOG * 0.8)),
-        reduced,
-    );
+    let scene = div()
+        .relative()
+        .flex_none()
+        .w(px(W))
+        .h(px(WATER + 22.))
+        .child(ripple(18., WATER - 8., 54., 0.))
+        .child(ripple(70., WATER + 8., 28., 0.4))
+        .child(ripple(W - 96., WATER - 2., 64., 0.7))
+        .child(ripple(W - 128., WATER + 14., 30., 0.2))
+        .child(ripple(W / 2. - 150., WATER + 18., 22., 0.55))
+        .child(ripple(W / 2. + 120., WATER + 20., 18., 0.85))
+        .child(div().absolute().left(px((W - HOG) / 2.)).top_0().child(
+            super::topic_icon::float_loop("all-clear-float", HOG, reduced),
+        ));
     ui::column()
         .w_full()
+        .min_h(px(height))
         .items_center()
-        .pt(px(64.))
-        .pb(px(40.))
+        .justify_center()
+        .pb(px(72.))
+        .child(scene)
         .child(
             div()
-                .relative()
-                .flex_none()
-                .w(px(W))
-                .h(px(H))
-                .child(
-                    div()
-                        .absolute()
-                        .left(px((W - 120.) / 2.))
-                        .top(px(WATER - 6.))
-                        .w(px(120.))
-                        .h(px(12.))
-                        .rounded_full()
-                        .shadow(vec![BoxShadow {
-                            color: rgba(0x00000022).into(),
-                            offset: point(px(0.), px(0.)),
-                            blur_radius: px(14.),
-                            spread_radius: px(2.),
-                            inset: false,
-                        }]),
-                )
-                .child(wave(28., WATER - 10., 26., 0.))
-                .child(wave(48., WATER + 6., 16., 0.35))
-                .child(wave(W - 56., WATER - 4., 28., 0.6))
-                .child(wave(W - 74., WATER + 12., 14., 0.15))
-                .child(hog),
-        )
-        .child(
-            div()
-                .pt(px(12.))
+                .pt(px(20.))
                 .text_size(px(15.))
                 .font_weight(FontWeight::SEMIBOLD)
                 .child("Nothing needs you"),
         )
         .child(
             div()
-                .pt(px(6.))
-                .text_center()
-                .text_size(px(12.))
-                .line_height(px(17.))
+                .pt(px(4.))
+                .text_size(px(13.))
+                .line_height(px(19.))
                 .text_color(rgb(ui::theme::color(ui::SECONDARY)))
-                .child(div().child(line)),
+                .child(line),
         )
 }
 /// What kind of thing waits on you, as an icon on a tinted tile: a choice, a
@@ -895,24 +864,7 @@ impl Desktop {
     }
     pub(super) fn attention_page(&self, cx: &Context<Self>) -> Div {
         let n = self.needs.len();
-        let topics = self
-            .needs
-            .iter()
-            .flat_map(|item| match item {
-                NeedsYouItem::Decide { topic, .. } | NeedsYouItem::Approve { topic, .. } => {
-                    vec![*topic]
-                }
-                NeedsYouItem::Problem { topics, .. } => topics.clone(),
-            })
-            .collect::<BTreeSet<_>>()
-            .len();
         let mut showed_approval = false;
-        // What waits, by kind, for the line under the title.
-        let mut tally: Vec<(&'static str, usize)> = vec![];
-        let mut tally_one = |kind: &'static str| match tally.iter_mut().find(|t| t.0 == kind) {
-            Some(t) => t.1 += 1,
-            None => tally.push((kind, 1)),
-        };
         // One readable column, centred: an item's words and its action stay
         // close at any width.
         const MEASURE: f32 = 680.;
@@ -925,7 +877,6 @@ impl Desktop {
                 detail,
             } = item
             {
-                tally_one("Problem");
                 items.push((
                     None,
                     self.problem_card(i, topics, connection, title, detail, cx)
@@ -959,7 +910,6 @@ impl Desktop {
             // A topic's items sit together on one card under its name.
             let mut section = ui::column().gap_0().flex_none().mx(px(-12.));
             for (i, group) in rows.iter().enumerate() {
-                tally_one(group.latest.kind);
                 section =
                     section.child(self.attention_row(id, &format!("{id}-{i}"), group, i == 0, cx));
             }
@@ -976,24 +926,15 @@ impl Desktop {
                     .into_any_element(),
             ));
         }
-        // "1 failed run · 3 decisions · across 3 topics": what is broken first.
-        tally.sort_by_key(|(kind, _)| attention_rank(kind));
-        let mut parts: Vec<String> = tally
-            .iter()
-            .map(|(kind, n)| match (*n, attention_word(kind)) {
-                (n, "task for you") if n > 1 => format!("{n} tasks for you"),
-                (n, word) => count(n, word),
-            })
-            .collect();
-        if topics > 1 {
-            parts.push(format!("across {}", count(topics, "topic")));
-        }
-        let summary = parts.join(" · ");
         if n == 0 && !showed_approval {
             items.push((
                 None,
-                all_clear("Your topics are working on their own.", cx.reduce_motion())
-                    .into_any_element(),
+                all_clear(
+                    "Your topics are working on their own.",
+                    700.,
+                    cx.reduce_motion(),
+                )
+                .into_any_element(),
             ))
         }
         let measure = || ui::column().w_full().max_w(px(MEASURE)).mx_auto();
@@ -1028,40 +969,24 @@ impl Desktop {
                     )
             })
         });
-        ui::column()
-            .size_full()
-            .child(
-                measure().flex_none().pb(px(12.)).child(
-                    meep_shell::settings::header(
-                        "Needs you",
-                        if n > 0 {
-                            summary
-                        } else {
-                            "Decisions, approvals and fixes from all your topics.".to_owned()
-                        },
-                        None,
-                    )
-                    .pb_0(),
-                ),
-            )
-            .child(
-                ui::column()
-                    .relative()
-                    .flex_1()
-                    .min_h_0()
-                    .child(
-                        scroll("attention-items")
-                            .track_scroll(list)
-                            .w_full()
-                            .gap(px(20.))
-                            .pt(px(8.))
-                            .pb(px(40.))
-                            .children(items.into_iter().map(|(_, item)| {
-                                div().w_full().flex_none().child(measure().child(item))
-                            })),
-                    )
-                    .children(stuck),
-            )
+        ui::column().size_full().child(
+            ui::column()
+                .relative()
+                .flex_1()
+                .min_h_0()
+                .child(
+                    scroll("attention-items")
+                        .track_scroll(list)
+                        .w_full()
+                        .gap(px(20.))
+                        .pt(px(8.))
+                        .pb(px(40.))
+                        .children(items.into_iter().map(|(_, item)| {
+                            div().w_full().flex_none().child(measure().child(item))
+                        })),
+                )
+                .children(stuck),
+        )
     }
     fn attention_heading(
         &self,
@@ -1151,11 +1076,23 @@ impl Desktop {
             _ => None,
         });
         let pane = self.topic_pane_width(w);
+        self.board_room
+            .set(pane >= px(super::tasks_view::BOARD_PANE));
         let mut tools: Vec<AnyElement> = vec![];
         if tab == Tab::Tasks && detail.is_none() && state.tasks.iter().any(|t| !t.hidden()) {
             tools.push(
                 self.tasks_toolbar(id, pane < px(760.), cx)
                     .into_any_element(),
+            );
+        }
+        if tab == Tab::Routines && detail.is_none() && !self.new_routine {
+            tools.push(
+                control("bind", "New routine", false, cx, |s, w, cx| {
+                    s.compose_routine(w, cx)
+                })
+                .icon(Glyph::Plus)
+                .self_center()
+                .into_any_element(),
             );
         }
         tools.extend(self.show_overview_button(w, cx));
@@ -1217,7 +1154,11 @@ impl Desktop {
                         .track_scroll(&self.content_scroll)
                         .h_full()
                         .px(px(super::details::PAGE_X))
-                        .pt(px(super::details::PAGE_TOP - if routine.is_some() { 8. } else { 0. }))
+                        .pt(px(if routine.is_some() {
+                            super::details::OWN_BAR_TOP
+                        } else {
+                            super::details::PAGE_TOP
+                        }))
                         .pb(px(12.))
                         .child({
                             let content = match (tab, detail) {
@@ -1232,27 +1173,10 @@ impl Desktop {
                                     Tab::Tasks => self.tasks_page(state, w, cx),
                                     Tab::Files => self.data_page(state, cx),
                                     Tab::Routines => self.routines(state, w, cx),
-                                    Tab::Mission
-                                    | Tab::Goals
-                                    | Tab::Facts
-                                    | Tab::Sources
-                                    | Tab::Rules => self.context_page(state, tab, w, cx),
+                                    Tab::Mission | Tab::Facts | Tab::Sources | Tab::Rules => {
+                                        self.context_page(state, tab, w, cx)
+                                    }
                                 },
-                            };
-                            let content = if detail.is_none() && matches!(tab, Tab::Needs | Tab::Tasks | Tab::Inbox | Tab::Files) {
-                                let (title, about) = match tab {
-                                    Tab::Needs => ("Needs you", "Decisions, approvals and fixes for this topic."),
-                                    Tab::Tasks => ("Tasks", "Work the agent runs for this topic. Open a task to see its run."),
-                                    Tab::Files => ("Files", "Files the agent made and files you added to this topic."),
-                                    _ => ("Inbox", "Reports and requests for this topic. Open one to act on it."),
-                                };
-                                ui::column()
-                                    .w_full()
-                                    .gap_0()
-                                    .child(meep_shell::settings::header(title, about, None))
-                                    .child(content)
-                            } else {
-                                content
                             };
                             let content = if matches!(tab, Tab::Facts | Tab::Files) {
                                 ui::column()
@@ -1463,7 +1387,11 @@ impl Desktop {
         let id = state.topic.id;
         let groups = attention_groups(&self.needs, state);
         if groups.is_empty() {
-            return all_clear("This topic is working on its own.", cx.reduce_motion());
+            return all_clear(
+                "This topic is working on its own.",
+                520.,
+                cx.reduce_motion(),
+            );
         }
         let mut page = ui::column().w_full().gap(px(20.)).pt(px(4.)).pb(px(40.));
         let mut start = 0;
@@ -1510,54 +1438,140 @@ impl Desktop {
         page
     }
     fn inbox(&self, state: &TopicState, w: &Window, cx: &Context<Self>) -> Div {
-        // These match the fixed two-line rows and section headings below. Keep
-        // spacers at the same height so the shared scroll handle stays stable.
-        const ROW_HEIGHT: f32 = 56.;
+        use super::topic_pages::{chevron, glyph_tile, nav_row};
+        use meep_shell::settings as set;
+        const ROW: f32 = 60.;
+        const ROW_HEIGHT: f32 = ROW + 1.;
         const OVERSCAN: f32 = 300.;
-        let all = ordered_threads(state, true);
-        let findings = unopened_findings(state);
-        let finding_rows = |list: Div| {
-            let topic = state.topic.id;
-            findings.iter().fold(list, |list, (scout, report)| {
-                let scout = *scout;
-                let age = Utc::now() - report.filed_at;
-                list.child(
+        fn tile(glyph: Glyph, unseen: bool, id: String) -> Div {
+            glyph_tile(glyph).relative().when(unseen, |tile| {
+                tile.child(
+                    div()
+                        .id(SharedString::from(id))
+                        .aria_label("Unread")
+                        .absolute()
+                        .top(px(-2.))
+                        .right(px(-2.))
+                        .size(px(8.))
+                        .rounded_full()
+                        .bg(rgb(UNREAD)),
+                )
+            })
+        }
+        fn copy(
+            title_id: String,
+            title: String,
+            badge: Option<AnyElement>,
+            status: Option<String>,
+            lead: String,
+            title_color: gpui::Rgba,
+            unseen: bool,
+        ) -> Div {
+            ui::column()
+                .flex_1()
+                .min_w_0()
+                .gap(px(2.))
+                .child(
                     ui::row()
-                        .id(SharedString::from(format!("finding-row-{}", report.id)))
-                        .role(Role::Button)
-                        .h(px(ROW_HEIGHT))
-                        .w_full()
-                        .gap(px(12.))
-                        .items_center()
-                        .cursor_pointer()
-                        .child(ui::nav::glyph(Glyph::Inbox, false))
+                        .h(px(20.))
+                        .min_w_0()
+                        .gap(px(8.))
+                        .children(badge)
+                        .child(
+                            div()
+                                .id(SharedString::from(title_id))
+                                .flex_1()
+                                .min_w_0()
+                                .truncate()
+                                .text_size(px(13.))
+                                .line_height(px(18.))
+                                .font_weight(if unseen {
+                                    FontWeight::SEMIBOLD
+                                } else {
+                                    FontWeight::MEDIUM
+                                })
+                                .text_color(title_color)
+                                .child(title),
+                        ),
+                )
+                .child(
+                    ui::row()
+                        .h(px(17.))
+                        .min_w_0()
+                        .gap(px(0.))
+                        .text_size(px(12.))
+                        .line_height(px(17.))
+                        .children(status.map(|st| {
+                            div()
+                                .flex_none()
+                                .text_color(rgb(ui::theme::color(ui::SECONDARY)))
+                                .child(format!("{st} · "))
+                        }))
                         .child(
                             div()
                                 .flex_1()
                                 .min_w_0()
                                 .truncate()
-                                .child(report.title.clone()),
-                        )
-                        .child(ui::caption(ago(age)))
-                        .on_click(cx.listener(move |s, _, w, cx| {
-                            s.go(
-                                Page::Topic(topic, Tab::Inbox, Some(Detail::Scout(scout))),
-                                w,
-                                cx,
-                            )
-                        })),
+                                .text_color(rgb(ui::theme::color(ui::TERTIARY)))
+                                .child(lead),
+                        ),
                 )
-            })
+        }
+        let row = |id: String, selected: bool| {
+            nav_row(id)
+                .h(px(ROW))
+                .flex_none()
+                .when(selected, |r| r.bg(rgb(ui::theme::get(7))))
         };
-        if all.is_empty() && !findings.is_empty() {
-            return finding_rows(
-                ui::column()
-                    .w_full()
-                    .max_w(px(960.))
-                    .mx_auto()
-                    .gap_0()
-                    .pt(px(4.)),
-            );
+        let spacer = |h: f32| div().h(px((h - 1.).max(0.))).flex_none().into_any_element();
+        let column = || {
+            ui::column()
+                .w_full()
+                .max_w(px(960.))
+                .mx_auto()
+                .gap_0()
+                .pt(px(4.))
+        };
+        let id = state.topic.id;
+        let all = ordered_threads(state, true);
+        let findings = unopened_findings(state);
+        let finding_rows: Vec<AnyElement> = findings
+            .iter()
+            .map(|(scout, report)| {
+                let scout = *scout;
+                let page = Page::Topic(id, Tab::Inbox, Some(Detail::Scout(scout)));
+                let name = state
+                    .scouts
+                    .iter()
+                    .find(|s| s.id == scout)
+                    .map_or_else(|| "Scout finding".to_owned(), |s| s.name.clone());
+                row(format!("finding-row-{}", report.id), self.page == page)
+                    .when(self.page == page, |row| {
+                        row.track_scroll(&self.selection_bounds)
+                    })
+                    .aria_label(SharedString::from(report.title.clone()))
+                    .child(tile(
+                        Glyph::Binoculars,
+                        true,
+                        format!("finding-unseen-{}", report.id),
+                    ))
+                    .child(copy(
+                        format!("finding-title-{}", report.id),
+                        report.title.clone(),
+                        None,
+                        None,
+                        name,
+                        rgb(ui::theme::color(ui::INK)),
+                        true,
+                    ))
+                    .child(set::value_text(ago(Utc::now() - report.filed_at)))
+                    .child(chevron())
+                    .on_click(cx.listener(move |s, _, w, cx| s.go(page.clone(), w, cx)))
+                    .into_any_element()
+            })
+            .collect();
+        if all.is_empty() && !finding_rows.is_empty() {
+            return column().child(set::group(finding_rows));
         }
         if all.is_empty() {
             return deck(
@@ -1578,15 +1592,6 @@ impl Desktop {
                 .self_center(),
             );
         }
-        let id = state.topic.id;
-        let mut list = finding_rows(
-            ui::column()
-                .w_full()
-                .max_w(px(960.))
-                .mx_auto()
-                .gap_0()
-                .pt(px(4.)),
-        );
         let virtualize = !w.is_a11y_active() && !cx.has_active_drag();
         let top = (-f32::from(self.content_scroll.offset().y)).max(0.);
         let height = f32::from(self.content_scroll.bounds().size.height)
@@ -1594,25 +1599,26 @@ impl Desktop {
         let low = (top - OVERSCAN).max(0.);
         let high = top + height + OVERSCAN;
         let mut skipped_height = 0_f32;
-        // Resolved and dismissed reports wait behind a quiet line at the end.
         let closed = all.iter().filter(|t| !report_open(t)).count();
         let open = all.len() - closed;
         let closed_fold = format!("inbox-closed-{id}");
-        let mut rows: [Vec<AnyElement>; 2] = [vec![], vec![]];
+        let mut open_rows = finding_rows;
+        let mut closed_rows: Vec<AnyElement> = vec![];
+        let mut toggle: Option<AnyElement> = None;
         let any_priority = all
             .iter()
             .any(|t| t.report_sources.as_ref().and_then(|r| r.priority).is_some());
         for (index, t) in all.into_iter().enumerate() {
             if index == open {
                 if skipped_height > 0. {
-                    list = list.child(div().h(px(skipped_height)).flex_none());
+                    open_rows.push(spacer(skipped_height));
                     skipped_height = 0.;
                 }
-                list = list.child(
+                toggle = Some(
                     ui::row()
                         .id("show-closed-reports")
                         .role(Role::Button)
-                        .h(px(ROW_HEIGHT))
+                        .h(px(40.))
                         .mt(px(if open > 0 { 8. } else { 0. }))
                         .px(px(0.))
                         .gap(px(6.))
@@ -1633,7 +1639,8 @@ impl Desktop {
                             s.skipped = !s.skipped;
                             s.folds.toggled(format!("inbox-closed-{id}"), s.skipped, cx);
                             cx.notify()
-                        })),
+                        }))
+                        .into_any_element(),
                 );
                 if self.folds.progress(&closed_fold, self.skipped, cx) <= 0. {
                     break;
@@ -1645,15 +1652,18 @@ impl Desktop {
                 continue;
             }
             if skipped_height > 0. {
-                rows[usize::from(index >= open)]
-                    .push(div().h(px(skipped_height)).flex_none().into_any_element());
+                let target = if index >= open {
+                    &mut closed_rows
+                } else {
+                    &mut open_rows
+                };
+                target.push(spacer(skipped_height));
                 skipped_height = 0.;
             }
             let page = Page::Topic(id, Tab::Inbox, Some(Detail::Thread(t.id)));
             let thread = t.id;
             let is_open = report_open(t);
-            let sources = t.report_sources.as_ref();
-            let priority = sources.and_then(|r| r.priority);
+            let priority = t.report_sources.as_ref().and_then(|r| r.priority);
             let status = report_status(state, t);
             let lead = report_lead(t);
             let group: SharedString = format!("report-row-{thread}").into();
@@ -1666,15 +1676,11 @@ impl Desktop {
                     at.with_timezone(&chrono::Local).format("%b %e").to_string()
                 }
             };
-            let tone = |c: u32| {
-                rgb(if is_open {
-                    c
-                } else {
-                    ui::theme::color(ui::TERTIARY)
-                })
-            };
-            // One line, as a mail client reads: priority, the headline and its
-            // lead, where the work stands, and when. Quick verdicts on hover.
+            let title_color = rgb(if is_open {
+                ui::theme::color(ui::INK)
+            } else {
+                ui::theme::color(ui::TERTIARY)
+            });
             let verdict = |key: &'static str,
                            glyph: Glyph,
                            label: &'static str,
@@ -1701,92 +1707,34 @@ impl Desktop {
                     cx.notify()
                 }))
             };
-            rows[usize::from(index >= open)].push(
-                line(format!("thread-{}", t.id), self.page == page)
-                    .group(group.clone())
-                    .h(px(ROW_HEIGHT))
+            let badge = any_priority.then(|| {
+                div()
+                    .id(format!("priority-{}", t.id))
                     .flex_none()
+                    .child(priority_badge(priority, is_open))
+                    .into_any_element()
+            });
+            let target = if index >= open {
+                &mut closed_rows
+            } else {
+                &mut open_rows
+            };
+            target.push(
+                row(format!("thread-{}", t.id), self.page == page)
+                    .group(group.clone())
                     .when(self.page == page, |row| {
                         row.track_scroll(&self.selection_bounds)
                     })
-                    .gap(px(10.))
-                    .px(px(12.))
-                    // The unread dot hangs in the page margin, so the headline lines
-                    // up with every other list's first column.
-                    .w_auto()
-                    .ml(px(-28.))
-                    .mr(px(-12.))
-                    .rounded(px(8.))
-                    .items_start()
-                    .pt(px(9.))
-                    .text_size(px(14.))
-                    // Unread: a dot in the gutter and a heavier headline.
-                    .child(
-                        div()
-                            .w(px(6.))
-                            .h(px(20.))
-                            .flex_none()
-                            .flex()
-                            .items_center()
-                            .when(t.unseen, |slot| {
-                                slot.child(
-                                    div()
-                                        .id(format!("unseen-{}", t.id))
-                                        .aria_label("Unread")
-                                        .size(px(6.))
-                                        .rounded_full()
-                                        .bg(rgb(UNREAD)),
-                                )
-                            }),
-                    )
-                    // Priority as a small tinted badge, so P0/P1 read at a glance.
-                    .when(any_priority, |row| {
-                        row.child(
-                            div()
-                                .id(format!("priority-{}", t.id))
-                                .child(priority_badge(priority, is_open)),
-                        )
-                    })
-                    // The headline, then where it stands and its lead on a quieter line.
-                    .child(
-                        ui::column()
-                            .flex_1()
-                            .min_w_0()
-                            .gap(px(2.))
-                            .child(
-                                div()
-                                    .id(format!("thread-title-{}", t.id))
-                                    .h(px(20.))
-                                    .truncate()
-                                    .font_weight(if t.unseen {
-                                        FontWeight::SEMIBOLD
-                                    } else {
-                                        FontWeight::MEDIUM
-                                    })
-                                    .text_color(tone(ui::theme::color(ui::INK)))
-                                    .child(short_subject(&t.subject)),
-                            )
-                            .child(
-                                ui::row()
-                                    .gap(px(0.))
-                                    .min_w_0()
-                                    .text_size(px(12.5))
-                                    .children(status.clone().map(|st| {
-                                        div()
-                                            .flex_none()
-                                            .text_color(rgb(ui::theme::color(ui::SECONDARY)))
-                                            .child(format!("{st} · "))
-                                    }))
-                                    .child(
-                                        div()
-                                            .flex_1()
-                                            .min_w_0()
-                                            .truncate()
-                                            .text_color(rgb(ui::theme::color(ui::TERTIARY)))
-                                            .child(lead),
-                                    ),
-                            ),
-                    )
+                    .child(tile(Glyph::Inbox, t.unseen, format!("unseen-{}", t.id)))
+                    .child(copy(
+                        format!("thread-title-{}", t.id),
+                        short_subject(&t.subject),
+                        badge,
+                        status,
+                        lead,
+                        title_color,
+                        t.unseen,
+                    ))
                     .child(
                         div()
                             .relative()
@@ -1797,12 +1745,9 @@ impl Desktop {
                             .items_center()
                             .justify_end()
                             .child(
-                                div()
-                                    .text_size(px(12.5))
-                                    .text_color(rgb(ui::theme::color(ui::TERTIARY)))
+                                set::value_text(when)
                                     .group_hover(group.clone(), |s| s.opacity(0.))
-                                    .when(!is_open, |d| d.opacity(1.))
-                                    .child(when),
+                                    .when(!is_open, |d| d.opacity(1.)),
                             )
                             .when(is_open, |slot| {
                                 slot.child(
@@ -1827,21 +1772,23 @@ impl Desktop {
                                 )
                             }),
                     )
+                    .child(chevron())
                     .on_click(cx.listener(move |s, _, w, cx| s.go(page.clone(), w, cx)))
                     .into_any_element(),
             );
         }
         if skipped_height > 0. {
-            rows[usize::from(closed > 0)]
-                .push(div().h(px(skipped_height)).flex_none().into_any_element());
+            open_rows.push(spacer(skipped_height));
         }
-        let [open_rows, closed_rows] = rows;
-        let mut list = list.children(open_rows);
+        let mut list = column()
+            .when(!open_rows.is_empty(), |l| l.child(set::group(open_rows)))
+            .children(toggle);
         if !closed_rows.is_empty() {
             list = list.children(self.folds.reveal(&closed_fold, self.skipped, cx, || {
                 ui::column()
                     .gap_0()
-                    .children(closed_rows)
+                    .pt(px(8.))
+                    .child(set::group(closed_rows))
                     .into_any_element()
             }));
         }
@@ -1889,7 +1836,6 @@ impl Desktop {
         let page = ui::column().w_full().max_w(px(720.)).pb(px(48.));
         let page = match part {
             Tab::Mission => page.child(self.mission_page(state, cx)),
-            Tab::Goals => page.child(self.goals_page(state, cx)),
             Tab::Facts => page.child(self.facts_page(state, cx)),
             Tab::Sources => page.child(self.sources_page(&state.topic, cx)),
             _ => page.child(self.rules_page(state, cx)),
@@ -2027,24 +1973,14 @@ impl Desktop {
         }
         use super::topic_pages::{chevron, empty_group, glyph_tile, nav_row};
         use meep_shell::settings::{self as set, Tone};
-        let head = set::header(
-            "Routines",
-            "Scouts watch for changes. Routines run on a schedule or an event.",
-            Some(
-                control("bind", "New routine", false, cx, |s, w, cx| {
-                    s.compose_routine(w, cx)
-                })
-                .into_any_element(),
-            ),
-        );
         let page = ui::column().w_full().max_w(px(720.)).mx_auto().pb(px(48.));
         if workflows().next().is_none() && state.scouts.is_empty() {
-            return page.child(head).child(empty_group(
+            return page.child(empty_group(
                 "No scouts or routines yet",
                 "Ask in chat to watch for a change, or add a routine.",
             ));
         }
-        let mut page = page.child(head);
+        let mut page = page;
         if !state.scouts.is_empty() {
             page = page
                 .child(set::section("Scouts", "", None, true))
@@ -2143,8 +2079,7 @@ impl Desktop {
                     .flex_1()
                     .min_w_0()
                     .gap(px(6.))
-                    .child(super::details::item_title(
-                        "Report",
+                    .child(super::details::content_heading(
                         scout
                             .reports
                             .first()
@@ -2155,18 +2090,13 @@ impl Desktop {
                     .flex_1()
                     .min_w_0()
                     .gap(px(6.))
-                    .child(super::details::item_title_with(
-                        "Scout",
-                        scout.name.clone(),
-                        meep_shell::settings::status(
-                            if scout.enabled { "On" } else { "Off" },
-                            if scout.enabled {
-                                meep_shell::settings::Tone::Positive
-                            } else {
-                                meep_shell::settings::Tone::Neutral
-                            },
-                        )
-                        .text_size(px(12.)),
+                    .child(meep_shell::settings::status(
+                        if scout.enabled { "On" } else { "Off" },
+                        if scout.enabled {
+                            meep_shell::settings::Tone::Positive
+                        } else {
+                            meep_shell::settings::Tone::Neutral
+                        },
                     ))
             })
             .children(
@@ -2180,17 +2110,13 @@ impl Desktop {
                             .on_click(move |_, _, cx| cx.open_url(url.as_str()))
                     }),
             );
-        let mut page = page.child(heading);
+        let page = page.child(heading);
         if scout.reports.is_empty() {
             return page.child(ui::caption("No findings yet."));
         }
-        if !as_report {
-            page = page.child(
-                meep_shell::settings::section("Recent findings", "", None, false).mb(px(-10.)),
-            );
-        }
+        let mut findings = ui::column().gap(px(16.));
         for report in &scout.reports {
-            page = page.child(
+            findings = findings.child(
                 ui::column()
                     .gap(px(5.))
                     .child(
@@ -2221,7 +2147,19 @@ impl Desktop {
                     )),
             );
         }
-        page
+        page.child(
+            ui::column()
+                .gap_0()
+                .when(!as_report, |c| {
+                    c.child(meep_shell::settings::section(
+                        "Recent findings",
+                        "",
+                        None,
+                        true,
+                    ))
+                })
+                .child(findings),
+        )
     }
 
     /// A routine page's bar: "Routines › name", when it runs, and its quiet
@@ -2283,20 +2221,16 @@ impl Desktop {
         if let Some(d) = &details {
             let toggle = key.clone();
             actions = actions.child(
-                ui::row()
-                    .gap(px(8.))
-                    .pr(px(4.))
-                    .child(ui::caption(if d.enabled { "On" } else { "Off" }))
-                    .child(
-                        Switch::new("enable-routine")
-                            .small()
-                            .accessibility_label(format!("Turn {} on", r.binding.name))
-                            .checked(d.enabled)
-                            .color(rgb(ui::theme::color(ui::INK)))
-                            .on_change(cx.listener(move |s, on: &bool, w, cx| {
-                                s.fetch_workflow(id, toggle.clone(), Some(*on), w, cx)
-                            })),
-                    ),
+                ui::row().gap(px(8.)).pr(px(4.)).child(
+                    Switch::new("enable-routine")
+                        .small()
+                        .accessibility_label(format!("Turn {} on", r.binding.name))
+                        .checked(d.enabled)
+                        .color(rgb(ui::theme::color(ui::INK)))
+                        .on_change(cx.listener(move |s, on: &bool, w, cx| {
+                            s.fetch_workflow(id, toggle.clone(), Some(*on), w, cx)
+                        })),
+                ),
             );
         }
         actions = actions.child(
@@ -2407,13 +2341,6 @@ impl Desktop {
         } else {
             head
         };
-        let head = ui::column()
-            .gap(px(14.))
-            .child(super::details::item_title(
-                "Routine",
-                r.binding.name.clone(),
-            ))
-            .child(head);
         let Some(d) = details else {
             return ui::column()
                 .gap(px(18.))

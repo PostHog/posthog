@@ -186,9 +186,12 @@ fn age(t: &meep_topic::Task) -> String {
     super::pages::ago(Utc::now() - t.updated_at)
 }
 
+const BOARD_COLUMN: f32 = 180.;
+pub(super) const BOARD_PANE: f32 = 4. * BOARD_COLUMN + 3. * 8. + 2. * super::details::PAGE_X;
+
 impl Desktop {
     pub(super) fn task_board(&self, id: TopicId) -> bool {
-        self.task_display.boards.contains(&id)
+        self.task_display.boards.contains(&id) && self.board_room.get()
     }
     pub(super) fn set_task_display(
         &mut self,
@@ -316,11 +319,13 @@ impl Desktop {
                         }))),
                 )
                 .on_click(cx.listener(move |s, _, _, cx| {
-                    if s.task_board(id) != (key == "tasks-board") {
+                    let wants_board = key == "tasks-board";
+                    if s.task_board(id) != wants_board && (s.board_room.get() || !wants_board) {
                         s.toggle_task_board(id, cx)
                     }
                 }))
         };
+        let room = self.board_room.get();
         let owner = cx.entity().downgrade();
         let display = self.task_display.clone();
         let menu = move |m: PopupMenu, _: &mut Window, _: &mut Context<PopupMenu>| {
@@ -377,7 +382,16 @@ impl Desktop {
                     .rounded(px(8.))
                     .bg(ui::ink(0x0a))
                     .child(toggle("tasks-list", Glyph::List, "List", !board))
-                    .child(toggle("tasks-board", Glyph::Kanban, "Board", board)),
+                    .child(
+                        toggle("tasks-board", Glyph::Kanban, "Board", board).when(!room, |b| {
+                            b.opacity(0.4).tooltip(|w, cx| {
+                                meep_ui::gpui_kit::component::tooltip::Tooltip::new(
+                                    "Hide the overview or widen the window to see the board",
+                                )
+                                .build(w, cx)
+                            })
+                        }),
+                    ),
             )
             .child(
                 // A tight bar keeps the menu as its icon alone.
@@ -583,6 +597,8 @@ impl Desktop {
                     .font_weight(FontWeight::MEDIUM)
                     .line_height(relative(1.4))
                     .line_clamp(2)
+                    .text_ellipsis()
+                    .overflow_hidden()
                     .child(meep_topic::title_line(&t.title)),
             )
             .children(bottom)
@@ -809,7 +825,7 @@ impl Desktop {
             let mut col = ui::column()
                 .id(format!("column-{c:?}"))
                 .gap(px(8.))
-                .min_w(px(240.))
+                .min_w(px(BOARD_COLUMN))
                 .max_w(px(340.))
                 .flex_1()
                 .flex_shrink_0()

@@ -791,7 +791,13 @@ impl Render for ModelPicker {
             None => self
                 .selected
                 .as_deref()
-                .and_then(|id| agent_marks::for_model(None, id)),
+                .and_then(|id| agent_marks::for_model(None, id))
+                .or_else(|| {
+                    self.selected
+                        .is_none()
+                        .then(|| self.agents.first().and_then(|a| a.mark))
+                        .flatten()
+                }),
         };
         let effort = self
             .effort_index()

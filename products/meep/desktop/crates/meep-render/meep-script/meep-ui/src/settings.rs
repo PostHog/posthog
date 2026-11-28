@@ -399,6 +399,10 @@ pub fn status(value: impl Into<SharedString>, tone: Tone) -> Div {
 /// Make a button the destructive action: a solid danger fill with white
 /// words, a shade darker on hover. It replaces any earlier variant, primary
 /// included, so a confirm reads as the live action rather than a disabled one.
+pub fn danger_color() -> u32 {
+    crate::theme::named("danger").unwrap_or(0xa33932)
+}
+
 pub fn danger(button: Button, cx: &App) -> Button {
     let fill: Hsla = tone_color(Tone::Danger).into();
     let shade = |by: f32| Hsla {

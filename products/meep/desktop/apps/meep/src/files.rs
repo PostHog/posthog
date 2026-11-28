@@ -668,15 +668,10 @@ impl Desktop {
     }
 
     fn file_body(&self, state: &TopicState, chosen: &str, cx: &Context<Self>) -> Div {
-        let view = match self.file_entries(state).get(chosen) {
+        match self.file_entries(state).get(chosen) {
             Some(Entry::Artifact(a)) => self.artifact_view(chosen, a, cx),
             _ => self.topic_file_view(state, chosen, cx),
-        };
-        let name = chosen.rsplit('/').next().unwrap_or(chosen).to_owned();
-        ui::column()
-            .gap(px(16.))
-            .child(super::details::item_title("File", name))
-            .child(view)
+        }
     }
 
     pub(super) fn files_split(

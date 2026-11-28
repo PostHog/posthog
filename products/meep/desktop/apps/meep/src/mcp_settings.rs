@@ -5,6 +5,7 @@ use meep_shell::settings::{
 };
 use meep_ui::gpui_kit::component::{Disableable, Icon};
 use meep_wire::mcp_store::{Installed, Operation, Outcome, Policy, Template, ToolPolicy};
+use std::collections::HashMap;
 
 #[derive(Default, PartialEq, Eq)]
 pub(super) enum Screen {
@@ -23,6 +24,9 @@ pub(super) struct McpSettings {
     pub confirm: bool,
     busy: bool,
     loaded: bool,
+    refreshing: bool,
+    again: bool,
+    icons: HashMap<String, Option<Arc<Image>>>,
     pub message: Option<String>,
     pub failures: BTreeMap<Uuid, String>,
     name: Entity<InputState>,
@@ -45,6 +49,9 @@ impl McpSettings {
             confirm: false,
             busy: false,
             loaded: false,
+            refreshing: false,
+            again: false,
+            icons: HashMap::new(),
             message: None,
             failures: BTreeMap::new(),
             name: cx.new(|cx| InputState::new(w, cx).placeholder("Server name")),
@@ -60,6 +67,86 @@ impl McpSettings {
             category: None,
         }
     }
+
+    fn artwork(&self, domain: Option<&str>) -> Option<Arc<Image>> {
+        self.icons
+            .get(&icon_key(domain.filter(|d| !d.trim().is_empty())?))?
+            .clone()
+    }
+
+    fn template_artwork(&self, t: &Template) -> Option<Arc<Image>> {
+        self.artwork(t.icon_domain.as_deref())
+    }
+
+    fn server_artwork(&self, server: &Installed) -> Option<Arc<Image>> {
+        self.artwork(server.icon_domain.as_deref()).or_else(|| {
+            let template = server.template_id?;
+            self.catalog
+                .iter()
+                .find(|t| t.id == template)
+                .and_then(|t| self.template_artwork(t))
+        })
+    }
+}
+
+fn icon_key(domain: &str) -> String {
+    domain.trim().trim_end_matches('.').to_ascii_lowercase()
+}
+
+fn image_format(bytes: &[u8]) -> Option<ImageFormat> {
+    let head = String::from_utf8_lossy(&bytes[..bytes.len().min(256)]).to_ascii_lowercase();
+    if bytes.starts_with(b"\x89PNG") {
+        Some(ImageFormat::Png)
+    } else if bytes.starts_with(&[0xff, 0xd8, 0xff]) {
+        Some(ImageFormat::Jpeg)
+    } else if bytes.starts_with(b"RIFF") && bytes.get(8..12) == Some(b"WEBP".as_slice()) {
+        Some(ImageFormat::Webp)
+    } else if bytes.starts_with(b"GIF8") {
+        Some(ImageFormat::Gif)
+    } else if head.contains("<svg") {
+        Some(ImageFormat::Svg)
+    } else {
+        None
+    }
+}
+
+fn placeholder_bar(width: f32, height: f32) -> Div {
+    div()
+        .flex_none()
+        .w(px(width))
+        .h(px(height))
+        .rounded(px(height / 2.))
+        .bg(ui::ink(0x0d))
+}
+
+fn placeholder_row(n: usize) -> AnyElement {
+    let widths = [
+        (96., 220.),
+        (128., 180.),
+        (80., 240.),
+        (112., 200.),
+        (104., 260.),
+    ];
+    let (title, detail) = widths[n % widths.len()];
+    ui::row()
+        .w_full()
+        .h(px(60.))
+        .px(px(16.))
+        .gap(px(12.))
+        .child(logo_tile().child(placeholder_bar(21., 21.).rounded(px(5.))))
+        .child(
+            ui::column()
+                .flex_1()
+                .min_w_0()
+                .gap(px(7.))
+                .child(placeholder_bar(title, 10.))
+                .child(placeholder_bar(detail, 8.)),
+        )
+        .into_any_element()
+}
+
+fn placeholder_rows(count: usize) -> Div {
+    group((0..count).map(placeholder_row))
 }
 
 /// A store category as a label: "dev" reads "Developer tools".
@@ -176,6 +263,9 @@ fn host(url: &str) -> String {
 
 impl Desktop {
     pub(super) fn mcp_request(&mut self, op: Operation, w: &Window, cx: &mut Context<Self>) {
+        if matches!(op, Operation::Browse) && self.mcp.loaded {
+            return self.mcp_refresh(w, cx);
+        }
         if self.mcp.busy || self.identity.is_none() {
             return;
         }
@@ -202,7 +292,9 @@ impl Desktop {
                         s.mcp.servers = servers;
                         s.mcp.catalog = catalog;
                         s.mcp.loaded = true;
+                        s.mcp_icons(w, cx);
                     }
+                    Ok(Outcome::Icons(_)) => {}
                     Ok(Outcome::Tools(tools)) => {
                         if tools_id.is_some_and(|id| s.mcp.screen == Screen::Detail(id)) {
                             if let Some(id) = tools_id {
@@ -249,6 +341,126 @@ impl Desktop {
         );
     }
 
+    fn mcp_refresh(&mut self, w: &Window, cx: &mut Context<Self>) {
+        if self.identity.is_none() {
+            return;
+        }
+        if self.mcp.refreshing {
+            self.mcp.again = true;
+            return;
+        }
+        self.mcp.refreshing = true;
+        let identity = self.identity.clone();
+        let client = self.client().clone();
+        self.job(
+            async move { client.mcp_store(&Operation::Browse).await },
+            w,
+            cx,
+            move |s, res, w, cx| {
+                s.mcp.refreshing = false;
+                if s.identity != identity {
+                    return;
+                }
+                if let Ok(Outcome::Catalog(servers, catalog)) = res {
+                    s.mcp.servers = servers;
+                    s.mcp.catalog = catalog;
+                    s.mcp_icons(w, cx);
+                }
+                if std::mem::take(&mut s.mcp.again) {
+                    s.mcp_refresh(w, cx);
+                }
+            },
+        );
+    }
+
+    fn mcp_icons(&mut self, w: &Window, cx: &mut Context<Self>) {
+        let domains: Vec<String> = self
+            .mcp
+            .catalog
+            .iter()
+            .filter_map(|t| t.icon_domain.as_deref())
+            .chain(
+                self.mcp
+                    .servers
+                    .iter()
+                    .filter_map(|s| s.icon_domain.as_deref()),
+            )
+            .map(icon_key)
+            .filter(|d| !d.is_empty())
+            .collect();
+        let mut wanted = vec![];
+        for domain in domains {
+            if !self.mcp.icons.contains_key(&domain) {
+                self.mcp.icons.insert(domain.clone(), None);
+                wanted.push(domain);
+            }
+        }
+        if wanted.is_empty() {
+            return;
+        }
+        let identity = self.identity.clone();
+        let client = self.client().clone();
+        self.job(
+            async move {
+                client
+                    .mcp_store(&Operation::Icons { domains: wanted })
+                    .await
+            },
+            w,
+            cx,
+            move |s, res, _, _| {
+                if s.identity != identity {
+                    return;
+                }
+                let Ok(Outcome::Icons(icons)) = res else {
+                    return;
+                };
+                for icon in icons {
+                    if let Some(format) = image_format(&icon.bytes) {
+                        s.mcp.icons.insert(
+                            icon_key(&icon.domain),
+                            Some(Arc::new(Image::from_bytes(format, icon.bytes))),
+                        );
+                    }
+                }
+            },
+        );
+    }
+
+    fn mcp_placeholder(&self, page: Div, refresh: AnyElement, cx: &Context<Self>) -> Div {
+        page.child(section("Installed servers", "", Some(refresh), true))
+            .child(placeholder_rows(2))
+            .child(section(
+                "Browse",
+                "Loading the PostHog store…",
+                Some(custom_server(self.mcp.busy, cx).into_any_element()),
+                false,
+            ))
+            .child(
+                div()
+                    .pb(px(10.))
+                    .child(placeholder_bar(0., 36.).w_full().rounded(px(18.))),
+            )
+            .child(
+                div().pb(px(14.)).child(
+                    ui::row()
+                        .flex_wrap()
+                        .gap(px(4.))
+                        .children([44., 112., 76., 96., 64.].map(|w| placeholder_bar(w, 26.))),
+                ),
+            )
+            .child(
+                div().pt(px(8.)).pb(px(6.)).child(
+                    div()
+                        .h(px(15.))
+                        .flex()
+                        .items_center()
+                        .child(placeholder_bar(88., 8.)),
+                ),
+            )
+            .child(div().pb(px(12.)).child(placeholder_rows(5)))
+    }
+
     pub(super) fn mcp_page(&self, cx: &Context<Self>) -> Div {
         let m = &self.mcp;
         // The same crumbs as a topic's pages: "MCP servers › Linear".
@@ -272,16 +484,10 @@ impl Desktop {
         };
         let page = ui::column().gap_0();
         if self.identity.is_none() {
-            return page
-                .child(header(
-                    "MCP servers",
-                    "Connect services through your PostHog account.",
-                    None,
-                ))
-                .child(empty(
-                    "Signed out",
-                    "Sign in under General to manage your servers.",
-                ));
+            return page.child(empty(
+                "Signed out",
+                "Sign in under General to manage your servers.",
+            ));
         }
         let notice = |p: Div| {
             p.when_some(m.message.clone(), |p, msg| {
@@ -553,12 +759,15 @@ impl Desktop {
                     s.mcp_request(Operation::Browse, w, cx)
                 })
                 .disabled(m.busy);
-                let mut p = notice(page.child(header(
-                    "MCP servers",
-                    "Manage the services and tools connected to your PostHog account.",
+                if !m.loaded && (m.busy || m.message.is_none()) {
+                    return self.mcp_placeholder(page, refresh.into_any_element(), cx);
+                }
+                let mut p = notice(page.child(section(
+                    "Installed servers",
+                    "",
                     Some(refresh.into_any_element()),
-                )))
-                .child(section("Installed servers", "", None, true));
+                    true,
+                )));
                 if m.servers.is_empty() {
                     p = p.child(empty(
                         if m.busy {
@@ -577,7 +786,11 @@ impl Desktop {
                         let (label, tone) = state(server, m.failures.contains_key(&id));
                         suggestion_with(
                             format!("server-{id}"),
-                            logo_tile().child(meep_render::brands::logo(&server.name, 21.)),
+                            logo_tile().child(meep_render::brands::logo_with(
+                                &server.name,
+                                m.server_artwork(server),
+                                21.,
+                            )),
                             server.name.clone(),
                             format!("{} · {} tools", host(&server.url), server.tool_count),
                             Some(status_mark(label, tone).into_any_element()),
@@ -682,7 +895,11 @@ impl Desktop {
                         .cursor_pointer()
                         .hover(|s| s.bg(ui::ink(0x05)))
                 })
-                .child(logo_tile().child(meep_render::brands::logo(&t.name, 21.)))
+                .child(logo_tile().child(meep_render::brands::logo_with(
+                    &t.name,
+                    m.template_artwork(t),
+                    21.,
+                )))
                 .child(
                     meep_shell::settings::copy(
                         t.name.clone(),
@@ -780,18 +997,7 @@ impl Desktop {
                 } else {
                     format!("{} servers in the PostHog store", m.catalog.len())
                 },
-                Some(
-                    control("custom-server", "Custom server", false, cx, |s, w, cx| {
-                        s.mcp.screen = Screen::Custom;
-                        s.mcp.oauth = true;
-                        s.mcp.message = None;
-                        for field in [&s.mcp.name, &s.mcp.url, &s.mcp.key] {
-                            field.update(cx, |v, cx| v.set_value("", w, cx));
-                        }
-                    })
-                    .disabled(m.busy)
-                    .into_any_element(),
-                ),
+                Some(custom_server(m.busy, cx).into_any_element()),
                 false,
             ))
             .child(div().pb(px(10.)).child(search))
@@ -844,6 +1050,18 @@ impl Desktop {
         }
     }
 }
+fn custom_server(busy: bool, cx: &Context<Desktop>) -> impl IntoElement {
+    control("custom-server", "Custom server", false, cx, |s, w, cx| {
+        s.mcp.screen = Screen::Custom;
+        s.mcp.oauth = true;
+        s.mcp.message = None;
+        for field in [&s.mcp.name, &s.mcp.url, &s.mcp.key] {
+            field.update(cx, |v, cx| v.set_value("", w, cx));
+        }
+    })
+    .disabled(busy)
+}
+
 /// A server's status and its tone; a failed tool refresh outranks the rest.
 fn state(server: &Installed, failed: bool) -> (&'static str, Tone) {
     if failed {

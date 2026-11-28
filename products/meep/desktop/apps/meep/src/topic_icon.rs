@@ -68,6 +68,56 @@ pub(super) fn hero(slug: &str, size: f32) -> Div {
         )
 }
 
+static FLOAT_FRAMES: LazyLock<[Arc<Image>; 8]> = LazyLock::new(|| {
+    let png = |bytes: &[u8]| Arc::new(Image::from_bytes(ImageFormat::Png, bytes.to_vec()));
+    [
+        png(include_bytes!("../assets/needs/float-1.png")),
+        png(include_bytes!("../assets/needs/float-2.png")),
+        png(include_bytes!("../assets/needs/float-3.png")),
+        png(include_bytes!("../assets/needs/float-4.png")),
+        png(include_bytes!("../assets/needs/float-5.png")),
+        png(include_bytes!("../assets/needs/float-6.png")),
+        png(include_bytes!("../assets/needs/float-7.png")),
+        png(include_bytes!("../assets/needs/float-8.png")),
+    ]
+});
+
+const FLOAT_SEQUENCE: [usize; 20] = [0, 1, 2, 3, 0, 1, 2, 3, 0, 1, 2, 3, 4, 4, 5, 5, 5, 6, 7, 7];
+
+pub(super) fn float_loop(id: &'static str, size: f32, reduced: bool) -> Div {
+    let frames = &*FLOAT_FRAMES;
+    let mut stage = div().flex_none().relative().size(px(size));
+    for (n, frame) in frames.iter().enumerate() {
+        let image = img(frame.clone())
+            .absolute()
+            .left_0()
+            .top_0()
+            .size(px(size))
+            .object_fit(ObjectFit::Contain);
+        stage = stage.child(if reduced {
+            image
+                .opacity(if n == 0 { 1. } else { 0. })
+                .into_any_element()
+        } else {
+            image
+                .with_animation(
+                    SharedString::from(format!("{id}-{n}")),
+                    Animation::new(std::time::Duration::from_millis(
+                        170 * FLOAT_SEQUENCE.len() as u64,
+                    ))
+                    .repeat(),
+                    move |el, t| {
+                        let step = ((t * FLOAT_SEQUENCE.len() as f32) as usize)
+                            .min(FLOAT_SEQUENCE.len() - 1);
+                        el.opacity(if FLOAT_SEQUENCE[step] == n { 1. } else { 0. })
+                    },
+                )
+                .into_any_element()
+        });
+    }
+    stage
+}
+
 pub(super) fn bob(id: impl Into<ElementId>, el: Div, reduced: bool) -> AnyElement {
     if reduced {
         return el.into_any_element();

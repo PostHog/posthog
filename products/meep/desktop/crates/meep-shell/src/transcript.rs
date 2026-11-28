@@ -144,11 +144,37 @@ pub trait TranscriptHost: Sized + 'static {
                         )
                     })
                     .when(!message.text.is_empty(), |el| {
+                        let fold_key = format!("fold-{message_key}");
+                        let folded = folded_text(&message.text);
+                        let open = self.expanded().contains(&fold_key);
+                        let shown = match (&folded, open) {
+                            (Some(short), false) => short.clone(),
+                            _ => message.text.clone(),
+                        };
                         el.child(
-                            selectable(format!("{message_key}-text"), message.text.clone())
+                            selectable(format!("{message_key}-text"), shown)
                                 .text_size(px(READ))
                                 .line_height(relative(1.55)),
                         )
+                        .when(folded.is_some(), |el| {
+                            el.child(
+                                div()
+                                    .id(SharedString::from(format!("fold-toggle-{message_key}")))
+                                    .mt(px(4.))
+                                    .cursor_pointer()
+                                    .text_size(px(ui::SMALL))
+                                    .font_weight(FontWeight::MEDIUM)
+                                    .text_color(rgb(ui::theme::color(MUTED)))
+                                    .hover(|s| s.text_color(rgb(ui::theme::color(ui::INK))))
+                                    .child(if open { "Show less" } else { "Show all" })
+                                    .on_click(cx.listener(move |this, _, _, cx| {
+                                        if !this.expanded_mut().remove(&fold_key) {
+                                            this.expanded_mut().insert(fold_key.clone());
+                                        }
+                                        cx.notify();
+                                    })),
+                            )
+                        })
                     });
             // Copy sits left of the time and matches its height, so the
             // footer stays one quiet line and hovering never shifts it.
@@ -696,6 +722,26 @@ fn empty_transcript<H: TranscriptHost>(
                 )
             }),
     )
+}
+
+fn folded_text(text: &str) -> Option<String> {
+    const KEEP: usize = 360;
+    if text.chars().count() <= KEEP + 120 && text.lines().count() <= 8 {
+        return None;
+    }
+    let head: String = text.chars().take(KEEP).collect();
+    let cut = head
+        .rfind("\n\n")
+        .filter(|&i| i > KEEP / 3)
+        .or_else(|| head.rfind(". ").map(|i| i + 1))
+        .or_else(|| head.rfind(' '))
+        .unwrap_or(head.len());
+    Some(format!(
+        "{}…",
+        head[..cut]
+            .trim_end()
+            .trim_end_matches(['.', ',', ';', ':'])
+    ))
 }
 
 /// Shared surface for a user turn in a native chat transcript.

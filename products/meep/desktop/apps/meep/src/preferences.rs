@@ -3,7 +3,7 @@ use super::*;
 use meep_notifications::{
     Authorization, Namespace, Notification, NotificationCenter, Publisher, SystemNotifications,
 };
-use meep_shell::settings::{danger, empty, group, header, item, section, value_text};
+use meep_shell::settings::{danger, empty, group, item, section, value_text};
 use meep_ui::gpui_kit::component::{Disableable, Sizable, switch::Switch};
 use meep_wire::mcp_store::Policy;
 
@@ -98,11 +98,6 @@ impl Desktop {
         let enabled = self.alerts.enabled;
         ui::column()
             .gap_0()
-            .child(header(
-                "Notifications",
-                "Choose what Meep sends to Notification Center on this Mac.",
-                None,
-            ))
             .child(section("Delivery", "", None, true))
             .child(group([item(
                 "System notifications",
@@ -195,7 +190,6 @@ impl Desktop {
         };
         ui::column()
             .gap_0()
-            .child(header("Shortcuts", "Keyboard controls for Meep.", None))
             .child(section("Workspace", "", None, true))
             .child(rows(&[
                 ("Search topics", SEARCH.label()),
@@ -220,11 +214,7 @@ impl Desktop {
             ]))
     }
     pub(super) fn permissions_page(&self, cx: &Context<Self>) -> Div {
-        let mut page = ui::column().gap_0().child(header(
-            "Permissions",
-            "Meep asks before taking an action unless a rule for that topic says otherwise.",
-            None,
-        ));
+        let mut page = ui::column().gap_0();
         if self.identity.is_none() {
             return page.child(empty("Signed out", "Sign in to manage topic rules."));
         }
@@ -295,11 +285,6 @@ impl Desktop {
     pub(super) fn advanced_page(&self, cx: &Context<Self>) -> Div {
         let mut page = ui::column()
             .gap_0()
-            .child(header(
-                "Advanced",
-                "Connection and local storage for this device.",
-                None,
-            ))
             .child(section("Connection", "", None, true))
             .child(group([ui::row()
                 .w_full()

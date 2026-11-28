@@ -237,20 +237,15 @@ impl Desktop {
                     + state.scouts.iter().filter(|s| s.enabled).count();
                 (Glyph::Repeat, format!("{on} on"), None)
             }
-            Tab::Mission => (Glyph::Flag, String::new(), None),
-            Tab::Goals => {
-                let measured: Vec<_> = t.goals.iter().filter(|g| g.progress.is_some()).collect();
-                let on_track = measured.iter().filter(|g| goal_on_track(g)).count();
-                (
-                    Glyph::Target,
-                    if measured.is_empty() {
-                        t.goals.len().to_string()
-                    } else {
-                        format!("{on_track} of {} on track", t.goals.len())
-                    },
-                    None,
-                )
-            }
+            Tab::Mission => (
+                Glyph::Flag,
+                match t.goals.len() {
+                    0 => String::new(),
+                    1 => "1 goal".to_owned(),
+                    n => format!("{n} goals"),
+                },
+                None,
+            ),
             Tab::Facts => {
                 let n = t.facts.iter().filter(|f| f.is_current()).count();
                 (Glyph::Pencil, n.to_string(), None)
@@ -531,8 +526,6 @@ impl Desktop {
                             s.go(Page::Topic(id, Tab::Mission, None), w, cx)
                         })),
                 );
-            }
-            Tab::Goals => {
                 for g in &t.goals {
                     let gid = g.id;
                     let (label, ratio, band) = goal_measure(g);
@@ -557,7 +550,11 @@ impl Desktop {
                                     .child(ui::caption(label).truncate()),
                             )
                             .on_click(cx.listener(move |s, _, w, cx| {
-                                s.go(Page::Topic(id, Tab::Goals, Some(Detail::Goal(gid))), w, cx)
+                                s.go(
+                                    Page::Topic(id, Tab::Mission, Some(Detail::Goal(gid))),
+                                    w,
+                                    cx,
+                                )
                             })),
                     );
                 }
@@ -652,11 +649,6 @@ impl Desktop {
             ));
         };
         let (label, ratio, band) = goal_measure(g);
-        let kind = match g.progress {
-            Some(Progress::Target { .. }) => "Target",
-            Some(Progress::Guardrail { .. }) => "Guardrail",
-            None => "Goal",
-        };
         let text = g.text.clone();
         let progress = if ratio.is_some() {
             let (status, tone) = if goal_on_track(g) {
@@ -705,8 +697,7 @@ impl Desktop {
             )
             .into_any_element()])
         };
-        page.child(super::details::item_title(
-            kind,
+        page.child(super::details::content_heading(
             g.text.trim_end_matches('.').to_owned(),
         ))
         .child(set::section("Progress", "", None, false))

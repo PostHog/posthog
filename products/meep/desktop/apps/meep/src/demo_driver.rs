@@ -2,7 +2,7 @@
 //! the app reads input from that Unix socket and replays it into its own window, so a
 //! screencast can run while the person keeps using the machine. One JSON object per line:
 //! `{"op":"move","x":..,"y":..}`, `down`, `up`, `{"op":"scroll","x":..,"y":..,"dy":..}`,
-//! `{"op":"text","text":".."}`, `{"op":"key","key":"cmd-enter"}`, `{"op":"drop","x":..,"y":..,"paths":[..]}`. Positions are window points.
+//! `{"op":"text","text":".."}`, `{"op":"key","key":"cmd-enter"}`, `{"op":"drop","x":..,"y":..,"paths":[..]}`, `{"op":"action","name":"new-view"}`. Positions are window points.
 use super::*;
 use std::io::{BufRead, BufReader};
 use std::os::unix::net::UnixListener;
@@ -84,6 +84,11 @@ enum Input {
         x: f32,
         y: f32,
         paths: Vec<std::path::PathBuf>,
+    },
+    Action {
+        name: String,
+        #[serde(default)]
+        id: Option<Uuid>,
     },
 }
 
@@ -194,6 +199,21 @@ fn replay(input: Input, w: &mut Window, cx: &mut App) {
                     cx,
                 );
             }
+        }
+        Input::Action { name, id } => {
+            let topic = id.map(TopicId);
+            let action: Box<dyn gpui::Action> = match (name.as_str(), topic) {
+                ("new-topic", _) => Box::new(super::sidebar::RowAction::NewTopic),
+                ("new-view", _) => Box::new(super::sidebar::RowAction::NewView),
+                ("new-section", _) => Box::new(super::sidebar::RowAction::CreateSection),
+                ("rename-topic", Some(t)) => Box::new(super::sidebar::RowAction::RenameTopic(t)),
+                ("delete-topic", Some(t)) => Box::new(super::sidebar::RowAction::DeleteTopic(t)),
+                _ => {
+                    eprintln!("demo driver: unknown action {name}");
+                    return;
+                }
+            };
+            w.dispatch_action(action, cx);
         }
         Input::Drop { x, y, paths } => {
             let position = at(x, y);
