@@ -30,6 +30,7 @@ from products.alerts_platform.backend.facade.contracts import (
     PlatformAlertConfigurationView,
     SourceKind,
 )
+from products.alerts_platform.backend.facade.enums import PlatformAlertKind
 from products.logs.backend.models import LogsAlertConfiguration
 from products.logs.backend.platform_ownership import platform_change_of, platform_edit_of
 
@@ -39,7 +40,7 @@ _LOGS: Final = (SourceKind.LOGS.value,)
 def native_alert_view(*, team_id: int, alert_id: UUID, lock: bool = False) -> PlatformAlertConfigurationView | None:
     """The team's logs alert with no logs row whose public id is `alert_id`, or None: one created without
     a logs row, or a copy the platform owns whose logs row is gone. With `lock`, call it inside a
-    transaction."""
+    transaction. A new-pattern alert is not one: it has no condition for the logs API to present."""
     return _platform_view(team_id=team_id, alert_id=alert_id, lock=lock, rowless_only=True)
 
 
@@ -48,7 +49,7 @@ def _platform_view(
 ) -> PlatformAlertConfigurationView | None:
     view = get_configuration(team_id=team_id, source_kinds=_LOGS, configuration_id=alert_id, lock=lock)
     if view is not None and view.legacy_configuration_id is None:
-        return view
+        return view if view.alert_kind == PlatformAlertKind.THRESHOLD else None
     copy = owned_copies(team_id=team_id, source_kind=SourceKind.LOGS, legacy_configuration_ids=[alert_id]).get(alert_id)
     if copy is None:
         return None
