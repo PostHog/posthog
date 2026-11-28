@@ -14117,7 +14117,7 @@ Note: Resource list taken from the ReadMe-generated reference index at docs.spli
 
 ## SplunkObservabilityCloud — gaps
 
-Today (20): `alert_muting_rules`, `audit_events`, `charts`, `clients`, `dashboard_groups`, `dashboards`, `detector_events`, `detectors`, `dimensions`, `events`, `incidents`, `metric_time_series`, `metrics`, `organization_members`, `roles`, `slos`, `synthetic_locations`, `synthetic_runs`, `synthetic_tests`, `teams`
+Today (24): `alert_muting_rules`, `audit_events`, `charts`, `clients`, `dashboard_groups`, `dashboards`, `data_links`, `detector_events`, `detectors`, `dimensions`, `events`, `incidents`, `metric_time_series`, `metrics`, `navigators`, `organization_members`, `roles`, `slos`, `synthetic_devices`, `synthetic_locations`, `synthetic_runs`, `synthetic_tests`, `tags`, `teams`
 
 Diffed against: <https://dev.splunk.com/observability/reference/>
 
@@ -14126,13 +14126,13 @@ Diffed against: <https://dev.splunk.com/observability/reference/>
 - [x] `tests/{id}/runs and runs/{id} (Synthetics runs)` — actual synthetic check results over time - the analytical fact table for uptime/latency (high)
 - [x] `locations (Synthetics GET /locations)` — lookup table resolving the location IDs stamped on every synthetic run (high)
 - [x] `event / event/find (GET /event, GET /event/find)` — org-wide custom and alert event stream; today only detector_events is synced (high)
-- [ ] `tag (GET /tag, GET /tag/{name})` — metric tag lookup that resolves the breakdown labels on metrics and MTS (medium)
+- [x] `tag (GET /tag, GET /tag/{name})` — metric tag lookup that resolves the breakdown labels on metrics and MTS (medium). Added as `tags` (full refresh; `GET /tag` search with `query=name:*`).
 - [x] `role (GET /role, GET /role/{roleId})` — role definitions and assignments complement organization_members for access analysis (medium)
 - [x] `audit events (GET /v2/audit/events)` — who changed which detector/dashboard and when (medium)
 - [x] `clients (GET /clients, /clients/metadata/values)` — agent/client inventory for fleet coverage reporting (medium)
-- [ ] `navigator (GET /navigator, /navigator/{id}/dashboards)` — navigator definitions tie infrastructure categories to dashboards (low)
-- [ ] `devices (Synthetics GET /devices)` — lookup resolving device profiles referenced by browser tests (low)
-- [ ] `crosslink (GET /crosslink)` — data link definitions that map dimensions to external targets (low)
+- [x] `navigator (GET /navigator, /navigator/{id}/dashboards)` — navigator definitions tie infrastructure categories to dashboards (low). Added as `navigators` (full refresh). The per-navigator dashboards call is left out: each navigator row already carries its dashboard id lists, and `dashboards` is synced.
+- [x] `devices (Synthetics GET /devices)` — lookup resolving device profiles referenced by browser tests (low). Added as `synthetic_devices` (full refresh).
+- [x] `crosslink (GET /crosslink)` — data link definitions that map dimensions to external targets (low). Added as `data_links` (full refresh).
 
 Note: The dev.splunk.com reference is a client-rendered SPA; the full API index (48 API groups with per-endpoint path/method/operationId) is embedded in the Next.js flight payload of https://dev.splunk.com/observability/reference/ and was parsed from there. Synthetics is a large, entirely-unexposed sub-API.
 
