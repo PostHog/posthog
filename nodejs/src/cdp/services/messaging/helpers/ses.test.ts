@@ -293,7 +293,7 @@ describe('SesWebhookHandler', () => {
             },
             {
                 case: 'a tracked link without a host',
-                link: `http://localhost:8010/public/m/redirect?ph_id=x&target=${encodeURIComponent(`mailto:to@example.com?body=${encodeURIComponent(preferencesUrl)}`)}`,
+                link: `http://localhost:8010/public/m/redirect?ph_id=x&target=${encodeURIComponent(`mailto:?body=${encodeURIComponent(preferencesUrl)}`)}`,
                 origin: 'mailto:',
             },
         ])('records only the origin for $case', async ({ link, origin }) => {
