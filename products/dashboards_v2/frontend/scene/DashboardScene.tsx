@@ -26,7 +26,12 @@ import { runSampleQuery } from '../fixtures/runSampleQuery'
 import { createChartPanel } from '../panels/chart/createChartPanel'
 import { markdownPanel } from '../panels/markdown/markdownSpec'
 import { createQueryBatchRunner } from '../query/queryBatchRunner'
-import { type DashboardSceneLogicProps, savedDashboardLogicProps, dashboardSceneLogic } from './dashboardSceneLogic'
+import {
+    type DashboardSceneLogicProps,
+    KITCHEN_SINK_CUSTOM_PANEL,
+    savedDashboardLogicProps,
+    dashboardSceneLogic,
+} from './dashboardSceneLogic'
 
 export const scene: SceneExport = {
     component: DashboardScene,
@@ -74,7 +79,7 @@ function DashboardV2(): JSX.Element {
             runsRealQueries && currentTeamId
                 ? createQueryBatchRunner(currentTeamId, { context: () => ({ dashboard_tab_id: tabRef.current }) })
                 : runSampleQuery
-        return [createChartPanel({ runQuery, sampleData }), markdownPanel]
+        return [createChartPanel({ runQuery, sampleData }), markdownPanel, KITCHEN_SINK_CUSTOM_PANEL]
     }, [runsRealQueries, currentTeamId, sampleData])
     // TODO(2026-11-25): Offer filters with real queries once the query batch request carries them; until then only the
     // sample runner applies them, so a filter bar there would narrow nothing.

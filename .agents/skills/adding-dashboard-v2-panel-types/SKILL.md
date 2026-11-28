@@ -33,7 +33,10 @@ So the spec file loads its components with `React.lazy` and never imports one di
 - A panel type fills only its slots: `Component`, `Loading`, `HeaderExtra`, `Footer` and `menuActions`. Do not draw a title or add an error boundary in a panel.
 - Give the type a `Loading` shaped like its content when it has one. Off-screen tiles and suspended tiles show it, so a tile looks like itself before it mounts.
 - A type that shows data takes a `sampleData` option in its factory, as `createChartPanel` does. The host sets it while it has no real data, and the type then draws made-up data in `Component` and runs no queries. Mark it as sample data and keep its made-up numbers out of tooltips.
-- Components read only the small contexts they need, such as `FiltersContext` and `PanelHostContext`, and never the dashboard state.
+- Components read only the small contexts they need, such as `FiltersContext` and `PanelHostContext`, and never the dashboard state. A component that changes the dashboard's filters or time range reads `FilterControlsContext`.
+- `showOnInteractiveOnly(panel)` returning true leaves the tile out of snapshots, such as images and printed pages.
+- `movable(panel)` returning false stops a person dragging, resizing, moving or removing the tile. Left out, every tile is movable.
+- To show a product's own component rather than add a type, use `/adding-dashboard-v2-custom-content`.
 - `allowedCustomizations` lists the tile customizations the type allows, such as `['backgroundColor']`. The values a person picks are saved on the tile's `panel.appearance`.
 - `menuActions(actions, context)` returns the tile's menu. Append entries to `actions` with a stable `key`, and change the config with `context.setConfig`, which saves one undo step.
 - Add the type to `DEFAULT_PANELS` only when every host should get it. Otherwise a host passes the type in its own list.
