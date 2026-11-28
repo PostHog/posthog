@@ -38,6 +38,7 @@ from posthog.quota_redis import (
     ROWS_SYNCED_LIMIT_KEY,
     ROWS_SYNCED_WRITE_BATCH_SIZE,
     add_rows_synced_quota_batch,
+    prune_rows_synced_clear_batch,
     remove_quota_tokens,
 )
 from posthog.redis import get_client
@@ -266,6 +267,8 @@ def reconcile_limited_team_tokens(
     else:
         for token_batch in batched(tokens.items(), ROWS_SYNCED_WRITE_BATCH_SIZE, strict=False):
             add_rows_synced_quota_batch(pipe, token_batch, cutoff)
+    if key == ROWS_SYNCED_LIMIT_KEY:
+        prune_rows_synced_clear_batch(pipe)
     pipe.execute()
 
 

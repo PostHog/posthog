@@ -40,8 +40,6 @@ _CLEAR_ROWS_SYNCED_LIMITS = (
     _QUOTA_REDIS_TIME
     + """
 local retention = tonumber(ARGV[1])
-local oldest = string.format('%.0f', now - retention * 1000000)
-redis.call('ZREMRANGEBYSCORE', KEYS[2], '-inf', oldest)
 local score = string.format('%.0f', now)
 for index = 2, #ARGV do
     local token = ARGV[index]
@@ -49,6 +47,17 @@ for index = 2, #ARGV do
     redis.call('ZREM', KEYS[1], token)
 end
 redis.call('EXPIRE', KEYS[2], retention)
+"""
+)
+
+_PRUNE_ROWS_SYNCED_CLEARS = (
+    _QUOTA_REDIS_TIME
+    + """
+local oldest = string.format('%.0f', now - tonumber(ARGV[1]) * 1000000)
+local expired = redis.call('ZRANGEBYSCORE', KEYS[1], '-inf', oldest, 'LIMIT', 0, ARGV[2])
+if #expired > 0 then
+    redis.call('ZREM', KEYS[1], unpack(expired))
+end
 """
 )
 
@@ -223,6 +232,16 @@ def add_rows_synced_quota_batch(client: QuotaRedisClient, tokens: tuple[tuple[st
     )
 
 
+def prune_rows_synced_clear_batch(client: QuotaRedisClient) -> None:
+    client.eval(
+        _PRUNE_ROWS_SYNCED_CLEARS,
+        1,
+        _ROWS_SYNCED_CLEARS_KEY,
+        _ROWS_SYNCED_CLEAR_RETENTION_SECONDS,
+        ROWS_SYNCED_WRITE_BATCH_SIZE,
+    )
+
+
 def reconcile_quota_set(
     client: QuotaRedisClient,
     key: str,
@@ -246,3 +265,5 @@ def reconcile_quota_set(
             client.zadd(key, dict(token_batch))
         else:
             add_rows_synced_quota_batch(client, token_batch, rows_synced_cutoff)
+    if key == ROWS_SYNCED_LIMIT_KEY and monotonic() < deadline:
+        prune_rows_synced_clear_batch(client)

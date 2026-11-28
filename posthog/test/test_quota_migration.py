@@ -145,6 +145,28 @@ class TestQuotaMigration(SimpleTestCase):
         assert self.shared.zscore(key, "removed") == verdict["removed"]
         assert self.secondary.zscore(key, "removed") == verdict["removed"]
 
+    def test_rows_synced_clear_markers_are_pruned_in_batches_during_reconciliation(self) -> None:
+        resource = QuotaResource.ROWS_SYNCED
+        key = quota_redis.ROWS_SYNCED_LIMIT_KEY
+        clears_key = quota_redis._ROWS_SYNCED_CLEARS_KEY
+        now = int(datetime.now(UTC).timestamp())
+        oldest = (now - quota_redis._ROWS_SYNCED_CLEAR_RETENTION_SECONDS) * 1_000_000
+        stores = (self.shared, self.secondary)
+        for client in stores:
+            client.zadd(clears_key, {"older": oldest - 1, "expired": oldest, "fresh": oldest + 1})
+
+        remove_limited_team_tokens(resource, ["cleared"], self.cache)
+        for client in stores:
+            assert client.zrange(clears_key, 0, -1) == [b"older", b"expired", b"fresh", b"cleared"]
+
+        with patch.object(quota_redis, "ROWS_SYNCED_WRITE_BATCH_SIZE", 1):
+            for expected in ([b"expired", b"fresh", b"cleared"], [b"fresh", b"cleared"]):
+                snapshots = snapshot_quota_stores({key: []})
+                reconcile_limited_team_tokens(resource, [], {}, self.cache, store_snapshots=snapshots)
+                reconcile_secondary_quota_sets(snapshots, {key: {}})
+                for client in stores:
+                    assert client.zrange(clears_key, 0, -1) == expected
+
     @parameterized.expand(
         [
             ("stale", {"stale": 1900000000}, ["stale"], {}, {}),
