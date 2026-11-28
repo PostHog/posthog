@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 
-import { IconCheck, IconX } from '@posthog/icons'
+import { IconCheck, IconRefresh, IconX } from '@posthog/icons'
 
 import { CodeSnippet } from 'lib/components/CodeSnippet'
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
@@ -110,6 +110,7 @@ export function SettingsTab(): JSX.Element {
     const {
         warehouseStatus,
         warehouseStatusLoading,
+        warehouseStatusLoadFailed,
         isProvisioning,
         isDeprovisioning,
         isInProgress,
@@ -121,7 +122,6 @@ export function SettingsTab(): JSX.Element {
         canProvision,
         canRetryProvision,
         retryDatabaseName,
-        initialPassword,
         isResettingPassword,
         warehouseDomain,
         schemaName,
@@ -134,10 +134,10 @@ export function SettingsTab(): JSX.Element {
         teamSchemaName,
     } = useValues(warehouseProvisioningLogic)
     const {
+        loadWarehouseStatus,
         provisionWarehouse,
         deprovisionWarehouse,
         setDatabaseName,
-        clearInitialPassword,
         resetPassword,
         setSchemaName,
         onboardTeam,
@@ -164,21 +164,42 @@ export function SettingsTab(): JSX.Element {
                 )}
             </div>
 
-            {initialPassword && (
-                <LemonBanner type="warning" onClose={clearInitialPassword}>
-                    <div className="space-y-2">
-                        <strong>Save your password now — it won't be shown again.</strong>
-                        <CodeSnippet compact thing="password">
-                            {initialPassword}
-                        </CodeSnippet>
+            {!warehouseStatus && warehouseStatusLoadFailed ? (
+                <LemonBanner type="error">
+                    <div className="flex items-center justify-between gap-2">
+                        <span>Couldn't load the warehouse status.</span>
+                        <LemonButton
+                            type="secondary"
+                            size="small"
+                            icon={<IconRefresh />}
+                            loading={warehouseStatusLoading}
+                            onClick={() => loadWarehouseStatus()}
+                            data-attr="retry-warehouse-status"
+                        >
+                            Try again
+                        </LemonButton>
                     </div>
                 </LemonBanner>
-            )}
-
-            {warehouseStatusLoading && !warehouseStatus ? (
+            ) : warehouseStatusLoading && !warehouseStatus ? (
                 <div className="flex items-center gap-2">
                     <Spinner />
                     <span>Loading warehouse status...</span>
+                </div>
+            ) : showProvisionForm && adminRestrictionReason ? (
+                <div className="space-y-4">
+                    {isFailed && (
+                        <LemonBanner type="error">
+                            Provisioning failed: {warehouseStatus?.status_message || 'Unknown error'}
+                        </LemonBanner>
+                    )}
+                    <div className="border rounded p-4 space-y-3">
+                        {!isFailed && <h3 className="mb-0">Your organization doesn't have a warehouse yet</h3>}
+                        <p className="text-muted text-xs mb-0">
+                            {isFailed
+                                ? 'Only organization admins can retry provisioning. Ask one to retry it here.'
+                                : 'Only organization admins can provision it. Ask one to set it up here.'}
+                        </p>
+                    </div>
                 </div>
             ) : showProvisionForm ? (
                 <div className="space-y-4">
@@ -303,6 +324,30 @@ export function SettingsTab(): JSX.Element {
                 </div>
             ) : (
                 <div className="space-y-4">
+                    {warehouseStatusLoadFailed && (
+                        <LemonBanner type="warning">
+                            <div className="flex items-center justify-between gap-2">
+                                <span>Couldn't refresh the warehouse status, so this page may be out of date.</span>
+                                <LemonButton
+                                    type="secondary"
+                                    size="small"
+                                    icon={<IconRefresh />}
+                                    loading={warehouseStatusLoading}
+                                    onClick={() => loadWarehouseStatus()}
+                                    data-attr="retry-warehouse-status-refresh"
+                                >
+                                    Try again
+                                </LemonButton>
+                            </div>
+                        </LemonBanner>
+                    )}
+
+                    {isReady && teamOnboarded === null && (
+                        <LemonBanner type="warning">
+                            Couldn't check whether this project has joined the warehouse. Retrying...
+                        </LemonBanner>
+                    )}
+
                     {(trinoStatus ? trinoStatus.inProgress : isInProgress) && (
                         <LemonBanner type={deprovisionTakingLong ? 'warning' : 'info'}>
                             <div className="flex items-center gap-2">
@@ -379,7 +424,7 @@ export function SettingsTab(): JSX.Element {
                         </>
                     )}
 
-                    {isReady && !teamOnboarded && adminRestrictionReason && (
+                    {isReady && teamOnboarded === false && adminRestrictionReason && (
                         <div className="border rounded p-4 space-y-3">
                             <h3 className="mb-0">Your organization's warehouse is running</h3>
                             <p className="text-muted text-xs mb-0">
@@ -388,7 +433,7 @@ export function SettingsTab(): JSX.Element {
                         </div>
                     )}
 
-                    {isReady && !teamOnboarded && !adminRestrictionReason && (
+                    {isReady && teamOnboarded === false && !adminRestrictionReason && (
                         <div className="border rounded p-4 space-y-3">
                             <h3 className="mb-0">Your organization's warehouse is running</h3>
                             <p className="text-muted text-xs mb-0">
@@ -458,6 +503,7 @@ export function SettingsTab(): JSX.Element {
                             <LemonButton
                                 type="secondary"
                                 loading={isResettingPassword}
+                                disabledReason={adminRestrictionReason ?? undefined}
                                 onClick={() => {
                                     LemonDialog.open({
                                         title: 'Reset root password?',

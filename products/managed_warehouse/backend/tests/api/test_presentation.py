@@ -1142,15 +1142,25 @@ def test_team_onboarding_state_for_unonboarded_team(mock_list: MagicMock) -> Non
     assert state == {"team_onboarded": False, "schema_name": None}
 
 
+@pytest.mark.parametrize(
+    "list_teams_kwargs",
+    [
+        {"return_value": Response({"error": "unreachable"}, status=502)},
+        {"side_effect": RuntimeError("control plane down")},
+    ],
+    ids=["non_ok_response", "raises"],
+)
 @patch("products.managed_warehouse.backend.presentation.views.list_teams")
-def test_team_onboarding_state_degrades_when_control_plane_unreachable(mock_list: MagicMock) -> None:
-    # The status read must never fail on the control plane: an unreachable CP degrades to
-    # the not-onboarded shape.
-    mock_list.return_value = Response({"error": "unreachable"}, status=502)
+def test_team_onboarding_state_is_unknown_when_control_plane_unreachable(
+    mock_list: MagicMock, list_teams_kwargs: dict
+) -> None:
+    # The status read must never fail on the control plane, and a failed lookup must not read as
+    # "not onboarded", so it reports the state as unknown.
+    mock_list.configure_mock(**list_teams_kwargs)
 
     state = managed_warehouse.team_onboarding_state(uuid4(), 42)
 
-    assert state == {"team_onboarded": False, "schema_name": None}
+    assert state == {"team_onboarded": None, "schema_name": None}
 
 
 @patch("products.managed_warehouse.backend.presentation.views.list_teams")

@@ -1,6 +1,7 @@
 # Managed warehouse monitoring
 
 The **Monitoring** tab in Data ops gives every project in an organization the same operational view of its managed warehouse.
+The tab appears once the warehouse is ready and the project has joined it. Until then, Data ops shows only its settings view.
 It has two variants. Organizations on `data-warehouse-scene` see the DuckDB worker variant described first. Organizations on `managed-warehouse-trino-query` see the Trino variant described under "Trino variant". The Trino flag wins when both are on.
 
 ## Request path and tenant boundary

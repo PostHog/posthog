@@ -85,10 +85,11 @@ export interface warehouseProvisioningLogicValues {
     schemaName: string
     schemaNameAvailable: boolean | null
     schemaNameChecking: boolean
-    teamOnboarded: boolean
+    teamOnboarded: boolean | null
     teamSchemaName: string | null
     warehouseDomain: string | null
     warehouseStatus: WarehouseStatusResponseApi | null
+    warehouseStatusLoadFailed: boolean
     warehouseStatusLoading: boolean
 }
 
@@ -197,7 +198,10 @@ export interface warehouseProvisioningLogicMeta {
         warehouseDomain: (preflight: PreflightStatus | null) => string | null
         retryDatabaseName: (databaseName: string, lastRequestedDatabaseName: string | null) => string
         isValidSchemaName: (schemaName: string) => boolean
-        needsTeamOnboarding: (warehouseStatus: WarehouseStatusResponseApi | null, teamOnboarded: boolean) => boolean
+        needsTeamOnboarding: (
+            warehouseStatus: WarehouseStatusResponseApi | null,
+            teamOnboarded: boolean | null
+        ) => boolean
         canProvision: (
             isValidDatabaseName: boolean,
             databaseNameAvailable: boolean | null,
@@ -322,6 +326,15 @@ export const warehouseProvisioningLogic = kea<warehouseProvisioningLogicType>([
                 deprovisionWarehouse: () => false,
             },
         ],
+        // Distinguishes "the status could not be loaded" from "no warehouse exists", since both
+        // leave warehouseStatus null.
+        warehouseStatusLoadFailed: [
+            false,
+            {
+                loadWarehouseStatusFailure: () => true,
+                loadWarehouseStatusSuccess: () => false,
+            },
+        ],
         pollingActive: [
             false,
             {
@@ -409,22 +422,24 @@ export const warehouseProvisioningLogic = kea<warehouseProvisioningLogicType>([
             },
         ],
         // Whether this project is onboarded onto the organization's warehouse. When false on a
-        // running warehouse, the onboarding screen is shown instead of the normal one.
+        // running warehouse, the onboarding screen is shown instead of the normal one. Null means
+        // not known yet: the control plane could not report it, so a failed lookup keeps the last
+        // known value, while "no warehouse" means false.
         teamOnboarded: [
-            false,
+            null as boolean | null,
             {
-                loadWarehouseStatusSuccess: (_, { warehouseStatus }) => warehouseStatus?.team_onboarded ?? false,
+                loadWarehouseStatusSuccess: (state, { warehouseStatus }) =>
+                    warehouseStatus ? (warehouseStatus.team_onboarded ?? state) : false,
                 onboardTeamComplete: (state, { schemaName }) => (schemaName ? true : state),
-                deprovisionWarehouse: () => false,
             },
         ],
         // The schema this project's data lands in. Fixed once onboarded — it cannot be changed.
         teamSchemaName: [
             null as string | null,
             {
-                loadWarehouseStatusSuccess: (_, { warehouseStatus }) => warehouseStatus?.schema_name ?? null,
+                loadWarehouseStatusSuccess: (state, { warehouseStatus }) =>
+                    warehouseStatus?.team_onboarded === null ? state : (warehouseStatus?.schema_name ?? null),
                 onboardTeamComplete: (state, { schemaName }) => schemaName ?? state,
-                deprovisionWarehouse: () => null,
             },
         ],
         // Whether this project already has a backfill configured. When true, the schema name is
@@ -434,7 +449,6 @@ export const warehouseProvisioningLogic = kea<warehouseProvisioningLogicType>([
             {
                 loadWarehouseStatusSuccess: (_, { warehouseStatus }) => warehouseStatus?.has_backfill ?? false,
                 onboardTeamComplete: (state, { schemaName }) => (schemaName ? true : state),
-                deprovisionWarehouse: () => false,
             },
         ],
     }),
@@ -485,8 +499,8 @@ export const warehouseProvisioningLogic = kea<warehouseProvisioningLogicType>([
         // The warehouse is running but this project hasn't picked a schema yet — show onboarding.
         needsTeamOnboarding: [
             (s) => [s.warehouseStatus, s.teamOnboarded],
-            (status: WarehouseStatusResponseApi | null, teamOnboarded: boolean): boolean =>
-                status?.state === 'ready' && !teamOnboarded,
+            (status: WarehouseStatusResponseApi | null, teamOnboarded: boolean | null): boolean =>
+                status?.state === 'ready' && teamOnboarded === false,
         ],
         canProvision: [
             (s) => [s.isValidDatabaseName, s.databaseNameAvailable, s.isValidSchemaName],
@@ -613,6 +627,7 @@ export const warehouseProvisioningLogic = kea<warehouseProvisioningLogicType>([
                         schema_name: schemaName,
                     })
                     lemonToast.success('This project is now part of the managed warehouse')
+                    posthog.capture('managed warehouse project onboarded')
                     actions.onboardTeamComplete(result.schema_name ?? schemaName)
                     // Refresh from the server so the read-only state reflects the now-fixed schema.
                     actions.loadWarehouseStatus()
@@ -685,14 +700,24 @@ export const warehouseProvisioningLogic = kea<warehouseProvisioningLogicType>([
                 }
             },
 
+            loadWarehouseStatusFailure: () => {
+                if (values.pollingActive) {
+                    actions.pollStatus()
+                }
+            },
+
             loadWarehouseStatusSuccess: ({ warehouseStatus }) => {
                 const state = warehouseStatus?.state
                 // Emit outcome telemetry only on genuine transitions, comparing against the
                 // previously observed state (see the `previousWarehouseState` reducer) — not on
                 // every 10s poll or on mount for a warehouse already provisioned earlier.
                 const previousState = values.previousWarehouseState
-                if ((previousState === 'pending' || previousState === 'provisioning') && state === 'ready') {
+                const wasProvisioning = previousState === 'pending' || previousState === 'provisioning'
+                if (wasProvisioning && state === 'ready') {
                     posthog.capture('managed warehouse provisioned')
+                }
+                if (wasProvisioning && state === 'failed') {
+                    posthog.capture('managed warehouse provision failed')
                 }
                 if (previousState === 'deleting' && state === 'deleted') {
                     posthog.capture('managed warehouse deprovisioned')
@@ -716,12 +741,15 @@ export const warehouseProvisioningLogic = kea<warehouseProvisioningLogicType>([
                 // usable once Trino is ready too.
                 const trinoState = warehouseStatus?.trino?.state
                 const trinoSettingUp = state === 'ready' && (trinoState === 'pending' || trinoState === 'provisioning')
+                // The control plane could not report this project's onboarding state; retry until it does.
+                const onboardingUnknown = state === 'ready' && warehouseStatus?.team_onboarded === null
                 if (
                     state === 'pending' ||
                     state === 'provisioning' ||
                     state === 'deleting' ||
                     state === 'deleted' ||
-                    trinoSettingUp
+                    trinoSettingUp ||
+                    onboardingUnknown
                 ) {
                     actions.pollStatus()
                 } else {
