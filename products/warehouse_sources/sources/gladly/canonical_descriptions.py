@@ -233,6 +233,14 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "updatedAt": "Time at which the answer was last modified.",
         },
     },
+    "audiences": {
+        "description": "An audience in Gladly, a group of customers that answers can be targeted to.",
+        "docs_url": "https://developer.gladly.com/rest/#tag/Audiences",
+        "columns": {
+            "id": "Unique identifier for the audience.",
+            "name": "Name of the audience.",
+        },
+    },
     "events": {
         "description": "An event recorded in Gladly for an agent, contact, conversation, customer, payment request, or task.",
         "docs_url": "https://developer.gladly.com/rest/#tag/Events",

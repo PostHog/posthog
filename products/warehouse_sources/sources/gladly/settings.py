@@ -234,6 +234,12 @@ GLADLY_ENDPOINTS: dict[str, GladlyEndpointConfig] = {
         list_path="/answers",
         incremental_fields=[],
     ),
+    # Resolves the audience ids on answers. Unpaginated, with no change filter.
+    "audiences": GladlyEndpointConfig(
+        name="audiences",
+        list_path="/audiences",
+        incremental_fields=[],
+    ),
     # Gladly serves events from the last 24 hours only, so history builds up
     # through incremental syncs that run more often than once a day. Windows are
     # re-read with an overlap, so the stream is merge-only.

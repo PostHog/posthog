@@ -6589,8 +6589,8 @@ Diffed against: <https://developer.gladly.com/rest/>
 - [x] `/api/v1/customers/{customerId}/tasks` — customer tasks with assignment and completion state, a distinct work object from conversations (medium). Covered by `tasks` (Task Export report via `POST /api/v1/reports`, one row per task with assignment and closure columns). The per-customer endpoint itself is skipped: it is unpaginated, returns at most 2000 tasks, and would need one request per customer.
 - [x] `/api/v1/answers` — knowledge-base answer catalog, needed to analyze self-service deflection (medium). Added as `answers` (full refresh).
 - [x] `/api/v1/conversation-items/{itemId}/voice-transcript` — voice transcripts for call-content analysis; the export ships item metadata only (medium). Added as `voice_transcripts` (fan-out over the phone call and voicemail items of each export job, incremental on the job watermark).
-- [ ] `/api/v1/audiences` — lookup resolving audience IDs on answers (low)
-- [ ] `/api/v1/tasks/{taskId}/comments` — task discussion thread (low)
+- [x] `/api/v1/audiences` — lookup resolving audience IDs on answers (low). Added as `audiences` (full refresh).
+- [ ] `/api/v1/tasks/{taskId}/comments` — task discussion thread (low). Skipped: per-task only and unpaginated, with no list-all endpoint or change filter, so each sync would need one request per task.
 
 Note: Important: PostHog does not use Gladly's REST list endpoints — it ingests the file-based Export API (scheduled jobs producing JSONL, 14-day retention), and the spec confirms the export ships exactly four files: agents.jsonl, conversation_items.jsonl, customers.jsonl, topics.jsonl. So export coverage is complete; every gap below requires adding REST calls alongside the export path, and several Gladly REST resources are per-ID only with no list-all endpoint. Endpoint list extracted from the embedded Redoc spec (\_\_redoc_state) on the docs page, not from the summarized page text.
 
