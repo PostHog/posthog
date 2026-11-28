@@ -166,7 +166,25 @@ class TestLivestormCredentials:
                 (False, "The API token has no read access to this table. Give it read access to the Admin scope."),
             ),
             ("people_attributes", "/v1/people_attributes", 200, (True, None)),
-            (None, "/v1/events", 200, (True, None)),
+            (None, "/v1/ping", 200, (True, None)),
+            (
+                None,
+                "/v1/ping",
+                403,
+                (False, "Livestorm blocked access to this workspace. Contact Livestorm support."),
+            ),
+            (
+                None,
+                "/v1/ping",
+                401,
+                (False, "Livestorm rejected the API token. Check that you pasted the whole token."),
+            ),
+            (
+                "session_questions",
+                "/v1/events",
+                403,
+                (False, "The API token has no read access to events. Give it read access to the Events scope."),
+            ),
         ]
     )
     def test_checks_the_scope_needed_for_sync(

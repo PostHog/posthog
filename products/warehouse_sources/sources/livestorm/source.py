@@ -53,7 +53,7 @@ class LivestormSource(ResumableSource[LivestormSourceConfig, LivestormResumeConf
             label="Livestorm",
             caption="""Sync your Livestorm event, session, and workspace data into PostHog.
 
-Create an API token in Livestorm under **Account settings > Integrations > Public API**. Give it read access to the **Events** scope. If you select `team_members` or `people_attributes`, give the token **Admin** read access too.
+Create an API token in Livestorm under **Account settings > Integrations > Public API**. Give it **Admin** read access for `team_members` and `people_attributes`. Give it **Events** read access for the other tables.
 
 Livestorm allows 10,000 API calls per 30 days for each account. `session_people`, `session_chat_messages`, and `session_questions` each make at least one request per session on every sync. Sync these tables less often or deselect them if you have many sessions.""",
             iconPath="/static/services/livestorm.png",
@@ -117,13 +117,17 @@ Livestorm allows 10,000 API calls per 30 days for each account. `session_people`
         schema_name: Optional[str] = None,
         api_version: str | None = None,
     ) -> tuple[bool, str | None]:
-        probe_endpoint = schema_name if schema_name is not None and schema_name in ADMIN_READ_ENDPOINTS else "events"
+        probe_endpoint = schema_name
+        if schema_name is not None and schema_name not in ADMIN_READ_ENDPOINTS:
+            probe_endpoint = "events"
         is_valid, status = probe_credentials(config.api_token, probe_endpoint)
         if is_valid:
             return True, None
         if status == 401:
             return False, "Livestorm rejected the API token. Check that you pasted the whole token."
         if status == 403:
+            if schema_name is None:
+                return False, "Livestorm blocked access to this workspace. Contact Livestorm support."
             if probe_endpoint in ADMIN_READ_ENDPOINTS:
                 return False, "The API token has no read access to this table. Give it read access to the Admin scope."
             return False, "The API token has no read access to events. Give it read access to the Events scope."
