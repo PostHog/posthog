@@ -149,7 +149,18 @@ describe('workflow webhook triggers per ramp step', () => {
             evidence({ interrupted: true })
         )
 
-        expect(rows.filter(({ incomplete }) => !incomplete).map(({ name, key }) => `${name}.${key}`)).toEqual([])
+        expect(rows.map(({ name, key, incomplete }) => `${name}.${key}: ${incomplete}`)).toEqual([
+            'webhook_trigger_answer_ms.p50_1x: true',
+            'webhook_trigger_answer_ms.p99_1x: true',
+            'webhook_trigger_answer_ms.p50_5x: true',
+            'webhook_trigger_answer_ms.p99_5x: true',
+            ...['offered', 'accepted', 'rejected', 'errors', 'lost'].map(
+                (key) => `webhook_trigger_outcomes.${key}_1x: true`
+            ),
+            ...['offered', 'accepted', 'rejected', 'errors', 'lost'].map(
+                (key) => `webhook_trigger_outcomes.${key}_5x: true`
+            ),
+        ])
     })
 
     it.each<[string, Partial<MeasureEvidence>, string]>([
