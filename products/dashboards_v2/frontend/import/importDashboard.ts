@@ -1,5 +1,6 @@
 import { grafanaRoot, importGrafana } from './grafanaImport'
 import type { ImportResult } from './importReport'
+import { importNewRelic, isNewRelic } from './newRelicImport'
 
 export type { ImportResult } from './importReport'
 
@@ -10,9 +11,12 @@ export type { ImportResult } from './importReport'
 export function importDashboard(text: string): ImportResult | { error: string } {
     const parsed = parseJson(text)
     if (parsed === undefined) {
-        return { error: "This isn't JSON. Paste a Grafana dashboard export." }
+        return { error: "This isn't JSON. Paste a Grafana or New Relic dashboard export." }
     }
     try {
+        if (isNewRelic(parsed)) {
+            return importNewRelic(parsed)
+        }
         const root = grafanaRoot(parsed)
         if (root && (Array.isArray(root.panels) || Array.isArray(root.rows) || (root.elements && root.layout))) {
             return importGrafana(parsed)
@@ -20,7 +24,7 @@ export function importDashboard(text: string): ImportResult | { error: string } 
     } catch (error) {
         return { error: error instanceof Error ? error.message : String(error) }
     }
-    return { error: "This doesn't look like a Grafana dashboard export." }
+    return { error: "This doesn't look like a Grafana or New Relic dashboard export." }
 }
 
 function parseJson(text: string): any | undefined {

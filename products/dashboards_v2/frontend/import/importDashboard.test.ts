@@ -2,7 +2,7 @@ import type { Tile } from '../dashboard/document/dashboardTypes'
 import { validateDashboard } from '../dashboard/document/validateDashboard'
 import { DEFAULT_PANELS } from '../panels/defaultPanels'
 import { type ImportResult, importDashboard } from './importDashboard'
-import { grafanaClassic, grafanaV2 } from './importFixtures'
+import { grafanaClassic, grafanaV2, newRelic } from './importFixtures'
 
 function imported(input: unknown, prefix = ''): ImportResult {
     const result = importDashboard(prefix + JSON.stringify(input))
@@ -31,6 +31,7 @@ describe('importDashboard', () => {
     test.each([
         ['Grafana', grafanaClassic, 'grafana'],
         ['Grafana 12', grafanaV2, 'grafana-v2'],
+        ['New Relic', newRelic, 'newrelic'],
     ])('turns a %s export into a valid board', (_name, input, source) => {
         const result = imported(input, 'Exported dashboard ')
         expect(result.report.source).toBe(source)
@@ -255,5 +256,82 @@ describe('importDashboard', () => {
             layout: { kind: 'GridLayout', spec: { items: [{ spec: { element: { name: 'p' }, width: 12 } }] } },
         })
         expect(statuses(result)).toEqual({ P: 'mapped' })
+    })
+
+    it('maps a New Relic board: pages, layout, NRQL, time ranges and fallbacks', () => {
+        const result = imported(newRelic)
+        const tiles = byTitle(result)
+
+        expect(result.dashboard.tabs.map((tab) => tab.title)).toEqual(['Orders', 'Refunds'])
+        expect(result.dashboard.time).toEqual({ from: 'now-1w', to: 'now' })
+        expect(tiles['Buyers'].place).toEqual({ x: 6, y: 0, w: 18, h: 15 })
+        expect(tiles['Orders'].panel.config).toEqual({
+            query: {
+                language: 'hogql',
+                query: "select count() as count from events where event = 'OrderPlaced' and {filters}",
+            },
+            viz: { type: 'stat' },
+        })
+        expect(tiles['Orders by plan'].panel.config.viz).toEqual({ type: 'bar', options: { stack: true } })
+        expect(tiles['Last half hour'].panel.config.time).toEqual({ from: 'now-30m', to: 'now' })
+        expect(tiles['Orders'].panel.config.time).toBeUndefined()
+        expect(tiles['Host CPU'].panel.config.text).toContain('FROM Metric')
+
+        expect(statuses(result)).toEqual({
+            Orders: 'mapped',
+            Buyers: 'mapped',
+            'Orders by plan': 'mapped',
+            'Plan mix': 'unsupported',
+            'Last half hour': 'mapped',
+            '': 'mapped',
+            'Refund rate': 'partial',
+            'Host CPU': 'unsupported',
+            'Checkout funnel': 'unsupported',
+        })
+        expect(result.report.queries).toEqual({ total: 9, translated: 6 })
+        expect(result.report.requires).toMatchObject({
+            events: ['OrderPlaced'],
+            properties: ['plan', 'refunded', 'userId'],
+        })
+        expect(JSON.stringify(result.dashboard)).not.toContain('1234567')
+    })
+
+    it('keeps a New Relic widget whose visualization is named like an object property as a note', () => {
+        const widget = {
+            title: 'Odd',
+            visualization: { id: '__proto__' },
+            rawConfiguration: { nrqlQueries: [{ query: 'SELECT count(*) FROM OrderPlaced TIMESERIES' }] },
+        }
+        const result = imported({ name: 'Odd', pages: [{ name: 'Page', widgets: [widget] }] })
+
+        expect(statuses(result)).toEqual({ Odd: 'unsupported' })
+    })
+
+    it('keeps markdown in a New Relic visualization id out of the note heading', () => {
+        const widget = { title: 'Odd', visualization: { id: 'viz.x\n```\n# Injected' }, rawConfiguration: {} }
+        const result = imported({ name: 'Odd', pages: [{ name: 'Page', widgets: [widget] }] })
+
+        expect(byTitle(result)['Odd'].panel.config.text).toContain('**Not supported yet:** `viz.x # Injected`')
+    })
+
+    it('gives each column of a New Relic line chart its own query and leaves out a query with another time range', () => {
+        const widget = {
+            title: 'Latency',
+            visualization: { id: 'viz.line' },
+            rawConfiguration: {
+                nrqlQueries: [
+                    { query: 'SELECT percentile(latencyMs, 50, 95) FROM OrderPlaced TIMESERIES SINCE 1 day ago' },
+                    { query: 'SELECT count(*) FROM OrderPlaced TIMESERIES SINCE 1 week ago' },
+                ],
+            },
+        }
+        const result = imported({ name: 'Latency', pages: [{ name: 'Page', widgets: [widget] }] })
+        const queries = byTitle(result)['Latency'].panel.config.targets.map((target: any) => target.query.query)
+
+        expect(queries).toEqual([expect.stringContaining('as p50 from'), expect.stringContaining('as p95 from')])
+        expect(result.report.tiles[0]).toMatchObject({
+            status: 'partial',
+            reasons: [expect.stringContaining('different time range'), expect.stringContaining('1 of its 2 queries')],
+        })
     })
 })
