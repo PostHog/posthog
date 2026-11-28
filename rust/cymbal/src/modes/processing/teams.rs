@@ -1,19 +1,28 @@
-use std::{collections::HashMap, time::Duration};
+use std::{
+    collections::HashMap,
+    time::{Duration, Instant},
+};
 
 use common_types::{GroupType, Team, TeamId};
 use moka::sync::{Cache, CacheBuilder};
+use sqlx::PgPool;
 use tracing::warn;
 
 use crate::{
-    error::UnhandledError, metric_consts::ANCILLARY_CACHE,
+    error::UnhandledError,
+    metric_consts::ANCILLARY_CACHE,
     modes::processing::config::ProcessingConfig,
     modes::processing::rules::assignment::AssignmentRule,
-    modes::processing::rules::bypass::BypassRule, modes::processing::rules::grouping::GroupingRule,
+    modes::processing::rules::bypass::BypassRule,
+    modes::processing::rules::grouping::GroupingRule,
     modes::processing::rules::rate_limit::RateLimitSettings,
     modes::processing::rules::severity::SeverityRule,
     modes::processing::rules::spike::SpikeDetectionConfig,
     modes::processing::rules::suppression::SuppressionRule,
+    stages::linking::receipt::{EntryDeadline, EntryWithDeadline},
 };
+
+const AUTO_RESOLVE_OPT_IN_TTL: Duration = Duration::from_secs(60);
 
 #[derive(Clone)]
 pub struct TeamManager {
@@ -26,6 +35,7 @@ pub struct TeamManager {
     pub group_type_indices: Cache<TeamId, Vec<GroupType>>,
     pub spike_detection_configs: Cache<TeamId, Option<SpikeDetectionConfig>>,
     pub rate_limit_settings: Cache<TeamId, Option<RateLimitSettings>>,
+    auto_resolve_enabled: moka::future::Cache<TeamId, EntryWithDeadline<bool>>,
 }
 
 impl TeamManager {
@@ -102,6 +112,37 @@ impl TeamManager {
             group_type_indices,
             spike_detection_configs,
             rate_limit_settings,
+            auto_resolve_enabled: moka::future::Cache::builder()
+                .max_capacity(config.max_team_cache_size)
+                .expire_after(EntryDeadline)
+                .build(),
+        }
+    }
+
+    pub(crate) async fn tracks_issue_receipts(
+        &self,
+        pool: &PgPool,
+        team_id: TeamId,
+    ) -> Result<bool, UnhandledError> {
+        loop {
+            let entry = self
+                .auto_resolve_enabled
+                .try_get_with(team_id, async {
+                    let expires_at = Instant::now() + AUTO_RESOLVE_OPT_IN_TTL;
+                    let value = sqlx::query_scalar(
+                        "SELECT EXISTS (SELECT 1 FROM posthog_errortrackingsettings \
+                         WHERE team_id = $1 AND auto_resolve_after_days IS NOT NULL)",
+                    )
+                    .bind(team_id)
+                    .fetch_one(pool)
+                    .await?;
+                    Ok::<_, sqlx::Error>(EntryWithDeadline { value, expires_at })
+                })
+                .await
+                .map_err(|error| UnhandledError::Other(error.to_string()))?;
+            if entry.value || entry.expires_at > Instant::now() {
+                return Ok(entry.value);
+            }
         }
     }
 

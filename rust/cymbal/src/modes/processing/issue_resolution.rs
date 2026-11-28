@@ -250,6 +250,30 @@ impl Issue {
         Ok(())
     }
 
+    pub(crate) async fn record_receipt(
+        &mut self,
+        txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    ) -> Result<(), sqlx::Error> {
+        // Lock before sampling the receipt time or reading status. The sweep takes this
+        // same lock, which we hold through any reopen.
+        let status: String = sqlx::query_scalar(
+            "WITH locked_issue AS MATERIALIZED (
+                 SELECT id FROM posthog_errortrackingissue WHERE team_id = $1 AND id = $2 FOR UPDATE
+             )
+             UPDATE posthog_errortrackingissue AS issue
+             SET last_received_at = GREATEST(issue.last_received_at, clock_timestamp())
+             FROM locked_issue
+             WHERE issue.id = locked_issue.id AND issue.team_id = $1
+             RETURNING issue.status",
+        )
+        .bind(self.team_id)
+        .bind(self.id)
+        .fetch_one(&mut **txn)
+        .await?;
+        self.status = IssueStatus::from(status);
+        Ok(())
+    }
+
     pub fn can_reopen(&self) -> bool {
         !matches!(self.status, IssueStatus::Active | IssueStatus::Suppressed)
     }

@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 pub mod issue;
+pub(crate) mod receipt;
 pub mod rule_suppression;
 pub mod suppression;
 

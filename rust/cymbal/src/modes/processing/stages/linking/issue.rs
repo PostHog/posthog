@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{sync::Arc, time::Instant};
 
 use chrono::{DateTime, Utc};
 use common_types::format::parse_datetime_assuming_utc;
@@ -30,9 +30,10 @@ use crate::{
 pub struct IssueLinker;
 
 impl IssueLinker {
-    pub async fn fetch_or_create_issue(
+    async fn fetch_or_create_issue(
         input: &ExceptionEvent<Fingerprinted>,
-        ctx: Arc<AppContext>,
+        ctx: &AppContext,
+        track_receipt: bool,
     ) -> Result<Issue, UnhandledError> {
         // Extract name and description for the issue
         let name = input
@@ -55,7 +56,15 @@ impl IssueLinker {
         });
 
         // Resolve issue (create new or find existing)
-        let issue = resolve_issue(ctx.as_ref(), name, description, event_timestamp, input).await?;
+        let issue = resolve_issue(
+            ctx,
+            name,
+            description,
+            event_timestamp,
+            input,
+            track_receipt,
+        )
+        .await?;
         Ok(issue)
     }
 }
@@ -82,6 +91,11 @@ impl IssueLinker {
         ctx: LinkingStage,
     ) -> Result<ExceptionEvent<Linked>, UnhandledError> {
         let key = (input.team_id(), input.fingerprint().value().to_string());
+        let track_receipt = ctx
+            .app_context
+            .team_manager
+            .tracks_issue_receipts(&ctx.app_context.posthog_pool, input.team_id())
+            .await?;
 
         // Wrap the (large) event in an `Arc` so the cache-loader closures capture a cheap
         // refcount bump instead of a full deep clone. The loaders only ever borrow the
@@ -100,13 +114,25 @@ impl IssueLinker {
         // and `maybe_reopen` never see stale state.
         let input_for_load = input.clone();
         let ctx_for_load = ctx.clone();
-        let issue: Issue = ctx
+        let mut issue: Issue = ctx
             .batch_issue_cache
-            .try_get_with(key, async move {
-                resolve_via_id_cache(input_for_load, &ctx_for_load).await
+            .try_get_with(key.clone(), async move {
+                resolve_via_id_cache(input_for_load, &ctx_for_load, track_receipt).await
             })
             .await
             .map_err(|e: Arc<UnhandledError>| UnhandledError::Other(e.to_string()))?;
+
+        // A batch cache hit can cross the receipt expiry or a change in team opt-in.
+        if track_receipt
+            && !ctx
+                .app_context
+                .issue_receipts
+                .contains((issue.team_id, issue.id))
+                .await
+        {
+            ctx.batch_issue_cache.invalidate(&key).await;
+            issue = resolve_via_id_cache(input.clone(), &ctx, track_receipt).await?;
+        }
 
         // The only `Arc` clones were captured by this call's loader closures, which have
         // all completed (or been dropped when moka deduped them), so we uniquely own the
@@ -125,6 +151,7 @@ impl IssueLinker {
 async fn resolve_via_id_cache(
     input: Arc<ExceptionEvent<Fingerprinted>>,
     ctx: &LinkingStage,
+    track_receipt: bool,
 ) -> Result<Issue, UnhandledError> {
     let fingerprint = input.fingerprint().value().to_string();
     let key = (input.team_id(), fingerprint.clone());
@@ -140,7 +167,8 @@ async fn resolve_via_id_cache(
     let issue_id: Uuid = ctx
         .issue_cache
         .try_get_with(key.clone(), async move {
-            let issue = IssueLinker::fetch_or_create_issue(&cloned_input, app_ctx).await?;
+            let issue =
+                IssueLinker::fetch_or_create_issue(&cloned_input, &app_ctx, track_receipt).await?;
             let id = issue.id;
             *slot.lock().expect("just_resolved mutex poisoned") = Some(issue);
             Ok::<Uuid, UnhandledError>(id)
@@ -164,6 +192,7 @@ async fn resolve_via_id_cache(
         issue_id,
         &fingerprint,
         &input,
+        track_receipt,
     )
     .await?
     {
@@ -171,7 +200,7 @@ async fn resolve_via_id_cache(
         None => {
             // Cached id no longer exists in PG. Invalidate and run the slow path.
             ctx.issue_cache.invalidate(&key).await;
-            IssueLinker::fetch_or_create_issue(&input, ctx.app_context.clone()).await
+            IssueLinker::fetch_or_create_issue(&input, &ctx.app_context, track_receipt).await
         }
     }
 }
@@ -186,6 +215,7 @@ async fn load_and_maybe_reopen(
     issue_id: Uuid,
     fingerprint: &str,
     event_properties: &ExceptionEvent<Fingerprinted>,
+    track_receipt: bool,
 ) -> Result<Option<Issue>, UnhandledError> {
     let mut conn = context.posthog_pool.acquire().await?;
     let Some(mut issue) = Issue::load(&mut *conn, team_id, issue_id).await? else {
@@ -200,8 +230,14 @@ async fn load_and_maybe_reopen(
             );
             Utc::now()
         });
-    let Some(assignment) =
-        reopen_with_assignment(context, &mut conn, &mut issue, event_properties).await?
+    let Some(assignment) = reopen_with_assignment(
+        context,
+        &mut conn,
+        &mut issue,
+        event_properties,
+        track_receipt,
+    )
+    .await?
     else {
         return Ok(Some(issue));
     };
@@ -236,6 +272,7 @@ async fn resolve_issue(
     description: String,
     event_timestamp: DateTime<Utc>,
     event_properties: &ExceptionEvent<Fingerprinted>,
+    track_receipt: bool,
 ) -> Result<Issue, UnhandledError> {
     let team_id = event_properties.team_id();
     let fingerprint = event_properties.fingerprint().value().to_string();
@@ -255,8 +292,14 @@ async fn resolve_issue(
     if let Some(result) = existing_issue {
         let (mut issue, fingerprint_first_seen) = result.into_issue();
         let first_seen_for_state = fingerprint_first_seen.unwrap_or(issue.created_at);
-        if let Some(assignment) =
-            reopen_with_assignment(context, &mut conn, &mut issue, event_properties).await?
+        if let Some(assignment) = reopen_with_assignment(
+            context,
+            &mut conn,
+            &mut issue,
+            event_properties,
+            track_receipt,
+        )
+        .await?
         {
             send_fingerprint_issue_state(
                 context,
@@ -337,8 +380,14 @@ async fn resolve_issue(
 
         // Since we just loaded an issue, check if it needs to be reopened
         let first_seen_for_state = fingerprint_first_seen.unwrap_or(issue.created_at);
-        if let Some(assignment) =
-            reopen_with_assignment(context, &mut conn, &mut issue, event_properties).await?
+        if let Some(assignment) = reopen_with_assignment(
+            context,
+            &mut conn,
+            &mut issue,
+            event_properties,
+            track_receipt,
+        )
+        .await?
         {
             send_fingerprint_issue_state(
                 context,
@@ -379,6 +428,10 @@ async fn resolve_issue(
             process_event_assignment(&mut txn, &context.team_manager, &issue, event_properties)
                 .await?;
 
+        let receipt_started_at = Instant::now();
+        if track_receipt {
+            issue.record_receipt(&mut txn).await?;
+        }
         let processed_properties = event_properties.processed_properties(&issue);
         // Produce before the commit on purpose. A failure here rolls the transaction back, so the
         // retry re-runs this whole slow path and produces again. Committing first would leave a
@@ -394,7 +447,24 @@ async fn resolve_issue(
         )
         .await?;
 
-        txn.commit().await?;
+        if track_receipt {
+            // Publish the cache entry only after commit, but coalesce any caller that
+            // finds the newly visible issue before the cache entry is published.
+            let committed = context
+                .issue_receipts
+                .record_if_due_since((team_id, issue.id), receipt_started_at, async {
+                    txn.commit().await?;
+                    Ok(())
+                })
+                .await?;
+            if committed.is_none() {
+                return Err(UnhandledError::Other(
+                    "receipt unexpectedly cached for a new issue".to_string(),
+                ));
+            }
+        } else {
+            txn.commit().await?;
+        }
         drop(conn);
 
         send_issue_created_notification(
@@ -440,14 +510,46 @@ async fn reopen_with_assignment(
     conn: &mut PgConnection,
     issue: &mut Issue,
     event_properties: &ExceptionEvent<Fingerprinted>,
+    track_receipt: bool,
 ) -> Result<Option<Option<Assignment>>, UnhandledError> {
-    // Most events land on an active issue, and those must not pay for a transaction.
+    if track_receipt {
+        let receipts = &context.issue_receipts;
+        let key = (issue.team_id, issue.id);
+        if !receipts.contains(key).await {
+            if let Some(assignment) = receipts
+                .record_if_due(
+                    key,
+                    persist_issue_event(context, conn, issue, event_properties, true),
+                )
+                .await?
+            {
+                return Ok(assignment);
+            }
+            // A concurrent fingerprint may have reopened this issue while we waited.
+            *issue = Issue::load(&mut *conn, key.0, key.1)
+                .await?
+                .ok_or(sqlx::Error::RowNotFound)?;
+        }
+    }
     if !issue.can_reopen() {
         return Ok(None);
     }
+    persist_issue_event(context, conn, issue, event_properties, false).await
+}
+
+async fn persist_issue_event(
+    context: &AppContext,
+    conn: &mut PgConnection,
+    issue: &mut Issue,
+    event_properties: &ExceptionEvent<Fingerprinted>,
+    record_receipt: bool,
+) -> Result<Option<Option<Assignment>>, UnhandledError> {
     let mut txn = Acquire::begin(&mut *conn).await?;
+    if record_receipt {
+        issue.record_receipt(&mut txn).await?;
+    }
     if issue.reopen(&mut *txn).await?.is_none() {
-        txn.rollback().await?;
+        txn.commit().await?;
         return Ok(None);
     }
     let assignment =

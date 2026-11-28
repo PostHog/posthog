@@ -496,6 +496,104 @@ async fn new_issue_only_infers_confident_severity_without_overwriting_existing_s
 }
 
 #[sqlx::test(migrations = "./tests/test_migrations")]
+async fn issue_receipt_reopens_after_sweep_wins_issue_lock(db: PgPool) {
+    use std::time::Duration;
+
+    let harness = TestHarness::new(db.clone());
+    let mut input = make_event(vec![make_exception("TypeError", "cannot read property")]);
+    let (status, body): (_, SuccessResponse) = harness.post_event(&input).await;
+    assert!(status.is_success());
+    let issue_id = body.take_properties().issue_id();
+    let receipt: Option<DateTime<Utc>> =
+        sqlx::query_scalar("SELECT last_received_at FROM posthog_errortrackingissue WHERE id = $1")
+            .bind(issue_id)
+            .fetch_one(&db)
+            .await
+            .unwrap();
+    assert_eq!(receipt, None);
+
+    sqlx::query("INSERT INTO posthog_errortrackingsettings VALUES (1, 7)")
+        .execute(&db)
+        .await
+        .unwrap();
+    let mut sweep = db.begin().await.unwrap();
+    let sweep_pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+        .fetch_one(&mut *sweep)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE posthog_errortrackingissue SET status = 'resolved' WHERE id = $1")
+        .bind(issue_id)
+        .execute(&mut *sweep)
+        .await
+        .unwrap();
+
+    input.uuid = Uuid::now_v7();
+    let request = harness.post_event::<SuccessResponse>(&input);
+    tokio::pin!(request);
+    let wait_for_receipt = async {
+        loop {
+            let blocked: bool = sqlx::query_scalar(
+                "SELECT EXISTS (SELECT 1 FROM pg_stat_activity WHERE datname = current_database() \
+                 AND $1 = ANY(pg_blocking_pids(pid)))",
+            )
+            .bind(sweep_pid)
+            .fetch_one(&db)
+            .await
+            .unwrap();
+            if blocked {
+                break;
+            }
+        }
+    };
+    tokio::select! {
+        result = &mut request => panic!("ingestion returned {} without taking the issue lock", result.0),
+        locked = tokio::time::timeout(Duration::from_secs(10), wait_for_receipt) => {
+            locked.expect("receipt must wait for the sweep's issue lock");
+        }
+    }
+    let sweep_commit_starts_at: DateTime<Utc> = sqlx::query_scalar("SELECT clock_timestamp()")
+        .fetch_one(&mut *sweep)
+        .await
+        .unwrap();
+    sweep.commit().await.unwrap();
+    let (status, body) = request.await;
+    assert!(status.is_success());
+    assert_eq!(body.take_properties().issue_id(), issue_id);
+
+    let (status, receipt): (String, DateTime<Utc>) = sqlx::query_as(
+        "SELECT status, last_received_at FROM posthog_errortrackingissue WHERE id = $1",
+    )
+    .bind(issue_id)
+    .fetch_one(&db)
+    .await
+    .unwrap();
+    assert_eq!(status, "active");
+    assert!(receipt >= sweep_commit_starts_at);
+}
+
+#[sqlx::test(migrations = "./tests/test_migrations")]
+async fn issue_receipt_failure_fails_the_process_request(db: PgPool) {
+    let harness = TestHarness::new(db.clone());
+    let mut input = make_event(vec![make_exception("TypeError", "cannot read property")]);
+    let (status, _): (_, SuccessResponse) = harness.post_event(&input).await;
+    assert!(status.is_success());
+
+    sqlx::query("INSERT INTO posthog_errortrackingsettings VALUES (1, 7)")
+        .execute(&db)
+        .await
+        .unwrap();
+    sqlx::query(
+        "ALTER TABLE posthog_errortrackingissue ADD CONSTRAINT reject_receipt CHECK (last_received_at IS NULL)",
+    )
+    .execute(&db)
+    .await
+    .unwrap();
+    input.uuid = Uuid::now_v7();
+    let (status, _) = harness.post_body(true, json!([input]), |_| {}).await;
+    assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
+}
+
+#[sqlx::test(migrations = "./tests/test_migrations")]
 async fn severity_rule_overrides_inference_only_for_new_issue(db: PgPool) {
     let harness = TestHarness::new(db);
     insert_severity_rule(&harness.db, "critical", json!(["_H", 1, 29, 38])).await;
