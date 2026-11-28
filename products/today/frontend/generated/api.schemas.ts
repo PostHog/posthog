@@ -715,6 +715,185 @@ export interface ReportPageApi {
     last_seen: string | null
 }
 
+export interface WorkItemApi {
+    /** Stable type id of the object, such as feature_flag or experiment. */
+    type: string
+    /** Id of the object. */
+    id: string
+    /** Name of the object. */
+    name: string
+    /** What the object is, in lower case, such as experiment. */
+    kind_label: string
+    /** The product that owns the object, as a person reads it. */
+    product: string
+    /** Path in the app of the object. */
+    href: string
+}
+
+export interface WorkFactApi {
+    /** What the value is, such as Rollout. */
+    label: string
+    /** The value as a person reads it, such as 20% of users. */
+    value: string
+}
+
+export interface WorkStartedFromApi {
+    /** Label of the option of an earlier step that started this step. */
+    label: string
+    /** Why that option was offered. */
+    why: string
+}
+
+/**
+ * * `next` - Next
+ * * `alongside` - Alongside
+ */
+export type WorkOptionKindEnumApi = (typeof WorkOptionKindEnumApi)[keyof typeof WorkOptionKindEnumApi]
+
+export const WorkOptionKindEnumApi = {
+    Next: 'next',
+    Alongside: 'alongside',
+} as const
+
+/**
+ * * `in_place` - In place
+ * * `opens` - Opens
+ */
+export type WorkHelperModeEnumApi = (typeof WorkHelperModeEnumApi)[keyof typeof WorkHelperModeEnumApi]
+
+export const WorkHelperModeEnumApi = {
+    InPlace: 'in_place',
+    Opens: 'opens',
+} as const
+
+/**
+ * * `link` - Link
+ * * `action` - Action
+ */
+export type WorkRunTypeEnumApi = (typeof WorkRunTypeEnumApi)[keyof typeof WorkRunTypeEnumApi]
+
+export const WorkRunTypeEnumApi = {
+    Link: 'link',
+    Action: 'action',
+} as const
+
+/**
+ * Values the page passes to the action, as a JSON object. Null when there are none.
+ * @nullable
+ */
+export type WorkRunApiParams = { [key: string]: unknown } | null
+
+export interface WorkRunApi {
+    /** `link` opens `to`. `action` hands `action_id` and `params` to the page, which runs the action.
+     *
+     * * `link` - Link
+     * * `action` - Action */
+    type: WorkRunTypeEnumApi
+    /**
+     * Path in the app to open for a `link` run, else null.
+     * @nullable
+     */
+    to: string | null
+    /**
+     * Id of the action the page runs for an `action` run, else null.
+     * @nullable
+     */
+    action_id: string | null
+    /**
+     * Values the page passes to the action, as a JSON object. Null when there are none.
+     * @nullable
+     */
+    params: WorkRunApiParams
+}
+
+export interface WorkHelperApi {
+    /** `in_place` runs in the thread's own page. `opens` leaves for the product's page.
+     *
+     * * `in_place` - In place
+     * * `opens` - Opens */
+    mode: WorkHelperModeEnumApi
+    /** The product that supplies the helper, as a person reads it. */
+    product: string
+    /** One sentence on what running the helper does. */
+    does: string
+    /** The values the helper has filled in. */
+    fields: WorkFactApi[]
+    /** Label of the button that runs the helper, such as Schedule rollout. */
+    run_label: string
+    /** What the run button does. */
+    run: WorkRunApi
+    /** Names of the MCP tools that can do the same. Empty when none can. */
+    mcp_tools: string[]
+}
+
+export interface WorkOptionApi {
+    /** Stable key of the option, unique in its step. */
+    key: string
+    /** `next` moves the line on and closes the step's other next options. `alongside` starts a line that runs beside it.
+     *
+     * * `next` - Next
+     * * `alongside` - Alongside */
+    kind: WorkOptionKindEnumApi
+    /** What the option does, as a short label. */
+    label: string
+    /** Why the option is offered, from the product's own data. */
+    why: string
+    /**
+     * What has to happen before the option can start. Null when it can start now.
+     * @nullable
+     */
+    gate: string | null
+    /** What running the option does and how it runs. */
+    helper: WorkHelperApi
+}
+
+export interface WorkStepApi {
+    /** Stable key of the step, unique in its thread. */
+    key: string
+    /** What the step is, as a short title. */
+    title: string
+    /** One or two sentences about the step. */
+    description: string
+    /** The area of the thread the step belongs to, such as Release. */
+    area: string
+    /** The object the step is about. Null when it has none. */
+    item: WorkItemApi | null
+    /** Facts about the step's object. */
+    facts: WorkFactApi[]
+    /**
+     * On a step the line has moved past, the option that was taken. Else null.
+     * @nullable
+     */
+    chosen_label: string | null
+    /** Why the step exists, when an option of an earlier step started it. Else null. */
+    started_from: WorkStartedFromApi | null
+    /** What the person can do next. Only the last step of a line offers options. */
+    options: WorkOptionApi[]
+    /** Lines that run alongside the step. They do not block the step's own line. */
+    alongside: WorkLineApi[]
+}
+
+export interface WorkLineApi {
+    /** Stable key of the line, unique in its thread. */
+    key: string
+    /** Steps in order. Every step but the last is done. */
+    steps: WorkStepApi[]
+}
+
+export interface WorkThreadApi {
+    /** Stable key of the thread. */
+    key: string
+    /** The goal of the thread, such as Ship the new checkout. */
+    name: string
+    /** The thread's main line. */
+    line: WorkLineApi
+}
+
+export interface WorkThreadsApi {
+    /** The source's threads, or only the one about `ref`. */
+    results: WorkThreadApi[]
+}
+
 export type TodayHighlightsRetrieveParams = {
     /**
      * Retry failed sources. An active computation is reused.
@@ -727,4 +906,19 @@ export type TodayReportsKeyClausesRetrieveParams = {
      * Whether to mark the impact sentence. Pass false when the page shows an impact number instead.
      */
     include_impact?: boolean
+}
+
+export type TodayWorkThreadsRetrieveParams = {
+    /**
+     * Id of the one object to read the thread of, such as a release id. Omit it to read every thread the source has for the person.
+     * @minLength 1
+     * @maxLength 200
+     */
+    ref?: string
+    /**
+     * Name of the work source to read, such as release. Each product declares its own sources.
+     * @minLength 1
+     * @maxLength 200
+     */
+    source: string
 }

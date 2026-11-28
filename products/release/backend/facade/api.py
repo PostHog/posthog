@@ -184,6 +184,12 @@ def list_page(team_id: int, page: PageRequest, lookups: LinkLookups) -> Page[con
     return releases.map(lambda obj: _to_dto(obj, hidden))
 
 
+def list_recently_updated(team_id: int, limit: int, lookups: LinkLookups) -> list[contracts.ReleaseDTO]:
+    releases = list(logic.list_recently_updated_releases(team_id, limit))
+    hidden = _hidden(lookups, releases)
+    return [_to_dto(obj, hidden) for obj in releases]
+
+
 CATALOG_SCAN_BATCH = 200
 
 

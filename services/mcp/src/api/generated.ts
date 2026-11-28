@@ -134812,6 +134812,188 @@ export namespace Schemas {
       tools: WizardCatalogTool[];
     }
 
+    export interface WorkFact {
+      /** What the value is, such as Rollout. */
+      label: string;
+      /** The value as a person reads it, such as 20% of users. */
+      value: string;
+    }
+
+    /**
+     * * `in_place` - In place
+     * * `opens` - Opens
+     */
+    export type WorkHelperModeEnum = typeof WorkHelperModeEnum[keyof typeof WorkHelperModeEnum];
+
+
+    export const WorkHelperModeEnum = {
+      InPlace: 'in_place',
+      Opens: 'opens',
+    } as const;
+
+    /**
+     * * `link` - Link
+     * * `action` - Action
+     */
+    export type WorkRunTypeEnum = typeof WorkRunTypeEnum[keyof typeof WorkRunTypeEnum];
+
+
+    export const WorkRunTypeEnum = {
+      Link: 'link',
+      Action: 'action',
+    } as const;
+
+    /**
+     * Values the page passes to the action, as a JSON object. Null when there are none.
+     * @nullable
+     */
+    export type WorkRunParams = { [key: string]: unknown } | null;
+
+    export interface WorkRun {
+      /** `link` opens `to`. `action` hands `action_id` and `params` to the page, which runs the action.
+       *
+       * * `link` - Link
+       * * `action` - Action */
+      type: WorkRunTypeEnum;
+      /**
+         * Path in the app to open for a `link` run, else null.
+         * @nullable
+         */
+      to: string | null;
+      /**
+         * Id of the action the page runs for an `action` run, else null.
+         * @nullable
+         */
+      action_id: string | null;
+      /**
+         * Values the page passes to the action, as a JSON object. Null when there are none.
+         * @nullable
+         */
+      params: WorkRunParams;
+    }
+
+    export interface WorkHelper {
+      /** `in_place` runs in the thread's own page. `opens` leaves for the product's page.
+       *
+       * * `in_place` - In place
+       * * `opens` - Opens */
+      mode: WorkHelperModeEnum;
+      /** The product that supplies the helper, as a person reads it. */
+      product: string;
+      /** One sentence on what running the helper does. */
+      does: string;
+      /** The values the helper has filled in. */
+      fields: WorkFact[];
+      /** Label of the button that runs the helper, such as Schedule rollout. */
+      run_label: string;
+      /** What the run button does. */
+      run: WorkRun;
+      /** Names of the MCP tools that can do the same. Empty when none can. */
+      mcp_tools: string[];
+    }
+
+    export interface WorkItem {
+      /** Stable type id of the object, such as feature_flag or experiment. */
+      type: string;
+      /** Id of the object. */
+      id: string;
+      /** Name of the object. */
+      name: string;
+      /** What the object is, in lower case, such as experiment. */
+      kind_label: string;
+      /** The product that owns the object, as a person reads it. */
+      product: string;
+      /** Path in the app of the object. */
+      href: string;
+    }
+
+    export interface WorkStartedFrom {
+      /** Label of the option of an earlier step that started this step. */
+      label: string;
+      /** Why that option was offered. */
+      why: string;
+    }
+
+    /**
+     * * `next` - Next
+     * * `alongside` - Alongside
+     */
+    export type WorkOptionKindEnum = typeof WorkOptionKindEnum[keyof typeof WorkOptionKindEnum];
+
+
+    export const WorkOptionKindEnum = {
+      Next: 'next',
+      Alongside: 'alongside',
+    } as const;
+
+    export interface WorkOption {
+      /** Stable key of the option, unique in its step. */
+      key: string;
+      /** `next` moves the line on and closes the step's other next options. `alongside` starts a line that runs beside it.
+       *
+       * * `next` - Next
+       * * `alongside` - Alongside */
+      kind: WorkOptionKindEnum;
+      /** What the option does, as a short label. */
+      label: string;
+      /** Why the option is offered, from the product's own data. */
+      why: string;
+      /**
+         * What has to happen before the option can start. Null when it can start now.
+         * @nullable
+         */
+      gate: string | null;
+      /** What running the option does and how it runs. */
+      helper: WorkHelper;
+    }
+
+    export interface WorkStep {
+      /** Stable key of the step, unique in its thread. */
+      key: string;
+      /** What the step is, as a short title. */
+      title: string;
+      /** One or two sentences about the step. */
+      description: string;
+      /** The area of the thread the step belongs to, such as Release. */
+      area: string;
+      /** The object the step is about. Null when it has none. */
+      item: WorkItem | null;
+      /** Facts about the step's object. */
+      facts: WorkFact[];
+      /**
+         * On a step the line has moved past, the option that was taken. Else null.
+         * @nullable
+         */
+      chosen_label: string | null;
+      /** Why the step exists, when an option of an earlier step started it. Else null. */
+      started_from: WorkStartedFrom | null;
+      /** What the person can do next. Only the last step of a line offers options. */
+      options: WorkOption[];
+      /** Lines that run alongside the step. They do not block the step's own line. */
+      alongside: WorkLine[];
+    }
+
+    export interface WorkLine {
+      /** Stable key of the line, unique in its thread. */
+      key: string;
+      /** Steps in order. Every step but the last is done. */
+      steps: WorkStep[];
+    }
+
+    export interface WorkThread {
+      /** Stable key of the thread. */
+      key: string;
+      /** The goal of the thread, such as Ship the new checkout. */
+      name: string;
+      /** The thread's main line. */
+      line: WorkLine;
+    }
+
+    export interface WorkThreads {
+      /** The source's threads, or only the one about `ref`. */
+      results: WorkThread[];
+    }
+
     export interface WorkflowEmailDetail {
       /** The workflow run that sent the email. */
       invocation_id: string;
@@ -155926,6 +156108,21 @@ export namespace Schemas {
      * Whether to mark the impact sentence. Pass false when the page shows an impact number instead.
      */
     include_impact?: boolean;
+    };
+
+    export type TodayWorkThreadsRetrieveParams = {
+    /**
+     * Id of the one object to read the thread of, such as a release id. Omit it to read every thread the source has for the person.
+     * @minLength 1
+     * @maxLength 200
+     */
+    ref?: string;
+    /**
+     * Name of the work source to read, such as release. Each product declares its own sources.
+     * @minLength 1
+     * @maxLength 200
+     */
+    source: string;
     };
 
     export type TracingRetentionRulesListParams = {

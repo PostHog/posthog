@@ -10,6 +10,7 @@ from django.db.models.signals import post_save
 from posthog.scopes.catalog import APIScopeObject
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.feature_flags.backend.facade.config import is_v1_config
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.product_tours.backend.models import ProductTour
 from products.surveys.backend.models import Survey
@@ -178,6 +179,108 @@ def release_flag_labels(*, team_id: int, flag_ids: list[int]) -> dict[int, Relea
         return {}
     rows = FeatureFlag.objects.filter(team_id=team_id, id__in=flag_ids, deleted=False).values_list("id", "key", "name")
     return {flag_id: ReleaseFlagLabel(id=flag_id, key=key, name=name or "") for flag_id, key, name in rows}
+
+
+@dataclass(frozen=True)
+class ReleaseFlagCondition:
+    property_count: int
+    # None when the condition stores no percentage, which serves everyone it matches.
+    rollout_percentage: float | None
+    variant: str | None
+    aggregation_group_type_index: int | None
+
+
+@dataclass(frozen=True)
+class ReleaseFlagVariant:
+    key: str
+    rollout_percentage: float
+
+
+@dataclass(frozen=True)
+class ReleaseFlagState:
+    """One flag as the release rules read it: its lifecycle and the parts of its config that decide its reach.
+
+    `conditions` and `variants` are empty for a config that is not version 1, because the release rules read only
+    version 1 rollouts.
+    """
+
+    id: int
+    key: str
+    name: str
+    active: bool
+    archived: bool
+    created_at: datetime
+    is_v1_config: bool
+    aggregation_group_type_index: int | None
+    conditions: tuple[ReleaseFlagCondition, ...]
+    variants: tuple[ReleaseFlagVariant, ...]
+    early_exit: bool
+    feature_enrollment: bool
+    holdout_exclusion_percentage: float
+
+
+def _number(value: object) -> float | None:
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        return None
+    return value
+
+
+def _group_type(value: object) -> int | None:
+    return value if isinstance(value, int) and not isinstance(value, bool) else None
+
+
+def _release_flag_state(flag: FeatureFlag) -> ReleaseFlagState:
+    filters = flag.filters if isinstance(flag.filters, dict) else {}
+    v1 = is_v1_config(flag.filters)
+    groups = filters.get("groups") if v1 else None
+    multivariate = filters.get("multivariate") if v1 else None
+    variants = multivariate.get("variants") if isinstance(multivariate, dict) else None
+    holdout = filters.get("holdout")
+    return ReleaseFlagState(
+        id=flag.id,
+        key=flag.key,
+        name=flag.name or "",
+        active=flag.active,
+        archived=flag.archived,
+        created_at=flag.created_at,
+        is_v1_config=v1,
+        aggregation_group_type_index=_group_type(filters.get("aggregation_group_type_index")),
+        conditions=tuple(
+            ReleaseFlagCondition(
+                property_count=len(group.get("properties") or []),
+                rollout_percentage=_number(group.get("rollout_percentage")),
+                variant=group.get("variant") if isinstance(group.get("variant"), str) else None,
+                aggregation_group_type_index=_group_type(group.get("aggregation_group_type_index")),
+            )
+            for group in (groups if isinstance(groups, list) else [])
+            if isinstance(group, dict)
+        ),
+        variants=tuple(
+            ReleaseFlagVariant(key=variant["key"], rollout_percentage=_number(variant.get("rollout_percentage")) or 0)
+            for variant in (variants if isinstance(variants, list) else [])
+            if isinstance(variant, dict) and isinstance(variant.get("key"), str)
+        ),
+        early_exit=bool(filters.get("early_exit")),
+        feature_enrollment=bool(filters.get("feature_enrollment")),
+        holdout_exclusion_percentage=(
+            _number(holdout.get("exclusion_percentage")) or 0 if isinstance(holdout, dict) else 0
+        ),
+    )
+
+
+def release_flag_states(
+    *, team_id: int, flag_ids: list[int], access_control: UserAccessControl | None
+) -> list[ReleaseFlagState]:
+    """The flags of the team among `flag_ids` that are not deleted and that `access_control` lets the viewer see.
+
+    A flag the viewer may not see is left out, so its key, name and config never reach the caller.
+    """
+    if not flag_ids:
+        return []
+    flags = _visible(
+        FeatureFlag.objects.filter(team_id=team_id, id__in=flag_ids, deleted=False), access_control, "feature_flag"
+    ).only("id", "key", "name", "active", "archived", "created_at", "filters", "team_id", "created_by_id")
+    return [_release_flag_state(flag) for flag in flags.order_by("id")]
 
 
 def release_flag_ids_matching(*, team_id: int, terms: list[str], limit: int) -> list[int]:

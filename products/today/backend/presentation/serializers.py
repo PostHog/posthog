@@ -2,6 +2,8 @@
 
 from typing import Any
 
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 from rest_framework_dataclasses.serializers import DataclassSerializer
 
@@ -32,6 +34,15 @@ from ..facade.contracts import (
     ReportPage,
     SignalPreview,
     SignalView,
+    WorkFact,
+    WorkHelper,
+    WorkItem,
+    WorkLine,
+    WorkOption,
+    WorkRun,
+    WorkStartedFrom,
+    WorkStep,
+    WorkThread,
 )
 from ..facade.enums import (
     CitedSource,
@@ -47,6 +58,9 @@ from ..facade.enums import (
     ImpactNumberKey,
     KeyClauseRole,
     PulseSlotStatus,
+    WorkHelperMode,
+    WorkOptionKind,
+    WorkRunType,
 )
 
 
@@ -555,3 +569,150 @@ class HighlightsSerializer(DataclassSerializer):
 
     class Meta:
         dataclass = Highlights
+
+
+class WorkThreadsQuerySerializer(serializers.Serializer):
+    source = serializers.CharField(  # type: ignore[assignment]
+        max_length=200,
+        help_text="Name of the work source to read, such as release. Each product declares its own sources.",
+    )
+    ref = serializers.CharField(
+        required=False,
+        max_length=200,
+        help_text="Id of the one object to read the thread of, such as a release id. Omit it to read every thread the source has for the person.",
+    )
+
+
+class WorkFactSerializer(DataclassSerializer):
+    label = serializers.CharField(help_text="What the value is, such as Rollout.")  # type: ignore[assignment]
+    value = serializers.CharField(help_text="The value as a person reads it, such as 20% of users.")
+
+    class Meta:
+        dataclass = WorkFact
+
+
+@extend_schema_field(OpenApiTypes.OBJECT)
+class WorkRunParamsField(serializers.JSONField):
+    pass
+
+
+class WorkRunSerializer(DataclassSerializer):
+    type = serializers.ChoiceField(
+        choices=WorkRunType.choices,
+        help_text="`link` opens `to`. `action` hands `action_id` and `params` to the page, which runs the action.",
+    )
+    to = serializers.CharField(allow_null=True, help_text="Path in the app to open for a `link` run, else null.")
+    action_id = serializers.CharField(
+        allow_null=True, help_text="Id of the action the page runs for an `action` run, else null."
+    )
+    params = WorkRunParamsField(
+        allow_null=True, help_text="Values the page passes to the action, as a JSON object. Null when there are none."
+    )
+
+    class Meta:
+        dataclass = WorkRun
+
+
+class WorkHelperSerializer(DataclassSerializer):
+    mode = serializers.ChoiceField(
+        choices=WorkHelperMode.choices,
+        help_text="`in_place` runs in the thread's own page. `opens` leaves for the product's page.",
+    )
+    product = serializers.CharField(help_text="The product that supplies the helper, as a person reads it.")
+    does = serializers.CharField(help_text="One sentence on what running the helper does.")
+    fields = WorkFactSerializer(many=True, help_text="The values the helper has filled in.")  # type: ignore[assignment]
+    run_label = serializers.CharField(help_text="Label of the button that runs the helper, such as Schedule rollout.")
+    run = WorkRunSerializer(help_text="What the run button does.")
+    mcp_tools = serializers.ListField(
+        child=serializers.CharField(), help_text="Names of the MCP tools that can do the same. Empty when none can."
+    )
+
+    class Meta:
+        dataclass = WorkHelper
+
+
+class WorkOptionSerializer(DataclassSerializer):
+    key = serializers.CharField(help_text="Stable key of the option, unique in its step.")
+    kind = serializers.ChoiceField(
+        choices=WorkOptionKind.choices,
+        help_text="`next` moves the line on and closes the step's other next options. `alongside` starts a line that runs beside it.",
+    )
+    label = serializers.CharField(help_text="What the option does, as a short label.")  # type: ignore[assignment]
+    why = serializers.CharField(help_text="Why the option is offered, from the product's own data.")
+    gate = serializers.CharField(
+        allow_null=True, help_text="What has to happen before the option can start. Null when it can start now."
+    )
+    helper = WorkHelperSerializer(help_text="What running the option does and how it runs.")
+
+    class Meta:
+        dataclass = WorkOption
+
+
+class WorkItemSerializer(DataclassSerializer):
+    type = serializers.CharField(help_text="Stable type id of the object, such as feature_flag or experiment.")
+    id = serializers.CharField(help_text="Id of the object.")
+    name = serializers.CharField(help_text="Name of the object.")
+    kind_label = serializers.CharField(help_text="What the object is, in lower case, such as experiment.")
+    product = serializers.CharField(help_text="The product that owns the object, as a person reads it.")
+    href = serializers.CharField(help_text="Path in the app of the object.")
+
+    class Meta:
+        dataclass = WorkItem
+
+
+class WorkStartedFromSerializer(DataclassSerializer):
+    label = serializers.CharField(help_text="Label of the option of an earlier step that started this step.")  # type: ignore[assignment]
+    why = serializers.CharField(help_text="Why that option was offered.")
+
+    class Meta:
+        dataclass = WorkStartedFrom
+
+
+class WorkStepSerializer(DataclassSerializer):
+    key = serializers.CharField(help_text="Stable key of the step, unique in its thread.")
+    title = serializers.CharField(help_text="What the step is, as a short title.")
+    description = serializers.CharField(help_text="One or two sentences about the step.")
+    area = serializers.CharField(help_text="The area of the thread the step belongs to, such as Release.")
+    item = WorkItemSerializer(allow_null=True, help_text="The object the step is about. Null when it has none.")
+    facts = WorkFactSerializer(many=True, help_text="Facts about the step's object.")
+    chosen_label = serializers.CharField(
+        allow_null=True, help_text="On a step the line has moved past, the option that was taken. Else null."
+    )
+    started_from = WorkStartedFromSerializer(
+        allow_null=True, help_text="Why the step exists, when an option of an earlier step started it. Else null."
+    )
+    options = WorkOptionSerializer(
+        many=True, help_text="What the person can do next. Only the last step of a line offers options."
+    )
+
+    class Meta:
+        dataclass = WorkStep
+
+    def get_fields(self) -> dict[str, serializers.Field]:
+        fields = super().get_fields()
+        # A line holds steps and a step holds lines, so this field cannot be declared before WorkLineSerializer.
+        fields["alongside"] = WorkLineSerializer(
+            many=True, help_text="Lines that run alongside the step. They do not block the step's own line."
+        )
+        return fields
+
+
+class WorkLineSerializer(DataclassSerializer):
+    key = serializers.CharField(help_text="Stable key of the line, unique in its thread.")
+    steps = WorkStepSerializer(many=True, help_text="Steps in order. Every step but the last is done.")
+
+    class Meta:
+        dataclass = WorkLine
+
+
+class WorkThreadSerializer(DataclassSerializer):
+    key = serializers.CharField(help_text="Stable key of the thread.")
+    name = serializers.CharField(help_text="The goal of the thread, such as Ship the new checkout.")
+    line = WorkLineSerializer(help_text="The thread's main line.")
+
+    class Meta:
+        dataclass = WorkThread
+
+
+class WorkThreadsSerializer(serializers.Serializer):
+    results = WorkThreadSerializer(many=True, help_text="The source's threads, or only the one about `ref`.")

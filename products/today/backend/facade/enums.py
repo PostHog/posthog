@@ -81,3 +81,18 @@ class HighlightInterval(LabeledStrEnum):
     DAY = "day", "Day"
     WEEK = "week", "Week"
     MONTH = "month", "Month"
+
+
+class WorkOptionKind(LabeledStrEnum):
+    NEXT = "next", "Next"
+    ALONGSIDE = "alongside", "Alongside"
+
+
+class WorkHelperMode(LabeledStrEnum):
+    IN_PLACE = "in_place", "In place"
+    OPENS = "opens", "Opens"
+
+
+class WorkRunType(LabeledStrEnum):
+    LINK = "link", "Link"
+    ACTION = "action", "Action"

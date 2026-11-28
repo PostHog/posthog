@@ -20,6 +20,8 @@ import type {
     SetHiddenPulseNumbersApi,
     TodayHighlightsRetrieveParams,
     TodayReportsKeyClausesRetrieveParams,
+    TodayWorkThreadsRetrieveParams,
+    WorkThreadsApi,
 } from './api.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
@@ -217,6 +219,37 @@ export const todayReportsPageRetrieve = async (
     options?: RequestInit
 ): Promise<ReportPageApi> => {
     return apiMutator<ReportPageApi>(getTodayReportsPageRetrieveUrl(projectId, reportId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getTodayWorkThreadsRetrieveUrl = (projectId: string, params: TodayWorkThreadsRetrieveParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/today/work_threads/?${stringifiedParams}`
+        : `/api/projects/${projectId}/today/work_threads/`
+}
+
+/**
+ * The work threads of one source: each is a goal, such as shipping a feature, as a line of steps about releases, flags or experiments. The last step of a line offers what the person can do next. The product that owns the data builds the threads when they are read. Pass `ref` to read only the thread about one object. 400 when no product declares the source. 403 when the person's access controls, or a scoped key, do not cover the scopes the source needs, which come on top of today:read. 404 when the person does not have the new navigation.
+ * @summary Get work threads
+ */
+export const todayWorkThreadsRetrieve = async (
+    projectId: string,
+    params: TodayWorkThreadsRetrieveParams,
+    options?: RequestInit
+): Promise<WorkThreadsApi> => {
+    return apiMutator<WorkThreadsApi>(getTodayWorkThreadsRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
     })

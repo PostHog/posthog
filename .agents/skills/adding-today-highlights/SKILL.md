@@ -1,6 +1,6 @@
 ---
 name: adding-today-highlights
-description: Add a "For you today" highlight source, the rule that turns a product's facts into items on the Today home page (firing alerts, flags that lose reach, ticket SLA breaches, workflow failures). Use when asked to "add a Today highlight", "show X in For you today", "surface X on the home page", or when changing an existing source's query, thresholds, copy or icon. Covers where the rule and its declaration live, the Today facade contract, scopes, caching, ranking inputs, tests, and the frontend icon.
+description: Add a "For you today" highlight source, the rule that turns a product's facts into items on the Today home page (firing alerts, flags that lose reach, ticket SLA breaches, workflow failures). Use when asked to "add a Today highlight", "show X in For you today", "surface X on the home page", or when changing an existing source's query, thresholds, copy or icon. Covers where the rule and its declaration live, the Today facade contract, scopes, caching, ranking inputs, tests, and the frontend icon. Also covers declaring a work thread source (`WORK_SOURCES`, `WorkSource`, `WorkThread`), the goal-as-a-line-of-steps view a product builds from its own data.
 ---
 
 # Adding a Today highlight source
@@ -63,6 +63,28 @@ Each `HighlightCandidate` carries what Today ranks on:
 - `key`: stable for the same fact on the same day, for example `flag_reach_drop:<id>`.
 
 Copy follows `/writing-user-facing-copy`: one sentence with numbers in `title`, the comparison and the next action in `detail`.
+
+## Work thread sources
+
+A work thread is one goal, such as shipping a feature, as a line of steps about a release, a flag or an experiment.
+The product that owns the data builds its threads when they are read, and Today serves them at `GET /api/projects/:id/today/work_threads/?source=<name>&ref=<id>`.
+Nothing is stored, so a source needs no model and no migration.
+
+1. Write `find` in the product's internals. It takes a `WorkContext` (`team`, `user`, `ref`, the id of the one object asked about, or None for every thread the viewer has, and `scopes`, the API scopes of the viewer's key, or None when scopes do not limit the request) and returns a `list[WorkThread]`.
+   Read only `context.team`'s data, and leave out what `context.scopes` do not let the viewer read.
+2. Declare it in `products/<x>/backend/facade/today_work.py` as `WORK_SOURCES = (WorkSource(name="release", find=find_release_work_threads, scopes=("feature_flag:read",)),)`.
+3. Test `find` in the product, and pass its result to `products.today.backend.facade.testing.assert_work_threads_well_formed`.
+
+The types are in `facade/contracts.py` (`WorkThread`, `WorkLine`, `WorkStep`, `WorkOption`, `WorkHelper`, `WorkRun`, `WorkItem`, `WorkFact`, `WorkStartedFrom`) and `facade/enums.py` (`WorkOptionKind`, `WorkHelperMode`, `WorkRunType`).
+The frontend draws them with the generated types (`WorkThreadApi` and the others in `products/today/frontend/generated/api.schemas.ts`), so run `hogli build:openapi` after a change to their serializers.
+
+Rules that are easy to get wrong:
+
+- **The source name is a stable key**, because callers ask for threads by it. The registry raises on a name that another product already uses.
+- **`scopes`** lists the API scopes the viewer needs on top of `today:read`. The endpoint answers 403 when a key's scopes or the viewer's access controls do not cover them.
+- **Today rejects a malformed result** with a 500 that names the source: thread keys repeated in the result, line or step keys repeated in a thread (alongside lines included), option keys repeated in a step, a line without steps, or options on a step that is not the last of its line.
+- **A `WorkRun`** of type `link` needs `to` and no `action_id`. One of type `action` needs `action_id` and no `to`. The page that draws the thread runs each `action_id`, so a new one needs a handler there too.
+- **An option the viewer may not use gets a `gate`, not a gap.** A last step with no `next` option reads as done, so keep the option and say in `gate` who can do it.
 
 ## Limits
 

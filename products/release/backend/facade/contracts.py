@@ -235,3 +235,69 @@ class CreateReleaseInput:
 class ImportFlag:
     id: int
     key: str
+
+
+@dataclass(frozen=True)
+class WorkFlagCondition:
+    property_count: int
+    rollout_percentage: float | None
+    variant: str | None
+    aggregation_group_type_index: int | None
+
+
+@dataclass(frozen=True)
+class WorkFlagVariant:
+    key: str
+    rollout_percentage: float
+
+
+@dataclass(frozen=True)
+class WorkFlag:
+    id: int
+    key: str
+    active: bool
+    archived: bool
+    created_at: datetime
+    is_v1_config: bool
+    aggregation_group_type_index: int | None
+    conditions: tuple[WorkFlagCondition, ...]
+    variants: tuple[WorkFlagVariant, ...]
+    early_exit: bool
+    feature_enrollment: bool
+    holdout_exclusion_percentage: float
+
+
+@dataclass(frozen=True)
+class WorkExperiment:
+    id: int
+    name: str
+    feature_flag_key: str
+    # draft, running, paused, exposure_frozen or stopped, as the experiments API reports it.
+    status: str
+    start_date: datetime | None
+    end_date: datetime | None
+    archived: bool
+    conclusion: str | None
+    conclusion_comment: str | None
+
+
+@dataclass(frozen=True)
+class WorkEarlyAccessFeature:
+    id: UUID
+    name: str
+    stage: str
+    created_at: datetime
+    feature_flag_id: int
+
+
+@dataclass(frozen=True)
+class ReleaseFlagDetails:
+    """What the viewer may see of a release's flags, their experiments and their early access features.
+
+    `incomplete_flag_ids` names the flags with an experiment or an early access feature the viewer may not see.
+    """
+
+    flags: tuple[WorkFlag, ...]
+    experiments: tuple[WorkExperiment, ...]
+    early_access_features: tuple[WorkEarlyAccessFeature, ...]
+    incomplete_flag_ids: frozenset[int]

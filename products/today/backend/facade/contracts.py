@@ -23,6 +23,9 @@ from .enums import (
     ImpactNumberKey,
     KeyClauseRole,
     PulseSlotStatus,
+    WorkHelperMode,
+    WorkOptionKind,
+    WorkRunType,
 )
 
 if TYPE_CHECKING:
@@ -350,3 +353,141 @@ class HighlightSource:
     scopes: tuple[str, ...] = ()
     pulse_order: int = 0
     number_names: Callable[["Team", "User", list[str]], dict[str, str]] | None = None
+
+
+@dataclass(frozen=True)
+class WorkFact:
+    label: str
+    value: str
+
+
+@dataclass(frozen=True)
+class WorkRun:
+    """What the run button of a helper does: open `to`, or hand `action_id` and `params` to the page."""
+
+    type: WorkRunType
+    to: str | None = None
+    action_id: str | None = None
+    params: dict[str, Any] | None = None
+
+    def __post_init__(self) -> None:
+        if self.type == WorkRunType.LINK and (not self.to or self.action_id is not None):
+            raise ValueError("A link run needs `to` and no `action_id`")
+        if self.type == WorkRunType.ACTION and (not self.action_id or self.to is not None):
+            raise ValueError("An action run needs `action_id` and no `to`")
+
+
+@dataclass(frozen=True)
+class WorkHelper:
+    mode: WorkHelperMode
+    # The product that supplies the helper, as a person reads it: "Feature flags".
+    product: str
+    does: str
+    fields: list[WorkFact]
+    run_label: str
+    run: WorkRun
+    mcp_tools: list[str]
+
+
+@dataclass(frozen=True)
+class WorkOption:
+    # Unique in its step and stable: the frontend uses it in `data-attr` values and analytics.
+    key: str
+    kind: WorkOptionKind
+    label: str
+    why: str
+    helper: WorkHelper
+    # Set while the option cannot start. Says what opens it.
+    gate: str | None = None
+
+
+@dataclass(frozen=True)
+class WorkItem:
+    # A stable type id, such as "feature_flag".
+    type: str
+    id: str
+    name: str
+    # Lower case, as it reads after "View": "experiment".
+    kind_label: str
+    product: str
+    href: str
+
+
+@dataclass(frozen=True)
+class WorkStartedFrom:
+    label: str
+    why: str
+
+
+@dataclass(frozen=True)
+class WorkStep:
+    # Unique in its thread, alongside lines included.
+    key: str
+    title: str
+    description: str
+    area: str
+    item: WorkItem | None
+    facts: list[WorkFact]
+    # Only the last step of a line offers options.
+    options: list[WorkOption]
+    alongside: list["WorkLine"]
+    chosen_label: str | None = None
+    started_from: WorkStartedFrom | None = None
+
+
+@dataclass(frozen=True)
+class WorkLine:
+    # Steps in order. Every step but the last is done.
+    key: str
+    steps: list[WorkStep]
+
+
+@dataclass(frozen=True)
+class WorkThread:
+    key: str
+    name: str
+    line: WorkLine
+
+
+@frozen
+class WorkContext:
+    """What Today gives a work source's `find`.
+
+    `ref` is the id of the one object the caller asks about, such as a release id.
+    None asks for every thread the source has for the viewer.
+
+    `scopes` are the API scopes of the viewer's key, such as `survey:read`, or None when the request
+    is not limited by scopes. A source leaves out what the scopes do not let the viewer read.
+    """
+
+    team: "Team"
+    user: "User"
+    ref: str | None
+    scopes: frozenset[str] | None = None
+
+
+@frozen
+class WorkSource:
+    """A product's contribution to work threads.
+
+    A product declares its sources in `WORK_SOURCES` in `backend/facade/today_work.py`.
+    Today finds that module by name, so a new source changes no file in Today.
+    """
+
+    # Unique across products and stable: callers ask for threads by this name, so a rename breaks them.
+    name: str
+    find: Callable[[WorkContext], list[WorkThread]]
+    # Today refuses the source when the viewer's API scopes or access controls do not cover these.
+    scopes: tuple[str, ...] = ()
+
+
+class UnknownWorkSource(Exception):
+    pass
+
+
+class WorkSourceNotAllowed(Exception):
+    pass
+
+
+class WorkThreadInvalid(Exception):
+    """A work source returned threads the frontend cannot draw. The message names the source."""

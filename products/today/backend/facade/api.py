@@ -14,6 +14,7 @@ from ..logic import (
     highlights,
     pulse_pins,
     report_page as report_pages,
+    work_threads,
 )
 from ..logic.jev import GatewayJev
 from . import contracts
@@ -78,3 +79,19 @@ def set_hidden_pulse_numbers(
 ) -> contracts.HiddenPulseNumbers:
     kept = pulse_pins.set_hidden(team=team, user_id=user.id, keys=keys)
     return contracts.HiddenPulseNumbers(hidden=pulse_pins.named_hidden(team=team, user=user, keys=kept, scopes=scopes))
+
+
+def work_source_scopes(source: str) -> tuple[str, ...]:
+    """The API scopes a viewer needs for the work source. Raises `UnknownWorkSource` for a name no product declares."""
+    return work_threads.find_source(source).scopes
+
+
+def get_work_threads(
+    *, team: Team, user: User, source: str, ref: str | None, scopes: frozenset[str] | None
+) -> list[contracts.WorkThread]:
+    """The source's threads for the viewer, or only the one about `ref`.
+
+    Raises `UnknownWorkSource`, `WorkSourceNotAllowed` when the viewer's scopes or access controls do not cover
+    the source, and `WorkThreadInvalid` when the source returns threads the frontend cannot draw.
+    """
+    return work_threads.get_work_threads(team=team, user=user, source_name=source, ref=ref, scopes=scopes)

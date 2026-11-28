@@ -20,6 +20,12 @@ def list_releases(team_id: int) -> QuerySet[Release]:
     return strict_fetch(Release.objects.filter(team_id=team_id).select_related("owner").order_by("created_at", "id"))
 
 
+def list_recently_updated_releases(team_id: int, limit: int) -> QuerySet[Release]:
+    return strict_fetch(Release.objects.filter(team_id=team_id).select_related("owner").order_by("-updated_at", "-id"))[
+        :limit
+    ]
+
+
 def list_catalog_releases(
     team_id: int,
     search: str,

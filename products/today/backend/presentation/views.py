@@ -8,7 +8,7 @@ import structlog
 from drf_spectacular.utils import OpenApiResponse
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import APIException, NotFound, PermissionDenied
+from rest_framework.exceptions import APIException, NotFound, PermissionDenied, ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.throttling import BaseThrottle, UserRateThrottle
@@ -36,6 +36,8 @@ from .serializers import (
     ReportKeyClausesSerializer,
     ReportPageSerializer,
     SetHiddenPulseNumbersSerializer,
+    WorkThreadsQuerySerializer,
+    WorkThreadsSerializer,
 )
 
 logger = structlog.get_logger(__name__)
@@ -90,6 +92,17 @@ class TodayViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     scope_object = "today"
     scope_object_read_actions = ["excerpt_choice", "highlights", "pulse_pins"]
     scope_object_write_actions = ["set_pulse_pins", "set_hidden_pulse_numbers"]
+    request_dependent_scope_actions = frozenset({"work_threads"})
+
+    def dangerously_get_required_scopes(self, request: Request, view: object = None) -> list[str] | None:
+        if self.action != "work_threads":
+            return None
+        # A name no product declares needs only today:read here, so the action can answer it with a 400.
+        try:
+            source_scopes = api.work_source_scopes(request.query_params.get("source", ""))
+        except contracts.UnknownWorkSource:
+            source_scopes = ()
+        return ["today:read", *source_scopes]
 
     def get_throttles(self) -> list[BaseThrottle]:
         if self.action in ("set_pulse_pins", "set_hidden_pulse_numbers"):
@@ -270,3 +283,34 @@ class TodayViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 excerpts=request.validated_data["excerpts"],
             )
         return Response(ExcerptChoiceSerializer({"index": index}).data)
+
+    @validated_request(
+        query_serializer=WorkThreadsQuerySerializer,
+        responses={200: OpenApiResponse(response=WorkThreadsSerializer)},
+        summary="Get work threads",
+        description="The work threads of one source: each is a goal, such as shipping a feature, as a line of steps about releases, flags or experiments. The last step of a line offers what the person can do next. The product that owns the data builds the threads when they are read. Pass `ref` to read only the thread about one object. 400 when no product declares the source. 403 when the person's access controls, or a scoped key, do not cover the scopes the source needs, which come on top of today:read. 404 when the person does not have the new navigation.",
+    )
+    @action(detail=False, methods=["get"], url_path="work_threads")
+    def work_threads(self, request: Request, **kwargs) -> Response:
+        user = cast(User, request.user)
+        if not api.is_enabled_for(user, self.team):
+            raise NotFound()
+        scopes = get_authenticator_scopes(request.successful_authenticator)
+        source = request.validated_query_data["source"]
+        try:
+            threads = api.get_work_threads(
+                team=self.team,
+                user=user,
+                source=source,
+                ref=request.validated_query_data.get("ref"),
+                scopes=None if scopes is None else frozenset(scopes),
+            )
+        except contracts.UnknownWorkSource as error:
+            raise ValidationError(
+                {"source": [f"There is no work source named {source!r}. Check the source name."]}
+            ) from error
+        except contracts.WorkSourceNotAllowed as error:
+            raise PermissionDenied(
+                f"You don't have access to the data that the work source {source!r} reads. Ask a project admin for access."
+            ) from error
+        return Response(WorkThreadsSerializer({"results": threads}).data)
