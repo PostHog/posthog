@@ -27,7 +27,7 @@ describe('statusDisplay', () => {
         it.each([
             [
                 'provider_key_required' as const,
-                'Add a provider API key in settings, then re-enable the evaluation to resume running.',
+                'Choose a model with a working provider API key, adding one in settings if needed, then re-enable the evaluation to resume running.',
             ],
             [
                 'provider_key_deleted' as const,

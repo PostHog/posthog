@@ -66,28 +66,26 @@ export function evaluationTypeUsesProviderKey(evaluationType: EvaluationType | n
     return evaluationTypeUsesModelConfiguration(evaluationType)
 }
 
+/** Enabling a judge needs a pinned key. */
 export function evaluationCanResolveModel(
-    evaluation: Pick<EvaluationConfig, 'evaluation_type' | 'model_configuration'>,
-    // undefined = the team's evaluation config hasn't loaded yet — stay permissive rather than
-    // flashing a disabled state; null = loaded, and there is no active key.
-    activeProviderKey: Pick<LLMProviderKey, 'provider' | 'state'> | null | undefined
+    evaluation: Pick<EvaluationConfig, 'evaluation_type' | 'model_configuration'>
 ): boolean {
-    if (!evaluationTypeUsesProviderKey(evaluation.evaluation_type)) {
-        return true
+    return (
+        !evaluationTypeUsesProviderKey(evaluation.evaluation_type) || !!evaluation.model_configuration?.provider_key_id
+    )
+}
+
+/** Why a judge can't be turned on yet, or null when it can. */
+export function evaluationEnableBlockedReason(
+    evaluation: Pick<EvaluationConfig, 'evaluation_type' | 'model_configuration'>,
+    providerKeys: Pick<LLMProviderKey, 'state'>[]
+): string | null {
+    if (evaluationCanResolveModel(evaluation)) {
+        return null
     }
-    if (evaluation.model_configuration?.provider_key_id) {
-        return true
-    }
-    if (activeProviderKey === undefined) {
-        return true
-    }
-    // No pinned key: the eval falls back to the team's active key, which must be healthy and —
-    // when the eval has an explicit model configuration — belong to the same provider (mirrors
-    // `active_key_fallback` in model_resolution.py).
-    if (activeProviderKey === null || activeProviderKey.state !== 'ok') {
-        return false
-    }
-    return !evaluation.model_configuration || evaluation.model_configuration.provider === activeProviderKey.provider
+    return providerKeys.some((key) => key.state === 'ok')
+        ? 'Choose a model with a provider API key to enable this evaluation.'
+        : 'Add a provider API key, then choose a model with it to enable this evaluation.'
 }
 
 export function evaluationTypeDefaultsToBooleanOutput(evaluationType: EvaluationType | null | undefined): boolean {

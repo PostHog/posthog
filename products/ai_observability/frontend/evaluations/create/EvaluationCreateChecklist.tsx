@@ -72,7 +72,7 @@ export function EvaluationCreateChecklist({
                     <span className="text-sm font-semibold">Ready to create</span>
                     <span className="text-xs text-secondary">
                         {startsPaused
-                            ? 'It starts paused. Add a provider API key, then turn it on.'
+                            ? 'It starts paused. Add a provider API key, choose a model with it, then turn it on.'
                             : 'Everything it needs is set.'}
                     </span>
                 </span>

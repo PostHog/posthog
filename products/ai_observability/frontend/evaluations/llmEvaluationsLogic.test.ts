@@ -196,45 +196,34 @@ describe('llmEvaluationsLogic', () => {
             expect(logic.values.canEnableEvaluation(evaluationWithKey('llm-default', null))).toBe(false)
         })
 
-        it('an active team key unlocks keyless llm_judge evaluations', async () => {
+        it('only a pinned key lets an llm_judge evaluation be enabled, whatever the active key', async () => {
             keysLogic.actions.loadEvaluationConfigSuccess({
                 active_provider_key: mockProviderKeys[0],
                 created_at: '2024-01-01T00:00:00Z',
                 updated_at: '2024-01-01T00:00:00Z',
             })
-
-            expect(logic.values.canEnableEvaluation(evaluationWithKey('llm-default', null))).toBe(true)
-        })
-
-        it('the active key must be healthy and match an explicit keyless config provider', async () => {
             const explicitKeyless: LLMJudgeEvaluation = {
                 ...evaluationWithKey('llm-explicit', null),
                 model_configuration: { provider: 'openai', model: 'gpt-5-mini', provider_key_id: null },
             }
 
-            // Unhealthy active key resolves nothing.
-            keysLogic.actions.loadEvaluationConfigSuccess({
-                active_provider_key: mockProviderKeys[1],
-                created_at: '2024-01-01T00:00:00Z',
-                updated_at: '2024-01-01T00:00:00Z',
-            })
             expect(logic.values.canEnableEvaluation(evaluationWithKey('llm-default', null))).toBe(false)
-
-            // Healthy, but for a different provider than the explicit config.
-            keysLogic.actions.loadEvaluationConfigSuccess({
-                active_provider_key: { ...mockProviderKeys[1], state: 'ok' },
-                created_at: '2024-01-01T00:00:00Z',
-                updated_at: '2024-01-01T00:00:00Z',
-            })
             expect(logic.values.canEnableEvaluation(explicitKeyless)).toBe(false)
+            expect(logic.values.canEnableEvaluation(evaluationWithKey('llm-pinned', 'key-ok'))).toBe(true)
+        })
 
-            // Healthy and matching.
-            keysLogic.actions.loadEvaluationConfigSuccess({
-                active_provider_key: mockProviderKeys[0],
-                created_at: '2024-01-01T00:00:00Z',
-                updated_at: '2024-01-01T00:00:00Z',
-            })
-            expect(logic.values.canEnableEvaluation(explicitKeyless)).toBe(true)
+        it.each([
+            ['has a working key', 'ok', 'Choose a model with a provider API key to enable this evaluation.'],
+            [
+                'has no working key',
+                'invalid',
+                'Add a provider API key, then choose a model with it to enable this evaluation.',
+            ],
+        ] as const)('tells a team that %s what a keyless judge needs', async (_name, state, reason) => {
+            keysLogic.actions.loadProviderKeysSuccess([{ ...mockProviderKeys[0], state }])
+
+            expect(logic.values.enableEvaluationReason(evaluationWithKey('llm-default', null))).toBe(reason)
+            expect(logic.values.enableEvaluationReason(evaluationWithKey('llm-pinned', 'key-ok'))).toBeNull()
         })
 
         it('returns unhealthy keys used by evaluations without duplicates', async () => {

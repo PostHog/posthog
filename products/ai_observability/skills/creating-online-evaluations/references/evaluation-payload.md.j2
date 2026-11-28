@@ -136,12 +136,11 @@ Empty object: `{}`.
 | ----------------- | -------- | ------------------------------------------------------------------------------ |
 | `provider`        | yes      | One of `openai`, `anthropic`, `gemini`, `openrouter`, `fireworks`, `azure_openai`, `together_ai`. |
 | `model`           | yes      | Model id, e.g. `gpt-6-luna`. Validate against `llma-evaluation-judge-models`.  |
-| `provider_key_id` | no       | UUID of an `ok`-state key for the same provider, or `null` to use the active team key. |
+| `provider_key_id` | no       | UUID of an `ok`-state key for the same provider. Needed to enable the evaluation. |
 
-`provider` and `model` are required. Pin `provider_key_id` to run on one specific key, or set it to `null`
-to run on the team's active key — both save a valid draft. To enable an unpinned eval, the active key must
-be `ok` and use the same provider (`llma-evaluation-config-get` shows it). A disabled draft may be saved
-without a usable key, but it cannot be tested or enabled until a key can be resolved.
+`provider` and `model` are required. Enabling the evaluation also needs `provider_key_id` pinned to an
+`ok`-state key for the same provider. A disabled draft may be saved with `provider_key_id: null`, but it
+cannot be tested or enabled until a key is pinned.
 
 ## `conditions`
 
@@ -243,6 +242,5 @@ and `item.output` when exact structure matters.
 }
 ```
 
-`provider_key_id: null` runs on the team's active key and always saves a valid draft. Pin it to an
-`ok`-state key uuid from `llma-provider-key-list` to run on one specific key. To enable an unpinned eval,
-the team's active key must be `ok` and its provider `openai`.
+`provider_key_id: null` saves a valid disabled draft. Pin it to an `ok`-state key uuid from
+`llma-provider-key-list` before enabling the evaluation.

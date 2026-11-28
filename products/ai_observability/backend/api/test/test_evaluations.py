@@ -639,8 +639,6 @@ class TestEvaluationConfigsApi(APIBaseTest):
             encrypted_config={"api_key": "sk-test"},
             created_by=self.user,
         )
-        if provider == "openai":
-            EvaluationConfig.objects.create(team=self.team, active_provider_key=key)
         response = self.client.post(
             f"/api/environments/{self.team.id}/evaluations/",
             {
@@ -648,9 +646,7 @@ class TestEvaluationConfigsApi(APIBaseTest):
                 "description": "Test Description",
                 "enabled": True,
                 "evaluation_type": "llm_judge",
-                "model_configuration": {"provider": provider, "model": model, "provider_key_id": str(key.id)}
-                if provider == "system_one"
-                else _DEFAULT_MODEL_CONFIGURATION,
+                "model_configuration": {"provider": provider, "model": model, "provider_key_id": str(key.id)},
                 "evaluation_config": config,
                 "output_type": "boolean",
                 "output_config": {"decision_threshold": threshold} if threshold is not None else {},
@@ -2472,10 +2468,7 @@ class TestEvaluationSamplePreviews(ClickhouseTestMixin, APIBaseTest):
 
 
 class TestEnableBlockingWhenKeyRequired(APIBaseTest):
-    """Enabling a keyless llm_judge eval must mirror the runtime provider-key gate: a config with
-    no pinned key falls back to the team's active key for the same provider, else the eval needs a
-    provider key of its own. Anything the serializer lets through here would just flap back to
-    disabled on the next Temporal run."""
+    """Enabling an llm_judge eval needs a pinned provider key. The project's active key does not count."""
 
     def _create_keyless_eval(self, model_configuration=...):
         if model_configuration is ...:
@@ -2512,15 +2505,19 @@ class TestEnableBlockingWhenKeyRequired(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("explicit_config_no_key", True, False, "doesn't have a working one yet"),
-            ("null_config_no_key", False, False, "doesn't have a working one yet"),
-            ("explicit_config_unused_key", True, True, "isn't set to use it"),
-            ("null_config_unused_key", False, True, "isn't set to use it"),
+            ("explicit_config_no_key", True, None, "doesn't have a working one yet"),
+            ("null_config_no_key", False, None, "doesn't have a working one yet"),
+            ("explicit_config_unused_key", True, "unused", "doesn't use one"),
+            ("null_config_unused_key", False, "unused", "doesn't use one"),
+            ("explicit_config_active_key", True, "active", "doesn't use one"),
+            ("null_config_active_key", False, "active", "doesn't use one"),
         ]
     )
-    def test_blocks_enabling_keyless_eval_without_key(self, _name, explicit_config, has_unused_key, expected):
-        if has_unused_key:
-            self._create_active_key()
+    def test_blocks_enabling_keyless_eval_without_key(self, _name, explicit_config, project_key, expected):
+        if project_key:
+            key = self._create_active_key()
+            if project_key == "active":
+                EvaluationConfig.objects.create(team=self.team, active_provider_key=key)
         eval_obj = (
             self._create_keyless_eval() if explicit_config else self._create_keyless_eval(model_configuration=None)
         )
@@ -2532,44 +2529,29 @@ class TestEnableBlockingWhenKeyRequired(APIBaseTest):
         eval_obj.refresh_from_db()
         self.assertFalse(eval_obj.enabled)
 
-    def test_active_team_key_enables_explicit_keyless_eval(self):
-        # An explicit config with no pinned key falls back to the team's active key for the same
-        # provider (mirrors runtime resolution).
+    @parameterized.expand(
+        [
+            ("unpin_model", {"model_configuration": _DEFAULT_MODEL_CONFIGURATION}, status.HTTP_400_BAD_REQUEST),
+            ("rename", {"name": "Renamed"}, status.HTTP_200_OK),
+        ]
+    )
+    def test_an_enabled_judge_cannot_lose_its_key(self, _name, payload, expected_status):
         key = self._create_active_key()
-        EvaluationConfig.objects.create(team=self.team, active_provider_key=key)
-        eval_obj = self._create_keyless_eval()
+        eval_obj = self._create_keyless_eval(
+            model_configuration=LLMModelConfiguration.objects.create(
+                team=self.team, provider="openai", model="gpt-5-mini", provider_key=key
+            )
+        )
+        Evaluation.objects.filter(id=eval_obj.id).update(enabled=True)
 
-        response = self._enable(eval_obj)
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/evaluations/{eval_obj.id}/", payload, format="json"
+        )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.status_code, expected_status, response.data)
         eval_obj.refresh_from_db()
-        self.assertTrue(eval_obj.enabled)
-
-    def test_active_team_key_enables_null_config_eval(self):
-        # Null configs resolve via the active key at runtime — the gate must not over-block them.
-        key = self._create_active_key()
-        EvaluationConfig.objects.create(team=self.team, active_provider_key=key)
-        eval_obj = self._create_keyless_eval(model_configuration=None)
-
-        response = self._enable(eval_obj)
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        eval_obj.refresh_from_db()
-        self.assertTrue(eval_obj.enabled)
-
-    def test_unhealthy_active_key_blocks_null_config_eval(self):
-        key = self._create_active_key()
-        key.state = LLMProviderKey.State.INVALID
-        key.save()
-        EvaluationConfig.objects.create(team=self.team, active_provider_key=key)
-        eval_obj = self._create_keyless_eval(model_configuration=None)
-
-        response = self._enable(eval_obj)
-
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("working provider API key", str(response.data))
-        eval_obj.refresh_from_db()
-        self.assertFalse(eval_obj.enabled)
+        assert eval_obj.model_configuration is not None
+        self.assertEqual(eval_obj.model_configuration.provider_key_id, key.id)
 
     def test_blocks_creating_enabled_keyless_eval_without_key(self):
         response = self.client.post(
