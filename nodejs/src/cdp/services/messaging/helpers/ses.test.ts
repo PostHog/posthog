@@ -282,11 +282,17 @@ describe('SesWebhookHandler', () => {
                 link: `https://example.com/p/${header}.${payload.slice(0, 10)}%0D%0A${payload.slice(10)}.${signature}/`,
                 origin: 'https://example.com',
             },
+            {
+                case: 'a link without a host',
+                link: `mailto:to@example.com?body=${encodeURIComponent(preferencesUrl)}`,
+                origin: 'mailto:',
+            },
         ])('records only the origin for $case', async ({ link, origin }) => {
             const { recorded, perLink } = await clickedLink(link)
             expect(recorded).toEqual(origin)
             expect(perLink).toEqual(expect.any(String))
-            expect(perLink).not.toContain(signature)
+            expect(perLink).not.toContain(payload.slice(0, 16))
+            expect(perLink).not.toContain(signature.slice(0, 16))
         })
 
         it('keeps a click on the preferences page in the per-link bucket it had before', async () => {
