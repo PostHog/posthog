@@ -1,12 +1,16 @@
-from dataclasses import field
+from dataclasses import field, replace
 from typing import Any, Literal
 
 from products.warehouse_sources.sources.dagster_cloud.queries import (
+    ASSET_CHECK_EXECUTIONS_QUERY,
+    ASSET_CHECK_PARENTS_QUERY,
     ASSET_MATERIALIZATIONS_QUERY,
     ASSET_NODES_QUERY,
     ASSET_OBSERVATIONS_QUERY,
+    ASSET_SLAS_QUERY,
     ASSETS_QUERY,
     BACKFILLS_QUERY,
+    CODE_LOCATIONS_QUERY,
     CUSTOM_ROLES_QUERY,
     DEPLOYMENTS_QUERY,
     INSTIGATION_STATES_QUERY,
@@ -18,6 +22,7 @@ from products.warehouse_sources.sources.dagster_cloud.queries import (
     REPORTING_METRICS_BY_DEPLOYMENT_QUERY,
     REPORTING_METRICS_BY_JOB_QUERY,
     REPOSITORIES_QUERY,
+    REPOSITORY_CATALOG_QUERY,
     RUN_LOGS_QUERY,
     RUNS_QUERY,
     SCHEDULES_QUERY,
@@ -50,7 +55,7 @@ DAGSTER_CLOUD_INSIGHTS_LOOKBACK_DAYS = 120
 CursorMode = Literal["row", "connection"]
 
 # Which collection a fan-out child iterates one request at a time.
-ParentKind = Literal["repositories", "assets", "instigation_states", "runs"]
+ParentKind = Literal["repositories", "assets", "asset_checks", "instigation_states", "runs"]
 
 # Wire type of a windowed child's timestamp bounds: assetMaterializations/assetObservations take
 # epoch milliseconds as a string, InstigationState.ticks takes epoch seconds as a float.
@@ -203,6 +208,51 @@ DAGSTER_CLOUD_ENDPOINTS: dict[str, DagsterCloudEndpointConfig] = {
         cursor_mode="connection",
         primary_keys=["id"],
         # Catalog snapshot with no timestamp to filter or partition on — full refresh.
+    ),
+    "asset_check_executions": DagsterCloudEndpointConfig(
+        name="asset_check_executions",
+        query=ASSET_CHECK_EXECUTIONS_QUERY,
+        response_field="assetCheckExecutions",
+        cursor_mode="row",
+        cursor_row_field="id",
+        primary_keys=["assetId", "checkName", "id"],
+        timestamp_fields=["timestamp"],
+        partition_key="timestamp",
+        should_sync_default=False,
+        fan_out=DagsterCloudFanOutConfig(
+            parent_kind="asset_checks",
+            parent_variables={"assetKey": "assetKeyInput", "checkName": "checkName"},
+            include_from_parent=["assetId", "checkName"],
+        ),
+    ),
+    "asset_slas": DagsterCloudEndpointConfig(
+        name="asset_slas",
+        query=ASSET_SLAS_QUERY,
+        response_field="slasForAssets",
+        primary_keys=["assetKeyId"],
+        timestamp_fields=["since"],
+        should_sync_default=False,
+        fan_out=DagsterCloudFanOutConfig(
+            parent_kind="assets",
+            batch_variable="assetKeys",
+            batch_field="assetKeyInput",
+            batch_size=DAGSTER_CLOUD_PAGE_SIZE,
+        ),
+    ),
+    "repositories": DagsterCloudEndpointConfig(
+        name="repositories",
+        query=REPOSITORY_CATALOG_QUERY,
+        response_field="repositoriesOrError",
+        success_typename="RepositoryConnection",
+        results_key="nodes",
+    ),
+    "code_locations": DagsterCloudEndpointConfig(
+        name="code_locations",
+        query=CODE_LOCATIONS_QUERY,
+        response_field="workspaceOrError",
+        success_typename="Workspace",
+        results_key="locationEntries",
+        timestamp_fields=["updatedTimestamp"],
     ),
     "schedules": DagsterCloudEndpointConfig(
         name="schedules",
@@ -520,3 +570,5 @@ REPOSITORIES_PARENT_CONFIG = DagsterCloudEndpointConfig(
     success_typename="RepositoryConnection",
     results_key="nodes",
 )
+
+ASSET_CHECK_PARENTS_CONFIG = replace(DAGSTER_CLOUD_ENDPOINTS["assets"], query=ASSET_CHECK_PARENTS_QUERY)

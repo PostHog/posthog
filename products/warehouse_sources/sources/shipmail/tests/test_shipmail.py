@@ -210,3 +210,29 @@ def test_get_capabilities_returns_status_and_scopes() -> None:
 def test_get_capabilities_handles_invalid_credentials() -> None:
     with scripted_network([ScriptedResponse(status=401, json={"error": "unauthorized"})]):
         assert get_capabilities("bad-key") == (401, set())
+
+
+def test_inbox_threads_drops_a_thread_repeated_on_a_later_page() -> None:
+    result = _driver().run(
+        "inbox_threads",
+        [
+            ScriptedResponse(json={"data": [{"id": "mbx_1"}, {"id": "mbx_2"}], "pagination": {"next_cursor": None}}),
+            ScriptedResponse(
+                json={"data": [{"id": "thr_1", "message_count": 1}], "pagination": {"next_cursor": "threads_2"}}
+            ),
+            ScriptedResponse(
+                json={
+                    "data": [{"id": "thr_2", "message_count": 1}, {"id": "thr_1", "message_count": 2}],
+                    "pagination": {"next_cursor": None},
+                }
+            ),
+            ScriptedResponse(json={"data": [{"id": "thr_1", "message_count": 3}], "pagination": {"next_cursor": None}}),
+        ],
+    )
+
+    assert result.raised is None
+    assert result.rows == [
+        {"id": "thr_1", "message_count": 1, "mailbox_id": "mbx_1"},
+        {"id": "thr_2", "message_count": 1, "mailbox_id": "mbx_1"},
+        {"id": "thr_1", "message_count": 3, "mailbox_id": "mbx_2"},
+    ]

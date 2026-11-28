@@ -156,13 +156,13 @@ def _record_current_session_credential(request: HttpRequest, *, impersonated_by_
 
 
 def log_login_activity(
-    user,
+    user: User,
     request: HttpRequest,
     *,
     login_method: str,
     reauth: bool,
     was_impersonated: bool = False,
-    log_user=None,
+    log_user: User | None = None,
     item_id: str | None = None,
 ) -> None:
     """Write the `logged_in` audit entry.
@@ -170,16 +170,16 @@ def log_login_activity(
     Also called directly for an SSO step-up re-auth, which keeps its session and so never fires
     `user_logged_in` (see `posthog.api.authentication.social_reauth`).
     """
+    # `login_as` fires `user_logged_in` before it stores the staff user in the session, so on the
+    # row that starts an impersonation only the detected staff user can name the impersonator.
+    impersonated_by_id = log_user.pk if was_impersonated and log_user is not None and log_user.pk != user.pk else None
+    _record_current_session_credential(request, impersonated_by_id=impersonated_by_id)
+
     organization_id = user.current_organization_id
 
     if organization_id is None:
         logger.info("Skipping login activity log - user has no organization", user_id=user.id)
         return
-
-    # `login_as` fires `user_logged_in` before it stores the staff user in the session, so on the
-    # row that starts an impersonation only the detected staff user can name the impersonator.
-    impersonated_by_id = log_user.pk if was_impersonated and log_user is not None and log_user.pk != user.pk else None
-    _record_current_session_credential(request, impersonated_by_id=impersonated_by_id)
 
     log_activity(
         organization_id=organization_id,

@@ -179,6 +179,50 @@ def test_traffic_products_without_products_makes_no_report_request() -> None:
 
 
 @time_machine.travel("2026-03-10T12:00:00Z", tick=False)
+# Two-day windows make the last window stop at today instead of running past it.
+@patch(f"{TRANSPORT}.DATE_WINDOW_DAYS", 2)
+def test_trustquotes_web_pages_requests_one_date_window_at_a_time() -> None:
+    expected_windows = [("2026-03-05", "2026-03-07"), ("2026-03-07", "2026-03-09"), ("2026-03-09", "2026-03-10")]
+
+    def routes(path: str, params: dict[str, list[str]]) -> object:
+        first, end = params["start-date"][0], params["end-date"][0]
+        if first == "2026-03-07":
+            return []
+        # Under an inclusive end date the API also returns the end day, which the next window owns.
+        return [
+            {"date": first, "productId": "p1", "widgetId": "w1", "page": None, "link": "https://example.com/a"},
+            {"date": f"{end}T00:00:00.000Z", "productId": "p1", "widgetId": "w1", "link": "https://example.com/a"},
+            # A row with no day would arrive once per window under the same key.
+            {"date": None, "productId": "p1", "widgetId": "w1", "link": "https://example.com/b"},
+        ]
+
+    requests: list[tuple[str, dict]] = []
+    with patch("requests.adapters.HTTPAdapter.send", side_effect=routed_send(routes, requests)):
+        rows = read_rows("trustquotes_web_pages", should_use_incremental_field=True, last_value="2026-03-05")
+
+    assert requests == [
+        (
+            "/v1/reports/syndication/tqw/pages",
+            {"start-date": [first], "end-date": [end], "date-group": ["day"], "format": ["json"]},
+        )
+        for first, end in expected_windows
+    ]
+    # Missing or null optional key fields become "", so destinations that never match nulls can merge them.
+    assert rows == [
+        {
+            "date": first,
+            "productId": "p1",
+            "widgetId": "w1",
+            "domain": "",
+            "page": "",
+            "link": "https://example.com/a",
+        }
+        for first, _ in expected_windows
+        if first != "2026-03-07"
+    ]
+
+
+@time_machine.travel("2026-03-10T12:00:00Z", tick=False)
 @pytest.mark.parametrize(
     ("should_use_incremental_field", "last_value", "expected_start"),
     [
@@ -286,7 +330,15 @@ def test_intent_unexpected_response_shape_fails(body: object) -> None:
 
 @pytest.mark.parametrize(
     "endpoint",
-    ["products", "product_scores", "trustquotes", "tags", "visitor_insights_companies", "visitor_insights_pages"],
+    [
+        "products",
+        "product_scores",
+        "trustquotes",
+        "tags",
+        "trustquotes_web_pages",
+        "visitor_insights_companies",
+        "visitor_insights_pages",
+    ],
 )
 def test_unexpected_response_shape_fails_instead_of_erasing_table(endpoint: str) -> None:
     with patch("requests.adapters.HTTPAdapter.send", return_value=response({"unexpected": []})) as send:

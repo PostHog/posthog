@@ -59,6 +59,8 @@ class SplunkObservabilityCloudEndpointConfig:
     # Key that holds the rows of a "wrapped" response.
     data_key: str = "results"
     method: Literal["GET", "POST"] = "GET"
+    # Accept header for endpoints that document a vendor media type instead of application/json.
+    accept_header: Optional[str] = None
     pagination: Pagination = "offset"
     primary_keys: list[str] = field(default_factory=lambda: ["id"])
     # Extra query params sent on every request (e.g. required search queries).
@@ -124,6 +126,20 @@ SPLUNK_OBSERVABILITY_CLOUD_ENDPOINTS: dict[str, SplunkObservabilityCloudEndpoint
         name="charts",
         path="/chart",
     ),
+    # Infrastructure navigators, built-in and custom. The dashboards a navigator shows are id
+    # lists on each row, so the per-navigator dashboards call is not needed. The default sort
+    # is lastUpdated, which moves when a navigator is edited, so offset pages sort by created.
+    "navigators": SplunkObservabilityCloudEndpointConfig(
+        name="navigators",
+        path="/navigator",
+        accept_header="application/vnd.splunk.observability.navigator+json",
+        extra_params={"orderBy": "created"},
+    ),
+    # Data link definitions that map a metadata key or value to external targets.
+    "data_links": SplunkObservabilityCloudEndpointConfig(
+        name="data_links",
+        path="/crosslink",
+    ),
     "teams": SplunkObservabilityCloudEndpointConfig(
         name="teams",
         path="/team",
@@ -149,6 +165,14 @@ SPLUNK_OBSERVABILITY_CLOUD_ENDPOINTS: dict[str, SplunkObservabilityCloudEndpoint
         primary_keys=["key", "value"],
         extra_params={"query": "key:*"},
         should_sync_default=False,
+    ),
+    # Tag metadata search. Like the metric search, `name:*` matches every tag, and an explicit
+    # sort keeps offset pages stable.
+    "tags": SplunkObservabilityCloudEndpointConfig(
+        name="tags",
+        path="/tag",
+        primary_keys=["name"],
+        extra_params={"query": "name:*", "order_by": "name"},
     ),
     # SLO definitions. The search endpoint takes a JSON body of optional filters; an empty
     # body matches every SLO. Off by default: the search needs the admin or power role,
@@ -214,6 +238,13 @@ SPLUNK_OBSERVABILITY_CLOUD_ENDPOINTS: dict[str, SplunkObservabilityCloudEndpoint
         name="synthetic_locations",
         path="/synthetics/locations",
         data_key="locations",
+        pagination="none",
+    ),
+    # Device profiles (viewport and network throttling) that browser tests emulate.
+    "synthetic_devices": SplunkObservabilityCloudEndpointConfig(
+        name="synthetic_devices",
+        path="/synthetics/devices",
+        data_key="devices",
         pagination="none",
     ),
     # Results of each synthetic test run, windowed by the server-side startTime/endTime

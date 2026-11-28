@@ -80,16 +80,21 @@ def _walk_files(path: Path) -> Iterator[tuple[int, _FileBlocks]]:
     while pending:
         directory = pending.pop()
         try:
-            with os.scandir(directory) as entries:
-                for entry in entries:
-                    if entry.is_dir(follow_symlinks=False):
-                        # Another file system mounted inside frees nothing here, and a stale network mount can block the walk.
-                        if entry.stat(follow_symlinks=False).st_dev == device:
-                            pending.append(entry.path)
-                    elif entry.is_file(follow_symlinks=False) and (blocks := _file_blocks(entry.path)) is not None:
-                        yield device, blocks
+            for blocks in _read_directory(directory, device, pending):
+                yield device, blocks
         except OSError:
             continue
+
+
+def _scandir_directory(directory: str, device: int, subdirectories: list[str]) -> Iterator[_FileBlocks]:
+    with os.scandir(directory) as entries:
+        for entry in entries:
+            if entry.is_dir(follow_symlinks=False):
+                # Another file system mounted inside frees nothing here, and a stale network mount can block the walk.
+                if entry.stat(follow_symlinks=False).st_dev == device:
+                    subdirectories.append(entry.path)
+            elif entry.is_file(follow_symlinks=False) and (blocks := _file_blocks(entry.path)) is not None:
+                yield blocks
 
 
 def _blocks_from_lstat(path: str) -> _FileBlocks | None:
@@ -105,6 +110,42 @@ def _blocks_from_lstat(path: str) -> _FileBlocks | None:
     )
 
 
+class _AttrList(ctypes.Structure):
+    _fields_ = [
+        ("bitmapcount", ctypes.c_ushort),
+        ("reserved", ctypes.c_uint16),
+        ("commonattr", ctypes.c_uint32),
+        ("volattr", ctypes.c_uint32),
+        ("dirattr", ctypes.c_uint32),
+        ("fileattr", ctypes.c_uint32),
+        ("forkattr", ctypes.c_uint32),
+    ]
+
+
+_ATTR_CMN_NAME = 0x1
+_ATTR_CMN_OBJTYPE = 0x8
+_ATTR_CMN_FILEID = 0x02000000
+_ATTR_CMN_ERROR = 0x20000000
+_ATTR_CMN_RETURNED_ATTRS = 0x80000000
+_ATTR_DIR_MOUNTSTATUS = 0x4
+_DIR_MNTSTATUS_MNTPOINT = 0x1
+_DIR_MNTSTATUS_TRIGGER = 0x2
+_ATTR_FILE_LINKCOUNT = 0x1
+_ATTR_FILE_ALLOCSIZE = 0x4
+_ATTR_CMNEXT_PRIVATESIZE = 0x8
+_FSOPT_NOFOLLOW = 0x1
+_FSOPT_ATTR_CMN_EXTENDED = 0x20
+_VREG = 1
+_VDIR = 2
+
+_U32 = struct.Struct("<I")
+_U64 = struct.Struct("<Q")
+_OFF_T = struct.Struct("<q")
+_ATTRIBUTE_REFERENCE = struct.Struct("<iI")
+_BULK_ENTRY_HEADER = struct.Struct("<I5I")
+_BULK_BUFFER_BYTES = 64 * 1024
+
+
 def _apfs_blocks_reader() -> Callable[[str], _FileBlocks | None]:
     """Read a file's blocks with getattrlist(2), whose ATTR_CMNEXT_PRIVATESIZE excludes the blocks that APFS clones share."""
 
@@ -113,21 +154,10 @@ def _apfs_blocks_reader() -> Callable[[str], _FileBlocks | None]:
     getattrlist.argtypes = [ctypes.c_char_p, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_size_t, ctypes.c_uint32]
     getattrlist.restype = ctypes.c_int
 
-    class AttrList(ctypes.Structure):
-        _fields_ = [
-            ("bitmapcount", ctypes.c_ushort),
-            ("reserved", ctypes.c_uint16),
-            ("commonattr", ctypes.c_uint32),
-            ("volattr", ctypes.c_uint32),
-            ("dirattr", ctypes.c_uint32),
-            ("fileattr", ctypes.c_uint32),
-            ("forkattr", ctypes.c_uint32),
-        ]
-
-    attr_cmn_fileid, attr_file_linkcount, attr_file_allocsize, attr_cmnext_privatesize = 0x02000000, 0x1, 0x4, 0x8
-    fsopt_nofollow, fsopt_attr_cmn_extended = 0x1, 0x20
-    request = AttrList(5, 0, attr_cmn_fileid, 0, 0, attr_file_linkcount | attr_file_allocsize, attr_cmnext_privatesize)
-    options = fsopt_nofollow | fsopt_attr_cmn_extended
+    request = _AttrList(
+        5, 0, _ATTR_CMN_FILEID, 0, 0, _ATTR_FILE_LINKCOUNT | _ATTR_FILE_ALLOCSIZE, _ATTR_CMNEXT_PRIVATESIZE
+    )
+    options = _FSOPT_NOFOLLOW | _FSOPT_ATTR_CMN_EXTENDED
     # The kernel packs the requested attributes after a u32 length, in group order and then bit order within a group.
     layout = struct.Struct("<IQIqq")
 
@@ -143,6 +173,109 @@ def _apfs_blocks_reader() -> Callable[[str], _FileBlocks | None]:
     return read
 
 
+def _bulk_directory_reader() -> Callable[[str, int, list[str]], Iterator[_FileBlocks]]:
+    """Read a whole directory with getattrlistbulk(2), which returns the same attributes as `_apfs_blocks_reader` for many entries per call, so a large Cargo target or node_modules costs far fewer system calls and path lookups."""
+
+    libc = ctypes.CDLL(None, use_errno=True)
+    getattrlistbulk = libc.getattrlistbulk
+    getattrlistbulk.argtypes = [ctypes.c_int, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_size_t, ctypes.c_uint64]
+    getattrlistbulk.restype = ctypes.c_int
+
+    request = _AttrList(
+        5,
+        0,
+        _ATTR_CMN_RETURNED_ATTRS | _ATTR_CMN_NAME | _ATTR_CMN_OBJTYPE | _ATTR_CMN_FILEID | _ATTR_CMN_ERROR,
+        0,
+        _ATTR_DIR_MOUNTSTATUS,
+        _ATTR_FILE_LINKCOUNT | _ATTR_FILE_ALLOCSIZE,
+        _ATTR_CMNEXT_PRIVATESIZE,
+    )
+    options = _FSOPT_ATTR_CMN_EXTENDED
+
+    def read(directory: str, device: int, subdirectories: list[str]) -> Iterator[_FileBlocks]:
+        descriptor = os.open(directory, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        try:
+            buffer = ctypes.create_string_buffer(_BULK_BUFFER_BYTES)
+            while (count := getattrlistbulk(descriptor, ctypes.byref(request), buffer, len(buffer), options)) > 0:
+                entries = buffer.raw
+                offset = 0
+                for _ in range(count):
+                    entry = _parse_bulk_entry(entries, offset, directory, device)
+                    offset += _U32.unpack_from(entries, offset)[0]
+                    if isinstance(entry, str):
+                        subdirectories.append(entry)
+                    elif entry is not None:
+                        yield entry
+            if count < 0:
+                error = ctypes.get_errno()
+                raise OSError(error, os.strerror(error), directory)
+        finally:
+            os.close(descriptor)
+
+    return read
+
+
+def _parse_bulk_entry(entries: bytes, offset: int, directory: str, device: int) -> str | _FileBlocks | None:
+    """The subdirectory path or file blocks of one getattrlistbulk(2) entry, or None for any other entry.
+
+    Each attribute is present only when its bit is set in the returned set, in group order and then bit order within a group, except that ATTR_CMN_ERROR comes first.
+    """
+
+    _, common, _, directory_attributes, file_attributes, extended = _BULK_ENTRY_HEADER.unpack_from(entries, offset)
+    cursor = offset + _BULK_ENTRY_HEADER.size
+
+    def take(field: struct.Struct, bit: int, returned: int) -> int | None:
+        nonlocal cursor
+        if not returned & bit:
+            return None
+        (value,) = field.unpack_from(entries, cursor)
+        cursor += field.size
+        return int(value)
+
+    error = take(_U32, _ATTR_CMN_ERROR, common)
+    if not common & _ATTR_CMN_NAME:
+        return None
+    name_offset, name_length = _ATTRIBUTE_REFERENCE.unpack_from(entries, cursor)
+    start = cursor + name_offset
+    path = os.path.join(directory, os.fsdecode(entries[start : start + name_length - 1]))
+    cursor += _ATTRIBUTE_REFERENCE.size
+    object_type = take(_U32, _ATTR_CMN_OBJTYPE, common)
+    inode = take(_U64, _ATTR_CMN_FILEID, common)
+    if error or object_type is None:
+        return _entry_from_lstat(path, device)
+
+    if object_type == _VDIR:
+        mount_status = take(_U32, _ATTR_DIR_MOUNTSTATUS, directory_attributes) or 0
+        # Another file system mounted inside frees nothing here, and a stale network mount or an automount trigger can block the walk.
+        return None if mount_status & (_DIR_MNTSTATUS_MNTPOINT | _DIR_MNTSTATUS_TRIGGER) else path
+    if object_type != _VREG:
+        return None
+    link_count = take(_U32, _ATTR_FILE_LINKCOUNT, file_attributes)
+    allocated = take(_OFF_T, _ATTR_FILE_ALLOCSIZE, file_attributes)
+    if inode is None or link_count is None or allocated is None:
+        return _blocks_from_lstat(path)
+    unshared = take(_OFF_T, _ATTR_CMNEXT_PRIVATESIZE, extended)
+    return _FileBlocks(
+        inode=inode,
+        link_count=link_count,
+        allocated_bytes=allocated,
+        unshared_bytes=allocated if unshared is None else unshared,
+    )
+
+
+def _entry_from_lstat(path: str, device: int) -> str | _FileBlocks | None:
+    try:
+        status = os.lstat(path)
+    except OSError:
+        return None
+    if stat.S_ISDIR(status.st_mode):
+        return path if status.st_dev == device else None
+    return _blocks_from_lstat(path)
+
+
 _file_blocks: Callable[[str], _FileBlocks | None] = (
     _apfs_blocks_reader() if sys.platform == "darwin" else _blocks_from_lstat
+)
+_read_directory: Callable[[str, int, list[str]], Iterator[_FileBlocks]] = (
+    _bulk_directory_reader() if sys.platform == "darwin" else _scandir_directory
 )

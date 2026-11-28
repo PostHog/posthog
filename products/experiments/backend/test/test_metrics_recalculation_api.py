@@ -35,7 +35,7 @@ from products.experiments.backend.recalculation.admission import (
 from products.experiments.backend.recalculation.kill_switch import RECALCULATION_ENABLED_SETTING
 from products.experiments.backend.recalculation.payloads import RUN_ENTRY_HIDDEN_MESSAGE
 from products.experiments.backend.temporal.models import ExperimentMetricsRecalculationWorkflowInputs
-from products.experiments.backend.temporal.recalculation.logic import (
+from products.experiments.backend.temporal.recalculation.calculation import (
     _calculate_experiment_metric_for_recalculation_sync,
 )
 from products.experiments.backend.temporal.recalculation.routing import RECALCULATION_ACTIVITY_QUEUE_FEATURE_FLAG
@@ -707,8 +707,10 @@ class TestMetricsRecalculationAPI(APIBaseTest):
     ) -> None:
         assert run.query_to is not None
         with (
-            mock.patch("products.experiments.backend.temporal.recalculation.logic.close_old_connections"),
-            mock.patch("products.experiments.backend.temporal.recalculation.logic.ExperimentQueryRunner") as runner,
+            mock.patch("products.experiments.backend.temporal.recalculation.calculation.close_old_connections"),
+            mock.patch(
+                "products.experiments.backend.temporal.recalculation.calculation.ExperimentQueryRunner"
+            ) as runner,
         ):
             runner.return_value.exposures_path = None
             runner.return_value.run.side_effect = error

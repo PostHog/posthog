@@ -3,7 +3,7 @@ import json
 import uuid
 import threading
 from contextlib import nullcontext
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -19,16 +19,22 @@ from celery.exceptions import Retry
 from posthog.dataclasses import frozen
 from posthog.egress.github.transport import GitHubEgressBudgetExhausted, GitHubRateLimitError
 from posthog.egress.limiter.policies import Priority
-from posthog.models import OAuthAccessToken, Team
+from posthog.models import OAuthAccessToken, Team, User
 from posthog.models.instance_setting import override_instance_config
 from posthog.models.integration import Integration
+from posthog.redis import get_client
+from posthog.slack.block_actions import block_action_handler_for
+from posthog.slack.channel_messages import ChannelMessage, dispatch_channel_message
 from posthog.temporal.common.posthog_client import is_expected_activity_failure
 
 from products.signals.backend.models import SignalReport
-from products.stamphog.backend.facade.api import check_approval_gates
+from products.stamphog.backend.facade.api import broadcast_request_to_dto, check_approval_gates
 from products.stamphog.backend.facade.contracts import ApprovalGateCheck, StamphogGitHubError
 from products.stamphog.backend.facade.enums import (
     AudienceReason,
+    BroadcastRequestDeliveryKind,
+    BroadcastRequestSource,
+    BroadcastRequestStatus,
     ChannelResolutionSource,
     DigestRunStatus,
     ReviewMode,
@@ -38,8 +44,11 @@ from products.stamphog.backend.facade.enums import (
 )
 from products.stamphog.backend.facade.finished_review_hooks import FinishedReviewRun
 from products.stamphog.backend.facade.review_evidence import ReviewEvidence, ReviewEvidenceProvider, ReviewEvidenceState
+from products.stamphog.backend.facade.review_requests import request_review
 from products.stamphog.backend.logic import approval_gates, gateway_tokens
 from products.stamphog.backend.logic.attestation_checks import PendingCheck
+from products.stamphog.backend.logic.broadcast_links import poster_budget_key
+from products.stamphog.backend.logic.broadcast_requests import BroadcastRequestAsk
 from products.stamphog.backend.logic.channel_resolution import (
     RoutingContext,
     build_routing_context,
@@ -50,9 +59,24 @@ from products.stamphog.backend.logic.github_client import STICKY_COMMENT_MARKER,
 from products.stamphog.backend.logic.policy_files import checked_repo_policy_yaml
 from products.stamphog.backend.logic.slack_digest import _THREAD_LEAD
 from products.stamphog.backend.logic.workflow_proofs import RunOrder, seen_on_head
-from products.stamphog.backend.models import DigestRun, PullRequest, PullRequestAudience, ReviewRun, StamphogRepoConfig
+from products.stamphog.backend.models import (
+    BroadcastRequest,
+    BroadcastRequestDelivery,
+    BroadcastRequestParticipant,
+    DigestRun,
+    PullRequest,
+    PullRequestAudience,
+    ReviewRun,
+    StamphogRepoConfig,
+)
+from products.stamphog.backend.tasks.broadcast_requests import (
+    refresh_broadcast_request,
+    refresh_broadcast_requests_for_pull_request,
+)
 from products.stamphog.backend.tasks.digest import send_daily_digests
 from products.stamphog.backend.tasks.tasks import (
+    _BROADCAST_REVISITS_PER_HEAD,
+    BROADCAST_REVISIT_OUTPUT_KEY,
     pending_attestation_checks,
     process_inbox_pr_review,
     request_manual_review,
@@ -4332,6 +4356,27 @@ def test_an_ineffective_revoke_is_logged(team, stamphog_chain: StamphogChain) ->
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_a_key_with_a_legacy_product_url_fails_before_the_mint(team, stamphog_chain: StamphogChain) -> None:
+    _repo_config(team.id)
+    event = _register_review(stamphog_chain, 126, "sha126a")
+    mint = MagicMock()
+
+    with (
+        override_settings(
+            AI_GATEWAY_URL="https://llm-gateway.test/stamphog/v1", AI_GATEWAY_API_KEY="phs_stamphog_mint"
+        ),
+        patch.object(activities.requests, "post", mint),
+    ):
+        stamphog_chain.post_webhook(event, delivery_id=str(uuid.uuid4()))
+
+    run = ReviewRun.objects.for_team(team.id).latest("created_at")
+    assert run.status == ReviewRunStatus.FAILED
+    assert "AI_GATEWAY_URL" in (run.error or "")
+    mint.assert_not_called()
+    assert not stamphog_chain.sandbox_class.created_configs
+
+
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
 def test_overlapping_activities_keep_each_others_output_keys(team, stamphog_chain: StamphogChain) -> None:
     # The sandbox activity runs beside the context fetch, the pre-check and the bot polls. A write
     # from a copy loaded before another activity's write must not drop that activity's keys, such as
@@ -4421,3 +4466,896 @@ def test_a_sandbox_created_after_its_teardown_tears_itself_down(team, stamphog_c
 
     assert len(stamphog_chain.sandbox_class.created_configs) == 1
     assert stamphog_chain.sandbox_class.destroy_returned
+
+
+BROADCAST_CHANNEL = "C0BROADCAST"
+VERDICT_POSTED_AT = datetime(2026, 1, 5, tzinfo=UTC)
+
+
+def _escalated_engine_output() -> str:
+    return json.dumps(
+        {
+            "final_verdict": "ESCALATE",
+            "reviewer": {"reasoning": "A migration needs an owner's eyes.", "issues": ["drops a column"]},
+            "gates": [{"name": "size", "passed": True}],
+            "review_body": "Escalated by stamphog.",
+        }
+    )
+
+
+def _broadcast_repo_config(team_id: int) -> StamphogRepoConfig:
+    repo_config = _repo_config(team_id)
+    repo_config.broadcast_enabled = True
+    repo_config.broadcast_slack_channel_id = BROADCAST_CHANNEL
+    repo_config.broadcast_slack_channel_name = "reviews"
+    repo_config.save()
+    Integration.objects.create(team_id=team_id, kind="slack", config={}, sensitive_config={"access_token": "x"})
+    return repo_config
+
+
+def _ask_people(team_id: int, number: int, sandbox: Any, ask: BroadcastRequestAsk | None = None) -> BroadcastRequest:
+    ask = ask or BroadcastRequestAsk(
+        requested_by_user_id=None,
+        requested_via=BroadcastRequestSource.SLACK,
+        requester_slack_user_id="U0ASKER",
+        note="Touches billing.",
+    )
+    with patch.object(activities, "get_sandbox_class_for_backend", lambda backend: sandbox):
+        queued = request_manual_review(team_id, None, REPO, number, allow_broadcast=ask)
+    assert queued.broadcast_request is not None
+    return BroadcastRequest.objects.for_team(team_id).get(id=queued.broadcast_request.id)
+
+
+def _cards() -> list[dict]:
+    return [
+        m
+        for m in fakes.FakeSlackIntegration.posted_messages
+        if m["channel"] == BROADCAST_CHANNEL and not m["thread_ts"]
+    ]
+
+
+def _thread_replies() -> list[dict]:
+    return [m for m in fakes.FakeSlackIntegration.posted_messages if m["thread_ts"]]
+
+
+def _rendered(blocks: list[dict]) -> str:
+    return json.dumps(blocks, ensure_ascii=False)
+
+
+def _refresh(request: BroadcastRequest, *, decided_head_sha: str = "") -> BroadcastRequest:
+    refresh_broadcast_request(
+        team_id=request.team_id, broadcast_request_id=str(request.id), decided_head_sha=decided_head_sha
+    )
+    request.refresh_from_db()
+    return request
+
+
+@pytest.mark.parametrize(
+    "files, engine_output, reviewer_exit_code, permalinks_fail, expect_status, expect_card",
+    [
+        pytest.param(_pr_files(), _refused_engine_output(), 0, False, BroadcastRequestStatus.OPEN, True, id="refused"),
+        pytest.param(
+            _pr_files(), _escalated_engine_output(), 0, False, BroadcastRequestStatus.OPEN, True, id="escalate"
+        ),
+        pytest.param(
+            [_big_api_file("lib/big.py", 1300)], None, 0, False, BroadcastRequestStatus.OPEN, True, id="gated"
+        ),
+        pytest.param(_pr_files(), None, 1, False, BroadcastRequestStatus.OPEN, True, id="failed"),
+        pytest.param(
+            _pr_files(),
+            fakes.approved_engine_output(),
+            0,
+            False,
+            BroadcastRequestStatus.STAMPHOG_APPROVED,
+            False,
+            id="approved",
+        ),
+        # A visible WAIT gets another review of the head, so nobody is asked yet.
+        pytest.param(_pr_files(), _waiting_engine_output(), 0, False, BroadcastRequestStatus.PENDING, False, id="wait"),
+        # The card is out once Slack takes it. A failed link lookup must not post it again on a retry.
+        pytest.param(
+            _pr_files(),
+            _refused_engine_output(),
+            0,
+            True,
+            BroadcastRequestStatus.OPEN,
+            True,
+            id="refused_without_a_link",
+        ),
+    ],
+)
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_a_broadcast_request_posts_one_card_when_stamphog_does_not_approve(
+    team,
+    stamphog_chain: StamphogChain,
+    files: list[dict],
+    engine_output: str | None,
+    reviewer_exit_code: int,
+    permalinks_fail: bool,
+    expect_status: BroadcastRequestStatus,
+    expect_card: bool,
+) -> None:
+    _broadcast_repo_config(team.id)
+    fakes.FakeSlackIntegration.fail_permalinks = permalinks_fail
+    stamphog_chain.recorder.register_pr(
+        REPO, 170, _silent_review_pr(170, "sha170a", changed_files=len(files), additions=12, deletions=3), files
+    )
+    sandbox = fakes.make_fake_sandbox_class(engine_output or fakes.approved_engine_output())
+    sandbox.reviewer_exit_code = reviewer_exit_code
+
+    request = _ask_people(team.id, 170, sandbox)
+    # A second refresh of the same state, as a verdict retry or a repeated ask queues, posts nothing new.
+    request = _refresh(request)
+
+    assert request.status == expect_status
+    cards = _cards()
+    assert len(cards) == int(expect_card)
+    links = [delivery.url for delivery in broadcast_request_to_dto(team.id, request.id).deliveries]
+    if expect_card:
+        blocks = _rendered(cards[0]["blocks"])
+        assert "Touches billing." in blocks
+        assert "<@U0ASKER>" in blocks
+        assert "+12 −3" in blocks
+        assert ("couldn't finish its review" in blocks) is (reviewer_exit_code != 0)
+        assert [m["ts"] for m in fakes.FakeSlackIntegration.updated_messages] == [cards[0]["ts"]]
+        assert links == [None if permalinks_fail else fakes.slack_permalink(BROADCAST_CHANNEL, cards[0]["ts"])]
+    else:
+        assert fakes.FakeSlackIntegration.updated_messages == []
+        assert links == []
+
+
+ASKER_USER_ID = 9101
+
+
+def _earlier_request(
+    team_id: int,
+    pull_request: PullRequest,
+    *,
+    days_ago: float,
+    delivery: BroadcastRequestDelivery.State | None = BroadcastRequestDelivery.State.POSTED,
+    **identity: Any,
+) -> None:
+    request = BroadcastRequest.objects.for_team(team_id).create(
+        team_id=team_id,
+        pull_request=pull_request,
+        head_sha="sha-earlier",
+        status=BroadcastRequestStatus.CLOSED,
+        requested_via=BroadcastRequestSource.API,
+        **identity,
+    )
+    if delivery is not None:
+        posted = delivery == BroadcastRequestDelivery.State.POSTED
+        BroadcastRequestDelivery.objects.for_team(team_id).create(
+            team_id=team_id,
+            broadcast_request=request,
+            kind=BroadcastRequestDeliveryKind.SLACK_MESSAGE,
+            state=delivery,
+            channel_id=BROADCAST_CHANNEL,
+            message_ts="1700000000.000100" if posted else "",
+            posted_at=timezone.now() - timedelta(days=days_ago) if posted else None,
+        )
+
+
+@pytest.mark.parametrize(
+    "ask, expect_count, expect_line",
+    [
+        # The same account asked through the API, and the same login, in other letter case, asked on GitHub.
+        pytest.param(
+            BroadcastRequestAsk(
+                requested_by_user_id=ASKER_USER_ID,
+                requested_via=BroadcastRequestSource.GITHUB,
+                requester_github_login="Dev-Example",
+            ),
+            3,
+            "Asked by Dev-Example · 3rd this week",
+            id="from_github",
+        ),
+        # A Slack user with no PostHog account matches only their own Slack requests.
+        pytest.param(
+            BroadcastRequestAsk(
+                requested_by_user_id=None, requested_via=BroadcastRequestSource.SLACK, requester_slack_user_id="U0ASKER"
+            ),
+            2,
+            "Asked by <@U0ASKER> · 2nd this week",
+            id="from_slack",
+        ),
+    ],
+)
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_a_card_counts_the_cards_its_requester_caused_this_week(
+    team, stamphog_chain: StamphogChain, ask: BroadcastRequestAsk, expect_count: int, expect_line: str
+) -> None:
+    repo_config = _broadcast_repo_config(team.id)
+    earlier = PullRequest.objects.for_team(team.id).create(
+        team_id=team.id, repo_config=repo_config, pr_number=180, author_login="devex-dev"
+    )
+    everyone_of_theirs: dict[str, Any] = {
+        "requested_by_user_id": ASKER_USER_ID,
+        "requester_slack_user_id": "U0ASKER",
+        "requester_github_login": "dev-example",
+    }
+    _earlier_request(team.id, earlier, days_ago=1, requested_by_user_id=ASKER_USER_ID)
+    _earlier_request(team.id, earlier, days_ago=2, requester_github_login="dev-example")
+    _earlier_request(team.id, earlier, days_ago=3, requester_slack_user_id="U0ASKER")
+    _earlier_request(team.id, earlier, days_ago=8, **everyone_of_theirs)
+    _earlier_request(team.id, earlier, days_ago=1, delivery=None, **everyone_of_theirs)
+    _earlier_request(team.id, earlier, days_ago=1, delivery=BroadcastRequestDelivery.State.FAILED, **everyone_of_theirs)
+    _earlier_request(
+        team.id,
+        earlier,
+        days_ago=1,
+        requested_by_user_id=ASKER_USER_ID + 1,
+        requester_slack_user_id="U0OTHER",
+        requester_github_login="someone-else",
+    )
+    stamphog_chain.recorder.register_pr(REPO, 181, _silent_review_pr(181, "sha181a"), _pr_files())
+
+    request = _ask_people(team.id, 181, fakes.make_fake_sandbox_class(_refused_engine_output()), ask)
+
+    (card,) = _cards()
+    assert expect_line in _rendered(card["blocks"])
+    # The count is the one the card went out with, so a card the same person causes later leaves it alone.
+    _earlier_request(team.id, earlier, days_ago=0, **everyone_of_theirs)
+    _refresh(request)
+    assert expect_line in _rendered(fakes.FakeSlackIntegration.updated_messages[-1]["blocks"])
+    assert broadcast_request_to_dto(team.id, request.id).requester_card_count == expect_count
+
+
+@pytest.mark.parametrize("silent", [False, True], ids=["visible_refusal", "withheld_silent_refusal"])
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_a_verdict_reaches_a_waiting_request_only_once_github_shows_it(
+    team, stamphog_chain: StamphogChain, silent: bool
+) -> None:
+    repo_config = _broadcast_repo_config(team.id)
+    stamphog_chain.recorder.register_pr(REPO, 171, _silent_review_pr(171, "sha171a"), _pr_files())
+    pull_request = PullRequest.objects.for_team(team.id).create(
+        team_id=team.id, repo_config=repo_config, pr_number=171, author_login="devex-dev"
+    )
+    request = BroadcastRequest.objects.for_team(team.id).create(
+        team_id=team.id, pull_request=pull_request, head_sha="sha171a", requested_via=BroadcastRequestSource.API
+    )
+    output = {"reviewer_raw": _refused_engine_output()} | ({"review_trigger": "reviewhog_clean"} if silent else {})
+    run = ReviewRun.objects.for_team(team.id).create(
+        team_id=team.id, pull_request=pull_request, head_sha="sha171a", status=ReviewRunStatus.REVIEWING, output=output
+    )
+
+    _run_activity(post_verdict, StamphogReviewInput(review_run_id=str(run.id), team_id=team.id))
+
+    run.refresh_from_db()
+    request.refresh_from_db()
+    assert (run.verdict, run.verdict_withheld) == (ReviewVerdict.REFUSED, silent)
+    assert request.status == (BroadcastRequestStatus.PENDING if silent else BroadcastRequestStatus.OPEN)
+    cards = _cards()
+    assert len(cards) == int(not silent)
+    if not silent:
+        assert "billing change" in _rendered(cards[0]["blocks"])
+
+    # No stamphog verdict follows a withheld one, so a later refresh asks people, and the card hides what the
+    # silent run found.
+    request = _refresh(request)
+    assert request.status == BroadcastRequestStatus.OPEN
+    (card,) = _cards()
+    assert ("billing change" in _rendered(card["blocks"])) is not silent
+
+
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_a_card_follows_the_pull_request_after_it_is_posted(team, stamphog_chain: StamphogChain) -> None:
+    _broadcast_repo_config(team.id)
+    recorder = stamphog_chain.recorder
+    recorder.register_pr(REPO, 172, _silent_review_pr(172, "sha172a"), _pr_files())
+    request = _ask_people(team.id, 172, fakes.make_fake_sandbox_class(_refused_engine_output()))
+    (card,) = _cards()
+    BroadcastRequestParticipant.objects.for_team(team.id).create(
+        team_id=team.id, broadcast_request=request, slack_user_id="U0LOOKER", display_name="Lou"
+    )
+
+    recorder.pr_reviews[(REPO, 172)] = [
+        {
+            "user": {"login": "maintainer", "type": "User"},
+            "author_association": "MEMBER",
+            "state": "APPROVED",
+            "commit_id": "sha172a",
+        }
+    ]
+    with patch("products.stamphog.backend.logic.broadcast_requests.ph_scoped_capture") as scoped_capture:
+        request = _refresh(request)
+    assert (request.status, request.approved_by_login) == (BroadcastRequestStatus.APPROVED, "maintainer")
+    (captured,) = scoped_capture.return_value.__enter__.return_value.call_args_list
+    assert captured.kwargs["event"] == "stamphog_broadcast_request_status_changed"
+    assert (
+        captured.kwargs["properties"]["stamphog_broadcast_request_old_status"],
+        captured.kwargs["properties"]["stamphog_broadcast_request_new_status"],
+    ) == ("open", "approved")
+    approved_card = fakes.FakeSlackIntegration.updated_messages[-1]
+    assert "Approved by maintainer" in _rendered(approved_card["blocks"])
+    assert not any(block["type"] == "actions" for block in approved_card["blocks"])
+
+    # A push makes that approval stale. A delivery such as review_requested can refresh before the review path
+    # decided the new head, and then the request and the card wait for that decision.
+    recorder.register_pr(REPO, 172, _silent_review_pr(172, "sha172b"), _pr_files())
+    # The review path decided an older head, so its refresh must not read this head as decided either.
+    for decided_head_sha in ("", "sha172a"):
+        request = _refresh(request, decided_head_sha=decided_head_sha)
+        assert (request.status, request.head_sha) == (BroadcastRequestStatus.APPROVED, "sha172a")
+        assert _thread_replies() == []
+    # Nothing reviews the new head, so the card opens again, and the people looking hear about the push once
+    # however often the request refreshes.
+    request = _refresh(request, decided_head_sha="sha172b")
+    request = _refresh(request, decided_head_sha="sha172b")
+    assert (request.status, request.head_sha, request.approved_by_login) == (BroadcastRequestStatus.OPEN, "sha172b", "")
+    (ping,) = _thread_replies()
+    assert ping["thread_ts"] == card["ts"]
+    assert ping["text"].startswith("<@U0LOOKER> new commits were pushed.")
+
+    recorder.register_pr(REPO, 172, _silent_review_pr(172, "sha172b", state="closed", merged=True), _pr_files())
+    request = _refresh(request)
+    assert request.status == BroadcastRequestStatus.MERGED
+    assert "Merged." in _rendered(fakes.FakeSlackIntegration.updated_messages[-1]["blocks"])
+    assert len(_cards()) == 1
+
+    # Slack answers an edit of a deleted card with message_not_found, which no retry can fix.
+    fakes.FakeSlackIntegration.posted_messages.clear()
+    assert _refresh(request).status == BroadcastRequestStatus.MERGED
+
+
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+@pytest.mark.parametrize(
+    "broadcast_enabled, channel_id",
+    [
+        pytest.param(False, "", id="turned_off"),
+        pytest.param(True, "C0OTHER", id="moved_to_another_channel"),
+    ],
+)
+def test_a_card_stops_following_the_pull_request_once_broadcast_leaves_its_channel(
+    team, stamphog_chain: StamphogChain, broadcast_enabled: bool, channel_id: str
+) -> None:
+    repo_config = _broadcast_repo_config(team.id)
+    recorder = stamphog_chain.recorder
+    recorder.register_pr(REPO, 173, _silent_review_pr(173, "sha173a"), _pr_files())
+    request = _ask_people(team.id, 173, fakes.make_fake_sandbox_class(_refused_engine_output()))
+    assert len(_cards()) == 1
+    repo_config.broadcast_enabled = broadcast_enabled
+    repo_config.broadcast_slack_channel_id = channel_id
+    repo_config.save()
+    fakes.FakeSlackIntegration.updated_messages.clear()
+
+    recorder.pr_reviews[(REPO, 173)] = [
+        {
+            "user": {"login": "maintainer", "type": "User"},
+            "author_association": "MEMBER",
+            "state": "APPROVED",
+            "commit_id": "sha173a",
+        }
+    ]
+    request = _refresh(request)
+
+    assert request.status == BroadcastRequestStatus.APPROVED
+    assert fakes.FakeSlackIntegration.updated_messages == []
+    assert len(_cards()) == 1
+
+
+@pytest.mark.parametrize(
+    "review_mode, expect_status, expect_cards",
+    [
+        pytest.param(ReviewMode.LABEL, BroadcastRequestStatus.OPEN, 1, id="push_nothing_reviews"),
+        # The review of the new head is queued but has not started. A refresh that ran before the run existed
+        # would read the head as unreviewed and post the card.
+        pytest.param(ReviewMode.ALL, BroadcastRequestStatus.PENDING, 0, id="push_stamphog_reviews"),
+    ],
+)
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_a_push_refreshes_a_broadcast_request_once_stamphog_decided_the_new_head(
+    team,
+    stamphog_chain: StamphogChain,
+    review_mode: ReviewMode,
+    expect_status: BroadcastRequestStatus,
+    expect_cards: int,
+) -> None:
+    repo_config = _broadcast_repo_config(team.id)
+    repo_config.review_mode = review_mode
+    repo_config.save()
+    pull_request = PullRequest.objects.for_team(team.id).create(
+        team_id=team.id, repo_config=repo_config, pr_number=176, author_login="devex-dev"
+    )
+    ReviewRun.objects.for_team(team.id).create(
+        team_id=team.id, pull_request=pull_request, head_sha="sha176a", status=ReviewRunStatus.REVIEWING
+    )
+    request = BroadcastRequest.objects.for_team(team.id).create(
+        team_id=team.id, pull_request=pull_request, head_sha="sha176a", requested_via=BroadcastRequestSource.API
+    )
+    stamphog_chain.recorder.register_pr(REPO, 176, _silent_review_pr(176, "sha176b"), _pr_files())
+    stamphog_chain.recorder.policy_files[".stamphog/policy.yml"] = "version: 1\n"
+
+    with patch("products.stamphog.backend.tasks.tasks._start_review_workflow"):
+        stamphog_chain.post_webhook(_synchronize_event(176, "devex-dev", "sha176b"), delivery_id=str(uuid.uuid4()))
+
+    request.refresh_from_db()
+    assert (request.status, request.head_sha) == (expect_status, "sha176b")
+    assert len(_cards()) == expect_cards
+
+
+@pytest.mark.parametrize(
+    "approval_dismissed, github_review_state, expect_status, expect_cards",
+    [
+        # Retention kept the approval over a push that left the diff unchanged, so the new head has no run.
+        pytest.param(False, "APPROVED", BroadcastRequestStatus.STAMPHOG_APPROVED, 0, id="approval_retained"),
+        pytest.param(True, "DISMISSED", BroadcastRequestStatus.OPEN, 1, id="retained_approval_dismissed"),
+        # A maintainer dismissed the approval on GitHub, which the product DB does not see.
+        pytest.param(False, "DISMISSED", BroadcastRequestStatus.OPEN, 1, id="approval_dismissed_on_github"),
+    ],
+)
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_a_head_that_kept_stamphogs_approval_asks_nobody(
+    team,
+    stamphog_chain: StamphogChain,
+    approval_dismissed: bool,
+    github_review_state: str,
+    expect_status: BroadcastRequestStatus,
+    expect_cards: int,
+) -> None:
+    repo_config = _broadcast_repo_config(team.id)
+    pull_request = PullRequest.objects.for_team(team.id).create(
+        team_id=team.id, repo_config=repo_config, pr_number=177, author_login="devex-dev"
+    )
+    ReviewRun.objects.for_team(team.id).create(
+        team_id=team.id,
+        pull_request=pull_request,
+        head_sha="sha177a",
+        status=ReviewRunStatus.COMPLETED,
+        verdict=ReviewVerdict.APPROVED,
+        verdict_posted_at=VERDICT_POSTED_AT,
+        posted_review_id=9,
+        approval_dismissed_at=VERDICT_POSTED_AT if approval_dismissed else None,
+        output={"retained_head_shas": ["sha177b"]},
+    )
+    request = BroadcastRequest.objects.for_team(team.id).create(
+        team_id=team.id, pull_request=pull_request, head_sha="sha177a", requested_via=BroadcastRequestSource.API
+    )
+    stamphog_chain.recorder.register_pr(REPO, 177, _silent_review_pr(177, "sha177b"), _pr_files())
+    stamphog_chain.recorder.pr_reviews[(REPO, 177)] = [
+        {"user": {"login": "stamphog[bot]", "type": "Bot"}, "state": github_review_state, "commit_id": "sha177a"}
+    ]
+
+    with override_settings(STAMPHOG_GITHUB_APP_SLUG="stamphog"):
+        request = _refresh(request, decided_head_sha="sha177b")
+
+    assert (request.status, request.head_sha) == (expect_status, "sha177b")
+    assert len(_cards()) == expect_cards
+
+
+@pytest.mark.parametrize(
+    "revisits_used, expect_status",
+    [
+        pytest.param(0, BroadcastRequestStatus.OPEN, id="reviewed_again"),
+        pytest.param(_BROADCAST_REVISITS_PER_HEAD, BroadcastRequestStatus.PENDING, id="revisits_used_up"),
+    ],
+)
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_asking_people_reviews_again_a_head_that_waits(
+    team, stamphog_chain: StamphogChain, revisits_used: int, expect_status: BroadcastRequestStatus
+) -> None:
+    repo_config = _broadcast_repo_config(team.id)
+    pull_request = PullRequest.objects.for_team(team.id).create(
+        team_id=team.id, repo_config=repo_config, pr_number=178, author_login="devex-dev"
+    )
+    for _ in range(max(revisits_used, 1)):
+        covering = ReviewRun.objects.for_team(team.id).create(
+            team_id=team.id,
+            pull_request=pull_request,
+            head_sha="sha178a",
+            status=ReviewRunStatus.COMPLETED,
+            verdict=ReviewVerdict.WAIT,
+            verdict_posted_at=VERDICT_POSTED_AT,
+            output={BROADCAST_REVISIT_OUTPUT_KEY: "earlier"} if revisits_used else {},
+        )
+    stamphog_chain.recorder.register_pr(REPO, 178, _silent_review_pr(178, "sha178a"), _pr_files())
+
+    request = _ask_people(team.id, 178, fakes.make_fake_sandbox_class(_refused_engine_output()))
+
+    assert request.status == expect_status
+    assert len(_cards()) == int(expect_status == BroadcastRequestStatus.OPEN)
+    newest = ReviewRun.objects.for_team(team.id).filter(pull_request=pull_request).order_by("-created_at").first()
+    assert (newest == covering) is bool(revisits_used)
+
+
+@pytest.mark.parametrize("slack_connected", [True, False], ids=["card_on_its_way", "no_slack_integration"])
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_asking_again_shows_no_weekly_count_of_the_first_requester(
+    team, stamphog_chain: StamphogChain, slack_connected: bool
+) -> None:
+    repo_config = _broadcast_repo_config(team.id)
+    if not slack_connected:
+        Integration.objects.filter(team_id=team.id, kind="slack").delete()
+    pull_request = PullRequest.objects.for_team(team.id).create(
+        team_id=team.id, repo_config=repo_config, pr_number=179, author_login="devex-dev"
+    )
+    ReviewRun.objects.for_team(team.id).create(
+        team_id=team.id,
+        pull_request=pull_request,
+        head_sha="sha179a",
+        status=ReviewRunStatus.COMPLETED,
+        verdict=ReviewVerdict.REFUSED,
+        verdict_posted_at=VERDICT_POSTED_AT,
+    )
+    for days_ago in (1, 2, 3):
+        _earlier_request(team.id, pull_request, days_ago=days_ago, requested_by_user_id=ASKER_USER_ID)
+    BroadcastRequest.objects.for_team(team.id).create(
+        team_id=team.id,
+        pull_request=pull_request,
+        status=BroadcastRequestStatus.OPEN,
+        head_sha="sha179a",
+        requested_by_user_id=ASKER_USER_ID,
+        requested_via=BroadcastRequestSource.API,
+    )
+    stamphog_chain.recorder.register_pr(REPO, 179, _silent_review_pr(179, "sha179a"), _pr_files())
+
+    with (
+        patch("products.stamphog.backend.tasks.tasks._start_review_workflow"),
+        patch.object(refresh_broadcast_request, "delay"),
+    ):
+        result = request_review(
+            team.id,
+            user_id=ASKER_USER_ID + 1,
+            repository=REPO,
+            pr_number=179,
+            allow_broadcast=True,
+            requested_via=BroadcastRequestSource.GITHUB,
+            requester_github_login="second-asker",
+        )
+
+    assert result.broadcast_request is not None
+    assert result.broadcast_request.status == BroadcastRequestStatus.OPEN
+    assert (result.broadcast_request_created, result.broadcast_request_card_count) == (False, None)
+    assert result.broadcast_request_card_blocked is not slack_connected
+
+
+def _click(
+    card: dict, action_id: str, *, workspace: str = "T0CARD", user_workspace: str = "T0CARD", ts: str = ""
+) -> None:
+    (actions,) = [block for block in card["blocks"] if block["type"] == "actions"]
+    action = {"action_id": action_id, "value": actions["elements"][0]["value"]}
+    payload = {
+        "type": "block_actions",
+        "team": {"id": workspace},
+        "user": {"id": "U0LOOKER", "name": "lou", "team_id": user_workspace},
+        "channel": {"id": card["channel"]},
+        "message": {"ts": ts or card["ts"]},
+        "actions": [action],
+    }
+    handler = block_action_handler_for(action_id)
+    assert handler is not None
+    handler(payload, action)
+
+
+@pytest.mark.parametrize(
+    "click, looking",
+    [
+        pytest.param({}, True, id="workspace_member"),
+        # A person from another workspace in a Slack Connect channel sees the card, but the request is not theirs.
+        pytest.param({"user_workspace": "T0GUEST"}, False, id="slack_connect_guest"),
+        pytest.param({"workspace": "T0OTHER", "user_workspace": "T0OTHER"}, False, id="other_workspace"),
+        pytest.param({"ts": "9999.0001"}, False, id="copied_to_another_message"),
+    ],
+)
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_a_click_on_the_card_marks_who_is_looking(
+    team, stamphog_chain: StamphogChain, click: dict, looking: bool
+) -> None:
+    _broadcast_repo_config(team.id)
+    Integration.objects.filter(team_id=team.id, kind="slack").update(integration_id="T0CARD")
+    stamphog_chain.recorder.register_pr(REPO, 175, _silent_review_pr(175, "sha175a"), _pr_files())
+    request = _ask_people(team.id, 175, fakes.make_fake_sandbox_class(_refused_engine_output()))
+    (card,) = _cards()
+    updates_before = len(fakes.FakeSlackIntegration.updated_messages)
+
+    _click(card, "stamphog_broadcast.look", **click)
+
+    participants = BroadcastRequestParticipant.objects.for_team(team.id).filter(broadcast_request=request)
+    assert [(p.slack_user_id, p.looking) for p in participants] == ([("U0LOOKER", True)] if looking else [])
+    updates = fakes.FakeSlackIntegration.updated_messages[updates_before:]
+    assert len(updates) == int(looking)
+    if looking:
+        assert "<@U0LOOKER> is looking" in _rendered(updates[0]["blocks"])
+        _click(card, "stamphog_broadcast.stop_looking", **click)
+        assert [p.looking for p in participants.all()] == [False]
+        assert "is looking" not in _rendered(fakes.FakeSlackIntegration.updated_messages[-1]["blocks"])
+
+
+LINK_WORKSPACE = "T0CARD"
+LINK_TS = "1700000100.000100"
+POSTER = "U0POSTER"
+
+
+def _link_channel(team_id: int) -> StamphogRepoConfig:
+    repo_config = _broadcast_repo_config(team_id)
+    Integration.objects.filter(team_id=team_id, kind="slack").update(integration_id=LINK_WORKSPACE)
+    # Redis outlives the test transaction, and every link test posts as the same person.
+    get_client().delete(poster_budget_key(LINK_WORKSPACE, POSTER))
+    return repo_config
+
+
+def _post_link(text: str, *, user_ids: tuple[int, ...], channel: str = BROADCAST_CHANNEL) -> bool:
+    return dispatch_channel_message(
+        ChannelMessage(
+            slack_team_id=LINK_WORKSPACE,
+            channel_id=channel,
+            message_ts=LINK_TS,
+            slack_user_id=POSTER,
+            text=text,
+            poster_user_ids=lambda: user_ids,
+        )
+    )
+
+
+def _link_cards() -> list[dict]:
+    return [m for m in fakes.FakeSlackIntegration.posted_messages if m["text"].startswith("Review requested")]
+
+
+def _link_replies() -> list[str]:
+    return [m["text"] for m in fakes.FakeSlackIntegration.posted_messages if m not in _link_cards()]
+
+
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_a_pull_request_link_in_the_broadcast_channel_asks_people_without_a_review(
+    team, user, stamphog_chain: StamphogChain
+) -> None:
+    repo_config = _link_channel(team.id)
+    recorder = stamphog_chain.recorder
+    recorder.register_pr(REPO, 190, _silent_review_pr(190, "sha190a"), _pr_files())
+    pull_request = PullRequest.objects.for_team(team.id).create(
+        team_id=team.id, repo_config=repo_config, pr_number=190, author_login="devex-dev"
+    )
+    # A review that has not decided must not hold the card back, because nobody waits for it.
+    ReviewRun.objects.for_team(team.id).create(
+        team_id=team.id, pull_request=pull_request, head_sha="sha190a", status=ReviewRunStatus.REVIEWING
+    )
+    text = f"Too big for Stamphog, can someone look? <https://github.com/{REPO}/pull/190>"
+
+    assert _post_link(text, user_ids=(user.id,))
+    # Slack delivers the post again when the first answer is slow.
+    assert _post_link(text, user_ids=(user.id,))
+
+    assert ReviewRun.objects.for_team(team.id).filter(pull_request=pull_request).count() == 1
+    request = BroadcastRequest.objects.for_team(team.id).get(pull_request=pull_request)
+    assert (request.status, request.requested_via, request.requested_by_user_id, request.note) == (
+        BroadcastRequestStatus.OPEN,
+        BroadcastRequestSource.SLACK_LINK,
+        user.id,
+        "",
+    )
+    (card,) = _link_cards()
+    assert (card["channel"], card["thread_ts"]) == (BROADCAST_CHANNEL, LINK_TS)
+    blocks = _rendered(card["blocks"])
+    assert f"Asked by <@{POSTER}>" in blocks
+    assert "Stamphog is reviewing" not in blocks
+    assert "@posthog stamp --allow-broadcast" in blocks
+    assert _link_replies() == []
+
+    # A push reaches the people looking in the thread of the post, and no review of the new head holds it.
+    BroadcastRequestParticipant.objects.for_team(team.id).create(
+        team_id=team.id, broadcast_request=request, slack_user_id="U0LOOKER", display_name="Lou"
+    )
+    recorder.register_pr(REPO, 190, _silent_review_pr(190, "sha190b"), _pr_files())
+    ReviewRun.objects.for_team(team.id).create(
+        team_id=team.id, pull_request=pull_request, head_sha="sha190b", status=ReviewRunStatus.QUEUED
+    )
+    request = _refresh(request)
+    assert (request.status, request.head_sha) == (BroadcastRequestStatus.OPEN, "sha190b")
+    (ping,) = _link_replies()
+    assert ping == "<@U0LOOKER> new commits were pushed."
+    assert fakes.FakeSlackIntegration.posted_messages[-1]["thread_ts"] == LINK_TS
+
+    ReviewRun.objects.for_team(team.id).filter(head_sha="sha190b").update(
+        status=ReviewRunStatus.COMPLETED, verdict=ReviewVerdict.APPROVED, verdict_posted_at=VERDICT_POSTED_AT
+    )
+    recorder.pr_reviews[(REPO, 190)] = [
+        {"user": {"login": "stamphog[bot]", "type": "Bot"}, "state": "APPROVED", "commit_id": "sha190b"}
+    ]
+    with override_settings(STAMPHOG_GITHUB_APP_SLUG="stamphog"):
+        assert _refresh(request).status == BroadcastRequestStatus.STAMPHOG_APPROVED
+    assert fakes.FakeSlackIntegration.updated_messages[-1]["ts"] == card["ts"]
+    assert len(_link_cards()) == 1
+
+
+@pytest.mark.parametrize(
+    "case, expect_handled",
+    [
+        pytest.param("another_channel", False, id="not_a_broadcast_channel"),
+        pytest.param("no_link", False, id="no_pull_request_link"),
+        pytest.param("another_repository", False, id="repository_without_broadcast"),
+        pytest.param("broadcast_off", False, id="broadcast_turned_off"),
+        # The post is a request for people either way, so the agent does not answer it, but nobody hears why.
+        pytest.param("outsider", True, id="poster_outside_the_project"),
+        pytest.param("unresolved", True, id="poster_without_a_posthog_account"),
+    ],
+)
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_a_pull_request_link_that_nobody_may_ask_about_stays_silent(
+    team, user, stamphog_chain: StamphogChain, case: str, expect_handled: bool
+) -> None:
+    repo_config = _link_channel(team.id)
+    if case == "broadcast_off":
+        repo_config.broadcast_enabled = False
+        repo_config.save()
+    stamphog_chain.recorder.register_pr(REPO, 191, _silent_review_pr(191, "sha191a"), _pr_files())
+    outsider = User.objects.create(email="outsider@example.com", distinct_id="outsider-191")
+    user_ids = {"outsider": (outsider.id,), "unresolved": ()}.get(case, (user.id,))
+    repository = "acme/gadgets" if case == "another_repository" else REPO
+    text = "Can someone look?" if case == "no_link" else f"<https://github.com/{repository}/pull/191>"
+
+    handled = _post_link(text, user_ids=user_ids, channel="C0OTHER" if case == "another_channel" else BROADCAST_CHANNEL)
+
+    assert handled is expect_handled
+    assert not BroadcastRequest.objects.for_team(team.id).exists()
+    assert fakes.FakeSlackIntegration.posted_messages == []
+
+
+@pytest.mark.parametrize(
+    "case, expect_reply",
+    [
+        pytest.param(
+            "card_posted",
+            "Already asked here: <" + fakes.slack_permalink(BROADCAST_CHANNEL, "1700000000.000100") + ">",
+            id="active_request_with_a_card",
+        ),
+        pytest.param(
+            "waiting_for_stamphog",
+            "Someone already asked for reviews on this pull request.",
+            id="active_request_without_a_card",
+        ),
+        pytest.param("stamphog_approved", "Stamphog already approved this pull request.", id="stamphog_approved"),
+        # A maintainer dismissed the approval on GitHub, which the product DB does not see.
+        pytest.param("stamphog_approval_dismissed", None, id="stamphog_approval_dismissed"),
+        pytest.param("person_approved", "Already approved by maintainer.", id="person_approved"),
+        # A silent review withheld its refusal, so the card goes out and shows nothing of it.
+        pytest.param("withheld_refusal", None, id="withheld_silent_refusal"),
+    ],
+)
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_a_pull_request_link_answers_in_its_thread_instead_of_a_second_card(
+    team, user, stamphog_chain: StamphogChain, case: str, expect_reply: str | None
+) -> None:
+    repo_config = _link_channel(team.id)
+    stamphog_chain.recorder.register_pr(REPO, 192, _silent_review_pr(192, "sha192a"), _pr_files())
+    pull_request = PullRequest.objects.for_team(team.id).create(
+        team_id=team.id, repo_config=repo_config, pr_number=192, author_login="devex-dev"
+    )
+    if case == "person_approved":
+        stamphog_chain.recorder.pr_reviews[(REPO, 192)] = [
+            {
+                "user": {"login": "maintainer", "type": "User"},
+                "author_association": "MEMBER",
+                "state": "APPROVED",
+                "commit_id": "sha192a",
+            }
+        ]
+    elif case in ("card_posted", "waiting_for_stamphog"):
+        posted = case == "card_posted"
+        request = BroadcastRequest.objects.for_team(team.id).create(
+            team_id=team.id,
+            pull_request=pull_request,
+            status=BroadcastRequestStatus.OPEN if posted else BroadcastRequestStatus.PENDING,
+            head_sha="sha192a",
+            requested_via=BroadcastRequestSource.SLACK,
+        )
+        if posted:
+            BroadcastRequestDelivery.objects.for_team(team.id).create(
+                team_id=team.id,
+                broadcast_request=request,
+                kind=BroadcastRequestDeliveryKind.SLACK_MESSAGE,
+                state=BroadcastRequestDelivery.State.POSTED,
+                channel_id=BROADCAST_CHANNEL,
+                message_ts="1700000000.000100",
+                permalink=fakes.slack_permalink(BROADCAST_CHANNEL, "1700000000.000100"),
+                posted_at=timezone.now(),
+            )
+    else:
+        approved = case in ("stamphog_approved", "stamphog_approval_dismissed")
+        if approved:
+            stamphog_chain.recorder.pr_reviews[(REPO, 192)] = [
+                {
+                    "user": {"login": "stamphog[bot]", "type": "Bot"},
+                    "state": "DISMISSED" if case == "stamphog_approval_dismissed" else "APPROVED",
+                    "commit_id": "sha192a",
+                }
+            ]
+        ReviewRun.objects.for_team(team.id).create(
+            team_id=team.id,
+            pull_request=pull_request,
+            head_sha="sha192a",
+            status=ReviewRunStatus.COMPLETED,
+            verdict=ReviewVerdict.APPROVED if approved else ReviewVerdict.REFUSED,
+            verdict_posted_at=VERDICT_POSTED_AT if approved else None,
+            output={} if approved else {"reviewer_raw": _refused_engine_output(), "review_trigger": "reviewhog_clean"},
+        )
+
+    with override_settings(STAMPHOG_GITHUB_APP_SLUG="stamphog"):
+        assert _post_link(f"<https://github.com/{REPO}/pull/192>", user_ids=(user.id,))
+
+    replies = _link_replies()
+    if expect_reply is None:
+        assert replies == []
+        (card,) = _link_cards()
+        assert card["thread_ts"] == LINK_TS
+        assert "billing change" not in _rendered(card["blocks"])
+    else:
+        assert replies == [expect_reply]
+        assert _link_cards() == []
+        assert fakes.FakeSlackIntegration.posted_messages[0]["thread_ts"] == LINK_TS
+    pull_request_reads = [path for path, _ in stamphog_chain.recorder.request_priorities if "/pulls/192" in path]
+    assert (pull_request_reads == []) is (case in ("card_posted", "waiting_for_stamphog"))
+    assert BroadcastRequest.objects.for_team(team.id).filter(
+        requested_via=BroadcastRequestSource.SLACK_LINK
+    ).exists() is (expect_reply is None)
+
+
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_every_pull_request_link_in_a_post_gets_its_own_answer(team, user, stamphog_chain: StamphogChain) -> None:
+    _link_channel(team.id)
+    recorder = stamphog_chain.recorder
+    recorder.register_pr(REPO, 193, _silent_review_pr(193, "sha193a"), _pr_files())
+    recorder.register_pr(REPO, 194, _silent_review_pr(194, "sha194a"), _pr_files())
+    recorder.pr_reviews[(REPO, 194)] = [
+        {
+            "user": {"login": "maintainer", "type": "User"},
+            "author_association": "MEMBER",
+            "state": "APPROVED",
+            "commit_id": "sha194a",
+        }
+    ]
+    first = f"https://github.com/{REPO}/pull/193"
+    text = f"Two for review: <{first}> and <https://github.com/{REPO}/pull/194>, and <{first}> again"
+
+    assert _post_link(text, user_ids=(user.id,))
+
+    (card,) = _link_cards()
+    assert card["thread_ts"] == LINK_TS
+    assert "pull/193" in _rendered(card["blocks"])
+    assert _link_replies() == [f"{REPO}#194: Already approved by maintainer."]
+    assert list(BroadcastRequest.objects.for_team(team.id).values_list("pull_request__pr_number", flat=True)) == [193]
+
+
+@pytest.mark.parametrize(
+    "installation_id, expected",
+    [
+        # The PostHog App's review delivery names no stamphog installation, so every project holding the pull request
+        # hears about it.
+        pytest.param("", {"own", "other_project"}, id="posthog_app_review"),
+        pytest.param(INSTALLATION_ID, {"own"}, id="stamphog_app_pull_request"),
+    ],
+)
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_a_github_delivery_refreshes_every_active_broadcast_request_of_its_pull_request(
+    team, installation_id: str, expected: set[str]
+) -> None:
+    other_team = Team.objects.create(organization=team.organization, name="Other project")
+    other_config = _repo_config(other_team.id)
+    other_config.installation_id = "3003"
+    other_config.save()
+    own_config = _repo_config(team.id)
+
+    def _request(repo_config: StamphogRepoConfig, pr_number: int, status: BroadcastRequestStatus) -> tuple[int, str]:
+        pull_request, _ = PullRequest.objects.for_team(repo_config.team_id).get_or_create(
+            team_id=repo_config.team_id, repo_config=repo_config, pr_number=pr_number
+        )
+        request = BroadcastRequest.objects.for_team(repo_config.team_id).create(
+            team_id=repo_config.team_id,
+            pull_request=pull_request,
+            status=status,
+            head_sha="sha173a",
+            requested_via=BroadcastRequestSource.API,
+        )
+        return repo_config.team_id, str(request.id)
+
+    labels = {
+        _request(own_config, 173, BroadcastRequestStatus.APPROVED): "own",
+        _request(own_config, 173, BroadcastRequestStatus.MERGED): "own_final",
+        _request(own_config, 174, BroadcastRequestStatus.OPEN): "own_other_pull_request",
+        _request(other_config, 173, BroadcastRequestStatus.PENDING): "other_project",
+    }
+
+    with patch.object(refresh_broadcast_request, "delay") as refresh_delay:
+        refresh_broadcast_requests_for_pull_request(repository=REPO, pr_number=173, installation_id=installation_id)
+
+    queued = [labels[(c.kwargs["team_id"], c.kwargs["broadcast_request_id"])] for c in refresh_delay.call_args_list]
+    assert sorted(queued) == sorted(expected)

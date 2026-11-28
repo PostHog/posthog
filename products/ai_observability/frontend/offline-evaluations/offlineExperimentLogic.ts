@@ -34,6 +34,7 @@ import {
     OFFLINE_SCORER_COLUMN_WIDTH,
 } from './offlineItemMatrixConstants'
 import { offlineCompletionError, offlineReadError } from './offlineResultPresentation'
+import { readOfflineSummaryPages } from './offlineSummaryPages'
 
 export interface OfflineExperimentLogicProps {
     teamId: number
@@ -285,27 +286,8 @@ export const offlineExperimentLogic: LogicWrapper<offlineExperimentLogicType> = 
         summaryCount: [
             null as number | null,
             {
-                loadOfflineSummaries: async (_: void, breakpoint) => {
-                    let cursor: string | undefined
-                    let count = 0
-                    do {
-                        try {
-                            const page = await api.aiObservabilityOfflineExperimentsScorerSummariesList(
-                                String(props.teamId),
-                                props.experimentId,
-                                { limit: 100, cursor }
-                            )
-                            breakpoint()
-                            actions.addSummaryPage(page)
-                            count = page.count
-                            cursor = page.next_cursor || undefined
-                        } catch (error) {
-                            breakpoint()
-                            throw error
-                        }
-                    } while (cursor)
-                    return count
-                },
+                loadOfflineSummaries: (_: void, breakpoint) =>
+                    readOfflineSummaryPages(props.teamId, props.experimentId, breakpoint, actions.addSummaryPage),
             },
         ],
         items: [

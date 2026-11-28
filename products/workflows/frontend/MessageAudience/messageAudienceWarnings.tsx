@@ -7,16 +7,29 @@ import { urls } from 'scenes/urls'
 
 import { cohortsRetrieve } from 'products/cohorts/frontend/generated/api'
 import { integrationsList } from 'products/integrations/frontend/generated/api'
-import type { IntegrationConfigApi } from 'products/integrations/frontend/generated/api.schemas'
-import { hogFlowsEmailSendingSuspensionRetrieve } from 'products/workflows/frontend/generated/api'
+import type {
+    IntegrationConfigApi,
+    PaginatedIntegrationConfigListApi,
+} from 'products/integrations/frontend/generated/api.schemas'
+import {
+    hogFlowsEmailSendingSuspensionRetrieve,
+    workflowEmailSandboxStatus,
+} from 'products/workflows/frontend/generated/api'
 
 import { audienceCohortIds, audienceCohortLaunchError, toAudienceCohort } from '../Broadcasts/audience/audienceList'
 import {
     EMAIL_SENDING_SUSPENDED_MESSAGE,
     NO_EMAIL_SENDER_MESSAGE,
+    TEST_SENDER_ONLY_WORKFLOW_MESSAGE,
     UNVERIFIED_SENDER_MESSAGE,
 } from '../Channels/emailSendingMessages'
-import { MessageAudience, MessageAudienceDestination, messageAudienceUrl } from './messageAudience'
+import { canAdoptSandboxSender } from '../Channels/sandboxSender'
+import {
+    MessageAudience,
+    MessageAudienceDestination,
+    captureMessageAudienceWarningsShown,
+    messageAudienceUrl,
+} from './messageAudience'
 
 export function emailSenderWarning(integrations: Pick<IntegrationConfigApi, 'kind' | 'config'>[]): string | null {
     const senders = integrations.filter((integration) => integration.kind === 'email')
@@ -39,17 +52,30 @@ function withinTimeout<T>(request: Promise<T>): Promise<T | null> {
     ])
 }
 
+// A verified sender can sit on a later page, so only a complete list can say none is verified.
+function senderWarningOf(integrations: PaginatedIntegrationConfigListApi | null): string | null {
+    return integrations && Array.isArray(integrations.results) && !integrations.next
+        ? emailSenderWarning(integrations.results)
+        : null
+}
+
 /**
  * What would stop the email from going out, checked when the person clicks so the entry point costs nothing
  * on page view. A check that fails or times out stays quiet: the broadcast launch and the workflow editor check again.
  */
 export async function loadMessageAudienceWarnings(
     audience: MessageAudience,
-    destination: MessageAudienceDestination
+    destination: MessageAudienceDestination,
+    { offerTestSender = false }: { offerTestSender?: boolean } = {}
 ): Promise<string[]> {
     const projectId = String(ApiConfig.getCurrentProjectId())
+    const inProjectEnvironment = String(ApiConfig.getCurrentTeamId()) === projectId
     // A workflow sends per person as they qualify, so a cohort that is still calculating doesn't hold it up.
     const cohortIds = destination === 'broadcast' ? audienceCohortIds(audience.properties) : []
+    const testSenderStatus =
+        offerTestSender && destination === 'workflow' && inProjectEnvironment
+            ? withinTimeout(workflowEmailSandboxStatus(projectId))
+            : Promise.resolve(null)
     const [suspension, integrations, cohorts] = await Promise.all([
         withinTimeout(hogFlowsEmailSendingSuspensionRetrieve(projectId)),
         withinTimeout(integrationsList(projectId, { kind: 'email' })),
@@ -59,13 +85,24 @@ export async function loadMessageAudienceWarnings(
             )
         ),
     ])
+    const senderWarning = senderWarningOf(integrations)
+    const offerTest =
+        !!senderWarning &&
+        suspension?.email_sending_suspended === false &&
+        canAdoptSandboxSender(await testSenderStatus)
     return [
         suspension?.email_sending_suspended ? EMAIL_SENDING_SUSPENDED_MESSAGE : null,
-        // A verified sender can sit on a later page, so only a complete list can say none is verified.
-        integrations && !integrations.next ? emailSenderWarning(integrations.results) : null,
+        offerTest ? TEST_SENDER_ONLY_WORKFLOW_MESSAGE : senderWarning,
         ...cohorts.map((cohort) => (cohort ? audienceCohortLaunchError(cohort) : null)),
     ].filter((warning): warning is string => !!warning)
 }
+
+const WARNING_KINDS = new Map([
+    [EMAIL_SENDING_SUSPENDED_MESSAGE, 'email_sending_suspended'],
+    [NO_EMAIL_SENDER_MESSAGE, 'no_sender'],
+    [UNVERIFIED_SENDER_MESSAGE, 'unverified_sender'],
+    [TEST_SENDER_ONLY_WORKFLOW_MESSAGE, 'test_sender_only'],
+])
 
 let opening = false
 
@@ -75,7 +112,8 @@ let opening = false
  */
 export async function openMessageAudience(
     audience: MessageAudience,
-    destination: MessageAudienceDestination
+    destination: MessageAudienceDestination,
+    attemptId: string
 ): Promise<void> {
     if (opening) {
         return
@@ -83,10 +121,10 @@ export async function openMessageAudience(
     opening = true
     try {
         const navigate = async (): Promise<void> => {
-            router.actions.push(messageAudienceUrl(audience, destination))
+            router.actions.push(messageAudienceUrl(audience, destination, attemptId))
         }
         const startedOn = router.values.location.pathname
-        const warnings = await loadMessageAudienceWarnings(audience, destination)
+        const warnings = await loadMessageAudienceWarnings(audience, destination, { offerTestSender: true })
         if (router.values.location.pathname !== startedOn) {
             // The person left the page while the checks ran.
             return
@@ -95,6 +133,12 @@ export async function openMessageAudience(
             await navigate()
             return
         }
+        captureMessageAudienceWarningsShown(
+            audience.source,
+            destination,
+            attemptId,
+            warnings.map((warning) => WARNING_KINDS.get(warning) ?? 'cohort_cannot_launch')
+        )
         // The modal covers the entry point, and Continue shows its own loading state while it opens the email.
         LemonDialog.open({
             title: 'Before you send',
@@ -111,10 +155,17 @@ export async function openMessageAudience(
                 onClick: navigate,
                 'data-attr': `message-audience-${audience.source}-continue`,
             },
-            secondaryButton:
-                warnings.includes(NO_EMAIL_SENDER_MESSAGE) || warnings.includes(UNVERIFIED_SENDER_MESSAGE)
-                    ? { children: 'Set up email', onClick: () => router.actions.push(urls.workflows('channels')) }
-                    : { children: 'Cancel' },
+            secondaryButton: [
+                NO_EMAIL_SENDER_MESSAGE,
+                UNVERIFIED_SENDER_MESSAGE,
+                TEST_SENDER_ONLY_WORKFLOW_MESSAGE,
+            ].some((message) => warnings.includes(message))
+                ? {
+                      children: 'Set up email',
+                      onClick: () => router.actions.push(urls.workflows('channels')),
+                      'data-attr': `message-audience-${audience.source}-set-up-email`,
+                  }
+                : { children: 'Cancel' },
         })
     } finally {
         opening = false

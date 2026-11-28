@@ -2,6 +2,7 @@ import { mockFetch } from '~/tests/helpers/mocks/request.mock'
 
 import { DateTime, Settings } from 'luxon'
 import { register } from 'prom-client'
+import supertest from 'supertest'
 
 import { FixtureHogFlowBuilder } from '~/cdp/_tests/builders/hogflow.builder'
 import { insertHogFunctionTemplate, insertIntegration } from '~/cdp/_tests/fixtures'
@@ -35,6 +36,7 @@ import { EmailStatusService } from '../../messaging/email-status.service'
 import { EmailSuppressionService, emailSuppressionConfigFromEnv } from '../../messaging/email-suppression.service'
 import { EmailValidationService } from '../../messaging/email-validation.service'
 import { EmailService } from '../../messaging/email.service'
+import { SesWebhookHandler } from '../../messaging/helpers/ses'
 import { EmailTrackingCodeSigner } from '../../messaging/helpers/tracking-code'
 import { RecipientPreferencesService } from '../../messaging/recipient-preferences.service'
 import { RecipientTokensService } from '../../messaging/recipient-tokens.service'
@@ -43,6 +45,13 @@ import { HogFlowFunctionsService } from '../hogflow-functions.service'
 import { TRANSACTIONAL_EMAIL_EVENT } from '../hogflow-sensitivity'
 import { findActionByType } from '../hogflow-utils'
 import { HogFunctionHandler, RENDER_TIMEOUT_RETRY_DELAYS_SECONDS, messageOptOutsAfterStep } from './hog_function'
+
+jest.mock('node:dns/promises', () => ({
+    ...jest.requireActual('node:dns/promises'),
+    Resolver: jest.fn().mockImplementation(() => ({
+        resolveMx: () => Promise.resolve([{ exchange: 'mx.example.com', priority: 10 }]),
+    })),
+}))
 
 describe('HogFunctionHandler', () => {
     describe('messageOptOutsAfterStep', () => {
@@ -1201,6 +1210,7 @@ describe('HogFunctionHandler', () => {
 
         beforeEach(() => {
             fakeSes.deliveries.length = 0
+            fakeSes.clickEvents.length = 0
         })
 
         type EmailConfig = Partial<Extract<HogFlowAction, { type: 'function_email' }>['config']>
@@ -1289,7 +1299,7 @@ describe('HogFunctionHandler', () => {
             const emailHandler = new HogFunctionHandler(
                 new HogFlowFunctionsService(hub.SITE_URL, mockHogFunctionTemplateManager, executor),
                 new RecipientPreferencesService(recipientsManagerService, emailSuppressionService),
-                mockEmailValidationService,
+                new EmailValidationService(null),
                 'email',
                 null
             )
@@ -1494,6 +1504,27 @@ describe('HogFunctionHandler', () => {
                 )
             })
 
+            it.each([
+                { case: 'a marketing email only to its recipient', type: 'marketing' as const, copied: false },
+                { case: 'a transactional email with its copies', type: 'transactional' as const, copied: true },
+            ])('sends $case when its step names copies', async ({ type, copied }) => {
+                const { emailAction, deliver } = await emailStepThroughSes({}, codeSend({ id: newsletterId, type }))
+                Object.assign(emailAction.config.inputs.email.value, {
+                    cc: 'copy@example.com',
+                    bcc: 'hidden@example.com',
+                })
+
+                await deliver()
+
+                expect(fakeSes.deliveries.map(({ to, cc, bcc }) => ({ to, cc, bcc }))).toEqual([
+                    {
+                        to: [expect.stringContaining('user@example.com')],
+                        cc: copied ? ['copy@example.com'] : [],
+                        bcc: copied ? ['hidden@example.com'] : [],
+                    },
+                ])
+            })
+
             it('does not send a marketing email that its unsubscribe links make too large to send', async () => {
                 const { emailInvocation, runOnQueue } = await emailStepThroughSes(
                     {},
@@ -1525,6 +1556,34 @@ describe('HogFunctionHandler', () => {
                 const [delivery] = fakeSes.deliveries
                 expect(unsubscribeLinks(delivery.html)).toEqual(['{{ unsubscribe_url }}'])
                 expect(delivery.headers.map(({ name }) => name)).not.toContain('List-Unsubscribe')
+            })
+
+            it('records a click on the unsubscribe link without the token that changes the preferences', async () => {
+                hub.SITE_URL = 'https://app.example.com'
+                const { deliver } = await emailStepThroughSes(
+                    {},
+                    {
+                        ...codeSend({ id: newsletterId, type: 'marketing' }),
+                        tracking: { captureEngagement: true, clicks: true },
+                    }
+                )
+                await deliver()
+                const trackedLink = new URL(unsubscribeLinks(fakeSes.deliveries[0].html)[0])
+                expect(trackedLink.origin).toEqual(new URL(sesEndpoint).origin)
+                await supertest(trackedLink.origin)
+                    .get(`${trackedLink.pathname}${trackedLink.search}`)
+                    .expect(302)
+                    .expect('Location', /^https:\/\/app\.example\.com\/messaging-preferences\/[^/]+\/$/)
+
+                const reported = await new SesWebhookHandler(
+                    new EmailTrackingCodeSigner(hub.ENCRYPTION_SALT_KEYS, hub.CDP_EMAIL_TRACKING_URL)
+                ).handleWebhook({ body: fakeSes.clickEvents, headers: {} })
+
+                expect(
+                    (reported.metrics ?? [])
+                        .filter(({ metricName }) => metricName === 'email_link_clicked')
+                        .map(({ properties }) => properties?.$link_url)
+                ).toEqual(['https://app.example.com'])
             })
         })
     })

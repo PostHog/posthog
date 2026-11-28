@@ -89,7 +89,7 @@ You can create an API key under **Settings → API** in [Secoda](https://app.sec
         # Every endpoint is full refresh only — Secoda's filter syntax exposes no range operator, so
         # there is no server-side timestamp cursor to advance an incremental sync (INCREMENTAL_FIELDS
         # is empty, so build_endpoint_schemas marks each endpoint full-refresh).
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
+        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names, should_sync_default={"audit_logs": False})
 
     def validate_credentials(
         self,

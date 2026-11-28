@@ -245,21 +245,21 @@ class TestDimensionalReadSelection(SimpleTestCase):
                 _runner(True, breakdown_by=WebStatsBreakdown.PAGE, date_from=_OVER_A_MONTH),
                 False,
                 _JOB_IDS,
-                DimensionalIneligibleReason.PAGE_TILE_RANGE,
+                DimensionalIneligibleReason.PATH_BREAKDOWN_RANGE,
             ),
             (
                 "entry_page_breakdown_over_a_month",
                 _runner(True, breakdown_by=WebStatsBreakdown.INITIAL_PAGE, date_from=_OVER_A_MONTH),
                 False,
                 _JOB_IDS,
-                DimensionalIneligibleReason.PAGE_TILE_RANGE,
+                DimensionalIneligibleReason.PATH_BREAKDOWN_RANGE,
             ),
             (
                 "exit_page_breakdown_over_a_month",
                 _runner(True, breakdown_by=WebStatsBreakdown.EXIT_PAGE, date_from=_OVER_A_MONTH),
                 False,
                 _JOB_IDS,
-                DimensionalIneligibleReason.PAGE_TILE_RANGE,
+                DimensionalIneligibleReason.PATH_BREAKDOWN_RANGE,
             ),
             (
                 "page_directory_over_a_month",
@@ -269,16 +269,17 @@ class TestDimensionalReadSelection(SimpleTestCase):
                 DimensionalIneligibleReason.PAGE_TILE_RANGE,
             ),
             (
-                "page_breakdown_with_a_compare_period_over_a_month",
+                "page_breakdown_with_a_compare_period_over_a_week",
                 _runner(
                     True,
                     breakdown_by=WebStatsBreakdown.PAGE,
                     date_from=datetime(2026, 3, 24, tzinfo=_NEW_YORK),
-                    compare_from=datetime(2026, 1, 28, tzinfo=_NEW_YORK),
+                    compare_from=datetime(2026, 3, 14, tzinfo=_NEW_YORK),
+                    compare_to=datetime(2026, 3, 24, tzinfo=_NEW_YORK) - timedelta(microseconds=1),
                 ),
                 False,
                 _JOB_IDS,
-                DimensionalIneligibleReason.PAGE_TILE_RANGE,
+                DimensionalIneligibleReason.PATH_BREAKDOWN_RANGE,
             ),
             ("not_ready", _runner(True), False, None, DimensionalIneligibleReason.NOT_READY),
             (
@@ -379,6 +380,33 @@ class TestDimensionalReadSelection(SimpleTestCase):
     @parameterized.expand(
         [
             ("page_breakdown_over_the_last_7_days", WebStatsBreakdown.PAGE, "WebStatsTableQuery", 2, 8, True),
+            (
+                "entry_page_breakdown_over_the_last_7_days",
+                WebStatsBreakdown.INITIAL_PAGE,
+                "WebStatsTableQuery",
+                2,
+                8,
+                True,
+            ),
+            ("exit_page_breakdown_over_the_last_7_days", WebStatsBreakdown.EXIT_PAGE, "WebStatsTableQuery", 2, 8, True),
+            ("page_breakdown_over_a_week", WebStatsBreakdown.PAGE, "WebStatsTableQuery", 2, 9, False),
+            ("page_breakdown_over_the_last_30_days", WebStatsBreakdown.PAGE, "WebStatsTableQuery", 2, 31, False),
+            (
+                "entry_page_breakdown_over_the_last_30_days",
+                WebStatsBreakdown.INITIAL_PAGE,
+                "WebStatsTableQuery",
+                2,
+                31,
+                False,
+            ),
+            (
+                "exit_page_breakdown_over_the_last_30_days",
+                WebStatsBreakdown.EXIT_PAGE,
+                "WebStatsTableQuery",
+                2,
+                31,
+                False,
+            ),
             ("page_directory_over_the_last_7_days", WebStatsBreakdown.PAGE, "WebPageDirectoryQuery", 2, 8, True),
             ("page_directory_over_the_last_14_days", WebStatsBreakdown.PAGE, "WebPageDirectoryQuery", 2, 15, True),
             ("page_directory_over_the_last_30_days", WebStatsBreakdown.PAGE, "WebPageDirectoryQuery", 2, 31, True),
@@ -388,7 +416,9 @@ class TestDimensionalReadSelection(SimpleTestCase):
             ("device_breakdown_over_a_month", WebStatsBreakdown.DEVICE_TYPE, "WebStatsTableQuery", 2, 32, True),
         ]
     )
-    def test_page_tiles_serve_up_to_30_days(self, _name, breakdown_by, kind, team_id, calendar_days, serves):
+    def test_page_directory_serves_up_to_30_days_and_path_breakdowns_up_to_7(
+        self, _name, breakdown_by, kind, team_id, calendar_days, serves
+    ):
         date_from = datetime(2026, 4, 1, tzinfo=_NEW_YORK) - timedelta(days=calendar_days)
         runner = _runner(
             True,

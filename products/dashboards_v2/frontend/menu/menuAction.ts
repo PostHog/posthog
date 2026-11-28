@@ -1,10 +1,10 @@
-export type MenuAction = {
+type MenuActionBase = {
     /**
      * Stable, so a panel type's `menuActions` or a host's `tileActions`, `tilePlacementActions` and `dashboardActions` can
-     * find an action by it. Built in for a content tile: `download-image`, `parts`, `background-color`, plus a chart's
-     * `chart-type` and `chart-options`. Built in for a section: `rename`, `download-image`, `auto-layout`, `parts`. Built
-     * in for where a tile sits: `slideshow`, `move`, `add-to-tab`, `remove`, and `remove` for a section. Built in for the
-     * dashboard: `download-image`, `tab-appearance`, `allow-filters`.
+     * find an action by it. Built in for a content tile: `download`, `copy`, `parts`, `background-color`, plus a chart's
+     * `chart-type` and `chart-options`. Built in for a section: `rename`, `download`, `copy`, `auto-layout`, `parts`, `background-color`. Built
+     * in for where a tile sits: `slideshow`, `move`, `add-to-tab`, `duplicate`, `remove`, and `duplicate` and `remove` for a section. Built in for the
+     * dashboard: `download`, `copy`, `tab-appearance`, `allow-filters`.
      */
     key: string
     label: string
@@ -23,13 +23,23 @@ export type MenuAction = {
      * always sits last, on its own.
      */
     group?: MenuGroup
+    /** Set on a submenu's entries to split them under headings, such as `Image` and `Data`. One heading alone is not shown. */
+    section?: string
+    /** Makes a picture of what the tile holds, so a tile's menu disables it while the tile is still loading. */
+    needsLoaded?: boolean
     /** Picking it leaves the menu open, for a choice someone may want to compare with the next one. */
     keepOpen?: boolean
 }
 
+/**
+ * `loading` marks an entry that is waiting, not refused, and shows a spinner in place of the reason. It always comes
+ * with the `disabledReason` that says what the entry waits for.
+ */
+export type MenuAction = MenuActionBase & ({ loading?: false } | { loading: true; disabledReason: string })
+
 /** In menu order, after the ungrouped actions. */
 export const MENU_GROUPS = [
-    { group: 'dashboard', label: 'Dashboard' },
+    { group: 'dashboard', label: 'Tile' },
     { group: 'view', label: 'View & share' },
     { group: 'display', label: 'Display' },
 ] as const

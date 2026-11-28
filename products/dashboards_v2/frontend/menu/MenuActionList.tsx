@@ -1,14 +1,15 @@
-import type {
-    ContextMenuCheckboxItem,
-    ContextMenuGroup,
-    ContextMenuItem,
-    ContextMenuLabel,
-    ContextMenuRadioGroup,
-    ContextMenuRadioItem,
-    ContextMenuSeparator,
-    ContextMenuSub,
-    ContextMenuSubContent,
-    ContextMenuSubTrigger,
+import {
+    type ContextMenuCheckboxItem,
+    type ContextMenuGroup,
+    type ContextMenuItem,
+    type ContextMenuLabel,
+    type ContextMenuRadioGroup,
+    type ContextMenuRadioItem,
+    type ContextMenuSeparator,
+    type ContextMenuSub,
+    type ContextMenuSubContent,
+    type ContextMenuSubTrigger,
+    Spinner,
 } from '@posthog/quill'
 
 import { MENU_GROUPS, type MenuAction } from './menuAction'
@@ -32,6 +33,14 @@ function EntryLabel({ action }: { action: MenuAction }): JSX.Element {
     if (!action.disabledReason) {
         return <>{action.label}</>
     }
+    if (action.loading) {
+        return (
+            <span className="flex items-center gap-2">
+                {action.label}
+                <Spinner aria-label={action.disabledReason} />
+            </span>
+        )
+    }
     return (
         <span className="flex flex-col items-start text-left">
             <span>{action.label}</span>
@@ -40,13 +49,26 @@ function EntryLabel({ action }: { action: MenuAction }): JSX.Element {
     )
 }
 
+// A menu row has a fixed height, and a disabled entry needs a second line for its reason.
+function rowClass(action: MenuAction): string | undefined {
+    return action.disabledReason && !action.loading ? 'h-auto py-1' : undefined
+}
+
+function sectionsOf(actions: MenuAction[]): { label?: string; actions: MenuAction[] }[] {
+    const labels = [...new Set(actions.map((action) => action.section))]
+    if (labels.length < 2) {
+        return [{ actions }]
+    }
+    return labels.map((label) => ({ label, actions: actions.filter((action) => action.section === label) }))
+}
+
 function MenuEntry({ action, parts }: { action: MenuAction; parts: MenuParts }): JSX.Element {
-    const { Item, CheckboxItem, Sub, SubTrigger, SubContent, RadioGroup, RadioItem } = parts
+    const { Group, Label, Separator, Item, CheckboxItem, Sub, SubTrigger, SubContent, RadioGroup, RadioItem } = parts
     if (action.submenu && action.choice) {
         const selected = action.submenu.find((child) => child.checked)?.key ?? null
         return (
             <Sub>
-                <SubTrigger data-attr={action.dataAttr} disabled={!!action.disabledReason}>
+                <SubTrigger data-attr={action.dataAttr} className={rowClass(action)} disabled={!!action.disabledReason}>
                     <EntryLabel action={action} />
                 </SubTrigger>
                 <SubContent>
@@ -59,6 +81,7 @@ function MenuEntry({ action, parts }: { action: MenuAction; parts: MenuParts }):
                                 key={child.key}
                                 value={child.key}
                                 data-attr={child.dataAttr}
+                                className={rowClass(child)}
                                 disabled={!!child.disabledReason}
                             >
                                 <EntryLabel action={child} />
@@ -72,12 +95,18 @@ function MenuEntry({ action, parts }: { action: MenuAction; parts: MenuParts }):
     if (action.submenu) {
         return (
             <Sub>
-                <SubTrigger data-attr={action.dataAttr} disabled={!!action.disabledReason}>
+                <SubTrigger data-attr={action.dataAttr} className={rowClass(action)} disabled={!!action.disabledReason}>
                     <EntryLabel action={action} />
                 </SubTrigger>
                 <SubContent>
-                    {action.submenu.map((child) => (
-                        <MenuEntry key={child.key} action={child} parts={parts} />
+                    {sectionsOf(action.submenu).map((section, index) => (
+                        <Group key={section.label ?? index}>
+                            {index > 0 && <Separator />}
+                            {section.label && <Label>{section.label}</Label>}
+                            {section.actions.map((child) => (
+                                <MenuEntry key={child.key} action={child} parts={parts} />
+                            ))}
+                        </Group>
                     ))}
                 </SubContent>
             </Sub>
@@ -87,6 +116,7 @@ function MenuEntry({ action, parts }: { action: MenuAction; parts: MenuParts }):
         return (
             <CheckboxItem
                 data-attr={action.dataAttr}
+                className={rowClass(action)}
                 checked={action.checked}
                 disabled={!!action.disabledReason}
                 onCheckedChange={() => action.onSelect?.()}
@@ -98,6 +128,7 @@ function MenuEntry({ action, parts }: { action: MenuAction; parts: MenuParts }):
     return (
         <Item
             data-attr={action.dataAttr}
+            className={rowClass(action)}
             variant={action.destructive ? 'destructive' : 'default'}
             disabled={!!action.disabledReason}
             closeOnClick={!action.keepOpen}

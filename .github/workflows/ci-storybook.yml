@@ -1547,6 +1547,8 @@ jobs:
                         "affected_story_count": ${{ needs.select-stories.outputs.affected_story_count || 'null' }},
                         "suggested_shards": ${{ needs.select-stories.outputs.suggested_shards || 'null' }},
                         "estimated_minutes_saved": ${{ needs.select-stories.outputs.estimated_minutes_saved || 'null' }},
+                        "pr_draft": ${{ toJSON(github.event.pull_request.draft) }},
+                        "merge_queue": ${{ startsWith(github.head_ref, 'trunk-merge/') }},
                         "event_type": ${{ toJSON(github.event_name) }},
                         "branch": ${{ toJSON(github.head_ref || github.ref_name) }},
                         "sha": ${{ toJSON(github.sha) }},

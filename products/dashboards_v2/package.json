@@ -2,15 +2,19 @@
     "name": "@posthog/products-dashboards-v2",
     "dependencies": {
         "@posthog/quill": "workspace:*",
+        "@posthog/quill-charts": "workspace:*",
+        "@posthog/quill-components": "workspace:*",
         "kea": "catalog:",
         "kea-loaders": "catalog:",
         "kea-router": "catalog:",
+        "papaparse": "*",
         "posthog-js": "catalog:",
         "react-grid-layout": "^2.3.0"
     },
     "devDependencies": {
         "@storybook/react": "catalog:",
         "@testing-library/dom": ">=9.3.4",
+        "@types/papaparse": "*",
         "jest": "^29.7.0",
         "kea-test-utils": "catalog:"
     },

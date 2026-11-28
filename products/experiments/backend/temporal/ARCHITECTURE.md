@@ -100,7 +100,7 @@ A changed metric has a new fingerprint, so it recomputes, and the upsert replace
 The previous `recalculation_id` then reads the new result for that metric, the same as a stopped experiment after a config change (below).
 
 **Stopped experiments never get per-run isolation.**
-A stopped experiment has a fixed window: `_resolve_query_to` returns `end_date` for every run (`recalculation/logic.py`).
+A stopped experiment has a fixed window: `_resolve_query_to` returns `end_date` for every run (`recalculation/progress.py`).
 So every run of a stopped experiment uses the same `(experiment, metric_uuid, query_to)` row for a metric, and the rule above decides what a reload does:
 
 - **Same config, completed row:** the reload skips the query and keeps the row. It never recomputes the fixed window, so late events and data warehouse corrections for that window do not reach the stored result.

@@ -82,6 +82,10 @@ def _workflow_not_found() -> RPCError:
     return RPCError("workflow not found", RPCStatusCode.NOT_FOUND, b"")
 
 
+def _temporal_unavailable() -> RPCError:
+    return RPCError("unavailable", RPCStatusCode.UNAVAILABLE, b"")
+
+
 def _describe(outcome: SimpleNamespace | Exception) -> AsyncMock:
     if isinstance(outcome, Exception):
         return AsyncMock(side_effect=outcome)
@@ -445,6 +449,7 @@ class TestRecalculationService(BaseTest):
             ("pending_workflow_running", "pending", "created_at", 45, _workflow_running(), True),
             ("in_progress_workflow_running", "in_progress", "started_at", 45, _workflow_running(), True),
             ("in_progress_describe_error", "in_progress", "started_at", 45, TimeoutError(), True),
+            ("in_progress_describe_rpc_error", "in_progress", "started_at", 45, _temporal_unavailable(), True),
             ("in_progress_past_ceiling", "in_progress", "started_at", 75, _workflow_running(), False),
         ]
     )
@@ -483,7 +488,7 @@ class TestRecalculationService(BaseTest):
             assert result["id"] == str(stale_row.id)
             assert stale_row.status == status
             mock_cancel.assert_not_called()
-            assert mock_capture_exception.called is isinstance(describe_outcome, TimeoutError)
+            assert mock_capture_exception.called is isinstance(describe_outcome, Exception)
             return
 
         # A fresh row was created (NOT the stale one), the stale row was marked FAILED, and its workflow

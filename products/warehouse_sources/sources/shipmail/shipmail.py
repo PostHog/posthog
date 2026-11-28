@@ -1,10 +1,11 @@
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from datetime import datetime
 from typing import Any, Optional
 
 from products.warehouse_sources.sources.sdk import (
     ClientConfig,
     JSONResponseCursorPaginator,
+    Resource,
     RESTAPIConfig,
     ResumableSourceManager,
     SourceResponse,
@@ -13,7 +14,7 @@ from products.warehouse_sources.sources.sdk import (
     make_tracked_session,
     rest_api_resource,
 )
-from products.warehouse_sources.sources.shipmail.settings import SHIPMAIL_ENDPOINTS, SHIPMAIL_PARENT_ENDPOINTS
+from products.warehouse_sources.sources.shipmail.settings import SHIPMAIL_ENDPOINTS
 
 SHIPMAIL_BASE_URL = "https://shipmail.to/api/v1"
 REQUEST_TIMEOUT_SECONDS = 30.0
@@ -29,6 +30,27 @@ def _incremental_value(value: Any) -> str:
     if isinstance(value, datetime):
         return value.isoformat()
     return str(value)
+
+
+def _drop_repeated_rows(
+    scope_field: str, primary_keys: list[str]
+) -> Callable[[dict[str, Any]], dict[str, Any] | list[dict[str, Any]]]:
+    # The fan-out finishes one parent before the next, so the seen keys only need to cover one scope.
+    scope: list[Any] = [None]
+    id_fields = [field for field in primary_keys if field != scope_field]
+    seen: set[tuple[Any, ...]] = set()
+
+    def drop(row: dict[str, Any]) -> dict[str, Any] | list[dict[str, Any]]:
+        if row.get(scope_field) != scope[0]:
+            scope[0] = row.get(scope_field)
+            seen.clear()
+        key = tuple(row.get(field) for field in id_fields)
+        if key in seen:
+            return []
+        seen.add(key)
+        return row
+
+    return drop
 
 
 def _initial_paginator_state(
@@ -103,7 +125,7 @@ def shipmail_source(
                 resumable_source_manager.save_state(ShipmailResumeConfig(fanout_state=state))
 
         resource = build_dependent_resource(
-            endpoint_configs=SHIPMAIL_ENDPOINTS | SHIPMAIL_PARENT_ENDPOINTS,
+            endpoint_configs=SHIPMAIL_ENDPOINTS,
             child_endpoint=endpoint,
             fanout=endpoint_config.fanout,
             client_config=client_config,
@@ -121,6 +143,8 @@ def shipmail_source(
             initial_paginator_state=resume.fanout_state if resume else None,
             resume_parent_pagination=True,
         )
+        if endpoint_config.drop_repeated_rows_per is not None and isinstance(resource, Resource):
+            resource.add_map(_drop_repeated_rows(endpoint_config.drop_repeated_rows_per, endpoint_config.primary_keys))
     else:
         resource = rest_api_resource(
             rest_config,

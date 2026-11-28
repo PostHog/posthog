@@ -29,19 +29,105 @@ describe('aiShellLogic', () => {
             { realm: 'a not-yet-loaded preflight', preflight: null, expected: true },
             { realm: 'PostHog Cloud', preflight: { cloud: true }, expected: true },
             {
-                realm: 'self-hosted with an Anthropic key',
-                preflight: { cloud: false, is_debug: false, anthropic_available: true },
+                realm: 'self-hosted with both keys',
+                preflight: { cloud: false, is_debug: false, anthropic_available: true, openai_available: true },
                 expected: true,
             },
             {
+                realm: 'self-hosted with only an Anthropic key',
+                preflight: { cloud: false, is_debug: false, anthropic_available: true, openai_available: false },
+                expected: false,
+            },
+            {
+                realm: 'self-hosted with only an OpenAI key',
+                preflight: { cloud: false, is_debug: false, anthropic_available: false, openai_available: true },
+                expected: false,
+            },
+            {
                 realm: 'self-hosted without a key',
-                preflight: { cloud: false, is_debug: false, anthropic_available: false },
+                preflight: { cloud: false, is_debug: false, anthropic_available: false, openai_available: false },
                 expected: false,
             },
         ])('is $expected on $realm', async ({ preflight, expected }) => {
             preflightLogic.actions.loadPreflightSuccess(preflight as any)
 
             await expectLogic(logic).toMatchValues({ isMaxAvailable: expected })
+        })
+    })
+
+    describe('isTaskRunnerAvailable selector', () => {
+        it.each([
+            { realm: 'a not-yet-loaded preflight', preflight: null, expected: true },
+            { realm: 'PostHog Cloud', preflight: { cloud: true }, expected: true },
+            {
+                realm: 'self-hosted with only an Anthropic key',
+                preflight: { cloud: false, is_debug: false, anthropic_available: true, openai_available: false },
+                expected: true,
+            },
+            {
+                realm: 'self-hosted with only an OpenAI key',
+                preflight: { cloud: false, is_debug: false, anthropic_available: false, openai_available: true },
+                expected: false,
+            },
+        ])('is $expected on $realm', async ({ preflight, expected }) => {
+            preflightLogic.actions.loadPreflightSuccess(preflight as any)
+
+            await expectLogic(logic).toMatchValues({ isTaskRunnerAvailable: expected })
+        })
+    })
+
+    describe('isAiAvailable selector', () => {
+        const anthropicOnly = { cloud: false, is_debug: false, anthropic_available: true, openai_available: false }
+        const openaiOnly = { cloud: false, is_debug: false, anthropic_available: false, openai_available: true }
+        const bothKeys = { cloud: false, is_debug: false, anthropic_available: true, openai_available: true }
+
+        it.each([
+            {
+                scenario: 'Anthropic-only on the new view',
+                preflight: anthropicOnly,
+                flagOn: true,
+                view: 'new',
+                expected: true,
+            },
+            {
+                scenario: 'Anthropic-only on the legacy view',
+                preflight: anthropicOnly,
+                flagOn: true,
+                view: 'legacy',
+                expected: false,
+            },
+            {
+                scenario: 'Anthropic-only with the flag off and view new stored',
+                preflight: anthropicOnly,
+                flagOn: false,
+                view: 'new',
+                expected: false,
+            },
+            {
+                scenario: 'both keys on the legacy view',
+                preflight: bothKeys,
+                flagOn: true,
+                view: 'legacy',
+                expected: true,
+            },
+            {
+                scenario: 'OpenAI-only on the new view',
+                preflight: openaiOnly,
+                flagOn: true,
+                view: 'new',
+                expected: false,
+            },
+            { scenario: 'cloud without keys', preflight: { cloud: true }, flagOn: true, view: 'new', expected: true },
+            { scenario: 'a not-yet-loaded preflight', preflight: null, flagOn: true, view: 'new', expected: true },
+        ] as const)('is $expected for $scenario', async ({ preflight, flagOn, view, expected }) => {
+            featureFlagLogic.actions.setFeatureFlags(
+                flagOn ? [FEATURE_FLAGS.PHAI_SANDBOX_MODE] : [],
+                flagOn ? { [FEATURE_FLAGS.PHAI_SANDBOX_MODE]: true } : {}
+            )
+            logic.actions.setPhaiViewMode(view)
+            preflightLogic.actions.loadPreflightSuccess(preflight as any)
+
+            await expectLogic(logic).toMatchValues({ isAiAvailable: expected })
         })
     })
 

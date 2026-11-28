@@ -274,11 +274,13 @@ export interface runInteractionLogicActions {
     contextDelivered: (
         taskId: string,
         items: AttachedContextItem[],
-        fromNewChat?: boolean | undefined
+        fromNewChat?: boolean | undefined,
+        wireItems?: AttachedContextItem[] | undefined
     ) => {
         fromNewChat: boolean
         items: AttachedContextItem[]
         taskId: string
+        wireItems: AttachedContextItem[]
     } // attachedContextLogic
     claimAttachmentsForQueue: () => {
         value: true
@@ -1383,8 +1385,8 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
 
         // Dedupe can prune an item from the wire, such as a re-pick, but the chat still holds it. Recording the whole
         // set stops every later send in the resume chain from re-inflating it.
-        const recordDelivery = (items: AttachedContextItem[]): void => {
-            actions.contextDelivered(props.taskId, items)
+        const recordDelivery = (items: AttachedContextItem[], wireItems: AttachedContextItem[]): void => {
+            actions.contextDelivered(props.taskId, items, false, wireItems)
         }
 
         const restoreQueuedRows = (rows: QueuedMessage[], content: string): void => {
@@ -1666,7 +1668,7 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
                     // The SSE echo (`pushHumanMessage`) reopens the turn — always the raw text the user typed.
                     // The names ride along so the chips show on send, not when the turn echoes back.
                     actions.pushHumanMessage(content, stageAttachmentPreviews(sending))
-                    recordDelivery(deliveredContext)
+                    recordDelivery(deliveredContext, pendingContext)
                     // One attached while this send was in flight belongs to the next message.
                     actions.removeAttachments(sending.map((attachment) => attachment.id))
                     actions.finishTaskDraftDelivery()
@@ -1848,7 +1850,7 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
                     }
                     accepted = true
                     actions.finishTaskDraftDelivery()
-                    recordDelivery(deliveredContext)
+                    recordDelivery(deliveredContext, pendingContext)
                     // A failure leaves them staged for the retry.
                     actions.removeAttachments(sending.map((attachment) => attachment.id))
                     props.flushDraft?.()

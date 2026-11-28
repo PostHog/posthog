@@ -737,6 +737,67 @@ describe('ToolExecutor analytics capture', () => {
         captureSpy.mockRestore()
     })
 
+    it.each([
+        {
+            label: 'names a client conversation id without its value',
+            requestMeta: {
+                'openai/session': 'v1/secret-session-value',
+                'io.modelcontextprotocol/clientInfo': { name: 'openai-mcp', version: '1.0.0' },
+            },
+            requestHeaderNames: ['content-type', 'mcp-protocol-version', 'user-agent'],
+            expectedMetaKeys: ['io.modelcontextprotocol/clientInfo', 'openai/session'],
+            expectedHeaderNames: ['content-type', 'mcp-protocol-version', 'user-agent'],
+        },
+        {
+            label: 'drops names that are blank, padded, too long or carry a value',
+            requestMeta: {
+                '': 1,
+                'has space': 1,
+                ['x'.repeat(65)]: 1,
+                'person@example.com': 1,
+                'token=abc': 1,
+                'token:abc': 1,
+                'sk-proj-a1b2c3d4e5f6': 1,
+                '550e8400-e29b-41d4-a716-446655440000': 1,
+                'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0': 1,
+                ['a'.repeat(33)]: 1,
+                'wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY': 1,
+                sessionId: 'abc',
+                'x-codex-turn-metadata': {},
+            },
+            requestHeaderNames: undefined,
+            expectedMetaKeys: ['sessionId', 'x-codex-turn-metadata'],
+            expectedHeaderNames: undefined,
+        },
+        {
+            label: 'records nothing when the request carries no _meta',
+            requestMeta: undefined,
+            requestHeaderNames: undefined,
+            expectedMetaKeys: undefined,
+            expectedHeaderNames: undefined,
+        },
+    ])(
+        'request identity: $label',
+        async ({ requestMeta, requestHeaderNames, expectedMetaKeys, expectedHeaderNames }) => {
+            const captureSpy = vi.spyOn(getPostHogClient(), 'captureToolCall').mockImplementation(() => {})
+            const state = makeToolExecutorState([], {
+                useSingleExec: true,
+                requestContext: { authMethod: 'personal_api_key', mcpSessionId: 'sess-1', requestHeaderNames },
+            })
+            await executor.handleToolsList(state)
+
+            await executor.handleToolCall({ name: 'exec', arguments: { command: 'tools' }, _meta: requestMeta }, state)
+
+            await vi.waitFor(() => expect(captureSpy).toHaveBeenCalledTimes(1))
+            const properties = captureSpy.mock.calls[0]![0].properties ?? {}
+            expect(properties.mcp_request_meta_keys).toEqual(expectedMetaKeys)
+            expect(properties.mcp_request_header_names).toEqual(expectedHeaderNames)
+            expect(JSON.stringify(captureSpy.mock.calls[0]![0])).not.toContain('secret-session-value')
+
+            captureSpy.mockRestore()
+        }
+    )
+
     it('keeps the handle a wrapper app sent on the conversation header', async () => {
         const captureSpy = vi.spyOn(getPostHogClient(), 'captureToolCall').mockImplementation(() => {})
         const state = makeToolExecutorState([], {

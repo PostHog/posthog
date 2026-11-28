@@ -37,10 +37,11 @@ SELECT * FROM (
         'poor'
     ) AS band,
     path,
-    value
+    value,
+    sample_count
     FROM {inner_query}
 )
-ORDER BY value ASC, path ASC
+ORDER BY value DESC, path ASC
 LIMIT 20 BY band
 """,
             timings=self.timings,
@@ -51,26 +52,34 @@ LIMIT 20 BY band
             },
         )
 
-    # NOTE: Hardcoded to return at most 20 results per band, but we can change that if needed
+    # NOTE: Hardcoded to return at most 20 results per band, but we can change that if needed.
+    # Bands are listed worst value first, so the cap keeps the pages a reader triages first.
     def _inner_query(self):
         return parse_select(
             """
 SELECT
     {breakdown_by} AS path,
-    {percentile} AS value
+    {percentile} AS value,
+    countIf({metric_value} IS NOT NULL) AS sample_count
 FROM events
 WHERE and(event == '$web_vitals', path IS NOT NULL, {inside_periods_expr}, {event_properties_expr})
 GROUP BY path
-HAVING value >= 0
+HAVING value >= 0 AND sample_count >= {min_samples}
             """,
             timings=self.timings,
             placeholders={
                 "breakdown_by": self._apply_path_cleaning(ast.Field(chain=["events", "properties", "$pathname"])),
                 "percentile": self._percentile_expr(),
+                "metric_value": ast.Field(chain=["events", "properties", self._metric_value_property]),
+                "min_samples": ast.Constant(value=self.query.minSamples or 1),
                 "inside_periods_expr": self._periods_expression(),
                 "event_properties_expr": self._event_properties(),
             },
         )
+
+    @property
+    def _metric_value_property(self) -> str:
+        return f"$web_vitals_{self.query.metric.value}_value"
 
     def _event_properties(self) -> ast.Expr:
         properties = [
@@ -82,7 +91,7 @@ HAVING value >= 0
 
     def _percentile_expr(self) -> ast.Expr:
         percentile_function = PROPERTY_MATH_FUNCTIONS[self.query.percentile]
-        metric_value_field = f"properties.$web_vitals_{self.query.metric.value}_value"
+        metric_value_field = f"properties.{self._metric_value_property}"
 
         # nosemgrep: hogql-injection-taint - percentile_function from dict lookup, metric from enum
         return parse_expr(f"{percentile_function}(toFloat({metric_value_field}))")
@@ -128,6 +137,10 @@ HAVING value >= 0
         )
 
     def _get_results_for_band(
-        self, results: list[tuple[str, str, float]], band: WebVitalsMetricBand
+        self, results: list[tuple[str, str, float, int]], band: WebVitalsMetricBand
     ) -> list[WebVitalsPathBreakdownResultItem]:
-        return [WebVitalsPathBreakdownResultItem(path=row[1], value=row[2]) for row in results if row[0] == band.value]
+        return [
+            WebVitalsPathBreakdownResultItem(path=row[1], value=row[2], count=row[3])
+            for row in results
+            if row[0] == band.value
+        ]

@@ -1,4 +1,4 @@
-import { register } from 'prom-client'
+import { Registry, register } from 'prom-client'
 
 import { EmailAttachmentMetadata } from '~/cdp/schema/cyclotron'
 import { CyclotronJobInvocation } from '~/cdp/types'
@@ -56,6 +56,24 @@ describe('InFlightRegistry', () => {
         await (started as { started: Promise<void> }).started
 
         expect(registry.tryStart(oneFileOf(MIB), () => Promise.resolve())).toHaveProperty('started')
+    })
+
+    it('serves every deferral reason at zero on the first scrape after the module loads', async () => {
+        let registry: Registry | undefined
+        jest.isolateModules(() => {
+            registry = require('prom-client').register
+            require('./in-flight-registry')
+        })
+
+        const scrape = await registry!.metrics()
+        const samples = scrape
+            .split('\n')
+            .filter((line) => line.startsWith('cdp_email_attachments_deferral_tokens_total{'))
+        expect(samples.sort()).toEqual(
+            ['at_cap', 'over_budget', 'over_heap', 'refused'].map(
+                (reason) => `cdp_email_attachments_deferral_tokens_total{reason="${reason}"} 0`
+            )
+        )
     })
 
     it('defers every send when the worker refused sends with files', () => {

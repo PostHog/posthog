@@ -69,7 +69,7 @@ export function QuillDataCatalogMetricScene({ name }: DataCatalogMetricSceneLogi
         runMetricWithAI,
     } = useActions(dataCatalogMetricSceneLogic)
     const { featureFlags } = useValues(featureFlagLogic)
-    const { isMaxAvailable } = useValues(maxGlobalLogic)
+    const { isAiAvailable } = useValues(maxGlobalLogic)
     const [openDialog, setOpenDialog] = useState<OpenDialog | null>(null)
 
     if (metricLoading && !metric) {
@@ -94,7 +94,7 @@ export function QuillDataCatalogMetricScene({ name }: DataCatalogMetricSceneLogi
         metric,
         mutating,
         running: runResultLoading,
-        isMaxAvailable,
+        isAiAvailable,
         handlers: {
             approve: approveMetric,
             refreshFromInsight: refreshMetricFromInsight,
@@ -181,7 +181,7 @@ export function QuillDataCatalogMetricScene({ name }: DataCatalogMetricSceneLogi
                                         }
                                         onRun={loadRunResult}
                                         onRunWithAI={runMetricWithAI}
-                                        runWithAIDisabledReason={isMaxAvailable ? undefined : MAX_UNAVAILABLE_REASON}
+                                        runWithAIDisabledReason={isAiAvailable ? undefined : MAX_UNAVAILABLE_REASON}
                                     />
                                     <QuillMetricProvenance metric={metric} />
                                 </>
