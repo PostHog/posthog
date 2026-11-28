@@ -128,8 +128,15 @@ export function fixLogqlWindows(expr: string, window: string): { text: string; r
 
 const VARIABLE_REFERENCE = /\$\{(\w+)(?::\w+)?\}|\$(\w+)|\[\[(\w+)\]\]/g
 
-export function fillVariables(expr: string, values: Map<string, string>): { text: string; unfilled: string[] } {
+/** Stops filling once the text would pass `maxLength`, and says so, so a huge expansion is never built. */
+export function fillVariables(
+    expr: string,
+    values: Map<string, string>,
+    maxLength = Infinity
+): { text: string; unfilled: string[]; overflow: boolean } {
     const unfilled = new Set<string>()
+    let length = expr.length
+    let overflow = false
     const text = expr.replace(VARIABLE_REFERENCE, (match, braced?: string, bare?: string, old?: string) => {
         const name = braced ?? bare ?? old ?? ''
         if (name.startsWith('__')) {
@@ -140,9 +147,14 @@ export function fillVariables(expr: string, values: Map<string, string>): { text
             unfilled.add(name)
             return match
         }
+        if (overflow || length + value.length - match.length > maxLength) {
+            overflow = true
+            return match
+        }
+        length += value.length - match.length
         return value
     })
-    return { text, unfilled: [...unfilled] }
+    return { text, unfilled: [...unfilled], overflow }
 }
 
 /**
@@ -225,7 +237,7 @@ export function rewriteLogql(expr: string): string {
                       )}}`
         )
         .replace(
-            new RegExp(`(${STRING_LITERAL})|\\b(by|without)\\s*\\(([^)]*)\\)`, 'g'),
+            new RegExp(`(${STRING_LITERAL})|\\b(by|without)\\s*\\(([^()"\`]*)\\)`, 'g'),
             (match, literal: string | undefined, keyword: string, list: string) =>
                 literal !== undefined
                     ? match

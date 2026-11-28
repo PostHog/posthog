@@ -16,7 +16,7 @@ export type PanelQuery =
     | { language: 'logql'; query: string }
 
 // The query batch endpoint's limit. A longer value fails the whole batch, and with it every other tile's query.
-const MAX_QUERY_TEXT = 200_000
+export const MAX_QUERY_TEXT = 200_000
 
 // Only a node's kind is checked here. The node schemas are large, and PostHog checks the rest when it runs the query.
 export const panelQuerySchema = z.union([

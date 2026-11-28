@@ -211,6 +211,22 @@ describe('importDashboard', () => {
         expect(result.dashboard.time).toBeUndefined()
     })
 
+    it('keeps refIds unique when shortening them to the board limit', () => {
+        const long = 'r'.repeat(250)
+        const result = imported({
+            title: 'T',
+            panels: [
+                panelWith({
+                    targets: [
+                        { refId: `${long}1`, expr: 'up' },
+                        { refId: `${long}2`, expr: 'down' },
+                    ],
+                }),
+            ],
+        })
+        expect(validateDashboard(result.dashboard, DEFAULT_PANELS)).toEqual([])
+    })
+
     it('reads plugin identifiers from a v2alpha1 export', () => {
         const result = imported({
             elements: {

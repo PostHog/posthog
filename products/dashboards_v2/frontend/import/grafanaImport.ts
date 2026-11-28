@@ -1,4 +1,4 @@
-import { type PanelQuery, panelQuerySchema } from '../dashboard/dashboardSchema'
+import { MAX_QUERY_TEXT, type PanelQuery, panelQuerySchema } from '../dashboard/dashboardSchema'
 import { type Dashboard, GRID, type GridTab, type Tile } from '../dashboard/dashboardTypes'
 import type { ChartConfig } from '../panels/chart/chartSpec'
 import type { StatOptions } from '../panels/chart/viz/stat/statSpec'
@@ -164,7 +164,7 @@ function telemetryText(
     loki: boolean,
     converter: Converter,
     reasons: string[]
-): { text: string; filled: boolean } {
+): { text: string; filled: boolean } | undefined {
     let cleaned = expr.replace(/\$\{DS_[A-Z0-9_]+\}/g, '')
     if (loki) {
         const windows = fixLogqlWindows(cleaned, LOGQL_WINDOW)
@@ -175,7 +175,10 @@ function telemetryText(
     } else {
         cleaned = stripStepWindows(cleaned)
     }
-    const filled = fillVariables(cleaned, converter.variables)
+    const filled = fillVariables(cleaned, converter.variables, MAX_QUERY_TEXT)
+    if (filled.overflow) {
+        return undefined
+    }
     for (const name of filled.unfilled) {
         reasons.push(`$${name} has no saved value, so ${refId} keeps it as written and may not run.`)
     }
@@ -201,12 +204,12 @@ function telemetryTarget(
     converter: Converter,
     reasons: string[]
 ): ImportedTarget | OriginalQuery {
-    const { text, filled } = telemetryText(expr, refId, loki, converter, reasons)
-    const query: PanelQuery = {
+    const converted = telemetryText(expr, refId, loki, converter, reasons)
+    const query: PanelQuery | undefined = converted && {
         language: loki ? 'logql' : 'promql',
-        query: scaleToFraction ? `(${text}) / 100` : text,
+        query: scaleToFraction ? `(${converted.text}) / 100` : converted.text,
     }
-    if (!panelQuerySchema.safeParse(query).success) {
+    if (!converted || !query || !panelQuerySchema.safeParse(query).success) {
         converter.report.query(false)
         reasons.push(`${refId} is too long for a board query once its variables are filled in.`)
         return { language: '', text: `-- ${refId}\n${expr}` }
@@ -216,8 +219,8 @@ function telemetryTarget(
         reasons.push(`${refId}'s legend is too long, so it uses the default.`)
         targetLegend = undefined
     }
-    converter.report.query(filled)
-    return { refId: refId.slice(0, MAX_REF_ID), query, legend: targetLegend }
+    converter.report.query(converted.filled)
+    return { refId, query, legend: targetLegend }
 }
 
 function unrunnableQuery(
@@ -237,6 +240,15 @@ function unrunnableQuery(
     return { language: /sql/i.test(language) ? 'sql' : '', text: `-- ${refId} · ${language}\n${text}` }
 }
 
+function uniqueRefId(refId: string, used: Set<string>): string {
+    let id = refId.slice(0, MAX_REF_ID)
+    for (let n = 2; used.has(id); n++) {
+        id = `${refId.slice(0, MAX_REF_ID - String(n).length - 1)}-${n}`
+    }
+    used.add(id)
+    return id
+}
+
 function convertTargets(
     panel: Json,
     scaleToFraction: boolean,
@@ -246,11 +258,12 @@ function convertTargets(
     const targets: ImportedTarget[] = []
     const skipped: OriginalQuery[] = []
     const panelType = converter.datasourceType(panel.datasource)
+    const usedRefIds = new Set<string>()
     for (const [index, target] of (Array.isArray(panel.targets) ? panel.targets : []).entries()) {
         if (!target || typeof target !== 'object' || target.hide) {
             continue
         }
-        const refId = String(target.refId ?? String.fromCharCode(65 + index))
+        const refId = uniqueRefId(String(target.refId ?? String.fromCharCode(65 + index)), usedRefIds)
         const expr = typeof target.expr === 'string' ? target.expr : undefined
         if (expr !== undefined && !expr.trim()) {
             continue
