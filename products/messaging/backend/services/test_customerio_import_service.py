@@ -190,7 +190,9 @@ user4@example.com,cio_6,"{""topics"": {""topic_1"": true, ""topic_2"": true}}"
             },
         ]
 
-        newsletter = MessageCategory.objects.create(team=self.team, key="customerio_topic_1", name="Newsletter")
+        newsletter = MessageCategory.objects.create(
+            team=self.team, key="customerio_topic_1", name="Newsletter", description="Ours", deleted=True
+        )
         MessageRecipientPreference.objects.create(
             team=self.team,
             identifier="unsubbed1@example.com",
@@ -216,9 +218,9 @@ user4@example.com,cio_6,"{""topics"": {""topic_1"": true, ""topic_2"": true}}"
         assert result["globally_unsubscribed_count"] == 3
         assert result["preferences_updated"] == 3
 
-        # Check categories were created
+        # A deleted category comes back with what the team wrote on it
         cat1 = MessageCategory.objects.get(team=self.team, key="customerio_topic_1")
-        assert cat1.name == "Marketing Emails"
+        assert (cat1.name, cat1.description, cat1.deleted) == ("Newsletter", "Ours", False)
         assert cat1.category_type == MessageCategoryType.MARKETING
 
         cat2 = MessageCategory.objects.get(team=self.team, key="customerio_topic_2")

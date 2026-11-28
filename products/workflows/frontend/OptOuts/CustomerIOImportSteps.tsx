@@ -92,7 +92,7 @@ function StoredKeyField(): JSX.Element {
                     }
                 />
             </div>
-            <p className="text-sm text-muted">Safe to rerun, existing categories and users will be updated.</p>
+            <p className="text-sm text-muted">Safe to rerun. Your changes to categories are kept.</p>
         </>
     )
 }

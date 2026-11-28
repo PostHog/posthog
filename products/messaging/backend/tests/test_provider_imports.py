@@ -220,7 +220,7 @@ class TestProviderImportRuns(BaseTest):
         run = self._start(["categories"])
 
         with patch(
-            f"{SERVICE}.MessageCategory.objects.update_or_create",
+            f"{SERVICE}.MessageCategory.objects.get_or_create",
             side_effect=IntegrityError("Key (key)=(internal-detail) already exists."),
         ):
             runs.run_step(self.team.id, run.id, "categories", attempt=1)

@@ -404,9 +404,9 @@ class CustomerIOImportService:
                 if topic.get("transactional", False):
                     category_type = MessageCategoryType.TRANSACTIONAL
 
-                # Create or update the MessageCategory
+                # A category an earlier import made keeps what the team changed on it since.
                 with transaction.atomic():
-                    category, _ = MessageCategory.objects.update_or_create(
+                    category, created = MessageCategory.objects.get_or_create(
                         team_id=self.team_id,
                         key=topic_key,
                         defaults={
@@ -418,13 +418,18 @@ class CustomerIOImportService:
                             "deleted": False,
                         },
                     )
+                    restored = category.deleted
+                    if restored:
+                        category.deleted = False
+                        category.save(update_fields=["deleted", "updated_at"])
 
                 # Store mappings for both identifier and numeric ID
                 self.topic_mapping[topic_identifier] = str(category.id)
                 self.topic_mapping[str(topic_id)] = str(category.id)
                 self.topic_names[str(topic_id)] = topic_name
 
-                self.progress["categories_created"] += 1
+                if created or restored:
+                    self.progress["categories_created"] += 1
 
             except Exception as e:
                 self.progress["errors"].append(f"Failed to import topic {topic_id}: {str(e)}")
