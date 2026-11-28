@@ -6,7 +6,7 @@ import { withPostgres } from '../environment/stack'
 import { createVacuumProbe } from './vacuum-probe'
 
 const SERVER_URL = defaultConfig.CYCLOTRON_NODE_DATABASE_URL!
-const DATABASE = `scenario_vacuum_${process.pid}`
+const DATABASE = `scenario_vacuum_${randomUUID().replaceAll('-', '')}`
 const PROBE_URL = Object.assign(new URL(SERVER_URL), { pathname: `/${DATABASE}` }).toString()
 
 const run = (sql: string): Promise<unknown> =>
@@ -32,10 +32,7 @@ const sizesOfTable = (): Promise<{ heap: number; toast: number }> =>
 
 describe('vacuum probe', () => {
     beforeAll(async () => {
-        await withPostgres(async (client) => {
-            await client.query(`DROP DATABASE IF EXISTS ${DATABASE} WITH (FORCE)`)
-            await client.query(`CREATE DATABASE ${DATABASE}`)
-        }, SERVER_URL)
+        await withPostgres((client) => client.query(`CREATE DATABASE ${DATABASE}`), SERVER_URL)
         await run(
             `CREATE TABLE cyclotron_jobs (
                  id uuid PRIMARY KEY, team_id int NOT NULL, queue_name text NOT NULL, status text NOT NULL,
