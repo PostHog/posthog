@@ -16,13 +16,15 @@ from posthog.test.base import (
 from unittest.mock import ANY, MagicMock, patch
 
 from django.core.cache import cache
-from django.db import IntegrityError, connection
+from django.db import IntegrityError, connection, transaction
+from django.db.models import JSONField, Value
 from django.test import SimpleTestCase, override_settings
 from django.test.utils import CaptureQueriesContext
 from django.utils.timezone import now
 
 import grpc
 import requests
+import posthoganalytics
 from celery.exceptions import SoftTimeLimitExceeded
 from parameterized import parameterized
 from prometheus_client import REGISTRY
@@ -43,6 +45,7 @@ from posthog.api.utils import ServiceRequest
 from posthog.constants import AvailableFeature
 from posthog.models import TaggedItem, User
 from posthog.models.group.util import create_group, raw_create_group_ch
+from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.organization_ip_restrictions import OrganizationIPRestrictions
 from posthog.models.personal_api_key import PersonalAPIKey
@@ -16820,3 +16823,184 @@ class TestFeatureFlagServerOwnedTimestamps(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK, response.content
         flag.refresh_from_db()
         assert getattr(flag, field) == original
+
+
+FULL = {"groups": [{"properties": [], "rollout_percentage": 100}]}
+
+
+def _shape(rollout: float) -> dict[str, Any]:
+    return {
+        "active": True,
+        "holdout": False,
+        "enrollment": False,
+        "multivariate": False,
+        "early_exit": False,
+        "evaluation_runtime": "all",
+        "conditions": [{"rollout": rollout, "has_properties": False, "aggregation": None}],
+        "variants": [],
+    }
+
+
+class TestFeatureFlagLaunchCheck(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.sent: list[dict[str, Any]] = []
+        client = posthoganalytics.Client("phc_launch_check_test", send=False, before_send=self._record)
+        recorder = patch("posthog.event_usage.posthoganalytics.capture", side_effect=client.capture)
+        recorder.start()
+        self.addCleanup(recorder.stop)
+
+    def _record(self, message: dict[str, Any]) -> dict[str, Any]:
+        if message["event"] == "feature flag launch checked":
+            self.sent.append(message)
+        return message
+
+    def _flag(self, filters: dict[str, Any]) -> FeatureFlag:
+        return FeatureFlag.objects.create(
+            team=self.team, key="launch-check", name="Launch check", created_by=self.user, filters=filters
+        )
+
+    def _patch(self, flag: FeatureFlag, body: dict[str, Any], **kwargs: Any) -> Response:
+        with self.captureOnCommitCallbacks(execute=True):
+            return self.client.patch(
+                f"/api/projects/{self.team.id}/feature_flags/{flag.id}/", body, format="json", **kwargs
+            )
+
+    def _own_properties(self) -> list[dict[str, Any]]:
+        return [
+            {key: value for key, value in event["properties"].items() if not key.startswith("$")} for event in self.sent
+        ]
+
+    def test_targeting_change_sends_both_descriptions_to_the_team(self):
+        flag = self._flag({"groups": [{"properties": [], "rollout_percentage": 50}]})
+
+        response = self._patch(flag, {"filters": FULL})
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert [event["distinct_id"] for event in self.sent] == [str(self.team.uuid)]
+        assert self.sent[0]["properties"]["$groups"] == {
+            "instance": ANY,
+            "organization": str(self.team.organization_id),
+            "project": str(self.team.uuid),
+        }
+        assert self._own_properties() == [
+            {"before": _shape(50.0), "after": _shape(100.0), "source": "web", "was_impersonated": False}
+        ]
+
+    def test_launch_event_carries_nothing_from_the_request_context(self):
+        flag = self._flag({"groups": [{"properties": [], "rollout_percentage": 50}]})
+
+        with posthoganalytics.new_context(fresh=True, capture_exceptions=False):
+            posthoganalytics.tag("email", "user@example.com")
+            posthoganalytics.tag("$current_url", "https://example.com/feature_flags")
+            posthoganalytics.set_context_session("session-from-the-request")
+            response = self._patch(flag, {"filters": FULL})
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert [sorted(properties) for properties in self._own_properties()] == [
+            ["after", "before", "source", "was_impersonated"]
+        ]
+        assert {"$current_url", "$session_id"} & set(self.sent[0]["properties"]) == set()
+
+    def test_save_with_token_minted_during_impersonation_is_marked_impersonated(self):
+        flag = self._flag({"groups": [{"properties": [], "rollout_percentage": 50}]})
+        application = OAuthApplication.objects.create(
+            name="Launch check app",
+            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://example.com/callback",
+            algorithm="RS256",
+            organization=self.organization,
+            user=self.user,
+        )
+        token = OAuthAccessToken.objects.create(
+            user=self.user,
+            application=application,
+            token="pha_launch_check_token",
+            expires=now() + timedelta(hours=1),
+            scope="feature_flag:write",
+            impersonated_by=User.objects.create_and_join(self.organization, "staff@example.com", None),
+        )
+        self.client.logout()
+
+        response = self._patch(flag, {"filters": FULL}, headers={"authorization": f"Bearer {token.token}"})
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert [properties["was_impersonated"] for properties in self._own_properties()] == [True]
+
+    @parameterized.expand(
+        [
+            ("name_only", {"name": "Renamed"}),
+            (
+                "property_value_only",
+                {
+                    "filters": {
+                        "groups": [
+                            {
+                                "properties": [{"key": "email", "type": "person", "value": "b@example.com"}],
+                                "rollout_percentage": 50,
+                            }
+                        ]
+                    }
+                },
+            ),
+        ]
+    )
+    def test_save_that_keeps_the_description_sends_nothing(self, _name: str, body: dict[str, Any]):
+        flag = self._flag(
+            {
+                "groups": [
+                    {
+                        "properties": [{"key": "email", "type": "person", "value": "a@example.com"}],
+                        "rollout_percentage": 50,
+                    }
+                ]
+            }
+        )
+
+        response = self._patch(flag, body)
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert self.sent == []
+
+    def test_outer_rollback_sends_nothing(self):
+        flag = self._flag({"groups": [{"properties": [], "rollout_percentage": 50}]})
+
+        with self.captureOnCommitCallbacks(execute=True):
+            with self.assertRaises(IntegrityError), transaction.atomic():
+                response = self.client.patch(
+                    f"/api/projects/{self.team.id}/feature_flags/{flag.id}/", {"filters": FULL}, format="json"
+                )
+                assert response.status_code == status.HTTP_200_OK, response.content
+                raise IntegrityError("outer rollback")
+
+        assert self.sent == []
+        flag.refresh_from_db()
+        assert flag.filters["groups"][0]["rollout_percentage"] == 50
+
+    def test_save_succeeds_when_sending_the_event_fails(self):
+        flag = self._flag({"groups": [{"properties": [], "rollout_percentage": 50}]})
+
+        def fail_launch_event(**kwargs: Any) -> None:
+            if kwargs["event"] == "feature flag launch checked":
+                raise ConnectionError("capture down")
+
+        with patch("posthog.event_usage.posthoganalytics.capture", side_effect=fail_launch_event) as capture:
+            response = self._patch(flag, {"filters": FULL})
+
+        assert "feature flag launch checked" in [call.kwargs["event"] for call in capture.call_args_list]
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        flag.refresh_from_db()
+        assert flag.filters["groups"][0]["rollout_percentage"] == 100
+
+    def test_save_succeeds_when_the_stored_flag_cannot_be_described(self):
+        flag = self._flag({"groups": [{"properties": [], "rollout_percentage": 50}]})
+        FeatureFlag.objects.filter(pk=flag.pk).update(filters=Value(None, JSONField()))
+
+        response = self._patch(flag, {"filters": FULL})
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        flag.refresh_from_db()
+        assert flag.filters["groups"][0]["rollout_percentage"] == 100
+        assert self.sent == []
