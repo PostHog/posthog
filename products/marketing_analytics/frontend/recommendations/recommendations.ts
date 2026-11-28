@@ -28,6 +28,7 @@ export const RECOMMENDATION_RULE_LABELS: Record<MarketingAnalyticsRecommendation
     spend_without_conversions: 'Spend without conversions',
     striking_distance: 'Striking distance',
     keyword_tracking: 'Keyword tracking',
+    conversion_mismatch: 'Conversion counts differ',
 }
 
 export const RECOMMENDATION_RULE_DESCRIPTIONS: Record<MarketingAnalyticsRecommendationRule, string> = {
@@ -46,6 +47,8 @@ export const RECOMMENDATION_RULE_DESCRIPTIONS: Record<MarketingAnalyticsRecommen
     striking_distance: 'Searches where your site ranks between positions 5 and 20. The top 3 gets most of the clicks.',
     keyword_tracking:
         'Visits from your Google Ads clicks have no utm_term, so conversion goals cannot be tied to the keyword that brought them.',
+    conversion_mismatch:
+        'Google Ads counts at least 3 times the conversions your PostHog goals count, because it may count other actions, or PostHog may not tie the visits to your campaigns.',
 }
 
 // Completes "Benchmark $40, ...".
@@ -79,6 +82,7 @@ const RULE_CATEGORIES: Record<
     striking_distance: 'organic',
     policy_limited: 'fix',
     keyword_tracking: 'fix',
+    conversion_mismatch: 'fix',
 }
 
 export const RECOMMENDATION_CATEGORY_LABELS: Record<RecommendationCategory, string> = {

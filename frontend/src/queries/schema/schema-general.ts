@@ -9389,6 +9389,7 @@ export type MarketingAnalyticsRecommendationRule =
     | 'spend_without_conversions'
     | 'striking_distance'
     | 'keyword_tracking'
+    | 'conversion_mismatch'
 
 export type MarketingAnalyticsRecommendationLevel = 'account' | 'campaign' | 'search_term'
 

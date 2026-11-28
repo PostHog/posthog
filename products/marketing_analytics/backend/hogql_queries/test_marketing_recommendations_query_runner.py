@@ -878,6 +878,9 @@ class TestMarketingAnalyticsRecommendationsQueryRunner(ClickhouseTestMixin, Base
         assert not any("Ignore previous instructions" in gap.message for gap in response.dataGaps or [])
         assert all(rec.cpa is not None and rec.cpa.bestCampaign == 250 for rec in review)
         assert [gap.kind for gap in response.dataGaps or []] == gaps
+        assert [rec.rule for rec in response.results if rec.rule == "conversion_mismatch"] == (
+            ["conversion_mismatch"] if counted_goals is not None and not unmatched else []
+        )
         assert response.conversionSource == MarketingAnalyticsRecommendationsConversionSource(
             kind="google_ads" if counted_goals is None else "posthog", goalNames=counted_goals or []
         )
