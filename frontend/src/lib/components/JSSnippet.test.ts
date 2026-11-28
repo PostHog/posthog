@@ -60,6 +60,10 @@ describe('JavaScript snippet', () => {
         expect(posthog._i).toHaveLength(3)
     })
 
+    it('can be pasted into Liquid and HTML templates without a "<" that reads as a tag opener', () => {
+        expect(snippetFunctions(['capture', 'identify'])).not.toMatch(/<[a-zA-Z!/?]/)
+    })
+
     it('initializes when Array.prototype.toString is read-only', () => {
         const insertedScripts: ScriptElement[] = []
         const snippetWindow: { posthog?: SnippetStub } = {}
