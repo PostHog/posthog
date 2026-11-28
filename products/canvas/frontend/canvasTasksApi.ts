@@ -1,3 +1,5 @@
+import { ApiError } from 'lib/api-error'
+
 import {
     taskChannelsList,
     taskChannelsProvisionDefaultsCreate,
@@ -199,6 +201,15 @@ export async function startCanvasGenerationRun(projectId: string, taskId: string
             initial_permission_mode: 'bypassPermissions',
         })
     )
+}
+
+/**
+ * Whether a follow-up failed because its run already ended, for example after the inactivity
+ * timeout. The polled status can still read live then. The tasks API answers a message to an
+ * ended run with a final 409, so the caller resumes the run instead.
+ */
+export function isRunEndedError(error: unknown): boolean {
+    return error instanceof ApiError && error.status === 409
 }
 
 /** Sends a follow-up message to a run that is still live. The agent reads it on its next turn. */
