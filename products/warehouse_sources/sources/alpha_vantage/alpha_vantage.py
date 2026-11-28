@@ -15,6 +15,7 @@ from products.warehouse_sources.sources.alpha_vantage.settings import (
 )
 from products.warehouse_sources.sources.sdk import (
     SourceResponse,
+    frozen,
     make_tracked_session,
     parse_datetime_value,
     retry_with_deadline,
@@ -534,13 +535,19 @@ def validate_symbols(symbols: str) -> tuple[list[str], str | None]:
     return parsed, None
 
 
-def validate_transcript_quarter(value: str | None, *, required: bool) -> tuple[str, str | None]:
+@frozen
+class TranscriptQuarterValidation:
+    quarter: str
+    error: str | None = None
+
+
+def validate_transcript_quarter(value: str | None, *, required: bool) -> TranscriptQuarterValidation:
     quarter = (value or "").strip().upper()
     if not quarter and not required:
-        return quarter, None
+        return TranscriptQuarterValidation(quarter=quarter)
     if not re.fullmatch(r"[0-9]{4}Q[1-4]", quarter) or quarter < "2010Q1":
-        return quarter, TRANSCRIPT_QUARTER_ERROR
-    return quarter, None
+        return TranscriptQuarterValidation(quarter=quarter, error=TRANSCRIPT_QUARTER_ERROR)
+    return TranscriptQuarterValidation(quarter=quarter)
 
 
 def _request_params(
@@ -583,9 +590,10 @@ def get_rows(
     config = ALPHA_VANTAGE_ENDPOINTS[endpoint]
     quarter = ""
     if config.kind == "transcript":
-        quarter, quarter_error = validate_transcript_quarter(transcript_quarter, required=True)
-        if quarter_error:
-            raise ValueError(quarter_error)
+        validation = validate_transcript_quarter(transcript_quarter, required=True)
+        if validation.error:
+            raise ValueError(validation.error)
+        quarter = validation.quarter
 
     # apikey rides as a query param on every request, so mask its value from logged URLs and samples.
     session = make_tracked_session(redact_values=(api_key,))

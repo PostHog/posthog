@@ -85,12 +85,11 @@ class AlphaVantageSource(SimpleSource[AlphaVantageSourceConfig]):
         return schemas
 
     def validate_sync_config(
-        self, config: AlphaVantageSourceConfig, is_schema_enabled: Callable[[str], bool]
+        self, get_config: Callable[[], AlphaVantageSourceConfig], is_schema_enabled: Callable[[str], bool]
     ) -> str | None:
-        _, quarter_error = validate_transcript_quarter(config.transcript_quarter, required=True)
-        if quarter_error and is_schema_enabled("earnings_call_transcript"):
-            return quarter_error
-        return None
+        if not is_schema_enabled("earnings_call_transcript"):
+            return None
+        return validate_transcript_quarter(get_config().transcript_quarter, required=True).error
 
     def validate_credentials(
         self,
@@ -104,11 +103,11 @@ class AlphaVantageSource(SimpleSource[AlphaVantageSourceConfig]):
             return False, symbols_error
 
         if schema_name in (None, "earnings_call_transcript"):
-            _, quarter_error = validate_transcript_quarter(
+            validation = validate_transcript_quarter(
                 config.transcript_quarter, required=schema_name == "earnings_call_transcript"
             )
-            if quarter_error:
-                return False, quarter_error
+            if validation.error:
+                return False, validation.error
 
         if validate_alpha_vantage_credentials(config.api_key):
             return True, None

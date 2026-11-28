@@ -27,7 +27,7 @@ class TestAlphaVantageSource:
     ) -> None:
         config = AlphaVantageSourceConfig(api_key="KEY", symbols="ACME", transcript_quarter=quarter)
 
-        error = AlphaVantageSource().validate_sync_config(config, enabled_schemas.__contains__)
+        error = AlphaVantageSource().validate_sync_config(lambda: config, enabled_schemas.__contains__)
 
         assert (error is None) is expected_valid
 

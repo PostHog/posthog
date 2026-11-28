@@ -931,7 +931,7 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
 
         if job_inputs_were_submitted and (connection_config_changed or instance.is_direct_query):
             sync_config_error = source.validate_sync_config(
-                source_config,
+                lambda: source_config,
                 lambda name: instance.schemas.filter(name=name, should_sync=True, deleted=False).exists(),
             )
             if sync_config_error:
@@ -1798,6 +1798,11 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
                         )
                     },
                 )
+
+        enabled_schema_names = {schema["name"] for schema in payload_schemas if schema.get("should_sync", False)}
+        sync_config_error = source.validate_sync_config(lambda: source_config, enabled_schema_names.__contains__)
+        if sync_config_error:
+            return setup_error_response(SourceSetupErrorCode.INVALID_CONFIG, sync_config_error)
 
         new_source_model = SourceInputsStore.create(
             source_id=str(uuid.uuid4()),

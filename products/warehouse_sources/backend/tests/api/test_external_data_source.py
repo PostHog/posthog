@@ -16552,6 +16552,55 @@ class TestFanoutParentCreation(APIBaseTest):
         )
 
 
+class TestAlphaVantageTranscriptSetup(APIBaseTest):
+    @patch(
+        "products.warehouse_sources.sources.alpha_vantage.source.validate_alpha_vantage_credentials",
+        return_value=True,
+    )
+    def test_create_rejects_transcript_sync_without_quarter(self, _mock_validate):
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/",
+            {
+                "source_type": "AlphaVantage",
+                "payload": {
+                    "api_key": "test-key",
+                    "symbols": "ACME",
+                    "schemas": [{"name": "earnings_call_transcript", "should_sync": True, "sync_type": "full_refresh"}],
+                },
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json()["code"] == "invalid_config"
+        assert "Enter an earnings call quarter" in response.json()["message"]
+        assert not ExternalDataSource.objects.filter(team=self.team, source_type="AlphaVantage").exists()
+
+    def test_update_rejects_enabling_transcript_sync_without_quarter(self):
+        source = SourceInputsStore.create(
+            team=self.team, source_type="AlphaVantage", inputs={"api_key": "test-key", "symbols": "ACME"}
+        )
+        schema = ExternalDataSchema.objects.create(
+            team=self.team,
+            source=source,
+            name="earnings_call_transcript",
+            should_sync=False,
+            sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
+            sync_frequency_interval=timedelta(days=1),
+        )
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}/",
+            {"should_sync": True},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert "Enter an earnings call quarter" in response.json()["detail"]
+        schema.refresh_from_db()
+        assert not schema.should_sync
+
+
 class TestRefreshSchemasErrorClassification(SimpleTestCase):
     def test_a_rejected_host_returns_the_guidance_without_a_source_registry(self) -> None:
         message, is_expected = _classify_refresh_schemas_error(

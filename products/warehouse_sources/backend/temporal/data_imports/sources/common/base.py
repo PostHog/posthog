@@ -589,7 +589,9 @@ class _BaseSource(ABC, Generic[ConfigType]):
             nest_flat_select_containers(job_inputs, self.get_source_config.fields, self.flat_stored_selects)
         )
 
-    def validate_sync_config(self, config: ConfigType, is_schema_enabled: Callable[[str], bool]) -> str | None:
+    def validate_sync_config(
+        self, get_config: Callable[[], ConfigType], is_schema_enabled: Callable[[str], bool]
+    ) -> str | None:
         return None
 
     # Selects that took over fields this source used to declare at the top level.
