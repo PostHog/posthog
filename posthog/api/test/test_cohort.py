@@ -46,6 +46,7 @@ from posthog.models.async_deletion.async_deletion import AsyncDeletion, Deletion
 from posthog.models.event.new_events_schema import use_new_events_schema
 from posthog.models.file_system.file_system import FileSystem
 from posthog.models.person.util import get_person_by_id
+from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.property import BehavioralPropertyType, Property
 from posthog.models.team.team import Team
 from posthog.redis import get_client as get_redis_client
@@ -71,6 +72,7 @@ from products.cohorts.backend.models.team_access import (
     RealtimeCohortTeamAccess,
 )
 from products.cohorts.backend.models.util import CohortErrorCode, count_cohort_members, list_cohort_member_ids
+from products.experiments.backend.facade.testing import create_experiment, create_saved_metric, link_saved_metric
 from products.exports.backend.api.test.test_exports import TestExportMixin
 from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
@@ -6721,6 +6723,197 @@ email@example.org,
             "Remove the cohort from these flags, or archive the flags, before deleting it.",
         )
 
+    def _create_experiment_on_cohort(
+        self, cohort_value: int | str, place: str, name: str, team_id: int | None = None, **state: Any
+    ) -> int:
+        cohort_filter = {"key": "id", "type": "cohort", "value": cohort_value, "operator": "in"}
+        metric = {
+            "kind": "ExperimentMetric",
+            "metric_type": "mean",
+            "source": {"kind": "EventsNode", "event": "purchase", "properties": [cohort_filter]},
+        }
+        flag = FeatureFlag.objects.create(team=self.team, key=f"flag-{name.lower().replace(' ', '-')}")
+        experiment_id = create_experiment(
+            team_id=team_id or self.team.id,
+            feature_flag_id=flag.id,
+            name=name,
+            exposure_criteria=(
+                {
+                    "exposure_config": {
+                        "kind": "ExperimentEventExposureConfig",
+                        "event": "$pageview",
+                        "properties": [cohort_filter],
+                    }
+                }
+                if place == "exposure_criteria"
+                else None
+            ),
+            metrics=[metric] if place == "metric" else None,
+            metrics_secondary=[metric] if place == "secondary_metric" else None,
+            **state,
+        )
+        if place == "shared_metric":
+            saved_metric_id = create_saved_metric(team_id=self.team.id, name="Shared metric", query=metric)
+            link_saved_metric(experiment_id=experiment_id, saved_metric_id=saved_metric_id)
+        return experiment_id
+
+    @parameterized.expand(
+        [
+            (
+                "running_exposure_criteria",
+                "exposure_criteria",
+                {"start_date": datetime(2026, 1, 1, tzinfo=UTC)},
+                False,
+                True,
+            ),
+            ("draft_metric", "metric", {}, False, True),
+            ("id_stored_as_text", "secondary_metric", {}, True, True),
+            (
+                "ended_shared_metric",
+                "shared_metric",
+                {"start_date": datetime(2026, 1, 1, tzinfo=UTC), "end_date": datetime(2026, 2, 1, tzinfo=UTC)},
+                False,
+                True,
+            ),
+            (
+                "archived",
+                "exposure_criteria",
+                {
+                    "start_date": datetime(2026, 1, 1, tzinfo=UTC),
+                    "end_date": datetime(2026, 2, 1, tzinfo=UTC),
+                    "archived": True,
+                },
+                False,
+                False,
+            ),
+            ("soft_deleted", "metric", {"deleted": True}, False, False),
+            ("deleted_left_empty", "metric", {"deleted": None}, False, True),
+        ]
+    )
+    @patch("posthog.api.cohort.report_user_action")
+    @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
+    def test_deleting_cohort_used_in_experiment(
+        self,
+        _name: str,
+        place: str,
+        state: dict[str, Any],
+        id_as_text: bool,
+        blocks: bool,
+        patch_calculate_cohort: MagicMock,
+        patch_capture: MagicMock,
+    ) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts",
+            data={"name": "Test Cohort", "groups": [{"properties": {"team_id": 5}}]},
+        )
+        cohort_id = response.json()["id"]
+        self._create_experiment_on_cohort(str(cohort_id) if id_as_text else cohort_id, place, "Checkout test", **state)
+
+        response = self.client.patch(f"/api/projects/{self.team.id}/cohorts/{cohort_id}", data={"deleted": True})
+
+        if blocks:
+            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
+            self.assertEqual(
+                response.json()["detail"],
+                "This cohort is used in 1 experiment(s): Checkout test. Remove the cohort from their exposure "
+                "criteria and metrics, or archive the experiments that have ended, before deleting it.",
+            )
+        else:
+            self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        self.assertEqual(Cohort.objects.get(id=cohort_id).deleted, not blocks)
+
+    @patch("posthog.api.cohort.report_user_action")
+    @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
+    def test_hides_names_of_experiments_the_member_cannot_view(
+        self, patch_calculate_cohort: MagicMock, patch_capture: MagicMock
+    ) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+        ]
+        self.organization.save()
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts",
+            data={"name": "Test Cohort", "groups": [{"properties": {"team_id": 5}}]},
+        )
+        cohort_id = response.json()["id"]
+        # An experiment's creator keeps access, so another member creates the hidden experiment.
+        hidden_id = self._create_experiment_on_cohort(
+            cohort_id,
+            "exposure_criteria",
+            "Hidden experiment",
+            created_by_id=self._create_user("experiment-owner@example.com").id,
+        )
+        visible_id = self._create_experiment_on_cohort(
+            cohort_id, "metric", "Visible experiment", created_by_id=self.user.id
+        )
+        AccessControl.objects.create(
+            team=self.team,
+            resource="experiment",
+            resource_id=str(hidden_id),
+            access_level="none",
+            organization_member=self.organization_membership,
+        )
+
+        response = self.client.patch(f"/api/projects/{self.team.id}/cohorts/{cohort_id}", data={"deleted": True})
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
+        self.assertEqual(
+            response.json()["detail"],
+            "This cohort is used in 2 experiment(s): Visible experiment and 1 more. Remove the cohort from their "
+            "exposure criteria and metrics, or archive the experiments that have ended, before deleting it.",
+        )
+        response = self.client.get(f"/api/projects/{self.team.id}/cohorts/{cohort_id}/used_in")
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        self.assertEqual(
+            response.json()["experiments"],
+            {"results": [{"id": visible_id, "name": "Visible experiment"}], "total": 1, "hidden": 1, "has_more": False},
+        )
+
+    @parameterized.expand(
+        [
+            ("without_experiment_read", ["cohort:write"], False, False),
+            ("with_experiment_read", ["cohort:write", "experiment:read"], False, True),
+            ("experiment_outside_the_keys_environment", ["cohort:write", "experiment:read"], True, False),
+        ]
+    )
+    @patch("posthog.api.cohort.report_user_action")
+    @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
+    def test_blocked_delete_names_experiments_only_for_experiment_readers(
+        self,
+        _name: str,
+        scopes: list[str],
+        in_sibling_environment: bool,
+        names_shown: bool,
+        patch_calculate_cohort: MagicMock,
+        patch_capture: MagicMock,
+    ) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts",
+            data={"name": "Test Cohort", "groups": [{"properties": {"team_id": 5}}]},
+        )
+        cohort_id = response.json()["id"]
+        sibling = Team.objects.create(organization=self.organization, project=self.team.project, name="Staging")
+        self._create_experiment_on_cohort(
+            cohort_id,
+            "metric",
+            "Checkout test",
+            team_id=sibling.id if in_sibling_environment else None,
+            created_by_id=self.user.id,
+        )
+        key = self.create_personal_api_key_with_scopes(scopes)
+        PersonalAPIKey.objects.filter(user=self.user).update(scoped_teams=[self.team.id])
+        self.client.logout()
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/cohorts/{cohort_id}",
+            data={"deleted": True},
+            HTTP_AUTHORIZATION=f"Bearer {key}",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
+        self.assertIn("used in 1 experiment(s)", response.json()["detail"])
+        self.assertEqual("Checkout test" in response.json()["detail"], names_shown)
+
     @patch("posthog.api.cohort.report_user_action")
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
     def test_cannot_delete_cohort_used_in_multiple_active_feature_flags(self, patch_calculate_cohort, patch_capture):
@@ -7643,6 +7836,7 @@ class TestCohortUsedIn(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(data["insights"], {"results": [], "total": 0, "has_more": False, "hidden": 0})
         self.assertEqual(data["cohorts"], {"results": [], "total": 0, "has_more": False, "hidden": 0})
         self.assertEqual(data["test_account_filters"], {"results": [], "total": 0, "has_more": False})
+        self.assertEqual(data["experiments"], {"results": [], "total": 0, "has_more": False, "hidden": 0})
 
     @patch("posthog.api.cohort.report_user_action")
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")

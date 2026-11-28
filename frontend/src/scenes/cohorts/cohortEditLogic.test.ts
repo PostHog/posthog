@@ -72,6 +72,7 @@ const mockUsedInResponse: CohortUsedInResponseApi = {
     cohorts: { results: [], total: 0, hidden: 0, has_more: false },
     test_account_filters: { results: [], total: 0, has_more: false },
     workflows: { results: [], total: 0, hidden: 0, has_more: false },
+    experiments: { results: [], total: 0, hidden: 0, has_more: false },
 }
 
 describe('cohortEditLogic', () => {

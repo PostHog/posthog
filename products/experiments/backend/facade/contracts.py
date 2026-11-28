@@ -1522,6 +1522,17 @@ class ExperimentActionReference:
 
 
 @frozen
+class ExperimentCohortReference:
+    """An experiment that is not archived or deleted and whose exposure criteria or metrics filter on a cohort."""
+
+    id: int
+    name: str
+    team_id: int
+    # Read by the access rules, which give the creator access.
+    created_by_id: int | None
+
+
+@frozen
 class ExperimentListWidgetRow:
     """One experiment in the dashboard experiments list widget."""
 

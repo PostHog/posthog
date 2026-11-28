@@ -21,6 +21,7 @@ const usedIn: CohortUsedInResponseApi = {
         has_more: false,
     },
     workflows: { results: [], total: 0, hidden: 0, has_more: false },
+    experiments: { results: [{ id: 7, name: 'Checkout test' }], total: 1, hidden: 0, has_more: false },
 }
 
 describe('cohortUsedInSections', () => {
@@ -29,9 +30,11 @@ describe('cohortUsedInSections', () => {
 
         expect(sections.map(({ title, total }) => [title, total])).toEqual([
             ['Feature flags', 3],
+            ['Experiments', 1],
             ['Filter out internal and test users', 1],
         ])
-        expect(sections[1].items[0].url).toEqual(
+        expect(sections[1].items.map(({ label }) => label)).toEqual(['Checkout test'])
+        expect(sections[2].items[0].url).toEqual(
             '/project/42/settings/environment-customization#internal-user-filtering'
         )
     })
@@ -46,6 +49,7 @@ describe('cohortUsedInSections', () => {
 
     it.each([
         ['feature_flags', 'Feature flags'],
+        ['experiments', 'Experiments'],
         ['insights', 'Insights'],
         ['cohorts', 'Cohorts'],
     ] as const)('counts %s the caller cannot view only as delete blockers', (block, title) => {
@@ -90,6 +94,7 @@ describe('cohortUsedInSections', () => {
                 cohorts: empty,
                 test_account_filters: empty,
                 workflows: empty,
+                experiments: empty,
             })
         ).toEqual([])
     })

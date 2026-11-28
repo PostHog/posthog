@@ -908,6 +908,24 @@ export interface CohortUsedInEnvironmentsBlockApi {
     has_more: boolean
 }
 
+export interface CohortUsedInExperimentApi {
+    /** Experiment database ID */
+    id: number
+    /** Experiment display name; falls back to 'Unnamed' when empty */
+    name: string
+}
+
+export interface CohortUsedInExperimentsBlockApi {
+    /** Experiments that filter on this cohort and that the caller can view, capped at 100 results */
+    results: CohortUsedInExperimentApi[]
+    /** Total number of experiments filtering on this cohort that the caller can view, before truncation */
+    total: number
+    /** Number of experiments filtering on this cohort that the caller cannot view. They prevent the cohort from being deleted but never appear in results or total */
+    hidden: number
+    /** True when more experiments exist beyond the truncation cap */
+    has_more: boolean
+}
+
 export interface CohortUsedInResponseApi {
     /** Feature flags (active and inactive, excluding soft-deleted) that reference this cohort in their targeting conditions, with truncation metadata */
     feature_flags: CohortUsedInFlagsBlockApi
@@ -919,6 +937,8 @@ export interface CohortUsedInResponseApi {
     test_account_filters: CohortUsedInEnvironmentsBlockApi
     /** Active workflows that trigger on this cohort or branch on its membership. While any exist, the cohort cannot be deleted or edited in a way that stops it updating in real time. */
     workflows: CohortUsedInWorkflowsBlockApi
+    /** Experiments that are not archived or deleted and whose exposure criteria, metrics or linked shared metrics filter on this cohort. While any exist, the cohort cannot be deleted. */
+    experiments: CohortUsedInExperimentsBlockApi
 }
 
 /**

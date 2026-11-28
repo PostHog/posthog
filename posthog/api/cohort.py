@@ -106,7 +106,7 @@ from posthog.models.property.property import (
 from posthog.models.property.relative_date import determine_parsed_date_for_property_matching
 from posthog.models.team.team import DEPRECATED_ATTRS, Team
 from posthog.models.utils import UUIDT
-from posthog.permissions import get_authenticator_scopes
+from posthog.permissions import get_authenticator_scoped_team_ids, get_authenticator_scopes, request_subject
 from posthog.personhog_client.caller_tag import personhog_caller_tag
 from posthog.ph_client import feature_enabled_or_false
 from posthog.renderers import SafeJSONRenderer
@@ -115,6 +115,9 @@ from posthog.taxonomy.hidden_events import EVENTS_HIDDEN_IN_QUERY_BUILDERS, HIDD
 from posthog.utils import format_query_params_absolute_url, safe_int, str_to_bool
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.authorization.backend.facade import api as authorization
+from products.authorization.backend.facade.contracts import CheckRequest, Resource
+from products.authorization.backend.facade.enums import Action, ResourceType
 from products.cdp.backend.filters import build_behavioral_event_expr
 from products.cohorts.backend.cohort_enablement import (
     RealtimeLimitReached,
@@ -162,6 +165,8 @@ from products.cohorts.backend.realtime_state import (
     has_event_criteria,
     resolve_realtime_readiness,
 )
+from products.experiments.backend.facade.cohorts import experiments_using_cohort
+from products.experiments.backend.facade.contracts import ExperimentCohortReference
 from products.feature_flags.backend.facade.config import ConfigFormatError, UnsupportedConfig, decode_config
 from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
 from products.feature_flags.backend.facade.flags import get_flag_evaluations_read_config
@@ -272,6 +277,43 @@ def _flag_names_suffix(
 ) -> str:
     visible = _visible_flags(request, user_access_control, flags)
     return _names_suffix([flag.name or flag.key for flag in visible], len(flags))
+
+
+def _viewable_experiments(
+    request: Request, experiments: tuple[ExperimentCohortReference, ...]
+) -> list[ExperimentCohortReference]:
+    # The check's subject is the user, so a credential confined to some environments is filtered here.
+    scoped_teams = get_authenticator_scoped_team_ids(request.successful_authenticator)
+    if scoped_teams is not None:
+        experiments = tuple(experiment for experiment in experiments if experiment.team_id in scoped_teams)
+    if not experiments or not _token_can_read(request, "experiment"):
+        return []
+    subject = request_subject(request)
+    viewable = authorization.check(
+        [
+            CheckRequest(
+                resource=Resource(
+                    type=ResourceType.EXPERIMENT,
+                    id=str(experiment.id),
+                    project_id=experiment.team_id,
+                    created_by_id=experiment.created_by_id,
+                ),
+                action=Action.VIEW,
+                subject=subject,
+            )
+            for experiment in experiments
+        ]
+    )
+    return [experiment for experiment, ok in zip(experiments, viewable, strict=True) if ok]
+
+
+def _experiments_block(request: Request, cohort: Cohort) -> dict[str, Any]:
+    experiments = experiments_using_cohort(project_id=cohort.team.project_id, cohort_id=cohort.id)
+    visible = _viewable_experiments(request, experiments)
+    page = [
+        {"id": experiment.id, "name": experiment.name or "Unnamed"} for experiment in visible[:COHORT_USED_IN_PAGE_SIZE]
+    ]
+    return {**_used_in_block(page, len(visible)), "hidden": len(experiments) - len(visible)}
 
 
 COHORT_USED_BY_WORKFLOWS_ERROR_CODE = "cohort_used_by_workflows"
@@ -842,6 +884,11 @@ class CohortUsedInWorkflowSerializer(serializers.Serializer):
     )
 
 
+class CohortUsedInExperimentSerializer(serializers.Serializer):
+    id = serializers.IntegerField(help_text="Experiment database ID")
+    name = serializers.CharField(help_text="Experiment display name; falls back to 'Unnamed' when empty")
+
+
 class CohortUsedInFlagsBlockSerializer(serializers.Serializer):
     results = CohortUsedInFlagSerializer(
         many=True, help_text=f"Feature flags referencing this cohort, capped at {COHORT_USED_IN_PAGE_SIZE} results"
@@ -909,6 +956,20 @@ class CohortUsedInWorkflowsBlockSerializer(serializers.Serializer):
     has_more = serializers.BooleanField(help_text="True when some relying workflows are not listed in results")
 
 
+class CohortUsedInExperimentsBlockSerializer(serializers.Serializer):
+    results = CohortUsedInExperimentSerializer(
+        many=True,
+        help_text=f"Experiments that filter on this cohort and that the caller can view, capped at {COHORT_USED_IN_PAGE_SIZE} results",
+    )
+    total = serializers.IntegerField(
+        help_text="Total number of experiments filtering on this cohort that the caller can view, before truncation"
+    )
+    hidden = serializers.IntegerField(
+        help_text="Number of experiments filtering on this cohort that the caller cannot view. They prevent the cohort from being deleted but never appear in results or total"
+    )
+    has_more = serializers.BooleanField(help_text="True when more experiments exist beyond the truncation cap")
+
+
 class CohortUsedInResponseSerializer(serializers.Serializer):
     feature_flags = CohortUsedInFlagsBlockSerializer(
         help_text="Feature flags (active and inactive, excluding soft-deleted) that reference this cohort in their targeting conditions, with truncation metadata",
@@ -926,6 +987,12 @@ class CohortUsedInResponseSerializer(serializers.Serializer):
         help_text=(
             "Active workflows that trigger on this cohort or branch on its membership. While any exist, the "
             "cohort cannot be deleted or edited in a way that stops it updating in real time."
+        )
+    )
+    experiments = CohortUsedInExperimentsBlockSerializer(
+        help_text=(
+            "Experiments that are not archived or deleted and whose exposure criteria, metrics or linked shared "
+            "metrics filter on this cohort. While any exist, the cohort cannot be deleted."
         )
     )
 
@@ -2540,6 +2607,20 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
                         "Please remove the cohort from these insights before deleting it.",
                     )
 
+                experiments = experiments_using_cohort(project_id=cohort.team.project_id, cohort_id=cohort.id)
+                if experiments:
+                    visible_experiments = _viewable_experiments(request, experiments)
+                    names = _names_suffix(
+                        [experiment.name or "Unnamed" for experiment in visible_experiments], len(experiments)
+                    )
+                    self._reject_delete(
+                        cohort,
+                        "experiments",
+                        f"This cohort is used in {len(experiments)} experiment(s){names}. "
+                        "Remove the cohort from their exposure criteria and metrics, or archive the experiments that "
+                        "have ended, before deleting it.",
+                    )
+
                 # Check if cohort is used as criteria in other cohorts
                 dependent_cohorts = get_cohorts_using_cohort(cohort)
 
@@ -3353,6 +3434,7 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
                     environments_data[:COHORT_USED_IN_PAGE_SIZE], len(environments_data)
                 ),
                 "workflows": _workflows_block(request, uac, cohort),
+                "experiments": _experiments_block(request, cohort),
             }
         )
 

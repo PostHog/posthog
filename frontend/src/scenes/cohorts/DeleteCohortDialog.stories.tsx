@@ -37,6 +37,12 @@ const usedIn: CohortUsedInResponseApi = {
         hidden: 1,
         has_more: true,
     },
+    experiments: {
+        results: [{ id: 9, name: 'Checkout redesign' }],
+        total: 1,
+        hidden: 0,
+        has_more: false,
+    },
 }
 
 const meta: Meta<typeof DeleteCohortDialog> = {
