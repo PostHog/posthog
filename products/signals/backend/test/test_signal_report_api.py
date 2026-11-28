@@ -1734,26 +1734,44 @@ class TestSignalReportListAPI(APIBaseTest):
             monitoring_started_at=started_at,
             check_versions={str(check.id): check_definition_version(check)},
         )
+        for hours, observed_value, matches, error in [
+            (6, 3, True, None),
+            (12, 8, False, None),
+            (18, None, None, "The query timed out."),
+        ]:
+            SignalReportArtefact.objects.create(
+                team=self.team,
+                report=report,
+                type=SignalReportArtefact.ArtefactType.CHECK_OBSERVATION,
+                content=CheckObservation(
+                    explanation="",
+                    check_id=str(check.id),
+                    title=check.title,
+                    monitoring_started_at=started_at,
+                    measured_at=started_at + timedelta(hours=hours),
+                    comparison=CheckComparison(operator="lte", value=5) if error is None else None,
+                    observed_value=observed_value,
+                    matches=matches,
+                    error=error,
+                ).model_dump_json(),
+            )
+
         SignalReportArtefact.objects.create(
             team=self.team,
             report=report,
             type=SignalReportArtefact.ArtefactType.CHECK_OBSERVATION,
-            content=CheckObservation(
-                explanation="",
-                check_id=str(check.id),
-                title=check.title,
-                monitoring_started_at=started_at,
-                measured_at=started_at + timedelta(hours=12),
-                comparison=CheckComparison(operator="lte", value=5),
-                observed_value=8,
-                matches=False,
-            ).model_dump_json(),
+            content="{not json",
         )
 
         with patch("products.signals.backend.report_content_gates.feature_enabled_or_false", return_value=enabled):
             response = self.client.get(self._list_url())
+            needs_attention = self.client.get(self._list_url(needs_attention="true"))
 
         assert response.status_code == status.HTTP_200_OK
+        assert needs_attention.status_code == status.HTTP_200_OK
+        assert [row["id"] for row in needs_attention.json()["results"]] == (
+            [str(report.id)] if state == "not_on_track" else []
+        )
         [row] = [row for row in response.json()["results"] if row["id"] == str(report.id)]
         summary = row["monitoring_summary"]
         if state is None:
@@ -1762,7 +1780,9 @@ class TestSignalReportListAPI(APIBaseTest):
         assert summary["state"] == state
         assert summary["ends_at"] == (started_at + timedelta(days=7)).isoformat().replace("+00:00", "Z")
         assert summary["lead_check"]["check_id"] == str(check.id)
-        assert [reading["matches"] for reading in summary["lead_check"]["readings"]] == [False if readable else None]
+        assert [reading["matches"] for reading in summary["lead_check"]["readings"]] == (
+            [True, False, None] if readable else [None, None, None]
+        )
 
     def test_monitoring_recent_lists_reports_that_left_monitoring_with_how_it_ended(self) -> None:
         now = timezone.now()
@@ -1868,8 +1888,13 @@ class TestSignalReportListAPI(APIBaseTest):
 
         with patch("products.signals.backend.report_content_gates.feature_enabled_or_false", return_value=True):
             response = self.client.get(self._list_url(view="monitoring_recent"))
+            needs_attention = self.client.get(self._list_url(view="monitoring_recent", needs_attention="true"))
 
         assert response.status_code == status.HTTP_200_OK
+        assert {row["id"] for row in needs_attention.json()["results"]} == {
+            str(closed.id),
+            str(closed_into_suppressed.id),
+        }
         rows = {row["id"]: row for row in response.json()["results"]}
         expected_kinds = {
             monitoring.id: None,
