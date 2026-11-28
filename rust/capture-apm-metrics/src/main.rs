@@ -263,6 +263,7 @@ async fn run(
         kafka_sink,
         authorizer,
         config.base.max_request_body_size_bytes,
+        config.base.max_expanded_request_bytes,
         config.remote_write_max_expanded_bytes,
         series_label_gate,
         label_cardinality,
