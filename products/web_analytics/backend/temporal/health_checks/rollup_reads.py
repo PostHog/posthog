@@ -26,10 +26,6 @@ class EventsHealthTotals:
     pageviews_unusable_session_id: int = 0
     pageviews_absent_session_id: int = 0
 
-    @property
-    def browser_events(self) -> int:
-        return self.pageviews + self.screens
-
 
 _EMPTY_TOTALS = EventsHealthTotals()
 

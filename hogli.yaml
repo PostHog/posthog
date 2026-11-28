@@ -436,6 +436,10 @@ start:
             - postgresql
             - redis
         hidden: true
+    start:aeo:fake-gateway:
+        cmd: python -m products.aeo.backend.dev.fake_gateway
+        description: 'Start the fake AI gateway for AI visibility on :8080, so setup and the engines run with no gateway token'
+        hidden: true
     start:agent-proxy:
         cmd: pnpm --filter @posthog/agent-proxy dev
         description: Run the agent-proxy Node service for task-run live streaming with auto-reload
@@ -1116,11 +1120,6 @@ tools:
     tool:check_ducklake_up:
         bin_script: check_ducklake_up
         description: Healthcheck for Ducklake with self-healing
-        hidden: true
-    start:llm:gateway:
-        bin_script: start-llm-gateway
-        description: Start the LLM gateway service
-        needs_secrets: true
         hidden: true
     posthog:node:
         bin_script: posthog-node

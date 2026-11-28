@@ -62,6 +62,7 @@ ISSUES_MAX_WINDOW_DAYS = 30
 CUSTOM_FIELD_OBJECT_TYPES = ["account", "issue", "contact", "task", "project", "meeting", "opportunity"]
 
 
+ACCOUNTS_PAGE_SIZE = 999
 ISSUES_PARENT = PylonParentConfig(path="/issues", id_field="issue_id", windowed=True, limit=2000)
 
 
@@ -93,7 +94,15 @@ PYLON_ENDPOINTS: dict[str, PylonEndpointConfig] = {
         name="accounts",
         path="/accounts",
         partition_key="created_at",
-        limit=999,  # accounts requires limit and rejects values >= 1000
+        limit=ACCOUNTS_PAGE_SIZE,  # accounts requires limit and rejects values >= 1000
+    ),
+    "account_relationships": PylonEndpointConfig(
+        name="account_relationships",
+        path="/accounts/{parent_id}/relationships",
+        primary_keys=["child_account_id", "id"],
+        partition_key="created_at",
+        parent=PylonParentConfig(path="/accounts", id_field="child_account_id", limit=ACCOUNTS_PAGE_SIZE),
+        should_sync_default=False,
     ),
     "contacts": PylonEndpointConfig(
         name="contacts",
@@ -159,6 +168,10 @@ PYLON_ENDPOINTS: dict[str, PylonEndpointConfig] = {
         limit=999,
         parent=PylonParentConfig(path="/knowledge-bases", id_field="knowledge_base_id"),
     ),
+    "surveys": PylonEndpointConfig(
+        name="surveys",
+        path="/surveys",
+    ),
     "survey_responses": PylonEndpointConfig(
         name="survey_responses",
         path="/surveys/{parent_id}/responses",
@@ -179,6 +192,14 @@ PYLON_ENDPOINTS: dict[str, PylonEndpointConfig] = {
         limit=1000,
         # The endpoint has no time filter, and new messages land on old issues, so this is a full
         # refresh over every issue in the lookback. It costs one request per issue, so it's opt-in.
+        parent=ISSUES_PARENT,
+        default_lookback_days=365,
+        should_sync_default=False,
+    ),
+    "issue_threads": PylonEndpointConfig(
+        name="issue_threads",
+        path="/issues/{parent_id}/threads",
+        primary_keys=["issue_id", "id"],
         parent=ISSUES_PARENT,
         default_lookback_days=365,
         should_sync_default=False,

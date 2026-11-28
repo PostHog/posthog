@@ -210,6 +210,8 @@ export const ContentAutopilotPromptsOverview = (): JSX.Element => {
                             dateFrom={overview.window_from}
                             dateTo={overview.window_to}
                             branded={overview.branded}
+                            engine={overview.engine}
+                            topic={overview.topic}
                             onOpenPrompt={openOverviewSearchPrompt}
                         />
                     </div>

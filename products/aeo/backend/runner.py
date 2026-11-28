@@ -381,7 +381,18 @@ def _record_prompt_checks(
         with transaction.atomic(), team_scope(canonical_team_id):
             # Two runs recording the same prompt serialize on its row, so the checks below see each
             # other's writes. The prompt row is a quiet child row, never a hot parent.
-            locked = AEOPrompt.objects.for_team(team.id).select_for_update().filter(id=prompt.id).exists()
+            topic = (
+                AEOPrompt.objects.for_team(team.id)
+                .select_for_update()
+                .filter(id=prompt.id)
+                .values_list("topic", flat=True)
+                .first()
+            )
+            locked = topic is not None
+            if locked:
+                # A topic edit locks this row too, so the topic read here is the one after any rename, merge or
+                # removal that committed while the engines answered. The run's snapshot of the prompt is older.
+                fields_per_engine = [{**fields, "prompt_topic": topic} for fields in fields_per_engine]
             if answered:
                 still_due = Q(last_checked_at__isnull=True) | Q(last_checked_at__lt=checked_before)
                 claimed = locked and (

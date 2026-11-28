@@ -5,10 +5,10 @@ import type { ScatterChartConfig, ScatterSeries } from '@posthog/quill-charts'
 
 import { useChartTheme } from 'lib/charts/hooks'
 import { getColorVar } from 'lib/colors'
-import { percentage } from 'lib/utils/numbers'
 import { pluralize } from 'lib/utils/strings'
 
 import { AiVisibilityCard } from './AiVisibilityCard'
+import { formatShare } from './shares'
 import type { TopicQuadrantGroup, TopicQuadrantKey, TopicQuadrantPoint } from './topicQuadrant'
 
 // Groups compare each topic with your own average, so the labels say "above" or "below" rather than claiming a topic
@@ -20,7 +20,7 @@ const LABELS: Record<TopicQuadrantKey, string> = {
     weak: 'Below average on both',
 }
 
-const formatRate = (value: number): string => percentage(value, 0)
+const formatRate = (value: number): string => formatShare(value)
 
 const CONFIG: ScatterChartConfig<TopicQuadrantPoint> = {
     xAxis: { label: 'Visibility', domain: [0, 1], tickFormatter: formatRate },

@@ -144,6 +144,7 @@ describe('buildToolDomainsBlock', () => {
             'freeze',
             'import',
             'launch',
+            'merge',
             'migrate',
             'move',
             'patch',

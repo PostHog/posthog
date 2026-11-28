@@ -526,6 +526,8 @@ class BroadcastRequestDelivery(ProductTeamModel):
     integration_id = models.BigIntegerField(null=True, blank=True)
     channel_id = models.CharField(max_length=64, blank=True, default="")
     message_ts = models.CharField(max_length=32, blank=True, default="")
+    # The post that a card in a thread replies to. Empty for a card posted in the channel itself.
+    thread_ts = models.CharField(max_length=32, blank=True, default="", db_default="")
     # The link Slack itself returned for the posted message, so the API never builds a Slack URL.
     permalink = models.CharField(max_length=512, blank=True, default="")
     state = models.CharField(max_length=16, choices=State.choices, default=State.PENDING)

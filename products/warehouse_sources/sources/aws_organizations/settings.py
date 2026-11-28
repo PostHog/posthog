@@ -1,3 +1,4 @@
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 
 from products.warehouse_sources.sources.sdk import IncrementalField
@@ -86,6 +87,8 @@ class AwsOrganizationsEndpointConfig:
     drop_keys: frozenset[str] = field(default_factory=frozenset)
     # IAM actions a sync of this table calls, for the permission messages.
     iam_actions: tuple[str, ...] = ()
+    request_params: Mapping[str, str] = field(default_factory=dict)
+    accept_epoch_milliseconds: bool = False
 
 
 AWS_ORGANIZATIONS_ENDPOINTS: dict[str, AwsOrganizationsEndpointConfig] = {
@@ -109,6 +112,15 @@ AWS_ORGANIZATIONS_ENDPOINTS: dict[str, AwsOrganizationsEndpointConfig] = {
         drop_keys=frozenset({"Status"}),
         iam_actions=("organizations:ListAccounts",),
     ),
+    "create_account_status": AwsOrganizationsEndpointConfig(
+        name="create_account_status",
+        operation="ListCreateAccountStatus",
+        primary_key=["id"],
+        result_key="CreateAccountStatuses",
+        page_size=MAX_RESULTS,
+        timestamp_columns=("requested_timestamp", "completed_timestamp"),
+        iam_actions=("organizations:ListCreateAccountStatus",),
+    ),
     "delegated_administrators": AwsOrganizationsEndpointConfig(
         name="delegated_administrators",
         operation="ListDelegatedAdministrators",
@@ -129,6 +141,36 @@ AWS_ORGANIZATIONS_ENDPOINTS: dict[str, AwsOrganizationsEndpointConfig] = {
             "organizations:ListDelegatedAdministrators",
             "organizations:ListDelegatedServicesForAccount",
         ),
+    ),
+    "enabled_service_access": AwsOrganizationsEndpointConfig(
+        name="enabled_service_access",
+        operation="ListAWSServiceAccessForOrganization",
+        primary_key=["service_principal"],
+        result_key="EnabledServicePrincipals",
+        page_size=MAX_RESULTS,
+        timestamp_columns=("date_enabled",),
+        iam_actions=("organizations:ListAWSServiceAccessForOrganization",),
+    ),
+    "handshakes": AwsOrganizationsEndpointConfig(
+        name="handshakes",
+        operation="ListHandshakesForOrganization",
+        primary_key=["id"],
+        result_key="Handshakes",
+        page_size=MAX_RESULTS,
+        timestamp_columns=("requested_timestamp", "expiration_timestamp"),
+        drop_keys=frozenset({"Resources"}),
+        iam_actions=("organizations:ListHandshakesForOrganization",),
+    ),
+    "inbound_responsibility_transfers": AwsOrganizationsEndpointConfig(
+        name="inbound_responsibility_transfers",
+        operation="ListInboundResponsibilityTransfers",
+        primary_key=["id"],
+        result_key="ResponsibilityTransfers",
+        page_size=MAX_RESULTS,
+        timestamp_columns=("start_timestamp", "end_timestamp"),
+        iam_actions=("organizations:ListInboundResponsibilityTransfers",),
+        request_params={"Type": "BILLING"},
+        accept_epoch_milliseconds=True,
     ),
     "organization": AwsOrganizationsEndpointConfig(
         name="organization",
@@ -197,8 +239,12 @@ INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {}
 ENDPOINT_DESCRIPTIONS: dict[str, str] = {
     "account_parents": "The root or organizational unit each account sits directly under. One row per account.",
     "accounts": "Every AWS account in the organization, with its name, email, state, and the time it joined.",
+    "create_account_status": "Account creation requests that AWS still tracks, with their status and any failure reason.",
     "delegated_administrators": "Accounts registered as delegated administrators for an AWS service in the organization.",
     "delegated_services": "The AWS services each delegated administrator account administers. One row per account and service.",
+    "enabled_service_access": "AWS services with trusted access to the organization and the date AWS enabled that access.",
+    "handshakes": "Recent handshakes that the organization sent, with their actions, parties, and states.",
+    "inbound_responsibility_transfers": "Transfers and invitations to manage billing for other AWS organizations.",
     "organization": "The organization itself: its ID, feature set, and management account. One row per sync.",
     "organizational_units": "Organizational units in the account hierarchy, each with the parent it sits under.",
     "policies": "Policies in the organization, one row per policy, across every policy type the organization supports.",
@@ -206,3 +252,22 @@ ENDPOINT_DESCRIPTIONS: dict[str, str] = {
     "resource_tags": "Tags attached to accounts, roots, organizational units, and policies. One row per tag.",
     "roots": "Roots of the organization, with the policy types enabled on each.",
 }
+
+
+# The IAM actions this source calls. A role session can use only these.
+AWS_SESSION_ACTIONS = (
+    "organizations:DescribeOrganization",
+    "organizations:ListAWSServiceAccessForOrganization",
+    "organizations:ListAccounts",
+    "organizations:ListCreateAccountStatus",
+    "organizations:ListDelegatedAdministrators",
+    "organizations:ListDelegatedServicesForAccount",
+    "organizations:ListHandshakesForOrganization",
+    "organizations:ListInboundResponsibilityTransfers",
+    "organizations:ListOrganizationalUnitsForParent",
+    "organizations:ListParents",
+    "organizations:ListPolicies",
+    "organizations:ListRoots",
+    "organizations:ListTagsForResource",
+    "organizations:ListTargetsForPolicy",
+)

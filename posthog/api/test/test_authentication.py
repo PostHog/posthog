@@ -84,6 +84,7 @@ from posthog.models.project_secret_api_key import ProjectSecretAPIKey
 from posthog.models.team.team import Team
 from posthog.models.user import UserType
 from posthog.models.utils import generate_random_token_personal, hash_key_value
+from posthog.session.activity import session_public_id
 from posthog.test.api_keys import create_project_secret_api_key
 from posthog.test.authentication_checks import covers_authentication
 from posthog.workos_radar import RadarAttempt, RadarVerdict
@@ -440,10 +441,16 @@ class TestLoginAPI(APIBaseTest):
         self.assertEqual(response.json()["email"], self.user.email)
 
         # Assert the event was captured.
+        session_key = self.client.session.session_key
+        assert session_key
         mock_capture.assert_any_call(
             distinct_id=self.user.distinct_id,
             event="user logged in",
-            properties={"social_provider": ""},
+            properties={
+                "social_provider": "",
+                "$ip": "127.0.0.1",
+                "session_public_id": str(session_public_id(session_key)),
+            },
             groups={
                 "instance": ANY,
                 "organization": str(self.team.organization_id),
@@ -2417,10 +2424,16 @@ class TestPasswordResetAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         # assert events were captured
+        session_key = self.client.session.session_key
+        assert session_key
         mock_capture.assert_any_call(
             distinct_id=self.user.distinct_id,
             event="user logged in",
-            properties={"social_provider": ""},
+            properties={
+                "social_provider": "",
+                "$ip": "127.0.0.1",
+                "session_public_id": str(session_public_id(session_key)),
+            },
             groups={
                 "instance": ANY,
                 "organization": str(self.team.organization_id),
@@ -2430,6 +2443,7 @@ class TestPasswordResetAPI(APIBaseTest):
         mock_capture.assert_any_call(
             event="user password reset",
             distinct_id=self.user.distinct_id,
+            properties={"$ip": "127.0.0.1"},
             groups={
                 "instance": ANY,
                 "organization": str(self.team.organization_id),

@@ -3,14 +3,18 @@ from urllib.parse import parse_qs, urlparse
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person
 
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
 
 from posthog.schema import CustomChannelCondition, CustomChannelRule, FilterLogicalOperator, HogQLQueryModifiers
 
 from posthog.hogql import ast
+from posthog.hogql.database.schema.channel_type import custom_condition_to_expr, regex_literal_alternatives
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
+from posthog.schema_enums import CustomChannelOperator
 from posthog.uuidt import uuid7
 
 
@@ -926,3 +930,85 @@ class TestChannelType(ClickhouseTestMixin, APIBaseTest):
             )
             == "Login"
         )
+
+
+class TestRegexLiteralAlternatives(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("non_capturing_group", r"(?:chatgpt\.com|claude\.ai)", ["chatgpt.com", "claude.ai"]),
+            ("capturing_group", r"(chatgpt\.com|claude\.ai)", ["chatgpt.com", "claude.ai"]),
+            ("bare_alternation", r"chatgpt\.com|claude\.ai", ["chatgpt.com", "claude.ai"]),
+            ("single_literal", "newsletter", ["newsletter"]),
+            ("escaped_punctuation", r"a\-b\/c\?d\|e", ["a-b/c?d|e"]),
+            ("unescaped_punctuation_that_is_not_syntax", "a-b/c d,e", ["a-b/c d,e"]),
+            ("unescaped_dot", "chatgpt.com", None),
+            ("anchor_start", "^chatgpt", None),
+            ("anchor_end", r"chatgpt\.com$", None),
+            ("character_class", "[ab]c", None),
+            ("quantifier", "ab+", None),
+            ("class_escape", r"a\d", None),
+            ("word_boundary", r"\bai", None),
+            ("escaped_underscore", r"a\_b", None),
+            ("case_insensitive_flag", "(?i)chatgpt", None),
+            ("group_with_flags", "(?i:chatgpt)", None),
+            ("two_groups", "(a)|(b)", None),
+            ("empty_alternative", "a||b", None),
+            ("trailing_empty_alternative", "a|", None),
+            ("empty_group", "()", None),
+            ("trailing_backslash", "a\\", None),
+            ("empty_pattern", "", None),
+            ("too_many_needles", "|".join(f"d{i}" for i in range(256)), None),
+        ]
+    )
+    def test_detection(self, _name: str, pattern: str, expected: list[str] | None) -> None:
+        assert regex_literal_alternatives(pattern) == expected
+
+
+class TestRegexRuleCompilation(ClickhouseTestMixin, APIBaseTest):
+    @parameterized.expand(
+        [
+            (pattern, operator)
+            for pattern in (
+                r"(?:chatgpt\.com|openai\.com|pi\.ai|claude\.ai)",
+                r"a\-b\/c\?d|x\.y",
+                # This pattern is not a literal alternation, so it stays a regex.
+                r"^(www\.)?claude\.ai$",
+            )
+            for operator in (CustomChannelOperator.REGEX, CustomChannelOperator.NOT_REGEX)
+        ]
+    )
+    def test_compiled_rule_matches_like_the_regex(self, pattern: str, operator: CustomChannelOperator) -> None:
+        values = [
+            "chatgpt.com",
+            "chat.chatgpt.com",
+            "chatgptxcom",
+            "CHATGPT.COM",
+            "dashboard.vapi.ai",
+            "www.claude.ai",
+            "claude.ai",
+            "a-b/c?d",
+            "x.y",
+            "xzy",
+            "",
+        ]
+        value = ast.Field(chain=["value"])
+        regex: ast.Expr = ast.Call(
+            name="match", args=[ast.Call(name="toString", args=[value]), ast.Constant(value=pattern)]
+        )
+        if operator == CustomChannelOperator.NOT_REGEX:
+            regex = ast.Call(name="not", args=[regex])
+        response = execute_hogql_query(
+            parse_select(
+                "select value, {compiled}, ifNull({regex}, {regex_default}) "
+                "from (select arrayJoin({values}) as value union all select NULL as value)",
+                placeholders={
+                    "compiled": custom_condition_to_expr(value, pattern, operator),
+                    "regex": regex,
+                    "regex_default": ast.Constant(value=1 if operator == CustomChannelOperator.NOT_REGEX else 0),
+                    "values": ast.Constant(value=values),
+                },
+            ),
+            self.team,
+        )
+        assert len(response.results) == len(values) + 1
+        assert [row for row in response.results if bool(row[1]) != bool(row[2])] == []

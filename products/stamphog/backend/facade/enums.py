@@ -217,6 +217,8 @@ class BroadcastRequestSource(LabeledStrEnum):
     GITHUB = "github", "Pull request comment"
     SLACK = "slack", "Slack"
     API = "api", "API"
+    # A person posted the pull request link in the repository's Broadcast channel. Stamphog reviews nothing for it.
+    SLACK_LINK = "slack_link", "Slack link"
 
 
 class BroadcastRequestDeliveryKind(LabeledStrEnum):

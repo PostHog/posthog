@@ -82,6 +82,7 @@ OUT_OF_AI_CREDITS_MESSAGE = (
     "Increase the limits in Billing settings, or ask an org admin to do so."
 )
 PROMPT_TOPIC_MAX_LENGTH = 200
+MAX_TOPIC_PROMPT_IDS = 500
 PROMPT_VERSION_DESCRIPTION_MAX_LENGTH = 400
 MAX_RANKED_COMPETITORS = 10
 MAX_RANKED_DOMAINS = 20
@@ -138,6 +139,14 @@ class Prompt:
 class PromptTopic:
     topic: str
     prompts: int
+
+
+@frozen
+class PromptTopicChange:
+    """What a topic edit rewrote: the prompts that now carry the new topic, and the past checks relabeled with them."""
+
+    prompts: int
+    checks: int
 
 
 @frozen
@@ -344,6 +353,44 @@ class PromptSetSearch:
     answers: int
     cited: int
     engines: tuple[str, ...]
+    top_prompts: tuple[PromptSetSearchPrompt, ...]
+
+
+# The length of each list in a search detail.
+MAX_DETAIL_DOMAINS = 10
+MAX_RELATED_SEARCHES = 8
+MAX_DETAIL_PROMPTS = 10
+
+
+@frozen
+class PromptSetRelatedSearch:
+    """Another search the engines ran in the same answers as the search a detail is for."""
+
+    query: str
+    answers: int
+    share_of_answers: float
+
+
+@frozen
+class PromptSetSearchDetail:
+    """What the answers that ran one web search in the window cited, searched for next to it, and came from.
+
+    The fact rows tie a citation to the answer, not to one of its searches, so `domains` counts the sites
+    those answers cited, whichever of their searches surfaced them."""
+
+    query: str
+    window_from: dt.date
+    window_to: dt.date
+    answers: int
+    prompts: int
+    cited: int
+    engines: tuple[str, ...]
+    domains_cited: int
+    # Place of the best-ranked own domain among every cited domain, from 1. None when no answer cited one.
+    target_rank: int | None
+    domains: tuple[PromptSetDomain, ...]
+    related_searches: tuple[PromptSetRelatedSearch, ...]
+    keywords: tuple[str, ...]
     top_prompts: tuple[PromptSetSearchPrompt, ...]
 
 
@@ -594,6 +641,18 @@ class PromptUpdateError(Exception):
 
 class PromptTextConflictError(Exception):
     """The new text matches another prompt in the set. The message is safe to show the user."""
+
+
+class PromptTopicNotFoundError(Exception):
+    """No prompt in the set has the topic. The message is safe to show the user."""
+
+
+class PromptTopicError(Exception):
+    """The topic edit is not valid. The message is safe to show the user."""
+
+
+class PromptTopicConflictError(Exception):
+    """The new topic name is taken by another topic. The message is safe to show the user."""
 
 
 class OutOfAICreditsError(Exception):
