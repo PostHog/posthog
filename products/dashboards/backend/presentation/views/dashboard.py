@@ -9,7 +9,7 @@ from collections.abc import AsyncGenerator, Callable, Iterable, Iterator
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import contextmanager, nullcontext
 from dataclasses import asdict
-from datetime import timedelta
+from datetime import datetime, timedelta
 from enum import StrEnum
 from functools import partial
 from typing import TYPE_CHECKING, Any, Optional, cast
@@ -48,6 +48,7 @@ from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema
 from opentelemetry import trace
 from pydantic import JsonValue
 from rest_framework import exceptions, serializers, status, viewsets
+from rest_framework.exceptions import APIException
 from rest_framework.fields import empty
 from rest_framework.permissions import SAFE_METHODS, BasePermission
 from rest_framework.request import Request
@@ -58,6 +59,7 @@ from rest_framework.utils.serializer_helpers import ReturnDict
 
 from posthog.schema import InsightVizNode
 
+from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.multi_query import is_query_sharing_enabled
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
@@ -82,6 +84,7 @@ from posthog.caching.insight_result import InsightResult
 from posthog.clickhouse.client.async_task_chain import task_chain_context
 from posthog.constants import GENERATED_DASHBOARD_PREFIX, AvailableFeature
 from posthog.dataclasses import frozen
+from posthog.errors import ExposedCHQueryError, QueryErrorCategory
 from posthog.event_usage import EventSource, get_event_source, report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.impersonation import is_impersonated
@@ -123,6 +126,7 @@ from posthog.utils import (
 from products.access_control.backend.facade.user_access_control import (
     AccessControlLevel,
     UserAccessControl,
+    UserAccessControlError,
     access_level_satisfied_for_resource,
 )
 from products.access_control.backend.presentation.access_control import (
@@ -219,6 +223,7 @@ from products.dashboards.backend.presentation.run_insights_output import (
     RUN_INSIGHTS_DEFAULT_MAX_RESULT_CHARS,
     RUN_INSIGHTS_MAX_TOTAL_CHARS,
     RUN_INSIGHTS_MIN_TILE_CHARS,
+    bound_error_message,
     bound_formatted_result,
     parse_max_result_chars,
     parse_tile_ids,
@@ -266,6 +271,7 @@ from products.product_analytics.backend.presentation.insight import (
 )
 from products.subscriptions.backend.facade.api import dashboard_ids_with_subscriptions
 
+from common.hogvm.python.utils import HogVMException
 from ee.hogai.utils.aio import async_to_sync
 
 if TYPE_CHECKING:
@@ -1236,6 +1242,18 @@ class DashboardTileErrorSerializer(DashboardTileSerializer):
         return representation
 
 
+# The failures whose message is written for the person running the query, as /query surfaces them.
+_USER_SAFE_INSIGHT_ERRORS = (
+    ExposedHogQLError,
+    ExposedCHQueryError,
+    HogVMException,
+    UserAccessControlError,
+    APIException,
+)
+
+_INSIGHT_RUN_FAILED_MESSAGE = "The insight could not be run."
+
+
 class InsightResultSerializer(InsightSerializer):
     """InsightSerializer restricted to identifiers, the result, and the warnings about that result."""
 
@@ -1248,9 +1266,49 @@ class InsightResultSerializer(InsightSerializer):
             "derived_name",
             "result",
             "warnings",
+            "error",
             "user_access_level",
         ]
         read_only_fields = fields
+
+    error = serializers.SerializerMethodField(
+        read_only=True,
+        allow_null=True,
+        help_text=(
+            "Why the insight returned no result, for example a feature flag that gates its product or a failed "
+            "query. Null when the run succeeded or the insight is shared."
+        ),
+    )
+
+    def get_error(self, insight: Insight) -> Optional[str]:
+        if self.context.get("is_shared"):
+            return None
+        query_status = self.insight_result(insight).query_status
+        if not isinstance(query_status, dict) or not query_status.get("error"):
+            return None
+        return query_status.get("error_message") or _INSIGHT_RUN_FAILED_MESSAGE
+
+    def _degraded_insight_result(
+        self,
+        insight: Insight,
+        dashboard: Any,
+        *,
+        error: Exception,
+        error_message: str,
+        error_code: str | None,
+        last_refresh: datetime | None,
+    ) -> InsightResult:
+        # The parent keeps `str(error)` for any failure, which can carry raw ClickHouse or backend detail.
+        if error_code != QueryErrorCategory.RATE_LIMITED and not isinstance(error, _USER_SAFE_INSIGHT_ERRORS):
+            error_message = _INSIGHT_RUN_FAILED_MESSAGE
+        return super()._degraded_insight_result(
+            insight,
+            dashboard,
+            error=error,
+            error_message=error_message,
+            error_code=error_code,
+            last_refresh=last_refresh,
+        )
 
     def to_representation(self, instance: Insight):
         # Skip InsightSerializer.to_representation which references fields
@@ -4448,6 +4506,9 @@ class DashboardsViewSet(
                     )
                     insight_data["result"] = formatted
                     used_chars += len(formatted)
+                if isinstance(insight_data.get("error"), str):
+                    insight_data["error"] = bound_error_message(insight_data["error"], used_chars)
+                    used_chars += len(insight_data["error"])
 
             tile_results.append(tile_data)
 

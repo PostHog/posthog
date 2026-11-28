@@ -12,6 +12,9 @@ RUN_INSIGHTS_DEFAULT_MAX_RESULT_CHARS = 2000
 # Ceiling on the whole `optimized` run_insights response. Tiles past it are not run.
 RUN_INSIGHTS_MAX_TOTAL_CHARS = 30000
 
+# A failed tile's error message is held to this, so a long query error cannot crowd out other tiles.
+RUN_INSIGHTS_MAX_ERROR_CHARS = 500
+
 # Below this, a tile can only carry a sliced header, so it is reported as not run instead.
 RUN_INSIGHTS_MIN_TILE_CHARS = 200
 
@@ -81,6 +84,14 @@ def tile_budget(max_result_chars: int, used_chars: int) -> int:
     if max_result_chars <= 0:
         return 0
     return min(max_result_chars, RUN_INSIGHTS_MAX_TOTAL_CHARS - used_chars)
+
+
+def bound_error_message(message: str, used_chars: int) -> str:
+    """Hold a failed tile's error message to its own cap and to what the response has left."""
+    max_chars = min(RUN_INSIGHTS_MAX_ERROR_CHARS, RUN_INSIGHTS_MAX_TOTAL_CHARS - used_chars)
+    if len(message) <= max_chars:
+        return message
+    return message[: max(max_chars - 1, 0)] + "…"
 
 
 def bound_formatted_result(formatted: str, *, tile_id: int, max_chars: int) -> str:

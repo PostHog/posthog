@@ -28,10 +28,11 @@ from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.permissions import dashboard_v2_enabled, posthog_feature_flag_enabled
 from posthog.shared_link_user import SharedLinkUser
 
-from products.access_control.backend.facade.user_access_control import UserAccessControl, UserAccessControlError
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.metrics.backend.date_range import metrics_query_date_range
 from products.metrics.backend.facade.contracts import METRICS_FEATURE_FLAG, MetricFilter
 from products.metrics.backend.facade.enums import AttributeScope, FilterOp
+from products.metrics.backend.feature_gate_error import MetricsFeatureGateError
 from products.metrics.backend.hogql_queries.tail_refresh import TailRefreshMixin, compare_grid, merge_grid
 from products.metrics.backend.metric_query_runner import (
     _INTERVAL_LADDER,
@@ -96,7 +97,7 @@ class MetricsHistogramQueryRunner(TailRefreshMixin, AnalyticsQueryRunner[Metrics
             organization_id=self.team.organization_id,
             team_id=self.team.pk,
         ):
-            raise UserAccessControlError("metrics", "viewer")
+            raise MetricsFeatureGateError(METRICS_FEATURE_FLAG)
         return True
 
     def _enforce_alpha_gate_for_anonymous_viewers(self) -> None:
@@ -109,7 +110,7 @@ class MetricsHistogramQueryRunner(TailRefreshMixin, AnalyticsQueryRunner[Metrics
             organization_id=self.team.organization_id,
             team_id=self.team.pk,
         ):
-            raise UserAccessControlError("metrics", "viewer")
+            raise MetricsFeatureGateError(METRICS_FEATURE_FLAG)
 
     def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
         raise NotImplementedError(
