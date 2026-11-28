@@ -800,4 +800,59 @@ describe('mapOtelAttributes', () => {
             expect(event.properties!.$groups).toBeUndefined()
         })
     })
+
+    describe('gen_ai.usage.cost', () => {
+        it.each([
+            ['a number', 0.0042, 0.0042],
+            ['a numeric string', '0.0042', 0.0042],
+        ])('maps a positive cost given as %s to a passthrough total', (_label, cost, expected) => {
+            const event = createEvent('$ai_generation', {
+                'gen_ai.usage.cost': cost,
+                'gen_ai.usage.input_tokens': 100,
+                'gen_ai.usage.output_tokens': 50,
+            })
+            mapOtelAttributes(event)
+            expect(event.properties!.$ai_total_cost_usd).toBe(expected)
+            expect(event.properties!.$ai_cost_passthrough).toBe(true)
+            expect(event.properties!['gen_ai.usage.cost']).toBeUndefined()
+            // Token counts stay, so the call can be re-priced later.
+            expect(event.properties!.$ai_input_tokens).toBe(100)
+            expect(event.properties!.$ai_output_tokens).toBe(50)
+        })
+
+        // Some providers report 0 for cached or free-tier calls. Taking that as the
+        // total would make a billed call look free, so token pricing runs instead.
+        it.each([
+            ['zero', 0],
+            ['negative', -0.01],
+            ['non-numeric', 'free'],
+        ])('leaves a %s cost to token pricing', (_label, cost) => {
+            const event = createEvent('$ai_generation', { 'gen_ai.usage.cost': cost })
+            mapOtelAttributes(event)
+            expect(event.properties!.$ai_total_cost_usd).toBeUndefined()
+            expect(event.properties!.$ai_cost_passthrough).toBeUndefined()
+            expect(event.properties!['gen_ai.usage.cost']).toBe(cost)
+        })
+
+        it('does not override a total cost the caller already set', () => {
+            const event = createEvent('$ai_generation', { 'gen_ai.usage.cost': 0.0042, $ai_total_cost_usd: 0.5 })
+            mapOtelAttributes(event)
+            expect(event.properties!.$ai_total_cost_usd).toBe(0.5)
+            expect(event.properties!.$ai_cost_passthrough).toBeUndefined()
+        })
+
+        it.each(['$ai_span', '$ai_trace'])('does not put a cost on a %s event', (eventName) => {
+            const event = createEvent(eventName, { 'gen_ai.usage.cost': 0.0042, $ai_parent_id: 'parent-1' })
+            mapOtelAttributes(event)
+            expect(event.properties!.$ai_total_cost_usd).toBeUndefined()
+            expect(event.properties!.$ai_cost_passthrough).toBeUndefined()
+        })
+
+        it('maps the cost once llm.request.type reclassifies a span as a generation', () => {
+            const event = createEvent('$ai_span', { 'llm.request.type': 'chat', 'gen_ai.usage.cost': 0.0042 })
+            mapOtelAttributes(event)
+            expect(event.event).toBe('$ai_generation')
+            expect(event.properties!.$ai_total_cost_usd).toBe(0.0042)
+        })
+    })
 })

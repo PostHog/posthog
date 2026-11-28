@@ -339,6 +339,26 @@ describe('processAiEvent()', () => {
             expect(result.properties!.$ai_output_cost_usd).toBeUndefined()
         })
 
+        it('keeps a positive gen_ai.usage.cost end to end instead of pricing tokens', () => {
+            event.properties = {
+                $ai_ingestion_source: 'otel',
+                'gen_ai.provider.name': 'openai',
+                'gen_ai.response.model': 'gpt-4o-mini',
+                'gen_ai.usage.input_tokens': 100,
+                'gen_ai.usage.output_tokens': 50,
+                'gen_ai.usage.cost': 0.0042,
+            }
+
+            const result = processAiEvent(event)
+
+            expect(result.properties!.$ai_total_cost_usd).toBe(0.0042)
+            expect(result.properties!.$ai_cost_model_source).toBe(CostModelSource.Passthrough)
+            expect(result.properties!.$ai_input_cost_usd).toBeUndefined()
+            expect(result.properties!.$ai_output_cost_usd).toBeUndefined()
+            expect(result.properties!.$ai_input_tokens).toBe(100)
+            expect(result.properties!.$ai_output_tokens).toBe(50)
+        })
+
         it('uses total output tokens for non-Gemini AI SDK v7 reasoning models', () => {
             event.properties = {
                 $ai_ingestion_source: 'otel',
