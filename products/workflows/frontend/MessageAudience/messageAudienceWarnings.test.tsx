@@ -4,6 +4,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { getContext } from 'kea'
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import { ApiConfig } from 'lib/api'
 import { urls } from 'scenes/urls'
@@ -129,6 +130,7 @@ describe('message audience warnings', () => {
     afterEach(() => {
         cleanup()
         jest.useRealTimers()
+        jest.restoreAllMocks()
     })
 
     it.each<{
@@ -354,11 +356,19 @@ describe('message audience warnings', () => {
         },
     }
 
-    it.each<{ destination: MessageAudienceDestination; label: string; warning: string; path: string; opens: unknown }>([
+    it.each<{
+        destination: MessageAudienceDestination
+        label: string
+        warning: string
+        kind: string
+        path: string
+        opens: unknown
+    }>([
         {
             destination: 'workflow',
             label: 'Build a custom workflow',
             warning: TEST_SENDER_FOR_WORKFLOW,
+            kind: 'test_sender_only',
             path: urls.workflowNew(),
             opens: {
                 trigger: 'event',
@@ -371,12 +381,20 @@ describe('message audience warnings', () => {
             destination: 'broadcast',
             label: 'Send a one-time email',
             warning: NO_SENDER,
+            kind: 'no_sender',
             path: urls.broadcastNew(),
             opens: { audience: earlyAccess.properties, name: earlyAccess.broadcastName },
         },
     ])(
-        'asks before a $destination with no sender, and Continue opens it',
-        async ({ label, warning, path, destination, opens }) => {
+        'asks before a $destination with no sender, reports what it lists, and Continue opens it',
+        async ({ label, warning, kind, path, destination, opens }) => {
+            const captured: { event: string; properties: Record<string, any> }[] = []
+            jest.spyOn(posthog, 'capture').mockImplementation((event, properties) => {
+                captured.push({ event, properties: properties ?? {} })
+                return undefined
+            })
+            const events = (name: string): Record<string, any>[] =>
+                captured.filter((capture) => capture.event === name).map((capture) => capture.properties)
             useEnvironmentMocks({
                 [projectId()]: { senders: [], sandbox: { ...testSender, integration_id: 12 }, draftRequests },
             })
@@ -394,7 +412,14 @@ describe('message audience warnings', () => {
             fireEvent.click(await screen.findByText(label))
 
             expect(await screen.findByText(warning)).toBeInTheDocument()
-            expect(screen.getByText('Set up email')).toBeInTheDocument()
+            expect(screen.getByText('Set up email').closest('[data-attr]')).toHaveAttribute(
+                'data-attr',
+                'message-audience-early_access-set-up-email'
+            )
+            const [click] = events('message audience clicked')
+            expect(events('message audience warnings shown')).toEqual([
+                { source: 'early_access', destination, attempt_id: click.attempt_id, warnings: [kind] },
+            ])
             expect(router.values.location.pathname).toEqual('/project/997/early_access_features/1')
 
             fireEvent.click(screen.getByText('Continue'))
