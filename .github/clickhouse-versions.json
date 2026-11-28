@@ -1,6 +1,6 @@
 {
-    "production_eu": "ghcr.io/posthog/clickhouse-posthog:26.9.5.2-posthog-c73aad4ad67d",
-    "production_us": "ghcr.io/posthog/clickhouse-posthog:26.9.5.2-posthog-c73aad4ad67d",
+    "production_eu": "clickhouse/clickhouse-server:26.9.5",
+    "production_us": "clickhouse/clickhouse-server:26.9.5",
     "local": "ghcr.io/posthog/clickhouse-posthog:26.9.5.2-posthog-c73aad4ad67d",
-    "oldest_supported": "ghcr.io/posthog/clickhouse-posthog:26.9.5.2-posthog-c73aad4ad67d"
+    "oldest_supported": "clickhouse/clickhouse-server:26.9.5"
 }
