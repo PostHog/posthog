@@ -39,6 +39,7 @@ from posthog.models.organization import OrganizationMembership
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.test.waiting import wait_until
 
+from products.access_control.backend.facade.testing import PropertyAccess, set_member_property_access
 from products.access_control.backend.models.access_control import AccessControl
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
 from products.access_control.backend.property_access_control import PropertyAccessLevel
@@ -1393,6 +1394,25 @@ class TestQueryBatchTelemetryTargets(_QueryBatchMixin, NonAtomicAPIBaseTest):
                     "error": "Access control failure. You don't have `viewer` access to the `logs` resource.",
                 },
             )
+            request.assert_not_called()
+
+    @parameterized.expand([("restricted", False), ("granted", True)])
+    def test_logql_follows_property_access(self, access: PropertyAccess, runs: bool) -> None:
+        member = self._create_user("logql-member@posthog.com", level=OrganizationMembership.Level.MEMBER)
+        set_member_property_access(
+            team=self.team,
+            membership=OrganizationMembership.objects.get(user=member, organization=self.organization),
+            access=access,
+        )
+        self.client.force_login(member)
+
+        with _snuffle_requests() as request:
+            [line] = self._lines([_telemetry("logql", 'sum(rate({service_name="posthog-internal-workflows"}[1m]))')])
+
+        if runs:
+            self.assertEqual(line["result"]["result"]["results"], _matrix(0)["data"])
+        else:
+            self.assertIn("property access", line["error"])
             request.assert_not_called()
 
     @parameterized.expand([("promql", "up"), ("logql", '{service_name="api"}')])

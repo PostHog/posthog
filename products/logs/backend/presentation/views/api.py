@@ -3,7 +3,7 @@ import json
 import base64
 import datetime as dt
 from time import monotonic
-from typing import Any
+from typing import Any, cast
 
 from django.db import models
 from django.http import HttpRequest, HttpResponseBase
@@ -1727,7 +1727,9 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
         analytics_props = get_request_analytics_properties(request)
 
         def make_runner(date_range: DateRange) -> LogsQueryRunner:
-            return LogsQueryRunner(LogsQuery(**{**query.model_dump(), "dateRange": date_range}), self.team)
+            return LogsQueryRunner(
+                LogsQuery(**{**query.model_dump(), "dateRange": date_range}), self.team, user=cast(User, request.user)
+            )
 
         # Skip time-slicing for live tailing - we're always only looking at the most recent 1-2 minutes
         # Note: cursor pagination no longer skips time-slicing because we narrow the date range
@@ -1738,14 +1740,14 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
             if query.sessionId and not self._session_team_has_logs():
                 results: list[Any] = []
             elif live_logs_checkpoint:
-                response = LogsQueryRunner(query, self.team).run(
+                response = LogsQueryRunner(query, self.team, user=cast(User, request.user)).run(
                     ExecutionMode.CALCULATE_BLOCKING_ALWAYS, analytics_props=analytics_props
                 )
                 results = list(response.results)
             else:
                 results = list(
                     time_sliced_results(
-                        runner=LogsQueryRunner(query, self.team),
+                        runner=LogsQueryRunner(query, self.team, user=cast(User, request.user)),
                         order_by_earliest=order_by == LogsOrderBy.EARLIEST,
                         make_runner=make_runner,
                         analytics_props=analytics_props,
@@ -1831,7 +1833,7 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
             sparklineRankBy=query_data.get("sparklineRankBy"),
         )
 
-        runner = SparklineQueryRunner(team=self.team, query=query)
+        runner = SparklineQueryRunner(user=cast(User, request.user), team=self.team, query=query)
         query_started_at = monotonic()
         response = runner.run(
             ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
@@ -1883,6 +1885,7 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
         )
 
         runner = LogFacetValuesQueryRunner(
+            user=cast(User, request.user),
             team=self.team,
             query=query,
             facet_field=facet_field or None,
@@ -1906,7 +1909,7 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
 
         query = self._filtered_logs_query(query_data)
 
-        runner = CountQueryRunner(team=self.team, query=query)
+        runner = CountQueryRunner(user=cast(User, request.user), team=self.team, query=query)
         response = runner.run(
             ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
             analytics_props=get_request_analytics_properties(request),
@@ -1932,7 +1935,7 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
 
         query = self._filtered_logs_query(query_data)
 
-        runner = ImpactQueryRunner(team=self.team, query=query)
+        runner = ImpactQueryRunner(user=cast(User, request.user), team=self.team, query=query)
         response = runner.run(
             ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
             analytics_props=get_request_analytics_properties(request),
@@ -1973,7 +1976,9 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
             filterGroup=self._normalize_filter_group(query_data.get("filterGroup", None)),
         )
 
-        runner = CountRangesQueryRunner(team=self.team, query=query, target_buckets=target_buckets)
+        runner = CountRangesQueryRunner(
+            user=cast(User, request.user), team=self.team, query=query, target_buckets=target_buckets
+        )
         response = runner.run(
             ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
             analytics_props=get_request_analytics_properties(request),
@@ -2017,6 +2022,7 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
             return Response({"error": "environment must be a string"}, status=status.HTTP_400_BAD_REQUEST)
         baseline_data = request.data.get("baselineDateRange")
         runner = ServicesQueryRunner(
+            user=cast(User, request.user),
             team=self.team,
             query=query,
             service_name_search=query_data.get("serviceNameSearch") or None,
@@ -2162,6 +2168,7 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
 
         try:
             runner = LogsGroupByQueryRunner(
+                user=cast(User, request.user),
                 team=self.team,
                 query=query,
                 group_bys=group_bys,
@@ -2255,7 +2262,7 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
             filterGroup=filterGroup,
         )
 
-        runner = LogAttributesQueryRunner(team=self.team, query=query)
+        runner = LogAttributesQueryRunner(user=cast(User, request.user), team=self.team, query=query)
 
         try:
             result = runner.calculate()
@@ -2331,7 +2338,7 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
                 filterGroup=filterGroup,
             )
 
-            runner = LogValuesQueryRunner(team=self.team, query=query)
+            runner = LogValuesQueryRunner(user=cast(User, request.user), team=self.team, query=query)
 
             try:
                 result = runner.calculate()

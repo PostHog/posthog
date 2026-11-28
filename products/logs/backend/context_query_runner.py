@@ -19,7 +19,7 @@ from products.logs.backend.agent_window import utc_iso, window_echo
 from products.logs.backend.logs_query_runner import fail_fast_aggregate_settings
 
 if TYPE_CHECKING:
-    from posthog.models import Team
+    from posthog.models import Team, User
 
 BODY_MAX_CHARS = 300
 DEFAULT_LIMIT = 100
@@ -195,9 +195,10 @@ class _Trace:
 
 
 class LogsContextRunner:
-    def __init__(self, team: "Team", params: LogsContextParams) -> None:
+    def __init__(self, team: "Team", params: LogsContextParams, user: "User | None" = None) -> None:
         self.team = team
         self.params = params
+        self.user = user
         self.notes: list[str] = []
 
     def run(self) -> dict:
@@ -313,6 +314,7 @@ class LogsContextRunner:
             query_type="LogsContextQuery",
             query=parse_select(sql, placeholders=placeholders),
             team=self.team,
+            user=self.user,
             workload=Workload.LOGS,
             modifiers=HogQLQueryModifiers(
                 convertToProjectTimezone=False, propertyGroupsMode=PropertyGroupsMode.OPTIMIZED

@@ -28,7 +28,7 @@ from posthog.hogql.visitor import CloningVisitor
 from posthog.clickhouse.client.connection import ClickHouseUser, Workload
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
-from posthog.models import Team
+from posthog.models import Team, User
 
 from products.alerts_platform.backend.facade.ingestion_checkpoint import fetch_ingestion_checkpoint
 from products.alerts_platform.backend.facade.rolling_checks import CheckWindow, rolling_check_ranges
@@ -121,12 +121,18 @@ def _period_count_columns(ranges: list[CheckWindow]) -> list[ast.Expr]:
 
 
 def _run_alert_query(
-    team: Team, query: ast.SelectQuery, *, ch_user: ClickHouseUser, settings: HogQLGlobalSettings
+    team: Team,
+    query: ast.SelectQuery,
+    *,
+    ch_user: ClickHouseUser,
+    settings: HogQLGlobalSettings,
+    user: User | None = None,
 ) -> HogQLQueryResponse:
     return execute_hogql_query(
         query_type="alert_check",
         query=query,
         team=team,
+        user=user,
         workload=Workload.LOGS,
         ch_user=ch_user,
         settings=settings,
@@ -135,8 +141,11 @@ def _run_alert_query(
         context=HogQLContext(
             team_id=team.pk,
             team=team,
+            user=user,
             enable_select_queries=True,
             database=Database.create_for_posthog_tables(team, modifiers=_ALERT_QUERY_MODIFIERS),
+            # Scheduled checks ignore property rules. Who may watch pipeline logs is checked when the alert is saved.
+            restricted_properties=None if user else set(),
         ),
     )
 
@@ -243,11 +252,13 @@ class AlertCheckQuery:
         alert: AlertQuerySubject,
         date_from: dt.datetime,
         date_to: dt.datetime,
+        user: User | None = None,
     ) -> None:
         if alert.team_id != team.id:
             raise ValueError(f"Alert {alert.id} belongs to team {alert.team_id}, not {team.id}")
         self.team = team
         self.alert = alert
+        self.user = user
         self.date_from = date_from
         self.date_to = date_to
         self.date_range = DateRange(date_from=date_from.isoformat(), date_to=date_to.isoformat())
@@ -351,7 +362,9 @@ class AlertCheckQuery:
         if not isinstance(query, ast.SelectQuery):
             raise ValueError("Failed to build alert check query")
 
-        return _run_alert_query(self.team, query, ch_user=ClickHouseUser.DEFAULT, settings=self.SETTINGS)
+        return _run_alert_query(
+            self.team, query, ch_user=ClickHouseUser.DEFAULT, settings=self.SETTINGS, user=self.user
+        )
 
     def _tag(self) -> None:
         _tag_alert_query(team=self.team, alert_config_id=str(self.alert.id), source="logs_alert")

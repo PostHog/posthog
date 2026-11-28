@@ -35,6 +35,7 @@ from posthog.models.team.team_event_volume import events_last_year_for
 from posthog.models.user import User
 from posthog.permissions import posthog_feature_flag_enabled, user_can_access_resource
 
+from products.access_control.backend.facade import api as access_control_api
 from products.access_control.backend.facade.user_access_control import UserAccessControl, UserAccessControlError
 
 logger = structlog.get_logger(__name__)
@@ -195,6 +196,9 @@ def assert_can_read_logs(team: Team, user: User, user_access_control: UserAccess
         SNUFFLE_API_FEATURE_FLAG, str(user.distinct_id), organization_id=team.organization_id, team_id=team.pk
     ):
         raise UserAccessControlError("logs", "viewer")
+    # Snuffle cannot apply HogQL's per-service property restrictions.
+    if access_control_api.get_restricted_properties_with_group_type_index_for_team(team_id=team.pk, user=user):
+        raise TelemetryTargetError("Your property access permissions do not allow running LogQL queries.")
 
 
 async def _read_capped(response: httpx.Response) -> bytes:

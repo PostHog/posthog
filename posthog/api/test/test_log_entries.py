@@ -1,14 +1,19 @@
 from datetime import UTC, datetime, timedelta
+from uuid import uuid4
 
 import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTest
 from unittest.mock import patch
 
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.api.log_entries import count_log_entries
 from posthog.clickhouse.client.execute import sync_execute
+from posthog.clickhouse.workload import Workload
 
+from products.access_control.backend.facade.testing import PropertyAccess, set_member_property_access
+from products.cdp.backend.facade.clickhouse import INSERT_HOG_INVOCATION_RESULT_SQL
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 
 
@@ -90,6 +95,158 @@ class TestLogEntries(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 "message": "Test log. Much info.",
             }
         ]
+
+    @parameterized.expand(
+        [
+            ("restricted", "restricted", "log_entries"),
+            ("granted", "granted", "log_entries"),
+            (
+                "column_alias",
+                "restricted",
+                "(SELECT original_source AS log_source, message FROM log_entries AS l(original_source, log_source))",
+            ),
+        ]
+    )
+    def test_hogql_log_entries_follow_property_access(self, _name: str, access: PropertyAccess, source: str) -> None:
+        set_member_property_access(team=self.team, membership=self.organization_membership, access=access)
+        sources = ["batch_export", "hog_flow", "hog_function", "plugin", "session_replay"]
+        for log_source in sources:
+            create_log_entry(
+                team_id=self.team.pk,
+                log_source=log_source,
+                log_source_id=str(self.hog_function.pk),
+                instance_id="test-instance",
+                message=f"{log_source} log message",
+                level="info",
+            )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.pk}/query/",
+            {
+                "query": {
+                    "kind": "HogQLQuery",
+                    "query": f"SELECT log_source, message FROM {source} ORDER BY log_source",
+                },
+                "refresh": "force_blocking",
+            },
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        expected_sources = ["batch_export", "session_replay"] if access == "restricted" else sources
+        assert response.json()["results"] == [
+            [log_source, f"{log_source} log message"] for log_source in expected_sources
+        ]
+
+    @parameterized.expand([("restricted",), ("granted",)])
+    @time_machine.travel("2026-01-15 12:00:00", tick=False)
+    def test_hogql_invocation_errors_follow_property_access(self, access: PropertyAccess) -> None:
+        set_member_property_access(team=self.team, membership=self.organization_membership, access=access)
+        now = datetime(2026, 1, 15, 12, tzinfo=UTC)
+        kinds = ["hog_flow", "hog_flow_rerun", "hog_function", "hog_function_rerun"]
+        for kind in kinds:
+            sync_execute(
+                INSERT_HOG_INVOCATION_RESULT_SQL,
+                {
+                    "team_id": self.team.pk,
+                    "function_kind": kind,
+                    "function_id": str(self.hog_function.pk),
+                    "invocation_id": kind,
+                    "parent_run_id": "",
+                    "status": "failed",
+                    "attempts": 1,
+                    "is_retry": 0,
+                    "scheduled_at": now,
+                    "first_scheduled_at": now,
+                    "started_at": now,
+                    "finished_at": now,
+                    "duration_ms": 1,
+                    "error_kind": "Error",
+                    "error_message": f"{kind} error message",
+                    "event_uuid": "",
+                    "distinct_id": "",
+                    "person_id": "",
+                    "invocation_globals": "{}",
+                    "version": 1,
+                    "is_deleted": 0,
+                },
+                workload=Workload.OFFLINE,
+            )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.pk}/query/",
+            {
+                "query": {
+                    "kind": "HogQLQuery",
+                    "query": "SELECT function_kind, error_message FROM posthog.hog_invocation_results ORDER BY function_kind",
+                },
+                "refresh": "force_blocking",
+            },
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        expected_kinds = [] if access == "restricted" else kinds
+        assert response.json()["results"] == [[kind, f"{kind} error message"] for kind in expected_kinds]
+
+    @parameterized.expand([("restricted",), ("granted",)])
+    @time_machine.travel("2026-11-01 12:00:00", tick=False)
+    def test_mirrored_pipeline_logs_follow_property_access(self, access: PropertyAccess) -> None:
+        set_member_property_access(team=self.team, membership=self.organization_membership, access=access)
+        services = ["application", "posthog-internal-hog-functions", "posthog-internal-workflows"]
+        for service in services:
+            sync_execute(
+                """INSERT INTO logs
+                (uuid, team_id, timestamp, observed_timestamp, body, severity_text, severity_number, service_name, attributes_map_str)
+                VALUES (%(uuid)s, %(team_id)s, %(timestamp)s, %(timestamp)s, %(body)s, 'info', 9, %(service)s, %(attributes)s)""",
+                {
+                    "uuid": str(uuid4()),
+                    "team_id": self.team.pk,
+                    "timestamp": datetime(2026, 11, 1, 11, tzinfo=UTC),
+                    "body": f"{service} message",
+                    "service": service,
+                    "attributes": {"permission_note__str": service},
+                },
+                workload=Workload.LOGS,
+            )
+        expected_services = ["application"] if access == "restricted" else services
+
+        hogql = self.client.post(
+            f"/api/projects/{self.team.pk}/query/",
+            {
+                "query": {"kind": "HogQLQuery", "query": "SELECT service_name, body FROM logs ORDER BY service_name"},
+                "refresh": "force_blocking",
+            },
+        )
+        assert hogql.status_code == 200, hogql.json()
+        assert hogql.json()["results"] == [[service, f"{service} message"] for service in expected_services]
+
+        logs = self.client.post(
+            f"/api/projects/{self.team.pk}/logs/query/",
+            {"query": {"dateRange": {"date_from": "-1d"}, "limit": 100}},
+        )
+        assert logs.status_code == 200, logs.json()
+        assert sorted(row["body"] for row in logs.json()["results"]) == [
+            f"{service} message" for service in expected_services
+        ]
+
+        groups = self.client.post(
+            f"/api/projects/{self.team.pk}/logs/group-by/",
+            {"query": {"dateRange": {"date_from": "-1d"}, "groupBy": "permission_note"}},
+        )
+        assert groups.status_code == 200, groups.json()
+        assert sorted(row["value"] for row in groups.json()["groups"]) == expected_services
+
+        attributes = self.client.post(
+            f"/api/projects/{self.team.pk}/query/",
+            {
+                "query": {
+                    "kind": "HogQLQuery",
+                    "query": "SELECT DISTINCT service_name, attribute_value FROM log_attributes ORDER BY service_name",
+                },
+                "refresh": "force_blocking",
+            },
+        )
+        assert attributes.status_code == 200, attributes.json()
+        assert attributes.json()["results"] == [[service, service] for service in expected_services]
 
     @time_machine.travel("2023-09-23 12:00:00", tick=False)
     def test_pages_log_entries_by_offset(self):
