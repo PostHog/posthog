@@ -331,6 +331,36 @@ describe('adventCalendarLogic', () => {
         expect(logic.values.tickets).toBe(tickets)
     })
 
+    it.each<[string, Reply, Reply, number[], number[]]>([
+        ['the open was lost on the network, and the re-send reaches the server', 'network error', 200, [3], []],
+        ['the open was lost on the network, and the re-send is lost too', 'network error', 'network error', [3], [3]],
+        ['the server took the open', 200, 200, [], []],
+    ])(
+        'sends each waiting open once when the browser is back online after %s',
+        async (_, first, resend, resent, pending) => {
+            const firstApi = calendarApi({ open: first })
+            useMocks(firstApi.mocks)
+            logic.actions.activateDoor('door-1')
+            logic.actions.finishReveal()
+            logic.actions.answerDoor('door-2', 'james')
+            logic.actions.finishReveal()
+            logic.actions.activateDoor('door-3-upper')
+            await waitFor(() => expect(firstApi.opens).toHaveLength(3))
+            await jest.advanceTimersByTimeAsync(100)
+
+            const onlineApi = calendarApi({ open: resend })
+            useMocks(onlineApi.mocks)
+            window.dispatchEvent(new Event('online'))
+            await jest.advanceTimersByTimeAsync(60_000)
+
+            expect({
+                resent: onlineApi.opens.map((open) => (open as { day: number }).day),
+                tickets: logic.values.tickets,
+                pending: logic.values.pendingTicketsByUser[UUID] ?? [],
+            }).toEqual({ resent, tickets: 1, pending })
+        }
+    )
+
     it('counts no ticket from a stored format no release wrote', () => {
         OLD_FORMAT()
         logic.unmount()
