@@ -105,6 +105,97 @@ def test_resume_keeps_window_ceiling_and_skips_completed_websites() -> None:
     assert any(state.page == 3 and state.website_id == "site-b" for state in result.committed_states)
 
 
+@pytest.mark.parametrize("table", ["goals", "funnels"])
+def test_saved_definitions_resume_without_requesting_a_date_range(table: str) -> None:
+    result = driver().run(
+        table,
+        route(
+            {
+                "/websites": [page([{"id": "site-a"}, {"id": "site-b"}, {"id": "site-c"}]), page([])],
+                f"/site-b/{table}": [page([{"id": "saved-b", "parameters": "{}"}]), page([])],
+                f"/site-c/{table}": [page([{"id": "saved-c"}]), page([])],
+            }
+        ),
+        resume_state=UmamiResumeState(page=2, website_id="site-b", completed_websites=["site-a"]),
+    )
+    assert result.raised is None
+    assert result.rows == [
+        {"id": "saved-b", "websiteId": "site-b", "parameters": "{}"},
+        {"id": "saved-c", "websiteId": "site-c"},
+    ]
+    definitions = [request for request in result.requests if request.path.endswith(f"/{table}")]
+    assert [request.param("page") for request in definitions] == ["2", "3", "1", "2"]
+    assert all(request.param("startAt") is None and request.param("endAt") is None for request in definitions)
+
+
+def test_event_properties_request_an_inclusive_incremental_window() -> None:
+    created_at = "2024-01-01T00:00:00.123Z"
+    properties = [
+        {"createdAt": created_at, "dataKey": "plan", "stringValue": "basic"},
+        {"createdAt": created_at, "dataKey": "amount", "numberValue": 50},
+    ]
+    result = driver().run(
+        "event_properties",
+        route(
+            {
+                "/websites": [page([{"id": "old-site"}, {"id": "site-a"}]), page([])],
+                "/old-site/daterange": [ScriptedResponse(json={"startDate": START - 100, "endDate": START})],
+                "/site-a/daterange": [ScriptedResponse(json={"startDate": START, "endDate": START + 500})],
+                "/site-a/event-data": [page([{"eventId": "purchase", "eventProperties": properties}]), page([])],
+            }
+        ),
+        incremental_field="createdAt",
+        db_incremental_field_last_value=created_at,
+    )
+    assert result.raised is None
+    assert result.rows == [
+        {"websiteId": "site-a", "eventId": "purchase", "createdAt": created_at, "eventProperties": properties}
+    ]
+    events = [request for request in result.requests if request.path.endswith("/event-data")]
+    assert [request.param("startAt") for request in events] == [str(START + 123)] * 2
+    assert [request.param("endAt") for request in events] == [str(START + 500)] * 2
+
+
+def test_session_properties_resume_within_a_page_and_keep_repeated_keys() -> None:
+    created_at = "2024-01-01T00:00:00Z"
+    properties = [
+        {"dataKey": "plan", "stringValue": "basic"},
+        {"dataKey": "plan", "stringValue": "upgraded"},
+    ]
+    result = driver().run(
+        "session_properties",
+        route(
+            {
+                "/websites": [page([{"id": "site-a"}]), page([])],
+                "/site-a/sessions": [
+                    page([{"id": "finished"}, {"id": "with-properties", "createdAt": created_at}]),
+                    page([{"id": "no-properties"}]),
+                    page([]),
+                ],
+                "/with-properties/properties": [ScriptedResponse(json=properties)],
+                "/no-properties/properties": [ScriptedResponse(json=[])],
+            }
+        ),
+        resume_state=UmamiResumeState(
+            page=2, website_id="site-a", start_at=START, end_at=START + 10, stop_at=START + 10, session_index=1
+        ),
+    )
+    assert result.raised is None
+    assert result.rows == [
+        {
+            "websiteId": "site-a",
+            "sessionId": "with-properties",
+            "createdAt": created_at,
+            "sessionProperties": properties,
+        }
+    ]
+    assert [path for path in result.paths if path.endswith("/properties")] == [
+        "/v1/websites/site-a/sessions/with-properties/properties",
+        "/v1/websites/site-a/sessions/no-properties/properties",
+    ]
+    assert any(state.page == 2 and state.session_index == 2 for state in result.committed_states)
+
+
 @pytest.mark.parametrize("second_status", [200, 401])
 def test_expired_login_replays_once_and_keeps_new_token(second_status: int) -> None:
     responses = [

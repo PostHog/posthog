@@ -22,7 +22,7 @@ from products.warehouse_sources.sources.sdk import (
 )
 from products.warehouse_sources.sources.umami._config import UmamiSourceConfig
 from products.warehouse_sources.sources.umami.canonical_descriptions import CANONICAL_DESCRIPTIONS
-from products.warehouse_sources.sources.umami.settings import DEFAULT_BASE_URL, ENDPOINTS
+from products.warehouse_sources.sources.umami.settings import DEFAULT_BASE_URL, ENDPOINTS, INCREMENTAL_FIELDS
 from products.warehouse_sources.sources.umami.umami import (
     TRANSIENT_SERVER_STATUSES,
     UmamiClient,
@@ -149,8 +149,10 @@ class UmamiSource(ResumableSource[UmamiSourceConfig, UmamiResumeState], Validate
         return [
             SourceSchema(
                 name=name,
-                supports_incremental=False,
+                supports_incremental=name in INCREMENTAL_FIELDS,
                 supports_append=False,
+                incremental_fields=INCREMENTAL_FIELDS.get(name, []),
+                should_sync_default=endpoint.should_sync_default,
                 description=endpoint.description,
                 detected_primary_keys=list(endpoint.primary_keys),
             )
@@ -172,7 +174,7 @@ class UmamiSource(ResumableSource[UmamiSourceConfig, UmamiResumeState], Validate
     ) -> SourceResponse:
         if inputs.schema_name not in ENDPOINTS:
             raise ValueError(f"Unknown Umami table: {inputs.schema_name}")
-        if inputs.should_use_incremental_field:
+        if inputs.should_use_incremental_field and inputs.schema_name not in INCREMENTAL_FIELDS:
             raise UmamiError("Umami supports full refresh. Change the table sync mode to full refresh.")
         valid, error = self.is_database_host_valid(urlsplit(normalize_host(config.host)).hostname or "", inputs.team_id)
         if not valid:

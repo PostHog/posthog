@@ -49,6 +49,7 @@ class UmamiResumeState:
     start_at: int | None = None
     end_at: int | None = None
     stop_at: int | None = None
+    session_index: int = 0
 
 
 def normalize_host(host: str | None) -> str:
@@ -217,6 +218,17 @@ class UmamiClient:
         response.raise_for_status()
         return response.json()
 
+    def session_properties(self, website_id: str, session_id: str) -> list[dict[str, Any]]:
+        path = ENDPOINTS["session_properties"].path.format(
+            website_id=quote(website_id, safe=""), session_id=quote(session_id, safe="")
+        )
+        response = self.session.get(f"{self.base_url}/{path}", auth=self.auth, timeout=REQUEST_TIMEOUT)
+        response.raise_for_status()
+        properties = response.json()
+        if not isinstance(properties, list):
+            raise UmamiError("Umami did not return a session property list. Check the server API version.")
+        return properties
+
 
 def get_rows(
     config: UmamiSourceConfig,
@@ -243,8 +255,16 @@ def get_rows(
             manager.safe_point()
             return
 
-        # Each website has its own date range, so each window needs a separately configured resource.
         endpoint = ENDPOINTS[inputs.schema_name]
+        watermark = (
+            timestamp_ms(inputs.db_incremental_field_last_value)
+            if inputs.schema_name == "event_properties"
+            and inputs.should_use_incremental_field
+            and inputs.incremental_field == endpoint.partition_key
+            and inputs.db_incremental_field_last_value is not None
+            else None
+        )
+        resource_name = "sessions" if inputs.schema_name == "session_properties" else inputs.schema_name
         for website_batch in websites:
             manager.safe_point()
             for website in website_batch:
@@ -253,7 +273,7 @@ def get_rows(
                 website_id = str(website["id"])
                 if website_id in state.completed_websites:
                     continue
-                if state.website_id != website_id:
+                if state.website_id != website_id and endpoint.uses_date_range:
                     dates = client.date_range(website_id)
                     manager.safe_point()
                     if "startDate" not in dates or "endDate" not in dates:
@@ -269,38 +289,75 @@ def get_rows(
                         raise UmamiError("Umami returned a reversed date range. Check the server API version.")
                     if start_at < MIN_TIMESTAMP_MS or stop_at > int(time.time() * 1000) + MAX_FUTURE_MS:
                         raise UmamiError("Umami returned an implausible date range. Check the server API version.")
+                    if watermark is not None:
+                        start_at = max(start_at, watermark)
                     state = replace(
-                        state, website_id=website_id, start_at=start_at, stop_at=stop_at, end_at=None, page=1
+                        state,
+                        website_id=website_id,
+                        start_at=start_at,
+                        stop_at=stop_at,
+                        end_at=None,
+                        page=1,
+                        session_index=0,
                     )
+                elif state.website_id != website_id:
+                    state = UmamiResumeState(website_id=website_id, completed_websites=state.completed_websites)
 
-                assert state.start_at is not None and state.stop_at is not None
-                while state.start_at <= state.stop_at:
-                    end_at = (
-                        state.end_at
-                        if state.end_at is not None
-                        else (
-                            min(state.start_at + endpoint.window_size_ms - 1, state.stop_at)
-                            if endpoint.window_size_ms
-                            else state.stop_at
-                        )
-                    )
+                while True:
+                    end_at = state.end_at
+                    params = None
+                    if endpoint.uses_date_range:
+                        assert state.start_at is not None and state.stop_at is not None
+                        if state.start_at > state.stop_at:
+                            break
+                        if end_at is None:
+                            end_at = (
+                                min(state.start_at + endpoint.window_size_ms - 1, state.stop_at)
+                                if endpoint.window_size_ms
+                                else state.stop_at
+                            )
+                        params = {"startAt": state.start_at, "endAt": end_at}
                     state = replace(state, end_at=end_at)
                     manager.save_state(state)
                     manager.safe_point()
                     resource = client.resource(
-                        inputs.schema_name,
+                        resource_name,
                         inputs,
-                        path=endpoint.path.format(website_id=quote(website_id, safe="")),
-                        params={"startAt": state.start_at, "endAt": end_at},
+                        path=ENDPOINTS[resource_name].path.format(website_id=quote(website_id, safe="")),
+                        params=params,
                         page=state.page,
                     )
                     for batch in resource:
-                        for row in batch:
-                            row["websiteId"] = website_id
-                        state = replace(state, page=state.page + 1)
-                        manager.save_state(state)
-                        yield batch
+                        if inputs.schema_name == "session_properties":
+                            for index, session in enumerate(batch[state.session_index :], start=state.session_index):
+                                manager.safe_point()
+                                session_id = str(session["id"])
+                                properties = client.session_properties(website_id, session_id)
+                                state = replace(state, session_index=index + 1)
+                                manager.save_state(state)
+                                if properties:
+                                    yield [
+                                        {
+                                            "websiteId": website_id,
+                                            "sessionId": session_id,
+                                            "createdAt": session["createdAt"],
+                                            "sessionProperties": properties,
+                                        }
+                                    ]
+                                manager.safe_point()
+                            state = replace(state, page=state.page + 1, session_index=0)
+                            manager.save_state(state)
+                        else:
+                            for row in batch:
+                                row["websiteId"] = website_id
+                                if inputs.schema_name == "event_properties":
+                                    row["createdAt"] = row["eventProperties"][0]["createdAt"]
+                            state = replace(state, page=state.page + 1)
+                            manager.save_state(state)
+                            yield batch
                         manager.safe_point()
+                    if end_at is None:
+                        break
                     state = replace(state, start_at=end_at + 1, end_at=None, page=1)
                 state = UmamiResumeState(completed_websites=[*state.completed_websites, website_id])
         manager.save_state(state)

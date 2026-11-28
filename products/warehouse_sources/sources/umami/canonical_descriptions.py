@@ -41,4 +41,44 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "referrerDomain": "Domain of the referring URL.",
         },
     },
+    "event_properties": {
+        "description": "Custom properties grouped by event.",
+        "docs_url": "https://docs.umami.is/docs/api-reference/get-event-data",
+        "columns": {
+            "websiteId": "Website associated with the event.",
+            "eventId": "Identifier of the event in the events table.",
+            "createdAt": "Time when Umami recorded the event properties.",
+            "eventProperties": "Property keys, types, and values recorded with the event.",
+        },
+    },
+    "goals": {
+        "description": "Saved conversion goals for each website.",
+        "docs_url": "https://docs.umami.is/docs/api-reference/get-website-goals",
+        "columns": {
+            "id": "Goal identifier.",
+            "websiteId": "Website associated with the goal.",
+            "name": "Goal name.",
+            "parameters": "Settings that define the goal.",
+        },
+    },
+    "session_properties": {
+        "description": "Custom properties grouped by session.",
+        "docs_url": "https://docs.umami.is/docs/api-reference/get-website-session-properties",
+        "columns": {
+            "websiteId": "Website associated with the session.",
+            "sessionId": "Identifier of the session in the sessions table.",
+            "createdAt": "Time when the session began.",
+            "sessionProperties": "Property keys, types, and values recorded during the session.",
+        },
+    },
+    "funnels": {
+        "description": "Saved funnels for each website.",
+        "docs_url": "https://docs.umami.is/docs/api-reference/get-website-funnels",
+        "columns": {
+            "id": "Funnel identifier.",
+            "websiteId": "Website associated with the funnel.",
+            "name": "Funnel name.",
+            "parameters": "Settings that define the funnel steps and time window.",
+        },
+    },
 }
