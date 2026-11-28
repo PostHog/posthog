@@ -34,6 +34,7 @@ from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
 from slack_sdk.http_retry.builtin_handlers import RateLimitErrorRetryHandler
 
+from posthog.clickhouse.query_tagging import Product
 from posthog.dataclasses import frozen
 from posthog.integrations import IntegrationManager, IntegrationNotFound
 from posthog.models.integration import SlackIntegration
@@ -712,7 +713,8 @@ class RunFooter:
     # Whether the run shares charts as insight links instead of images, so reply analytics can
     # compare the two delivery modes. Not rendered.
     chart_links: bool = False
-    # Model spend of the thread's task so far. Sandbox compute is not billed, so it is not included.
+    # What PostHog credits paid for the thread's task so far: model spend, plus sandbox compute
+    # once AI_CREDITS_COMPUTE_BILLED_ORIGINS bills the task's origin.
     thread_cost_usd: Decimal | None = None
     # Where the run's progress card lives, so the handler edits or deletes it without searching
     # the thread. Read once to seed the handler, which owns it from then on. Not rendered.
@@ -846,8 +848,7 @@ def load_run_footer(
             plan=plan,
             chart_links=bool((run.state or {}).get("slack_chart_links")),
             progress_message_ts=(run.state or {}).get(SLACK_PROGRESS_MESSAGE_TS_KEY),
-            # A run on someone's own plan is not paid with PostHog credits, so its cost says nothing.
-            thread_cost_usd=_thread_cost(run) if include_thread_cost and plan is None else None,
+            thread_cost_usd=_thread_cost(run) if include_thread_cost else None,
         )
     except Exception:
         logger.exception("slack_app_run_footer_load_failed", run_id=str(run_id))
@@ -855,20 +856,36 @@ def load_run_footer(
 
 
 def _thread_cost(run: "TaskRunDTO") -> Decimal | None:
-    """What the thread's task spent on models so far, or `None` when unknown.
+    """What PostHog credits paid for the thread's task so far, or `None` when unknown or nothing.
 
-    Reads the same task usage that PostHog Desktop shows, which sums the task's `$ai_generation`
-    events. Those events arrive with a short delay and the usage is cached for a minute, so the
+    Model spend counts per run, and only for the runs on PostHog credits: a thread can switch to
+    someone's own plan and back between runs, and a plan pays for the models of its own runs. The
+    billed sandbox compute always counts, because PostHog credits pay for the sandbox whatever plan
+    the models run on, and for a Slack task it is billed once AI_CREDITS_COMPUTE_BILLED_ORIGINS
+    lists `slack`. The spend sums `$ai_generation` events, which arrive with a short delay, so the
     newest requests can be missing here. A later reply's total then includes them.
     """
-    from products.tasks.backend.facade.billing import get_task_usage  # noqa: PLC0415
+    from products.tasks.backend.facade.api import get_run_plan, list_task_runs  # noqa: PLC0415
+    from products.tasks.backend.facade.billing import (  # noqa: PLC0415
+        get_local_task_run_token_costs,
+        get_task_compute_cost,
+    )
 
-    if run.task_created_at is None:
+    if run.task_created_at is None or run.task_origin_product is None:
         return None
     try:
-        return get_task_usage(
-            team_id=run.team_id, task_id=run.task_id, task_created_at=run.task_created_at
-        ).token_cost_usd
+        credit_run_ids = [r.id for r in list_task_runs(run.task_id, run.team_id) if get_run_plan(r.state) is None]
+        compute_cost = get_task_compute_cost(team_id=run.team_id, task_id=run.task_id).cost_usd
+        if not credit_run_ids:
+            return compute_cost or None
+        model_costs = get_local_task_run_token_costs(
+            team_id=run.team_id,
+            origin_product=run.task_origin_product,
+            generated_after=run.task_created_at,
+            product=Product.POSTHOG_CODE,
+            task_run_ids=credit_run_ids,
+        )
+        return sum(model_costs.values(), Decimal(0)) + compute_cost
     except Exception:
         # Its own guard, like `_project_name`: a failed lookup costs the reader one segment.
         logger.warning("slack_app_thread_cost_load_failed", task_id=str(run.task_id), exc_info=True)

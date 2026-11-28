@@ -1,3 +1,4 @@
+from datetime import UTC, datetime
 from decimal import Decimal
 from types import SimpleNamespace
 from typing import cast
@@ -21,8 +22,11 @@ from products.slack_app.backend.services.slack_messages import (
     reply_footer_block,
     viewer_has_code_access,
 )
+from products.tasks.backend.facade.billing import TaskComputeCost
+from products.tasks.backend.facade.contracts import ComputeBillingMeter
 
 TASK_URL = "https://us.posthog.com/project/1/tasks/2?runId=3&unfurl=false"
+OWN_PLAN_STATE = {"runtime_adapter": "codex", "codex_model_access": "own-subscription", "codex_subscription_user_id": 7}
 
 
 class TestRunFooter(SimpleTestCase):
@@ -155,6 +159,63 @@ class TestLoadRunFooter(SimpleTestCase):
         )
 
         assert load_run_footer("run-1", integration_id=None).plan == expected
+
+    @parameterized.expand(
+        [
+            ("credit_runs_add_model_spend_and_compute", [{}, {}], Decimal("0.25"), Decimal("2.25")),
+            (
+                "earlier_credit_spend_survives_a_switch_to_an_own_plan",
+                [{}, OWN_PLAN_STATE],
+                Decimal("0.25"),
+                Decimal("1.25"),
+            ),
+            (
+                "own_plan_runs_pay_only_for_billed_compute",
+                [OWN_PLAN_STATE, OWN_PLAN_STATE],
+                Decimal("0.25"),
+                Decimal("0.25"),
+            ),
+            ("own_plan_runs_without_billed_compute_show_no_cost", [OWN_PLAN_STATE, OWN_PLAN_STATE], Decimal(0), None),
+            ("credit_runs_without_billed_compute", [{}, {}], Decimal(0), Decimal("2.00")),
+        ]
+    )
+    @patch("products.tasks.backend.facade.billing.get_task_compute_cost")
+    @patch("products.tasks.backend.facade.billing.get_local_task_run_token_costs")
+    @patch("products.tasks.backend.facade.api.list_task_runs")
+    @patch("products.tasks.backend.facade.api.get_task_run")
+    def test_thread_cost_counts_model_spend_of_credit_runs_and_billed_compute(
+        self,
+        _name: str,
+        run_states: list[dict],
+        billed_compute: Decimal,
+        expected: Decimal | None,
+        mock_get_run,
+        mock_list_runs,
+        mock_run_costs,
+        mock_compute,
+    ) -> None:
+        runs = [SimpleNamespace(id=uuid4(), state=state) for state in run_states]
+        mock_get_run.return_value = SimpleNamespace(
+            id=runs[-1].id,
+            task_id=uuid4(),
+            team_id=1,
+            state=runs[-1].state,
+            created_by_id=None,
+            task_origin_product="slack",
+            task_created_at=datetime(2026, 11, 1, tzinfo=UTC),
+        )
+        mock_list_runs.return_value = runs
+        # Every run the footer asks about spent one dollar on models, so the total counts the runs asked for.
+        mock_run_costs.side_effect = lambda **kwargs: {
+            str(run_id): Decimal("1.00") for run_id in kwargs["task_run_ids"]
+        }
+        mock_compute.return_value = TaskComputeCost(
+            cost_usd=billed_compute, billing_meter=ComputeBillingMeter.AI_CREDITS if billed_compute else None
+        )
+
+        footer = load_run_footer("run-1", integration_id=None, include_thread_cost=True)
+
+        assert footer.thread_cost_usd == expected
 
     @patch("products.tasks.backend.facade.api.get_task_run", side_effect=RuntimeError("db down"))
     def test_a_failure_to_describe_the_run_costs_the_footer_not_the_answer(self, _mock_get_run) -> None:
