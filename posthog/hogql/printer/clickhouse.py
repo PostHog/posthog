@@ -757,7 +757,7 @@ class ClickHousePrinter(BasePrinter):
         """True when the read lands on a `persons` / `groups` raw JSON blob.
 
         Those blobs are stored as `String`, so the read goes through the print-time `JSONExtractRaw` + quote-trim
-        shape, which strips the surrounding quotes but leaves JSON escapes (`\\"`, `\\\\`, `\\n`, `\\u00e9`) in the
+        shape, which strips the surrounding quotes but leaves JSON escapes (`\"`, `\\`, `\n`, `\u00e9`) in the
         value. The native JSON document tables decode them, so a property read here has to decode them too, or
         `properties.key` and `JSONExtractString(properties, 'key')` disagree on any value that contains an escape.
         """
@@ -768,10 +768,9 @@ class ClickHousePrinter(BasePrinter):
         table_type = field_type.table_type
         while isinstance(table_type, (ast.TableAliasType, ast.ColumnAliasedTableType, ast.VirtualTableType)):
             table_type = table_type.table_type
-        if isinstance(table_type, (ast.LazyTableType, ast.LazyJoinType)):
-            return True
         # The resolver expands `persons` / `groups` into a subquery over the raw table, so the read reaches the
-        # printer against `person` / `groups` with a plain table type.
+        # printer against `person` / `groups` with a plain table type; no call has ever reached the printer with a
+        # `LazyTableType` / `LazyJoinType` here.
         if isinstance(table_type, ast.TableType):
             return table_type.table.to_printed_clickhouse(self.context) in ("person", "groups")
         return False

@@ -114,7 +114,7 @@
            GROUP BY person_distinct_id_overrides.distinct_id
            HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
         LEFT JOIN
-          (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', '')), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___industry,
+          (SELECT tupleElement(argMax(tuple(JSONExtractString(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry', ''), 'null'))), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___industry,
                   groups.group_type_index AS index,
                   groups.group_key AS key
            FROM groups
@@ -141,7 +141,7 @@
                                                                    GROUP BY person_distinct_id_overrides.distinct_id
                                                                    HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
                                                                 LEFT JOIN
-                                                                  (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', '')), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___industry, groups.group_type_index AS index, groups.group_key AS key
+                                                                  (SELECT tupleElement(argMax(tuple(JSONExtractString(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry', ''), 'null'))), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___industry, groups.group_type_index AS index, groups.group_key AS key
                                                                    FROM groups
                                                                    WHERE and(equals(groups.team_id, 99999), equals(index, 0))
                                                                    GROUP BY groups.group_type_index, groups.group_key) AS e__group_0 ON equals(e.properties.`$group_0`, e__group_0.key)
@@ -190,7 +190,7 @@
                   ifNull(nullIf(leftUTF8(toString(e__group_0.properties___industry), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
            FROM events_json AS e
            LEFT JOIN
-             (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', '')), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___industry,
+             (SELECT tupleElement(argMax(tuple(JSONExtractString(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry', ''), 'null'))), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___industry,
                      groups.group_type_index AS index,
                      groups.group_key AS key
               FROM groups
@@ -246,7 +246,7 @@
                   ifNull(nullIf(leftUTF8(toString(e__group_0.properties___industry), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
            FROM events_json AS e
            LEFT JOIN
-             (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', '')), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___industry,
+             (SELECT tupleElement(argMax(tuple(JSONExtractString(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry', ''), 'null'))), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___industry,
                      groups.group_type_index AS index,
                      groups.group_key AS key
               FROM groups
@@ -636,7 +636,7 @@
                   ifNull(nullIf(leftUTF8(toString(CAST(e.properties.key, 'Nullable(String)')), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
            FROM events_json AS e
            LEFT JOIN
-             (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', '')), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___industry,
+             (SELECT tupleElement(argMax(tuple(JSONExtractString(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry', ''), 'null'))), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___industry,
                      groups.group_type_index AS index,
                      groups.group_key AS key
               FROM groups
@@ -699,7 +699,7 @@
               GROUP BY person_distinct_id_overrides.distinct_id
               HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
            LEFT JOIN
-             (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', '')), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___industry,
+             (SELECT tupleElement(argMax(tuple(JSONExtractString(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry', ''), 'null'))), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___industry,
                      groups.group_type_index AS index,
                      groups.group_key AS key
               FROM groups
@@ -1069,7 +1069,7 @@
            GROUP BY person_distinct_id_overrides.distinct_id
            HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
         LEFT JOIN
-          (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'name'), ''), 'null'), '^"|"$', '')), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___name,
+          (SELECT tupleElement(argMax(tuple(JSONExtractString(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'name', ''), 'null'))), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___name,
                   groups.group_type_index AS index,
                   groups.group_key AS key
            FROM groups
@@ -1077,7 +1077,7 @@
            GROUP BY groups.group_type_index,
                     groups.group_key) AS e__group_2 ON equals(e.properties.`$group_2`, e__group_2.key)
         LEFT JOIN
-          (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', '')), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___industry,
+          (SELECT tupleElement(argMax(tuple(JSONExtractString(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry', ''), 'null'))), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___industry,
                   groups.group_type_index AS index,
                   groups.group_key AS key
            FROM groups
@@ -1104,12 +1104,12 @@
                                                                    GROUP BY person_distinct_id_overrides.distinct_id
                                                                    HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
                                                                 LEFT JOIN
-                                                                  (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'name'), ''), 'null'), '^"|"$', '')), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___name, groups.group_type_index AS index, groups.group_key AS key
+                                                                  (SELECT tupleElement(argMax(tuple(JSONExtractString(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'name', ''), 'null'))), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___name, groups.group_type_index AS index, groups.group_key AS key
                                                                    FROM groups
                                                                    WHERE and(equals(groups.team_id, 99999), equals(index, 2))
                                                                    GROUP BY groups.group_type_index, groups.group_key) AS e__group_2 ON equals(e.properties.`$group_2`, e__group_2.key)
                                                                 LEFT JOIN
-                                                                  (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', '')), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___industry, groups.group_type_index AS index, groups.group_key AS key
+                                                                  (SELECT tupleElement(argMax(tuple(JSONExtractString(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry', ''), 'null'))), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___industry, groups.group_type_index AS index, groups.group_key AS key
                                                                    FROM groups
                                                                    WHERE and(equals(groups.team_id, 99999), equals(index, 0))
                                                                    GROUP BY groups.group_type_index, groups.group_key) AS e__group_0 ON equals(e.properties.`$group_0`, e__group_0.key)
@@ -1150,7 +1150,7 @@
                toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start
         FROM events_json AS e
         LEFT JOIN
-          (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'name'), ''), 'null'), '^"|"$', '')), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___name,
+          (SELECT tupleElement(argMax(tuple(JSONExtractString(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'name', ''), 'null'))), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___name,
                   groups.group_type_index AS index,
                   groups.group_key AS key
            FROM groups
@@ -1158,7 +1158,7 @@
            GROUP BY groups.group_type_index,
                     groups.group_key) AS e__group_2 ON equals(e.properties.`$group_2`, e__group_2.key)
         LEFT JOIN
-          (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', '')), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___industry,
+          (SELECT tupleElement(argMax(tuple(JSONExtractString(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry', ''), 'null'))), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___industry,
                   groups.group_type_index AS index,
                   groups.group_key AS key
            FROM groups
@@ -1199,7 +1199,7 @@
                toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start
         FROM events_json AS e
         LEFT JOIN
-          (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', '')), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___industry,
+          (SELECT tupleElement(argMax(tuple(JSONExtractString(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry', ''), 'null'))), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___industry,
                   groups.group_type_index AS index,
                   groups.group_key AS key
            FROM groups

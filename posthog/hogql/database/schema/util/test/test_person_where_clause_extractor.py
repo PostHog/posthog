@@ -290,6 +290,6 @@ class TestPersonWhereClauseExtractor(ClickhouseTestMixin, APIBaseTest):
         )
         actual = self.print_query("SELECT * FROM events WHERE person.properties.person_boolean = false")
         assert (
-            f"ifNull(equals(accurateCastOrNull(transform(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties"
+            f"ifNull(equals(accurateCastOrNull(transform(toString(JSONExtractString(nullIf(nullIf(JSONExtractRaw(person.properties"
             in actual
         )

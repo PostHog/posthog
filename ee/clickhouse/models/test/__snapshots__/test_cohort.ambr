@@ -11,7 +11,7 @@
   FROM (((
             (SELECT persons.id AS id
              FROM
-               (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$some_prop'), ''), 'null'), '^"|"$', '')), person.version), 1) AS `properties___$some_prop`,
+               (SELECT tupleElement(argMax(tuple(JSONExtractString(nullIf(nullIf(JSONExtractRaw(person.properties, '$some_prop', ''), 'null'))), person.version), 1) AS `properties___$some_prop`,
                        person.id AS id
                 FROM person
                 WHERE and(equals(person.team_id, 99999), in(id,
@@ -26,7 +26,7 @@
                                        join_algorithm='auto')) INTERSECT DISTINCT (
                                                                                      (SELECT persons.id AS id
                                                                                       FROM
-                                                                                        (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$another_prop'), ''), 'null'), '^"|"$', '')), person.version), 1) AS `properties___$another_prop`,
+                                                                                        (SELECT tupleElement(argMax(tuple(JSONExtractString(nullIf(nullIf(JSONExtractRaw(person.properties, '$another_prop', ''), 'null'))), person.version), 1) AS `properties___$another_prop`,
                                                                                                 person.id AS id
                                                                                          FROM person
                                                                                          WHERE and(equals(person.team_id, 99999), in(id,
@@ -54,8 +54,8 @@
   FROM
     (SELECT persons.id AS id
      FROM
-       (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$some_prop'), ''), 'null'), '^"|"$', '')), person.version), 1) AS `properties___$some_prop`,
-               tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$another_prop'), ''), 'null'), '^"|"$', '')), person.version), 1) AS `properties___$another_prop`,
+       (SELECT tupleElement(argMax(tuple(JSONExtractString(nullIf(nullIf(JSONExtractRaw(person.properties, '$some_prop', ''), 'null'))), person.version), 1) AS `properties___$some_prop`,
+               tupleElement(argMax(tuple(JSONExtractString(nullIf(nullIf(JSONExtractRaw(person.properties, '$another_prop', ''), 'null'))), person.version), 1) AS `properties___$another_prop`,
                person.id AS id
         FROM person
         WHERE and(equals(person.team_id, 99999), in(id,
@@ -83,7 +83,7 @@
   FROM (
           (SELECT persons.id AS id
            FROM
-             (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$some_prop'), ''), 'null'), '^"|"$', '')), person.version), 1) AS `properties___$some_prop`,
+             (SELECT tupleElement(argMax(tuple(JSONExtractString(nullIf(nullIf(JSONExtractRaw(person.properties, '$some_prop', ''), 'null'))), person.version), 1) AS `properties___$some_prop`,
                      person.id AS id
               FROM person
               WHERE and(equals(person.team_id, 99999), in(id,
@@ -111,7 +111,7 @@
   FROM
     (SELECT persons.id AS id
      FROM
-       (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$some_prop'), ''), 'null'), '^"|"$', '')), person.version), 1) AS `properties___$some_prop`,
+       (SELECT tupleElement(argMax(tuple(JSONExtractString(nullIf(nullIf(JSONExtractRaw(person.properties, '$some_prop', ''), 'null'))), person.version), 1) AS `properties___$some_prop`,
                person.id AS id
         FROM person
         WHERE and(equals(person.team_id, 99999), in(id,

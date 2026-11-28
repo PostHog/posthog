@@ -24,10 +24,10 @@
      GROUP BY pdi.person_id) AS source GLOBAL
   INNER JOIN
     (SELECT person.id AS id,
-            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_4)s), ''), 'null'), '^"|"$', '') AS properties___email,
-            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_5)s), ''), 'null'), '^"|"$', '') AS properties___name,
-            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_6)s), ''), 'null'), '^"|"$', '') AS properties___username,
-            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_7)s), ''), 'null'), '^"|"$', '') AS properties___plan,
+            JSONExtractString(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_4)s, ''), 'null')) AS properties___email,
+            JSONExtractString(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_5)s, ''), 'null')) AS properties___name,
+            JSONExtractString(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_6)s, ''), 'null')) AS properties___username,
+            JSONExtractString(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_7)s, ''), 'null')) AS properties___plan,
             person.is_identified AS is_identified
      FROM person PREWHERE in(tuple(person.id, person.version),
                                (SELECT person.id AS id,
@@ -90,10 +90,10 @@
      GROUP BY pdi.person_id) AS source GLOBAL
   INNER JOIN
     (SELECT person.id AS id,
-            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_6)s), ''), 'null'), '^"|"$', '') AS properties___email,
-            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_7)s), ''), 'null'), '^"|"$', '') AS properties___name,
-            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_8)s), ''), 'null'), '^"|"$', '') AS properties___username,
-            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_9)s), ''), 'null'), '^"|"$', '') AS properties___plan,
+            JSONExtractString(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_6)s, ''), 'null')) AS properties___email,
+            JSONExtractString(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_7)s, ''), 'null')) AS properties___name,
+            JSONExtractString(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_8)s, ''), 'null')) AS properties___username,
+            JSONExtractString(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_9)s, ''), 'null')) AS properties___plan,
             person.is_identified AS is_identified
      FROM person PREWHERE in(tuple(person.id, person.version),
                                (SELECT person.id AS id,
@@ -151,10 +151,10 @@
   FROM __account_members AS source GLOBAL
   INNER JOIN
     (SELECT person.id AS id,
-            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', '') AS properties___email,
-            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_1)s), ''), 'null'), '^"|"$', '') AS properties___name,
-            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_2)s), ''), 'null'), '^"|"$', '') AS properties___username,
-            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_3)s), ''), 'null'), '^"|"$', '') AS properties___plan,
+            JSONExtractString(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_0)s, ''), 'null')) AS properties___email,
+            JSONExtractString(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_1)s, ''), 'null')) AS properties___name,
+            JSONExtractString(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_2)s, ''), 'null')) AS properties___username,
+            JSONExtractString(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_3)s, ''), 'null')) AS properties___plan,
             person.is_identified AS is_identified
      FROM person PREWHERE in(tuple(person.id, person.version),
                                (SELECT person.id AS id,
@@ -197,10 +197,10 @@
   FROM __account_members AS source GLOBAL
   INNER JOIN
     (SELECT person.id AS id,
-            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', '') AS properties___email,
-            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_1)s), ''), 'null'), '^"|"$', '') AS properties___name,
-            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_2)s), ''), 'null'), '^"|"$', '') AS properties___username,
-            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_3)s), ''), 'null'), '^"|"$', '') AS properties___plan,
+            JSONExtractString(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_0)s, ''), 'null')) AS properties___email,
+            JSONExtractString(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_1)s, ''), 'null')) AS properties___name,
+            JSONExtractString(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_2)s, ''), 'null')) AS properties___username,
+            JSONExtractString(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_3)s, ''), 'null')) AS properties___plan,
             person.is_identified AS is_identified
      FROM person PREWHERE in(tuple(person.id, person.version),
                                (SELECT person.id AS id,

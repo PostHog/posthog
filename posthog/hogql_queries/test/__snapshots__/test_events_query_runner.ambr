@@ -855,9 +855,9 @@
   SELECT persons.id AS id,
          coalesce(nullIf(toString(persons.properties___email), ''), nullIf(toString(persons.properties___name), ''), nullIf(toString(persons.properties___username), '')) AS `coalesce(nullIf(toString(properties.email), ''), nullIf(toString(properties.name), ''), nullIf(toString(properties.username), ''))`
   FROM
-    (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '')), person.version), 1) AS properties___email,
-            tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'name'), ''), 'null'), '^"|"$', '')), person.version), 1) AS properties___name,
-            tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'username'), ''), 'null'), '^"|"$', '')), person.version), 1) AS properties___username,
+    (SELECT tupleElement(argMax(tuple(JSONExtractString(nullIf(nullIf(JSONExtractRaw(person.properties, 'email', ''), 'null'))), person.version), 1) AS properties___email,
+            tupleElement(argMax(tuple(JSONExtractString(nullIf(nullIf(JSONExtractRaw(person.properties, 'name', ''), 'null'))), person.version), 1) AS properties___name,
+            tupleElement(argMax(tuple(JSONExtractString(nullIf(nullIf(JSONExtractRaw(person.properties, 'username', ''), 'null'))), person.version), 1) AS properties___username,
             person.id AS id
      FROM person
      WHERE and(equals(person.team_id, 99999), in(id,

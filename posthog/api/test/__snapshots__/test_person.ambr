@@ -4,7 +4,7 @@
   /* user_id:0 request:_snapshot_ */
   SELECT persons.id AS id
   FROM
-    (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '')), person.version), 1) AS properties___email,
+    (SELECT tupleElement(argMax(tuple(JSONExtractString(nullIf(nullIf(JSONExtractRaw(person.properties, 'email', ''), 'null'))), person.version), 1) AS properties___email,
             argMax(toTimeZone(person.created_at, 'UTC'), person.version) AS created_at,
             person.id AS id
      FROM person
@@ -74,7 +74,7 @@
   /* user_id:0 request:_snapshot_ */
   SELECT persons.id AS id
   FROM
-    (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '')), person.version), 1) AS properties___email,
+    (SELECT tupleElement(argMax(tuple(JSONExtractString(nullIf(nullIf(JSONExtractRaw(person.properties, 'email', ''), 'null'))), person.version), 1) AS properties___email,
             argMax(toTimeZone(person.created_at, 'UTC'), person.version) AS created_at,
             person.id AS id
      FROM person
@@ -109,7 +109,7 @@
   /* user_id:0 request:_snapshot_ */
   SELECT persons.id AS id
   FROM
-    (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '')), person.version), 1) AS properties___email,
+    (SELECT tupleElement(argMax(tuple(JSONExtractString(nullIf(nullIf(JSONExtractRaw(person.properties, 'email', ''), 'null'))), person.version), 1) AS properties___email,
             argMax(toTimeZone(person.created_at, 'UTC'), person.version) AS created_at,
             person.id AS id
      FROM person
@@ -144,7 +144,7 @@
   /* user_id:0 request:_snapshot_ */
   SELECT persons.id AS id
   FROM
-    (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'some_prop'), ''), 'null'), '^"|"$', '')), person.version), 1) AS properties___some_prop,
+    (SELECT tupleElement(argMax(tuple(JSONExtractString(nullIf(nullIf(JSONExtractRaw(person.properties, 'some_prop', ''), 'null'))), person.version), 1) AS properties___some_prop,
             argMax(toTimeZone(person.created_at, 'UTC'), person.version) AS created_at,
             person.id AS id
      FROM person
@@ -180,7 +180,7 @@
   SELECT value AS value,
          minus(uniq(id), uniqIf(id, notEquals(is_deleted, 0))) AS c
   FROM
-    (SELECT toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'random_prop'), ''), 'null'), '^"|"$', '')) AS value,
+    (SELECT toString(JSONExtractString(nullIf(nullIf(JSONExtractRaw(person.properties, 'random_prop', ''), 'null'))) AS value,
             person.is_deleted AS is_deleted,
             person.id AS id
      FROM person
@@ -210,7 +210,7 @@
   SELECT value AS value,
          minus(uniq(id), uniqIf(id, notEquals(is_deleted, 0))) AS c
   FROM
-    (SELECT toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'random_prop'), ''), 'null'), '^"|"$', '')) AS value,
+    (SELECT toString(JSONExtractString(nullIf(nullIf(JSONExtractRaw(person.properties, 'random_prop', ''), 'null'))) AS value,
             person.is_deleted AS is_deleted,
             person.id AS id
      FROM person
@@ -299,7 +299,7 @@
   /* user_id:0 request:_snapshot_ */
   SELECT persons.id AS id
   FROM
-    (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '')), person.version), 1) AS properties___email,
+    (SELECT tupleElement(argMax(tuple(JSONExtractString(nullIf(nullIf(JSONExtractRaw(person.properties, 'email', ''), 'null'))), person.version), 1) AS properties___email,
             argMax(toTimeZone(person.created_at, 'UTC'), person.version) AS created_at,
             person.id AS id
      FROM person
@@ -334,7 +334,7 @@
   /* user_id:0 request:_snapshot_ */
   SELECT persons.id AS id
   FROM
-    (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '')), person.version), 1) AS properties___email,
+    (SELECT tupleElement(argMax(tuple(JSONExtractString(nullIf(nullIf(JSONExtractRaw(person.properties, 'email', ''), 'null'))), person.version), 1) AS properties___email,
             argMax(toTimeZone(person.created_at, 'UTC'), person.version) AS created_at,
             person.id AS id
      FROM person
@@ -439,8 +439,8 @@
   /* user_id:0 request:_snapshot_ */
   SELECT persons.id AS id
   FROM
-    (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '')), person.version), 1) AS properties___email,
-            tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'name'), ''), 'null'), '^"|"$', '')), person.version), 1) AS properties___name,
+    (SELECT tupleElement(argMax(tuple(JSONExtractString(nullIf(nullIf(JSONExtractRaw(person.properties, 'email', ''), 'null'))), person.version), 1) AS properties___email,
+            tupleElement(argMax(tuple(JSONExtractString(nullIf(nullIf(JSONExtractRaw(person.properties, 'name', ''), 'null'))), person.version), 1) AS properties___name,
             argMax(toTimeZone(person.created_at, 'UTC'), person.version) AS created_at,
             person.id AS id
      FROM person
@@ -491,8 +491,8 @@
   /* user_id:0 request:_snapshot_ */
   SELECT persons.id AS id
   FROM
-    (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '')), person.version), 1) AS properties___email,
-            tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'name'), ''), 'null'), '^"|"$', '')), person.version), 1) AS properties___name,
+    (SELECT tupleElement(argMax(tuple(JSONExtractString(nullIf(nullIf(JSONExtractRaw(person.properties, 'email', ''), 'null'))), person.version), 1) AS properties___email,
+            tupleElement(argMax(tuple(JSONExtractString(nullIf(nullIf(JSONExtractRaw(person.properties, 'name', ''), 'null'))), person.version), 1) AS properties___name,
             argMax(toTimeZone(person.created_at, 'UTC'), person.version) AS created_at,
             person.id AS id
      FROM person
@@ -647,7 +647,7 @@
   /* user_id:0 request:_snapshot_ */
   SELECT persons.id AS id
   FROM
-    (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '')), person.version), 1) AS properties___email,
+    (SELECT tupleElement(argMax(tuple(JSONExtractString(nullIf(nullIf(JSONExtractRaw(person.properties, 'email', ''), 'null'))), person.version), 1) AS properties___email,
             argMax(toTimeZone(person.created_at, 'UTC'), person.version) AS created_at,
             person.id AS id
      FROM person
@@ -717,7 +717,7 @@
   /* user_id:0 request:_snapshot_ */
   SELECT persons.id AS id
   FROM
-    (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '')), person.version), 1) AS properties___email,
+    (SELECT tupleElement(argMax(tuple(JSONExtractString(nullIf(nullIf(JSONExtractRaw(person.properties, 'email', ''), 'null'))), person.version), 1) AS properties___email,
             argMax(toTimeZone(person.created_at, 'UTC'), person.version) AS created_at,
             person.id AS id
      FROM person
@@ -752,7 +752,7 @@
   /* user_id:0 request:_snapshot_ */
   SELECT persons.id AS id
   FROM
-    (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '')), person.version), 1) AS properties___email,
+    (SELECT tupleElement(argMax(tuple(JSONExtractString(nullIf(nullIf(JSONExtractRaw(person.properties, 'email', ''), 'null'))), person.version), 1) AS properties___email,
             argMax(toTimeZone(person.created_at, 'UTC'), person.version) AS created_at,
             person.id AS id
      FROM person
@@ -787,7 +787,7 @@
   /* user_id:0 request:_snapshot_ */
   SELECT persons.id AS id
   FROM
-    (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'some_prop'), ''), 'null'), '^"|"$', '')), person.version), 1) AS properties___some_prop,
+    (SELECT tupleElement(argMax(tuple(JSONExtractString(nullIf(nullIf(JSONExtractRaw(person.properties, 'some_prop', ''), 'null'))), person.version), 1) AS properties___some_prop,
             argMax(toTimeZone(person.created_at, 'UTC'), person.version) AS created_at,
             person.id AS id
      FROM person
@@ -823,7 +823,7 @@
   SELECT value AS value,
          minus(uniq(id), uniqIf(id, notEquals(is_deleted, 0))) AS c
   FROM
-    (SELECT toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'random_prop'), ''), 'null'), '^"|"$', '')) AS value,
+    (SELECT toString(JSONExtractString(nullIf(nullIf(JSONExtractRaw(person.properties, 'random_prop', ''), 'null'))) AS value,
             person.is_deleted AS is_deleted,
             person.id AS id
      FROM person
@@ -853,7 +853,7 @@
   SELECT value AS value,
          minus(uniq(id), uniqIf(id, notEquals(is_deleted, 0))) AS c
   FROM
-    (SELECT toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'random_prop'), ''), 'null'), '^"|"$', '')) AS value,
+    (SELECT toString(JSONExtractString(nullIf(nullIf(JSONExtractRaw(person.properties, 'random_prop', ''), 'null'))) AS value,
             person.is_deleted AS is_deleted,
             person.id AS id
      FROM person
@@ -942,7 +942,7 @@
   /* user_id:0 request:_snapshot_ */
   SELECT persons.id AS id
   FROM
-    (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '')), person.version), 1) AS properties___email,
+    (SELECT tupleElement(argMax(tuple(JSONExtractString(nullIf(nullIf(JSONExtractRaw(person.properties, 'email', ''), 'null'))), person.version), 1) AS properties___email,
             argMax(toTimeZone(person.created_at, 'UTC'), person.version) AS created_at,
             person.id AS id
      FROM person
@@ -977,7 +977,7 @@
   /* user_id:0 request:_snapshot_ */
   SELECT persons.id AS id
   FROM
-    (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '')), person.version), 1) AS properties___email,
+    (SELECT tupleElement(argMax(tuple(JSONExtractString(nullIf(nullIf(JSONExtractRaw(person.properties, 'email', ''), 'null'))), person.version), 1) AS properties___email,
             argMax(toTimeZone(person.created_at, 'UTC'), person.version) AS created_at,
             person.id AS id
      FROM person
@@ -1082,8 +1082,8 @@
   /* user_id:0 request:_snapshot_ */
   SELECT persons.id AS id
   FROM
-    (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '')), person.version), 1) AS properties___email,
-            tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'name'), ''), 'null'), '^"|"$', '')), person.version), 1) AS properties___name,
+    (SELECT tupleElement(argMax(tuple(JSONExtractString(nullIf(nullIf(JSONExtractRaw(person.properties, 'email', ''), 'null'))), person.version), 1) AS properties___email,
+            tupleElement(argMax(tuple(JSONExtractString(nullIf(nullIf(JSONExtractRaw(person.properties, 'name', ''), 'null'))), person.version), 1) AS properties___name,
             argMax(toTimeZone(person.created_at, 'UTC'), person.version) AS created_at,
             person.id AS id
      FROM person
@@ -1134,8 +1134,8 @@
   /* user_id:0 request:_snapshot_ */
   SELECT persons.id AS id
   FROM
-    (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '')), person.version), 1) AS properties___email,
-            tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'name'), ''), 'null'), '^"|"$', '')), person.version), 1) AS properties___name,
+    (SELECT tupleElement(argMax(tuple(JSONExtractString(nullIf(nullIf(JSONExtractRaw(person.properties, 'email', ''), 'null'))), person.version), 1) AS properties___email,
+            tupleElement(argMax(tuple(JSONExtractString(nullIf(nullIf(JSONExtractRaw(person.properties, 'name', ''), 'null'))), person.version), 1) AS properties___name,
             argMax(toTimeZone(person.created_at, 'UTC'), person.version) AS created_at,
             person.id AS id
      FROM person

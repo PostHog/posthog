@@ -28,7 +28,7 @@
   '''
   SELECT count(DISTINCT persons.id) AS `count(DISTINCT persons.id)`
   FROM
-    (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'group'), ''), 'null'), '^"|"$', '')), person.version), 1) AS properties___group,
+    (SELECT tupleElement(argMax(tuple(JSONExtractString(nullIf(nullIf(JSONExtractRaw(person.properties, 'group', ''), 'null'))), person.version), 1) AS properties___group,
             argMax(person.team_id, person.version) AS team_id,
             person.id AS id
      FROM person
@@ -85,7 +85,7 @@
   /* user_id:0 request:_snapshot_ */
   SELECT count(DISTINCT persons.id) AS `count(DISTINCT persons.id)`
   FROM
-    (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'group'), ''), 'null'), '^"|"$', '')), person.version), 1) AS properties___group,
+    (SELECT tupleElement(argMax(tuple(JSONExtractString(nullIf(nullIf(JSONExtractRaw(person.properties, 'group', ''), 'null'))), person.version), 1) AS properties___group,
             argMax(person.team_id, person.version) AS team_id,
             person.id AS id
      FROM person
@@ -237,7 +237,7 @@
   /* user_id:0 request:_snapshot_ */
   SELECT count(DISTINCT groups.key) AS `count(DISTINCT groups.key)`
   FROM
-    (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', '')), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___industry,
+    (SELECT tupleElement(argMax(tuple(JSONExtractString(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry', ''), 'null'))), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___industry,
             argMax(groups.team_id, toTimeZone(groups._timestamp, 'UTC')) AS team_id,
             groups.group_type_index AS index,
             groups.group_key AS key
@@ -285,7 +285,7 @@
   /* user_id:0 request:_snapshot_ */
   SELECT count(DISTINCT groups.key) AS `count(DISTINCT groups.key)`
   FROM
-    (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', '')), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___industry,
+    (SELECT tupleElement(argMax(tuple(JSONExtractString(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry', ''), 'null'))), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___industry,
             argMax(groups.team_id, toTimeZone(groups._timestamp, 'UTC')) AS team_id,
             groups.group_type_index AS index,
             groups.group_key AS key
@@ -432,7 +432,7 @@
   /* user_id:0 request:_snapshot_ */
   SELECT count(DISTINCT persons.id) AS `count(DISTINCT persons.id)`
   FROM
-    (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'group'), ''), 'null'), '^"|"$', '')), person.version), 1) AS properties___group,
+    (SELECT tupleElement(argMax(tuple(JSONExtractString(nullIf(nullIf(JSONExtractRaw(person.properties, 'group', ''), 'null'))), person.version), 1) AS properties___group,
             argMax(person.team_id, person.version) AS team_id,
             person.id AS id
      FROM person
@@ -575,7 +575,7 @@
   /* user_id:0 request:_snapshot_ */
   SELECT count(DISTINCT persons.id) AS `count(DISTINCT persons.id)`
   FROM
-    (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'group'), ''), 'null'), '^"|"$', '')), person.version), 1) AS properties___group,
+    (SELECT tupleElement(argMax(tuple(JSONExtractString(nullIf(nullIf(JSONExtractRaw(person.properties, 'group', ''), 'null'))), person.version), 1) AS properties___group,
             argMax(person.team_id, person.version) AS team_id,
             person.id AS id
      FROM person
