@@ -619,6 +619,7 @@ class FakeSlackClient:
         reactions: dict[tuple[str, str], set[str]] | None = None,
     ) -> None:
         self._reactions = reactions if reactions is not None else {}
+        self.retry_handlers: list[Any] = []
         self._posted = posted
         self._updated = updated
         self._needs_join = needs_join
