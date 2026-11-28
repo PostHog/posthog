@@ -55,7 +55,13 @@ export const HomeScannerNeedsAiConsent: StoryObj = {
                 '/api/projects/:team_id/vision/scanners/': {
                     ...scanners,
                     results: [
-                        { ...scanners.results[0], enabled: false, disabled_reason: 'no_ai_consent' },
+                        {
+                            ...scanners.results[0],
+                            enabled: false,
+                            disabled_reason: 'no_ai_consent',
+                            status: 'off',
+                            status_reason: 'no_ai_consent',
+                        },
                         ...scanners.results.slice(1),
                     ],
                 },

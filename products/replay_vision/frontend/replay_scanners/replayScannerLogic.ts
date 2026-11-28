@@ -120,9 +120,7 @@ import {
     scannerToPatchedApiBody,
 } from './types'
 
-function serverStatusFields(
-    scanner: ReplayScanner
-): Pick<
+type ServerStatusFields = Pick<
     ReplayScanner,
     | 'last_swept_at'
     | 'enabled'
@@ -133,8 +131,12 @@ function serverStatusFields(
     | 'credits_used_against_limit'
     | 'free_only'
     | 'sweep_interval_minutes'
+    | 'status'
+    | 'status_reason'
     | 'sweep_throttle_factor'
-> {
+>
+
+function serverStatusFields(scanner: ServerStatusFields): ServerStatusFields {
     return {
         last_swept_at: scanner.last_swept_at,
         enabled: scanner.enabled,
@@ -145,6 +147,8 @@ function serverStatusFields(
         credits_used_against_limit: scanner.credits_used_against_limit,
         free_only: scanner.free_only,
         sweep_interval_minutes: scanner.sweep_interval_minutes,
+        status: scanner.status,
+        status_reason: scanner.status_reason,
         sweep_throttle_factor: scanner.sweep_throttle_factor,
     }
 }
@@ -1426,7 +1430,14 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 scannerStatusRefreshed: (state, { scanner }) =>
                     state ? { ...state, ...serverStatusFields(scanner) } : state,
                 toggleEnabledSuccess: (state, { saved }) =>
-                    state ? { ...state, ...freeOnlyFields(saved), ...enabledFields(saved) } : state,
+                    state
+                        ? {
+                              ...state,
+                              ...freeOnlyFields(saved),
+                              ...serverStatusFields(scannerFromApi(saved)),
+                              ...enabledFields(saved),
+                          }
+                        : state,
             },
         ],
         togglingEnabled: [
@@ -2580,7 +2591,11 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                         actions.toggleEnabledFailure()
                         return
                     }
-                    actions.setScannerValues({ ...freeOnlyFields(saved), ...enabledFields(saved) })
+                    actions.setScannerValues({
+                        ...freeOnlyFields(saved),
+                        ...serverStatusFields(scannerFromApi(saved)),
+                        ...enabledFields(saved),
+                    })
                     actions.toggleEnabledSuccess(saved)
                     refreshVisionQuota()
                     lemonToast.success(`Scanner ${next ? 'enabled' : 'disabled'}`)

@@ -32,7 +32,13 @@ export const ScannerCreatorLostAccess: StoryObj = {
     parameters: { pageUrl: urls.replayVision(summarizerScanner.id) },
     decorators: [
         overviewDecorator(
-            { ...summarizerScanner, enabled: false, disabled_reason: 'creator_lost_access' },
+            {
+                ...summarizerScanner,
+                enabled: false,
+                disabled_reason: 'creator_lost_access',
+                status: 'off',
+                status_reason: 'creator_lost_access',
+            },
             summarizerStats
         ),
     ],
@@ -217,6 +223,8 @@ export const ScannerTurnedOffByFreeCredits: StoryObj = {
                 id: summarizerScanner.id,
                 enabled: false,
                 disabled_reason: 'free_credits_used',
+                status: 'off',
+                status_reason: 'free_credits_used',
             },
             summarizerStats
         ),

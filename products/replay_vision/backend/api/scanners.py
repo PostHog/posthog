@@ -180,6 +180,13 @@ from products.replay_vision.backend.scanner_query import (
     query_references,
     unresolved_references,
 )
+from products.replay_vision.backend.scanner_status import (
+    ScannerStatus,
+    ScannerStatusInputs,
+    ScannerStatusReason,
+    ScannerStatusResult,
+    scanner_status,
+)
 from products.replay_vision.backend.scanning import (
     MAX_SESSIONS_PER_SCAN,
     run_inline_scan,
@@ -809,6 +816,27 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
             "an enabled alert, are checked as often as their read budget allows."
         ),
     )
+    status = serializers.SerializerMethodField(
+        help_text=(
+            "What the scanner is doing now, worked out from its own state. `off`: turned off, see `status_reason`. "
+            "`no_sampling`: sampling is 0%, so nothing is scanned. `limit_reached`: a credit limit stopped it. "
+            "`filter_error`: its filters fail, see `filter_error`. `paused`: on, but its sweep is paused until it "
+            "can scan again. `starting`: the first sweep has not finished. `delayed`: the sweep is behind schedule. "
+            "`throttled`: its filters read a lot of data, so it is checked less often. `running`: scanning normally. "
+            "Project-wide causes, such as session replay being off or the organization's credits being used up, "
+            "are not reflected here."
+        ),
+    )
+    status_reason = serializers.SerializerMethodField(
+        help_text=(
+            "Why the scanner has its `status`, or null when no reason applies. For `off`: `manual`, "
+            "`free_credits_used`, `no_ai_consent`, `creator_lost_access` (turning it on requires "
+            "`take_over_as_creator`), or `experiment_deleted`. For `limit_reached`: `free_credits_used` when the "
+            "organization's free credits stopped a free-only scanner, otherwise `credit_limit`. For `paused`: "
+            "`experiment_not_running` (its experiment is paused, ended, or archived), `credit_limit`, "
+            "`filter_error`, or `no_principal`."
+        ),
+    )
     dashboard_id = serializers.SerializerMethodField(
         help_text=(
             "Dashboard created for this scanner with the create_dashboard action. Null when none was created "
@@ -830,7 +858,7 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
             "Why the scanner is off, or null when it is on or was created off. `manual`: a person turned it off. "
             "`free_credits_used`: a `free_only` scanner stopped when the free credits ran out. `no_ai_consent`: the "
             "organization has not approved AI data processing. `creator_lost_access`: the creator can no longer "
-            "view recordings, which the sweep reads as them, so turning the scanner on requires "
+            "view recordings, or an experiment scanner has no creator, and the sweep reads recordings as them, so turning the scanner on requires "
             "`take_over_as_creator`. `experiment_deleted`: its experiment was deleted."
         ),
     )
@@ -881,6 +909,8 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
             "limit_reached",
             "sweep_throttle_factor",
             "sweep_interval_minutes",
+            "status",
+            "status_reason",
             "dashboard_id",
             "dashboard_suggested",
             "last_swept_at",
@@ -906,6 +936,8 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
             "limit_reached",
             "sweep_throttle_factor",
             "sweep_interval_minutes",
+            "status",
+            "status_reason",
             "dashboard_id",
             "dashboard_suggested",
             "last_swept_at",
@@ -993,11 +1025,49 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
             datetime.now(UTC),
         )
 
+    def _scanner_status(self, scanner: ReplayScanner) -> ScannerStatusResult:
+        # Both status fields read it, so it is worked out once per scanner.
+        statuses = self.context.setdefault("_scanner_statuses", {})
+        if scanner.id not in statuses:
+            budget = self._scanner_budget(scanner)
+            statuses[scanner.id] = scanner_status(
+                ScannerStatusInputs(
+                    enabled=scanner.enabled,
+                    disabled_reason=scanner.disabled_reason,
+                    sampling_rate=scanner.sampling_rate,
+                    limit_reached=budget.blocked,
+                    # The free credits stop a free-only scanner when it has no limit of its own, or when they
+                    # leave less room than it.
+                    stopped_by_free_credits=scanner.free_only
+                    and (scanner.credit_limit is None or budget.free_credits_bound),
+                    has_filter_error=bool(scanner.filter_error),
+                    sweep_interval=self._sweep_interval(scanner),
+                    sweep_pause_reason=scanner.sweep_pause_reason,
+                    created_at=scanner.created_at,
+                    last_swept_at=scanner.last_swept_at,
+                    throttle_factor=self.get_sweep_throttle_factor(scanner),
+                ),
+                datetime.now(UTC),
+            )
+        return statuses[scanner.id]
+
+    @extend_schema_field(serializers.ChoiceField(choices=ScannerStatus.choices))
+    def get_status(self, scanner: ReplayScanner) -> str:
+        return self._scanner_status(scanner).status
+
+    @extend_schema_field(serializers.ChoiceField(choices=ScannerStatusReason.choices, allow_null=True))
+    def get_status_reason(self, scanner: ReplayScanner) -> str | None:
+        return self._scanner_status(scanner).reason
+
     @extend_schema_field(serializers.IntegerField(allow_null=True))
     def get_sweep_interval_minutes(self, scanner: ReplayScanner) -> int | None:
+        interval = self._sweep_interval(scanner)
+        return None if interval is None else int(interval.total_seconds() // 60)
+
+    def _sweep_interval(self, scanner: ReplayScanner) -> timedelta | None:
         if not scanner.enabled:
             return None
-        interval = sweep_interval(
+        return sweep_interval(
             SweepCadenceInputs(
                 created_at=scanner.created_at,
                 updated_at=scanner.updated_at,
@@ -1011,7 +1081,6 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
             ),
             datetime.now(UTC),
         )
-        return None if interval is None else int(interval.total_seconds() // 60)
 
     def _page_alerting_scanner_ids(self, scanner: ReplayScanner) -> set[UUID]:
         # Shared across the list's children, so a page costs one query rather than one per scanner.

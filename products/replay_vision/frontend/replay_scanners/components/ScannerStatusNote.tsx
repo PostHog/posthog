@@ -5,7 +5,6 @@ import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { urls } from 'scenes/urls'
 
 import { getReplayVisionEditDisabledReason } from '../../utils/accessControl'
-import { stoppedByFreeCredits } from '../scannerCopy'
 import { scannerEditUrl } from '../scannerEditorSceneLogic'
 import { isOffForAReason, type ScannerStatus } from '../scannerStatus'
 import { scannerStatusDetail } from '../scannerStatusDetail'
@@ -107,7 +106,7 @@ export function ScannerStatusNote({
                     'vision-scanner-status-edit-sampling'
                 )
             case 'limit_reached':
-                return stoppedByFreeCredits(status)
+                return status.freeCredits
                     ? {
                           children: 'Turn off free credits only',
                           onClick: confirmTurnOffFreeOnly,

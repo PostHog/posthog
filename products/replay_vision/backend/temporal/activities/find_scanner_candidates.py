@@ -224,15 +224,6 @@ def find_scanner_candidates(inputs: FindScannerCandidatesInputs) -> FindScannerC
         # sweeping with the horizon capped at the end, so the readout gets the whole run.
         sweep_until = end
 
-    if experiment_id_of(scanner) is not None and scanner.created_by is None:
-        # The exposure filter runs as the creator and refuses a userless caller, as each scan's
-        # variant lookup does. Skip before any read instead of building a query that can only be
-        # refused. The watermark holds, like any other skipped tick. Judged on the scope, because a
-        # scanner narrowed only by the `scope` column now carries an exposure filter too.
-        record_sweep_outcome("no_principal")
-        pause_sweep(scanner, SweepPauseReason.NO_PRINCIPAL, timezone.now() + SWEEP_PAUSE_RECHECK)
-        return FindScannerCandidatesOutput(candidates=[], saturated=False)
-
     if filter_error_pending(scanner):
         # The filter failed recently and fails the same way until someone edits it, so skip the
         # query. The watermark holds, like any other skipped tick.

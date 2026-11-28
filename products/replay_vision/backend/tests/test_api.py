@@ -5070,6 +5070,10 @@ class TestScannerSpend(_VisionAPITestCase):
             {name: row["limit_from_free_credits"] for name, row in by_name.items()},
             {"capped": False, "uncapped": False, "free": True},
         )
+        self.assertEqual(
+            {name: (row["status"], row["status_reason"]) for name, row in by_name.items()},
+            {"capped": ("limit_reached", "credit_limit"), "uncapped": ("starting", None), "free": ("starting", None)},
+        )
 
     def test_limit_below_one_observation_reports_reached_before_any_spend(self) -> None:
         # `limit_reached` answers "can this scanner run again", not "has it spent its limit". A cap

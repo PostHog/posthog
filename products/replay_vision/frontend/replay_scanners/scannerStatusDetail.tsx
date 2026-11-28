@@ -2,8 +2,9 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { percentage } from 'lib/utils/numbers'
 import { pluralize } from 'lib/utils/strings'
 
+import type { ScannerStatusReasonEnumApi } from '../generated/api.schemas'
 import { RECORDINGS_BLOCK_CAUSE } from '../logics/replayRecordingsLogic'
-import { disabledReasonDetail, FREE_CREDITS_STOPPING, limitReachedTooltip, stoppedByFreeCredits } from './scannerCopy'
+import { disabledReasonDetail, FREE_CREDITS_STOPPED, LIMIT_REACHED_TOOLTIP } from './scannerCopy'
 import { type ScannerStatus, SWEEP_INTERVAL_MINUTES } from './scannerStatus'
 
 function formatInterval(minutes: number): string {
@@ -12,6 +13,17 @@ function formatInterval(minutes: number): string {
         return pluralize(minutes, 'minute')
     }
     return minutes === 60 ? 'hour' : pluralize(minutes / 60, 'hour')
+}
+
+function pausedDetail(reason: ScannerStatusReasonEnumApi | null): string {
+    switch (reason) {
+        case 'experiment_not_running':
+            return "This scanner is paused because its experiment isn't running. It starts again when the experiment does."
+        case 'credit_limit':
+            return 'This scanner is paused because it reached a credit limit. It checks again within a few hours, or right away when you edit it.'
+        default:
+            return 'This scanner is paused. It checks again within a few hours, or right away when you edit it.'
+    }
 }
 
 export function scannerStatusDetail(status: ScannerStatus, resetsOn: string | null): React.ReactNode {
@@ -25,20 +37,20 @@ export function scannerStatusDetail(status: ScannerStatus, resetsOn: string | nu
         case 'no_recordings':
             return `${RECORDINGS_BLOCK_CAUSE['no-recordings']}, so there is nothing to scan.`
         case 'limit_reached':
-            return stoppedByFreeCredits(status) ? FREE_CREDITS_STOPPING : limitReachedTooltip(status)
+            return status.freeCredits ? FREE_CREDITS_STOPPED : LIMIT_REACHED_TOOLTIP
         case 'quota_exhausted':
             return `Your organization's Replay Vision credits are used up${resetsOn ? ` until ${resetsOn}` : ''}.`
         case 'filter_error':
-            return `The filters can't run, so no new recordings are scanned. ${status.message}`
+            return `This scanner's filters have an error, so it isn't scanning new recordings. ${status.message}`
         case 'paused':
-            return "Not checking for new recordings because the scanner can't scan right now, for example because its experiment isn't running. Checks resume within a few hours, or right away when you edit the scanner."
+            return pausedDetail(status.reason)
         case 'starting':
             return 'The first scan is running. Results usually appear within 15 minutes.'
         case 'delayed':
             return (
                 <>
-                    Last checked for new recordings <TZLabel time={status.lastCheckedAt} />. Checks resume on their own.
-                    If this lasts, contact support.
+                    This scanner is behind. It last checked for new recordings <TZLabel time={status.lastCheckedAt} />{' '}
+                    and catches up on its own. If it stays delayed, contact support.
                 </>
             )
         case 'no_matches':

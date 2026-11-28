@@ -62,6 +62,8 @@ export const scanner = (overrides: Partial<ReplayScannerApi> = {}): ReplayScanne
         user_access_level: 'editor',
         sweep_throttle_factor: 1,
         sweep_interval_minutes: 5,
+        status: 'running',
+        status_reason: null,
         dashboard_id: null,
         dashboard_suggested: false,
         ...overrides,
@@ -95,6 +97,7 @@ export const scanners = {
             scanner_type: 'classifier',
             scanner_config: { prompt: 'Tag this session.', tags: ['rage-click', 'dead-end'], multi_label: true },
             enabled: false,
+            status: 'off',
             sampling_rate: 0.25,
             created_by: bob,
         }),
@@ -317,6 +320,8 @@ export const scorerOverviewScanner: ReplayScannerApi = {
     credit_limit: 400,
     credits_used_against_limit: 399,
     limit_reached: true,
+    status: 'limit_reached',
+    status_reason: 'credit_limit',
 }
 
 export const scorerOverviewStats: ObservationStatsApi = {
@@ -810,6 +815,8 @@ export const freeOnlyLimitReachedScanner: ReplayScannerApi = {
     ...freeOnlyScanner,
     credits_used_against_limit: 2600,
     limit_reached: true,
+    status: 'limit_reached',
+    status_reason: 'free_credits_used',
 }
 
 export const scannerHighlightFeed = (scannerId: string): HighlightFeedResponseApi => ({
