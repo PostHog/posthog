@@ -15,13 +15,15 @@ def _base_config(series_index: int = 0) -> dict[str, Any]:
     return {"type": "TrendsAlertConfig", "series_index": series_index}
 
 
-def _base_query(series_count: int = 1, display: str | None = None) -> dict[str, Any]:
+def _base_query(series_count: int = 1, display: str | None = None, excludes_incomplete: bool = False) -> dict[str, Any]:
     query: dict[str, Any] = {
         "kind": "TrendsQuery",
         "series": [{"kind": "EventsNode", "event": f"$event_{i}"} for i in range(series_count)],
     }
     if display:
         query["trendsFilter"] = {"display": display}
+    if excludes_incomplete:
+        query["dateRange"] = {"excludeIncompletePeriods": True}
     return query
 
 
@@ -37,11 +39,16 @@ def _funnels_config(metric: str = "conversion_from_start") -> dict[str, Any]:
     return {"type": "FunnelsAlertConfig", "metric": metric, "funnel_step": None}
 
 
-def _funnels_query() -> dict[str, Any]:
-    return {
+def _funnels_query(viz: str | None = None, excludes_incomplete: bool = False) -> dict[str, Any]:
+    query: dict[str, Any] = {
         "kind": "FunnelsQuery",
         "series": [{"kind": "EventsNode", "event": "a"}, {"kind": "EventsNode", "event": "b"}],
     }
+    if viz:
+        query["funnelsFilter"] = {"funnelVizType": viz}
+    if excludes_incomplete:
+        query["dateRange"] = {"excludeIncompletePeriods": True}
+    return query
 
 
 def _metrics_query(metric_name: str) -> dict[str, Any]:
@@ -513,6 +520,63 @@ class TestValidateAlertConfig:
             "daily",
             detector_config={"type": "zscore", "threshold": 0.95, "window": 30},
         )
+
+    @parameterized.expand(
+        [
+            ("trends_write", _base_query(excludes_incomplete=True), _base_config(), None, True, True),
+            (
+                "trends_funnel_write",
+                _funnels_query(viz="trends", excludes_incomplete=True),
+                _funnels_config(),
+                None,
+                True,
+                True,
+            ),
+            (
+                "steps_funnel_has_no_period_to_clip",
+                _funnels_query(viz="steps", excludes_incomplete=True),
+                _funnels_config(),
+                None,
+                True,
+                False,
+            ),
+            (
+                "scheduled_check_leaves_the_alert_on",
+                _base_query(excludes_incomplete=True),
+                _base_config(),
+                None,
+                False,
+                False,
+            ),
+            (
+                "detector_ignores_the_flag",
+                _base_query(excludes_incomplete=True),
+                _base_config(),
+                {"type": "zscore", "threshold": 0.95, "window": 30},
+                True,
+                False,
+            ),
+        ]
+    )
+    def test_ongoing_interval_on_insight_excluding_incomplete_periods(
+        self, _name: str, query: dict, config: dict, detector_config: dict | None, on_write: bool, refused: bool
+    ) -> None:
+        def validate() -> None:
+            validate_alert_config(
+                query,
+                _base_condition(),
+                {**config, "check_ongoing_interval": True},
+                _base_threshold(),
+                "hourly",
+                detector_config=detector_config,
+                **({"reject_ongoing_on_excluded_periods": True} if on_write else {}),
+            )
+
+        if refused:
+            with pytest.raises(ValueError, match="Check ongoing period can't be used"):
+                validate()
+        else:
+            validate()
 
     def test_detector_alert_rejects_non_time_series_trend(self) -> None:
         with pytest.raises(ValueError, match="Anomaly detection isn't supported for non time series trends"):

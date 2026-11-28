@@ -202,23 +202,24 @@ Start with `zscore` or `mad` and move to these only when the user asks.
 
 ## Common refusals
 
-| Refusal                                                                          | Cause and fix                                                                                                                |
-| -------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
-| Error on the `alert` field about the plan's alert limit                          | The project is at its plan's alert limit. Do not retry. Show the user the existing alerts and offer to change or delete one. |
-| Error on `calculation_interval`                                                  | The plan does not include that cadence. Offer `hourly`.                                                                      |
-| `detector_config.operator`: expected `"and"` or `"or"`                           | Send the ensemble operator in lowercase.                                                                                     |
-| "Invalid detector configuration."                                                | `type` is missing or wrong, or the config has a field that type does not accept. Check the parameter table above.            |
-| "... must be between ..."                                                        | A detector parameter is out of range. Use the range the message names.                                                       |
-| Error on `evaluation_delay_intervals`                                            | The delay works only on time-series trends insights, and needs `check_ongoing_interval: false`. Set it to 0 or remove it.    |
-| "Alert has invalid condition"                                                    | `condition` is missing. Send `{"type": "absolute_value"}` or a relative type.                                                |
-| "Unsupported alert config type" or "requires a ... insight"                      | `config` is missing, or its `type` does not match the insight kind.                                                          |
-| "At least one of lower or upper"                                                 | A threshold alert needs a bound. Add one, or add a `detector_config`.                                                        |
-| "Lower threshold must be less than upper threshold"                              | Swap the bounds.                                                                                                             |
-| "Absolute value alerts require an absolute threshold"                            | Use `"type": "absolute"` in the threshold with `absolute_value`.                                                             |
-| "series_index ... is out of range"                                               | The index counts from 0, and counts formula results when the insight has formulas.                                           |
-| "check_ongoing_interval is only supported ... when upper threshold is specified" | Turn off `check_ongoing_interval`, or use an upper bound.                                                                    |
-| "Anomaly detection isn't supported for non time series trends"                   | The insight shows a single number or a pie. Change its display to a time series, or use a threshold alert.                   |
-| "The AI detector is not enabled for your account."                               | The rollout is off for this organization. Offer a statistical detector.                                                      |
-| "AI data processing is turned off"                                               | An organization admin can turn it on in organization settings. Until then, offer a statistical detector.                     |
-| "already has N of M alerts using the AI detector"                                | The project is at its AI detector cap. The user can disable one, or use a statistical detector.                              |
-| "The AI detector does not support breakdown insights yet"                        | Use an insight without a breakdown, or a statistical detector.                                                               |
+| Refusal                                                                             | Cause and fix                                                                                                                |
+| ----------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| Error on the `alert` field about the plan's alert limit                             | The project is at its plan's alert limit. Do not retry. Show the user the existing alerts and offer to change or delete one. |
+| Error on `calculation_interval`                                                     | The plan does not include that cadence. Offer `hourly`.                                                                      |
+| `detector_config.operator`: expected `"and"` or `"or"`                              | Send the ensemble operator in lowercase.                                                                                     |
+| "Invalid detector configuration."                                                   | `type` is missing or wrong, or the config has a field that type does not accept. Check the parameter table above.            |
+| "... must be between ..."                                                           | A detector parameter is out of range. Use the range the message names.                                                       |
+| Error on `evaluation_delay_intervals`                                               | The delay works only on time-series trends insights, and needs `check_ongoing_interval: false`. Set it to 0 or remove it.    |
+| "Alert has invalid condition"                                                       | `condition` is missing. Send `{"type": "absolute_value"}` or a relative type.                                                |
+| "Unsupported alert config type" or "requires a ... insight"                         | `config` is missing, or its `type` does not match the insight kind.                                                          |
+| "At least one of lower or upper"                                                    | A threshold alert needs a bound. Add one, or add a `detector_config`.                                                        |
+| "Lower threshold must be less than upper threshold"                                 | Swap the bounds.                                                                                                             |
+| "Absolute value alerts require an absolute threshold"                               | Use `"type": "absolute"` in the threshold with `absolute_value`.                                                             |
+| "series_index ... is out of range"                                                  | The index counts from 0, and counts formula results when the insight has formulas.                                           |
+| "check_ongoing_interval is only supported ... when upper threshold is specified"    | Turn off `check_ongoing_interval`, or use an upper bound.                                                                    |
+| "Check ongoing period can't be used on an insight that excludes incomplete periods" | The insight's `dateRange.excludeIncompletePeriods` is on. Turn off `check_ongoing_interval`.                                 |
+| "Anomaly detection isn't supported for non time series trends"                      | The insight shows a single number or a pie. Change its display to a time series, or use a threshold alert.                   |
+| "The AI detector is not enabled for your account."                                  | The rollout is off for this organization. Offer a statistical detector.                                                      |
+| "AI data processing is turned off"                                                  | An organization admin can turn it on in organization settings. Until then, offer a statistical detector.                     |
+| "already has N of M alerts using the AI detector"                                   | The project is at its AI detector cap. The user can disable one, or use a statistical detector.                              |
+| "The AI detector does not support breakdown insights yet"                           | Use an insight without a breakdown, or a statistical detector.                                                               |

@@ -7,6 +7,7 @@ from posthog.schema import AlertCalculationInterval, NodeKind
 from posthog.models import Organization, Team, User
 
 from products.alerts.backend.evaluation.validation import (
+    ONGOING_INTERVAL_EXCLUDED_MESSAGE,
     THRESHOLD_BOUNDS_REQUIRED_MESSAGE,
     should_default_check_ongoing_interval,
     validate_alert_config,
@@ -88,6 +89,25 @@ def validate_alert_write(
             config = {**config, "check_ongoing_interval": True}
             attrs["config"] = config
 
+    # A stored flag the insight no longer allows would refuse every write that leaves the config
+    # alone, disabling the alert included. Clear it instead; a write that sends the flag is still refused.
+    if "config" not in attrs and isinstance(config, dict) and config.get("check_ongoing_interval"):
+        try:
+            validate_alert_config(
+                query,
+                condition,
+                config,
+                threshold_config,
+                calculation_interval,
+                detector_config=detector_config,
+                require_threshold_bounds=False,
+                reject_ongoing_on_excluded_periods=True,
+            )
+        except ValueError as e:
+            if str(e) == ONGOING_INTERVAL_EXCLUDED_MESSAGE:
+                config = {**config, "check_ongoing_interval": False}
+                attrs["config"] = config
+
     try:
         validate_evaluation_delay(query, config, evaluation_delay)
         validate_alert_insight_query(
@@ -105,6 +125,7 @@ def validate_alert_write(
             calculation_interval,
             detector_config=detector_config,
             require_threshold_bounds=require_threshold_bounds,
+            reject_ongoing_on_excluded_periods=True,
         )
     except ValueError as e:
         if str(e) == THRESHOLD_BOUNDS_REQUIRED_MESSAGE:

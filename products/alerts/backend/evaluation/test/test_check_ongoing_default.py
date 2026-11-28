@@ -8,20 +8,25 @@ TRENDS = "TrendsAlertConfig"
 FUNNELS = "FunnelsAlertConfig"
 
 
-def _trends_query(interval="day", non_time_series=False):
+def _trends_query(interval="day", non_time_series=False, excludes_incomplete=False):
     query = {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}], "interval": interval}
     if non_time_series:
         query["trendsFilter"] = {"display": "BoldNumber"}
+    if excludes_incomplete:
+        query["dateRange"] = {"excludeIncompletePeriods": True}
     return query
 
 
-def _funnels_query(interval="day", viz="trends"):
-    return {
+def _funnels_query(interval="day", viz="trends", excludes_incomplete=False):
+    query = {
         "kind": "FunnelsQuery",
         "series": [{"kind": "EventsNode", "event": "a"}, {"kind": "EventsNode", "event": "b"}],
         "interval": interval,
         "funnelsFilter": {"funnelVizType": viz},
     }
+    if excludes_incomplete:
+        query["dateRange"] = {"excludeIncompletePeriods": True}
+    return query
 
 
 def _threshold(upper=100, lower=None):
@@ -77,6 +82,24 @@ class TestShouldDefaultCheckOngoingInterval:
                 False,
             ),
             ("trends funnel day + daily", _funnels_query(), FUNNELS, ABSOLUTE, _threshold(), "daily", False),
+            (
+                "trends excluding incomplete periods",
+                _trends_query(excludes_incomplete=True),
+                TRENDS,
+                ABSOLUTE,
+                _threshold(),
+                "hourly",
+                False,
+            ),
+            (
+                "trends funnel excluding incomplete periods",
+                _funnels_query(excludes_incomplete=True),
+                FUNNELS,
+                ABSOLUTE,
+                _threshold(),
+                "every_15_minutes",
+                False,
+            ),
         ]
     )
     def test_should_default(self, _name, query, config_type, condition, threshold, cadence, expected):
