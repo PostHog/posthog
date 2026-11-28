@@ -6,6 +6,7 @@ import { AnyPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types
 
 import type { EmailDraftRequestApi } from '../generated/api.schemas'
 import { DRAFT_SOURCE_PARAM } from '../MessageAudience/aiEmailDraft'
+import { ATTEMPT_PREFILL_PARAM } from '../MessageAudience/messageAudienceAttempts'
 import { EMAIL_PREFILL_PARAM, MessageDraft } from '../MessageAudience/messageDrafts'
 
 // pinned: URL search params, other products link to /broadcasts/new with these
@@ -23,6 +24,7 @@ export interface BroadcastPrefill {
     sourceRecord?: string
     email?: MessageDraft
     draftSource?: EmailDraftRequestApi
+    attemptId?: string
 }
 
 export function urlForNewBroadcastWithAudience({
@@ -32,6 +34,7 @@ export function urlForNewBroadcastWithAudience({
     sourceRecord,
     email,
     draftSource,
+    attemptId,
 }: BroadcastPrefill): string {
     return combineUrl(urls.broadcastNew(), {
         [AUDIENCE_PREFILL_PARAM]: JSON.stringify(properties),
@@ -40,6 +43,7 @@ export function urlForNewBroadcastWithAudience({
         ...(sourceRecord ? { [SOURCE_RECORD_PREFILL_PARAM]: sourceRecord } : {}),
         ...(email ? { [EMAIL_PREFILL_PARAM]: JSON.stringify(email) } : {}),
         ...(draftSource ? { [DRAFT_SOURCE_PARAM]: JSON.stringify(draftSource) } : {}),
+        ...(attemptId ? { [ATTEMPT_PREFILL_PARAM]: attemptId } : {}),
     }).url
 }
 

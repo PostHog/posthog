@@ -557,6 +557,7 @@ class TransactionalEmailImpact:
     after_click: TransactionalEmailConversions | None
     without_click: TransactionalEmailConversions | None
     sessions: int | None
+    sessions_capped_at: int | None
     link_tagging_enabled: bool
 
 

@@ -2,7 +2,7 @@ import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
 import '@testing-library/jest-dom'
 
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { BindLogic, Provider } from 'kea'
 import posthog from 'posthog-js'
 
@@ -37,11 +37,13 @@ const IMPACT: TransactionalEmailImpactApi = {
     untracked: 0,
     clicks_untracked: 0,
     window_days: 7,
-    sessions: null,
+    sessions: 1,
+    sessions_capped_at: null,
     link_tagging_enabled: true,
     after_click: { sends: 1, converted: 0 },
     without_click: { sends: 7, converted: 1 },
 }
+const IMPACT_UNTAGGED: TransactionalEmailImpactApi = { ...IMPACT, sessions: null, link_tagging_enabled: false }
 
 const teamWithLinkTagging = (enabled: boolean | undefined): TeamType => ({
     ...MOCK_DEFAULT_TEAM,
@@ -73,6 +75,12 @@ describe('ImpactFunnelCard', () => {
 
     afterEach(cleanup)
 
+    const expectSessionCount = async (count: string): Promise<void> => {
+        const step = (await screen.findByText('Started a session')).closest('li') as HTMLElement
+        expect(within(step).getByText(count)).toBeInTheDocument()
+        expect(within(step).getByText('From sends with link tracking on')).toBeInTheDocument()
+    }
+
     const renderCard = (sensitive = false): void => {
         render(
             <Provider>
@@ -86,8 +94,8 @@ describe('ImpactFunnelCard', () => {
 
     it.each([
         ['tagging is off', false, false, 'Link tracking is off', true],
-        ['tagging is on', true, false, 'Not measured yet', false],
-        ['the project never set tagging', undefined, false, 'Not measured yet', false],
+        ['tagging is on', true, false, 'From sends with link tracking on', false],
+        ['the project never set tagging', undefined, false, 'From sends with link tracking on', false],
         ['the email protects sensitive data', false, true, 'Not measured', false],
         ['the email protects sensitive data while tagging is on', true, true, 'Not measured', false],
     ])(
@@ -95,7 +103,7 @@ describe('ImpactFunnelCard', () => {
         async (_, enabled, sensitive, shown, prompted) => {
             const capture = jest.spyOn(posthog, 'capture')
             initKeaTests(true, teamWithLinkTagging(enabled))
-            answer = [200, IMPACT]
+            answer = [200, enabled === false ? IMPACT_UNTAGGED : IMPACT]
             renderCard(sensitive)
 
             expect(await screen.findByText(shown)).toBeInTheDocument()
@@ -118,7 +126,7 @@ describe('ImpactFunnelCard', () => {
             },
         })
         initKeaTests(true, teamWithLinkTagging(false))
-        answer = [200, { ...IMPACT, after_click: { sends: 2, converted: 1 } }]
+        answer = [200, { ...IMPACT_UNTAGGED, after_click: { sends: 2, converted: 1 } }]
         render(
             <Provider>
                 <EmailImpactTab workflowId="workflow-1" alwaysSensitive={false} />
@@ -163,7 +171,7 @@ describe('ImpactFunnelCard', () => {
             },
         })
         initKeaTests(true, team)
-        answer = [200, IMPACT]
+        answer = [200, IMPACT_UNTAGGED]
         renderCard()
 
         fireEvent.click(await screen.findByText('Turn on for project'))
@@ -177,9 +185,12 @@ describe('ImpactFunnelCard', () => {
 
         answerTimezoneSave()
         expect(await screen.findByText(/updated successfully/)).toBeInTheDocument()
+        answer = [200, IMPACT]
         answerLinkTrackingSave()
 
-        expect(await screen.findByText('Converted')).toBeInTheDocument()
+        expect(await screen.findByText('From sends with link tracking on')).toBeInTheDocument()
+        await expectSessionCount('1')
+        expect(screen.getByText('Converted')).toBeInTheDocument()
         expect(screen.queryByText('Turn on for project')).not.toBeInTheDocument()
         expect(linkTrackingSaves).toEqual([{ workflows_config: { email_workflow_run_link_tag_enabled: true } }])
         expect(teamLogic.values.currentTeam?.timezone).toBe('Europe/Berlin')
@@ -194,7 +205,12 @@ describe('ImpactFunnelCard', () => {
     })
 
     it.each([
-        ['turns it on for the project and shows both steps again', [200, null], 'Not measured yet', true],
+        [
+            'turns it on for the project and shows both steps again',
+            [200, null],
+            'From sends with link tracking on',
+            true,
+        ],
         [
             'says why when saving fails, and offers it again',
             [500, { detail: 'Saving failed' }],
@@ -233,7 +249,7 @@ describe('ImpactFunnelCard', () => {
             },
         })
         initKeaTests(true, team)
-        answer = [200, IMPACT]
+        answer = [200, IMPACT_UNTAGGED]
         renderCard()
 
         fireEvent.click(await screen.findByText('Turn on for project'))
@@ -242,9 +258,15 @@ describe('ImpactFunnelCard', () => {
             expect(patches).toEqual([{ workflows_config: { email_workflow_run_link_tag_enabled: true } }])
         )
         expect(screen.getByText('Turn on for project').closest('button')).toHaveAttribute('aria-disabled', 'true')
+        if (turnedOn) {
+            answer = [200, IMPACT]
+        }
         answerSave()
 
         expect((await screen.findAllByText(outcome))[0]).toBeInTheDocument()
+        if (turnedOn) {
+            await expectSessionCount('1')
+        }
         expect(!!screen.queryByText('Converted')).toBe(turnedOn)
         expect(
             screen.queryByText('Turn on for project')?.closest('button')?.getAttribute('aria-disabled') ?? null
@@ -276,7 +298,7 @@ describe('ImpactFunnelCard', () => {
             },
         })
         initKeaTests(true, team)
-        answer = [200, IMPACT]
+        answer = [200, IMPACT_UNTAGGED]
         renderCard()
 
         const button = (await screen.findByText('Turn on for project')).closest('button')
@@ -289,7 +311,7 @@ describe('ImpactFunnelCard', () => {
         expect(patches).toEqual([])
     })
 
-    it('finishes turning on link tracking after the Impact tab closes mid-save', async () => {
+    it('shows the count in an Impact tab reopened while link tracking is still saving', async () => {
         const team = teamWithLinkTagging(false)
         const patches: Partial<TeamType>[] = []
         let answerSave: () => void = () => {}
@@ -307,7 +329,7 @@ describe('ImpactFunnelCard', () => {
             },
         })
         initKeaTests(true, team)
-        answer = [200, IMPACT]
+        answer = [200, IMPACT_UNTAGGED]
         const tab = (shown: boolean): JSX.Element => (
             <Provider>{shown ? <EmailImpactTab workflowId="workflow-1" alwaysSensitive={false} /> : <></>}</Provider>
         )
@@ -316,13 +338,13 @@ describe('ImpactFunnelCard', () => {
         fireEvent.click(await screen.findByText('Turn on for project'))
         await waitFor(() => expect(patches).toHaveLength(1))
         rerender(tab(false))
-        answerSave()
-        await waitFor(() =>
-            expect(teamLogic.values.currentTeam?.workflows_config?.email_workflow_run_link_tag_enabled).toBe(true)
-        )
         rerender(tab(true))
+        expect(await screen.findByText('Link tracking is off')).toBeInTheDocument()
+        answer = [200, IMPACT]
+        answerSave()
 
-        expect(await screen.findByText('Not measured yet')).toBeInTheDocument()
+        expect(await screen.findByText('From sends with link tracking on')).toBeInTheDocument()
+        await expectSessionCount('1')
         expect(screen.queryByText('Turn on for project')).not.toBeInTheDocument()
         expect(patches).toHaveLength(1)
     })
@@ -359,7 +381,7 @@ describe('ImpactFunnelCard', () => {
 
     it("shows a template's new sensitivity on a mounted Impact tab", async () => {
         initKeaTests(true, teamWithLinkTagging(false))
-        answer = [200, IMPACT]
+        answer = [200, IMPACT_UNTAGGED]
         const tab = (alwaysSensitive: boolean): JSX.Element => (
             <Provider>
                 <EmailImpactTab workflowId="workflow-1" alwaysSensitive={alwaysSensitive} />

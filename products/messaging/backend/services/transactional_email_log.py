@@ -685,9 +685,13 @@ def transactional_email_impact(
         query_type="transactional_email_impact_funnel",
     )
     link_tagging_enabled = is_email_workflow_run_link_tag_enabled(team_id=team.id)
-    sessions: int | None = None
+    sessions = _SessionCount(sessions=None, capped_at=None)
     if link_tagging_enabled and can_query_events:
-        sessions = _sessions_with_a_pageview_from_the_email(team, user, workflow_id, period) if clicked else 0
+        sessions = (
+            _sessions_with_a_pageview_from_the_email(team, user, workflow_id, period)
+            if clicked
+            else _SessionCount(sessions=0, capped_at=None)
+        )
     after_click: TransactionalEmailConversions | None = None
     without_click: TransactionalEmailConversions | None = None
     if event:
@@ -706,36 +710,43 @@ def transactional_email_impact(
         window_days=IMPACT_WINDOW_DAYS,
         after_click=after_click,
         without_click=without_click,
-        sessions=sessions,
+        sessions=sessions.sessions,
+        sessions_capped_at=sessions.capped_at,
         link_tagging_enabled=link_tagging_enabled,
     )
 
 
+@frozen
+class _SessionCount:
+    sessions: int | None
+    capped_at: int | None
+
+
 def _sessions_with_a_pageview_from_the_email(
     team: Team, user: User | None, workflow_id: str, period: _Period
-) -> int | None:
+) -> _SessionCount:
     # The session count is optional, so a failed count leaves sessions empty and keeps the funnel and the conversions.
     try:
         return _count_sessions(team, user, workflow_id, period)
     except Exception as error:
         capture_exception(error, {"workflow_id": workflow_id, "team_id": team.id})
-        return None
+        return _SessionCount(sessions=None, capped_at=None)
 
 
-def _count_sessions(team: Team, user: User | None, workflow_id: str, period: _Period) -> int | None:
+def _count_sessions(team: Team, user: User | None, workflow_id: str, period: _Period) -> _SessionCount:
+    clicked = _clicked_message_ids(team, workflow_id, period, limit=MAX_RESULTS_RECIPIENTS + 1)
+    capped_at = MAX_RESULTS_RECIPIENTS if len(clicked) > MAX_RESULTS_RECIPIENTS else None
     sessions: set[str] = set()
-    for batch in _batches_by_query_size(
-        team.id, _clicked_message_ids(team, workflow_id, period), _escaped_literal_bytes
-    ):
+    for batch in _batches_by_query_size(team.id, clicked[:MAX_RESULTS_RECIPIENTS], _escaped_literal_bytes):
         batch_sessions = _sessions_in_batch(team, user, batch, period)
         # A batch that fills the row limit can hold more sessions than it returned, so the count is unknown.
         if len(batch_sessions) >= MAX_SELECT_RETURNED_ROWS:
-            return None
+            return _SessionCount(sessions=None, capped_at=None)
         sessions |= batch_sessions
-    return len(sessions)
+    return _SessionCount(sessions=len(sessions), capped_at=capped_at)
 
 
-def _clicked_message_ids(team: Team, workflow_id: str, period: _Period) -> list[str]:
+def _clicked_message_ids(team: Team, workflow_id: str, period: _Period, *, limit: int) -> list[str]:
     rows = _execute(
         team.id,
         f"""
@@ -750,7 +761,7 @@ def _clicked_message_ids(team: Team, workflow_id: str, period: _Period) -> list[
         ORDER BY queued_at DESC, message_id DESC
         LIMIT %(limit)s
         """,
-        {"start": period.start, "end": period.end, "workflow_id": workflow_id, "limit": MAX_RESULTS_RECIPIENTS},
+        {"start": period.start, "end": period.end, "workflow_id": workflow_id, "limit": limit},
         _GROUP_AS_READ,
         query_type="transactional_email_impact_clicked_sends",
     )
@@ -798,7 +809,7 @@ def transactional_email_impact_sessions(
     if not is_email_workflow_run_link_tag_enabled(team_id=team.id):
         return TransactionalEmailImpactSessions(sessions=(), has_more=False)
     period = _window(date_from, date_to)
-    clicked = _clicked_message_ids(team, workflow_id, period)
+    clicked = _clicked_message_ids(team, workflow_id, period, limit=MAX_RESULTS_RECIPIENTS)
     batches = list(_batches_by_query_size(team.id, clicked, _escaped_literal_bytes))
     if not batches:
         return TransactionalEmailImpactSessions(sessions=(), has_more=False)

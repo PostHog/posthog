@@ -38,6 +38,7 @@ export function ImpactFunnel({
                         </span>
                         <StepValue step={step} />
                         <StepShare step={step} />
+                        {step.note && <span className="text-xs text-secondary">{step.note}</span>}
                     </li>
                 )
             })}
