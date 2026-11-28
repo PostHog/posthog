@@ -11,6 +11,8 @@ from products.warehouse_sources.sources.salesflare.source import SalesflareSourc
 from products.warehouse_sources.sources.sdk import RESTClientRetryableError
 from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always
 
+SINGLE_RESOURCE_ENDPOINTS = tuple(endpoint for endpoint in ENDPOINTS if endpoint != "custom_fields")
+
 
 def _response(body: Any, *, status_code: int = 200) -> ScriptedResponse:
     return ScriptedResponse(status=status_code, json=body)
@@ -40,13 +42,13 @@ class TestPagination:
 
         assert result.params("offset") == ["300"]
 
-    @parameterized.expand([(e,) for e in ENDPOINTS])
+    @parameterized.expand([(e,) for e in SINGLE_RESOURCE_ENDPOINTS])
     def test_requests_the_endpoint_path(self, endpoint: str) -> None:
         result = _driver().run(endpoint, [_response([])])
 
         assert result.urls[0].split("?")[0] == f"{salesflare.SALESFLARE_BASE_URL}{SALESFLARE_ENDPOINTS[endpoint].path}"
 
-    @parameterized.expand([(e, SALESFLARE_ENDPOINTS[e].paginated) for e in ENDPOINTS])
+    @parameterized.expand([(e, SALESFLARE_ENDPOINTS[e].paginated) for e in SINGLE_RESOURCE_ENDPOINTS])
     def test_only_paginated_endpoints_send_page_params(self, endpoint: str, paginated: bool) -> None:
         result = _driver().run(endpoint, [_response(_full_page(0)), _response([])])
 
@@ -57,6 +59,28 @@ class TestPagination:
             assert len(result.requests) == 1
             assert result.urls[0] == f"{salesflare.SALESFLARE_BASE_URL}{SALESFLARE_ENDPOINTS[endpoint].path}"
             assert len(result.rows) == PAGE_SIZE
+
+
+class TestCustomFields:
+    @parameterized.expand([(True,), (False,)])
+    def test_reads_all_item_classes(self, has_contact_fields: bool) -> None:
+        contact_fields = [{"id": 17}] if has_contact_fields else []
+        result = _driver().run(
+            "custom_fields",
+            [_response([{"id": 17}]), _response(contact_fields), _response([{"id": 17}])],
+        )
+
+        assert result.raised is None
+        assert result.urls == [
+            f"https://api.salesflare.com/customfields/{item_class}?includeDisabled=true"
+            for item_class in ("accounts", "contacts", "opportunities")
+        ]
+        expected_rows = [{"id": 17, "item_class": "accounts"}, {"id": 17, "item_class": "opportunities"}]
+        if has_contact_fields:
+            expected_rows.insert(1, {"id": 17, "item_class": "contacts"})
+        assert result.rows == expected_rows
+        assert result.response is not None
+        assert result.response.primary_keys == ["item_class", "id"]
 
 
 class TestErrorHandling:
@@ -84,7 +108,7 @@ class TestErrorHandling:
 
 
 class TestSalesflareSourceResponse:
-    @parameterized.expand([(e,) for e in ENDPOINTS])
+    @parameterized.expand([(e,) for e in SINGLE_RESOURCE_ENDPOINTS])
     def test_source_response_shape(self, endpoint: str) -> None:
         result = _driver().run(endpoint, always(_response([])))
 
@@ -95,6 +119,6 @@ class TestSalesflareSourceResponse:
         # No stable creation timestamp is guaranteed across every object, so we don't partition.
         assert response.partition_mode is None
 
-    def test_every_endpoint_uses_id_primary_key(self) -> None:
-        assert all(config.primary_keys == ["id"] for config in SALESFLARE_ENDPOINTS.values())
+    def test_single_resource_endpoints_use_id_primary_key(self) -> None:
+        assert all(SALESFLARE_ENDPOINTS[endpoint].primary_keys == ["id"] for endpoint in SINGLE_RESOURCE_ENDPOINTS)
         assert set(SALESFLARE_ENDPOINTS) == set(ENDPOINTS)

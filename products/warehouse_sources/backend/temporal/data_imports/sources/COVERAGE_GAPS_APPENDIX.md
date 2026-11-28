@@ -12892,16 +12892,16 @@ Note: The published Apiary host (sagehr.docs.apiary.io) 502s; the raw Swagger 2.
 
 ## Salesflare — gaps
 
-Today (9): `accounts`, `contacts`, `opportunities`, `pipelines`, `stages`, `tags`, `tasks`, `users`, `workflows`
+Today (11): `accounts`, `contacts`, `custom_fields`, `opportunities`, `persons`, `pipelines`, `stages`, `tags`, `tasks`, `users`, `workflows`
 
 Diffed against: <https://api.salesflare.com/openapi.json>
 
 - [x] `stages (GET /stages)` — lookup resolving the stage id on every opportunity already synced (high)
 - [x] `users (GET /users)` — lookup resolving owner/assignee ids on accounts, contacts, opportunities and tasks (high)
-- [ ] `persons (GET /persons)` — the full people directory, broader than the contacts table (medium)
-- [ ] `accounts/{id}/feed` — per-account activity timeline (the interaction history behind the CRM) (medium)
-- [ ] `accounts/{id}/messages` — email/message log per account for engagement analysis (medium)
-- [ ] `customfields/{itemClass}` — custom field definitions that resolve the custom keys stored on accounts, contacts and opportunities (medium)
+- [x] `persons (GET /persons)` — the full people directory, broader than the contacts table (medium)
+- [ ] `accounts/{id}/feed` — per-account activity timeline (the interaction history behind the CRM) (medium). Skipped: The API does not document how to page through entries with the same timestamp without losing rows.
+- [ ] `accounts/{id}/messages` — email/message log per account for engagement analysis (medium). Skipped: The API does not document how to page through messages with the same timestamp without losing rows.
+- [x] `customfields/{itemClass}` — custom field definitions that resolve the custom keys stored on accounts, contacts and opportunities (medium)
 - [ ] `groups (GET /groups)` — lookup for team/group membership on users (medium)
 - [ ] `tags/{id}/usage` — tag-to-record counts, cheap breakdown dimension (low)
 - [ ] `currencies (GET /currencies)` — lookup for currency codes on opportunity values (low)
