@@ -175,6 +175,29 @@ describe('cyclotron probe', () => {
         )
     })
 
+    it('stamps a writer activity read when its rows arrive, before its connection closes', async () => {
+        const end = Client.prototype.end
+        let closingAt: number | undefined
+        let closed: () => void = () => undefined
+        const closing = new Promise<void>((resolve) => (closed = resolve))
+        const slowClose = jest.spyOn(Client.prototype, 'end').mockImplementation(async function (this: Client) {
+            closingAt ??= Date.now()
+            await closing
+            return end.call(this)
+        })
+        try {
+            const read = createCyclotronProbe(PROBE_URL, undefined, PROBE_URL).activity()
+            await waitForExpect(() => expect(closingAt).toBeDefined())
+            await waitForExpect(() => expect(Date.now()).toBeGreaterThan(closingAt!))
+            closed()
+
+            expect((await read).at).toBeLessThanOrEqual(closingAt!)
+        } finally {
+            closed()
+            slowClose.mockRestore()
+        }
+    })
+
     it("counts the other client backends of the writer's own database by state and by what an active one waits on", async () => {
         const LOCK = 9999103
         const database = `scenario_activity_${process.pid}`
