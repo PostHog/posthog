@@ -80,6 +80,7 @@ import {
 import {
     BATCH_PUBLISH_DEADLINE_MS,
     BatchCapacity,
+    BatchSlot,
     BatchSlotRequestSchema,
     CODE_SEND_BATCH_TOKEN_CLAIMS,
     CodeSendBatchRequestSchema,
@@ -1635,7 +1636,7 @@ export class CdpApi {
                 })
             }
             stages.start('auth')
-            let release: (() => void) | null = null
+            let slot: BatchSlot | null = null
             try {
                 if (
                     !this.verifyScopedWorkflowJwt(
@@ -1649,8 +1650,8 @@ export class CdpApi {
                     transactionalEmailBatchRequestsTotal.inc({ outcome: 'unauthorized' })
                     return
                 }
-                release = this.transactionalEmailBatchCapacity.admit(parseInt(req.params.team_id))
-                if (!release) {
+                slot = this.transactionalEmailBatchCapacity.admit(parseInt(req.params.team_id))
+                if (!slot) {
                     return refuse('over_capacity', 503, { error: 'over_capacity' })
                 }
                 stages.start('validate')
@@ -1685,8 +1686,16 @@ export class CdpApi {
                 }
                 // A single send answers 404 here, which Django retries. A batch refuses for good: the workflow is gone
                 // for every recipient.
-                if (!hogFlow || hogFlow.team_id !== team.id || hogFlow.trigger?.type !== 'api') {
+                if (
+                    !hogFlow ||
+                    hogFlow.team_id !== team.id ||
+                    hogFlow.trigger?.type !== 'api' ||
+                    hogFlow.status !== 'active'
+                ) {
                     return refuse('not_sendable', 400, { error: 'not_sendable' })
+                }
+                if (!slot.claimFor(team.organization_id)) {
+                    return refuse('over_capacity', 503, { error: 'over_capacity' })
                 }
 
                 stages.start('validate')
@@ -1734,7 +1743,7 @@ export class CdpApi {
                 return refuse('error', 500, { error: 'internal_error' })
             } finally {
                 stages.finish()
-                release?.()
+                slot?.release()
             }
         }
 

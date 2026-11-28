@@ -45,7 +45,7 @@ import { waitForExpect } from '~/tests/helpers/expectations'
 import { createCdpConsumerDeps } from '../../tests/helpers/cdp'
 import { setTeamQuotaLimited } from '../../tests/helpers/quota-limits'
 import { forSnapshot } from '../../tests/helpers/snapshots'
-import { createTeam, getFirstTeam, resetTestDatabase } from '../../tests/helpers/sql'
+import { createOrganization, createTeam, getFirstTeam, resetTestDatabase } from '../../tests/helpers/sql'
 import { Hub, Team } from '../types'
 import { FixtureHogFlowBuilder, SimpleHogFlowRepresentation } from './_tests/builders/hogflow.builder'
 import {
@@ -5334,6 +5334,7 @@ describe('CDP API', () => {
                 const query = postgres.query.bind(postgres)
                 let reachedRead!: () => void
                 const reached = new Promise<void>((resolve) => (reachedRead = resolve))
+                let readNext = () => {}
                 const held: (() => void)[] = []
                 let holding = true
                 jest.spyOn(postgres, 'query').mockImplementation(((...args: Parameters<typeof query>) => {
@@ -5341,8 +5342,10 @@ describe('CDP API', () => {
                         return query(...args)
                     }
                     reachedRead()
+                    readNext()
                     return new Promise((resolve, reject) => held.push(() => query(...args).then(resolve, reject)))
                 }) as typeof postgres.query)
+                const next = () => new Promise<void>((resolve) => (readNext = resolve))
                 const release = () => {
                     holding = false
                     held.splice(0).forEach((read) => read())
@@ -5350,7 +5353,7 @@ describe('CDP API', () => {
                 releaseStalledReads = release
                 // Later reads go through while the held ones stay held.
                 const pass = () => (holding = false)
-                return { reached, release, pass }
+                return { reached, next, release, pass }
             }
             let intakeRecords: () => Buffer[]
 
@@ -5881,38 +5884,79 @@ describe('CDP API', () => {
                     ])
                 })
 
-                it('admits a batch from another team while one team holds its share of the pod', async () => {
-                    const otherTeamId = await createTeam(hub.postgres, team.organization_id)
-                    const otherFlow = await insertHogFlow({
-                        ...transactionalFlow('api', 'active'),
-                        team_id: otherTeamId,
+                it("refuses a batch from an organization holding its share across two teams, as not sendable for a workflow it cannot send, and admits another organization's", async () => {
+                    const flowOf = async (teamId: number) => ({
+                        teamId,
+                        flowId: (await insertHogFlow({ ...transactionalFlow('api', 'active'), team_id: teamId })).id,
                     })
-                    const { app: two } = await servedWith({
-                        CDP_TRANSACTIONAL_EMAIL_BATCH_MAX_REQUESTS: 2,
-                    })
-                    const releaseTeamSlot = served[served.length - 1].cdpApi['transactionalEmailBatchCapacity'].admit(
-                        team.id
-                    )!
+                    const ownTeam = { teamId: team.id, flowId: hogFlow.id }
+                    const sameOrg = await flowOf(await createTeam(hub.postgres, team.organization_id))
+                    const otherOrg = await flowOf(
+                        await createTeam(hub.postgres, await createOrganization(hub.postgres))
+                    )
+                    const archivedOfOrg = {
+                        teamId: sameOrg.teamId,
+                        flowId: (
+                            await insertHogFlow({ ...transactionalFlow('api', 'archived'), team_id: sameOrg.teamId })
+                        ).id,
+                    }
+                    const { app: four } = await servedWith({ CDP_TRANSACTIONAL_EMAIL_BATCH_MAX_REQUESTS: 4 })
+                    const sendAs = ({ teamId, flowId }: { teamId: number; flowId: string }, to: string) =>
+                        supertest(four)
+                            .post(`/api/projects/${teamId}/hog_flows/${flowId}/${TEMPLATE}`)
+                            .set({
+                                Authorization: `Bearer ${mintToken(teamId, flowId, { claims: { kind: kindOf(TEMPLATE) } })}`,
+                            })
+                            .send(batchOf(recipient(to)))
+                            .then((answer) => answer)
+                    const pod = served[served.length - 1].cdpApi
+                    const read = stallSuppressionReads()
+                    const expiries: (() => void)[] = []
+                    pod['refusalDeadline'] = () => new Promise<void>((done) => expiries.push(done))
+                    const heldAt = (reached: Promise<void>, request: Promise<supertest.Response>) =>
+                        Promise.race([
+                            reached,
+                            request.then(({ status }) => {
+                                throw new Error(`a held batch answered ${status} before its suppression read`)
+                            }),
+                        ])
 
-                    const sameTeam = await sendBatchTo(two, TEMPLATE, batchOf(recipient('bo@example.com')))
-                    const otherTeam = await supertest(two)
-                        .post(`/api/projects/${otherTeamId}/hog_flows/${otherFlow.id}/${TEMPLATE}`)
-                        .set({
-                            Authorization: `Bearer ${mintToken(otherTeamId, otherFlow.id, { claims: { kind: kindOf(TEMPLATE) } })}`,
-                        })
-                        .send(batchOf(recipient('cy@example.com')))
-                    releaseTeamSlot()
-                    const ada = recipient('ada@example.com')
-                    const afterRelease = await sendBatchTo(two, TEMPLATE, batchOf(ada))
+                    const holders: Promise<supertest.Response>[] = []
+                    let thirdOfOrg: supertest.Response
+                    let notSendableOfOrg: supertest.Response[]
+                    let ofOtherOrg: supertest.Response
+                    try {
+                        holders.push(sendAs(ownTeam, `ada-${new UUIDT().toString()}@example.com`))
+                        await heldAt(read.reached, holders[0])
+                        const secondRead = read.next()
+                        holders.push(sendAs(sameOrg, `bo-${new UUIDT().toString()}@example.com`))
+                        await heldAt(secondRead, holders[1])
+                        read.pass()
+                        thirdOfOrg = await sendAs(sameOrg, 'cy@example.com')
+                        notSendableOfOrg = [
+                            await sendAs(archivedOfOrg, 'ed@example.com'),
+                            await sendAs({ ...sameOrg, flowId: otherOrg.flowId }, 'fy@example.com'),
+                        ]
+                        ofOtherOrg = await sendAs(otherOrg, 'di@example.com')
+                    } finally {
+                        read.release()
+                        expiries.forEach((expire) => expire())
+                        await Promise.allSettled(holders)
+                    }
+                    const held = await Promise.all(holders)
 
-                    expect([sameTeam.status, sameTeam.body]).toEqual([503, { error: 'over_capacity' }])
-                    expect([otherTeam.status, otherTeam.body.results]).toEqual([
+                    expect([thirdOfOrg.status, thirdOfOrg.body]).toEqual([503, { error: 'over_capacity' }])
+                    expect(notSendableOfOrg.map(({ status, body }) => [status, body])).toEqual([
+                        [400, { error: 'not_sendable' }],
+                        [400, { error: 'not_sendable' }],
+                    ])
+                    expect([ofOtherOrg.status, ofOtherOrg.body.results]).toEqual([
                         200,
                         [{ status: 202, body: expect.objectContaining({ status: 'queued' }) }],
                     ])
-                    expect([afterRelease.status, afterRelease.body.results]).toEqual([
-                        200,
-                        [{ status: 202, body: queuedAs(runIdOf(ada)) }],
+                    expect(held.map(({ status, body }) => [status, body.results[0].status])).toEqual([
+                        [200, 202],
+                        [200, 202],
                     ])
                 })
 
