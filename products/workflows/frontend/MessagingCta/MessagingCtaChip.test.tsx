@@ -175,6 +175,23 @@ describe('MessagingCtaChip', () => {
         expect(await findText('Not available here')).toBeTruthy()
     })
 
+    it('shows, and hides for the page when its × is clicked, once storage fills after the app loaded', () => {
+        const { renderChip, chip, click, captured } = open('player_chip')
+        const setItem = jest.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+            throw new DOMException('The quota has been exceeded.', 'QuotaExceededError')
+        })
+        try {
+            renderChip()
+            expect(chip()).not.toBeNull()
+
+            click(chip()!.querySelector<HTMLElement>('[aria-label="Hide for 90 days"]')!)
+            expect(chip()).toBeNull()
+            expect(captured('messaging cta dismissed')).toEqual([{ placement: 'replay.player_chip' }])
+        } finally {
+            setItem.mockRestore()
+        }
+    })
+
     it('stays hidden and silent for 90 days after its × is clicked, for that viewer only', () => {
         jest.useFakeTimers({ now: new Date('2026-03-01T12:00:00Z') })
         const first = open('player_chip')
