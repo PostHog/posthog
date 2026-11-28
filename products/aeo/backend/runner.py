@@ -122,6 +122,7 @@ def run_citation_checks(
     # Engine calls are network-bound and run in worker threads. Database writes stay on
     # this thread, so the workers never open their own Django connections.
     billable = ai_visibility_billable(team)
+    logger.info("aeo_citation_run_billing", team_id=team.id, run_id=run_id, billable=billable)
     pool = ThreadPoolExecutor(max_workers=max(1, settings.AEO_RUN_CONCURRENCY))
     futures = {
         pool.submit(

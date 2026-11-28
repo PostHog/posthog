@@ -147,6 +147,27 @@ def test_run_records_checks_and_rotates_without_a_team_scope(
     assert set(cited) == {(c.id, c.created_at) for c in checks}
 
 
+class _BillingRecordingEngine(_StubEngine):
+    def __init__(self) -> None:
+        super().__init__()
+        self.billable: list[bool] = []
+
+    def run(self, prompt: str, *, trace_id: str, custom_properties: dict[str, str], billable: bool) -> CitationCheck:
+        self.billable.append(billable)
+        return super().run(prompt, trace_id=trace_id, custom_properties=custom_properties, billable=billable)
+
+
+@pytest.mark.parametrize("flag_on", [True, False], ids=["organization_on_the_flag", "organization_off_the_flag"])
+def test_a_run_bills_only_an_organization_on_the_billing_flag(team: Team, flag_on: bool) -> None:
+    upsert_prompts(team, [PromptCandidate(text=f"q{i}?", source="imported") for i in range(2)])
+    engine = _BillingRecordingEngine()
+
+    with patch("products.aeo.backend.credits.feature_enabled_or_false", return_value=flag_on):
+        run_citation_checks(team, engines=[engine])
+
+    assert engine.billable == [flag_on, flag_on]
+
+
 @pytest.mark.parametrize("own_brand_status", [None, BrandStatus.IGNORED], ids=["no_own_brand", "own_brand_ignored"])
 def test_a_team_without_an_own_brand_is_skipped_before_any_engine_call(
     team: Team, own_brand_status: BrandStatus | None
