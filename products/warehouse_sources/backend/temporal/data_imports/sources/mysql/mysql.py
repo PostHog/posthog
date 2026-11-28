@@ -1345,13 +1345,24 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
         first rows are ready, and the keyset path sets `autocommit` so each
         page is its own transaction (see `_keyset_get_rows`).
         """
+        with self.connection_kwargs(config, read_timeout=read_timeout, team_id=team_id) as kwargs:
+            kwargs["conv"] = _MYSQL_SAFE_CONVERSIONS
+            kwargs["autocommit"] = autocommit
+            with _connect_with_transient_retry(kwargs, team_id) as conn:
+                yield conn
+
+    @contextmanager
+    def connection_kwargs(
+        self, config: MySQLSourceConfig, *, read_timeout: int, team_id: int | None
+    ) -> Iterator[dict[str, Any]]:
+        """The pymysql arguments of a source connection, with the SSH tunnel and TLS files open meanwhile."""
         tls = tls_options(config)
         # Any TLS option implies TLS, so a user who sets one gets the encrypted connection it needs,
         # whatever `using_ssl` says.
         use_tls = config.using_ssl or tls.is_set
 
         with self._ssh_tunnel_endpoint(config, team_id) as (host, port), tls_files(tls) as files:
-            kwargs: dict[str, Any] = {
+            yield {
                 "host": host,
                 # pymysql rejects a non-int port; config.port can arrive as a string when the
                 # config is built directly rather than through the int-coercing from_dict.
@@ -1367,12 +1378,8 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
                 # explicit True verifies. None leaves that prior behavior untouched.
                 "ssl_verify_cert": True if tls.verify else None,
                 "ssl_verify_identity": True if tls.verify_hostname else None,
-                "conv": _MYSQL_SAFE_CONVERSIONS,
-                "autocommit": autocommit,
                 "init_command": "SET workload = 'OLAP';" if host.endswith("psdb.cloud") else None,
             }
-            with _connect_with_transient_retry(kwargs, team_id) as conn:
-                yield conn
 
     @contextmanager
     def _ssh_tunnel_endpoint(self, config: MySQLSourceConfig, team_id: int | None) -> Iterator[tuple[str, int]]:

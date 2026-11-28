@@ -9,6 +9,10 @@ import pyarrow as pa
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.cdc.errors import CDCTransactionTooLargeError
+from products.warehouse_sources.backend.temporal.data_imports.cdc.spill import (
+    CDCSpillBudgetExhaustedError,
+    WorkerSpillBudget as _WorkerSpillBudget,
+)
 from products.warehouse_sources.backend.temporal.data_imports.cdc.types import ChangeEvent
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.decoder import (
     _OID_BOOL,
@@ -18,15 +22,14 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.c
     _OID_JSONB,
     _OID_TEXT,
     PG_EPOCH_OFFSET_US,
-    CDCSpillBudgetExhaustedError,
     PgOutputDecoder,
     Relation,
     RelationColumn,
     _pg_timestamp_to_datetime,
-    _WorkerSpillBudget,
 )
 
 _DECODER_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.decoder"
+_SPILL_MODULE = "products.warehouse_sources.backend.temporal.data_imports.cdc.spill"
 
 
 def _make_cstring(s: str) -> bytes:
@@ -650,7 +653,7 @@ class TestTransactionBufferGuard:
         row = _make_insert(1, [("t", "1"), None, None, None])
         with patch(f"{_DECODER_MODULE}.TX_SPILL_CHUNK_EVENTS", 1):
             probe = io.BytesIO()
-            with patch(f"{_DECODER_MODULE}.tempfile.TemporaryFile", return_value=probe):
+            with patch(f"{_SPILL_MODULE}.tempfile.TemporaryFile", return_value=probe):
                 measured = self._decoder_with_relation()
                 measured.decode_message(_make_begin(), "0/1")
                 measured.decode_message(row, "0/1")
@@ -677,7 +680,7 @@ class TestTransactionBufferGuard:
         with (
             patch(f"{_DECODER_MODULE}.TX_SPILL_CHUNK_EVENTS", 1),
             patch(f"{_DECODER_MODULE}._worker_spill_budget", budget),
-            patch(f"{_DECODER_MODULE}.tempfile.TemporaryFile", return_value=full_disk),
+            patch(f"{_SPILL_MODULE}.tempfile.TemporaryFile", return_value=full_disk),
         ):
             decoder = self._decoder_with_relation()
             decoder.decode_message(_make_begin(), "0/1")
@@ -707,7 +710,7 @@ class TestTransactionBufferGuard:
         spill = io.BytesIO()
         with (
             patch(f"{_DECODER_MODULE}.TX_SPILL_CHUNK_EVENTS", 1),
-            patch(f"{_DECODER_MODULE}.tempfile.TemporaryFile", return_value=spill),
+            patch(f"{_SPILL_MODULE}.tempfile.TemporaryFile", return_value=spill),
         ):
             decoder = self._decoder_with_relation()
             decoder.decode_message(_make_begin(), "0/1")

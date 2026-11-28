@@ -22,11 +22,8 @@ from __future__ import annotations
 
 import json
 import time
-import shutil
 import struct
 import logging
-import tempfile
-import threading
 from collections.abc import Iterable, Iterator, Mapping
 from dataclasses import (
     dataclass,
@@ -34,13 +31,18 @@ from dataclasses import (
     replace as dataclass_replace,
 )
 from datetime import UTC, datetime
-from typing import IO, Any
+from typing import Any
 
 import pyarrow as pa
 
 from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.cdc.errors import CDCTransactionTooLargeError
+from products.warehouse_sources.backend.temporal.data_imports.cdc.spill import (
+    CDCSpillBudgetExhaustedError,
+    SpillFile as _SpillFile,
+    worker_spill_budget as _worker_spill_budget,
+)
 from products.warehouse_sources.backend.temporal.data_imports.cdc.types import ChangeEvent
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.position import PgLSN
 
@@ -59,71 +61,6 @@ MAX_TX_SPILL_BYTES = 64 * 1024**3
 # A transaction must finish inside one capture attempt, which a timeout would retry from the start
 # forever, so decoding one that runs past this fails it as too large instead.
 MAX_TX_DECODE_SECONDS = 60 * 60
-# Every capture on a worker spills to the same scratch volume, which other warehouse activities also
-# use. Open spill files together stay under this share of the volume, so concurrent large
-# transactions cannot fill it.
-WORKER_SPILL_BUDGET_FRACTION = 0.5
-
-
-class CDCSpillBudgetExhaustedError(Exception):
-    """Other transactions on this worker hold the shared spill budget.
-
-    Retryable: the space frees when those transactions commit or fail.
-    """
-
-
-class _WorkerSpillBudget:
-    """Bytes held by open spill files across every decoder in this worker process."""
-
-    def __init__(self, limit: int | None = None) -> None:
-        self._lock = threading.Lock()
-        self._limit = limit
-        self._used = 0
-
-    @property
-    def limit(self) -> int:
-        if self._limit is None:
-            self._limit = int(shutil.disk_usage(tempfile.gettempdir()).total * WORKER_SPILL_BUDGET_FRACTION)
-        return self._limit
-
-    def reserve(self, size: int) -> bool:
-        limit = self.limit
-        with self._lock:
-            if self._used + size > limit:
-                return False
-            self._used += size
-            return True
-
-    def release(self, size: int) -> None:
-        with self._lock:
-            self._used -= size
-
-
-_worker_spill_budget = _WorkerSpillBudget()
-
-
-class _SpillFile:
-    """A transaction's spill file and its share of the worker budget, released together on close."""
-
-    def __init__(self, budget: _WorkerSpillBudget) -> None:
-        self.file: IO[bytes] = tempfile.TemporaryFile()
-        self.bytes = 0
-        self._budget = budget
-
-    def write(self, line: bytes) -> bool:
-        if not self._budget.reserve(len(line)):
-            return False
-        # Counted before the write, so close() releases the reservation even when the write fails.
-        self.bytes += len(line)
-        self.file.write(line)
-        return True
-
-    def close(self) -> None:
-        self.file.close()
-        self._budget.release(self.bytes)
-        self.bytes = 0
-
-
 # PostgreSQL epoch: 2000-01-01 00:00:00 UTC
 # Timestamps in pgoutput are microseconds since this epoch
 PG_EPOCH = datetime(2000, 1, 1, tzinfo=UTC)

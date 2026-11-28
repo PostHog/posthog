@@ -26,6 +26,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mysql.cdc.
     MySQLCDCConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.mysql.cdc.errors import (
+    MySQLUnsupportedBinlogError,
     classify_mysql_cdc_error,
     customer_fixable_error_message,
     is_connection_error,
@@ -67,7 +68,14 @@ class MySQLCDCAdapter:
         return BinlogPosition.deserialize(position_serialized).seq
 
     def create_reader(self, source: ExternalDataSource) -> CDCStreamReader:
-        raise NotImplementedError("The MySQL binlog reader is not available yet")
+        from products.warehouse_sources.backend.temporal.data_imports.sources.mysql.cdc.stream_reader import (
+            MySQLCDCStreamReader,
+        )
+        from products.warehouse_sources.backend.temporal.data_imports.sources.mysql.source import MySQLSource
+
+        source_impl = MySQLSource()
+        config = source_impl.parse_config(SourceInputsStore.load(source))
+        return MySQLCDCStreamReader(source, config, self.parse_cdc_config(source), source_impl.get_implementation)
 
     def current_position(self, conn: MySQLManagementConnection) -> str:
         base = conn.stream.base if conn.stream is not None else None
@@ -140,7 +148,17 @@ class MySQLCDCAdapter:
 
     def classify_error(self, exc: BaseException) -> CDCErrorInfo | None:
         category = classify_mysql_cdc_error(exc)
-        return cdc_error_info(category) if category is not None else None
+        if category is None:
+            return None
+        info = cdc_error_info(category)
+        if isinstance(exc, MySQLUnsupportedBinlogError):
+            # The reader names the event it can't read and the setting that avoids it, which the shared copy can't.
+            return dataclasses.replace(
+                info,
+                friendly_message=f"{exc} Then use Repair CDC, which reads from the current end of the binary log "
+                "and re-syncs the tables from a fresh snapshot.",
+            )
+        return info
 
     def recreate_stream(self, source: ExternalDataSource, tables: list[str]) -> dict[str, Any]:
         """Start a new stream at the end of the binlog of whichever server the source reaches now.
