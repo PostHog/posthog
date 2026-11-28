@@ -6746,6 +6746,13 @@ export namespace Schemas {
       active_version: AppVersionContract;
     }
 
+    export interface ActiveAppViewGrant {
+      recipient_uuid: string;
+      email: string;
+      revision: number;
+      expires_at: string;
+    }
+
     /**
      * * `not_started` - not_started
      * * `queued` - queued
@@ -17408,6 +17415,33 @@ export namespace Schemas {
       version_number: number;
       /** Every file in the version, sorted by path. The manifest always lists all files. */
       files: AppSourceFileContract[];
+    }
+
+    export interface AppViewGrantRequest {
+      /** Email address of the project member who can open the published output. */
+      email?: string;
+      /** Current recipient to revoke, even if their email changed. */
+      recipient_uuid?: string;
+      /**
+         * The displayed release to share. Required when granting access.
+         * @minimum 1
+         */
+      revision?: number;
+      /** Remove this member's access to every revision of this app. */
+      revoke?: boolean;
+    }
+
+    export interface AppViewGrantResult {
+      /**
+         * Recipient-specific path for the pinned release.
+         * @nullable
+         */
+      url: string | null;
+      /**
+         * When this app-only grant expires.
+         * @nullable
+         */
+      expires_at: string | null;
     }
 
     export interface AppfiguresReviewSignalExtra {
@@ -83012,6 +83046,15 @@ export namespace Schemas {
       results: AccountTrackRuleRunView[];
     }
 
+    export interface PaginatedActiveAppViewGrantList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: ActiveAppViewGrant[];
+    }
+
     export interface PaginatedActivityLogList {
       /** @nullable */
       next?: string | null;
@@ -139232,6 +139275,11 @@ export namespace Schemas {
      */
     end_date?: string;
     /**
+     * Filter by up to 100 activity log entry UUIDs, such as the id from an activity log event.
+     * @maxItems 100
+     */
+    entry_ids?: string[];
+    /**
      * Keep the next link valid after the last entry, so the same cursor can be re-polled as new entries arrive. Only applies with oldest-first ordering. When following, stop on an empty results list rather than on a null next link.
      */
     follow?: boolean;
@@ -140959,6 +141007,11 @@ export namespace Schemas {
      * Upper bound on `created_at` (inclusive), as an ISO 8601 timestamp with a UTC offset, such as `2026-01-15T11:30:00Z`.
      */
     end_date?: string;
+    /**
+     * Filter by up to 100 activity log entry UUIDs, such as the id from an activity log event.
+     * @maxItems 100
+     */
+    entry_ids?: string[];
     /**
      * Keep the next link valid after the last entry, so the same cursor can be re-polled as new entries arrive. Only applies with oldest-first ordering. When following, stop on an empty results list rather than on a null next link.
      */
@@ -152459,6 +152512,18 @@ export namespace Schemas {
      * If any value is provided for this parameter, return notebooks created by the logged in user.
      */
     user?: string;
+    };
+
+    export type NotebooksAppViewGrantsActiveListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    short_id?: string;
     };
 
     export type NotebooksSqlV2RunsRetrieveParams = {

@@ -1782,6 +1782,29 @@ class TestSystemTablesActivityLogsCanvasIdCoercion(NonAtomicBaseTest):
         assert [row[0] for row in response.results] == ["11510926"]
 
 
+class TestSystemTablesNotebookGrantActivity(NonAtomicBaseTest):
+    CLASS_DATA_LEVEL_SETUP = False
+
+    def test_only_ordinary_notebook_changes_are_visible(self):
+        for field in ("title", "app_view_grant"):
+            ActivityLog.objects.create(
+                team_id=self.team.pk,
+                organization_id=self.organization.pk,
+                scope="Notebook",
+                activity="updated",
+                item_id=field,
+                detail={"changes": [{"field": field}]},
+            )
+
+        response = execute_hogql_query(
+            "SELECT item_id FROM system.activity_logs WHERE scope = 'Notebook' AND item_id IN ('title', 'app_view_grant')",
+            team=self.team,
+            user=self.user,
+        )
+
+        assert response.results == [("title",)]
+
+
 class TestSystemTablesTaskInternalExclusion(BaseTest):
     """Verify the tasks system table excludes internal tasks (signals pipeline, etc.)
     mirroring the REST API's default filter."""

@@ -37,6 +37,18 @@ def plan_viewer_queries(
     return resolve_viewer_queries(release, inputs)
 
 
+def native_app_output_ids(cells: list[NotebookCellState]) -> set[str]:
+    by_id = {cell.node_id: cell for cell in cells}
+    unsupported = [cell for cell in cells if cell.cell_type != "sql" or cell.connection_id or cell.send_raw_query]
+    excluded = {cell.node_id for cell in unsupported}
+    while unsupported:
+        for dependent in unsupported.pop().dependents:
+            if dependent not in excluded:
+                excluded.add(dependent)
+                unsupported.append(by_id[dependent])
+    return set(by_id) - excluded
+
+
 def resolve_viewer_queries(release: AppRelease, inputs: dict[str, NotebookVariableValue]) -> list[AppViewerQuery]:
     allowed = {block["variable"] for block in release.layout["blocks"] if block["kind"] == "input"}
     if inputs.keys() - allowed:
@@ -56,14 +68,7 @@ def resolve_viewer_queries(release: AppRelease, inputs: dict[str, NotebookVariab
     cells = extract_cells(build_markdown_notebook_content(release.markdown))
     build_dependency_edges(cells)
     by_id = {cell.node_id: cell for cell in cells}
-    unsupported = [cell for cell in cells if cell.cell_type != "sql" or cell.connection_id or cell.send_raw_query]
-    excluded = {cell.node_id for cell in unsupported}
-    while unsupported:
-        for dependent in unsupported.pop().dependents:
-            if dependent not in excluded:
-                excluded.add(dependent)
-                unsupported.append(by_id[dependent])
-    displayed = (displayed & by_id.keys()) - excluded
+    displayed &= native_app_output_ids(cells)
     required = set(displayed)
     pending = list(displayed)
     while pending:

@@ -126,17 +126,21 @@ def _axis_column(axis: Any) -> str | None:
     return column if isinstance(column, str) and column else None
 
 
-def _visualization_from_props(props: dict[str, Any]) -> CellVisualization | None:
-    output_tab, viz_query = props.get("outputTab"), props.get("vizQuery")
+def resolve_sql_visualization_props(props: dict[str, Any]) -> dict[str, Any]:
+    """Match getSqlV2PropsFromQueryProp when a legacy cell stores its chart in the query."""
     code = props.get("code")
     if not (isinstance(code, str) and code.strip()):
-        # Mirrors the editor's `getSqlV2PropsFromQueryProp`: a cell without `code` whose `query`
-        # is a visualization node opens on that chart, whatever `outputTab` and `vizQuery` hold.
         query = _query_prop_object(props.get("query"))
         if query and query.get("kind") == "DataVisualizationNode" and _code_from_query_prop(query).strip():
-            output_tab, viz_query = "visualization", query
-    if output_tab != "visualization":
+            return {**props, "outputTab": "visualization", "vizQuery": query}
+    return props
+
+
+def _visualization_from_props(props: dict[str, Any]) -> CellVisualization | None:
+    props = resolve_sql_visualization_props(props)
+    if props.get("outputTab") != "visualization":
         return None
+    viz_query = props.get("vizQuery")
     viz_query = viz_query if isinstance(viz_query, dict) else {}
     chart_settings = viz_query.get("chartSettings")
     chart_settings = chart_settings if isinstance(chart_settings, dict) else {}

@@ -25,7 +25,7 @@ def read_published_run_rows(team_id: int, notebook_id: UUID, run_id: UUID) -> li
     )
 
 
-def capture_published_sql_rows(notebook: Notebook, markdown: str, layout: dict[str, Any]) -> dict[str, list[list[Any]]]:
+def capture_published_sql_rows(notebook: Notebook, markdown: str, layout: dict[str, Any]) -> dict[str, Any]:
     displayed = {
         block["node_id"] for block in layout["blocks"] if block["kind"] == "cell" and block.get("display") != "source"
     }
@@ -47,24 +47,34 @@ def capture_published_sql_rows(notebook: Notebook, markdown: str, layout: dict[s
             id__in=run_refs.values(),
             node_type=NotebookNodeRun.NodeType.HOGQL,
             status=NotebookNodeRun.Status.DONE,
-            envelope__has_more=True,
         )
-        .only("id", "team_id", "notebook_id", "node_id", "node_type", "status", "created_at")
+        .only("id", "team_id", "notebook_id", "node_id", "node_type", "status", "created_at", "envelope")
         .order_by("node_id")
     )
-    captured: dict[str, list[list[Any]]] = {}
+    captured: dict[str, Any] = {}
     remaining = MAX_RELEASE_RESULT_BYTES - 2
     for run in runs:
         key = str(run.pk)
         if key != run_refs[run.node_id]:
             continue
-        rows = read_published_run_rows(run.team_id, run.notebook_id, run.id)
-        if rows is None:
-            rows = sync_direct_run(run)
-        if rows is None:
+        envelope = run.envelope or {}
+        if envelope.get("has_more"):
+            rows = read_published_run_rows(run.team_id, run.notebook_id, run.id)
+            if rows is None:
+                rows = sync_direct_run(run)
+        else:
+            rows = envelope.get("first_page")
+        if not isinstance(rows, list):
             continue
-        size = len(json.dumps({key: rows}, ensure_ascii=False, allow_nan=False).encode())
+        metadata = {
+            "node_id": run.node_id,
+            "columns": envelope.get("columns") or [],
+            "types": envelope.get("types") or [],
+            "row_count": envelope.get("row_count", len(rows)),
+        }
+        pinned = {key: rows, f"schema:{key}": metadata}
+        size = len(json.dumps(pinned, ensure_ascii=False, allow_nan=False).encode())
         if size <= remaining:
-            captured[key] = rows
+            captured.update(pinned)
             remaining -= size
     return captured

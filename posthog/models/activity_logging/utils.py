@@ -1,5 +1,5 @@
 import traceback
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from typing import TYPE_CHECKING, Any, ClassVar, Literal, Optional, cast, get_args
 
 from django.db import models
@@ -367,8 +367,18 @@ class ActivityLogVisibilityManager:
 
         return activity_visibility_restrictions
 
+    @staticmethod
+    def changed_fields(instance: "ActivityLog") -> Iterator[tuple[str, str | None]]:
+        detail = instance.detail
+        changes = detail.get("changes") if isinstance(detail, dict) else getattr(detail, "changes", None)
+        for change in changes or []:
+            field = change.get("field") if isinstance(change, dict) else getattr(change, "field", None)
+            action = change.get("action") if isinstance(change, dict) else getattr(change, "action", None)
+            if isinstance(field, str):
+                yield field, action
+
     @classmethod
-    def is_restricted(cls, instance: "ActivityLog", restrict_for_staff: bool = False) -> bool:
+    def matching_restrictions(cls, instance: "ActivityLog", restrict_for_staff: bool) -> Iterator[dict[str, Any]]:
         for config in cls._get_restrictions():
             if not restrict_for_staff and config.get("allow_staff"):
                 continue
@@ -376,15 +386,21 @@ class ActivityLogVisibilityManager:
                 continue
             if instance.activity not in config.get("activities", []):
                 continue
+            if change_field := config.get("change_field"):
+                if not any(field == change_field for field, _ in cls.changed_fields(instance)):
+                    continue
             exclude_conditions = config.get("exclude_when", {})
             if not exclude_conditions or all(
                 getattr(instance, field, None) == value for field, value in exclude_conditions.items()
             ):
-                return True
-        return False
+                yield config
 
     @classmethod
-    def build_exclusion_query(cls, is_staff: bool = False) -> Q | None:
+    def is_restricted(cls, instance: "ActivityLog", restrict_for_staff: bool = False) -> bool:
+        return any(cls.matching_restrictions(instance, restrict_for_staff))
+
+    @classmethod
+    def build_exclusion_query(cls, is_staff: bool = False, *, user_id: int | None = None) -> Q | None:
         """
         Build a Q object that excludes restricted activity logs.
 
@@ -401,6 +417,17 @@ class ActivityLogVisibilityManager:
             exclude_conditions = config.get("exclude_when", {})
 
             query = Q(scope=scope) & Q(activity__in=activities)
+            if change_field := config.get("change_field"):
+                query &= Q(detail__contains={"changes": [{"field": change_field}]})
+            if config.get("allow_organization_admin") and user_id is not None:
+                from posthog.models.organization import OrganizationMembership  # noqa: PLC0415
+
+                admin_organizations = (
+                    OrganizationMembership.objects.with_effective_level()
+                    .filter(user_id=user_id, resolved_level__gte=OrganizationMembership.Level.ADMIN)
+                    .values("organization_id")
+                )
+                query &= ~Q(organization_id__in=admin_organizations)
             for field, value in exclude_conditions.items():
                 query &= Q(**{field: value})
             exclusion_queries.append(query)
@@ -414,8 +441,8 @@ class ActivityLogVisibilityManager:
         return combined
 
     @classmethod
-    def apply_to_queryset(cls, queryset: QuerySet, is_staff: bool = False) -> QuerySet:
-        exclusion_query = cls.build_exclusion_query(is_staff)
+    def apply_to_queryset(cls, queryset: QuerySet, is_staff: bool = False, *, user_id: int | None = None) -> QuerySet:
+        exclusion_query = cls.build_exclusion_query(is_staff, user_id=user_id)
         if exclusion_query is not None:
             return queryset.exclude(exclusion_query)
         return queryset

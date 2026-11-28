@@ -38,7 +38,7 @@ from posthog.hogql.direct_connection import (
 from posthog.hogql.errors import ExposedHogQLError
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
-from posthog.api.pagination import offset_page_links
+from posthog.api.pagination import DefaultLimitOffsetPagination, offset_page_links
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.sharing_publish_gate import denied_resources_in_notebook_edit, is_publicly_shared
@@ -74,6 +74,11 @@ from products.notebooks.backend.analytics import (
 )
 from products.notebooks.backend.collab import submit_steps
 from products.notebooks.backend.facade.api import to_markdown_notebook_content
+from products.notebooks.backend.facade.app_delivery import (
+    active_view_grants,
+    change_app_view_grant,
+    revoke_app_view_grants,
+)
 from products.notebooks.backend.facade.app_releases import (
     plan_viewer_queries,
     read_published_run_rows,
@@ -143,6 +148,11 @@ from products.notebooks.backend.presentation.app_serializers import (
     NotebookAppLayoutSerializer,
     notebook_app_builder_enabled,
     update_app_revision,
+)
+from products.notebooks.backend.presentation.app_view_access import (
+    ActiveAppViewGrantSerializer,
+    AppViewGrantRequestSerializer,
+    AppViewGrantResultSerializer,
 )
 from products.notebooks.backend.presentation.notebook_throttles import (
     NotebookAppQueryBurstThrottle,
@@ -627,9 +637,14 @@ class NotebookSerializer(NotebookMinimalSerializer):
                     )
                     should_publish_update = True
 
+                was_deleted = locked_instance.deleted
                 updated_notebook = super().update(locked_instance, validated_data)
                 if validated_data.get("app_published") is not None:
                     record_release(updated_notebook.team_id, updated_notebook.pk, restore_previous=restore)
+                if updated_notebook.deleted != was_deleted or (
+                    "app_published" in validated_data and updated_notebook.app_published is None
+                ):
+                    revoke_app_view_grants(updated_notebook.team_id, updated_notebook.pk)
                 if should_publish_update:
                     notify_team_id = updated_notebook.team_id
                     notify_notebook_id = str(updated_notebook.short_id)
@@ -916,6 +931,50 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         )
         return Response(NotebookAppReleaseReviewSerializer(review).data)
 
+    @extend_schema(request=AppViewGrantRequestSerializer, responses=AppViewGrantResultSerializer)
+    @action(
+        methods=["POST"],
+        detail=True,
+        url_path="app_view_grants",
+        required_scopes=["notebook:write", "sharing_configuration:write"],
+    )
+    def app_view_grants(self, request: Request, **kwargs) -> Response:
+        notebook = self.get_object()
+        if not isinstance(request.user, User) or not notebook_app_builder_enabled(request.user, notebook.team):
+            raise Http404()
+        self._require_app_sharing_access()
+        data = AppViewGrantRequestSerializer(data=request.data)
+        data.is_valid(raise_exception=True)
+        result = change_app_view_grant(
+            notebook.team_id,
+            notebook.pk,
+            actor=request.user,
+            was_impersonated=is_impersonated(request),
+            **data.validated_data,
+        )
+        return Response(AppViewGrantResultSerializer(result).data)
+
+    @extend_schema(responses=ActiveAppViewGrantSerializer(many=True))
+    @action(
+        methods=["GET"],
+        detail=True,
+        url_path="app_view_grants/active",
+        required_scopes=["notebook:read", "sharing_configuration:read"],
+    )
+    def active_app_view_grants(self, request: Request, **kwargs) -> Response:
+        notebook = self.get_object()
+        if not isinstance(request.user, User) or not notebook_app_builder_enabled(request.user, notebook.team):
+            raise Http404()
+        self._require_app_sharing_access()
+        pagination = DefaultLimitOffsetPagination()
+        limit = pagination.get_limit(request) or 10
+        offset = pagination.get_offset(request)
+        count, grants = active_view_grants(notebook.team_id, notebook.pk, offset=offset, limit=limit)
+        links = offset_page_links(
+            request, offset=offset, limit=limit, next_offset=offset + limit if offset + limit < count else None
+        )
+        return Response({"count": count, **links, "results": ActiveAppViewGrantSerializer(grants, many=True).data})
+
     @extend_schema(responses=NotebookAppReleaseSerializer)
     @action(methods=["GET"], detail=True, url_path="app_release", required_scopes=["notebook:read"])
     def app_release(self, request: Request, **kwargs) -> Response:
@@ -960,6 +1019,15 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
             return notebook
 
         return self.get_object()
+
+    def _require_app_sharing_access(self) -> None:
+        if not authorization.check(
+            resource=Resource(type=ResourceType.ORGANIZATION, id=str(self.team.organization_id)),
+            action=Action.SHARE,
+            subject=request_subject(self.request),
+        ):
+            raise PermissionDenied("An organization admin can manage app sharing.")
+        self._require_query_access()
 
     def _has_query_access(self) -> bool:
         return authorization.check(
@@ -3033,12 +3101,16 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         return JsonResponse({"results": comments})
 
     @extend_schema(operation_id="notebooks_all_activity_retrieve")
-    @action(methods=["GET"], url_path="activity", detail=False)
+    @action(methods=["GET"], url_path="activity", detail=False, required_scopes=["activity_log:read"])
     def all_activity(self, request: Request, **kwargs):
         page_params = parse_activity_page_params(request)
 
         activity_page = load_activity(
-            scope="Notebook", team_id=self.team_id, limit=page_params.limit, page=page_params.page
+            scope="Notebook",
+            team_id=self.team_id,
+            limit=page_params.limit,
+            page=page_params.page,
+            user=request.user,
         )
         return activity_page_response(activity_page, page_params.limit, page_params.page, request)
 
@@ -3053,5 +3125,6 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
             item_ids=[notebook.id, notebook.short_id],
             limit=page_params.limit,
             page=page_params.page,
+            user=request.user,
         )
         return activity_page_response(activity_page, page_params.limit, page_params.page, request)

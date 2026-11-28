@@ -149,6 +149,53 @@ class TestActivityLogModel(BaseTest):
             expected_change.update(before=None, after=after)
         assert properties["detail"]["changes"] == [expected_change]
 
+    @parameterized.expand(
+        [
+            ("created", "personal_api_key", False, "test-key-id"),
+            ("deleted", "service_jwt", False, None),
+            ("deleted", "session", True, None),
+        ]
+    )
+    def test_destination_receives_a_correlatable_grant_summary(
+        self, action, credential_type: str, impersonated: bool, expected_credential_id: str | None
+    ) -> None:
+        recipient = "sample-recipient@example.com"
+        notebook_id = "sample-notebook"
+        with patch("products.cdp.backend.internal_events.produce_internal_event") as producer:
+            log = ActivityLog.objects.create(
+                organization_id=self.organization.id,
+                team_id=self.team.id,
+                user=self.user,
+                scope="Notebook",
+                activity="updated",
+                item_id=notebook_id,
+                client="audit-integration",
+                ip_address="192.0.2.10",
+                credential_type=credential_type,
+                credential_id="test-key-id",
+                was_impersonated=impersonated,
+                detail=Detail(
+                    name="Sample notebook title",
+                    short_id=notebook_id,
+                    changes=[
+                        Change(type="Notebook", field="app_view_grant", action=action, after={"recipient": recipient}),
+                        Change(type="Notebook", field="title", action="changed", after="Sample new title"),
+                    ],
+                ),
+            )
+        properties = producer.call_args.kwargs["event"].properties
+        assert properties["id"] == str(log.pk)
+        assert properties["user"]["uuid"] == str(self.user.uuid)
+        assert properties["detail"] == {"changes": [{"field": "app_view_grant", "action": action}]}
+        assert {"ip_address", "client", "credential_type", "credential_id"}.isdisjoint(properties)
+        assert properties["was_impersonated"] is impersonated
+        assert "item_id" not in properties
+        assert recipient not in json.dumps(properties)
+        log.refresh_from_db()
+        assert isinstance(log.detail, dict)
+        assert log.detail["changes"][0]["after"]["recipient"] == recipient
+        assert log.customer_visible_credential_id == expected_credential_id
+
     def test_client_is_populated_from_activity_storage(self) -> None:
         activity_storage.set_client("posthog-js/1.234.0")
         try:
@@ -725,6 +772,17 @@ class TestModelActivityMixinTeamScoping(BaseTest):
 
 
 class TestActivityLogVisibilityManager(BaseTest):
+    def test_grant_changes_stay_out_of_external_destinations(self) -> None:
+        log = ActivityLog.objects.create(
+            team_id=self.team.pk,
+            scope="Notebook",
+            activity="updated",
+            detail=Detail(changes=[Change(type="Notebook", action="created", field="app_view_grant")]),
+        )
+        assert activity_visibility_manager.is_restricted(log, restrict_for_staff=True)
+        log.refresh_from_db()
+        assert activity_visibility_manager.is_restricted(log, restrict_for_staff=True)
+
     @parameterized.expand(
         [
             # User login/logout - only impersonated sessions are restricted

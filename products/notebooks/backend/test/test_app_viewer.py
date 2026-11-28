@@ -183,7 +183,8 @@ class TestPublishedAppResults(APIBaseTest):
             republished = self.client.patch(url, {"app_revision": 1, "app_published": layout}, format="json")
             assert republished.status_code == 200, republished.json()
             current = NotebookAppRelease.objects.for_team(self.team.id).get(notebook=notebook, revision=2)
-            assert current.sql_rows == {str(run.id): rows}
+            assert current.sql_rows[str(run.id)] == rows
+            assert current.sql_rows[f"schema:{run.id}"]["columns"] == ["value"]
             with patch("products.notebooks.backend.app_release_results.MAX_RELEASE_RESULT_BYTES", 64):
                 oversized = self.client.patch(url, {"app_revision": 2, "app_published": layout}, format="json")
                 assert oversized.status_code == 200, oversized.json()

@@ -1,9 +1,11 @@
 import operator
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from functools import reduce
 from typing import Any, Optional, cast
+from uuid import UUID
 
-from django.db.models import Q
+from django.db.models import F, Q, QuerySet, Window
+from django.db.models.functions import Extract, Floor, RowNumber, Trunc
 from django.utils import timezone
 
 from drf_spectacular.utils import extend_schema
@@ -16,6 +18,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import ServerTimingsGathered, action
 from posthog.models import ActivityLog, NotificationViewed, User
+from posthog.models.activity_logging.activity_log import apply_activity_visibility_restrictions
 from posthog.models.comment import Comment
 
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
@@ -134,33 +137,25 @@ class MyNotificationsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         branches = [Q(scope=scope, item_id__in=item_ids) for scope, item_ids in items_per_scope.items() if item_ids]
         return reduce(operator.or_, branches) if branches else None
 
-    def _deduplicated_notebook_activity_ids(self, user: User, since: datetime) -> list[str]:
-        """Notebooks save while you type, so one logical edit logs several activities."""
-        # nosemgrep: python.django.security.audit.raw-query.avoid-raw-sql (parameterized via params list)
-        rows = ActivityLog.objects.raw(
-            """
-            SELECT id
-            FROM (SELECT
-                    Row_number() over (
-                        PARTITION BY five_minute_window, activity, item_id, scope ORDER BY created_at DESC
-                    ) AS row_number,
-                    *
-                    FROM (
-                        -- copied from https://stackoverflow.com/a/43028800
-                        SELECT to_timestamp(floor(Extract(epoch FROM created_at) / extract(epoch FROM interval '5 min')) *
-                                            extract(epoch FROM interval '5 min')) AS five_minute_window,
-                               activity, item_id, scope, id, created_at
-                        FROM posthog_activitylog
-                        WHERE team_id = %s
-                        AND scope = 'Notebook'
-                        AND (user_id != %s OR user_id IS NULL)
-                        AND date_trunc('millisecond', created_at) > %s
-                        ORDER BY created_at DESC) AS inner_q) AS counted_q
-            WHERE row_number = 1
-            """,
-            [self.team_id, user.pk, since],
+    @staticmethod
+    def _deduplicated_notebook_activity_ids(
+        visible_changes: QuerySet[ActivityLog], notebook_ids: set[str], since: datetime
+    ) -> list[UUID]:
+        """Notebooks save while you type, so show the newest visible change in each five-minute window."""
+        return list(
+            visible_changes.filter(scope="Notebook", item_id__in=notebook_ids)
+            .alias(millisecond=Trunc("created_at", "milliseconds", tzinfo=UTC))
+            .filter(millisecond__gt=since)
+            .alias(
+                position=Window(
+                    expression=RowNumber(),
+                    partition_by=[Floor(Extract("created_at", "epoch", tzinfo=UTC) / 300), F("activity"), F("item_id")],
+                    order_by=[F("created_at").desc(), F("id").desc()],
+                )
+            )
+            .filter(position=1)
+            .values_list("pk", flat=True)
         )
-        return [row.id for row in rows]
 
     @extend_schema(exclude=True)
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
@@ -188,9 +183,15 @@ class MyNotificationsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             # before we filter to include only the important changes,
             # we need to deduplicate too frequent changes
             # we only really need to do this on notebooks
-            deduplicated_notebook_activity_ids: list[str] = []
-            if owned_items["Notebook"] or changed_items["Notebook"]:
-                deduplicated_notebook_activity_ids = self._deduplicated_notebook_activity_ids(user, activity_since)
+            visible_changes = apply_activity_visibility_restrictions(
+                self.queryset.filter(team_id=self.team.id, created_at__gte=history_cutoff).exclude(user=user), user
+            )
+            notebook_ids = owned_items["Notebook"] | changed_items["Notebook"]
+            deduplicated_notebook_activity_ids = (
+                self._deduplicated_notebook_activity_ids(visible_changes, notebook_ids, activity_since)
+                if notebook_ids
+                else []
+            )
 
         with timer("construct_query"):
             owned_filter = self._scope_filter(owned_items)
@@ -206,9 +207,7 @@ class MyNotificationsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 self.queryset.none()
                 if interesting is None
                 else (
-                    self.queryset.exclude(user=user)
-                    .select_related("user")
-                    .filter(team_id=self.team.id, created_at__gte=history_cutoff)
+                    visible_changes.select_related("user")
                     .filter(interesting)
                     # notebooks log several activities per logical edit, so only the deduplicated ones count
                     .filter(~Q(scope="Notebook") | Q(id__in=deduplicated_notebook_activity_ids))

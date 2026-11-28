@@ -965,7 +965,68 @@
   SELECT COUNT(*) AS "__count"
   FROM "posthog_activitylog"
   WHERE ("posthog_activitylog"."scope" = 'Notebook'
-         AND "posthog_activitylog"."team_id" = 99999)
+         AND "posthog_activitylog"."team_id" = 99999
+         AND NOT ((("posthog_activitylog"."scope" = 'Notebook'
+                    AND "posthog_activitylog"."activity" IN ('updated')
+                    AND "posthog_activitylog"."detail" @> '{"changes": [{"field": "app_view_grant"}]}'::jsonb
+                    AND "posthog_activitylog"."detail" IS NOT NULL
+                    AND NOT ("posthog_activitylog"."organization_id" IN
+                               (SELECT "U0"."organization_id" AS "organization_id"
+                                FROM "posthog_organizationmembership" "U0"
+                                WHERE ("U0"."level" >= 8
+                                       AND "U0"."user_id" = 99999))))
+                   OR ("posthog_activitylog"."scope" = 'AccountView'
+                       AND "posthog_activitylog"."activity" IN ('created',
+                                                                'updated',
+                                                                'deleted'))
+                   OR ("posthog_activitylog"."scope" = 'Integration'
+                       AND "posthog_activitylog"."activity" IN ('github_diagnostic'))
+                   OR ("posthog_activitylog"."scope" = 'User'
+                       AND "posthog_activitylog"."activity" IN ('logged_in',
+                                                                'logged_out')
+                       AND "posthog_activitylog"."was_impersonated"
+                       AND "posthog_activitylog"."was_impersonated" IS NOT NULL)
+                   OR ("posthog_activitylog"."scope" = 'User'
+                       AND "posthog_activitylog"."activity" IN ('created',
+                                                                'updated',
+                                                                'deleted'))
+                   OR ("posthog_activitylog"."scope" = 'User'
+                       AND "posthog_activitylog"."activity" IN ('scim_provisioned',
+                                                                'scim_replaced',
+                                                                'scim_updated',
+                                                                'scim_deprovisioned'))
+                   OR ("posthog_activitylog"."scope" = 'Team'
+                       AND "posthog_activitylog"."activity" IN ('email_sending_suspended',
+                                                                'email_sending_unsuspended',
+                                                                'email_sending_tier_changed'))
+                   OR ("posthog_activitylog"."scope" = 'Role'
+                       AND "posthog_activitylog"."activity" IN ('scim_provisioned',
+                                                                'scim_replaced',
+                                                                'scim_updated',
+                                                                'scim_deprovisioned'))
+                   OR ("posthog_activitylog"."scope" = 'InstanceSetting'
+                       AND "posthog_activitylog"."activity" IN ('updated'))
+                   OR ("posthog_activitylog"."scope" = 'Admin'
+                       AND "posthog_activitylog"."activity" IN ('ttl_updated',
+                                                                'ttl_removed'))
+                   OR ("posthog_activitylog"."scope" = 'AIGatewayCredit'
+                       AND "posthog_activitylog"."activity" IN ('credit_added'))
+                   OR ("posthog_activitylog"."scope" = 'Ticket'
+                       AND "posthog_activitylog"."activity" IN ('commented',
+                                                                'created task'))
+                   OR ("posthog_activitylog"."scope" = 'conversations_ticket'
+                       AND "posthog_activitylog"."activity" IN ('commented',
+                                                                'created task'))
+                   OR ("posthog_activitylog"."scope" = 'desktop_canvas'
+                       AND "posthog_activitylog"."activity" IN ('commented',
+                                                                'created task',
+                                                                'completed task',
+                                                                'reopened task'))
+                   OR ("posthog_activitylog"."scope" = 'canvas'
+                       AND "posthog_activitylog"."activity" IN ('commented',
+                                                                'created task',
+                                                                'completed task',
+                                                                'reopened task')))))
   '''
 # ---
 # name: TestNotebooks.test_updates_notebook.28
@@ -1030,7 +1091,68 @@
   FROM "posthog_activitylog"
   LEFT OUTER JOIN "posthog_user" ON ("posthog_activitylog"."user_id" = "posthog_user"."id")
   WHERE ("posthog_activitylog"."scope" = 'Notebook'
-         AND "posthog_activitylog"."team_id" = 99999)
+         AND "posthog_activitylog"."team_id" = 99999
+         AND NOT ((("posthog_activitylog"."scope" = 'Notebook'
+                    AND "posthog_activitylog"."activity" IN ('updated')
+                    AND "posthog_activitylog"."detail" @> '{"changes": [{"field": "app_view_grant"}]}'::jsonb
+                    AND "posthog_activitylog"."detail" IS NOT NULL
+                    AND NOT ("posthog_activitylog"."organization_id" IN
+                               (SELECT "U0"."organization_id" AS "organization_id"
+                                FROM "posthog_organizationmembership" "U0"
+                                WHERE ("U0"."level" >= 8
+                                       AND "U0"."user_id" = 99999))))
+                   OR ("posthog_activitylog"."scope" = 'AccountView'
+                       AND "posthog_activitylog"."activity" IN ('created',
+                                                                'updated',
+                                                                'deleted'))
+                   OR ("posthog_activitylog"."scope" = 'Integration'
+                       AND "posthog_activitylog"."activity" IN ('github_diagnostic'))
+                   OR ("posthog_activitylog"."scope" = 'User'
+                       AND "posthog_activitylog"."activity" IN ('logged_in',
+                                                                'logged_out')
+                       AND "posthog_activitylog"."was_impersonated"
+                       AND "posthog_activitylog"."was_impersonated" IS NOT NULL)
+                   OR ("posthog_activitylog"."scope" = 'User'
+                       AND "posthog_activitylog"."activity" IN ('created',
+                                                                'updated',
+                                                                'deleted'))
+                   OR ("posthog_activitylog"."scope" = 'User'
+                       AND "posthog_activitylog"."activity" IN ('scim_provisioned',
+                                                                'scim_replaced',
+                                                                'scim_updated',
+                                                                'scim_deprovisioned'))
+                   OR ("posthog_activitylog"."scope" = 'Team'
+                       AND "posthog_activitylog"."activity" IN ('email_sending_suspended',
+                                                                'email_sending_unsuspended',
+                                                                'email_sending_tier_changed'))
+                   OR ("posthog_activitylog"."scope" = 'Role'
+                       AND "posthog_activitylog"."activity" IN ('scim_provisioned',
+                                                                'scim_replaced',
+                                                                'scim_updated',
+                                                                'scim_deprovisioned'))
+                   OR ("posthog_activitylog"."scope" = 'InstanceSetting'
+                       AND "posthog_activitylog"."activity" IN ('updated'))
+                   OR ("posthog_activitylog"."scope" = 'Admin'
+                       AND "posthog_activitylog"."activity" IN ('ttl_updated',
+                                                                'ttl_removed'))
+                   OR ("posthog_activitylog"."scope" = 'AIGatewayCredit'
+                       AND "posthog_activitylog"."activity" IN ('credit_added'))
+                   OR ("posthog_activitylog"."scope" = 'Ticket'
+                       AND "posthog_activitylog"."activity" IN ('commented',
+                                                                'created task'))
+                   OR ("posthog_activitylog"."scope" = 'conversations_ticket'
+                       AND "posthog_activitylog"."activity" IN ('commented',
+                                                                'created task'))
+                   OR ("posthog_activitylog"."scope" = 'desktop_canvas'
+                       AND "posthog_activitylog"."activity" IN ('commented',
+                                                                'created task',
+                                                                'completed task',
+                                                                'reopened task'))
+                   OR ("posthog_activitylog"."scope" = 'canvas'
+                       AND "posthog_activitylog"."activity" IN ('commented',
+                                                                'created task',
+                                                                'completed task',
+                                                                'reopened task')))))
   ORDER BY "posthog_activitylog"."created_at" DESC
   LIMIT 2
   '''

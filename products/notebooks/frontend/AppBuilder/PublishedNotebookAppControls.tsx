@@ -9,6 +9,7 @@ import { notebookLogic } from 'scenes/notebooks/Notebook/notebookLogic'
 import { urls } from 'scenes/urls'
 
 import type { NotebookAppReleaseApi } from '../generated/api.schemas'
+import { NotebookAppAccess } from './NotebookAppAccess'
 import { notebookAppViewerLogic, type ViewerProps } from './notebookAppViewerLogic'
 import { notebookAppViewLink } from './notebookAppViewLink'
 
@@ -65,9 +66,12 @@ export function PublishedNotebookAppControls({
                 Open notebook
             </LemonButton>
             {canEditNotebook && !isTemplate && (
-                <LemonButton size="small" to={urls.notebook(shortId) + '?view=builder'}>
-                    App builder
-                </LemonButton>
+                <>
+                    <LemonButton size="small" to={urls.notebook(shortId) + '?view=builder'}>
+                        App builder
+                    </LemonButton>
+                    <NotebookAppAccess project={viewer.project} shortId={shortId} revision={release.revision} />
+                </>
             )}
             <LemonButton
                 size="small"

@@ -98,6 +98,18 @@ class NotebookAppRelease(TeamScopedRootMixin, UUIDModel):
         constraints = [models.UniqueConstraint(fields=["notebook", "revision"], name="notebook_app_release_revision")]
 
 
+class NotebookAppViewGrant(TeamScopedRootMixin, UUIDModel):
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
+    release = models.ForeignKey(NotebookAppRelease, on_delete=models.CASCADE, related_name="+")
+    recipient = models.ForeignKey("posthog.User", on_delete=models.CASCADE, db_constraint=False, related_name="+")
+    expires_at = models.DateTimeField()
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["release", "recipient"], name="notebook_app_release_recipient"),
+        ]
+
+
 RELATED_OBJECTS = ("group", "account")
 
 

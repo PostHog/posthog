@@ -32,12 +32,14 @@ from posthog.models.activity_logging.activity_log import (
     ActivityLog,
     ActivityScope,
     apply_activity_visibility_restrictions,
+    bound_detail_for_internal_event,
 )
 from posthog.models.activity_logging.property_value_visibility import PropertyValueVisibility
 from posthog.models.activity_logging.retention import get_activity_log_lookback_restriction
-from posthog.models.activity_logging.utils import CREDENTIAL_TYPE_CHOICES
+from posthog.models.activity_logging.utils import CREDENTIAL_TYPE_CHOICES, activity_visibility_manager
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.user import User
+from posthog.models.utils import ActivityDetailEncoder
 from posthog.paging import CursorPageRequest
 from posthog.permissions import PremiumFeaturePermission
 from posthog.queryset_paging import select_cursor_rows
@@ -242,6 +244,44 @@ class ActivityLogSerializer(serializers.ModelSerializer):
         data = super().to_representation(instance)
         data["detail"] = visible_detail(instance, self.context)
         return data
+
+    @classmethod
+    def for_internal_event(cls, instance: ActivityLog) -> dict[str, Any] | None:
+        restrictions = list(activity_visibility_manager.matching_restrictions(instance, restrict_for_staff=True))
+        if any(not rule.get("summarize_for_destinations") for rule in restrictions):
+            return None
+
+        serialized = cls(instance).data
+        if restrictions:
+            fields = {rule["change_field"] for rule in restrictions}
+            changes = sorted(
+                {
+                    (field, action)
+                    for field, action in activity_visibility_manager.changed_fields(instance)
+                    if field in fields and action in ("created", "changed", "deleted")
+                }
+            )
+            summary = {
+                key: serialized[key]
+                for key in (
+                    "id",
+                    "user",
+                    "created_at",
+                    "was_impersonated",
+                    "team_id",
+                    "organization_id",
+                    "scope",
+                    "activity",
+                )
+            }
+            summary["detail"] = {"changes": [{"field": field, "action": action} for field, action in changes]}
+            return summary
+
+        serialized["detail"] = json.loads(json.dumps(serialized["detail"], cls=ActivityDetailEncoder))
+        serialized["detail"], truncated = bound_detail_for_internal_event(serialized["detail"])
+        if truncated:
+            serialized["detail_truncated"] = True
+        return serialized
 
     def get_unread(self, obj: ActivityLog) -> bool:
         """is the date of this log item newer than the user's bookmark"""
@@ -475,6 +515,13 @@ def _validate_ip_or_wildcard(value: str) -> None:
 
 
 class AdvancedActivityLogFiltersSerializer(serializers.Serializer):
+    entry_ids = JSONTolerantListField(
+        child=serializers.UUIDField(),
+        required=False,
+        allow_empty=False,
+        max_length=100,
+        help_text="Filter by up to 100 activity log entry UUIDs, such as the id from an activity log event.",
+    )
     start_date = serializers.DateTimeField(
         required=False,
         help_text=(

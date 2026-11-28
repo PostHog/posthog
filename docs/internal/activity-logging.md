@@ -11,6 +11,11 @@ Read this doc before you add or change activity logging.
 
 ## Reading activity rows
 
+Notebook readers can see ordinary edits in the individual activity history. Sharing recipient details and grant changes there require organization admin, owner or authorized staff access. The notification feed applies the same visibility rules before grouping notebook edits, so a private sharing change cannot displace a visible edit.
+Organization admins and owners can also read grants and revocations in their organization’s audit log and in project audit feeds and CSV exports, including after the notebook is deleted.
+Staff who can access a project’s audit log can read its grant records there. The organization-wide endpoint requires an admin or owner membership.
+The `system.activity_logs` SQL table omits these records.
+
 Activity rows show the actor, optional client tag, and time above the action summary and its target.
 Long action summaries collapse to two lines.
 Description changes include a two-line preview of the new value in normal text.
@@ -364,6 +369,7 @@ Organization IP restriction configuration logs initial creation and changes to t
   The Activity page reads times and days without an offset in the project timezone, as insights do.
 - Access control: resource `activity_log`, default level `viewer`.
 - Entitlement: both list endpoints are gated by `AvailableFeature.AUDIT_LOGS` on Cloud and apply the entitlement's lookback window (`get_activity_log_lookback_restriction` in `posthog/models/activity_logging/retention.py`). Writes always happen.
+- Destinations receive a summary when a notebook grant changes. The audit row ID links the actor and action to the detailed record. An authorized audit integration can request `GET /api/projects/{project_id}/advanced_activity_logs/?entry_ids={event_id}` with an `activity_log:read` credential to retrieve the source IP, client, credential type and customer-visible credential ID. The API applies the caller’s current permissions and audit log retention window. Project destinations receive no source or credential details, notebook ID, title, recipient or release revision.
 - `activity_visibility_restrictions` hides selected rows from non-staff users (login events of impersonated sessions).
 
 Scheduled scouts already carry `activity_log:read`. MCP hides `advanced-activity-logs-list` when the Cloud organization lacks the Audit Logs entitlement.
