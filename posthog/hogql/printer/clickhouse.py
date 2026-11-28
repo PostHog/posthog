@@ -58,6 +58,7 @@ from posthog.hogql.restricted_properties import (
 from posthog.hogql.type_system import infer_tuple_access_constant_type, parse_sql_runtime_type
 from posthog.hogql.visitor import GetFieldsTraverser, clone_expr
 
+from posthog.clickhouse.client.connection import MAX_QUERY_SIZE_BYTES
 from posthog.clickhouse.client.escape import substitute_params
 from posthog.clickhouse.events_json import TEMPORARY_PROPERTIES_COLUMN
 from posthog.exchange_rate_constants import EXCHANGE_RATE_DECIMAL_PRECISION, EXCHANGE_RATE_DICTIONARY_NAME
@@ -199,6 +200,26 @@ _JSON_KEY_PATH_FUNCTIONS = frozenset(
 )
 # JSON functions that take keys after the document and then a return type as the last argument.
 _JSON_FUNCTIONS_WITH_TRAILING_TYPE = frozenset({"JSONExtract", "JSONExtractKeysAndValues"})
+
+
+# The channel dictionary has no row for an empty domain, so a NULL key always misses. The `if` skips the lookups
+# for a NULL key, because ClickHouse evaluates an `if` branch only for the rows that take it. Most sessions have no
+# UTM source or medium, so this skips most lookups.
+def _channel_source_lookup(channel_dict: str, attribute: str, key: str) -> str:
+    exact = f"dictGetOrNull('{channel_dict}', '{attribute}', (coalesce({key}, ''), 'source'))"
+    subdomain = f"dictGetOrNull('{channel_dict}', '{attribute}', (cutToFirstSignificantSubdomain(coalesce({key}, '')), 'source'))"
+    return f"if(isNull({key}), NULL, coalesce({exact}, {subdomain}))"
+
+
+def _channel_medium_lookup(channel_dict: str, attribute: str, key: str) -> str:
+    return f"if(isNull({key}), NULL, dictGetOrNull('{channel_dict}', '{attribute}', (coalesce({key}, ''), 'medium')))"
+
+
+# Some expansions print an argument more than once: comparisons of nullable sides, the channel lookups and
+# convertCurrency. Each level of nesting multiplies the printed SQL, so a small query can make the printer build gigabytes.
+# Every visit checks its printed size, which stops the growth one level past this budget. ClickHouse rejects a query
+# over MAX_QUERY_SIZE_BYTES. The budget is twice that because a placeholder prints longer than most of its values.
+MAX_PRINTED_SQL_LENGTH = 2 * MAX_QUERY_SIZE_BYTES
 
 
 def _group_type_index_of_blob(column_name: str) -> int | None:
@@ -477,17 +498,13 @@ class ClickHousePrinter(BasePrinter):
             channel_dict = get_channel_definition_dict()
             return f"coalesce(dictGetOrNull('{channel_dict}', 'domain_type', (coalesce({args[0]}, ''), 'source')), dictGetOrNull('{channel_dict}', 'domain_type', (cutToFirstSignificantSubdomain(coalesce({args[0]}, '')), 'source')))"
         elif node.name == "lookupPaidSourceType":
-            channel_dict = get_channel_definition_dict()
-            return f"coalesce(dictGetOrNull('{channel_dict}', 'type_if_paid', (coalesce({args[0]}, ''), 'source')) , dictGetOrNull('{channel_dict}', 'type_if_paid', (cutToFirstSignificantSubdomain(coalesce({args[0]}, '')), 'source')))"
+            return _channel_source_lookup(get_channel_definition_dict(), "type_if_paid", args[0])
         elif node.name == "lookupPaidMediumType":
-            channel_dict = get_channel_definition_dict()
-            return f"dictGetOrNull('{channel_dict}', 'type_if_paid', (coalesce({args[0]}, ''), 'medium'))"
+            return _channel_medium_lookup(get_channel_definition_dict(), "type_if_paid", args[0])
         elif node.name == "lookupOrganicSourceType":
-            channel_dict = get_channel_definition_dict()
-            return f"coalesce(dictGetOrNull('{channel_dict}', 'type_if_organic', (coalesce({args[0]}, ''), 'source')), dictGetOrNull('{channel_dict}', 'type_if_organic', (cutToFirstSignificantSubdomain(coalesce({args[0]}, '')), 'source')))"
+            return _channel_source_lookup(get_channel_definition_dict(), "type_if_organic", args[0])
         elif node.name == "lookupOrganicMediumType":
-            channel_dict = get_channel_definition_dict()
-            return f"dictGetOrNull('{channel_dict}', 'type_if_organic', (coalesce({args[0]}, ''), 'medium'))"
+            return _channel_medium_lookup(get_channel_definition_dict(), "type_if_organic", args[0])
         elif node.name == "convertCurrency":
             # convertCurrency(from_currency, to_currency, amount, timestamp?)
             from_currency, to_currency, amount, *_rest = args
@@ -518,6 +535,9 @@ class ClickHousePrinter(BasePrinter):
         if node is None:
             return ""
         response = super().visit(node)
+        # A join prints to a JoinExprResponse, and the select query that holds it is checked.
+        if isinstance(response, str) and len(response) > MAX_PRINTED_SQL_LENGTH:
+            raise QueryError("This query is too large to run. Reduce how deeply its expressions are nested.")
 
         if len(self.stack) == 0 and self.settings:
             if not isinstance(node, ast.SelectQuery) and not isinstance(node, ast.SelectSetQuery):

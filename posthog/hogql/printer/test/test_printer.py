@@ -4523,10 +4523,10 @@ class TestPrinter(BaseTest):
         )
         assert (
             self._with_active_events_table(
-                f"SELECT coalesce(dictGetOrNull('{CLICKHOUSE_DATABASE}.channel_definition_dict', 'type_if_paid', "
-                "(coalesce(%(hogql_val_0)s, ''), 'source')) , "
+                f"SELECT if(isNull(%(hogql_val_0)s), NULL, coalesce(dictGetOrNull('{CLICKHOUSE_DATABASE}.channel_definition_dict', 'type_if_paid', "
+                "(coalesce(%(hogql_val_0)s, ''), 'source')), "
                 f"dictGetOrNull('{CLICKHOUSE_DATABASE}.channel_definition_dict', 'type_if_paid', "
-                "(cutToFirstSignificantSubdomain(coalesce(%(hogql_val_0)s, '')), 'source'))) AS source "
+                "(cutToFirstSignificantSubdomain(coalesce(%(hogql_val_0)s, '')), 'source')))) AS source "
                 f"FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 50000 SETTINGS "
                 "readonly=2, max_execution_time=10, allow_experimental_object_type=1, "
                 "max_ast_elements=4000000, "
@@ -4542,8 +4542,8 @@ class TestPrinter(BaseTest):
         )
         assert (
             self._with_active_events_table(
-                f"SELECT dictGetOrNull('{CLICKHOUSE_DATABASE}.channel_definition_dict', 'type_if_paid', "
-                "(coalesce(%(hogql_val_0)s, ''), 'medium')) AS medium "
+                f"SELECT if(isNull(%(hogql_val_0)s), NULL, dictGetOrNull('{CLICKHOUSE_DATABASE}.channel_definition_dict', 'type_if_paid', "
+                "(coalesce(%(hogql_val_0)s, ''), 'medium'))) AS medium "
                 f"FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS} SETTINGS "
                 f"readonly=2, max_execution_time=10, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_rewrite_aggregate_function_with_if=0, optimize_min_inequality_conjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0{self._native_read_settings_suffix()}"
             )
@@ -4557,10 +4557,10 @@ class TestPrinter(BaseTest):
         )
         assert (
             self._with_active_events_table(
-                f"SELECT coalesce(dictGetOrNull('{CLICKHOUSE_DATABASE}.channel_definition_dict', 'type_if_organic', "
+                f"SELECT if(isNull(%(hogql_val_0)s), NULL, coalesce(dictGetOrNull('{CLICKHOUSE_DATABASE}.channel_definition_dict', 'type_if_organic', "
                 "(coalesce(%(hogql_val_0)s, ''), 'source')), "
                 f"dictGetOrNull('{CLICKHOUSE_DATABASE}.channel_definition_dict', 'type_if_organic', "
-                "(cutToFirstSignificantSubdomain(coalesce(%(hogql_val_0)s, '')), 'source'))) AS source "
+                "(cutToFirstSignificantSubdomain(coalesce(%(hogql_val_0)s, '')), 'source')))) AS source "
                 f"FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 50000 SETTINGS "
                 "readonly=2, max_execution_time=10, allow_experimental_object_type=1, "
                 "max_ast_elements=4000000, "
@@ -4576,13 +4576,36 @@ class TestPrinter(BaseTest):
         )
         assert (
             self._with_active_events_table(
-                f"SELECT dictGetOrNull('{CLICKHOUSE_DATABASE}.channel_definition_dict', 'type_if_organic', "
-                "(coalesce(%(hogql_val_0)s, ''), 'medium')) AS medium "
+                f"SELECT if(isNull(%(hogql_val_0)s), NULL, dictGetOrNull('{CLICKHOUSE_DATABASE}.channel_definition_dict', 'type_if_organic', "
+                "(coalesce(%(hogql_val_0)s, ''), 'medium'))) AS medium "
                 f"FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS} SETTINGS "
                 f"readonly=2, max_execution_time=10, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_rewrite_aggregate_function_with_if=0, optimize_min_inequality_conjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0{self._native_read_settings_suffix()}"
             )
             == printed
         )
+
+    @parameterized.expand(
+        [
+            ("convert_currency_amount", "convertCurrency('USD', 'EUR', {})", "1"),
+            ("convert_currency_from_currency", "convertCurrency({}, 'EUR', 1)", "event"),
+            ("channel_source_lookup", "lookupPaidSourceType({})", "event"),
+            ("channel_medium_lookup", "lookupOrganicMediumType({})", "event"),
+            ("nullable_comparison", "({} = properties.b)", "properties.a"),
+        ]
+    )
+    def test_nesting_that_multiplies_printed_sql_is_rejected(self, _name: str, template: str, innermost: str):
+        def nested(depth: int) -> str:
+            expr = innermost
+            for _ in range(depth):
+                expr = template.format(expr)
+            return f"select {expr} from events"
+
+        with patch("posthog.hogql.printer.clickhouse.MAX_PRINTED_SQL_LENGTH", 100_000):
+            self._print(nested(2))
+            with self.assertRaises(QueryError) as context:
+                self._print(nested(12))
+
+        assert str(context.exception) == "This query is too large to run. Reduce how deeply its expressions are nested."
 
     def test_currency_conversion(self):
         printed = self._print(
