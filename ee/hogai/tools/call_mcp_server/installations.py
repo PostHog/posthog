@@ -121,17 +121,6 @@ def _get_unlisted_tool_state(
     return resolve_member_unlisted_tool_state(installation_id, team_id, gateway_server_id, user.id, tool_name)
 
 
-def _mark_needs_reauth_sync(installation_id: str) -> None:
-    try:
-        inst = MCPServerInstallation.objects.get(id=installation_id)
-    except MCPServerInstallation.DoesNotExist:
-        return
-    sensitive = inst.sensitive_configuration or {}
-    sensitive["needs_reauth"] = True
-    inst.sensitive_configuration = sensitive
-    inst.save(update_fields=["sensitive_configuration", "updated_at"])
-
-
 def _refresh_token_sync(installation: dict) -> dict:
     # refresh_installation_token resolves template-or-installation OAuth creds itself,
     # so we don't need to pre-join anything here.
