@@ -1,5 +1,7 @@
 import '@testing-library/jest-dom'
 
+import userEvent, { PointerEventsCheckLevel } from '@testing-library/user-event'
+
 import { useMocks } from '~/mocks/jest'
 import type { MockResolverInfo } from '~/mocks/utils'
 import {
@@ -34,10 +36,21 @@ const testSender = {
     organization_blocked: false,
     adoption_enabled: true,
 }
-const readyList = { id: 7, name: 'Signups', is_static: true, is_calculating: false, last_calculation: null }
+const readyList = {
+    id: 7,
+    name: 'Signups',
+    is_static: true,
+    is_calculating: false,
+    last_calculation: null,
+    errors_calculating: 0,
+    deleted: false,
+    filters: { properties: { type: 'AND', values: [] } },
+}
 const flagCohort = { id: 42, name: 'Users with feature flag test-flag enabled', errors_calculating: 0 }
+const SURVEY_ID = '0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a6c'
+const CREATED_ID = '0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a7d'
 const survey = {
-    id: 'test-survey',
+    id: SURVEY_ID,
     name: 'Saved survey',
     description: '',
     type: SurveyType.Popover,
@@ -66,6 +79,11 @@ describe('message audience attempts', () => {
         urls: typeof import('scenes/urls').urls
         toastify: { ToastContainer: () => JSX.Element; toast: { dismiss: () => void } }
         cohortSavedToast: typeof import('scenes/cohorts/cohortSavedToast').cohortSavedToast
+        CohortEdit: typeof import('scenes/cohorts/CohortEdit').CohortEdit
+        sceneLayoutLogic: typeof import('~/layout/scenes/sceneLayoutLogic').sceneLayoutLogic
+        appFeatureFlagLogic: typeof import('lib/logic/featureFlagLogic').featureFlagLogic
+        FEATURE_FLAGS: typeof import('lib/constants').FEATURE_FLAGS
+        earlyAccessFeatureLogic: typeof import('products/early_access_features/frontend/earlyAccessFeatureLogic').earlyAccessFeatureLogic
         featureFlagLogic: typeof import('scenes/feature-flags/featureFlagLogic').featureFlagLogic
         NEW_FLAG: typeof import('scenes/feature-flags/featureFlagLogic').NEW_FLAG
         surveyLogic: typeof import('scenes/surveys/surveyLogic').surveyLogic
@@ -92,6 +110,7 @@ describe('message audience attempts', () => {
             advanced_disable_flags: true,
             autocapture: false,
             capture_pageview: false,
+            rate_limiting: { events_per_second: 1000, events_burst_limit: 10_000 },
         })
         const { initKeaTests } = await import('~/test/init')
         initKeaTests()
@@ -105,6 +124,12 @@ describe('message audience attempts', () => {
             urls: (await import('scenes/urls')).urls,
             toastify: jest.requireActual('react-toastify'),
             cohortSavedToast: (await import('scenes/cohorts/cohortSavedToast')).cohortSavedToast,
+            CohortEdit: (await import('scenes/cohorts/CohortEdit')).CohortEdit,
+            sceneLayoutLogic: (await import('~/layout/scenes/sceneLayoutLogic')).sceneLayoutLogic,
+            appFeatureFlagLogic: (await import('lib/logic/featureFlagLogic')).featureFlagLogic,
+            FEATURE_FLAGS: (await import('lib/constants')).FEATURE_FLAGS,
+            earlyAccessFeatureLogic: (await import('products/early_access_features/frontend/earlyAccessFeatureLogic'))
+                .earlyAccessFeatureLogic,
             featureFlagLogic: featureFlags.featureFlagLogic,
             NEW_FLAG: featureFlags.NEW_FLAG,
             surveyLogic: (await import('scenes/surveys/surveyLogic')).surveyLogic,
@@ -161,8 +186,10 @@ describe('message audience attempts', () => {
                 '/api/projects/:team_id/cohorts/:id/': ({ params }) =>
                     String(params.id) === '42' ? { ...flagCohort, is_calculating: false } : readyList,
                 [`/api/projects/:team_id/feature_flags/1/`]: { ...app.NEW_FLAG, id: 1, key: 'test-flag' },
-                '/api/projects/:team_id/surveys/test-survey/': survey,
-                '/api/projects/:team_id/surveys/test-survey/archived-response-uuids/': [],
+                [`/api/projects/:team_id/surveys/${SURVEY_ID}/`]: survey,
+                [`/api/projects/:team_id/surveys/${SURVEY_ID}/archived-response-uuids/`]: [],
+                '/api/projects/:team_id/early_access_feature/:id': earlyAccessFeature,
+                '/api/projects/:team_id/hog_flows/:id/': () => [200, { ...createRequests.at(-1), id: CREATED_ID }],
             },
             post: {
                 [`${INGESTION_HOST}/e/`]: async ({ request }: MockResolverInfo) => {
@@ -178,9 +205,16 @@ describe('message audience attempts', () => {
                 ],
                 '/api/projects/:team_id/workflow_email_drafts/': [500, { detail: 'down' }],
                 '/api/projects/:team_id/hog_flows/': async ({ request }: MockResolverInfo) => {
-                    createRequests.push((await request.json()) as Record<string, unknown>)
-                    return [500, { detail: 'down' }]
+                    const body = (await request.json()) as Record<string, unknown>
+                    createRequests.push(body)
+                    return [201, { ...body, id: CREATED_ID }]
                 },
+            },
+            patch: {
+                '/api/projects/:team_id/early_access_feature/:id': async ({ request }: MockResolverInfo) => [
+                    200,
+                    { ...earlyAccessFeature, ...((await request.json()) as object) },
+                ],
             },
         })
     }
@@ -295,7 +329,10 @@ describe('message audience attempts', () => {
         expect(await savedAttempt.broadcast()).toEqual(first)
     })
 
-    it('saves the sent attempt in the broadcast opened from the toast after leaving the flag page', async () => {
+    it.each([
+        { how: 'from the toast after leaving the flag page', leave: true },
+        { how: 'right away while still on the flag page', leave: false },
+    ])('saves the sent attempt in the broadcast opened $how', async ({ leave }) => {
         useSendMocks({ senders: [verified] })
         app.router.actions.push(app.urls.featureFlag(1))
         app.rtl.render(<app.toastify.ToastContainer />)
@@ -303,8 +340,10 @@ describe('message audience attempts', () => {
         logic.mount()
 
         logic.actions.findOrCreateBroadcastCohort()
-        app.router.actions.push(app.urls.cohorts())
-        app.rtl.fireEvent.click(await app.rtl.screen.findByText('Open broadcast', undefined, { timeout: 5000 }))
+        if (leave) {
+            app.router.actions.push(app.urls.cohorts())
+            app.rtl.fireEvent.click(await app.rtl.screen.findByText('Open broadcast', undefined, { timeout: 5000 }))
+        }
         await opened(app.urls.broadcastNew())
         logic.unmount()
 
@@ -315,11 +354,11 @@ describe('message audience attempts', () => {
 
     it('saves the sent attempt in the broadcast opened from a survey to its respondents', async () => {
         useSendMocks({ senders: [verified] })
-        app.router.actions.push(app.urls.survey('test-survey'))
-        const survey = app.surveyLogic({ id: 'test-survey' })
+        app.router.actions.push(app.urls.survey(SURVEY_ID))
+        const survey = app.surveyLogic({ id: SURVEY_ID })
         survey.mount()
-        await app.rtl.waitFor(() => expect(survey.values.survey.id).toEqual('test-survey'))
-        const logic = app.surveyRespondentsBroadcastLogic({ surveyId: 'test-survey' })
+        await app.rtl.waitFor(() => expect(survey.values.survey.id).toEqual(SURVEY_ID))
+        const logic = app.surveyRespondentsBroadcastLogic({ surveyId: SURVEY_ID })
         logic.mount()
 
         logic.actions.emailRespondents({})
@@ -336,7 +375,7 @@ describe('message audience attempts', () => {
         {
             entry: "a survey's follow-up button",
             click: async () => {
-                app.rtl.render(<app.SurveyFollowUpWorkflowButton surveyId="test-survey" />)
+                app.rtl.render(<app.SurveyFollowUpWorkflowButton surveyId={SURVEY_ID} />)
                 app.rtl.fireEvent.click(app.rtl.screen.getByText('Email everyone who responds'))
             },
         },
@@ -346,7 +385,7 @@ describe('message audience attempts', () => {
         },
     ])('saves the sent attempt in the workflow opened from $entry', async ({ click }) => {
         useSendMocks({ senders: [verified] })
-        app.router.actions.push('/project/997/surveys/test-survey')
+        app.router.actions.push(app.urls.survey(SURVEY_ID))
 
         await click()
         await opened(app.urls.workflowNew())
@@ -354,6 +393,89 @@ describe('message audience attempts', () => {
         const [attempt] = await sentAttempts(1)
         expect(attempt).toMatch(UUID)
         expect(await savedAttempt.workflow()).toEqual(attempt)
+    })
+
+    const openFileMenuItem = async (dataAttr: string): Promise<void> => {
+        const { screen } = app.rtl
+        const user = userEvent.setup({ pointerEventsCheck: PointerEventsCheckLevel.Never })
+        await user.click(await screen.findByText('File', undefined, { timeout: 5000 }))
+        await user.click(await screen.findByText('Create'))
+        await user.click(
+            await app.rtl.waitFor(() => {
+                const item = document.querySelector<HTMLElement>(`[data-attr="${dataAttr}"]`)
+                expect(item).toBeInTheDocument()
+                return item!
+            })
+        )
+    }
+
+    it.each<{ entry: string; destination: MessageAudienceDestination; click: () => Promise<void> }>([
+        {
+            entry: "the cohort panel's workflow action",
+            destination: 'workflow',
+            click: async () => {
+                await app.rtl.screen.findByText('Build a custom workflow', {}, { timeout: 5000 })
+                app.rtl.fireEvent.click(
+                    document.querySelector<HTMLElement>('[data-attr="cohort-message-with-workflow"]')!
+                )
+            },
+        },
+        {
+            entry: "the cohort File menu's email item",
+            destination: 'broadcast',
+            click: async () => await openFileMenuItem('cohort-menubar-send-broadcast'),
+        },
+        {
+            entry: "the cohort File menu's workflow item",
+            destination: 'workflow',
+            click: async () => await openFileMenuItem('cohort-menubar-message-with-workflow'),
+        },
+    ])('saves the sent attempt in the $destination opened from $entry', async ({ destination, click }) => {
+        useSendMocks({ senders: [verified] })
+        app.appFeatureFlagLogic.actions.setFeatureFlags([app.FEATURE_FLAGS.SCENE_MENU_BAR], {
+            [app.FEATURE_FLAGS.SCENE_MENU_BAR]: true,
+        })
+        app.router.actions.push(app.urls.cohort(7))
+        const panelHost = document.createElement('div')
+        document.body.appendChild(panelHost)
+        app.sceneLayoutLogic.mount()
+        app.sceneLayoutLogic.actions.registerScenePanelElement(panelHost)
+        app.rtl.render(<app.CohortEdit id={7} />)
+
+        await click()
+        await opened(destination === 'workflow' ? app.urls.workflowNew() : app.urls.broadcastNew())
+        panelHost.remove()
+
+        const [attempt] = await sentAttempts(1)
+        expect(attempt).toMatch(UUID)
+        expect(await savedAttempt[destination]()).toEqual(attempt)
+    })
+
+    it('saves the sent attempt in the broadcast opened from the release toast of an early access feature', async () => {
+        useSendMocks({ senders: [verified] })
+        app.router.actions.push(app.urls.earlyAccessFeature(earlyAccessFeature.id))
+        app.rtl.render(<app.toastify.ToastContainer />)
+        const logic = app.earlyAccessFeatureLogic({ id: earlyAccessFeature.id })
+        logic.mount()
+        await app.rtl.waitFor(() => expect(logic.values.earlyAccessFeature.stage).toEqual(EarlyAccessFeatureStage.Beta))
+
+        logic.actions.saveEarlyAccessFeature({
+            ...logic.values.earlyAccessFeature,
+            stage: EarlyAccessFeatureStage.GeneralAvailability,
+        })
+        app.rtl.fireEvent.click(
+            await app.rtl.waitFor(() => {
+                const button = document.querySelector<HTMLElement>('[data-attr="early-access-ga-broadcast"]')
+                expect(button).toBeInTheDocument()
+                return button!
+            })
+        )
+        await opened(app.urls.broadcastNew())
+        logic.unmount()
+
+        const [attempt] = await sentAttempts(1)
+        expect(attempt).toMatch(UUID)
+        expect(await savedAttempt.broadcast()).toEqual(attempt)
     })
 
     it.each<MessageAudienceDestination>(['workflow', 'broadcast'])(
