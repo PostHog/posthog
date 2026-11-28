@@ -699,7 +699,7 @@ class TestCompareReplayVisionVariantsTool(BaseTest):
         )
         _, artifact = await self._tool()._arun_impl(scanner_id=str(scanner.id))
 
-        assert artifact == {"error": "wrong_scanner_type"}
+        assert artifact == {"error": "no_experiment_scope"}
 
     @pytest.mark.django_db
     @pytest.mark.asyncio

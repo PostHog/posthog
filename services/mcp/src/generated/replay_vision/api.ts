@@ -1202,7 +1202,7 @@ export const VisionScannersCreateBody = () => zod
             ])
             .optional()
             .describe(
-                'Which sessions the scanner watches beyond its filters, and the label it gives each one. Null watches every session the filters match. Set null to remove the scope.'
+                'Which sessions the scanner watches beyond its filters, and the label it gives each one. Null on a scanner that has no scope watches every session the filters match. A stored scope can be narrowed or widened but not removed, because its experiment is fixed after creation; make a new scanner to watch every session instead.'
             ),
     })
     .describe('A Replay Vision scanner: its type, targeting query, and AI configuration.')
@@ -1432,7 +1432,7 @@ export const VisionScannersPartialUpdateBody = () => zod
             ])
             .optional()
             .describe(
-                'Which sessions the scanner watches beyond its filters, and the label it gives each one. Null watches every session the filters match. Set null to remove the scope.'
+                'Which sessions the scanner watches beyond its filters, and the label it gives each one. Null on a scanner that has no scope watches every session the filters match. A stored scope can be narrowed or widened but not removed, because its experiment is fixed after creation; make a new scanner to watch every session instead.'
             ),
     })
     .describe('A Replay Vision scanner: its type, targeting query, and AI configuration.')
@@ -2462,7 +2462,7 @@ export const VisionScannersScoutsTemplatesListParams = () => zod.object({
 })
 
 /**
- * Per-variant readout for an experiment scanner: observation counts, distinct people, median session length, sampling rate and latest observations per variant, read live, plus the digests and differences of the scanner's variant analysis scout.
+ * Per-variant readout for a scanner that watches an experiment: observation counts, distinct people, median session length, sampling rate and latest observations per variant, read live, plus the digests and differences of the scanner's variant analysis scout.
  */
 export const VisionScannersVariantsListParams = () => zod.object({
     project_id: zod
