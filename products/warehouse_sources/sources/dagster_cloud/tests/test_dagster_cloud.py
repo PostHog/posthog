@@ -1,5 +1,5 @@
 import re
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from dataclasses import replace
 from datetime import UTC, date, datetime
 from typing import Any
@@ -32,7 +32,9 @@ from products.warehouse_sources.sources.sdk.testing import (
     RecordedRequest,
     ScriptedResponse,
     SourceDriver,
+    activate_safe_point,
     scripted_network,
+    source_inputs,
 )
 
 # 2024-01-01T00:00:00Z
@@ -67,6 +69,28 @@ def _assets_container(ids: list[str], cursor: str | None) -> dict[str, Any]:
         "cursor": cursor,
         "nodes": [{"id": i, "key": {"path": [i]}} for i in ids],
     }
+
+
+def _asset_check_parents(*check_names: str) -> ScriptedResponse:
+    parents = _assets_container(["orders", "retired"], None)
+    parents["nodes"][0]["key"] = {"path": ["sales", "orders"]}
+    parents["nodes"][0]["definition"] = {
+        "assetChecksOrError": {"__typename": "AssetChecks", "checks": [{"name": name} for name in check_names]}
+    }
+    parents["nodes"][1]["definition"] = None
+    return _gql_response("assetsOrError", parents)
+
+
+def _asset_check_executions(*execution_ids: str) -> ScriptedResponse:
+    return ScriptedResponse(
+        json={
+            "data": {
+                "assetCheckExecutions": [
+                    {"id": execution_id, "timestamp": EPOCH_2024, "evaluation": None} for execution_id in execution_ids
+                ]
+            }
+        }
+    )
 
 
 def _manager(saved: DagsterCloudResumeConfig | None = None) -> MagicMock:
@@ -401,7 +425,173 @@ class TestAssetEventFanOut:
         assert "page window did not advance" in str(result.raised)
 
 
+class TestAssetCheckExecutions:
+    @parameterized.expand(
+        [
+            ("completed_check_removed", ("42",), ("not_empty",), [("not_empty", None, "39")]),
+            ("completed_check_reordered", ("42",), ("not_empty", "unique"), [("not_empty", None, "39")]),
+            (
+                "active_check_reordered",
+                ("42", "41"),
+                ("not_empty", "unique"),
+                [("not_empty", None, "39"), ("unique", "41", "40")],
+            ),
+        ]
+    )
+    @patch(f"{MODULE}.DAGSTER_CLOUD_PAGE_SIZE", 2)
+    def test_resumes_each_check_by_identity(
+        self,
+        _name: str,
+        first_page: tuple[str, ...],
+        catalog: tuple[str, ...],
+        remaining: list[tuple[str, str | None, str]],
+    ) -> None:
+        source = DagsterCloudSource()
+        inputs = source_inputs("asset_check_executions")
+        config = DagsterCloudSourceConfig(organization="org", deployment="prod", api_token="tok")
+
+        def consume_attempt(rows: list[dict[str, Any]]) -> None:
+            manager = source.get_resumable_source_manager(inputs)
+            items = source.source_for_pipeline(config, manager, inputs).items()
+            assert isinstance(items, Iterable)
+            for page in items:
+                rows.extend(page)
+                manager.confirm()
+                manager.commit()
+
+        with scripted_network(
+            [
+                _asset_check_parents("unique", "not_empty"),
+                _asset_check_executions(*first_page),
+                ScriptedResponse(status=400),
+                _asset_check_parents(*catalog),
+                *(_asset_check_executions(row_id) for _, _, row_id in remaining),
+            ]
+        ) as network:
+            first: list[dict[str, Any]] = []
+            with pytest.raises(Exception, match="400 Client Error:"):
+                consume_attempt(first)
+            assert [(row["checkName"], row["id"]) for row in first] == [("unique", row_id) for row_id in first_page]
+            assert source.get_resumable_source_manager(inputs).can_resume()
+
+            resume_request_start = len(network.requests_log)
+            resumed: list[dict[str, Any]] = []
+            consume_attempt(resumed)
+            requests = network.requests_log[resume_request_start:]
+
+        assert [
+            request.json()["variables"]
+            for request in requests
+            if "query AssetCheckExecutions" in request.json()["query"]
+        ] == [
+            {
+                "assetKey": {"path": ["sales", "orders"]},
+                "checkName": name,
+                "limit": 2,
+                **({"cursor": cursor} if cursor is not None else {}),
+            }
+            for name, cursor, _ in remaining
+        ]
+        assert [(row["checkName"], row["id"]) for row in resumed] == [(name, row_id) for name, _, row_id in remaining]
+
+    @patch(f"{MODULE}.DAGSTER_CLOUD_PAGE_SIZE", 1)
+    def test_shutdown_interrupts_pages_without_checks(self) -> None:
+        first = _assets_container(["retired"], "page-two")
+        first["nodes"][0]["definition"] = None
+        second = _assets_container(["unchecked"], "page-three")
+        second["nodes"][0]["definition"] = {"assetChecksOrError": {"__typename": "AssetChecks", "checks": []}}
+        last = _assets_container([], None)
+
+        source = DagsterCloudSource()
+        inputs = source_inputs("asset_check_executions")
+        manager = source.get_resumable_source_manager(inputs)
+        config = DagsterCloudSourceConfig(organization="org", deployment="prod", api_token="tok")
+        response = source.source_for_pipeline(config, manager, inputs)
+
+        with scripted_network([_gql_response("assetsOrError", page) for page in (first, second, last)]) as network:
+
+            def hand_over() -> None:
+                if len(network.requests_log) == 2:
+                    raise InterruptedError("worker shutdown")
+
+            with activate_safe_point(hand_over, covers_framework_checkpoints=False):
+                items = response.items()
+                assert isinstance(items, Iterable)
+                with pytest.raises(InterruptedError, match="worker shutdown"):
+                    next(iter(items))
+            assert len(network.requests_log) == 2
+            assert manager.load_state() is None
+
+    @patch(f"{MODULE}.DAGSTER_CLOUD_PAGE_SIZE", 2)
+    def test_paginates_each_check(self) -> None:
+        asset_key = {"path": ["sales", "orders"]}
+        result = _driver().run(
+            "asset_check_executions",
+            [
+                _asset_check_parents("unique", "not_empty"),
+                _asset_check_executions("42", "41"),
+                _asset_check_executions("40"),
+                _asset_check_executions("39"),
+            ],
+        )
+
+        assert result.raised is None
+        assert _variables(result, "AssetCheckExecutions") == [
+            {"assetKey": asset_key, "checkName": "unique", "limit": 2},
+            {"assetKey": asset_key, "checkName": "unique", "limit": 2, "cursor": "41"},
+            {"assetKey": asset_key, "checkName": "not_empty", "limit": 2},
+        ]
+        assert [(row["assetId"], row["checkName"], row["id"]) for row in result.rows] == [
+            ("orders", "unique", "42"),
+            ("orders", "unique", "41"),
+            ("orders", "unique", "40"),
+            ("orders", "not_empty", "39"),
+        ]
+        assert all(row["timestamp"] == ISO_2024 and row["evaluation"] is None for row in result.rows)
+        assert len(result.committed_states) == 1
+
+    def test_check_discovery_error_does_not_look_like_an_empty_catalog(self) -> None:
+        parents = _assets_container(["orders"], None)
+        parents["nodes"][0]["definition"] = {"assetChecksOrError": {"__typename": "AssetCheckNeedsMigrationError"}}
+
+        result = _driver().run("asset_check_executions", [_gql_response("assetsOrError", parents)])
+
+        assert isinstance(result.raised, ValueError)
+        assert "AssetCheckNeedsMigrationError" in str(result.raised)
+
+
 class TestBatchedFanOut:
+    @patch.dict(DAGSTER_CLOUD_ENDPOINTS, {"asset_slas": _with_batch_size("asset_slas", 2)})
+    def test_sla_retry_starts_after_last_written_batch(self) -> None:
+        driver = _driver()
+        parents = _assets_page(["first", "second", "third", "fourth", "fifth"], cursor=None)
+
+        def slas(*asset_names: str) -> ScriptedResponse:
+            return ScriptedResponse(
+                json={
+                    "data": {
+                        "slasForAssets": [
+                            {"assetKey": {"path": [name]}, "state": "PASSING", "since": EPOCH_2024}
+                            for name in asset_names
+                        ]
+                    }
+                }
+            )
+
+        first = driver.run(
+            "asset_slas",
+            [parents, slas("first", "second"), slas("third", "fourth"), ScriptedResponse(status=400)],
+        )
+        assert first.raised is not None and str(first.raised).startswith("400 Client Error:")
+        assert [row["assetKey"]["path"] for row in first.rows] == [["first"], ["second"], ["third"], ["fourth"]]
+        assert first.final_state == DagsterCloudResumeConfig(parents_done=4)
+
+        resumed = driver.run("asset_slas", [parents, slas("fifth")], resume_state=first.final_state)
+        assert resumed.raised is None
+        assert _variables(resumed, "AssetSlas") == [{"assetKeys": [{"path": ["fifth"]}]}]
+        assert [row["assetKey"]["path"] for row in resumed.rows] == [["fifth"]]
+        assert resumed.committed_states == [DagsterCloudResumeConfig(parents_done=5)]
+
     @patch(f"{MODULE}.DAGSTER_CLOUD_PAGE_SIZE", 2)
     @patch.dict(DAGSTER_CLOUD_ENDPOINTS, {"asset_nodes": _with_batch_size("asset_nodes", 2)})
     def test_asset_nodes_batches_keys_and_reads_a_bare_root_list(self) -> None:
@@ -430,6 +620,34 @@ class TestBatchedFanOut:
         assert result.saved_states == [
             DagsterCloudResumeConfig(parents_done=2),
             DagsterCloudResumeConfig(parents_done=3),
+        ]
+
+    def test_sla_ids_preserve_asset_path_boundaries_and_ignore_unconfigured_assets(self) -> None:
+        paths = [["sales/orders"], ["sales", "orders"], ["unconfigured"]]
+        assets = _assets_container(["first", "second", "third"], None)
+        for node, path in zip(assets["nodes"], paths):
+            node["key"]["path"] = path
+        sla_response = ScriptedResponse(
+            json={
+                "data": {
+                    "slasForAssets": [
+                        {"assetKey": {"path": path}, "state": "PASSING", "since": EPOCH_2024}
+                        for path in reversed(paths[:2])
+                    ]
+                }
+            }
+        )
+
+        result = _driver().run(
+            "asset_slas",
+            _route({"PaginatedAssets": _gql_response("assetsOrError", assets), "AssetSlas": sla_response}),
+        )
+
+        assert result.raised is None
+        assert _variables(result, "AssetSlas") == [{"assetKeys": [{"path": path} for path in paths]}]
+        assert [(row["assetKeyId"], row["since"]) for row in result.rows] == [
+            ('["sales", "orders"]', ISO_2024),
+            ('["sales/orders"]', ISO_2024),
         ]
 
 

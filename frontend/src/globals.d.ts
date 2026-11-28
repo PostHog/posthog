@@ -59,5 +59,6 @@ declare global {
         // These are used to track global errors across the app.
         // Can be used to determine whether we should show warnings in different places in the app.
         POSTHOG_GLOBAL_ERRORS?: Record<string, boolean>
+        POSTHOG_FEATURE_FLAGS_LOADED?: boolean
     }
 }

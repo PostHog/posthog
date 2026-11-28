@@ -446,8 +446,8 @@ describe('message audience attempts', () => {
         const { screen } = app.rtl
         const user = userEvent.setup({ pointerEventsCheck: PointerEventsCheckLevel.Never })
         await user.click(await screen.findByText('File', undefined, { timeout: 5000 }))
-        await user.click(await screen.findByText('Create'))
-        await user.click(
+        app.rtl.fireEvent.click(await screen.findByText('Create'))
+        app.rtl.fireEvent.click(
             await app.rtl.waitFor(() => {
                 const item = document.querySelector<HTMLElement>(`[data-attr="${dataAttr}"]`)
                 expect(item).toBeInTheDocument()

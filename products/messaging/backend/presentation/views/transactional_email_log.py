@@ -276,8 +276,14 @@ class TransactionalEmailImpactSerializer(serializers.Serializer):
         allow_null=True,
         help_text="Sessions with a pageview from a link in this email: the pageview URL carries the ph_workflow_run "
         "tag of one of its clicked sends, up to window_days after the period. Reads the newest 10,000 clicked sends "
-        "at most. Sends that went out while link tagging was off carry no tag. Null when link_tagging_enabled is "
-        "false, when the user has no access to querying events, or when the count could not be computed.",
+        "at most, see sessions_capped_at. Sends that went out while link tagging was off carry no tag. Null when "
+        "link_tagging_enabled is false, when the user has no access to querying events, or when the count could not "
+        "be computed.",
+    )
+    sessions_capped_at = serializers.IntegerField(
+        allow_null=True,
+        help_text="Set when the period has more clicked sends than sessions reads: sessions then counts only the "
+        "newest this many clicked sends. Null when sessions covers every clicked send, or when sessions is null.",
     )
     link_tagging_enabled = serializers.BooleanField(
         help_text="Whether the project setting that tags tracked links on the sender's own domain with "
