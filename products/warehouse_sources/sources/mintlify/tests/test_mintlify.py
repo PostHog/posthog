@@ -1,3 +1,4 @@
+import re
 from datetime import UTC, datetime
 from typing import Any
 
@@ -19,8 +20,9 @@ def config() -> MintlifySourceConfig:
 @pytest.mark.parametrize(
     ("incremental", "watermark", "expected"),
     [
-        (True, datetime(2026, 1, 1, tzinfo=UTC), "2026-01-01T00:00:00+00:00"),
+        (True, datetime(2026, 1, 1, 0, 0, 0, 500055, tzinfo=UTC), "2026-01-01T00:00:00Z"),
         (True, "2026-01-01T00:00:00Z", "2026-01-01T00:00:00Z"),
+        (True, "2026-01-01T02:00:00.123+02:00", "2026-01-01T00:00:00Z"),
         (True, None, None),
         (False, "2026-01-01T00:00:00Z", None),
     ],
@@ -44,6 +46,9 @@ def test_incremental_date_filter(
     assert result.rows == [{"id": "turn-1"}]
     assert result.params("cursor") == [None, "cursor-2"]
     assert result.params("dateFrom") == [expected, expected]
+    date_to = result.params("dateTo")
+    assert date_to[0] == date_to[1]
+    assert re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z", date_to[0])
     if incremental:
         assert result.response is not None
         assert result.response.sort_mode == "desc"
@@ -74,6 +79,22 @@ def test_resume_preserves_window(
     assert result.params("dateTo") == ["2026-01-02T00:00:00Z"]
     assert result.params("dateFrom") == [None]
     assert result.saved_states == []
+
+
+def test_resume_normalizes_old_window_format(config: MintlifySourceConfig) -> None:
+    result = SourceDriver(MintlifySource(), config).run(
+        "assistant_conversations",
+        [ScriptedResponse(json={"conversations": [], "nextCursor": None})],
+        should_use_incremental_field=True,
+        resume_state=MintlifyResumeConfig(
+            paginator_state={"cursor": "saved-cursor"},
+            date_to="2026-01-02T00:00:00.500055+00:00",
+            date_from="2026-01-01T00:00:00+00:00",
+        ),
+    )
+    assert result.raised is None
+    assert result.params("dateTo") == ["2026-01-02T00:00:00Z"]
+    assert result.params("dateFrom") == ["2026-01-01T00:00:00Z"]
 
 
 @pytest.mark.parametrize("status", [400, 404])
