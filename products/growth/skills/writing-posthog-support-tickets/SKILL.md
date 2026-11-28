@@ -31,7 +31,7 @@ Answer what the docs answer, then say where they can ask:
 
 - **On a paid plan, on a trial that includes support, or in an organization under 3 months old:** log in to PostHog in their browser and ask in the support widget in the right-hand sidebar, at https://app.posthog.com/home#panel=support.
 - **On the free plan:** community support at https://posthog.com/forum. Say that the forum is public, so they should leave out personal data and secrets. Any paid plan adds support.
-- **When you don't know the plan:** give both.
+- **When you don't know the plan:** give both, but don't say that any paid plan adds support.
 - **When they can't log in:** no plan can file that from here. Say something like "For security reasons, I can't send that ticket through the MCP. Go to the [PostHog login page](https://app.posthog.com) and try to log in. When the login fails, an error such as 'Invalid email or password.' appears below the 'Welcome back' heading, followed by 'Need help?'. If you get past the password but can't finish two-factor authentication, that screen has a 'Need help?' link too. Click 'Need help?' to open a support ticket from there, even on the free plan."
 
 Don't offer to write a forum post. Write one only when they ask for it, and never put personal data or secrets in it, even when they ask for that too. Use placeholders, and tell them something like "I've written the draft with placeholders for your private data and your keys, and I suggest you don't post those to the public forum."
@@ -139,7 +139,7 @@ When you have `posthog:posthog-support-draft-create`, directly or through `exec`
 
 - Each part of the ticket is one field, without its heading: `title`, `request`, `details`, `already_checked` and `error`.
 - Set `topic` to what the whole ticket is about. Support sees it, and the server refuses `other`.
-  - `privacy_or_security_deletion` only when the person gave a privacy or security reason for the deletion, such as a data subject request, or secrets in their events. Any plan can send it. Ask for the reason, and use `other_deletion` when it is something else, such as cleaning up test events.
+  - `privacy_or_security_deletion` only when the person gave a privacy or security reason for the deletion, such as a data subject request, or secrets in their events. Any plan can send it, but only an owner or admin. Ask for the reason, and use `other_deletion` when it is something else, such as cleaning up test events.
   - `billing` when the ticket is about billing or usage, such as a charge, an invoice, a credit, or usage against a limit. Any plan can send it, so don't use it for a billing question asked in passing in a ticket about something else, such as whether a limit could explain events that stopped arriving.
   - `privacy`, `security`, `compliance`, `retention`, `dpa` or `baa` when the ticket is about that.
 - Set `filing_reason` to the first that fits. It tells support why the ticket exists.
@@ -156,12 +156,16 @@ Then show the person the full ticket, and follow the `next_step` the draft retur
 - Anything else is not a yes: a question, a change they want, or no answer. Change the ticket, draft it again, and show them the new version. A yes to an earlier version does not cover a changed ticket, so show the new one and ask again.
 - **When `can_send` is false**, do not offer to send it. Tell them what `next_step` says.
 - **When they already sent 3 tickets on this topic in 72 hours**, the server refuses the draft. Tell them so, and that they can read those tickets, reply on them, and watch for replies at https://app.posthog.com/home#panel=support. Don't draft it again under another topic.
-- **When the draft is refused for its topic or their plan**, tell them where its `detail` says they can ask instead. Don't draft it again under another topic. When it is refused for a missing field, add the field and draft it again.
+- **When the draft is refused for its topic, their plan or their role**, tell them where its `detail` says they can ask instead. Don't draft it again under another topic. When it is refused for a missing field, add the field and draft it again.
 - When the send fails, tell them what its `detail` says. When the detail says the ticket may already be with support, do not send it again.
 
 Never say a ticket was filed before the send returns a `ticket_id`, and do not promise a response time.
 
-**Without the draft tool,** their key or connection may lack the `posthog_support:write` scope. Once they add it, draft with the tool. Until then, on a paid plan, a trial that includes support, or in an organization under 3 months old, give them the ticket to paste into the support widget in the right-hand sidebar of PostHog, which attaches their project and session to it. On the free plan, the scope is their only route from here for billing or a deletion for a privacy or security reason, so never point those to the forum.
+**When `organization-privacy-facts-get` reports `missing_scope` for `plan`,** their key lacks `billing:read`. Treat the plan as unknown: draft only what the free plan can send, and give both places to ask.
+
+**Only organization owners and admins (`organization.membership_level` 15 or 8) can send deletion requests to support**. The server refuses a deletion ticket from a member, so don't draft one: tell them an owner or admin of their PostHog organization needs to submit it. On the free plan, nobody can send a deletion without a privacy or security reason, so point them to the forum instead.
+
+**Without the draft tool,** their key or connection may lack the `posthog_support:write` scope. Once they add it, draft with the tool. Until then, on a paid plan, a trial that includes support, or in an organization under 3 months old, give them the ticket to paste into the support widget in the right-hand sidebar of PostHog, which attaches their project and session to it. Deletion requests are for owners and admins only, so tell a member that an owner or admin must submit one. On the free plan, the scope is their only route from here for billing or a deletion for a privacy or security reason, so never point those to the forum.
 Either way, say which details or links you could not find, so they can add them before the ticket is sent.
 
 ## Before you hand it over, check

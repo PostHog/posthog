@@ -21,6 +21,7 @@ import type {
     LabelListResponseApi,
     PostHogSupportDraftApi,
     PostHogSupportDraftCreateApi,
+    PostHogSupportPlanApi,
     PostHogSupportSentTicketApi,
     ProductPushCampaignActiveRetrieveParams,
     ProductPushCampaignApi,
@@ -269,6 +270,24 @@ export const growthEnrichmentScoringSaveCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(scoringSaveRequestApi),
+    })
+}
+
+export const getPosthogSupportPlanRetrieveUrl = (organizationId: string) => {
+    return `/api/organizations/${organizationId}/posthog_support_plan/`
+}
+
+/**
+ * Returns the plan tier and whether it includes support tickets, by the same rule that decides whether an agent can send a support ticket.
+ * @summary Get the organization's plan and whether it includes PostHog support
+ */
+export const posthogSupportPlanRetrieve = async (
+    organizationId: string,
+    options?: RequestInit
+): Promise<PostHogSupportPlanApi> => {
+    return apiMutator<PostHogSupportPlanApi>(getPosthogSupportPlanRetrieveUrl(organizationId), {
+        ...options,
+        method: 'GET',
     })
 }
 

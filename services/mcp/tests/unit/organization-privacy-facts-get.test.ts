@@ -61,8 +61,8 @@ const happyPath: Responder = (path) => {
             ],
         }
     }
-    if (path === '/api/organizations/org-1/billing/subscription/') {
-        return { billing_plan: 'enterprise', subscription_level: 'paid', customer_id: 'cus_secret' }
+    if (path === '/api/organizations/org-1/posthog_support_plan/') {
+        return { tier: 'paid', support_included: true, customer_id: 'cus_secret' }
     }
     if (path === '/api/organizations/org-1/legal_documents/') {
         return {
@@ -95,7 +95,7 @@ describe('organization-privacy-facts-get', () => {
             '/api/projects/2/events_retention/',
         ])
         expect(result.region).toMatchObject({ value: 'eu', basis: 'project_ingestion_host' })
-        expect(result.plan).toMatchObject({ status: 'ok', billing_plan: 'enterprise' })
+        expect(result.plan).toEqual({ status: 'ok', tier: 'paid', support_included: true })
         expect(result.legal_documents).toMatchObject({ status: 'ok', dpa: { status: 'signed' }, baa: null })
         expect(result.project).toMatchObject({ status: 'ok', session_recording_retention_period: '90d' })
         expect(result.organization.plan_entitlements).toEqual([
@@ -132,20 +132,6 @@ describe('organization-privacy-facts-get', () => {
     })
 
     it.each([
-        [{ status: 'active' }, true],
-        [{ status: 'expired' }, false],
-        [{ status: 'converted' }, false],
-        [null, false],
-    ])('reports trial %o as on_trial %s', async (trial, expected) => {
-        const respond: Responder = (path) =>
-            path.endsWith('/billing/subscription/') ? { billing_plan: 'paid', trial } : happyPath(path)
-
-        const result = (await tool.handler(createMockContext(respond), {})) as any
-
-        expect(result.plan.on_trial).toBe(expected)
-    })
-
-    it.each([
         ['a 5xx', new PostHogApiError({ status: 502, statusText: 'Bad Gateway', body: '', url: '', method: 'GET' }), 1],
         ['a bug in the handler', new TypeError('boom'), 1],
         ['a 404', new PostHogApiError({ status: 404, statusText: 'Not Found', body: '', url: '', method: 'GET' }), 0],
@@ -164,6 +150,7 @@ describe('organization-privacy-facts-get', () => {
                         $exception_fingerprint: 'organization-privacy-facts-get',
                         tool: 'organization-privacy-facts-get',
                         suppress_analytics: false,
+                        is_impersonated: false,
                     },
                 },
             ])

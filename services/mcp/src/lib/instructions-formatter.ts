@@ -35,6 +35,7 @@ import EXEC_LEARN from '@/templates/sections/exec-learn.md'
 import EXEC_TOOL_BLURB_COMPACT from '@/templates/sections/exec-tool-blurb-compact.md'
 import EXEC_TOOL_BLURB from '@/templates/sections/exec-tool-blurb.md'
 import EXPLAIN_CHART from '@/templates/sections/explain-chart.md'
+import FEATURE_AVAILABILITY from '@/templates/sections/feature-availability.md'
 import INBOX_FIRST from '@/templates/sections/inbox-first.md'
 import METRIC_DISCOVERY_COMPACT from '@/templates/sections/metric-discovery-compact.md'
 import METRIC_DISCOVERY_EMPTY_LEARN from '@/templates/sections/metric-discovery-empty-learn.md'
@@ -380,6 +381,7 @@ export class InstructionsFormatter {
                 URL_PATTERNS,
                 AGENT_FEEDBACK,
                 PRIVACY_QUESTIONS,
+                FEATURE_AVAILABILITY,
                 EXAMPLES,
             ],
             ctx,
@@ -592,6 +594,7 @@ export class InstructionsFormatter {
                 formatPrompt(CLI_EXAMPLES_LEARN, learnExampleVars(ctx.renderUiEnabled, skillsEnabled && !claudeChat)),
                 CLI_ERROR_HANDLING,
                 BASIC_FUNCTIONALITY,
+                FEATURE_AVAILABILITY,
                 TOOL_SEARCH,
                 ...envContextSections(ctx),
                 // URL patterns and activity history normally load through `learn urls`
@@ -630,6 +633,7 @@ export class InstructionsFormatter {
             ...envContextSections(ctx),
             URL_PATTERNS,
             AGENT_FEEDBACK,
+            FEATURE_AVAILABILITY,
             EXAMPLES,
         ]
         const renderCtx: InstructionsContext = {

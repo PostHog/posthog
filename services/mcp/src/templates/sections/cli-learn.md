@@ -1,6 +1,6 @@
 **SKILLS FIRST: HARD REQUIREMENT**
 
-Skills are the authoritative, instance-versioned docs for PostHog behavior: warning thresholds, scoring and visibility rules, query patterns, system-table schemas. Public docs, web search, and the PostHog GitHub repo may not match this instance — never clone, grep, or web-search PostHog internals for facts a skill can serve.
+Skills are the authoritative, instance-versioned docs for PostHog behavior: warning thresholds, scoring and visibility rules, query patterns, system-table schemas. Public docs, web search, and the PostHog GitHub repo may not match this instance — never clone, grep, or web-search PostHog internals for facts a skill can serve, except to check whether a feature is available.
 
 For non-trivial PostHog/team work, after any needed project clarification, first run `learn -s "<task keywords>"`, even if unasked. Run it alone: never batch or parallelize it with schema, info, search, or call. Wait, load matches, then continue. Trivial means repeating a lookup you already made this session; any question about a PostHog feature's behavior or data is not trivial.
 

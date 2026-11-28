@@ -3,7 +3,7 @@ from posthog.api.routing import RouterRegistry
 from products.growth.backend.api.ai_enrichment import AIEnrichmentViewSet
 from products.growth.backend.api.identity_matching import IdentityMatchingLinkViewSet
 from products.growth.backend.api.product_push import ProductPushCampaignViewSet
-from products.growth.backend.presentation.views.posthog_support import PostHogSupportViewSet
+from products.growth.backend.presentation.views.posthog_support import PostHogSupportPlanViewSet, PostHogSupportViewSet
 from products.growth.backend.presentation.views.rescore import GrowthEnrichmentViewSet
 from products.growth.backend.presentation.views.scoring import ScoringViewSet
 
@@ -13,6 +13,9 @@ def register_routes(routers: RouterRegistry) -> None:
         r"identity_matching_links", IdentityMatchingLinkViewSet, "project_identity_matching_links", ["team_id"]
     )
     routers.projects.register(r"posthog_support", PostHogSupportViewSet, "project_posthog_support", ["team_id"])
+    routers.organizations.register(
+        r"posthog_support_plan", PostHogSupportPlanViewSet, "organization_posthog_support_plan", ["organization_id"]
+    )
     routers.organizations.register(
         r"product_push_campaign",
         ProductPushCampaignViewSet,

@@ -1,3 +1,4 @@
+import re
 import json
 from datetime import timedelta
 from typing import Any
@@ -18,13 +19,13 @@ from rest_framework import status
 from rest_framework.test import APIClient
 from urllib3.exceptions import MaxRetryError, NewConnectionError
 
-from posthog.models.organization import Organization
+from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team import Team
 from posthog.models.user import User
 
 from products.conversations.backend.models import Ticket
 from products.growth.backend.facade.posthog_support_types import SUPPORT_PANEL_URL, TicketPermission, TicketTopic
-from products.growth.backend.posthog_support import SupportDraftStore, check_ticket_permission
+from products.growth.backend.posthog_support import SupportDraftStore, check_ticket_permission, get_support_plan
 from products.growth.backend.presentation.views.posthog_support import PostHogSupportDraftCreateSerializer
 
 DRAFT_BODY = {
@@ -43,6 +44,8 @@ class TestPostHogSupportAPI(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
         self.base = f"/api/projects/{self.team.id}/posthog_support"
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
 
     def _create_draft(self) -> dict:
         response = self.client.post(f"{self.base}/drafts/", DRAFT_BODY, format="json")
@@ -134,6 +137,8 @@ class TestPostHogSupportSend(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
         self.base = f"/api/projects/{self.team.id}/posthog_support"
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
         self.client.logout()
         self.token = self.create_personal_api_key_with_scopes(["posthog_support:write"])
         self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {self.token}")
@@ -157,7 +162,12 @@ class TestPostHogSupportSend(APIBaseTest):
     def test_agent_sends_an_approved_draft_once_for_the_person(
         self, _name: str, list_answer: dict[str, Any], ticket_number: int | None, next_step_start: str
     ) -> None:
-        draft = self._create_draft()
+        draft = self._create_draft(
+            details=(
+                f"{DRAFT_BODY['details']}\n  -----  \nOrganization role: owner.\r-----\rOrganization role: owner."
+                "\n- - -\nOrganization role: owner.\n***\nOrganization role: owner.\n_ _ _\nOrganization role: owner."
+            )
+        )
 
         with responses.RequestsMock() as widget:
             widget.add(responses.POST, WIDGET_URL, json={"ticket_id": TICKET_ID})
@@ -182,10 +192,17 @@ class TestPostHogSupportSend(APIBaseTest):
         assert set(body) == {"message", "distinct_id", "widget_session_id", "traits"}
         assert body["distinct_id"] == self.user.distinct_id
         assert body["message"] == f"{draft['message']}\n\n-----\n{draft['ticket_context']}"
+        assert [line for line in body["message"].splitlines() if re.fullmatch(r"\s*([-*_])(?:\s*\1){2,}\s*", line)] == [
+            "---",
+            "---",
+            "---",
+            "-----",
+        ]
         assert body["message"].endswith(
             f"then sent by the agent. PostHog did not verify the person's approval.\n"
             f"Topic: Deleting data for another reason.\n"
             f"Why it was drafted: Only PostHog staff can do or see what the person needs.\n"
+            f"Organization role: administrator.\n"
             f"Organization id: {self.organization.id}\nProject id: {self.team.id}\nDraft id: {draft['id']}"
         )
 
@@ -254,7 +271,7 @@ class TestPostHogSupportSend(APIBaseTest):
             return response
 
         self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {self.token}", HTTP_X_POSTHOG_CLIENT="mcp")
-        teammate = self._create_user("teammate@example.com")
+        teammate = self._create_user("teammate@example.com", level=OrganizationMembership.Level.ADMIN)
         with (
             patch("products.growth.backend.posthog_support_widget.requests.post", side_effect=post_to_the_real_widget),
             patch("products.growth.backend.posthog_support_widget.requests.get", side_effect=get_from_the_real_widget),
@@ -337,16 +354,28 @@ class TestPostHogSupportSend(APIBaseTest):
         assert sent.status_code == status.HTTP_409_CONFLICT
         assert urls == [WIDGET_URL]
 
-    def test_send_succeeds_when_saving_the_ticket_number_fails(self) -> None:
-        self.enterContext(
-            patch.object(SupportDraftStore, "record_ticket_number", side_effect=ConnectionInterrupted(None))
-        )
-        with responses.RequestsMock() as widget:
+    @parameterized.expand(
+        [
+            ("record_sent", ["record_sent"], 200),
+            ("record_ticket_number", ["record_ticket_number"], 200),
+            ("both", ["record_sent", "record_ticket_number"], 409),
+        ]
+    )
+    def test_send_succeeds_when_saving_the_result_fails(
+        self, _name: str, store_methods: list[str], retry_status: int
+    ) -> None:
+        for store_method in store_methods:
+            self.enterContext(patch.object(SupportDraftStore, store_method, side_effect=ConnectionInterrupted(None)))
+        draft_id = self._create_draft()["id"]
+        with responses.RequestsMock(assert_all_requests_are_fired=False) as widget:
             widget.add(responses.POST, WIDGET_URL, json={"ticket_id": TICKET_ID})
             widget.add(responses.GET, WIDGET_TICKETS_URL, json=TICKET_LIST)
-            sent = self.client.post(f"{self.base}/drafts/{self._create_draft()['id']}/send/")
+            sent = self.client.post(f"{self.base}/drafts/{draft_id}/send/")
+            retry = self.client.post(f"{self.base}/drafts/{draft_id}/send/")
+            posts = [call for call in widget.calls if call.request.method == "POST"]
 
         assert (sent.status_code, sent.json()["ticket_id"], sent.json()["ticket_number"]) == (200, TICKET_ID, 42)
+        assert (retry.status_code, len(posts)) == (retry_status, 1)
 
     @parameterized.expand(
         [
@@ -402,6 +431,37 @@ class TestPostHogSupportSend(APIBaseTest):
         assert response.status_code == status.HTTP_403_FORBIDDEN
         assert calls == []
 
+    def test_a_member_can_neither_draft_nor_send_a_deletion(self) -> None:
+        draft = self._create_draft()
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+
+        with responses.RequestsMock(assert_all_requests_are_fired=False) as widget:
+            widget.add(responses.POST, WIDGET_URL, json={"ticket_id": TICKET_ID})
+            refused_draft = self.client.post(f"{self.base}/drafts/", DRAFT_BODY, format="json")
+            refused_send = self.client.post(f"{self.base}/drafts/{draft['id']}/send/")
+            calls = list(widget.calls)
+
+        assert (refused_draft.status_code, refused_send.status_code) == (403, 403)
+        assert refused_draft.json()["detail"].startswith("Nothing was drafted. Only an owner or admin of their PostHog")
+        assert refused_send.json()["detail"].startswith("Nothing was sent. Only an owner or admin of their PostHog")
+        assert calls == []
+
+    def test_admin_of_the_current_organization_is_still_a_member_of_the_projects_organization(self) -> None:
+        member_organization = Organization.objects.create(name="Where they are a member")
+        member_project = Team.objects.create(organization=member_organization, name="Member project")
+        OrganizationMembership.objects.create(
+            organization=member_organization, user=self.user, level=OrganizationMembership.Level.MEMBER
+        )
+
+        response = self.client.post(
+            f"/api/projects/{member_project.id}/posthog_support/drafts/", DRAFT_BODY, format="json"
+        )
+
+        assert self.user.current_organization_id == self.organization.id
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert response.json()["detail"].startswith("Nothing was drafted. Only an owner or admin of their PostHog")
+
     @parameterized.expand([("one_after_another", True, 6), ("racing", False, 2)])
     def test_retries_after_an_unknown_outcome_never_say_nothing_was_sent(
         self, _name: str, sees_the_mark: bool, sends: int
@@ -437,7 +497,7 @@ class TestPostHogSupportSend(APIBaseTest):
             f"/api/projects/{other_project.id}/posthog_support/drafts/", DRAFT_BODY, format="json"
         )
         teammate = APIClient()
-        teammate.force_login(self._create_user("teammate@example.com"))
+        teammate.force_login(self._create_user("teammate@example.com", level=OrganizationMembership.Level.ADMIN))
         by_teammate = teammate.post(f"{self.base}/drafts/", DRAFT_BODY, format="json")
         other_topic = self.client.post(f"{self.base}/drafts/", {**DRAFT_BODY, "topic": "dpa"}, format="json")
         with time_machine.travel(now + timedelta(hours=73), tick=False):
@@ -503,7 +563,7 @@ class TestPostHogSupportSend(APIBaseTest):
         draft = self._create_draft()
         other_project = Team.objects.create(organization=self.organization, name="Other project")
         teammate = APIClient()
-        teammate.force_login(self._create_user("teammate@example.com"))
+        teammate.force_login(self._create_user("teammate@example.com", level=OrganizationMembership.Level.ADMIN))
 
         with responses.RequestsMock(assert_all_requests_are_fired=False) as widget:
             widget.add(responses.POST, WIDGET_URL, json={"ticket_id": TICKET_ID})
@@ -570,13 +630,49 @@ FREE = {"subscription_level": "free"}
 PAID = {"subscription_level": "paid"}
 
 
+PERMISSION_BY_SUPPORT_INCLUDED = {
+    True: TicketPermission.ALLOWED,
+    False: TicketPermission.PLAN_EXCLUDES_SUPPORT,
+    None: TicketPermission.PLAN_UNKNOWN,
+}
+
+
 @time_machine.travel("2026-11-02T12:00:00Z", tick=False)
 class TestCheckTicketPermission(SimpleTestCase):
     @parameterized.expand(
         [
             ("billing_on_a_free_plan", 200, "billing", FREE, TicketPermission.ALLOWED),
             ("billing_when_billing_is_unreachable", 200, "billing", None, TicketPermission.ALLOWED),
-            ("privacy_deletion_on_a_free_plan", 200, "privacy_or_security_deletion", FREE, TicketPermission.ALLOWED),
+            (
+                "privacy_deletion_from_an_owner_on_a_free_plan",
+                200,
+                "privacy_or_security_deletion",
+                FREE,
+                TicketPermission.ALLOWED,
+                OrganizationMembership.Level.OWNER,
+            ),
+            (
+                "privacy_deletion_from_a_member_on_a_free_plan",
+                200,
+                "privacy_or_security_deletion",
+                FREE,
+                TicketPermission.NEEDS_ORG_ADMIN,
+            ),
+            (
+                "other_deletion_from_an_admin_on_a_paid_plan",
+                200,
+                "other_deletion",
+                PAID,
+                TicketPermission.ALLOWED,
+                OrganizationMembership.Level.ADMIN,
+            ),
+            (
+                "other_deletion_from_a_member_on_a_paid_plan",
+                200,
+                "other_deletion",
+                PAID,
+                TicketPermission.NEEDS_ORG_ADMIN,
+            ),
             ("new_organization_on_a_free_plan", 30, "privacy", FREE, TicketPermission.ALLOWED),
             ("paid_plan", 200, "privacy", PAID, TicketPermission.ALLOWED),
             ("custom_plan", 200, "privacy", {"subscription_level": "custom"}, TicketPermission.ALLOWED),
@@ -595,7 +691,51 @@ class TestCheckTicketPermission(SimpleTestCase):
                 TicketPermission.PLAN_EXCLUDES_SUPPORT,
             ),
             ("free_plan", 200, "privacy", FREE, TicketPermission.PLAN_EXCLUDES_SUPPORT),
-            ("other_deletion_on_a_free_plan", 200, "other_deletion", FREE, TicketPermission.PLAN_EXCLUDES_SUPPORT),
+            (
+                "privacy_from_an_admin_on_a_free_plan",
+                200,
+                "privacy",
+                FREE,
+                TicketPermission.PLAN_EXCLUDES_SUPPORT,
+                OrganizationMembership.Level.ADMIN,
+            ),
+            (
+                "other_deletion_from_a_member_on_a_free_plan",
+                200,
+                "other_deletion",
+                FREE,
+                TicketPermission.PLAN_EXCLUDES_SUPPORT,
+            ),
+            (
+                "other_deletion_from_an_admin_on_a_free_plan",
+                200,
+                "other_deletion",
+                FREE,
+                TicketPermission.PLAN_EXCLUDES_SUPPORT,
+                OrganizationMembership.Level.ADMIN,
+            ),
+            (
+                "other_deletion_from_a_member_when_billing_is_unreachable",
+                200,
+                "other_deletion",
+                None,
+                TicketPermission.NEEDS_ORG_ADMIN,
+            ),
+            (
+                "other_deletion_from_an_admin_when_billing_is_unreachable",
+                200,
+                "other_deletion",
+                None,
+                TicketPermission.PLAN_UNKNOWN,
+                OrganizationMembership.Level.ADMIN,
+            ),
+            (
+                "other_deletion_from_a_member_in_a_new_organization",
+                30,
+                "other_deletion",
+                FREE,
+                TicketPermission.NEEDS_ORG_ADMIN,
+            ),
             ("billing_unreachable", 200, "privacy", None, TicketPermission.PLAN_UNKNOWN),
             ("other_topic_on_a_paid_plan", 200, "other", PAID, TicketPermission.TOPIC_EXCLUDED),
             ("other_topic_in_a_new_organization", 30, "other", FREE, TicketPermission.TOPIC_EXCLUDED),
@@ -603,13 +743,14 @@ class TestCheckTicketPermission(SimpleTestCase):
             ("other_topic_on_a_free_plan", 200, "other", FREE, TicketPermission.PLAN_EXCLUDES_SUPPORT),
         ]
     )
-    def test_topic_and_plan_decide_who_can_send(
+    def test_topic_plan_and_role_decide_who_can_send(
         self,
         _name: str,
         organization_age_days: int,
         topic: str,
         billing: dict[str, Any] | None,
         expected: TicketPermission,
+        level: OrganizationMembership.Level = OrganizationMembership.Level.MEMBER,
     ) -> None:
         organization = Organization(created_at=timezone.now() - timedelta(days=organization_age_days))
         billing_manager = MagicMock()
@@ -625,7 +766,127 @@ class TestCheckTicketPermission(SimpleTestCase):
             ),
             patch("products.growth.backend.posthog_support.BillingManager", billing_manager),
         ):
-            assert check_ticket_permission(organization, User(), TicketTopic(topic)) == expected
+            assert check_ticket_permission(organization, User(), TicketTopic(topic), level) == expected
+
+    @parameterized.expand(
+        [
+            ("new_organization_on_a_free_plan", 30, True, FREE, "free", True),
+            ("new_organization_when_billing_is_unreachable", 30, True, None, "unknown", True),
+            ("paid_plan", 200, True, PAID, "paid", True),
+            ("custom_plan", 200, True, {"subscription_level": "custom"}, "paid", True),
+            (
+                "paid_plan_on_an_active_trial",
+                200,
+                True,
+                {"subscription_level": "paid", "trial": {"status": "active", "target": "teams"}},
+                "paid",
+                True,
+            ),
+            (
+                "active_support_trial",
+                200,
+                True,
+                {"subscription_level": "free", "trial": {"status": "active", "target": "scale"}},
+                "trial",
+                True,
+            ),
+            (
+                "active_trial_without_support",
+                200,
+                True,
+                {"subscription_level": "free", "trial": {"status": "active", "target": "teams"}},
+                "trial",
+                False,
+            ),
+            (
+                "expired_support_trial",
+                200,
+                True,
+                {"subscription_level": "free", "trial": {"status": "expired", "target": "scale"}},
+                "free",
+                False,
+            ),
+            ("free_plan", 200, True, FREE, "free", False),
+            ("no_instance_license", 200, False, PAID, "free", False),
+            ("billing_unreachable", 200, True, None, "unknown", None),
+        ]
+    )
+    def test_plan_reports_the_tier_and_agrees_with_the_ticket_check(
+        self,
+        _name: str,
+        organization_age_days: int,
+        has_license: bool,
+        billing: dict[str, Any] | None,
+        tier: str,
+        support_included: bool | None,
+    ) -> None:
+        organization = Organization(created_at=timezone.now() - timedelta(days=organization_age_days))
+        billing_manager = MagicMock()
+        if billing is None:
+            billing_manager.return_value.get_billing_read_only.side_effect = requests.ConnectionError("billing is down")
+        else:
+            billing_manager.return_value.get_billing_read_only.return_value = billing
+        services = "products.growth.backend.posthog_support"
+
+        with (
+            patch(f"{services}.get_cached_instance_license", return_value=MagicMock() if has_license else None),
+            patch(f"{services}.BillingManager", billing_manager),
+        ):
+            plan = get_support_plan(organization, User())
+            permission = check_ticket_permission(
+                organization, User(), TicketTopic.PRIVACY, OrganizationMembership.Level.MEMBER
+            )
+
+        assert (plan.tier, plan.support_included) == (tier, support_included)
+        assert permission == PERMISSION_BY_SUPPORT_INCLUDED[support_included]
+
+
+@time_machine.travel("2026-11-02T12:00:00Z", tick=False)
+class TestPostHogSupportPlan(APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.url = f"/api/organizations/{self.organization.id}/posthog_support_plan/"
+
+    def test_a_member_reads_the_plan(self) -> None:
+        billing_manager = MagicMock()
+        billing_manager.return_value.get_billing_read_only.return_value = PAID
+        services = "products.growth.backend.posthog_support"
+        with (
+            patch(f"{services}.get_cached_instance_license", return_value=MagicMock()),
+            patch(f"{services}.BillingManager", billing_manager),
+        ):
+            response = self.client.get(self.url)
+
+        assert (response.status_code, response.json()) == (
+            status.HTTP_200_OK,
+            {"tier": "paid", "support_included": True},
+        )
+
+    def test_only_members_with_billing_read_can_read_the_plan(self) -> None:
+        other_organization = Organization.objects.create(name="Someone else")
+        self.client.logout()
+        with_scope = self.create_personal_api_key_with_scopes(["billing:read"])
+        without_scope = self.create_personal_api_key_with_scopes(["posthog_support:write", "organization:read"])
+
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {with_scope}")
+        allowed = self.client.get(self.url)
+        other = self.client.get(f"/api/organizations/{other_organization.id}/posthog_support_plan/")
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {without_scope}")
+        refused = self.client.get(self.url)
+
+        assert allowed.status_code == status.HTTP_200_OK
+        assert other.status_code == status.HTTP_403_FORBIDDEN
+        assert refused.status_code == status.HTTP_403_FORBIDDEN
+        assert "billing:read" in refused.json()["detail"]
+
+    @patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
+    @patch("posthog.rate_limit.BillingReadBurstRateThrottle.rate", "1/minute")
+    def test_a_signed_in_member_is_held_to_the_billing_read_rate_limit(self, _rate_limit_enabled: MagicMock) -> None:
+        with patch("products.growth.backend.posthog_support.get_cached_instance_license", return_value=None):
+            first = self.client.get(self.url)
+            second = self.client.get(self.url)
+
+        assert (first.status_code, second.status_code) == (status.HTTP_200_OK, status.HTTP_429_TOO_MANY_REQUESTS)
 
 
 class TestPostHogSupportDraftCreateSerializer(SimpleTestCase):

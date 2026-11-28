@@ -354,6 +354,36 @@ export interface ScoringSaveRequestApi {
     base_config_id: string
 }
 
+/**
+ * * `paid` - Paid
+ * * `trial` - Trial
+ * * `free` - Free
+ * * `unknown` - Unknown
+ */
+export type SupportPlanTierEnumApi = (typeof SupportPlanTierEnumApi)[keyof typeof SupportPlanTierEnumApi]
+
+export const SupportPlanTierEnumApi = {
+    Paid: 'paid',
+    Trial: 'trial',
+    Free: 'free',
+    Unknown: 'unknown',
+} as const
+
+export interface PostHogSupportPlanApi {
+    /** The organization's plan: paid (a paid or custom subscription), trial (an active trial), free, or unknown when PostHog couldn't read billing.
+     *
+     * * `paid` - Paid
+     * * `trial` - Trial
+     * * `free` - Free
+     * * `unknown` - Unknown */
+    tier: SupportPlanTierEnumApi
+    /**
+     * True when the plan includes support, so an agent can send a ticket on any topic it can file. Billing tickets, and deletions for a privacy or security reason from an owner or admin, can be sent on any plan. Organizations under 3 months old have support on any plan. Null when PostHog couldn't read billing.
+     * @nullable
+     */
+    support_included: boolean | null
+}
+
 export interface ProductPushCampaignApi {
     /** Campaign id. Stable for the campaign's lifetime — key per-user dismissal state on it. */
     readonly id: string

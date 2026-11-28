@@ -45,17 +45,26 @@ class DraftedVia(LabeledStrEnum):
     API = "api", "Drafted through the PostHog API"
 
 
+class SupportPlanTier(LabeledStrEnum):
+    PAID = "paid", "Paid"
+    TRIAL = "trial", "Trial"
+    FREE = "free", "Free"
+    UNKNOWN = "unknown", "Unknown"
+
+
 class TicketPermission(StrEnum):
     ALLOWED = "allowed"
     PLAN_EXCLUDES_SUPPORT = "plan_excludes_support"
     PLAN_UNKNOWN = "plan_unknown"
     TOPIC_EXCLUDED = "topic_excluded"
+    NEEDS_ORG_ADMIN = "needs_org_admin"
 
 
 class DraftRefusal(StrEnum):
     TOPIC_EXCLUDED = "topic_excluded"
     PLAN_EXCLUDES_SUPPORT = "plan_excludes_support"
     TOPIC_LIMIT = "topic_limit"
+    NEEDS_ORG_ADMIN = "needs_org_admin"
 
 
 class SendFailure(StrEnum):
@@ -66,6 +75,7 @@ class SendFailure(StrEnum):
     TOPIC_EXCLUDED = "topic_excluded"
     PLAN_EXCLUDES_SUPPORT = "plan_excludes_support"
     PLAN_UNKNOWN = "plan_unknown"
+    NEEDS_ORG_ADMIN = "needs_org_admin"
     NOT_SENT = "not_sent"
     OUTCOME_UNKNOWN = "outcome_unknown"
 
@@ -88,3 +98,9 @@ class SentSupportTicketResult:
     newly_sent: bool
     topic: TicketTopic | None = None
     filing_reason: FilingReason | None = None
+
+
+@frozen
+class SupportPlan:
+    tier: SupportPlanTier
+    support_included: bool | None

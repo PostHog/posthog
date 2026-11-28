@@ -102,6 +102,7 @@ async function readSection<T extends object>(
                             $exception_fingerprint: 'organization-privacy-facts-get',
                             tool: 'organization-privacy-facts-get',
                             suppress_analytics: apiKey.suppress_analytics === true,
+                            is_impersonated: apiKey.is_impersonated === true,
                         },
                     })
                 )
@@ -142,12 +143,9 @@ type OrgResponse = {
     available_product_features?: Array<{ key: string; limit?: number | null; unit?: string | null }> | null
 }
 
-type SubscriptionResponse = {
-    billing_plan?: string | null
-    subscription_level?: string | null
-    has_active_subscription?: boolean
-    startup_program_label?: string | null
-    trial?: { status?: 'active' | 'expired' | 'cancelled' | 'converted' } | null
+type SupportPlanResponse = {
+    tier: 'paid' | 'trial' | 'free' | 'unknown'
+    support_included: boolean | null
 }
 
 type LegalDocument = { document_type: string; status: string; created_at: string }
@@ -225,17 +223,11 @@ export const getPrivacyFactsHandler: ToolBase<typeof schema, Record<string, unkn
             if (!orgId) {
                 return noOrg()
             }
-            const s = await api.request<SubscriptionResponse>({
+            const p = await api.request<SupportPlanResponse>({
                 method: 'GET',
-                path: org('/billing/subscription/'),
+                path: org('/posthog_support_plan/'),
             })
-            return {
-                billing_plan: s.billing_plan ?? null,
-                subscription_level: s.subscription_level ?? null,
-                has_active_subscription: s.has_active_subscription ?? null,
-                startup_program_label: s.startup_program_label ?? null,
-                on_trial: s.trial?.status === 'active',
-            }
+            return { tier: p.tier, support_included: p.support_included }
         }),
         readSection(
             context,

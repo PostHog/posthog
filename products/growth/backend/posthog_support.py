@@ -21,7 +21,7 @@ from redis.exceptions import RedisError
 from posthog.cloud_utils import get_cached_instance_license
 from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
-from posthog.models.organization import Organization
+from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team import Team
 from posthog.models.user import User
 
@@ -32,6 +32,8 @@ from products.growth.backend.facade.posthog_support_types import (
     DraftRefusal,
     FilingReason,
     SendFailure,
+    SupportPlan,
+    SupportPlanTier,
     TicketPermission,
     TicketTopic,
 )
@@ -53,45 +55,72 @@ BILLING_TIMEOUT_SECONDS = (3.0, 5.0)
 # Renders as a horizontal line. It needs the blank lines, because `---` right under text turns that
 # text into a Markdown heading.
 SECTION_SEPARATOR = "\n\n---\n\n"
+# A horizontal rule in the person's text could pass for the separator above the ticket note and fake a note under it.
+HORIZONTAL_RULE_LINE = re.compile(r"\s*([-*_])(?:\s*\1){2,}\s*")
 
 
 ANY_PLAN_TOPICS = frozenset({TicketTopic.BILLING, TicketTopic.PRIVACY_OR_SECURITY_DELETION})
+ORG_ADMIN_TOPICS = frozenset({TicketTopic.PRIVACY_OR_SECURITY_DELETION, TicketTopic.OTHER_DELETION})
 
 
-def _check_plan(organization: Organization, user: User) -> TicketPermission:
-    """Keep this rule the same as canCreateTicket in sidepanelTicketsLogic.ts, which the web app's
-    support form applies in the browser."""
-    if organization.created_at > timezone.now() - relativedelta(months=NEW_ORGANIZATION_SUPPORT_MONTHS):
-        return TicketPermission.ALLOWED
+def _is_new_organization(organization: Organization) -> bool:
+    return organization.created_at > timezone.now() - relativedelta(months=NEW_ORGANIZATION_SUPPORT_MONTHS)
+
+
+def _billing_plan(organization: Organization, user: User) -> SupportPlan:
     instance_license = get_cached_instance_license()
     if instance_license is None:
         # Without a license there is no billing account, and the web app shows such an instance as free.
-        return TicketPermission.PLAN_EXCLUDES_SUPPORT
+        return SupportPlan(tier=SupportPlanTier.FREE, support_included=False)
     try:
         billing = BillingManager(instance_license, user).get_billing_read_only(
             organization, timeout=BILLING_TIMEOUT_SECONDS
         )
     except Exception as e:
         capture_exception(e)
-        return TicketPermission.PLAN_UNKNOWN
+        return SupportPlan(tier=SupportPlanTier.UNKNOWN, support_included=None)
     trial = billing.get("trial") or {}
-    if billing.get("subscription_level") in ("paid", "custom") or (
-        trial.get("status") == "active" and trial.get("target") in SUPPORT_TRIAL_TARGETS
-    ):
+    if billing.get("subscription_level") in ("paid", "custom"):
+        return SupportPlan(tier=SupportPlanTier.PAID, support_included=True)
+    if trial.get("status") == "active":
+        return SupportPlan(tier=SupportPlanTier.TRIAL, support_included=trial.get("target") in SUPPORT_TRIAL_TARGETS)
+    return SupportPlan(tier=SupportPlanTier.FREE, support_included=False)
+
+
+def get_support_plan(organization: Organization, user: User) -> SupportPlan:
+    plan = _billing_plan(organization, user)
+    if _is_new_organization(organization):
+        return SupportPlan(tier=plan.tier, support_included=True)
+    return plan
+
+
+def _check_plan(organization: Organization, user: User) -> TicketPermission:
+    """Keep this rule the same as canCreateTicket in sidepanelTicketsLogic.ts, which the web app's
+    support form applies in the browser."""
+    if _is_new_organization(organization):
         return TicketPermission.ALLOWED
-    return TicketPermission.PLAN_EXCLUDES_SUPPORT
+    support_included = _billing_plan(organization, user).support_included
+    if support_included is None:
+        return TicketPermission.PLAN_UNKNOWN
+    return TicketPermission.ALLOWED if support_included else TicketPermission.PLAN_EXCLUDES_SUPPORT
 
 
-def check_ticket_permission(organization: Organization, user: User, topic: TicketTopic) -> TicketPermission:
+def check_ticket_permission(
+    organization: Organization, user: User, topic: TicketTopic, membership_level: OrganizationMembership.Level | None
+) -> TicketPermission:
     """Whether an agent can file a ticket on this topic for this organization.
 
     The agent picks the topic, so this limits what a well-behaved agent files. It does not stop one that
     mislabels a ticket.
     """
-    if topic in ANY_PLAN_TOPICS:
-        return TicketPermission.ALLOWED
-    permission = _check_plan(organization, user)
-    if topic == TicketTopic.OTHER and permission != TicketPermission.PLAN_EXCLUDES_SUPPORT:
+    permission = TicketPermission.ALLOWED if topic in ANY_PLAN_TOPICS else _check_plan(organization, user)
+    if permission == TicketPermission.PLAN_EXCLUDES_SUPPORT:
+        return permission
+    if topic in ORG_ADMIN_TOPICS and (
+        membership_level is None or membership_level < OrganizationMembership.Level.ADMIN
+    ):
+        return TicketPermission.NEEDS_ORG_ADMIN
+    if topic == TicketTopic.OTHER:
         return TicketPermission.TOPIC_EXCLUDED
     return permission
 
@@ -107,7 +136,7 @@ class SupportTicketDraft:
     mcp_session_id: str | None = None
     mcp_conversation_id: str | None = None
 
-    def ticket_context(self, team: Team) -> str:
+    def ticket_context(self, team: Team, membership_level: OrganizationMembership.Level | None) -> str:
         # The person cannot see or edit this note, so it holds only text the server writes. The MCP ids
         # come from request headers, so the API keeps a value only when it has the form of an id.
         lines = [
@@ -115,6 +144,7 @@ class SupportTicketDraft:
             f"{DraftedVia(self.drafted_via).label}, then sent by the agent. PostHog did not verify the person's approval.",
             f"Topic: {TicketTopic(self.topic).label}.",
             f"Why it was drafted: {FilingReason(self.filing_reason).label}.",
+            f"Organization role: {OrganizationMembership.Level(membership_level).label if membership_level else 'none'}.",
             f"Organization id: {team.organization_id}",
             f"Project id: {team.id}",
             f"Draft id: {self.id}",
@@ -126,9 +156,9 @@ class SupportTicketDraft:
             lines.append(f"MCP conversation id: {self.mcp_conversation_id}")
         return "\n".join(lines)
 
-    def outgoing_message(self, team: Team) -> str:
+    def outgoing_message(self, team: Team, membership_level: OrganizationMembership.Level | None) -> str:
         # The same layout as appendTicketContext in supportLogic.ts, so support reads one note layout on every ticket.
-        return f"{self.message}\n\n-----\n{self.ticket_context(team)}"
+        return f"{self.message}\n\n-----\n{self.ticket_context(team, membership_level)}"
 
 
 def compose_ticket_message(
@@ -150,9 +180,9 @@ def compose_ticket_message(
     # Ticket lists preview a ticket by its first line, so the title goes first, on a line of its own
     parts = [" ".join(title.split())]
     for label, body in sections:
-        if not body or not body.strip():
+        body = "\n".join(line for line in (body or "").splitlines() if not HORIZONTAL_RULE_LINE.fullmatch(line)).strip()
+        if not body:
             continue
-        body = body.strip()
         if label == "Error":
             body = _code_block(body)
         # Markdown joins two lines of prose into one paragraph, so Request needs a blank line to render its
@@ -283,6 +313,7 @@ class SupportDraftStore:
 @frozen
 class DraftOutcome:
     permission: TicketPermission
+    membership_level: OrganizationMembership.Level | None
     draft: SupportTicketDraft | None = None
     refusal: DraftRefusal | None = None
 
@@ -293,6 +324,11 @@ class SendOutcome:
     ticket: SentSupportTicket | None = None
     failure: SendFailure | None = None
     replayed: bool = False
+
+
+def _membership_level(team: Team, user: User) -> OrganizationMembership.Level | None:
+    membership = OrganizationMembership.objects.filter(organization_id=team.organization_id, user=user).first()
+    return membership.effective_level if membership else None
 
 
 def create_draft(
@@ -307,11 +343,18 @@ def create_draft(
     mcp_conversation_id: str | None,
 ) -> DraftOutcome:
     store = SupportDraftStore(user.pk, team.pk)
-    permission = check_ticket_permission(team.organization, user, topic)
-    if permission in (TicketPermission.TOPIC_EXCLUDED, TicketPermission.PLAN_EXCLUDES_SUPPORT):
-        return DraftOutcome(permission=permission, refusal=DraftRefusal(permission.value))
+    membership_level = _membership_level(team, user)
+    permission = check_ticket_permission(team.organization, user, topic, membership_level)
+    if permission in (
+        TicketPermission.TOPIC_EXCLUDED,
+        TicketPermission.PLAN_EXCLUDES_SUPPORT,
+        TicketPermission.NEEDS_ORG_ADMIN,
+    ):
+        return DraftOutcome(
+            permission=permission, membership_level=membership_level, refusal=DraftRefusal(permission.value)
+        )
     if store.topic_limit_reached(topic):
-        return DraftOutcome(permission=permission, refusal=DraftRefusal.TOPIC_LIMIT)
+        return DraftOutcome(permission=permission, membership_level=membership_level, refusal=DraftRefusal.TOPIC_LIMIT)
     draft = store.create(
         message=message,
         topic=topic,
@@ -320,7 +363,7 @@ def create_draft(
         mcp_session_id=mcp_session_id,
         mcp_conversation_id=mcp_conversation_id,
     )
-    return DraftOutcome(permission=permission, draft=draft)
+    return DraftOutcome(permission=permission, membership_level=membership_level, draft=draft)
 
 
 def send_draft(user: User, team: Team, draft_id: str) -> SendOutcome:
@@ -340,7 +383,8 @@ def send_draft(user: User, team: Team, draft_id: str) -> SendOutcome:
         return failed(SendFailure.TOO_MANY_ATTEMPTS)
     if store.topic_limit_reached(draft.topic):
         return failed(SendFailure.TOPIC_LIMIT)
-    permission = check_ticket_permission(team.organization, user, draft.topic)
+    membership_level = _membership_level(team, user)
+    permission = check_ticket_permission(team.organization, user, draft.topic, membership_level)
     if permission != TicketPermission.ALLOWED:
         return failed(SendFailure(permission.value))
 
@@ -348,7 +392,9 @@ def send_draft(user: User, team: Team, draft_id: str) -> SendOutcome:
         return failed(SendFailure.ALREADY_SENDING)
     try:
         client = PostHogSupportWidgetClient(resolve_support_widget_target())
-        ticket = client.send_ticket(user, draft.outgoing_message(team), via_mcp=draft.drafted_via == DraftedVia.MCP)
+        ticket = client.send_ticket(
+            user, draft.outgoing_message(team, membership_level), via_mcp=draft.drafted_via == DraftedVia.MCP
+        )
     except SupportTicketNotSent:
         store.cancel_send(draft_id)
         return failed(SendFailure.NOT_SENT)
@@ -356,7 +402,11 @@ def send_draft(user: User, team: Team, draft_id: str) -> SendOutcome:
         return failed(SendFailure.OUTCOME_UNKNOWN)
 
     # Recorded before the number lookup, so a request that dies during the lookup still leaves the ticket on record.
-    store.record_sent(draft_id, draft.topic, ticket)
+    try:
+        store.record_sent(draft_id, draft.topic, ticket)
+    except (ConnectionInterrupted, RedisError) as e:
+        # The ticket exists and the send mark stays, so a retry cannot send it twice.
+        capture_exception(e)
     ticket_number = client.ticket_number(ticket.ticket_id)
     if ticket_number is not None:
         ticket = SentSupportTicket(ticket_id=ticket.ticket_id, ticket_number=ticket_number)

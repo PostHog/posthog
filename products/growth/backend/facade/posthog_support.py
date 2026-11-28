@@ -1,3 +1,4 @@
+from posthog.models.organization import Organization
 from posthog.models.team import Team
 from posthog.models.user import User
 
@@ -9,6 +10,7 @@ from products.growth.backend.facade.posthog_support_types import (
     SendFailure,
     SentSupportTicketResult,
     SupportDraft,
+    SupportPlan,
     TicketTopic,
 )
 
@@ -44,6 +46,10 @@ def compose_ticket_message(
     )
 
 
+def get_support_plan(*, user_id: int, organization_id: str) -> SupportPlan:
+    return posthog_support.get_support_plan(Organization.objects.get(pk=organization_id), User.objects.get(pk=user_id))
+
+
 def draft_support_ticket(
     *,
     user_id: int,
@@ -73,7 +79,7 @@ def draft_support_ticket(
     return SupportDraft(
         id=draft.id,
         message=draft.message,
-        ticket_context=draft.ticket_context(team),
+        ticket_context=draft.ticket_context(team, outcome.membership_level),
         expires_at=draft.expires_at,
         topic=draft.topic,
         filing_reason=draft.filing_reason,

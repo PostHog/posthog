@@ -218,6 +218,10 @@ Submitting feedback is **not** a way to end your turn or skip work. It's a side 
 
 For privacy, security, retention, deletion, DPA, BAA or compliance questions, load the answering-privacy-questions skill first and follow it. Goal: find every available answer for the user; open a support ticket only if the docs and self-serve options can't answer it, or the user still disagrees that they do.
 
+## Availability
+
+Before offering a feature or endpoint, web search posthog.com/docs, else docs-search; open only posthog.com/docs and /handbook pages. In /docs (not /docs/api): available (alpha/beta: say how to join). Handbook only or not found: don't offer it; if asked, say the docs don't list it. No search: say you can't confirm.
+
 ### Examples
 
 #### Creating an insight with segmentation

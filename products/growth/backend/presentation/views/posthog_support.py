@@ -10,7 +10,7 @@ import re
 import math
 from typing import Any, cast
 
-from drf_spectacular.utils import OpenApiResponse
+from drf_spectacular.utils import OpenApiResponse, extend_schema_serializer
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import Throttled
@@ -22,13 +22,18 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.event_usage import MCP_TRANSPORT_EVENT_SOURCES, get_event_source, report_user_action, sanitize_header_value
 from posthog.models.user import User
 from posthog.permissions import posthog_feature_flag_enabled
-from posthog.rate_limit import PostHogSupportDraftCreateThrottle
+from posthog.rate_limit import (
+    BillingReadBurstRateThrottle,
+    BillingReadSustainedRateThrottle,
+    PostHogSupportDraftCreateThrottle,
+)
 
 from products.growth.backend.facade.posthog_support import (
     SupportDraftRefused,
     SupportTicketSendFailed,
     compose_ticket_message,
     draft_support_ticket,
+    get_support_plan,
     send_support_ticket,
 )
 from products.growth.backend.facade.posthog_support_types import (
@@ -43,6 +48,7 @@ from products.growth.backend.facade.posthog_support_types import (
     SendFailure,
     SentSupportTicketResult,
     SupportDraft,
+    SupportPlanTier,
     TicketPermission,
     TicketTopic,
 )
@@ -203,7 +209,8 @@ NEXT_STEP_BY_PERMISSION = {
     ),
     TicketPermission.PLAN_UNKNOWN: (
         "Nothing has been sent. PostHog couldn't check their plan, so don't offer to send it from here. Show "
-        f"them the message and tell them they can ask in the support panel at {SUPPORT_PANEL_URL}."
+        f"them the message and tell them they can ask in the support panel at {SUPPORT_PANEL_URL}. If their plan "
+        f"doesn't include support, {COMMUNITY_SUPPORT}"
     ),
 }
 
@@ -224,6 +231,10 @@ DRAFT_REFUSALS = {
         f"{COMMUNITY_SUPPORT}"
     ),
     DraftRefusal.TOPIC_LIMIT: TOPIC_LIMIT_REFUSAL,
+    DraftRefusal.NEEDS_ORG_ADMIN: (
+        "Only an owner or admin of their PostHog organization can ask support for a deletion. The person can ask "
+        "one of them to submit it."
+    ),
 }
 
 MAY_BE_SENT = (
@@ -248,9 +259,13 @@ SEND_FAILURE_RESPONSES: dict[SendFailure, tuple[str, int]] = {
         f"Nothing was sent. {DRAFT_REFUSALS[DraftRefusal.PLAN_EXCLUDES_SUPPORT]}",
         status.HTTP_403_FORBIDDEN,
     ),
+    SendFailure.NEEDS_ORG_ADMIN: (
+        f"Nothing was sent. {DRAFT_REFUSALS[DraftRefusal.NEEDS_ORG_ADMIN]}",
+        status.HTTP_403_FORBIDDEN,
+    ),
     SendFailure.PLAN_UNKNOWN: (
         "Nothing was sent, because PostHog couldn't check their plan. They can ask in the support "
-        f"panel at {SUPPORT_PANEL_URL}.",
+        f"panel at {SUPPORT_PANEL_URL}. If their plan doesn't include support, {COMMUNITY_SUPPORT}",
         status.HTTP_424_FAILED_DEPENDENCY,
     ),
     SendFailure.NOT_SENT: (
@@ -444,3 +459,42 @@ class PostHogSupportViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 team=self.team,
             )
         return self._sent_response(ticket)
+
+
+@extend_schema_serializer(many=False)
+class PostHogSupportPlanSerializer(serializers.Serializer):
+    tier = serializers.ChoiceField(
+        choices=SupportPlanTier.choices,
+        help_text=(
+            "The organization's plan: paid (a paid or custom subscription), trial (an active trial), free, or "
+            "unknown when PostHog couldn't read billing."
+        ),
+    )
+    support_included = serializers.BooleanField(
+        allow_null=True,
+        help_text=(
+            "True when the plan includes support, so an agent can send a ticket on any topic it can file. Billing "
+            "tickets, and deletions for a privacy or security reason from an owner or admin, can be sent on any plan. "
+            "Organizations under 3 months old have support on any plan. Null when PostHog couldn't read billing."
+        ),
+    )
+
+
+class PostHogSupportPlanViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
+    scope_object = "billing"
+    pagination_class = None
+    throttle_classes = [BillingReadBurstRateThrottle, BillingReadSustainedRateThrottle]
+
+    @validated_request(
+        operation_id="posthog_support_plan_retrieve",
+        responses={200: OpenApiResponse(response=PostHogSupportPlanSerializer)},
+        summary="Get the organization's plan and whether it includes PostHog support",
+        description=(
+            "Returns the plan tier and whether it includes support tickets, by the same rule that decides whether "
+            "an agent can send a support ticket."
+        ),
+    )
+    def list(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
+        plan = get_support_plan(user_id=cast(User, request.user).pk, organization_id=self.organization_id)
+        data = PostHogSupportPlanSerializer({"tier": plan.tier, "support_included": plan.support_included}).data
+        return Response(data, status=status.HTTP_200_OK)
