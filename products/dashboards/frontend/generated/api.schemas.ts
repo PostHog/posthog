@@ -10652,6 +10652,11 @@ export interface FrameMetaApi {
     date_to: string | null
     /** Whether the frame is the compared period. Its dates are that period's dates. */
     previous: boolean
+    /**
+     * A Metric tile's number for the whole period, which summing the values can't always give. Null or absent for other displays.
+     * @nullable
+     */
+    total?: number | null
 }
 
 /**

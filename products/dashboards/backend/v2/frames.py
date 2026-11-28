@@ -12,6 +12,7 @@ import re
 import json
 import hashlib
 import datetime as dt
+import dataclasses
 from collections.abc import Mapping, Sequence
 from typing import Any, Optional
 from zoneinfo import ZoneInfo
@@ -31,8 +32,10 @@ from products.dashboards.backend.facade.contracts import Frame, FrameField, Fram
 from products.dashboards.backend.facade.enums import QueryBatchLanguage, QueryBatchTargetFormat
 
 # Trends displays that draw one value per interval. The others show one number per series.
-_TIME_SERIES_DISPLAYS = {
+# Metric returns the interval values for its sparkline and change pill, so it is framed as a time series.
+TIME_SERIES_DISPLAYS = {
     None,
+    ChartDisplayType.METRIC,
     ChartDisplayType.ACTIONS_LINE_GRAPH,
     ChartDisplayType.ACTIONS_LINE_GRAPH_CUMULATIVE,
     ChartDisplayType.ACTIONS_AREA_GRAPH,
@@ -201,6 +204,8 @@ def frame_json(frame: Frame) -> dict[str, Any]:
         meta["previous"] = True
     if frame.meta.truncated:
         meta["truncated"] = True
+    if frame.meta.total is not None:
+        meta["total"] = frame.meta.total
     # Encoded as the response encodes it, so a fresh Decimal and the float a cache hit reads back hash alike.
     content = orjson.dumps(
         {"name": frame.name, "labels": frame.labels, "fields": fields},
@@ -226,7 +231,7 @@ def trends_frames(query: TrendsQuery, result: Mapping[str, Any]) -> Optional[lis
     display = query.trendsFilter.display if query.trendsFilter else None
     if display in _AGGREGATED_DISPLAYS:
         return trends_aggregated_frames(query, result)
-    if display not in _TIME_SERIES_DISPLAYS:
+    if display not in TIME_SERIES_DISPLAYS:
         return None
     timezone = ZoneInfo(result.get("timezone") or "UTC")
     interval = query.interval.value if query.interval else "day"
@@ -249,10 +254,17 @@ def trends_frames(query: TrendsQuery, result: Mapping[str, Any]) -> Optional[lis
                     FrameField(name="time", type="time", values=_wall_clock_ms(series["days"], timezone)),
                     FrameField(name="value", type="number", values=list(series["data"])),
                 ],
-                meta=previous if is_previous else current,
+                meta=metric_total_meta(previous if is_previous else current, query, series),
             )
         )
     return frames
+
+
+def metric_total_meta(meta: FrameMeta, query: TrendsQuery, series: Mapping[str, Any]) -> FrameMeta:
+    if not query.trendsFilter or query.trendsFilter.display != ChartDisplayType.METRIC:
+        return meta
+    count = series.get("count")
+    return dataclasses.replace(meta, total=float(count)) if isinstance(count, int | float) else meta
 
 
 def _trends_series_name(
