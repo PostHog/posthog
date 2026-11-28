@@ -678,6 +678,7 @@ export const FEATURE_FLAGS = {
     WORKFLOWS_TRANSACTIONAL_EMAIL_WIZARD: 'workflows-transactional-email-wizard', // owner: @silthus #team-workflows, leads sending from code with the Wizard command once Wizard ships it
     WORKFLOWS_WIZARD_JOURNEY_FIRST: 'workflows-wizard-journey-first', // owner: @silthus #team-workflows multivariate=control,test, shows the onboarding wizard's journey or broadcast step before the email setup; gate on === 'test'
     XAA_AUTHENTICATION: 'xaa-authentication', // owner: @reecejones #team-platform-features
+    XPM_REPLAY_PLACEMENT: 'xpm-replay-placement', // owner: @silthus #team-workflows multivariate=control,player_chip, the messaging experiment of Session Replay
 } as const
 export type FeatureFlagLookupKey = keyof typeof FEATURE_FLAGS
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]

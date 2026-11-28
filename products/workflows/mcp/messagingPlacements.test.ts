@@ -9,7 +9,20 @@ const COHORT_PLACEMENT = {
     key: 'mcp.after_cohorts_create',
     area: 'mcp',
     variant: 'after_cohorts_create',
+    destination: 'broadcast',
     defaultCopy: DEFAULT_COPY,
+}
+
+const PLAYER_CHIP_PLACEMENT = {
+    key: 'replay.player_chip',
+    area: 'replay',
+    variant: 'player_chip',
+    destination: 'send_from_code',
+    dismissible: true,
+    defaultCopy: {
+        label: 'From an email?',
+        description: "Send your app's emails through PostHog to see which email started each session.",
+    },
 }
 
 function flagReader(values: Record<string, boolean | string>, payloads: Record<string, unknown> = {}): FlagReader {
@@ -83,7 +96,25 @@ describe('placementState', () => {
             ),
             expected: { active: true, placement: COHORT_PLACEMENT, copy: DEFAULT_COPY },
         },
-    ])('$name', ({ flags, expected }) => {
-        expect(placementState('mcp.after_cohorts_create', flags)).toEqual(expected)
+        {
+            name: 'the player chip variant of the replay flag shows the chip with its default copy',
+            key: 'replay.player_chip' as const,
+            flags: flagReader({ 'xpm-replay-placement': 'player_chip' }),
+            expected: { active: true, placement: PLAYER_CHIP_PLACEMENT, copy: PLAYER_CHIP_PLACEMENT.defaultCopy },
+        },
+        {
+            name: 'the replay control leaves the player chip inactive',
+            key: 'replay.player_chip' as const,
+            flags: flagReader({ 'xpm-replay-placement': 'control' }),
+            expected: { active: false, reason: 'not_this_variant' },
+        },
+        {
+            name: 'the MCP flag on the player chip variant leaves the player chip inactive',
+            key: 'replay.player_chip' as const,
+            flags: flagReader({ 'xpm-mcp-placement': 'player_chip' }),
+            expected: { active: false, reason: 'not_this_variant' },
+        },
+    ])('$name', ({ key, flags, expected }) => {
+        expect(placementState(key ?? 'mcp.after_cohorts_create', flags)).toEqual(expected)
     })
 })
