@@ -7,6 +7,8 @@ from typing import Literal
 
 from django.db import transaction
 
+from posthog.models.user import User
+
 from products.signals.backend.artefact_schemas import Dismissal
 from products.signals.backend.models import (
     ArtefactAttribution,
@@ -29,6 +31,20 @@ _SLACK_RESOLVABLE_STATUSES = frozenset(
         SignalReport.Status.CLOSED,
     }
 )
+
+
+def _slack_dismissal(
+    state: Literal["resolved", "suppressed"], reason: str, *, slack_user_id: str | None, user_id: int | None
+) -> Dismissal:
+    # Readers of the dismissal content join on the PostHog user, which a Slack id alone can't reach.
+    user_uuid = User.objects.filter(id=user_id).values_list("uuid", flat=True).first() if user_id is not None else None
+    return Dismissal(
+        state=state,
+        reason=reason,
+        slack_user_id=slack_user_id,
+        user_id=user_id,
+        user_uuid=str(user_uuid) if user_uuid else None,
+    )
 
 
 def suppress_report_from_slack(
@@ -73,7 +89,7 @@ def suppress_report_from_slack(
         SignalReportArtefact.append_dismissal(
             team_id=team_id,
             report_id=str(report.id),
-            content=Dismissal(state="suppressed", reason="slack_dismiss", slack_user_id=slack_user_id),
+            content=_slack_dismissal("suppressed", "slack_dismiss", slack_user_id=slack_user_id, user_id=user_id),
             attribution=attribution,
         )
     # The linked implementation PR is closed by the post_save receiver on suppression or snooze
@@ -127,7 +143,7 @@ def resolve_report_from_slack(
         SignalReportArtefact.append_dismissal(
             team_id=team_id,
             report_id=str(report.id),
-            content=Dismissal(state="resolved", reason="slack_resolve", slack_user_id=slack_user_id),
+            content=_slack_dismissal("resolved", "slack_resolve", slack_user_id=slack_user_id, user_id=user_id),
             attribution=attribution,
         )
     return "changed"

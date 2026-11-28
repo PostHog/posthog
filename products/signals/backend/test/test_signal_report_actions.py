@@ -1,3 +1,5 @@
+from collections.abc import Callable
+
 from posthog.test.base import APIBaseTest, BaseTest
 from unittest.mock import MagicMock, patch
 
@@ -22,41 +24,35 @@ from products.signals.backend.report_actions import resolve_report_from_slack, s
 
 
 class TestSignalReportSlackActions(BaseTest):
-    def test_slack_dismissal_records_its_verdict_once(self) -> None:
+    @parameterized.expand(
+        [
+            ("dismiss_by_member", suppress_report_from_slack, SignalReport.Status.SUPPRESSED, "slack_dismiss", True),
+            ("dismiss_unmapped", suppress_report_from_slack, SignalReport.Status.SUPPRESSED, "slack_dismiss", False),
+            ("resolve_by_member", resolve_report_from_slack, SignalReport.Status.RESOLVED, "slack_resolve", True),
+            ("resolve_unmapped", resolve_report_from_slack, SignalReport.Status.RESOLVED, "slack_resolve", False),
+        ]
+    )
+    def test_slack_action_records_its_verdict_once(
+        self, _name: str, apply_state: Callable[..., str], expected_status: str, expected_reason: str, mapped: bool
+    ) -> None:
         report = SignalReport.objects.create(team=self.team, status=SignalReport.Status.READY, title="A report")
+        user_id = self.user.id if mapped else None
 
         outcomes = [
-            suppress_report_from_slack(self.team.id, str(report.id), slack_user_id="slack-user-1", user_id=self.user.id)
-            for _ in range(2)
+            apply_state(self.team.id, str(report.id), slack_user_id="slack-user-1", user_id=user_id) for _ in range(2)
         ]
 
         assert outcomes == ["changed", "unchanged"]
 
         report.refresh_from_db()
-        assert report.status == SignalReport.Status.SUPPRESSED
+        assert report.status == expected_status
         dismissal = SignalReportArtefact.objects.get(report=report, type=SignalReportArtefact.ArtefactType.DISMISSAL)
         feedback = Dismissal.model_validate_json(dismissal.content)
-        assert feedback.state == "suppressed"
-        assert feedback.reason == "slack_dismiss"
+        assert feedback.state == expected_status
+        assert feedback.reason == expected_reason
         assert feedback.slack_user_id == "slack-user-1"
-
-    def test_slack_resolve_records_its_verdict_once(self) -> None:
-        report = SignalReport.objects.create(team=self.team, status=SignalReport.Status.READY, title="A report")
-
-        outcomes = [
-            resolve_report_from_slack(self.team.id, str(report.id), slack_user_id="slack-user-1", user_id=self.user.id)
-            for _ in range(2)
-        ]
-
-        assert outcomes == ["changed", "unchanged"]
-
-        report.refresh_from_db()
-        assert report.status == SignalReport.Status.RESOLVED
-        dismissal = SignalReportArtefact.objects.get(report=report, type=SignalReportArtefact.ArtefactType.DISMISSAL)
-        feedback = Dismissal.model_validate_json(dismissal.content)
-        assert feedback.state == "resolved"
-        assert feedback.reason == "slack_resolve"
-        assert feedback.slack_user_id == "slack-user-1"
+        assert feedback.user_id == user_id
+        assert feedback.user_uuid == (str(self.user.uuid) if mapped else None)
 
     @parameterized.expand(
         [
