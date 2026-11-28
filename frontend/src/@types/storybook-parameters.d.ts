@@ -8,6 +8,7 @@ export type SnapshotTheme = 'light' | 'dark'
 
 declare global {
     interface Window {
+        __storybookFramesLoaded?: () => boolean
         __STORYBOOK_SCENE_READINESS__?: { storyId: string; instanceId: number; getReadyVersion: () => number | null }
     }
 }
