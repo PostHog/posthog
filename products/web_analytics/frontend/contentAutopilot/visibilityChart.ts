@@ -26,22 +26,34 @@ const dayValue = (row: AEOPromptDailyEngineStatsApi | undefined, metric: PromptV
     return answered > 0 ? (metric === 'cited' ? row.cited : row.mentioned) / answered : NaN
 }
 
-/** One line per engine over every day in `dates`. A day the engine didn't answer is NaN, so the line breaks there
- *  instead of dropping to 0. */
+/** The positions of the days to draw: the ones where some series has a value. A day without checks is left off
+ *  the axis rather than drawn as 0, so the axis starts at the first day of data and one day of data is one date. */
+export const daysWithData = (dayCount: number, series: number[][]): number[] =>
+    Array.from({ length: dayCount }, (_, index) => index).filter((index) =>
+        series.some((data) => Number.isFinite(data[index]))
+    )
+
+/** One line per engine over the days in `dates` that have data. A day one engine didn't answer is NaN, so its line
+ *  breaks there instead of dropping to 0. */
 export function engineVisibilityChart(
     daily: AEOPromptDailyEngineStatsApi[],
     dates: string[],
     metric: PromptVisibilityMetric
 ): EngineVisibilityChart {
     const byDay = new Map(daily.map((row) => [`${row.engine}|${row.date}`, row]))
+    const series = sortEngines(daily.map((row) => row.engine)).map((engine) => ({
+        engine,
+        label: engineLabel(engine),
+        color: engineColor(engine),
+        data: dates.map((date) => dayValue(byDay.get(`${engine}|${date}`), metric)),
+    }))
+    const days = daysWithData(
+        dates.length,
+        series.map(({ data }) => data)
+    )
     return {
-        labels: dates,
-        series: sortEngines(daily.map((row) => row.engine)).map((engine) => ({
-            engine,
-            label: engineLabel(engine),
-            color: engineColor(engine),
-            data: dates.map((date) => dayValue(byDay.get(`${engine}|${date}`), metric)),
-        })),
+        labels: days.map((index) => dates[index]),
+        series: series.map((line) => ({ ...line, data: days.map((index) => line.data[index]) })),
     }
 }
 
@@ -69,9 +81,11 @@ export function answerOutcomeChart(
         yes.set(row.date, (yes.get(row.date) ?? 0) + met)
         no.set(row.date, (no.get(row.date) ?? 0) + row.checks - row.failed - met)
     }
+    // A day without answers is left off the axis, the same as on the visibility charts.
+    const days = dates.filter((date) => (yes.get(date) ?? 0) + (no.get(date) ?? 0) > 0)
     return {
-        labels: dates,
-        yes: dates.map((date) => yes.get(date) ?? 0),
-        no: dates.map((date) => no.get(date) ?? 0),
+        labels: days,
+        yes: days.map((date) => yes.get(date) ?? 0),
+        no: days.map((date) => no.get(date) ?? 0),
     }
 }
