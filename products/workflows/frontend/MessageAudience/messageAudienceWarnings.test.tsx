@@ -354,7 +354,13 @@ describe('message audience warnings', () => {
         },
     }
 
-    it.each<{ destination: MessageAudienceDestination; label: string; warning: string; path: string; opens: unknown }>([
+    it.each<{
+        destination: MessageAudienceDestination
+        label: string
+        warning: string
+        path: string
+        opens: unknown
+    }>([
         {
             destination: 'workflow',
             label: 'Build a custom workflow',
@@ -394,7 +400,10 @@ describe('message audience warnings', () => {
             fireEvent.click(await screen.findByText(label))
 
             expect(await screen.findByText(warning)).toBeInTheDocument()
-            expect(screen.getByText('Set up email')).toBeInTheDocument()
+            expect(screen.getByText('Set up email').closest('[data-attr]')).toHaveAttribute(
+                'data-attr',
+                'message-audience-early_access-set-up-email'
+            )
             expect(router.values.location.pathname).toEqual('/project/997/early_access_features/1')
 
             fireEvent.click(screen.getByText('Continue'))
