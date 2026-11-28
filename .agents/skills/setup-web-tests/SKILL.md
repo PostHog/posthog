@@ -113,7 +113,7 @@ The `pytest.ini` sets:
 - `DJANGO_SETTINGS_MODULE = posthog.settings`
 - `DEBUG=1`, `TEST=1`
 
-Default ignores: `--ignore=posthog/user_scripts --ignore=services/llm-gateway --ignore=common/ingestion/acceptance_tests`
+Default ignores: `--ignore=posthog/user_scripts --ignore=services/stripe-mock --ignore=common/ingestion/acceptance_tests`
 
 ## Debugging installation issues
 

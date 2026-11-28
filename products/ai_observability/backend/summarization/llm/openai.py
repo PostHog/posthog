@@ -1,5 +1,4 @@
-"""OpenAI provider for LLM summarization, routed through the internal Go ai-gateway
-when configured, else the Python LLM gateway."""
+"""OpenAI provider for LLM summarization, routed through the internal Go ai-gateway."""
 
 from typing import Any, Literal
 

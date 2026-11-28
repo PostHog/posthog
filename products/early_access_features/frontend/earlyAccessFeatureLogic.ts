@@ -569,10 +569,11 @@ export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
                               label: 'Email opted-in users',
                               dataAttr: 'early-access-ga-broadcast',
                               action: () => {
-                                  captureMessageAudienceClicked(EARLY_ACCESS_GA_SOURCE, 'broadcast')
+                                  const attemptId = captureMessageAudienceClicked(EARLY_ACCESS_GA_SOURCE, 'broadcast')
                                   void openMessageAudience(
                                       enrolledPeopleAudience(_earlyAccessFeature, EARLY_ACCESS_GA_SOURCE),
-                                      'broadcast'
+                                      'broadcast',
+                                      attemptId
                                   )
                               },
                           }

@@ -10,11 +10,18 @@ import { SlackChannelScoutsCard } from './SlackChannelScoutsCard'
 
 const SOURCE: SlackScoutChannelSourceApi = {
     id: '0190f1d2-0000-7000-8000-000000000001',
+    label: 'Connected Mar 5, 2026',
     channels: [
         { id: 'C01', name: 'bug-reports', table_name: 'slack.c01' },
         { id: 'C02', name: 'feedback', table_name: 'slack.c02' },
         { id: 'C03', name: 'new-channel', table_name: null },
     ],
+}
+
+const SECOND_SOURCE: SlackScoutChannelSourceApi = {
+    id: '0190f1d2-0000-7000-8000-000000000002',
+    label: 'customers',
+    channels: [{ id: 'C11', name: 'customer-escalations', table_name: 'slack.customers.c11' }],
 }
 
 function Card({
@@ -64,6 +71,14 @@ export const WithScouts: Story = {
 
 export const CreateForm: Story = {
     render: () => <Card sources={[SOURCE]} />,
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        await userEvent.click(await canvas.findByRole('button', { name: 'New Slack scout' }))
+    },
+}
+
+export const CreateFormWithTwoSources: Story = {
+    render: () => <Card sources={[SOURCE, SECOND_SOURCE]} />,
     play: async ({ canvasElement }) => {
         const canvas = within(canvasElement)
         await userEvent.click(await canvas.findByRole('button', { name: 'New Slack scout' }))

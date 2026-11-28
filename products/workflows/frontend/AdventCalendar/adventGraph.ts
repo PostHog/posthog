@@ -19,13 +19,11 @@ export interface AdventProgress {
 
 export const EMPTY_ADVENT_PROGRESS: AdventProgress = { opened: [], answers: {} }
 
-export function mergeAdventProgress(a: AdventProgress, b: AdventProgress): AdventProgress {
-    const answers = { ...a.answers }
-    for (const [day, optionId] of Object.entries(b.answers)) {
-        const current = answers[Number(day)]
-        answers[Number(day)] = current && current < optionId ? current : optionId
+export function mergeAdventProgress(first: AdventProgress, then: AdventProgress): AdventProgress {
+    return {
+        opened: [...new Set([...first.opened, ...then.opened])].sort((x, y) => x - y),
+        answers: { ...then.answers, ...first.answers },
     }
-    return { opened: [...new Set([...a.opened, ...b.opened])].sort((x, y) => x - y), answers }
 }
 
 export type AdventDoorStatus = 'locked' | 'ready' | 'open'

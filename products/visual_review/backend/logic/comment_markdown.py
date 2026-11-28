@@ -16,6 +16,7 @@ from ..facade.enums import ReviewState, SnapshotResult
 from ..models import Artifact, Repo, Run, RunSnapshot
 from ..storage import ArtifactStorage
 from . import app_urls
+from .review_decisions import RunProgress
 
 
 def _format_change_counts(changed: int, new: int, removed: int) -> str:
@@ -194,10 +195,30 @@ _EXTENSION_FOOTER = (
 )
 
 
-def _build_review_prompt_body(run: Run, repo: Repo) -> str:
+def _review_prompt_heading(progress: RunProgress | None) -> str:
+    """The prompt's first line.
+
+    It names the accepts from earlier commits that still count, so reviewers see that a push kept them.
+    """
+    if progress is None or progress.approved_on_earlier_commits == 0:
+        return "👋 **Visual changes detected** for this PR."
+    earlier = progress.approved_on_earlier_commits
+    still_count = (
+        "1 change accepted on earlier commits still counts."
+        if earlier == 1
+        else f"{earlier} changes accepted on earlier commits still count."
+    )
+    open_count = progress.needs_review
+    if open_count == 0:
+        return f"👋 **Visual changes detected** for this PR. {still_count}"
+    needs = "1 visual change needs review" if open_count == 1 else f"{open_count} visual changes need review"
+    return f"👋 **{needs}** for this PR. {still_count}"
+
+
+def _build_review_prompt_body(run: Run, repo: Repo, progress: RunProgress | None = None) -> str:
     """Build the markdown body of the PR comment that asks for a visual review."""
     return (
-        "👋 **Visual changes detected** for this PR.\n\n"
+        f"{_review_prompt_heading(progress)}\n\n"
         f"[Review and approve in PostHog Visual Review]({app_urls.run_url(run, repo)})\n\n"
         "If these changes are unexpected, they may be caused by a flaky test or a "
         "broken snapshot on master. Don't approve — rerun the job or wait for a fix.\n\n"
@@ -218,23 +239,57 @@ def _build_superseded_approval_body(run: Run, repo: Repo, approver: _Approver | 
     return f"{note}\n\n{_build_approval_comment_body(run, repo, approver)}"
 
 
-def _build_approval_comment_body(run: Run, repo: Repo, approver: _Approver | None, add_images: bool = False) -> str:
+def _approver_text(approver: _Approver | None) -> str:
+    if approver is None:
+        return "a reviewer"
+    if approver.is_github_login:
+        return f"@{approver.label}"
+    return _escape_markdown(approver.label)
+
+
+@dataclass(frozen=True)
+class AcceptedBy:
+    """The accepts one person made through one channel, as the approval comment lists them."""
+
+    approver: _Approver | None
+    via_agent: bool
+    count: int
+    # The commits the accepts were made on, empty when all of them were made on the finalized run.
+    earlier_commit_shas: tuple[str, ...] = ()
+
+
+def _accepted_by_text(groups: list[AcceptedBy]) -> str:
+    """'Accepted by @alice (12, on `abc1234` and `def5678`), bob (6, via MCP).'"""
+    parts = []
+    for group in groups:
+        details = [str(group.count)]
+        if group.earlier_commit_shas:
+            details.append("on " + " and ".join(f"`{sha[:7]}`" for sha in group.earlier_commit_shas))
+        if group.via_agent:
+            details.append("via MCP")
+        parts.append(f"{_approver_text(group.approver)} ({', '.join(details)})")
+    return f"Accepted by {', '.join(parts)}."
+
+
+def _build_approval_comment_body(
+    run: Run,
+    repo: Repo,
+    approver: _Approver | None,
+    add_images: bool = False,
+    accepted_by: list[AcceptedBy] | None = None,
+) -> str:
     """Build the markdown body of the post-approval PR comment.
 
     Always a textual summary of what changed. When ``add_images`` is set, a
     before/after table of the approved snapshot images is appended so another
     reviewer can eyeball them without leaving the PR (omitted when no image can
-    be resolved).
+    be resolved). ``accepted_by`` names who accepted the changes, when that is
+    known per snapshot.
     """
     counts = Counter(_postable_snapshot_qs(run).values_list("result", flat=True))
     suppressed_only = not counts and _reviewable_snapshot_qs(run).exists()
 
-    if approver is None:
-        approver_text = "a reviewer"
-    elif approver.is_github_login:
-        approver_text = f"@{approver.label}"
-    else:
-        approver_text = _escape_markdown(approver.label)
+    approver_text = _approver_text(approver)
     baseline_sha = run.metadata.get("baseline_commit_sha")
     sha_text = f" — baseline updated in `{baseline_sha[:7]}`" if isinstance(baseline_sha, str) and baseline_sha else ""
 
@@ -248,6 +303,8 @@ def _build_approval_comment_body(run: Run, repo: Repo, approver: _Approver | Non
     ]
     if summary:
         sections.append(f"{summary}.")
+        if accepted_by:
+            sections.append(_accepted_by_text(accepted_by))
     elif suppressed_only:
         sections.append("All visual changes in this run were quarantined or tolerated.")
     if add_images:
@@ -290,3 +347,13 @@ def _resolve_approver(user_id: int | None) -> _Approver | None:
     if user.first_name:
         return _Approver(label=user.first_name, is_github_login=False)
     return None
+
+
+def approver_labels(user_ids: set[int]) -> dict[int, str]:
+    """The names texts outside the PR comment use for these users, picked the way the PR comment picks them."""
+    labels: dict[int, str] = {}
+    for user_id in user_ids:
+        approver = _resolve_approver(user_id)
+        if approver is not None:
+            labels[user_id] = approver.label
+    return labels

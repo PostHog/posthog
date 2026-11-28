@@ -345,6 +345,7 @@ export class CyclotronV2Worker {
     private readonly releaseWriteRetry: boolean
     protected readonly includeEmptyBatches: boolean
     protected readonly fairDequeue: boolean
+    private readonly fairDequeueQueues: readonly string[]
     private readonly boundedPolls: boolean
     private readonly ownershipReadTimeoutMs: number
     private readonly boundedFairDequeue: boolean
@@ -377,11 +378,8 @@ export class CyclotronV2Worker {
         this.boundedPolls = config.boundedPolls ?? false
         this.ownershipReadTimeoutMs = config.ownershipReadTimeoutMs ?? 5_000
         this.boundedFairDequeue = config.boundedFairDequeue ?? false
-        // Fair (per-team round-robin) dequeue is the email queue's ordering.
-        // `dequeue_seq` is only ever assigned for email jobs (see
-        // CyclotronV2Manager), so deriving this from the queue name keeps the
-        // worker's ORDER BY in lockstep with where the sort key actually exists.
-        this.fairDequeue = config.queueName === 'email'
+        this.fairDequeueQueues = config.fairDequeueQueues
+        this.fairDequeue = this.fairDequeueQueues.includes(config.queueName)
     }
 
     private assertBackOffFitsHeartbeat(): void {
@@ -526,6 +524,7 @@ export class CyclotronV2Worker {
         const pool = this.pool
         const dbUrl = this.config.pool.dbUrl
         const releaseRetrySlots = this.releaseRetrySlots
+        const fairDequeueQueues = this.fairDequeueQueues
         const assignEmailDequeueSeq = this.assignEmailDequeueSeq
         let reservedEmailDequeueSeq: Promise<string> | null = null
         const reserveEmailDequeueSeqOnce = (db: ReleaseDb): Promise<string> => {
@@ -760,16 +759,19 @@ export class CyclotronV2Worker {
                     setClauses.push(`priority = $${params.length}`)
                 }
 
-                // Cross-queue routing into the email queue: assign a fresh
+                // Cross-queue routing into a fair-dequeue queue: assign a fresh
                 // dequeue_seq so the row participates in fair ordering. Without
-                // this, hogflow → email re-routing (via job.reschedule({
-                // queueName: 'email' })) lands the row with NULL dequeue_seq,
+                // this, hogflow → email re-routing lands the row with NULL dequeue_seq,
                 // which `NULLS FIRST` drains ahead of every fair-ordered row —
                 // defeating the per-team interleave for the most common email
-                // path. Skipped when the row was already on the email queue,
+                // path. Skipped when the row was already on that queue,
                 // so existing fair-ordered rows keep their place after retry/
                 // reschedule without bumping the counter.
-                if (options?.queueName === 'email' && row.queue_name !== 'email') {
+                if (
+                    options?.queueName !== undefined &&
+                    options.queueName !== row.queue_name &&
+                    fairDequeueQueues.includes(options.queueName)
+                ) {
                     const dequeueSeq = await reserveEmailDequeueSeqOnce(db)
                     params.push(dequeueSeq)
                     setClauses.push(`dequeue_seq = $${params.length}`)
@@ -783,7 +785,9 @@ export class CyclotronV2Worker {
             }),
 
             defer: releaseWrite('defer', async (db, { scheduledAt, state }: { scheduledAt: Date; state?: Buffer }) => {
-                const dequeueSeq = row.queue_name === 'email' ? await reserveEmailDequeueSeqOnce(db) : null
+                const dequeueSeq = fairDequeueQueues.includes(row.queue_name)
+                    ? await reserveEmailDequeueSeqOnce(db)
+                    : null
                 return db.query(
                     `UPDATE cyclotron_jobs
                      SET status = 'available', lock_id = NULL, last_heartbeat = NULL,

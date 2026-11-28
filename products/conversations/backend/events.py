@@ -268,7 +268,7 @@ def _org_groups_for_person(ticket: Ticket, team: Team, person: Person, distinct_
         return None
 
 
-def _has_unverified_relayed_identity(ticket: Ticket) -> bool:
+def has_unverified_relayed_identity(ticket: Ticket) -> bool:
     return (ticket.anonymous_traits or {}).get("email_relayed") is True and ticket.identity_verified is not True
 
 
@@ -303,7 +303,7 @@ def _resolve_person_org_groups(ticket: Ticket, team: Team) -> tuple[bool, dict |
     way, the person's own ``organization_id`` profile property is the last
     resort when the membership and analytics lookups both miss.
     """
-    if _has_unverified_relayed_identity(ticket):
+    if has_unverified_relayed_identity(ticket):
         return False, None
 
     # An identified person is authoritative. If they have no org membership, do not guess

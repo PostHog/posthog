@@ -1,7 +1,10 @@
+import { Client } from 'pg'
+
 import { defaultConfig } from '~/common/config/config'
 import { waitForExpect } from '~/tests/helpers/expectations'
 
-import { scratchSchema, withPostgres } from '../environment/stack'
+import { scratchSchema, withPostgres, writerUrlOf } from '../environment/stack'
+import { MeasureEvidence, measure, readActivity } from '../judge/measurements'
 import { Queue, QueueCounts, createCyclotronProbe } from './cyclotron-probe'
 
 const SCHEMA = scratchSchema(defaultConfig.CYCLOTRON_NODE_DATABASE_URL!, `scenario_probe_${process.pid}`, [
@@ -160,5 +163,130 @@ describe('cyclotron probe', () => {
         await withPostgres((client) => client.query("DELETE FROM cyclotron_jobs WHERE status = 'completed'"), PROBE_URL)
 
         await waitForExpect(async () => expect((await probe.counts(QUEUES)).inserted - before).toBe(3))
+    })
+
+    it("refuses to read a cloud run's writer activity from the run's own or the profile's database when the host named no writer", async () => {
+        const writerUrl = writerUrlOf(
+            { SCENARIO_RUN_MANIFEST: '/opt/scenario/input/manifest.json', CYCLOTRON_NODE_DATABASE_URL: PROBE_URL },
+            { CYCLOTRON_NODE_DATABASE_URL: PROBE_URL }
+        )
+
+        await expect(createCyclotronProbe(PROBE_URL, undefined, writerUrl).activity()).rejects.toThrow(
+            'no direct writer URL in a cloud run'
+        )
+    })
+
+    it('counts a writer activity read for the step its rows arrived in, not the step its query started or its connection closed in', async () => {
+        const STARTED = Date.UTC(2026, 0, 1)
+        const QUERIED = STARTED + 2_000
+        const ANSWERED = STARTED + 6_000
+        const CLOSED = STARTED + 9_000
+        const query: (this: Client, ...args: unknown[]) => Promise<unknown> = Client.prototype.query
+        const end: (this: Client) => Promise<void> = Client.prototype.end
+        const idle = new Client({ connectionString: PROBE_URL })
+        const spies: jest.SpyInstance[] = []
+        try {
+            await idle.connect()
+            let clock = QUERIED
+            spies.push(
+                jest.spyOn(Date, 'now').mockImplementation(() => clock),
+                jest.spyOn(Client.prototype, 'query').mockImplementation(async function (
+                    this: Client,
+                    ...args: unknown[]
+                ) {
+                    const answer = await query.apply(this, args)
+                    clock = ANSWERED
+                    return answer
+                } as never),
+                jest.spyOn(Client.prototype, 'end').mockImplementation(function (this: Client) {
+                    clock = CLOSED
+                    return end.call(this)
+                })
+            )
+            const probe = createCyclotronProbe(PROBE_URL, undefined, PROBE_URL)
+            const read = await readActivity(() => probe.activity())
+            const evidence: MeasureEvidence = {
+                journal: [],
+                truth: [],
+                fetchRetries: 3,
+                truthFrom: 0,
+                samples: [],
+                missed: [],
+                host: [],
+                writer: [],
+                queue: [],
+                activity: [{ at: STARTED + 1_000, backends: [{ state: 'idle', wait: 'client', count: 1 }] }, read],
+                sampledFrom: STARTED,
+                drive: { startedAt: STARTED, endedAt: STARTED + 8_000 },
+                steps: [
+                    { scale: 1, fromMs: 0, toMs: 4_000 },
+                    { scale: 10, fromMs: 4_000, toMs: 8_000 },
+                ],
+                timeline: [],
+            }
+
+            const measured = measure([{ name: 'step_writer_backends', params: {} }], evidence)
+            expect(measured).toContainEqual(expect.objectContaining({ key: 'idle_10x' }))
+            expect(measured.filter((entry) => 'unmeasured' in entry)).toEqual([])
+        } finally {
+            spies.forEach((spy) => spy.mockRestore())
+            await idle.end().catch(() => undefined)
+        }
+    })
+
+    it("counts the other client backends of the writer's own database by state and by what an active one waits on", async () => {
+        const LOCK = 9999103
+        const database = `scenario_activity_${process.pid}`
+        const adminUrl = defaultConfig.CYCLOTRON_NODE_DATABASE_URL!
+        const isolated = new URL(adminUrl)
+        isolated.pathname = `/${database}`
+        await withPostgres((client) => client.query(`CREATE DATABASE ${database}`), adminUrl)
+        const [holder, waiter, idle] = [0, 1, 2].map(() => new Client({ connectionString: isolated.toString() }))
+        const elsewhere = new Client({ connectionString: PROBE_URL })
+        const clients = [holder, waiter, idle, elsewhere]
+        try {
+            await Promise.all(clients.map((client) => client.connect()))
+            const {
+                rows: [{ pid }],
+            } = await waiter.query<{ pid: number }>('SELECT pg_backend_pid() AS pid')
+            await holder.query('SELECT pg_advisory_lock($1)', [LOCK])
+            const waited = waiter.query('SELECT pg_advisory_lock($1)', [LOCK])
+            let settled: unknown
+            waited.then(
+                () => {
+                    settled = new Error('The waiter took the lock without waiting for it')
+                },
+                (error: unknown) => {
+                    settled = error
+                }
+            )
+            await Promise.all([idle.query('BEGIN'), elsewhere.query('BEGIN')])
+            let blocked = false
+            for (const deadline = Date.now() + 10_000; !blocked; ) {
+                if (settled !== undefined) {
+                    throw settled
+                }
+                if (Date.now() > deadline) {
+                    throw new Error('Postgres never reported the waiter blocked')
+                }
+                const { rows } = await holder.query<{ blocked: boolean }>(
+                    'SELECT cardinality(pg_blocking_pids($1)) > 0 AS blocked',
+                    [pid]
+                )
+                blocked = rows[0].blocked
+            }
+            const probe = createCyclotronProbe(PROBE_URL, undefined, isolated.toString())
+
+            expect((await probe.activity()).backends).toEqual([
+                { state: 'active', wait: 'lock', count: 1 },
+                { state: 'idle', wait: 'client', count: 1 },
+                { state: 'idle in transaction', wait: 'client', count: 1 },
+            ])
+            await holder.query('SELECT pg_advisory_unlock($1)', [LOCK])
+            await waited
+        } finally {
+            await Promise.all(clients.map((client) => client.end().catch(() => undefined)))
+            await withPostgres((client) => client.query(`DROP DATABASE IF EXISTS ${database} WITH (FORCE)`), adminUrl)
+        }
     })
 })

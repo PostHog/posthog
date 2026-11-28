@@ -38,7 +38,7 @@ export interface featureFlagCleanupAssessmentLogicValues {
     featureFlags: FeatureFlagsSet // enabledFeaturesLogic
     dataProcessingAccepted: boolean // maxGlobalLogic
     effectivePhaiView: PhaiViewMode // maxGlobalLogic
-    isMaxAvailable: boolean // maxGlobalLogic
+    isTaskRunnerAvailable: boolean // maxGlobalLogic
     assessmentStarted: boolean
     isCleanupAvailable: boolean
 }
@@ -84,7 +84,7 @@ export interface featureFlagCleanupAssessmentLogicMeta {
     key: number
     __keaTypeGenInternalSelectorTypes: {
         isCleanupAvailable: (
-            isMaxAvailable: boolean,
+            isTaskRunnerAvailable: boolean,
             effectivePhaiView: PhaiViewMode,
             featureFlags: FeatureFlagsSet
         ) => boolean
@@ -106,7 +106,7 @@ export const featureFlagCleanupAssessmentLogic = kea<featureFlagCleanupAssessmen
     connect(() => ({
         values: [
             maxGlobalLogic,
-            ['isMaxAvailable', 'effectivePhaiView', 'dataProcessingAccepted'],
+            ['isTaskRunnerAvailable', 'effectivePhaiView', 'dataProcessingAccepted'],
             enabledFeaturesLogic,
             ['featureFlags'],
             composerSeedLogic({ panelId: MAX_SIDE_PANEL_ID }),
@@ -142,9 +142,9 @@ export const featureFlagCleanupAssessmentLogic = kea<featureFlagCleanupAssessmen
         // Scoped to the new sandbox view: legacy Max chat does not run in the agent sandbox, so the
         // cleanup skill bundled into that image is not present there.
         isCleanupAvailable: [
-            (s) => [s.isMaxAvailable, s.effectivePhaiView, s.featureFlags],
-            (isMaxAvailable: boolean, effectivePhaiView: PhaiViewMode, featureFlags: FeatureFlagsSet): boolean =>
-                isMaxAvailable &&
+            (s) => [s.isTaskRunnerAvailable, s.effectivePhaiView, s.featureFlags],
+            (isTaskRunnerAvailable: boolean, effectivePhaiView: PhaiViewMode, featureFlags: FeatureFlagsSet): boolean =>
+                isTaskRunnerAvailable &&
                 effectivePhaiView === 'new' &&
                 !!featureFlags[FEATURE_FLAGS.FEATURE_FLAG_CLEANUP_ASSESSMENT],
         ],

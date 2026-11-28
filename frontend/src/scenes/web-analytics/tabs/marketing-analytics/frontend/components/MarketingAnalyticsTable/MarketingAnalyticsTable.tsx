@@ -5,9 +5,18 @@ import { Suspense, useId, useMemo, useState } from 'react'
 
 import { IconGear, IconInfo } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonSegmentedButton, Tooltip } from '@posthog/lemon-ui'
+import {
+    Button,
+    ToggleGroup,
+    ToggleGroupItem,
+    Tooltip as QuillTooltip,
+    TooltipContent,
+    TooltipTrigger,
+} from '@posthog/quill'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { lazyWithRetry } from 'lib/utils/retryImport'
+import { AnalyticsSearchInput } from 'scenes/analytics/AnalyticsSearchInput'
 import { teamLogic } from 'scenes/teamLogic'
 import { TileId } from 'scenes/web-analytics/common'
 import { WebTileHeader } from 'scenes/web-analytics/WebTileHeader'
@@ -92,6 +101,7 @@ export const MarketingAnalyticsTable = ({
         useValues(marketingAnalyticsLogic)
     const hasExtendedDrillDown = useFeatureFlag('MARKETING_ANALYTICS_EXTENDED_DRILL_DOWN')
     const hasConversionRecordings = useFeatureFlag('MARKETING_ANALYTICS_CONVERSION_RECORDINGS')
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
     const { conversion_goals } = useValues(marketingAnalyticsSettingsLogic)
 
     const [searchTerm, setSearchTerm] = useState('')
@@ -196,6 +206,8 @@ export const MarketingAnalyticsTable = ({
         }
     }
 
+    const columnViewOptions = [...MARKETING_TABLE_COLUMN_VIEWS, { value: 'custom' as const, label: 'Custom' }]
+
     // Rendered inside the DataTable toolbar, so Export shares one row with the table controls.
     const toolbar = useMemo(
         () => [
@@ -211,40 +223,89 @@ export const MarketingAnalyticsTable = ({
                     onChange: (value) => setDrillDownLevel(value as MarketingAnalyticsDrillDownLevel),
                 }}
             />,
-            <LemonInput
-                key="search"
-                type="search"
-                size="small"
-                placeholder="Search..."
-                value={searchTerm}
-                onChange={setSearchTerm}
-                className="w-56"
-                data-attr="marketing-analytics-search"
-            />,
-            <Tooltip key="search-info" title="Search filters the loaded rows" delayMs={0}>
-                <IconInfo className="text-xl text-secondary" />
-            </Tooltip>,
+            todayRailNav ? (
+                <AnalyticsSearchInput
+                    key="search"
+                    value={searchTerm}
+                    onChange={setSearchTerm}
+                    label="Search..."
+                    placeholder="Search..."
+                    dataAttr="marketing-analytics-search"
+                />
+            ) : (
+                <LemonInput
+                    key="search"
+                    type="search"
+                    size="small"
+                    placeholder="Search..."
+                    value={searchTerm}
+                    onChange={setSearchTerm}
+                    className="w-56"
+                    data-attr="marketing-analytics-search"
+                />
+            ),
+            todayRailNav ? (
+                <QuillTooltip key="search-info">
+                    <TooltipTrigger delay={0} render={<Button size="icon-xs" aria-label="About table search" />}>
+                        <IconInfo />
+                    </TooltipTrigger>
+                    <TooltipContent>Search filters the loaded rows</TooltipContent>
+                </QuillTooltip>
+            ) : (
+                <Tooltip key="search-info" title="Search filters the loaded rows" delayMs={0}>
+                    <IconInfo className="text-xl text-secondary" />
+                </Tooltip>
+            ),
             <div key="spacer" className="flex-1" />,
             <MarketingAnalyticsFreshness key="freshness" latestDayComputedAt={latestDayComputedAt} />,
-            <LemonSegmentedButton
-                key="column-view"
-                size="small"
-                value={columnView}
-                onChange={setColumnView}
-                options={[...MARKETING_TABLE_COLUMN_VIEWS, { value: 'custom' as const, label: 'Custom' }]}
-                data-attr="marketing-analytics-column-view"
-            />,
+            todayRailNav ? (
+                <ToggleGroup
+                    key="column-view"
+                    variant="outline"
+                    aria-label="Column view"
+                    value={[columnView]}
+                    onValueChange={(next: string[]) => {
+                        const picked = next[0] as MarketingTableColumnView | 'custom' | undefined
+                        if (picked && picked !== columnView) {
+                            setColumnView(picked)
+                        }
+                    }}
+                    data-attr="marketing-analytics-column-view"
+                >
+                    {columnViewOptions.map((option) => (
+                        <ToggleGroupItem key={option.value} value={option.value}>
+                            {option.label}
+                        </ToggleGroupItem>
+                    ))}
+                </ToggleGroup>
+            ) : (
+                <LemonSegmentedButton
+                    key="column-view"
+                    size="small"
+                    value={columnView}
+                    onChange={setColumnView}
+                    options={columnViewOptions}
+                    data-attr="marketing-analytics-column-view"
+                />
+            ),
             ...(columnView === 'custom'
                 ? [
-                      <LemonButton
-                          key="columns"
-                          type="secondary"
-                          size="small"
-                          icon={<IconGear />}
-                          onClick={showColumnConfigModal}
-                      >
-                          Configure columns
-                      </LemonButton>,
+                      todayRailNav ? (
+                          <Button key="columns" variant="outline" onClick={showColumnConfigModal}>
+                              <IconGear />
+                              Configure columns
+                          </Button>
+                      ) : (
+                          <LemonButton
+                              key="columns"
+                              type="secondary"
+                              size="small"
+                              icon={<IconGear />}
+                              onClick={showColumnConfigModal}
+                          >
+                              Configure columns
+                          </LemonButton>
+                      ),
                   ]
                 : []),
         ],
@@ -258,6 +319,7 @@ export const MarketingAnalyticsTable = ({
             drillDownLevel,
             searchTerm,
             hasExtendedDrillDown,
+            todayRailNav,
         ]
     )
 

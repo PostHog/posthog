@@ -6247,8 +6247,13 @@ const api = {
     },
 
     queryStatus: {
-        async get(queryId: string, showProgress: boolean, options?: ApiMethodOptions): Promise<QueryStatusResponse> {
-            return await new ApiRequest().queryStatus(queryId, showProgress).get(options)
+        async get(
+            queryId: string,
+            showProgress: boolean,
+            options?: ApiMethodOptions,
+            teamId?: TeamType['id']
+        ): Promise<QueryStatusResponse> {
+            return await new ApiRequest().queryStatus(queryId, showProgress, teamId).get(options)
         },
     },
 
@@ -6604,6 +6609,7 @@ const api = {
             variablesOverride?: Record<string, HogQLVariable> | null
             limitContext?: 'posthog_ai'
             queryKind?: string
+            teamId?: TeamType['id']
         }
     ): Promise<
         T extends { [response: string]: any }
@@ -6632,7 +6638,7 @@ const api = {
                 await import('products/customer_analytics/frontend/generated/api')
             return await api.create(
                 getAccountsPersonsQueryCreateUrl(
-                    String(ApiConfig.getCurrentTeamId()),
+                    String(queryOptions?.teamId ?? ApiConfig.getCurrentTeamId()),
                     encodeURIComponent(query.source.accountId)
                 ),
                 data,
@@ -6642,8 +6648,8 @@ const api = {
 
         const apiRequest =
             bodyKind === NodeKind.AccountsTableQuery
-                ? new ApiRequest().accountsTableQuery()
-                : new ApiRequest().query(undefined, bodyKind)
+                ? new ApiRequest().accountsTableQuery(queryOptions?.teamId)
+                : new ApiRequest().query(queryOptions?.teamId, bodyKind)
 
         return await apiRequest.create({ ...queryOptions?.requestOptions, data })
     },

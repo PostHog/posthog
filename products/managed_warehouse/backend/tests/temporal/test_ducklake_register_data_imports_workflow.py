@@ -31,6 +31,7 @@ from posthog.sync import database_sync_to_async
 from products.managed_warehouse.backend import backfill_trino as backfill_trino_module
 from products.managed_warehouse.backend.duckgres_availability import DuckgresOrganizationStatus
 from products.managed_warehouse.backend.facade.contracts import ManagedWarehouseSourceJobStatus
+from products.managed_warehouse.backend.logic import access as access_logic_module
 from products.managed_warehouse.backend.models import ManagedWarehouseSourceJob, ManagedWarehouseSourceLifecycle
 from products.managed_warehouse.backend.temporal import (
     ducklake_register_data_imports_trino as trino_module,
@@ -129,7 +130,7 @@ async def test_registration_gate_accepts_either_managed_warehouse_flag(
             raise RuntimeError("flag evaluation failed")
         return key in enabled_flags
 
-    monkeypatch.setattr(registration_module, "feature_enabled_or_false", fake_feature_enabled)
+    monkeypatch.setattr(access_logic_module.posthoganalytics, "feature_enabled", fake_feature_enabled)
 
     result = await ducklake_register_data_imports_gate_activity(DuckLakeRegisterDataImportsGateInputs(team_id=ateam.id))
 
@@ -137,6 +138,28 @@ async def test_registration_gate_accepts_either_managed_warehouse_flag(
     assert calls[0]["distinct_id"] == str(ateam.organization_id)
     assert calls[0]["groups"] == {"organization": str(ateam.organization_id)}
     assert calls[0]["group_properties"] == {"organization": {"id": str(ateam.organization_id)}}
+
+
+@pytest.mark.parametrize(
+    "answers, expected",
+    [
+        pytest.param({"managed-warehouse-trino-query": True}, True, id="one_flag_grants"),
+        pytest.param({}, False, id="both_flags_refuse"),
+        pytest.param({"data-warehouse-scene": None}, None, id="flag_definitions_not_loaded"),
+        pytest.param({"managed-warehouse-trino-query": RuntimeError("down")}, None, id="flag_evaluation_raises"),
+    ],
+)
+def test_registration_access_tells_an_unanswered_flag_from_a_refusal(monkeypatch, answers, expected):
+    def fake_feature_enabled(key, distinct_id, **kwargs):
+        answer = answers.get(key, False)
+        if isinstance(answer, Exception):
+            raise answer
+        return answer
+
+    monkeypatch.setattr(access_logic_module.posthoganalytics, "feature_enabled", fake_feature_enabled)
+    monkeypatch.setattr(access_logic_module, "background_loading_configured", lambda organization_id: False)
+
+    assert access_logic_module.data_imports_registration_allowed(uuid.UUID(int=9)) is expected
 
 
 @pytest.mark.asyncio
@@ -156,7 +179,7 @@ async def test_registration_gate_requires_provisioned_duckgres_server_and_retrie
     monkeypatch, ateam, server_provisioned, trino_flag, override, probe, expected
 ):
     monkeypatch.setattr(registration_module, "probe_duckgres_organization", lambda server: probe)
-    monkeypatch.setattr(registration_module, "feature_enabled_or_false", lambda *args, **kwargs: True)
+    monkeypatch.setattr(access_logic_module.posthoganalytics, "feature_enabled", lambda *args, **kwargs: True)
     monkeypatch.setattr(registration_module, "data_imports_trino_flag", lambda organization_id: trino_flag)
     monkeypatch.setattr(registration_module, "is_dev_mode", lambda: False)
     monkeypatch.setattr(registration_module, "get_trino_target_readiness", MagicMock(side_effect=AssertionError))
@@ -2373,9 +2396,9 @@ async def test_registration_gate_requires_a_ready_trino_target_and_ignores_the_d
 ) -> None:
     team = MagicMock(organization_id=uuid.UUID(int=9))
     monkeypatch.setattr(registration_module.Team.objects, "only", lambda *fields: MagicMock(get=lambda id: team))
-    monkeypatch.setattr(registration_module, "feature_enabled_or_false", lambda *args, **kwargs: True)
+    monkeypatch.setattr(access_logic_module.posthoganalytics, "feature_enabled", lambda *args, **kwargs: True)
     monkeypatch.setattr(
-        "products.managed_warehouse.backend.facade.access.background_loading_configured", lambda organization_id: False
+        "products.managed_warehouse.backend.logic.access.background_loading_configured", lambda organization_id: False
     )
     monkeypatch.setattr(registration_module, "data_imports_trino_flag", lambda organization_id: flag_enabled)
     monkeypatch.setattr(registration_module, "_registers_in_hoglake", lambda organization_id: in_hoglake)
@@ -3197,9 +3220,9 @@ def test_registers_in_gigahog_needs_the_flag_and_a_configured_worker(
 async def test_registration_gate_sends_a_gigahog_organization_past_trino_and_duckgres(monkeypatch) -> None:
     team = MagicMock(organization_id=uuid.UUID(int=9))
     monkeypatch.setattr(registration_module.Team.objects, "only", lambda *fields: MagicMock(get=lambda id: team))
-    monkeypatch.setattr(registration_module, "feature_enabled_or_false", lambda *args, **kwargs: True)
+    monkeypatch.setattr(access_logic_module.posthoganalytics, "feature_enabled", lambda *args, **kwargs: True)
     monkeypatch.setattr(
-        "products.managed_warehouse.backend.facade.access.background_loading_configured", lambda organization_id: False
+        "products.managed_warehouse.backend.logic.access.background_loading_configured", lambda organization_id: False
     )
     monkeypatch.setattr(registration_module, "_registers_in_gigahog", lambda organization_id: True)
     monkeypatch.setattr(registration_module, "_registers_in_hoglake", MagicMock(side_effect=AssertionError))

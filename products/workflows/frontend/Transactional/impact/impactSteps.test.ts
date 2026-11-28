@@ -19,6 +19,7 @@ const impact: TransactionalEmailImpactApi = {
     clicks_untracked: 0,
     window_days: 7,
     sessions: null,
+    sessions_capped_at: null,
     link_tagging_enabled: true,
     after_click: { sends: 16, converted: 4 },
     without_click: { sends: 50, converted: 1 },
@@ -124,6 +125,54 @@ describe('impactSteps', () => {
         const steps = impactSteps({ ...impact, after_click: null, without_click: null }, null, 'off')
 
         expect(steps[5]).toMatchObject({ label: 'Converted', value: null, missing: 'Pick an event' })
+    })
+
+    it.each([
+        ['counts the sessions', { ...impact, sessions: 7 }, 'on', 7, undefined, 'From sends with link tracking on'],
+        [
+            'shows no sessions as zero',
+            { ...impact, sessions: 0 },
+            'on',
+            0,
+            undefined,
+            'From sends with link tracking on',
+        ],
+        [
+            'names the limit when the count is capped',
+            { ...impact, sessions: 7, sessions_capped_at: 10000 },
+            'on',
+            7,
+            undefined,
+            'From the latest 10,000 clicked sends',
+        ],
+        [
+            'reads an answer without the cap field as uncapped',
+            { ...impact, sessions: 7, sessions_capped_at: undefined } as unknown as TransactionalEmailImpactApi,
+            'on',
+            7,
+            undefined,
+            'From sends with link tracking on',
+        ],
+        [
+            'says why when the count is missing',
+            impact,
+            'on',
+            null,
+            "Couldn't count",
+            'Reload to try again. Counting sessions also needs access to query events.',
+        ],
+        [
+            'leaves a sensitive email unmeasured',
+            { ...impact, sessions: 7 },
+            'sensitive-email',
+            null,
+            'Not measured',
+            undefined,
+        ],
+    ] as const)('shows the session step: %s', (_, data, linkTagging, value, missing, note) => {
+        const sessionStep = impactSteps(data, null, linkTagging)[4]
+
+        expect([sessionStep.value, sessionStep.missing, sessionStep.note]).toEqual([value, missing, note])
     })
 
     it.each([

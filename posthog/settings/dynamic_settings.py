@@ -7,6 +7,9 @@ CONSTANCE_DATABASE_PREFIX = "constance:posthog:"
 # CONSTANCE_CONFIG: https://django-constance.readthedocs.io/en/latest/
 #
 # To edit, visit: ${SITE_URL}/admin/posthog/instancesetting/
+#
+# Do not add keys here. Use an environment variable or a feature flag instead.
+# The no-new-instance-settings semgrep rule blocks new keys; see .agents/architecture.md.
 
 CONSTANCE_CONFIG = {
     "STATIC_COHORT_RECONCILIATION_ENABLED": (
@@ -17,6 +20,12 @@ CONSTANCE_CONFIG = {
     "AI_OBSERVABILITY_DATASET_RETENTION_ENABLED": (
         True,
         "Enable expiry and deletion of unused AI observability datasets and historical versions in this region.",
+        bool,
+    ),
+    "EXPERIMENTS_RECALCULATION_ENABLED": (
+        True,
+        "Run experiment metric recalculations, including the hourly scheduled ones. Set to False to stop new and "
+        "pending runs. Runs already in progress finish. A change takes effect within about a minute.",
         bool,
     ),
     "WAREHOUSE_PERSON_PROPERTY_SET_RATE_PER_SEC": (
@@ -497,6 +506,7 @@ CONSTANCE_CONFIG = {
 
 SETTINGS_ALLOWING_API_OVERRIDE = (
     "STATIC_COHORT_RECONCILIATION_ENABLED",
+    "EXPERIMENTS_RECALCULATION_ENABLED",
     "GROWTH_SIGNUP_ENRICHMENT_ENABLED",
     "GROWTH_ICP_REENRICH_DAILY_CAP",
     "GROWTH_RESCORE_WEBHOOK_SECRET",

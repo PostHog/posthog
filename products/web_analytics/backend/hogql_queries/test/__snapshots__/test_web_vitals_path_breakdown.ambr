@@ -3,19 +3,22 @@
   '''
   SELECT band AS band,
          path AS path,
-                 value AS value
+                 value AS value,
+                 sample_count AS sample_count
   FROM
     (SELECT multiIf(ifNull(lessOrEquals(value, 100.0), 0), 'good', ifNull(lessOrEquals(value, 200.0), 0), 'needs_improvements', 'poor') AS band,
             path AS path,
-                    value AS value
+                    value AS value,
+                    sample_count AS sample_count
      FROM
        (SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$pathname'), ''), 'null'), '^"|"$', '') AS path,
-               quantile(0.75)(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$web_vitals_INP_value'), ''), 'null'), '^"|"$', ''), 'Float64')) AS value
+               quantile(0.75)(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$web_vitals_INP_value'), ''), 'null'), '^"|"$', ''), 'Float64')) AS value,
+               countIf(isNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$web_vitals_INP_value'), ''), 'null'), '^"|"$', ''))) AS sample_count
         FROM events
         WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$web_vitals'), isNotNull(path), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-08 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-15 23:59:59', 'UTC')))), 0), 1))
         GROUP BY path
-        HAVING ifNull(greaterOrEquals(value, 0), 0)))
-  ORDER BY value ASC,
+        HAVING and(ifNull(greaterOrEquals(value, 0), 0), greaterOrEquals(sample_count, 1))))
+  ORDER BY value DESC,
            path ASC
   LIMIT 20 BY band
   LIMIT 100 SETTINGS readonly=2,
@@ -32,23 +35,98 @@
                      use_hive_partitioning=0
   '''
 # ---
-# name: TestWebVitalsPathBreakdownQueryRunner.test_limit_of_20_paths
+# name: TestWebVitalsPathBreakdownQueryRunner.test_limit_of_20_paths_keeps_the_worst_of_each_band
   '''
   SELECT band AS band,
          path AS path,
-                 value AS value
+                 value AS value,
+                 sample_count AS sample_count
   FROM
     (SELECT multiIf(ifNull(lessOrEquals(value, 100.0), 0), 'good', ifNull(lessOrEquals(value, 200.0), 0), 'needs_improvements', 'poor') AS band,
             path AS path,
-                    value AS value
+                    value AS value,
+                    sample_count AS sample_count
      FROM
        (SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$pathname'), ''), 'null'), '^"|"$', '') AS path,
-               quantile(0.75)(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$web_vitals_INP_value'), ''), 'null'), '^"|"$', ''), 'Float64')) AS value
+               quantile(0.75)(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$web_vitals_INP_value'), ''), 'null'), '^"|"$', ''), 'Float64')) AS value,
+               countIf(isNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$web_vitals_INP_value'), ''), 'null'), '^"|"$', ''))) AS sample_count
         FROM events
         WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$web_vitals'), isNotNull(path), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-08 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-15 23:59:59', 'UTC')))), 0), 1))
         GROUP BY path
-        HAVING ifNull(greaterOrEquals(value, 0), 0)))
-  ORDER BY value ASC,
+        HAVING and(ifNull(greaterOrEquals(value, 0), 0), greaterOrEquals(sample_count, 1))))
+  ORDER BY value DESC,
+           path ASC
+  LIMIT 20 BY band
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     optimize_rewrite_aggregate_function_with_if=0,
+                     optimize_min_inequality_conjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
+  '''
+# ---
+# name: TestWebVitalsPathBreakdownQueryRunner.test_min_samples_drops_thinly_sampled_pages
+  '''
+  SELECT band AS band,
+         path AS path,
+                 value AS value,
+                 sample_count AS sample_count
+  FROM
+    (SELECT multiIf(ifNull(lessOrEquals(value, 100.0), 0), 'good', ifNull(lessOrEquals(value, 200.0), 0), 'needs_improvements', 'poor') AS band,
+            path AS path,
+                    value AS value,
+                    sample_count AS sample_count
+     FROM
+       (SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$pathname'), ''), 'null'), '^"|"$', '') AS path,
+               quantile(0.75)(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$web_vitals_INP_value'), ''), 'null'), '^"|"$', ''), 'Float64')) AS value,
+               countIf(isNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$web_vitals_INP_value'), ''), 'null'), '^"|"$', ''))) AS sample_count
+        FROM events
+        WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$web_vitals'), isNotNull(path), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-08 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-15 23:59:59', 'UTC')))), 0), 1))
+        GROUP BY path
+        HAVING and(ifNull(greaterOrEquals(value, 0), 0), greaterOrEquals(sample_count, 1))))
+  ORDER BY value DESC,
+           path ASC
+  LIMIT 20 BY band
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     optimize_rewrite_aggregate_function_with_if=0,
+                     optimize_min_inequality_conjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
+  '''
+# ---
+# name: TestWebVitalsPathBreakdownQueryRunner.test_min_samples_drops_thinly_sampled_pages.1
+  '''
+  SELECT band AS band,
+         path AS path,
+                 value AS value,
+                 sample_count AS sample_count
+  FROM
+    (SELECT multiIf(ifNull(lessOrEquals(value, 100.0), 0), 'good', ifNull(lessOrEquals(value, 200.0), 0), 'needs_improvements', 'poor') AS band,
+            path AS path,
+                    value AS value,
+                    sample_count AS sample_count
+     FROM
+       (SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$pathname'), ''), 'null'), '^"|"$', '') AS path,
+               quantile(0.75)(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$web_vitals_INP_value'), ''), 'null'), '^"|"$', ''), 'Float64')) AS value,
+               countIf(isNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$web_vitals_INP_value'), ''), 'null'), '^"|"$', ''))) AS sample_count
+        FROM events
+        WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$web_vitals'), isNotNull(path), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-08 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-15 23:59:59', 'UTC')))), 0), 1))
+        GROUP BY path
+        HAVING and(ifNull(greaterOrEquals(value, 0), 0), greaterOrEquals(sample_count, 3))))
+  ORDER BY value DESC,
            path ASC
   LIMIT 20 BY band
   LIMIT 100 SETTINGS readonly=2,
@@ -69,19 +147,22 @@
   '''
   SELECT band AS band,
          path AS path,
-                 value AS value
+                 value AS value,
+                 sample_count AS sample_count
   FROM
     (SELECT multiIf(ifNull(lessOrEquals(value, 100.0), 0), 'good', ifNull(lessOrEquals(value, 200.0), 0), 'needs_improvements', 'poor') AS band,
             path AS path,
-                    value AS value
+                    value AS value,
+                    sample_count AS sample_count
      FROM
        (SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$pathname'), ''), 'null'), '^"|"$', '') AS path,
-               quantile(0.75)(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$web_vitals_INP_value'), ''), 'null'), '^"|"$', ''), 'Float64')) AS value
+               quantile(0.75)(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$web_vitals_INP_value'), ''), 'null'), '^"|"$', ''), 'Float64')) AS value,
+               countIf(isNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$web_vitals_INP_value'), ''), 'null'), '^"|"$', ''))) AS sample_count
         FROM events
         WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$web_vitals'), isNotNull(path), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-08 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-15 23:59:59', 'UTC')))), 0), 1))
         GROUP BY path
-        HAVING ifNull(greaterOrEquals(value, 0), 0)))
-  ORDER BY value ASC,
+        HAVING and(ifNull(greaterOrEquals(value, 0), 0), greaterOrEquals(sample_count, 1))))
+  ORDER BY value DESC,
            path ASC
   LIMIT 20 BY band
   LIMIT 100 SETTINGS readonly=2,
@@ -102,19 +183,22 @@
   '''
   SELECT band AS band,
          path AS path,
-                 value AS value
+                 value AS value,
+                 sample_count AS sample_count
   FROM
     (SELECT multiIf(ifNull(lessOrEquals(value, 100.0), 0), 'good', ifNull(lessOrEquals(value, 200.0), 0), 'needs_improvements', 'poor') AS band,
             path AS path,
-                    value AS value
+                    value AS value,
+                    sample_count AS sample_count
      FROM
        (SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$pathname'), ''), 'null'), '^"|"$', '') AS path,
-               quantile(0.75)(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$web_vitals_LCP_value'), ''), 'null'), '^"|"$', ''), 'Float64')) AS value
+               quantile(0.75)(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$web_vitals_LCP_value'), ''), 'null'), '^"|"$', ''), 'Float64')) AS value,
+               countIf(isNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$web_vitals_LCP_value'), ''), 'null'), '^"|"$', ''))) AS sample_count
         FROM events
         WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$web_vitals'), isNotNull(path), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-08 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-15 23:59:59', 'UTC')))), 0), 1))
         GROUP BY path
-        HAVING ifNull(greaterOrEquals(value, 0), 0)))
-  ORDER BY value ASC,
+        HAVING and(ifNull(greaterOrEquals(value, 0), 0), greaterOrEquals(sample_count, 1))))
+  ORDER BY value DESC,
            path ASC
   LIMIT 20 BY band
   LIMIT 100 SETTINGS readonly=2,
@@ -135,19 +219,22 @@
   '''
   SELECT band AS band,
          path AS path,
-                 value AS value
+                 value AS value,
+                 sample_count AS sample_count
   FROM
     (SELECT multiIf(ifNull(lessOrEquals(value, 100.0), 0), 'good', ifNull(lessOrEquals(value, 200.0), 0), 'needs_improvements', 'poor') AS band,
             path AS path,
-                    value AS value
+                    value AS value,
+                    sample_count AS sample_count
      FROM
        (SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$pathname'), ''), 'null'), '^"|"$', '') AS path,
-               quantile(0.75)(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$web_vitals_INP_value'), ''), 'null'), '^"|"$', ''), 'Float64')) AS value
+               quantile(0.75)(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$web_vitals_INP_value'), ''), 'null'), '^"|"$', ''), 'Float64')) AS value,
+               countIf(isNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$web_vitals_INP_value'), ''), 'null'), '^"|"$', ''))) AS sample_count
         FROM events
         WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$web_vitals'), isNotNull(path), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-08 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-15 23:59:59', 'UTC')))), 0), 1))
         GROUP BY path
-        HAVING ifNull(greaterOrEquals(value, 0), 0)))
-  ORDER BY value ASC,
+        HAVING and(ifNull(greaterOrEquals(value, 0), 0), greaterOrEquals(sample_count, 1))))
+  ORDER BY value DESC,
            path ASC
   LIMIT 20 BY band
   LIMIT 100 SETTINGS readonly=2,
@@ -168,19 +255,22 @@
   '''
   SELECT band AS band,
          path AS path,
-                 value AS value
+                 value AS value,
+                 sample_count AS sample_count
   FROM
     (SELECT multiIf(ifNull(lessOrEquals(value, 100.0), 0), 'good', ifNull(lessOrEquals(value, 200.0), 0), 'needs_improvements', 'poor') AS band,
             path AS path,
-                    value AS value
+                    value AS value,
+                    sample_count AS sample_count
      FROM
        (SELECT replaceRegexpAll(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$pathname'), ''), 'null'), '^"|"$', ''), '\\/cleaned\\/\\d+', '/cleaned/<id>') AS path,
-               quantile(0.75)(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$web_vitals_INP_value'), ''), 'null'), '^"|"$', ''), 'Float64')) AS value
+               quantile(0.75)(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$web_vitals_INP_value'), ''), 'null'), '^"|"$', ''), 'Float64')) AS value,
+               countIf(isNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$web_vitals_INP_value'), ''), 'null'), '^"|"$', ''))) AS sample_count
         FROM events
         WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$web_vitals'), isNotNull(path), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-08 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-15 23:59:59', 'UTC')))), 0), 1))
         GROUP BY path
-        HAVING ifNull(greaterOrEquals(value, 0), 0)))
-  ORDER BY value ASC,
+        HAVING and(ifNull(greaterOrEquals(value, 0), 0), greaterOrEquals(sample_count, 1))))
+  ORDER BY value DESC,
            path ASC
   LIMIT 20 BY band
   LIMIT 100 SETTINGS readonly=2,
@@ -201,19 +291,22 @@
   '''
   SELECT band AS band,
          path AS path,
-                 value AS value
+                 value AS value,
+                 sample_count AS sample_count
   FROM
     (SELECT multiIf(ifNull(lessOrEquals(value, 100.0), 0), 'good', ifNull(lessOrEquals(value, 200.0), 0), 'needs_improvements', 'poor') AS band,
             path AS path,
-                    value AS value
+                    value AS value,
+                    sample_count AS sample_count
      FROM
        (SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$pathname'), ''), 'null'), '^"|"$', '') AS path,
-               quantile(0.75)(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$web_vitals_INP_value'), ''), 'null'), '^"|"$', ''), 'Float64')) AS value
+               quantile(0.75)(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$web_vitals_INP_value'), ''), 'null'), '^"|"$', ''), 'Float64')) AS value,
+               countIf(isNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$web_vitals_INP_value'), ''), 'null'), '^"|"$', ''))) AS sample_count
         FROM events
         WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$web_vitals'), isNotNull(path), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-08 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-15 23:59:59', 'UTC')))), 0), 1))
         GROUP BY path
-        HAVING ifNull(greaterOrEquals(value, 0), 0)))
-  ORDER BY value ASC,
+        HAVING and(ifNull(greaterOrEquals(value, 0), 0), greaterOrEquals(sample_count, 1))))
+  ORDER BY value DESC,
            path ASC
   LIMIT 20 BY band
   LIMIT 100 SETTINGS readonly=2,
@@ -234,19 +327,22 @@
   '''
   SELECT band AS band,
          path AS path,
-                 value AS value
+                 value AS value,
+                 sample_count AS sample_count
   FROM
     (SELECT multiIf(ifNull(lessOrEquals(value, 100.0), 0), 'good', ifNull(lessOrEquals(value, 200.0), 0), 'needs_improvements', 'poor') AS band,
             path AS path,
-                    value AS value
+                    value AS value,
+                    sample_count AS sample_count
      FROM
        (SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$pathname'), ''), 'null'), '^"|"$', '') AS path,
-               quantile(0.9)(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$web_vitals_INP_value'), ''), 'null'), '^"|"$', ''), 'Float64')) AS value
+               quantile(0.9)(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$web_vitals_INP_value'), ''), 'null'), '^"|"$', ''), 'Float64')) AS value,
+               countIf(isNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$web_vitals_INP_value'), ''), 'null'), '^"|"$', ''))) AS sample_count
         FROM events
         WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$web_vitals'), isNotNull(path), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-08 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-15 23:59:59', 'UTC')))), 0), 1))
         GROUP BY path
-        HAVING ifNull(greaterOrEquals(value, 0), 0)))
-  ORDER BY value ASC,
+        HAVING and(ifNull(greaterOrEquals(value, 0), 0), greaterOrEquals(sample_count, 1))))
+  ORDER BY value DESC,
            path ASC
   LIMIT 20 BY band
   LIMIT 100 SETTINGS readonly=2,
@@ -267,19 +363,22 @@
   '''
   SELECT band AS band,
          path AS path,
-                 value AS value
+                 value AS value,
+                 sample_count AS sample_count
   FROM
     (SELECT multiIf(ifNull(lessOrEquals(value, 100.0), 0), 'good', ifNull(lessOrEquals(value, 200.0), 0), 'needs_improvements', 'poor') AS band,
             path AS path,
-                    value AS value
+                    value AS value,
+                    sample_count AS sample_count
      FROM
        (SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$pathname'), ''), 'null'), '^"|"$', '') AS path,
-               quantile(0.99)(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$web_vitals_INP_value'), ''), 'null'), '^"|"$', ''), 'Float64')) AS value
+               quantile(0.99)(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$web_vitals_INP_value'), ''), 'null'), '^"|"$', ''), 'Float64')) AS value,
+               countIf(isNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$web_vitals_INP_value'), ''), 'null'), '^"|"$', ''))) AS sample_count
         FROM events
         WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$web_vitals'), isNotNull(path), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-08 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-15 23:59:59', 'UTC')))), 0), 1))
         GROUP BY path
-        HAVING ifNull(greaterOrEquals(value, 0), 0)))
-  ORDER BY value ASC,
+        HAVING and(ifNull(greaterOrEquals(value, 0), 0), greaterOrEquals(sample_count, 1))))
+  ORDER BY value DESC,
            path ASC
   LIMIT 20 BY band
   LIMIT 100 SETTINGS readonly=2,
@@ -300,19 +399,22 @@
   '''
   SELECT band AS band,
          path AS path,
-                 value AS value
+                 value AS value,
+                 sample_count AS sample_count
   FROM
     (SELECT multiIf(ifNull(lessOrEquals(value, 100.0), 0), 'good', ifNull(lessOrEquals(value, 200.0), 0), 'needs_improvements', 'poor') AS band,
             path AS path,
-                    value AS value
+                    value AS value,
+                    sample_count AS sample_count
      FROM
        (SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$pathname'), ''), 'null'), '^"|"$', '') AS path,
-               quantile(0.75)(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$web_vitals_INP_value'), ''), 'null'), '^"|"$', ''), 'Float64')) AS value
+               quantile(0.75)(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$web_vitals_INP_value'), ''), 'null'), '^"|"$', ''), 'Float64')) AS value,
+               countIf(isNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$web_vitals_INP_value'), ''), 'null'), '^"|"$', ''))) AS sample_count
         FROM events
         WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$web_vitals'), isNotNull(path), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-08 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-15 23:59:59', 'UTC')))), 0), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$pathname'), ''), 'null'), '^"|"$', ''), '/path1'), 0)))
         GROUP BY path
-        HAVING ifNull(greaterOrEquals(value, 0), 0)))
-  ORDER BY value ASC,
+        HAVING and(ifNull(greaterOrEquals(value, 0), 0), greaterOrEquals(sample_count, 1))))
+  ORDER BY value DESC,
            path ASC
   LIMIT 20 BY band
   LIMIT 100 SETTINGS readonly=2,
@@ -343,19 +445,22 @@
   '''
   SELECT band AS band,
          path AS path,
-                 value AS value
+                 value AS value,
+                 sample_count AS sample_count
   FROM
     (SELECT multiIf(ifNull(lessOrEquals(value, 100.0), 0), 'good', ifNull(lessOrEquals(value, 200.0), 0), 'needs_improvements', 'poor') AS band,
             path AS path,
-                    value AS value
+                    value AS value,
+                    sample_count AS sample_count
      FROM
        (SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$pathname'), ''), 'null'), '^"|"$', '') AS path,
-               quantile(0.75)(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$web_vitals_INP_value'), ''), 'null'), '^"|"$', ''), 'Float64')) AS value
+               quantile(0.75)(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$web_vitals_INP_value'), ''), 'null'), '^"|"$', ''), 'Float64')) AS value,
+               countIf(isNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$web_vitals_INP_value'), ''), 'null'), '^"|"$', ''))) AS sample_count
         FROM events
         WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$web_vitals'), isNotNull(path), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-08 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-15 23:59:59', 'UTC')))), 0), 1))
         GROUP BY path
-        HAVING ifNull(greaterOrEquals(value, 0), 0)))
-  ORDER BY value ASC,
+        HAVING and(ifNull(greaterOrEquals(value, 0), 0), greaterOrEquals(sample_count, 1))))
+  ORDER BY value DESC,
            path ASC
   LIMIT 20 BY band
   LIMIT 100 SETTINGS readonly=2,
@@ -376,14 +481,17 @@
   '''
   SELECT band AS band,
          path AS path,
-                 value AS value
+                 value AS value,
+                 sample_count AS sample_count
   FROM
     (SELECT multiIf(ifNull(lessOrEquals(value, 100.0), 0), 'good', ifNull(lessOrEquals(value, 200.0), 0), 'needs_improvements', 'poor') AS band,
             path AS path,
-                    value AS value
+                    value AS value,
+                    sample_count AS sample_count
      FROM
        (SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$pathname'), ''), 'null'), '^"|"$', '') AS path,
-               quantile(0.75)(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$web_vitals_INP_value'), ''), 'null'), '^"|"$', ''), 'Float64')) AS value
+               quantile(0.75)(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$web_vitals_INP_value'), ''), 'null'), '^"|"$', ''), 'Float64')) AS value,
+               countIf(isNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$web_vitals_INP_value'), ''), 'null'), '^"|"$', ''))) AS sample_count
         FROM events
         LEFT OUTER JOIN
           (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -397,8 +505,8 @@
                                                                                                                                                                                                                                                                                                                                                            FROM person_static_cohort
                                                                                                                                                                                                                                                                                                                                                            WHERE and(equals(person_static_cohort.team_id, 99999), equals(person_static_cohort.cohort_id, 99999))))))
         GROUP BY path
-        HAVING ifNull(greaterOrEquals(value, 0), 0)))
-  ORDER BY value ASC,
+        HAVING and(ifNull(greaterOrEquals(value, 0), 0), greaterOrEquals(sample_count, 1))))
+  ORDER BY value DESC,
            path ASC
   LIMIT 20 BY band
   LIMIT 100 SETTINGS readonly=2,

@@ -131,7 +131,7 @@ export function clearAllCachedHasData(): void {
     )
 }
 
-function readCachedHasData(teamId: number | null, productKey: ProductKey): boolean {
+export function readCachedHasData(teamId: number | null, productKey: ProductKey): boolean {
     return (
         teamId !== null && tryStorage(false, (storage) => storage.getItem(hasDataCacheKey(teamId, productKey)) === '1')
     )

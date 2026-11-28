@@ -115,6 +115,8 @@ def test_validate_credentials_rejects_non_numeric_property_id(bad_property_id):
         ("G-ABC123XYZ", "Measurement ID"),
         ("g-abc123xyz", "Measurement ID"),
         ("UA-12345678-1", "Universal Analytics"),
+        ("GTM-ABC1234", "Google Tag Manager container ID"),
+        ("gtm-abc1234", "Google Tag Manager container ID"),
     ],
 )
 def test_validate_credentials_names_common_wrong_ids(wrong_id, expected_substring):

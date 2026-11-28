@@ -54,6 +54,11 @@ func writeTestFile(t *testing.T, name string, data []byte) string {
 
 func issueTestCertificate(t *testing.T, issuer *testCertificate, server bool, names ...string) testCertificate {
 	t.Helper()
+	return issueTestCertificateUntil(t, issuer, server, time.Now().Add(time.Hour), names...)
+}
+
+func issueTestCertificateUntil(t *testing.T, issuer *testCertificate, server bool, expiry time.Time, names ...string) testCertificate {
+	t.Helper()
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
 		t.Fatal(err)
@@ -64,7 +69,7 @@ func issueTestCertificate(t *testing.T, issuer *testCertificate, server bool, na
 	}
 	template := &x509.Certificate{
 		SerialNumber: serial, Subject: pkix.Name{CommonName: "synthetic egress test"},
-		NotBefore: time.Now().Add(-time.Hour), NotAfter: time.Now().Add(time.Hour),
+		NotBefore: time.Now().Add(-time.Hour), NotAfter: expiry,
 		BasicConstraintsValid: true, KeyUsage: x509.KeyUsageDigitalSignature,
 		ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
 	}
