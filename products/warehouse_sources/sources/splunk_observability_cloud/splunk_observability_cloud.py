@@ -659,6 +659,8 @@ def get_rows(
     config = SPLUNK_OBSERVABILITY_CLOUD_ENDPOINTS[endpoint]
     base_url = _api_base_url(realm)
     headers = _get_headers(access_token)
+    if config.accept_header:
+        headers["Accept"] = config.accept_header
     # allow_redirects=False pins every credentialed request to the Splunk hosts:
     # requests only strips `Authorization` on a cross-host redirect, so a followed
     # redirect would replay the X-SF-TOKEN header to whatever host the 3xx names.

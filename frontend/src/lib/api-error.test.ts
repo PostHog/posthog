@@ -151,6 +151,14 @@ describe('api-error', () => {
             ['a 502', { status: 502 }, false],
             ['a 503', { status: 503 }, false],
             ['a 504', { status: 504 }, false],
+            ['a usage-limit 429', { status: 429, code: 'usage_limit_exceeded', data: { type: 'rate_limited' } }, false],
+            ['a billing-limit 429', { status: 429, code: 'fake_limit_code', data: { type: 'billing_limit' } }, false],
+            ['a throttled 429', { status: 429, code: 'throttled' }, true],
+            [
+                'a usage-limit body on a 400',
+                { status: 400, code: 'usage_limit_exceeded', data: { type: 'billing_limit' } },
+                true,
+            ],
             // Only the listed codes are excused: a 403 the app does not recover from is still a signal.
             ['a 403 with no code', { status: 403 }, true],
             ['a 409 that is neither an approvals gate nor a concurrency conflict', { status: 409, data: {} }, true],

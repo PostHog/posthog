@@ -7,6 +7,7 @@ use async_trait::async_trait;
 use futures::future::BoxFuture;
 use ingestion_framework::KafkaMessage;
 use tokio::task::JoinHandle;
+use tokio::time::Instant;
 
 use super::config::ConsumerLoopConfig;
 
@@ -92,6 +93,8 @@ pub async fn run_consumer_loop(
     let mut in_flight: VecDeque<InFlight> = VecDeque::new();
     let mut stats = LoopStats::default();
     let mut outcome: anyhow::Result<()> = Ok(());
+    let telemetry = &config.telemetry;
+    let mut last_poll: Option<Instant> = None;
     loop {
         on_tick();
         while in_flight.front().is_some_and(|f| f.task.is_finished()) {
@@ -103,6 +106,10 @@ pub async fn run_consumer_loop(
         }
         if outcome.is_err() {
             break;
+        }
+        let poll_started = Instant::now();
+        if let Some(last) = last_poll.replace(poll_started) {
+            telemetry.consume_interval(poll_started - last);
         }
         let batch = tokio::select! {
             biased;
@@ -116,6 +123,7 @@ pub async fn run_consumer_loop(
                 break;
             }
         };
+        telemetry.poll(&messages, config.batch_size);
         if messages.is_empty() {
             continue;
         }
@@ -123,6 +131,7 @@ pub async fn run_consumer_loop(
         stats.messages += messages.len() as u64;
         let offsets = offsets_to_store(&messages);
         let epochs = source.epochs(&offsets);
+        let process_started = Instant::now();
         let task = match processor.process(messages).await {
             Ok(task) => task,
             Err(e) => {
@@ -130,16 +139,21 @@ pub async fn run_consumer_loop(
                 break;
             }
         };
+        telemetry.batch_processed(process_started.elapsed());
         let timeout = config.background_task_timeout;
+        let task_telemetry = telemetry.clone();
         let task = tokio::spawn(async move {
             let Some(task) = task else { return Ok(()) };
-            match tokio::time::timeout(timeout, task).await {
+            let task_started = Instant::now();
+            let result = match tokio::time::timeout(timeout, task).await {
                 Ok(result) => result,
                 Err(_) => Err(anyhow::anyhow!(
                     "background_task_timeout_after_{}ms",
                     timeout.as_millis()
                 )),
-            }
+            };
+            task_telemetry.background_task_settled(task_started.elapsed());
+            result
         });
         in_flight.push_back(InFlight {
             task,
@@ -148,18 +162,25 @@ pub async fn run_consumer_loop(
         });
         if in_flight.len() >= config.max_background_tasks {
             let entry = in_flight.pop_front().unwrap();
-            if let Err(e) = settle(entry, source).await {
+            let wait_started = Instant::now();
+            let settled = settle(entry, source).await;
+            telemetry.backpressure_released(wait_started.elapsed());
+            if let Err(e) = settled {
                 outcome = Err(e);
                 break;
             }
         }
     }
     if outcome.is_ok() {
+        let drain_started = (!in_flight.is_empty()).then(Instant::now);
         while let Some(entry) = in_flight.pop_front() {
             if let Err(e) = settle(entry, source).await {
                 outcome = Err(e);
                 break;
             }
+        }
+        if let Some(started) = drain_started {
+            telemetry.shutdown_drained(started.elapsed());
         }
     } else {
         for entry in in_flight {
@@ -175,6 +196,9 @@ pub async fn run_consumer_loop(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::service::consumer_telemetry::{
+        assert_metric_lines, bucket_bounds, render_metrics_of, ConsumerTelemetry,
+    };
     use futures::FutureExt;
     use std::sync::{Arc, Mutex};
 
@@ -219,6 +243,8 @@ mod tests {
         fail_task_at: Vec<i64>,
         fail_batch_at: Vec<i64>,
         hang_task_at: Vec<i64>,
+        process_time: Duration,
+        task_time: Option<Duration>,
     }
 
     #[async_trait]
@@ -233,12 +259,14 @@ mod tests {
             }
             let fail = self.fail_task_at.contains(&first);
             let hang = self.hang_task_at.contains(&first);
+            tokio::time::sleep(self.process_time).await;
+            let task_time = self.task_time.unwrap_or(Duration::from_millis(5));
             Ok(Some(
                 async move {
                     if hang {
                         futures::future::pending::<()>().await;
                     }
-                    tokio::time::sleep(Duration::from_millis(5)).await;
+                    tokio::time::sleep(task_time).await;
                     if fail {
                         anyhow::bail!("produce failed")
                     }
@@ -264,6 +292,7 @@ mod tests {
             batch_timeout: Duration::from_millis(1),
             max_background_tasks,
             background_task_timeout: Duration::from_secs(5),
+            telemetry: ConsumerTelemetry::new("in", "group", "pod-0"),
         }
     }
 
@@ -379,5 +408,107 @@ mod tests {
         let (result, stored, _) = run(batches(), processor, 1).await;
         assert_eq!(result.unwrap_err().to_string(), "batch failed");
         assert_eq!(stored.len(), 2);
+    }
+
+    fn sized(offset: i64, bytes: usize) -> KafkaMessage {
+        KafkaMessage {
+            value: Some(bytes::Bytes::from(vec![0; bytes])),
+            ..msg(0, offset)
+        }
+    }
+
+    /// Three batches at 0, 250 and 750 ms, then empty polls of 125 ms from 1000 ms. Each task ends 750 ms after its poll.
+    fn metrics_after(shutdown_at: Duration) -> String {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_time()
+            .start_paused(true)
+            .build()
+            .unwrap();
+        render_metrics_of(|| {
+            runtime.block_on(async {
+                let mut source = FakeSource {
+                    batches: vec![
+                        vec![sized(0, 1024), sized(1, 1024), sized(2, 1024)],
+                        vec![sized(3, 512)],
+                        vec![msg(0, 4)],
+                    ]
+                    .into(),
+                    ..Default::default()
+                };
+                let processor = FakeProcessor {
+                    process_time: Duration::from_millis(250),
+                    task_time: Some(Duration::from_millis(500)),
+                    ..Default::default()
+                };
+                let config = ConsumerLoopConfig {
+                    batch_timeout: Duration::from_millis(125),
+                    ..config(2)
+                };
+                run_consumer_loop(
+                    &mut source,
+                    &processor,
+                    &config,
+                    tokio::time::sleep(shutdown_at),
+                    &|| {},
+                )
+                .await
+                .unwrap();
+            })
+        })
+    }
+
+    #[test]
+    fn the_loop_reports_the_metrics_of_the_node_consumer() {
+        let labels = r#"topic="in",groupId="group""#;
+        let after_an_empty_poll = metrics_after(Duration::from_millis(1200));
+        assert_metric_lines(
+            &after_an_empty_poll,
+            &[
+                &format!("kafka_consumer_polls_total{{{labels}}} 4"),
+                r#"consumer_batch_utilization{groupId="group"} 0"#,
+                "consumer_batch_size_sum 5",
+                "consumer_batch_size_count 4",
+                r#"consumer_batch_size_bucket{le="3000"} 4"#,
+                "consumer_batch_size_kb_sum 3.5",
+                r#"consumer_batch_size_kb_bucket{le="204800"} 4"#,
+                &format!("kafka_consume_interval_ms_sum{{{labels}}} 1125"),
+                &format!("kafka_consume_interval_ms_count{{{labels}}} 4"),
+                &format!(r#"kafka_consume_interval_ms_bucket{{{labels},le="60000"}} 4"#),
+                &format!("consumed_batch_duration_ms_sum{{{labels}}} 750"),
+                &format!("consumed_batch_duration_ms_count{{{labels}}} 3"),
+                &format!("consumed_batch_background_duration_ms_sum{{{labels}}} 1.5"),
+                &format!("consumed_batch_background_duration_ms_count{{{labels}}} 3"),
+                &format!("consumed_batch_backpressure_duration_ms_sum{{{labels}}} 0.25"),
+                &format!("consumed_batch_backpressure_duration_ms_count{{{labels}}} 2"),
+                &format!(
+                    r#"kafka_consumer_drain_duration_ms_sum{{{labels},cause="shutdown"}} 0.3"#
+                ),
+                &format!(
+                    r#"kafka_consumer_drain_duration_ms_bucket{{{labels},cause="shutdown",le="120000"}} 1"#
+                ),
+            ],
+        );
+        for histogram in [
+            "consumed_batch_duration_ms",
+            "consumed_batch_background_duration_ms",
+            "consumed_batch_backpressure_duration_ms",
+        ] {
+            assert_eq!(
+                bucket_bounds(&after_an_empty_poll, histogram),
+                [
+                    "0.005", "0.01", "0.025", "0.05", "0.1", "0.25", "0.5", "1", "2.5", "5", "10",
+                    "+Inf"
+                ],
+                "{histogram}"
+            );
+        }
+        let after_a_batch = metrics_after(Duration::from_millis(1050));
+        assert_metric_lines(
+            &after_a_batch,
+            &[
+                &format!("kafka_consumer_polls_total{{{labels}}} 3"),
+                r#"consumer_batch_utilization{groupId="group"} 0.1"#,
+            ],
+        );
     }
 }

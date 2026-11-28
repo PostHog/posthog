@@ -6,6 +6,7 @@ import { LemonBanner, LemonButton, LemonCard, LemonCollapse } from '@posthog/lem
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TZLabel } from 'lib/components/TZLabel'
 import { FEATURE_FLAGS, TeamMembershipLevel } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { teamLogic } from 'scenes/teamLogic'
@@ -17,6 +18,7 @@ import type { ConversionRecommendationApi } from '../generated/api.schemas'
 import { conversionGoalFormLogic } from './conversionGoalFormLogic'
 import { ConversionRecommendationCard } from './ConversionRecommendationCard'
 import { conversionRecommendationsLogic } from './conversionRecommendationsLogic'
+import { QuillConversionGoalRecommendations } from './QuillConversionGoalRecommendations'
 
 export function ConversionGoalRecommendations({
     onConfigureGoals,
@@ -55,6 +57,7 @@ export function ConversionGoalRecommendations({
         scanDisabledReason,
     } = useValues(logic)
     const { requestAnalysis, loadRecommendations, dismissRecommendation, restoreRecommendation } = useActions(logic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     if (
         !enabled ||
@@ -68,6 +71,36 @@ export function ConversionGoalRecommendations({
     ) {
         return null
     }
+    const recommendationDisabledReason =
+        editDisabledReason ||
+        (currentTeamLoading || isSaving ? 'Wait for the project settings to finish saving.' : undefined)
+
+    if (todayRailNav) {
+        return (
+            <QuillConversionGoalRecommendations
+                state={state}
+                stateLoading={stateLoading}
+                isAnalyzing={isAnalyzing}
+                error={error}
+                pendingRecommendations={pendingRecommendations}
+                allRecommendationsConfigured={allRecommendationsConfigured}
+                allRecommendationsHandled={allRecommendationsHandled}
+                dismissedRecommendationEntries={dismissedRecommendationEntries}
+                scanCooldownRemaining={scanCooldownRemaining}
+                scanDisabledReason={scanDisabledReason}
+                editDisabledReason={editDisabledReason}
+                recommendationDisabledReason={recommendationDisabledReason}
+                headerAction={headerAction}
+                onConfigureGoals={onConfigureGoals}
+                onUseSuggestion={onUseSuggestion}
+                onDismiss={dismissRecommendation}
+                onRestore={restoreRecommendation}
+                onRetryLoading={() => loadRecommendations()}
+                onScan={() => requestAnalysis(true)}
+            />
+        )
+    }
+
     return (
         <LemonCard
             hoverEffect={false}
@@ -137,12 +170,7 @@ export function ConversionGoalRecommendations({
                                 recommendation={recommendation}
                                 onUseSuggestion={() => onUseSuggestion(recommendation)}
                                 onDismiss={() => dismissRecommendation(recommendation)}
-                                disabledReason={
-                                    editDisabledReason ||
-                                    (currentTeamLoading || isSaving
-                                        ? 'Wait for the project settings to finish saving.'
-                                        : undefined)
-                                }
+                                disabledReason={recommendationDisabledReason}
                             />
                         ))}
                     </div>

@@ -26,6 +26,10 @@ SALESFLARE_ENDPOINTS: dict[str, SalesflareEndpointConfig] = {
     "workflows": SalesflareEndpointConfig(path="/workflows"),
     "stages": SalesflareEndpointConfig(path="/stages", paginated=False),
     "users": SalesflareEndpointConfig(path="/users"),
+    "persons": SalesflareEndpointConfig(path="/persons", paginated=False),
+    "custom_fields": SalesflareEndpointConfig(
+        path="/customfields/{item_class}", primary_keys=["item_class", "id"], paginated=False
+    ),
 }
 
 ENDPOINTS = tuple(SALESFLARE_ENDPOINTS.keys())

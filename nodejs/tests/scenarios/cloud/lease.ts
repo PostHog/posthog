@@ -28,6 +28,7 @@ export type Manifest = {
     controlRunId?: string
     readerIdleMaxAcu?: number
     readerMinAcu?: number
+    readerMaxAcu?: number
 }
 
 const HOUR_MS = 60 * 60 * 1000
@@ -166,6 +167,7 @@ export async function lease(
         ...(card.seed !== undefined && { seed: card.seed }),
         readerIdleMaxAcu: profile.readerAcu.idleMax,
         readerMinAcu: profile.readerAcu.min,
+        readerMaxAcu: profile.readerAcu.max,
         ...(card.pair && { pair: true, controlRunId: randomUUID() }),
     }
     const bucket = evidenceOf(controller.aws, profile.baseline.evidenceBucket)
@@ -237,6 +239,7 @@ const HostManifest = StoredManifest.extend({
     account: z.string(),
     readerIdleMaxAcu: z.number().positive().optional(),
     readerMinAcu: z.number().nonnegative().optional(),
+    readerMaxAcu: z.number().positive().optional(),
     seed: SeedOverride.optional(),
     pair: z.boolean().optional(),
     controlRunId: z.uuid().optional(),
@@ -250,6 +253,7 @@ export type RunManifest = Pick<
     | 'stackName'
     | 'readerIdleMaxAcu'
     | 'readerMinAcu'
+    | 'readerMaxAcu'
     | 'pair'
     | 'controlRunId'
     | 'seed'

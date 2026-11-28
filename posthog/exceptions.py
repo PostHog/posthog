@@ -154,6 +154,13 @@ class ClickHouseQueryTimeOut(APIException):
     default_detail = "Query has hit the max execution time before completing. See our docs for how to improve your query performance. You may need to materialize."
 
 
+class ClickHouseUDFTimeOut(ClickHouseQueryTimeOut):
+    # The funnel functions (aggregate_funnel_*) run in a fixed pool of external processes.
+    default_detail = (
+        "The funnel calculation timed out. Shorten the date range or remove some steps, then run the query again."
+    )
+
+
 class ClickHouseQueryMemoryLimitExceeded(APIException):
     user_safe = True
     # Custom code in the actionable-validation family (400/512/513) the frontend routes to the

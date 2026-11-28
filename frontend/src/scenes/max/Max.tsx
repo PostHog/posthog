@@ -187,7 +187,7 @@ export const MaxInstance = React.memo(function MaxInstance({
     } = useValues(maxLogic(logicProps))
     const { startNewConversation, goBack } = useActions(maxLogic(logicProps))
     const { openSidePanelMax } = useActions(maxGlobalLogic)
-    const { isMaxAvailable, effectivePhaiView } = useValues(maxGlobalLogic)
+    const { isMaxAvailable, isTaskRunnerAvailable, effectivePhaiView } = useValues(maxGlobalLogic)
     // The new posthog_ai view's back button walks its own panel view state (run -> history -> composer)
     // rather than legacy Max's conversation stack — mounting this tiny headless logic in legacy view is
     // harmless (unconditional hooks).
@@ -232,8 +232,8 @@ export const MaxInstance = React.memo(function MaxInstance({
         conversationId,
     })
 
-    const content = !isMaxAvailable ? (
-        <MaxNotConfigured />
+    const content = !(isTaskView ? isTaskRunnerAvailable : isMaxAvailable) ? (
+        <MaxNotConfigured needsOpenAiKey={!isTaskView} />
     ) : (
         <BindLogic logic={maxLogic} props={logicProps}>
             <BindLogic logic={maxThreadLogic} props={threadProps}>

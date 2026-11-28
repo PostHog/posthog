@@ -1,7 +1,8 @@
 import { useActions, useValues } from 'kea'
-import type { ReactNode } from 'react'
+import { router } from 'kea-router'
+import { useState, type ReactNode } from 'react'
 
-import { IconChevronRight, IconInfo, IconRefresh, IconSearch } from '@posthog/icons'
+import { IconChevronRight, IconRefresh, IconSearch } from '@posthog/icons'
 import {
     LemonBanner,
     LemonButton,
@@ -26,8 +27,8 @@ import { ResourceTagFilter } from '../components/ResourceTagFilter'
 import { cleanTagFilters } from '../components/resourceTagFilters'
 import { ResourceTags } from '../components/ResourceTags'
 import type { OfflineExperimentReadApi } from '../generated/api.schemas'
-import { experimentScoreLabel } from './ExperimentScoreResult'
-import { explainMixedScorerVersions, formatItemScorerVersions } from './offlineExperimentPresentation'
+import { comparisonUrl, MAX_COMPARISON_RUNS } from './offlineComparison'
+import { OfflineExperimentScoreValue } from './OfflineExperimentScoreValue'
 import { OfflineExperimentsEmptyState } from './OfflineExperimentsEmptyState'
 import { offlineExperimentsLogic, type OfflineExperimentsLogicProps } from './offlineExperimentsLogic'
 import { OfflineExperimentStatus } from './OfflineExperimentStatus'
@@ -37,9 +38,11 @@ import { OfflineScoreChooser } from './OfflineScoreChooser'
 
 export function OfflineExperimentsOverview({
     navigation,
+    initialSelectedKeys,
     ...props
-}: OfflineExperimentsLogicProps & { navigation?: ReactNode }): JSX.Element {
+}: OfflineExperimentsLogicProps & { navigation?: ReactNode; initialSelectedKeys?: string[] }): JSX.Element {
     const logic = offlineExperimentsLogic(props)
+    const [selectionBarTarget, setSelectionBarTarget] = useState<HTMLDivElement | null>(null)
     const {
         experiments,
         experimentsLoading,
@@ -64,7 +67,6 @@ export function OfflineExperimentsOverview({
             title: 'Experiment',
             key: 'name',
             className: '@max-[50rem]:w-1/3',
-            width: '25%',
             render: (_, experiment) => (
                 <Tooltip
                     title={
@@ -138,50 +140,7 @@ export function OfflineExperimentsOverview({
                         </span>
                     )
                 }
-                const label = experimentScoreLabel(score)
-                const blockedInputs =
-                    score.status === 'mixed_versions'
-                        ? score.inputs.filter((input) => input.status === 'mixed_versions')
-                        : []
-                return (
-                    <Tooltip
-                        title={
-                            <div className="max-w-72 space-y-2 text-sm leading-5">
-                                <div className="font-semibold">
-                                    {score.name} · v{score.version}
-                                </div>
-                                {blockedInputs.length > 0
-                                    ? blockedInputs.map((input) => (
-                                          <div key={input.alias}>{explainMixedScorerVersions(input)}</div>
-                                      ))
-                                    : score.inputs.length > 0 && (
-                                          <dl
-                                              aria-label="Item scorers in this run"
-                                              className="m-0 grid grid-cols-[fit-content(65%)_1fr] gap-x-4 gap-y-1"
-                                          >
-                                              {score.inputs.map((input) => (
-                                                  <div key={input.alias} className="contents">
-                                                      <dt className="break-words">{input.alias}</dt>
-                                                      <dd className="m-0">
-                                                          {formatItemScorerVersions(input) || 'No results'}
-                                                      </dd>
-                                                  </div>
-                                              ))}
-                                          </dl>
-                                      )}
-                            </div>
-                        }
-                    >
-                        <span className="inline-flex max-w-full flex-col align-middle" tabIndex={0}>
-                            <span className="inline-flex items-center gap-1 font-medium tabular-nums">
-                                <span className="break-words min-w-0">{label}</span>
-                                {score.inputs.length > 0 && (
-                                    <IconInfo className="shrink-0 text-muted" aria-label="Score details" />
-                                )}
-                            </span>
-                        </span>
-                    </Tooltip>
-                )
+                return <OfflineExperimentScoreValue score={score} />
             },
         },
         {
@@ -389,10 +348,15 @@ export function OfflineExperimentsOverview({
                 )}
             </section>
             <section aria-label="Recent experiments" className="space-y-3">
-                <div className="flex flex-wrap justify-between items-center gap-2">
-                    <h2 className="mb-0">Recent experiments</h2>
+                <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-2 gap-y-1 @min-[46rem]:grid-cols-[minmax(0,1fr)_auto_auto]">
+                    <h2 className="mb-0 @min-[32rem]:@max-[46rem]:col-span-full">Recent experiments</h2>
+                    <div
+                        ref={setSelectionBarTarget}
+                        className="flex min-h-9 items-center justify-end @max-[32rem]:order-last @max-[32rem]:col-span-full"
+                    />
                     <LemonInput
                         size="small"
+                        className="@max-[32rem]:w-40"
                         type="search"
                         prefix={<IconSearch />}
                         value={filters.search || ''}
@@ -406,10 +370,34 @@ export function OfflineExperimentsOverview({
                     </LemonBanner>
                 ) : (
                     <LemonTable
-                        className="@max-[50rem]:[&_colgroup]:hidden @max-[50rem]:[&_table]:table-auto"
+                        className="@max-[50rem]:[&_colgroup]:hidden @max-[50rem]:[&_table]:table-auto @max-[50rem]:[&_th:first-child]:w-px"
                         dataSource={experiments?.results || []}
                         columns={columns}
                         rowKey="id"
+                        bulkSelection={{
+                            initialSelectedKeys,
+                            noun: ['experiment', 'experiments'],
+                            barPortalTarget: selectionBarTarget,
+                            getSelectionLabel: ({ selectedCount }) => `${selectedCount} selected`,
+                            rowAriaLabel: (run) => `Select ${run.name}`,
+                            renderActions: ({ selectedKeys, selectedCount }) => (
+                                <LemonButton
+                                    type="primary"
+                                    size="small"
+                                    data-attr="offline-compare-experiments"
+                                    to={comparisonUrl(selectedKeys, router.values.searchParams)}
+                                    disabledReason={
+                                        selectedCount < 2
+                                            ? 'Select at least two experiments'
+                                            : selectedCount > MAX_COMPARISON_RUNS
+                                              ? `Select up to ${MAX_COMPARISON_RUNS} experiments`
+                                              : undefined
+                                    }
+                                >
+                                    Compare experiments
+                                </LemonButton>
+                            ),
+                        }}
                         size="small"
                         loading={experimentsLoading || experiments === null}
                         tableLayout="fixed"

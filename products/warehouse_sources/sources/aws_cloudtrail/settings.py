@@ -147,3 +147,15 @@ CREDENTIAL_ERRORS = {
     "OperationNotPermittedException": "AWS does not permit this operation. Check the account permissions and service availability.",
     "UnsupportedOperationException": "AWS does not support this operation in the selected region. Select a supported region.",
 }
+
+
+# The IAM actions this source calls. A role session can use only these.
+AWS_SESSION_ACTIONS = (
+    "cloudtrail:DescribeQuery",
+    "cloudtrail:DescribeTrails",
+    "cloudtrail:ListEventDataStores",
+    "cloudtrail:ListInsightsData",
+    "cloudtrail:ListInsightsMetricData",
+    "cloudtrail:ListQueries",
+    "cloudtrail:LookupEvents",
+)

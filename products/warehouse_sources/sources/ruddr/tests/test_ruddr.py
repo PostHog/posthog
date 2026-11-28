@@ -75,6 +75,12 @@ class TestPagination:
             ("payments", "https://www.ruddr.io/api/workspace/payments"),
             ("timesheets", "https://www.ruddr.io/api/workspace/timesheets"),
             ("practices", "https://www.ruddr.io/api/workspace/practices"),
+            (
+                "project_revenue_recognition_entries",
+                "https://www.ruddr.io/api/workspace/project-revenue-recognition-entries",
+            ),
+            ("credit_notes", "https://www.ruddr.io/api/workspace/credit-notes"),
+            ("companies", "https://www.ruddr.io/api/workspace/companies"),
         ]
     )
     def test_request_targets_endpoint_path(self, endpoint: str, expected_url: str) -> None:
@@ -85,26 +91,33 @@ class TestPagination:
         assert result.urls[0].split("?")[0] == expected_url
 
 
+_WATERMARK_CASES: list[tuple[str, bool, Any, str | None]] = [
+    (
+        "datetime_watermark",
+        True,
+        dt.datetime(2025, 2, 5, 20, 47, 3, 284000, tzinfo=dt.UTC),
+        "2025-02-05T20:47:03.284Z",
+    ),
+    ("naive_datetime_watermark", True, dt.datetime(2025, 2, 5, 20, 47, 3), "2025-02-05T20:47:03.000Z"),
+    ("string_watermark", True, "2025-02-05T20:47:03.284Z", "2025-02-05T20:47:03.284Z"),
+    ("first_incremental_sync", True, None, None),
+    ("full_refresh_ignores_watermark", False, dt.datetime(2025, 2, 5, tzinfo=dt.UTC), None),
+]
+
+
 class TestIncrementalRequests:
     @parameterized.expand(
         [
-            (
-                "datetime_watermark",
-                True,
-                dt.datetime(2025, 2, 5, 20, 47, 3, 284000, tzinfo=dt.UTC),
-                "2025-02-05T20:47:03.284Z",
-            ),
-            ("naive_datetime_watermark", True, dt.datetime(2025, 2, 5, 20, 47, 3), "2025-02-05T20:47:03.000Z"),
-            ("string_watermark", True, "2025-02-05T20:47:03.284Z", "2025-02-05T20:47:03.284Z"),
-            ("first_incremental_sync", True, None, None),
-            ("full_refresh_ignores_watermark", False, dt.datetime(2025, 2, 5, tzinfo=dt.UTC), None),
+            (f"{endpoint}_{name}", endpoint, use_incremental, last_value, expected)
+            for endpoint in ("invoices", "credit_notes")
+            for name, use_incremental, last_value, expected in _WATERMARK_CASES
         ]
     )
-    def test_invoices_filter_on_modified_at_on_every_page(
-        self, _name: str, use_incremental: bool, last_value: Any, expected_filter: str | None
+    def test_filters_on_modified_at_on_every_page(
+        self, _name: str, endpoint: str, use_incremental: bool, last_value: Any, expected_filter: str | None
     ) -> None:
         result = _driver().run(
-            "invoices",
+            endpoint,
             [_response(_full_page(0), has_more=True), _response([{"id": "999"}], has_more=False)],
             should_use_incremental_field=use_incremental,
             incremental_field="modifiedAt" if use_incremental else None,
@@ -128,6 +141,68 @@ class TestIncrementalRequests:
 
         assert isinstance(result.raised, ValueError)
         assert result.requests == []
+
+
+class TestMemberFanout:
+    def test_reads_cost_periods_per_member_across_member_pages(self) -> None:
+        members_page_1 = [{"id": f"m{i}"} for i in range(PAGE_SIZE)]
+        script = [
+            _response(members_page_1, has_more=True),
+            # m0 has two pages of cost periods; the per-member cursor must not leak into the next member.
+            _response([{"id": f"cp{i}"} for i in range(PAGE_SIZE)], has_more=True),
+            _response([{"id": "cp-last"}], has_more=False),
+            *[_response([]) for _ in range(PAGE_SIZE - 1)],
+            _response([{"id": "m-last"}], has_more=False),
+            _response([{"id": "cp-m-last"}], has_more=False),
+        ]
+
+        result = _driver().run("cost_periods", script)
+
+        assert result.raised is None
+        assert len(result.rows) == PAGE_SIZE + 2
+        assert {r["member_id"] for r in result.rows} == {"m0", "m-last"}
+        assert result.rows[-1] == {"id": "cp-m-last", "member_id": "m-last"}
+        paths = [url.split("?")[0].rsplit("/", 1)[-1] for url in result.urls]
+        assert paths == [
+            "members",
+            "cost-periods",
+            "cost-periods",
+            *(["cost-periods"] * (PAGE_SIZE - 1)),
+            "members",
+            "cost-periods",
+        ]
+        assert result.params("memberId") == [
+            None,
+            "m0",
+            "m0",
+            *(f"m{i}" for i in range(1, PAGE_SIZE)),
+            None,
+            "m-last",
+        ]
+        assert result.params("startingAfter") == [
+            None,
+            None,
+            f"cp{PAGE_SIZE - 1}",
+            *([None] * (PAGE_SIZE - 1)),
+            f"m{PAGE_SIZE - 1}",
+            None,
+        ]
+        assert result.saved_states[0] == RuddrResumeConfig(cursor=None, completed_member_ids=["m0"])
+        assert result.saved_states[-1] == RuddrResumeConfig(cursor=f"m{PAGE_SIZE - 1}", completed_member_ids=["m-last"])
+
+    def test_resume_skips_members_already_read_on_the_saved_page(self) -> None:
+        result = _driver().run(
+            "cost_periods",
+            [
+                _response([{"id": "m1"}, {"id": "m2"}], has_more=False),
+                _response([{"id": "cp2"}], has_more=False),
+            ],
+            resume_state=RuddrResumeConfig(cursor="m0", completed_member_ids=["m1"]),
+        )
+
+        assert result.rows == [{"id": "cp2", "member_id": "m2"}]
+        assert result.params("startingAfter")[0] == "m0"
+        assert result.params("memberId") == [None, "m2"]
 
 
 class TestErrorHandling:

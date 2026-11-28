@@ -1,6 +1,6 @@
 import './AdventCalendar.scss'
 
-import { CSSProperties } from 'react'
+import { CSSProperties, HTMLAttributes } from 'react'
 
 import { IconX } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
@@ -23,14 +23,18 @@ export interface AdventCardFace {
     top: number
     size: number
     zoom: number
+    tint?: string
 }
 
 export interface AdventDoorCardProps {
     door: AdventDoor
+    shares?: Record<string, number>
     face: AdventCardFace
     stage: { width: number; height: number }
     isOpen: boolean
     isPinned: boolean
+    isDialog?: boolean
+    isClosing?: boolean
     onPin: (doorId: string) => void
     onAnswer: (doorId: string, optionId: string) => void
     onTipClick: (day: number) => void
@@ -39,10 +43,8 @@ export interface AdventDoorCardProps {
     onMouseLeave: () => void
 }
 
-function closedClip(faceSize: number, faceInset: number, isUpward: boolean, isLeftward: boolean): string {
-    const [top, bottom] = isUpward
-        ? [`calc(100% - ${ADVENT_CARD_INSET + faceSize}px)`, `${ADVENT_CARD_INSET}px`]
-        : [`${ADVENT_CARD_INSET}px`, `calc(100% - ${ADVENT_CARD_INSET + faceSize}px)`]
+function closedClip(faceSize: number, faceInset: number, isLeftward: boolean): string {
+    const [top, bottom] = [`${ADVENT_CARD_INSET}px`, `calc(100% - ${ADVENT_CARD_INSET + faceSize}px)`]
     const [right, left] = isLeftward
         ? [`${faceInset}px`, `calc(100% - ${faceInset + faceSize}px)`]
         : [`calc(100% - ${faceInset + faceSize}px)`, `${faceInset}px`]
@@ -54,7 +56,7 @@ function cardLayout(
     face: AdventCardFace,
     stage: AdventDoorCardProps['stage'],
     isOpen: boolean
-): { style: CSSProperties; faceShift: CSSProperties; isLeftward: boolean; isUpward: boolean } {
+): { style: CSSProperties; faceShift: CSSProperties; isLeftward: boolean } {
     const { isLeftward, left, width, faceInset } = adventCardPlacement(face, stage.width, door.row)
     const isUpward = door.row === 2
     const faceTop = face.top - ADVENT_CARD_INSET
@@ -67,12 +69,12 @@ function cardLayout(
         left,
         ...vertical,
         borderColor: adventDoorColor(door),
-        clipPath: isOpen ? OPEN_CLIP : closedClip(face.size, faceInset, isUpward, isLeftward),
+        clipPath: isOpen ? OPEN_CLIP : closedClip(face.size, faceInset, isLeftward),
         transitionDuration: `${isOpen ? OPEN_MS : ADVENT_CARD_CLOSE_MS}ms`,
     }
     const shift = faceInset - ADVENT_CARD_INSET
     const faceShift: CSSProperties = isLeftward ? { marginRight: shift } : { marginLeft: shift }
-    return { style, faceShift, isLeftward, isUpward }
+    return { style, faceShift, isLeftward }
 }
 
 function headline(door: AdventDoor): { title: string; detail: string | null } {
@@ -82,10 +84,7 @@ function headline(door: AdventDoor): { title: string; detail: string | null } {
     if (door.status === 'locked') {
         return {
             title: door.question ? door.question.topic : 'Locked',
-            detail:
-                door.lockReason === 'date'
-                    ? `Opens on ${adventWeekday(door.day)}, December ${door.day}.`
-                    : 'Open the earlier doors first.',
+            detail: door.lockReason === 'date' ? `Opens December ${door.day}.` : 'Open the earlier doors first.',
         }
     }
     return door.question
@@ -93,12 +92,23 @@ function headline(door: AdventDoor): { title: string; detail: string | null } {
         : { title: 'Ready to open', detail: 'Select the door to see who is behind it.' }
 }
 
+function dialogProps(day: number, isPinned: boolean, isClosing = false): HTMLAttributes<HTMLDivElement> {
+    return {
+        role: isPinned ? 'dialog' : undefined,
+        'aria-labelledby': isPinned ? `advent-door-card-title-${day}` : undefined,
+        ...(isClosing ? { inert: '' } : {}),
+    }
+}
+
 export function AdventDoorCard({
     door,
+    shares,
     face,
     stage,
     isOpen,
     isPinned,
+    isDialog,
+    isClosing,
     onPin,
     onAnswer,
     onTipClick,
@@ -107,32 +117,45 @@ export function AdventDoorCard({
     onMouseLeave,
 }: AdventDoorCardProps): JSX.Element {
     const { title, detail } = headline(door)
-    const { style, faceShift, isLeftward, isUpward } = cardLayout(door, face, stage, isOpen)
-    const showsHint = !isPinned && door.status !== 'ready'
+    const { style, faceShift, isLeftward } = cardLayout(door, face, stage, isOpen)
 
     return (
         <div
-            className={cn('AdventCard', isUpward && 'AdventCard--upward', isOpen && 'AdventCard--open')}
+            className={cn('AdventCard', isOpen && 'AdventCard--open')}
             style={style}
             data-attr="advent-door-card"
             data-open={isOpen}
+            {...dialogProps(door.day, isPinned && !!isDialog, isClosing)}
             onMouseEnter={onMouseEnter}
             onMouseLeave={onMouseLeave}
         >
-            <div className={cn('flex gap-3', isLeftward && 'flex-row-reverse', isUpward ? 'items-end' : 'items-start')}>
+            <div className={cn('flex items-start gap-3', isLeftward && 'flex-row-reverse')}>
                 <AdventDoorFace
                     door={door}
                     size={face.size}
                     zoom={face.zoom}
+                    tint={face.tint}
                     style={faceShift}
+                    tabIndex={isPinned ? -1 : undefined}
                     onClick={() => onPin(door.id)}
                 />
                 <div className="AdventCard__fade flex min-w-0 flex-1 flex-col gap-0.5">
                     <span className="text-[11px] text-secondary" translate="no">
-                        {`Door ${door.day} · ${adventWeekday(door.day)}`}
+                        {adventWeekday(door.day)}
                     </span>
-                    <span className="text-sm font-semibold leading-tight">{title}</span>
-                    {detail && <span className="text-xs leading-snug text-secondary">{detail}</span>}
+                    <span id={`advent-door-card-title-${door.day}`} className="text-sm font-semibold leading-tight">
+                        {title}
+                    </span>
+                    {detail && (
+                        <span
+                            className={cn(
+                                'text-xs leading-snug text-secondary',
+                                door.lockReason === 'date' && 'whitespace-nowrap'
+                            )}
+                        >
+                            {detail}
+                        </span>
+                    )}
                 </div>
                 {isPinned && (
                     <LemonButton
@@ -147,11 +170,10 @@ export function AdventDoorCard({
             </div>
 
             <div className="AdventCard__fade AdventCard__body">
-                <AdventDoorAnswer door={door} onAnswer={onAnswer} />
+                <AdventDoorAnswer door={door} shares={shares} onAnswer={onAnswer} />
                 {door.status === 'open' && (
                     <AdventTipCard tip={ADVENT_TIPS[door.day]} onLinkClick={() => onTipClick(door.day)} />
                 )}
-                {showsHint && <span className="text-[11px] text-secondary">Click to keep this open</span>}
             </div>
         </div>
     )

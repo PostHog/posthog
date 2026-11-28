@@ -3,6 +3,7 @@ import uuid
 import asyncio
 import hashlib
 import dataclasses
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -44,7 +45,7 @@ from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.product_analytics.backend.facade.api import record_insight_view
 from products.product_analytics.backend.facade.models import Insight
-from products.signals.backend.anomaly_scores.artifacts import clear_artifact_cache
+from products.signals.backend.anomaly_scores.artifacts import ARTIFACT_UPGRADES, clear_artifact_cache
 from products.signals.backend.anomaly_scores.config import (
     AI_JUDGE_PROFILE,
     DEFAULT_LIMITS,
@@ -72,6 +73,7 @@ from products.signals.backend.anomaly_scores.queue import (
     FirstTrainReport,
     InsightPick,
     QueryBudget,
+    ScoredDueBacklog,
     TeamCensus,
     _cooldown_key,
     _empty_train_key,
@@ -102,6 +104,7 @@ from products.signals.backend.anomaly_scores.scoring import (
     UnsupportedInsightError,
     detector_version,
     interval_scoring,
+    local_scoring,
     state_identity,
     trends_query_for,
 )
@@ -1194,8 +1197,17 @@ class TestTrainScoreSplit(BaseTest):
         assert score_budget_spent == 1
         assert daily_cap_left == 1
 
-    @parameterized.expand([("corrupt",), ("missing",), ("older_schema",)])
-    def test_an_artifact_blob_that_fails_its_check_makes_the_next_visit_train(self, case: str) -> None:
+    @parameterized.expand(
+        [
+            ("corrupt", "artifact_unavailable"),
+            ("missing", "artifact_unavailable"),
+            ("older_schema", "artifact_unavailable"),
+            ("older_schema_with_upgrade", "scored"),
+        ]
+    )
+    def test_an_artifact_blob_that_fails_its_check_and_has_no_upgrade_makes_the_next_visit_train(
+        self, case: str, status: str
+    ) -> None:
         insight = Insight.objects.create(team=self.team, saved=True, query=_trends(interval="day"))
         trained_at = datetime(2026, 10, 20, 0, 30, tzinfo=UTC)
         trained = self._train(insight, trained_at)
@@ -1214,12 +1226,65 @@ class TestTrainScoreSplit(BaseTest):
             state.artifact_sha256 = hashlib.sha256(self.blobs[key]).hexdigest()
             state.save()
         scored_at = trained_at + timedelta(days=2)
+        upgrades = {}
+        if case == "older_schema_with_upgrade":
+            upgrades[ARTIFACT_SCHEMA_VERSION - 1] = lambda artifact: dataclasses.replace(
+                artifact, schema_version=ARTIFACT_SCHEMA_VERSION
+            )
 
-        result, events = self._run(insight, self._score_pick(insight, trained), scored_at, self.values[-6:])
+        with patch.dict(ARTIFACT_UPGRADES, upgrades):
+            result, events = self._run(insight, self._score_pick(insight, trained), scored_at, self.values[-6:])
+            plan = plan_run(insight, self.team, load_state(self.team, insight), parse_config(_SPLIT_PAYLOAD), scored_at)
 
-        assert (result.status, events) == ("artifact_unavailable", [])
-        plan = plan_run(insight, self.team, load_state(self.team, insight), parse_config(_SPLIT_PAYLOAD), scored_at)
-        assert plan.run == ScoringRun.TRAIN
+        assert (result.status, result.run, bool(events)) == (status, ScoringRun.SCORE, status == "scored")
+        assert plan.run == (ScoringRun.SCORE if status == "scored" else ScoringRun.TRAIN)
+
+    @parameterized.expand([("default_v1", False), ("default_v2", True)])
+    def test_a_detector_change_keeps_the_stored_model_scoring_until_a_train_step_replaces_it(
+        self, _name: str, judged: bool
+    ) -> None:
+        self.organization.is_ai_data_processing_approved = False
+        self.organization.save()
+        ai_judge = AIJudgeConfig(team_ids=(self.team.id,)) if judged else NO_AI_JUDGE
+        profile = AI_JUDGE_PROFILE if judged else DEFAULT_PROFILE
+        current = profile.intervals[IntervalType.DAY]
+        older_local = {**local_scoring(current).detector, "threshold": 0.9}
+        older = dataclasses.replace(
+            current,
+            detector={**current.detector, "detectors": [older_local, {"type": "llm"}]} if judged else older_local,
+        )
+        older_profile = dataclasses.replace(profile, intervals={**profile.intervals, IntervalType.DAY: older})
+        insight = Insight.objects.create(team=self.team, saved=True, query=_trends(interval="day"))
+        trained_at = datetime(2026, 10, 20, 0, 30, tzinfo=UTC)
+        with patch(
+            f"products.signals.backend.anomaly_scores.config.{'AI_JUDGE_PROFILE' if judged else 'DEFAULT_PROFILE'}",
+            older_profile,
+        ):
+            trained = self._train(insight, trained_at, ai_judge)
+        older_key = AnomalyScoringState.objects.for_team(self.team.id).get(insight_id=insight.id).artifact_key
+        scored_at = trained_at + timedelta(days=2)
+        config = dataclasses.replace(parse_config(_SPLIT_PAYLOAD), ai_judge=ai_judge)
+
+        plan = plan_run(insight, self.team, load_state(self.team, insight, ai_judge), config, scored_at)
+        _result, scored = self._run(insight, self._score_pick(insight, trained), scored_at, self.values[-6:], ai_judge)
+        scored_pick_event = self.pick_event
+        retrained = self._train(insight, trained_at + timedelta(days=3), ai_judge)
+
+        assert (plan.run, plan.stale_model) == (ScoringRun.TRAIN, True)
+        assert {
+            (event["properties"]["$anomaly_run"], event["properties"]["$anomaly_detector_version"])
+            for event in [*trained, *scored, *retrained]
+        } == {
+            ("train", detector_version(older, artifacts=True)),
+            ("score", detector_version(older, artifacts=True)),
+            ("train", detector_version(current, artifacts=True)),
+        }
+        assert scored_pick_event["model_detector_version"] == detector_version(local_scoring(older), artifacts=True)
+        assert (
+            list(self.blobs)
+            == [AnomalyScoringState.objects.for_team(self.team.id).get(insight_id=insight.id).artifact_key]
+            != [older_key]
+        )
 
     @parameterized.expand([("onto_the_judge", False, True), ("off_the_judge", True, False)])
     def test_a_model_trained_under_one_profile_scores_under_the_other(
@@ -1565,6 +1630,68 @@ class TestDueList(ClickhouseTestMixin, BaseTest):
             scored.id,
         ]
         assert due_list.oldest_due_seconds == 10 * 24 * 3600
+
+    @parameterized.expand(
+        [
+            ("no_blob", lambda state: dataclasses.replace(state, artifact_key="")),
+            ("no_series", lambda state: dataclasses.replace(state, series_keys=())),
+            ("no_scored_bucket", lambda state: dataclasses.replace(state, scored_through=None)),
+            (
+                "older_fit_version",
+                lambda state: dataclasses.replace(
+                    state, identity=dataclasses.replace(state.identity, detector_version="older-fit")
+                ),
+            ),
+            ("past_model_age", lambda state: dataclasses.replace(state, trained_at=NOW - timedelta(days=60))),
+        ]
+    )
+    @time_machine.travel(NOW, tick=False)
+    def test_a_hard_train_backlog_larger_than_the_read_leaves_room_for_score_ready_rows(
+        self, _name: str, make_hard: Callable[[TrainedState], TrainedState]
+    ) -> None:
+        self.team.timezone = "UTC"
+        self.team.save()
+        config = dataclasses.replace(self._config(), train_score_split=True)
+        today = NOW.replace(hour=0)
+        scoring = interval_scoring(DEFAULT_PROFILE, IntervalType.DAY)
+
+        def trained(name: str, due: datetime, hard: bool) -> Insight:
+            insight = Insight.objects.create(team=self.team, name=name, query=_trends(interval="day"))
+            state = TrainedState(
+                identity=state_identity(trends_query_for(insight, DEFAULT_PROFILE), scoring, self.team, config.limits),
+                trained_at=NOW - timedelta(days=1),
+                scored_through=today - timedelta(days=2),
+                series_keys=("a",),
+                artifact_key=f"anomaly_models/{insight.id}",
+                scoring=local_scoring(scoring),
+            )
+            save_state(self.team, insight.id, DEFAULT_PROFILE.name, make_hard(state) if hard else state)
+            self._row(insight, due, {"a": today - timedelta(days=2)})
+            cache.delete(_cooldown_key(insight.id))
+            return insight
+
+        for index in range(3):
+            trained(f"hard_{index}", NOW - timedelta(days=10 - index), hard=True)
+        ready = trained("ready", NOW - timedelta(hours=1), hard=False)
+        for kind in ScoringRun:
+            cache.delete_many([_fleet_budget_key(NOW, kind), _project_budget_key(self.team.id, NOW, kind)])
+
+        with (
+            patch("products.signals.backend.anomaly_scores.queue.list_limited_team_attributes", return_value=[]),
+            patch("products.signals.backend.anomaly_scores.queue._MAX_DUE_ROWS", 2),
+        ):
+            with self.assertNumQueries(10):
+                load_due_list([self.team.id], (IntervalType.DAY,), NOW)
+            selection = select_insights(config, SelectionConfig(weighting=Weighting.UNIFORM), NOW)
+
+        assert [pick.insight_id for pick in selection.picks if pick.run == ScoringRun.SCORE] == [ready.id]
+        assert selection.picked_score == 1
+        assert selection.scored_due == ScoredDueBacklog(
+            score_ready=1,
+            score_ready_oldest_due_seconds=3600,
+            needs_train=3,
+            needs_train_oldest_due_seconds=10 * 24 * 3600,
+        )
 
     @parameterized.expand([("per_project_cap", 10, [1, 2], [0, 1]), ("fleet_cap", 2, [2], [0])])
     @time_machine.travel(NOW, tick=False)
@@ -2202,27 +2329,32 @@ class TestScoredBuckets(ClickhouseTestMixin, BaseTest):
                 "train_budget_spent",
                 True,
                 0,
-                [("past_train_every", ScoringRun.SCORE)],
-                (1, 1, 1, 1),
+                [("older_settings", ScoringRun.SCORE), ("past_train_every", ScoringRun.SCORE)],
+                (2, 2, 2, 1),
             ),
             (
+                # The train cap is two, and the model on older settings refits last because it still scores.
                 "train_budget_left",
                 False,
                 0,
-                [("past_age_ceiling", ScoringRun.TRAIN), ("past_train_every", ScoringRun.TRAIN)],
-                (0, 0, 0, 0),
+                [
+                    ("older_settings", ScoringRun.SCORE),
+                    ("past_age_ceiling", ScoringRun.TRAIN),
+                    ("past_train_every", ScoringRun.TRAIN),
+                ],
+                (1, 1, 1, 0),
             ),
             (
                 "ready_picks_fill_the_score_cap",
                 True,
                 3,
-                [("past_train_every", ScoringRun.SCORE), ("ready", ScoringRun.SCORE)],
-                (1, 1, 1, 1),
+                [("older_settings", ScoringRun.SCORE), ("ready", ScoringRun.SCORE)],
+                (1, 2, 2, 1),
             ),
         ]
     )
     @time_machine.travel(NOW, tick=False)
-    def test_a_model_past_train_every_keeps_scoring_until_the_train_pass_has_budget_for_it(
+    def test_a_stale_model_or_one_on_older_settings_keeps_scoring_until_the_train_pass_has_budget_for_it(
         self,
         _name: str,
         train_budget_spent: bool,
@@ -2233,7 +2365,7 @@ class TestScoredBuckets(ClickhouseTestMixin, BaseTest):
         self.team.timezone = "UTC"
         self.team.save()
         dashboard = Dashboard.objects.create(team=self.team, name="Main")
-        trained_days_ago = {"past_train_every": 10, "past_age_ceiling": 30}
+        trained_days_ago = {"past_train_every": 10, "past_age_ceiling": 30, "older_settings": 1}
         trained_days_ago.update({f"ready_{index}": 1 for index in range(ready_insights)})
         insights = {
             name: Insight.objects.create(team=self.team, name=name, query=_trends(interval="day"))
@@ -2248,26 +2380,30 @@ class TestScoredBuckets(ClickhouseTestMixin, BaseTest):
                 "organization_ids": [str(self.organization.id)],
                 "allow_team_ids": [self.team.id],
                 "max_score_insights_per_tick": 2,
+                # The team has no scored bucket, so the first-train lane would lead the train pass in its own order.
+                "first_train_insights_per_tick": 0,
             }
         )
         today = NOW.replace(hour=0)
+        current = interval_scoring(DEFAULT_PROFILE, IntervalType.DAY)
+        older = dataclasses.replace(current, detector={**current.detector, "threshold": 0.9})
         for name, days_ago in trained_days_ago.items():
             insight = insights[name]
+            scoring = older if name == "older_settings" else current
             save_state(
                 self.team,
                 insight.id,
                 DEFAULT_PROFILE.name,
                 TrainedState(
                     identity=state_identity(
-                        trends_query_for(insight, DEFAULT_PROFILE),
-                        interval_scoring(DEFAULT_PROFILE, IntervalType.DAY),
-                        self.team,
-                        config.limits,
+                        trends_query_for(insight, DEFAULT_PROFILE), scoring, self.team, config.limits
                     ),
                     trained_at=NOW - timedelta(days=days_ago),
-                    scored_through=today - timedelta(days=2),
+                    # The most overdue, so the score pass takes it first.
+                    scored_through=today - timedelta(days=3 if name == "older_settings" else 2),
                     series_keys=("a",),
                     artifact_key=f"anomaly_models/{insight.id}",
+                    scoring=scoring,
                 ),
             )
         for kind in ScoringRun:
@@ -2288,6 +2424,7 @@ class TestScoredBuckets(ClickhouseTestMixin, BaseTest):
             selection.train_backlog_soft,
             selection.train_backlog_hard,
         ) == stale_and_backlog
+        assert selection.older_version_models == 1
 
 
 async def _run_tick(

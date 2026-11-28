@@ -175,3 +175,79 @@ pub fn avro_from_canonical(
         (s, v) => panic!("cannot rebuild {v:?} as {s:?}"),
     }
 }
+
+pub fn hex_decode(text: &str) -> Vec<u8> {
+    (0..text.len())
+        .step_by(2)
+        .map(|i| u8::from_str_radix(&text[i..i + 2], 16).unwrap())
+        .collect()
+}
+
+pub fn avro_from_js(value: &JsValue) -> AvroValue {
+    match value {
+        JsValue::Null => AvroValue::Null,
+        JsValue::Bool(b) => AvroValue::Boolean(*b),
+        JsValue::Number(n) => AvroValue::Long(*n as i64),
+        JsValue::String(s) => AvroValue::String(s.to_string()),
+        JsValue::Object(o) => {
+            if let Some(JsValue::String(hex)) = o.get("$bytes") {
+                return AvroValue::Bytes(hex_decode(&hex.to_string()));
+            }
+            let mut map = logs_ingestion::avro::AvroMap::new();
+            for (k, v) in o.iter() {
+                map.define(k.to_string(), avro_from_js(v));
+            }
+            AvroValue::Map(map)
+        }
+        JsValue::Array(_) => panic!("records hold no arrays"),
+    }
+}
+
+/// The harness's `recordToJson`: bytes as `{ $bytes: hex }`, map key order kept.
+pub fn avro_to_js(value: &AvroValue) -> JsValue {
+    match value {
+        AvroValue::Null => JsValue::Null,
+        AvroValue::Boolean(b) => JsValue::Bool(*b),
+        AvroValue::Int(n) | AvroValue::Long(n) => JsValue::Number(*n as f64),
+        AvroValue::Float(f) | AvroValue::Double(f) => JsValue::Number(*f),
+        AvroValue::String(s) | AvroValue::Enum(s) => JsValue::string(s),
+        AvroValue::Bytes(b) | AvroValue::Fixed(b) => {
+            let mut o = JsObject::new();
+            let hex: String = b.iter().map(|x| format!("{x:02x}")).collect();
+            o.insert_str("$bytes", JsValue::string(&hex));
+            JsValue::Object(o)
+        }
+        AvroValue::Map(m) => {
+            let mut o = JsObject::new();
+            for (k, v) in m.iter() {
+                o.insert_str(k, avro_to_js(v));
+            }
+            JsValue::Object(o)
+        }
+        other => panic!("unexpected record value {other:?}"),
+    }
+}
+
+pub fn record_from_js(value: &JsValue) -> logs_ingestion::record::LogRecord {
+    let JsValue::Object(o) = value else {
+        panic!("record is not an object");
+    };
+    let fields = o
+        .iter()
+        .map(|(k, v)| {
+            (
+                std::sync::Arc::from(k.to_string().as_str()),
+                avro_from_js(v),
+            )
+        })
+        .collect();
+    logs_ingestion::record::LogRecord::from_value(AvroValue::Record(fields))
+}
+
+pub fn record_to_js(record: &logs_ingestion::record::LogRecord) -> JsValue {
+    let mut o = JsObject::new();
+    for (k, v) in record.fields.iter().chain(record.extra.iter()) {
+        o.insert_str(k, avro_to_js(v));
+    }
+    JsValue::Object(o)
+}

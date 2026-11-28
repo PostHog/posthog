@@ -23,6 +23,7 @@ from posthog.exceptions import (
     ClickHouseQueryMemoryLimitExceeded,
     ClickHouseQuerySizeExceeded,
     ClickHouseQueryTimeOut,
+    ClickHouseUDFTimeOut,
 )
 
 
@@ -125,8 +126,10 @@ CSV_ROW_NUMBER_PATTERN = re.compile(r"\(at row ([0-9]{1,19})\)")
 _ACRONYM_BOUNDARY = re.compile(r"([A-Z]+)([A-Z][a-z])")
 _WORD_BOUNDARY = re.compile(r"([a-z0-9])([A-Z])")
 _SIMPLE_CLICKHOUSE_TYPE = re.compile(
-    r"U?Int(?:8|16|32|64|128|256)|Float(?:32|64)|String|Bool|Date(?:32|Time64|Time)?|UUID|Array|Tuple|Map|Nothing|IPv[46]"
+    r"U?Int(?:8|16|32|64|128|256)|Float(?:32|64)|(?:Fixed)?String|Bool|Date(?:32|Time64|Time)?|UUID|Array|Tuple|Map|Nothing|IPv[46]"
 )
+# ClickHouse rewrites HogQL's `trim(x)` to `trimBoth(x)`, a name HogQL doesn't expose.
+_HOGQL_NAMES_OF_CLICKHOUSE_FUNCTIONS = {"trimBoth": "trim"}
 BAD_GET_TYPE_MISMATCH_PATTERN = re.compile(
     r"\bBad get: has (?P<actual>[A-Za-z][A-Za-z0-9_]{0,63}), "
     r"requested (?P<expected>[A-Za-z][A-Za-z0-9_]{0,63})(?:\.|$)"
@@ -234,17 +237,24 @@ def _argument_type_message(message: str, fallback: str) -> str:
     if match := re.search(r"\b(?:of|for|to) (?:aggregate )?function [`']?([A-Za-z][A-Za-z0-9_]{0,63})\b", message):
         from posthog.hogql.functions.mapping import find_hogql_aggregation, find_hogql_function
 
-        if find_hogql_function(match[1]) or find_hogql_aggregation(match[1]):
-            subject = f"`{match[1]}`"
-    date_argument = re.search(
+        name = _HOGQL_NAMES_OF_CLICKHOUSE_FUNCTIONS.get(match[1], match[1])
+        if find_hogql_function(name) or find_hogql_aggregation(name):
+            subject = f"`{name}`"
+    argument = re.search(
         r"as ([1-9][0-9]?(?:st|nd|rd|th)) argument '[^'\n]{1,64}' to function '[A-Za-z0-9_]+'\. "
-        r"Expected: Date\[32\] or DateTime\[64\], got: ([A-Za-z0-9]+)\b",
+        r"Expected: ([^\n]{1,128}?), got: ([A-Za-z0-9_]+\(?)",  # a kept "(" hides Array(String) outside the date case
         message,
     )
-    if date_argument and subject != "The function" and _SIMPLE_CLICKHOUSE_TYPE.fullmatch(date_argument[2]):
-        return (
-            f"The {date_argument[1]} argument to {subject} has type {date_argument[2]}. Use a date or date-time value."
-        )
+    if argument and subject != "The function":
+        position, expected, actual = argument.groups()
+        if expected == "Date[32] or DateTime[64]":
+            actual, advice = actual.removesuffix("("), "Use a date or date-time value."
+        elif all(_SIMPLE_CLICKHOUSE_TYPE.fullmatch(t) for t in expected.split(" or ")):
+            advice = f"Convert it to {expected}."
+        else:
+            advice = "Convert it to a type the function accepts."
+        if _SIMPLE_CLICKHOUSE_TYPE.fullmatch(actual):
+            return f"The {position} argument to {subject} has type {actual}. {advice}"
     pair = re.search(r"\bIllegal types ([A-Za-z0-9]+)(?:\([^()\n]{0,128}\))? and ([A-Za-z0-9]+)\b", message)
     if pair and all(_SIMPLE_CLICKHOUSE_TYPE.fullmatch(t) for t in pair.groups()):
         return (
@@ -336,6 +346,20 @@ def _user_caused_not_implemented_message(raw_message: str) -> str | None:
     return None
 
 
+_FUNNEL_UDF_FAILED = re.compile(r"User defined function '?aggregate_funnel\w*'? failed")
+_INNER_TIMEOUT = re.compile(r"\bCode: 159\b|\(TIMEOUT_EXCEEDED\)")
+
+
+def _is_udf_timeout(name: str, raw_message: str) -> bool:
+    # A funnel UDF (aggregate_funnel_*) that times out raises UDF_EXECUTION_FAILED with the inner
+    # TIMEOUT_EXCEEDED error in the message. Other executable UDFs, such as JSONDropKeysPool, stay internal.
+    return (
+        name == "UDF_EXECUTION_FAILED"
+        and _FUNNEL_UDF_FAILED.search(raw_message) is not None
+        and _INNER_TIMEOUT.search(raw_message) is not None
+    )
+
+
 def wrap_clickhouse_query_error(err: Exception) -> Exception:
     "Beautifies clickhouse client errors, using custom error classes for every code"
     if isinstance(err, UnknownTypeError):
@@ -358,6 +382,8 @@ def wrap_clickhouse_query_error(err: Exception) -> Exception:
         return ClickHouseAtCapacity()
     elif name == "TIMEOUT_EXCEEDED":
         return ClickHouseQueryTimeOut()
+    elif _is_udf_timeout(name, raw_message):
+        return ClickHouseUDFTimeOut()
     elif name == "MEMORY_LIMIT_EXCEEDED":
         # Match the known per-query phrasings ("Memory limit (for query) exceeded" before
         # ClickHouse 26, "Query memory limit exceeded" since). Anything else - "(total)",
@@ -455,6 +481,8 @@ def classify_query_error(e: Exception) -> QueryErrorCategory:
             isinstance(e, CHQueryErrorNotImplemented) or _user_caused_not_implemented_message(e.message or "")
         ):
             return QueryErrorCategory.USER_ERROR
+        if _is_udf_timeout(meta.name, e.message or ""):
+            return QueryErrorCategory.QUERY_PERFORMANCE_ERROR
         return meta.get_category()
 
     # Cluster-wide / per-user memory pressure is transient capacity, not a problem with this query,

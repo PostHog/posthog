@@ -1522,6 +1522,12 @@ class AdventCalendarShare:
 
 
 @frozen
+class AdventCalendarDoorOpenResult:
+    day: int
+    opened_at: datetime
+
+
+@frozen
 class AdventCalendarQuestionResult:
     day: AdventCalendarDay
     answer: AdventCalendarOption | None

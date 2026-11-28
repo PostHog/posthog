@@ -801,7 +801,7 @@ test('depot mirrors and unplaced depot workflows resolve to everything', () => {
 // gone must widen rather than claim a lane no other PR can reach.
 test('a service suite workflow claims its service lane and widens without it', () => {
     assert.deepEqual(computeTargets(['.github/workflows/ci-oauth-proxy.yml'], CONTEXT), ['svc:oauth-proxy'])
-    assert.deepEqual(computeTargets(['.github/workflows/ci-llm-gateway.yml'], CONTEXT), EVERYTHING)
+    assert.deepEqual(computeTargets(['.github/workflows/ci-agent-proxy.yml'], CONTEXT), EVERYTHING)
 })
 
 test('desktop workflows claim the desktop product lanes and widen without the product', () => {

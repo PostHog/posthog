@@ -1,4 +1,5 @@
 import base64
+from pathlib import Path
 
 import pytest
 from posthog.test.base import APIBaseTest
@@ -8,6 +9,10 @@ from unittest.mock import MagicMock, patch
 from django.test import override_settings
 
 from parameterized import parameterized
+from playwright.sync_api import (
+    BrowserType,
+    TimeoutError as PlaywrightTimeoutError,
+)
 
 from posthog.hogql.errors import QueryError
 
@@ -29,6 +34,7 @@ from products.exports.backend.models.exported_asset import DATASET_EXPORT_KIND, 
 from products.exports.backend.tasks.failure_handler import (
     FAILURE_TYPE_SYSTEM,
     FAILURE_TYPE_USER,
+    RetryableExportError,
     is_user_query_error_type,
 )
 
@@ -107,6 +113,120 @@ class TestExporterTask(APIBaseTest):
                 assert call.kwargs["properties"]["$update_person_last_seen_at"] is False
             else:
                 assert "$update_person_last_seen_at" not in call.kwargs["properties"]
+
+    @patch("posthog.tasks.exporter.posthoganalytics.capture")
+    @patch("products.exports.backend.tasks.image_exporter.sync_playwright")
+    def test_batched_export_renders_in_one_session_after_every_asset_is_prepared(
+        self, mock_sync_playwright: MagicMock, mock_capture: MagicMock, mock_uuid: MagicMock
+    ) -> None:
+        mock_uuid.uuid4.side_effect = ["batched_first", "batched_timeout", "batched_last"]
+        assets = [
+            ExportedAsset.objects.create(
+                team=self.team,
+                dashboard_id=self.exported_asset.dashboard_id,
+                export_format="image/png",
+                created_by=self.user,
+            )
+            for _ in range(3)
+        ]
+        rendered_page = MagicMock()
+        rendered_page.screenshot.side_effect = lambda path: Path(path).write_bytes(self.example_png)
+        timed_out_page = MagicMock()
+        timed_out_page.goto.side_effect = PlaywrightTimeoutError("Timeout 40000ms exceeded")
+        connect = mock_sync_playwright.return_value.__enter__.return_value.chromium.connect_over_cdp
+        browser = connect.return_value
+        browser.new_context.return_value.new_page.side_effect = [rendered_page, timed_out_page, rendered_page]
+        events_before_connecting: list[str] = []
+
+        def connect_after_recording_events(*args: object, **kwargs: object) -> MagicMock:
+            events_before_connecting.extend(call.kwargs["event"] for call in mock_capture.call_args_list)
+            return browser
+
+        connect.side_effect = connect_after_recording_events
+
+        failures = exporter.export_image_assets_batched(
+            assets, source=EventSource.SUBSCRIPTION, should_stop=lambda: False
+        )
+
+        assert connect.call_count == 1
+        assert events_before_connecting == ["export started"] * 3
+        assert {asset_id: type(error).__name__ for asset_id, error in failures.items()} == {
+            assets[1].id: "TimeoutError"
+        }
+        stored = [ExportedAsset.objects.get(pk=asset.pk) for asset in assets]
+        assert [asset.content_location is not None for asset in stored] == [True, False, True]
+        assert stored[1].exception_type == "TimeoutError"
+        finished = [
+            (call.kwargs["properties"]["asset_id"], call.kwargs["event"])
+            for call in mock_capture.call_args_list
+            if call.kwargs["event"] != "export started"
+        ]
+        assert finished == [
+            (assets[0].id, "export succeeded"),
+            (assets[1].id, "export failed"),
+            (assets[2].id, "export succeeded"),
+        ]
+        assert all(call.kwargs["properties"]["render_mode"] == "batched" for call in mock_capture.call_args_list)
+
+    @patch("posthog.tasks.exporter.posthoganalytics.capture")
+    @patch("products.exports.backend.tasks.image_exporter.sync_playwright")
+    def test_batched_export_stops_rendering_once_asked_to_stop(
+        self, mock_sync_playwright: MagicMock, mock_capture: MagicMock, mock_uuid: MagicMock
+    ) -> None:
+        mock_uuid.uuid4.side_effect = ["stopped_first", "stopped_second"]
+        assets = [
+            ExportedAsset.objects.create(
+                team=self.team,
+                dashboard_id=self.exported_asset.dashboard_id,
+                export_format="image/png",
+                created_by=self.user,
+            )
+            for _ in range(2)
+        ]
+        page = MagicMock()
+        page.screenshot.side_effect = lambda path: Path(path).write_bytes(self.example_png)
+        browser = mock_sync_playwright.return_value.__enter__.return_value.chromium.connect_over_cdp.return_value
+        browser.new_context.return_value.new_page.return_value = page
+        stop_after_first_render = MagicMock(side_effect=[False, False, False, True])
+
+        failures = exporter.export_image_assets_batched(
+            assets, source=EventSource.SUBSCRIPTION, should_stop=stop_after_first_render
+        )
+
+        assert {asset_id: type(error) for asset_id, error in failures.items()} == {assets[1].id: RetryableExportError}
+        stored = [ExportedAsset.objects.get(pk=asset.pk) for asset in assets]
+        assert [asset.content_location is not None for asset in stored] == [True, False]
+        assert [call.kwargs["event"] for call in mock_capture.call_args_list] == [
+            "export started",
+            "export started",
+            "export succeeded",
+        ]
+
+    def test_batched_export_saves_every_chart_under_a_real_playwright_session(self, mock_uuid: MagicMock) -> None:
+        mock_uuid.uuid4.side_effect = ["real_playwright_first", "real_playwright_second"]
+        assets = [
+            ExportedAsset.objects.create(
+                team=self.team,
+                dashboard_id=self.exported_asset.dashboard_id,
+                export_format="image/png",
+                created_by=self.user,
+            )
+            for _ in range(2)
+        ]
+        page = MagicMock()
+        page.evaluate.return_value = 600
+        page.screenshot.side_effect = lambda path: Path(path).write_bytes(self.example_png)
+        browser = MagicMock()
+        browser.new_context.return_value.new_page.return_value = page
+
+        with patch.object(BrowserType, "connect_over_cdp", return_value=browser):
+            failures = exporter.export_image_assets_batched(
+                assets, source=EventSource.SUBSCRIPTION, should_stop=lambda: False
+            )
+
+        assert failures == {}
+        stored = [ExportedAsset.objects.get(pk=asset.pk) for asset in assets]
+        assert [asset.content_location is not None for asset in stored] == [True, True]
 
     @patch("products.exports.backend.tasks.image_exporter.export_image")
     def test_exporter_rechecks_typed_export_scopes(self, mock_export: MagicMock, mock_uuid: MagicMock) -> None:

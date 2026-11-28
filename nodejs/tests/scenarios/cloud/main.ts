@@ -2,6 +2,7 @@ import { parseSeed } from '../cards/schema'
 import { durationMs } from '../duration'
 import { FIRST_START_TIMEOUT_S } from '../environment/stack'
 import { EXIT_CODE } from '../runner/status'
+import { credentialsOf } from '../scorecard/write'
 import { Controller, admit, refuseOutsideDev } from './admission'
 import { awsCli } from './aws'
 import { isCardId, runCardOf } from './card'
@@ -50,6 +51,13 @@ async function run(
     const { min, max, idleMax } = profile.readerAcu
     if (idleMax !== undefined && idleMax < min) {
         throw new Error(`readerAcu.idleMax ${idleMax} is under readerAcu.min ${min}, so no reader could pass it.`)
+    }
+    if (controller.env.SCENARIO_PUBLISH_IN_WORKFLOW !== '1') {
+        const { credentials, problem } = credentialsOf(controller.env)
+        if (!credentials) {
+            controller.warn(`Refused the run: ${problem ?? 'Scenario runs credentials are not set.'}`)
+            return EXIT_CODE.writeFailed
+        }
     }
     const admission = await admit(controller, profile)
     if ('problems' in admission) {

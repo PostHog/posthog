@@ -230,7 +230,6 @@ knowledge_base:
             # Product and service architecture.
             - 'products/README.md'
             - 'products/architecture.md'
-            - 'services/llm-gateway/PARITY.md'
 
             # Backend, data, API, and protocol contracts.
             - 'posthog/clickhouse/hcl/README.md'
@@ -249,7 +248,6 @@ knowledge_base:
             - files: 'services/agent-proxy/docs/SECURITY.md'
               applyTo: 'services/agent-proxy/**/*'
 
-            - 'services/llm-gateway/README.md'
             - 'services/mcp/src/tools/README.md'
             - 'products/mcp_store/README.md'
             - 'services/oauth-proxy/README.md'

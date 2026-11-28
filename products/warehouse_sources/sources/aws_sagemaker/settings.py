@@ -206,3 +206,38 @@ ENDPOINT_DESCRIPTIONS = {
     "trial_components": "Trial components with status, parameters, artifacts, and metric summaries.",
     "monitoring_executions": "Model monitoring executions with status, schedule, endpoint, and failure reason.",
 }
+
+
+# The IAM actions this source calls. A role session can use only these.
+AWS_SESSION_ACTIONS = (
+    "sagemaker:DescribeAutoMLJobV2",
+    "sagemaker:DescribeEndpoint",
+    "sagemaker:DescribeEndpointConfig",
+    "sagemaker:DescribeExperiment",
+    "sagemaker:DescribeHyperParameterTuningJob",
+    "sagemaker:DescribeModel",
+    "sagemaker:DescribeModelPackage",
+    "sagemaker:DescribePipeline",
+    "sagemaker:DescribePipelineExecution",
+    "sagemaker:DescribeProcessingJob",
+    "sagemaker:DescribeTrainingJob",
+    "sagemaker:DescribeTransformJob",
+    "sagemaker:DescribeTrial",
+    "sagemaker:DescribeTrialComponent",
+    "sagemaker:ListAutoMLJobs",
+    "sagemaker:ListEndpointConfigs",
+    "sagemaker:ListEndpoints",
+    "sagemaker:ListExperiments",
+    "sagemaker:ListHyperParameterTuningJobs",
+    "sagemaker:ListModelPackages",
+    "sagemaker:ListModels",
+    "sagemaker:ListMonitoringExecutions",
+    "sagemaker:ListPipelineExecutionSteps",
+    "sagemaker:ListPipelineExecutions",
+    "sagemaker:ListPipelines",
+    "sagemaker:ListProcessingJobs",
+    "sagemaker:ListTrainingJobs",
+    "sagemaker:ListTransformJobs",
+    "sagemaker:ListTrialComponents",
+    "sagemaker:ListTrials",
+)

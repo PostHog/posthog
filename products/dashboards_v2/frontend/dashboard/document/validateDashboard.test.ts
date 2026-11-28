@@ -1,18 +1,21 @@
 import { propertyFilterSpec } from '../../filters/property/propertyFilterSpec'
 import { selectFilterSpec } from '../../filters/select/selectFilterSpec'
+import { kitchenSinkContents } from '../../fixtures/custom/kitchenSinkContents'
 import { kitchenSinkDashboard } from '../../fixtures/kitchenSinkDashboard'
-import { chartSpec } from '../../panels/chart/chartSpec'
-import { barSpec } from '../../panels/chart/viz/bar/barSpec'
-import { lineSpec } from '../../panels/chart/viz/line/lineSpec'
-import { statSpec } from '../../panels/chart/viz/stat/statSpec'
+import { BUILT_IN_VIZ_SPECS, chartSpec } from '../../panels/chart/chartSpec'
 import { definePanelSpec } from '../../panels/core/panelSpec'
+import { customSpec } from '../../panels/custom/customSpec'
 import { markdownSpec } from '../../panels/markdown/markdownSpec'
 import { dashboardSchema } from './dashboardSchema'
 import type { DashboardProblem } from './validateDashboard'
 import { MAX_SECTION_DEPTH, validateDashboard } from './validateDashboard'
 
 // Specs only, with no components, as a CI check or an MCP tool would load them.
-const SPECS = [definePanelSpec(chartSpec([statSpec, lineSpec, barSpec])), definePanelSpec(markdownSpec)]
+const SPECS = [
+    definePanelSpec(chartSpec(BUILT_IN_VIZ_SPECS)),
+    definePanelSpec(markdownSpec),
+    definePanelSpec(customSpec([kitchenSinkContents], [])),
+]
 const FILTER_SPECS = [selectFilterSpec([]), propertyFilterSpec([])]
 const withTiles = (tiles: unknown[]): unknown => ({
     version: 2,
@@ -31,13 +34,14 @@ const nestedSections = (depth: number): unknown =>
 
 describe('validateDashboard', () => {
     it('flags only the kitchen sink tiles that are broken on purpose', () => {
-        const broken = 'tabs[1].tiles[4].panel.tiles'
+        const broken = 'tabs[2].tiles[4].panel.tiles'
         expect(validateDashboard(kitchenSinkDashboard, SPECS, FILTER_SPECS).map((problem) => problem.path)).toEqual([
             `${broken}[1].panel.type`,
             `${broken}[2].panel.config.viz`,
             `${broken}[3].panel.config.viz`,
             `${broken}[4].panel.config.text`,
             `${broken}[5].panel.config.query`,
+            `${broken}[6].panel.config.content`,
         ])
     })
 
@@ -112,7 +116,7 @@ describe('validateDashboard', () => {
             expected: [
                 {
                     path: 'tabs[0].tiles[0].panel.type',
-                    message: 'Unknown panel type "lnie". Known types: chart, markdown',
+                    message: 'Unknown panel type "lnie". Known types: chart, markdown, custom',
                 },
             ],
         },
@@ -128,7 +132,7 @@ describe('validateDashboard', () => {
             expected: [{ path: 'tabs[0].tiles[0].panel.config.query', message: expect.any(String) }],
         },
         {
-            name: 'a metrics query that is not a MetricsQuery node',
+            name: 'a query node with no kind',
             document: withTiles([
                 {
                     id: 'a',
@@ -136,7 +140,7 @@ describe('validateDashboard', () => {
                     panel: {
                         type: 'chart',
                         config: {
-                            query: { language: 'metrics', query: { kind: 'TrendsQuery' } },
+                            query: { language: 'query', query: { series: [] } },
                             viz: { type: 'line' },
                         },
                     },
@@ -172,7 +176,7 @@ describe('validateDashboard', () => {
                     place: { x: 0, y: 0, w: 12, h: 8 },
                     panel: {
                         type: 'chart',
-                        config: { query: { language: 'hogql', query: 'select 1' }, viz: { type: 'pie' } },
+                        config: { query: { language: 'hogql', query: 'select 1' }, viz: { type: 'radar' } },
                     },
                 },
             ]),

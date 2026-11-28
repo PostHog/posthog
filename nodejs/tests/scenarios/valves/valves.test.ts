@@ -16,6 +16,7 @@ import { FakeCloud, FakeCloudOptions } from '../cloud/fake-cloud'
 import { pinClockAfterMinuteStart } from '../cloud/fixtures'
 import { Actuation, createEnvironment } from '../environment/environment'
 import { Role } from '../environment/roles'
+import type { RoleTermination } from '../environment/supervisor'
 import { Queue } from '../probe/cyclotron-probe'
 import type { WriterSample } from '../probe/writer-probe'
 import { ProviderEdge, TruthPage, startProviderEdge } from '../provider-edge'
@@ -252,26 +253,83 @@ describe('valves', () => {
         return { cloud, ...run, writerNow, commits, environment, stalledOnce }
     }
 
-    it.each<[string, Partial<FakeCloudOptions>, boolean, Record<string, unknown>]>([
-        [
-            'fails the run cluster over and back, and journals each recovery stage',
-            {},
-            true,
-            {
-                intentAt: expect.any(String),
-                appliedAt: expect.any(String),
-                observedAt: expect.any(String),
-                releasedAt: expect.any(String),
-                observations: STAGES,
-                releaseIntentAt: expect.any(String),
-                releaseObservations: STAGES,
-            },
-        ],
+    const RECOVERED = {
+        intentAt: expect.any(String),
+        appliedAt: expect.any(String),
+        observedAt: expect.any(String),
+        releasedAt: expect.any(String),
+        observations: STAGES,
+        releaseIntentAt: expect.any(String),
+        releaseObservations: STAGES,
+    }
+
+    it.each<[string, Partial<FakeCloudOptions>, boolean, Record<string, unknown>, ValveEntry['dose']?]>([
+        ['fails the run cluster over and back, and journals each recovery stage', {}, true, RECOVERED],
         [
             'records no intent for a failover its preconditions refused',
             { liveReaderAcu: { maxima: [1, 1, 3, 1, 1] } },
             true,
             { error: expect.stringMatching(/^pg\.failover refused: .* was above its 2.5 ACU idle limit/) },
+        ],
+        [
+            'fails a reader above its idle limit over and back when the dose takes a warm reader',
+            { liveReaderAcu: { maxima: [3, 3, 3, 3, 3] } },
+            true,
+            RECOVERED,
+            { warmReader: true },
+        ],
+        [
+            'records no intent for a warm-reader failover on a reader whose oldest lagging minute averaged above its maximum',
+            { liveReaderAcu: { maxima: [33, 2, 2, 2, 2], lagMinutes: 1 } },
+            true,
+            { error: expect.stringMatching(/^pg\.failover refused: .* was above its 32 ACU maximum/) },
+            { warmReader: true },
+        ],
+        [
+            'records no intent for a warm-reader failover on a reader whose minute peaked above its maximum',
+            { liveReaderAcu: { maxima: [2, 2, 2, 40, 2], averages: [2, 2, 2, 3, 2] } },
+            true,
+            {
+                error: expect.stringMatching(
+                    /^pg\.failover refused: .* was above its 32 ACU maximum in its last 5 minutes: 40 at /
+                ),
+            },
+            { warmReader: true },
+        ],
+        [
+            'records no intent for a warm-reader failover on a reader whose newest minute peaked above its maximum with no average',
+            { liveReaderAcu: { maxima: [2, 2, 2, 2, 2, 40], averages: [2, 2, 2, 2, 2, null] } },
+            true,
+            {
+                error: expect.stringMatching(
+                    /^pg\.failover refused: .*'s capacity read has no average or no maximum for .*; .* was above its 32 ACU maximum in its last 5 minutes: 40 at /
+                ),
+            },
+            { warmReader: true },
+        ],
+        [
+            'records no intent for a failover on a reader whose minute averaged above its own maximum',
+            { liveReaderAcu: { maxima: [1, 1, 1, 1, 1], averages: [1, 1, 2, 1, 1] } },
+            true,
+            {
+                error: expect.stringMatching(
+                    /^pg\.failover refused: .*'s capacity read has an average above its maximum at /
+                ),
+            },
+        ],
+        [
+            'fails a warm reader at its maximum over and back',
+            { liveReaderAcu: { maxima: [32, 32, 32, 32, 32] } },
+            true,
+            RECOVERED,
+            { warmReader: true },
+        ],
+        [
+            'records no intent for a warm-reader failover whose capacity read has fewer values than timestamps',
+            { shortValuesOf: 'Average' },
+            true,
+            { error: expect.stringMatching(/^pg\.failover refused: .*'s capacity read has 5 timestamps and 4 values/) },
+            { warmReader: true },
         ],
         [
             'records no intent for a failover whose capacity read has fewer values than timestamps',
@@ -300,12 +358,12 @@ describe('valves', () => {
             },
         ],
         ['refuses a failover outside a run host', {}, false, { error: 'pg.failover runs only on a run host' }],
-    ])('%s', async (_story, options, onRunHost, recorded) => {
+    ])('%s', async (_story, options, onRunHost, recorded, dose = {}) => {
         const valves = createValves({ pollMs: 5 })
         const { context } = stackOf()
         const run = runClusterOf(options)
 
-        await valves.start([FAILOVER], {
+        await valves.start([{ ...FAILOVER, dose }], {
             ...context,
             commits: run.commits,
             manifest: onRunHost ? run.manifest : undefined,
@@ -378,6 +436,83 @@ describe('valves', () => {
                     releasedAt: expect.any(String),
                 },
             ])
+        }
+    )
+
+    it.each([
+        ['its own grace', { grace: '20s' }, undefined, true, { releasedAt: expect.any(String), error: undefined }],
+        ['the grace of its profile', {}, 20_000, true, { releasedAt: expect.any(String), error: undefined }],
+        [
+            'its own grace over the one its profile names',
+            { grace: '20s' },
+            45_000,
+            true,
+            { releasedAt: expect.any(String), error: undefined },
+        ],
+        [
+            'its own grace, keeping the exit of a role that outlived its SIGKILL unreleased',
+            { grace: '20s' },
+            undefined,
+            false,
+            { error: 'cdp-cyclotron-worker-email did not exit 10s after its grace', releasedAt: undefined },
+        ],
+    ])(
+        'terminates the role with %s and records how the role exited',
+        async (_story, dose, terminationGraceMs, exits, expected) => {
+            const valves = createValves({ pollMs: 5 })
+            const stack = stackOf()
+            const signalledMs = Date.parse('2026-01-01T00:00:00.000Z')
+            const iso = (ms: number): string => new Date(ms).toISOString()
+            let observedNow = (): void => undefined
+            const observing = new Promise<void>((resolve) => (observedNow = resolve))
+            const context: ValveContext = {
+                ...stack.context,
+                terminationGraceMs,
+                environment: {
+                    actuate: (action) => {
+                        if (action.kind !== 'terminate') {
+                            return Promise.reject(new Error(`unexpected ${action.kind}`))
+                        }
+                        const killedMs = signalledMs + action.graceMs
+                        let exit: RoleTermination = { signalledAt: iso(signalledMs) }
+                        return Promise.resolve({
+                            observed: () => {
+                                observedNow()
+                                return Promise.resolve(true)
+                            },
+                            release: () => {
+                                exit = exits
+                                    ? {
+                                          ...exit,
+                                          killedAt: iso(killedMs),
+                                          exitedAt: iso(killedMs + 1000),
+                                          code: null,
+                                          signal: 'SIGKILL',
+                                      }
+                                    : { ...exit, killedAt: iso(killedMs) }
+                                return exits
+                                    ? Promise.resolve()
+                                    : Promise.reject(new Error(`${EMAIL_WORKER} did not exit 10s after its grace`))
+                            },
+                            journal: () => ({ exit }),
+                        })
+                    },
+                },
+            }
+
+            await valves.start([{ ...kill({ at: '0ms' }), valve: 'role.terminate', dose }], context)
+            await observing
+            await valves.releaseAll()
+
+            const { exit, error, releasedAt } = valves.timeline()[0]
+            expect({ exit, error, releasedAt }).toEqual({
+                exit: {
+                    signalledAt: '2026-01-01T00:00:00.000Z',
+                    killedAt: '2026-01-01T00:00:20.000Z',
+                    ...(exits && { exitedAt: '2026-01-01T00:00:21.000Z', code: null, signal: 'SIGKILL' }),
+                },
+                ...expected,
+            })
         }
     )
 

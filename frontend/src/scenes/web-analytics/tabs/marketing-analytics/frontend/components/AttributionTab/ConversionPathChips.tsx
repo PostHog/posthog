@@ -3,6 +3,13 @@ import './ConversionPaths.scss'
 import clsx from 'clsx'
 
 import { Tooltip } from '@posthog/lemon-ui'
+import {
+    Tooltip as QuillTooltip,
+    TooltipContent as QuillTooltipContent,
+    TooltipTrigger as QuillTooltipTrigger,
+} from '@posthog/quill'
+
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 
 /**
  * Collapse consecutive repeats for display: ['google', 'google', 'direct'] becomes google ×2 → direct.
@@ -32,15 +39,28 @@ export function ConversionPathChips({
     /** Deterministic color per breakdown value, so "google" reads as the same hue on every row. */
     colorFor: (value: string) => string
 }): JSX.Element {
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
     const steps = collapseConsecutive(path)
 
     return (
         <ol className="ConversionPaths__path">
-            {truncated && (
-                <Tooltip title="This journey started earlier — showing its most recent touchpoints.">
-                    <li className="ConversionPaths__chip ConversionPaths__chip--overflow">…</li>
-                </Tooltip>
-            )}
+            {truncated &&
+                (todayRailNav ? (
+                    <QuillTooltip>
+                        <QuillTooltipTrigger
+                            render={<li className="ConversionPaths__chip ConversionPaths__chip--overflow" />}
+                        >
+                            …
+                        </QuillTooltipTrigger>
+                        <QuillTooltipContent>
+                            This journey started earlier — showing its most recent touchpoints.
+                        </QuillTooltipContent>
+                    </QuillTooltip>
+                ) : (
+                    <Tooltip title="This journey started earlier — showing its most recent touchpoints.">
+                        <li className="ConversionPaths__chip ConversionPaths__chip--overflow">…</li>
+                    </Tooltip>
+                ))}
             {steps.map((step, index) => {
                 const first = index === 0 && !truncated
                 const last = index === steps.length - 1

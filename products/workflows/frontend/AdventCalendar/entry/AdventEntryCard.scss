@@ -1,0 +1,174 @@
+@mixin advent-entry-two-rows {
+    .AdventEntryCard__doors {
+        display: grid;
+        grid-template-columns: repeat(12, minmax(0, 2.5rem));
+        row-gap: 6px;
+        place-items: center;
+    }
+
+    .AdventEntryCard__door {
+        width: 100%;
+    }
+}
+
+@mixin advent-entry-inline {
+    .AdventEntryCard__content {
+        flex-wrap: nowrap;
+    }
+
+    .AdventEntryCard__title {
+        flex: none;
+    }
+
+    .AdventEntryCard__doors {
+        display: flex;
+        flex: 1 1 0;
+        order: 0;
+        min-width: 0;
+    }
+
+    .AdventSnow {
+        mask-image: linear-gradient(
+            to right,
+            transparent 0 17rem,
+            #000 19rem calc(100% - 11rem),
+            transparent calc(100% - 9.5rem)
+        );
+    }
+}
+
+.AdventEntryCard {
+    --advent-entry-paper: color-mix(in oklab, var(--brand-yellow) 12%, white);
+    --advent-entry-ink: color-mix(in oklab, var(--brand-blue) 30%, black);
+    --advent-entry-night: color-mix(in oklab, var(--brand-blue) 58%, black);
+    --advent-entry-gold: color-mix(in oklab, var(--brand-yellow) 88%, var(--brand-red));
+
+    position: relative;
+    overflow: hidden;
+    color: var(--advent-entry-paper);
+    background: var(--advent-entry-night);
+    border: 1px solid var(--advent-entry-ink);
+    border-radius: var(--radius-lg);
+    container: advent-entry / inline-size;
+
+    .AdventSnow {
+        mask-image: linear-gradient(to bottom, transparent 0 3.25rem, #000 3.75rem);
+    }
+
+    .AdventSnow__flake {
+        top: var(--advent-snow-rest);
+        scale: 0.6;
+        animation: none;
+    }
+
+    @container advent-entry (max-width: 38rem) {
+        @include advent-entry-two-rows;
+    }
+
+    @container advent-entry (max-width: 47rem) {
+        &.AdventEntryCard--some {
+            @include advent-entry-two-rows;
+        }
+    }
+
+    @container advent-entry (max-width: 67rem) {
+        &.AdventEntryCard--many {
+            @include advent-entry-two-rows;
+        }
+    }
+
+    @container advent-entry (max-width: 19rem) {
+        .AdventEntryCard__doors {
+            gap: 2px;
+        }
+
+        .AdventEntryCard__door {
+            font-size: 0.5625rem;
+        }
+    }
+
+    @container advent-entry (min-width: 63rem) {
+        &.AdventEntryCard--few {
+            @include advent-entry-inline;
+        }
+    }
+
+    @container advent-entry (min-width: 73rem) {
+        &.AdventEntryCard--some {
+            @include advent-entry-inline;
+        }
+    }
+
+    @container advent-entry (min-width: 80rem) {
+        &.AdventEntryCard--many {
+            @include advent-entry-inline;
+        }
+    }
+}
+
+.AdventEntryCard__content {
+    position: relative;
+    z-index: 5;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem 1.25rem;
+    align-items: center;
+    padding: 0.75rem 1rem;
+}
+
+.AdventEntryCard__title {
+    flex: 1 1 auto;
+    min-width: 0;
+    white-space: nowrap;
+
+    h3 {
+        color: inherit;
+    }
+}
+
+.AdventEntryCard__subline {
+    color: color-mix(in oklab, var(--advent-entry-paper) 78%, transparent);
+}
+
+.AdventEntryCard__doors {
+    display: flex;
+    flex-basis: 100%;
+    gap: 4px;
+    align-items: center;
+    justify-content: space-between;
+    order: 1;
+}
+
+.AdventEntryCard__door {
+    display: inline-flex;
+    flex: 1 1 0;
+    align-items: center;
+    justify-content: center;
+    min-width: 0;
+    max-width: 1.75rem;
+    aspect-ratio: 1;
+    font-size: 0.6875rem;
+    font-weight: 700;
+    color: color-mix(in oklab, var(--advent-entry-paper) 55%, transparent);
+    background: var(--advent-entry-night);
+    border: 1px solid color-mix(in oklab, var(--advent-entry-paper) 30%, transparent);
+    border-radius: 4px;
+}
+
+.AdventEntryCard__door--ready,
+.AdventEntryCard__door--open {
+    color: var(--advent-entry-night);
+    background: var(--advent-entry-paper);
+    border-color: var(--advent-entry-paper);
+}
+
+.AdventEntryCard__door--open {
+    flex-grow: 2;
+    max-width: 2.5rem;
+    padding: 2px;
+}
+
+.AdventEntryCard__door--today {
+    border: 2px solid var(--advent-entry-gold);
+    box-shadow: 0 0 0 3px color-mix(in oklab, var(--advent-entry-gold) 32%, transparent);
+}

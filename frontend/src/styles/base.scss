@@ -1746,6 +1746,12 @@
             }
         }
 
+        // The runner waits out react-toastify toasts before it captures. Quill keeps a toast with an
+        // action up for longer than that wait, so its viewport would otherwise land in the snapshot.
+        [data-slot='toast-viewport'] {
+            display: none !important;
+        }
+
         // Only use this class in visual regression tests
         *,
         *::before,

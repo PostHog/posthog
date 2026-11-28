@@ -1,10 +1,12 @@
 from dataclasses import dataclass, field
 from datetime import datetime
+from typing import Any
 from uuid import UUID
 
 from .enums import SubmissionKind
 
 MCP_ANALYTICS_INTENT_ROUTING_FEATURE_FLAG = "mcp-analytics-intent-routing"
+MCP_ANALYTICS_WRAPPED_FEATURE_FLAG = "mcp-analytics-wrapped"
 
 
 class IntentGenerationUnavailable(RuntimeError):
@@ -368,3 +370,14 @@ class ActivityOverview:
     top_tools: list[ActivityToolRow] = field(default_factory=list)
     clients: list[ActivityClientRow] = field(default_factory=list)
     recent_calls: list[ActivityRecentCall] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class WrappedSnapshot:
+    """A project's MCP Wrapped, served only while it is fresh."""
+
+    year: int
+    generated_at: datetime
+    expires_at: datetime
+    # The stored card values, shaped by WrappedCards in products/mcp_analytics/backend/wrapped/cards.py.
+    cards: dict[str, Any]

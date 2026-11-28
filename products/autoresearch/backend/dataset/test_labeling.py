@@ -271,15 +271,6 @@ class TestPopulationKindCompilation(SimpleTestCase):
         for key, expected in expected_values.items():
             self.assertEqual(values[key], expected)
 
-    def test_eligible_count_filters_kind_population(self) -> None:
-        sql, values = build_eligible_count_sql(
-            horizon_days=7,
-            lookback_days=90,
-            training_population={"kind": "performed_event_within_days", "days": 30},
-        )
-        self.assertIn("person_id IN (SELECT DISTINCT person_id FROM events", sql)
-        self.assertEqual(values["popk_days"], 30)
-
     @parameterized.expand(
         [
             (

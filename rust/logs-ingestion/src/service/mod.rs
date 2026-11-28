@@ -2,6 +2,8 @@
 
 pub mod config;
 pub mod consumer_loop;
+pub mod consumer_telemetry;
+pub mod hog_functions;
 pub mod kafka_outputs;
 pub mod kafka_source;
 pub mod lazy_loader;
@@ -30,6 +32,7 @@ use crate::pipeline::{
     DependencyRetry, LogsConsumerIdentity, LogsIngestionConsumer, LogsIngestionConsumerDeps,
 };
 use crate::rate_limiter::{system_clock, KeyRoot, RedisTokenBucket};
+use crate::transformations::{HogFunctionMonitoring, LogsTransformerService};
 
 use config::{ConsumerKind, RunMode, ServiceConfig};
 use consumer_loop::run_consumer_loop;
@@ -48,7 +51,6 @@ pub fn shadow_deps(mut deps: LogsIngestionConsumerDeps) -> LogsIngestionConsumer
     deps.metrics_emitter = deps
         .metrics_emitter
         .map(|_| Arc::new(shadow::SuppressedMetricsEmitter) as _);
-    deps.logs_transformer = None;
     deps.key_root = KeyRoot::Shadow;
     deps.source_offset_header = true;
     deps
@@ -110,7 +112,7 @@ pub fn create_consumer(config: &ServiceConfig) -> anyhow::Result<LogsConsumer> {
         config.kafka_client_rack.as_deref(),
         config.node_env == NodeEnv::Test,
     )
-    .create_with_context(FencingContext::default())?;
+    .create_with_context(FencingContext::new(config.consumer_loop.telemetry.clone()))?;
     consumer.subscribe(&[config.input_topic.as_str()])?;
     Ok(consumer)
 }
@@ -150,6 +152,27 @@ pub fn build_deps(
             clock.clone(),
         )?),
     };
+    let logs_transformer: Option<Arc<dyn crate::pipeline::LogsTransformer>> = if logs {
+        let fields = Arc::new(hog_functions::EncryptedFields::new(
+            &config.transformations.encryption_salt_keys,
+        )?);
+        let functions = hog_functions::PgHogFunctions::new(reader.clone(), fields);
+        functions.spawn_reload_listener(redis::Client::open(redis_deps::connection_info(
+            &config.posthog_redis,
+        )?)?);
+        Some(Arc::new(LogsTransformerService::new(
+            Arc::new(functions),
+            Arc::new(HogFunctionMonitoring::new(
+                outputs.clone(),
+                clock.clone(),
+                config.mode == RunMode::Primary,
+            )),
+            config.transformations.transformer.clone(),
+            clock.clone(),
+        )))
+    } else {
+        None
+    };
     let deps = LogsIngestionConsumerDeps {
         team_manager: Arc::new(postgres::PgTeamManager::new(reader.clone(), writer)),
         quota_limiting: Arc::new(redis_deps::RedisQuotaLimiting::new(
@@ -169,7 +192,7 @@ pub fn build_deps(
         } else {
             None
         },
-        logs_transformer: None,
+        logs_transformer,
         retention_rules: Some(Arc::new(postgres::PgRetentionRules::new(reader.clone()))),
         pattern_message_keys: logs
             .then(|| Arc::new(postgres::PgPatternMessageKeys::new(reader.clone())) as _),
@@ -226,7 +249,7 @@ pub async fn run(config: ServiceConfig) -> anyhow::Result<()> {
         routes = ?config.routes,
         "starting logs-ingestion"
     );
-    let recorder = serve_metrics::setup_metrics_recorder();
+    let recorder = consumer_telemetry::prometheus_builder()?.install_recorder()?;
     let mut manager = Manager::builder(SERVICE_NAME)
         .with_global_shutdown_timeout(config.shutdown_timeout)
         .build();
