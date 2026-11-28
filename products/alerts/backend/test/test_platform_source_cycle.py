@@ -1,7 +1,7 @@
 import json
 import time
 from collections.abc import Callable
-from contextlib import AbstractContextManager
+from contextlib import AbstractContextManager, nullcontext
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from typing import Any, Final, cast
@@ -43,6 +43,7 @@ from products.alerts.backend.evaluation.contract import (
     AlertOwnerAccessError,
 )
 from products.alerts.backend.evaluation.dispatcher import PerSeriesEvaluation, SeriesEvaluation
+from products.alerts.backend.evaluation.query_slot import QuerySlotFull
 from products.alerts.backend.judge.contract import (
     FORECAST_DETECTOR_PAUSED_ERROR_CODE,
     FORECAST_DETECTOR_UNAVAILABLE_MESSAGE,
@@ -72,6 +73,7 @@ from products.alerts.backend.platform_source_cycle import (
     MAX_RATIONALE_CHARS,
     QUERY_ID_PREFIX,
     QUERY_INFLIGHT_KEY,
+    SHADOW_INFLIGHT_KEY,
     ChartRenderPoolFull,
     ChartRenderTimedOut,
     evaluate_insight_check,
@@ -587,6 +589,68 @@ class TestPlatformInsightEvaluation(APIBaseTest):
         assert evaluation is not None and evaluation.outcomes[0].failure is None
         assert held_during_query == [{"test:1"}]
         assert inflight_alert_ids(QUERY_INFLIGHT_KEY) == set()
+
+    @parameterized.expand(
+        [
+            ("free_pool", [], [], [{"test:1:shadow"}], 0),
+            ("full_pool", [f"other-query-{n}" for n in range(5)], [], [], 1),
+            ("shadow_share_taken", [], ["other:shadow"], [], 1),
+        ]
+    )
+    @override_settings(ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_EVALUATIONS=5)
+    def test_a_shadow_comparison_takes_a_query_slot_of_its_own_without_waiting(
+        self,
+        _name: str,
+        other_queries: list[str],
+        other_shadows: list[str],
+        held_during_comparison: list[set[str]],
+        skipped: int,
+    ) -> None:
+        configuration = self._copy(self._alert())
+        slot = slot_of(configuration.next_check_at, CUTOFF)
+        expires_at = time.time() + 3600
+        (admitted,) = plan_insight_batch(self.team.id, slot, CUTOFF, expires_at=expires_at)
+        others_until = time.time() + 60
+        held: list[set[str]] = []
+        skips = 0
+
+        class Comparison:
+            def run(self, query_slot: Callable[[], AbstractContextManager[object]]) -> None:
+                nonlocal skips
+                try:
+                    with query_slot():
+                        held.append(inflight_alert_ids(QUERY_INFLIGHT_KEY))
+                except QuerySlotFull:
+                    skips += 1
+
+        def query(
+            *args: Any, query_slot: Callable[[], AbstractContextManager[object]], **kwargs: Any
+        ) -> AlertEvaluationResult:
+            with query_slot():
+                pass
+            admit_evaluation_slots(other_queries, limit=5, expires_at=others_until, key=QUERY_INFLIGHT_KEY)
+            admit_evaluation_slots(other_shadows, limit=1, expires_at=others_until, key=SHADOW_INFLIGHT_KEY)
+            return AlertEvaluationResult(value=1.0, breaches=[])
+
+        with (
+            patch(f"{_MODULE}.check_alert_for_insight", side_effect=query),
+            patch(f"{_MODULE}.collecting_shadow_comparisons", return_value=nullcontext([Comparison()])),
+        ):
+            started = time.monotonic()
+            evaluation = evaluate_insight_check(
+                self.team.id, slot, CUTOFF, admitted, held_until=expires_at, evaluation_id="test"
+            )
+            waited_seconds = time.monotonic() - started
+        for other in other_queries:
+            release_evaluation_slot(other, held_until=others_until, key=QUERY_INFLIGHT_KEY)
+        for other in other_shadows:
+            release_evaluation_slot(other, held_until=others_until, key=SHADOW_INFLIGHT_KEY)
+
+        assert evaluation is not None and evaluation.outcomes[0].failure is None
+        assert (held, skips) == (held_during_comparison, skipped)
+        assert waited_seconds < 10
+        assert inflight_alert_ids(QUERY_INFLIGHT_KEY) == set()
+        assert inflight_alert_ids(SHADOW_INFLIGHT_KEY) == set()
 
     @parameterized.expand(
         [

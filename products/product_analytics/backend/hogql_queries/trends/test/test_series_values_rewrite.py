@@ -354,6 +354,14 @@ class TestSeriesValuesRewrite(ClickhouseTestMixin, APIBaseTest):
         assert not PreaggregationJob.objects.filter(team_id=self.team.pk).exists()
 
     @time_machine.travel(_NOW, tick=False)
+    def test_a_wait_that_expires_inside_the_executor_is_unavailable(self) -> None:
+        result = LazyComputationResult(ready=False, job_ids=[], errors=["wait expired"], wait_timed_out=True)
+        with patch(f"{_MODULE}.ensure_precomputed", return_value=result):
+            precomputed = precomputed_series_values(TrendsQueryRunner(team=self.team, query=_query()))
+
+        assert precomputed == SeriesValuesUnavailable(reason=Blocker.NOT_READY)
+
+    @time_machine.travel(_NOW, tick=False)
     def test_a_team_with_property_access_rules_is_declined(self) -> None:
         with patch(f"{_MODULE}.team_has_property_access_rules", return_value=True):
             precomputed = precomputed_series_values(TrendsQueryRunner(team=self.team, query=_query()))

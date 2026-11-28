@@ -12,7 +12,6 @@ today, and the hour that holds the upper bound. A SELECT around the two sums `to
 the query around the rewrite still gets one row per bucket.
 """
 
-import math
 import time
 from abc import ABC, abstractmethod
 from collections.abc import Iterator
@@ -47,6 +46,7 @@ from products.analytics_platform.backend.lazy_computation.lazy_computation_execu
 from products.product_analytics.backend.facade.contracts import (
     PrecomputedSeriesValues,
     SeriesValuesBlocker as Blocker,
+    SeriesValuesBuildError,
     SeriesValuesFeature as Feature,
     SeriesValuesUnavailable,
 )
@@ -375,7 +375,7 @@ class SeriesValuesRewrite:
     """
 
     mode: RewriteMode
-    # A `time.monotonic()` value. No build starts after it, and a build waits no longer than until it.
+    # A `time.monotonic()` value. No build starts after it, and no INSERT of a build runs past it.
     deadline: float | None = None
     today_start: datetime = field(
         default_factory=lambda: datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
@@ -488,9 +488,9 @@ class _Rewriter(CloningVisitor):
             wait_timeout_seconds=seconds_left,
             read_after_write=True,
             cache_key_context={"engine": "series_values_v1"},
-            # The wait only stops the next INSERT from starting. Without a limit of its own, an INSERT
-            # that starts late runs on while the query waits to compile.
-            insert_settings=None if seconds_left is None else {"max_execution_time": max(1, math.ceil(seconds_left))},
+            # The wait only stops the next INSERT from starting. Each INSERT gets the time left until the
+            # deadline as its own limit, so one that starts late cannot run past it.
+            insert_deadline=deadline,
         )
         # The build compiles queries of its own, which must reach ClickHouse as the executor wrote them.
         hook = hogql_select_rewrite.set(None)
@@ -503,6 +503,8 @@ class _Rewriter(CloningVisitor):
                 result = ensure(run_inserts=True, database=_insert_database(team))
         finally:
             hogql_select_rewrite.reset(hook)
+        if self.request.mode == "stored_only" and not result.ready and result.errors and not result.wait_timed_out:
+            raise SeriesValuesBuildError("\n".join(result.errors))
         # A job can expire while the executor collects its result. A day that no returned job covers would
         # read as zero.
         if not result.ready or not result.job_ids or not _covers(result.served_windows, jobs):

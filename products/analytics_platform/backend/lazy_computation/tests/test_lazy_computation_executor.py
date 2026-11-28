@@ -12,6 +12,7 @@ from django.utils import timezone as django_timezone
 
 from clickhouse_driver.errors import ServerException
 from parameterized import parameterized
+from temporalio.exceptions import CancelledError
 
 from posthog.schema import BaseMathType, DateRange, EventsNode, HogQLQueryModifiers, TrendsQuery
 
@@ -2721,6 +2722,7 @@ class TestComputationExecutorExecute(BaseTest):
         )
 
         assert result.ready is False
+        assert result.wait_timed_out
         assert any("Timeout" in e for e in result.errors)
 
     def test_does_not_create_duplicate_for_pending_range(self):
@@ -2864,6 +2866,29 @@ class TestComputationExecutorExecute(BaseTest):
         assert insert_count[0] == 1
         assert len(result.errors) == 1
         assert result.job_ids == []
+
+    def test_cancelled_activity_propagates_and_fails_the_job(self):
+        query_info, query_hash = self._make_query_info()
+        insert_count = [0]
+
+        def cancelled(team, job):
+            insert_count[0] += 1
+            raise CancelledError("Cancelled")
+
+        executor = LazyComputationExecutor(max_retries=3)
+        with pytest.raises(CancelledError):
+            executor.execute(
+                team=self.team,
+                query_info=query_info,
+                start=datetime(2024, 1, 1, tzinfo=UTC),
+                end=datetime(2024, 1, 2, tzinfo=UTC),
+                run_insert=cancelled,
+            )
+
+        assert insert_count[0] == 1
+        assert list(PreaggregationJob.objects.filter(query_hash=query_hash).values_list("status", flat=True)) == [
+            PreaggregationJob.Status.FAILED
+        ]
 
     def test_non_retryable_error_does_not_block_future_queries(self):
         query_info, query_hash = self._make_query_info()
@@ -3742,6 +3767,21 @@ class TestInsertSettingsAppliedToInserts(BaseTest):
         assert insert_calls[0].kwargs["settings"].items() >= expected_overrides.items()
         # The coverage landed in this call, so quorum-skipping callers must not read it yet.
         assert result.freshly_built is True
+
+    def test_an_insert_gets_only_the_time_left_until_the_deadline(self):
+        with patch(
+            "products.analytics_platform.backend.lazy_computation.lazy_computation_executor.sync_execute"
+        ) as mock_execute:
+            ensure_precomputed(
+                team=self.team,
+                insert_query=self.INSERT_QUERY,
+                time_range_start=datetime(2024, 1, 1, tzinfo=UTC),
+                time_range_end=datetime(2024, 1, 2, tzinfo=UTC),
+                insert_deadline=time_mod.monotonic() + 30,
+            )
+
+        [insert_call] = [c for c in mock_execute.call_args_list if c.args[0].lstrip().startswith("INSERT")]
+        assert 1 <= insert_call.kwargs["settings"]["max_execution_time"] <= 30
 
     @parameterized.expand(
         [

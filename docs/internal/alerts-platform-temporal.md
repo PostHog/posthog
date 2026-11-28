@@ -583,11 +583,16 @@ Logs checks also wait for room in a fleet-wide pool of batches, `ALERTS_PLATFORM
 Every copy adds ClickHouse load beside production's, so roll it out in steps.
 A full logs backfill hit ClickHouse's per-user concurrent query limit and had to be removed.
 
+The stored series values shadow, behind the `alerts-series-values-precompute` flag, has two rollout conditions of its own:
+
+- A shadow's build INSERT runs as `alerts_platform_insight`. Before the flag enrolls a project, that user needs INSERT on `posthog.series_values_preaggregated` and `posthog.sharded_series_values_preaggregated`. Without the grant every build fails, and enrolled checks record an `error` comparison. Their live result stands.
+- A comparison runs in the check's activity, after the live query and before the outcome returns. An enrolled check's notification waits for it, on a cold build for up to `SHADOW_BUILD_BUDGET_SECONDS` plus `SHADOW_READ_MAX_SECONDS`. A worker that shuts down in that time loses the computed outcome, as a shutdown during the live query does. Watch notification latency for enrolled projects when the flag widens.
+
 1. Copy one internal team with `--team-id`, then a small sample with `--sample-percent`, for example 5. The sample is chosen by alert id, so a rerun copies the same alerts and a larger percentage only adds alerts.
 2. Watch the parallel run's ClickHouse cost in `query_log`: its `client_query_id` starts with `alerts-platform-insight:`.
 3. Watch scheduler lag for `source=insight`, and the `capacity` skip reason on the platform's skipped-check counter. Capacity skips mean ClickHouse refused the query for load.
 4. Widen the sample only while both stay flat. Two pools bound the parallel run, whatever the sample size:
-   - `ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_EVALUATIONS` caps the queries that run in ClickHouse at once. A check holds one of these slots only while its query runs. A check that gets no slot within 45 seconds records nothing and stays due for a later tick.
+   - `ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_EVALUATIONS` caps the queries that run in ClickHouse at once. A check holds one of these slots only while its query runs. A check that gets no slot within 45 seconds records nothing and stays due for a later tick. A stored series values shadow comparison takes a slot of its own after the check's query, without waiting, and is skipped when none is free. Shadow comparisons hold at most a fifth of these slots, rounded down, so the rest stay free for checks. A cold build runs under its precomputation job ID. If the alert attempt times out, the in-flight INSERT can finish within the build deadline and its result can serve other checks.
    - `ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_CHECKS` caps the checks admitted at once, and defaults to the query cap. An admitted check also locks itself, so a later run never starts the same check while it runs. An admitted check holds an evaluation worker slot until it ends, including while it waits for a query slot, so keep this cap inside the workers' activity slots.
 
    Each worker reads both caps from its own environment, so set them to the same values on every worker that runs insight checks, the AI detector worker included.

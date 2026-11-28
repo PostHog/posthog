@@ -27,7 +27,6 @@ from uuid import UUID
 from django.conf import settings
 
 import structlog
-from temporalio import activity
 
 from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded, RateLimit
@@ -47,9 +46,18 @@ from posthog.temporal.alerts.admission import admit_evaluation_slots, release_ev
 from posthog.temporal.alerts.retry_policy import alert_timeouts
 
 from products.alerts.backend.evaluation import check_alert_for_insight
+from products.alerts.backend.evaluation.attempt_budget import attempt_outlasts
 from products.alerts.backend.evaluation.comparator import MAX_BREACH_MESSAGES
 from products.alerts.backend.evaluation.contract import AlertDataUnavailableError, AlertExtractionError
 from products.alerts.backend.evaluation.dispatcher import PerSeriesEvaluation, check_alert_per_series
+from products.alerts.backend.evaluation.query_slot import QuerySlotFull
+from products.alerts.backend.evaluation.series_values_shadow import (
+    SHADOW_ATTEMPT_MARGIN_SECONDS,
+    SHADOW_BUILD_BUDGET_SECONDS,
+    SHADOW_READ_MAX_SECONDS,
+    ShadowComparisonRequest,
+    collecting_shadow_comparisons,
+)
 from products.alerts.backend.facade.contracts import INSIGHT_EVENT_IDS_BY_INCIDENT_ACTION
 from products.alerts.backend.insight_alert_state_machine import (
     INSIGHT_ALERT_POLICY,
@@ -137,6 +145,11 @@ logger = structlog.get_logger(__name__)
 INFLIGHT_KEY = "alerts:platform:insight:evaluations:inflight"
 QUERY_INFLIGHT_KEY = "alerts:platform:insight:queries:inflight"
 CHART_RENDER_INFLIGHT_KEY = "alerts:platform:insight:chart-renders:inflight"
+SHADOW_INFLIGHT_KEY = "alerts:platform:insight:shadows:inflight"
+# A shadow comparison holds its query slot through a build and a read, longer than a check waits for a slot.
+# Shadows may hold this share of the query pool, rounded down, so the rest stays free for checks.
+SHADOW_QUERY_POOL_SHARE = 0.2
+SHADOW_SLOT_LEASE_SECONDS = SHADOW_BUILD_BUDGET_SECONDS + SHADOW_READ_MAX_SECONDS + SHADOW_ATTEMPT_MARGIN_SECONDS
 # Under the one-minute tick, so a check that gave up is not still waiting when the next tick admits it.
 QUERY_SLOT_WAIT_SECONDS = 45.0
 QUERY_SLOT_POLL_SECONDS = 0.5
@@ -144,7 +157,7 @@ QUERY_SLOT_POLL_SECONDS = 0.5
 QUERY_SLOT_LEASE_SECONDS = int((alert_timeouts(None).evaluate_start_to_close + timedelta(minutes=2)).total_seconds())
 
 
-class ClickHouseBudgetFull(Exception):
+class ClickHouseBudgetFull(QuerySlotFull):
     """No ClickHouse slot came free in time. The check records nothing, so it stays due."""
 
 
@@ -386,37 +399,52 @@ def _with_capacity_retries[T](run: Callable[[], T], alert: AlertConfiguration, q
             if (
                 tried == tries
                 or classify_query_error(error) != QueryErrorCategory.RATE_LIMITED
-                or not _attempt_outlasts(delay)
+                or not attempt_outlasts(delay)
             ):
                 raise
             time.sleep(delay)
             query_slot.waited_ms += int(delay * 1000)
-            if not _attempt_outlasts(0):
+            if not attempt_outlasts(0):
                 raise
         delay = min(delay * policy.backoff_coefficient, longest)
     raise AssertionError("The retry loop returns or raises on its last try")
 
 
-def _attempt_outlasts(seconds: float) -> bool:
-    """Whether the Temporal attempt running this check is live and has `seconds` of its budget left.
+@contextmanager
+def _shadow_query_slot(holder: str) -> Iterator[None]:
+    """Holds a place in the shadows' share of the query pool and a query slot, without waiting for either.
 
-    An attempt that timed out or was cancelled keeps its thread, and the failed-check cleanup has
-    already stopped its queries, so a query it started after that would hold a ClickHouse slot that
-    nothing frees. Outside an activity there is no budget to outlast.
+    Raises `QuerySlotFull` when the share or the pool is full.
     """
-    if not activity.in_activity():
-        return True
-    if activity.is_cancelled():
-        return False
-    info = activity.info()
-    # The attempt starts after it is scheduled, so its scheduled time gives a deadline no later than
-    # the real one. Schedule-to-close counts from the first attempt, so it can end a retry sooner.
-    deadlines = []
-    if info.start_to_close_timeout is not None:
-        deadlines.append(info.current_attempt_scheduled_time + info.start_to_close_timeout)
-    if info.schedule_to_close_timeout is not None:
-        deadlines.append(info.scheduled_time + info.schedule_to_close_timeout)
-    return not deadlines or datetime.now(UTC) + timedelta(seconds=seconds) < min(deadlines)
+    limit = int(settings.ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_EVALUATIONS * SHADOW_QUERY_POOL_SHARE)
+    held_until = time.time() + SHADOW_SLOT_LEASE_SECONDS
+    try:
+        admitted = limit > 0 and admit_evaluation_slots(
+            [holder], limit=limit, expires_at=held_until, key=SHADOW_INFLIGHT_KEY
+        )
+    except Exception as error:
+        # Redis is unreachable. A comparison decides nothing, so it is skipped rather than recorded as an error.
+        logger.exception("Could not take a shadow slot for a platform insight check", holder=holder)
+        raise QuerySlotFull() from error
+    if not admitted:
+        raise QuerySlotFull()
+    try:
+        with ClickHouseQuerySlot(holder, wait_seconds=0)():
+            yield
+    finally:
+        release_evaluation_slot(holder, held_until=held_until, key=SHADOW_INFLIGHT_KEY)
+
+
+def _run_shadow_comparisons(comparisons: Sequence[ShadowComparisonRequest], check_slot: ClickHouseQuerySlot) -> None:
+    """Runs the stored series values comparisons that a check asked for, after its query slot is free.
+
+    Each one takes a slot of its own from the shadows' share of the query pool, so its build and read stay
+    inside the ClickHouse query cap and leave the rest of the pool to checks. It does not wait for one: a
+    comparison decides nothing, so it is skipped when the share or the pool is full.
+    """
+    holder = f"{check_slot.holder}:shadow"
+    for comparison in comparisons:
+        comparison.run(lambda: _shadow_query_slot(holder))
 
 
 def _stop_query(team_id: int, configuration_id: str, query_id: str) -> None:
@@ -742,11 +770,12 @@ def _decide(
         return _decide_grouped(check, snapshot, alert, now=now, query_slot=query_slot)
     started_at = time.monotonic()
     try:
-        result = _with_capacity_retries(
-            lambda: check_alert_for_insight(alert, evaluation_id=evaluation_id, query_slot=query_slot),
-            alert,
-            query_slot,
-        )
+        with collecting_shadow_comparisons() as shadow_comparisons:
+            result = _with_capacity_retries(
+                lambda: check_alert_for_insight(alert, evaluation_id=evaluation_id, query_slot=query_slot),
+                alert,
+                query_slot,
+            )
     except ClickHouseBudgetFull:
         return None
     except LLMDetectorUnavailableError as error:
@@ -781,6 +810,7 @@ def _decide(
     except Exception as error:
         return _query_failed(check, snapshot, alert, error, now=now)
     duration_ms = int((time.monotonic() - started_at) * 1000) - query_slot.waited_ms
+    _run_shadow_comparisons(shadow_comparisons, query_slot)
 
     if result.skipped_reason is not None:
         return _skipped(check, snapshot, now=now)
@@ -914,9 +944,10 @@ def _decide_grouped(
         )
     started_at = time.monotonic()
     try:
-        evaluated = _with_capacity_retries(
-            lambda: check_alert_per_series(alert, query_slot=query_slot), alert, query_slot
-        )
+        with collecting_shadow_comparisons() as shadow_comparisons:
+            evaluated = _with_capacity_retries(
+                lambda: check_alert_per_series(alert, query_slot=query_slot), alert, query_slot
+            )
     except ClickHouseBudgetFull:
         return None
     except AlertDataUnavailableError as error:
@@ -925,9 +956,10 @@ def _decide_grouped(
         return _broken(check, snapshot, alert, now=now, message=str(error))
     except Exception as error:
         return _query_failed(check, snapshot, alert, error, now=now)
+    duration_ms = int((time.monotonic() - started_at) * 1000) - query_slot.waited_ms
+    _run_shadow_comparisons(shadow_comparisons, query_slot)
     if not isinstance(evaluated, PerSeriesEvaluation):
         return _skipped(check, snapshot, now=now)
-    duration_ms = int((time.monotonic() - started_at) * 1000) - query_slot.waited_ms
 
     decision = decide_groups(
         check,
