@@ -1077,6 +1077,17 @@ class TestDeliveryPath(APIBaseTest):
                 1,
                 ["C-2", "C-native"],
             ),
+            # Nobody sends the row's firing, so the skip is counted rather than silent.
+            (
+                "a_row_copying_an_unlisted_hog_function_on_the_native_path",
+                HOG_FUNCTION_SLACK.hog_function_ids,
+                False,
+                True,
+                DeliveryPath.NATIVE,
+                0,
+                ["C-2"],
+                1,
+            ),
         ]
     )
     def test_an_alert_whose_source_keeps_hog_functions_sends_once_to_each_row(
@@ -1088,6 +1099,7 @@ class TestDeliveryPath(APIBaseTest):
         path: DeliveryPath,
         emitted: int,
         native_channels: list[str],
+        unsent: int = 0,
     ) -> None:
         create_alert_destinations(
             team_id=self.team.id,
@@ -1104,7 +1116,7 @@ class TestDeliveryPath(APIBaseTest):
         def live_ids(*, team_id: int, hog_function_ids: Any) -> frozenset[UUID]:
             return frozenset(hog_function_ids) if live else frozenset()
 
-        with patch.object(destinations_registry, "_live_lookup", live_ids):
+        with patch.object(destinations_registry, "_live_lookup", live_ids), recorded_metrics() as metrics:
             self._run(
                 _announcement(_transition(AlertEventKind.FIRING)),
                 self._chooses(path),
@@ -1113,6 +1125,7 @@ class TestDeliveryPath(APIBaseTest):
 
         assert len(self.emitted) == emitted
         assert [channel for channel, _ in RecordingTransport.sends] == native_channels
+        assert sum(m.value for m in metrics if m.attributes.get("outcome") == "unsent") == unsent
 
     def test_a_message_carries_the_rule_as_stored_when_it_is_sent(self) -> None:
         self.configuration.labels = {"severity": "critical"}

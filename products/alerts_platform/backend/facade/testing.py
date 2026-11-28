@@ -287,8 +287,12 @@ def record_check(
     condition: dict[str, Any] | None = None,
     query_duration_ms: int | None = None,
     source_detail: dict[str, Any] | None = None,
+    kind: str = "check",
+    episode_started_at: datetime | None = None,
 ) -> None:
-    """Write one ungrouped check to the platform's ClickHouse history, as a check that ran at `at`."""
+    """Write one ungrouped check to the platform's ClickHouse history, as a check that ran at `at`.
+
+    With a `kind` other than `check`, the row is a transition that a delivery of the check announces."""
     insert_events(
         team_id,
         [
@@ -299,11 +303,11 @@ def record_check(
                 alert_id=configuration_id,
                 grouping_key="",
                 evaluation_key=f"slot:{at.isoformat()}",
-                kind="check",
+                kind=kind,
                 alert_name="",
                 previous_state=previous_state,
                 state=state,
-                episode_started_at=None,
+                episode_started_at=episode_started_at,
                 value=value,
                 labels={},
                 condition_snapshot=condition or {},
