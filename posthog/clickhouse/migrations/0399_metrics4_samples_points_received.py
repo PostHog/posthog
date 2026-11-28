@@ -24,14 +24,14 @@ operations = [
     run_sql_with_exceptions(
         f"ALTER TABLE {DB}.writable_metrics4_samples "
         "ADD COLUMN IF NOT EXISTS points_received SimpleAggregateFunction(sum, UInt64) AFTER _topic",
-        node_roles=[NodeRole.INGESTION_METRICS] if run_mode().is_deployed_cloud else [NodeRole.APM],
+        node_roles=[NodeRole.INGESTION_METRICS] if run_mode().is_deployed_cloud else [NodeRole.INGESTION_APM],
         sharded=False,
         is_alter_on_replicated_table=False,
     ),
     run_sql_with_exceptions(
         f"ALTER TABLE {DB}.metrics4_input_to_metrics4_samples MODIFY QUERY\n"
         f"{METRICS4_INPUT_TO_METRICS4_SAMPLES_MV_SELECT()}",
-        node_roles=[NodeRole.INGESTION_METRICS] if run_mode().is_deployed_cloud else [NodeRole.APM],
+        node_roles=[NodeRole.INGESTION_METRICS] if run_mode().is_deployed_cloud else [NodeRole.INGESTION_APM],
         sharded=False,
         is_alter_on_replicated_table=False,
     ),
