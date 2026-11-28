@@ -62,6 +62,8 @@ LEGACY_SCOPE_FALLBACKS: dict[str, str] = {
     # Notes moved from `account:*` to `account_note:*`, so keys and tokens issued before the split keep working.
     "account_note": "account",
     "inbox": "task",
+    # Permanent: a `dashboard` scope stays the way to reach dashboards v2 boards, so dashboard keys keep working.
+    "dashboard_v2_board": "dashboard",
     # Permanent: `hog_flow:write` stays a supported way to set recipient preferences. Keep it on low use.
     "messaging_preference": "hog_flow",
     # Permanent: `hog_flow` stays a supported way to send transactional email and read a send's status.

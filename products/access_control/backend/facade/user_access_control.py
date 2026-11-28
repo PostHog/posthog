@@ -125,6 +125,8 @@ RESOURCE_INHERITANCE_MAP: dict[APIScopeObject, APIScopeObject] = {
     "experiment_saved_metric": "experiment",
     "experiment_holdout": "experiment",
     "dashboard_template": "dashboard",
+    # Board rules name a UUID, so they sit on their own resource, away from the integer ids of classic dashboards.
+    "dashboard_v2_board": "dashboard",
     # Vision alerts are configured via the scanner's access level rather than a
     # separate resource.
     "vision_alert": "replay_scanner",

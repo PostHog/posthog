@@ -95,6 +95,7 @@ SCOPE_OBJECTS_OMITTED_FROM_PICKERS: dict[catalog.APIScopeObject, str] = {
     # Access control resources that no token check reads, so granting them to a token does nothing.
     "toolbar": "Access control resource only: no endpoint checks it as a token scope.",
     "revenue_analytics": "Access control resource only: no endpoint checks it as a token scope.",
+    "dashboard_v2_board": "Covered by dashboard: a dashboard scope grants it through LEGACY_SCOPE_FALLBACKS.",
 }
 
 # What people see and choose in the scope pickers, the scope reference and `/oauth/scopes/`:

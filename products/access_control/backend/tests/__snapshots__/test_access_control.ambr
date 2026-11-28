@@ -39,6 +39,7 @@
     'customer_analytics',
     'customer_journey',
     'dashboard',
+    'dashboard_v2_board',
     'dataset',
     'early_access_feature',
     'endpoint',
