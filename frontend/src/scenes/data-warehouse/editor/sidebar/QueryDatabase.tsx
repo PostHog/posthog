@@ -906,7 +906,7 @@ export const QueryDatabase = ({
                                 }
                                 data-attr="data-warehouse-view-rename"
                             >
-                                Rename view
+                                Rename
                             </ButtonPrimitive>
                         </MenuItem>
                     ) : null}
@@ -1485,6 +1485,7 @@ export const QueryDatabase = ({
                     references={dataWarehouseSavedQueryDownstreamReferences[renameView.id]?.references ?? []}
                     referencesLoading={dataWarehouseSavedQueryDownstreamReferences[renameView.id]?.loading ?? true}
                     referencesError={dataWarehouseSavedQueryDownstreamReferences[renameView.id]?.error ?? false}
+                    plan={renameView.plan}
                     onNameChange={setRenameViewName}
                     onClose={closeRenameView}
                     onSubmit={submitRenameView}

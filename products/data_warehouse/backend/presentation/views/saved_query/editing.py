@@ -22,6 +22,7 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import (
     MODELS_NAMESPACE_QUERY_ERROR,
     Database,
+    is_authored_model,
     is_reserved_models_name,
     models_namespace_chain,
 )
@@ -42,6 +43,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models import Team, User
 from posthog.models.activity_logging.activity_log import Change, Detail, changes_between, log_activity
+from posthog.rate_limit import ModelRenameBurstRateThrottle, ModelRenameSustainedRateThrottle
 
 from products.access_control.backend.presentation.access_control import UserAccessControlSerializerMixin
 from products.data_modeling.backend.facade import api as modeling_api
@@ -220,6 +222,13 @@ def _authored_model_answering_to(
 INCREMENTAL_CONFIG_CHANGED_REFUSAL = (
     "This view's incremental settings changed while you were editing it. Reload the view and try again."
 )
+
+
+RENAME_NEEDS_PLAN_DETAIL = (
+    "Other models read this model. Request its rename plan, then rename it with the rename action, "
+    "so their SQL is updated in the same change."
+)
+RENAMED_BY_SOMEONE_ELSE_DETAIL = "Someone else renamed this view. Reload it and try again."
 
 
 class DataWarehouseSavedQuerySerializer(
@@ -710,6 +719,16 @@ class DataWarehouseSavedQuerySerializer(
         )
         return view
 
+    def _throttle_rename_planning(self) -> None:
+        request = self.context.get("request")
+        view = self.context.get("view")
+        if request is None:
+            return
+        for throttle_class in (ModelRenameBurstRateThrottle, ModelRenameSustainedRateThrottle):
+            throttle = throttle_class()
+            if not throttle.allow_request(request, view):
+                raise exceptions.Throttled(wait=throttle.wait())
+
     def update(self, instance: Any, validated_data: Any) -> Any:
         has_description = "description" in validated_data
         description = validated_data.pop("description", None)
@@ -799,6 +818,18 @@ class DataWarehouseSavedQuerySerializer(
 
         with transaction.atomic():
             try:
+                # Before the row lock below, so a slow check holds no lock. The check locks nothing: a name change
+                # it allows rewrites no other row, and the name check after the lock refuses a stale name.
+                if (
+                    "name" in validated_data
+                    and validated_data["name"] != instance.name
+                    and is_authored_model(instance)
+                    and instance.engine.has_lineage.available
+                ):
+                    # The check runs the full team-wide planner, so it shares the rename actions' buckets.
+                    self._throttle_rename_planning()
+                    if modeling_api.rename_needs_plan(instance.team, instance.id, validated_data["name"]):
+                        raise serializers.ValidationError({"name": RENAME_NEEDS_PLAN_DETAIL})
                 # `FOR NO KEY UPDATE`, not `FOR UPDATE`: this lock is held across a DAG lock, and
                 # `FOR UPDATE` conflicts with the `KEY SHARE` lock a concurrent materialization
                 # takes on this row for its job's foreign key, which deadlocks the two. It still
@@ -810,6 +841,10 @@ class DataWarehouseSavedQuerySerializer(
                 )
             except DataWarehouseSavedQuery.DoesNotExist:
                 raise exceptions.NotFound("Not found.")
+            # The check above compared against the name read before any lock, so a rename that landed since
+            # would be undone here, leaving the models it rewrote reading a name that no longer exists.
+            if "name" in validated_data and locked_instance.name != instance.name:
+                raise serializers.ValidationError({"name": RENAMED_BY_SOMEONE_ELSE_DETAIL})
             before_update = copy.copy(locked_instance)
 
             query_changed = "query" in validated_data and validated_data["query"] != locked_instance.query

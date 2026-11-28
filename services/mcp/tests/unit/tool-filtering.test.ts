@@ -1183,6 +1183,7 @@ describe('Tool Filtering - Feature Flags', () => {
             'platform-alerts-source-warehouse',
             'dwh-custom-source-ai-builder',
             'workflows-bulk-suppressions-mcp',
+            'data-warehouse-rename-saved-view',
             'signals-source-filters',
             'error-tracking-issue-tags',
             'inbox-plan-edits-mcp',

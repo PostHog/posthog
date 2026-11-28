@@ -4,7 +4,7 @@ from contextvars import ContextVar
 from functools import wraps
 from typing import ParamSpec, TypeVar
 
-from posthog.hogql.errors import QueryError, TransientQueryError
+from posthog.hogql.errors import CompilationBudgetExceededError, CompilationTimeLimitExceededError, QueryError
 
 MAX_VIEW_DEPTH = 100
 MAX_VIEW_EXPANSIONS = 1000
@@ -20,18 +20,20 @@ class CompilationBudget:
 
     def check_time(self) -> None:
         if time.monotonic() > self.deadline:
-            raise TransientQueryError("HogQL compilation exceeded its time limit. Simplify the query and try again.")
+            raise CompilationTimeLimitExceededError(
+                "HogQL compilation exceeded its time limit. Simplify the query and try again."
+            )
 
     def expand_view(self, query: str) -> None:
         self.check_time()
         if self.view_expansions >= MAX_VIEW_EXPANSIONS:
-            raise QueryError(
+            raise CompilationBudgetExceededError(
                 f"Query exceeds the limit of {MAX_VIEW_EXPANSIONS} saved view expansions. "
                 "Reduce the number of saved view references."
             )
         query_bytes = len(query.encode("utf-8"))
         if self.expanded_view_sql_bytes + query_bytes > MAX_EXPANDED_VIEW_SQL_BYTES:
-            raise QueryError(
+            raise CompilationBudgetExceededError(
                 "Query exceeds the saved view SQL expansion size limit. "
                 "Reduce the size or number of referenced saved views."
             )

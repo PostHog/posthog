@@ -845,6 +845,19 @@ class DataQualityRunProjectRateThrottle(_TeamBucketRateThrottle):
     rate = "180/hour"
 
 
+# Planning or applying a model rename builds the team's catalog and resolves every model that reads the renamed
+# one, inside a web request. The project-global Burst/Sustained pair throttles only personal API keys, so these
+# also cover the session-authenticated UI. The plan and the rename share each bucket.
+class ModelRenameBurstRateThrottle(_UserBucketRateThrottle):
+    scope = "model_rename_burst"
+    rate = "10/minute"
+
+
+class ModelRenameSustainedRateThrottle(_UserBucketRateThrottle):
+    scope = "model_rename_sustained"
+    rate = "60/hour"
+
+
 # The llms.txt fetch pulls a caller-supplied file of up to 1 MB from an arbitrary host, holding a web
 # worker for the whole transfer, so like the heatmap pre-flight its budget is about worker occupancy.
 # It is not covered by the project-global Burst/Sustained pair, which only ever throttles personal

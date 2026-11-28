@@ -83,6 +83,70 @@ class Dependent:
 
 
 @frozen
+class ModelRenameRewrite:
+    """A model whose query reads the renamed model, with its query before and after the rename."""
+
+    saved_query_id: UUID
+    name: str
+    before: str
+    after: str
+
+
+@frozen
+class ModelRenameBlocked:
+    """A model whose query cannot be rewritten for a rename, and why."""
+
+    saved_query_id: UUID
+    name: str
+    reason: str
+
+
+@frozen
+class ModelRenameJoin:
+    """A saved join that names the renamed model on either side, with its table names before and after the rename."""
+
+    join_id: UUID
+    field_name: str
+    source_table_name_before: str
+    source_table_name_after: str
+    joining_table_name_before: str
+    joining_table_name_after: str
+
+
+@frozen
+class ModelRenamePlan:
+    """What a rename changes in the models that read the renamed model and in the joins that name it.
+
+    The token identifies the queries and joins the plan was computed from. A rename applies only the plan it was shown.
+    """
+
+    rewrites: tuple[ModelRenameRewrite, ...]
+    blocked: tuple[ModelRenameBlocked, ...]
+    joins: tuple[ModelRenameJoin, ...]
+    token: str
+
+
+class ModelRenameBlockedError(Exception):
+    """A model that reads the renamed model cannot be rewritten, so the rename changes nothing."""
+
+    def __init__(self, plan: ModelRenamePlan) -> None:
+        super().__init__("A model that reads this model cannot be rewritten.")
+        self.plan = plan
+
+
+class ModelRenamePlanStaleError(Exception):
+    """The models that read the renamed model changed after the plan was computed."""
+
+
+class ModelRenameRefusedError(Exception):
+    """The model is not one a person renames: what made it owns its name. The message says why."""
+
+
+class ModelRenameTooLargeError(ModelRenameRefusedError):
+    """Checking the rewrites ran out of the plan's compilation budget, so nothing about the rename is known."""
+
+
+@frozen
 class NodeLineageCounts:
     """How many nodes sit upstream and downstream of one node."""
 

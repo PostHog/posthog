@@ -37,3 +37,34 @@ export const WithKnownReferences: Story = {
         onSubmit: () => undefined,
     },
 }
+
+export const WithRenamePlan: Story = {
+    parameters: { testOptions: { snapshotBrowsers: [] } },
+    args: {
+        ...WithKnownReferences.args,
+        name: 'orders_by_week',
+        plan: {
+            name: 'orders_by_week',
+            dependents: [
+                {
+                    id: 'daily-revenue',
+                    name: 'daily_revenue',
+                    before: 'select day, sum(total) as revenue\nfrom orders_by_day\ngroup by day',
+                    after: 'select day, sum(total) as revenue\nfrom orders_by_week\ngroup by day',
+                },
+            ],
+            blocked: [{ id: 'revenue-report', name: 'revenue_report', reason: 'The query does not parse.' }],
+            joins: [
+                {
+                    id: 'orders-customer',
+                    field_name: 'customer',
+                    source_table_name_before: 'orders_by_day',
+                    source_table_name_after: 'orders_by_week',
+                    joining_table_name_before: 'customers',
+                    joining_table_name_after: 'customers',
+                },
+            ],
+            plan_token: 'token',
+        },
+    },
+}
