@@ -132,14 +132,21 @@ impl RouterClient {
 
     /// Retries a strong read or property write on a transport failure, each attempt on the next
     /// channel. Both are safe to repeat: the leader answers an applied write with no change.
+    /// The saga runner's fence, release and fold calls take the same number of attempts, all
+    /// inside one request timeout. They are safe to repeat because the leader keys each one on
+    /// the op id, which is what lets the saga engine re-drive a step.
     pub fn with_attempts(mut self, attempts: u32) -> Self {
         self.attempts = attempts.max(1);
         self
     }
 
     fn request<T>(&self, message: T) -> Request<T> {
+        self.request_within(message, self.request_timeout)
+    }
+
+    fn request_within<T>(&self, message: T, timeout: Duration) -> Request<T> {
         let mut request = Request::new(message);
-        request.set_timeout(self.request_timeout);
+        request.set_timeout(timeout);
         if let Some(name) = self.client_name {
             request
                 .metadata_mut()
@@ -197,6 +204,61 @@ impl RouterClient {
         }
     }
 
+    /// Like `retried`, but every attempt shares one `budget`: a retry starts only while part of
+    /// the budget remains, and `call` receives that remainder as its timeout. A saga step runs
+    /// under a lease, so a lifecycle call must not take longer than it does with one attempt.
+    async fn retried_within<T, F, Fut>(
+        budget: Duration,
+        attempts: u32,
+        method: &'static str,
+        mut call: F,
+    ) -> Result<T, Status>
+    where
+        F: FnMut(Duration) -> Fut,
+        Fut: Future<Output = Result<Response<T>, Status>>,
+    {
+        let deadline = tokio::time::Instant::now() + budget;
+        let mut attempt = 1;
+        loop {
+            let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
+            match Self::timed(method, call(remaining)).await {
+                Err(status) if attempt < attempts && is_transport_failure(&status) => {
+                    let resume_at = tokio::time::Instant::now() + RETRY_BACKOFF * attempt;
+                    if resume_at >= deadline {
+                        return Err(status);
+                    }
+                    counter!(ROUTER_CLIENT_RETRIES_TOTAL, "method" => method, "outcome" => code_as_str(status.code()))
+                        .increment(1);
+                    tokio::time::sleep_until(resume_at).await;
+                    attempt += 1;
+                }
+                result => return result,
+            }
+        }
+    }
+
+    /// One saga-runner call to the leader that owns `person_id`.
+    async fn lifecycle_call<M, R, F, Fut>(
+        &self,
+        method: &'static str,
+        team_id: i64,
+        person_id: i64,
+        message: M,
+        call: F,
+    ) -> Result<R, Status>
+    where
+        M: Clone,
+        F: Fn(PersonHogServiceClient<Channel>, Request<M>) -> Fut,
+        Fut: Future<Output = Result<Response<R>, Status>>,
+    {
+        Self::retried_within(self.request_timeout, self.attempts, method, |timeout| {
+            let mut request = self.request_within(message.clone(), timeout);
+            stamp_person_routing_headers(&mut request, team_id, person_id);
+            call(self.client(), request)
+        })
+        .await
+    }
+
     /// Leader-routed property write. The routing headers are stamped from
     /// the request's own team_id/person_id.
     pub async fn update_person_properties(
@@ -236,9 +298,14 @@ impl RouterClient {
         request: FencePersonRequest,
     ) -> Result<FencePersonResponse, Status> {
         let (team_id, person_id) = (request.team_id, request.person_id);
-        let mut request = self.request(request);
-        stamp_person_routing_headers(&mut request, team_id, person_id);
-        Self::timed("FencePerson", self.client().fence_person(request)).await
+        self.lifecycle_call(
+            "FencePerson",
+            team_id,
+            person_id,
+            request,
+            |mut client, request| async move { client.fence_person(request).await },
+        )
+        .await
     }
 
     /// Leader-routed batch fence (saga runner only) for persons that share
@@ -254,9 +321,14 @@ impl RouterClient {
             ));
         };
         let (team_id, person_id) = (request.team_id, *first);
-        let mut request = self.request(request);
-        stamp_person_routing_headers(&mut request, team_id, person_id);
-        Self::timed("FencePersons", self.client().fence_persons(request)).await
+        self.lifecycle_call(
+            "FencePersons",
+            team_id,
+            person_id,
+            request,
+            |mut client, request| async move { client.fence_persons(request).await },
+        )
+        .await
     }
 
     /// Leader-routed fence release (saga runner only): committed produces
@@ -266,9 +338,14 @@ impl RouterClient {
         request: ReleaseFenceRequest,
     ) -> Result<ReleaseFenceResponse, Status> {
         let (team_id, person_id) = (request.team_id, request.person_id);
-        let mut request = self.request(request);
-        stamp_person_routing_headers(&mut request, team_id, person_id);
-        Self::timed("ReleaseFence", self.client().release_fence(request)).await
+        self.lifecycle_call(
+            "ReleaseFence",
+            team_id,
+            person_id,
+            request,
+            |mut client, request| async move { client.release_fence(request).await },
+        )
+        .await
     }
 
     /// Leader-routed batch release (saga runner only) for persons that
@@ -284,9 +361,14 @@ impl RouterClient {
             ));
         };
         let (team_id, person_id) = (request.team_id, first.person_id);
-        let mut request = self.request(request);
-        stamp_person_routing_headers(&mut request, team_id, person_id);
-        Self::timed("ReleaseFences", self.client().release_fences(request)).await
+        self.lifecycle_call(
+            "ReleaseFences",
+            team_id,
+            person_id,
+            request,
+            |mut client, request| async move { client.release_fences(request).await },
+        )
+        .await
     }
 
     /// Leader-routed merge fold (saga runner only): fold sealed source
@@ -296,11 +378,12 @@ impl RouterClient {
         request: FoldPersonDocumentRequest,
     ) -> Result<FoldPersonDocumentResponse, Status> {
         let (team_id, person_id) = (request.team_id, request.person_id);
-        let mut request = self.request(request);
-        stamp_person_routing_headers(&mut request, team_id, person_id);
-        Self::timed(
+        self.lifecycle_call(
             "FoldPersonDocument",
-            self.client().fold_person_document(request),
+            team_id,
+            person_id,
+            request,
+            |mut client, request| async move { client.fold_person_document(request).await },
         )
         .await
     }
@@ -516,6 +599,63 @@ mod tests {
 
         assert_eq!(result.unwrap_err().code(), tonic::Code::Unavailable);
         assert_eq!(calls.load(Ordering::Relaxed), 1);
+    }
+
+    /// Fails with `Cancelled` after `delay` on the first call, then succeeds; records the
+    /// timeout each call was given.
+    fn cancelled_once_after(
+        delay: Duration,
+        timeouts: Arc<std::sync::Mutex<Vec<Duration>>>,
+    ) -> impl FnMut(Duration) -> futures::future::BoxFuture<'static, Result<Response<u8>, Status>>
+    {
+        move |timeout| {
+            let mut timeouts = timeouts.lock().unwrap();
+            timeouts.push(timeout);
+            let first = timeouts.len() == 1;
+            Box::pin(async move {
+                if first {
+                    tokio::time::sleep(delay).await;
+                    Err(Status::cancelled("scripted"))
+                } else {
+                    Ok(Response::new(1))
+                }
+            })
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_lifecycle_retry_runs_under_what_is_left_of_the_budget() {
+        let timeouts = Arc::new(std::sync::Mutex::new(Vec::new()));
+
+        let result = RouterClient::retried_within(
+            Duration::from_secs(1),
+            2,
+            "test",
+            cancelled_once_after(Duration::from_millis(300), timeouts.clone()),
+        )
+        .await;
+
+        assert_eq!(result.unwrap(), 1);
+        assert_eq!(
+            *timeouts.lock().unwrap(),
+            vec![Duration::from_secs(1), Duration::from_millis(600)]
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_lifecycle_call_that_used_its_budget_is_not_retried() {
+        let timeouts = Arc::new(std::sync::Mutex::new(Vec::new()));
+
+        let result = RouterClient::retried_within(
+            Duration::from_secs(1),
+            2,
+            "test",
+            cancelled_once_after(Duration::from_secs(1), timeouts.clone()),
+        )
+        .await;
+
+        assert_eq!(result.unwrap_err().code(), tonic::Code::Cancelled);
+        assert_eq!(timeouts.lock().unwrap().len(), 1);
     }
 
     #[tokio::test]
