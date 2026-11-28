@@ -18,6 +18,8 @@ const MAX_QUERIES_PER_BATCH = 500
 const COALESCE_MS = 30
 // Each stream holds one of the person's batch slots on the server, so this stays at or below `MAX_BATCHES_PER_USER`.
 export const MAX_STREAMS = 3
+// A stream costs a request and a server slot, so a few queries share one rather than each opening its own.
+const MIN_QUERIES_PER_STREAM = 2
 // `_BUSY` in `products/dashboards/backend/v2/query_batch.py`.
 export const BUSY_ERROR = 'Too many dashboards are loading at once. Try again shortly.'
 
@@ -218,12 +220,62 @@ async function runBatch(
     unanswered.forEach((pending) => pending.reject(error))
 }
 
+// The server runs a query once per batch however many panels repeat it, whatever their legends.
+function dedupKey(request: QueryRequest): string {
+    return JSON.stringify([request.query, request.time ?? null])
+}
+
+// The server runs PromQL and LogQL first, so these answer early.
+function answersEarly(request: QueryRequest): boolean {
+    return request.query.language === 'promql' || request.query.language === 'logql'
+}
+
+/**
+ * Takes the queued queries for up to `free` streams. Repeats of a query stay in one stream, up to a batch of them, so
+ * the server runs them once. Queries that answer early are dealt out first, so each stream draws some charts soon, then
+ * the rest go to the stream holding fewest. Each stream keeps the board's order. What doesn't fit is left for the
+ * caller to keep queued.
+ */
+function splitIntoStreams<T extends { request: QueryRequest }>(queued: T[], free: number): T[][] {
+    const groups = new Map<string, number[]>()
+    queued.forEach((pending, index) => {
+        const key = dedupKey(pending.request)
+        groups.set(key, [...(groups.get(key) ?? []), index])
+    })
+    // A group bigger than a batch goes out in batch-sized parts, since the server refuses a larger batch.
+    const parts = [...groups.values()].flatMap((group) =>
+        Array.from({ length: Math.ceil(group.length / MAX_QUERIES_PER_BATCH) }, (_, part) =>
+            group.slice(part * MAX_QUERIES_PER_BATCH, (part + 1) * MAX_QUERIES_PER_BATCH)
+        )
+    )
+    const count = Math.max(1, Math.min(free, parts.length, Math.floor(queued.length / MIN_QUERIES_PER_STREAM)))
+    const ordered = parts.sort(
+        (a, b) =>
+            Number(answersEarly(queued[b[0]].request)) - Number(answersEarly(queued[a[0]].request)) ||
+            b.length - a.length ||
+            a[0] - b[0]
+    )
+    const streams: number[][] = Array.from({ length: count }, () => [])
+    for (const group of ordered) {
+        let target: number[] | null = null
+        for (const stream of streams) {
+            if (stream.length + group.length <= MAX_QUERIES_PER_BATCH && (!target || stream.length < target.length)) {
+                target = stream
+            }
+        }
+        target?.push(...group)
+    }
+    return streams
+        .filter((stream) => stream.length > 0)
+        .map((indexes) => indexes.sort((a, b) => a - b).map((index) => queued[index]))
+}
+
 /**
  * Runs chart queries through `POST dashboard_v2/query_batch/`. The charts that ask within a short window, such as
- * every tile a dashboard mounts, share one stream, and each chart's promise settles as soon as its own line arrives.
- * Up to `MAX_STREAMS` streams run at once, across every project, which stays inside the server's per-person shares
- * (`MAX_BATCHES_PER_USER` and `MAX_OPEN_BATCHES_PER_USER`). Charts that ask while every stream is open are sent
- * together once one ends. A query whose signal aborts leaves the queue, and a stream stops once every query still
+ * every tile a dashboard mounts, are split across the free streams, and each chart's promise settles as soon as its
+ * own line arrives. Up to `MAX_STREAMS` streams run at once, across every project, which stays inside the server's
+ * per-person shares (`MAX_BATCHES_PER_USER` and `MAX_OPEN_BATCHES_PER_USER`). Charts that ask while every stream is
+ * open are sent together once one ends. A query whose signal aborts leaves the queue, and a stream stops once every query still
  * waiting on it has aborted, so a closed dashboard or an old time range frees the slot.
  */
 export function createQueryBatchRunner(teamId: number, options: QueryBatchRunnerOptions = {}): RunQuery {
@@ -272,42 +324,49 @@ export function createQueryBatchRunner(teamId: number, options: QueryBatchRunner
             // The endpoint belongs to one project and checks this person's access to it, so a stream carries one
             // project's queries.
             const project = projectOf(queued[0])
-            const batch = queued.filter((pending) => projectOf(pending) === project).slice(0, MAX_QUERIES_PER_BATCH)
-            const sent = new Set(batch)
+            // Each other queued project keeps a stream for itself, so its charts don't wait behind this one's.
+            const otherProjects = new Set(queued.map(projectOf)).size - 1
+            const batches = splitIntoStreams(
+                queued.filter((pending) => projectOf(pending) === project),
+                Math.max(1, MAX_STREAMS - streams - otherProjects)
+            )
+            const sent = new Set(batches.flat())
             queued = queued.filter((pending) => !sent.has(pending))
-            streams++
-            const id = nextStream++
-            open.add(id)
-            const busy: Pending[] = []
-            const current: Running = {
-                batch,
-                controller: new AbortController(),
-                unanswered: new Map(batch.map((pending, index) => [index, pending])),
+            for (const batch of batches) {
+                streams++
+                const id = nextStream++
+                open.add(id)
+                const busy: Pending[] = []
+                const current: Running = {
+                    batch,
+                    controller: new AbortController(),
+                    unanswered: new Map(batch.map((pending, index) => [index, pending])),
+                }
+                running.add(current)
+                const batchTimer = new QueryBatchTimer(board, batch)
+                void runBatch(project, current, batchTimer, (pending) => busy.push(pending)).finally(() => {
+                    running.delete(current)
+                    try {
+                        batchTimer.capture(batch[0].context)
+                    } catch {
+                        // Timing must never hold up the next batch.
+                    }
+                    open.delete(id)
+                    held.forEach((entry) => entry.waitingOn.delete(id))
+                    const entry = { busy, waitingOn: new Set(open), due: false }
+                    if (busy.length > 0) {
+                        held.push(entry)
+                    }
+                    setTimeout(
+                        () => {
+                            entry.due = true
+                            streams--
+                            flush()
+                        },
+                        busy.length > 0 ? BUSY_RETRY_DELAY_MS : 0
+                    )
+                })
             }
-            running.add(current)
-            const batchTimer = new QueryBatchTimer(board, batch)
-            void runBatch(project, current, batchTimer, (pending) => busy.push(pending)).finally(() => {
-                running.delete(current)
-                try {
-                    batchTimer.capture(batch[0].context)
-                } catch {
-                    // Timing must never hold up the next batch.
-                }
-                open.delete(id)
-                held.forEach((entry) => entry.waitingOn.delete(id))
-                const entry = { busy, waitingOn: new Set(open), due: false }
-                if (busy.length > 0) {
-                    held.push(entry)
-                }
-                setTimeout(
-                    () => {
-                        entry.due = true
-                        streams--
-                        flush()
-                    },
-                    busy.length > 0 ? BUSY_RETRY_DELAY_MS : 0
-                )
-            })
         }
     }
 
