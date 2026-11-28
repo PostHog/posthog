@@ -17,12 +17,11 @@ from products.error_tracking.backend.indexed_embedding import (
     ModelTableDefinitions,
 )
 
-MIGRATION_0247 = "posthog.clickhouse.migrations.0247_warpstream_shared_kafka_engines"
-MIGRATION_0395 = "posthog.clickhouse.migrations.0395_embedding_model_small_256"
+MIGRATION_0247 = importlib.import_module("posthog.clickhouse.migrations.0247_warpstream_shared_kafka_engines")
+MIGRATION_0395 = importlib.import_module("posthog.clickhouse.migrations.0395_embedding_model_small_256")
 
 
-def _migration_operations(module_name: str, cloud_deployment: str) -> list:
-    module: ModuleType = importlib.import_module(module_name)
+def _migration_operations(module: ModuleType, cloud_deployment: str) -> list:
     try:
         with mock.patch("posthog.settings.CLOUD_DEPLOYMENT", cloud_deployment):
             module = importlib.reload(module)
@@ -31,8 +30,8 @@ def _migration_operations(module_name: str, cloud_deployment: str) -> list:
         importlib.reload(module)
 
 
-def _migration_statements(module_name: str, cloud_deployment: str) -> list[str]:
-    return [op._sql for op in _migration_operations(module_name, cloud_deployment)]
+def _migration_statements(module: ModuleType, cloud_deployment: str) -> list[str]:
+    return [op._sql for op in _migration_operations(module, cloud_deployment)]
 
 
 def _mv_source_and_target(statements: list[str], mv_name: str) -> list[tuple[int, str, str]]:
