@@ -2558,7 +2558,7 @@ class IntegrationViewSet(
                 "name": account["name"],
                 "reference": account["reference"],
             }
-            for account in linkedin_ads.list_linkedin_ads_accounts()["elements"]
+            for account in linkedin_ads.list_linkedin_ads_accounts().get("elements", [])
         ]
 
         return Response({"adAccounts": accounts})

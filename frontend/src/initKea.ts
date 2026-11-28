@@ -179,6 +179,7 @@ const ERROR_FILTER_ALLOW_LIST_BY_LOGIC_PATH: Record<string, string> = {
     // The logic toasts every failure itself, including network errors that have no HTTP status
     setIssueSummariesEnabled:
         'products.error_tracking.scenes.ErrorTrackingConfigurationScene.ai_features.aiFeaturesSettingsLogic',
+    loadLinkedInAdsAccounts: 'lib.integrations.linkedInAdsIntegrationLogic', // The account picker shows the error under its input
 }
 
 // A keyed logic's path ends with its key, so match the owner path as a prefix.
