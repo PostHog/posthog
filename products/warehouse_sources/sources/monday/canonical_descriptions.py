@@ -123,4 +123,51 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "created_at": "Time at which the event happened.",
         },
     },
+    "updates": {
+        "description": "An update on a monday.com item: a comment posted in the item's updates section, with its replies.",
+        "docs_url": "https://developer.monday.com/api-reference/reference/updates",
+        "columns": {
+            "id": "Unique identifier for the update.",
+            "item_id": "Identifier of the item the update was posted on.",
+            "creator_id": "Identifier of the user who posted the update.",
+            "body": "The update's HTML-formatted body.",
+            "text_body": "The update's body as plain text.",
+            "created_at": "Time at which the update was created.",
+            "updated_at": "Time at which the update was last updated.",
+            "edited_at": "Time at which the update's body was last edited.",
+            "replies": "The replies posted to the update, each with its id, author, body and timestamps.",
+        },
+    },
+    "teams": {
+        "description": "A team of users in the monday.com account.",
+        "docs_url": "https://developer.monday.com/api-reference/reference/teams",
+        "columns": {
+            "id": "Unique identifier for the team.",
+            "name": "The team's name.",
+            "picture_url": "URL of the team's picture.",
+            "is_guest": "Whether the team is a guest team.",
+            "created_at": "Time at which the team was created (API versions from 2026-07).",
+            "owner_ids": "Identifiers of the users who own the team.",
+            "user_ids": "Identifiers of the users in the team.",
+        },
+    },
+    "tags": {
+        "description": "A tag in the monday.com account. Resolves the tag ids stored in tags column values.",
+        "docs_url": "https://developer.monday.com/api-reference/reference/tags",
+        "columns": {
+            "id": "Unique identifier for the tag.",
+            "name": "The tag's name.",
+            "color": "The tag's color.",
+        },
+    },
+    "board_subscribers": {
+        "description": "A user or team subscribed to a monday.com board, with a flag for board owners.",
+        "docs_url": "https://developer.monday.com/api-reference/reference/boards",
+        "columns": {
+            "_board_id": "Identifier of the board.",
+            "subscriber_type": "Whether the subscriber is a user or a team.",
+            "id": "Identifier of the user or team.",
+            "is_owner": "Whether the user or team owns the board.",
+        },
+    },
 }
