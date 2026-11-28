@@ -277,6 +277,11 @@ describe('SesWebhookHandler', () => {
                 origin: 'https://example.com',
             },
             {
+                case: 'a token with a damaged header',
+                link: `https://example.com/p/%C3%A9.${payload}.${signature}/`,
+                origin: 'https://example.com',
+            },
+            {
                 case: 'the token in a fragment',
                 link: `https://example.com/manage#${token}`,
                 origin: 'https://example.com',
