@@ -1,3 +1,5 @@
+import datetime
+
 import pytest
 from unittest.mock import patch
 
@@ -11,6 +13,7 @@ from posthog.llm.gateway_internal_client import (
     AIGatewayInternalError,
     AIGatewayNotConfigured,
     add_credit,
+    get_org_spend,
     get_usage_report,
     get_usage_report_rows,
     get_wallet,
@@ -159,6 +162,49 @@ class TestAddCredit:
         with patch("posthog.llm.gateway_internal_client.httpx.post", return_value=_response(200, body)):
             result = add_credit(42, ORG_ID, "10", "x", "key-123")
         assert result.balance_usd == "0"
+
+
+class TestGetOrgSpend:
+    @patch("posthog.llm.gateway_internal_client.settings")
+    def test_reads_the_window_as_utc_days(self, mock_settings):
+        _configured(mock_settings)
+        payload = {
+            "balance_usd": "0",
+            "spend_usd": "12.500000",
+            "free_usd": "1.000000",
+            "products": [{"product": "posthog_code", "spend_usd": "12.500000", "free_usd": "1.000000"}],
+            "days": [],
+            "truncated": True,
+        }
+        with patch("posthog.llm.gateway_internal_client.httpx.get", return_value=_response(200, payload)) as mock_get:
+            spend = get_org_spend(ORG_ID, datetime.date(2026, 2, 1), datetime.date(2026, 3, 1))
+
+        assert mock_get.call_args.args[0] == f"http://gw/internal/accounts/{ORG_ID}/spend"
+        assert mock_get.call_args.kwargs["params"] == {"start": "2026-02-01", "end": "2026-03-01"}
+        assert mock_get.call_args.kwargs["headers"]["Authorization"] == "Bearer tok"
+        assert spend.balance_usd == "0"
+        assert spend.spend_usd == "12.500000"
+        assert spend.free_usd == "1.000000"
+        assert [(row.product, row.spend_usd, row.free_usd) for row in spend.products] == [
+            ("posthog_code", "12.500000", "1.000000")
+        ]
+        assert spend.truncated is True
+
+    @pytest.mark.parametrize(
+        "response,match",
+        [
+            (_response(400, {"error": "end must be after start"}), "end must be after start"),
+            (_response(404), "organization spend read failed"),
+            (_response(200, {"spend_usd": "1", "free_usd": "0", "products": []}), "missing balance_usd"),
+            (_response(200, {"balance_usd": "1", "spend_usd": "1", "free_usd": "0"}), "no products"),
+        ],
+    )
+    @patch("posthog.llm.gateway_internal_client.settings")
+    def test_raises_when_the_gateway_gives_no_spend(self, mock_settings, response, match):
+        _configured(mock_settings)
+        with patch("posthog.llm.gateway_internal_client.httpx.get", return_value=response):
+            with pytest.raises(AIGatewayInternalError, match=match):
+                get_org_spend(ORG_ID, datetime.date(2026, 2, 1), datetime.date(2026, 3, 1))
 
 
 class TestGetUsageReport:

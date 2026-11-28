@@ -1,11 +1,23 @@
 import re
+from datetime import UTC, date, datetime
 
+import time_machine
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
+from django.utils import timezone
+
 from parameterized import parameterized
 
-from posthog.llm.gateway_internal_client import AIGatewayInternalError, AIGatewayNotConfigured, LedgerEntry, Wallet
+from posthog.llm.gateway_internal_client import (
+    AIGatewayInternalError,
+    AIGatewayNotConfigured,
+    LedgerEntry,
+    OrgSpend,
+    OrgSpendProduct,
+    Wallet,
+)
+from posthog.models.team import Team
 
 from products.ai_gateway.backend.facade.contracts import TeamCreditAdded, TeamCreditRefused
 
@@ -77,6 +89,117 @@ class TestAIGatewayConsole(BaseTest):
         content = response.content.decode()
         for text in expected:
             assert text in content
+
+    def test_the_organization_page_counts_enrolled_teams_and_links_to_the_wallet_tool(self) -> None:
+        now = timezone.now()
+        self.team.llm_gateway_enabled_at = now
+        self.team.save()
+        Team.objects.create(
+            organization=self.organization,
+            project=self.project,
+            name="Revoked",
+            llm_gateway_enabled_at=now,
+            llm_gateway_revoked_at=now,
+        )
+
+        content = self.client.get(f"/admin/console/organizations/{self.organization.pk}/").content.decode()
+
+        assert "1 of 2 teams enrolled" in content
+        assert f"/admin/console/tools/ai-gateway-wallet/?organization={self.organization.pk}" in content
+
+    @parameterized.expand(
+        [
+            ("default", "", date(2026, 2, 14), date(2026, 3, 16), "Last 30 days: Feb 14, 2026 to Mar 15, 2026"),
+            (
+                "this_month",
+                "this-month",
+                date(2026, 3, 1),
+                date(2026, 3, 16),
+                "This calendar month: Mar 1, 2026 to Mar 15, 2026",
+            ),
+            (
+                "last_month",
+                "last-month",
+                date(2026, 2, 1),
+                date(2026, 3, 1),
+                "Last calendar month: Feb 1, 2026 to Feb 28, 2026",
+            ),
+        ]
+    )
+    def test_the_wallet_tool_shows_an_organization_spend_for_the_period(
+        self, _name: str, period: str, start: date, end: date, expected_period: str
+    ) -> None:
+        spend = OrgSpend(
+            balance_usd="120.500000",
+            spend_usd="1234.560000",
+            free_usd="5.000000",
+            products=[
+                OrgSpendProduct(product="posthog_code", spend_usd="1234.560000", free_usd="5.000000"),
+                OrgSpendProduct(product="unattributed", spend_usd="0.003400", free_usd="0"),
+            ],
+            truncated=False,
+        )
+        report_rows = [
+            {"keys": {"product": "posthog_code"}, "list_usd": "1239.560000"},
+            {"keys": {"product": None}, "list_usd": "0.003400"},
+        ]
+        with (
+            time_machine.travel(datetime(2026, 3, 15, 23, 30, tzinfo=UTC), tick=False),
+            patch("posthog.llm.gateway_internal_client.get_org_spend", return_value=spend) as get_org_spend,
+            patch("posthog.llm.gateway_internal_client.get_usage_report_rows", return_value=report_rows) as get_report,
+        ):
+            content = self.client.get(
+                "/admin/console/tools/ai-gateway-wallet/", {"organization": str(self.organization.pk), "period": period}
+            ).content.decode()
+
+        get_org_spend.assert_called_once_with(str(self.organization.pk), start, end)
+        get_report.assert_called_once_with(
+            {
+                "group_by": "product",
+                "billed_org_id": str(self.organization.pk),
+                "from": f"{start.isoformat()}T00:00:00Z",
+                "to": f"{end.isoformat()}T00:00:00Z",
+            }
+        )
+        for text in [expected_period, "$120.50", "$1,234.56", "$5.00", "posthog_code", "$1,239.56", "$0.0034"]:
+            assert text in content
+
+    @parameterized.expand(
+        [
+            ("not_configured", AIGatewayNotConfigured(), [], ["not configured in this region"]),
+            ("spend_read_fails", AIGatewayInternalError("boom"), [], ["The wallet is unavailable: boom"]),
+            (
+                "usage_report_fails",
+                OrgSpend(balance_usd="1", spend_usd="0", free_usd="0", products=[], truncated=False),
+                AIGatewayInternalError("report down"),
+                ["The wallet is unavailable: report down"],
+            ),
+        ]
+    )
+    def test_the_wallet_tool_says_why_an_organization_wallet_is_unavailable(
+        self, _name: str, spend: OrgSpend | Exception, report: list | Exception, expected: list[str]
+    ) -> None:
+        with (
+            patch("posthog.llm.gateway_internal_client.get_org_spend", side_effect=[spend]),
+            patch("posthog.llm.gateway_internal_client.get_usage_report_rows", side_effect=[report]),
+        ):
+            response = self.client.get(
+                "/admin/console/tools/ai-gateway-wallet/", {"organization": str(self.organization.pk)}
+            )
+
+        content = response.content.decode()
+        assert response.status_code == 200
+        for text in [*expected, "Back to the organization"]:
+            assert text in content
+
+    def test_the_wallet_tool_refuses_an_organization_that_does_not_exist(self) -> None:
+        with patch("posthog.llm.gateway_internal_client.get_org_spend") as get_org_spend:
+            content = self.client.get(
+                "/admin/console/tools/ai-gateway-wallet/", {"organization": "0190b3a1-1111-7000-8000-000000000001"}
+            ).content.decode()
+
+        assert "No organization has this ID" in content
+        get_org_spend.assert_not_called()
 
     @patch(
         "products.ai_gateway.backend.facade.api.add_team_credit",

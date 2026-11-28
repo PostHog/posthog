@@ -1,3 +1,4 @@
+import datetime
 import dataclasses
 from typing import Any
 
@@ -145,6 +146,69 @@ def add_credit(team_id: int, org_id: str, amount_usd: str, reason: str, idempote
         amount_usd=data.get("amount_usd", ""),
         balance_usd=data.get("balance_usd", ""),
         duplicate=bool(data.get("duplicate", False)),
+    )
+
+
+@dataclasses.dataclass(frozen=True)
+class OrgSpendProduct:
+    product: str
+    spend_usd: str
+    free_usd: str
+
+
+@dataclasses.dataclass(frozen=True)
+class OrgSpend:
+    balance_usd: str
+    spend_usd: str
+    free_usd: str
+    products: list[OrgSpendProduct]
+    # The gateway lists only its top products by spend. spend_usd and free_usd still cover every debit.
+    truncated: bool
+
+
+def get_org_spend(org_id: str, start: datetime.date, end: datetime.date) -> OrgSpend:
+    """The organization's balance now, and its debits in the UTC days [start, end)."""
+    url, token = _config()
+    try:
+        response = httpx.get(
+            f"{url}/internal/accounts/{org_id}/spend",
+            headers=_auth_headers(token),
+            params={"start": start.isoformat(), "end": end.isoformat()},
+            timeout=USAGE_REPORT_TIMEOUT_SECONDS,
+            trust_env=False,
+        )
+    except httpx.HTTPError as exc:
+        raise AIGatewayInternalError(f"organization spend read failed: {exc}") from exc
+    if response.status_code >= 400:
+        raise AIGatewayInternalError(f"organization spend read failed: {_error_detail(response)}")
+    try:
+        data: Any = response.json()
+    except ValueError as exc:
+        raise AIGatewayInternalError(f"organization spend read failed: {exc}") from exc
+    if not isinstance(data, dict):
+        raise AIGatewayInternalError("organization spend response was not an object")
+    names = ("balance_usd", "spend_usd", "free_usd")
+    totals: dict[str, str] = {name: data[name] for name in names if isinstance(data.get(name), str)}
+    missing = [name for name in names if name not in totals]
+    if missing:
+        raise AIGatewayInternalError(f"organization spend response is missing {', '.join(missing)}")
+    products = data.get("products")
+    if not isinstance(products, list):
+        raise AIGatewayInternalError("organization spend response had no products")
+    return OrgSpend(
+        balance_usd=totals["balance_usd"],
+        spend_usd=totals["spend_usd"],
+        free_usd=totals["free_usd"],
+        products=[
+            OrgSpendProduct(
+                product=str(row.get("product", "")),
+                spend_usd=str(row.get("spend_usd", "0")),
+                free_usd=str(row.get("free_usd", "0")),
+            )
+            for row in products
+            if isinstance(row, dict)
+        ],
+        truncated=bool(data.get("truncated", False)),
     )
 
 
