@@ -1,6 +1,6 @@
 import { MakeLogicType, actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import type { LogicWrapper } from 'kea'
-import { router, urlToAction } from 'kea-router'
+import { combineUrl, router, urlToAction } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
 
@@ -11,6 +11,7 @@ import { keyForInsightLogicProps } from 'lib/insights/sharedUtils'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
 import { isUUIDLike } from 'lib/utils/guards'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
@@ -21,6 +22,7 @@ import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { autoRunMaxPrompt } from 'scenes/max/maxPrompt'
 import { teamLogic } from 'scenes/teamLogic'
 import type { teamLogicValues } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { aiConsentLogic } from '~/layout/ai/aiConsentLogic'
@@ -141,6 +143,9 @@ export interface explainChartLogicActions {
     ) => {
         page: StoryPage
         step: number
+    }
+    copyStoryLink: () => {
+        value: true
     }
     dismissConsent: () => {
         value: true
@@ -318,6 +323,7 @@ export const explainChartLogic: LogicWrapper<explainChartLogicType> = kea<explai
             origin,
         }),
         storySaved: (explanationId: string) => ({ explanationId }),
+        copyStoryLink: true,
         setLinkedExplanationId: (explanationId: string | null) => ({ explanationId }),
         loadLinkedExplanation: true,
         showStory: true,
@@ -701,6 +707,23 @@ export const explainChartLogic: LogicWrapper<explainChartLogicType> = kea<explai
                 }
             } catch {
                 // Someone who can view the insight but not edit it cannot save, so their explanation has no link.
+            }
+        },
+        copyStoryLink: async () => {
+            const explanationId = values.storyOrigin?.explanationId
+            const shortId = values.insight.short_id
+            if (!explanationId || !shortId) {
+                return
+            }
+            const url = urls.absolute(
+                urls.currentProject(combineUrl(urls.insightView(shortId), { explanation: explanationId }).url)
+            )
+            if (await copyToClipboard(url, 'link')) {
+                // pinned: analytics event name
+                posthog.capture('explain chart link copied', {
+                    source: values.storyOrigin?.source,
+                    ...values.storyEventProperties,
+                })
             }
         },
         saveInsightSuccess: () => {
