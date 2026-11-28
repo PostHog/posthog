@@ -5,6 +5,7 @@ import posthog from 'posthog-js'
 import { runInThisContext } from 'vm'
 
 import { dayjs } from 'lib/dayjs'
+import { uuid } from 'lib/utils/dom'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { useMocks } from '~/mocks/jest'
@@ -41,13 +42,12 @@ describe('emailImpactLogic', () => {
     let answer: [number, unknown] | Promise<[number, unknown]>
     let onRequest: () => void
     // Running queries are shared across mounts by workflow, so each test gets its own workflow.
-    let testCount = 0
     let workflowId: string
     let heldAnswers: ((answer: [number, unknown]) => void)[]
 
     beforeEach(() => {
         localStorage.clear()
-        workflowId = `workflow-${++testCount}`
+        workflowId = uuid()
         heldAnswers = []
         requestedFrom = []
         requestedParams = []
@@ -269,6 +269,88 @@ describe('emailImpactLogic', () => {
         expect(requestedParams).toHaveLength(4)
         expect(requestedParams[3].get('event')).toBe('plan upgraded')
         expect(logic.values.impact?.sent).toBe(4)
+    })
+
+    it.each([
+        ['this tab has the project off', false],
+        ['this tab already has the project on after another browser tab turned it off', true],
+    ])('reloads the email opened while the turn-on was saving, when %s', async (_, teamHasItOn) => {
+        const team: TeamType = {
+            ...MOCK_DEFAULT_TEAM,
+            workflows_config: { email_workflow_run_link_tag_enabled: teamHasItOn },
+        }
+        let releaseSave: () => void = () => {}
+        const saveReleased = new Promise<void>((resolve) => (releaseSave = resolve))
+        let saveArrived: () => void = () => {}
+        const saveStarted = new Promise<void>((resolve) => (saveArrived = resolve))
+        useMocks({
+            patch: {
+                '/api/organizations/:organization_id/projects/:id/': async ({ request }) => {
+                    const patch = (await request.json()) as Partial<TeamType>
+                    saveArrived()
+                    await saveReleased
+                    if (patch.workflows_config?.email_workflow_run_link_tag_enabled) {
+                        answer = [200, { ...WITHOUT_EVENT, sessions: 3 }]
+                    }
+                    return [200, { ...team, workflows_config: { ...team.workflows_config, ...patch.workflows_config } }]
+                },
+            },
+        })
+        initKeaTests(true, team)
+        answer = [200, { ...WITHOUT_EVENT, link_tagging_enabled: false }]
+        const savingLogic = emailImpactLogic({ workflowId })
+        savingLogic.mount()
+        await expectLogic(savingLogic).toFinishAllListeners()
+
+        const openedWorkflowId = uuid()
+        jest.useFakeTimers({ doNotFake: ['queueMicrotask', 'nextTick', 'setImmediate'] })
+        try {
+            savingLogic.actions.turnOnLinkTracking()
+            await saveStarted
+            savingLogic.unmount()
+            logic = emailImpactLogic({ workflowId: openedWorkflowId })
+            logic.mount()
+            await jest.advanceTimersByTimeAsync(500)
+            expect(logic.values.steps?.find(({ key }) => key === 'session')?.missingFixedByLinkTagging).toBe(true)
+            requestedParams = []
+            await jest.advanceTimersByTimeAsync(500)
+            expect(requestedParams).toEqual([])
+            releaseSave()
+            await jest.advanceTimersByTimeAsync(500)
+        } finally {
+            jest.useRealTimers()
+        }
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(requestedParams.map((params) => params.get('workflow_id'))).toEqual([openedWorkflowId])
+        expect(logic.values.steps?.find(({ key }) => key === 'session')?.value).toBe(3)
+    })
+
+    it.each([
+        [
+            'counts the sessions the API counted while this tab still has the project off',
+            false,
+            { ...WITHOUT_EVENT, sessions: 3 },
+            [3, false],
+        ],
+        [
+            'offers to turn it on when the API skipped the count because the project has it off',
+            true,
+            { ...WITHOUT_EVENT, link_tagging_enabled: false },
+            [null, true],
+        ],
+    ])('follows the link tracking the API counted with: %s', async (_, teamHasItOn, impact, [sessions, offered]) => {
+        initKeaTests(true, {
+            ...MOCK_DEFAULT_TEAM,
+            workflows_config: { email_workflow_run_link_tag_enabled: teamHasItOn },
+        })
+        answer = [200, impact]
+        logic = emailImpactLogic({ workflowId })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        const step = logic.values.steps?.find(({ key }) => key === 'session')
+        expect([step?.value ?? null, !!step?.missingFixedByLinkTagging]).toEqual([sessions, offered])
     })
 
     it('asks for the last 24 hours, not one calendar day, the day after the clocks change', async () => {
