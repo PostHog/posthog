@@ -84,7 +84,7 @@ A backfill keeps only the records that are still inside the team's retention. A 
 timestamp plus its retention is already in the past is dropped by the logs consumer before it is
 written, even though this service answered the request with a 200. Dropped records are counted
 per team in the `records_dropped_retention_expired` usage metric. A record that is kept expires
-`retention_days` after it is imported, not after its own timestamp.
+`retention_days` after its own timestamp, not after the import, so the oldest records expire first.
 
 Each message carries a `min_timestamp` header, the earliest record timestamp in it, so the
 consumer only decodes and checks the messages that can hold an expired record.
