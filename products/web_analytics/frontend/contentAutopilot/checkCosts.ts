@@ -6,11 +6,13 @@ export interface CheckCost {
 }
 
 // Per-check costs measured in production: the gateway's $ai_total_cost_usd per check, US, the 7 days to 2026-11-25.
-// Estimates: a check costs more when the answer is long or the engine searches more. Engines without a figure here
-// show as not priced.
+// The OpenAI figure is an estimate until capped gpt-6-luna checks are measured: those same gpt-5 checks repriced at
+// gpt-6-luna's token rates, with the web search fee for at most MAX_WEB_SEARCHES_PER_PROMPT (3) searches. It keeps
+// the gpt-5 token counts, which came from more searches. Estimates: a check costs more when the answer is long or the
+// engine searches more. Engines without a figure here show as not priced.
 export const CHECK_COSTS: Record<string, CheckCost> = {
     'claude-web-search': { median: 0.083, p90: 0.089 },
-    'openai-web-search': { median: 0.139, p90: 0.226 },
+    'openai-web-search': { median: 0.034, p90: 0.037 },
     'exa-answer': { median: 0.005, p90: null },
 }
 
