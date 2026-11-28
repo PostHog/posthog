@@ -31,7 +31,7 @@ from enum import StrEnum
 from typing import Any, cast
 
 from django.core.cache import cache
-from django.db.models import Count, F, Min, Window
+from django.db.models import Count, Exists, F, Min, OuterRef, Q, Window
 from django.db.models.functions import RowNumber
 
 import structlog
@@ -65,7 +65,13 @@ from products.product_analytics.backend.facade.api import (
     insights_including_soft_deleted_for_team,
     saved_trends_insights,
 )
-from products.signals.backend.anomaly_scores.config import AnomalyScoringConfig, ScoringRun, in_rollout, judges_team
+from products.signals.backend.anomaly_scores.config import (
+    DEFAULT_MAX_MODEL_AGE_BUCKETS,
+    AnomalyScoringConfig,
+    ScoringRun,
+    in_rollout,
+    judges_team,
+)
 from products.signals.backend.anomaly_scores.scoring import bucket_end
 from products.signals.backend.anomaly_scores.selection import (
     Candidate,
@@ -78,7 +84,13 @@ from products.signals.backend.anomaly_scores.selection import (
     score_order,
 )
 from products.signals.backend.anomaly_scores.spend import CpuSpendReport, cpu_gate
-from products.signals.backend.anomaly_scores.state import RunPlan, load_states, plan_run, score_ready_by_insight
+from products.signals.backend.anomaly_scores.state import (
+    RunPlan,
+    load_states,
+    plan_run,
+    score_ready_by_insight,
+    score_ready_rows,
+)
 from products.signals.backend.contracts import ALERT_SCOPE_SOURCE
 from products.signals.backend.models import AnomalyScoringDueInsight, SignalSourceConfig, SignalTeamConfig
 from products.subscriptions.backend.facade.api import insight_ids_with_active_subscriptions
@@ -147,6 +159,12 @@ _MAX_NEVER_SCORED_DUE_ROWS = _MAX_DUE_ROWS // 2
 # so that rows in a cooldown or over a budget leave rows to pick from. Without this limit, one project with a large
 # train backlog fills the read, and the never-scored rows of the other projects never reach a plan.
 _MAX_NEVER_SCORED_DUE_ROWS_PER_TEAM = 50
+# The read keeps one in this many of the rows that never-scored rows leave for scored rows whose stored model a score
+# step can read. A model that needs a train step keeps its row the longest overdue, so without this share, a hard train
+# backlog larger than the read fills every plan, and a newly trained insight waits for the whole backlog to clear.
+_SCORE_READY_SHARE = 2
+# The score-ready rows that one project gets in that share. Far more than the score picks of one project in one tick.
+_MAX_SCORE_READY_DUE_ROWS_PER_TEAM = 250
 # More rows than the lane picks, so that rows in a cooldown or over a budget leave rows to pick from.
 _FIRST_TRAIN_ROWS_PER_TEAM = 10
 _MAX_FIRST_TRAIN_DUE_ROWS = 500
@@ -233,6 +251,18 @@ class FirstTrainReport:
 
 
 @frozen
+class ScoredDueBacklog:
+    """The scored due rows of the whole due list, also the rows past the read caps, for the tick event."""
+
+    # Rows whose stored model a score step can probably read, and the time since the oldest of them became due.
+    score_ready: int = 0
+    score_ready_oldest_due_seconds: int | None = None
+    # Rows that wait for a train step.
+    needs_train: int = 0
+    needs_train_oldest_due_seconds: int | None = None
+
+
+@frozen
 class Selection:
     picks: list[InsightPick]
     # Due insights, picked or not. More than the picks means the tick cap or a budget cut the queue.
@@ -276,6 +306,7 @@ class Selection:
     oldest_refresh_seconds: int | None = None
     # Due rows that the read caps left out. None when the tick does not plan from the due list.
     due_unread: int | None = None
+    scored_due: ScoredDueBacklog | None = None
     first_train: FirstTrainReport | None = None
     cpu: CpuSpendReport | None = None
 
@@ -297,6 +328,7 @@ class DueList:
     never_scored_due: int = 0
     # Due rows that the read caps left out. The backlog counts of the plan do not include them.
     due_unread: int = 0
+    scored_due: ScoredDueBacklog = ScoredDueBacklog()
 
 
 @frozen
@@ -523,10 +555,12 @@ def load_due_list(
     intervals: tuple[IntervalType, ...],
     now: datetime.datetime,
     first_train_lane: bool = True,
+    max_model_age: Mapping[IntervalType, int] = DEFAULT_MAX_MODEL_AGE_BUCKETS,
 ) -> DueList:
     """The due rows of the teams, longest overdue first, in a fixed number of queries.
 
-    Never-scored rows and scored rows are read apart, so that the train backlog cannot crowd out the score pass.
+    Never-scored rows, score-ready rows, and the other scored rows are read apart, so that the train backlog cannot
+    crowd out the score pass. A share that one group does not fill goes to the other scored rows.
     With ``first_train_lane``, the daily rows of projects with no scored daily row are read apart too, so that the
     never-scored rows of older projects cannot hide a new project from the first-train lane.
     """
@@ -543,7 +577,24 @@ def load_due_list(
         .filter(team_rank__lte=_MAX_NEVER_SCORED_DUE_ROWS_PER_TEAM)
         .order_by("team_rank", "next_due_at", "insight_id")[:_MAX_NEVER_SCORED_DUE_ROWS]
     )
-    scored = list(due.exclude(series_scored_through={})[: _MAX_DUE_ROWS - len(never_scored)])
+    scored_due = due.exclude(series_scored_through={}).alias(
+        score_ready=Exists(score_ready_rows(max_model_age, now).filter(insight_id=OuterRef("insight_id")))
+    )
+    scored_slots = _MAX_DUE_ROWS - len(never_scored)
+    score_ready = list(
+        scored_due.filter(score_ready=True)
+        .alias(team_rank=_overdue_rank())
+        .filter(team_rank__lte=_MAX_SCORE_READY_DUE_ROWS_PER_TEAM)
+        .order_by("next_due_at", "insight_id")[: scored_slots // _SCORE_READY_SHARE]
+    )
+    others = scored_due.exclude(insight_id__in=[row.insight_id for row in score_ready])
+    scored = [*score_ready, *others[: scored_slots - len(score_ready)]]
+    backlog = scored_due.order_by().aggregate(
+        ready_rows=Count("id", filter=Q(score_ready=True)),
+        ready_oldest=Min("next_due_at", filter=Q(score_ready=True)),
+        train_rows=Count("id", filter=Q(score_ready=False)),
+        train_oldest=Min("next_due_at", filter=Q(score_ready=False)),
+    )
     trained_daily_teams = (
         scope.filter(interval=IntervalType.DAY.value).exclude(series_scored_through={}).values("team_id")
     )
@@ -576,7 +627,22 @@ def load_due_list(
         first_train_waiting=first_train_due.order_by().values("team_id").distinct().count(),
         never_scored_due=never_scored_due.count(),
         due_unread=due.count() - len(rows),
+        scored_due=ScoredDueBacklog(
+            score_ready=backlog["ready_rows"],
+            score_ready_oldest_due_seconds=_seconds_since(now, backlog["ready_oldest"]),
+            needs_train=backlog["train_rows"],
+            needs_train_oldest_due_seconds=_seconds_since(now, backlog["train_oldest"]),
+        ),
     )
+
+
+def _seconds_since(now: datetime.datetime, then: datetime.datetime | None) -> int | None:
+    return None if then is None else round((now - then).total_seconds())
+
+
+def _overdue_rank() -> Window:
+    """The rank of a due row in its project, the longest overdue row first."""
+    return Window(RowNumber(), partition_by=F("team_id"), order_by=[F("next_due_at").asc(), F("insight_id").asc()])
 
 
 def _usage_rank() -> Window:
@@ -916,7 +982,9 @@ def select_insights(
     cpu_skipped: Counter[ScoringRun] = Counter()
     due_list: DueList | None = None
     if config.due_list:
-        due_list = load_due_list(teams, config.intervals, now, config.first_train_insights_per_tick > 0)
+        due_list = load_due_list(
+            teams, config.intervals, now, config.first_train_insights_per_tick > 0, config.max_model_age_buckets
+        )
         insights = due_list.insights
         state = due_list.scored_through
         # The refresh job sends the activity reasons and the census.
@@ -1129,6 +1197,7 @@ def select_insights(
         oldest_due_seconds=None if due_list is None else due_list.oldest_due_seconds,
         oldest_refresh_seconds=None if due_list is None else due_list.oldest_refresh_seconds,
         due_unread=None if due_list is None else due_list.due_unread,
+        scored_due=None if due_list is None else due_list.scored_due,
         first_train=FirstTrainReport(
             waiting_teams=len({team_ids[insight_id] for insight_id in first_train_ids})
             if due_list is None
