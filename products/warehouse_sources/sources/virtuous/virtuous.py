@@ -1,6 +1,8 @@
 from datetime import date, datetime, timedelta
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any, Optional
+from urllib.parse import urlsplit
 
+import structlog
 from dateutil import parser
 
 from products.warehouse_sources.sources.sdk import (
@@ -25,6 +27,25 @@ from products.warehouse_sources.sources.virtuous.settings import (
     VIRTUOUS_BASE_URL,
     VirtuousEndpointConfig,
 )
+
+if TYPE_CHECKING:
+    from requests import Response
+
+logger = structlog.get_logger(__name__)
+COMMUNICATIONS_MAX_PAGES = 100
+
+
+class _CommunicationsPaginator(OffsetPaginator):
+    def update_state(self, response: "Response", data: list[Any] | None = None) -> None:
+        super().update_state(response, data)
+        if self.has_next_page and self.offset >= self.limit * COMMUNICATIONS_MAX_PAGES:
+            logger.warning(
+                "virtuous_communications_page_cap_reached",
+                resource="communications",
+                campaign_id=urlsplit(response.url).path.rsplit("/", 1)[-1],
+                max_pages=COMMUNICATIONS_MAX_PAGES,
+            )
+            raise ValueError("Virtuous communications exceeded the page limit for a campaign")
 
 
 @frozen
@@ -72,12 +93,17 @@ def build_request_body(
     return {**body, "groups": groups, "sortBy": "Id", "descending": False}
 
 
-def _endpoint(endpoint_config: VirtuousEndpointConfig, last_value: Optional[Any] = None) -> Endpoint:
+def _endpoint(
+    endpoint_config: VirtuousEndpointConfig,
+    last_value: Optional[Any] = None,
+    *,
+    paginator_type: type[OffsetPaginator] = OffsetPaginator,
+) -> Endpoint:
     endpoint: Endpoint = {
         "method": endpoint_config.method,
         "path": endpoint_config.path,
         "data_selector": "list",
-        "paginator": OffsetPaginator(
+        "paginator": paginator_type(
             limit=endpoint_config.page_size,
             offset_param="skip",
             limit_param="take",
@@ -152,7 +178,7 @@ def virtuous_source(
             db_incremental_field_last_value=None,
             page_size_param=None,
             parent_endpoint_extra=_endpoint(ENDPOINTS[fanout.parent_name]),
-            child_endpoint_extra=_endpoint(endpoint_config),
+            child_endpoint_extra=_endpoint(endpoint_config, paginator_type=_CommunicationsPaginator),
             resume_hook=save_fanout_checkpoint,
             initial_paginator_state=resume_config.fanout_state if resume_config is not None else None,
             resume_parent_pagination=True,

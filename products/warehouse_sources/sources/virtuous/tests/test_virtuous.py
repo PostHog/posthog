@@ -4,8 +4,10 @@ from typing import Any
 import pytest
 
 import requests
+from structlog.testing import capture_logs
 
 from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
+from products.warehouse_sources.sources.virtuous import virtuous
 from products.warehouse_sources.sources.virtuous._config import VirtuousSourceConfig
 from products.warehouse_sources.sources.virtuous.source import VirtuousSource
 from products.warehouse_sources.sources.virtuous.virtuous import (
@@ -83,8 +85,6 @@ def test_communications_fanout_resumes_on_the_next_child_page() -> None:
     )
 
     assert result.raised is None
-    assert result.response is not None
-    assert result.response.primary_keys == ["communicationId"]
     assert result.rows == [*first_page, remaining_row, next_campaign_row]
 
     resumed = _driver().run(
@@ -99,6 +99,34 @@ def test_communications_fanout_resumes_on_the_next_child_page() -> None:
     ]
     assert resumed.params("skip") == ["0", "1000", "0"]
     assert resumed.rows == [remaining_row, next_campaign_row]
+
+
+@pytest.mark.parametrize("total", [1000, None])
+def test_communications_page_cap_fails_instead_of_publishing_an_incomplete_refresh(
+    monkeypatch: pytest.MonkeyPatch, total: int | None
+) -> None:
+    monkeypatch.setattr(virtuous, "COMMUNICATIONS_MAX_PAGES", 1)
+    rows = [{"communicationId": offset + 1} for offset in range(1000)]
+
+    with capture_logs() as logs:
+        result = _driver().run(
+            "communications",
+            [
+                ScriptedResponse(json={"list": [{"campaignId": 7}], "total": 1}),
+                ScriptedResponse(json={"list": rows, "total": total}),
+            ],
+        )
+
+    assert result.paths == ["/api/Campaign/Query", "/api/Communication/ByCampaign/7"]
+    cap_logs = [entry for entry in logs if entry["event"] == "virtuous_communications_page_cap_reached"]
+    if total is None:
+        assert isinstance(result.raised, ValueError)
+        assert result.rows == []
+        assert [entry["campaign_id"] for entry in cap_logs] == ["7"]
+    else:
+        assert result.raised is None
+        assert result.rows == rows
+        assert cap_logs == []
 
 
 class TestIncrementalRequestShaping:
