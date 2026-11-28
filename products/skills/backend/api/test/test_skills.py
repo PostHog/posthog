@@ -2009,6 +2009,47 @@ class TestLLMSkillAPI(APIBaseTest):
         assert data["content"] == "#!/bin/bash\necho hello"
         assert data["content_type"] == "text/x-shellscript"
 
+    @parameterized.expand(
+        [
+            # label, query, expected_content, expected_next_offset
+            ("no_paging_returns_whole_file", "", "0123456789", None),
+            ("first_page_has_more", "?content_offset=0&content_length=4", "0123", 4),
+            ("middle_page_has_more", "?content_offset=4&content_length=3", "456", 7),
+            ("last_page_exact_end", "?content_offset=8&content_length=2", "89", None),
+            ("length_past_end", "?content_offset=8&content_length=50", "89", None),
+            ("offset_only_returns_remainder", "?content_offset=7", "789", None),
+        ]
+    )
+    def test_get_file_pages_through_content(self, _label, query, expected_content, expected_next_offset):
+        skill = self.create_skill(name="paged-file")
+        LLMSkillFile.objects.create(skill=skill, path="references/guide.md", content="0123456789")
+
+        data = self.client.get(self._url(f"name/paged-file/files/references/guide.md{query}")).json()
+
+        assert data["content"] == expected_content
+        assert data["content_total_length"] == 10
+        assert data["content_next_offset"] == expected_next_offset
+
+    def test_get_file_pages_reconstruct_file_larger_than_one_page(self):
+        content = "".join(f"- [ ] queue item {i} — verify ✓\n" for i in range(700))
+        skill = self.create_skill(name="large-file")
+        LLMSkillFile.objects.create(skill=skill, path="handover.md", content=content)
+
+        pages: list[str] = []
+        offset: int | None = 0
+        while offset is not None:
+            response = self.client.get(
+                self._url(f"name/large-file/files/handover.md?content_offset={offset}&content_length=8000")
+            )
+            assert response.status_code == status.HTTP_200_OK
+            data = response.json()
+            assert data["content_total_length"] == len(content)
+            pages.append(data["content"])
+            offset = data["content_next_offset"]
+
+        assert len(pages) > 1
+        assert "".join(pages) == content
+
     def test_get_nonexistent_file_returns_404(self):
         self.create_skill(name="no-files")
 
