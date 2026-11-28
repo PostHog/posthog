@@ -153,6 +153,10 @@ function AdventCardBody({
     )
 }
 
+function hasDetailsBesideFace(door: AdventDoor): boolean {
+    return door.day === ADVENT_LAST_DAY && door.status !== 'open'
+}
+
 function dialogProps(day: number, isPinned: boolean, isClosing = false): HTMLAttributes<HTMLDivElement> {
     return {
         role: isPinned ? 'dialog' : undefined,
@@ -177,7 +181,7 @@ export function AdventDoorCard({
     onMouseEnter,
     onMouseLeave,
 }: AdventDoorCardProps): JSX.Element {
-    const detailsBesideFace = door.day === ADVENT_LAST_DAY && door.status !== 'open'
+    const detailsBesideFace = hasDetailsBesideFace(door)
     const { style, faceShift, isLeftward, facesDown } = cardLayout(door, face, stage, isOpen)
 
     return (
