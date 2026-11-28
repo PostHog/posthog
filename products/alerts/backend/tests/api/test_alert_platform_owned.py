@@ -645,7 +645,7 @@ class TestPlatformOwnedInsightAlert(ClickhouseTestMixin, APIBaseTest):
         copy_threshold = self.alert.threshold.configuration
         row_threshold = {"type": "absolute", "bounds": {"upper": 999.0}}
         Threshold.objects.filter(id=self.alert.threshold.id).update(configuration=row_threshold, name="Revenue bound")
-        expected = [(copy_threshold, self.alert.name, copy_threshold, "")]
+        expected = [(str(self.alert.id), copy_threshold, self.alert.name, copy_threshold, "")]
         if shared_with_row_alert:
             row_alert = AlertConfiguration.objects.create(
                 team=self.team,
@@ -654,11 +654,11 @@ class TestPlatformOwnedInsightAlert(ClickhouseTestMixin, APIBaseTest):
                 name="Row alert",
                 created_by=self.user,
             )
-            # Edits to the row alert still write the threshold row, so the row's bounds are current.
+            # Edits to the row alert still write the threshold row, so the row lists with the row alert alone.
             expected = sorted(
                 [
-                    (row_threshold, self.alert.name, copy_threshold, ""),
-                    (row_threshold, row_alert.name, row_threshold, "Revenue bound"),
+                    *expected,
+                    (str(self.alert.threshold.id), row_threshold, row_alert.name, row_threshold, "Revenue bound"),
                 ]
             )
         if hidden is not None:
@@ -678,15 +678,23 @@ class TestPlatformOwnedInsightAlert(ClickhouseTestMixin, APIBaseTest):
             )
         url = f"/api/projects/{self.team.id}/insights/{threshold_insight_id}/thresholds/"
 
-        response = self.client.get(url if action != "retrieve" else f"{url}{self.alert.threshold_id}/")
+        response = self.client.get(url if action != "retrieve" else f"{url}{self.alert.id}/")
 
         assert response.status_code == status.HTTP_200_OK, response.json()
         thresholds = [response.json()] if action == "retrieve" else response.json()["results"]
         assert sorted(
-            (threshold["configuration"], alert["name"], alert["threshold"]["configuration"], alert["threshold"]["name"])
+            (
+                threshold["id"],
+                threshold["configuration"],
+                alert["name"],
+                alert["threshold"]["configuration"],
+                alert["threshold"]["name"],
+            )
             for threshold in thresholds
             for alert in threshold["alerts"]
         ) == (expected if hidden is None else [])
+        if action == "retrieve":
+            assert self.client.get(f"{url}{self.alert.threshold_id}/").status_code == status.HTTP_404_NOT_FOUND
 
     @parameterized.expand(
         [
@@ -1397,7 +1405,7 @@ class TestPlatformOwnedInsightAlertWrites(APIBaseTest):
     @parameterized.expand(
         [
             (f"{kind}_{action}", kind, action)
-            for kind in ("moved_without_a_threshold_row", "native")
+            for kind in ("moved_with_a_threshold_row", "moved_without_a_threshold_row", "native")
             for action in ("list", "retrieve")
         ]
     )
@@ -1408,10 +1416,15 @@ class TestPlatformOwnedInsightAlertWrites(APIBaseTest):
             self._forget_the_insight_row()
             alert_id = self.copy_id
         else:
-            AlertConfiguration.objects.filter(id=self.alert.id).update(threshold=None)
+            if kind == "moved_without_a_threshold_row":
+                AlertConfiguration.objects.filter(id=self.alert.id).update(threshold=None)
             alert_id = self.alert.id
         assert self.alert.threshold_id is not None
-        Threshold.objects.filter(id=self.alert.threshold_id).delete()
+        if kind != "moved_with_a_threshold_row":
+            Threshold.objects.filter(id=self.alert.threshold_id).delete()
+        Threshold.objects.create(
+            team=self.team, insight=self.alert.insight, configuration={"type": "absolute", "bounds": {"upper": 1.0}}
+        )
         url = f"/api/projects/{self.team.id}/insights/{self.alert.insight_id}/thresholds/"
 
         response = self.client.get(url if action == "list" else f"{url}{alert_id}/")
@@ -1422,6 +1435,41 @@ class TestPlatformOwnedInsightAlertWrites(APIBaseTest):
             (threshold["id"], threshold["configuration"], [alert["id"] for alert in threshold["alerts"]])
             for threshold in thresholds
         ] == [(str(alert_id), self._copy().source_config["condition"]["threshold"], [str(alert_id)])]
+
+    def test_a_create_the_platform_takes_keeps_its_threshold_only_on_the_copy(self) -> None:
+        threshold = {"name": "Revenue bound", "configuration": {"type": "absolute", "bounds": {"upper": 100.0}}}
+        thresholds_before = Threshold.objects.filter(team=self.team).count()
+
+        created = self.client.post(
+            self.url,
+            {
+                "insight": self.alert.insight_id,
+                "subscribed_users": [self.user.id],
+                "condition": {"type": "absolute_value"},
+                "config": {"type": "TrendsAlertConfig", "series_index": 0},
+                "name": "A new alert",
+                "threshold": threshold,
+            },
+            format="json",
+        )
+
+        assert created.status_code == status.HTTP_201_CREATED, created.json()
+        alert_id = UUID(created.json()["id"])
+        assert Threshold.objects.filter(team=self.team).count() == thresholds_before
+        with team_scope(self.team.id):
+            copy = get_configuration(
+                team_id=self.team.id,
+                source_kinds=[SourceKind.INSIGHT.value],
+                configuration_id=platform_testing.copy_of(alert_id).id,
+            )
+        assert copy is not None
+        condition = copy.source_config["condition"]
+        assert (condition["threshold"], condition["threshold_name"]) == (threshold["configuration"], threshold["name"])
+        read = self.client.get(f"{self.url}/{alert_id}/").json()["threshold"]
+        listed = self.client.get(f"/api/projects/{self.team.id}/insights/{self.alert.insight_id}/thresholds/").json()
+        listed_item = next(item for item in listed["results"] if item["id"] == str(alert_id))
+        assert created.json()["threshold"] == read == {key: listed_item[key] for key in read}
+        assert read["id"] == str(alert_id)
 
     @parameterized.expand([("moved_with_a_threshold_row",), ("moved_without_a_threshold_row",), ("native",)])
     def test_a_threshold_name_is_kept_on_the_copy(self, kind: str) -> None:

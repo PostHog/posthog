@@ -996,13 +996,17 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
             data.pop("checks_total", None)
         return data
 
-    def add_threshold(self, threshold_data, validated_data):
-        threshold_instance = Threshold.objects.create(
+    def _new_threshold(self, threshold_data, validated_data) -> Threshold:
+        return Threshold(
             **threshold_data,
             team_id=self.context["team_id"],
             created_by=self.context["request"].user,
             insight_id=validated_data["insight"].id,
         )
+
+    def add_threshold(self, threshold_data, validated_data):
+        threshold_instance = self._new_threshold(threshold_data, validated_data)
+        threshold_instance.save()
         return threshold_instance
 
     @transaction.atomic
@@ -1049,16 +1053,21 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
                 raise ValidationError({refusal.field: [refusal.message]})
             if native:
                 return self._create_native(validated_data, subscribed_users, threshold_data)
-            if threshold_data:
-                threshold_instance = self.add_threshold(threshold_data, validated_data)
-                validated_data["threshold"] = threshold_instance
+            threshold = self._new_threshold(threshold_data, validated_data) if threshold_data else None
 
             instance: AlertConfiguration = super().create(validated_data)
             if instance.schedule_start_time is not None:
                 instance.next_check_at = next_check_at_after_schedule_restriction_change(instance)
                 instance.save(update_fields=["next_check_at"])
-            if hand_over_new_alert(team_id=instance.team_id, alert_id=instance.id, at=timezone.now()):
+            if hand_over_new_alert(
+                team_id=instance.team_id, alert_id=instance.id, at=timezone.now(), threshold=threshold
+            ):
                 instance.refresh_from_db(fields=["owner", "owner_changed_at"])
+                if threshold is not None:
+                    # The id and creation time later reads show for a copy's threshold, so this response matches them.
+                    threshold.id = instance.id
+                    threshold.created_at = instance.created_at
+            instance.threshold = threshold
 
         for user in subscribed_users:
             AlertSubscription.objects.create(
@@ -3287,30 +3296,8 @@ class _ThresholdsSerializer(serializers.ListSerializer):
         return super().to_representation(thresholds)
 
 
-def _copy_bounds(alerts: list[AlertConfiguration]) -> dict[str, Any] | None:
-    """The bounds a threshold shows in place of its row's, or None to keep the row's.
-
-    Edits to an alert the insight stack owns still write the row, so one such alert keeps the row current
-    and the row's bounds stay. Otherwise the oldest moved alert's copy wins, so the answer stays the same
-    between reads."""
-    if not alerts or not all(alert.platform_owned for alert in alerts):
-        return None
-    for alert in sorted(alerts, key=lambda alert: (alert.created_at, alert.id)):
-        if alert.threshold is not None:
-            return alert.threshold.configuration
-    return None
-
-
 class ThresholdWithAlertSerializer(ThresholdSerializer):
     alerts = _ShownAlertsSerializer(child=AlertSerializer(), read_only=True, source="alertconfiguration_set")
-
-    def to_representation(self, instance: Threshold) -> dict[str, Any]:
-        # Serializing `alerts` first shows each moved alert with its copy's threshold, in place.
-        data = super().to_representation(instance)
-        shown = _copy_bounds(list(instance.alertconfiguration_set.all()))
-        if shown is not None:
-            data["configuration"] = self.fields["configuration"].to_representation(shown)
-        return data
 
     class Meta(ThresholdSerializer.Meta):
         fields = [*ThresholdSerializer.Meta.fields, "alerts"]
@@ -3334,9 +3321,12 @@ class ThresholdViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet):
         # An alert can move to another insight and keep its threshold, so each embedded alert passes
         # the same gates on its own insight. Prefetched, so the page's alerts are the same objects its
         # thresholds then serialize.
-        return queryset.filter(insight_id__in=viewable.values("id")).prefetch_related(
-            Prefetch("alertconfiguration_set", queryset=self._readable_alerts())
-        )
+        # A threshold row is listed only for the alerts insight still owns. An alert the platform owns is
+        # listed from its copy, which holds its current threshold, and an orphaned row is not listed.
+        insight_owned = self._readable_alerts().exclude(owner=PlatformAlertOwner.PLATFORM)
+        return queryset.filter(
+            insight_id__in=viewable.values("id"), id__in=insight_owned.values("threshold_id")
+        ).prefetch_related(Prefetch("alertconfiguration_set", queryset=insight_owned))
 
     def _readable_alerts(self) -> QuerySet[AlertConfiguration]:
         alerts = AlertConfiguration.objects.filter(
@@ -3368,19 +3358,28 @@ class ThresholdViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet):
             return Response(self.get_serializer(held).data)
 
     def _platform_only_thresholds(self) -> builtins.list[Threshold]:
-        """The thresholds of this insight's alerts that only the platform holds: those of alerts with no
-        insight row, and of moved alerts whose row has no threshold. Each carries its alert's id."""
+        """The thresholds of this insight's alerts that the platform owns, read from their copies, with or
+        without an insight row. Each carries its alert's id."""
         raw_insight_id = str(self.parents_query_dict.get("insight_id"))
         if not raw_insight_id.isdigit():
             return []
         insight_id = int(raw_insight_id)
+        # The row's threshold is loaded only for its name, which a copy made before it stored names lacks.
         moved = list(
             self._readable_alerts()
-            .filter(insight_id=insight_id, owner=PlatformAlertOwner.PLATFORM, threshold__isnull=True)
-            .select_related("team", "insight", "created_by")
+            .filter(insight_id=insight_id, owner=PlatformAlertOwner.PLATFORM)
+            .select_related("team", "insight", "created_by", "threshold")
         )
         _show_copy_settings(moved)
-        alerts = [alert for alert in moved if alert.threshold is not None]
+        alerts = []
+        for alert in moved:
+            if alert.threshold is None:
+                continue
+            # The same id and creation time whether or not the row has a threshold, so deleting the legacy
+            # rows leaves the listing unchanged.
+            alert.threshold.id = alert.id
+            alert.threshold.created_at = alert.created_at
+            alerts.append(alert)
         native_ids = native_insight_alert_ids_by_insight(self.team_id, [insight_id]).get(insight_id, [])
         if native_ids and self._readable_insight(insight_id):
             views = native_insight_alert_views(self.team_id, native_ids)
