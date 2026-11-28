@@ -14546,6 +14546,8 @@ export namespace Schemas {
          * @maximum 840
          */
       utc_offset_minutes: number;
+      /** The UUID of the person the browser opened the door as. When it is not the signed-in person, the server stores nothing and answers 409. */
+      user_uuid?: string;
     }
 
     export interface AdventCalendarShare {

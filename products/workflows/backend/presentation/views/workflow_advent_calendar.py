@@ -1,6 +1,6 @@
 from typing import Any, cast
 
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound
@@ -10,6 +10,7 @@ from rest_framework.throttling import BaseThrottle
 
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.exceptions import Conflict
 from posthog.models.user import User
 from posthog.permissions import PostHogFeatureFlagPermission
 from posthog.rate_limit import PersonalApiKeyRateThrottle
@@ -103,6 +104,11 @@ class AdventCalendarDoorOpenRequestSerializer(serializers.Serializer):
         help_text="The browser's offset from UTC in minutes, east positive, from -720 to 840. A later rule uses it "
         "to tell which local day the person opened the door on.",
     )
+    user_uuid = serializers.UUIDField(
+        required=False,
+        help_text="The UUID of the person the browser opened the door as. When it is not the signed-in person, the "
+        "server stores nothing and answers 409.",
+    )
 
 
 class AdventCalendarDoorOpenSerializer(serializers.Serializer):
@@ -164,13 +170,19 @@ class WorkflowAdventCalendarViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
 
     @validated_request(
         request_serializer=AdventCalendarDoorOpenRequestSerializer,
-        responses={200: AdventCalendarDoorOpenSerializer},
+        responses={
+            200: AdventCalendarDoorOpenSerializer,
+            409: OpenApiResponse(description="The browser opened the door as another person than the signed-in one."),
+        },
         operation_id="workflow_advent_calendar_open",
     )
     @action(detail=False, methods=["post"])
     def open(self, request: ValidatedRequest, **kwargs: Any) -> Response:
+        user = cast(User, request.user)
+        if request.validated_data.get("user_uuid", user.uuid) != user.uuid:
+            raise Conflict("The door was opened as another person than the signed-in one.")
         door_open = open_advent_calendar_door(
-            user_id=cast(User, request.user).id,
+            user_id=user.id,
             day=request.validated_data["day"],
             hoggy=request.validated_data["hoggy"],
             utc_offset_minutes=request.validated_data["utc_offset_minutes"],

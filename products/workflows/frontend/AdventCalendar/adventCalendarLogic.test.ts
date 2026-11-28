@@ -193,8 +193,8 @@ describe('adventCalendarLogic', () => {
             expect(api.opens).toHaveLength(2)
             expect(api.opens).toEqual(
                 expect.arrayContaining([
-                    { day: 1, hoggy: hoggyOne, utc_offset_minutes: offset },
-                    { day: 2, hoggy: 'tim', utc_offset_minutes: offset },
+                    { day: 1, hoggy: hoggyOne, utc_offset_minutes: offset, user_uuid: UUID },
+                    { day: 2, hoggy: 'tim', utc_offset_minutes: offset, user_uuid: UUID },
                 ])
             )
             expect(doorOf(logic, 'door-1')?.status).toBe('open')
@@ -219,29 +219,28 @@ describe('adventCalendarLogic', () => {
         ['takes the open on its day', {}, 1, 1],
         ['puts the first open on another day', { lateOpens: true }, 0, 1],
         ['refuses the open', { open: 403 }, 0, 1],
+        ['refuses the open as another account', { open: 409 }, 0, 1],
         ['fails, then takes the open on a retry', { open: [500, 200] }, 1, 2],
         ['throttles, then takes the open on a retry', { open: [429, 200] }, 1, 2],
         ['loses the reply, then takes the open on a retry', { open: ['network error', 200] }, 1, 2],
         ['fails the open and every retry', { open: 500 }, 0, 4],
     ])(
-        'counts the tickets the server returns when it %s, and sends no more after the tab is hidden and shown',
+        'counts the tickets the server returns when it %s, with the retries on time while the tab is hidden',
         async (_, replies, tickets, sends) => {
             const api = calendarApi(replies)
             useMocks(api.mocks)
             await remount()
+            const showTab = async (hidden: boolean): Promise<{ tickets: number | null; sends: number }> => {
+                Object.defineProperty(document, 'hidden', { configurable: true, value: hidden })
+                document.dispatchEvent(new Event('visibilitychange'))
+                await jest.advanceTimersByTimeAsync(25_000)
+                return { tickets: logic.values.tickets, sends: api.opens.filter(({ day }) => day === 3).length }
+            }
 
             openThroughDoorThree()
-            await jest.advanceTimersByTimeAsync(25_000)
-            for (const visibility of ['hidden', 'visible']) {
-                Object.defineProperty(document, 'visibilityState', { configurable: true, value: visibility })
-                document.dispatchEvent(new Event('visibilitychange'))
-            }
-            await jest.advanceTimersByTimeAsync(25_000)
 
-            expect({ tickets: logic.values.tickets, sends: api.opens.filter(({ day }) => day === 3).length }).toEqual({
-                tickets,
-                sends,
-            })
+            expect(await showTab(true)).toEqual({ tickets, sends })
+            expect(await showTab(false)).toEqual({ tickets, sends })
         }
     )
 

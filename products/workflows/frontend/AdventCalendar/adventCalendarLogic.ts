@@ -124,7 +124,7 @@ export interface AdventSnowPuff extends AdventPoint {
 const withDay = (days: number[], day: number): number[] => (days.includes(day) ? days : [...days, day])
 
 function withServerTicketDays(state: number[] | null, ticketDays: number[] | undefined): number[] | null {
-    return ticketDays ? [...new Set([...(state ?? []), ...ticketDays])].sort((x, y) => x - y) : null
+    return ticketDays ? [...new Set([...(state ?? []), ...ticketDays])].sort((x, y) => x - y) : state
 }
 
 function isRefused(error: unknown): boolean {
@@ -586,7 +586,7 @@ export const adventCalendarLogic = kea<adventCalendarLogicType>([
             const door = values.graph.doors.find((candidate) => candidate.id === doorId)
             return door?.status === 'ready' ? door : null
         }
-        const sendOpen = (day: number, utcOffsetMinutes: number, retry = 0): void => {
+        const sendOpen = (day: number, utcOffsetMinutes: number, userUuid: string, retry = 0): void => {
             const hoggy = values.graph.doors.find((door) => door.day === day && door.status === 'open')?.reward
             if (!hoggy) {
                 actions.dropOpen(day)
@@ -598,6 +598,7 @@ export const adventCalendarLogic = kea<adventCalendarLogicType>([
                     day,
                     hoggy: hoggy.id,
                     utc_offset_minutes: utcOffsetMinutes,
+                    user_uuid: userUuid,
                 })
                 .then(
                     (open) => {
@@ -613,13 +614,17 @@ export const adventCalendarLogic = kea<adventCalendarLogicType>([
                             actions.dropOpen(day)
                             return
                         }
-                        mount.add(() => {
-                            const timer = window.setTimeout(() => {
-                                mount.dispose(`open-${day}`)
-                                sendOpen(day, utcOffsetMinutes, retry + 1)
-                            }, OPEN_RETRY_DELAYS_MS[retry])
-                            return () => window.clearTimeout(timer)
-                        }, `open-${day}`)
+                        mount.add(
+                            () => {
+                                const timer = window.setTimeout(() => {
+                                    mount.dispose(`open-${day}`)
+                                    sendOpen(day, utcOffsetMinutes, userUuid, retry + 1)
+                                }, OPEN_RETRY_DELAYS_MS[retry])
+                                return () => window.clearTimeout(timer)
+                            },
+                            `open-${day}`,
+                            { pauseOnPageHidden: false }
+                        )
                     }
                 )
         }
@@ -667,10 +672,10 @@ export const adventCalendarLogic = kea<adventCalendarLogicType>([
                     actions.startReveal(door.id)
                 }
             },
-            openDoor: ({ day, isLive, isOnTime }) => {
+            openDoor: ({ userUuid, day, isLive, isOnTime }) => {
                 captureLive(isLive, EVENTS.doorOpened, { day, on_time: isOnTime })
                 if (isLive) {
-                    sendOpen(day, -new Date().getTimezoneOffset())
+                    sendOpen(day, -new Date().getTimezoneOffset(), userUuid)
                 }
                 actions.preloadImages()
             },
@@ -685,7 +690,7 @@ export const adventCalendarLogic = kea<adventCalendarLogicType>([
                     !results.ticket_days.includes(day) &&
                     values.sendingTicketDay !== day
                 ) {
-                    sendOpen(day, -new Date().getTimezoneOffset())
+                    sendOpen(day, -new Date().getTimezoneOffset(), values.user.uuid)
                 }
             },
             clickTip: ({ day }) => {

@@ -173,6 +173,18 @@ class TestAdventCalendarAPI(APIBaseTest):
 
         assert [opened["ticket_days"], results["ticket_days"], answered["ticket_days"]] == [ticket_days] * 3
 
+    def test_an_open_as_another_person_than_the_signed_in_one_stores_nothing(self) -> None:
+        teammate = User.objects.create_and_join(self.organization, "teammate@example.com", "password")
+        self.client.force_login(self.user)
+        url = self._url(self.team, "open")
+        body = {"hoggy": "hoggy-santa", "utc_offset_minutes": 0}
+
+        as_teammate = self.client.post(url, {**body, "day": 2, "user_uuid": str(teammate.uuid)}, format="json")
+        as_self = self.client.post(url, {**body, "day": 3, "user_uuid": str(self.user.uuid)}, format="json")
+
+        assert (as_teammate.status_code, as_self.status_code) == (status.HTTP_409_CONFLICT, status.HTTP_200_OK)
+        assert list(AdventCalendarDoorOpen.objects.values_list("user_id", "day")) == [(self.user.id, 3)]
+
     def test_an_open_from_an_account_deleted_after_sign_in_returns_not_found(self) -> None:
         with patch(
             "products.workflows.backend.presentation.views.workflow_advent_calendar.open_advent_calendar_door",
