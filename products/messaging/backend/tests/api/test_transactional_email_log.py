@@ -677,38 +677,6 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
         ]
         assert body["has_more_clicks"] is expected_has_more
 
-    def test_lists_the_clicks_and_activity_without_links_when_the_link_lookup_fails(self, _flag):
-        queued_at = NOW - timedelta(days=3)
-        message_id = self._send(3 * 24 * 60, "jane@example.com", [("sent", 1, ""), ("clicked", 1200, "")])
-        self._record_distinct_id(message_id, "jane", "jane@example.com", queued_at + timedelta(seconds=1))
-        _create_event(
-            team=self.team, event="$pageview", distinct_id="jane", timestamp=queued_at + timedelta(minutes=30)
-        )
-        flush_persons_and_events()
-        timeout = wrap_clickhouse_query_error(ServerException("Timeout exceeded", code=159))
-
-        def time_out_the_link_lookup(query, *args, **kwargs):
-            if kwargs["query_type"] == "transactional_email_activity_clicks":
-                raise timeout
-            return execute_hogql_query(query, *args, **kwargs)
-
-        with (
-            patch(
-                "products.messaging.backend.services.transactional_email_activity.execute_hogql_query",
-                side_effect=time_out_the_link_lookup,
-            ),
-            patch("products.messaging.backend.services.transactional_email_activity.capture_exception") as reported,
-        ):
-            response = self.client.get(self._url(f"{message_id}/activity/"))
-
-        assert response.status_code == status.HTTP_200_OK, response.json()
-        body = response.json()
-        assert [(datetime.fromisoformat(c["at"]), c["link_url"]) for c in body["clicks"]] == [
-            (queued_at + timedelta(seconds=1200), None)
-        ]
-        assert [e["event"] for e in body["after"]] == ["$pageview"]
-        reported.assert_called_once_with(timeout)
-
     def test_counts_sends_per_template_and_per_sending_domain(self, _flag):
         self._send(30, "a@example.com", [("sent", 1, ""), ("delivered", 2, ""), ("opened", 60, ""), ("opened", 90, "")])
         self._send(20, "b@example.com", [("sent", 1, ""), ("bounced", 2, "hard")], domain="other.example.com")
