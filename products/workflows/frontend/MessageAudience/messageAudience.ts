@@ -69,8 +69,11 @@ export function messageAudienceUrl(
     )
 }
 
-export function captureMessageAudienceClicked(source: string, destination: MessagingCtaDestination): string {
-    const attemptId = uuid()
+export function captureMessageAudienceClicked(
+    source: string,
+    destination: MessagingCtaDestination,
+    attemptId: string = uuid()
+): string {
     // pinned: analytics event name
     posthog.capture('message audience clicked', { source, destination, attempt_id: attemptId })
     return attemptId

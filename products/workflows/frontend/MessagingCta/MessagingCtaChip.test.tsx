@@ -11,7 +11,6 @@ import { AccessControlLevel, AccessControlResourceType, AppContext } from '~/typ
 jest.unmock('posthog-js')
 
 const INGESTION_HOST = 'https://ingest.example.com'
-const FLUSH = 'messaging cta test flush'
 const CHIP = 'messaging-cta-chip-replay.player_chip'
 const DAY_MS = 24 * 60 * 60 * 1000
 
@@ -54,7 +53,16 @@ function fillStorage(): void {
     }
 }
 
-function openFreshPageLoad(replayArm: string | boolean | undefined, sendsFromCode: boolean, payload?: unknown): Page {
+interface PageLoadOptions {
+    sendsFromCode?: boolean
+    payload?: unknown
+    flagsLoaded?: boolean
+}
+
+function openFreshPageLoad(
+    replayArm: string | boolean | undefined,
+    { sendsFromCode = true, payload, flagsLoaded = true }: PageLoadOptions = {}
+): Page {
     let page: Page | undefined
     jest.isolateModules(() => {
         const { createElement }: typeof import('react') = require('react')
@@ -65,12 +73,17 @@ function openFreshPageLoad(replayArm: string | boolean | undefined, sendsFromCod
         const { userLogic }: typeof import('scenes/userLogic') = require('scenes/userLogic')
         const { MessagingCtaChip }: typeof import('./MessagingCtaChip') = require('./MessagingCtaChip')
 
+        let issued = 0
         posthog.init('phc_example', {
+            before_send: (event) => {
+                issued++
+                return event
+            },
             api_host: INGESTION_HOST,
             persistence: 'memory',
             request_batching: false,
             disable_compression: true,
-            advanced_disable_flags: true,
+            advanced_disable_flags: flagsLoaded,
             autocapture: false,
             capture_pageview: false,
             ...(payload === undefined
@@ -84,12 +97,15 @@ function openFreshPageLoad(replayArm: string | boolean | undefined, sendsFromCod
         })
         const pageLoad = ++pageLoads
         posthog.register({ test_page_load: pageLoad })
-        let flushes = 0
         initKeaTests()
-        featureFlagLogic.actions.setFeatureFlags([], {
-            [FEATURE_FLAGS.WORKFLOWS_TRANSACTIONAL_EMAIL_API]: sendsFromCode,
-            ...(replayArm === undefined ? {} : { [FEATURE_FLAGS.XPM_REPLAY_PLACEMENT]: replayArm }),
-        })
+        if (!flagsLoaded) {
+            useMocks({ post: { [`${INGESTION_HOST}/flags/`]: () => new Promise(() => {}) } })
+        } else {
+            featureFlagLogic.actions.setFeatureFlags([], {
+                [FEATURE_FLAGS.WORKFLOWS_TRANSACTIONAL_EMAIL_API]: sendsFromCode,
+                ...(replayArm === undefined ? {} : { [FEATURE_FLAGS.XPM_REPLAY_PLACEMENT]: replayArm }),
+            })
+        }
         const chip = (): HTMLElement | null => document.querySelector(`[data-attr="${CHIP}"]`)
 
         page = {
@@ -104,13 +120,9 @@ function openFreshPageLoad(replayArm: string | boolean | undefined, sendsFromCod
             tab: () => rtl.act(() => userEvent.setup({ advanceTimers: jest.advanceTimersByTime }).tab()),
             text: (text) => rtl.screen.queryByText(text),
             sent: async (event) => {
-                const flushId = String(++flushes)
-                posthog.capture(FLUSH, { flush_id: flushId })
                 const fromThisPage = (): SentEvent[] =>
                     sentEvents.filter((sent) => sent.properties.test_page_load === pageLoad)
-                await rtl.waitFor(() =>
-                    expect(fromThisPage().map((sent) => sent.properties.flush_id)).toContain(flushId)
-                )
+                await rtl.waitFor(() => expect(fromThisPage()).toHaveLength(issued))
                 return fromThisPage()
                     .filter((sent) => sent.event === event)
                     .map((sent) => sent.properties)
@@ -126,9 +138,9 @@ describe('MessagingCtaChip', () => {
     let page: Page | undefined
     let otherTab: Page | undefined
 
-    function open(replayArm: string | boolean | undefined, sendsFromCode = true, payload?: unknown): Page {
+    function open(replayArm: string | boolean | undefined, options?: PageLoadOptions): Page {
         page?.close()
-        page = openFreshPageLoad(replayArm, sendsFromCode, payload)
+        page = openFreshPageLoad(replayArm, options)
         return page
     }
 
@@ -178,7 +190,7 @@ describe('MessagingCtaChip', () => {
         'renders nothing for $name, and reports the arm only where the viewer is in one',
         async ({ arm, access, exposed, sendsFromCode }) => {
             setWorkflowAccess(access)
-            const { renderChip, chip, sent } = open(arm, sendsFromCode)
+            const { renderChip, chip, sent } = open(arm, { sendsFromCode })
             renderChip()
 
             expect(chip()).toBeNull()
@@ -195,7 +207,7 @@ describe('MessagingCtaChip', () => {
         }
     )
 
-    it('reports its arm once, and links to email setup with clicks that each carry a new attempt', async () => {
+    it('reports its arm once, and links to email setup with clicks that share one attempt', async () => {
         const { renderChip, chip, click, auxClick, sent } = open('player_chip')
         renderChip()
         renderChip()
@@ -232,11 +244,20 @@ describe('MessagingCtaChip', () => {
                 })
             )
         )
-        expect(new Set(clicks.map((properties) => properties.attempt_id)).size).toBe(4)
+        expect(new Set(clicks.map((properties) => properties.attempt_id)).size).toBe(1)
+    })
+
+    it("waits for this page load's flags before it shows or reports, even with an arm cached from an earlier one", async () => {
+        open('player_chip').renderChip()
+        const { renderChip, chip, sent } = open('player_chip', { flagsLoaded: false })
+        renderChip()
+
+        expect(chip()).toBeNull()
+        expect(await sent('$feature_flag_called')).toEqual([])
     })
 
     it('shows the copy its flag payload sets', () => {
-        const { renderChip, chip } = open('player_chip', true, { label: 'Email from PostHog?' })
+        const { renderChip, chip } = open('player_chip', { payload: { label: 'Email from PostHog?' } })
         renderChip()
 
         expect(chip()?.textContent).toContain('Email from PostHog?')
@@ -273,7 +294,7 @@ describe('MessagingCtaChip', () => {
         jest.useFakeTimers({ now: new Date('2026-03-01T12:00:00Z') })
         const first = open('player_chip')
         first.renderChip()
-        otherTab = openFreshPageLoad('player_chip', true)
+        otherTab = openFreshPageLoad('player_chip')
         otherTab.renderChip()
         const hide = (): HTMLElement => document.querySelector<HTMLElement>('[aria-label="Hide for 90 days"]')!
         first.click(hide())
