@@ -4,6 +4,7 @@ import { expectLogic } from 'kea-test-utils'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
+import { ApiError } from 'lib/api'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { initKeaTests } from '~/test/init'
@@ -168,6 +169,65 @@ describe('logsAlertingLogic', () => {
             await Promise.resolve()
 
             expect(logic.values.alerts).toEqual(currentProjectAlerts)
+
+            logic.unmount()
+        })
+    })
+
+    describe('loadAlerts', () => {
+        beforeEach(() => {
+            jest.useFakeTimers({
+                doNotFake: ['setTimeout', 'clearTimeout', 'setImmediate', 'nextTick', 'queueMicrotask'],
+            })
+        })
+
+        afterEach(() => {
+            jest.useRealTimers()
+        })
+
+        it('marks access denied on a permission_denied 403, stops polling, and recovers on the next success', async () => {
+            mockList.mockRejectedValue(
+                new ApiError('Non-OK response', 403, undefined, { code: 'permission_denied', detail: 'No access' })
+            )
+
+            const logic = logsAlertingLogic()
+            await expectLogic(logic, () => {
+                logic.mount()
+            })
+                .toDispatchActions(['loadAlertsFailure'])
+                .toMatchValues({ alertsAccessDenied: true })
+            mockList.mockClear()
+
+            jest.advanceTimersByTime(30_000)
+            expect(mockList).not.toHaveBeenCalled()
+
+            mockList.mockResolvedValue({ results: [MOCK_ALERT] } as any)
+            await expectLogic(logic, () => {
+                logic.actions.setCreatedByFilter('user-1')
+            })
+                .toDispatchActions(['loadAlertsSuccess'])
+                .toMatchValues({ alertsAccessDenied: false, alerts: [MOCK_ALERT] })
+            mockList.mockClear()
+
+            jest.advanceTimersByTime(30_000)
+            expect(mockList).toHaveBeenCalledTimes(1)
+
+            logic.unmount()
+        })
+
+        it('keeps a 403 without the permission_denied code on the failure path and keeps polling', async () => {
+            mockList.mockRejectedValue(new ApiError('Non-OK response', 403))
+
+            const logic = logsAlertingLogic()
+            await expectLogic(logic, () => {
+                logic.mount()
+            })
+                .toDispatchActions(['loadAlertsFailure'])
+                .toMatchValues({ alertsAccessDenied: false })
+            mockList.mockClear()
+
+            jest.advanceTimersByTime(30_000)
+            expect(mockList).toHaveBeenCalledTimes(1)
 
             logic.unmount()
         })

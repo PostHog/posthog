@@ -15,6 +15,10 @@ import {
     DropdownMenuSubContent,
     DropdownMenuSubTrigger,
     DropdownMenuTrigger,
+    Empty,
+    EmptyDescription,
+    EmptyHeader,
+    EmptyTitle,
     Skeleton,
     Switch,
     Text,
@@ -54,7 +58,8 @@ function HeaderWithTooltip({ label, help }: { label: string; help: string }): JS
 }
 
 export function QuillLogsAlertList(): JSX.Element {
-    const { alerts, alertsLoading, resettingAlertIds, snoozingAlertIds, createdByFilter } = useValues(logsAlertingLogic)
+    const { alerts, alertsAccessDenied, alertsLoading, resettingAlertIds, snoozingAlertIds, createdByFilter } =
+        useValues(logsAlertingLogic)
     const {
         setCreatedByFilter,
         deleteAlert,
@@ -322,6 +327,20 @@ export function QuillLogsAlertList(): JSX.Element {
             openEditAlertModal,
         ]
     )
+
+    if (alertsAccessDenied) {
+        return (
+            <Empty>
+                <EmptyHeader>
+                    <EmptyTitle>Access denied</EmptyTitle>
+                    <EmptyDescription>
+                        You don't have access to logs in this project, so you can't see its alerts. Ask a project admin
+                        for access.
+                    </EmptyDescription>
+                </EmptyHeader>
+            </Empty>
+        )
+    }
 
     return (
         <div className="flex flex-col gap-2">
