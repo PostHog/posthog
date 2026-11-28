@@ -1464,6 +1464,8 @@ def _names_a_missing_column(error: Exception) -> bool:
 
 
 def execute_hogql_query(*args, **kwargs) -> HogQLQueryResponse:
-    executor = HogQLQueryExecutor(*args, **kwargs)
-    override = hogql_execution_override.get()
-    return override(executor) if override is not None else executor.execute()
+    from posthog.hogql_client.execute import (  # noqa: PLC0415 — the client imports this module, so a module-level import is circular
+        execute_hogql_query as moved,
+    )
+
+    return moved(*args, **kwargs)

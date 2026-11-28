@@ -2,9 +2,11 @@ import json
 import uuid
 import asyncio
 from types import SimpleNamespace
+from typing import Any
 
 import pytest
 from posthog.test.base import BaseTest, ClickhouseTestMixin
+from unittest.mock import patch
 
 from django.test import SimpleTestCase
 from django.utils import timezone
@@ -335,6 +337,13 @@ def test_get_caller_source_returns_this_file():
     source_file, source_line = get_caller_source()
     assert source_file == "posthog/clickhouse/test/test_query_tagging.py"
     assert source_line is not None
+
+
+def test_get_caller_source_names_the_caller_of_execute_hogql_query():
+    with patch("posthog.hogql_service.execute.HogQLQueryExecutor") as executor:
+        executor.return_value.execute.side_effect = get_caller_source
+        source: Any = execute_hogql_query("select 1", team=None)
+    assert source[0] == "posthog/clickhouse/test/test_query_tagging.py"
 
 
 def test_get_caller_source_skips_infrastructure():
