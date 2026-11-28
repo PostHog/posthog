@@ -35,6 +35,8 @@ import type {
     InboxOnboardingStateApi,
     InboxStatusApi,
     InboxSummaryApi,
+    IssueFilterPreviewRequestApi,
+    IssueFilterPreviewResponseApi,
     LighthouseAuditRequestApi,
     LighthouseAuditResponseApi,
     MonitorPRRequestApi,
@@ -3900,6 +3902,27 @@ export const signalsSourceConfigsFilterValidateCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(sourceFilterExpressionRequestApi),
+    })
+}
+
+export const getSignalsSourceConfigsIssueFilterPreviewCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/signals/source_configs/issue_filter_preview/`
+}
+
+/**
+ * Replay a candidate issue filter against the last seven days of error tracking signals. Returns counts, samples, and the outcomes of reports fed by excluded signals. Saves nothing and calls no AI.
+ * @summary Preview an error tracking inbox filter
+ */
+export const signalsSourceConfigsIssueFilterPreviewCreate = async (
+    projectId: string,
+    issueFilterPreviewRequestApi: IssueFilterPreviewRequestApi,
+    options?: RequestInit
+): Promise<IssueFilterPreviewResponseApi> => {
+    return apiMutator<IssueFilterPreviewResponseApi>(getSignalsSourceConfigsIssueFilterPreviewCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(issueFilterPreviewRequestApi),
     })
 }
 

@@ -92,6 +92,12 @@ from posthog.temporal.common.client import sync_connect
 from posthog.user_permissions import UserPermissions
 
 from products.alerts.backend.facade.api import list_enabled_alerts
+from products.authorization.backend.facade import api as authorization
+from products.authorization.backend.facade.contracts import Resource
+from products.authorization.backend.facade.enums import (
+    Action as AuthorizationAction,
+    ResourceType,
+)
 from products.data_warehouse.backend.facade.api import trigger_external_data_workflow
 from products.signals.backend.agent_instructions import CUSTOM_IMAGE_FIELDS, STEERING_FIELDS
 from products.signals.backend.artefact_schemas import (
@@ -154,6 +160,7 @@ from products.signals.backend.implementation_pr import (
     primary_pull_request,
     pull_request_matches_id,
 )
+from products.signals.backend.issue_filter_preview import preview_issue_filters
 from products.signals.backend.models import (
     ArtefactAttribution,
     AutonomyPriority,
@@ -337,6 +344,8 @@ from products.signals.backend.serializers import (
     CommitDiffResponseSerializer,
     GitHubInstallationUnavailableErrorSerializer,
     GitHubRepositoryInaccessibleErrorSerializer,
+    IssueFilterPreviewRequestSerializer,
+    IssueFilterPreviewResponseSerializer,
     PersonalRankingQuerySerializer,
     PersonalRankingSerializer,
     PullRequestChecksPermissionErrorSerializer,
@@ -771,6 +780,30 @@ class SignalSourceConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             for source in writable_sources(str(self.team.organization_id))
         ]
         return Response(SourceFilterCatalogListSerializer({"results": catalogs}).data)
+
+    @validated_request(
+        request_serializer=IssueFilterPreviewRequestSerializer,
+        responses={200: OpenApiResponse(response=IssueFilterPreviewResponseSerializer)},
+        summary="Preview an error tracking inbox filter",
+        description="Replay a candidate issue filter against the last seven days of error tracking signals. Returns counts, samples, and the outcomes of reports fed by excluded signals. Saves nothing and calls no AI.",
+    )
+    @action(
+        detail=False,
+        methods=["post"],
+        url_path="issue_filter_preview",
+        required_scopes=["inbox:read", "error_tracking:read", "query:read", "signal_usage:read"],
+        throttle_classes=[SourceFilterPreviewBurstThrottle, SourceFilterPreviewSustainedThrottle],
+    )
+    def issue_filter_preview(self, request: ValidatedRequest, **kwargs: Any) -> Response:
+        user = cast(User, request.user)
+        resources = (
+            Resource(type=ResourceType.ERROR_TRACKING, project_id=self.team.pk),
+            Resource(type=ResourceType.SIGNAL_USAGE, project_id=self.team.pk),
+        )
+        if not all(authorization.check(resource=resource, action=AuthorizationAction.VIEW) for resource in resources):
+            raise exceptions.PermissionDenied("The preview requires access to Error Tracking and Self-driving usage.")
+        preview = preview_issue_filters(self.team, user, **request.validated_data)
+        return Response(IssueFilterPreviewResponseSerializer(preview).data)
 
     @validated_request(
         request_serializer=SourceFilterPreviewRequestSerializer,

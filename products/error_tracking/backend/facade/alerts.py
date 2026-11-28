@@ -3,6 +3,9 @@
 from typing import Any, Optional
 from uuid import UUID
 
+from pydantic import JsonValue
+
+from posthog.models.team import Team
 from posthog.models.user import User
 
 from ..logic import alerts as _alerts
@@ -122,3 +125,13 @@ def stored_issue_created_filter_outcome(
 ) -> contracts.LifecycleFilterOutcome:
     """Evaluate compiled filters against a stored issue, for an issue_created signal no exception triggered."""
     return _filtering.stored_issue_created_filter_outcome(team_id, issue_id, fingerprint, filters)
+
+
+def replay_signal_filters(
+    team: Team, signal_ids: list[str], compiled: dict[str, JsonValue]
+) -> dict[str, tuple[contracts.LifecycleFilterOutcome, dict[str, JsonValue]]]:
+    from ..temporal.lifecycle.filter_preview import (
+        replay_signal_filters as replay,  # noqa: PLC0415 -- keep the lifecycle worker off the facade import path
+    )
+
+    return replay(team, signal_ids, compiled)

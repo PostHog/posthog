@@ -1184,6 +1184,7 @@ describe('Tool Filtering - Feature Flags', () => {
             'dwh-custom-source-ai-builder',
             'workflows-bulk-suppressions-mcp',
             'signals-source-filters',
+            'signals-analytics-all-alerts',
             'error-tracking-issue-tags',
             'inbox-plan-edits-mcp',
             'scout-send-message',

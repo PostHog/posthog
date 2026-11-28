@@ -69853,6 +69853,124 @@ export namespace Schemas {
       readonly unavailable: readonly string[];
     }
 
+    export interface IssueFilterCandidate {
+      /** Event property predicates. Each takes a key, operator and value. Omit value for is_set and is_not_set. */
+      properties?: EventPropertyFilter[];
+    }
+
+    /**
+     * * `issue_created` - New issues
+     * * `issue_reopened` - Reopened issues
+     * * `issue_spiking` - Spiking issues
+     */
+    export type IssueFilterSourceTypeEnum = typeof IssueFilterSourceTypeEnum[keyof typeof IssueFilterSourceTypeEnum];
+
+
+    export const IssueFilterSourceTypeEnum = {
+      IssueCreated: 'issue_created',
+      IssueReopened: 'issue_reopened',
+      IssueSpiking: 'issue_spiking',
+    } as const;
+
+    export interface IssueFilterPreviewRequest {
+      /** Candidate config.issue_filters. An empty object admits every transition. */
+      issue_filters: IssueFilterCandidate | null;
+      /** Preview one transition type. Omit to preview all three.
+       *
+       * * `issue_created` - New issues
+       * * `issue_reopened` - Reopened issues
+       * * `issue_spiking` - Spiking issues */
+      source_type?: IssueFilterSourceTypeEnum;
+    }
+
+    /**
+     * * `ok` - ok
+     * * `invalid_expression` - invalid_expression
+     * * `not_connected` - not_connected
+     * * `not_synced` - not_synced
+     * * `access_denied` - access_denied
+     * * `incompatible_table` - incompatible_table
+     * * `query_failed` - query_failed
+     */
+    export type SourceFilterPreviewStatusEnum = typeof SourceFilterPreviewStatusEnum[keyof typeof SourceFilterPreviewStatusEnum];
+
+
+    export const SourceFilterPreviewStatusEnum = {
+      Ok: 'ok',
+      InvalidExpression: 'invalid_expression',
+      NotConnected: 'not_connected',
+      NotSynced: 'not_synced',
+      AccessDenied: 'access_denied',
+      IncompatibleTable: 'incompatible_table',
+      QueryFailed: 'query_failed',
+    } as const;
+
+    /**
+     * Values of the properties the candidate checks. Absent keys were unset.
+     */
+    export type IssueFilterSampleFieldValues = {[key: string]: unknown};
+
+    export interface IssueFilterSample {
+      /** The issue that emitted the signal. */
+      issue_id: string;
+      /** When the signal was emitted. */
+      timestamp: string;
+      /** Values of the properties the candidate checks. Absent keys were unset. */
+      field_values: IssueFilterSampleFieldValues;
+    }
+
+    export interface IssueFilterReportOutcomes {
+      /** Distinct reports the excluded signals fed. */
+      count: number;
+      /** Finalized, non-exempt spend in USD cents on these reports and their signals in the preview window. A shared report can still run. */
+      spend_usd_cents: number;
+      /** Distinct reports with a linked pull request. */
+      with_pr: number;
+      /** Distinct reports with a linked pull request that has merged. */
+      with_merged_pr: number;
+    }
+
+    export interface IssueFilterPreviewSource {
+      /** The lifecycle transition.
+       *
+       * * `issue_created` - New issues
+       * * `issue_reopened` - Reopened issues
+       * * `issue_spiking` - Spiking issues */
+      source_type: IssueFilterSourceTypeEnum;
+      /** Transitions the candidate admits. */
+      passing_count: number;
+      /** Transitions the candidate excludes. */
+      excluded_count: number;
+      /** Transitions whose original filter inputs are unavailable. These have no verdict. */
+      unavailable_count: number;
+      /** Newest passing transitions. */
+      passing: IssueFilterSample[];
+      /** Newest excluded transitions. */
+      excluded: IssueFilterSample[];
+      /** Outcomes of reports fed by excluded transitions. Shared reports count once per source type. */
+      excluded_reports: IssueFilterReportOutcomes;
+    }
+
+    export interface IssueFilterPreviewResponse {
+      /** Preview status. An empty seven-day window has zero counts.
+       *
+       * * `ok` - ok
+       * * `invalid_expression` - invalid_expression
+       * * `not_connected` - not_connected
+       * * `not_synced` - not_synced
+       * * `access_denied` - access_denied
+       * * `incompatible_table` - incompatible_table
+       * * `query_failed` - query_failed */
+      status: SourceFilterPreviewStatusEnum;
+      /**
+         * Why the candidate could not be previewed.
+         * @nullable
+         */
+      error: string | null;
+      /** Seven-day counts and samples for each requested source type. */
+      results: IssueFilterPreviewSource[];
+    }
+
     /**
      * Non-secret connection settings copied from Fivetran, shaped like the source payload.
      */
@@ -125270,28 +125388,6 @@ export namespace Schemas {
          */
       scope_ids?: string[] | null;
     }
-
-    /**
-     * * `ok` - ok
-     * * `invalid_expression` - invalid_expression
-     * * `not_connected` - not_connected
-     * * `not_synced` - not_synced
-     * * `access_denied` - access_denied
-     * * `incompatible_table` - incompatible_table
-     * * `query_failed` - query_failed
-     */
-    export type SourceFilterPreviewStatusEnum = typeof SourceFilterPreviewStatusEnum[keyof typeof SourceFilterPreviewStatusEnum];
-
-
-    export const SourceFilterPreviewStatusEnum = {
-      Ok: 'ok',
-      InvalidExpression: 'invalid_expression',
-      NotConnected: 'not_connected',
-      NotSynced: 'not_synced',
-      AccessDenied: 'access_denied',
-      IncompatibleTable: 'incompatible_table',
-      QueryFailed: 'query_failed',
-    } as const;
 
     export interface SourceFilterPreviewResponse {
       /**

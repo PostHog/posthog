@@ -27,6 +27,7 @@ from products.error_tracking.backend.temporal.lifecycle.event_properties import 
     EventPropertiesIssueSnapshot,
     fetch_event_properties,
 )
+from products.error_tracking.backend.temporal.lifecycle.filter_preview import remember_filter_inputs
 from products.error_tracking.backend.temporal.lifecycle.rendering import (
     SIGNAL_MAX_TOKENS,
     decode_token_prefix,
@@ -34,6 +35,7 @@ from products.error_tracking.backend.temporal.lifecycle.rendering import (
 )
 from products.signals.backend.facade.api import emit_signal
 from products.signals.backend.facade.source_configs import enabled_issue_filters, record_source_filter_drop
+from products.signals.backend.facade.spend import signal_id_for
 
 KAFKA_DELIVERY_TIMEOUT_SECONDS = 30
 
@@ -238,30 +240,18 @@ def produce_issue_lifecycle_internal_event(
 
 
 def issue_filter_outcome(
-    inputs: IssueLifecycleWorkflowInputs,
+    inputs: AlertDeliveryWorkflowInputs,
     stored_filters: object,
     event_properties: dict[str, object],
     *,
-    event: str,
     source_type: str,
-    exception_timestamp: str,
-    extra_properties: dict[str, object] | None = None,
-    include_status: bool = True,
-    humanize_status: bool = True,
 ) -> LifecycleFilterOutcome:
     """Whether the team's Inbox issue filter admits this transition, seen as the alert path sees it."""
     if not isinstance(stored_filters, dict):
         return LifecycleFilterOutcome.FILTER_ERROR
     return evaluate_lifecycle_filters(
         stored_filters,
-        alert_delivery_inputs(
-            inputs,
-            event=event,
-            exception_timestamp=exception_timestamp,
-            extra_properties=extra_properties,
-            include_status=include_status,
-            humanize_status=humanize_status,
-        ),
+        inputs,
         event_properties,
         log_context={"signal_source_type": source_type},
     )
@@ -293,18 +283,16 @@ async def emit_issue_lifecycle_signal(
     stored_filters = await sync_to_async(enabled_issue_filters, thread_sensitive=False)(
         team_id=team.id, source_product="error_tracking", source_type=source_type
     )
+    filter_inputs = alert_delivery_inputs(
+        inputs,
+        event=event,
+        exception_timestamp=exception_timestamp,
+        extra_properties=extra_properties,
+        include_status=include_status,
+        humanize_status=humanize_status,
+    )
     if stored_filters is not None:
-        outcome = issue_filter_outcome(
-            inputs,
-            stored_filters,
-            event_properties,
-            event=event,
-            source_type=source_type,
-            exception_timestamp=exception_timestamp,
-            extra_properties=extra_properties,
-            include_status=include_status,
-            humanize_status=humanize_status,
-        )
+        outcome = issue_filter_outcome(filter_inputs, stored_filters, event_properties, source_type=source_type)
         if outcome != LifecycleFilterOutcome.MATCH:
             await sync_to_async(record_source_filter_drop, thread_sensitive=False)(
                 team=team,
@@ -327,7 +315,7 @@ async def emit_issue_lifecycle_signal(
     if len(signal_tokens) > SIGNAL_MAX_TOKENS:
         description = decode_token_prefix(signal_encoding, signal_tokens, SIGNAL_MAX_TOKENS)
 
-    await emit_signal(
+    emitted = await emit_signal(
         team=team,
         source_product="error_tracking",
         source_type=source_type,
@@ -337,3 +325,15 @@ async def emit_issue_lifecycle_signal(
         extra={"fingerprint": inputs.fingerprint},
         idempotency_key=inputs.notification_id,
     )
+    if emitted:
+        signal_id = signal_id_for(
+            team_id=team.pk,
+            source_product="error_tracking",
+            source_type=source_type,
+            idempotency_key=inputs.notification_id,
+        )
+        await sync_to_async(remember_filter_inputs, thread_sensitive=False)(
+            signal_id,
+            filter_inputs,
+            event_properties,
+        )

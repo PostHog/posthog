@@ -16,6 +16,8 @@ from drf_spectacular.utils import PolymorphicProxySerializer, extend_schema_fiel
 from rest_framework import serializers
 from rest_framework.request import Request
 
+from posthog.schema import EventPropertyFilter
+
 from posthog.api.fields import RepeatedOrCommaSeparatedListField
 from posthog.auth import is_mcp_request
 from posthog.dataclasses import frozen
@@ -610,6 +612,84 @@ class SignalSourceConfigSerializer(serializers.ModelSerializer):
 # Wider than the stored limits, so a list over them still reads back as a field error instead of a 400.
 _ALERT_PATTERN_PREVIEW_MAX_COUNT = 100
 _ALERT_PATTERN_PREVIEW_MAX_LENGTH = 1000
+
+
+class IssueFilterSourceType(TextChoices):
+    CREATED = "issue_created", "New issues"
+    REOPENED = "issue_reopened", "Reopened issues"
+    SPIKING = "issue_spiking", "Spiking issues"
+
+
+@extend_schema_field(EventPropertyFilter)  # type: ignore[arg-type]
+class IssueFilterPropertyField(serializers.JSONField):
+    pass
+
+
+class IssueFilterCandidateSerializer(serializers.Serializer):
+    properties = serializers.ListField(
+        child=IssueFilterPropertyField(),
+        required=False,
+        help_text="Event property predicates. Each takes a key, operator and value. Omit value for is_set and is_not_set.",
+    )
+
+
+@extend_schema_field(IssueFilterCandidateSerializer)
+class IssueFilterCandidateField(serializers.JSONField):
+    pass
+
+
+class IssueFilterPreviewRequestSerializer(serializers.Serializer):
+    issue_filters = IssueFilterCandidateField(
+        allow_null=True, help_text="Candidate config.issue_filters. An empty object admits every transition."
+    )
+    source_type = serializers.ChoiceField(
+        choices=IssueFilterSourceType.choices,
+        required=False,
+        help_text="Preview one transition type. Omit to preview all three.",
+    )
+
+
+class IssueFilterSampleSerializer(serializers.Serializer):
+    issue_id = serializers.UUIDField(help_text="The issue that emitted the signal.")
+    timestamp = serializers.DateTimeField(help_text="When the signal was emitted.")
+    field_values = serializers.DictField(
+        child=serializers.JSONField(allow_null=True),
+        help_text="Values of the properties the candidate checks. Absent keys were unset.",
+    )
+
+
+class IssueFilterReportOutcomesSerializer(serializers.Serializer):
+    count = serializers.IntegerField(help_text="Distinct reports the excluded signals fed.")
+    spend_usd_cents = serializers.FloatField(
+        help_text="Finalized, non-exempt spend in USD cents on these reports and their signals in the preview window. A shared report can still run."
+    )
+    with_pr = serializers.IntegerField(help_text="Distinct reports with a linked pull request.")
+    with_merged_pr = serializers.IntegerField(help_text="Distinct reports with a linked pull request that has merged.")
+
+
+class IssueFilterPreviewSourceSerializer(serializers.Serializer):
+    source_type = serializers.ChoiceField(choices=IssueFilterSourceType.choices, help_text="The lifecycle transition.")
+    passing_count = serializers.IntegerField(help_text="Transitions the candidate admits.")
+    excluded_count = serializers.IntegerField(help_text="Transitions the candidate excludes.")
+    unavailable_count = serializers.IntegerField(
+        help_text="Transitions whose original filter inputs are unavailable. These have no verdict."
+    )
+    passing = IssueFilterSampleSerializer(many=True, help_text="Newest passing transitions.")
+    excluded = IssueFilterSampleSerializer(many=True, help_text="Newest excluded transitions.")
+    excluded_reports = IssueFilterReportOutcomesSerializer(
+        help_text="Outcomes of reports fed by excluded transitions. Shared reports count once per source type."
+    )
+
+
+class IssueFilterPreviewResponseSerializer(serializers.Serializer):
+    status = serializers.ChoiceField(
+        choices=SourceFilterPreviewStatus.choices,
+        help_text="Preview status. An empty seven-day window has zero counts.",
+    )
+    error = serializers.CharField(allow_null=True, help_text="Why the candidate could not be previewed.")
+    results = IssueFilterPreviewSourceSerializer(
+        many=True, help_text="Seven-day counts and samples for each requested source type."
+    )
 
 
 class AlertPatternPreviewOutcome(TextChoices):

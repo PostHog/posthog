@@ -68,6 +68,9 @@ Before you turn off a whole source, check whether one of its parts drives the sp
 | Linear                         | Teams                       | Only issues from the chosen Linear teams become signals.                                                                                                                                                            | `posthog:inbox-source-configs-partial-update` with `config_set.linear_team_ids`                                                                                                                                    | Issues from other teams                                                                |
 
 The `alert_firing` signal type has no config row of its own. The `anomaly_investigation` row controls it: its `enabled` flag, `alert_scope`, and patterns all apply.
+Before saving alert name patterns, send both proposed lists to `posthog:inbox-source-alert-pattern-preview`, including any patterns you want to keep. Review the alerts each list excludes. When `has_more` is true, the preview covers only the newest enabled alerts you can view.
+For warehouse sources with a filter catalog, use `posthog:inbox-source-filter-preview` to check the past week's matches and exclusions before saving `hogql_filter`.
+Before saving error tracking `issue_filters`, run `posthog:inbox-source-issue-filter-preview` with the proposed filter. Repeating the same preview can reuse the result for up to one minute. Inspect the excluded samples and how many of their reports reached a merged PR. Check the unavailable count for transitions the preview could not replay. Shared reports can still receive other signals, so their spend is not a savings forecast.
 The `signals_check` source comes from report monitoring and has no config row.
 
 Other sources, such as support tickets and pganalyze, have no setting that selects a fixed part of the source, so use source steering to describe the records to skip.

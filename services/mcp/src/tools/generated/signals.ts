@@ -1415,6 +1415,36 @@ const inboxReviewerExclusionsUpdate = (): ToolBase<
     },
 })
 
+const InboxSourceAlertPatternPreviewSchema = () => {
+    const SignalsSourceConfigsAlertPatternPreviewCreateBody =
+        orvalSchemas.SignalsSourceConfigsAlertPatternPreviewCreateBody()
+    return SignalsSourceConfigsAlertPatternPreviewCreateBody
+}
+
+const inboxSourceAlertPatternPreview = (): ToolBase<
+    ReturnType<typeof InboxSourceAlertPatternPreviewSchema>,
+    Schemas.AlertPatternPreviewResponse
+> => ({
+    name: 'inbox-source-alert-pattern-preview',
+    schema: InboxSourceAlertPatternPreviewSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof InboxSourceAlertPatternPreviewSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.alert_allow_patterns !== undefined) {
+            body['alert_allow_patterns'] = params.alert_allow_patterns
+        }
+        if (params.alert_block_patterns !== undefined) {
+            body['alert_block_patterns'] = params.alert_block_patterns
+        }
+        const result = await context.api.request<Schemas.AlertPatternPreviewResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/source_configs/alert_pattern_preview/`,
+            body,
+        })
+        return result
+    },
+})
+
 const InboxSourceConfigsCreateSchema = () => {
     const SignalsSourceConfigsCreateBody = orvalSchemas.SignalsSourceConfigsCreateBody()
     return SignalsSourceConfigsCreateBody
@@ -1649,6 +1679,36 @@ const inboxSourceFilterPreview = (): ToolBase<
         const result = await context.api.request<Schemas.SourceFilterPreviewResponse>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/source_configs/filter_preview/`,
+            body,
+        })
+        return result
+    },
+})
+
+const InboxSourceIssueFilterPreviewSchema = () => {
+    const SignalsSourceConfigsIssueFilterPreviewCreateBody =
+        orvalSchemas.SignalsSourceConfigsIssueFilterPreviewCreateBody()
+    return SignalsSourceConfigsIssueFilterPreviewCreateBody
+}
+
+const inboxSourceIssueFilterPreview = (): ToolBase<
+    ReturnType<typeof InboxSourceIssueFilterPreviewSchema>,
+    Schemas.IssueFilterPreviewResponse
+> => ({
+    name: 'inbox-source-issue-filter-preview',
+    schema: InboxSourceIssueFilterPreviewSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof InboxSourceIssueFilterPreviewSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.issue_filters !== undefined) {
+            body['issue_filters'] = params.issue_filters
+        }
+        if (params.source_type !== undefined) {
+            body['source_type'] = params.source_type
+        }
+        const result = await context.api.request<Schemas.IssueFilterPreviewResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/source_configs/issue_filter_preview/`,
             body,
         })
         return result
@@ -4414,6 +4474,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'inbox-reviewer-exclusions-list': inboxReviewerExclusionsList,
     'inbox-reviewer-exclusions-revoke': inboxReviewerExclusionsRevoke,
     'inbox-reviewer-exclusions-update': inboxReviewerExclusionsUpdate,
+    'inbox-source-alert-pattern-preview': inboxSourceAlertPatternPreview,
     'inbox-source-configs-create': inboxSourceConfigsCreate,
     'inbox-source-configs-list': inboxSourceConfigsList,
     'inbox-source-configs-partial-update': inboxSourceConfigsPartialUpdate,
@@ -4421,6 +4482,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'inbox-source-configs-update': inboxSourceConfigsUpdate,
     'inbox-source-filter-catalogs-list': inboxSourceFilterCatalogsList,
     'inbox-source-filter-preview': inboxSourceFilterPreview,
+    'inbox-source-issue-filter-preview': inboxSourceIssueFilterPreview,
     'inbox-steering-instructions-get': inboxSteeringInstructionsGet,
     'inbox-steering-instructions-update': inboxSteeringInstructionsUpdate,
     'inbox-usage-get': inboxUsageGet,

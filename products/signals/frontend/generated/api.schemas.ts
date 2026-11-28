@@ -13731,6 +13731,155 @@ export interface SourceFilterValidateResponseApi {
     error: string | null
 }
 
+export type PropertyOperatorApi = (typeof PropertyOperatorApi)[keyof typeof PropertyOperatorApi]
+
+export const PropertyOperatorApi = {
+    Exact: 'exact',
+    IsNot: 'is_not',
+    Icontains: 'icontains',
+    NotIcontains: 'not_icontains',
+    StartsWith: 'starts_with',
+    NotStartsWith: 'not_starts_with',
+    EndsWith: 'ends_with',
+    NotEndsWith: 'not_ends_with',
+    Regex: 'regex',
+    NotRegex: 'not_regex',
+    Gt: 'gt',
+    Gte: 'gte',
+    Lt: 'lt',
+    Lte: 'lte',
+    IsSet: 'is_set',
+    IsNotSet: 'is_not_set',
+    IsDateExact: 'is_date_exact',
+    IsDateBefore: 'is_date_before',
+    IsDateAfter: 'is_date_after',
+    Between: 'between',
+    NotBetween: 'not_between',
+    Min: 'min',
+    Max: 'max',
+    In: 'in',
+    NotIn: 'not_in',
+    IsCleanedPathExact: 'is_cleaned_path_exact',
+    IsCleanedPathNotExact: 'is_cleaned_path_not_exact',
+    FlagEvaluatesTo: 'flag_evaluates_to',
+    SemverEq: 'semver_eq',
+    SemverNeq: 'semver_neq',
+    SemverGt: 'semver_gt',
+    SemverGte: 'semver_gte',
+    SemverLt: 'semver_lt',
+    SemverLte: 'semver_lte',
+    SemverTilde: 'semver_tilde',
+    SemverCaret: 'semver_caret',
+    SemverWildcard: 'semver_wildcard',
+    IcontainsMulti: 'icontains_multi',
+    NotIcontainsMulti: 'not_icontains_multi',
+} as const
+
+export interface EventPropertyFilterApi {
+    key: string
+    label?: string | null
+    operator?: PropertyOperatorApi | null
+    /** Event properties */
+    type?: 'event'
+    value?: (string | number | boolean)[] | string | number | boolean | null
+}
+
+export interface IssueFilterCandidateApi {
+    /** Event property predicates. Each takes a key, operator and value. Omit value for is_set and is_not_set. */
+    properties?: EventPropertyFilterApi[]
+}
+
+/**
+ * * `issue_created` - New issues
+ * * `issue_reopened` - Reopened issues
+ * * `issue_spiking` - Spiking issues
+ */
+export type IssueFilterSourceTypeEnumApi =
+    (typeof IssueFilterSourceTypeEnumApi)[keyof typeof IssueFilterSourceTypeEnumApi]
+
+export const IssueFilterSourceTypeEnumApi = {
+    IssueCreated: 'issue_created',
+    IssueReopened: 'issue_reopened',
+    IssueSpiking: 'issue_spiking',
+} as const
+
+export interface IssueFilterPreviewRequestApi {
+    /** Candidate config.issue_filters. An empty object admits every transition. */
+    issue_filters: IssueFilterCandidateApi | null
+    /** Preview one transition type. Omit to preview all three.
+     *
+     * * `issue_created` - New issues
+     * * `issue_reopened` - Reopened issues
+     * * `issue_spiking` - Spiking issues */
+    source_type?: IssueFilterSourceTypeEnumApi
+}
+
+/**
+ * Values of the properties the candidate checks. Absent keys were unset.
+ */
+export type IssueFilterSampleApiFieldValues = { [key: string]: unknown }
+
+export interface IssueFilterSampleApi {
+    /** The issue that emitted the signal. */
+    issue_id: string
+    /** When the signal was emitted. */
+    timestamp: string
+    /** Values of the properties the candidate checks. Absent keys were unset. */
+    field_values: IssueFilterSampleApiFieldValues
+}
+
+export interface IssueFilterReportOutcomesApi {
+    /** Distinct reports the excluded signals fed. */
+    count: number
+    /** Finalized, non-exempt spend in USD cents on these reports and their signals in the preview window. A shared report can still run. */
+    spend_usd_cents: number
+    /** Distinct reports with a linked pull request. */
+    with_pr: number
+    /** Distinct reports with a linked pull request that has merged. */
+    with_merged_pr: number
+}
+
+export interface IssueFilterPreviewSourceApi {
+    /** The lifecycle transition.
+     *
+     * * `issue_created` - New issues
+     * * `issue_reopened` - Reopened issues
+     * * `issue_spiking` - Spiking issues */
+    source_type: IssueFilterSourceTypeEnumApi
+    /** Transitions the candidate admits. */
+    passing_count: number
+    /** Transitions the candidate excludes. */
+    excluded_count: number
+    /** Transitions whose original filter inputs are unavailable. These have no verdict. */
+    unavailable_count: number
+    /** Newest passing transitions. */
+    passing: IssueFilterSampleApi[]
+    /** Newest excluded transitions. */
+    excluded: IssueFilterSampleApi[]
+    /** Outcomes of reports fed by excluded transitions. Shared reports count once per source type. */
+    excluded_reports: IssueFilterReportOutcomesApi
+}
+
+export interface IssueFilterPreviewResponseApi {
+    /** Preview status. An empty seven-day window has zero counts.
+     *
+     * * `ok` - ok
+     * * `invalid_expression` - invalid_expression
+     * * `not_connected` - not_connected
+     * * `not_synced` - not_synced
+     * * `access_denied` - access_denied
+     * * `incompatible_table` - incompatible_table
+     * * `query_failed` - query_failed */
+    status: SourceFilterPreviewStatusEnumApi
+    /**
+     * Why the candidate could not be previewed.
+     * @nullable
+     */
+    error: string | null
+    /** Seven-day counts and samples for each requested source type. */
+    results: IssueFilterPreviewSourceApi[]
+}
+
 export interface SourceSpendApi {
     /** Product that emitted the signals. */
     source_product: string
