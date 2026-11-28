@@ -882,7 +882,7 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         summary="List each scout's most recent runs",
         description=(
             "Return the most recent `per_scout_limit` runs of *every* configured scout on the "
-            "project (default 50), newest-first across the fleet. The per-scout probe is the point: "
+            "project (default 100), newest-first across the fleet. The per-scout probe is the point: "
             "a fleet-wide time window has to serve hourly and weekly scouts from one result cap, so "
             "the busy scouts crowd out the sparse ones and a scout's visible history shrinks as the "
             "rest of the fleet gets busier. Probing each `skill_name` gives every scout the same "

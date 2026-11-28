@@ -86,7 +86,9 @@ const MAX_EMITTED_RUNS = 50
 // deleted, or below the report threshold), so we stop polling for them.
 const REPORT_LINK_RETRY_WINDOW_MINUTES = 30
 
-const OLDER_PAGE_SIZE = SCOUT_RUNS_PER_SCOUT
+// Smaller than the window: the Signals tab fetches findings and report links for every emitting run
+// on a page at once, so a page is bounded the same way MAX_EMITTED_RUNS bounds the window.
+export const OLDER_PAGE_SIZE = 50
 
 // The Signals tab pages through runs that produced output, and a run that only filed a report has no
 // finding to show. One click reads up to this many pages, so it shows something without crawling a

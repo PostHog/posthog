@@ -13,7 +13,7 @@ import {
 
 import { SignalReport, SignalScoutRunSummary } from '../types'
 import { SCOUT_RUNS_PER_SCOUT } from '../utils/scoutRunsWindow'
-import { scoutDetailLogic } from './scoutDetailLogic'
+import { OLDER_PAGE_SIZE, scoutDetailLogic } from './scoutDetailLogic'
 import { scoutFleetLogic } from './scoutFleetLogic'
 
 jest.mock('posthog-js')
@@ -97,14 +97,14 @@ describe('scoutDetailLogic', () => {
 
     it('pages older runs from the oldest loaded run and stops at a short page', async () => {
         await mountWith(windowRuns)
-        const firstPage = makeRuns('older', SCOUT_RUNS_PER_SCOUT, SCOUT_RUNS_PER_SCOUT + 5)
-        const lastPage = makeRuns('oldest', 3, 2 * SCOUT_RUNS_PER_SCOUT + 10)
+        const firstPage = makeRuns('older', OLDER_PAGE_SIZE, SCOUT_RUNS_PER_SCOUT + 5)
+        const lastPage = makeRuns('oldest', 3, SCOUT_RUNS_PER_SCOUT + OLDER_PAGE_SIZE + 10)
         mockRunsList.mockResolvedValueOnce(firstPage).mockResolvedValueOnce(lastPage)
 
         await expectLogic(logic, () => logic.actions.loadOlder('runs')).toDispatchActions(['loadOlderRunsSuccess'])
         expect(mockRunsList).toHaveBeenLastCalledWith(expect.any(String), {
             skill_name: SKILL,
-            limit: SCOUT_RUNS_PER_SCOUT,
+            limit: OLDER_PAGE_SIZE,
             date_to: oldestWindowRun.created_at,
             before_id: oldestWindowRun.run_id,
         })
@@ -120,7 +120,7 @@ describe('scoutDetailLogic', () => {
         )
 
         const history = logic.values.historyRuns.map((run) => run.run_id)
-        expect(history).toHaveLength(2 * SCOUT_RUNS_PER_SCOUT + 3)
+        expect(history).toHaveLength(SCOUT_RUNS_PER_SCOUT + OLDER_PAGE_SIZE + 3)
         expect(history[0]).toBe('window-00')
         expect(history[history.length - 1]).toBe('oldest-02')
         expect(logic.values.olderRuns.exhausted).toBe(true)
@@ -149,7 +149,7 @@ describe('scoutDetailLogic', () => {
 
     it('keeps a run the poll moves out of the window once older pages are open', async () => {
         await mountWith(windowRuns)
-        mockRunsList.mockResolvedValue(makeRuns('older', SCOUT_RUNS_PER_SCOUT, SCOUT_RUNS_PER_SCOUT + 5))
+        mockRunsList.mockResolvedValue(makeRuns('older', OLDER_PAGE_SIZE, SCOUT_RUNS_PER_SCOUT + 5))
         await expectLogic(logic, () => logic.actions.loadOlder('runs')).toDispatchActions(['loadOlderRunsSuccess'])
 
         mockRecentPerScout.mockResolvedValue([makeRun('newest', 0), ...windowRuns.slice(0, SCOUT_RUNS_PER_SCOUT - 1)])
@@ -159,7 +159,7 @@ describe('scoutDetailLogic', () => {
 
         const history = logic.values.historyRuns.map((run) => run.run_id)
         expect(history).toContain(oldestWindowRun.run_id)
-        expect(history).toHaveLength(SCOUT_RUNS_PER_SCOUT + 1)
+        expect(history).toHaveLength(SCOUT_RUNS_PER_SCOUT + OLDER_PAGE_SIZE + 1)
     })
 
     it('adds older reports once each, and reads an older authoring over a newer edit', async () => {
