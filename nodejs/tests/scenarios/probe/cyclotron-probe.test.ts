@@ -176,26 +176,35 @@ describe('cyclotron probe', () => {
         )
     })
 
-    it('counts a writer activity read for the step its rows arrived in when its connection closes after the step', async () => {
+    it('counts a writer activity read for the step its rows arrived in, not the step its query started or its connection closed in', async () => {
+        const STARTED = Date.UTC(2026, 0, 1)
+        const QUERIED = STARTED + 2_000
+        const ANSWERED = STARTED + 6_000
+        const CLOSED = STARTED + 9_000
+        const query: (this: Client, ...args: unknown[]) => Promise<unknown> = Client.prototype.query
         const end: (this: Client) => Promise<void> = Client.prototype.end
-        let closingAt: number | undefined
-        let closed: () => void = () => undefined
-        const closing = new Promise<void>((resolve) => (closed = resolve))
-        const slowClose = jest.spyOn(Client.prototype, 'end').mockImplementation(async function (this: Client) {
-            closingAt ??= Date.now()
-            await closing
-            return end.call(this)
-        })
         const idle = new Client({ connectionString: PROBE_URL })
-        await idle.connect()
+        const spies: jest.SpyInstance[] = []
         try {
-            const startedAt = Date.now()
+            await idle.connect()
+            let clock = QUERIED
+            spies.push(
+                jest.spyOn(Date, 'now').mockImplementation(() => clock),
+                jest.spyOn(Client.prototype, 'query').mockImplementation(async function (
+                    this: Client,
+                    ...args: unknown[]
+                ) {
+                    const answer = await query.apply(this, args)
+                    clock = ANSWERED
+                    return answer
+                } as never),
+                jest.spyOn(Client.prototype, 'end').mockImplementation(function (this: Client) {
+                    clock = CLOSED
+                    return end.call(this)
+                })
+            )
             const probe = createCyclotronProbe(PROBE_URL, undefined, PROBE_URL)
-            const read = readActivity(() => probe.activity())
-            await waitForExpect(() => expect(closingAt).toBeDefined())
-            await waitForExpect(() => expect(Date.now()).toBeGreaterThan(closingAt! + 1))
-            closed()
-            const haltedAt = closingAt! + 1
+            const read = await readActivity(() => probe.activity())
             const evidence: MeasureEvidence = {
                 journal: [],
                 truth: [],
@@ -206,20 +215,22 @@ describe('cyclotron probe', () => {
                 host: [],
                 writer: [],
                 queue: [],
-                activity: [await read],
-                sampledFrom: startedAt,
-                drive: { startedAt, endedAt: haltedAt },
-                steps: [{ scale: 1, fromMs: 0, toMs: haltedAt - startedAt }],
+                activity: [{ at: STARTED + 1_000, backends: [{ state: 'idle', wait: 'client', count: 1 }] }, read],
+                sampledFrom: STARTED,
+                drive: { startedAt: STARTED, endedAt: STARTED + 8_000 },
+                steps: [
+                    { scale: 1, fromMs: 0, toMs: 4_000 },
+                    { scale: 10, fromMs: 4_000, toMs: 8_000 },
+                ],
                 timeline: [],
             }
 
             const measured = measure([{ name: 'step_writer_backends', params: {} }], evidence)
-            expect(measured).toContainEqual(expect.objectContaining({ key: 'idle_1x' }))
+            expect(measured).toContainEqual(expect.objectContaining({ key: 'idle_10x' }))
             expect(measured.filter((entry) => 'unmeasured' in entry)).toEqual([])
         } finally {
-            closed()
-            slowClose.mockRestore()
-            await idle.end()
+            spies.forEach((spy) => spy.mockRestore())
+            await idle.end().catch(() => undefined)
         }
     })
 
