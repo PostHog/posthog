@@ -609,6 +609,16 @@ class TestIssueSummaryGeneration(BaseTest):
         assert summarized.summary.suggested_next_step == SUMMARY_REPLY["suggested_next_step"]
         assert self._read().status == IssueSummaryStatus.READY
 
+    def test_read_outside_the_flag_runs_no_query(self) -> None:
+        self.enterContext(patch.object(team_flags, "feature_enabled_or_false", return_value=False))
+
+        with self.assertNumQueries(0):
+            read = self._read()
+
+        assert read == IssueSummaryRead(
+            status=IssueSummaryStatus.UNAVAILABLE, summary=None, reason=IssueSummaryUnavailableReason.DISABLED
+        )
+
     def _restrict_event_property(self, name: str) -> None:
         self.organization.available_product_features = [
             {"name": AvailableFeature.PROPERTY_ACCESS_CONTROL, "key": AvailableFeature.PROPERTY_ACCESS_CONTROL}

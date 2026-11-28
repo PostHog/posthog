@@ -117,6 +117,13 @@ class TestTicketUpdateRequestSerializer(SimpleTestCase):
 
         assert serializer.is_valid() is expected_valid, serializer.errors
 
+    @parameterized.expand([("list", []), ("text", "Jane")])
+    def test_rejects_customer_details_that_are_not_an_object(self, _name: str, traits: object) -> None:
+        serializer = TicketUpdateRequestSerializer(Ticket(), data={"anonymous_traits": traits}, partial=True)
+
+        assert not serializer.is_valid()
+        assert serializer.errors["anonymous_traits"][0].code == "invalid"
+
 
 # Patch on_commit to execute immediately in tests
 def immediate_on_commit(func):
@@ -336,6 +343,27 @@ class TestTicketAPI(APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["status"], "resolved")
+
+    @parameterized.expand(
+        [
+            ("inbound_markers", {"name": "Jane", "email_relayed": True, "email_forwarded": True}),
+            ("malformed_stored_traits", ["x"]),
+        ]
+    )
+    def test_editing_customer_details_keeps_inbound_email_traits(self, mock_on_commit, _name: str, stored: object):
+        inbound = {"email_relayed": True, "email_forwarded": True} if isinstance(stored, dict) else {}
+        self.ticket.anonymous_traits = stored
+        self.ticket.save(update_fields=["anonymous_traits"])
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.id}/",
+            {"anonymous_traits": {"name": "Jane Doe", "email": "jane@example.net"}},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        self.ticket.refresh_from_db()
+        assert self.ticket.anonymous_traits == {"name": "Jane Doe", "email": "jane@example.net", **inbound}
 
     def test_retrieve_ticket_marks_as_read(self, mock_on_commit):
         self.ticket.unread_team_count = 5
@@ -1967,30 +1995,49 @@ class TestTicketEmailFallbackPersonLookup(ClickhouseTestMixin, APIBaseTest):
     matches the ticket's email_from field.
     """
 
-    def _create_email_ticket(self, email_from, distinct_id=None):
+    def _create_email_ticket(self, email_from, distinct_id=None, anonymous_traits=None, identity_verified=False):
         return Ticket.objects.create_with_number(
             team=self.team,
             channel_source=Channel.EMAIL,
             distinct_id=distinct_id or email_from,
             email_from=email_from,
             status=Status.NEW,
+            anonymous_traits=anonymous_traits or {},
+            identity_verified=identity_verified,
         )
 
-    def test_email_fallback_matches_person_by_email_property(self, mock_on_commit):
+    @parameterized.expand(
+        [
+            ("direct_email", {}, False, True),
+            ("unverified_relayed_email", {"email_relayed": True}, False, False),
+            ("verified_relayed_email", {"email_relayed": True}, True, True),
+        ]
+    )
+    def test_email_fallback_matches_person_by_email_property(
+        self, mock_on_commit, _name, anonymous_traits, identity_verified, expect_person
+    ):
         _create_person(
             team=self.team,
             distinct_ids=["some-other-id"],
             properties={"email": "alice@example.com"},
             immediate=True,
         )
-        self._create_email_ticket(email_from="alice@example.com", distinct_id="alice@example.com")
+        self._create_email_ticket(
+            email_from="alice@example.com",
+            distinct_id="alice@example.com",
+            anonymous_traits=anonymous_traits,
+            identity_verified=identity_verified,
+        )
 
         response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/")
 
         assert response.status_code == status.HTTP_200_OK
         person_data = response.json()["results"][0]["person"]
-        assert person_data is not None
-        assert person_data["properties"]["email"] == "alice@example.com"
+        if expect_person:
+            assert person_data is not None
+            assert person_data["properties"]["email"] == "alice@example.com"
+        else:
+            assert person_data is None
 
     def test_email_fallback_not_triggered_when_distinct_id_matches(self, mock_on_commit):
         person = _create_person(
@@ -2720,6 +2767,14 @@ class TestTicketPersonalAPIKeyScopes(APIBaseTest):
             ("reply_with_write", "reply", "post", ["ticket:write"], status.HTTP_201_CREATED),
             ("reply_with_read_only", "reply", "post", ["ticket:read"], status.HTTP_403_FORBIDDEN),
             ("reply_wrong_scope", "reply", "post", ["insight:write"], status.HTTP_403_FORBIDDEN),
+            ("ai_rerun_with_read_only", "ai_rerun", "post", ["ticket:read"], status.HTTP_403_FORBIDDEN),
+            (
+                "scout_ai_rerun",
+                "ai_rerun",
+                "post",
+                ["ticket:write", "signal_scout_internal:write"],
+                status.HTTP_403_FORBIDDEN,
+            ),
         ]
     )
     def test_messages_and_reply_scopes(self, _name, action, method, scopes, expected_status):
@@ -3616,7 +3671,7 @@ class TestAiFeedbackAPI(APIBaseTest):
         )
         self.url = f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.id}/ai_feedback/"
 
-    @patch("products.conversations.backend.api.tickets.posthoganalytics.capture")
+    @patch("products.conversations.backend.api.tickets.posthoganalytics.capture_ai")
     def test_ai_feedback_captures_metric_on_rating(self, mock_capture, mock_on_commit):
         response = self.client.post(
             self.url,
@@ -3637,31 +3692,44 @@ class TestAiFeedbackAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("bad_without_text", {"message_id": "msg-1", "rating": "bad"}, "$ai_metric", 0),
+            ("bad_without_text", {"message_id": "msg-1", "rating": "bad"}, "$ai_metric", {"$ai_metric_value": 0}),
             (
                 "bad_with_text",
                 {"message_id": "msg-1", "rating": "bad", "feedback_text": "Wrong answer"},
                 "$ai_feedback",
-                None,
+                {"$ai_feedback_text": "Wrong answer", "feedback_reasons": []},
+            ),
+            (
+                "bad_with_reasons_only",
+                {"message_id": "msg-1", "rating": "bad", "reasons": ["wrong_tone", "wrong_facts"]},
+                "$ai_feedback",
+                {"$ai_feedback_text": "", "feedback_reasons": ["wrong_facts", "wrong_tone"]},
+            ),
+            (
+                "good_ignores_reasons",
+                {"message_id": "msg-1", "rating": "good", "reasons": ["wrong_facts"]},
+                "$ai_metric",
+                {"$ai_metric_value": 1},
             ),
         ]
     )
-    @patch("products.conversations.backend.api.tickets.posthoganalytics.capture")
-    def test_ai_feedback_metric_vs_text_are_mutually_exclusive(
-        self, _name, payload, expected_event, expected_metric_value, mock_capture, mock_on_commit
+    @patch("products.conversations.backend.api.tickets.posthoganalytics.capture_ai")
+    def test_ai_feedback_metric_vs_details_are_mutually_exclusive(
+        self, _name, payload, expected_event, expected_properties, mock_capture, mock_on_commit
     ):
         response = self.client.post(self.url, payload, format="json")
         assert response.status_code == status.HTTP_202_ACCEPTED
         mock_capture.assert_called_once()
         _, kwargs = mock_capture.call_args
         assert kwargs["event"] == expected_event
+        assert kwargs["groups"]["project"] == str(self.team.uuid)
+        assert kwargs["properties"]["$ai_trace_id"] == "trace-abc"
+        for key, value in expected_properties.items():
+            assert kwargs["properties"][key] == value
         if expected_event == "$ai_metric":
-            assert kwargs["properties"]["$ai_metric_value"] == expected_metric_value
             assert "$ai_feedback_text" not in kwargs["properties"]
         else:
-            assert kwargs["properties"]["$ai_feedback_text"] == "Wrong answer"
             assert "$ai_metric_name" not in kwargs["properties"]
-            assert kwargs["properties"]["$ai_trace_id"] == "trace-abc"
 
     def test_ai_feedback_rejects_invalid_rating(self, mock_on_commit):
         response = self.client.post(
@@ -3671,7 +3739,15 @@ class TestAiFeedbackAPI(APIBaseTest):
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
-    @patch("products.conversations.backend.api.tickets.posthoganalytics.capture")
+    def test_ai_feedback_rejects_unknown_reason(self, mock_on_commit):
+        response = self.client.post(
+            self.url,
+            {"message_id": "msg-1", "rating": "bad", "reasons": ["made_up"]},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    @patch("products.conversations.backend.api.tickets.posthoganalytics.capture_ai")
     def test_ai_feedback_rejects_automated_update(self, mock_capture, mock_on_commit):
         update = Comment.objects.create(
             team=self.team,

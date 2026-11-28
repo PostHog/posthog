@@ -24,15 +24,13 @@ from products.access_control.backend.models.access_control import AccessControl
 from products.actions.backend.facade.testing import create_action
 from products.event_definitions.backend.models import EventProperty
 from products.experiments.backend import session_buckets
-from products.experiments.backend.hogql_queries.exposure_query_logic import (
-    EXPERIMENT_EXPOSURE_EVENT,
-    EXPERIMENT_EXPOSURE_EVENT_CUTOFF,
-)
+from products.experiments.backend.facade.contracts import MAX_BUCKET_SCAN_DAYS
+from products.experiments.backend.hogql_queries.exposure_query_logic import EXPERIMENT_EXPOSURE_EVENT
 from products.experiments.backend.models.experiment import Experiment
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
-from products.experiments.backend.session_buckets import MAX_BUCKET_METRICS, MAX_BUCKET_SCAN_DAYS, MAX_BUCKET_SOURCES
+from products.experiments.backend.session_buckets import MAX_BUCKET_METRICS, MAX_BUCKET_SOURCES
 from products.experiments.backend.session_exposure import MAX_SESSION_DURATION_HOURS
-from products.experiments.backend.test.utils import patch_exposure_event_flag
+from products.experiments.backend.test.utils import EXPERIMENT_EXPOSURE_EVENT_CUTOFF, override_exposure_event_cutoff
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 from ee.api.test.base import APILicensedTest
@@ -141,6 +139,7 @@ class TestExperimentSessionBuckets(ClickhouseTestMixin, APILicensedTest):
         exposure_criteria: Optional[dict[str, Any]] = None,
         team: Optional[Team] = None,
         created_by: Optional[User] = None,
+        deleted: Optional[bool] = False,
     ) -> Experiment:
         team = team or self.team
         flag = FeatureFlag.objects.create(
@@ -165,6 +164,7 @@ class TestExperimentSessionBuckets(ClickhouseTestMixin, APILicensedTest):
             start_date=start_date,
             exposure_criteria=exposure_criteria or {},
             metrics=metrics or [],
+            deleted=deleted,
         )
 
     def _session(
@@ -261,8 +261,12 @@ class TestExperimentSessionBuckets(ClickhouseTestMixin, APILicensedTest):
         assert data["excluded_metrics"] == []
         assert data["used_exposure_fallback"] is False
 
-    def test_no_metric_activity_returns_exposed_sessions_without_any_considered_metric(self) -> None:
-        experiment = self._create_experiment(metrics=[PURCHASE_METRIC, SIGNUP_METRIC])
+    # The column is nullable and the API counts a null as live, so the endpoint must serve that row too.
+    @parameterized.expand([("live", False), ("null_deleted", None)])
+    def test_no_metric_activity_returns_exposed_sessions_without_any_considered_metric(
+        self, _name: str, deleted: Optional[bool]
+    ) -> None:
+        experiment = self._create_experiment(metrics=[PURCHASE_METRIC, SIGNUP_METRIC], deleted=deleted)
         quiet = self._session()
         self._session(events=[("purchase", datetime(2026, 1, 9, 10, 5, tzinfo=UTC))])
         self._session(events=[("signup", datetime(2026, 1, 9, 10, 5, tzinfo=UTC))])
@@ -537,15 +541,15 @@ class TestExperimentSessionBuckets(ClickhouseTestMixin, APILicensedTest):
 
     @parameterized.expand(
         [
-            # (name, rollout flag enabled, experiment start offset from the cutoff, events read)
+            # (name, cutoff set, experiment start offset from the cutoff, events read)
             ("after_cutoff", True, 7, {EXPERIMENT_EXPOSURE_EVENT}),
-            ("after_cutoff_flag_disabled", False, 7, {"$feature_flag_called", EXPERIMENT_EXPOSURE_EVENT}),
+            ("after_cutoff_without_cutoff_set", False, 7, {"$feature_flag_called", EXPERIMENT_EXPOSURE_EVENT}),
             ("before_cutoff", True, -7, {"$feature_flag_called", EXPERIMENT_EXPOSURE_EVENT}),
         ]
     )
     @time_machine.travel(EXPERIMENT_EXPOSURE_EVENT_CUTOFF + timedelta(days=10), tick=False)
     def test_bucket_population_reads_the_resolved_exposure_event(
-        self, _name: str, flag_enabled: bool, start_offset_days: int, expected_events: set[str]
+        self, _name: str, cutoff_set: bool, start_offset_days: int, expected_events: set[str]
     ) -> None:
         # setUp logged in under the class-level freeze, months before this test's frozen clock,
         # so that session has expired; log in again inside the window.
@@ -571,7 +575,7 @@ class TestExperimentSessionBuckets(ClickhouseTestMixin, APILicensedTest):
         )
         flush_persons_and_events()
 
-        with patch_exposure_event_flag(enabled=flag_enabled):
+        with override_exposure_event_cutoff(enabled=cutoff_set):
             response = self._post_bucket(experiment, bucket="fired_any", metric_uuids=[PURCHASE_METRIC["uuid"]])
 
         # The bucket must hold the population the analysis queries count. An experiment on
@@ -593,7 +597,7 @@ class TestExperimentSessionBuckets(ClickhouseTestMixin, APILicensedTest):
         assert response.json()["used_exposure_fallback"] is False
 
     @time_machine.travel(EXPERIMENT_EXPOSURE_EVENT_CUTOFF + timedelta(days=10), tick=False)
-    def test_rollout_exposure_event_captured_server_side_keeps_the_stamped_property_fallback(self) -> None:
+    def test_default_experiment_exposure_captured_server_side_keeps_the_stamped_property_fallback(self) -> None:
         self.client.force_login(self.user)
         experiment = self._create_experiment(
             metrics=[PURCHASE_METRIC],
@@ -608,10 +612,10 @@ class TestExperimentSessionBuckets(ClickhouseTestMixin, APILicensedTest):
         )
         flush_persons_and_events()
 
-        with patch_exposure_event_flag(enabled=True):
+        with override_exposure_event_cutoff(enabled=True):
             response = self._post_bucket(experiment, bucket="fired_any", metric_uuids=[PURCHASE_METRIC["uuid"]])
 
-        # Under the rollout $experiment_exposure is the default exposure, not a custom choice, so
+        # After the cutoff $experiment_exposure is the default exposure, not a custom choice, so
         # exposure evaluated in a backend SDK must keep the stamped-property fallback rather than
         # being refused the way a custom event is.
         assert response.status_code == status.HTTP_200_OK, response.json()

@@ -240,7 +240,9 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
     marketing_analytics_config = marketing_config.TeamMarketingAnalyticsConfigSerializer(required=False)
     customer_analytics_config = team_config.TeamCustomerAnalyticsConfigSerializer(required=False)
     workflows_config = team_config.TeamWorkflowsConfigSerializer(required=False)
-    feature_flag_policy_config = team_config.TeamFeatureFlagPolicyConfigSerializer(required=False)
+    feature_flag_policy_config = team_config.TeamFeatureFlagPolicyConfigSerializer(
+        required=False, help_text=team_config.FEATURE_FLAG_POLICY_CONFIG_HELP_TEXT
+    )
     base_currency = serializers.ChoiceField(choices=CURRENCY_CODE_CHOICES, default=DEFAULT_CURRENCY)
     conversations_settings = conversations_settings.ConversationsSettingsField(
         required=False,
@@ -661,6 +663,13 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
                 # but ClickHouse doesn't support Saturday as the first day of the week, so we fall back to Sunday
                 validated_data["week_start_day"] = 1 if week_start_day_for_user_ip_location == 1 else 0
 
+        if "session_recording_masking_config" in validated_data:
+            validated_data["session_recording_masking_config"] = (
+                session_recording_settings.merge_session_recording_masking_config(
+                    validated_data["session_recording_masking_config"], None
+                )
+            )
+
         team = Team.objects.create_with_data(
             initiating_user=request.user,
             organization=self.context["view"].organization,
@@ -783,6 +792,13 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
                 **instance.session_replay_config,
                 **validated_data["session_replay_config"],
             }
+
+        if "session_recording_masking_config" in validated_data:
+            validated_data["session_recording_masking_config"] = (
+                session_recording_settings.merge_session_recording_masking_config(
+                    validated_data["session_recording_masking_config"], instance.session_recording_masking_config
+                )
+            )
 
         # Merge modifiers with existing values so that updating one modifier doesn't wipe out others
         if "modifiers" in validated_data:

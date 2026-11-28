@@ -1,9 +1,11 @@
 import dataclasses
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, time, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
 
 import pytest
+import time_machine
+from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event
 from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase
@@ -12,6 +14,8 @@ import numpy as np
 from parameterized import parameterized
 
 from posthog.schema import (
+    Breakdown,
+    BreakdownFilter,
     ChartDisplayType,
     CompareFilter,
     EventPropertyFilter,
@@ -48,6 +52,7 @@ from products.signals.backend.anomaly_scores.scoring import (
     UnsupportedInsightError,
     bucket_end,
     buckets_to_score,
+    detector_version,
     fetch_buckets,
     history_buckets,
     query_cost,
@@ -81,7 +86,7 @@ def _buckets(start: datetime, interval: IntervalType, count: int) -> list[dateti
 class TestScoreSeries(SimpleTestCase):
     @parameterized.expand(
         [
-            ("default_profile", DAY_SCORING, {"mean", "std", "value", "raw_zscore"}),
+            ("default_profile", DAY_SCORING, {"mean", "std", "value", "raw_zscore", "normalizer"}),
             ("ensemble", ZSCORE_OR_KNN, {"sub_scores"}),
         ]
     )
@@ -439,6 +444,12 @@ class TestScoreInsight(SimpleTestCase):
 
 _IDENTITY = StateIdentity(interval=IntervalType.DAY, detector_version="v1", query_hash="q1")
 _SCORED_THROUGH = datetime(2026, 1, 9, tzinfo=UTC)
+_OLDER_SCORING = dataclasses.replace(DAY_SCORING, detector={**DAY_SCORING.detector, "threshold": 0.9})
+_OLDER_IDENTITY = dataclasses.replace(_IDENTITY, detector_version=detector_version(_OLDER_SCORING, artifacts=True))
+with patch("products.signals.backend.anomaly_scores.scoring.FIT_VERSION", "artifact_v1"):
+    _OLDER_FIT_IDENTITY = dataclasses.replace(
+        _IDENTITY, detector_version=detector_version(_OLDER_SCORING, artifacts=True)
+    )
 
 
 def _state(**changes: Any) -> TrainedState:
@@ -465,9 +476,12 @@ class TestTrainDue(SimpleTestCase):
                 _state(identity=StateIdentity(interval=IntervalType.DAY, detector_version="v1", query_hash="q0")),
                 TrainDue.HARD,
             ),
+            ("older_detector_settings", _state(identity=_OLDER_IDENTITY, scoring=_OLDER_SCORING), TrainDue.SOFT),
+            ("older_detector_settings_not_stored", _state(identity=_OLDER_IDENTITY), TrainDue.HARD),
+            ("older_fit_version", _state(identity=_OLDER_FIT_IDENTITY, scoring=_OLDER_SCORING), TrainDue.HARD),
             (
-                "detector_changed",
-                _state(identity=StateIdentity(interval=IntervalType.DAY, detector_version="v0", query_hash="q1")),
+                "older_detector_settings_past_the_model_age_ceiling",
+                _state(identity=_OLDER_IDENTITY, scoring=_OLDER_SCORING, trained_at=datetime(2025, 12, 13, tzinfo=UTC)),
                 TrainDue.HARD,
             ),
             ("trained_too_long_ago", _state(trained_at=datetime(2026, 1, 2, tzinfo=UTC)), TrainDue.SOFT),
@@ -483,6 +497,7 @@ class TestTrainDue(SimpleTestCase):
             train_due(
                 state,
                 identity=_IDENTITY,
+                scoring=DAY_SCORING,
                 now=datetime(2026, 1, 10, 1, tzinfo=UTC),
                 timezone=ZoneInfo("UTC"),
                 train_every=7,
@@ -508,6 +523,7 @@ class TestTrainDue(SimpleTestCase):
             train_due(
                 state,
                 identity=identity,
+                scoring=DEFAULT_PROFILE.intervals[IntervalType.HOUR],
                 now=now,
                 timezone=ZoneInfo("UTC"),
                 train_every=24,
@@ -567,6 +583,43 @@ class TestMetricScoringQuery(SimpleTestCase):
         assert query_cost(insight, MagicMock(spec=Team)) == 2
 
 
+class TestFormulaBreakdownScoring(ClickhouseTestMixin, BaseTest):
+    @time_machine.travel("2026-01-10T12:00:00Z", tick=False)
+    def test_scoring_reads_the_formula_values_that_the_chart_shows(self) -> None:
+        # Ranked per series, shop_10 is in the top 10 of visits but not of purchases, so its purchases would read 0.
+        visits_and_purchases = {**{f"shop_{i}": (2, 2) for i in range(9)}, "shop_9": (1, 2), "shop_10": (3, 1)}
+        days = (date(2026, 1, 8), date(2026, 1, 9))
+        for day in days:
+            for shop, counts in visits_and_purchases.items():
+                for event, count in zip(("visit", "purchase"), counts):
+                    for _ in range(count):
+                        _create_event(
+                            team=self.team,
+                            event=event,
+                            distinct_id="customer",
+                            timestamp=datetime.combine(day, time(12), tzinfo=UTC),
+                            properties={"shop": shop},
+                        )
+        query = TrendsQuery(
+            series=[EventsNode(event="visit"), EventsNode(event="purchase")],
+            breakdownFilter=BreakdownFilter(breakdown="shop"),
+            trendsFilter=TrendsFilter(formula="A / B"),
+        )
+        insight = Insight.objects.create(team=self.team, query=query.model_dump(exclude_none=True))
+
+        scores = score_insight(insight, self.team, now=datetime(2026, 1, 10, 12, tzinfo=UTC))
+
+        scored = {series.breakdown_value: series.points for series in scores.series}
+        # The top 10 on visits and purchases together leaves out shop_9, the value with the fewest events.
+        assert set(scored) == set(visits_and_purchases) - {"shop_9"}
+        for breakdown_value, points in scored.items():
+            assert breakdown_value is not None
+            visits, purchases = visits_and_purchases[breakdown_value]
+            assert [(point.bucket_start.date(), point.value) for point in points if point.value] == [
+                (day, visits / purchases) for day in days
+            ]
+
+
 class TestFetchBuckets(SimpleTestCase):
     def test_unbounded_smoothing_is_not_scored(self) -> None:
         query = TrendsQuery(
@@ -607,6 +660,27 @@ class TestTrendsQueryFor(SimpleTestCase):
                 TrendsQuery(series=[EventsNode(event="$pageview")], interval=IntervalType.MINUTE).model_dump(
                     exclude_none=True
                 ),
+            ),
+            (
+                "formula_over_histogram_breakdown",
+                TrendsQuery(
+                    series=[EventsNode(event="$pageview"), EventsNode(event="signed_up")],
+                    breakdownFilter=BreakdownFilter(breakdown="$screen_width", breakdown_histogram_bin_count=5),
+                    trendsFilter=TrendsFilter(formula="A / B"),
+                ).model_dump(exclude_none=True),
+            ),
+            (
+                "formula_over_multiple_breakdowns_with_a_histogram",
+                TrendsQuery(
+                    series=[EventsNode(event="$pageview"), EventsNode(event="signed_up")],
+                    breakdownFilter=BreakdownFilter(
+                        breakdowns=[
+                            Breakdown(property="$browser"),
+                            Breakdown(property="$screen_width", histogram_bin_count=5),
+                        ]
+                    ),
+                    trendsFilter=TrendsFilter(formula="A / B"),
+                ).model_dump(exclude_none=True),
             ),
         ]
     )

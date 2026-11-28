@@ -1,0 +1,111 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "title": "Business metrics scout record",
+    "description": "One record per series the scout judged this run, reported or not, so precision can be measured as the share of filed reports a person keeps, and recall as the moves that went unreported. Subject is `metric:<name>:<measure column>:<period>`.",
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+        "bm_record_version",
+        "bm_metric",
+        "bm_measure",
+        "bm_grain",
+        "bm_period",
+        "bm_lens_verdict",
+        "bm_driver_verdict",
+        "bm_decision"
+    ],
+    "properties": {
+        "bm_record_version": {
+            "const": "1",
+            "description": "Definition version. Charts filter on it, so bump it when a field's meaning changes."
+        },
+        "bm_metric": {
+            "type": "string",
+            "maxLength": 128,
+            "description": "The catalog metric name as metric-list returns it."
+        },
+        "bm_measure": {
+            "type": "string",
+            "maxLength": 128,
+            "description": "The measure column judged, because a metric with several numeric columns is several series."
+        },
+        "bm_grain": {
+            "enum": ["daily", "weekly", "monthly", "quarterly"],
+            "description": "The grain the lens ran at."
+        },
+        "bm_period": {
+            "type": "string",
+            "maxLength": 10,
+            "description": "Start of the judged period, ISO date."
+        },
+        "bm_lens_verdict": {
+            "enum": ["move", "within", "insufficient_history", "stale", "out_of_scope"],
+            "description": "Gate 2 outcome, or why the series was not scored: stale means gate 1 stopped it, out_of_scope means the scope rule did."
+        },
+        "bm_value": {
+            "type": ["number", "null"],
+            "description": "The period's value as the lens read it; null when the series was not scored."
+        },
+        "bm_expected": {
+            "type": ["number", "null"],
+            "description": "The step lens expectation for the period; null when the lens did not run."
+        },
+        "bm_step_deviation_pct": {
+            "type": ["number", "null"],
+            "description": "Deviation of the value from the step expectation, in percent; null when the lens did not run."
+        },
+        "bm_step_bar_pct": {
+            "type": ["number", "null"],
+            "description": "The step bar the lens applied, in percent."
+        },
+        "bm_drift_deviation_pct": {
+            "type": ["number", "null"],
+            "description": "Drift deviation in percent; null when the drift lens did not run."
+        },
+        "bm_drift_bar_pct": {
+            "type": ["number", "null"],
+            "description": "The drift bar the lens applied, in percent."
+        },
+        "bm_seasonal_match": {
+            "type": ["boolean", "null"],
+            "description": "The same period a year earlier moved the same way; null when the window could not tell."
+        },
+        "bm_driver_verdict": {
+            "enum": ["driver", "broad", "offsetting", "none", "not_run"],
+            "description": "Gate 3 outcome from the script; offsetting when segments pulled both ways, not_run when gate 2 did not pass or the budget was spent."
+        },
+        "bm_driver_dimension": {
+            "type": "string",
+            "maxLength": 128,
+            "description": "The dimension that explained the move, when one did."
+        },
+        "bm_driver_segments": {
+            "type": "string",
+            "maxLength": 300,
+            "description": "The top segments, comma separated, when a driver was found."
+        },
+        "bm_driver_share_pct": {
+            "type": "number",
+            "description": "Share of the move the top segments carry, in percent."
+        },
+        "bm_story_id": {
+            "type": "string",
+            "maxLength": 64,
+            "description": "The story this finding was joined into, when gate 4 grouped it with others; the same id on every member. Its presence is what says the finding was joined."
+        },
+        "bm_decision": {
+            "enum": ["authored", "edited", "remembered", "pending", "skipped"],
+            "description": "What the run did with the finding; a member of a story carries the story's decision (authored or edited) plus bm_story_id."
+        },
+        "bm_report_id": {
+            "type": "string",
+            "maxLength": 64,
+            "description": "The inbox report authored or edited, when one was."
+        },
+        "bm_query_calls": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Query calls this series cost."
+        }
+    }
+}

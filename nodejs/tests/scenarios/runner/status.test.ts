@@ -1,4 +1,10 @@
-import type { Profile } from '../cards/schema'
+import { readFileSync } from 'fs'
+import path from 'path'
+import { parse } from 'yaml'
+import { z } from 'zod'
+
+import type { AdmissionTargets, DerivedLoad } from '../cards/load-targets'
+import { Card, Profile, stepsOf } from '../cards/schema'
 import type { Role } from '../environment/roles'
 import type { RoleExit } from '../environment/supervisor'
 import type { BarResult } from '../judge/bars'
@@ -22,9 +28,32 @@ const HELD: Verdict = {
     bars: [],
 }
 
+const yamlOf = (...file: string[]): unknown => parse(readFileSync(path.join(__dirname, '..', ...file), 'utf8'))
+const FAILOVER_AT_SCALE = Card.parse(yamlOf('cards', 'cyclotron-failover-at-scale.yaml'))
+const { traffic } = Profile.parse(yamlOf('profiles', `${FAILOVER_AT_SCALE.profile}.yaml`))
+const unitsPerSecond = FAILOVER_AT_SCALE.drive.traffic.reduce(
+    (sum, { name }) => sum + z.object({ ratePerSecond: z.number() }).parse(traffic[name]).ratePerSecond,
+    0
+)
+const failoverSteps = stepsOf(FAILOVER_AT_SCALE.drive)
+const FAILOVER_TARGET = failoverSteps.reduce(
+    (sum, { scale, fromMs, toMs }) => sum + (unitsPerSecond * scale * (toMs - fromMs)) / 1000,
+    0
+)
+const IN_FLIGHT_AT_CUTOFF = Math.ceil(unitsPerSecond * failoverSteps.at(-1)!.scale)
+const FAILOVER_SHORT_BY_ONE_PERCENT = Math.floor(FAILOVER_TARGET * 0.99)
+
 const REFUSED_LOAD: Admission = { name: 'load', passed: false, reason: 'email claims 1/s, not within 10% of 4/s' }
 
 const BROKEN = { name: 'at_least_once', passed: false, observed: 2, violation: 'run-1 email: lost', unitIds: ['run-1'] }
+
+const UNJUDGED: InvariantResult = {
+    name: 'no_loss',
+    passed: false,
+    observed: 0,
+    unitIds: [],
+    unjudged: 'the truth could not be read: socket hang up',
+}
 
 const EMAIL_WORKER = 'cdp-cyclotron-worker-email'
 const HOGFLOW_WORKER = 'cdp-cyclotron-worker-hogflow'
@@ -106,6 +135,24 @@ describe('statusOf', () => {
             'the generator offered 53 of 60 units, under minOffered 0.9',
         ],
         [
+            'cyclotron-failover-at-scale short only by the units it sent in the last second before its cutoff',
+            {
+                minOffered: FAILOVER_AT_SCALE.drive.minOffered,
+                units: { targetUnits: FAILOVER_TARGET, offeredUnits: FAILOVER_TARGET - IN_FLIGHT_AT_CUTOFF, steps: [] },
+            },
+            'passed',
+            'every invariant held',
+        ],
+        [
+            'cyclotron-failover-at-scale short by 1% of its units, more than were in flight at its cutoff',
+            {
+                minOffered: FAILOVER_AT_SCALE.drive.minOffered,
+                units: { targetUnits: FAILOVER_TARGET, offeredUnits: FAILOVER_SHORT_BY_ONE_PERCENT, steps: [] },
+            },
+            'invalid',
+            `the generator offered ${FAILOVER_SHORT_BY_ONE_PERCENT} of ${FAILOVER_TARGET} units, under minOffered 0.999`,
+        ],
+        [
             'a ramp that broke at a step before a later step fell short of minOffered',
             {
                 units: { targetUnits: 60, offeredUnits: 53, steps: [] },
@@ -140,6 +187,27 @@ describe('statusOf', () => {
             { timeline: [{ valve: 'role.kill', target: EMAIL_WORKER, requestedAt: at(0), error: 'never applied' }] },
             'invalid',
             `role.kill on ${EMAIL_WORKER} was not observed: never applied`,
+        ],
+        [
+            'an invariant could not be judged',
+            { invariants: [UNJUDGED] },
+            'invalid',
+            'no_loss was not judged: the truth could not be read: socket hang up',
+        ],
+        [
+            'an invariant could not be judged only because a valve was never observed',
+            {
+                timeline: [{ valve: 'role.kill', target: EMAIL_WORKER, requestedAt: at(0), error: 'never applied' }],
+                invariants: [{ ...UNJUDGED, unjudged: `role.kill on ${EMAIL_WORKER} was not observed: never applied` }],
+            },
+            'invalid',
+            `role.kill on ${EMAIL_WORKER} was not observed: never applied`,
+        ],
+        [
+            'an invariant failed while another could not be judged',
+            { invariants: [BROKEN, UNJUDGED] },
+            'failed',
+            'no_loss was not judged: the truth could not be read: socket hang up; at_least_once failed: run-1 email: lost',
         ],
         [
             'a valve applied only after the drive ended',
@@ -817,10 +885,10 @@ describe('statusOf', () => {
         [
             'keeps every check when the judge read the job count',
             0,
-            ['at_least_once', 'bounced_suppressed', 'duplicate_sends'],
+            ['at_least_once', 'bounced_suppressed', 'duplicate_sends', 'no_loss'],
         ],
     ])('%s', (_story, unfinishedJobs, judged) => {
-        const checked = ['at_least_once', 'bounced_suppressed', 'duplicate_sends'].map(
+        const checked = ['at_least_once', 'bounced_suppressed', 'duplicate_sends', 'no_loss'].map(
             (name): InvariantResult => ({ name, passed: false, observed: 1, unitIds: ['run-1'] })
         )
 
@@ -834,9 +902,13 @@ describe('statusOf', () => {
         newJobsPerSecond: 5.5,
         hostBusyShare: 0.62,
     }
-    const LOAD: Profile['load'] = { targets: { claimsPerSecond: { email: 4 }, newJobsPerSecond: 5 }, tolerance: 0.1 }
+    const LOAD: DerivedLoad = {
+        targets: { claimsPerSecond: { email: 4 }, newJobsPerSecond: 5 },
+        tolerance: 0.1,
+        derived: [],
+    }
 
-    it.each<[string, Pick<Profile, 'load' | 'host'>, Partial<Baseline>, Admission[]]>([
+    it.each<[string, AdmissionTargets, Partial<Baseline>, Admission[]]>([
         ['admits nothing for a profile that sets neither', {}, {}, []],
         [
             'admits a baseline within the tolerance of every target',

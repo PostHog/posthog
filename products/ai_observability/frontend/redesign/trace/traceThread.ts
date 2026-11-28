@@ -19,7 +19,7 @@ function readyThread(
 ): ConversationState {
     return {
         status: 'ready',
-        turns: [{ id: traceId, timestamp: createdAt, input, output, error }],
+        turns: [{ id: traceId, timestamp: createdAt, waitMs: null, input, output, error }],
         activeTurnId: traceId,
     }
 }

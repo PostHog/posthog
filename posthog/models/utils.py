@@ -435,6 +435,21 @@ def execute_with_timeout(timeout: int, database: str = "default") -> Iterator[Cu
             yield cursor
 
 
+@contextmanager
+def transaction_with_timeouts(
+    lock_timeout_ms: int, statement_timeout_ms: int, database: str = "default"
+) -> Iterator[None]:
+    """Open a transaction whose statements stop waiting for a lock after ``lock_timeout_ms`` and stop running after ``statement_timeout_ms``."""
+    with transaction.atomic(using=database):
+        with connections[database].cursor() as cursor:
+            # set_config with is_local=true acts as SET LOCAL, and unlike SET it accepts bound parameters.
+            cursor.execute(
+                "SELECT set_config('lock_timeout', %s, true), set_config('statement_timeout', %s, true)",
+                [str(lock_timeout_ms), str(statement_timeout_ms)],
+            )
+        yield
+
+
 def validate_rate_limit(value):
     # pattern must match throttling::SimpleRateThrottle::parse_rate
     if value is not None and value != "" and not re.match("^[0-9]+/(s|sec|m|min|h|hour|d|day)$", value):

@@ -8,8 +8,15 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { initKeaTests } from '~/test/init'
 
-import { aeoPromptsBulkImport, aeoPromptsList, aeoPromptsPartialUpdate, aeoPromptsTopics } from '../generated/api'
-import type { AEOPromptApi } from '../generated/api.schemas'
+import {
+    aeoPromptsBulkImport,
+    aeoPromptsBulkSetTopic,
+    aeoPromptsList,
+    aeoPromptsPartialUpdate,
+    aeoPromptsTopics,
+    aeoSetupContext,
+} from '../generated/api'
+import type { AEOPromptApi, AEOSetupContextApi } from '../generated/api.schemas'
 import { contentAutopilotFiltersLogic } from './contentAutopilotFiltersLogic'
 import { PROMPTS_PAGE_SIZE, contentAutopilotPromptsLogic } from './contentAutopilotPromptsLogic'
 import { EXAMPLE_PROMPT_TOPICS, EXAMPLE_PROMPTS } from './contentAutopilotStoryFixtures'
@@ -19,6 +26,8 @@ jest.mock('../generated/api', () => ({
     aeoPromptsTopics: jest.fn(),
     aeoPromptsPartialUpdate: jest.fn(),
     aeoPromptsBulkImport: jest.fn(),
+    aeoPromptsBulkSetTopic: jest.fn(),
+    aeoSetupContext: jest.fn(),
 }))
 
 jest.mock('lib/lemon-ui/LemonToast/LemonToast', () => ({ lemonToast: { error: jest.fn(), success: jest.fn() } }))
@@ -27,6 +36,25 @@ const mockPromptsList = jest.mocked(aeoPromptsList)
 const mockPromptsTopics = jest.mocked(aeoPromptsTopics)
 const mockPromptsPartialUpdate = jest.mocked(aeoPromptsPartialUpdate)
 const mockPromptsBulkImport = jest.mocked(aeoPromptsBulkImport)
+const mockPromptsBulkSetTopic = jest.mocked(aeoPromptsBulkSetTopic)
+const mockSetupContext = jest.mocked(aeoSetupContext)
+
+const setupContext = (activePrompts: number, maxActivePrompts: number): AEOSetupContextApi => ({
+    websites: [],
+    own_domains: ['hedgebox.net'],
+    active_prompts: activePrompts,
+    max_active_prompts: maxActivePrompts,
+    paused_prompts: 0,
+    keywords: 0,
+    has_checks: true,
+    ai_data_processing_approved: true,
+    first_run_available: true,
+    prompt_target: 20,
+    prompt_count_max: 50,
+    website_days: 7,
+    first_run_checks: [],
+    engines: [],
+})
 
 describe('contentAutopilotPromptsLogic', () => {
     let logic: ReturnType<typeof contentAutopilotPromptsLogic.build>
@@ -38,6 +66,7 @@ describe('contentAutopilotPromptsLogic', () => {
         initKeaTests()
         mockPromptsList.mockResolvedValue({ count: 120, next: null, previous: null, results: EXAMPLE_PROMPTS })
         mockPromptsTopics.mockResolvedValue(EXAMPLE_PROMPT_TOPICS)
+        mockSetupContext.mockResolvedValue(setupContext(3, 100))
     })
 
     afterEach(() => {
@@ -212,6 +241,96 @@ describe('contentAutopilotPromptsLogic', () => {
         expect(mockPromptsList).toHaveBeenCalledTimes(succeeds ? 1 : 0)
         expect(jest.mocked(lemonToast.error).mock.calls.map(([message]) => message)).toEqual(
             succeeds ? [] : ['Prompt is too long']
+        )
+    })
+
+    it('reads the prompt limit, shows why a refused toggle failed, and reloads the count after a change', async () => {
+        const prompt = EXAMPLE_PROMPTS.find((example) => !example.active) as AEOPromptApi
+        const activeOf = (): boolean | undefined =>
+            logic.values.prompts?.results.find((row) => row.id === prompt.id)?.active
+        mockSetupContext.mockResolvedValue(setupContext(100, 100))
+        logic = contentAutopilotPromptsLogic()
+        logic.mount()
+        await expectLogic(logic)
+            .toFinishAllListeners()
+            .toMatchValues({ setupContext: setupContext(100, 100), promptLimitReached: true })
+
+        const limitMessage =
+            "You're tracking 100 prompts, and this project can track up to 100. Turn off some prompts first."
+        mockPromptsPartialUpdate.mockRejectedValueOnce(
+            new ApiError('Bad request', 400, undefined, { detail: limitMessage })
+        )
+        logic.actions.setPromptActive(prompt.id, true)
+        await expectLogic(logic).toFinishAllListeners()
+        expect(activeOf()).toBe(false)
+        expect(lemonToast.error).toHaveBeenCalledWith(limitMessage)
+
+        mockSetupContext.mockResolvedValue(setupContext(101, 150))
+        mockPromptsPartialUpdate.mockResolvedValueOnce({ ...prompt, active: true })
+        logic.actions.setPromptActive(prompt.id, true)
+        await expectLogic(logic)
+            .toFinishAllListeners()
+            .toMatchValues({ setupContext: setupContext(101, 150), promptLimitReached: false })
+        expect(activeOf()).toBe(true)
+    })
+
+    it('keeps a row picked during a page load only when the page that arrives shows it', async () => {
+        logic = contentAutopilotPromptsLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        const current = EXAMPLE_PROMPTS.filter((prompt) => !prompt.archived_at).map((prompt) => prompt.id)
+        let resolvePage: (value: Awaited<ReturnType<typeof aeoPromptsList>>) => void = () => {}
+        mockPromptsList.mockImplementationOnce(() => new Promise((resolve) => (resolvePage = resolve)))
+
+        logic.actions.setPromptsPage(2)
+        // The previous rows still show while the next page loads, so they can be picked.
+        logic.actions.selectPrompts(current.slice(0, 2))
+        const nextPage = EXAMPLE_PROMPTS.filter((prompt) => prompt.id !== current[0])
+        resolvePage({ count: 120, next: null, previous: null, results: nextPage })
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.selectedPromptIds).toEqual([current[1]])
+    })
+
+    it.each([
+        ['closes the dialog and reloads the list and the topics', true],
+        ['keeps the dialog open and shows why', false],
+    ])('sets the topic of the picked prompts, then %s', async (_name, succeeds) => {
+        if (succeeds) {
+            mockPromptsBulkSetTopic.mockResolvedValue({ prompts: 2, checks: 0 })
+        } else {
+            mockPromptsBulkSetTopic.mockRejectedValue(
+                new ApiError('Bad request', 400, undefined, { detail: 'Restore archived prompts first.' })
+            )
+        }
+        logic = contentAutopilotPromptsLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        // Archived prompts accept no edit, so picking the whole page leaves them out.
+        const current = EXAMPLE_PROMPTS.filter((prompt) => !prompt.archived_at).map((prompt) => prompt.id)
+        expect(logic.values.selectablePromptIds).toEqual(current)
+        logic.actions.selectPrompts(logic.values.selectablePromptIds)
+        logic.actions.togglePromptSelected(current[0])
+        mockPromptsList.mockClear()
+        mockPromptsTopics.mockClear()
+
+        logic.actions.openSetTopic()
+        logic.actions.setPromptsTopic('Pricing')
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(mockPromptsBulkSetTopic).toHaveBeenCalledWith(String(MOCK_DEFAULT_TEAM.id), {
+            prompt_ids: current.slice(1),
+            topic: 'Pricing',
+        })
+        expect(logic.values).toMatchObject({
+            setTopicOpen: !succeeds,
+            setTopicSaving: false,
+            selectedPromptIds: succeeds ? [] : current.slice(1),
+        })
+        expect(mockPromptsList).toHaveBeenCalledTimes(succeeds ? 1 : 0)
+        expect(mockPromptsTopics).toHaveBeenCalledTimes(succeeds ? 1 : 0)
+        expect(jest.mocked(lemonToast.error).mock.calls.map(([message]) => message)).toEqual(
+            succeeds ? [] : ['Restore archived prompts first.']
         )
     })
 })

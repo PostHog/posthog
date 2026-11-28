@@ -44,6 +44,8 @@ class SupportReplyInput:
     # 0 = first draft. Coordinator sets this to ai_triage.clarification_rounds when
     # re-engaging after a customer answers a public clarifying question.
     clarification_round: int = 0
+    # What started the run. A manual run never publishes to the customer.
+    trigger: str = "first_message"
 
 
 @dataclass(frozen=False)

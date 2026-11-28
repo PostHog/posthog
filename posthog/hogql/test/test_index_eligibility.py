@@ -47,8 +47,8 @@ from posthog.hogql.transforms.property_types import build_property_swapper
 
 from posthog.schema_enums import PredicateFixAction, QueryIndexUsage
 
+from products.event_definitions.backend.facade.enums import PropertyType
 from products.event_definitions.backend.models.property_definition import PropertyDefinition
-from products.event_definitions.backend.property_type import PropertyType
 
 from ee.clickhouse.materialized_columns.columns import MaterializedColumn, MaterializedColumnDetails
 
@@ -568,6 +568,18 @@ class TestIndexEligibilityThroughThePlanner(BaseTest):
         # The advice is real but not a query edit, so it must not become an editor marker.
         assert predicate.fix is not None
         assert predicate.editor_actionable is False
+
+    def test_ai_event_report_distinguishes_typed_properties_from_native_string_ids(self) -> None:
+        report = self._report(
+            "select count() from posthog.ai_events where properties.score > 7 and properties.$ai_trace_id = '007'",
+            columns={},
+            property_types={name: {"type": PropertyType.Numeric.value} for name in ("score", "$ai_trace_id")},
+        )
+
+        predicates = {predicate.property_name: predicate for predicate in report.predicates}
+        assert predicates["score"].scope == PropertyScope.EVENT
+        assert predicates["score"].semantic_type == "Float"
+        assert predicates["$ai_trace_id"].semantic_type == "String"
 
     def test_number_against_a_text_column_gets_a_quoted_quickfix(self) -> None:
         query = "select count() from events where properties.$browser_version = 120"

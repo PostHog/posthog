@@ -275,21 +275,21 @@ def read_issue_summary(team_id: int, issue_id: UUID | str, user: User) -> IssueS
     """The stored summary, or the reason none is shown. Never starts generation."""
     if not issue_summaries_enabled(team_id):
         return IssueSummaryState(status=IssueSummaryStatus.UNAVAILABLE, reason=IssueSummaryUnavailableReason.DISABLED)
+    stored = get_issue_summary(team_id, issue_id)
+    # A stored summary stays visible with the setting off, because reading it costs nothing. Without one, the setting
+    # comes before the access checks, as it does in `gate_generation`, and the issue page shows nothing for it.
+    if stored is None and not ai_feature_setting_on(ISSUE_SUMMARIES, team_id):
+        return IssueSummaryState(
+            status=IssueSummaryStatus.UNAVAILABLE, reason=IssueSummaryUnavailableReason.SETTING_OFF
+        )
     if not summary_sources_readable(team_id, user):
         return IssueSummaryState(status=IssueSummaryStatus.UNAVAILABLE, reason=IssueSummaryUnavailableReason.RESTRICTED)
     if not is_ai_data_processing_approved(team_id):
         return IssueSummaryState(
             status=IssueSummaryStatus.UNAVAILABLE, reason=IssueSummaryUnavailableReason.AI_NOT_APPROVED
         )
-    stored = get_issue_summary(team_id, issue_id)
     if stored is not None:
         return IssueSummaryState(status=IssueSummaryStatus.READY, summary=stored)
-    # A stored summary stays visible after the setting is turned off, because reading it costs nothing. Only the
-    # request to write one needs the setting.
-    if not ai_feature_setting_on(ISSUE_SUMMARIES, team_id):
-        return IssueSummaryState(
-            status=IssueSummaryStatus.UNAVAILABLE, reason=IssueSummaryUnavailableReason.SETTING_OFF
-        )
     return IssueSummaryState(status=IssueSummaryStatus.NOT_GENERATED)
 
 
@@ -504,7 +504,6 @@ def _generate_claimed(
             logger.warning("error_tracking_issue_summary_budget_unavailable", team_id=team_id, error=bucket_error)
             return IssueSummaryResult(outcome=IssueSummaryOutcome.RATE_LIMITED, summary=None)
 
-    # Only the Go gateway honours privacy mode, so the Python gateway fallback is never used.
     if resolve_ai_gateway_config() is None:
         refund(budget_key, budget)
         return IssueSummaryResult(outcome=IssueSummaryOutcome.GATEWAY_UNCONFIGURED, summary=None)
@@ -789,7 +788,6 @@ ISSUE_SUMMARY_RESPONSE_FORMAT: ResponseFormatJSONSchema = {
 
 def _call_model(team_id: int, issue_id: UUID | str, prompt: str) -> str:
     client: OpenAI = build_openai_client(
-        "django",
         ai_product=ISSUE_SUMMARY_AI_PRODUCT,
         properties={"team_id": str(team_id), "issue_id": str(issue_id)},
         distinct_id=team_distinct_id(team_id),

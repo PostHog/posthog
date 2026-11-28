@@ -27,6 +27,7 @@ from products.warehouse_sources.backend.temporal.data_imports.external_data_job 
     CreateSourceTemplateInputs,
     ExternalDataJobWorkflow,
     UpdateExternalDataJobStatusInputs,
+    _reads_complete_table,
     _started_by_own_schedule,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.typings import PipelineResult
@@ -398,6 +399,35 @@ def test_only_the_schemas_own_schedule_counts_as_scheduled(search_attributes: di
     assert _started_by_own_schedule(search_attributes, _SCHEMA_ID) is expected
 
 
+@pytest.mark.parametrize(
+    "incremental_or_append,scheduled_full_refresh,reset_pipeline,is_resumable_source,expected",
+    [
+        pytest.param(False, False, False, False, True, id="full_refresh"),
+        pytest.param(True, False, False, False, False, id="incremental_or_append"),
+        pytest.param(True, True, False, False, True, id="scheduled_full_refresh"),
+        pytest.param(True, False, True, False, True, id="reset_pipeline"),
+        pytest.param(False, False, False, True, False, id="resumable_full_refresh"),
+        pytest.param(True, True, True, True, False, id="resumable_source_never_complete"),
+    ],
+)
+def test_only_runs_that_staged_the_whole_table_may_remove_person_properties(
+    incremental_or_append: bool,
+    scheduled_full_refresh: bool,
+    reset_pipeline: bool,
+    is_resumable_source: bool,
+    expected: bool,
+):
+    assert (
+        _reads_complete_table(
+            incremental_or_append=incremental_or_append,
+            scheduled_full_refresh=scheduled_full_refresh,
+            reset_pipeline=reset_pipeline,
+            is_resumable_source=is_resumable_source,
+        )
+        is expected
+    )
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     "steps_mode",
@@ -668,6 +698,72 @@ def test_ducklake_copy_follows_its_flag_even_at_zero_rows(team, flag_result, exp
 
     assert ctx.steps is not None
     assert (DUCKLAKE_COPY_STEP in ctx.steps) is expect_copy
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "has_table,rows_synced,expect_statistics,expect_enrichment",
+    [
+        pytest.param(False, 5, False, False, id="no_table"),
+        pytest.param(True, 0, False, True, id="zero_rows_checked_within_the_day"),
+        pytest.param(True, 5, True, True, id="rows_written_stats_past_daily_interval"),
+    ],
+)
+def test_statistics_and_enrichment_start_only_when_the_child_has_work(
+    team, has_table, rows_synced, expect_statistics, expect_enrichment, _no_close_old_connections
+):
+    from datetime import timedelta
+
+    from django.utils import timezone
+
+    from products.warehouse_sources.backend.models.column_statistics import WarehouseColumnStatistics
+    from products.warehouse_sources.backend.models.credential import DataWarehouseCredential
+    from products.warehouse_sources.backend.models.table import DataWarehouseTable
+    from products.warehouse_sources.backend.temporal.data_imports.post_import_job import (
+        SEMANTIC_ENRICHMENT_STEP,
+        TABLE_STATISTICS_STEP,
+        PostImportWorkflowInputs,
+        resolve_post_import_context_activity,
+    )
+
+    team.organization.is_ai_data_processing_approved = True
+    team.organization.save()
+    source, schema, job = _create_job(
+        team,
+        status=ExternalDataJob.Status.COMPLETED,
+        schema_snapshot={"last_synced_at": "2026-07-01T00:00:00+00:00"},
+        schema_last_synced_at=None,
+        rows_synced=rows_synced,
+    )
+    if has_table:
+        credential = DataWarehouseCredential.objects.create(access_key="k", access_secret="s", team=team)
+        table = DataWarehouseTable.objects.create(
+            name="stripe_customer",
+            format="Parquet",
+            team=team,
+            credential=credential,
+            url_pattern="https://bucket.s3/data/*",
+            columns={"email": {"clickhouse": "Nullable(String)"}},
+        )
+        schema.table = table
+        schema.save()
+        WarehouseColumnStatistics.objects.for_team(team.id).create(
+            team=team,
+            table=table,
+            column_name="email",
+            computed_at=timezone.now() - timedelta(days=2),
+            checked_at=timezone.now() - timedelta(hours=1),
+        )
+
+    ctx = resolve_post_import_context_activity(
+        PostImportWorkflowInputs(
+            team_id=team.pk, job_id=str(job.id), schema_id=str(schema.id), source_id=str(source.id)
+        )
+    )
+
+    assert ctx.steps is not None
+    assert (TABLE_STATISTICS_STEP in ctx.steps) is expect_statistics
+    assert (SEMANTIC_ENRICHMENT_STEP in ctx.steps) is expect_enrichment
 
 
 @pytest.mark.django_db

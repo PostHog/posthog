@@ -29,6 +29,8 @@ rules:
       owners: team-warehouse-sources
     - match: '/data-management/schema/'
       owners: team-analytics
+    - match: '/data-management/tags/'
+      owners: team-platform-features
     - match: '/data-pipelines/'
       owners: team-workflows
     # Narrower than the rule above, which would otherwise route the batch exports
@@ -61,6 +63,8 @@ rules:
       owners: team-surfaces
     - match: '/settings/aiSubscriptions.test.ts'
       owners: team-surfaces
+    - match: '/settings/organization/oauthApp*.test.ts'
+      owners: team-growth
     # The topic list the AI homepage renders, so growth reviews it alongside Max.
     - match: '/max/suggestionTopics.tsx'
       owners: [team-surfaces, team-growth]
@@ -135,3 +139,5 @@ rules:
     - match:
           - '/integrations/aws-s3/*.test.*'
       owners: team-workflows
+    - match: '/integrations/aws-warehouse-sources/'
+      owners: team-warehouse-sources

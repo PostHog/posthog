@@ -27,7 +27,7 @@ def _page(endpoint: str, rows: list[dict[str, Any]], after: str | None) -> Scrip
 class TestGetResource:
     @parameterized.expand(
         [
-            ("messages", "inserted_at[gte]"),
+            ("messages", "inserted_at.gte"),
             ("workflow_recipient_runs", "starting_at"),
         ]
     )
@@ -117,7 +117,42 @@ class TestKnockSourceTransport:
         )
 
         assert result.raised is None
-        assert result.requests[0].param("inserted_at[gte]") == "2026-05-01T12:30:00"
+        assert result.requests[0].param("inserted_at.gte") == "2026-05-01T12:30:00"
+
+    @parameterized.expand(
+        [
+            ("messages", "inserted_at", ["/v1/messages"]),
+            (
+                "message_events",
+                "message_inserted_at",
+                ["/v1/messages", "/v1/messages/m2/events", "/v1/messages/m1/events"],
+            ),
+        ]
+    )
+    def test_incremental_walk_stops_at_first_page_below_watermark(
+        self, endpoint: str, incremental_field: str, expected_paths: list[str]
+    ) -> None:
+        child_page = ScriptedResponse(json={"items": [], "page_info": {}})
+        result = self._driver().run(
+            endpoint,
+            [
+                _page(
+                    "messages",
+                    [
+                        {"id": "m2", "inserted_at": "2026-05-02T00:00:00Z"},
+                        {"id": "m1", "inserted_at": "2026-04-30T00:00:00.123456Z"},
+                    ],
+                    after="cursor-1",
+                ),
+                *([child_page, child_page] if endpoint != "messages" else []),
+                _page("messages", [{"id": "m0", "inserted_at": "2026-04-29T00:00:00Z"}], after=None),
+            ],
+            incremental_field=incremental_field,
+            db_incremental_field_last_value=datetime(2026, 5, 1, 12, 30),
+        )
+
+        assert result.raised is None
+        assert result.paths == expected_paths
 
     @parameterized.expand(
         [
@@ -184,9 +219,9 @@ class TestKnockSourceTransport:
             f"/v1/messages/m2/{child_path}",
         ]
         # The child endpoints take no timestamp filter, so the watermark bounds the parent walk.
-        assert result.requests[0].param("inserted_at[gte]") == "2026-05-01T12:30:00"
+        assert result.requests[0].param("inserted_at.gte") == "2026-05-01T12:30:00"
         assert result.requests[2].param("after") == "cursor-1"
-        assert all(request.param("inserted_at[gte]") is None for request in result.requests[1::2])
+        assert all(request.param("inserted_at.gte") is None for request in result.requests[1::2])
         assert [(r["message_id"], r["id"], r["message_inserted_at"]) for r in result.rows] == [
             ("m1", "e1", "2026-06-01T00:00:00Z"),
             ("m2", "e1", "2026-06-02T00:00:00Z"),

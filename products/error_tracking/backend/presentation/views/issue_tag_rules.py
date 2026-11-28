@@ -14,7 +14,10 @@ from posthog.api.utils import action
 from posthog.event_usage import report_user_action
 from posthog.models.user import User
 
-from products.error_tracking.backend.facade import api as error_tracking_api
+from products.error_tracking.backend.facade import (
+    api as error_tracking_api,
+    contracts,
+)
 
 ISSUE_TAGS_OFF = "Issue tags are off for this project."
 
@@ -26,6 +29,9 @@ FILTERS_HELP_TEXT = (
 )
 LABEL_HELP_TEXT = "Display name of the tag the rule applies to matching issues."
 DESCRIPTION_HELP_TEXT = "What the tag means. Shown with the tag."
+COLOR_HELP_TEXT = (
+    "Color of the tag, from a fixed set of named colors. Null shows the tag in a color picked from its label."
+)
 # The bounds of the Postgres integer column that stores the order key.
 ORDER_KEY_MIN, ORDER_KEY_MAX = -(2**31), 2**31 - 1
 
@@ -77,6 +83,7 @@ class ErrorTrackingIssueTagRuleSerializer(serializers.Serializer):
     )
     label = serializers.CharField(max_length=128, help_text=LABEL_HELP_TEXT)  # type: ignore[assignment]
     description = serializers.CharField(allow_blank=True, help_text=DESCRIPTION_HELP_TEXT)
+    color = serializers.ChoiceField(choices=contracts.IssueTagColor.choices, allow_null=True, help_text=COLOR_HELP_TEXT)
     filters = ErrorTrackingIssueTagRuleFiltersField(help_text=FILTERS_HELP_TEXT)
     version = serializers.IntegerField(
         read_only=True, help_text="Starts at 1, and goes up by one each time the filters change."
@@ -109,6 +116,13 @@ class ErrorTrackingIssueTagRuleCreateRequestSerializer(serializers.Serializer):
         max_length=1000,
         help_text=f"{DESCRIPTION_HELP_TEXT} Defaults to empty.",
     )
+    color = serializers.ChoiceField(
+        choices=contracts.IssueTagColor.choices,
+        required=False,
+        allow_null=True,
+        default=None,
+        help_text=f"{COLOR_HELP_TEXT} Defaults to null.",
+    )
     filters = ErrorTrackingIssueTagRuleFiltersField(help_text=FILTERS_HELP_TEXT)
     order_key = serializers.IntegerField(
         required=False,
@@ -130,6 +144,12 @@ class ErrorTrackingIssueTagRuleUpdateRequestSerializer(serializers.Serializer):
         allow_blank=True,
         max_length=1000,
         help_text="Replacement description. Omit to keep the existing description.",
+    )
+    color = serializers.ChoiceField(
+        choices=contracts.IssueTagColor.choices,
+        required=False,
+        allow_null=True,
+        help_text="Replacement color. Null switches to a color picked from the label. Omit to keep the existing color.",
     )
     filters = ErrorTrackingIssueTagRuleFiltersField(
         required=False,
@@ -186,6 +206,7 @@ class ErrorTrackingIssueTagRuleViewSet(TeamAndOrgViewSetMixin, viewsets.GenericV
             description=request.validated_data["description"],
             filters=request.validated_data["filters"],
             order_key=request.validated_data["order_key"],
+            color=request.validated_data["color"],
         )
         self._report("error_tracking_tag_rule_created", request)
         return Response(self.get_serializer(rule).data, status=status.HTTP_201_CREATED)
@@ -198,6 +219,7 @@ class ErrorTrackingIssueTagRuleViewSet(TeamAndOrgViewSetMixin, viewsets.GenericV
             label=request.validated_data.get("label"),
             description=request.validated_data.get("description"),
             filters=request.validated_data.get("filters"),
+            color=request.validated_data.get("color", error_tracking_api.UNCHANGED),
         )
         if rule is None:
             raise NotFound()

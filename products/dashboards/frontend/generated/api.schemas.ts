@@ -312,14 +312,187 @@ export interface CopyDashboardTemplateApi {
 }
 
 /**
+ * * `native` - Native
+ * * `builtin` - Built-in
+ * * `iac` - Infrastructure as code
+ */
+export type BoardManagedByEnumApi = (typeof BoardManagedByEnumApi)[keyof typeof BoardManagedByEnumApi]
+
+export const BoardManagedByEnumApi = {
+    Native: 'native',
+    Builtin: 'builtin',
+    Iac: 'iac',
+} as const
+
+export interface BoardSummaryApi {
+    /** The board's row id. Object access rules on the `dashboard` resource use it. */
+    id: string
+    /** Identifier of the board in URLs. Unique among the project's live boards. */
+    uid: string
+    /** The document's `title` when it was last saved. */
+    title: string
+    /** The document's `tags` when it was last saved. */
+    tags: string[]
+    /** The document's `folder`: folder titles separated by `/`. Empty for the top level. */
+    folder: string
+    /** Counts saves: starts at 1, and each save adds 1. Send it as `base_version` to refuse a save over a newer one. Not the document's schema version, which is `spec.version`. */
+    version: number
+    /** `native` boards are saved through this API. Other boards are read-only here.
+     *
+     * * `native` - Native
+     * * `builtin` - Built-in
+     * * `iac` - Infrastructure as code */
+    managed_by: BoardManagedByEnumApi
+    /**
+     * The template the board was made from, or null.
+     * @nullable
+     */
+    template_id: string | null
+    /**
+     * The version of `template_id` the board was made from, or null.
+     * @nullable
+     */
+    template_version: number | null
+    /** When the board was first saved. */
+    created_at: string
+    /**
+     * ID of the user who created the board.
+     * @nullable
+     */
+    created_by_id: number | null
+    /** When the board was last saved. */
+    last_modified_at: string
+    /**
+     * ID of the user who last saved the board.
+     * @nullable
+     */
+    last_modified_by_id: number | null
+}
+
+export interface PaginatedBoardSummaryListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: BoardSummaryApi[]
+}
+
+/**
+ * The board document, at most 1000000 bytes. `version` is its schema version, currently 2. It is upgraded to the current schema version before it is saved. Tiles are not checked, so a broken tile shows as an error tile, and unknown fields are kept.
+ */
+export type BoardCreateApiSpec = { [key: string]: unknown }
+
+export interface BoardCreateApi {
+    /** The board document, at most 1000000 bytes. `version` is its schema version, currently 2. It is upgraded to the current schema version before it is saved. Tiles are not checked, so a broken tile shows as an error tile, and unknown fields are kept. */
+    spec: BoardCreateApiSpec
+}
+
+/**
+ * The whole board document, upgraded to the current schema version.
+ */
+export type BoardDetailApiSpec = { [key: string]: unknown }
+
+export interface BoardDetailApi {
+    /** The board's row id. Object access rules on the `dashboard` resource use it. */
+    id: string
+    /** Identifier of the board in URLs. Unique among the project's live boards. */
+    uid: string
+    /** The document's `title` when it was last saved. */
+    title: string
+    /** The document's `tags` when it was last saved. */
+    tags: string[]
+    /** The document's `folder`: folder titles separated by `/`. Empty for the top level. */
+    folder: string
+    /** Counts saves: starts at 1, and each save adds 1. Send it as `base_version` to refuse a save over a newer one. Not the document's schema version, which is `spec.version`. */
+    version: number
+    /** `native` boards are saved through this API. Other boards are read-only here.
+     *
+     * * `native` - Native
+     * * `builtin` - Built-in
+     * * `iac` - Infrastructure as code */
+    managed_by: BoardManagedByEnumApi
+    /**
+     * The template the board was made from, or null.
+     * @nullable
+     */
+    template_id: string | null
+    /**
+     * The version of `template_id` the board was made from, or null.
+     * @nullable
+     */
+    template_version: number | null
+    /** When the board was first saved. */
+    created_at: string
+    /**
+     * ID of the user who created the board.
+     * @nullable
+     */
+    created_by_id: number | null
+    /** When the board was last saved. */
+    last_modified_at: string
+    /**
+     * ID of the user who last saved the board.
+     * @nullable
+     */
+    last_modified_by_id: number | null
+    /** The whole board document, upgraded to the current schema version. */
+    spec: BoardDetailApiSpec
+}
+
+/**
+ * The board document, at most 1000000 bytes. `version` is its schema version, currently 2. It is upgraded to the current schema version before it is saved. Tiles are not checked, so a broken tile shows as an error tile, and unknown fields are kept.
+ */
+export type BoardUpdateApiSpec = { [key: string]: unknown }
+
+export interface BoardUpdateApi {
+    /** The board document, at most 1000000 bytes. `version` is its schema version, currently 2. It is upgraded to the current schema version before it is saved. Tiles are not checked, so a broken tile shows as an error tile, and unknown fields are kept. */
+    spec: BoardUpdateApiSpec
+    /**
+     * The `version` this save is based on. When the board is at another version, nothing is saved and the response is a 409. Leave it out to save over any version.
+     * @minimum 1
+     */
+    base_version?: number
+}
+
+/**
+ * * `query` - Query
  * * `insight` - Insight
  * * `hogql` - HogQL
+ * * `promql` - PromQL
+ * * `logql` - LogQL
  */
 export type QueryBatchLanguageEnumApi = (typeof QueryBatchLanguageEnumApi)[keyof typeof QueryBatchLanguageEnumApi]
 
 export const QueryBatchLanguageEnumApi = {
+    Query: 'query',
     Insight: 'insight',
     Hogql: 'hogql',
+    Promql: 'promql',
+    Logql: 'logql',
+} as const
+
+/**
+ * * `time_series` - Time series
+ * * `table` - Table
+ */
+export type QueryBatchTargetFormatEnumApi =
+    (typeof QueryBatchTargetFormatEnumApi)[keyof typeof QueryBatchTargetFormatEnumApi]
+
+export const QueryBatchTargetFormatEnumApi = {
+    TimeSeries: 'time_series',
+    Table: 'table',
+} as const
+
+/**
+ * * `classic` - Classic
+ * * `new` - New
+ */
+export type QueryBatchEngineEnumApi = (typeof QueryBatchEngineEnumApi)[keyof typeof QueryBatchEngineEnumApi]
+
+export const QueryBatchEngineEnumApi = {
+    Classic: 'classic',
+    New: 'new',
 } as const
 
 export interface QueryBatchTargetApi {
@@ -328,16 +501,34 @@ export interface QueryBatchTargetApi {
      * @maxLength 200
      */
     refId: string
-    /** 'insight': `query` is JSON `{query: <query node>, filters?, variables?}`, as a PostHog dashboard sends to `/query`. 'hogql': `query` is SQL that reads the time range through `{filters}`.
+    /** 'query': `query` is a PostHog query node as JSON, bare or as `{query: <query node>, filters?, variables?}`, as a PostHog dashboard sends to `/query`. 'insight' is a deprecated name for 'query'. 'hogql': `query` is SQL that reads the time range through `{filters}`. 'promql' and 'logql': `query` is the expression, run as a range query over the panel's time range.
      *
+     * * `query` - Query
      * * `insight` - Insight
-     * * `hogql` - HogQL */
+     * * `hogql` - HogQL
+     * * `promql` - PromQL
+     * * `logql` - LogQL */
     language: QueryBatchLanguageEnumApi
     /**
      * The query text, read according to `language`.
      * @maxLength 200000
      */
     query: string
+    /**
+     * The series name template the panel draws. Returned unchanged on the target's line.
+     * @maxLength 1000
+     */
+    legend?: string
+    /** How the panel draws the result. Returned unchanged on the target's line.
+     *
+     * * `time_series` - Time series
+     * * `table` - Table */
+    format?: QueryBatchTargetFormatEnumApi
+    /** For query and hogql targets: 'new' runs on the new events schema and materialized views. 'classic', the default, runs as `/query` does.
+     *
+     * * `classic` - Classic
+     * * `new` - New */
+    engine?: QueryBatchEngineEnumApi
 }
 
 export interface QueryBatchTimeApi {
@@ -370,15 +561,37 @@ export interface QueryBatchQueryApi {
      */
     variables?: QueryBatchQueryApiVariables
     /**
-     * For insight targets that have an interval: minute, hour, day, week, month, quarter or year.
+     * For insight targets that have an interval: minute, hour, day, week, month, quarter or year. For promql and logql targets, the smallest step, as a duration such as 1m or 5m.
      * @maxLength 20
      */
     interval?: string
+    /**
+     * For promql and logql targets: the most points per series. Sets the step with `interval`.
+     * @minimum 1
+     * @maximum 10000
+     */
+    maxDataPoints?: number
     /** Serve a stale cached result at once and recompute it in the background for the next read. */
     swr?: boolean
     /** Answer from the cache only, stale or not. Never runs or refreshes the query. */
     cacheOnly?: boolean
+    /**
+     * The tile this target belongs to. Only labels the query's run in the query log.
+     * @maxLength 64
+     */
+    tile?: string
 }
+
+/**
+ * * `result` - Result
+ * * `frames` - Frames
+ */
+export type ResultFormatEnumApi = (typeof ResultFormatEnumApi)[keyof typeof ResultFormatEnumApi]
+
+export const ResultFormatEnumApi = {
+    Result: 'result',
+    Frames: 'frames',
+} as const
 
 export interface QueryBatchRequestApi {
     /**
@@ -386,6 +599,11 @@ export interface QueryBatchRequestApi {
      * @maxItems 500
      */
     queries: QueryBatchQueryApi[]
+    /** `result` returns each runner's own result. `frames` returns chart-ready frames for trends, metrics, PromQL, HogQL and LogQL targets, and the runner's result for kinds without frames, such as funnels.
+     *
+     * * `result` - Result
+     * * `frames` - Frames */
+    format?: ResultFormatEnumApi
     /**
      * The dashboard these panels sit on. Its queries then run as that dashboard's tiles, under the dashboard query limits. Never read for anything else.
      * @nullable
@@ -2704,6 +2922,9 @@ export const QueryScanFindingKindApi = {
     NoEventFilter: 'no_event_filter',
     NoStartDate: 'no_start_date',
     PersonsJoin: 'persons_join',
+    RepeatedCteExpansion: 'repeated_cte_expansion',
+    CrossJoinEquality: 'cross_join_equality',
+    DateArraysBeforeBreakdownLimit: 'date_arrays_before_breakdown_limit',
 } as const
 
 export interface QueryScanWarningApi {
@@ -5613,6 +5834,8 @@ export interface Response8Api {
 }
 
 export interface WebVitalsPathBreakdownResultItemApi {
+    /** Number of `$web_vitals` samples for this metric and page in the period. Unset when served from precomputed buckets. */
+    count?: number | null
     path: string
     value: number
 }
@@ -5871,6 +6094,7 @@ export const IntegrationKindApi = {
     AppleAds: 'apple-ads',
     Postgresql: 'postgresql',
     AwsS3: 'aws-s3',
+    AwsWarehouseSources: 'aws-warehouse-sources',
     AwsRedshift: 'aws-redshift',
     S3Compatible: 's3-compatible',
     Snowflake: 'snowflake',
@@ -5927,7 +6151,23 @@ export const ErrorTrackingIssueStatusApi = {
     Suppressed: 'suppressed',
 } as const
 
+export type ErrorTrackingIssueTagColorApi =
+    (typeof ErrorTrackingIssueTagColorApi)[keyof typeof ErrorTrackingIssueTagColorApi]
+
+export const ErrorTrackingIssueTagColorApi = {
+    Blue: 'blue',
+    Teal: 'teal',
+    Green: 'green',
+    Yellow: 'yellow',
+    Orange: 'orange',
+    Red: 'red',
+    Pink: 'pink',
+    Purple: 'purple',
+} as const
+
 export interface ErrorTrackingIssueTagApi {
+    /** Named color of the tag, or null for a color picked from the label. */
+    color?: ErrorTrackingIssueTagColorApi | null
     /** What the tag means, for a tooltip. */
     description: string
     /** Key of the tag definition. */
@@ -7283,6 +7523,27 @@ export interface ExperimentBreakdownResultApi {
     variants: ExperimentVariantResultFrequentistApi[] | ExperimentVariantResultBayesianApi[]
 }
 
+/**
+ * Exposed entities with no row of the metric query that counted, by variant.
+ */
+export type ExperimentWarehouseNativeRowsLeftOutApiExposedWithoutRows = { [key: string]: number } | null
+
+/**
+ * Exposure rows whose variant is not one the flag serves, counted by the value seen. At most the 50 most common values.
+ */
+export type ExperimentWarehouseNativeRowsLeftOutApiUnknownVariants = { [key: string]: number } | null
+
+export interface ExperimentWarehouseNativeRowsLeftOutApi {
+    /** Exposure rows with an empty entity_id. */
+    empty_id?: number | null
+    /** Exposed entities with no row of the metric query that counted, by variant. */
+    exposed_without_rows?: ExperimentWarehouseNativeRowsLeftOutApiExposedWithoutRows
+    /** Exposure rows whose variant is not one the flag serves, in total, including the values that `unknown_variants` leaves out. */
+    unknown_variant_rows?: number | null
+    /** Exposure rows whose variant is not one the flag serves, counted by the value seen. At most the 50 most common values. */
+    unknown_variants?: ExperimentWarehouseNativeRowsLeftOutApiUnknownVariants
+}
+
 export interface ExperimentQueryResponseApi {
     baseline?: ExperimentStatsBaseValidatedApi | null
     /** Results grouped by breakdown value. When present, baseline and variant_results contain aggregated data. */
@@ -7292,6 +7553,8 @@ export interface ExperimentQueryResponseApi {
     /** Whether exposures were served from the precomputation system */
     is_precomputed?: boolean | null
     kind?: 'ExperimentQuery'
+    /** Rows of the warehouse-native metric query that the run left out, by reason. Set by a warehouse-native run only. */
+    rows_left_out?: ExperimentWarehouseNativeRowsLeftOutApi | null
     variant_results?: ExperimentVariantResultFrequentistApi[] | ExperimentVariantResultBayesianApi[] | null
     /** Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics. */
     warnings?: DataWarehouseSyncWarningApi[] | null
@@ -7968,6 +8231,8 @@ export interface WebVitalsPathBreakdownQueryApi {
     interval?: IntervalTypeApi | null
     kind?: 'WebVitalsPathBreakdownQuery'
     metric: WebVitalsMetricApi
+    /** Drop pages with fewer samples than this in the period, so a page with a handful of slow loads does not outrank a busy page with a real problem. No floor when omitted. */
+    minSamples?: number | null
     /** Modifiers used when performing the query */
     modifiers?: HogQLQueryModifiersApi | null
     orderBy?: (WebAnalyticsOrderByFieldsApi | WebAnalyticsOrderByDirectionApi)[] | null
@@ -8304,6 +8569,8 @@ export interface ConversionGoalFilter1Api {
         | null
     response?: ConversionGoalFilter1ApiResponse
     schema_map: ConversionGoalFilter1ApiSchemaMap
+    /** When true, Google Ads recommendations judge campaigns by this goal's conversions instead of the conversions Google Ads reports. Conversions from every marked goal are added together, so marking two goals the same person completes counts that person twice. Defaults to false. */
+    use_in_recommendations?: boolean | null
     /** version of the node, used for schema migrations */
     version?: number | null
 }
@@ -8400,6 +8667,8 @@ export interface ConversionGoalFilter2Api {
         | null
     response?: ConversionGoalFilter2ApiResponse
     schema_map: ConversionGoalFilter2ApiSchemaMap
+    /** When true, Google Ads recommendations judge campaigns by this goal's conversions instead of the conversions Google Ads reports. Conversions from every marked goal are added together, so marking two goals the same person completes counts that person twice. Defaults to false. */
+    use_in_recommendations?: boolean | null
     /** version of the node, used for schema migrations */
     version?: number | null
 }
@@ -8501,6 +8770,8 @@ export interface ConversionGoalFilter3Api {
     schema_map: ConversionGoalFilter3ApiSchemaMap
     table_name: string
     timestamp_field: string
+    /** When true, Google Ads recommendations judge campaigns by this goal's conversions instead of the conversions Google Ads reports. Conversions from every marked goal are added together, so marking two goals the same person completes counts that person twice. Defaults to false. */
+    use_in_recommendations?: boolean | null
     /** version of the node, used for schema migrations */
     version?: number | null
 }
@@ -8960,6 +9231,8 @@ export interface TraceQueryResponseApi {
 
 export interface TraceQueryApi {
     dateRange?: DateRangeApi | null
+    /** Return only the earliest events of the trace by timestamp. The latency, token and cost totals still cover every matching event. Leave unset to return every event. */
+    eventsLimit?: number | null
     /** Include stored sentiment evaluation results for the trace and its generations. */
     includeSentiment?: boolean | null
     kind?: 'TraceQuery'
@@ -10361,17 +10634,6 @@ export interface CachedTileInsightResultApi {
     query?: _InsightQuerySchemaApi | null
 }
 
-/**
- * * `frames` - Frames
- * * `result` - Result
- */
-export type CachedTileFormatEnumApi = (typeof CachedTileFormatEnumApi)[keyof typeof CachedTileFormatEnumApi]
-
-export const CachedTileFormatEnumApi = {
-    Frames: 'frames',
-    Result: 'result',
-} as const
-
 export interface FrameMetaApi {
     /**
      * Bucket size as a PostHog interval name, e.g. 'minute_5', 'hour' or 'day'.
@@ -10450,9 +10712,9 @@ export interface CachedTileResultApi {
     insight?: CachedTileInsightResultApi
     /** Present on a hit when the request asks for `format=frames`. 'frames' means `frames` replaces `insight.result`. 'result' means the tile's kind has no frames yet, so `insight.result` is unchanged.
      *
-     * * `frames` - Frames
-     * * `result` - Result */
-    format?: CachedTileFormatEnumApi
+     * * `result` - Result
+     * * `frames` - Frames */
+    format?: ResultFormatEnumApi
     /** Chart-ready frames, one per series. Present when format is 'frames'. */
     frames?: FrameApi[]
 }
@@ -11068,9 +11330,9 @@ export interface DashboardStreamCachedTileApi {
     insight?: CachedTileInsightResultApi
     /** Present on a hit when the request asks for `format=frames`. 'frames' means `frames` replaces `insight.result`. 'result' means the tile's kind has no frames yet, so `insight.result` is unchanged.
      *
-     * * `frames` - Frames
-     * * `result` - Result */
-    format?: CachedTileFormatEnumApi
+     * * `result` - Result
+     * * `frames` - Frames */
+    format?: ResultFormatEnumApi
     /** Chart-ready frames, one per series. Present when format is 'frames'. */
     frames?: FrameApi[]
     /** Present on hits: whether the cached result is past its target age. */
@@ -11770,6 +12032,18 @@ export const DashboardTemplatesListScope = {
     Organization: 'organization',
     Team: 'team',
 } as const
+
+export type DashboardV2BoardsListParams = {
+    /**
+     * Number of results to return per page.
+     * @maximum 1000
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
 
 export type DashboardsListParams = {
     /**

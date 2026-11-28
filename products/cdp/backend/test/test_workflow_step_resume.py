@@ -33,7 +33,12 @@ def test_posts_the_wake_with_a_scoped_jwt_and_capped_strings() -> None:
             team_id=7,
             origin_key="job:step:3",
             status="completed",
-            result={"final_message": "x" * (RESULT_STRING_CAP + 1), "pr_urls": ["u"], "error_message": None},
+            result={
+                "output": {"tags": ["a", None, "b"]},
+                "final_message": "x" * (RESULT_STRING_CAP + 1),
+                "pr_urls": ["u"],
+                "error_message": None,
+            },
         )
 
     produce.assert_not_called()
@@ -42,7 +47,12 @@ def test_posts_the_wake_with_a_scoped_jwt_and_capped_strings() -> None:
     assert kwargs["json"] == {
         "origin_key": "job:step:3",
         "status": "completed",
-        "result": {"final_message": "x" * RESULT_STRING_CAP, "pr_urls": ["u"], "error_message": None},
+        "result": {
+            "output": {"tags": ["a", None, "b"]},
+            "final_message": "x" * RESULT_STRING_CAP,
+            "pr_urls": ["u"],
+            "error_message": None,
+        },
     }
     assert kwargs["timeout"] == 10
     assert "x-internal-api-secret" not in {key.lower() for key in kwargs["headers"]}

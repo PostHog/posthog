@@ -13,6 +13,7 @@ from django.test import Client, override_settings
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 
+from posthog.models.instance_setting import override_instance_config
 from posthog.models.scoping import team_scope
 from posthog.temporal.common.errors import describe_failure
 
@@ -317,10 +318,13 @@ def stamphog_chain() -> Iterator[StamphogChain]:
             patch("products.stamphog.backend.tasks.tasks.transaction.on_commit", side_effect=_run_on_commit_immediately)
         )
         stack.enter_context(patch("products.stamphog.backend.logic.slack_digest.SlackIntegration", fake_slack))
+        stack.enter_context(
+            patch("products.stamphog.backend.logic.broadcast_request_slack.SlackIntegration", fake_slack)
+        )
         stack.enter_context(patch("posthog.slack.channels.SlackIntegration", fake_slack))
         stack.enter_context(
             patch(
-                "products.stamphog.backend.logic.digest.build_ai_gateway_anthropic_client",
+                "products.stamphog.backend.logic.digest.build_anthropic_client",
                 side_effect=RuntimeError("no gateway in tests"),
             )
         )
@@ -340,6 +344,7 @@ def stamphog_chain() -> Iterator[StamphogChain]:
 
 
 ROUTING_APP_SLUG = "stamphog-test"
+POSTHOG_APP_SLUG = "posthog-test"
 
 
 @dataclass(frozen=True)
@@ -369,6 +374,7 @@ def routing_chain() -> Iterator[RoutingChain]:
                 AI_GATEWAY_API_KEY="phs_test_mint",
             )
         )
+        stack.enter_context(override_instance_config("GITHUB_APP_SLUG", POSTHOG_APP_SLUG))
         stack.enter_context(patch("products.stamphog.backend.logic.gateway_tokens.requests.post", _fake_gateway_post))
         stack.enter_context(patch("products.stamphog.backend.logic.routing.model.Anthropic", cut_model.client))
         capture_scope = stack.enter_context(patch("products.stamphog.backend.logic.routing.service.ph_scoped_capture"))

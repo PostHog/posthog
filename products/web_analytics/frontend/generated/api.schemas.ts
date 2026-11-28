@@ -170,12 +170,14 @@ export const CheckModeEnumApi = {
 
 /**
  * * `daily` - Daily
+ * * `every_3_days` - Every 72 hours
  * * `weekly` - Weekly
  */
 export type CheckFrequencyEnumApi = (typeof CheckFrequencyEnumApi)[keyof typeof CheckFrequencyEnumApi]
 
 export const CheckFrequencyEnumApi = {
     Daily: 'daily',
+    Every3Days: 'every_3_days',
     Weekly: 'weekly',
 } as const
 
@@ -194,6 +196,7 @@ export interface AEOEngineSettingApi {
     /** 'daily' checks every prompt each day. 'weekly' checks each prompt once a week, a seventh of the prompt set each day.
      *
      * * `daily` - Daily
+     * * `every_3_days` - Every 72 hours
      * * `weekly` - Weekly */
     frequency: CheckFrequencyEnumApi
 }
@@ -204,6 +207,7 @@ export interface PatchedAEOEngineSettingUpdateRequestApi {
     /** 'daily' or 'weekly'. Weekly checks each prompt once a week and costs a seventh as much.
      *
      * * `daily` - Daily
+     * * `every_3_days` - Every 72 hours
      * * `weekly` - Weekly */
     frequency?: CheckFrequencyEnumApi
 }
@@ -423,6 +427,7 @@ export interface AEOKeywordSuggestionApi {
  * * `pending` - Pending
  * * `completed` - Completed
  * * `failed` - Failed
+ * * `cancelled` - Cancelled
  */
 export type AEOSuggestionJobStatusEnumApi =
     (typeof AEOSuggestionJobStatusEnumApi)[keyof typeof AEOSuggestionJobStatusEnumApi]
@@ -431,6 +436,7 @@ export const AEOSuggestionJobStatusEnumApi = {
     Pending: 'pending',
     Completed: 'completed',
     Failed: 'failed',
+    Cancelled: 'cancelled',
 } as const
 
 export interface AEOKeywordSuggestionJobApi {
@@ -442,7 +448,8 @@ export interface AEOKeywordSuggestionJobApi {
      *
      * * `pending` - Pending
      * * `completed` - Completed
-     * * `failed` - Failed */
+     * * `failed` - Failed
+     * * `cancelled` - Cancelled */
     status: AEOSuggestionJobStatusEnumApi
     /** Why the job failed. Empty unless status is failed. */
     error?: string
@@ -529,7 +536,7 @@ export interface PaginatedAEOPromptListApi {
 
 export interface PatchedAEOPromptUpdateRequestApi {
     /**
-     * Turn the prompt on or off for future runs.
+     * Turn the prompt on or off for future runs. Turning one on fails with 400 when the project already tracks its max_active_prompts, shown by GET aeo_setup/context/.
      * @nullable
      */
     active?: boolean | null
@@ -821,6 +828,27 @@ export interface AEOPromptImportResultApi {
     updated: number
     /** Prompts that were empty, too long for the answer engines, or matched an archived prompt. */
     skipped: number
+}
+
+export interface AEOPromptBulkSetTopicRequestApi {
+    /**
+     * Ids of the prompts to change, from GET aeo_prompts/. At most 500. Archived prompts are refused.
+     * @minItems 1
+     * @maxItems 500
+     */
+    prompt_ids: string[]
+    /**
+     * The topic to set. A name that matches an existing topic in another letter case takes that topic's spelling. An empty string removes the topic.
+     * @maxLength 200
+     */
+    topic: string
+}
+
+export interface AEOPromptTopicChangeApi {
+    /** How many prompts now have the new topic, archived prompts included. */
+    prompts: number
+    /** How many past checks were relabeled with the new topic. Always 0 when setting a topic on chosen prompts, because their past checks keep the topic they ran with. */
+    checks: number
 }
 
 export interface AEOPromptCitationApi {
@@ -1212,7 +1240,7 @@ export interface AEORankedBrandApi {
      */
     previous_visibility: number | null
     /**
-     * For the project's own brand, the share (0-1) of scored answers whose sentiment toward it was positive. Null for competitors and when nothing was scored.
+     * The share (0-1) of scored answers naming the brand whose sentences about it were positive. Null when none of them was scored yet.
      * @nullable
      */
     positive_share: number | null
@@ -1243,7 +1271,7 @@ export interface AEORankedDomainApi {
     urls: number
     /** Whether the domain is the project's own site. */
     is_target: boolean
-    /** Whether the domain is one of the competitors in 'brands'. */
+    /** Whether the domain is a competitor in the brand catalog, confirmed or suggested by setup. Brands ranked only because answers cite them are not. */
     is_competitor: boolean
 }
 
@@ -1259,7 +1287,7 @@ export interface AEORankedPageApi {
 }
 
 export interface AEOPromptSetRankingsApi {
-    /** The project's brand and up to 10 competitors, most visible first. Competitors are the ones confirmed in the brand catalog, matched by name and aliases. Until any are confirmed, they are the brands behind the domains the engines cite most, leaving out the project's own brand on any domain and a fixed list of review sites, forums and social networks, and a common-word domain name can over-count. */
+    /** The project's brand and up to 10 competitors, most visible first. Competitors are the ones confirmed in the brand catalog, matched by name and aliases. Until any are confirmed, they are the competitors setup suggested, and without those the brands behind the domains the engines cite most, leaving out the project's own brand on any domain and a fixed list of review sites, forums and social networks, and a common-word domain name can over-count. */
     brands: AEORankedBrandApi[]
     /** Visibility per brand and day in the current window, ordered by day then domain. */
     daily: AEORankedBrandDayApi[]
@@ -1293,6 +1321,47 @@ export interface AEOPromptSetRankingsApi {
     answers: number
     /** Whether the competitors are the ones confirmed in the brand catalog (matched by name and aliases). False means they were derived from the most cited domains. */
     competitors_confirmed: boolean
+}
+
+export interface AEOPromptSetRelatedSearchApi {
+    /** Another web search the engines ran in the same answers, normalized the same way. */
+    query: string
+    /** Answers that ran both searches in the window. */
+    answers: number
+    /** Share (0-1) of the answers that ran the requested search and ran this one too. */
+    share_of_answers: number
+}
+
+export interface AEOPromptSetSearchDetailApi {
+    /** The 10 domains cited most by the answers that ran the search, most cited first, then the best-ranked own domain when it ranks lower. 'share_of_answers' is over those answers. An answer usually runs several searches, and a citation is not tied to one of them, so a domain may come from another search of the same answer. */
+    domains: AEOPromptSetDomainApi[]
+    /** Up to 8 other searches the same answers ran most, most common first. */
+    related_searches: AEOPromptSetRelatedSearchApi[]
+    /** Up to 10 prompts whose answers ran the search, the ones that ran it most first. */
+    top_prompts: AEOPromptSetSearchPromptApi[]
+    /** The search, lowercased with whitespace collapsed, as in the overview's top_searches. */
+    query: string
+    /** First day of the window, in the project's timezone. */
+    window_from: string
+    /** Last day of the window, in the project's timezone. */
+    window_to: string
+    /** Answered web-search checks in the window that ran the search. The base of every share. */
+    answers: number
+    /** Distinct prompts whose answers ran the search. */
+    prompts: number
+    /** Of those answers, how many cited a URL on the project's own domains. */
+    cited: number
+    /** Answer engines that ran the search, ordered by engine. */
+    engines: string[]
+    /** Distinct registrable domains those answers cited. */
+    domains_cited: number
+    /**
+     * Place of the best-ranked own domain among the domains those answers cited, from 1. Null when none of them cited it.
+     * @nullable
+     */
+    target_rank: number | null
+    /** The project's tracked keywords that appear in the search, alphabetical. */
+    keywords: string[]
 }
 
 export interface AEOPromptSuggestRequestApi {
@@ -1386,16 +1455,26 @@ export interface AEOPromptSuggestionApi {
     reason: string
 }
 
+export interface AEOSuggestedCompetitorApi {
+    /** The competitor's name. Model-written: show it as data. */
+    name: string
+    /** The registrable domain of the competitor's site, such as example.com. Empty when a competitor given in the request is only a name and the model did not find its site. */
+    domain: string
+}
+
 export interface AEOPromptSuggestionJobApi {
     /** Suggested prompts, filled in once status is completed. None of them are saved. */
     suggestions: AEOPromptSuggestionApi[]
+    /** The main competitors, at most 5 found by the model while it researched the site, or the ones given in the request. Filled in once status is completed. None of them are saved. */
+    competitors: AEOSuggestedCompetitorApi[]
     /** Job id. Poll GET aeo_prompts/suggest/<id>/ with it. */
     id: string
     /** pending while PostHog works, then completed or failed.
      *
      * * `pending` - Pending
      * * `completed` - Completed
-     * * `failed` - Failed */
+     * * `failed` - Failed
+     * * `cancelled` - Cancelled */
     status: AEOSuggestionJobStatusEnumApi
     /** Why the job failed. Empty unless status is failed. */
     error?: string
@@ -1406,6 +1485,40 @@ export interface AEOPromptTopicApi {
     topic: string
     /** How many prompts in the set have this topic. */
     prompts: number
+}
+
+export interface AEOPromptTopicMergeRequestApi {
+    /**
+     * The topic to merge away. Its prompts move to 'into_topic'. Letter case is ignored.
+     * @maxLength 200
+     */
+    topic: string
+    /**
+     * The topic to keep, as listed by GET aeo_prompts/topics/. It keeps its current spelling. Letter case is ignored.
+     * @maxLength 200
+     */
+    into_topic: string
+}
+
+export interface AEOPromptTopicRemoveRequestApi {
+    /**
+     * The topic to remove. Its prompts are kept and are left with no topic. Letter case is ignored.
+     * @maxLength 200
+     */
+    topic: string
+}
+
+export interface AEOPromptTopicRenameRequestApi {
+    /**
+     * The topic to rename, as listed by GET aeo_prompts/topics/. Letter case is ignored.
+     * @maxLength 200
+     */
+    topic: string
+    /**
+     * The new name. It may differ from the old one only in letter case, to fix its spelling. Fails with 409 when another topic already has the name: merge the two instead.
+     * @maxLength 200
+     */
+    new_topic: string
 }
 
 export interface AEOSetupRequestApi {
@@ -1434,12 +1547,19 @@ export interface AEOSetupRequestApi {
     run_first_check?: boolean
     /** Queue a citation check run and nothing else: no brand, prompts or keywords, and no engine change. Use it when the project is already set up and should be checked now instead of on its schedule. Each check is a paid call to every enabled engine. */
     only_first_run?: boolean
-    /** With only_first_run, turn on every paused prompt before the run, such as the ones a setup without run_first_check saved paused. Turned-on prompts are checked on each engine's schedule from then on. */
+    /** With only_first_run, turn on paused prompts before the run, such as the ones a setup without run_first_check saved paused, highest ranked first and up to the project's max_active_prompts. Turned-on prompts are checked on each engine's schedule from then on. */
     activate_paused_prompts?: boolean
+    /**
+     * How many prompts setup asks PostHog to suggest and save. One run makes this many checks per enabled engine, so it sets the cost of each run. Prompts past the project's max_active_prompts are saved paused.
+     * @minimum 1
+     * @maximum 50
+     */
+    prompt_count?: number
 }
 
 /**
  * * `brand` - Brand
+ * * `research` - Research
  * * `prompts` - Prompts
  * * `keywords` - Keywords
  * * `first_run` - First Run
@@ -1448,6 +1568,7 @@ export type SetupStepEnumApi = (typeof SetupStepEnumApi)[keyof typeof SetupStepE
 
 export const SetupStepEnumApi = {
     Brand: 'brand',
+    Research: 'research',
     Prompts: 'prompts',
     Keywords: 'keywords',
     FirstRun: 'first_run',
@@ -1471,9 +1592,10 @@ export const SetupStepStatusEnumApi = {
 } as const
 
 export interface AEOSetupStepApi {
-    /** brand (the own brand), prompts (suggested and saved), keywords (suggested and saved) or first_run (the first citation check run queued).
+    /** brand (the own brand), prompts (suggested and saved), first_run (the first citation check run queued) or keywords (suggested and saved).
      *
      * * `brand` - Brand
+     * * `research` - Research
      * * `prompts` - Prompts
      * * `keywords` - Keywords
      * * `first_run` - First Run */
@@ -1488,7 +1610,9 @@ export interface AEOSetupStepApi {
     status: SetupStepStatusEnumApi
     /** How many brands, prompts or keywords the step added. */
     added?: number
-    /** Why a step was skipped (already_set, already_run, not_requested, not_available, nothing_to_run), why the keywords or first_run step failed, or 'paused' when the prompts step saved its prompts turned off. */
+    /** How many prompts the prompts step asked for, so added can be shown against it. 0 on every other step and on a skipped prompts step. */
+    requested?: number
+    /** Why a step was skipped (already_set, already_run, not_requested, not_available, nothing_to_run), why the keywords or first_run step failed, or a note on a done prompts step: 'paused' when it saved its prompts turned off, 'prompt_limit' when it saved some of them turned off to stay within max_active_prompts, or 'fewer' when it added fewer prompts than requested. Only one note is given, in that order, so compare added with requested to tell whether the step came up short. */
     detail?: string
 }
 
@@ -1501,7 +1625,8 @@ export interface AEOSetupJobApi {
      *
      * * `pending` - Pending
      * * `completed` - Completed
-     * * `failed` - Failed */
+     * * `failed` - Failed
+     * * `cancelled` - Cancelled */
     status: AEOSuggestionJobStatusEnumApi
     /** Why the job failed. Empty unless status is failed. */
     error?: string
@@ -1546,15 +1671,26 @@ export interface AEOWebsiteCandidateApi {
     pageviews?: number | null
 }
 
+export interface AEOEngineCheckCountApi {
+    /** The engine. */
+    engine: string
+    /** Active prompts with at least one check on this engine. */
+    checks: number
+}
+
 export interface AEOSetupContextApi {
     /** Up to 5 domains the project may be about, the most likely first. */
     websites: AEOWebsiteCandidateApi[]
+    /** Per engine, how many active prompts have a check. Against active_prompts, this is the progress of a first run. Engines with no check yet are left out. */
+    first_run_checks: AEOEngineCheckCountApi[]
     /** Every engine as the project runs it now, defaults included. Ask the user which ones to track, and offer only the available ones. */
     engines: AEOEngineSettingApi[]
     /** Domains already set as the project's own brands. */
     own_domains: string[]
     /** Active, unarchived prompts the project tracks. */
     active_prompts: number
+    /** How many unarchived prompts the project can keep turned on at once. A request that would turn on more is refused with a 400, so at most max_active_prompts minus active_prompts more can be turned on. */
+    max_active_prompts: number
     /** Unarchived prompts that are turned off. No run checks them. */
     paused_prompts: number
     /** Keywords in the project's keyword list. */
@@ -1565,10 +1701,14 @@ export interface AEOSetupContextApi {
     ai_data_processing_approved: boolean
     /** Whether citation checks run for this project. When false, setup saves the brand, prompts and keywords but cannot queue the first run. */
     first_run_available: boolean
-    /** How many prompts setup asks PostHog to suggest. One run makes about this many checks per enabled engine. */
+    /** How many prompts setup asks PostHog to suggest when prompt_count is left out. One run makes about this many checks per enabled engine. */
     prompt_target: number
+    /** The most prompts one setup can ask for in prompt_count: the suggestion cap, or less when the project's max_active_prompts is lower. */
+    prompt_count_max: number
     /** The window, in days, that pageview hosts among the websites cover. */
     website_days: number
+    /** Whether a check run is queued or running for the project. When it turns false after a run, no more checks from that run will arrive. */
+    checks_running?: boolean
 }
 
 export interface HeatmapCapturePageApi {
@@ -2296,7 +2436,7 @@ export interface DigestMetadataApi {
     date_to: string
     /** Project timezone for the period boundaries. */
     timezone: string
-    /** True when the headline metrics, top pages and top sources exclude events from test accounts. Goal conversions include them. */
+    /** True when the headline metrics, top pages and top sources exclude events from test accounts. Follows the project's "Filter out internal and test users" default, like the query-web-* tools. Goal conversions include them either way. */
     filter_test_accounts: boolean
     /** Metric definitions to use when you compare the digest with a direct query. */
     notes: string[]
@@ -3460,11 +3600,11 @@ export type AeoPromptsCitationsParams = {
      */
     domain?: string
     /**
-     * Only list answers from this answer engine, for example 'claude-web-search'.
-     * @minLength 1
+     * Only count checks from this answer engine, for example 'claude-web-search'. Omit to count every engine.
      * @maxLength 64
+     * @nullable
      */
-    engine?: string
+    engine?: string | null
     /**
      * Set to true to return each engine's answer in answer_text. Left out by default to keep pages small.
      */
@@ -3484,6 +3624,12 @@ export type AeoPromptsCitationsParams = {
      * @maxLength 1000
      */
     search?: string
+    /**
+     * Only count checks that ran with this prompt topic. A prompt moved to another topic keeps its past checks under the old one. An empty value counts the checks of prompts that had no topic. Omit to count every topic.
+     * @maxLength 200
+     * @nullable
+     */
+    topic?: string | null
     /**
      * List the answers that cited this exact URL, as it appears in cited_urls or the rankings' top_pages.
      * @minLength 1
@@ -3555,6 +3701,10 @@ export type AeoPromptsOverviewParams = {
      */
     branded?: AeoPromptsOverviewBranded
     /**
+     * Count only the checks of prompts that aren't archived. Setup's first results use it, so the answers to prompts archived by a reset don't count.
+     */
+    current_prompts?: boolean
+    /**
      * First day of the window. Takes a date such as '2026-11-01' or a relative day such as '-30d' (30 days ago), '-2w', 'mStart' (first day of this month) or 'yStart'. Days are whole days in the project's timezone. Default '-30d'. The window from date_from to date_to can cover at most 91 days.
      * @maxLength 32
      * @nullable
@@ -3599,6 +3749,10 @@ export type AeoPromptsRankingsParams = {
      */
     branded?: AeoPromptsRankingsBranded
     /**
+     * Count only the checks of prompts that aren't archived. Setup's first results use it, so the answers to prompts archived by a reset don't count.
+     */
+    current_prompts?: boolean
+    /**
      * First day of the window. Takes a date such as '2026-11-01' or a relative day such as '-30d' (30 days ago), '-2w', 'mStart' (first day of this month) or 'yStart'. Days are whole days in the project's timezone. Default '-30d'. The window from date_from to date_to can cover at most 91 days.
      * @maxLength 32
      * @nullable
@@ -3627,6 +3781,57 @@ export type AeoPromptsRankingsParams = {
 export type AeoPromptsRankingsBranded = (typeof AeoPromptsRankingsBranded)[keyof typeof AeoPromptsRankingsBranded]
 
 export const AeoPromptsRankingsBranded = {
+    All: 'all',
+    Branded: 'branded',
+    NonBranded: 'non_branded',
+} as const
+
+export type AeoPromptsSearchDetailParams = {
+    /**
+     * Which checks to count, by the prompt as it ran: 'all' (default), 'branded' (the prompt names the brand) or 'non_branded'. Every count, the window before included, uses the same checks. Use 'non_branded' to judge visibility, since a prompt that names the brand almost always gets an answer that mentions it. A prompt is branded when its text names the brand: the registrable name of a target domain as a word, case ignored, so 'example' and 'example.com' both name example.com. Branded prompts almost always get answers that mention the brand.
+     *
+     * * `all` - All
+     * * `branded` - Branded
+     * * `non_branded` - Non-branded
+     * @minLength 1
+     */
+    branded?: AeoPromptsSearchDetailBranded
+    /**
+     * First day of the window. Takes a date such as '2026-11-01' or a relative day such as '-30d' (30 days ago), '-2w', 'mStart' (first day of this month) or 'yStart'. Days are whole days in the project's timezone. Default '-30d'. The window from date_from to date_to can cover at most 91 days.
+     * @maxLength 32
+     * @nullable
+     */
+    date_from?: string | null
+    /**
+     * Last day of the window, included. Takes a date such as '2026-11-01' or a relative day such as '-30d' (30 days ago), '-2w', 'mStart' (first day of this month) or 'yStart'. Days are whole days in the project's timezone. Default today. A later day is read as today.
+     * @maxLength 32
+     * @nullable
+     */
+    date_to?: string | null
+    /**
+     * Only count checks from this answer engine, for example 'claude-web-search'. Omit to count every engine.
+     * @maxLength 64
+     * @nullable
+     */
+    engine?: string | null
+    /**
+     * The web search to describe. Case and repeated spaces are ignored, as in the overview's top_searches.
+     * @minLength 1
+     * @maxLength 1000
+     */
+    search: string
+    /**
+     * Only count checks that ran with this prompt topic. A prompt moved to another topic keeps its past checks under the old one. An empty value counts the checks of prompts that had no topic. Omit to count every topic.
+     * @maxLength 200
+     * @nullable
+     */
+    topic?: string | null
+}
+
+export type AeoPromptsSearchDetailBranded =
+    (typeof AeoPromptsSearchDetailBranded)[keyof typeof AeoPromptsSearchDetailBranded]
+
+export const AeoPromptsSearchDetailBranded = {
     All: 'all',
     Branded: 'branded',
     NonBranded: 'non_branded',
@@ -3895,11 +4100,11 @@ export type WebAnalyticsRecapParams = {
 
 export type WebAnalyticsWeeklyDigestParams = {
     /**
-     * When true (default), include period-over-period change for each metric comparing against the prior equal-length period. Set to false to skip the comparison query (faster).
+     * When true (default), include period-over-period change for each metric comparing against the `days` complete days before the window. Set to false to skip the comparison query (faster).
      */
     compare?: boolean
     /**
-     * Lookback window in days (1–90). Defaults to 7.
+     * Number of complete days to summarize (1–90), ending yesterday in the project timezone. Defaults to 7.
      */
     days?: number
 }

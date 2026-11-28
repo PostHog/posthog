@@ -36,7 +36,10 @@ import {
 } from '~/types'
 
 import { groupTablesBySchema } from 'products/data_warehouse/frontend/shared/components/forms/schemaGroupingUtils'
-import { confirmPendingSelfManagedSync } from 'products/data_warehouse/frontend/shared/confirmPendingSelfManagedSync'
+import {
+    confirmPendingSelfManagedReload,
+    confirmPendingSelfManagedSync,
+} from 'products/data_warehouse/frontend/shared/confirmPendingSelfManagedSync'
 import { sourceTypeLabel } from 'products/data_warehouse/frontend/shared/fileUploadSources'
 import {
     clonePayloadPreservingFiles,
@@ -95,7 +98,13 @@ function nextJobsPollDelay(softFailureCount: number): number {
 // dropped edits like sync_frequency.
 // Incremental is missing here on purpose: it merges on a primary key, which differs per table and
 // so cannot come from one batch choice.
-export type BulkSyncMethod = 'full_refresh' | 'append'
+export type BulkSyncMethod = 'full_refresh' | 'append' | 'xmin'
+
+// xmin reads Postgres' system column, so only a source that can sync it gets the option. The schema
+// API still refuses a table that has no physical `xmin`, such as a view.
+export function bulkSyncMethodOptions(sourceSupportsXmin: boolean): BulkSyncMethod[] {
+    return sourceSupportsXmin ? ['full_refresh', 'append', 'xmin'] : ['full_refresh', 'append']
+}
 
 // CDC and webhook tables are held back because moving them off their sync method drops changes
 // that only a full resync recovers.
@@ -108,6 +117,13 @@ export function bulkSyncMethodDisabledReason(
     }
     if (syncType === 'append' && schemas.some((schema) => !schema.incremental_field)) {
         return 'Append needs an incremental field, which some selected tables have not got'
+    }
+    // The schema API refuses a switch to xmin without a key, and a table already on xmin keeps its own.
+    if (
+        syncType === 'xmin' &&
+        schemas.some((schema) => schema.sync_type !== 'xmin' && !schema.primary_key_columns?.length)
+    ) {
+        return 'xmin needs a primary key, which some selected tables have not got'
     }
     return undefined
 }
@@ -1378,7 +1394,9 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                 const current = values.source?.schemas.find((s) => s.id === schema.id)
                 const turnsSyncingOn = schema.should_sync && !current?.should_sync
                 if (turnsSyncingOn && schema.pending_self_managed_table) {
-                    confirmPendingSelfManagedSync(() => queueSchemaUpdates([schema]))
+                    confirmPendingSelfManagedSync(schema.sync_type, (syncFrequency) =>
+                        queueSchemaUpdates([{ ...schema, sync_frequency: syncFrequency }])
+                    )
                     return
                 }
                 queueSchemaUpdates([schema])
@@ -1559,7 +1577,7 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                     }
                 }
                 if (schema.pending_self_managed_table) {
-                    confirmPendingSelfManagedSync(() => void runReload())
+                    confirmPendingSelfManagedReload(schema.sync_type, () => void runReload())
                     return
                 }
                 await runReload()

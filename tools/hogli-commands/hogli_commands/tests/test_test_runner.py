@@ -59,13 +59,12 @@ class TestDetectTestType:
 
     @parameterized.expand(
         [
-            ("services/llm-gateway/tests/test_anthropic.py", "services/llm-gateway", "tests/test_anthropic.py"),
+            ("services/stripe-mock/tests/test_endpoints.py", "services/stripe-mock", "tests/test_endpoints.py"),
             (
-                "services/llm-gateway/tests/test_anthropic.py::test_x",
-                "services/llm-gateway",
-                "tests/test_anthropic.py::test_x",
+                "services/stripe-mock/tests/test_endpoints.py::test_x",
+                "services/stripe-mock",
+                "tests/test_endpoints.py::test_x",
             ),
-            ("services/llm-gateway/tests", "services/llm-gateway", "tests"),
             ("services/stripe-mock/tests", "services/stripe-mock", "tests"),
         ]
     )
@@ -595,8 +594,8 @@ class TestRunGrouped:
             [
                 "posthog/api/test/test_user.py",
                 "frontend/src/scenes/dashboard/Dashboard.test.tsx",
-                "services/llm-gateway/tests/test_anthropic.py",
-                "services/llm-gateway/tests/test_anthropic_request.py",
+                "services/stripe-mock/tests/test_endpoints.py",
+                "services/stripe-mock/tests/test_pagination.py",
             ]
         )
         _run_grouped(detected, [])
@@ -607,8 +606,8 @@ class TestRunGrouped:
         uv_cmd, uv_cwd = next((c, cwd) for c, cwd in runs if c[0] == "uv")
         assert python_cmd[-1] == "posthog/api/test/test_user.py"
         assert "frontend/src/scenes/dashboard/Dashboard.test.tsx" in jest_cmd
-        assert uv_cmd[-2:] == ["tests/test_anthropic.py", "tests/test_anthropic_request.py"]
-        assert uv_cwd == REPO_ROOT / "services/llm-gateway"
+        assert uv_cmd[-2:] == ["tests/test_endpoints.py", "tests/test_pagination.py"]
+        assert uv_cwd == REPO_ROOT / "services/stripe-mock"
 
     @patch("hogli_commands.test_runner._run")
     def test_passes_extra_args(self, mock_run) -> None:

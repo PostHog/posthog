@@ -1,6 +1,17 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonModal, LemonSnack } from '@posthog/lemon-ui'
+import {
+    Button,
+    Chip,
+    ChipClose,
+    Credenza,
+    CredenzaBody,
+    CredenzaContent,
+    CredenzaFooter,
+    CredenzaHeader,
+    CredenzaTitle,
+    Text,
+} from '@posthog/quill'
 
 import { ContentAutopilotKeywordAddForm } from './ContentAutopilotKeywordAddForm'
 import { contentAutopilotKeywordsLogic } from './contentAutopilotKeywordsLogic'
@@ -11,27 +22,45 @@ export const ContentAutopilotKeywordsModal = (): JSX.Element => {
     const { removeKeyword, closeKeywordsModal } = useActions(contentAutopilotKeywordsLogic)
 
     return (
-        <LemonModal
-            isOpen={keywordsModalOpen}
-            onClose={closeKeywordsModal}
-            title={`Keywords (${keywords?.length ?? 0} of ${MAX_KEYWORDS})`}
-            width={640}
-        >
-            <div className="flex flex-col gap-3" data-attr="content-autopilot-keywords-list">
-                <div className="flex flex-wrap gap-1">
-                    {(keywords ?? []).map((keyword) => (
-                        <LemonSnack
-                            key={keyword.id}
-                            onClose={keywordRemoving[keyword.id] ? undefined : () => removeKeyword(keyword)}
-                            className={keywordRemoving[keyword.id] ? 'opacity-50' : undefined}
-                            data-attr="content-autopilot-keywords-remove"
-                        >
-                            {keyword.keyword}
-                        </LemonSnack>
-                    ))}
-                </div>
-                <ContentAutopilotKeywordAddForm />
-            </div>
-        </LemonModal>
+        <Credenza open={keywordsModalOpen} onOpenChange={(next) => !next && closeKeywordsModal()}>
+            <CredenzaContent>
+                <CredenzaHeader>
+                    <CredenzaTitle>{`Keywords (${keywords?.length ?? 0} of ${MAX_KEYWORDS})`}</CredenzaTitle>
+                </CredenzaHeader>
+                <CredenzaBody className="flex flex-col gap-3" data-attr="content-autopilot-keywords-list">
+                    {keywords?.length ? (
+                        <div className="flex flex-wrap gap-1">
+                            {keywords.map((keyword) => (
+                                <Chip
+                                    key={keyword.id}
+                                    className={keywordRemoving[keyword.id] ? 'opacity-50' : undefined}
+                                    data-attr="content-autopilot-keywords-remove"
+                                >
+                                    {keyword.keyword}
+                                    <ChipClose
+                                        aria-label={`Remove ${keyword.keyword}`}
+                                        onClick={() => removeKeyword(keyword)}
+                                        disabledReason={
+                                            keywordRemoving[keyword.id] ? 'Removing the keyword' : undefined
+                                        }
+                                    />
+                                </Chip>
+                            ))}
+                        </div>
+                    ) : (
+                        <Text size="xs" variant="muted" render={<p className="m-0" />}>
+                            No keywords yet. Add the words and phrases you want to be known for.
+                        </Text>
+                    )}
+                    <ContentAutopilotKeywordAddForm />
+                </CredenzaBody>
+                {/* The drawer on a phone has no close button of its own. */}
+                <CredenzaFooter>
+                    <Button variant="outline" onClick={closeKeywordsModal}>
+                        Done
+                    </Button>
+                </CredenzaFooter>
+            </CredenzaContent>
+        </Credenza>
     )
 }

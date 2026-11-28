@@ -3,7 +3,7 @@ from django.urls import URLPattern, path, re_path
 
 from posthog.admin.console import views
 from posthog.admin.console.moved import MovedAction, MovedToConsole
-from posthog.admin.console.records import RECORD_TYPES
+from posthog.admin.console.records import RECORD_TYPES, RELATED_SEGMENT
 from posthog.admin.console.registry import ConsoleRegistry, console
 
 
@@ -33,6 +33,14 @@ urlpatterns = [
                 admin.site.admin_view(views.record_detail),
                 {"record": record_type.key},
                 name=record_type.url_name,
+            ),
+            # Before the operation route, which would read "related" as a panel key. The registry refuses a panel
+            # with that key.
+            path(
+                f"admin/console/{record_type.plural}/<{record_type.pk_converter}:pk>/{RELATED_SEGMENT}/<slug:relation_key>/",
+                admin.site.admin_view(views.related_list),
+                {"record": record_type.key},
+                name=record_type.related_url_name,
             ),
             path(
                 f"admin/console/{record_type.plural}/<{record_type.pk_converter}:pk>/<slug:panel_key>/<slug:operation_key>/",

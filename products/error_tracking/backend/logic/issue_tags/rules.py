@@ -1,4 +1,5 @@
 import json
+from enum import Enum
 from typing import Any
 
 from django.db import connection, transaction
@@ -11,12 +12,12 @@ from posthog.dataclasses import frozen
 from posthog.models.scoping.manager import resolve_effective_team_id
 from posthog.models.user import User
 
+from products.error_tracking.backend.logic.ids import parse_uuid
 from products.error_tracking.backend.logic.issue_tags.enabled import _rule_visibility
 from products.error_tracking.backend.logic.issue_tags.gate import require_issue_tags
 from products.error_tracking.backend.logic.rules import (
     MAX_SEVERITY_RULE_BYTECODE_OPS,
     ErrorTrackingInvalidBytecodeError,
-    _parse_rule_id,
     _reorder_rules,
     compile_filter_bytecode,
     has_filter_values,
@@ -40,6 +41,15 @@ class IssueTagRuleLimitError(Exception):
     pass
 
 
+class Unchanged(Enum):
+    """The default of an update argument whose None is a value, so an omitted argument keeps the stored value."""
+
+    UNCHANGED = "unchanged"
+
+
+UNCHANGED = Unchanged.UNCHANGED
+
+
 @frozen
 class _CompiledRuleFilters:
     filters: dict
@@ -56,7 +66,7 @@ def list_issue_tag_rules(team_id: int, user: User) -> list[ErrorTrackingIssueTag
 
 def get_issue_tag_rule(team_id: int, rule_id: str, user: User) -> ErrorTrackingIssueTagRule | None:
     require_issue_tags(team_id)
-    parsed_id = _parse_rule_id(rule_id)
+    parsed_id = parse_uuid(rule_id)
     if parsed_id is None:
         return None
     rule = ErrorTrackingIssueTagRule.objects.for_team(team_id).filter(id=parsed_id).first()
@@ -64,7 +74,14 @@ def get_issue_tag_rule(team_id: int, rule_id: str, user: User) -> ErrorTrackingI
 
 
 def create_issue_tag_rule(
-    team_id: int, user: User, *, label: str, description: str, filters: dict, order_key: int = 0
+    team_id: int,
+    user: User,
+    *,
+    label: str,
+    description: str,
+    filters: dict,
+    order_key: int = 0,
+    color: str | None = None,
 ) -> ErrorTrackingIssueTagRule:
     require_issue_tags(team_id)
     compiled = _normalize_and_compile(team_id, filters)
@@ -86,6 +103,7 @@ def create_issue_tag_rule(
             team_id=canonical_team_id,
             label=label,
             description=description,
+            color=color,
             filters=compiled.filters,
             bytecode=compiled.bytecode,
             order_key=order_key,
@@ -100,6 +118,7 @@ def update_issue_tag_rule(
     label: str | None = None,
     description: str | None = None,
     filters: dict | None = None,
+    color: str | None | Unchanged = UNCHANGED,
 ) -> ErrorTrackingIssueTagRule | None:
     """Apply the given fields. Return None when the team has no such rule that `user` can see.
 
@@ -109,7 +128,7 @@ def update_issue_tag_rule(
     filters, so an old tag could show a member which issues matched a property they may not read.
     """
     require_issue_tags(team_id)
-    parsed_id = _parse_rule_id(rule_id)
+    parsed_id = parse_uuid(rule_id)
     if parsed_id is None:
         return None
     visibility = _rule_visibility(team_id, user)
@@ -135,6 +154,8 @@ def update_issue_tag_rule(
             rule.label = label
         if description is not None:
             rule.description = description
+        if color is not UNCHANGED:
+            rule.color = color
         rule.save()
     return rule
 
@@ -146,7 +167,7 @@ def delete_issue_tag_rule(team_id: int, rule_id: str, user: User) -> bool:
     tag definitions, so nothing reads them again.
     """
     require_issue_tags(team_id)
-    parsed_id = _parse_rule_id(rule_id)
+    parsed_id = parse_uuid(rule_id)
     if parsed_id is None:
         return False
     visibility = _rule_visibility(team_id, user)
@@ -165,7 +186,7 @@ def reorder_issue_tag_rules(team_id: int, orders: dict[str, int], user: User) ->
     require_issue_tags(team_id)
     # The shared helper looks each rule up by its canonical id, so an uppercase or unhyphenated key would miss.
     canonical_orders = {
-        str(parsed_id): order for key, order in orders.items() if (parsed_id := _parse_rule_id(key)) is not None
+        str(parsed_id): order for key, order in orders.items() if (parsed_id := parse_uuid(key)) is not None
     }
     visibility = _rule_visibility(team_id, user)
     rules = ErrorTrackingIssueTagRule.objects.for_team(team_id)

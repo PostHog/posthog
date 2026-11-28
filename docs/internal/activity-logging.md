@@ -18,6 +18,11 @@ The expand control on the right reveals the complete action, preview, and agent 
 Diff compares the recorded values, and Raw shows the activity payload.
 Product-specific detail tabs remain the initial view when supplied by a describer.
 Subscription ownership events show who took ownership or transferred it; transfers include the previous and new owners from the recorded change.
+Tag management records renames, merges, and unused-tag deletion.
+A merge records both names and assignment counts, plus relationship changes for items that support tag history.
+Synchronous tag renames and merges accept up to 10,000 source assignments, matching the bulk tag-write limit.
+Larger tags must have assignments removed before they can be renamed or merged. Renaming a tag to its current name remains a no-op.
+The tag changes and their activity rows commit together. The publisher waits for the outer transaction to commit, so a rollback leaves no partial assignments, audit rows, or events.
 The copy-link control beside expand appears on hover or keyboard focus.
 
 Every visible describer result supplies a `summary` with `actor`, `action`, and `target` fields alongside its existing `description`.
@@ -54,6 +59,7 @@ model.save()
 The actor is not passed down this chain.
 `ActivityLoggingMiddleware` (`posthog/middleware.py`) stores the request user and the impersonation flag in a thread-local (`activity_storage`), and the mixin reads them back.
 Outside a request the user is `None`, and the row is stored with `is_system=True`.
+Scorer and trace review changes made with a project secret API key record its public key ID as the actor and set `is_system=False`.
 A deferred insert runs after the commit. If the transaction deleted the acting user, for example when users delete their own account, the row is stored with `user=None` and `is_system=False`.
 Pass `external_actor=True` to `log_activity` when an action originates in another organization and the row's organization must not receive its request attribution.
 The row is then stored with `user=None`, `is_system=False`, and `was_impersonated=False`, and it records no client, IP address, credential, or agent trigger.

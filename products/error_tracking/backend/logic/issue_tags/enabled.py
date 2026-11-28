@@ -21,7 +21,7 @@ from products.error_tracking.backend.logic.issue_tags.registry import IssueTagDe
 from products.error_tracking.backend.logic.team_flags import team_flag_enabled
 from products.error_tracking.backend.models import ErrorTrackingIssueTagRule
 
-_LABEL_FIELDS = ("id", "key", "label", "description", "version")
+_LABEL_FIELDS = ("id", "key", "label", "description", "color", "version")
 
 
 def enabled_issue_tag_definitions(team_id: int, user: User | None) -> tuple[IssueTagDefinition, ...]:
@@ -176,4 +176,5 @@ def _rule_definition(rule: ErrorTrackingIssueTagRule, *, taggers: tuple[TaggerCo
         question_version=rule.version,
         enabled_flag=ISSUE_TAGS_FLAG,
         taggers=taggers,
+        color=rule.color,
     )

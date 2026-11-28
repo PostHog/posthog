@@ -1,3 +1,4 @@
+from contextlib import suppress
 from datetime import datetime, timedelta
 
 from posthog.test.base import BaseTest, count_organization_access_cache_round_trips
@@ -19,7 +20,6 @@ from posthog.organization_caching import (
 )
 from posthog.plugins.test.mock import mocked_plugin_github_request, mocked_plugin_requests_get
 from posthog.plugins.test.plugin_archives import HELLO_WORLD_PLUGIN_GITHUB_ZIP
-from posthog.redis import get_client
 
 from products.cdp.backend.models.plugin import Plugin
 
@@ -625,35 +625,17 @@ class TestOrganization(BaseTest):
             self.assertEqual(data["limited_teams"], [])
             self.assertIsNone(data["redis_quota_limited_until"])
 
-    def test_is_active_change_invalidates_llm_gateway_quota_cache(self):
-        gateway_redis_url = "redis://llm-gateway-redis-org-active-test/"
-        second_team = self.organization.teams.create(name="Second Team", api_token="second_token")
-        other_organization = Organization.objects.create(name="Other Org")
-        other_team = other_organization.teams.create(name="Other Team", api_token="other_token")
-
-        billing_keys = [
-            f"quota:code_usage_billing:team:{self.team.id}",
-            f"quota:code_usage_billing:team:{second_team.id}",
-        ]
-        generation_keys = [
-            f"quota:generation:team:{self.team.id}",
-            f"quota:generation:team:{second_team.id}",
-        ]
-        other_generation_key = f"quota:generation:team:{other_team.id}"
-
-        with self.settings(LLM_GATEWAY_REDIS_URL=gateway_redis_url):
-            gateway_redis = get_client(gateway_redis_url)
-            gateway_redis.mset(dict.fromkeys(billing_keys, "stale"))
-            gateway_redis.set(other_generation_key, 4)
-
-            with self.captureOnCommitCallbacks(execute=True):
+    def test_is_active_change_projects_gateway_quota_when_flags_sync_fails(self):
+        with (
+            self.settings(AI_GATEWAY_REDIS_URL="redis://ai-gateway-org-active-test/"),
+            patch("ee.billing.quota_limiting.sync_deactivated_org_flags_limit", side_effect=Exception("boom")),
+            patch("posthog.tasks.team_llm_gateway_quota.project_org_llm_gateway_quota_task.delay") as project,
+        ):
+            with suppress(Exception), self.captureOnCommitCallbacks(execute=True):
                 self.organization.is_active = False
                 self.organization.save()
 
-            assert gateway_redis.mget(billing_keys) == [None] * len(billing_keys)
-            assert gateway_redis.mget(generation_keys) == [b"1"] * len(generation_keys)
-            assert gateway_redis.get(other_generation_key) == b"4"
-            gateway_redis.delete(other_generation_key)
+        project.assert_called_once_with(str(self.organization.pk))
 
     @patch("ee.billing.quota_limiting.get_client")
     def test_get_limited_products_no_limits(self, mock_get_client):

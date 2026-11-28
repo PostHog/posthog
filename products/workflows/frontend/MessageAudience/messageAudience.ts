@@ -1,6 +1,7 @@
 import posthog from 'posthog-js'
 
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
+import { uuid } from 'lib/utils/dom'
 
 import {
     AccessControlLevel,
@@ -42,7 +43,11 @@ export function cohortAudienceProperties(cohort: { id: number; name?: string | n
     ]
 }
 
-export function messageAudienceUrl(audience: MessageAudience, destination: MessageAudienceDestination): string {
+export function messageAudienceUrl(
+    audience: MessageAudience,
+    destination: MessageAudienceDestination,
+    attemptId?: string
+): string {
     if (destination === 'broadcast') {
         return urlForNewBroadcastWithAudience({
             properties: audience.properties,
@@ -51,19 +56,23 @@ export function messageAudienceUrl(audience: MessageAudience, destination: Messa
             sourceRecord: audience.sourceRecord,
             email: audience.broadcastEmail,
             draftSource: audience.draftSource,
+            attemptId,
         })
     }
     return urlForNewWorkflowWithTrigger(
         audience.workflowTrigger ?? { type: 'batch', filters: { properties: audience.properties } },
         audience.source,
         audience.workflowEmail,
-        audience.draftSource
+        audience.draftSource,
+        attemptId
     )
 }
 
-export function captureMessageAudienceClicked(source: string, destination: MessageAudienceDestination): void {
+export function captureMessageAudienceClicked(source: string, destination: MessageAudienceDestination): string {
+    const attemptId = uuid()
     // pinned: analytics event name
-    posthog.capture('message audience clicked', { source, destination })
+    posthog.capture('message audience clicked', { source, destination, attempt_id: attemptId })
+    return attemptId
 }
 
 /** Why this person can't start a broadcast or workflow, if they can't: both need editor access to workflows. */

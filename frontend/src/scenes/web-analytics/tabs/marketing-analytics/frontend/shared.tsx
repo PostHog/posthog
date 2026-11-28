@@ -2,8 +2,10 @@ import { useValues } from 'kea'
 
 import { IconGraph, IconLineGraph, IconTrending } from '@posthog/icons'
 import { LemonSegmentedButtonOption } from '@posthog/lemon-ui'
+import { Tooltip as QuillTooltip, TooltipContent, TooltipTrigger } from '@posthog/quill'
 
 import { getColorVar } from 'lib/colors'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconAreaChart, IconTrendingDown, IconTrendingFlat } from 'lib/lemon-ui/icons'
 import { Tooltip } from 'lib/lemon-ui/Tooltip/Tooltip'
 import { DEFAULT_CURRENCY, getCurrencySymbol } from 'lib/utils/currency'
@@ -192,6 +194,30 @@ const getChangeBackgroundColor = (
     return isGood ? 'var(--color-bg-fill-success-highlight)' : 'var(--color-bg-fill-error-highlight)'
 }
 
+const CellTooltip = ({
+    quill,
+    title,
+    className,
+    children,
+}: {
+    quill: boolean
+    title: React.ReactNode
+    className: string
+    children: JSX.Element
+}): JSX.Element =>
+    quill ? (
+        <QuillTooltip>
+            <TooltipTrigger delay={300} render={children} />
+            <TooltipContent>
+                <span>{title}</span>
+            </TooltipContent>
+        </QuillTooltip>
+    ) : (
+        <Tooltip title={title} delayMs={300} className={className}>
+            {children}
+        </Tooltip>
+    )
+
 // Internal component that handles the actual rendering
 const MarketingAnalyticsCellInternal = ({
     value: item,
@@ -203,18 +229,19 @@ const MarketingAnalyticsCellInternal = ({
     onClick?: () => void
 }): JSX.Element | null => {
     const { baseCurrency } = useValues(teamLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     // Handle different no-data scenarios
     if (!item || (item.value == null && item.previous == null)) {
         return (
-            <Tooltip title={getNoDataTooltip(item)} delayMs={300} className="cursor-default">
+            <CellTooltip quill={todayRailNav} title={getNoDataTooltip(item)} className="cursor-default">
                 <div
                     className="flex items-center justify-start min-w-0 cursor-default text-muted w-full hover:bg-warning-highlight h-full"
                     style={{ padding: '0.5rem', ...style }}
                 >
                     <span className="overflow-hidden text-ellipsis whitespace-nowrap">-</span>
                 </div>
-            </Tooltip>
+            </CellTooltip>
         )
     }
 
@@ -224,7 +251,7 @@ const MarketingAnalyticsCellInternal = ({
             currency: baseCurrency,
         })
         return (
-            <Tooltip title={getNoDataTooltip(item)} delayMs={300} className="cursor-default">
+            <CellTooltip quill={todayRailNav} title={getNoDataTooltip(item)} className="cursor-default">
                 <div
                     className="flex flex-wrap items-center min-w-0 cursor-default text-muted w-full hover:bg-warning-highlight h-full"
                     style={{ padding: '0.5rem', ...style }}
@@ -237,7 +264,7 @@ const MarketingAnalyticsCellInternal = ({
                         Previous period
                     </div>
                 </div>
-            </Tooltip>
+            </CellTooltip>
         )
     }
 
@@ -269,7 +296,8 @@ const MarketingAnalyticsCellInternal = ({
     const Cell = onClick ? 'button' : 'div'
 
     return (
-        <Tooltip
+        <CellTooltip
+            quill={todayRailNav}
             title={
                 onClick ? (
                     <>
@@ -281,7 +309,6 @@ const MarketingAnalyticsCellInternal = ({
                     tooltip
                 )
             }
-            delayMs={300}
             className={onClick ? 'cursor-pointer' : 'cursor-default'}
         >
             <Cell
@@ -307,7 +334,7 @@ const MarketingAnalyticsCellInternal = ({
                     </div>
                 )}
             </Cell>
-        </Tooltip>
+        </CellTooltip>
     )
 }
 

@@ -12,6 +12,7 @@ from products.warehouse_sources.sources.sdk import (
     RESTClient,
     SinglePagePaginator,
     SourceResponse,
+    coerce_date,
     reach_safe_point,
     rest_api_resource,
     schema_for_resource,
@@ -19,6 +20,7 @@ from products.warehouse_sources.sources.sdk import (
 from products.warehouse_sources.sources.trustradius.settings import (
     AUTH_ERROR,
     BASE_URL,
+    DATE_WINDOW_DAYS,
     ENDPOINTS,
     INTENT_HISTORY_DAYS,
     PERMISSION_ERROR,
@@ -61,6 +63,10 @@ def _start_date(today: date, history_days: int, should_use_incremental_field: bo
 def _report_pages(
     client: RESTClient, settings: EndpointConfig, start: date, end: date
 ) -> Iterator[list[dict[str, Any]]]:
+    if settings.get("date_windows"):
+        yield from _window_pages(client, settings, start, end)
+        return
+
     params: dict[str, Any] = {
         "start-date": start.isoformat(),
         "end-date": end.isoformat(),
@@ -91,6 +97,34 @@ def _report_pages(
             reach_safe_point()
             if len(page) < REPORT_PAGE_SIZE:
                 break
+
+
+def _window_pages(
+    client: RESTClient, settings: EndpointConfig, start: date, end: date
+) -> Iterator[list[dict[str, Any]]]:
+    # The report has no paging, so fixed windows bound each response. The spec calls `end-date`
+    # inclusive while the intent API treats it as exclusive, so each window ends where the next one
+    # starts and rows outside the window are dropped. Neither reading then loses or repeats a day.
+    # Optional key fields become "" so destinations whose merge does not match nulls can key the rows.
+    window_start = start
+    while window_start < end:
+        window_end = min(window_start + timedelta(days=DATE_WINDOW_DAYS), end)
+        params = {
+            "start-date": window_start.isoformat(),
+            "end-date": window_end.isoformat(),
+            "date-group": "day",
+            "format": "json",
+        }
+        for page in client.paginate(settings["path"], params=params, data_selector="", data_selector_required=True):
+            rows = [
+                {**row, **{key: "" for key in settings["primary_keys"] if row.get(key) is None}}
+                for row in page
+                if (day := coerce_date(row.get("date"))) is not None and window_start <= day < window_end
+            ]
+            if rows:
+                yield rows
+        reach_safe_point()
+        window_start = window_end
 
 
 def _intent_pages(

@@ -1,3 +1,5 @@
+import './toast.css'
+
 import { Toast } from '@base-ui/react/toast'
 import { CircleCheckIcon, InfoIcon, XIcon, TriangleAlertIcon } from 'lucide-react'
 import * as React from 'react'
@@ -5,14 +7,17 @@ import * as React from 'react'
 import { Button } from './button'
 import { cn } from './lib/utils'
 import { Spinner } from './spinner'
-import './toast.css'
 
 // ── Global manager ────────────────────────────────────────────────────
+type ToastAction = {
+    label: string
+    onClick: () => void
+}
+
 type ToastActionData = {
-    action?: {
-        label: string
-        onClick: () => void
-    }
+    action?: ToastAction
+    secondaryAction?: ToastAction
+    onDismiss?: () => void
 }
 
 const toastManager = Toast.createToastManager<ToastActionData>()
@@ -22,15 +27,15 @@ const anchoredToastManager = Toast.createToastManager<ToastActionData>()
 type ToastType = 'success' | 'info' | 'warning' | 'error' | 'loading'
 
 type ToastOptions = {
-    title?: string
-    description?: string
+    title?: React.ReactNode
+    description?: React.ReactNode
     type?: ToastType
     timeout?: number
     onClose?: () => void
-    action?: {
-        label: string
-        onClick: () => void
-    }
+    action?: ToastAction
+    secondaryAction?: ToastAction
+    /** Runs when the user closes the toast with its close button, not when it times out. */
+    onDismiss?: () => void
 }
 
 // ── Icon map ──────────────────────────────────────────────────────────
@@ -43,29 +48,43 @@ const toastIconMap: Record<ToastType, React.ReactNode> = {
 }
 
 // ── ToastCard ─────────────────────────────────────────────────────────
-type ToastCardAction = {
-    label: string
-    onClick: () => void
-}
-
 type ToastCardProps = React.ComponentPropsWithRef<'div'> & {
     toastTitle?: React.ReactNode
     toastDescription?: React.ReactNode
     icon?: React.ReactNode
-    action?: ToastCardAction
+    action?: ToastAction
+    secondaryAction?: ToastAction
     onDismiss?: () => void
-    showGapHitArea?: boolean
+    /** Covers the gap between expanded cards so hovering it keeps the stack open. */
+    showGapHitArea?: 'above' | 'below'
 }
 
 const ToastCard = React.forwardRef<HTMLDivElement, ToastCardProps>(
-    ({ className, toastTitle, toastDescription, icon, action, onDismiss, showGapHitArea, children, ...props }, ref) => {
+    (
+        {
+            className,
+            toastTitle,
+            toastDescription,
+            icon,
+            action,
+            secondaryAction,
+            onDismiss,
+            showGapHitArea,
+            children,
+            ...props
+        },
+        ref
+    ) => {
         const onlyTitle = toastTitle !== undefined && toastDescription === undefined
         const onlyDescription = toastDescription !== undefined && toastTitle === undefined
         return (
             <div ref={ref} className={cn('quill-toast-card', className)} {...props}>
                 {showGapHitArea && (
                     <span
-                        className="pointer-events-auto absolute left-0 top-full w-full"
+                        className={cn(
+                            'pointer-events-auto absolute left-0 w-full',
+                            showGapHitArea === 'above' ? 'bottom-full' : 'top-full'
+                        )}
                         style={{ height: 'calc(var(--gap) + 1px)' }}
                     />
                 )}
@@ -88,12 +107,19 @@ const ToastCard = React.forwardRef<HTMLDivElement, ToastCardProps>(
                         )}
                     </div>
                 </div>
-                {action && (
-                    <div className="flex items-center gap-3 mt-2">
-                        {icon && <span className="size-6 shrink-0" />}
-                        <Button variant="outline" onClick={action.onClick}>
-                            {action.label}
-                        </Button>
+                {(action || secondaryAction) && (
+                    <div className="flex items-center gap-2 mt-2">
+                        {icon && <span className="size-6 shrink-0 me-1" />}
+                        {action && (
+                            <Button variant="outline" onClick={action.onClick}>
+                                {action.label}
+                            </Button>
+                        )}
+                        {secondaryAction && (
+                            <Button variant="outline" onClick={secondaryAction.onClick}>
+                                {secondaryAction.label}
+                            </Button>
+                        )}
                     </div>
                 )}
                 {onDismiss && (
@@ -115,54 +141,118 @@ const ToastCard = React.forwardRef<HTMLDivElement, ToastCardProps>(
 )
 ToastCard.displayName = 'ToastCard'
 
-// ── Toast root styles (CSS variable heavy — can't be pure Tailwind) ──
-const toastRootStyles: React.CSSProperties = {
-    '--gap': '0.75rem',
-    '--peek': '0.75rem',
-    '--scale': 'calc(max(0, 1 - (var(--toast-index) * 0.1)))',
-    '--shrink': 'calc(1 - var(--scale))',
-    '--height': 'var(--toast-frontmost-height, var(--toast-height))',
-    '--offset-y':
-        'calc(var(--toast-offset-y) * -1 + (var(--toast-index) * var(--gap) * -1) + var(--toast-swipe-movement-y))',
-    position: 'absolute',
-    right: 0,
-    bottom: 0,
-    left: 'auto',
-    width: '100%',
-    height: 'auto',
-    zIndex: 'calc(1000 - var(--toast-index))',
-    transformOrigin: 'bottom center',
-    transform:
-        'translateX(var(--toast-swipe-movement-x)) translateY(calc(var(--toast-swipe-movement-y) - (var(--toast-index) * var(--peek)) - (var(--shrink) * var(--height)))) scale(var(--scale))',
-    transition: 'transform 0.5s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.5s, height 0.15s',
-} as React.CSSProperties
+// ── Toast placement ───────────────────────────────────────────────────
+export type ToastPlacement = 'bottom-right' | 'top-center'
+
+// Older toasts stack away from the screen edge, upward from the bottom and downward from the top.
+// `away` is the sign of that direction in the CSS math below.
+function stackStyles(away: '-1' | '1', origin: 'top' | 'bottom'): React.CSSProperties {
+    return {
+        '--gap': '0.75rem',
+        '--peek': '0.75rem',
+        '--scale': 'calc(max(0, 1 - (var(--toast-index) * 0.1)))',
+        '--shrink': 'calc(1 - var(--scale))',
+        '--height': 'var(--toast-frontmost-height, var(--toast-height))',
+        '--offset-y': `calc(${away} * (var(--toast-offset-y) + (var(--toast-index) * var(--gap))) + var(--toast-swipe-movement-y))`,
+        position: 'absolute',
+        right: 0,
+        [origin]: 0,
+        width: '100%',
+        // Collapsed cards take the front card's height so a shorter one still peeks out from behind it.
+        height: 'var(--height)',
+        zIndex: 'calc(1000 - var(--toast-index))',
+        transformOrigin: `${origin} center`,
+        transform: `translateX(var(--toast-swipe-movement-x)) translateY(calc(var(--toast-swipe-movement-y) + ${away} * ((var(--toast-index) * var(--peek)) + (var(--shrink) * var(--height))))) scale(var(--scale))`,
+        transition: 'transform 0.5s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.5s, height 0.15s',
+    } as React.CSSProperties
+}
+
+const toastPlacements: Record<
+    ToastPlacement,
+    {
+        viewportClassName: string
+        cardClassName: string
+        rootStyle: React.CSSProperties
+        swipeDirection: Toast.Root.Props['swipeDirection']
+        gapHitArea: 'above' | 'below'
+    }
+> = {
+    'bottom-right': {
+        viewportClassName: 'bottom-4 right-4',
+        cardClassName:
+            'data-[starting-style]:![transform:translateY(150%)] data-[ending-style]:![transform:translateY(150%)]',
+        rootStyle: stackStyles('-1', 'bottom'),
+        swipeDirection: ['down', 'right'],
+        gapHitArea: 'below',
+    },
+    'top-center': {
+        viewportClassName:
+            'top-[calc(1rem+env(safe-area-inset-top))] left-1/2 -translate-x-1/2 max-w-[calc(100vw-2rem)]',
+        cardClassName:
+            'data-[starting-style]:![transform:translateY(-150%)] data-[ending-style]:![transform:translateY(-150%)]',
+        rootStyle: stackStyles('1', 'top'),
+        swipeDirection: 'up',
+        gapHitArea: 'above',
+    },
+}
 
 // ── Provider ──────────────────────────────────────────────────────────
 type ToastProviderProps = {
     children: React.ReactNode
     limit?: number
     timeout?: number
+    /** Where the stack sits; `top-center` suits a phone, where the bottom holds the tab bar. */
+    placement?: ToastPlacement
 }
 
-function ToastProvider({ children, limit = 3, timeout = 5000 }: ToastProviderProps): React.ReactElement {
+function ToastProvider({
+    children,
+    limit = 3,
+    timeout = 5000,
+    placement = 'bottom-right',
+}: ToastProviderProps): React.ReactElement {
     return (
         <Toast.Provider toastManager={toastManager} limit={limit} timeout={timeout}>
             <Toast.Provider toastManager={anchoredToastManager} limit={limit} timeout={timeout}>
                 {children}
                 <AnchoredToastViewport />
             </Toast.Provider>
-            <ToastViewport />
+            <ToastViewport placement={placement} />
         </Toast.Provider>
     )
 }
 
 // ── Viewport + list ───────────────────────────────────────────────────
-function ToastViewport(): React.ReactElement {
+function closingAction(
+    manager: { close: (toastId: string) => void },
+    toastId: string,
+    action: ToastAction | undefined
+): ToastAction | undefined {
+    if (!action) {
+        return undefined
+    }
+    return {
+        label: action.label,
+        onClick: () => {
+            manager.close(toastId)
+            action.onClick()
+        },
+    }
+}
+
+function ToastViewport({ placement }: { placement: ToastPlacement }): React.ReactElement {
     const manager = Toast.useToastManager<ToastActionData>()
+    const layout = toastPlacements[placement]
 
     return (
         <Toast.Portal>
-            <Toast.Viewport data-quill data-quill-portal="toast" className="fixed bottom-4 right-4 w-[360px]">
+            <Toast.Viewport
+                data-quill
+                data-quill-portal="toast"
+                data-slot="toast-viewport"
+                data-placement={placement}
+                className={cn('fixed w-[360px]', layout.viewportClassName)}
+            >
                 {manager.toasts.map((t) => {
                     const toastType = t.type as ToastType | undefined
 
@@ -170,31 +260,26 @@ function ToastViewport(): React.ReactElement {
                         <Toast.Root
                             key={t.id}
                             toast={t}
-                            style={toastRootStyles}
+                            swipeDirection={layout.swipeDirection}
+                            style={layout.rootStyle}
                             render={
                                 <ToastCard
                                     toastTitle={t.title}
                                     toastDescription={t.description}
                                     icon={toastType ? toastIconMap[toastType] : undefined}
-                                    showGapHitArea
-                                    action={
-                                        t.data?.action
-                                            ? {
-                                                  label: t.data.action.label,
-                                                  onClick: () => {
-                                                      toastManager.close(t.id)
-                                                      t.data?.action?.onClick()
-                                                  },
-                                              }
-                                            : undefined
-                                    }
-                                    onDismiss={() => toastManager.close(t.id)}
+                                    showGapHitArea={layout.gapHitArea}
+                                    action={closingAction(manager, t.id, t.data?.action)}
+                                    secondaryAction={closingAction(manager, t.id, t.data?.secondaryAction)}
+                                    onDismiss={() => {
+                                        manager.close(t.id)
+                                        t.data?.onDismiss?.()
+                                    }}
                                     className={cn(
                                         'm-0 p-3',
                                         'data-[expanded]:![transform:translateX(var(--toast-swipe-movement-x))_translateY(var(--offset-y))]',
                                         'data-[expanded]:![height:var(--toast-height)]',
-                                        'data-[starting-style]:![transform:translateY(150%)]',
-                                        'data-[ending-style]:![transform:translateY(150%)]',
+                                        'not-data-[expanded]:overflow-hidden',
+                                        layout.cardClassName,
                                         'data-[ending-style]:opacity-0',
                                         'data-[limited]:opacity-0'
                                     )}
@@ -214,7 +299,7 @@ function AnchoredToastViewport(): React.ReactElement {
 
     return (
         <Toast.Portal>
-            <Toast.Viewport data-quill data-quill-portal="toast" className="fixed">
+            <Toast.Viewport data-quill data-quill-portal="toast" data-slot="anchored-toast-viewport" className="fixed">
                 {manager.toasts.map((t) => {
                     return (
                         // The caller's side and offset win; top and 8px are only the defaults.
@@ -230,18 +315,16 @@ function AnchoredToastViewport(): React.ReactElement {
                                     <ToastCard
                                         toastTitle={t.title}
                                         toastDescription={t.description}
-                                        action={
+                                        action={closingAction(manager, t.id, t.data?.action)}
+                                        secondaryAction={closingAction(manager, t.id, t.data?.secondaryAction)}
+                                        onDismiss={
                                             t.data?.action
-                                                ? {
-                                                      label: t.data.action.label,
-                                                      onClick: () => {
-                                                          manager.close(t.id)
-                                                          t.data?.action?.onClick()
-                                                      },
+                                                ? () => {
+                                                      manager.close(t.id)
+                                                      t.data?.onDismiss?.()
                                                   }
                                                 : undefined
                                         }
-                                        onDismiss={t.data?.action ? () => manager.close(t.id) : undefined}
                                         className={cn(
                                             // the viewport is a zero-width fixed box, so without this the card
                                             // collapses to its longest word
@@ -262,15 +345,19 @@ function AnchoredToastViewport(): React.ReactElement {
 }
 
 // ── Convenience API ───────────────────────────────────────────────────
+function toastData({ action, secondaryAction, onDismiss }: ToastOptions): ToastActionData | undefined {
+    return action || secondaryAction || onDismiss ? { action, secondaryAction, onDismiss } : undefined
+}
+
 function addToast(options: ToastOptions): string {
-    const { title, description, type, timeout, onClose, action } = options
+    const { title, description, type, timeout, onClose } = options
     return toastManager.add({
         title,
         description,
         type,
         timeout,
         onClose,
-        data: action ? { action } : undefined,
+        data: toastData(options),
     })
 }
 
@@ -298,19 +385,20 @@ toast.loading = (options: Omit<ToastOptions, 'type'>): string => {
     return addToast({ ...options, type: 'loading', timeout: 0 })
 }
 
-toast.dismiss = (id: string): void => {
+/** Closes the toast with this id, or every toast when no id is given. */
+toast.dismiss = (id?: string): void => {
     toastManager.close(id)
 }
 
 toast.update = (id: string, options: ToastOptions): void => {
-    const { title, description, type, timeout, onClose, action } = options
+    const { title, description, type, timeout, onClose } = options
     toastManager.update(id, {
         title,
         description,
         type,
         timeout,
         onClose,
-        data: action ? { action } : undefined,
+        data: toastData(options),
     })
 }
 
@@ -323,14 +411,14 @@ type AnchoredToastOptions = ToastOptions & {
 }
 
 function anchoredToast(options: AnchoredToastOptions): string {
-    const { title, description, type, timeout, action, anchor, side, sideOffset, onClose } = options
+    const { title, description, type, timeout, anchor, side, sideOffset, onClose } = options
     return anchoredToastManager.add({
         title,
         description,
         type,
         timeout,
         onClose,
-        data: action ? { action } : undefined,
+        data: toastData(options),
         positionerProps: {
             anchor,
             side,
@@ -352,6 +440,7 @@ export {
     toastManager,
     ToastProvider,
     type AnchoredToastOptions,
+    type ToastAction,
     type ToastCardProps,
     type ToastOptions,
     type ToastType,

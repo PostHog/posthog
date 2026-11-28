@@ -380,6 +380,8 @@ class UsageReportCounters:
 
     # AI Billing Credits (PostHog AI feature usage)
     ai_credits_used_in_period: int
+    # The sandbox compute share, already inside ai_credits_used_in_period
+    ai_compute_credits_used_in_period: int
 
     # Signals Billing Credits (flat credits per report whose implementation shipped a PR)
     signals_credits_used_in_period: int
@@ -413,8 +415,9 @@ class UsageReportCounters:
     go_mcp_events_count_in_period: int
     ruby_mcp_events_count_in_period: int
 
-    # MCP usage overlaps billable event and per-SDK totals.
+    # Excluded from web_events_count_in_period, like the other per-SDK MCP counts.
     web_mcp_events_count_in_period: int
+    # MCP usage overlaps billable event and per-SDK totals.
     mcp_tool_call_events_count_in_period: int
     mcp_missing_capability_events_count_in_period: int
     mcp_initialize_events_count_in_period: int
@@ -1059,6 +1062,9 @@ MCP_ANALYTICS_EVENT_METRICS: dict[str, str] = {
 }
 
 
+WEB_MCP_RAW_EVENT_ROWS = "web_mcp_raw_event_rows"
+
+
 def _get_mcp_analytics_event_metric_counts(begin: datetime, end: datetime) -> dict[str, list[tuple[int, int]]]:
     """Keep MCP metrics on `events`, whose ORDER BY key matches their dedup expression.
 
@@ -1071,25 +1077,25 @@ def _get_mcp_analytics_event_metric_counts(begin: datetime, end: datetime) -> di
     library_expression, _ = get_property_string_expr(
         "events", "$lib", "'$lib'", "properties", use_new_events_schema=False
     )
-    metric_names = (*MCP_ANALYTICS_EVENT_METRICS.values(), "web_mcp_events")
+    metric_names = (*MCP_ANALYTICS_EVENT_METRICS.values(), "web_mcp_events", WEB_MCP_RAW_EVENT_ROWS)
     metric_expressions = ",\n            ".join(
         f"uniqExactIf(event_key, event = %({metric_name})s) AS {metric_name}"
         for metric_name in MCP_ANALYTICS_EVENT_METRICS.values()
     )
     # nosemgrep: clickhouse-fstring-param-audit - metric names and property expressions come from internal definitions
     query_template = f"""
-        WITH tuple(toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid)) AS event_key
+        WITH
+            tuple(toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid)) AS event_key,
+            if(
+                {library_expression} = %(web_mcp_lib)s,
+                {interface_expression} = %(web_mcp_interface)s,
+                0
+            ) AS is_web_mcp
         SELECT
             team_id,
             {metric_expressions},
-            uniqExactIf(
-                event_key,
-                if(
-                    {library_expression} = %(web_mcp_lib)s,
-                    {interface_expression} = %(web_mcp_interface)s,
-                    0
-                )
-            ) AS web_mcp_events
+            uniqExactIf(event_key, is_web_mcp) AS web_mcp_events,
+            countIf(is_web_mcp) AS {WEB_MCP_RAW_EVENT_ROWS}
         FROM events
         PREWHERE timestamp >= %(begin)s AND timestamp < %(end)s
             AND startsWith(event, %(mcp_event_prefix)s)
@@ -1320,8 +1326,16 @@ def get_all_event_metrics_in_period(begin: datetime, end: datetime) -> dict[str,
         )
         mcp_analytics_counts_by_metric = _get_mcp_analytics_event_metric_counts(begin=begin, end=end)
 
+    # The base scan can't split out WebMCP events because that needs `$mcp_interface` from `properties`.
+    parent_subtractions = dict(ai_sub_sdk_metric_counts.parent_subtractions)
+    # web_events counts duplicate rows, so subtract raw WebMCP rows rather than the deduplicated metric.
+    # The raw rows always come from `events`. When the base scan reads `events_json`, the two tables can
+    # collapse duplicates differently, so this subtraction is approximate. Keep both scans on one table if
+    # the MCP query moves.
+    if web_mcp_rows := dict(mcp_analytics_counts_by_metric.pop(WEB_MCP_RAW_EVENT_ROWS)):
+        parent_subtractions["web_events"] = web_mcp_rows
     # Remove sub-SDK events from each parent metric. max(0, count) guards against cross-query ingestion jitter.
-    for parent_metric, team_subtractions in ai_sub_sdk_metric_counts.parent_subtractions.items():
+    for parent_metric, team_subtractions in parent_subtractions.items():
         metrics[parent_metric] = [
             (team_id, max(0, count - team_subtractions.get(team_id, 0))) for team_id, count in metrics[parent_metric]
         ]
@@ -2421,6 +2435,10 @@ def get_teams_with_billable_sandbox_compute_usage_in_period(
 
 
 def combine_posthog_code_credits(token_credits: int, compute_credits: int) -> int:
+    return token_credits + compute_credits
+
+
+def combine_ai_credits(token_credits: int, compute_credits: int) -> int:
     return token_credits + compute_credits
 
 
@@ -3651,6 +3669,8 @@ def _get_team_report(all_data: dict[str, Any], team: Team) -> UsageReportCounter
     ai_overage_bytes_in_period = all_data["teams_with_ai_overage_bytes_in_period"].get(team.id, 0)
     logs_bytes_in_period = all_data["teams_with_logs_bytes_in_period"].get(team.id, 0)
     apm_tracing_bytes_in_period = all_data["teams_with_apm_tracing_bytes_in_period"].get(team.id, 0)
+    # Absent from counter reports and query results saved before the key existed.
+    ai_compute_credits_used_in_period = all_data.get("teams_with_ai_compute_credits_used_in_period", {}).get(team.id, 0)
     return UsageReportCounters(
         event_count_in_period=all_data["teams_with_event_count_in_period"].get(team.id, 0),
         enhanced_persons_event_count_in_period=all_data["teams_with_enhanced_persons_event_count_in_period"].get(
@@ -3838,7 +3858,10 @@ def _get_team_report(all_data: dict[str, Any], team: Team) -> UsageReportCounter
         business_knowledge_queries_in_period=all_data["teams_with_business_knowledge_queries_in_period"].get(
             team.id, 0
         ),
-        ai_credits_used_in_period=all_data["teams_with_ai_credits_used_in_period"].get(team.id, 0),
+        ai_credits_used_in_period=combine_ai_credits(
+            all_data["teams_with_ai_credits_used_in_period"].get(team.id, 0), ai_compute_credits_used_in_period
+        ),
+        ai_compute_credits_used_in_period=ai_compute_credits_used_in_period,
         signals_credits_used_in_period=all_data["teams_with_signals_credits_used_in_period"].get(team.id, 0),
         signals_spend_credits_used_in_period=all_data["teams_with_signals_spend_credits_used_in_period"].get(
             team.id, 0

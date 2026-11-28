@@ -14,7 +14,6 @@ import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { delay } from 'lib/utils/async'
 import { objectsEqual } from 'lib/utils/objects'
 import { isAbortedRequest } from 'lib/utils/requests'
-import { toParams } from 'lib/utils/url'
 import { flagCallsTableReachesPastRetention } from 'scenes/feature-flags/flagCallsListQuery'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene } from 'scenes/sceneTypes'
@@ -434,7 +433,7 @@ export const personsLogic = kea<personsLogicType>([
                                 result = {
                                     // This reads the cohorts API, whose generated client belongs to another product.
                                     // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use cohortsPersonsRetrieve() from 'products/cohorts/frontend/generated/api' instead.
-                                    ...(await api.get(`api/cohort/${props.cohort}/persons/?${toParams(newFilters)}`)),
+                                    ...(await api.get(api.cohorts.determineListUrl(props.cohort, newFilters))),
                                     offset: 0,
                                 }
                             } else {

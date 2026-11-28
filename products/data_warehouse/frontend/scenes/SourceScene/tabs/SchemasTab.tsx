@@ -65,14 +65,22 @@ import {
     SyncTypeLabelMap,
     allowedSyncFrequencies,
 } from 'products/data_warehouse/frontend/utils'
-import type { ExternalDataDestinationApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
+import type {
+    ExternalDataDestinationApi,
+    WebhookIssueEnumApi,
+} from 'products/warehouse_sources/frontend/generated/api.schemas'
 
 import { addTableLogic } from './addTableLogic'
 import { AddTableModal } from './AddTableModal'
 import { DirectQuerySchemasTab } from './DirectQuerySchemasTab'
 import { replaceFileDisabledReason, replaceFileLogic, replaceFileTarget } from './replaceFileLogic'
 import { ReplaceFileModal } from './ReplaceFileModal'
-import { BulkSyncMethod, bulkSyncMethodDisabledReason, sourceSettingsLogic } from './sourceSettingsLogic'
+import {
+    BulkSyncMethod,
+    bulkSyncMethodDisabledReason,
+    bulkSyncMethodOptions,
+    sourceSettingsLogic,
+} from './sourceSettingsLogic'
 
 const frequencyRank = (frequency: DataWarehouseSyncInterval | null | undefined): number =>
     frequency ? SYNC_FREQUENCY_ORDER.indexOf(frequency) : -1
@@ -142,6 +150,21 @@ const schemaStatusDisplay = (
 
 export interface SchemasTabProps {
     id: string
+}
+
+const WEBHOOK_ISSUE_LABELS: Record<WebhookIssueEnumApi, string> = {
+    not_registered: 'No webhook',
+    missing_inputs: 'Webhook setup incomplete',
+    not_routed: 'Missing from webhook',
+}
+
+const WEBHOOK_ISSUE_TOOLTIPS: Record<WebhookIssueEnumApi, string> = {
+    not_registered:
+        'This table uses webhook sync, but the source has no active webhook. Each sync reads the source API instead, which is slower and can read the whole table. Set up the webhook on the Webhook tab, or change the sync method.',
+    missing_inputs:
+        'The webhook is missing a required setting, such as its signing secret, so PostHog drops every event it receives. Add the missing setting on the Webhook tab.',
+    not_routed:
+        "The source's webhook doesn't include this table, so PostHog drops its events. Set up the webhook again on the Webhook tab to add it.",
 }
 
 export function SchemasTab({ id }: SchemasTabProps): JSX.Element {
@@ -686,14 +709,20 @@ function ManagedSchemaTable({
                         if (isFileUpload) {
                             return syncMethod
                         }
-                        const webhookTag = schema.webhook_not_registered ? (
-                            <Tooltip title="This table uses webhook sync, but the source has no active webhook. Each sync reads the source API instead, which is slower and can read the whole table. Set up the webhook on the Webhook tab, or change the sync method.">
+                        const webhookIssue = schema.webhook_issue
+                        const webhookTag = webhookIssue ? (
+                            <Tooltip title={WEBHOOK_ISSUE_TOOLTIPS[webhookIssue]}>
                                 <Link
                                     to={urls.dataWarehouseSource(prefixedSourceId, 'webhook')}
                                     subtle
-                                    data-attr="schemas-tab-webhook-not-registered"
+                                    // Pinned: data-attr values are product analytics keys.
+                                    data-attr={
+                                        webhookIssue === 'not_registered'
+                                            ? 'schemas-tab-webhook-not-registered'
+                                            : `schemas-tab-webhook-${webhookIssue}`
+                                    }
                                 >
-                                    <LemonTag type="danger">No webhook</LemonTag>
+                                    <LemonTag type="danger">{WEBHOOK_ISSUE_LABELS[webhookIssue]}</LemonTag>
                                 </Link>
                             </Tooltip>
                         ) : null
@@ -949,6 +978,13 @@ function ManagedSchemaTable({
     )
 }
 
+const BULK_SYNC_METHOD_DESCRIPTIONS: Record<BulkSyncMethod, string> = {
+    full_refresh:
+        'Every sync re-reads the whole table, and every row counts towards your bill. Best for tables that are small, or that have no unique primary key to sync incrementally on.',
+    append: 'New rows are added without matching them against what is already synced. Rows that change in the source arrive again as duplicates, so this suits tables that are only ever inserted into.',
+    xmin: "Each sync reads the rows inserted or changed since the last sync, from Postgres' xmin system column, so no incremental field is needed. Deleted rows are not removed. Tables that already synced are deleted and resynced from scratch. Tables that can't use xmin, such as views, keep their current sync method.",
+}
+
 function SchemaBulkActions({
     schemas,
     clearSelection,
@@ -967,7 +1003,7 @@ function SchemaBulkActions({
         pausePolling,
         resumePolling,
     } = useActions(sourceSettingsLogic)
-    const { bulkEnableLoading } = useValues(sourceSettingsLogic)
+    const { bulkEnableLoading, sourceFieldConfig } = useValues(sourceSettingsLogic)
 
     // Wrap every action so the selection clears once it's been kicked off.
     const run = (action: () => void): void => {
@@ -1014,10 +1050,7 @@ function SchemaBulkActions({
     const onSetSyncMethod = (syncType: BulkSyncMethod): void => {
         LemonDialog.open({
             title: `Set ${pluralize(count, 'table', 'tables')} to ${SyncTypeLabelMap[syncType]}?`,
-            description:
-                syncType === 'full_refresh'
-                    ? 'Every sync re-reads the whole table, and every row counts towards your bill. Best for tables that are small, or that have no unique primary key to sync incrementally on.'
-                    : 'New rows are added without matching them against what is already synced. Rows that change in the source arrive again as duplicates, so this suits tables that are only ever inserted into.',
+            description: BULK_SYNC_METHOD_DESCRIPTIONS[syncType],
             primaryButton: {
                 children: 'Set sync method',
                 type: 'primary',
@@ -1065,18 +1098,11 @@ function SchemaBulkActions({
                 </LemonButton>
             </LemonMenu>
             <LemonMenu
-                items={[
-                    {
-                        label: SyncTypeLabelMap.full_refresh,
-                        disabledReason: bulkSyncMethodDisabledReason(selected, 'full_refresh'),
-                        onClick: () => onSetSyncMethod('full_refresh'),
-                    },
-                    {
-                        label: SyncTypeLabelMap.append,
-                        disabledReason: bulkSyncMethodDisabledReason(selected, 'append'),
-                        onClick: () => onSetSyncMethod('append'),
-                    },
-                ]}
+                items={bulkSyncMethodOptions(!!sourceFieldConfig?.supportsXmin).map((syncType) => ({
+                    label: SyncTypeLabelMap[syncType],
+                    disabledReason: bulkSyncMethodDisabledReason(selected, syncType),
+                    onClick: () => onSetSyncMethod(syncType),
+                }))}
             >
                 <LemonButton type="secondary" size="small">
                     Set sync method

@@ -23,6 +23,7 @@ from posthog.clickhouse.query_tagging import private_capture_context
 from posthog.dataclasses import frozen
 from posthog.event_usage import groups
 from posthog.exceptions_capture import capture_exception
+from posthog.models.scoping import team_scope
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.models.utils import uuid7
@@ -66,10 +67,16 @@ from products.signals.backend.scout_harness.limits import (
     failure_streak_pause_threshold,
     interval_runs_in_tolerance_window,
 )
+from products.signals.backend.scout_harness.message_routes import (
+    MessageRoute,
+    get_message_routes,
+    scout_send_message_enabled,
+)
 from products.signals.backend.scout_harness.model_selection import RUNTIME_ADAPTER_CODEX, resolve_scout_model
 from products.signals.backend.scout_harness.prompt import (
     HARNESS_PROMPT_VERSION,
     MEMORY_UPKEEP_SCOUT,
+    OWN_SCRATCHPAD_STALE_DAYS,
     FirstReportScoutRunSummary,
     SignalScoutRunSummary,
     build_run_prompt,
@@ -89,7 +96,11 @@ from products.signals.backend.scout_harness.team_limits import (
     withheld_skills_for_team,
 )
 from products.signals.backend.scout_harness.tool_catalogue import scout_held_mcp_tools, scout_tool_access_enabled
-from products.signals.backend.scout_harness.tools.scratchpad import has_live_entry_created_by
+from products.signals.backend.scout_harness.tools.scratchpad import (
+    ScratchpadCounts,
+    count_live_entries_created_by,
+    has_live_entry_created_by,
+)
 from products.signals.backend.scout_harness.trial_launch import (
     TrialLaunch,
     assert_trial_model_access,
@@ -903,6 +914,13 @@ async def _arun_signals_scout(
                     team_id=team.parent_team_id or team.id, run_id=run_id, status=trial_status
                 )
             )
+        else:
+            # Success, failure and cancellation all send: the reports the queued messages point at exist.
+            await asyncio.shield(
+                database_sync_to_async(_send_queued_messages_safely, thread_sensitive=False)(
+                    team_id=team.parent_team_id or team.id, run_id=run_id
+                )
+            )
 
 
 async def arun_signals_scout(
@@ -983,19 +1001,44 @@ def _memory_upkeep_is_live(team: Team) -> bool:
     upkeep run that wrote nothing leaves the section off. The enabled check matters because the
     scout's cursor never expires: without it, every other scout keeps reading learnings that stopped
     changing when the upkeep scout was switched off. Every scout run reads the team's whole
-    scratchpad, so there is no per-user access to check. A failed read is False: the section is
-    optional steering.
+    scratchpad, so there is no per-user access to check. The runner sets no ambient team scope and
+    the scratchpad manager is fail-closed, so the read opens its own scope on the canonical team,
+    where scratchpad rows are stored. A failed read is False: the section is optional steering.
     """
     try:
+        canonical_team_id = team.parent_team_id or team.id
         enabled = (
-            SignalScoutConfig.objects.for_team(team.parent_team_id or team.id, canonical=True)
+            SignalScoutConfig.objects.for_team(canonical_team_id, canonical=True)
             .filter(skill_name=MEMORY_UPKEEP_SCOUT, status__in=SignalScoutConfig.RUNNABLE_STATUSES)
             .exists()
         )
-        return enabled and has_live_entry_created_by(team_id=team.id, skill_name=MEMORY_UPKEEP_SCOUT)
+        if not enabled:
+            return False
+        with team_scope(canonical_team_id, canonical=True):
+            return has_live_entry_created_by(team_id=canonical_team_id, skill_name=MEMORY_UPKEEP_SCOUT)
     except Exception as error:
         capture_exception(error)
         return False
+
+
+def _own_scratchpad_counts(team: Team, skill_name: str) -> ScratchpadCounts | None:
+    """The counts for the prompt's *Your scratchpad* section, or None when the read fails.
+
+    The runner sets no ambient team scope and the scratchpad manager is fail-closed, so the read
+    opens its own scope on the canonical team, where scratchpad rows are stored. A failed read is
+    None, because the section is optional steering.
+    """
+    canonical_team_id = team.parent_team_id or team.id
+    try:
+        with team_scope(canonical_team_id, canonical=True):
+            return count_live_entries_created_by(
+                team_id=canonical_team_id,
+                skill_name=skill_name,
+                updated_before=timezone.now() - timedelta(days=OWN_SCRATCHPAD_STALE_DAYS),
+            )
+    except Exception as error:
+        capture_exception(error)
+        return None
 
 
 ACTIVITY_SUMMARY_SEARCH_TOOL = "activity-summary-search"
@@ -1032,6 +1075,18 @@ def _inbox_reports_search_available(team: Team, mcp_tool_allowlist: list[str] | 
     except Exception as error:
         capture_exception(error)
         return False
+
+
+def _message_routes_for_run(
+    team: Team, config: SignalScoutConfig, *, is_private_trial: bool
+) -> tuple[MessageRoute, ...]:
+    """The routes the run's prompt lists, or none when `scout-send-message` would refuse every call."""
+    if is_private_trial:
+        return ()
+    routes = get_message_routes(config.output_destinations)
+    if not routes or not scout_send_message_enabled(team):
+        return ()
+    return routes
 
 
 def _report_tags_in_use(team: Team, *, report_channel: bool) -> list[str]:
@@ -1283,6 +1338,12 @@ async def _spawn_and_run(
         team, user_id
     )
     memory_upkeep_is_live = await database_sync_to_async(_memory_upkeep_is_live, thread_sensitive=False)(team)
+    # A private trial reads and writes its own memory overlay, so the team's counts do not apply to it.
+    own_scratchpad = (
+        None
+        if trial is not None
+        else await database_sync_to_async(_own_scratchpad_counts, thread_sensitive=False)(team, skill.name)
+    )
     mcp_server_names = await database_sync_to_async(_mcp_server_names_for_run, thread_sensitive=False)(
         team, user_id, config
     )
@@ -1295,6 +1356,9 @@ async def _spawn_and_run(
     inbox_reports_search = await database_sync_to_async(_inbox_reports_search_available, thread_sensitive=False)(
         team, mcp_tool_allowlist
     )
+    message_routes = await database_sync_to_async(_message_routes_for_run, thread_sensitive=False)(
+        team, config, is_private_trial=trial is not None
+    )
     prompt = build_run_prompt(
         skill,
         run_id=str(run_id),
@@ -1304,6 +1368,7 @@ async def _spawn_and_run(
         github_read_access=github_guidance,
         project_has_governed_metrics=project_has_governed_metrics,
         memory_upkeep_is_live=memory_upkeep_is_live,
+        own_scratchpad=own_scratchpad,
         activity_summary_search_available=activity_summary_search,
         inbox_reports_search_available=inbox_reports_search,
         # Names the external MCP servers the sandbox will mount, so *How to call tools* can carve
@@ -1315,6 +1380,10 @@ async def _spawn_and_run(
         # when the config carries a schema AND emit is on — records land solely as project
         # events, so a dry-run scout must not be steered at a tool that fails closed.
         structured_output_schema=(config.structured_output_schema if config.emit else None),
+        # Renders the messages section (route keys and conditions) only when the scout may send:
+        # the flag is on, the config has routes, and the run is not a private trial.
+        message_routes=message_routes,
+        messages_dry_run=not config.emit,
         # Names the objects this scout may change, so it acts on them and reports what it changed.
         # Resolved through the same allowlist the token is, so the prompt can never promise write
         # access the token does not carry.
@@ -1637,11 +1706,21 @@ def _self_heal_stale_runs(team_id: int, skill_name: str) -> None:
                 age_seconds=age_seconds,
             )
             transaction.on_commit(partial(settle_scout_spend.delay, team_id=team_id, run_id=str(task_run.id)))
+            # A reaped run never reaches the runner's terminal paths, so its queued messages go out here.
+            _send_queued_messages_safely(team_id=team_id, run_id=run.id)
         except Exception:
             logger.exception(
                 "signals_scout: failed to reap stale in-progress run; continuing",
                 extra={"team_id": team_id, "skill_name": skill_name, "run_id": str(run.id)},
             )
+
+
+def _send_queued_messages_safely(*, team_id: int, run_id: Any) -> None:
+    from products.signals.backend.scout_harness.message_send import (
+        send_queued_scout_messages_safely,  # noqa: PLC0415 - avoids loading the Celery task registry when importing the runner
+    )
+
+    send_queued_scout_messages_safely(team_id=team_id, run_id=run_id)
 
 
 def _claim_finished_orphan(*, run_id: Any, team_id: int) -> bool:

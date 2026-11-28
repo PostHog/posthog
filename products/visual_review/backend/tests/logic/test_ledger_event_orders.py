@@ -1,21 +1,69 @@
+from datetime import datetime, timedelta
+from enum import StrEnum
+
 import pytest
 
+from django.utils import timezone
+
 from posthog.dataclasses import frozen
+from posthog.models import User
 
 from products.visual_review.backend.db import WRITER_DB
+from products.visual_review.backend.facade.contracts import NoRunNeededInput
 from products.visual_review.backend.facade.enums import (
     BaselineApprovalState,
     BaselineEntrySource,
     BaselineMode,
+    DecisionAction,
+    DecisionChannel,
     RunPurpose,
     RunType,
 )
-from products.visual_review.backend.logic import approvals, commit_status, gating, ledger, ledger_advance
+from products.visual_review.backend.logic import (
+    approvals,
+    commit_status,
+    errors,
+    gating,
+    ledger,
+    ledger_advance,
+    quarantine,
+    repos,
+    retention,
+    review_decisions,
+    toleration,
+)
 from products.visual_review.backend.logic.baseline_record import record_for_run
-from products.visual_review.backend.models import BaselineApproval, BaselineEntry, Repo, Run
+from products.visual_review.backend.models import BaselineApproval, BaselineEntry, Repo, Run, RunSnapshot
 from products.visual_review.backend.tests.conftest import PRODUCT_DATABASES
-from products.visual_review.backend.tests.logic.event_orders import SCENARIOS, Layer, Scenario
-from products.visual_review.backend.tests.logic.ledger_fakes import SEED, FakeGit, LedgerFlow, seeded_repo
+from products.visual_review.backend.tests.logic.ci_workflow import (
+    FIXED_WORKFLOW,
+    MASTER_WORKFLOW,
+    REPORT_CHECK,
+    SETUP_CHECK,
+    CiInputs,
+    CiOutcome,
+    CiWorkflow,
+    WorkflowConfig,
+)
+from products.visual_review.backend.tests.logic.event_orders import (
+    CI_GAP_SCENARIOS,
+    CI_SCENARIOS,
+    CLOSE_SCENARIOS,
+    DECISION_BASELINE,
+    DECISION_SCENARIOS,
+    SCENARIOS,
+    DecisionScenario,
+    Layer,
+    Scenario,
+)
+from products.visual_review.backend.tests.logic.ledger_fakes import (
+    SEED,
+    FakeActions,
+    FakeGit,
+    LedgerFlow,
+    seeded_repo,
+    set_baseline_mode,
+)
 
 COLORS = {
     "b0": (255, 0, 0, 255),
@@ -39,6 +87,18 @@ CHECK_RESTACK = (
 GUARANTEE_UNRELATED_NOT_BOTH = (
     "Two unrelated pull requests with different pictures never both land unless the second approved again "
     "after the first landed, and one left behind shows a failing gate"
+)
+GUARANTEE_GREEN_HEAD = (
+    "A pull request head whose last gate status is success has a run that passes against the ledger and the "
+    "approvals now, or the pull request changes no picture against its base"
+)
+GUARANTEE_NO_CLOSED_APPROVAL = (
+    "An open pull request head whose last gate status is success does not rest on an approval that closed without "
+    "a ledger entry: not for the picture it renders, and not for the picture a layer of its stack approved over"
+)
+GUARANTEE_REVIEW_REACHES_GREEN = (
+    "A pull request that reviews its newest run again shows success, so a closed lower layer never leaves it red "
+    "with nothing to review"
 )
 
 REASON_APPROVED = "every picture it renders was approved"
@@ -83,6 +143,19 @@ class RestackCheck:
     outcome: str
 
 
+class WorkflowResult(StrEnum):
+    RAN = "ran"
+    SKIPPED = "skipped"
+    FAILED = "failed"
+
+
+@frozen
+class Workflow:
+    frontend_diff: frozenset[str]
+    base: str | None
+    result: WorkflowResult
+
+
 @frozen
 class QueueAttempt:
     group: tuple[str, ...]
@@ -94,6 +167,10 @@ class QueueAttempt:
     outcome: str
 
 
+def story_file(name: str) -> str:
+    return f"{name}-story@1"
+
+
 def ledger_button(repo: Repo) -> str:
     head = ledger.cursor(repo.id)
     assert head is not None
@@ -101,16 +178,43 @@ def ledger_button(repo: Repo) -> str:
 
 
 class OrderPlayer:
-    def __init__(self, scenario: Scenario, repo: Repo, git: FakeGit, flow: LedgerFlow, user, capture) -> None:
+    def __init__(
+        self,
+        scenario: Scenario,
+        repo: Repo,
+        git: FakeGit,
+        flow: LedgerFlow,
+        user,
+        capture,
+        actions: FakeActions,
+        workflow: CiWorkflow,
+    ) -> None:
         self.scenario = scenario
         self.repo = repo
         self.git = git
         self.flow = flow
         self.user = user
         self.capture = capture
+        self.actions = actions
+        self.workflow = workflow
         self.commits = 0
+        self.clock = timezone.now() - timedelta(days=1)
         # The pull requests whose changes each commit's tree holds, which decides the picture it renders.
         self.changes: dict[str, frozenset[str]] = {SEED: frozenset()}
+        # The frontend files each commit's tree changes against the seed, as "<layer>-<file>@<version>".
+        self.frontend_files: dict[str, frozenset[str]] = {SEED: frozenset()}
+        self.master_frontend_files: frozenset[str] = frozenset()
+        # The layer each pull request is based on, or None for the default branch.
+        self.bases: dict[str, str | None] = {layer.name: layer.stacked_on for layer in scenario.layers}
+        self.first_heads: dict[str, str] = {}
+        # Heads that a push to the open pull request moved to, so their workflow runs for `synchronize`.
+        self.pushed_heads: set[str] = set()
+        self.bot_heads: set[str] = set()
+        self.workflows: dict[str, list[Workflow]] = {layer.name: [] for layer in scenario.layers}
+        self.green_head_breaks: list[str] = []
+        self.closed_approval_breaks: list[str] = []
+        self.review_breaks: list[str] = []
+        self.closed: set[str] = set()
         self.master_changes: frozenset[str] = frozenset()
         self.heads: dict[str, str] = {}
         self.runs: dict[str, Run] = {}
@@ -129,15 +233,31 @@ class OrderPlayer:
         # `gh stack submit` pushes every layer at once, before any run finishes.
         for layer in scenario.layers:
             parent = SEED if layer.stacked_on is None else self.heads[layer.stacked_on]
-            self._move_head(layer, (parent,), self.changes[parent] | {layer.name})
+            own_change = frozenset({layer.name}) if layer.frontend else frozenset()
+            own_files = frozenset({story_file(layer.name)}) if layer.frontend else frozenset()
+            self._move_head(
+                layer, (parent,), self.changes[parent] | own_change, self.frontend_files[parent] | own_files
+            )
+            self.first_heads[layer.name] = self.heads[layer.name]
 
     def _next_sha(self, prefix: str) -> str:
         self.commits += 1
         return f"{prefix}-{self.commits}"
 
-    def _move_head(self, layer: Layer, parents: tuple[str, ...], changes: frozenset[str]) -> None:
+    def _tick(self) -> datetime:
+        self.clock += timedelta(minutes=1)
+        return self.clock
+
+    def _move_head(
+        self,
+        layer: Layer,
+        parents: tuple[str, ...],
+        changes: frozenset[str],
+        frontend_files: frozenset[str] | None = None,
+    ) -> None:
         sha = self.git.commit(self._next_sha(layer.name), *parents)
         self.changes[sha] = changes
+        self.frontend_files[sha] = self.frontend_files[parents[0]] if frontend_files is None else frontend_files
         self.heads[layer.name] = sha
         self.git.open_pull_request(layer.pr_number, sha)
 
@@ -156,6 +276,8 @@ class OrderPlayer:
         return frozenset(names)
 
     def _approval_in_tree(self, name: str, sha: str) -> bool:
+        if name in self.closed:
+            return False
         ancestors = self.git.ancestors(sha)
         return bool(self.approved_pictures[name]) and (
             self.heads[name] in ancestors or bool(self.approved_commits[name] & ancestors)
@@ -197,6 +319,198 @@ class OrderPlayer:
         self._move_head(self.scenario.layer(name), (old_head,), self.changes[old_head])
         return self.run(name)
 
+    def _open_base(self, name: str) -> str | None:
+        base = self.bases[name]
+        if base is None or base in self.landed:
+            return None
+        return base
+
+    # The frontend files the pull request's diff against its base changes.
+    def _frontend_diff(self, name: str, sha: str) -> frozenset[str]:
+        base = self._open_base(name)
+        base_files = self.master_frontend_files if base is None else self.frontend_files[self.heads[base]]
+        return self.frontend_files[sha] - base_files
+
+    # paths-filter searches the earlier heads, newest first, for one with the same frontend files where the suite
+    # ran and passed. A failed workflow on a newer head stops the search, and a base change since then too.
+    def _proven_head_matches(self, name: str, frontend_diff: frozenset[str]) -> bool:
+        base = self._open_base(name)
+        for workflow in reversed(self.workflows[name]):
+            if workflow.result == WorkflowResult.FAILED:
+                return False
+            if workflow.frontend_diff != frontend_diff or workflow.base != base:
+                continue
+            if workflow.result == WorkflowResult.RAN:
+                return True
+        return False
+
+    def _report_no_run(self, name: str, sha: str) -> str:
+        report = NoRunNeededInput(
+            repo_id=self.repo.id,
+            run_type=RunType.STORYBOOK,
+            commit_sha=sha,
+            branch=name,
+            pr_number=self.scenario.layer(name).pr_number,
+        )
+        with self.capture(using=WRITER_DB, execute=True):
+            outcome = commit_status.report_no_run_needed(self.repo, report)
+        return f"{sha} skip report {outcome}, gate {self.gate(sha)}"
+
+    def ci(self, name: str, *, rerun: bool = False) -> str:
+        sha = self.heads[name]
+        frontend_diff = self._frontend_diff(name, sha)
+        inputs = CiInputs(
+            pr_touches_frontend=bool(frontend_diff),
+            proven_head_matches=self._proven_head_matches(name, frontend_diff),
+            synchronize=sha in self.pushed_heads,
+            rerun=rerun,
+            bot_baseline_only_push=sha in self.bot_heads,
+            affected_stories=any("-story@" in file for file in frontend_diff),
+        )
+        decision = self.workflow.decide(inputs)
+        finished_at = self._tick()
+        self.actions.finish(sha, SETUP_CHECK, decision.setup_conclusion, finished_at)
+        self.actions.finish(sha, REPORT_CHECK, decision.report_conclusion, finished_at)
+        result = WorkflowResult.RAN if decision.outcome == CiOutcome.CREATE_RUN else WorkflowResult.SKIPPED
+        self.workflows[name].append(Workflow(frontend_diff=frontend_diff, base=self._open_base(name), result=result))
+        decided = f"{decision.outcome}{' after a reuse' if decision.reused else ''}"
+        if decision.outcome == CiOutcome.CREATE_RUN:
+            return f"{decided}: {self.run(name)}"
+        if decision.outcome == CiOutcome.REPORT_NO_RUN:
+            return f"{decided}: {self._report_no_run(name, sha)}"
+        return f"{decided}: {sha} gate {self.gate(sha)}"
+
+    def fail(self, name: str) -> str:
+        sha = self.heads[name]
+        finished_at = self._tick()
+        # vr-setup and vr-skip both need a successful build on a frontend head, so both are skipped.
+        self.actions.finish(sha, SETUP_CHECK, "skipped", finished_at)
+        self.actions.finish(sha, REPORT_CHECK, "skipped", finished_at)
+        self.workflows[name].append(
+            Workflow(
+                frontend_diff=self._frontend_diff(name, sha),
+                base=self._open_base(name),
+                result=WorkflowResult.FAILED,
+            )
+        )
+        return f"{sha} build failed, gate {self.gate(sha)}"
+
+    def push_without_ci(self, name: str, kind: str) -> str:
+        layer = self.scenario.layer(name)
+        old_head = self.heads[name]
+        if kind == "back":
+            sha = self.first_heads[name]
+            self.heads[name] = sha
+            self.git.open_pull_request(layer.pr_number, sha)
+            self.pushed_heads.add(sha)
+            self.bot_heads.discard(sha)
+            return f"{sha}, gate {self.gate(sha)}"
+        changes = self.changes[old_head]
+        files = self.frontend_files[old_head]
+        if kind == "revert":
+            changes, files = changes - {name}, files - {story_file(name)}
+        elif kind == "restore":
+            changes, files = changes | {name}, files | {story_file(name)}
+        elif kind == "bot":
+            files = files | {f"{name}-snapshots@{self.commits + 1}"}
+        elif kind != "backend":
+            raise ValueError(f"Unknown push kind {kind!r}")
+        self._move_head(layer, (old_head,), changes, files)
+        sha = self.heads[name]
+        self.pushed_heads.add(sha)
+        if kind == "bot":
+            self.bot_heads.add(sha)
+        return sha
+
+    def retarget(self, name: str) -> str:
+        self.bases[name] = None
+        self.actions.retarget(self.scenario.layer(name).pr_number, self._tick())
+        sha = self.heads[name]
+        return f"{sha} targets the default branch, gate {self.gate(sha)}"
+
+    def recheck(self, name: str) -> str:
+        sha = self.heads[name]
+        with self.capture(using=WRITER_DB, execute=True):
+            result = commit_status.publish_recheck(
+                self.repo,
+                sha,
+                RunType.STORYBOOK,
+                SETUP_CHECK,
+                REPORT_CHECK,
+                current={},
+                only_success=False,
+                wait=lambda: None,
+                stacked=self._open_base(name) is not None,
+                pr_numbers=(self.scenario.layer(name).pr_number,),
+            )
+        return f"{sha} recheck {result.outcome}, gate {self.gate(sha)}"
+
+    def close(self, name: str) -> str:
+        self.git.close_pull_request(self.scenario.layer(name).pr_number)
+        self.closed.add(name)
+        with self.capture(using=WRITER_DB, execute=True):
+            ledger_advance.reconcile_open_approvals(self.repo)
+        gates = [(layer.name, self.gate(self.heads[layer.name])) for layer in self.scenario.layers]
+        return f"closed without merging, gates {gates}"
+
+    def _changes_a_picture(self, name: str, sha: str) -> bool:
+        base = self._open_base(name)
+        base_changes = self.master_changes if base is None else self.changes[self.heads[base]] | self.master_changes
+        return not self.changes[sha] <= base_changes
+
+    def check_green_heads(self, event: str) -> None:
+        for layer in self.scenario.layers:
+            if layer.name in self.landed or layer.name in self.closed:
+                continue
+            sha = self.heads[layer.name]
+            state, description = self.gate(sha)
+            if state != "success" or not self._changes_a_picture(layer.name, sha):
+                continue
+            verdict = commit_status.ledger_verdict(self.repo, sha, RunType.STORYBOOK)
+            if verdict.state == "success":
+                continue
+            self.green_head_breaks.append(
+                f"{GUARANTEE_GREEN_HEAD}: after '{event}', {layer.name} head {sha} shows '{description}', "
+                f"and its verdict now is {verdict.state} '{verdict.description}'"
+            )
+
+    # Read from the model's own record of who approved which picture over which, never from the code's verdict.
+    def _rests_on_closed_approval(self, name: str, picture: str) -> bool:
+        if picture == self._picture(self.master_changes):
+            return False
+        approvers = [below for below in self._chain(name) if picture in self.approved_pictures[below]]
+        if not approvers:
+            return False
+        open_approvers = [approver for approver in approvers if approver not in self.closed]
+        if not open_approvers:
+            return True
+        return all(
+            self.approved_over[approver] != picture
+            and self._rests_on_closed_approval(approver, self.approved_over[approver])
+            for approver in open_approvers
+        )
+
+    def check_closed_approvals(self, event: str) -> None:
+        for layer in self.scenario.layers:
+            if layer.name in self.landed or layer.name in self.closed:
+                continue
+            sha = self.heads[layer.name]
+            state, description = self.gate(sha)
+            picture = self._renders(sha)["Button"]
+            if state == "success" and self._rests_on_closed_approval(layer.name, picture):
+                self.closed_approval_breaks.append(
+                    f"{GUARANTEE_NO_CLOSED_APPROVAL}: after '{event}', {layer.name} head {sha} renders {picture} "
+                    f"and shows '{description}', closed layers {sorted(self.closed)}"
+                )
+
+    def check_review_reaches_green(self, event: str, name: str) -> None:
+        state, description = self.gate(self.heads[name])
+        if state != "success":
+            self.review_breaks.append(
+                f"{GUARANTEE_REVIEW_REACHES_GREEN}: after '{event}', {name} head {self.heads[name]} shows {state} "
+                f"'{description}'"
+            )
+
     def _expect_after_restack(self, layer: Layer) -> tuple[bool, str]:
         if layer.name not in self.approved_over:
             return False, REASON_RESTACK_NOT_APPROVED_YET
@@ -218,7 +532,8 @@ class OrderPlayer:
         layer = self.scenario.layer(name)
         below = layer.stacked_on
         parent = self.heads[below] if below is not None and below not in self.landed else self.git.head
-        self._move_head(layer, (parent,), self.changes[parent] | {name})
+        own_files = frozenset(file for file in self.frontend_files[self.heads[name]] if file.startswith(f"{name}-"))
+        self._move_head(layer, (parent,), self.changes[parent] | {name}, self.frontend_files[parent] | own_files)
         outcome = self.run(name)
         expected_to_pass, reason = self._expect_after_restack(layer)
         gate_passes = self.gate(self.heads[name])[0] == "success"
@@ -232,7 +547,10 @@ class OrderPlayer:
     def update(self, name: str) -> str:
         old_head = self.heads[name]
         self._move_head(
-            self.scenario.layer(name), (old_head, self.git.head), self.changes[old_head] | self.master_changes
+            self.scenario.layer(name),
+            (old_head, self.git.head),
+            self.changes[old_head] | self.master_changes,
+            self.frontend_files[old_head] | self.master_frontend_files,
         )
         return self.run(name)
 
@@ -313,7 +631,9 @@ class OrderPlayer:
         for name in group:
             sha = self.git.merge(self.scenario.layer(name).pr_number, self._next_sha("m"), squash=True)
             self.master_changes = self.master_changes | self.changes[self.heads[name]]
+            self.master_frontend_files = self.master_frontend_files | self.frontend_files[self.heads[name]]
             self.changes[sha] = self.master_changes
+            self.frontend_files[sha] = self.master_frontend_files
             merged.append(sha)
             self.landed.append(name)
             self.landed_pictures[name] = attempt.picture
@@ -326,25 +646,43 @@ class OrderPlayer:
         verb, *names = event.split(" ")
         if verb == "run":
             outcome = self.run(names[0])
-        elif verb == "push":
+        elif verb == "push" and len(names) == 1:
             outcome = self.push(names[0])
+        elif verb == "push":
+            outcome = self.push_without_ci(names[0], names[1])
+        elif verb == "ci":
+            outcome = self.ci(names[0])
+        elif verb == "rerun":
+            outcome = self.ci(names[0], rerun=True)
+        elif verb == "fail":
+            outcome = self.fail(names[0])
+        elif verb == "retarget":
+            outcome = self.retarget(names[0])
+        elif verb == "recheck":
+            outcome = self.recheck(names[0])
         elif verb == "restack":
             outcome = self.restack(names[0])
         elif verb == "update":
             outcome = self.update(names[0])
         elif verb == "approve":
             outcome = self.approve(names[0])
+            if names[1:] == ["again"]:
+                self.check_review_reaches_green(event, names[0])
         elif verb == "queue":
             outcome = self.queue(tuple(names))
         elif verb == "land":
             outcome = self.land(tuple(names))
+        elif verb == "close":
+            outcome = self.close(names[0])
         else:
             raise ValueError(f"Unknown event {event!r}")
         self.trace.append(f"{event}: {outcome}")
+        self.check_green_heads(event)
+        self.check_closed_approvals(event)
 
 
 def broken_guarantees(player: OrderPlayer) -> list[str]:
-    broken: list[str] = []
+    broken = [*player.green_head_breaks, *player.closed_approval_breaks, *player.review_breaks]
     for attempt in player.attempts:
         if attempt.passed != attempt.expected.gets_through:
             broken.append(
@@ -416,9 +754,31 @@ def describe(order: tuple[str, ...], player: OrderPlayer) -> str:
     )
 
 
+def play_order(
+    scenario: Scenario, order: tuple[str, ...], workflow: WorkflowConfig, team, user, mocker, capture
+) -> OrderPlayer:
+    repo = seeded_repo(team.id, BaselineMode.LEDGER)
+    player = OrderPlayer(
+        scenario,
+        repo,
+        FakeGit(mocker, SEED),
+        LedgerFlow(repo, mocker),
+        user,
+        capture,
+        FakeActions(mocker),
+        CiWorkflow(workflow),
+    )
+    for event in order:
+        try:
+            player.play(event)
+        except Exception as error:
+            raise AssertionError(f"{event!r} raised {error!r}\n{describe(order, player)}") from error
+    return player
+
+
 CASES = [
     pytest.param(scenario, order, id=f"{scenario.key}-{index:03d}")
-    for scenario in SCENARIOS
+    for scenario in (*SCENARIOS, *CLOSE_SCENARIOS, *CI_SCENARIOS)
     for index, order in enumerate(scenario.every_order())
 ]
 
@@ -428,15 +788,476 @@ CASES = [
 def test_every_event_order_keeps_the_ledger_guarantees(
     scenario, order, team, user, mocker, django_capture_on_commit_callbacks
 ) -> None:
-    repo = seeded_repo(team.id, BaselineMode.LEDGER)
-    player = OrderPlayer(
-        scenario, repo, FakeGit(mocker, SEED), LedgerFlow(repo, mocker), user, django_capture_on_commit_callbacks
+    player = play_order(scenario, order, FIXED_WORKFLOW, team, user, mocker, django_capture_on_commit_callbacks)
+
+    broken = broken_guarantees(player)
+    assert not broken, "\n".join([*broken, describe(order, player)])
+
+
+@frozen
+class Gap:
+    scenario_key: str
+    workflow: WorkflowConfig
+    order: tuple[str, ...]
+    reason: str
+
+
+REASON_REUSE = (
+    "a backend-only push reuses the passing workflow of a red head, so the skip report greens a head with no run"
+)
+REASON_REUSE_OVER_STALE_APPROVAL = (
+    "the push reuses the workflow of an approved head after another pull request landed the same story, so the "
+    "skip report greens a head whose approval is stale"
+)
+REASON_BOT_SHORTCUT = (
+    "a bot push of the baseline file only clears the frontend filter, so the skip report greens a red pull request, "
+    "and a re-run keeps the push payload and greens it again"
+)
+REASON_RETARGET = (
+    "the child's diff against its parent changes no frontend file, so the skip report greens it, and the retarget "
+    "to the default branch keeps the green on the same commit while recheck leaves a retargeted head alone"
+)
+REASON_FORCE_PUSH_BACK = (
+    "a force-push back to an older head shows that head's green from before the baseline moved, because the "
+    "republish after a landing reaches only the commit of the newest run, until CI finishes on the head again"
+)
+
+GAPS = [
+    Gap(
+        scenario_key="ci_red_frontend_pr_then_backend_push",
+        workflow=MASTER_WORKFLOW,
+        order=("ci F", "push F backend", "ci F 2", "rerun F", "recheck F"),
+        reason=REASON_REUSE,
+    ),
+    Gap(
+        scenario_key="ci_approved_pr_baseline_moves_then_backend_push",
+        workflow=MASTER_WORKFLOW,
+        order=("ci A", "ci B", "approve A", "approve B", "queue B", "land B", "push A backend", "ci A 2", "recheck A"),
+        reason=REASON_REUSE_OVER_STALE_APPROVAL,
+    ),
+    Gap(
+        scenario_key="ci_bot_baseline_push_on_red_pr",
+        workflow=MASTER_WORKFLOW,
+        order=("ci F", "push F bot", "ci F 2", "rerun F", "recheck F"),
+        reason=REASON_BOT_SHORTCUT,
+    ),
+    Gap(
+        scenario_key="ci_stacked_child_skipped_then_retargeted",
+        workflow=FIXED_WORKFLOW,
+        order=("ci P", "ci C", "retarget C", "recheck C"),
+        reason=REASON_RETARGET,
+    ),
+    Gap(
+        scenario_key="ci_force_push_back_after_baseline_moves",
+        workflow=FIXED_WORKFLOW,
+        order=(
+            "ci A",
+            "ci B",
+            "approve A",
+            "approve B",
+            "queue B",
+            "push A backend",
+            "ci A 2",
+            "land B",
+            "push A back",
+            "ci A 3",
+            "recheck A",
+        ),
+        reason=REASON_FORCE_PUSH_BACK,
+    ),
+]
+
+
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+@pytest.mark.parametrize("gap", [pytest.param(gap, id=f"{gap.scenario_key}") for gap in GAPS])
+def test_the_model_finds_each_known_green_head_gap(gap, team, user, mocker, django_capture_on_commit_callbacks) -> None:
+    scenario = next(scenario for scenario in (*CI_SCENARIOS, *CI_GAP_SCENARIOS) if scenario.key == gap.scenario_key)
+    assert gap.order in scenario.every_order()
+
+    player = play_order(scenario, gap.order, gap.workflow, team, user, mocker, django_capture_on_commit_callbacks)
+
+    assert player.green_head_breaks, f"expected a green head without a passing run because {gap.reason}\n" + describe(
+        gap.order, player
+    )
+
+
+DECISION_COLORS = {
+    "x0": (255, 0, 0, 255),
+    "x1": (0, 0, 255, 255),
+    "y0": (0, 255, 0, 255),
+    "y1": (255, 255, 0, 255),
+    "y2": (0, 255, 255, 255),
+    "z0": (255, 0, 255, 255),
+    "w0": (128, 128, 128, 255),
+}
+
+GUARANTEE_DECISION_RULES = (
+    "A decision is refused exactly when the pull request's head run is finalized, an agent would change a "
+    "person's decision or take back a rejection, or a person would accept over or undo someone else's rejection "
+    "without an override"
+)
+GUARANTEE_FINALIZE = (
+    "Finalize passes exactly when no pair of the head run is rejected, no rejected story is missing from a partial "
+    "head, and every other changed pair is accepted, tolerated, quarantined or a removal"
+)
+GUARANTEE_GREEN_HEAD_DECIDED = (
+    "The head's gate is green exactly when the head run is finalized, or when nothing on it is rejected and every "
+    "changed pair is tolerated or quarantined"
+)
+GUARANTEE_LEDGER_GAINS_ACCEPTED = (
+    "Finalize records an approval for exactly the changed pairs whose newest decision is an accept"
+)
+GUARANTEE_DECIDED_RUNS_KEPT = "Retention keeps every run that holds a decision while its branch is active"
+
+Key = tuple[str, str, str]
+
+
+@frozen
+class OracleDecision:
+    person: str
+    agent: bool
+    action: DecisionAction
+
+
+class DecisionOracle:
+    """What each person decided on which pair of pictures, kept apart from the code under test."""
+
+    def __init__(self) -> None:
+        self.book: dict[Key, list[OracleDecision]] = {}
+        self.tolerated: set[Key] = set()
+        self.quarantined: set[str] = set()
+
+    def newest(self, key: Key) -> OracleDecision | None:
+        decisions = self.book.get(key, [])
+        return decisions[-1] if decisions else None
+
+    def record(self, key: Key, decision: OracleDecision) -> None:
+        self.book.setdefault(key, []).append(decision)
+
+    def decision_outcome(self, key: Key, decision: OracleDecision, *, head_finalized: bool, override: bool) -> str:
+        if head_finalized:
+            return "refused"
+        current = self.newest(key)
+        if decision.action == DecisionAction.ACCEPT and current is not None and current.action == DecisionAction.ACCEPT:
+            return "unchanged"
+        if decision.action == DecisionAction.CLEAR and (current is None or current.action == DecisionAction.CLEAR):
+            return "unchanged"
+        if decision.agent and current is not None and not current.agent:
+            return "refused"
+        if current is None or current.action != DecisionAction.REJECT:
+            return "written"
+        by_other = current.person != decision.person
+        if decision.agent and (decision.action == DecisionAction.ACCEPT or by_other):
+            return "refused"
+        if by_other and not override:
+            return "refused"
+        return "written"
+
+    def rejected(self, key: Key) -> bool:
+        newest = self.newest(key)
+        return newest is not None and newest.action == DecisionAction.REJECT
+
+    def accepted(self, key: Key) -> bool:
+        newest = self.newest(key)
+        return newest is not None and newest.action == DecisionAction.ACCEPT
+
+    def _unrendered_rejection(self, rendered: set[str], partial: bool) -> bool:
+        return partial and any(self.rejected(key) and key[0] not in rendered for key in self.book)
+
+    def gate_passes(self, changed: dict[str, Key], rendered: set[str], partial: bool, finalized: bool) -> bool:
+        if finalized:
+            return True
+        if self._unrendered_rejection(rendered, partial):
+            return False
+        return all(
+            not self.rejected(key) and (identifier in self.quarantined or key in self.tolerated)
+            for identifier, key in changed.items()
+        )
+
+    def finalize_fills(
+        self, changed: dict[str, Key], rendered: set[str], partial: bool, approve_all: bool
+    ) -> list[Key] | None:
+        """The pairs finalize accepts by itself, or None when finalize must refuse."""
+        fills: list[Key] = []
+        for identifier, key in changed.items():
+            if self.rejected(key):
+                return None
+            if self.accepted(key):
+                continue
+            if key[2] == "":
+                fills.append(key)
+            elif identifier in self.quarantined or key in self.tolerated:
+                continue
+            elif approve_all:
+                fills.append(key)
+            else:
+                return None
+        if self._unrendered_rejection(rendered, partial):
+            return None
+        return fills
+
+
+@frozen
+class DecisionRun:
+    number: int
+    sha: str
+    renders: dict[str, str]
+    partial: bool
+    run: Run
+
+
+class DecisionPlayer:
+    def __init__(self, scenario: DecisionScenario, repo: Repo, git: FakeGit, flow: LedgerFlow, people, capture) -> None:
+        self.scenario = scenario
+        self.repo = repo
+        self.git = git
+        self.flow = flow
+        self.people = people
+        self.capture = capture
+        self.oracle = DecisionOracle()
+        self.runs: dict[int, DecisionRun] = {}
+        self.finalized: set[int] = set()
+        self.breaks: list[str] = []
+        self.trace: list[str] = []
+        self.commits = 0
+        for picture, color in DECISION_COLORS.items():
+            flow.picture(picture, color)
+        self.renders = dict(scenario.first_head)
+        self.head = self._commit(SEED)
+
+    def _commit(self, parent: str) -> str:
+        self.commits += 1
+        sha = self.git.commit(f"F-{self.commits}", parent)
+        self.git.open_pull_request(1, sha)
+        return sha
+
+    def _changed(self, decision_run: DecisionRun) -> dict[str, Key]:
+        changed: dict[str, Key] = {}
+        for identifier, base in DECISION_BASELINE.items():
+            if identifier in decision_run.renders:
+                if decision_run.renders[identifier] != base:
+                    changed[identifier] = (identifier, base, decision_run.renders[identifier])
+            elif not decision_run.partial:
+                changed[identifier] = (identifier, base, "")
+        return changed
+
+    def _latest(self) -> DecisionRun | None:
+        return self.runs[max(self.runs)] if self.runs else None
+
+    def _broken(self, guarantee: str, event: str, detail: str) -> None:
+        self.breaks.append(f"{guarantee}: after '{event}', {detail}")
+
+    def ci(self, partial: bool) -> str:
+        number = len(self.runs) + 1
+        renders = {"X": self.renders["X"]} if partial else dict(self.renders)
+        with self.capture(using=WRITER_DB, execute=True):
+            run = self.flow.run(self.head, renders, branch="F", pr_number=1, is_partial=partial)
+        self.runs[number] = DecisionRun(number=number, sha=self.head, renders=renders, partial=partial, run=run)
+        return f"run {number} on {self.head} renders {renders}"
+
+    def push(self, change: str | None) -> str:
+        if change is not None:
+            identifier, picture = change.split("=")
+            self.renders[identifier] = picture
+        self.head = self._commit(self.head)
+        return f"head {self.head} renders {self.renders}"
+
+    def decide(self, event: str, verb: str, target: str, actor: str | None) -> str:
+        identifier, number = target.split("@")
+        decision_run = self.runs[int(number)]
+        key = self._changed(decision_run)[identifier]
+        agent = verb == "agent-accept"
+        action = {
+            "accept": DecisionAction.ACCEPT,
+            "agent-accept": DecisionAction.ACCEPT,
+            "accept-anyway": DecisionAction.ACCEPT,
+            "reject": DecisionAction.REJECT,
+            "clear": DecisionAction.CLEAR,
+            "clear-anyway": DecisionAction.CLEAR,
+        }[verb]
+        override = verb in ("accept-anyway", "clear-anyway")
+        person = "h1" if agent else actor or "h1"
+        decision = OracleDecision(person=person, agent=agent, action=action)
+        latest = self._latest()
+        expected = self.oracle.decision_outcome(
+            key,
+            decision,
+            head_finalized=latest is not None and latest.number in self.finalized,
+            override=override,
+        )
+        request = approvals.DecisionRequest(identifier=identifier, new_hash=key[2] or None, reason="looks wrong")
+        try:
+            with self.capture(using=WRITER_DB, execute=True):
+                outcome = approvals.decide(
+                    decision_run.run.id,
+                    self.people[person].id,
+                    action,
+                    [request],
+                    via=DecisionChannel.MCP if agent else DecisionChannel.WEB,
+                    team_id=self.repo.team_id,
+                    override_rejection=override,
+                )
+            actual = "unchanged" if identifier in outcome.already_decided else "written"
+        except errors.DecisionRefusedError as error:
+            actual = f"refused"
+            self.trace.append(f"  refused: {error.code}")
+        if actual != expected:
+            self._broken(GUARANTEE_DECISION_RULES, event, f"expected {expected}, got {actual}")
+        if actual == "written":
+            self.oracle.record(key, decision)
+        return actual
+
+    def tolerate(self, event: str, target: str) -> str:
+        identifier, number = target.split("@")
+        decision_run = self.runs[int(number)]
+        key = self._changed(decision_run)[identifier]
+        snapshot = decision_run.run.snapshots.get(identifier=identifier)
+        expected = "refused" if self.oracle.rejected(key) else "tolerated"
+        try:
+            with self.capture(using=WRITER_DB, execute=True):
+                toleration.mark_snapshot_as_tolerated(
+                    decision_run.run.id, snapshot.id, self.people["h1"].id, self.repo.team_id
+                )
+            actual = "tolerated"
+        except errors.SnapshotRejectedError:
+            actual = "refused"
+        if actual != expected:
+            self._broken(GUARANTEE_DECISION_RULES, event, f"toleration expected {expected}, got {actual}")
+        if actual == "tolerated":
+            self.oracle.tolerated.add(key)
+        return actual
+
+    def quarantine(self, identifier: str) -> str:
+        with self.capture(using=WRITER_DB, execute=True):
+            quarantine.quarantine_identifier(
+                repo_id=self.repo.id,
+                identifier=identifier,
+                run_type=RunType.STORYBOOK,
+                reason="flaky",
+                user_id=self.people["h1"].id,
+                team_id=self.repo.team_id,
+            )
+        self.oracle.quarantined.add(identifier)
+        return f"{identifier} quarantined"
+
+    def finalize(self, event: str, approve_all: bool) -> str:
+        latest = self._latest()
+        assert latest is not None
+        changed = self._changed(latest)
+        fills = self.oracle.finalize_fills(changed, set(latest.renders), latest.partial, approve_all)
+        try:
+            with self.capture(using=WRITER_DB, execute=True):
+                approvals.finalize_run(run_id=latest.run.id, user_id=self.people["h1"].id, approve_all=approve_all)
+            passed = True
+        except errors.RunNotFullyResolvedError as error:
+            passed = False
+            self.trace.append(f"  refused: {error}")
+        if passed != (fills is not None):
+            self._broken(GUARANTEE_FINALIZE, event, f"finalize passed={passed}, expected {fills is not None}")
+        if not passed:
+            return "refused"
+        for key in fills or []:
+            self.oracle.record(key, OracleDecision(person="h1", agent=False, action=DecisionAction.ACCEPT))
+        self.finalized.add(latest.number)
+        expected_rows = {(key[0], key[2]) for key in changed.values() if self.oracle.accepted(key)}
+        rows = set(
+            BaselineApproval.objects.using(WRITER_DB)
+            .filter(repo=self.repo, state=BaselineApprovalState.OPEN)
+            .values_list("identifier", "content_hash")
+        )
+        if rows != expected_rows:
+            self._broken(
+                GUARANTEE_LEDGER_GAINS_ACCEPTED, event, f"rows {sorted(rows)}, expected {sorted(expected_rows)}"
+            )
+        return f"finalized run {latest.number}, rows {sorted(rows)}"
+
+    def retain(self, event: str) -> str:
+        decided = set(
+            RunSnapshot.objects.using(WRITER_DB)
+            .filter(review_decisions.has_decisions(), run__repo=self.repo)
+            .values_list("run_id", flat=True)
+        )
+        retention.sweep_repo_runs(self.repo, now=timezone.now() + timedelta(days=4))
+        kept = set(Run.objects.using(WRITER_DB).filter(id__in=decided).values_list("id", flat=True))
+        if kept != decided:
+            self._broken(GUARANTEE_DECIDED_RUNS_KEPT, event, f"deleted {sorted(map(str, decided - kept))}")
+        return f"kept {len(kept)} decided runs"
+
+    def check_gate(self, event: str) -> None:
+        latest = self._latest()
+        if latest is None or latest.sha != self.head:
+            return
+        posts = [
+            call.kwargs
+            for call in self.flow.statuses.call_args_list
+            if call.args[1] == latest.sha and call.kwargs["context"] == GATE
+        ]
+        state = posts[-1]["state"] if posts else "none"
+        expected = self.oracle.gate_passes(
+            self._changed(latest), set(latest.renders), latest.partial, latest.number in self.finalized
+        )
+        if (state == "success") != expected:
+            self._broken(
+                GUARANTEE_GREEN_HEAD_DECIDED,
+                event,
+                f"run {latest.number} gate {state} '{posts[-1]['description'] if posts else ''}'",
+            )
+
+    def play(self, event: str) -> None:
+        verb, *rest = event.split(" ")
+        if verb == "ci":
+            outcome = self.ci(partial=rest[-1] == "partial")
+        elif verb == "push":
+            outcome = self.push(rest[1] if len(rest) > 1 else None)
+        elif verb in ("accept", "agent-accept", "accept-anyway", "reject", "clear", "clear-anyway"):
+            outcome = self.decide(event, verb, rest[0], rest[1] if len(rest) > 1 else None)
+        elif verb == "tolerate":
+            outcome = self.tolerate(event, rest[0])
+        elif verb == "quarantine":
+            outcome = self.quarantine(rest[0])
+        elif verb in ("finalize", "finalize-all"):
+            outcome = self.finalize(event, approve_all=verb == "finalize-all")
+        elif verb == "retain":
+            outcome = self.retain(event)
+        else:
+            raise ValueError(f"Unknown event {event!r}")
+        self.trace.append(f"{event}: {outcome}")
+        self.check_gate(event)
+
+
+def decision_repo(team_id: int) -> Repo:
+    repo = repos.create_repo(team_id=team_id, repo_external_id=67000, repo_full_name="org/decisions")
+    ledger.seed(repo, SEED, {RunType.STORYBOOK: DECISION_BASELINE})
+    set_baseline_mode(repo, BaselineMode.LEDGER)
+    return repo
+
+
+DECISION_CASES = [
+    pytest.param(scenario, order, id=f"{scenario.key}-{index:03d}")
+    for scenario in DECISION_SCENARIOS
+    for index, order in enumerate(scenario.every_order())
+]
+
+
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+@pytest.mark.parametrize("scenario,order", DECISION_CASES)
+def test_every_order_of_review_decisions_keeps_the_decision_guarantees(
+    scenario, order, team, user, mocker, django_capture_on_commit_callbacks
+) -> None:
+    repo = decision_repo(team.id)
+    second = User.objects.create_and_join(team.organization, "second-reviewer@example.com", None, first_name="h2")
+    player = DecisionPlayer(
+        scenario,
+        repo,
+        FakeGit(mocker, SEED),
+        LedgerFlow(repo, mocker),
+        {"h1": user, "h2": second},
+        django_capture_on_commit_callbacks,
     )
     for event in order:
         try:
             player.play(event)
         except Exception as error:
-            raise AssertionError(f"{event!r} raised {error!r}\n{describe(order, player)}") from error
+            raise AssertionError(f"{event!r} raised {error!r}\n" + "\n".join(player.trace)) from error
 
-    broken = broken_guarantees(player)
-    assert not broken, "\n".join([*broken, describe(order, player)])
+    assert not player.breaks, "\n".join([*player.breaks, f"order: {', '.join(order)}", *player.trace])

@@ -1,4 +1,4 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
@@ -18,20 +18,22 @@ import { TicketSidebarWidgets } from '../TicketSidebarWidgets/TicketSidebarWidge
 const WIDGET_TICKET_ONLY = 'Only shows on tickets from the in-app widget.'
 
 export function SupportTicketSidebarWidgets({ ticketId }: { ticketId: string }): JSX.Element {
-    const { ticket, person, eventsQuery, exceptionsQuery, previousTickets, previousTicketsLoading } = useValues(
-        supportTicketSceneLogic({ id: ticketId })
-    )
+    const { ticket, person, eventsQuery, exceptionsQuery, previousTickets, previousTicketsLoading, aiRerunning } =
+        useValues(supportTicketSceneLogic({ id: ticketId }))
+    const { rerunAi } = useActions(supportTicketSceneLogic({ id: ticketId }))
     const { user } = useValues(userLogic)
     const { currentTeam } = useValues(teamLogic)
     const aiSuggestionsEnabled = !!currentTeam?.conversations_settings?.ai_suggestions_enabled
     const isWidgetTicket = ticket?.channel_source === 'widget'
 
+    const personUuid = person?.uuid ?? ticket?.person?.id
+
     const slots: TicketSidebarWidgetSlots = {
         related_groups: {
             content:
-                person?.uuid || ticket?.organization_id ? (
+                personUuid || ticket?.organization_id ? (
                     <RelatedGroupsPanel
-                        personUuid={person?.uuid}
+                        personUuid={personUuid}
                         organizationId={ticket?.organization_id}
                         organizationIdSource={ticket?.organization_id_source}
                     />
@@ -40,7 +42,10 @@ export function SupportTicketSidebarWidgets({ ticketId }: { ticketId: string }):
         },
         ...(user?.is_staff ? { staff_actions: { content: ticket ? <StaffActionsPanel /> : null } } : {}),
         ai_triage: {
-            content: aiSuggestionsEnabled && ticket ? <AIPanel aiTriage={ticket.ai_triage} /> : null,
+            content:
+                aiSuggestionsEnabled && ticket ? (
+                    <AIPanel aiTriage={ticket.ai_triage} onRerun={rerunAi} rerunning={aiRerunning} />
+                ) : null,
             unavailableReason: 'AI suggestions are off for this project.',
         },
         session_recording: {

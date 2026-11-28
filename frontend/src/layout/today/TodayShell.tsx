@@ -3,7 +3,7 @@ import './TodayShell.scss'
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { ComponentType, Suspense, useEffect, useRef } from 'react'
 
-import { Skeleton, ToastProvider } from '@posthog/quill'
+import { Skeleton } from '@posthog/quill'
 
 import 'scenes/project-homepage/today/Today.scss'
 import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
@@ -15,11 +15,14 @@ import { lazyWithRetry } from 'lib/utils/retryImport'
 
 import { QuillSceneHeader } from '~/layout/scenes/components/QuillSceneHeader'
 
+import { TodayCustomizeRailDialog } from './TodayCustomizeRailDialog'
+import { TodayDesignChangelogCard } from './TodayDesignChangelogCard'
 import { TodayNavSwitchDialog } from './TodayNavSwitchDialog'
 import { TodayPaneIntro } from './TodayPaneIntro'
 import { TodayPhoneHeader } from './TodayPhoneHeader'
 import { TodayPreviewCardProvider } from './TodayPreviewCardProvider'
 import { TodayRail } from './TodayRail'
+import { TodayRailCustomizeDemo } from './TodayRailCustomizeDemo'
 import { TODAY_PANES } from './todayRailItems'
 import { todayRecentsLogic } from './todayRecentsLogic'
 import {
@@ -34,6 +37,7 @@ import { TodaySidebarFooter } from './TodaySidebarFooter'
 import { TodaySidebarPinButton } from './TodaySidebarPinButton'
 import { TodayTabBar } from './TodayTabBar'
 import { TodayTour } from './TodayTour'
+import { useTodayPaneTransition } from './useTodayPaneTransition'
 
 const TodaySpacesPane = lazyWithRetry(() => import('./TodaySpacesPane').then((m) => ({ default: m.TodaySpacesPane })))
 const TodayAnalyticsSidebar = lazyWithRetry(() =>
@@ -49,6 +53,11 @@ const TodayProductPaneSidebar = lazyWithRetry(() =>
 const TodayMonitorSidebar = (): JSX.Element => <TodayProductPaneSidebar pane="monitor" />
 const TodayAutomateSidebar = (): JSX.Element => <TodayProductPaneSidebar pane="automate" />
 const TodayDataSidebar = (): JSX.Element => <TodayProductPaneSidebar pane="data" />
+const TodayHomeSidebar = lazyWithRetry(() =>
+    import('products/today/frontend/home/TodayHomeSidebar').then((m) => ({
+        default: m.TodayHomeSidebar,
+    }))
+)
 const TodayPeopleSidebar = lazyWithRetry(() =>
     import('./TodayPeopleSidebar').then((m) => ({ default: m.TodayPeopleSidebar }))
 )
@@ -61,7 +70,8 @@ const ReleaseSidebar = lazyWithRetry(() =>
 const TodaySettingsSidebar = lazyWithRetry(() =>
     import('./TodaySettingsSidebar').then((m) => ({ default: m.TodaySettingsSidebar }))
 )
-const PANE_SIDEBARS: Record<Exclude<TodayRailPane, 'home'>, { Sidebar: ComponentType; previews?: boolean }> = {
+const PANE_SIDEBARS: Record<TodayRailPane, { Sidebar: ComponentType; previews?: boolean }> = {
+    home: { Sidebar: TodayHomeSidebar, previews: true },
     spaces: { Sidebar: TodaySpacesPane },
     analytics: { Sidebar: TodayAnalyticsSidebar, previews: true },
     monitor: { Sidebar: TodayMonitorSidebar, previews: true },
@@ -79,9 +89,12 @@ const NewSpaceDialog = lazyWithRetry(() =>
 
 /** The left navigation under the Today layout: the rail, then the sidebar for the pane the rail has open. */
 export function TodayShell({ className }: { className?: string }): JSX.Element {
-    const { activePane, mobileLayout, phoneLayout, sidebarVisible, sidebarWidth, phoneHeaderHidden } =
+    const { activePane, mobileLayout, paneHasSidebar, phoneLayout, sidebarVisible, sidebarWidth, phoneHeaderHidden } =
         useValues(todayShellLogic)
     const { setMobileSidebarOpen, setSidebarOpen, setSidebarWidth, toggleSidebar } = useActions(todayShellLogic)
+    const paneRef = useRef<HTMLDivElement>(null)
+    // The phone drawer has its own motion, and a hidden pane has nothing to show.
+    useTodayPaneTransition(activePane, paneRef, { animatePane: sidebarVisible && !phoneLayout })
     // Mounted with the shell rather than the shell logic, so its code loads with the lazy shell, not on every page.
     useMountedLogic(todayRecentsLogic)
     useShortcut({
@@ -128,7 +141,7 @@ export function TodayShell({ className }: { className?: string }): JSX.Element {
         }
     }, [mobileLayout, sidebarVisible])
 
-    const paneSidebar = activePane === 'home' ? null : PANE_SIDEBARS[activePane]
+    const paneSidebar = paneHasSidebar ? PANE_SIDEBARS[activePane] : null
     const paneContent = (
         <Suspense fallback={<Skeleton className="m-4 h-24" />}>
             {paneSidebar &&
@@ -144,7 +157,7 @@ export function TodayShell({ className }: { className?: string }): JSX.Element {
 
     const { title: paneTitle, action: PaneAction } = TODAY_PANES[activePane]
     const pane = (
-        <div className="TodayShell__pane">
+        <div ref={paneRef} className="TodayShell__pane">
             <QuillSceneHeader
                 // Transparent, not removed: the scene header keeps its border inside the same height, so both headers
                 // center their buttons on the same line.
@@ -157,10 +170,14 @@ export function TodayShell({ className }: { className?: string }): JSX.Element {
                         <TodaySidebarPinButton />
                     </div>
                 }
-                actions={PaneAction && <PaneAction />}
+                actions={
+                    <div className="-me-2 flex items-center gap-2">
+                        {/* Keyed by pane, so one pane's open popover never carries over to the next pane. */}
+                        <TodayPaneIntro key={activePane} pane={activePane} />
+                        {PaneAction && <PaneAction />}
+                    </div>
+                }
             />
-            {/* Keyed by pane, so a closing animation on one pane's intro never carries over to the next pane's. */}
-            <TodayPaneIntro key={activePane} pane={activePane} />
             {paneContent}
         </div>
     )
@@ -175,81 +192,85 @@ export function TodayShell({ className }: { className?: string }): JSX.Element {
             )}
             <TodayNavSwitchDialog />
             <TodayTour />
+            {/* The phone layout has no rail, so nothing here has a rail to talk about. */}
+            {!phoneLayout && (
+                <>
+                    <TodayCustomizeRailDialog />
+                    <TodayDesignChangelogCard />
+                    <TodayRailCustomizeDemo />
+                </>
+            )}
         </>
     )
 
     if (phoneLayout) {
         return (
-            <ToastProvider>
-                <div data-quill className={cn('Today TodayShell TodayShell--phone', className)}>
-                    {!sidebarVisible && !phoneHeaderHidden && <TodayPhoneHeader />}
-                    <aside
-                        ref={drawerRef}
-                        tabIndex={-1}
-                        className="group/sidebar TodayShell__sidebar TodayShell__page outline-none"
-                        data-open={sidebarVisible}
-                        aria-label={paneTitle}
-                        aria-hidden={!sidebarVisible}
-                        {...(sidebarVisible ? {} : { inert: '' })}
-                    >
-                        {pane}
-                        <TodaySidebarFooter />
-                    </aside>
-                    <TodayTabBar />
-                    {overlays}
-                </div>
-            </ToastProvider>
+            <div data-quill className={cn('Today TodayShell TodayShell--phone', className)}>
+                {!sidebarVisible && !phoneHeaderHidden && <TodayPhoneHeader />}
+                <aside
+                    ref={drawerRef}
+                    tabIndex={-1}
+                    className="group/sidebar TodayShell__sidebar TodayShell__page outline-none"
+                    data-open={sidebarVisible}
+                    aria-label={paneTitle}
+                    aria-hidden={!sidebarVisible}
+                    {...(sidebarVisible ? {} : { inert: '' })}
+                >
+                    {pane}
+                    <TodaySidebarFooter />
+                </aside>
+                <TodayTabBar />
+                {overlays}
+            </div>
         )
     }
 
     return (
-        <ToastProvider>
-            <div
-                data-quill
-                className={cn('Today TodayShell bg-[var(--chrome)]', className)}
-                // eslint-disable-next-line react/forbid-dom-props
-                style={{ '--today-rail-width': `${TODAY_RAIL_WIDTH}px` } as React.CSSProperties}
-            >
-                <TodayRail />
-                {mobileLayout ? (
-                    <>
-                        <div
-                            className="TodayShell__scrim"
-                            data-open={sidebarVisible}
-                            aria-hidden
-                            onClick={() => setMobileSidebarOpen(false)}
-                        />
-                        <aside
-                            ref={drawerRef}
-                            tabIndex={-1}
-                            className="group/sidebar TodayShell__sidebar TodayShell__drawer outline-none"
-                            data-open={sidebarVisible}
-                            aria-label={paneTitle}
-                            aria-hidden={!sidebarVisible}
-                            {...(sidebarVisible ? {} : { inert: '' })}
-                            // eslint-disable-next-line react/forbid-dom-props
-                            style={{ width: sidebarWidth }}
-                        >
-                            {pane}
-                        </aside>
-                    </>
-                ) : (
-                    sidebarVisible && (
-                        <aside
-                            ref={sidebarRef}
-                            className="group/sidebar TodayShell__sidebar TodayShell__sidebar--framed relative bg-surface-primary"
-                            aria-label={paneTitle}
-                            // eslint-disable-next-line react/forbid-dom-props
-                            style={{ width: sidebarWidth }}
-                        >
-                            {pane}
-                            {/* The frame already draws the seam, so the handle's own line shows only on hover. */}
-                            <Resizer {...resizerLogicProps} visible={false} className="z-2" offset={0} />
-                        </aside>
-                    )
-                )}
-                {overlays}
-            </div>
-        </ToastProvider>
+        <div
+            data-quill
+            className={cn('Today TodayShell bg-[var(--chrome)]', className)}
+            // eslint-disable-next-line react/forbid-dom-props
+            style={{ '--today-rail-width': `${TODAY_RAIL_WIDTH}px` } as React.CSSProperties}
+        >
+            <TodayRail />
+            {mobileLayout ? (
+                <>
+                    <div
+                        className="TodayShell__scrim"
+                        data-open={sidebarVisible}
+                        aria-hidden
+                        onClick={() => setMobileSidebarOpen(false)}
+                    />
+                    <aside
+                        ref={drawerRef}
+                        tabIndex={-1}
+                        className="group/sidebar TodayShell__sidebar TodayShell__drawer outline-none"
+                        data-open={sidebarVisible}
+                        aria-label={paneTitle}
+                        aria-hidden={!sidebarVisible}
+                        {...(sidebarVisible ? {} : { inert: '' })}
+                        // eslint-disable-next-line react/forbid-dom-props
+                        style={{ width: sidebarWidth }}
+                    >
+                        {pane}
+                    </aside>
+                </>
+            ) : (
+                sidebarVisible && (
+                    <aside
+                        ref={sidebarRef}
+                        className="group/sidebar TodayShell__sidebar TodayShell__sidebar--framed relative bg-surface-primary"
+                        aria-label={paneTitle}
+                        // eslint-disable-next-line react/forbid-dom-props
+                        style={{ width: sidebarWidth }}
+                    >
+                        {pane}
+                        {/* The frame already draws the seam, so the handle's own line shows only on hover. */}
+                        <Resizer {...resizerLogicProps} visible={false} className="z-2" offset={0} />
+                    </aside>
+                )
+            )}
+            {overlays}
+        </div>
     )
 }

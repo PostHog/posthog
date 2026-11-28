@@ -3,7 +3,7 @@
     "properties": {
         "activate_paused_prompts": {
             "default": false,
-            "description": "With only_first_run, turn on every paused prompt before the run, such as the ones a setup without run_first_check saved paused. Turned-on prompts are checked on each engine's schedule from then on.",
+            "description": "With only_first_run, turn on paused prompts before the run, such as the ones a setup without run_first_check saved paused, highest ranked first and up to the project's max_active_prompts. Turned-on prompts are checked on each engine's schedule from then on.",
             "type": "boolean"
         },
         "brand": {
@@ -35,6 +35,13 @@
             "default": false,
             "description": "Queue a citation check run and nothing else: no brand, prompts or keywords, and no engine change. Use it when the project is already set up and should be checked now instead of on its schedule. Each check is a paid call to every enabled engine.",
             "type": "boolean"
+        },
+        "prompt_count": {
+            "default": 20,
+            "description": "How many prompts setup asks PostHog to suggest and save. One run makes this many checks per enabled engine, so it sets the cost of each run. Prompts past the project's max_active_prompts are saved paused.",
+            "maximum": 50,
+            "minimum": 1,
+            "type": "number"
         },
         "run_first_check": {
             "default": false,

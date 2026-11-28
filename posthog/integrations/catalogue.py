@@ -26,6 +26,7 @@ KINDS: Mapping[str, KindSpec] = {
     "apple-ads": KindSpec(label="Apple Ads", default=_OAUTH, others=frozenset({_CREDENTIALS})),
     "aws-redshift": KindSpec(label="Amazon Redshift", default=_CREDENTIALS),
     "aws-s3": KindSpec(label="Amazon S3", default=_CREDENTIALS),
+    "aws-warehouse-sources": KindSpec(label="AWS role for data warehouse sources", default=_CREDENTIALS),
     "azure-blob": KindSpec(label="Azure Blob Storage", default=_CREDENTIALS),
     "bing-ads": KindSpec(label="Bing Ads", default=_OAUTH),
     "clickup": KindSpec(label="ClickUp", default=_OAUTH, others=frozenset({_TOKEN, _CREDENTIALS})),

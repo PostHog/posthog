@@ -168,6 +168,23 @@ class TestGeneratedKnowledgeDocuments(BaseTest):
         )
         assert member_ids == {second.source_id}
 
+    def test_a_learned_source_joins_every_library_chosen_to_receive_them(self) -> None:
+        with team_scope(self.team.id, canonical=True):
+            chosen = [
+                KnowledgeLibrary.objects.create(team_id=self.team.id, name=name, is_default=True)
+                for name in ("Support", "Onboarding")
+            ]
+            KnowledgeLibrary.objects.create(team_id=self.team.id, name="Public docs", is_default=False)
+
+        result = logic.create_generated_knowledge_document(self._input())
+
+        joined = set(
+            KnowledgeLibrarySource.objects.unscoped()
+            .filter(source_id=result.source_id)
+            .values_list("library__name", flat=True)
+        )
+        assert joined == {library.name for library in chosen}
+
     def test_a_library_named_learned_is_adopted_as_the_default(self) -> None:
         with team_scope(self.team.id, canonical=True):
             existing = KnowledgeLibrary.objects.create(team_id=self.team.id, name="learned", is_default=False)

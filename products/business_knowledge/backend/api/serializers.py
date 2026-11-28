@@ -13,6 +13,9 @@ from posthog.security.url_validation import is_url_allowed
 
 from .. import url_fetch
 from ..constants import (
+    BK_SEARCH_DEFAULT_LIMIT,
+    BK_SEARCH_MAX_LIMIT,
+    BK_SEARCH_MAX_QUERY_CHARS,
     CRAWL_HARD_MAX_DEPTH,
     DEFAULT_CRAWL_MAX_DEPTH,
     DEFAULT_MAX_PAGES,
@@ -555,6 +558,40 @@ class KnowledgeDocumentWindowSerializer(serializers.Serializer):
     url = serializers.CharField(
         read_only=True,
         help_text="Fetched page URL. Empty for text and file sources.",
+    )
+
+
+class KnowledgeSearchRequestSerializer(serializers.Serializer):
+    """Body of a search sent with POST, which keeps the query text out of the request URL."""
+
+    query = serializers.CharField(
+        max_length=BK_SEARCH_MAX_QUERY_CHARS,
+        help_text=(
+            "Natural-language search query. Runs hybrid (semantic + full-text) retrieval over all SAFE, READY "
+            f"knowledge chunks in this project. At most {BK_SEARCH_MAX_QUERY_CHARS} characters."
+        ),
+    )
+    limit = serializers.IntegerField(
+        required=False,
+        default=BK_SEARCH_DEFAULT_LIMIT,
+        help_text=(
+            f"Maximum number of ranked chunks to return. "
+            f"Defaults to {BK_SEARCH_DEFAULT_LIMIT}, capped at {BK_SEARCH_MAX_LIMIT}."
+        ),
+    )
+    rerank = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text=(
+            "When true, rerank search results with a listwise LLM pass for better relevance. "
+            "Defaults to false (RRF order only). Falls back to RRF order on rerank failure."
+        ),
+    )
+    library_id = serializers.UUIDField(
+        required=False,
+        allow_null=True,
+        default=None,
+        help_text="Limit retrieval to sources in this library. Omit to search every ready source.",
     )
 
 

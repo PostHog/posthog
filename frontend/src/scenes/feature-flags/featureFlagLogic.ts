@@ -22,7 +22,6 @@ import { loaders } from 'kea-loaders'
 import { beforeUnload, combineUrl, router, urlToAction } from 'kea-router'
 import { CombinedLocation } from 'kea-router/lib/utils'
 import posthog from 'posthog-js'
-import { toast } from 'react-toastify'
 
 import api, { PaginatedResponse, isAbortError } from 'lib/api'
 import { isAccessDeniedError, isApprovalRequiredError, isRollbackReasonRequiredError } from 'lib/api-error'
@@ -338,6 +337,12 @@ function liveFlagToastOptions(
     // Toasts with the same message share an id and a visible one swallows the next, which would drop this button.
     return { button, toastId: `feature-flag-live-${flagId}` }
 }
+
+const COHORT_REFUSAL_ERROR_CODES = new Set([
+    'behavioral_cohort_found',
+    'realtime_cohort_not_ready',
+    'cohort_does_not_exist',
+])
 
 function reportFailedToCreateFeatureFlagWithCohort(code: string, detail: string): void {
     posthog.capture('failed to create feature flag with cohort', { detail, code })
@@ -866,7 +871,8 @@ function showFlagCohortOutcome(
     cohort: CohortApi,
     flagId: FeatureFlagLogicProps['id'],
     flagKey: string,
-    source: string
+    source: string,
+    attemptId: string
 ): void {
     if (cohort.errors_calculating > 0) {
         lemonToast.error("Couldn't find the people who have this flag. Try again in a few minutes.")
@@ -890,7 +896,8 @@ function showFlagCohortOutcome(
             properties: cohortAudienceProperties(cohort),
             broadcastName: `${flagKey} announcement`,
         },
-        'broadcast'
+        'broadcast',
+        attemptId
     )
     if (isOnFeatureFlagPage(flagId)) {
         router.actions.push(broadcastUrl)
@@ -1239,12 +1246,10 @@ function agentRefreshFailedToastId(id: FeatureFlagLogicProps['id'], attempt: num
     return `feature-flag-agent-refresh-failed-${id}-${attempt}`
 }
 
-// Plain toast.dismiss, not lemonToast.dismiss, because the latter marks the id cancelled and would
-// swallow the notice for the next agent change on this flag.
 function dismissAgentNotices(id: FeatureFlagLogicProps['id'], cache: Record<string, any>): void {
-    toast.dismiss(agentChangeToastId(id))
+    lemonToast.dismiss(agentChangeToastId(id))
     if (cache.agentRefreshFailedToastId) {
-        toast.dismiss(cache.agentRefreshFailedToastId)
+        lemonToast.dismiss(cache.agentRefreshFailedToastId)
     }
 }
 
@@ -3773,7 +3778,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     savedFlag.id && refreshTreeItem('feature_flag', String(savedFlag.id))
                     return variantKeyToIndexFeatureFlagPayloads(savedFlag)
                 } catch (error: any) {
-                    if (error.code === 'behavioral_cohort_found' || error.code === 'cohort_does_not_exist') {
+                    if (COHORT_REFUSAL_ERROR_CODES.has(error.code)) {
                         reportFailedToCreateFeatureFlagWithCohort(error.code, error.detail)
                     } else if (isAccessDeniedError(error)) {
                         // Mirror the load path's access-denied handling instead of the generic
@@ -3817,7 +3822,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
 
                     return variantKeyToIndexFeatureFlagPayloads(savedFlag)
                 } catch (error: any) {
-                    if (error.code === 'behavioral_cohort_found' || error.code === 'cohort_does_not_exist') {
+                    if (COHORT_REFUSAL_ERROR_CODES.has(error.code)) {
                         reportFailedToCreateFeatureFlagWithCohort(error.code, error.detail)
                     }
                     throw error
@@ -4034,6 +4039,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             null as CohortApi | null,
             {
                 findOrCreateBroadcastCohort: async (source: string = FLAG_BROADCAST_SOURCE, breakpoint) => {
+                    const attemptId = captureMessageAudienceClicked(source, 'broadcast')
                     if (!props.id || props.id === 'new' || props.id === 'link' || !values.currentProjectId) {
                         return null
                     }
@@ -4081,7 +4087,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     // The cohort fills in the background. Opening the broadcast earlier would let it send to no one.
                     const status = await waitForFlagCohort(projectId, cohortId)
                     dismissBroadcastProgress(cache)
-                    showFlagCohortOutcome(status, props.id, flag.key, source)
+                    showFlagCohortOutcome(status, props.id, flag.key, source, attemptId)
                     return status
                 },
             },
@@ -4791,7 +4797,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             const afterAgentChange = !!payload?.afterAgentChange
             if (afterAgentChange && cache.agentRefreshFailedToastId) {
                 // This response carries what the failed one missed, so its notice is now wrong.
-                toast.dismiss(cache.agentRefreshFailedToastId)
+                lemonToast.dismiss(cache.agentRefreshFailedToastId)
             }
             const baseline = values.originalFeatureFlag
             // Replacing the whole flag would discard an edit made during the request and re-baseline
@@ -4851,7 +4857,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         refreshFeatureFlagFailure: () => {
             // This notice supersedes the one a successful refresh left open, and both reload the
             // same flag, so stacking them would offer the reader two buttons for one action.
-            toast.dismiss(agentChangeToastId(props.id))
+            lemonToast.dismiss(agentChangeToastId(props.id))
             cache.agentRefreshFailedAttempt = (cache.agentRefreshFailedAttempt ?? 0) + 1
             cache.agentRefreshFailedToastId = agentRefreshFailedToastId(props.id, cache.agentRefreshFailedAttempt)
             // The button retries this refresh rather than running the full loader, because the full
@@ -5128,8 +5134,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 actions.loadCopyDependencyRequirements()
             }
         },
-        findOrCreateBroadcastCohort: (source = FLAG_BROADCAST_SOURCE) => {
-            captureMessageAudienceClicked(source, 'broadcast')
+        findOrCreateBroadcastCohort: () => {
             dismissBroadcastProgress(cache)
             cache.broadcastToastId = lemonToast.loading(FINDING_FLAG_PEOPLE_MESSAGE, {
                 // A fresh id per click: a dismissed id stays cancelled, which would hide the next click's toast.

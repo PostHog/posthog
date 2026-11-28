@@ -5,11 +5,15 @@
 //! (which is `toString` semantics) on purpose — the two are subtly different and the
 //! parity loop is what reconciles them.
 
+use std::cell::Cell;
+use std::collections::HashSet;
+
 use crate::values::HogMap;
 
 use crate::{
     memory::{HeapReference, VmHeap},
-    values::{Callable, HogLiteral, HogValue},
+    values::{Callable, HogLiteral, HogStr, HogValue},
+    vm::MAX_JSON_SERDE_DEPTH,
 };
 
 const PRINT_RECURSION_LIMIT: usize = 64;
@@ -46,6 +50,148 @@ pub fn print_hog_string_output(heap: &VmHeap, value: &HogValue) -> Result<String
     }
 }
 
+/// A printer writes a container again for each reference to it, so this fails when that text exceeds the heap's room.
+pub(crate) fn assert_repeats_fit(
+    heap: &VmHeap,
+    value: &HogValue,
+    max_depth: usize,
+    cycles: Cycles,
+) -> Result<(), crate::VmError> {
+    assert_all_fit(heap, std::slice::from_ref(value), max_depth, cycles)
+}
+
+pub(crate) fn assert_all_fit(
+    heap: &VmHeap,
+    values: &[HogValue],
+    max_depth: usize,
+    cycles: Cycles,
+) -> Result<(), crate::VmError> {
+    let mut measure = RepeatMeasure::new(heap, max_depth, cycles);
+    values.iter().try_for_each(|value| measure.walk(value, 0))
+}
+
+#[derive(Clone, Copy, PartialEq)]
+pub(crate) enum Cycles {
+    Allowed,
+    NotInSql,
+    Never,
+}
+
+/// For a host that runs untrusted programs: a native reads every reference to a shared string, which costs the heap a pointer.
+pub fn assert_native_arguments_fit(heap: &VmHeap, args: &[HogValue]) -> Result<(), crate::VmError> {
+    assert_all_fit(heap, args, MAX_JSON_SERDE_DEPTH, Cycles::NotInSql)
+}
+
+struct RepeatMeasure<'a> {
+    heap: &'a VmHeap,
+    seen: HashSet<HeapReference>,
+    path: Vec<HeapReference>,
+    inside_repeats: usize,
+    inside_asts: usize,
+    repeated_bytes: usize,
+    repeat_visits: usize,
+    max_depth: usize,
+    cycles: Cycles,
+}
+
+/// The walk itself runs with no clock. A container that holds one child twice at each level makes it long: n rounds of `a := [a, a]` reach 2^n leaves.
+const MAX_REPEAT_VISITS: usize = 1 << 20;
+
+impl<'a> RepeatMeasure<'a> {
+    fn new(heap: &'a VmHeap, max_depth: usize, cycles: Cycles) -> Self {
+        RepeatMeasure {
+            heap,
+            seen: HashSet::new(),
+            path: Vec::new(),
+            inside_repeats: 0,
+            inside_asts: 0,
+            repeated_bytes: 0,
+            repeat_visits: 0,
+            max_depth,
+            cycles,
+        }
+    }
+
+    fn count_if_repeated(&mut self, bytes: usize) -> Result<(), crate::VmError> {
+        if self.inside_repeats > 0 {
+            self.count(bytes)?;
+        }
+        Ok(())
+    }
+
+    /// The HogQL printer has no cycle check of its own, and it counts depth from the caller's start. So this walk refuses an AST value that reaches a cycle or the depth cutoff, before the printer starts.
+    fn end_of_walk(&self) -> Result<(), crate::VmError> {
+        let refused = match self.cycles {
+            Cycles::Allowed => false,
+            Cycles::NotInSql => self.inside_asts > 0,
+            Cycles::Never => true,
+        };
+        if refused {
+            return Err(crate::VmError::OutOfResource(
+                "cyclic or deep value".to_string(),
+            ));
+        }
+        Ok(())
+    }
+
+    fn count(&mut self, bytes: usize) -> Result<(), crate::VmError> {
+        self.repeated_bytes = self.repeated_bytes.saturating_add(bytes);
+        self.heap.assert_can_allocate(self.repeated_bytes)
+    }
+
+    fn walk(&mut self, value: &HogValue, depth: usize) -> Result<(), crate::VmError> {
+        self.count_if_repeated(1)?;
+        if self.inside_repeats > 0 {
+            self.repeat_visits += 1;
+            if self.repeat_visits > MAX_REPEAT_VISITS {
+                return Err(crate::VmError::OutOfResource("Heap Memory".to_string()));
+            }
+        }
+        if depth > self.max_depth {
+            return self.end_of_walk();
+        }
+        let lit = value.deref(self.heap)?;
+        let container = match value {
+            HogValue::Ref(ptr) if lit.is_container() => Some(*ptr),
+            _ => None,
+        };
+        let mut repeated = false;
+        if let Some(ptr) = container {
+            if self.path.contains(&ptr) {
+                return self.end_of_walk();
+            }
+            self.path.push(ptr);
+            repeated = !self.seen.insert(ptr);
+            self.inside_repeats += usize::from(repeated);
+        }
+        let is_ast = matches!(lit, HogLiteral::Object(map) if map.contains_key("__hx_ast"));
+        self.inside_asts += usize::from(is_ast);
+        let result = match lit {
+            // The heap charges a shared string as a pointer, so its limit does not bound the text.
+            HogLiteral::String(HogStr::Shared(s)) => self.count(s.len()),
+            HogLiteral::String(HogStr::Owned(s)) => match value {
+                // The heap charges the second reference to a string as a pointer.
+                HogValue::Ref(ptr) if !self.seen.insert(*ptr) => self.count(s.len()),
+                _ => self.count_if_repeated(s.len()),
+            },
+            HogLiteral::Array(items) | HogLiteral::Tuple(items) => {
+                items.iter().try_for_each(|item| self.walk(item, depth + 1))
+            }
+            HogLiteral::Object(map) => map.iter().try_for_each(|(key, item)| {
+                self.count_if_repeated(key.len())?;
+                self.walk(item, depth + 1)
+            }),
+            _ => Ok(()),
+        };
+        self.inside_asts -= usize::from(is_ast);
+        if container.is_some() {
+            self.path.pop();
+            self.inside_repeats -= usize::from(repeated);
+        }
+        result
+    }
+}
+
 /// The recursive canonical printer. `marked` tracks the heap references currently being
 /// printed so self-referential containers render as `null` (matching the reference VMs'
 /// `marked` set), rather than recursing forever.
@@ -55,15 +201,25 @@ pub fn print_hog_value(
     marked: &mut Vec<HeapReference>,
     depth: usize,
 ) -> Result<String, crate::VmError> {
+    assert_repeats_fit(heap, value, PRINT_RECURSION_LIMIT, Cycles::NotInSql)?;
+    print_value(heap, value, marked, depth, &Cell::new(heap.room()))
+}
+
+/// `sql_room` is the text the HogQL printers of one print may still write, so children that each fit cannot pass the limit together.
+fn print_value(
+    heap: &VmHeap,
+    value: &HogValue,
+    marked: &mut Vec<HeapReference>,
+    depth: usize,
+    sql_room: &Cell<usize>,
+) -> Result<String, crate::VmError> {
     if depth > PRINT_RECURSION_LIMIT {
         return Ok("null".to_string());
     }
 
     let lit = value.deref(heap)?;
     let container_ptr = match value {
-        HogValue::Ref(ptr) if matches!(lit, HogLiteral::Array(_) | HogLiteral::Object(_)) => {
-            Some(*ptr)
-        }
+        HogValue::Ref(ptr) if lit.is_container() => Some(*ptr),
         _ => None,
     };
 
@@ -74,7 +230,7 @@ pub fn print_hog_value(
         marked.push(ptr);
     }
 
-    let result = format_literal(heap, lit, marked, depth);
+    let result = format_literal(heap, lit, marked, depth, sql_room);
 
     if container_ptr.is_some() {
         marked.pop();
@@ -88,6 +244,7 @@ fn format_literal(
     lit: &HogLiteral,
     marked: &mut Vec<HeapReference>,
     depth: usize,
+    sql_room: &Cell<usize>,
 ) -> Result<String, crate::VmError> {
     match lit {
         HogLiteral::Null => Ok("null".to_string()),
@@ -101,14 +258,14 @@ fn format_literal(
         HogLiteral::Array(arr) => {
             let mut parts = Vec::with_capacity(arr.len());
             for elem in arr {
-                parts.push(print_hog_value(heap, elem, marked, depth + 1)?);
+                parts.push(print_value(heap, elem, marked, depth + 1, sql_room)?);
             }
             Ok(format!("[{}]", parts.join(", ")))
         }
         HogLiteral::Tuple(arr) => {
             let mut parts = Vec::with_capacity(arr.len());
             for elem in arr {
-                parts.push(print_hog_value(heap, elem, marked, depth + 1)?);
+                parts.push(print_value(heap, elem, marked, depth + 1, sql_room)?);
             }
             // The reference disambiguates 0/1-element tuples as `tuple(...)`; 2+ print as `(a, b)`.
             if arr.len() < 2 {
@@ -123,19 +280,22 @@ fn format_literal(
                 return Ok(temporal);
             }
             // Hog errors are duck-typed too; the reference prints them as `Type('message'[, payload])`.
-            if let Some(err) = format_error(heap, obj, marked, depth)? {
+            if let Some(err) = format_error(heap, obj, marked, depth, sql_room)? {
                 return Ok(err);
             }
             // HogQL AST nodes (`{__hx_ast: …}`) render back to SQL, wrapped as `sql(…)`.
             if obj.contains_key("__hx_ast") {
-                return Ok(format!("sql({})", HogQLPrinter::new(heap).print_node(obj)?));
+                return Ok(format!(
+                    "sql({})",
+                    HogQLPrinter::new(heap, depth, sql_room).print_node(obj)?
+                ));
             }
             let mut parts = Vec::with_capacity(obj.len());
             for (key, val) in obj.iter() {
                 parts.push(format!(
                     "{}: {}",
                     escape_string(key),
-                    print_hog_value(heap, val, marked, depth + 1)?
+                    print_value(heap, val, marked, depth + 1, sql_room)?
                 ));
             }
             Ok(format!("{{{}}}", parts.join(", ")))
@@ -189,6 +349,7 @@ fn format_error(
     obj: &HogMap,
     marked: &mut Vec<HeapReference>,
     depth: usize,
+    sql_room: &Cell<usize>,
 ) -> Result<Option<String>, crate::VmError> {
     if !marker(heap, obj.get("__hogError__"))? {
         return Ok(None);
@@ -197,7 +358,7 @@ fn format_error(
     let message = string(heap, obj.get("message"))?.unwrap_or_default();
     let payload = match obj.get("payload") {
         Some(p) if !matches!(p.deref(heap)?, HogLiteral::Null) => {
-            format!(", {}", print_hog_value(heap, p, marked, depth + 1)?)
+            format!(", {}", print_value(heap, p, marked, depth + 1, sql_room)?)
         }
         _ => String::new(),
     };
@@ -286,19 +447,37 @@ struct HogQLPrinter<'a> {
     heap: &'a VmHeap,
     // Mirrors the reference's `stack.length`: a query that isn't the outermost node is parenthesised.
     depth: usize,
+    outer_depth: usize,
+    sql_room: &'a Cell<usize>,
 }
 
 impl<'a> HogQLPrinter<'a> {
-    fn new(heap: &'a VmHeap) -> Self {
-        HogQLPrinter { heap, depth: 0 }
+    fn new(heap: &'a VmHeap, outer_depth: usize, sql_room: &'a Cell<usize>) -> Self {
+        HogQLPrinter {
+            heap,
+            depth: 0,
+            outer_depth,
+            sql_room,
+        }
     }
 
     // Entry point: an already-dereferenced AST object.
     fn print_node(&mut self, obj: &HogMap) -> Result<String, crate::VmError> {
+        // An AST node can hold itself, and this recursion has no `marked` set.
+        if self.outer_depth + self.depth >= PRINT_RECURSION_LIMIT {
+            return Err(crate::VmError::OutOfResource("sql print depth".to_string()));
+        }
         self.depth += 1;
         let result = self.dispatch(obj);
         self.depth -= 1;
-        result
+        let text = result?;
+        // A node can write a child's text twice or escape it again, so the text can double at each level.
+        let room = self.sql_room.get();
+        if text.len() > room {
+            return Err(crate::VmError::OutOfResource("Heap Memory".to_string()));
+        }
+        self.sql_room.set(room - text.len());
+        Ok(text)
     }
 
     // Visit any child: a nested AST object dispatches; a null renders empty; anything else goes
@@ -307,7 +486,13 @@ impl<'a> HogQLPrinter<'a> {
         match node.deref(self.heap)? {
             HogLiteral::Null => Ok(String::new()),
             HogLiteral::Object(obj) if obj.contains_key("__hx_ast") => self.print_node(obj),
-            _ => print_hog_value(self.heap, node, &mut Vec::new(), 0),
+            _ => print_value(
+                self.heap,
+                node,
+                &mut Vec::new(),
+                self.outer_depth + self.depth,
+                self.sql_room,
+            ),
         }
     }
 
@@ -632,12 +817,18 @@ impl<'a> HogQLPrinter<'a> {
         Ok(match value.deref(self.heap)? {
             HogLiteral::Number(n) if !n.is_float() => n.to_integer().to_string(),
             HogLiteral::String(s) => escape_identifier(s),
-            other => escape_identifier(&print_hog_value(
-                self.heap,
-                &HogLiteral::clone(other).into(),
-                &mut Vec::new(),
-                0,
-            )?),
+            other => {
+                let printed = print_value(
+                    self.heap,
+                    &HogLiteral::clone(other).into(),
+                    &mut Vec::new(),
+                    self.outer_depth + self.depth,
+                    self.sql_room,
+                )?;
+                self.heap
+                    .assert_can_allocate(printed.len().saturating_mul(2))?;
+                escape_identifier(&printed)
+            }
         })
     }
 }

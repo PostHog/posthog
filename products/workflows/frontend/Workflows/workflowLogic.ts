@@ -144,6 +144,7 @@ export interface WorkflowLogicProps {
     messageTemplateId?: string
     draftSource?: string
     entrySource?: string
+    entryAttemptId?: string
 }
 
 /** Gives the workflow's name to the scene logic, which reports it as a recent and cannot import this logic back. */
@@ -1024,6 +1025,7 @@ export interface workflowLogicActions {
                         }
                       | {
                             config: {
+                                click_tracking_enabled?: boolean | undefined
                                 inputs: Record<
                                     string,
                                     {
@@ -1036,6 +1038,7 @@ export interface workflowLogicActions {
                                 >
                                 message_category_id?: string | null | undefined
                                 message_category_type?: 'marketing' | 'transactional' | undefined
+                                run_link_tag_enabled?: boolean | undefined
                                 sensitive?: boolean | undefined
                                 skip_frequency_cap?: boolean | undefined
                                 template_id: 'template-email'
@@ -1978,6 +1981,7 @@ export interface workflowLogicActions {
                         }
                       | {
                             config: {
+                                click_tracking_enabled?: boolean | undefined
                                 inputs: Record<
                                     string,
                                     {
@@ -1990,6 +1994,7 @@ export interface workflowLogicActions {
                                 >
                                 message_category_id?: string | null | undefined
                                 message_category_type?: 'marketing' | 'transactional' | undefined
+                                run_link_tag_enabled?: boolean | undefined
                                 sensitive?: boolean | undefined
                                 skip_frequency_cap?: boolean | undefined
                                 template_id: 'template-email'
@@ -2958,6 +2963,7 @@ export interface workflowLogicActions {
                   template_uuid?: string | undefined
               }
             | {
+                  click_tracking_enabled?: boolean | undefined
                   inputs: Record<
                       string,
                       {
@@ -2970,6 +2976,7 @@ export interface workflowLogicActions {
                   >
                   message_category_id?: string | null | undefined
                   message_category_type?: 'marketing' | 'transactional' | undefined
+                  run_link_tag_enabled?: boolean | undefined
                   sensitive?: boolean | undefined
                   skip_frequency_cap?: boolean | undefined
                   template_id: 'template-email'
@@ -3412,6 +3419,7 @@ export interface workflowLogicActions {
                   template_uuid?: string | undefined
               }
             | {
+                  click_tracking_enabled?: boolean | undefined
                   inputs: Record<
                       string,
                       {
@@ -3424,6 +3432,7 @@ export interface workflowLogicActions {
                   >
                   message_category_id?: string | null | undefined
                   message_category_type?: 'marketing' | 'transactional' | undefined
+                  run_link_tag_enabled?: boolean | undefined
                   sensitive?: boolean | undefined
                   skip_frequency_cap?: boolean | undefined
                   template_id: 'template-email'
@@ -4041,6 +4050,7 @@ export const workflowLogic = kea<workflowLogicType>([
                             const result = (await hogFlowsCreate(teamId, {
                                 ...updates,
                                 ...(createsBroadcast ? { origin_product: 'broadcasts' } : {}),
+                                ...(props.entryAttemptId ? { entry_attempt_id: props.entryAttemptId } : {}),
                             } as unknown as Parameters<typeof hogFlowsCreate>[1])) as unknown as HogFlow
                             actions.workflowCreated(result.id)
 
@@ -4166,11 +4176,16 @@ export const workflowLogic = kea<workflowLogicType>([
                             return result
                         } catch (error) {
                             if (error instanceof ApiError && error.status === 409) {
-                                if (initiatedByAutoSave && values.pendingSchedule === false) {
+                                if (
+                                    initiatedByAutoSave &&
+                                    values.pendingSchedule === false &&
+                                    values.keepsLocalEditsOnExternalEdit
+                                ) {
                                     // An auto-save losing the race is not a decision point: the user never
-                                    // asked to overwrite anything, so reconcile to the newer copy silently.
-                                    // A pending schedule change is the exception: only a manual save
-                                    // persists it, and the reload would wipe it, so that gets the banner.
+                                    // asked to overwrite anything, so reconcile to the newer copy silently,
+                                    // keeping the edits. A pending schedule change is the exception: only a
+                                    // manual save persists it, and the reload would wipe it, so that gets the
+                                    // banner, as does a reload that would drop the edits being saved.
                                     actions.setSyncingExternalEdit(true)
                                     actions.loadWorkflow()
                                 } else {
@@ -4980,10 +4995,11 @@ export const workflowLogic = kea<workflowLogicType>([
             // While auto-save can flush the local buffer, reconcile silently instead of interrupting
             // with a conflict banner. When auto-save can't flush (toggled off, no name to save under,
             // or a pending schedule change, which only a manual save persists), the buffer can hold
-            // real work, so the banner lets the user choose.
+            // real work, so the banner lets the user choose. Without the keep-local-edits reload, a
+            // silent reload would drop the unsaved edits, so they get the banner too.
             const autoSaveCanFlush =
                 values.autoSaveEnabled && !values.autoSaveBlockedByValidation && values.pendingSchedule === false
-            if (values.hasUnsavedChanges && !autoSaveCanFlush) {
+            if (values.hasUnsavedChanges && !(autoSaveCanFlush && values.keepsLocalEditsOnExternalEdit)) {
                 actions.setExternallyEdited(true)
             } else {
                 // Flag the sync first so the editor shows a brief working/disabled overlay and
@@ -5185,6 +5201,8 @@ export const workflowLogic = kea<workflowLogicType>([
             if (props.id && props.id !== 'new') {
                 try {
                     const latest = await api.hogFlows.getHogFlow(props.id)
+                    // A staged save also fences its live metadata write, so the live stamp moves to the latest too.
+                    cache.lastSavedWorkflow = latest
                     // On an active workflow the next save races the draft slot, so its stamp is the baseline.
                     actions.setSaveBaseUpdatedAt(latest.draft_updated_at ?? latest.updated_at)
                 } catch {
@@ -5287,6 +5305,8 @@ export const workflowLogic = kea<workflowLogicType>([
             if (missingTemplates.length) {
                 actions.loadMissingHogFunctionTemplates(missingTemplates)
             }
+            const previousSaveBaseline =
+                (cache.lastSavedWorkflow as HogFlow | undefined) ?? selectors.originalWorkflow(previousState)
             // This response is now the save baseline. Discarding a draft moves its stamp backwards,
             // so a copy kept from an earlier save would fence later saves too loosely.
             cache.lastSavedWorkflow = undefined
@@ -5302,7 +5322,19 @@ export const workflowLogic = kea<workflowLogicType>([
                     ? selectors.originalWorkflow(previousState)
                     : null
             const unsavedEdits = editsKeptOverReload(baseBeforeExternalEdit, values.workflow, loaded)
-            actions.resetWorkflow(loaded)
+            // Without the keep-local-edits reload, edits typed while this silent reload ran would be reset away,
+            // such as an email canvas edit that reached the form after the reload started.
+            const editedDuringSilentReload =
+                !values.keepsLocalEditsOnExternalEdit &&
+                selectors.isSyncingExternalEdit(previousState) &&
+                selectors.workflowChanged(previousState)
+            if (editedDuringSilentReload) {
+                actions.setExternallyEdited(true)
+                // The form still holds the older copy, so saves stay fenced by it, as when no reload ran.
+                cache.lastSavedWorkflow = previousSaveBaseline
+            } else {
+                actions.resetWorkflow(loaded)
+            }
             if (Object.keys(unsavedEdits).length > 0) {
                 actions.setWorkflowValues(unsavedEdits)
                 actions.autoSaveWorkflow()
@@ -5320,11 +5352,7 @@ export const workflowLogic = kea<workflowLogicType>([
             }
         },
         loadWorkflowFailure: (_, __, ___, previousState) => {
-            if (
-                values.keepsLocalEditsOnExternalEdit &&
-                selectors.isSyncingExternalEdit(previousState) &&
-                values.workflowChanged
-            ) {
+            if (selectors.isSyncingExternalEdit(previousState) && values.workflowChanged) {
                 actions.setExternallyEdited(true)
             }
             actions.replayDeferredResourceEdited()
@@ -5717,7 +5745,9 @@ export const workflowLogic = kea<workflowLogicType>([
                 !!props.editTemplateId ||
                 !values.workflowChanged ||
                 values.autoSaveBlockedByValidation ||
-                (values.keepsLocalEditsOnExternalEdit && values.isSyncingExternalEdit)
+                values.isSyncingExternalEdit ||
+                // The banner asks first, and a save could overwrite the newer copy without it.
+                (!values.keepsLocalEditsOnExternalEdit && values.externallyEdited)
 
             if (shouldSkip) {
                 actions.clearAutoSavePending()

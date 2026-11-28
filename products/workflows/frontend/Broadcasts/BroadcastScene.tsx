@@ -15,7 +15,7 @@ import {
     buildNewBroadcastComposerContext,
 } from './broadcastAgentContext'
 import { broadcastPreviewLogic, broadcastPreviewScope } from './broadcastPreviewLogic'
-import { isBroadcastShaped, opensInWizard } from './broadcastsLogic'
+import { opensAsBroadcast, opensInWizard } from './broadcastsLogic'
 import { BroadcastSummary } from './BroadcastSummary'
 import { broadcastTestSendLogic } from './broadcastTestSendLogic'
 import { BroadcastWizard } from './BroadcastWizard'
@@ -74,10 +74,7 @@ function BroadcastSceneContent({ id }: BroadcastWizardLogicProps): JSX.Element {
         if (!broadcast) {
             return <NotFound object="broadcast" />
         }
-        // Any workflow id resolves on this route. An unowned workflow shaped like a broadcast opens here
-        // like one, matching the list; a workflow another product owns, or any other shape, does not.
-        const isBroadcast = broadcast.origin_product === 'broadcasts'
-        if (!isBroadcast && (broadcast.origin_product || !isBroadcastShaped(broadcast.actions as any))) {
+        if (!opensAsBroadcast(broadcast)) {
             return <NotFound object="broadcast" />
         }
         // The wizard saves a broadcast back as its three-step graph, so any other graph (an edit made in the

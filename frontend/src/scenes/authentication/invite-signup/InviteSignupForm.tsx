@@ -249,7 +249,8 @@ function InviteNewUser({ invite }: { invite: PrevalidatedInvite }): JSX.Element 
                             <TurnstileChallenge
                                 siteKey={turnstileSiteKey}
                                 onSuccess={setTurnstileToken}
-                                tokenReceived={!!turnstileToken}
+                                pendingLabel={turnstileToken ? 'Creating your account...' : undefined}
+                                troublePrompt="Having trouble signing up?"
                                 email={invite.target_email}
                             />
                         ) : (

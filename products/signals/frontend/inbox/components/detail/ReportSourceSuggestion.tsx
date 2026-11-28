@@ -3,6 +3,7 @@ import { LemonButton } from '@posthog/lemon-ui'
 
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { LemonCard } from 'lib/lemon-ui/LemonCard'
+import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import type { FileSystemIconType } from '~/queries/schema/schema-general'
@@ -50,7 +51,9 @@ export function ReportSourceSuggestion({
                     {getSourceProductMeta(suggestion.product)?.label} · Not set up in this project
                 </span>
             </div>
-            <p className="m-0 mb-2 text-sm">{suggestion.reason}</p>
+            <LemonMarkdown className="mb-2 text-sm" disableImages>
+                {suggestion.reason}
+            </LemonMarkdown>
             <div className="flex">
                 <LemonButton
                     type="secondary"

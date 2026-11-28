@@ -52,6 +52,7 @@ export const urls = {
     currentProject: (path = ''): string => urls.project(getCurrentTeamId(), path),
     newTab: () => '/search',
     eventDefinitions: (): string => '/data-management/events',
+    tagDefinitions: (): string => '/data-management/tags',
     eventDefinition: (id: string | number): string => `/data-management/events/${id}`,
     eventDefinitionEdit: (id: string | number): string => `/data-management/events/${id}/edit`,
     propertyDefinitions: (type?: string): string => combineUrl('/data-management/properties', type ? { type } : {}).url,
@@ -217,6 +218,7 @@ export const urls = {
         feature: 'saml' | 'oidc' | 'scim' | 'xaa' | ':feature',
         configId: string | ':configId'
     ): string => `/settings/organization-authentication/${feature}/${configId}`,
+    oauthApplication: (id: string): string => `/settings/organization-oauth-apps/${id}`,
     dataDeletionRequestNew: (): string => '/settings/environment-danger-zone/data-deletion/new',
     featurePreview: (flagKey: string): string => combineUrl('/settings/user-feature-previews', {}, flagKey).url,
     organizationCreationConfirm: (): string => '/organization/confirm-creation',

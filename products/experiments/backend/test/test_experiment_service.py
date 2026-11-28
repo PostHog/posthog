@@ -43,14 +43,14 @@ from products.cohorts.backend.models.cohort import Cohort
 from products.event_definitions.backend.models.event_definition import EventDefinition
 from products.experiments.backend.experiment_service import (
     ExperimentService,
-    ExperimentVersionConflict,
     _deprecated_fields_in_request,
     _deprecated_parameters_keys_in_request,
     _merge_metric_arrays,
     _merge_saved_metric_links,
     _resolve_scalar_updates,
 )
-from products.experiments.backend.hogql_queries.exposure_query_logic import EXPERIMENT_EXPOSURE_EVENT_CUTOFF
+from products.experiments.backend.facade.contracts import ExperimentVersionConflict
+from products.experiments.backend.facade.launch_signals import connect_experiment_launched, experiment_launched
 from products.experiments.backend.metric_calculation.config import get_metric_calculation_config
 from products.experiments.backend.metric_calculation.results import _recalc_fingerprint
 from products.experiments.backend.metric_resolution import METRIC_BUILDERS
@@ -71,7 +71,11 @@ from products.experiments.backend.models.experiment import (
     ExperimentToSavedMetric,
 )
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
-from products.experiments.backend.test.utils import patch_calculation_key_version, patch_exposure_event_flag
+from products.experiments.backend.test.utils import (
+    EXPERIMENT_EXPOSURE_EVENT_CUTOFF,
+    override_exposure_event_cutoff,
+    patch_calculation_key_version,
+)
 from products.experiments.backend.timeseries_backfill import backfill_experiment_timeseries
 from products.feature_flags.backend.facade.api import set_flag_active, update_flag
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
@@ -1825,7 +1829,7 @@ class TestExperimentService(APIBaseTest):
             experiment,
             {
                 "name": "Same Key OK",
-                "get_feature_flag_key": experiment.feature_flag.key,
+                "feature_flag_key": experiment.feature_flag.key,
             },
         )
 
@@ -1853,7 +1857,7 @@ class TestExperimentService(APIBaseTest):
             service.update_experiment(
                 experiment,
                 {
-                    "get_feature_flag_key": "different-key",
+                    "feature_flag_key": "different-key",
                 },
             )
 
@@ -1922,7 +1926,7 @@ class TestExperimentService(APIBaseTest):
         service.update_experiment(experiment, {"start_date": timezone.now()})
 
         with self.assertRaises(ValidationError) as ctx:
-            service.update_experiment(experiment, {"holdout": holdout})
+            service.update_experiment(experiment, {"holdout_id": holdout.id})
 
         assert "Can't update holdout" in str(ctx.exception)
 
@@ -2793,7 +2797,7 @@ class TestExperimentService(APIBaseTest):
         experiment = self._create_draft_experiment()
         service = self._service()
 
-        service.update_experiment(experiment, {"holdout": holdout})
+        service.update_experiment(experiment, {"holdout_id": holdout.id})
 
         experiment.feature_flag.refresh_from_db()
         assert experiment.feature_flag.filters["holdout"] == {"id": holdout.id, "exclusion_percentage": 10}
@@ -4224,6 +4228,36 @@ class TestExperimentService(APIBaseTest):
 
     @parameterized.expand(
         [
+            ("launch_endpoint", lambda service, experiment: service.launch_experiment(experiment)),
+            (
+                "update_sets_start_date_on_draft",
+                lambda service, experiment: service.update_experiment(
+                    experiment, {"start_date": timezone.now()}, event_source=EventSource.API
+                ),
+            ),
+        ]
+    )
+    def test_launch_notifies_experiment_launched_receivers(self, _name, act):
+        # Other products start work when an experiment launches, through this signal. CI skips their tests on a
+        # change inside this product alone, so this test fails when a launch path stops sending the signal.
+        received: list[tuple[int, int]] = []
+
+        def receiver(*, team_id: int, experiment_id: int, **kwargs: object) -> None:
+            received.append((team_id, experiment_id))
+
+        connect_experiment_launched(receiver, dispatch_uid="test_launch_notifies_experiment_launched_receivers")
+        self.addCleanup(
+            experiment_launched.disconnect, dispatch_uid="test_launch_notifies_experiment_launched_receivers"
+        )
+        experiment = self._create_launchable_experiment(name="Signal", feature_flag_key="signal-flag")
+
+        with self.captureOnCommitCallbacks(execute=True):
+            act(self._service(), experiment)
+
+        assert received == [(self.team.id, experiment.id)]
+
+    @parameterized.expand(
+        [
             ("current", timedelta(0), None, False, [False]),
             ("backdated_running", timedelta(days=90), None, False, [True]),
             ("backdated_future_end", timedelta(days=90), timedelta(days=10), False, [True]),
@@ -5521,10 +5555,10 @@ class TestExperimentService(APIBaseTest):
 
     @parameterized.expand(
         [
-            # (name, flag enabled for team, start_date offset from cutoff in days, custom exposure event, expected events)
+            # (name, cutoff set, start_date offset from cutoff in days, custom exposure event, expected events)
             ("before_cutoff", True, -7, None, ["$feature_flag_called", "$experiment_exposure"]),
             ("after_cutoff", True, 7, None, ["$experiment_exposure"]),
-            ("after_cutoff_flag_disabled", False, 7, None, ["$feature_flag_called", "$experiment_exposure"]),
+            ("after_cutoff_without_cutoff_set", False, 7, None, ["$feature_flag_called", "$experiment_exposure"]),
             (
                 "custom_flag_called_after_cutoff",
                 True,
@@ -5537,7 +5571,7 @@ class TestExperimentService(APIBaseTest):
     def test_create_exposure_cohort_uses_resolved_exposure_event(
         self,
         name: str,
-        flag_enabled: bool,
+        cutoff_set: bool,
         start_offset_days: int,
         custom_exposure_event: str | None,
         expected_events: list[str],
@@ -5561,7 +5595,7 @@ class TestExperimentService(APIBaseTest):
             ),
         )
 
-        with patch_exposure_event_flag(enabled=flag_enabled):
+        with override_exposure_event_cutoff(enabled=cutoff_set):
             cohort = service.create_exposure_cohort(experiment)
 
         assert cohort.filters is not None
@@ -5988,23 +6022,6 @@ class TestExperimentService(APIBaseTest):
 
         assert set(queryset.values_list("name", flat=True)) == {"Visible"}
 
-    def test_filter_experiments_queryset_includes_deleted_on_restore_update(self) -> None:
-        service = self._service()
-        experiment = service.create_experiment(name="Restore Me", feature_flag_key="restore-me", deleted=True)
-
-        default_queryset = service.filter_experiments_queryset(
-            Experiment.objects.filter(team=self.team),
-            action="update",
-        )
-        restore_queryset = service.filter_experiments_queryset(
-            Experiment.objects.filter(team=self.team),
-            action="update",
-            request_data={"deleted": "false"},
-        )
-
-        assert experiment.id not in default_queryset.values_list("id", flat=True)
-        assert experiment.id in restore_queryset.values_list("id", flat=True)
-
     @parameterized.expand(
         [
             ("draft", {"status": "draft"}, {"Draft"}),
@@ -6238,11 +6255,11 @@ class TestExperimentService(APIBaseTest):
         service = self._service()
         result = service.get_velocity_stats()
 
-        assert result["launched_last_30d"] == 0
-        assert result["launched_previous_30d"] == 0
-        assert result["percent_change"] == 0.0
-        assert result["active_experiments"] == 0
-        assert result["completed_last_30d"] == 0
+        assert result.launched_last_30d == 0
+        assert result.launched_previous_30d == 0
+        assert result.percent_change == 0.0
+        assert result.active_experiments == 0
+        assert result.completed_last_30d == 0
 
     def test_get_velocity_stats_with_experiments(self):
         service = self._service()
@@ -6263,11 +6280,16 @@ class TestExperimentService(APIBaseTest):
             end_date=now - timedelta(days=3),
         )
 
-        result = service.get_velocity_stats()
+        # Read through the API, so the test also covers how the stats endpoint renders the service result.
+        response = self.client.get(f"/api/projects/{self.team.id}/experiments/stats/")
 
-        assert result["launched_last_30d"] == 2
-        assert result["active_experiments"] == 1
-        assert result["completed_last_30d"] == 1
+        assert response.json() == {
+            "launched_last_30d": 2,
+            "launched_previous_30d": 0,
+            "percent_change": 100.0,
+            "active_experiments": 1,
+            "completed_last_30d": 1,
+        }
 
     def test_get_velocity_stats_percent_change(self):
         service = self._service()
@@ -6291,10 +6313,10 @@ class TestExperimentService(APIBaseTest):
 
         result = service.get_velocity_stats()
 
-        assert result["launched_last_30d"] == 1
-        assert result["launched_previous_30d"] == 3
+        assert result.launched_last_30d == 1
+        assert result.launched_previous_30d == 3
         expected_change = round(((1 - 3) / 3) * 100, 1)
-        assert result["percent_change"] == expected_change
+        assert result.percent_change == expected_change
 
     # ------------------------------------------------------------------
     # Legacy metrics update restrictions

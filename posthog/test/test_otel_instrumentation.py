@@ -20,10 +20,18 @@ import responses
 from botocore.config import Config
 from botocore.exceptions import EndpointConnectionError
 from botocore.httpsession import URLLib3Session
-from opentelemetry import trace
+from opentelemetry import propagate, trace
+from opentelemetry.instrumentation.asgi import (
+    asgi_getter,
+    collect_request_attributes as asgi_collect_request_attributes,
+)
 from opentelemetry.instrumentation.botocore import BotocoreInstrumentor
 from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
 from opentelemetry.instrumentation.requests import RequestsInstrumentor
+from opentelemetry.instrumentation.wsgi import (
+    collect_request_attributes as wsgi_collect_request_attributes,
+    wsgi_getter,
+)
 from opentelemetry.sdk.trace import ReadableSpan, TracerProvider
 from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
@@ -35,6 +43,7 @@ from posthog.otel_instrumentation import (
     _otel_django_request_hook,
     _otel_django_response_hook,
     _otel_redis_request_hook,
+    build_sampler,
     initialize_otel,
     instrument_botocore,
     instrument_httpx_client,
@@ -180,8 +189,7 @@ class TestOtelInstrumentation(SimpleTestCase):
         self.assertEqual(mock_tracer_provider_cls.call_count, 1)
         call_args = mock_tracer_provider_cls.call_args
         self.assertEqual(call_args[1]["resource"], mock_resource_instance)
-        # No longer passing sampler manually - OpenTelemetry SDK handles it via env vars
-        self.assertNotIn("sampler", call_args[1])
+        self.assertIn("sampler", call_args[1])
 
         mock_otlp_exporter_cls.assert_called_once_with()
         mock_batch_processor_cls.assert_called_once_with(mock_otlp_exporter_cls.return_value)
@@ -422,8 +430,7 @@ class TestOtelInstrumentation(SimpleTestCase):
         self.assertEqual(mock_tracer_provider_cls.call_count, 1)
         call_args = mock_tracer_provider_cls.call_args
         self.assertEqual(call_args[1]["resource"], mock_resource_instance)
-        # No longer passing sampler manually - OpenTelemetry SDK handles it via env vars
-        self.assertNotIn("sampler", call_args[1])
+        self.assertIn("sampler", call_args[1])
 
         mock_set_tracer_provider.assert_called_once_with(mock_provider_instance)
 
@@ -446,6 +453,107 @@ class TestOtelInstrumentation(SimpleTestCase):
         # Assert AIOKafkaInstrumentor call
         mock_aio_kafka_instrumentor_cls.assert_called_once_with()
         mock_aio_kafka_instrumentor_instance.instrument.assert_called_once_with(tracer_provider=mock_provider_instance)
+
+
+class TestOtelSampler(SimpleTestCase):
+    @parameterized.expand(
+        [
+            (
+                "query_batch_old_semconv",
+                {"http.target": "/api/projects/2/dashboard_v2/query_batch/?refresh=1"},
+                None,
+                True,
+            ),
+            ("query_batch_new_semconv", {"url.path": "/api/environments/2/dashboard_v2/query_batch"}, None, True),
+            ("other_route", {"http.target": "/api/projects/2/dashboards/"}, None, False),
+            (
+                "query_batch_unsampled_remote_parent",
+                {"http.target": "/api/projects/2/dashboard_v2/query_batch/"},
+                False,
+                True,
+            ),
+            ("other_route_sampled_remote_parent", {"http.target": "/api/projects/2/dashboards/"}, True, True),
+        ]
+    )
+    @mock.patch.dict(
+        os.environ, {"OTEL_TRACES_SAMPLER": "parentbased_traceidratio", "OTEL_TRACES_SAMPLER_ARG": "0"}, clear=True
+    )
+    def test_root_span_sampling_by_route(
+        self, _case: str, attributes: dict[str, str], parent_sampled: bool | None, expected_sampled: bool
+    ) -> None:
+        tracer = TracerProvider(sampler=build_sampler()).get_tracer(__name__)
+        context = None
+        if parent_sampled is not None:
+            parent = trace.SpanContext(
+                trace_id=1,
+                span_id=1,
+                is_remote=True,
+                trace_flags=trace.TraceFlags(trace.TraceFlags.SAMPLED if parent_sampled else 0),
+            )
+            context = trace.set_span_in_context(trace.NonRecordingSpan(parent))
+
+        span = tracer.start_span("GET", context=context, kind=trace.SpanKind.SERVER, attributes=attributes)
+
+        self.assertEqual(span.get_span_context().trace_flags.sampled, expected_sampled)
+
+    @parameterized.expand(
+        [
+            ("granian_wsgi", "wsgi", None),
+            ("granian_wsgi_unsampled_traceparent", "wsgi", "00-00dd1bb1205fa968727449f851a495c1-dc39ce2539f55004-00"),
+            ("asgi", "asgi", None),
+            ("asgi_unsampled_traceparent", "asgi", "00-00dd1bb1205fa968727449f851a495c1-dc39ce2539f55004-00"),
+        ]
+    )
+    @mock.patch.dict(
+        os.environ, {"OTEL_TRACES_SAMPLER": "parentbased_traceidratio", "OTEL_TRACES_SAMPLER_ARG": "0"}, clear=True
+    )
+    def test_server_request_to_query_batch_is_sampled(self, _case: str, server: str, traceparent: str | None) -> None:
+        path = "/api/projects/2/dashboard_v2/query_batch/"
+        carrier: dict
+        if server == "wsgi":
+            # Granian's WSGI environ has no RAW_URI or REQUEST_URI.
+            carrier = {
+                "REQUEST_METHOD": "POST",
+                "PATH_INFO": path,
+                "QUERY_STRING": "",
+                "SERVER_NAME": "0.0.0.0",
+                "SERVER_PORT": "8000",
+                "SERVER_PROTOCOL": "HTTP/1.1",
+                "HTTP_HOST": "us.example.com",
+                "wsgi.url_scheme": "http",
+            }
+            if traceparent:
+                carrier["HTTP_TRACEPARENT"] = traceparent
+            attributes = wsgi_collect_request_attributes(carrier)
+            context = propagate.extract(carrier, getter=wsgi_getter)
+        else:
+            headers = [(b"host", b"us.example.com")]
+            if traceparent:
+                headers.append((b"traceparent", traceparent.encode()))
+            carrier = {
+                "type": "http",
+                "method": "POST",
+                "scheme": "http",
+                "path": path,
+                "query_string": b"",
+                "headers": headers,
+                "server": ("0.0.0.0", 8000),
+                "http_version": "1.1",
+            }
+            attributes = asgi_collect_request_attributes(carrier)
+            context = propagate.extract(carrier, getter=asgi_getter)
+        tracer = TracerProvider(sampler=build_sampler()).get_tracer(__name__)
+
+        span = tracer.start_span("POST", context=context, kind=trace.SpanKind.SERVER, attributes=attributes)
+        assert isinstance(span, ReadableSpan)
+
+        self.assertTrue(span.get_span_context().trace_flags.sampled)
+        if traceparent:
+            assert span.parent is not None
+            self.assertEqual(format(span.get_span_context().trace_id, "032x"), "00dd1bb1205fa968727449f851a495c1")
+            self.assertEqual(format(span.parent.span_id, "016x"), "dc39ce2539f55004")
+        else:
+            self.assertIsNone(span.parent)
 
 
 class TestOtelRedisRequestHook(SimpleTestCase):

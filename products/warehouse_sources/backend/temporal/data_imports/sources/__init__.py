@@ -10,11 +10,11 @@ import structlog
 from posthog.exceptions_capture import capture_exception
 from posthog.run_mode import derive_run_mode
 
-from products.warehouse_sources.backend.types import ExternalDataSourceType, SourceKey
+from products.warehouse_sources.backend.types import ExternalDataSourceType, SourceKey, source_key
 
 from .common.registry import SourceRegistry
 
-__all__ = ["SourceRegistry", "load_all_sources", "load_source", "source_module_path"]
+__all__ = ["SourceRegistry", "load_all_sources", "load_source", "load_sources_in_use", "source_module_path"]
 
 logger = structlog.get_logger(__name__)
 
@@ -66,6 +66,26 @@ def load_source(source_type: SourceKey) -> None:
     module_path = source_module_path(source_type)
     if module_path is not None:
         _load_source(module_path)
+
+
+def load_sources_in_use() -> None:
+    """Import the source module of every source type that this instance has a source for.
+
+    For a worker on a small host, where importing every vendor SDK costs more memory than the
+    host can spare. A type that gets its first source after the worker started is imported by
+    the registry when a sync asks for it.
+    """
+    # Imported here because this package is imported during django.setup(), before models load.
+    from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource  # noqa: PLC0415
+
+    source_types = (
+        ExternalDataSource.objects.exclude(deleted=True)
+        .order_by("source_type")
+        .values_list("source_type", flat=True)
+        .distinct()
+    )
+    for source_type in source_types:
+        load_source(source_key(source_type))
 
 
 @functools.cache

@@ -48,9 +48,12 @@ teams:
     team-replay:
         notifications:
             stamphog: false
-    # The entry exists only to drop the daily stamphog digest from the team channel.
+    team-managed-warehouse:
+        notifications:
+            mcp_tool_health: '#team-warehouse'
     team-warehouse-sources:
         notifications:
+            mcp_tool_health: '#team-warehouse-pipelines'
             stamphog: false
 rules:
     - match: Dockerfile.llm-analytics
@@ -90,9 +93,6 @@ rules:
       owners: team-devex
     - match: '/.claude/agents/ingestion/'
       owners: team-ingestion
-    - match: '/bin/start-llm-gateway'
-      owners: [team-devex, team-agent-infrastructure]
-      sensitive: true
     - match: '/cli/'
       owners: team-growth
     - match: '/docs/onboarding/ai-observability/'
@@ -102,6 +102,7 @@ rules:
     - match:
           - '/frontend/src/lib/lemon-ui/'
           - '/frontend/src/lib/ui/'
+          - '/frontend/src/lib/uiSounds/'
       owners: platform-ux
     # Platform UX owns the nav rail and the UI rules file, so every change to them goes to that team, however small.
     - match:

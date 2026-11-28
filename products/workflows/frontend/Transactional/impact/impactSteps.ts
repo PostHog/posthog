@@ -12,32 +12,75 @@ export interface ImpactStep {
     value: number | null
     missing?: string
     missingDetail?: string
+    missingFixedByLinkTagging?: boolean
+    missingFixedByEvent?: boolean
+    note?: string
     share: number | null
     shareOf?: string
     shareDetail?: string
 }
+
+export type LinkTagging = 'on' | 'off' | 'sensitive-email'
 
 export interface ImpactLift {
     clicked: number | null
     notClicked: number | null
 }
 
-export const LINK_TAGGING_DETAIL =
-    "PostHog follows a click into your product through a tag on the email's links. Link tagging isn't on for this project yet. Conversions still count, because they go through the person on each send."
+const SENSITIVE_EMAIL_DETAIL =
+    "This email protects sensitive data, so PostHog doesn't tag its links and can't connect its clicks to sessions. Conversions still count, because they go through the person on each send."
+
+function sessionStep(impact: TransactionalEmailImpactApi, linkTagging: LinkTagging): ImpactStep {
+    const step = { key: 'session', label: 'Started a session', value: null, share: null } as const
+    if (everySendClicksOff(impact)) {
+        return { ...step, missing: 'Tracking off', missingDetail: clicksOffDetail(impact) }
+    }
+    switch (linkTagging) {
+        case 'on':
+            return impact.sessions === null
+                ? {
+                      ...step,
+                      missing: "Couldn't count",
+                      note: 'Reload to try again. Counting sessions also needs access to query events.',
+                  }
+                : { ...step, value: impact.sessions, note: sessionNote(impact.sessions_capped_at) }
+        case 'off':
+            return { ...step, missingFixedByLinkTagging: true }
+        case 'sensitive-email':
+            return { ...step, missing: 'Not measured', missingDetail: SENSITIVE_EMAIL_DETAIL }
+    }
+}
+
+function sessionNote(cappedAt: number | null | undefined): string {
+    return typeof cappedAt === 'number'
+        ? `From the latest ${humanFriendlyNumber(cappedAt)} clicked sends`
+        : 'From sends with link tracking on'
+}
 
 const TRACKING_OFF_DETAIL =
     "Every send in this period went out with tracking off, so PostHog couldn't record opens or clicks."
+
+const CLICKS_OFF_DETAIL =
+    "Every send in this period went out with click tracking off, so PostHog couldn't record clicks."
 
 function share(value: number, of: number): number | null {
     return of > 0 ? value / of : null
 }
 
-export function untrackedSendsNote(impact: TransactionalEmailImpactApi): string | null {
-    if (impact.untracked === 0) {
+function sendsNote(count: number, off: string, uncounted: string): string | null {
+    if (count === 0) {
         return null
     }
-    const [sends, their] = impact.untracked === 1 ? ['send', 'its'] : ['sends', 'their']
-    return `${humanFriendlyNumber(impact.untracked)} ${sends} in this period went out with tracking off, so ${their} opens and clicks aren't counted.`
+    const [sends, their] = count === 1 ? ['send', 'its'] : ['sends', 'their']
+    return `${humanFriendlyNumber(count)} ${sends} in this period went out with ${off} off, so ${their} ${uncounted} aren't counted.`
+}
+
+export function untrackedSendsNote(impact: TransactionalEmailImpactApi): string | null {
+    const notes = [
+        sendsNote(impact.untracked, 'tracking', 'opens and clicks'),
+        sendsNote(clicksUntracked(impact), 'click tracking', 'clicks'),
+    ].filter((note): note is string => note !== null)
+    return notes.length > 0 ? notes.join(' ') : null
 }
 
 export function impactFunnelState(
@@ -70,20 +113,17 @@ export function stepBarPercents(steps: ImpactStep[]): (number | null)[] {
     })
 }
 
-export function impactSteps(impact: TransactionalEmailImpactApi, event: string | null): ImpactStep[] {
+export function impactSteps(
+    impact: TransactionalEmailImpactApi,
+    event: string | null,
+    linkTagging: LinkTagging
+): ImpactStep[] {
     return [
         { key: 'sent', label: 'Sent', value: impact.sent, share: null },
         { key: 'delivered', label: 'Delivered', value: impact.delivered, share: null },
-        trackedStep('opened', 'Opened', impact.opened, impact),
-        trackedStep('clicked', 'Clicked', impact.clicked, impact),
-        {
-            key: 'session',
-            label: 'Started a session',
-            value: null,
-            share: null,
-            missing: 'Needs link tagging',
-            missingDetail: LINK_TAGGING_DETAIL,
-        },
+        trackedStep('opened', 'Opened', impact.opened, everySendUntracked(impact), TRACKING_OFF_DETAIL),
+        trackedStep('clicked', 'Clicked', impact.clicked, everySendClicksOff(impact), clicksOffDetail(impact)),
+        sessionStep(impact, linkTagging),
         conversionStep(impact, event),
     ]
 }
@@ -93,14 +133,28 @@ function everySendUntracked(impact: TransactionalEmailImpactApi): boolean {
     return nothingRecorded && impact.untracked > 0 && impact.untracked >= impact.sent
 }
 
+function clicksUntracked(impact: TransactionalEmailImpactApi): number {
+    return impact.clicks_untracked ?? 0
+}
+
+export function everySendClicksOff(impact: TransactionalEmailImpactApi): boolean {
+    const clicksOff = impact.untracked + clicksUntracked(impact)
+    return impact.clicked === 0 && clicksOff > 0 && clicksOff >= impact.sent
+}
+
+function clicksOffDetail(impact: TransactionalEmailImpactApi): string {
+    return everySendUntracked(impact) ? TRACKING_OFF_DETAIL : CLICKS_OFF_DETAIL
+}
+
 function trackedStep(
     key: ImpactStepKey,
     label: string,
     value: number,
-    impact: TransactionalEmailImpactApi
+    trackingOff: boolean,
+    missingDetail: string
 ): ImpactStep {
-    if (value === 0 && everySendUntracked(impact)) {
-        return { key, label, value: null, share: null, missing: 'Tracking off', missingDetail: TRACKING_OFF_DETAIL }
+    if (value === 0 && trackingOff) {
+        return { key, label, value: null, share: null, missing: 'Tracking off', missingDetail }
     }
     return { key, label, value, share: null }
 }
@@ -108,7 +162,14 @@ function trackedStep(
 function conversionStep(impact: TransactionalEmailImpactApi, event: string | null): ImpactStep {
     const conversions = impact.after_click
     if (!event || !conversions) {
-        return { key: 'converted', label: 'Converted', value: null, share: null, missing: 'Pick an event' }
+        return {
+            key: 'converted',
+            label: 'Converted',
+            value: null,
+            share: null,
+            missing: 'Pick an event',
+            missingFixedByEvent: true,
+        }
     }
     if (conversions.sends === 0) {
         return { key: 'converted', label: event, value: null, share: null, ...noClickToFollow(impact) }
@@ -133,10 +194,10 @@ function noClickToFollow(impact: TransactionalEmailImpactApi): Pick<ImpactStep, 
             missingDetail: `PostHog couldn't tie ${sends} in this period to a person.`,
         }
     }
-    if (everySendUntracked(impact)) {
+    if (everySendClicksOff(impact)) {
         return {
             missing: 'Tracking off',
-            missingDetail: `This counts conversions after a click. ${TRACKING_OFF_DETAIL}`,
+            missingDetail: `This counts conversions after a click. ${clicksOffDetail(impact)}`,
         }
     }
     return {
@@ -146,8 +207,11 @@ function noClickToFollow(impact: TransactionalEmailImpactApi): Pick<ImpactStep, 
 }
 
 export function noClickReason(impact: TransactionalEmailImpactApi): string {
-    return everySendUntracked(impact)
-        ? 'No clicks were recorded, because every send in this period went out with tracking off.'
+    if (everySendUntracked(impact)) {
+        return 'No clicks were recorded, because every send in this period went out with tracking off.'
+    }
+    return everySendClicksOff(impact)
+        ? 'No clicks were recorded, because every send in this period went out with click tracking off.'
         : 'No clicks were recorded in this period.'
 }
 

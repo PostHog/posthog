@@ -1,22 +1,123 @@
 jest.unmock('lib/utils/concurrencyController')
 
 import { waitFor } from '@testing-library/react'
+import { decodeParams } from 'kea-router'
 
 import api from 'lib/api'
 import { promiseResolveReject } from 'lib/utils/async'
+import type { NotebookVariable } from 'scenes/notebooks/Notebook/notebookVariables'
 
+import { useMocks } from '~/mocks/jest'
 import * as queryRunner from '~/queries/query'
-import { HogQLQueryResponse } from '~/queries/schema/schema-general'
+import { HogQLQueryResponse, ProductKey } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 
 import * as notebookApi from '../generated/api'
 import { emptyAppLayout } from './notebookAppLayout'
 import { restorePublishedResults, savedQueryResult } from './notebookAppPublishedResults'
 import { notebookAppViewerLogic } from './notebookAppViewerLogic'
+import { notebookAppViewLink, restoreAppInputs } from './notebookAppViewLink'
 
 describe('published viewer refreshes', () => {
     beforeEach(() => initKeaTests())
     afterEach(() => jest.restoreAllMocks())
+
+    it('applies a list for this viewer and recognizes the published defaults when reselected', async () => {
+        const regions = { name: 'regions', type: 'list', value: ['North'] }
+        jest.spyOn(notebookApi, 'notebooksAppReleaseRetrieve').mockResolvedValue({
+            revision: 2,
+            title: 'Regions',
+            markdown: '',
+            layout: {
+                ...emptyAppLayout(),
+                blocks: [
+                    { id: 'regions', kind: 'input', tab_id: 'overview', variable: 'regions', input_kind: 'select' },
+                ],
+            },
+            variables: [regions],
+            has_previous: false,
+            results_as_of: null,
+            published_at: null,
+        })
+        const requests: unknown[] = []
+        useMocks({
+            post: {
+                '/api/projects/1/notebooks/report/app_queries/': async ({ request }) => {
+                    requests.push(await request.json())
+                    return [200, []]
+                },
+            },
+        })
+        const viewer = notebookAppViewerLogic({ project: '1', shortId: 'report', sessionId: 'viewer' })
+        viewer.mount()
+        try {
+            await waitFor(() => expect(viewer.values.variables).toEqual([regions]))
+            expect(viewer.values.dirty).toBe(false)
+            viewer.actions.setAuto(false)
+            viewer.actions.changeInput('regions', ['North', 'South'])
+            expect(viewer.values.dirty).toBe(true)
+            viewer.actions.changeInput('regions', ['North'])
+            expect(viewer.values.dirty).toBe(false)
+            viewer.actions.changeInput('regions', [])
+            viewer.actions.refresh()
+            await waitFor(() => expect(viewer.values.results?.variables).toEqual([{ ...regions, value: [] }]))
+            expect(requests).toEqual([{ revision: 2, variables: [{ ...regions, value: [] }] }])
+        } finally {
+            viewer.unmount()
+        }
+    })
+
+    it('opens a link in the original project and runs only exposed, compatible inputs for the new viewer', async () => {
+        const defaults = [
+            { name: 'regions', type: 'list', value: ['North'] },
+            { name: 'days', type: 'number', value: 7 },
+            { name: 'hidden', type: 'boolean', value: true },
+        ]
+        const url = new URL(
+            notebookAppViewLink('42', 'report', 'details', [{ name: 'regions', type: 'list', value: ['R&D', 'A+B'] }])
+        )
+        expect(url.pathname + url.search).toBe('/project/42/notebooks/report?view=app')
+        const { appView } = decodeParams(url.hash, '#')
+        expect(appView.tab).toBe('details')
+        const inputs = { ...appView.inputs, days: 'old type', hidden: false }
+        const viewer = notebookAppViewerLogic({
+            project: '42',
+            shortId: 'report',
+            sessionId: 'linked',
+            initialInputs: inputs,
+        })
+        jest.spyOn(notebookApi, 'notebooksAppReleaseRetrieve').mockResolvedValue({
+            revision: 2,
+            title: 'Regions',
+            markdown: '',
+            has_previous: false,
+            published_at: null,
+            results_as_of: null,
+            layout: {
+                ...emptyAppLayout(),
+                blocks: defaults.slice(0, 2).map(({ name }) => ({
+                    id: name,
+                    kind: 'input',
+                    tab_id: 'overview',
+                    variable: name,
+                })),
+            },
+            variables: defaults,
+        })
+        const plan = jest.spyOn(notebookApi, 'notebooksAppQueriesCreate').mockResolvedValue([])
+        viewer.mount()
+        try {
+            await waitFor(() =>
+                expect(viewer.values.results?.variables).toEqual([
+                    { ...defaults[0], value: ['R&D', 'A+B'] },
+                    defaults[1],
+                ])
+            )
+            expect(plan).toHaveBeenCalledTimes(1)
+        } finally {
+            viewer.unmount()
+        }
+    })
 
     it('bounds simultaneous queries, commits their results together, and cancels only the superseded viewer queries', async () => {
         const plans = Array.from({ length: 6 }, (_, i) => ({
@@ -36,7 +137,8 @@ describe('published viewer refreshes', () => {
         })
         jest.spyOn(notebookApi, 'notebooksAppQueriesCreate').mockResolvedValue(plans)
         const pending = new Map<string, { signal: AbortSignal; finish: () => void }>()
-        jest.spyOn(queryRunner, 'performQuery').mockImplementation((_query, options, _refresh, id) => {
+        jest.spyOn(queryRunner, 'performQuery').mockImplementation((query, options, _refresh, id) => {
+            expect(query.tags?.productKey).toBe(ProductKey.NOTEBOOKS)
             const { promise, resolve, reject } = promiseResolveReject<HogQLQueryResponse>()
             pending.set(id!, { signal: options!.signal!, finish: () => resolve({ columns: ['n'], results: [[1]] }) })
             options!.signal!.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')), {
@@ -127,4 +229,31 @@ it('restores the pinned run for connected SQL and distinguishes complete, partia
     } finally {
         run.mockRestore()
     }
+})
+
+it('restores compatible published input values at the same character and calendar bounds as the API', () => {
+    const variables: NotebookVariable[] = [
+        { name: 'names', type: 'list', value: [] },
+        { name: 'start', type: 'date', value: null },
+        { name: 'limit', type: 'number', value: 5 },
+        { name: 'region', type: 'string', value: 'north' },
+    ]
+    const blocks = variables.map(({ name }) => ({
+        id: name,
+        kind: 'input' as const,
+        variable: name,
+        tab_id: 'overview',
+        ...(name === 'limit' && { input_kind: 'slider' as const, min: 1, max: 9, step: 2 }),
+        ...(name === 'region' && { input_kind: 'select' as const, options: ['north', 'south'] }),
+    }))
+    const names = ['🦔'.repeat(600), 'a'.repeat(400)]
+    const inputs = { names, start: '2024-02-29 09:30:00Z', limit: 7, region: 'south' }
+    expect(restoreAppInputs(variables, inputs, blocks).map((v) => v.value)).toEqual(Object.values(inputs))
+    expect(
+        restoreAppInputs(
+            variables,
+            { names: [...names, 'x'], start: '2026-02-30', limit: 6, region: 'unknown' },
+            blocks
+        )
+    ).toEqual(variables)
 })

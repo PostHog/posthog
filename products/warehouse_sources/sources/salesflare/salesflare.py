@@ -1,16 +1,18 @@
 import dataclasses
+from collections.abc import Iterator
 from typing import Any, Optional
 
 from products.warehouse_sources.sources.salesflare.settings import SALESFLARE_ENDPOINTS
 from products.warehouse_sources.sources.sdk import (
     Endpoint,
     OffsetPaginator,
+    Resource,
     RESTAPIConfig,
     ResumableSourceManager,
     SinglePagePaginator,
     SourceResponse,
     make_tracked_session,
-    rest_api_resource,
+    rest_api_resources,
 )
 
 SALESFLARE_BASE_URL = "https://api.salesflare.com"
@@ -19,6 +21,7 @@ PAGE_SIZE = 100
 # Cheap endpoint used to confirm an API key is genuine. The key is account-wide, so one probe
 # validates access to every list endpoint.
 DEFAULT_PROBE_PATH = "/me"
+CUSTOM_FIELD_ITEM_CLASSES = ("accounts", "contacts", "opportunities")
 
 
 @dataclasses.dataclass(frozen=False)
@@ -72,6 +75,18 @@ def salesflare_source(
             }
         ],
     }
+    if endpoint == "custom_fields":
+        rest_config["resources"] = [
+            {
+                "name": item_class,
+                "endpoint": {
+                    **endpoint_config,
+                    "path": config.path.format(item_class=item_class),
+                    "params": {"includeDisabled": "true"},
+                },
+            }
+            for item_class in CUSTOM_FIELD_ITEM_CLASSES
+        ]
 
     initial_paginator_state: Optional[dict[str, Any]] = None
     if resumable_source_manager.can_resume():
@@ -85,7 +100,7 @@ def salesflare_source(
         if state and state.get("offset") is not None:
             resumable_source_manager.save_state(SalesflareResumeConfig(offset=int(state["offset"])))
 
-    resource = rest_api_resource(
+    resources = rest_api_resources(
         rest_config,
         team_id,
         job_id,
@@ -94,6 +109,13 @@ def salesflare_source(
         initial_paginator_state=initial_paginator_state,
     )
 
+    def custom_field_items() -> Iterator[list[dict[str, Any]]]:
+        for resource in resources:
+            for page in resource:
+                yield [{**row, "item_class": resource.name} for row in page]
+                resumable_source_manager.safe_point()
+
+    resource = Resource(custom_field_items, name=endpoint, hints={}) if endpoint == "custom_fields" else resources[0]
     return SourceResponse(
         name=endpoint,
         items=lambda: resource,

@@ -97,6 +97,15 @@ supersession, run creation) must be pinned via `.using(router.db_for_write(Model
 reader silently skips retractions, resurrects disabled channels, or strands queued runs. If you
 add a read-then-act path, pin it; this class of bug has been found on five separate paths.
 
+## Broadcast requests
+
+A broadcast request's Slack message never shows a verdict or a finding that GitHub does not show.
+It reads a run's outcome only when `verdict_posted_at` is set, or `may_publish()` allows a failure, so a silent run's withheld verdict stays hidden.
+Every read that decides what the message shows, or whether to post it, is writer-pinned.
+A broadcast ask reviews a head whose newest run is a delivered engine WAIT again at most `_BROADCAST_REVISITS_PER_HEAD` times, so repeated asks cannot start an unbounded series of LLM reviews.
+A stamphog approval ends a request only while GitHub still shows it, because a maintainer dismissing it by hand updates nothing in the product DB.
+A request from a pull request link posted in the Broadcast channel (`requested_via=slack_link`) starts no review and waits for none. A run that has not decided reads as OPEN, so the only stamphog outcome that changes the request is an approval.
+
 ## Sandbox credentials and egress
 
 - The sandbox holds NO long-lived secret. `_mint_reviewer_scoped_token` mints a per-run `phe_`
@@ -267,6 +276,8 @@ Publication is its own state: a withheld verdict keeps `verdict_posted_at` empty
 
 FALLBACK routing is the one consumer of a withheld verdict, and the one PR write that does not ask `may_publish`: `_notify_finished_review` queues routing for every outcome of a silent run, because with the switch on `_stamphog_will_review` counts the head as reviewed and it waits for this run.
 Routing writes review requests and a comment that names cuts or the approval, never a withheld verdict, so keep it that way: a routing comment that names the outcome would publish what the run withheld.
+Stamphog's own judgment, and the state of that judgment, goes out as the stamphog App: the approval and its dismissal, the verdict review, the 👀, the trigger label, and the bot-author and cooldown comments. Coordinating who looks at a PR goes out as the PostHog App: routing's review requests, fork labels and routing comment.
+Routing writes through the PostHog App integration of the repo config's own project on the repository owner (`logic/posthog_app_client.py`). Without one, routing fails and retries. It never writes as stamphog instead.
 When ReviewHog will not start a silent review of a head (findings, a failed turn, or no automatic turn), it calls `facade/tasks.py::queue_routing_after_external_review`. The task routes the live head in full only while the record waits on the reported head, the repo is FALLBACK with the switch on, no non-superseded stamphog run covers the live head, and the live PR has no trigger label (a push starts no silent review, so a moved head routes too), with writer-pinned reads and the same claim as every other routing trigger. Anything else is a no-op, so the 30-minute safety net stays only a backstop for failures.
 The report and the opening event come from one delivery, in either order. A report that finds no record raises `RoutingBusy`, so the task retries after the opening event saved its waiting record. A record that waits on the live head instead (the author pushed before the opening event ran) routes that head, because a push starts no silent review. Do not turn that into a no-op, or a report that comes first is lost until the safety net.
 A silent review that a gate refuses reports the same way, and a withheld WAIT routes in full, because nothing reviews a silent WAIT again. That holds for the verdict task, for the opening event that finds the WAIT already stored, and for a silent WAIT on a head that only got its pinned owners.
@@ -319,9 +330,10 @@ A field added to the engine context belongs in the fingerprint, or a stale verdi
   able to rewrite the policy that gates it. Same for the `digest:` channel declaration and the
   root `owners.yaml` team registry the digest routes through.
 - A manually-created repo config (blank `installation_id`) binds **disabled** when a sync adopts it,
-  and its review policy (`review_mode`, `trigger_label`, `review_on_clean_external_review`) resets to the model defaults: all of those
-  fields were set by someone who never proved GitHub access, so a pre-selected review mode or label
-  would otherwise go live the moment someone enables the row. `add_repository` resets a placeholder's
+  and its review policy (`review_mode`, `trigger_label`, `review_on_clean_external_review`, `broadcast_enabled`,
+  `broadcast_slack_channel_id`, `broadcast_slack_channel_name`) resets to the model defaults: all of those
+  fields were set by someone who never proved GitHub access, so a pre-selected review mode, label or Broadcast
+  channel would otherwise go live the moment someone enables the row. `add_repository` resets a placeholder's
   policy the same way when it binds one. Reinstall rebinds keep settings — those
   were configured under a verified binding. Such a row is also kept out of the digest candidates:
   a blank installation can fetch no routing file, and every candidate is read, so leaving it in let

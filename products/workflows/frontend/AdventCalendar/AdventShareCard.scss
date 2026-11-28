@@ -1,0 +1,75 @@
+.AdventShare {
+    width: 100%;
+    aspect-ratio: 1200 / 630;
+    overflow: hidden;
+    container-type: size;
+    text-rendering: geometricPrecision;
+}
+
+.AdventShare__sheet {
+    position: relative;
+    height: 100%;
+    overflow: hidden;
+    color: var(--advent-ink);
+    background: var(--advent-night);
+}
+
+.AdventShare__picture {
+    top: 0;
+    left: 50%;
+    height: 100%;
+    aspect-ratio: 1200 / 675;
+    transform: translateX(-50%);
+}
+
+.AdventShare__picture .AdventPicture__hog {
+    animation: none;
+}
+
+.AdventShare__picture .AdventPicture__pick-topic {
+    font-size: 0.95cqw;
+}
+
+.AdventShare__picture .AdventPicture__pick-answer {
+    font-size: 1.3cqw;
+}
+
+.AdventShare__plaque {
+    position: absolute;
+    top: 1.6cqw;
+    left: 5cqw;
+    display: flex;
+    flex-direction: column;
+    padding: 0.7cqw 1.5cqw 0.8cqw;
+    background: var(--advent-paper);
+    border: 0.2cqw solid var(--advent-gold);
+    border-radius: 0.9cqw;
+    box-shadow: 0 0.3cqw 0.9cqw color-mix(in oklab, var(--advent-ink) 45%, transparent);
+}
+
+.AdventShare__rule {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    border: 0.6cqw solid var(--advent-paper);
+    box-shadow: inset 0 0 0 0.2cqw var(--advent-gold);
+}
+
+.AdventShare__eyebrow {
+    font-size: 1.2cqw;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+}
+
+.AdventShare__label {
+    font-size: 1.15cqw;
+    line-height: 1.25;
+    opacity: 0.72;
+}
+
+.AdventShare__headline {
+    font-size: 2.9cqw;
+    font-weight: 800;
+    line-height: 1.1;
+}

@@ -88,11 +88,11 @@ export const AeoBrandsPartialUpdateBody = /* @__PURE__ */ zod.object({
 export const AeoEnginesPartialUpdateBody = /* @__PURE__ */ zod.object({
     enabled: zod.boolean().optional().describe("Whether the daily run checks the project's prompts on this engine."),
     frequency: zod
-        .enum(['daily', 'weekly'])
-        .describe('\* `daily` - Daily\n\* `weekly` - Weekly')
+        .enum(['daily', 'every_3_days', 'weekly'])
+        .describe('\* `daily` - Daily\n\* `every_3_days` - Every 72 hours\n\* `weekly` - Weekly')
         .optional()
         .describe(
-            "'daily' or 'weekly'. Weekly checks each prompt once a week and costs a seventh as much.\n\n\* `daily` - Daily\n\* `weekly` - Weekly"
+            "'daily' or 'weekly'. Weekly checks each prompt once a week and costs a seventh as much.\n\n\* `daily` - Daily\n\* `every_3_days` - Every 72 hours\n\* `weekly` - Weekly"
         ),
 })
 
@@ -170,7 +170,12 @@ export const aeoPromptsPartialUpdateBodyPromptMax = 2000
 export const aeoPromptsPartialUpdateBodyVersionDescriptionMax = 400
 
 export const AeoPromptsPartialUpdateBody = /* @__PURE__ */ zod.object({
-    active: zod.boolean().nullish().describe('Turn the prompt on or off for future runs.'),
+    active: zod
+        .boolean()
+        .nullish()
+        .describe(
+            'Turn the prompt on or off for future runs. Turning one on fails with 400 when the project already tracks its max_active_prompts, shown by GET aeo_setup\/context\/.'
+        ),
     topic: zod
         .string()
         .max(aeoPromptsPartialUpdateBodyTopicMax)
@@ -206,7 +211,7 @@ export const AeoPromptsPartialUpdateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
- * Adds prompts to the project's AEO prompt set, or updates the topic and visibility of prompts that already exist. Existing prompts keep their active state. Prompts whose text matches an archived prompt are skipped.
+ * Adds prompts to the project's AEO prompt set, or updates the topic and visibility of prompts that already exist. Existing prompts keep their active state. Prompts whose text matches an archived prompt are skipped. New prompts are saved turned on, so an import that would take the project past its max_active_prompts (see GET aeo_setup/context/) is refused whole with a 400 that says how many more fit, and nothing is saved.
  * @summary Import AEO prompts
  */
 export const aeoPromptsBulkImportBodyPromptsItemPromptMax = 10000
@@ -253,6 +258,28 @@ export const AeoPromptsBulkImportBody = /* @__PURE__ */ zod.object({
         .min(1)
         .max(aeoPromptsBulkImportBodyPromptsMax)
         .describe('Prompts to add or update, at most 2000 per request.'),
+})
+
+/**
+ * Sets one topic on the chosen prompts, or removes their topic. Their past checks keep the topic they ran with, as when one prompt's topic changes. Prompt versions don't change. Nothing is saved when a prompt is missing or archived.
+ * @summary Set the topic of several AEO prompts
+ */
+export const aeoPromptsBulkSetTopicBodyPromptIdsMax = 500
+
+export const aeoPromptsBulkSetTopicBodyTopicMax = 200
+
+export const AeoPromptsBulkSetTopicBody = /* @__PURE__ */ zod.object({
+    prompt_ids: zod
+        .array(zod.uuid())
+        .min(1)
+        .max(aeoPromptsBulkSetTopicBodyPromptIdsMax)
+        .describe('Ids of the prompts to change, from GET aeo_prompts\/. At most 500. Archived prompts are refused.'),
+    topic: zod
+        .string()
+        .max(aeoPromptsBulkSetTopicBodyTopicMax)
+        .describe(
+            "The topic to set. A name that matches an existing topic in another letter case takes that topic's spelling. An empty string removes the topic."
+        ),
 })
 
 /**
@@ -310,7 +337,62 @@ export const AeoPromptsSuggestBody = /* @__PURE__ */ zod.object({
 })
 
 /**
- * Sets up AI visibility tracking for the project in one job. Requires AI data processing approved for the organization. In order, it adds the site as the project's own brand, has PostHog suggest 20 prompts and saves them, and has PostHog suggest 20 keywords and saves them. With run_first_check the prompts are saved active and a first citation check run is queued with the enabled engines; each check is a paid call to every enabled engine, and each engine keeps checking active prompts on its schedule. Without it, new prompts are saved paused, so nothing is checked or spent until they are turned on. A step the project already covers is skipped: an own brand exists, 10 or more unarchived prompts, 10 or more keywords, or any check already recorded. With engines, the chosen engines are turned on and every other one off before the job starts. Returns a pending job right away; poll GET aeo_setup/<id>/ until it completes, which takes a few minutes. Running it again only fills the gaps.
+ * Moves every prompt of one topic, archived prompts included, to another topic, along with the past checks that ran with it. The first topic is gone afterwards. Prompt versions don't change.
+ * @summary Merge two AEO prompt topics
+ */
+export const aeoPromptsTopicsMergeBodyTopicMax = 200
+
+export const aeoPromptsTopicsMergeBodyIntoTopicMax = 200
+
+export const AeoPromptsTopicsMergeBody = /* @__PURE__ */ zod.object({
+    topic: zod
+        .string()
+        .max(aeoPromptsTopicsMergeBodyTopicMax)
+        .describe("The topic to merge away. Its prompts move to 'into_topic'. Letter case is ignored."),
+    into_topic: zod
+        .string()
+        .max(aeoPromptsTopicsMergeBodyIntoTopicMax)
+        .describe(
+            'The topic to keep, as listed by GET aeo_prompts\/topics\/. It keeps its current spelling. Letter case is ignored.'
+        ),
+})
+
+/**
+ * Removes a topic from every prompt that has it, archived prompts included, and from the past checks that ran with it. The prompts are kept and have no topic afterwards. Prompt versions don't change.
+ * @summary Remove an AEO prompt topic
+ */
+export const aeoPromptsTopicsRemoveBodyTopicMax = 200
+
+export const AeoPromptsTopicsRemoveBody = /* @__PURE__ */ zod.object({
+    topic: zod
+        .string()
+        .max(aeoPromptsTopicsRemoveBodyTopicMax)
+        .describe('The topic to remove. Its prompts are kept and are left with no topic. Letter case is ignored.'),
+})
+
+/**
+ * Renames a topic on every prompt that has it, archived prompts included, and on the past checks that ran with it, so the reports show its history under the new name. Prompt versions don't change.
+ * @summary Rename an AEO prompt topic
+ */
+export const aeoPromptsTopicsRenameBodyTopicMax = 200
+
+export const aeoPromptsTopicsRenameBodyNewTopicMax = 200
+
+export const AeoPromptsTopicsRenameBody = /* @__PURE__ */ zod.object({
+    topic: zod
+        .string()
+        .max(aeoPromptsTopicsRenameBodyTopicMax)
+        .describe('The topic to rename, as listed by GET aeo_prompts\/topics\/. Letter case is ignored.'),
+    new_topic: zod
+        .string()
+        .max(aeoPromptsTopicsRenameBodyNewTopicMax)
+        .describe(
+            'The new name. It may differ from the old one only in letter case, to fix its spelling. Fails with 409 when another topic already has the name: merge the two instead.'
+        ),
+})
+
+/**
+ * Sets up AI visibility tracking for the project in one job. Requires AI data processing approved for the organization. In order, it adds the site as the project's own brand; has PostHog suggest 20 prompts and saves them, with the competitors the model found saved as suggested competitors for a person to confirm; queues the first citation check run when run_first_check is set; and has PostHog suggest 20 keywords and saves them. With run_first_check the prompts are saved active and the first run uses the enabled engines; each check is a paid call to every enabled engine, and each engine keeps checking active prompts on its schedule. Prompts that would pass the project's max_active_prompts are saved paused. Without run_first_check, new prompts are saved paused, so nothing is checked or spent until they are turned on. A step the project already covers is skipped: an own brand exists, 10 or more unarchived prompts, 10 or more keywords, or any check already recorded. With engines, the chosen engines are turned on and every other one off before the job starts. Returns a pending job right away; poll GET aeo_setup/<id>/ until it completes, which takes a few minutes. Running it again only fills the gaps.
  * @summary Set up AI visibility
  */
 export const aeoSetupCreateBodyDomainMax = 200
@@ -326,6 +408,8 @@ export const aeoSetupCreateBodyEnginesMax = 20
 export const aeoSetupCreateBodyRunFirstCheckDefault = false
 export const aeoSetupCreateBodyOnlyFirstRunDefault = false
 export const aeoSetupCreateBodyActivatePausedPromptsDefault = false
+export const aeoSetupCreateBodyPromptCountDefault = 20
+export const aeoSetupCreateBodyPromptCountMax = 50
 
 export const AeoSetupCreateBody = /* @__PURE__ */ zod.object({
     domain: zod
@@ -370,7 +454,15 @@ export const AeoSetupCreateBody = /* @__PURE__ */ zod.object({
         .boolean()
         .default(aeoSetupCreateBodyActivatePausedPromptsDefault)
         .describe(
-            "With only_first_run, turn on every paused prompt before the run, such as the ones a setup without run_first_check saved paused. Turned-on prompts are checked on each engine's schedule from then on."
+            "With only_first_run, turn on paused prompts before the run, such as the ones a setup without run_first_check saved paused, highest ranked first and up to the project's max_active_prompts. Turned-on prompts are checked on each engine's schedule from then on."
+        ),
+    prompt_count: zod
+        .number()
+        .min(1)
+        .max(aeoSetupCreateBodyPromptCountMax)
+        .default(aeoSetupCreateBodyPromptCountDefault)
+        .describe(
+            "How many prompts setup asks PostHog to suggest and save. One run makes this many checks per enabled engine, so it sets the cost of each run. Prompts past the project's max_active_prompts are saved paused."
         ),
 })
 

@@ -1079,12 +1079,8 @@ export interface PipelineRowsStatsResponseApi {
      * @nullable
      */
     billing_period_end: string | null
-    /** Rows synced in the billing period, billed and not yet billed. */
+    /** Billable rows this project synced in the billing period. Other projects in the organization are not counted. */
     total_rows: number
-    /** Rows billing has already counted. */
-    tracked_billing_rows: number
-    /** Rows synced since billing last counted. */
-    pending_billing_rows: number
     /** Rows written by materialized view runs in the billing period. */
     materialized_rows_in_billing_period: number
     /** Rows synced in the billing period, keyed by source id. */

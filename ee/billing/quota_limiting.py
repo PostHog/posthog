@@ -36,6 +36,7 @@ from posthog.quota_migration import (
 )
 from posthog.redis import get_client
 from posthog.tasks.usage_report import (
+    combine_ai_credits,
     combine_posthog_code_credits,
     convert_team_usage_rows_to_dict,
     get_self_driving_credits_used_in_period_for_org,
@@ -66,6 +67,8 @@ QUOTA_LIMIT_HIGH_TRUST_GRACE_PERIOD_DAYS = 5
 
 # Feature flags always get a 2-day grace period regardless of trust score
 FEATURE_FLAGS_GRACE_PERIOD_DAYS = 2
+# Far in the future because only reactivation lifts the limit, and not every deployment has a quota run to renew it.
+DEACTIVATED_ORG_FLAGS_LIMIT_DAYS = 3650
 
 # Lookup table for trust scores to grace period days
 GRACE_PERIOD_DAYS: dict[int, int] = {
@@ -356,7 +359,7 @@ def _resource_usage(summary: dict[str, Any]) -> float | None:
 def team_quota_snapshot(team: Team) -> dict[str, Any]:
     """Reads Redis fresh because the legacy gateway re-caches this for minutes, and the 30s memo would
     re-poison a just-invalidated entry. A deactivated org is limited only on the gateway credit buckets,
-    which blocks AI spend without dropping events."""
+    which blocks AI spend without dropping events. Its flag limit lives in the Redis limiter, not here."""
     organization = team.organization
     org_usage = organization.usage or {}
     org_deactivated = organization.is_active is False
@@ -413,11 +416,14 @@ def is_team_over_ai_credit_budget(team_api_token: str) -> bool:
     return is_team_over_credit_budget(team_api_token, QuotaResource.AI_CREDITS)
 
 
-def get_teams_limited_until(team_api_tokens: Iterable[str], resources: Iterable[str]) -> dict[str, dict[str, float]]:
+def get_teams_limited_until(
+    team_api_tokens: Iterable[str], resources: Iterable[str], *, timeout_seconds: float | None = None
+) -> dict[str, dict[str, float]]:
+    """`timeout_seconds` bounds the connect and the read, for a caller that can do without the answer."""
     tokens = list(team_api_tokens)
     names = list(resources)
     now_ts = timezone.now().timestamp()
-    pipe = get_client().pipeline()
+    pipe = get_client(socket_timeout=timeout_seconds, socket_connect_timeout=timeout_seconds).pipeline()
     for token in tokens:
         for name in names:
             pipe.zscore(f"{QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY.value}{name}", token)
@@ -432,8 +438,10 @@ def get_teams_limited_until(team_api_tokens: Iterable[str], resources: Iterable[
     }
 
 
-def get_team_limited_until(team_api_token: str, resources: Iterable[str]) -> dict[str, float]:
-    return get_teams_limited_until([team_api_token], resources)[team_api_token]
+def get_team_limited_until(
+    team_api_token: str, resources: Iterable[str], *, timeout_seconds: float | None = None
+) -> dict[str, float]:
+    return get_teams_limited_until([team_api_token], resources, timeout_seconds=timeout_seconds)[team_api_token]
 
 
 _LLM_GATEWAY_PROJECTION_BATCH = 500
@@ -523,6 +531,16 @@ def _quota_usage(organization_usage: Mapping[str, Any], resource_usage: Mapping[
     )
 
 
+def _has_usage(organization: Organization, resource: QuotaResource) -> bool:
+    """Whether the organization has used any of the resource.
+
+    A limit can be set without it: a zero allowance limits an organization that has used nothing,
+    and a deactivated organization gets no flags even when it has no usage at all.
+    """
+    usage = organization.usage or {}
+    return _quota_usage(usage, usage.get(resource.value) or {}) > 0
+
+
 def _daily_usage(
     stored: Mapping[str, int] | None, *, today: date, todays_count: int, yesterdays_count: int | None
 ) -> dict[str, int]:
@@ -537,6 +555,29 @@ def _daily_usage(
     return {day: count for day, count in ((yesterday, yesterdays_count), (today.isoformat(), todays_count)) if count}
 
 
+def _deactivated_org_flags_limited_until() -> int:
+    return int((get_current_day().end + timedelta(days=DEACTIVATED_ORG_FLAGS_LIMIT_DAYS)).timestamp())
+
+
+def sync_deactivated_org_flags_limit(organization: Organization) -> None:
+    """Stops or resumes flag requests as soon as is_active changes, ahead of the next quota run.
+
+    Reactivation removes the entry instead of recalculating: a leftover deactivation entry would read
+    as an earlier billing limit and end a flag grace period. The next quota run restores a billing limit.
+    """
+    tokens = [token for token in organization.teams.values_list("api_token", flat=True) if token]
+    if organization.is_active is False:
+        add_limited_team_tokens(
+            QuotaResource.FEATURE_FLAG_REQUESTS,
+            dict.fromkeys(tokens, _deactivated_org_flags_limited_until()),
+            QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY,
+        )
+    else:
+        remove_limited_team_tokens(
+            QuotaResource.FEATURE_FLAG_REQUESTS, tokens, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
+        )
+
+
 def org_quota_limited_until(
     organization: Organization,
     resource: QuotaResource,
@@ -546,6 +587,9 @@ def org_quota_limited_until(
     batch: QuotaUsageBatch | None = None,
 ) -> Optional[OrgQuotaLimitingInformation]:
     report_action = batch.report_action if batch is not None else report_organization_action
+    # Derived from is_active on every call and never stored in usage, so reactivation lifts the limit.
+    if resource == QuotaResource.FEATURE_FLAG_REQUESTS and organization.is_active is False:
+        return {"quota_limited_until": _deactivated_org_flags_limited_until(), "quota_limiting_suspended_until": None}
     if not organization.usage:
         return None
 
@@ -939,28 +983,6 @@ def org_quota_limited_until(
         }
 
 
-def invalidate_llm_gateway_quota_cache(team_ids: Iterable[int]) -> None:
-    """Evict the LLM gateway's per-team quota entries so a raised billing limit
-    takes effect immediately instead of after the gateway's five-minute cache TTL.
-
-    The gateway caches in its own Redis (`settings.LLM_GATEWAY_REDIS_URL`, not the
-    central instance) and key shapes mirror `llm_gateway/services/quota_resolver.py`.
-    Best-effort by design: the gateway TTL already bounds staleness, so a failure
-    here must not fail the billing update that just committed.
-    """
-    id_set = {int(team_id) for team_id in team_ids}
-    if not id_set:
-        return
-    try:
-        pipeline = get_client(settings.LLM_GATEWAY_REDIS_URL).pipeline(transaction=False)
-        for team_id in id_set:
-            pipeline.incr(f"quota:generation:team:{team_id}")
-            pipeline.delete(f"quota:code_usage_billing:team:{team_id}")
-        pipeline.execute()
-    except Exception as e:
-        capture_exception(e)
-
-
 def update_org_billing_quotas(organization: Organization):
     """
     This method is basically update_all_orgs_billing_quotas but for a single org. It's called more often
@@ -1034,7 +1056,6 @@ def update_org_billing_quotas(organization: Organization):
     if recordings_transitioned_team_ids:
         dispatch_recordings_remote_config_sync(recordings_transitioned_team_ids)
 
-    invalidate_llm_gateway_quota_cache(teams_by_token.values())
     _project_llm_gateway_quota_for_org(organization)
 
 
@@ -1419,6 +1440,8 @@ def _timed_query(name, fn, *args, **kwargs):
 class QuotaLimitingRunResult:
     quota_limited_orgs: dict[str, dict[str, int]]
     quota_limiting_suspended_orgs: dict[str, dict[str, int]]
+    orgs_with_usage: dict[str, set[str]]  # by resource, the limited and suspended orgs that used any of it
+    discarded_orgs: set[str]  # their decisions were discarded, so the limits they had before still stand
     stats: dict[str, float | int]
 
 
@@ -1515,7 +1538,7 @@ def _iter_quota_organizations(
         yield org_teams[0].organization, org_teams
     organizations = (
         Organization.objects.filter(id__in=offline_usage.keys() - seen)
-        .only("id", "usage", "created_at", "never_drop_data", "customer_trust_scores", "customer_id")
+        .only("id", "usage", "created_at", "never_drop_data", "customer_trust_scores", "customer_id", "is_active")
         .order_by("id")
     )
     # Buffer each page because quota updates close database connections between batches.
@@ -1574,6 +1597,9 @@ def _fetch_quota_usage_counts(service: UsageCounterService, period: DayRange) ->
     )
     token_credits = dict(counter_report.counts[UsageCounter.POSTHOG_CODE_CREDITS])
     compute_credits = dict(counter_report.counts[UsageCounter.SANDBOX_COMPUTE_CREDITS])
+    ai_token_credits = dict(counter_report.counts[UsageCounter.AI_CREDITS])
+    # Absent from counter reports saved before the key existed.
+    ai_compute_credits = dict(counter_report.counts.get("teams_with_ai_compute_credits_used_in_period", []))
     logs_bytes = dict(counter_report.counts[UsageCounter.LOGS_BYTES])
     mcp_event_counts = _timed_query(
         "mcp_event_count", get_teams_with_mcp_event_count_in_period, period.start, period.end
@@ -1601,7 +1627,10 @@ def _fetch_quota_usage_counts(service: UsageCounterService, period: DayRange) ->
         "teams_with_survey_responses_count_in_period": dict(counter_report.counts[UsageCounter.SURVEY_RESPONSES]),
         "teams_with_ai_event_count_in_period": dict(counter_report.counts[UsageCounter.AI_EVENTS]),
         "teams_with_mcp_event_count_in_period": convert_team_usage_rows_to_dict(mcp_event_counts),
-        "teams_with_ai_credits_used_in_period": dict(counter_report.counts[UsageCounter.AI_CREDITS]),
+        "teams_with_ai_credits_used_in_period": {
+            team_id: combine_ai_credits(ai_token_credits.get(team_id, 0), ai_compute_credits.get(team_id, 0))
+            for team_id in ai_token_credits.keys() | ai_compute_credits.keys()
+        },
         "teams_with_signals_credits_used_in_period": dict(counter_report.counts[UsageCounter.SIGNALS_CREDITS]),
         "teams_with_signals_spend_credits_used_in_period": dict(
             counter_report.counts[UsageCounter.SIGNALS_SPEND_CREDITS]
@@ -1709,7 +1738,15 @@ def update_all_orgs_billing_quotas(
 
     teams_iterator = iter_billable_teams(
         team_fields=("id", "api_token"),
-        organization_fields=("id", "usage", "created_at", "never_drop_data", "customer_trust_scores", "customer_id"),
+        organization_fields=(
+            "id",
+            "usage",
+            "created_at",
+            "never_drop_data",
+            "customer_trust_scores",
+            "customer_id",
+            "is_active",
+        ),
         buffer_teams=True,
     )
     total_orgs = (
@@ -1720,6 +1757,7 @@ def update_all_orgs_billing_quotas(
     )
     quota_limited_orgs: dict[str, dict[str, int]] = {x.value: {} for x in QuotaResource}
     quota_limiting_suspended_orgs: dict[str, dict[str, int]] = {x.value: {} for x in QuotaResource}
+    orgs_with_usage: dict[str, set[str]] = {x.value: set() for x in QuotaResource}
     quota_limited_teams: dict[str, dict[str, int]] = {x.value: {} for x in QuotaResource}
     quota_limiting_suspended_teams: dict[str, dict[str, int]] = {x.value: {} for x in QuotaResource}
     recordings_transitioned_team_ids: set[int] = set()
@@ -1803,7 +1841,7 @@ def update_all_orgs_billing_quotas(
             str(org.id): org
             for org in retry_quota_database_operation(
                 Organization.objects.filter(id__in=refresh_candidates)
-                .only("id", "usage", "customer_trust_scores", "never_drop_data")
+                .only("id", "usage", "customer_trust_scores", "never_drop_data", "is_active")
                 .annotate(usage_md5=MD5(Cast("usage", output_field=TextField())))
                 .in_bulk
             ).values()
@@ -1833,7 +1871,7 @@ def update_all_orgs_billing_quotas(
             try:
                 if org_id in failed_org_ids:
                     continue
-                if org.usage and org.usage.get("period"):
+                if (org.usage and org.usage.get("period")) or org.is_active is False:
                     if org_id in refresh_candidates:
                         fresh = fresh_orgs.get(org_id)
                         if fresh is None:
@@ -1842,6 +1880,7 @@ def update_all_orgs_billing_quotas(
                         org.usage = fresh.usage
                         org.customer_trust_scores = fresh.customer_trust_scores
                         org.never_drop_data = fresh.never_drop_data
+                        org.is_active = fresh.is_active
                         usage_batch.require_unchanged_usage(org, fresh.usage_md5)
                         if (org.usage or {}).get(QuotaResource.SIGNALS_CREDITS.value):
                             # Push refreshes can raise signals usage after the source snapshot. Recount before writing it.
@@ -1866,6 +1905,8 @@ def update_all_orgs_billing_quotas(
                             batch=usage_batch,
                         )
                         if result:
+                            if _has_usage(org, resource):
+                                orgs_with_usage[field].add(org_id)
                             quota_limited_until = result.get("quota_limited_until")
                             limiting_suspended_until = result.get("quota_limiting_suspended_until")
                             if limiting_suspended_until:
@@ -2016,6 +2057,11 @@ def update_all_orgs_billing_quotas(
                 if token not in failed_team_tokens
             ]
 
+    # Covers every team of a deactivated org, including demo projects and internal-metrics orgs that the run above skips.
+    flag_limited_teams = quota_limited_teams[QuotaResource.FEATURE_FLAG_REQUESTS.value]
+    for token in Team.objects.filter(organization__is_active=False).values_list("api_token", flat=True):
+        flag_limited_teams.setdefault(token, _deactivated_org_flags_limited_until())
+
     if not dry_run:
         redis_start = time()
         for field in quota_limited_teams:
@@ -2083,6 +2129,8 @@ def update_all_orgs_billing_quotas(
     return QuotaLimitingRunResult(
         quota_limited_orgs=quota_limited_orgs,
         quota_limiting_suspended_orgs=quota_limiting_suspended_orgs,
+        orgs_with_usage=orgs_with_usage,
+        discarded_orgs=failed_org_ids,
         stats={
             "duration_s": round(total_duration_s, 1),
             "orgs_total": total_orgs,

@@ -1,0 +1,8 @@
+{% extends "base.html" %} {% block content %}
+<h1>Hedge Goods</h1>
+<ul>
+  {% for slug, product in products.items() %}
+  <li><a href="/products/{{ slug }}">{{ product.name }}</a>, ${{ product.price }}</li>
+  {% endfor %}
+</ul>
+{% endblock %}

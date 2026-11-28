@@ -196,6 +196,25 @@ digest:
 This key belongs to this product, not to the engine, which ignores it.
 It is read from the default branch too, so a PR cannot redirect its own digest.
 
+## Broadcast: asking people to review
+
+`@posthog stamp --allow-broadcast [note]`, or a review request with `allow_broadcast: true`, asks Stamphog for a review and opens a broadcast request for the pull request.
+A manager turns it on per repository with `broadcast_enabled` and a Slack channel on the repo config API (`manager` level to change, reset when a placeholder row binds).
+If Stamphog approves, or approval retention keeps its approval over a push, nothing is posted.
+If Stamphog refuses, escalates, is gated or fails, one message goes to the channel, with an "I'll take a look" button.
+That message changes as the pull request does: a person's approval of the current head, a push that makes it stale, a later Stamphog approval, a merge or a close.
+Each pull request has at most one active request, so asking again returns it.
+When the requester caused two or more messages in the last 7 days, the message says so, such as "5th this week". It matches the requester by PostHog account, Slack user or GitHub login, counts only messages that were posted, and keeps the number it was posted with.
+The note is shown in Slack only, because pull request comments are public.
+
+A person can also post a pull request link as a new message in the repository's Broadcast channel, for example when the pull request is too big for Stamphog.
+Stamphog starts no review for it.
+The PostHog Slack app posts the request's message, with its "I'll take a look" button, as a reply in the thread of that post, and the reply follows the pull request like any other request's message.
+Each distinct pull request link counts, up to five per post, and only a member of the project who could ask with `@posthog stamp` gets an answer.
+If the pull request already has an active request, the reply links to that request's message.
+If Stamphog already approved the current commit, the reply says so and nobody is asked.
+The logic is in `backend/logic/broadcast_requests.py`, and the events are `stamphog_broadcast_request_created`, `stamphog_broadcast_card_posted`, `stamphog_broadcast_look_clicked` and `stamphog_broadcast_request_status_changed`.
+
 ## Daily digest
 
 A repository with the digest turned on gets a daily Slack summary of its merged PRs (`backend/logic/digest_runs.py`, scheduled from `backend/tasks/digest.py`).
@@ -214,6 +233,7 @@ Why the digest works this way: [`docs/digest.md`](docs/digest.md).
 
 Reviewer routing requests reviews from the owners of the changed code (`backend/logic/routing/`, queued by its own webhook consumer).
 Owners come from `owners.yaml` at the default branch, read with stamphog's installation token, so a PR cannot name its own reviewers.
+The review requests, fork labels and routing comment come from the PostHog GitHub App, not from the Stamphog App, so the project also needs the PostHog GitHub App connected for the repository's owner. Without it, routing fails and requests nobody.
 When more than one owner is a candidate, one Claude Haiku call through the ai-gateway may cut owners whose part is trivial, with its own short-lived token capped far below the reviewer's.
 A diff too large for one call's input cap is split by owner over at most `MAX_CUT_CALLS` calls, smallest parts first.
 An owner that fits in none of them is requested.
