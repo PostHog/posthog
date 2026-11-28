@@ -72,6 +72,8 @@ class ImportStepSpec:
     feature_flag: str | None = None
     # Added to the provider's `not_imported` while the flag hides the step.
     hidden_note: str = ""
+    # Added to the provider's `next_steps` while the step is shown.
+    next_steps: tuple[str, ...] = ()
 
 
 @frozen

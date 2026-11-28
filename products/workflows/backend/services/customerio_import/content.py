@@ -106,6 +106,28 @@ def import_content(
     )
 
 
+def transactional_import_options(team_id: int, deadline: float) -> ImportOptions | None:
+    """What converting transactional messages needs, read with the team's stored App API key, or None when the key
+    is gone or Customer.io doesn't answer. Only a verified sender can send a transactional email."""
+    api_key = _stored_app_api_key(team_id)
+    if not api_key:
+        return None
+    api = CustomerioAppApi(api_key, deadline=deadline)
+    try:
+        identities = api.sender_identities()
+        snippets = api.snippets()
+    except CustomerioApiError as error:
+        # Without the identities, a message that names its sender by id would send from the default sender.
+        logger.info("workflows.import.customerio_lookup_failed", team_id=team_id, status=error.status)
+        return None
+    return ImportOptions(
+        snippets=_snippet_values(snippets),
+        segment_cohorts={},
+        sender_addresses=_identity_addresses(identities),
+        senders=_team_senders(team_id, verified_only=True),
+    )
+
+
 def _misses_templates(source: CampaignSource) -> bool:
     return any(
         isinstance(action.get("type"), str)
@@ -200,10 +222,12 @@ def _stored_app_api_key(team_id: int) -> str | None:
     return str(key) if key else None
 
 
-def _team_senders(team_id: int) -> dict[str, ImportSender]:
+def _team_senders(team_id: int, verified_only: bool = False) -> dict[str, ImportSender]:
     senders: dict[str, ImportSender] = {}
     for integration in IntegrationManager.email.credentials.list(team_id):
         config = integration.config or {}
+        if verified_only and not config.get("verified"):
+            continue
         address = str(config.get("email") or integration.integration_id or "").lower()
         if address:
             senders[address] = ImportSender(integration_id=integration.id, email=address, name=config.get("name") or "")

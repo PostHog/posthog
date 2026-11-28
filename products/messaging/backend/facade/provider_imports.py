@@ -158,7 +158,15 @@ def list_import_providers(team_uuid: str, organization_id: str) -> list[ImportPr
             api_key_help=provider.api_key_help,
             api_key_url=provider.api_key_url,
             not_imported=_not_imported(provider, team_uuid, organization_id),
-            next_steps=provider.next_steps,
+            next_steps=(
+                *provider.next_steps,
+                *(
+                    step
+                    for spec in provider.steps
+                    if _flag_enabled(spec.feature_flag, team_uuid, organization_id)
+                    for step in spec.next_steps
+                ),
+            ),
             settings=tuple(
                 ImportSettingOption(
                     key=spec.key,

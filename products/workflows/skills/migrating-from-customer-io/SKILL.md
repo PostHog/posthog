@@ -1,6 +1,6 @@
 ---
 name: migrating-from-customer-io
-description: 'Move Customer.io automations into PostHog as draft workflows. Read each automation with the Customer.io MCP or CLI, preview the import with workflows-import-customerio (dry_run), then import and walk the user through what needs their input. Use when asked to migrate, move, switch, copy or import from Customer.io (customer.io, CIO) to PostHog workflows, including "migrate everything to PostHog".'
+description: 'Move Customer.io automations into PostHog as draft workflows, and transactional messages into transactional templates. Read each automation with the Customer.io MCP or CLI, preview the import with workflows-import-customerio (dry_run), then import and walk the user through what needs their input. Use when asked to migrate, move, switch, copy or import from Customer.io (customer.io, CIO) to PostHog workflows, including "migrate everything to PostHog".'
 ---
 
 # Migrating from Customer.io
@@ -63,6 +63,14 @@ If the user already has a PostHog cohort that matches a segment, pass `segment_c
 ## Push notifications
 
 Push steps import as `unsupported` notes, and device tokens never move with the import. If the user sends push from Customer.io, tell them that a device reaches PostHog only when its app registers it with the PostHog SDK, or when they import their exported device tokens into a PostHog push channel. That token import is a separate step the user starts, because tokens are people data.
+
+## Transactional messages
+
+Transactional messages are the emails the user's app sends through Customer.io's `POST /v1/send/email` with a `transactional_message_id`, such as password resets and receipts. They are not automations, so `workflows-import-customerio` doesn't take them. Import them with the provider import instead: `provider-imports-create` with `provider: "customerio"` and the `transactional` step. PostHog reads every message and each of its languages with the stored App API key.
+
+- **Before you start.** The project needs a verified email sender, and transactional email must be on for it. When the `transactional` step is missing from `provider-imports-providers`, transactional email is off for the project: tell the user, and don't import them another way.
+- **What it creates.** Each message becomes a transactional template with the key `customerio-transactional-<message id>`, and each translation its own template, `customerio-transactional-<message id>-<language>`. Customer.io's custom plain text comes across as the template's plain text. A message with no content is listed and skipped. Importing again leaves every template that already has its key as it is, including one the user edited or deleted.
+- **The code change.** The user's app has to change before PostHog sends anything. Each created template's notes in `provider-imports-get` give the call: `POST /api/messaging/send/email/` with the template's `template_id`, the same `to` and `message_data`, and the id from Customer.io's `identifiers` as `distinct_id`. Customer.io reads `message_data` as `{{ trigger.* }}`, and PostHog as `{{ variables.* }}`; the import rewrites the template, so the app sends the same keys. A template can't read the person, so profile attributes the email used, like `{{ customer.first_name }}`, now come from `message_data.customer`, and the notes name them. With several languages, the app picks the template by the person's language, which Customer.io did by itself. Hand over to the `sending-transactional-emails` skill for the send code, the API key and idempotency keys.
 
 ## Re-running
 

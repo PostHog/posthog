@@ -32,6 +32,7 @@ from products.messaging.backend.facade.contracts import (
     TransactionalEmailError,
     UploadQuotaExceeded,
 )
+from products.messaging.backend.services.message_templates import TRANSACTIONAL_EMAIL_API_FLAG
 from products.messaging.backend.services.transactional_email import (
     PIPELINE_ADDRESS_PATTERN,
     SENDER_ADDRESS_MAX_LENGTH,
@@ -60,6 +61,7 @@ __all__ = [
     "PIPELINE_ADDRESS_PATTERN",
     "SENDER_ADDRESS_MAX_LENGTH",
     "SENDER_ADDRESS_PATTERN",
+    "TRANSACTIONAL_EMAIL_API_FLAG",
     "AttachmentNotUploaded",
     "AttachmentsRefused",
     "AttachmentUploadRequest",

@@ -44,7 +44,7 @@ def rehost_images(
 ) -> RehostedWorkflow:
     """The workflow with every Customer.io-hosted email image pointing at a copy in the media library."""
     urls_by_step = {
-        action["id"]: list(dict.fromkeys(_asset_urls(body)))
+        action["id"]: list(dict.fromkeys(asset_urls(body)))
         for action in workflow["actions"]
         if (body := _html(action)) is not None
     }
@@ -179,7 +179,7 @@ def _download(url: str, deadline: float) -> bytes | None:
     return fetched.content
 
 
-def _asset_urls(body: str) -> list[str]:
+def asset_urls(body: str) -> list[str]:
     return [
         url
         for match in _ASSET_URL.finditer(body)

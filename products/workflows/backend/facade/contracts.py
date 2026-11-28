@@ -1286,6 +1286,25 @@ class ImportNote:
 
 
 @frozen
+class TranslatedTransactionalEmail:
+    """A Customer.io transactional message in one language, converted to PostHog's Liquid."""
+
+    subject: str
+    preheader: str
+    html: str
+    text: str
+    reply_to: str
+    # The team's PostHog sender with the message's from address, when it has one.
+    from_integration_id: int | None
+    from_name: str
+    notes: tuple[str, ...]
+    # The `message_data` keys the email reads, as `{{ variables.<name> }}`.
+    variables: tuple[str, ...]
+    # The Customer.io profile attributes it read, which the send now passes in `message_data.customer`.
+    customer_attributes: tuple[str, ...]
+
+
+@frozen
 class TranslatedWorkflow:
     source_id: str
     name: str

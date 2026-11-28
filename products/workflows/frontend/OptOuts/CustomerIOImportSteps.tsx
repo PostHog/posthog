@@ -520,11 +520,7 @@ export function CustomerIOImportSteps({ provider }: { provider: ImportProviderOp
                         key: 'step1' as const,
                         header: (
                             <div className="flex items-center justify-between w-full">
-                                <span>
-                                    {offersContacts
-                                        ? `${stepNumber('step1')}. Import categories, opt-outs, suppressions & contacts`
-                                        : `${stepNumber('step1')}. Import categories, opt-outs & suppressions`}
-                                </span>
+                                <span>{stepNumber('step1')}. Import from your Customer.io account</span>
                                 <StepBadge status={stepCompletion.step1} />
                             </div>
                         ),

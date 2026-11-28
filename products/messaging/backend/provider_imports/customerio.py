@@ -35,6 +35,7 @@ from products.messaging.backend.provider_imports.contacts import (
     new_people_step,
     save_contact_lists,
 )
+from products.messaging.backend.provider_imports.customerio_transactional import TRANSACTIONAL_STEP, fetch_transactional
 from products.messaging.backend.provider_imports.emails import exact_email
 from products.messaging.backend.services import customerio_config
 from products.messaging.backend.services.customerio_client import CustomerIOAPIError, CustomerIOClient
@@ -87,7 +88,7 @@ class CustomerIOImportProvider(ImportProvider):
     label = ImportProviderKey.CUSTOMERIO.label
     api_key_label = "Customer.io App API Key"
     api_key_help = "You can generate an App API key in Customer.io under Settings → Account Settings → API Credentials."
-    not_imported = "Transactional messages, newsletters, forms, collections and delivery history stay in Customer.io."
+    not_imported = "Newsletters, forms, collections and delivery history stay in Customer.io."
     next_steps = (
         "Upload the opt-out preferences CSV, so people who left a single topic stay out of it.",
         "Import your automations from the Workflows page. They arrive as drafts.",
@@ -143,6 +144,7 @@ class CustomerIOImportProvider(ImportProvider):
             hidden_note="People and most segments stay in Customer.io.",
         ),
         new_people_step("Customer.io", CONTACTS_FLAG),
+        TRANSACTIONAL_STEP,
     )
 
     def check_step_access(self, team_id: int, credentials: ImportCredentials, steps: list[str]) -> None:
@@ -192,6 +194,10 @@ class CustomerIOImportProvider(ImportProvider):
                     yield from _fetch_contacts(self._connect(context), context, checkpoint)
                 case "new_people":
                     yield ImportPage(processed=0, save=new_people_page)
+                case "transactional":
+                    service = self._connect(context)
+                    assert service.client is not None
+                    yield from fetch_transactional(service.client, context, checkpoint)
                 case _:
                     raise UnknownImportStep(f"Customer.io has no import step named {step}.")
         except ExportTooLarge as e:

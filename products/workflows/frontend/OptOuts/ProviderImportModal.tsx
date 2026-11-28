@@ -149,6 +149,13 @@ export function ProviderImportModal(): JSX.Element {
     const { isAdminOrOwner } = useValues(organizationLogic)
 
     const isCustomerIO = selectedProvider?.key === CUSTOMERIO_PROVIDER
+    const customerIOImports = [
+        'categories',
+        'unsubscribed users',
+        'suppressed addresses',
+        ...(showsAutomationImport ? ['automations'] : []),
+        ...(selectedProvider?.steps.some((step) => step.key === 'transactional') ? ['transactional messages'] : []),
+    ]
     const title = isCustomerIO
         ? 'Customer.io integration'
         : selectedProvider
@@ -161,11 +168,9 @@ export function ProviderImportModal(): JSX.Element {
                 title={title}
                 description={
                     isCustomerIO
-                        ? showsAutomationImport
-                            ? isAdminOrOwner === false
-                                ? 'Import automations from Customer.io as draft workflows.'
-                                : 'Import categories, unsubscribed users, suppressed addresses and automations from Customer.io.'
-                            : 'Import categories, unsubscribed users and suppressed addresses from Customer.io.'
+                        ? showsAutomationImport && isAdminOrOwner === false
+                            ? 'Import automations from Customer.io as draft workflows.'
+                            : `Import ${customerIOImports.slice(0, -1).join(', ')} and ${customerIOImports.at(-1)} from Customer.io.`
                         : selectedProvider
                           ? undefined
                           : 'Bring your data with you when you move to PostHog.'

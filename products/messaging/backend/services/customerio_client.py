@@ -112,6 +112,17 @@ class CustomerIOClient:
         suppressions = response.get("suppressions")
         return suppressions if isinstance(suppressions, list) else []
 
+    def get_transactional_messages(self) -> list[dict[str, Any]]:
+        """Every transactional message in the workspace, without its content. The endpoint has no pages."""
+        messages = self._make_request("GET", "/transactional").get("messages")
+        return [message for message in messages if isinstance(message, dict)] if isinstance(messages, list) else []
+
+    def get_transactional_contents(self, transactional_id: int | str) -> list[dict[str, Any]]:
+        """One transactional message's content, one object per language. The default language has an empty
+        `language`."""
+        contents = self._make_request("GET", f"/transactional/{transactional_id}/contents").get("contents")
+        return [content for content in contents if isinstance(content, dict)] if isinstance(contents, list) else []
+
     def validate_credentials(self) -> bool:
         try:
             # Try a simple API call to validate credentials

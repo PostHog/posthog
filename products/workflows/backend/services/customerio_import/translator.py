@@ -22,10 +22,11 @@ from products.workflows.backend.facade.contracts import (
     ImportOptions,
     ImportSegment,
     SnippetRoom,
+    TranslatedTransactionalEmail,
     TranslatedWorkflow,
 )
 from products.workflows.backend.facade.enums import WorkflowImportNoteLevel as NoteLevel
-from products.workflows.backend.services.customerio_import import conditions, liquid
+from products.workflows.backend.services.customerio_import import conditions, images, liquid
 
 TRIGGER_ID = "trigger_node"
 _EXIT_ID = "exit_node"
@@ -62,6 +63,10 @@ _SANS_SERIF = "font-family: Arial, Helvetica, sans-serif;"
 # send to, so nobody passes until someone replaces it.
 _NOBODY: dict[str, Any] = {"key": "false", "type": "hogql", "value": None}
 _AUDIENCE_ID = "cio_audience"
+_CHOOSE_SENDER = "Choose the email sender."
+_TRIGGER_CUSTOMER = re.compile(r"(?<![\w.])trigger\.customer\b")
+_PROFILE_READ = re.compile(r"(?<![\w.])customer[.\[]")
+_NAMED_ADDRESS = re.compile(r"(.*?)\s*<([^<>]+)>", re.DOTALL)
 STATIC_SEGMENT_TYPES = frozenset({"static", "manual"})
 _SEGMENT_IDS = re.compile(r"\b(segments?) (\d+(?:, \d+)*)\b")
 _CHANNEL_NAMES = {
@@ -78,7 +83,13 @@ _CHANNEL_NAMES = {
 
 
 class _Builder:
-    def __init__(self, source: CampaignSource, options: ImportOptions, snippet_room: SnippetRoom) -> None:
+    def __init__(
+        self,
+        source: CampaignSource,
+        options: ImportOptions,
+        snippet_room: SnippetRoom,
+        liquid_renames: liquid.LiquidRenames = liquid.AUTOMATION_RENAMES,
+    ) -> None:
         self.campaign = source.campaign
         self.source_actions = {str(action["id"]): action for action in source.actions if action.get("id") is not None}
         self.templates = source.templates
@@ -88,6 +99,7 @@ class _Builder:
         # Outgoing links per source action id: (target source id, edge type, index).
         self.links: dict[str, list[tuple[str, str, int | None]]] = {}
         self.snippet_room = snippet_room
+        self.liquid_renames = liquid_renames
         # Person filters that the trigger can't hold, checked in a branch before the first step instead.
         self.audience: list[dict[str, Any]] = []
         # The steps, or the trigger, whose condition can't be checked and decides what a person gets later, so nobody
@@ -543,7 +555,7 @@ class _Builder:
         return template
 
     def _liquid(self, text: str | None, action: dict[str, Any], field: str) -> str:
-        rewritten = liquid.rewrite(text, self.options.snippets, self.snippet_room)
+        rewritten = liquid.rewrite(text, self.options.snippets, self.snippet_room, self.liquid_renames)
         for name in rewritten.missing_snippets:
             self.note(
                 NoteLevel.NEEDS_INPUT,
@@ -703,7 +715,7 @@ class _Builder:
                 action,
             )
         else:
-            self.note(NoteLevel.NEEDS_INPUT, "Choose the email sender.", action)
+            self.note(NoteLevel.NEEDS_INPUT, _CHOOSE_SENDER, action)
         return {"email": found.email, "name": found.name}
 
     def _category(self, source: dict[str, Any], config: dict[str, Any], action: dict[str, Any]) -> None:
@@ -1058,6 +1070,96 @@ def translate_campaign(
     source: CampaignSource, options: ImportOptions, snippet_room: SnippetRoom | None = None
 ) -> TranslatedWorkflow:
     return _Builder(source, options, snippet_room or SnippetRoom()).build()
+
+
+def translate_transactional_email(
+    message: dict[str, Any], options: ImportOptions, snippet_room: SnippetRoom | None = None
+) -> TranslatedTransactionalEmail:
+    """One language of a Customer.io transactional message, as `GET /v1/transactional/{id}/contents` returns it,
+    converted the same way as an automation email, with `trigger` read from the send's `message_data`."""
+    builder = _Builder(
+        CampaignSource(campaign={}, actions=[], templates={}),
+        options,
+        snippet_room or SnippetRoom(),
+        liquid_renames=liquid.TRANSACTIONAL_RENAMES,
+    )
+    # The bcc that a transactional email can't send is noted below, so the note about how it's sent would mislead.
+    builder.templates = {"message": {**message, "headers": _headers(message.get("headers")), "fake_bcc": False}}
+    step = {"id": str(message.get("id") or ""), "name": str(message.get("name") or "")}
+    email = builder._email({"template_id": "message"}, step)["config"]["inputs"]["email"]["value"]
+    sender = email["from"]
+    # The importer sends from the project's default sender when Customer.io names none.
+    notes = [note.message for note in builder.notes if note.message != _CHOOSE_SENDER]
+    seen = len(builder.notes)
+    source = " ".join(str(message.get(part) or "") for part in ("subject", "preheader_text", "body", "body_plain"))
+    if _TRIGGER_CUSTOMER.search(source) and _PROFILE_READ.search(source):
+        notes.append(
+            "This email reads customer from message_data and from the person's profile. Both now come from "
+            "message_data.customer, so they share one object. Rename one of them in the template and in your app."
+        )
+    for key in ("cc", "bcc"):
+        if email.get(key):
+            notes.append(
+                f"Customer.io also sends this email to {key.upper()} {email[key]}. A transactional email has one "
+                "recipient, so that was left out."
+            )
+    from_name = str(sender.get("name") or "")
+    reply_to = str(email["replyTo"] or "")
+    raw_reply_to = str(message.get("reply_to") or "")
+    if "{{" in raw_reply_to:
+        reply_to = builder._liquid(raw_reply_to, step, "reply-to address")
+    named = _NAMED_ADDRESS.fullmatch(str(message.get("from") or "").strip())
+    if named and "{{" in named.group(1):
+        from_name = builder._liquid(named.group(1).strip().strip('"'), step, "sender name")
+    if "{{" in (named.group(2) if named else str(message.get("from") or "")):
+        notes.append(
+            "Customer.io picks this email's sender address with Liquid. A transactional email sends from one "
+            "verified sender, so check the sender on the template."
+        )
+    notes.extend(note.message for note in builder.notes[seen:] if note.message != _CHOOSE_SENDER)
+    if images.asset_urls(email["html"]):
+        notes.append(
+            "This email shows images stored by Customer.io, which stop loading when you close your Customer.io "
+            "account. Upload them in the template editor and replace them."
+        )
+    texts = [email["subject"], email["preheader"], email["html"], email.get("text") or "", from_name, reply_to]
+    return TranslatedTransactionalEmail(
+        subject=email["subject"],
+        preheader=email["preheader"],
+        html=email["html"],
+        text=email.get("text") or "",
+        reply_to=reply_to,
+        from_integration_id=sender.get("integrationId"),
+        from_name=from_name,
+        notes=tuple(notes),
+        variables=_variable_names(texts, _VARIABLE),
+        customer_attributes=_variable_names(texts, _CUSTOMER_ATTRIBUTE),
+    )
+
+
+def _headers(value: Any) -> list[Any]:
+    # The App API returns the headers as a JSON string.
+    if isinstance(value, str):
+        try:
+            value = json.loads(value)
+        except ValueError:
+            return []
+    return value if isinstance(value, list) else []
+
+
+_VARIABLE = re.compile(r"(?<![\w.])variables\.(?!customer\b)([A-Za-z_][\w-]*)")
+_CUSTOMER_ATTRIBUTE = re.compile(r"(?<![\w.])variables\.customer(?:\.([A-Za-z_][\w-]*)|\[\s*[\"']([^\"']+)[\"']\s*\])")
+
+
+def _variable_names(texts: list[str], pattern: re.Pattern[str]) -> tuple[str, ...]:
+    return tuple(
+        dict.fromkeys(
+            next(group for group in match.groups() if group)
+            for text in texts
+            for tag in _LIQUID_TAG.findall(text)
+            for match in pattern.finditer(tag)
+        )
+    )
 
 
 def referenced_segments(campaign: dict[str, Any], actions: list[dict[str, Any]]) -> list[str]:
