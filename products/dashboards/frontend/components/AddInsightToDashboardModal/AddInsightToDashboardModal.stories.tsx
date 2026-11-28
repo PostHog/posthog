@@ -96,6 +96,17 @@ export const WithMoreInsightTypes: Story = {
 
 export const WithMoreInsightTypesAndMetrics: Story = {
     render: () => <ModalStory showMore />,
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/metrics/has_metrics/': {
+                    hasMetrics: true,
+                    hasDerivedSources: false,
+                    hasDerivedMetrics: false,
+                },
+            },
+        }),
+    ],
     parameters: {
         featureFlags: [FEATURE_FLAGS.METRICS, FEATURE_FLAGS.METRICS_INSIGHT_BUILDER],
     },

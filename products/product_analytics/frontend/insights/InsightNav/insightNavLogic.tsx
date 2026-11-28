@@ -14,6 +14,7 @@ import {
     withFlagCallsAggregationTarget,
 } from 'scenes/insights/filters/ActionFilter/flagCallsSeries'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
+import { metricsInsightAvailabilityLogic } from 'scenes/insights/metricsInsightAvailabilityLogic'
 import { filterTestAccountsDefaultsLogic } from 'scenes/settings/environment/filterTestAccountDefaultsLogic'
 import { urls } from 'scenes/urls'
 
@@ -556,6 +557,7 @@ export interface insightNavLogicValues {
     featureFlags: FeatureFlagsSet // featureFlagLogic
     filterTestAccountsDefault: boolean // filterTestAccountsDefaultsLogic
     query: Node | null // insightDataLogic
+    showMetricsInsight: boolean // metricsInsightAvailabilityLogic
     activeView: InsightType
     metricsQueryCache: MetricsQuery | null
     queryPropertyCache: QueryPropertyCache | null
@@ -587,7 +589,12 @@ export interface insightNavLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
         activeView: (query: Node<Record<string, any>> | null) => InsightType
-        tabs: (activeView: InsightType, query: Node<Record<string, any>> | null, featureFlags: FeatureFlagsSet) => Tab[]
+        tabs: (
+            activeView: InsightType,
+            query: Node<Record<string, any>> | null,
+            featureFlags: FeatureFlagsSet,
+            showMetricsInsight: boolean
+        ) => Tab[]
     }
 }
 
@@ -610,6 +617,8 @@ export const insightNavLogic = kea<insightNavLogicType>([
             ['query'],
             filterTestAccountsDefaultsLogic,
             ['filterTestAccountsDefault'],
+            metricsInsightAvailabilityLogic,
+            ['showMetricsInsight'],
         ],
         actions: [insightDataLogic(props), ['setQuery']],
     })),
@@ -659,11 +668,12 @@ export const insightNavLogic = kea<insightNavLogicType>([
             },
         ],
         tabs: [
-            (s) => [s.activeView, s.query, s.featureFlags],
+            (s) => [s.activeView, s.query, s.featureFlags, s.showMetricsInsight],
             (
                 activeView: InsightType,
                 query: null | import('~/queries/schema/schema-general').Node,
-                featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet
+                featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet,
+                showMetricsInsight: boolean
             ) => {
                 const tabs: Tab[] = [
                     {
@@ -719,10 +729,7 @@ export const insightNavLogic = kea<insightNavLogicType>([
                     })
                 }
 
-                if (
-                    (featureFlags[FEATURE_FLAGS.METRICS] && featureFlags[FEATURE_FLAGS.METRICS_INSIGHT_BUILDER]) ||
-                    activeView === InsightType.METRICS
-                ) {
+                if (showMetricsInsight || activeView === InsightType.METRICS) {
                     tabs.push({
                         label: 'Metrics',
                         type: InsightType.METRICS,
