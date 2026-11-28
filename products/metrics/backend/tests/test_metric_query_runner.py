@@ -27,7 +27,7 @@ from posthog.models import Team
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
-from products.metrics.backend.facade.api import _output_unit, run_metric_query
+from products.metrics.backend.facade.api import _output_unit, _SeriesUnits, run_metric_query
 from products.metrics.backend.facade.contracts import MetricFilter, MetricGroupBy, MetricQueryClause, MetricQueryRequest
 from products.metrics.backend.facade.enums import AttributeScope, FilterOp, MetricAggregation, MetricRangeFunction
 from products.metrics.backend.metric_query_runner import (
@@ -39,7 +39,7 @@ from products.metrics.backend.metric_query_runner import (
 from products.metrics.backend.metric_samples_query_runner import MetricSamplesQueryRunner, build_metric_query_runner
 from products.metrics.backend.metrics4_samples import METRICS4_CUTOVER, STALE_NAN_BITS
 from products.metrics.backend.query_counts import list_metric_query_counts
-from products.metrics.backend.tests._seeder import seed_metric, truncate_metrics_tables
+from products.metrics.backend.tests._seeder import batched_seeding, seed_metric, truncate_metrics_tables
 
 STALE_NAN = struct.unpack("<d", struct.pack("<Q", STALE_NAN_BITS))[0]
 
@@ -775,27 +775,35 @@ class TestRunMetricQueryFacade(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(len(series), 1)
         self.assertIsNone(series[0].unit)
 
-    def test_consistent_units_across_merged_series_attach(self):
+    @parameterized.expand(
+        [
+            ("two_series_merged", 2, False),
+            # More series than the default HogQL row limit of 100, and than the 100 series a grouped clause keeps.
+            ("many_series_merged", 200, False),
+            ("many_series_grouped", 200, True),
+        ]
+    )
+    def test_consistent_units_across_series_attach(self, _name, series_count, grouped):
         anchor = timezone.now().replace(microsecond=0)
-        seed_metric(
-            team_id=self.team.id,
+        with batched_seeding():
+            for index in range(series_count):
+                seed_metric(
+                    team_id=self.team.id,
+                    metric_name="m1",
+                    unit="ms",
+                    points=[(anchor - dt.timedelta(minutes=10), 1.5)],
+                    labels={"pod": str(index)},
+                )
+        clause = MetricQueryClause(
+            name="a",
             metric_name="m1",
-            unit="ms",
-            points=[(anchor - dt.timedelta(minutes=10), 1.5)],
-            service_name="svc-a",
-        )
-        seed_metric(
-            team_id=self.team.id,
-            metric_name="m1",
-            unit="ms",
-            points=[(anchor - dt.timedelta(minutes=10), 2.5)],
-            service_name="svc-b",
+            aggregation=MetricAggregation.SUM,
+            group_by=(MetricGroupBy(key="pod"),) if grouped else (),
         )
 
-        series = run_metric_query(team=self.team, request=self._request())
+        series = run_metric_query(team=self.team, request=self._request(clauses=(clause,)))
 
-        self.assertEqual(len(series), 1)
-        self.assertEqual(series[0].unit, "ms")
+        self.assertEqual({s.unit for s in series}, {"ms"})
 
     def test_grouped_series_attach_their_own_unit(self):
         """Grouped series each get the unit of their underlying series, so two
@@ -958,14 +966,14 @@ class TestRunMetricQueryInParallel(SimpleTestCase):
                 barrier.wait()
                 return [{"time": anchor.isoformat(), "value": 1.0, "labels": {}, "series_fingerprints": [1]}]
 
-        def units(_team: Team, _names: set[str]) -> dict[int, str]:
+        def units(_team: Team, _names: set[str]) -> _SeriesUnits:
             barrier.wait()
-            return {1: "ms"}
+            return _SeriesUnits(by_fingerprint={1: "ms"})
 
         with (
             override_settings(IN_UNIT_TESTING=False),
             patch("products.metrics.backend.facade.api.build_metric_query_runner", side_effect=lambda **_: _Runner()),
-            patch("products.metrics.backend.facade.api._units_by_fingerprint", side_effect=units),
+            patch("products.metrics.backend.facade.api._series_units", side_effect=units),
             patch("products.metrics.backend.facade.api.record_metric_queries"),
             patch("products.metrics.backend.facade.api.connection") as connection,
         ):

@@ -10,7 +10,7 @@ import random
 import datetime as dt
 from collections.abc import Callable, Iterable, Sequence
 from contextlib import AbstractContextManager, nullcontext
-from dataclasses import replace
+from dataclasses import dataclass, field, replace
 from functools import partial
 from typing import Any
 
@@ -22,7 +22,7 @@ import structlog
 from posthog.schema import DateRange, MetricsDashboardVariable, MetricsDashboardVariableSource, MetricsQuery
 
 from posthog.hogql import ast
-from posthog.hogql.constants import HogQLGlobalSettings
+from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS, HogQLGlobalSettings
 from posthog.hogql.database.schema.metrics import HOGQL_MAX_BYTES_TO_READ_FOR_METRICS_USER_QUERIES
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
@@ -169,27 +169,18 @@ def team_has_metrics(team: Team) -> bool:
     return _team_has_metrics(team)
 
 
-def _units_by_fingerprint(team: Team, metric_names: set[str]) -> dict[int, str]:
-    """One ClickHouse lookup of the ingested UCUM unit per physical series,
-    keyed by `series_fingerprint` and read from `metric_series` (the same table
-    the catalog reads). Per-fingerprint rather than per-name so a metric whose
-    series disagree on the unit never lends one series' unit to another.
-    Returns only series with a non-empty unit; a series with no unit is simply
-    absent, so callers use `.get(fingerprint)`. Kept separate from the
-    per-series data query so the unit costs one small grouped scan regardless
-    of how many series a query returns."""
-    if not metric_names:
-        return {}
-    names = sorted(metric_names)
-    query = parse_select(
-        """
-            SELECT series_fingerprint, any(unit) AS unit
-            FROM posthog.metric_series
-            WHERE metric_name IN {names}
-            GROUP BY series_fingerprint
-        """,
-        placeholders={"names": ast.Tuple(exprs=[ast.Constant(value=n) for n in names])},
-    )
+@dataclass(frozen=True)
+class _SeriesUnits:
+    """The ingested UCUM units of the series a query reads. `by_name` holds the
+    unit of each metric whose series all carry the same one, "" when none of
+    them carries a unit. `by_fingerprint` holds the unit of each series of a
+    metric whose series disagree, and leaves out a series with no unit."""
+
+    by_name: dict[str, str] = field(default_factory=dict)
+    by_fingerprint: dict[int, str] = field(default_factory=dict)
+
+
+def _run_units_lookup(team: Team, query: ast.SelectQuery) -> list[Any]:
     response = execute_hogql_query(
         query_type="MetricUnitsLookup",
         query=query,
@@ -203,20 +194,79 @@ def _units_by_fingerprint(team: Team, metric_names: set[str]) -> dict[int, str]:
             read_overflow_mode="throw",
         ),
     )
-    return {int(row[0]): str(row[1]) for row in (response.results or []) if row[1]}
+    return response.results or []
 
 
-def _unit_for_fingerprints(fingerprints: set[int], units_by_fingerprint: dict[int, str]) -> str | None:
+def _series_units(team: Team, metric_names: set[str]) -> _SeriesUnits:
+    """The ingested unit of each physical series, read from `metric_series`
+    (the same table the catalog reads). Kept separate from the per-series data
+    query so the unit costs one small grouped scan regardless of how many
+    series a query returns.
+
+    A metric can have more series than a query can return rows, so the lookup
+    first reads the units per metric name. Only a metric whose series disagree
+    on the unit needs a per-series lookup, so that one series' unit is never
+    lent to another."""
+    if not metric_names:
+        return _SeriesUnits()
+
+    def names_tuple(names: Iterable[str]) -> ast.Tuple:
+        return ast.Tuple(exprs=[ast.Constant(value=n) for n in sorted(names)])
+
+    name_rows = _run_units_lookup(
+        team,
+        parse_select(
+            """
+                SELECT metric_name, uniqExact(unit) AS unit_count, any(unit) AS unit
+                FROM posthog.metric_series
+                WHERE metric_name IN {names}
+                GROUP BY metric_name
+            """,
+            placeholders={"names": names_tuple(metric_names)},
+        ),
+    )
+    by_name = {str(row[0]): str(row[2]) for row in name_rows if row[1] == 1}
+    mixed_names = {str(row[0]) for row in name_rows if row[1] > 1}
+    if not mixed_names:
+        return _SeriesUnits(by_name=by_name)
+
+    fingerprint_rows = _run_units_lookup(
+        team,
+        parse_select(
+            """
+                SELECT series_fingerprint, any(unit) AS unit
+                FROM posthog.metric_series
+                WHERE metric_name IN {names}
+                GROUP BY series_fingerprint
+                LIMIT {limit}
+            """,
+            placeholders={
+                "names": names_tuple(mixed_names),
+                # Without a LIMIT, HogQL returns its default of 100 rows. A series past this cap reads as
+                # having no unit, so its output series gets no unit rather than a wrong one.
+                "limit": ast.Constant(value=MAX_SELECT_RETURNED_ROWS),
+            },
+        ),
+    )
+    return _SeriesUnits(
+        by_name=by_name,
+        by_fingerprint={int(row[0]): str(row[1]) for row in fingerprint_rows if row[1]},
+    )
+
+
+def _unit_for_fingerprints(metric_name: str, fingerprints: set[int], units: _SeriesUnits) -> str | None:
     """The ingested unit shared by the physical series one output series
     aggregated. The unit only applies when every contributing series carries
     the same one. A disagreement, or a mix of unit and no unit, means the
     merge has no correct single unit, so it returns None. Series that all
     carry no unit return "", which `_output_unit` needs to tell a unitless
     counter (whose rate is still per second) apart from a disagreement."""
-    units = {units_by_fingerprint.get(fp, "") for fp in fingerprints}
-    if len(units) != 1:
+    if metric_name in units.by_name:
+        return units.by_name[metric_name]
+    found = {units.by_fingerprint.get(fp, "") for fp in fingerprints}
+    if len(found) != 1:
         return None
-    (unit,) = units
+    (unit,) = found
     return unit
 
 
@@ -263,7 +313,7 @@ def _assemble_series(
     *,
     clause: MetricQueryClause,
     grid: list[str],
-    units_by_fingerprint: dict[int, str],
+    series_units: _SeriesUnits,
     zero_fill: bool = True,
     ingested_unit: str | None = None,
     rank_by_last_bucket: bool = False,
@@ -316,7 +366,7 @@ def _assemble_series(
             unit=_output_unit(
                 ingested_unit
                 if ingested_unit is not None
-                else _unit_for_fingerprints(fingerprints_by_labels[key], units_by_fingerprint),
+                else _unit_for_fingerprints(clause.metric_name, fingerprints_by_labels[key], series_units),
                 clause,
             ),
             histogram_bounds=tuple(sorted(bounds_by_labels[key])) if key in bounds_by_labels else None,
@@ -679,7 +729,7 @@ def _run_metric_query(
         )
         runners.append((clause, runner, runner_aggregation is None))
     rows_by_clause: dict[str, list[dict[str, Any]]] = {clause.name: [] for clause in request.clauses}
-    units_by_fingerprint: dict[int, str] = {}
+    series_units = _SeriesUnits()
 
     def run_clause(
         clause: MetricQueryClause,
@@ -692,7 +742,8 @@ def _run_metric_query(
         rows_by_clause[clause.name] = rows
 
     def load_units() -> None:
-        units_by_fingerprint.update(_units_by_fingerprint(team, {clause.metric_name for clause in request.clauses}))
+        nonlocal series_units
+        series_units = _series_units(team, {clause.metric_name for clause in request.clauses})
 
     # The clause queries and the unit lookup do not depend on each other, so a tile waits for the slowest one,
     # not for their sum. A formula combines clauses of different units, so its series carry no unit.
@@ -719,7 +770,7 @@ def _run_metric_query(
             rows_by_clause[clause.name],
             clause=clause,
             grid=grid,
-            units_by_fingerprint=units_by_fingerprint,
+            series_units=series_units,
             zero_fill=request.zero_fill,
             ingested_unit=derived_units.get(clause.name),
             rank_by_last_bucket=request.rank_by_last_bucket,
