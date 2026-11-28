@@ -10,6 +10,7 @@ from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.query import HogQLQueryExecutor
 
 from products.managed_warehouse.backend.facade.contracts import ManagedWarehouseTrinoConnectionUnavailable
+from products.managed_warehouse.backend.logic.sql_editor_trino import ManagedTrinoAdapter
 from products.warehouse_sources.backend.facade.models import (
     MANAGED_WAREHOUSE_SOURCE_PREFIX,
     DataWarehouseTable,
@@ -83,6 +84,8 @@ class TestManagedTrinoSqlEditor(APIBaseTest):
             str(self.team.organization_id),
             principal=f"posthog:sql-editor:team:{self.team.pk}:user:{self.user.pk}",
             canary=canary,
+            source="posthog-sql-editor",
+            session_properties=None,
         )
         duckgres.assert_not_called()
         self.assertIn('"posthog"."events"', cursor.execute.call_args.args[0])
@@ -137,3 +140,60 @@ class TestManagedTrinoSqlEditor(APIBaseTest):
                 "lifecycle_generation": 1,
             },
         )
+
+
+class _ScanLimitError(Exception):
+    error_name = "EXCEEDED_SCAN_LIMIT"
+
+
+class TestManagedTrinoDirectGuardrails(APIBaseTest):
+    @parameterized.expand(
+        [
+            ("uncapped", None, 60, None, 600, None),
+            ("capped", 2 * 1024**3, 60, {"query_max_scan_physical_bytes": "2147483648B"}, 600, None),
+            ("longer_timeout", None, 900, None, 900, None),
+            ("unset_timeout", None, None, None, 600, None),
+            ("lowered_timeout", None, 10, None, 10, None),
+            ("scan_limit", 2 * 1024**3, 60, {"query_max_scan_physical_bytes": "2147483648B"}, 600, _ScanLimitError()),
+            ("other_error", 2 * 1024**3, 60, {"query_max_scan_physical_bytes": "2147483648B"}, 600, RuntimeError("x")),
+        ]
+    )
+    def test_direct_run_sends_scan_cap_and_timeout_and_maps_scan_limit(
+        self,
+        _name: str,
+        max_scan_bytes: int | None,
+        max_execution_time: int | None,
+        properties: dict[str, str] | None,
+        timeout: int,
+        cause: Exception | None,
+    ) -> None:
+        request = MagicMock()
+        request.team = self.team
+        request.settings.max_execution_time = max_execution_time
+
+        def fail(*args: object, **kwargs: object) -> None:
+            raise ExposedHogQLError(str(cause)) from cause
+
+        with (
+            patch.object(ManagedTrinoAdapter, "validate_source_config"),
+            patch(
+                "products.managed_warehouse.backend.sql_editor_limits.get_max_scan_bytes_per_query",
+                return_value=max_scan_bytes,
+            ),
+            patch(
+                "products.managed_warehouse.backend.logic.sql_editor_trino.connect_managed_warehouse_trino"
+            ) as connect,
+            patch(
+                "products.managed_warehouse.backend.logic.sql_editor_trino.execute_trino_query",
+                side_effect=fail if cause else None,
+            ) as run,
+        ):
+            if cause is None:
+                ManagedTrinoAdapter().execute(request)
+            else:
+                expected = "scan more than 2 GiB.*raise the limit" if isinstance(cause, _ScanLimitError) else "x"
+                with self.assertRaisesRegex(ExposedHogQLError, expected):
+                    ManagedTrinoAdapter().execute(request)
+        assert run.call_args.args[0].timeout_seconds == timeout
+        assert connect.call_args.kwargs["session_properties"] == properties
+        assert connect.call_args.kwargs["source"] == "posthog-sql-editor"

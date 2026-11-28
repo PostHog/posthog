@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from collections.abc import Callable
+from contextlib import nullcontext
+from typing import TYPE_CHECKING, Any
 
 import posthoganalytics
 
@@ -10,7 +12,6 @@ from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.direct_connection import require_browser_session_for_organization_grant
 from posthog.hogql.direct_sql.trino_adapter import (
-    DIRECT_TRINO_DEFAULT_STATEMENT_TIMEOUT_SECONDS,
     TrinoQueryRequest,
     ensure_read_only_raw_trino_statement,
     execute_trino_query,
@@ -18,6 +19,7 @@ from posthog.hogql.direct_sql.trino_adapter import (
 from posthog.hogql.errors import ExposedHogQLError
 
 from posthog.clickhouse.query_tagging import get_query_tags
+from posthog.dataclasses import frozen
 from posthog.direct_query_cancellation import build_direct_query_cancellation_token
 from posthog.hogql_queries.paginators import HogQLHasMorePaginator
 
@@ -25,8 +27,9 @@ from products.access_control.backend.facade.user_access_control import UserAcces
 from products.managed_warehouse.backend.facade.access import enable_customer_warehouse_access
 from products.managed_warehouse.backend.facade.contracts import TrinoExpansionMode
 from products.managed_warehouse.backend.facade.feature_flags import MANAGED_TRINO_QUERY_FLAG
+from products.managed_warehouse.backend.sql_editor_limits import map_scan_limit_error, sql_editor_limits
 from products.managed_warehouse.backend.trino_compiler import TrinoTargetUnavailable, compile_hogql_to_trino_sql
-from products.managed_warehouse.backend.trino_connection import connect_managed_warehouse_trino
+from products.managed_warehouse.backend.trino_connection import TRINO_SOURCE_SQL_EDITOR, connect_managed_warehouse_trino
 
 if TYPE_CHECKING:
     from posthog.hogql.constants import HogQLGlobalSettings
@@ -68,6 +71,46 @@ def validate_managed_trino_query(query: HogQLQuery, team: Team, user: User | Non
         validate_managed_trino_raw_access(team, user)
 
 
+@frozen
+class ManagedTrinoSql:
+    sql: str
+    values: dict[str, Any] | None
+    hogql: str | None
+
+
+def prepare_managed_trino_sql(
+    query: HogQLQuery,
+    *,
+    team: Team,
+    user: User,
+    user_access_control: UserAccessControl | None,
+    limit_context: LimitContext | None,
+    select_transform: Callable[[ast.SelectQuery | ast.SelectSetQuery], ast.SelectQuery | ast.SelectSetQuery]
+    | None = None,
+    timings: HogQLTimings | None = None,
+) -> ManagedTrinoSql:
+    """The SQL the SQL editor sends to Trino: raw SQL as written, or HogQL compiled for the project."""
+    if query.sendRawQuery:
+        return ManagedTrinoSql(sql=query.query, values=None, hogql=None)
+    try:
+        with timings.measure("trino_compile") if timings is not None else nullcontext():
+            compiled = compile_hogql_to_trino_sql(
+                team.pk,
+                query,
+                team=team,
+                user=user,
+                user_access_control=user_access_control,
+                expansion_mode=TrinoExpansionMode.DJANGO,
+                include_hogql=True,
+                limit_top_select=True,
+                limit_context=limit_context,
+                select_transform=select_transform,
+            )
+    except TrinoTargetUnavailable as error:
+        raise ExposedHogQLError("Hosted Trino is not ready for this project. Try again later.") from error
+    return ManagedTrinoSql(sql=compiled.sql, values=compiled.values, hogql=compiled.hogql)
+
+
 def execute_managed_trino_query(
     query: HogQLQuery,
     *,
@@ -90,49 +133,41 @@ def execute_managed_trino_query(
         )
         return paginator.paginate(parsed) if paginator is not None else parsed
 
-    if query.sendRawQuery:
-        sql = query.query
-        values = None
-        hogql = None
-    else:
-        try:
-            with timings.measure("trino_compile"):
-                compiled = compile_hogql_to_trino_sql(
-                    team.pk,
-                    query,
-                    team=team,
-                    user=user,
-                    user_access_control=user_access_control,
-                    expansion_mode=TrinoExpansionMode.DJANGO,
-                    include_hogql=True,
-                    limit_top_select=True,
-                    limit_context=limit_context,
-                    select_transform=paginate,
-                )
-        except TrinoTargetUnavailable as error:
-            raise ExposedHogQLError("Hosted Trino is not ready for this project. Try again later.") from error
-        sql, values, hogql = compiled.sql, compiled.values, compiled.hogql
+    prepared = prepare_managed_trino_sql(
+        query,
+        team=team,
+        user=user,
+        user_access_control=user_access_control,
+        limit_context=limit_context,
+        select_transform=paginate,
+        timings=timings,
+    )
+    sql, values, hogql = prepared.sql, prepared.values, prepared.hogql
     tags = get_query_tags()
     cancellation_token = (
         build_direct_query_cancellation_token(tags.client_query_id, str(tags.celery_task_id))
         if tags.client_query_id is not None and tags.celery_task_id is not None
         else None
     )
-    result = execute_trino_query(
-        TrinoQueryRequest(
-            sql=ensure_read_only_raw_trino_statement(sql),
-            values=values,
-            timeout_seconds=settings.max_execution_time or DIRECT_TRINO_DEFAULT_STATEMENT_TIMEOUT_SECONDS,
-            timings=timings,
-            team_id=team.pk,
-            cancellation_token=cancellation_token,
-        ),
-        connect_managed_warehouse_trino(
-            str(team.organization_id),
-            principal=f"posthog:sql-editor:team:{team.pk}:user:{user.pk}",
-            canary=canary,
-        ),
-    )
+    limits = sql_editor_limits(str(team.organization_id), settings.max_execution_time)
+    with map_scan_limit_error(limits):
+        result = execute_trino_query(
+            TrinoQueryRequest(
+                sql=ensure_read_only_raw_trino_statement(sql),
+                values=values,
+                timeout_seconds=limits.timeout_seconds,
+                timings=timings,
+                team_id=team.pk,
+                cancellation_token=cancellation_token,
+            ),
+            connect_managed_warehouse_trino(
+                str(team.organization_id),
+                principal=f"posthog:sql-editor:team:{team.pk}:user:{user.pk}",
+                canary=canary,
+                source=TRINO_SOURCE_SQL_EDITOR,
+                session_properties=limits.session_properties,
+            ),
+        )
     response = HogQLQueryResponse(
         query=query.query,
         hogql=hogql,

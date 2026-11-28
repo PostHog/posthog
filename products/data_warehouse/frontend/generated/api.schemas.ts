@@ -1389,6 +1389,99 @@ export interface DataWarehouseManagedViewSetUpdateResponseApi {
 }
 
 /**
+ * SQL editor variables by id, in the shape a HogQL query takes. They fill the {variables} placeholders.
+ * @nullable
+ */
+export type QueryEstimateRequestApiVariables = { [key: string]: unknown } | null
+
+/**
+ * HogQL filters, in the shape a HogQL query takes. They fill the {filters} placeholders.
+ * @nullable
+ */
+export type QueryEstimateRequestApiFilters = { [key: string]: unknown } | null
+
+export interface QueryEstimateRequestApi {
+    /**
+     * The SQL editor query to estimate, HogQL or raw Trino SQL.
+     * @maxLength 100000
+     */
+    query: string
+    /** True when the query is raw Trino SQL. False when it is HogQL. */
+    send_raw_query?: boolean
+    /**
+     * SQL editor variables by id, in the shape a HogQL query takes. They fill the {variables} placeholders.
+     * @nullable
+     */
+    variables?: QueryEstimateRequestApiVariables
+    /**
+     * HogQL filters, in the shape a HogQL query takes. They fill the {filters} placeholders.
+     * @nullable
+     */
+    filters?: QueryEstimateRequestApiFilters
+}
+
+export interface QueryEstimateTableApi {
+    /** Trino catalog the query reads. */
+    catalog: string
+    /** Schema the table lives in. */
+    schema: string
+    /** Table name. */
+    table: string
+    /**
+     * Bytes of live data files, or null when the table is not in the storage listing.
+     * @nullable
+     */
+    size_bytes: number | null
+    /** Whether the query limits at least one column of this table. */
+    has_filter: boolean
+}
+
+/**
+ * * `no_filter_on_large_table` - No filter on a large table
+ * * `exceeds_cap` - Exceeds the per-query cap
+ * * `size_unknown` - Size unknown
+ */
+export type QueryEstimateWarningEnumApi = (typeof QueryEstimateWarningEnumApi)[keyof typeof QueryEstimateWarningEnumApi]
+
+export const QueryEstimateWarningEnumApi = {
+    NoFilterOnLargeTable: 'no_filter_on_large_table',
+    ExceedsCap: 'exceeds_cap',
+    SizeUnknown: 'size_unknown',
+} as const
+
+export interface QueryEstimateResponseApi {
+    /** Tables the query reads. */
+    tables: QueryEstimateTableApi[]
+    /**
+     * Most bytes the query can scan: the stored size of every table it reads. Null when no table size is known.
+     * @nullable
+     */
+    upper_bound_bytes: number | null
+    /**
+     * Compute cost of the upper bound at the marginal rate, before the monthly free tier. Null when unknown.
+     * @nullable
+     * @pattern ^-?\d{0,14}(?:\.\d{0,6})?$
+     */
+    estimated_cost_usd: string | null
+    /**
+     * The organization's per-query scan cap, or null for no cap.
+     * @nullable
+     */
+    cap_bytes: number | null
+    /** Whether the upper bound is above the cap. */
+    exceeds_cap: boolean
+    /** False when a table has an unknown size, so the upper bound may be too low. */
+    complete: boolean
+    /** Things to check before running the query. */
+    warnings: QueryEstimateWarningEnumApi[]
+}
+
+export interface ConsoleErrorApi {
+    /** What went wrong and what to do next. */
+    error: string
+}
+
+/**
  * * `root` - Root
  * * `project_reader` - Project, read only
  * * `project_user` - Project, read and write
@@ -1441,11 +1534,6 @@ export interface WarehouseLoginApi {
 export interface WarehouseLoginListApi {
     /** Every login of the warehouse, by name. */
     logins: WarehouseLoginApi[]
-}
-
-export interface ConsoleErrorApi {
-    /** What went wrong and what to do next. */
-    error: string
 }
 
 /**
