@@ -40,7 +40,7 @@
            WHERE and(equals(e.team_id, 99999), greaterOrEquals(timestamp, toDateTime64('2020-01-09 00:00:00.000000', 6, 'US/Pacific')), less(timestamp, toDateTime64('2020-01-10 00:00:00.000000', 6, 'US/Pacific')), notEquals(e.properties.`$group_0`, ''), equals(e.event, '$pageview')))
         GROUP BY actor_id) AS source
      INNER JOIN
-       (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'name'), ''), 'null'), '^"|"$', '')), toTimeZone(groups._timestamp, 'US/Pacific')), 1) AS properties___name,
+       (SELECT tupleElement(argMax(tuple(JSONExtractString(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'name'), ''), 'null'))), toTimeZone(groups._timestamp, 'US/Pacific')), 1) AS properties___name,
                groups.group_type_index AS index,
                groups.group_key AS key
         FROM groups
@@ -93,7 +93,7 @@
            WHERE and(equals(e.team_id, 99999), ifNull(notEquals(CAST(e.person_properties.email, 'Nullable(String)'), 'tom@posthog.com'), 1), greaterOrEquals(timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'US/Pacific')), less(timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'US/Pacific')), equals(e.event, '$pageview')))
         GROUP BY actor_id) AS source
      INNER JOIN
-       (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'name'), ''), 'null'), '^"|"$', '')), person.version), 1) AS properties___name,
+       (SELECT tupleElement(argMax(tuple(JSONExtractString(nullIf(nullIf(JSONExtractRaw(person.properties, 'name'), ''), 'null'))), person.version), 1) AS properties___name,
                person.id AS id
         FROM person
         WHERE and(equals(person.team_id, 99999), globalIn(id,
@@ -160,7 +160,7 @@
         GROUP BY actor_id) AS source
      INNER JOIN
        (SELECT person.id AS id,
-               replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'name'), ''), 'null'), '^"|"$', '') AS properties___name
+               JSONExtractString(nullIf(nullIf(JSONExtractRaw(person.properties, 'name'), ''), 'null')) AS properties___name
         FROM person
         WHERE and(equals(person.team_id, 99999), globalIn(tuple(person.id, person.version),
                                                             (SELECT person.id AS id, max(person.version) AS version

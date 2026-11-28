@@ -1833,7 +1833,7 @@ class TestReadFlagCallsWithUnion(BaseTest):
             assert "accurateCastOrNull" not in projection
             assert where.count("accurateCastOrNull") == 1
         # The persons join comes after the union, so it converts its property as it does on events.
-        assert "accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'amount')" in sql
+        assert "accurateCastOrNull(JSONExtractString(nullIf(nullIf(JSONExtractRaw(person.properties, 'amount')" in sql
 
 
 class TestFlagCallsUnionRows(ClickhouseTestMixin, APIBaseTest):

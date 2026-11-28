@@ -20,7 +20,7 @@
            GROUP BY aggregation_target)
         WHERE equals(num_intervals, 7)) AS source
      INNER JOIN
-       (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'name'), ''), 'null'), '^"|"$', '')), toTimeZone(groups._timestamp, 'US/Pacific')), 1) AS properties___name,
+       (SELECT tupleElement(argMax(tuple(JSONExtractString(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'name'), ''), 'null'))), toTimeZone(groups._timestamp, 'US/Pacific')), 1) AS properties___name,
                groups.group_type_index AS index,
                groups.group_key AS key
         FROM groups
@@ -74,7 +74,7 @@
         WHERE equals(num_intervals, 2)) AS source
      INNER JOIN
        (SELECT person.id AS id,
-               replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'name'), ''), 'null'), '^"|"$', '') AS properties___name
+               JSONExtractString(nullIf(nullIf(JSONExtractRaw(person.properties, 'name'), ''), 'null')) AS properties___name
         FROM person
         WHERE and(equals(person.team_id, 99999), globalIn(tuple(person.id, person.version),
                                                             (SELECT person.id AS id, max(person.version) AS version

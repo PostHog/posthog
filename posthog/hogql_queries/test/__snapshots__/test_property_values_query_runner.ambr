@@ -4,7 +4,7 @@
   SELECT value AS value,
          minus(uniq(id), uniqIf(id, notEquals(is_deleted, 0))) AS c
   FROM
-    (SELECT toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'country'), ''), 'null'), '^"|"$', '')) AS value,
+    (SELECT toString(JSONExtractString(nullIf(nullIf(JSONExtractRaw(person.properties, 'country'), ''), 'null'))) AS value,
             person.is_deleted AS is_deleted,
             person.id AS id
      FROM person

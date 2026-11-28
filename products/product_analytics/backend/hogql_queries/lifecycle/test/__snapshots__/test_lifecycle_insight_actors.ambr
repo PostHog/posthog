@@ -37,7 +37,7 @@
                          and isNull(toStartOfInterval(toDateTime('2020-01-12', 'US/Pacific'), toIntervalDay(1)))), equals(status, 'returning'))) AS source
      INNER JOIN
        (SELECT person.id AS id,
-               replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'name'), ''), 'null'), '^"|"$', '') AS properties___name
+               JSONExtractString(nullIf(nullIf(JSONExtractRaw(person.properties, 'name'), ''), 'null')) AS properties___name
         FROM person
         WHERE and(equals(person.team_id, 99999), globalIn(tuple(person.id, person.version),
                                                             (SELECT person.id AS id, max(person.version) AS version

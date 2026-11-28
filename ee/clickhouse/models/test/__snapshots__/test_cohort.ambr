@@ -11,13 +11,13 @@
   FROM (((
             (SELECT persons.id AS id
              FROM
-               (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$some_prop'), ''), 'null'), '^"|"$', '')), person.version), 1) AS `properties___$some_prop`,
+               (SELECT tupleElement(argMax(tuple(JSONExtractString(nullIf(nullIf(JSONExtractRaw(person.properties, '$some_prop'), ''), 'null'))), person.version), 1) AS `properties___$some_prop`,
                        person.id AS id
                 FROM person
                 WHERE and(equals(person.team_id, 99999), in(id,
                                                               (SELECT where_optimization.id AS id
                                                                FROM person AS where_optimization
-                                                               WHERE and(equals(where_optimization.team_id, 99999), and(multiSearchAny(where_optimization.properties, ['something']), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(where_optimization.properties, '$some_prop'), ''), 'null'), '^"|"$', ''), 'something'), 0))))))
+                                                               WHERE and(equals(where_optimization.team_id, 99999), and(multiSearchAny(where_optimization.properties, ['something']), ifNull(equals(JSONExtractString(nullIf(nullIf(JSONExtractRaw(where_optimization.properties, '$some_prop'), ''), 'null')), 'something'), 0))))))
                 GROUP BY person.id
                 HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))) AS persons
              WHERE ifNull(equals(persons.`properties___$some_prop`, 'something'), 0)
@@ -26,13 +26,13 @@
                                        join_algorithm='auto')) INTERSECT DISTINCT (
                                                                                      (SELECT persons.id AS id
                                                                                       FROM
-                                                                                        (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$another_prop'), ''), 'null'), '^"|"$', '')), person.version), 1) AS `properties___$another_prop`,
+                                                                                        (SELECT tupleElement(argMax(tuple(JSONExtractString(nullIf(nullIf(JSONExtractRaw(person.properties, '$another_prop'), ''), 'null'))), person.version), 1) AS `properties___$another_prop`,
                                                                                                 person.id AS id
                                                                                          FROM person
                                                                                          WHERE and(equals(person.team_id, 99999), in(id,
                                                                                                                                        (SELECT where_optimization.id AS id
                                                                                                                                         FROM person AS where_optimization
-                                                                                                                                        WHERE and(equals(where_optimization.team_id, 99999), and(multiSearchAny(where_optimization.properties, ['something']), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(where_optimization.properties, '$another_prop'), ''), 'null'), '^"|"$', ''), 'something'), 0))))))
+                                                                                                                                        WHERE and(equals(where_optimization.team_id, 99999), and(multiSearchAny(where_optimization.properties, ['something']), ifNull(equals(JSONExtractString(nullIf(nullIf(JSONExtractRaw(where_optimization.properties, '$another_prop'), ''), 'null')), 'something'), 0))))))
                                                                                          GROUP BY person.id
                                                                                          HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))) AS persons
                                                                                       WHERE ifNull(equals(persons.`properties___$another_prop`, 'something'), 0)
@@ -54,14 +54,14 @@
   FROM
     (SELECT persons.id AS id
      FROM
-       (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$some_prop'), ''), 'null'), '^"|"$', '')), person.version), 1) AS `properties___$some_prop`,
-               tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$another_prop'), ''), 'null'), '^"|"$', '')), person.version), 1) AS `properties___$another_prop`,
+       (SELECT tupleElement(argMax(tuple(JSONExtractString(nullIf(nullIf(JSONExtractRaw(person.properties, '$some_prop'), ''), 'null'))), person.version), 1) AS `properties___$some_prop`,
+               tupleElement(argMax(tuple(JSONExtractString(nullIf(nullIf(JSONExtractRaw(person.properties, '$another_prop'), ''), 'null'))), person.version), 1) AS `properties___$another_prop`,
                person.id AS id
         FROM person
         WHERE and(equals(person.team_id, 99999), in(id,
                                                       (SELECT where_optimization.id AS id
                                                        FROM person AS where_optimization
-                                                       WHERE and(equals(where_optimization.team_id, 99999), and(multiSearchAny(where_optimization.properties, ['something']), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(where_optimization.properties, '$some_prop'), ''), 'null'), '^"|"$', ''), 'something'), 0)), and(multiSearchAny(where_optimization.properties, ['something']), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(where_optimization.properties, '$another_prop'), ''), 'null'), '^"|"$', ''), 'something'), 0))))))
+                                                       WHERE and(equals(where_optimization.team_id, 99999), and(multiSearchAny(where_optimization.properties, ['something']), ifNull(equals(JSONExtractString(nullIf(nullIf(JSONExtractRaw(where_optimization.properties, '$some_prop'), ''), 'null')), 'something'), 0)), and(multiSearchAny(where_optimization.properties, ['something']), ifNull(equals(JSONExtractString(nullIf(nullIf(JSONExtractRaw(where_optimization.properties, '$another_prop'), ''), 'null')), 'something'), 0))))))
         GROUP BY person.id
         HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))) AS persons
      WHERE and(ifNull(equals(persons.`properties___$some_prop`, 'something'), 0), ifNull(equals(persons.`properties___$another_prop`, 'something'), 0))
@@ -83,13 +83,13 @@
   FROM (
           (SELECT persons.id AS id
            FROM
-             (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$some_prop'), ''), 'null'), '^"|"$', '')), person.version), 1) AS `properties___$some_prop`,
+             (SELECT tupleElement(argMax(tuple(JSONExtractString(nullIf(nullIf(JSONExtractRaw(person.properties, '$some_prop'), ''), 'null'))), person.version), 1) AS `properties___$some_prop`,
                      person.id AS id
               FROM person
               WHERE and(equals(person.team_id, 99999), in(id,
                                                             (SELECT where_optimization.id AS id
                                                              FROM person AS where_optimization
-                                                             WHERE and(equals(where_optimization.team_id, 99999), and(multiSearchAny(where_optimization.properties, ['something1']), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(where_optimization.properties, '$some_prop'), ''), 'null'), '^"|"$', ''), 'something1'), 0))))))
+                                                             WHERE and(equals(where_optimization.team_id, 99999), and(multiSearchAny(where_optimization.properties, ['something1']), ifNull(equals(JSONExtractString(nullIf(nullIf(JSONExtractRaw(where_optimization.properties, '$some_prop'), ''), 'null')), 'something1'), 0))))))
               GROUP BY person.id
               HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))) AS persons
            WHERE ifNull(equals(persons.`properties___$some_prop`, 'something1'), 0)
@@ -111,13 +111,13 @@
   FROM
     (SELECT persons.id AS id
      FROM
-       (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$some_prop'), ''), 'null'), '^"|"$', '')), person.version), 1) AS `properties___$some_prop`,
+       (SELECT tupleElement(argMax(tuple(JSONExtractString(nullIf(nullIf(JSONExtractRaw(person.properties, '$some_prop'), ''), 'null'))), person.version), 1) AS `properties___$some_prop`,
                person.id AS id
         FROM person
         WHERE and(equals(person.team_id, 99999), in(id,
                                                       (SELECT where_optimization.id AS id
                                                        FROM person AS where_optimization
-                                                       WHERE and(equals(where_optimization.team_id, 99999), and(multiSearchAny(where_optimization.properties, ['something1']), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(where_optimization.properties, '$some_prop'), ''), 'null'), '^"|"$', ''), 'something1'), 0))))))
+                                                       WHERE and(equals(where_optimization.team_id, 99999), and(multiSearchAny(where_optimization.properties, ['something1']), ifNull(equals(JSONExtractString(nullIf(nullIf(JSONExtractRaw(where_optimization.properties, '$some_prop'), ''), 'null')), 'something1'), 0))))))
         GROUP BY person.id
         HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))) AS persons
      WHERE ifNull(equals(persons.`properties___$some_prop`, 'something1'), 0)

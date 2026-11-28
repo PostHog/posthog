@@ -767,7 +767,38 @@ class ClickHousePrinter(BasePrinter):
     def visit_property_access(self, node: ast.PropertyAccess) -> str:
         first_key = node.keys[0] if node.keys else None
         with self._without_json_drop_keys(self._unmasked_key_read_type(node.expr, first_key)):
+            if self._is_lazy_string_json(node.expr.type):
+                return self._unescaped_json_read(self.visit(node.expr), self._json_property_args(node.keys))
             return super().visit_property_access(node)
+
+    def _is_lazy_string_json(self, field_type: ast.Type | None) -> bool:
+        """True when the read lands on a `persons` / `groups` raw JSON blob.
+
+        Those blobs are stored as `String`, so the read goes through the print-time `JSONExtractRaw` + quote-trim
+        shape, which strips the surrounding quotes but leaves JSON escapes (`\"`, `\\`, `\n`, `\u00e9`) in the
+        value. The native JSON document tables decode them, so a property read here has to decode them too, or
+        `properties.key` and `JSONExtractString(properties, 'key')` disagree on any value that contains an escape.
+        """
+        if not isinstance(field_type, ast.FieldType):
+            return False
+        if not isinstance(field_type.resolve_database_field(self.context), StringJSONDatabaseField):
+            return False
+        table_type = field_type.table_type
+        while isinstance(table_type, (ast.TableAliasType, ast.ColumnAliasedTableType, ast.VirtualTableType)):
+            table_type = table_type.table_type
+        # The resolver expands `persons` / `groups` into a subquery over the raw table, so the read reaches the
+        # printer against `person` / `groups` with a plain table type; no call has ever reached the printer with a
+        # `LazyTableType` / `LazyJoinType` here.
+        if isinstance(table_type, ast.TableType):
+            return table_type.table.to_printed_clickhouse(self.context) in ("person", "groups")
+        return False
+
+    def _unescaped_json_read(self, field_sql: str, args: list[str]) -> str:
+        raw = f"JSONExtractRaw({field_sql}, {', '.join(args)})"
+        # ClickHouse's JSON parser decodes every escape sequence in the raw value. The `nullIf` chain makes a
+        # missing key and a JSON null read as NULL, and an empty string stays an empty string, matching the
+        # `json_extract_trim_quotes` contract without changing it.
+        return f"JSONExtractString(nullIf(nullIf({raw}, ''), 'null'))"
 
     def _unmasked_key_read_type(self, document: ast.Expr, first_key: object) -> ast.FieldType | None:
         """The blob that a read of `first_key` may print without JSONDropKeysPool, or None to keep the mask.
@@ -1539,6 +1570,11 @@ class ClickHousePrinter(BasePrinter):
         # correctly, rather than re-resolving against the original struct column.
         if type.joined_subquery is not None and type.joined_subquery_field_name is not None:
             return super().visit_property_type(type)
+
+        # A lazy table's property read reaches the printer as a `PropertyType` on the export column, while a direct
+        # `properties.name` read arrives as a `PropertyAccess`; both print the same JSON extract, so both decode.
+        if self._is_lazy_string_json(type.field_type):
+            return self._unescaped_json_read(self.visit(type.field_type), self._json_property_args(type.chain))
 
         # Struct columns (e.g. Parquet structs from the data warehouse) are backed by a ClickHouse
         # Tuple, not a JSON string. Emit chained tupleElement() calls instead of JSONExtractRaw(),
