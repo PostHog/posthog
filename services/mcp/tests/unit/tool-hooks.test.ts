@@ -1,7 +1,8 @@
 import { describe, expect, it, vi } from 'vitest'
 
 import { withToolHooks } from '@/tools/tool-hooks'
-import type { Context } from '@/tools/types'
+import { withInformationalResponse } from '@/tools/tool-utils'
+import { type Context, POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY, POSTHOG_INFORMATIONAL_RESPONSE_KEY } from '@/tools/types'
 
 const context = {} as Context
 
@@ -17,6 +18,21 @@ describe('withToolHooks', () => {
         )
 
         await expect(wrapped(context, { n: 1 })).resolves.toEqual({ result: { doubled: 4 }, sent: { n: 2 } })
+    })
+
+    it('keeps the informational wrapper when afterResponse returns a new object', async () => {
+        const wrapped = withToolHooks(
+            { afterResponse: (_context, _params, result) => ({ ...(result as object), body: 'masked' }) },
+            async () => withInformationalResponse({ body: 'original' }, 'trace-data')
+        )
+
+        const result = (await wrapped(context, {})) as Record<string, unknown>
+
+        expect(result).toEqual({ body: 'masked' })
+        expect(result[POSTHOG_INFORMATIONAL_RESPONSE_KEY]).toBe(true)
+        expect(result[POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]).toContain('<trace-data informational="true"')
+        expect(result[POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]).toContain('"body":"masked"')
+        expect(result[POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]).not.toContain('original')
     })
 
     it.each([

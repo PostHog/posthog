@@ -4,13 +4,26 @@ import { redactCredentials, redactCredentialsInText } from '@/lib/credential-red
 import redactFailureLogsHooks from '@/tools/engineeringAnalytics/redactFailureLogsHooks'
 import { GENERATED_TOOLS as ENGINEERING_ANALYTICS_TOOLS } from '@/tools/generated/engineering_analytics'
 import { GENERATED_TOOLS } from '@/tools/generated/logs'
+import { GENERATED_TOOLS as TRACING_TOOLS } from '@/tools/generated/tracing'
 import redactCredentialsHooks from '@/tools/logs/redactCredentialsHooks'
-import type { Context } from '@/tools/types'
+import { type Context, POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY } from '@/tools/types'
 
 // Invented values. None of them is a real credential.
 const PERSONAL_KEY = 'phx_INVENTEDpersonalKEY0000000000000000'
 const OTHER_SECRET = 'INVENTEDsecret1111'
 const GITHUB_TOKEN = 'ghp_INVENTEDgithubTOKEN000000000000000000'
+// Matches no text pattern, so only the attribute name can mark it as a credential.
+const BARE_SECRET = 'sk_live_INVENTEDbareSECRET0000'
+
+function tracingContext(response: unknown): Context {
+    return {
+        stateManager: { getProjectId: vi.fn().mockResolvedValue(1) },
+        api: {
+            request: vi.fn().mockResolvedValue(response),
+            getProjectBaseUrl: () => 'https://app.example.com/project/1',
+        },
+    } as unknown as Context
+}
 
 describe('credential redaction', () => {
     it.each([
@@ -389,6 +402,240 @@ describe('credential redaction', () => {
         } as unknown as Context
 
         expect(await GENERATED_TOOLS[tool]!().handler(context, {})).toEqual(expected)
+    })
+
+    it.each([
+        {
+            name: 'a namespaced authorization header with a Basic credential',
+            input: { 'http.request.header.authorization': [`Basic ${OTHER_SECRET}`] },
+            expected: { 'http.request.header.authorization': '[REDACTED]' },
+        },
+        {
+            name: 'a bare proxy authorization header',
+            input: { 'proxy-authorization': `Basic ${OTHER_SECRET}` },
+            expected: { 'proxy-authorization': '[REDACTED]' },
+        },
+        {
+            name: 'a namespaced cookie header',
+            input: { 'http.request.header.cookie': [`sid=${OTHER_SECRET}`] },
+            expected: { 'http.request.header.cookie': '[REDACTED]' },
+        },
+        {
+            name: 'a set-cookie header',
+            input: { 'http.response.header.set-cookie': [`sid=${OTHER_SECRET}`] },
+            expected: { 'http.response.header.set-cookie': '[REDACTED]' },
+        },
+        {
+            name: 'a private key without a PEM header',
+            input: { 'gcp.private_key': OTHER_SECRET },
+            expected: { 'gcp.private_key': '[REDACTED]' },
+        },
+        {
+            name: 'a passphrase',
+            input: { 'tls.passphrase': OTHER_SECRET },
+            expected: { 'tls.passphrase': '[REDACTED]' },
+        },
+        {
+            name: 'an Azure storage account key in a connection string',
+            input: {
+                'db.connection_string': `DefaultEndpointsProtocol=https;AccountKey=${OTHER_SECRET};EndpointSuffix=x`,
+            },
+            expected: {
+                'db.connection_string': 'DefaultEndpointsProtocol=https;AccountKey=[REDACTED];EndpointSuffix=x',
+            },
+        },
+        {
+            name: 'a credential-named field holding tokens that are not counts',
+            input: { refresh_tokens: [OTHER_SECRET] },
+            expected: { refresh_tokens: '[REDACTED]' },
+        },
+        {
+            name: 'a numeric string under a tokens name that is not a usage count',
+            input: { 'auth.tokens': '8493021234' },
+            expected: { 'auth.tokens': '[REDACTED]' },
+        },
+        {
+            name: 'a number under a tokens name that is not a usage count',
+            input: { 'x-tokens': 1234 },
+            expected: { 'x-tokens': '[REDACTED]' },
+        },
+        {
+            name: 'a numeric tokens parameter that is not a usage count',
+            input: '/cb?api_tokens=8493021234&a=1',
+            expected: '/cb?api_tokens=[REDACTED]&a=1',
+        },
+    ])('masks $name', ({ input, expected }) => {
+        expect(redactCredentials(input)).toEqual(expected)
+    })
+
+    it.each([
+        {
+            name: 'numeric token counts',
+            input: {
+                'gen_ai.usage.input_tokens': 812,
+                'gen_ai.usage.output_tokens': '87',
+                'gen_ai.request.max_tokens': 4096,
+            },
+        },
+        { name: 'a token count in text', input: 'usage input_tokens=1200 output_tokens: 87' },
+    ])('keeps $name', ({ input }) => {
+        expect(redactCredentials(input)).toEqual(input)
+    })
+
+    it('masks an unclosed credential-named container in linear time', () => {
+        const input = 'token={'.repeat(200_000)
+
+        expect(redactCredentialsInText(input)).toBe('token=[REDACTED]')
+    })
+
+    it('masks deeply nested credential-named containers in linear time', () => {
+        const input = `${'token={'.repeat(100_000)}${'}'.repeat(100_000)}`
+
+        expect(redactCredentialsInText(input)).toBe('token=[REDACTED]')
+    })
+
+    it.each([
+        {
+            tool: 'query-apm-spans',
+            params: {},
+            response: {
+                results: [
+                    {
+                        name: 'GET /cb?token=' + OTHER_SECRET,
+                        attributes: {
+                            'url.full': `https://bucket.example.com/a.png?X-Amz-Credential=${OTHER_SECRET}&X-Amz-Expires=300`,
+                            'db.password': BARE_SECRET,
+                            'http.request.header.authorization': [`Basic ${OTHER_SECRET}`],
+                            'gen_ai.usage.input_tokens': '1200',
+                            'session.id': 'sess-1',
+                            $session_id: 'sess-2',
+                            sessionId: 'sess-3',
+                        },
+                    },
+                ],
+            },
+            expected: {
+                results: [
+                    {
+                        name: 'GET /cb?token=[REDACTED]',
+                        attributes: {
+                            'url.full':
+                                'https://bucket.example.com/a.png?X-Amz-Credential=[REDACTED]&X-Amz-Expires=300',
+                            'db.password': '[REDACTED]',
+                            'http.request.header.authorization': '[REDACTED]',
+                            'gen_ai.usage.input_tokens': '1200',
+                            'session.id': 'sess-1',
+                            $session_id: 'sess-2',
+                            sessionId: 'sess-3',
+                        },
+                    },
+                ],
+            },
+        },
+        {
+            tool: 'apm-trace-get',
+            params: { trace_id: 'abc123' },
+            response: {
+                results: [{ attributes: { 'http.request.header.authorization': `Basic ${OTHER_SECRET}` } }],
+                summary: { span_count: 20, services: { auth: 12, [`/cb?token=${OTHER_SECRET}`]: 3, checkout: 5 } },
+            },
+            expected: {
+                results: [{ attributes: { 'http.request.header.authorization': '[REDACTED]' } }],
+                summary: { span_count: 20, services: { auth: 12, '/cb?token=[REDACTED]': 3, checkout: 5 } },
+                _posthogUrl: 'https://app.example.com/project/1/tracing?trace=abc123',
+            },
+        },
+        {
+            tool: 'apm-spans-aggregate',
+            params: {},
+            response: { results: [{ name: `GET /reset?token=${OTHER_SECRET}`, count: 3 }], compare: null },
+            expected: { results: [{ name: 'GET /reset?token=[REDACTED]', count: 3 }], compare: null },
+        },
+        {
+            tool: 'apm-spans-tree',
+            params: {},
+            response: {
+                results: [{ name: `GET /a?sig=${OTHER_SECRET}`, parent_name: `GET /b?code=${OTHER_SECRET}` }],
+                compare: null,
+            },
+            expected: {
+                results: [{ name: 'GET /a?sig=[REDACTED]', parent_name: 'GET /b?code=[REDACTED]' }],
+                compare: null,
+            },
+        },
+        {
+            tool: 'apm-attribute-values-list',
+            params: { key: 'http.request.header.x-api-key' },
+            response: { results: [{ id: BARE_SECRET, name: BARE_SECRET }] },
+            expected: { results: [{ id: '[REDACTED]', name: '[REDACTED]' }] },
+        },
+        {
+            tool: 'apm-attribute-values-list',
+            params: { key: 'session.id' },
+            response: { results: [{ id: 'sess-1', name: 'sess-1' }] },
+            expected: { results: [{ id: 'sess-1', name: 'sess-1' }] },
+        },
+        {
+            tool: 'apm-attribute-values-list',
+            params: { key: 'gen_ai.usage.output_tokens' },
+            response: { results: [{ id: '87', name: '87' }] },
+            expected: { results: [{ id: '87', name: '87' }] },
+        },
+        {
+            tool: 'apm-attribute-values-list',
+            params: { key: 'url.path' },
+            response: { results: [{ id: `/cb?token=${OTHER_SECRET}`, name: `/cb?token=${OTHER_SECRET}` }] },
+            expected: { results: [{ id: '/cb?token=[REDACTED]', name: '/cb?token=[REDACTED]' }] },
+        },
+        {
+            tool: 'apm-attribute-breakdown',
+            params: { query: { breakdownKey: 'db.password', breakdownType: 'span_attribute' } },
+            response: { results: [{ value: BARE_SECRET, count: 3 }], compare: [{ value: BARE_SECRET, count: 1 }] },
+            expected: { results: [{ value: '[REDACTED]', count: 3 }], compare: [{ value: '[REDACTED]', count: 1 }] },
+        },
+        {
+            tool: 'apm-attribute-breakdown',
+            params: { query: { breakdownKey: 'server.address', breakdownType: 'span_attribute' } },
+            response: { results: [{ value: `postgres://app:${OTHER_SECRET}@db.example.com/app`, count: 3 }] },
+            expected: { results: [{ value: 'postgres://app:[REDACTED]@db.example.com/app', count: 3 }] },
+        },
+        {
+            tool: 'apm-attributes-list',
+            params: { search: 'sk_live', search_values: true },
+            response: {
+                results: [
+                    { name: 'http.request.header.x-api-key', matchedOn: 'value', matchedValue: BARE_SECRET },
+                    { name: 'http.route', matchedOn: 'value', matchedValue: '/users/:id' },
+                    { name: 'db.password', matchedOn: 'key', matchedValue: null },
+                ],
+                count: 3,
+            },
+            expected: {
+                results: [
+                    { name: 'http.request.header.x-api-key', matchedOn: 'value', matchedValue: '[REDACTED]' },
+                    { name: 'http.route', matchedOn: 'value', matchedValue: '/users/:id' },
+                    { name: 'db.password', matchedOn: 'key', matchedValue: null },
+                ],
+                count: 3,
+            },
+        },
+    ])(
+        'redacts span data through the generated $tool handler for $params',
+        async ({ tool, params, response, expected }) => {
+            expect(await TRACING_TOOLS[tool]!().handler(tracingContext(response), params)).toEqual(expected)
+        }
+    )
+
+    it('renders the apm-trace-get informational text from the redacted trace', async () => {
+        const response = { results: [{ attributes: { 'db.password': BARE_SECRET } }] }
+
+        const result = (await TRACING_TOOLS['apm-trace-get']!().handler(tracingContext(response), {
+            trace_id: 'abc123',
+        })) as Record<string, unknown>
+
+        expect(result[POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]).toMatch(
+            /<trace-data informational="true"[^>]*>[^<]*"db\.password":"\[REDACTED\]"/
+        )
     })
 
     it('redacts logs-group-by values whose dimension key is credential-named, keeping session ids', async () => {

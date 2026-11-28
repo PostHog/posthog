@@ -1,3 +1,4 @@
+import { withInformationalResponseOf } from '@/tools/tool-utils'
 import type { Context } from '@/tools/types'
 
 /**
@@ -43,7 +44,14 @@ export function withToolHooks<TParams, TResult>(
             // Hooks may return a result the generated type does not describe, such as a "not found" payload.
             return (await hooks.onError(context, requestParams, error)) as TResult
         }
-        return hooks.afterResponse ? ((await hooks.afterResponse(context, requestParams, result)) as TResult) : result
+        if (!hooks.afterResponse) {
+            return result
+        }
+        // A hook that returns a new object drops the non-enumerable informational markers, so they are reapplied.
+        return withInformationalResponseOf(
+            result,
+            (await hooks.afterResponse(context, requestParams, result)) as TResult
+        )
     }
 }
 
