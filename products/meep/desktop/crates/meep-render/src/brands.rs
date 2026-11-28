@@ -104,23 +104,11 @@ pub fn logo(service: &str, size: f32) -> Div {
             .justify_center()
             .text_color(rgb(theme::color(ui::SECONDARY)))
             .child(
-                div()
-                    .text_size(px(size * 0.65))
-                    .line_height(relative(1.))
-                    .font_family(ui::system_font())
-                    .font_weight(FontWeight::MEDIUM)
-                    .child(initial(service)),
+                gpui_kit::component::Icon::new(gpui_kit::assets::IconName::Plug)
+                    .size(px(size * 0.55))
+                    .text_color(rgb(theme::color(ui::SECONDARY))),
             ),
     }
-}
-
-fn initial(service: &str) -> String {
-    service
-        .trim()
-        .chars()
-        .next()
-        .map(|c| c.to_uppercase().take(1).collect())
-        .unwrap_or_else(|| "?".into())
 }
 
 /// Connections' original legibility policy: pale marks darken on light
@@ -157,15 +145,12 @@ mod tests {
     use super::*;
     use core::prelude::v1::test;
     #[test]
-    fn aliases_share_the_library_mark_and_missing_marks_are_letters() {
+    fn aliases_share_the_library_mark_and_missing_marks_have_none() {
         let (calendar, _) = mark("Google Calendar").unwrap();
         assert!(Arc::ptr_eq(&calendar, &mark("google-calendar").unwrap().0));
         for service in ["Unknown service", ""] {
             assert!(mark(service).is_none(), "{service}");
         }
-        assert_eq!(initial(" slack "), "S");
-        assert_eq!(initial("éclair"), "É");
-        assert_eq!(initial(""), "?");
     }
     #[test]
     fn every_bundled_mark_has_artwork_and_both_themes_remain_legible() {

@@ -176,6 +176,9 @@ pub(super) enum RowAction {
     NewSection(String),
     RenameSection(Uuid),
     RemoveSection(Uuid),
+    NewTopic,
+    NewView,
+    CreateSection,
 }
 
 impl Desktop {
@@ -226,6 +229,16 @@ impl Desktop {
                     .menu("Delete view…", Box::new(DeleteView(id)))
             }
         };
+        self.focus.focus(w, cx);
+        menu.show(at, w, cx);
+    }
+
+    pub(super) fn show_new_menu(&self, at: Point<Pixels>, w: &mut Window, cx: &mut Context<Self>) {
+        let menu = NativeMenu::new()
+            .menu("New topic", Box::new(RowAction::NewTopic))
+            .menu("New view", Box::new(RowAction::NewView))
+            .separator()
+            .menu("New section…", Box::new(RowAction::CreateSection));
         self.focus.focus(w, cx);
         menu.show(at, w, cx);
     }
@@ -291,6 +304,18 @@ impl Desktop {
             RowAction::NewSection(key) => self.new_section_with(Some(key), w, cx),
             RowAction::RenameSection(id) => self.start_section_rename(*id, w, cx),
             RowAction::RemoveSection(id) => self.ungroup_section(*id, cx),
+            RowAction::NewTopic => self.open_sheet(Sheet::New, w, cx),
+            RowAction::NewView => {
+                self.section = match self.page {
+                    Page::Topic(id, ..) => self.layout.home(&topic_key(id)),
+                    Page::View(id) => self.layout.home(&view_key(id)),
+                    _ => None,
+                }
+                .unwrap_or_default();
+                self.go(Page::NewView, w, cx);
+                self.views.prompt.focus_handle(cx).focus(w, cx)
+            }
+            RowAction::CreateSection => self.new_section_with(None, w, cx),
         }
     }
     /// Every sidebar entry that is drawn, in its default order.

@@ -42,7 +42,7 @@ impl Desktop {
             .enumerate()
             .filter(|(_, w)| !(w.connection == "github" && w.kind == "repository"))
             .collect();
-        let add = control("edit-watch", "Add a source", false, cx, move |s, w, cx| {
+        let add = control("edit-watch", "Add source", false, cx, move |s, w, cx| {
             s.ask_in_chat("Find and add this PostHog object: ", w, cx)
         })
         .into_any_element();

@@ -1215,7 +1215,6 @@ impl Desktop {
                 ui::row()
                     .gap(px(2.))
                     .child(meta.flex_1().mr(px(10.)))
-                    .children(full_button)
                     .child(closing),
             )
             .child(
@@ -1278,6 +1277,7 @@ impl Desktop {
                     .into_any_element()
             }));
         }
+        let headline = headline.children(full_button.map(|b| div().child(b)));
         body = body.child(headline);
 
         // Proposal: what the agent would do, and the buttons that do it.
@@ -2922,7 +2922,7 @@ impl Desktop {
                         div()
                             .px(px(4.))
                             .pt(px(2.))
-                            .child(meep_shell::composer::input(input, "Message the agent")),
+                            .child(meep_shell::composer::input(input, "Ask about this task")),
                     )
                     .child(
                         ui::row()
@@ -3242,7 +3242,7 @@ impl Desktop {
             // With no messages yet, the inbox's empty state already offers this.
             if !state.threads.is_empty() {
                 starters = starters.child(
-                    starter("chat-choose", Glyph::Plug, "Add a source")
+                    starter("chat-choose", Glyph::Plug, "Add source")
                         .child(starter_chevron())
                         .on_click(cx.listener(move |s, _, w, cx| {
                             s.ask_in_chat("Find and add this PostHog object: ", w, cx)

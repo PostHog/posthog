@@ -3,7 +3,7 @@ use meep_ui::gpui_kit::component::input::Enter;
 use meep_ui::gpui_kit::component::{Disableable, Icon, Sizable, input::Textarea};
 
 pub(super) const TOPIC_SIDEBAR_WIDTH: f32 = 276.;
-const TOPIC_ROW_HEIGHT: f32 = 52.;
+const TOPIC_ROW_HEIGHT: f32 = 48.;
 const TOPIC_ROW_RADIUS: f32 = 10.;
 const TOPIC_ROW_TRAILING: f32 = 8.;
 const TOPIC_TILE: f32 = 34.;
@@ -1446,7 +1446,7 @@ impl Desktop {
                 .child(ui::nav::title("Settings"))
                 .on_click(cx.listener(|s, _, w, cx| s.go(Page::Settings, w, cx))),
         );
-        let mut side = meep_shell::sidebar(
+        let side = meep_shell::sidebar(
             tree,
             top.into_any_element(),
             None,
@@ -1461,64 +1461,11 @@ impl Desktop {
                 ))
                 .right(px(ui::nav::INSET + 2.))
                 .tooltip(shortcuts::NEW_TOPIC.hint("New topic"))
-                .on_click(cx.listener(|s, _, _, cx| {
-                    s.menu = !s.menu;
-                    cx.notify()
+                .on_click(cx.listener(|s, e: &ClickEvent, w, cx| {
+                    let at = e.position();
+                    s.show_new_menu(at, w, cx)
                 })),
         );
-        if self.menu {
-            side = side.child(
-                ui::column()
-                    .absolute()
-                    .top(px(meep_shell::TRAFFIC_LIGHT_CENTER + 16.))
-                    .right(px(ui::nav::INSET))
-                    .w(px(168.))
-                    .p(px(4.))
-                    .gap(px(1.))
-                    .rounded(px(8.))
-                    .bg(rgb(ui::theme::color(ui::CANVAS)))
-                    .border_1()
-                    .border_color(ui::ink(0x14))
-                    .shadow_lg()
-                    .occlude()
-                    .child(
-                        nav_line("new-topic", false)
-                            .child(ui::nav::glyph(Glyph::AtSign, false))
-                            .child(ui::nav::title("New topic"))
-                            .child(ui::caption(shortcuts::NEW_TOPIC.label()).pr(px(6.)))
-                            .on_click(cx.listener(|s, _, w, cx| {
-                                s.menu = false;
-                                s.open_sheet(Sheet::New, w, cx)
-                            })),
-                    )
-                    .child(
-                        nav_line("new-view", false)
-                            .child(ui::nav::glyph(Glyph::LayoutDashboard, false))
-                            .child(ui::nav::title("New view"))
-                            .on_click(cx.listener(|s, _, w, cx| {
-                                s.section = match s.page {
-                                    Page::Topic(id, ..) => {
-                                        s.layout.home(&super::sidebar::topic_key(id))
-                                    }
-                                    Page::View(id) => s.layout.home(&super::sidebar::view_key(id)),
-                                    _ => None,
-                                }
-                                .unwrap_or_default();
-                                s.go(Page::NewView, w, cx);
-                                s.views.prompt.focus_handle(cx).focus(w, cx)
-                            })),
-                    )
-                    .child(
-                        nav_line("new-section", false)
-                            .child(ui::nav::glyph(Glyph::FolderPlus, false))
-                            .child(ui::nav::title("New section"))
-                            .on_click(cx.listener(|s, _, w, cx| {
-                                s.menu = false;
-                                s.new_section_with(None, w, cx)
-                            })),
-                    ),
-            )
-        }
         side
     }
     /// New topic, shaped like New view: say what you want done, name it, create.
@@ -1639,9 +1586,7 @@ impl Desktop {
                                     .flex_1()
                                     .text_size(px(ui::SMALL))
                                     .text_color(rgb(ui::theme::color(ui::TERTIARY)))
-                                    .child(format!(
-                                        "{section}. Drag it anywhere in the sidebar later."
-                                    )),
+                                    .child(format!("{section}.")),
                             )
                             .child(
                                 ui::row()
@@ -2317,7 +2262,14 @@ impl Desktop {
                 let account = if let Some(a) = &self.identity {
                     item(
                         a.email.clone(),
-                        format!("{} · {}", a.label, a.region.key().to_uppercase()),
+                        format!(
+                            "{} · {}",
+                            a.label,
+                            match a.region.key() {
+                                "local" => "Local".to_owned(),
+                                key => key.to_uppercase(),
+                            }
+                        ),
                         control("logout", "Sign out", false, cx, |s, w, cx| {
                             let b = s.backend.clone();
                             s.job(async move { b.sign_out().await }, w, cx, |s, r, w, cx| {

@@ -1,5 +1,5 @@
 use super::overview::{goal_measure, goal_on_track};
-use super::pages::{ago, count};
+use super::pages::ago;
 use super::*;
 use chrono::Utc;
 use meep_shell::settings::{self as set, Tone, group, header, section};
@@ -189,15 +189,14 @@ impl Desktop {
                         .font_weight(FontWeight::MEDIUM)
                         .child(t.mission.clone()),
                 )
-                .child(control(
-                    "edit-mission",
-                    "Edit",
-                    false,
-                    cx,
-                    move |s, w, cx| start_edit(s, w, cx),
-                ))
                 .into_any_element()])
         };
+        let edit = (!self.editing && !t.mission.trim().is_empty()).then(|| {
+            control("edit-mission", "Edit", false, cx, move |s, w, cx| {
+                start_edit(s, w, cx)
+            })
+            .into_any_element()
+        });
         let now = Utc::now();
         let usage = &state.usage;
         let day = usage
@@ -209,13 +208,18 @@ impl Desktop {
             (c + d.system_one, r + d.routine_dispatches)
         });
         let usage_row = |label: &'static str, detail: &'static str, value: String| {
-            set::item(label, detail, set::value_text(value)).into_any_element()
+            set::item(
+                label,
+                detail,
+                set::value_text(value).text_color(rgb(ui::theme::color(ui::INK))),
+            )
+            .into_any_element()
         };
         ui::column()
             .child(header(
                 "Mission",
                 "What this topic works toward. The agent reads it before every task.",
-                None,
+                edit,
             ))
             .child(body)
             .child(section(
@@ -245,7 +249,7 @@ impl Desktop {
 
     pub(super) fn goals_page(&self, state: &TopicState, cx: &Context<Self>) -> Div {
         let id = state.topic.id;
-        let add = control("add-goal", "Add a goal", false, cx, |s, w, cx| {
+        let add = control("add-goal", "New goal", false, cx, |s, w, cx| {
             s.ask_in_chat("Add a goal for this topic: ", w, cx)
         })
         .into_any_element();
@@ -286,43 +290,6 @@ impl Desktop {
         let mut current: Vec<&Fact> = t.facts.iter().filter(|f| f.is_current()).collect();
         current.sort_by_key(|f| std::cmp::Reverse(f.provenance.at));
         let disputed = state.disputed_facts();
-        let replaced = t
-            .facts
-            .iter()
-            .filter(|f| f.superseded_by.is_some() || f.invalidated_by.is_some())
-            .count();
-        let sources: std::collections::BTreeSet<&str> = current
-            .iter()
-            .map(|f| f.provenance.author.as_str())
-            .collect();
-        let summary = current
-            .iter()
-            .map(|f| f.provenance.at)
-            .max()
-            .map(|latest| {
-                format!(
-                    "{} from {} · latest {}",
-                    count(current.len(), "fact"),
-                    count(sources.len(), "source"),
-                    ago(now - latest)
-                )
-            })
-            .unwrap_or_default();
-        let footnote = [
-            summary,
-            if replaced > 0 {
-                format!(
-                    "{} replaced with newer facts",
-                    count(replaced, "earlier fact")
-                )
-            } else {
-                String::new()
-            },
-        ]
-        .into_iter()
-        .filter(|s| !s.is_empty())
-        .collect::<Vec<_>>()
-        .join(" · ");
         let body = if current.is_empty() {
             empty_group(
                 "No facts yet",
@@ -332,29 +299,11 @@ impl Desktop {
             group(current.into_iter().map(|f| {
                 let fid = f.id;
                 let hover = SharedString::from(format!("fact-{fid}"));
-                let initials: String = f
-                    .provenance
-                    .author
-                    .split_whitespace()
-                    .filter_map(|w| w.chars().next())
-                    .take(2)
-                    .flat_map(char::to_uppercase)
-                    .collect();
                 row(format!("fact-{fid}"))
                     .group(hover.clone())
                     .items_start()
                     .py(px(12.))
-                    .child(
-                        set::tile()
-                            .text_size(px(11.))
-                            .font_weight(FontWeight::SEMIBOLD)
-                            .text_color(rgb(ui::theme::color(ui::SECONDARY)))
-                            .child(if initials.is_empty() {
-                                "·".to_owned()
-                            } else {
-                                initials
-                            }),
-                    )
+                    .child(glyph_tile(Glyph::Lightbulb))
                     .child(
                         ui::column()
                             .flex_1()
@@ -394,7 +343,6 @@ impl Desktop {
                 None,
             ))
             .child(body)
-            .when(!footnote.is_empty(), |c| c.child(set::note(footnote)))
             .children(self.removed_section(state, Tab::Facts, cx))
     }
 
@@ -422,31 +370,29 @@ impl Desktop {
             .into_any_element()
         };
         let feed = t.settings.scout_feed.clone();
-        let checks = group([
-            switch_row(
-                "check_facts",
-                "Check facts",
-                "Show changes that do not agree with the facts.".into(),
-                t.settings.check_facts,
-                |on| Command::SetTopicSetting {
-                    key: "check_facts".into(),
-                    enabled: on,
-                },
-            ),
-            switch_row(
-                "scout-feed",
-                "PostHog Scout reports",
-                match feed.as_deref() {
-                    None => "Send PostHog Scout reports to this inbox.".to_owned(),
-                    Some("") => "All Scout reports for this project go to this inbox.".to_owned(),
-                    Some(term) => format!("Scout reports about “{term}” go to this inbox."),
-                },
-                feed.is_some(),
-                |on| Command::SetScoutFeed {
-                    feed: on.then(String::new),
-                },
-            ),
-        ]);
+        let checks = group([switch_row(
+            "check_facts",
+            "Check facts",
+            "Show changes that do not agree with the facts.".into(),
+            t.settings.check_facts,
+            |on| Command::SetTopicSetting {
+                key: "check_facts".into(),
+                enabled: on,
+            },
+        )]);
+        let inbox = group([switch_row(
+            "scout-feed",
+            "PostHog Scout reports",
+            match feed.as_deref() {
+                None => "Send PostHog Scout reports to this inbox.".to_owned(),
+                Some("") => "All Scout reports for this project go to this inbox.".to_owned(),
+                Some(term) => format!("Scout reports about “{term}” go to this inbox."),
+            },
+            feed.is_some(),
+            |on| Command::SetScoutFeed {
+                feed: on.then(String::new),
+            },
+        )]);
         let rules = if t.rules.is_empty() {
             empty_group(
                 "No rules yet",
@@ -491,6 +437,13 @@ impl Desktop {
             ))
             .child(section("Checks", "", None, true))
             .child(checks)
+            .child(section(
+                "Inbox",
+                "What reaches this topic's inbox.",
+                None,
+                false,
+            ))
+            .child(inbox)
             .child(section(
                 "Rules",
                 "The agent follows these before it acts.",

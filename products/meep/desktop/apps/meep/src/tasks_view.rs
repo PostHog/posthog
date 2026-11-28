@@ -215,7 +215,17 @@ impl Desktop {
         )
     }
     fn group_collapsed(&self, key: &str) -> bool {
-        (key == "status-Done") != self.toggled_groups.contains(key)
+        let folded_by_default = key == "status-Done" && self.focus_has_open_work();
+        folded_by_default != self.toggled_groups.contains(key)
+    }
+    fn focus_has_open_work(&self) -> bool {
+        self.topic_id()
+            .and_then(|id| self.states.iter().find(|s| s.topic.id == id))
+            .is_none_or(|s| {
+                s.tasks
+                    .iter()
+                    .any(|t| !t.hidden() && t.column != Column::Done)
+            })
     }
     /// Tasks in the order the list shows them, grouped.
     pub(super) fn task_groups<'a>(
@@ -323,7 +333,7 @@ impl Desktop {
                     })
             };
             m.min_w(px(220.))
-                .label("Grouping")
+                .label("Group by")
                 .item(set("Status", display.grouping == Grouping::Status, |d| {
                     d.grouping = Grouping::Status
                 }))
@@ -331,7 +341,7 @@ impl Desktop {
                     d.grouping = Grouping::Source
                 }))
                 .separator()
-                .label("Ordering")
+                .label("Sort by")
                 .item(set(
                     "Last updated",
                     display.ordering == Ordering::Updated,
@@ -344,7 +354,7 @@ impl Desktop {
                     d.ordering = Ordering::Title
                 }))
                 .separator()
-                .label("Properties")
+                .label("Show")
                 .item(set("Source", display.show_source, |d| {
                     d.show_source = !d.show_source
                 }))
@@ -579,7 +589,7 @@ impl Desktop {
     }
     fn task_list(&self, state: &TopicState, w: &Window, cx: &Context<Self>) -> Div {
         let id = state.topic.id;
-        let mut list = ui::column().gap_0().mx(px(-24.)).mt(px(-16.));
+        let mut list = ui::column().gap_0().mx(px(-24.));
         // Keep off-screen rows out of the element tree, but preserve their
         // height so the existing scroll handle and keyboard reveal still work.
         // Accessibility and drag operations need the complete set of targets.

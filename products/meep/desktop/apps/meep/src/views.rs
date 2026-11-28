@@ -491,7 +491,7 @@ impl Desktop {
             // The same mark, title type and spacing as New topic's hero.
             .child(view_mark(36.))
             .child(
-                ui::heading("new-view-heading", "Create a view")
+                ui::heading("new-view-heading", "New view")
                     .mt(px(16.))
                     .text_size(px(20.))
                     .line_height(relative(1.35)),

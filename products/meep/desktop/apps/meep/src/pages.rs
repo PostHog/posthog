@@ -995,7 +995,7 @@ impl Desktop {
                 None,
                 all_clear(
                     [
-                        "Your topics are getting on with things.",
+                        "Your topics are working on their own.",
                         "When one needs a decision, an approval or a fix, it lands here.",
                     ],
                     cx.reduce_motion(),
@@ -1161,17 +1161,6 @@ impl Desktop {
                     .into_any_element(),
             );
         }
-        if tab == Tab::Routines && detail.is_none() && !self.new_routine {
-            tools.push(
-                control("bind", "New routine", false, cx, |s, w, cx| {
-                    s.compose_routine(w, cx)
-                })
-                .icon(Glyph::Plus)
-                // Buttons default to the top of their row; in the crumb bar they centre.
-                .self_center()
-                .into_any_element(),
-            );
-        }
         tools.extend(self.show_overview_button(w, cx));
         let tab_in = ui::motion::arrival(
             ElementId::from(SharedString::from(match tab {
@@ -1253,9 +1242,24 @@ impl Desktop {
                                     | Tab::Rules => self.context_page(state, tab, w, cx),
                                 },
                             };
+                            let content = if detail.is_none() && matches!(tab, Tab::Tasks | Tab::Inbox | Tab::Files) {
+                                let (title, about) = match tab {
+                                    Tab::Tasks => ("Tasks", "Work the agent runs for this topic. Open a task to see its run."),
+                                    Tab::Files => ("Files", "Files the agent made and files you added to this topic."),
+                                    _ => ("Inbox", "Reports and requests for this topic. Open one to act on it."),
+                                };
+                                ui::column()
+                                    .w_full()
+                                    .gap_0()
+                                    .child(meep_shell::settings::header(title, about, None))
+                                    .child(content)
+                            } else {
+                                content
+                            };
                             let content = if matches!(tab, Tab::Facts | Tab::Files) {
                                 ui::column()
                                     .w_full()
+                                    .gap_0()
                                     .child(self.review_links(state, tab, cx))
                                     .child(content)
                             } else {
@@ -1463,7 +1467,7 @@ impl Desktop {
         if groups.is_empty() {
             return all_clear(
                 [
-                    "This topic is getting on with things.",
+                    "This topic is working on its own.",
                     "When it needs a decision, an approval or a fix, it lands here.",
                 ],
                 cx.reduce_motion(),
@@ -1575,13 +1579,9 @@ impl Desktop {
                 ],
             )
             .child(
-                control(
-                    "inbox-sources",
-                    "Add a source",
-                    false,
-                    cx,
-                    move |s, w, cx| s.ask_in_chat("Find and add this PostHog object: ", w, cx),
-                )
+                control("inbox-sources", "Add source", false, cx, move |s, w, cx| {
+                    s.ask_in_chat("Find and add this PostHog object: ", w, cx)
+                })
                 .mt(px(16.))
                 .self_center(),
             );
@@ -1858,12 +1858,14 @@ impl Desktop {
         };
         let topic = state.topic.id;
         let mut reviews = ui::column().gap(px(8.));
+        let mut any = false;
         for thread in state.threads.iter().filter(|thread| {
             thread.key.starts_with(prefix)
                 && !state.archived_threads.contains(&thread.id)
                 && matches!(thread.state, ThreadState::NeedsYou { .. })
         }) {
             let id = thread.id;
+            any = true;
             reviews = reviews.child(control(
                 format!("review-{id}"),
                 format!("Review: {}", short_subject(&thread.subject)),
@@ -1872,7 +1874,7 @@ impl Desktop {
                 move |s, w, cx| s.go(Page::Topic(topic, tab, Some(Detail::Thread(id))), w, cx),
             ));
         }
-        reviews
+        reviews.when(any, |r| r.pb(px(16.)))
     }
     /// Commit the inline edit to the replica and return focus to the topic.
     pub(super) fn save_mission(&mut self, w: &mut Window, cx: &mut Context<Self>) {
@@ -2031,7 +2033,12 @@ impl Desktop {
         let head = set::header(
             "Routines",
             "Scouts watch PostHog for changes. Routines run on a schedule or an event.",
-            None,
+            Some(
+                control("bind", "New routine", false, cx, |s, w, cx| {
+                    s.compose_routine(w, cx)
+                })
+                .into_any_element(),
+            ),
         );
         let page = ui::column().w_full().max_w(px(720.)).mx_auto().pb(px(48.));
         if workflows().next().is_none() && state.scouts.is_empty() {
@@ -2152,7 +2159,14 @@ impl Desktop {
                     .min_w_0()
                     .gap(px(6.))
                     .child(super::details::item_title("Scout", scout.name.clone()))
-                    .child(ui::caption(if scout.enabled { "On" } else { "Off" }))
+                    .child(div().pt(px(4.)).child(meep_shell::settings::status(
+                        if scout.enabled { "On" } else { "Off" },
+                        if scout.enabled {
+                            meep_shell::settings::Tone::Positive
+                        } else {
+                            meep_shell::settings::Tone::Neutral
+                        },
+                    )))
             })
             .children(
                 self.identity
@@ -2170,7 +2184,12 @@ impl Desktop {
             return page.child(ui::caption("No findings yet."));
         }
         if !as_report {
-            page = page.child(ui::caption("Recent findings"));
+            page = page.child(meep_shell::settings::section(
+                "Recent findings",
+                "",
+                None,
+                false,
+            ));
         }
         for report in &scout.reports {
             page = page.child(
@@ -2293,11 +2312,19 @@ impl Desktop {
                 );
             })
             .icon(Glyph::Play)
-            .disabled(
-                source_only
-                    || r.uncertain_manual_run.is_some()
-                    || details.as_ref().is_some_and(|d| !d.enabled)
-                    || matches!(r.health, RoutineHealth::Failing(_)),
+            .when_some(
+                if source_only {
+                    Some("This routine runs only from its trigger.")
+                } else if r.uncertain_manual_run.is_some() {
+                    Some("The last manual run may still be going.")
+                } else if details.as_ref().is_some_and(|d| !d.enabled) {
+                    Some("Turn the routine on to run it.")
+                } else if matches!(r.health, RoutineHealth::Failing(_)) {
+                    Some("Fix the routine before you run it.")
+                } else {
+                    None
+                },
+                |b, why| b.disabled(true).tooltip(why),
             ),
         );
         if source_only {
@@ -2430,8 +2457,16 @@ impl Desktop {
                 false,
             ))
             .child(
-                stat(week.failed.to_string(), "Failed", false)
-                    .when(week.failed > 0, |c| c.text_color(rgb(warning()))),
+                stat(
+                    if total == 0 {
+                        "–".into()
+                    } else {
+                        week.failed.to_string()
+                    },
+                    "Failed",
+                    false,
+                )
+                .when(week.failed > 0, |c| c.text_color(rgb(warning()))),
             )
             .child(stat(
                 r.last_run

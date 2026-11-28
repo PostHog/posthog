@@ -423,20 +423,12 @@ impl Desktop {
                         false,
                     ))
                     .child(ui::nav::title(name.clone()))
-                    .children(status.map(|c| {
-                        match c {
-                            Column::Done => Icon::new(Glyph::Check)
-                                .size(px(12.))
-                                .flex_none()
-                                .text_color(rgb(ui::theme::color(ui::TERTIARY)))
-                                .into_any_element(),
-                            _ => div()
-                                .flex_none()
-                                .text_size(px(11.5))
-                                .text_color(rgb(ui::theme::color(ui::TERTIARY)))
-                                .child(column_name(c))
-                                .into_any_element(),
-                        }
+                    .children(status.filter(|c| *c != Column::Done).map(|c| {
+                        div()
+                            .flex_none()
+                            .text_size(px(11.5))
+                            .text_color(rgb(ui::theme::color(ui::TERTIARY)))
+                            .child(column_name(c))
                     }))
                     .child(badge(child.count))
                     .on_click(cx.listener(move |s, _, _, cx| {

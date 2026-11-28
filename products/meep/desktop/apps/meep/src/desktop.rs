@@ -471,7 +471,7 @@ impl Desktop {
         let run_input = cx.new(|cx| {
             let mut e = TextareaState::new(w, cx)
                 .auto_grow(1, 5)
-                .placeholder("Message the agent");
+                .placeholder("Ask about this task");
             e.set_submit_on_enter(true, cx);
             e
         });

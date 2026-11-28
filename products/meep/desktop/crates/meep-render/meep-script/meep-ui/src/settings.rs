@@ -153,7 +153,11 @@ pub fn group(rows: impl IntoIterator<Item = AnyElement>) -> Div {
         .w_full()
         .gap(px(0.))
         .rounded(px(GROUP_RADIUS))
-        .bg(crate::components::ink(FILL))
+        .bg(crate::components::ink(if crate::theme::is_dark() {
+            0x0d
+        } else {
+            FILL
+        }))
         .overflow_hidden();
     for (n, row) in rows.into_iter().enumerate() {
         if n > 0 {
@@ -466,7 +470,7 @@ pub fn empty(title: impl Into<SharedString>, detail: impl Into<SharedString>) ->
         .w_full()
         .items_center()
         .gap(px(4.))
-        .py(px(32.))
+        .py(px(20.))
         .px(px(24.))
         .rounded(px(GROUP_RADIUS))
         .bg(crate::components::ink(0x05))

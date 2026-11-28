@@ -184,7 +184,11 @@ impl Desktop {
                     .any(|g| matches!(g.latest.kind, "Failed" | "Problem"));
                 (
                     Glyph::Bell,
-                    format!("{} waiting", groups.len()),
+                    if groups.is_empty() {
+                        String::new()
+                    } else {
+                        format!("{} waiting", groups.len())
+                    },
                     (!groups.is_empty()).then_some(if urgent {
                         super::pages::warning()
                     } else {
@@ -198,7 +202,16 @@ impl Desktop {
                     .iter()
                     .filter(|t| t.column == Column::InProgress && !t.hidden())
                     .count();
-                (Glyph::SquareCheck, format!("{running} running"), None)
+                let total = state.tasks.iter().filter(|t| !t.hidden()).count();
+                (
+                    Glyph::SquareCheck,
+                    if running > 0 {
+                        format!("{running} running")
+                    } else {
+                        total.to_string()
+                    },
+                    None,
+                )
             }
             Tab::Inbox => {
                 let reports = ordered_threads(state, true);
@@ -231,7 +244,7 @@ impl Desktop {
                 (
                     Glyph::Target,
                     if measured.is_empty() {
-                        format!("{} unmeasured", t.goals.len())
+                        t.goals.len().to_string()
                     } else {
                         format!("{on_track} of {} on track", t.goals.len())
                     },

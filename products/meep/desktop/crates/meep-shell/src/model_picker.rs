@@ -547,7 +547,7 @@ impl ModelPicker {
                 .child(agent_marks::icon(a.mark, 14.))
             })
             .child(
-                text(group.map_or_else(|| "Agent".into(), |a| format!("{} models", a.name)))
+                text(group.map_or_else(|| "Agent".into(), |a| format!("{} agent", a.name)))
                     .flex_1()
                     .min_w_0()
                     .truncate()
