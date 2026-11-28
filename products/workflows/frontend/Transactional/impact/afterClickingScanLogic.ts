@@ -22,6 +22,7 @@ import type { MonitorVerdict } from 'products/replay_vision/frontend/utils/obser
 import type { LinkTagging } from './impactSteps'
 
 export const SCAN_POLL_INTERVAL_MS = 3000
+const POLL_ERROR = "The scan may still be running, but its progress couldn't load. Try again to check on it."
 export const SCAN_QUESTION = 'Did the person finish what they came to do?'
 const SCAN_PROMPT = `At some point in this session the person clicked a link in an email and landed on a page whose URL has a ph_workflow_run parameter. Look only at what they did from that page on, and answer this question: ${SCAN_QUESTION}`
 
@@ -37,7 +38,7 @@ export type AfterClickingScanState =
     | { kind: 'loading-sessions' }
     | { kind: 'sessions-error' }
     | { kind: 'no-sessions' }
-    | { kind: 'ready'; sessionCount: number; hasMore: boolean }
+    | { kind: 'ready'; sessionCount: number; hasMore: boolean; hasRecent: boolean }
     | { kind: 'scanning'; done: number; total: number }
     | { kind: 'finished'; answers: SessionAnswer[]; withoutAnswer: number }
     | { kind: 'scan-error'; message: string }
@@ -48,11 +49,14 @@ export function scanDisabledReason(currentTeam: TeamPublicType | TeamType | null
         : getReplayVisionEditDisabledReason()
 }
 
-const POLL_ERROR = "The scan may still be running, but its progress couldn't load. Try again to check on it."
-
-function scanErrorMessage(error: unknown): string {
+function scanErrorMessage(error: unknown, polling: boolean): string {
     const shown = error instanceof ApiError && (error.status === 400 || error.status === 403) && error.detail
-    return shown || "Replay vision couldn't scan these sessions. Try again."
+    return shown || (polling ? POLL_ERROR : "Replay vision couldn't scan these sessions. Try again.")
+}
+
+function endedSessionIds(sessions: TransactionalEmailImpactSessionsApi | null): string[] {
+    const ended = (sessions?.sessions ?? []).filter((session) => dayjs().diff(session.first_pageview_at, 'hour') >= 6)
+    return ended.map((session) => session.session_id)
 }
 
 function sessionAnswer(session: ObservationRequestSessionApi): SessionAnswer | null {
@@ -77,7 +81,7 @@ function scanRequestState(request: ObservationRequestApi): AfterClickingScanStat
 export interface afterClickingScanLogicValues {
     currentTeam: TeamPublicType | TeamType | null // teamLogic
     currentTeamId: number | null // teamLogic
-    scanError: string | null
+    scanError: unknown
     scanRequest: ObservationRequestApi | null
     scanStarting: boolean
     scanState: AfterClickingScanState
@@ -122,7 +126,7 @@ export interface afterClickingScanLogicMeta {
             sessionsLoading: boolean,
             scanRequest: ObservationRequestApi | null,
             scanStarting: boolean,
-            scanError: string | null
+            scanError: unknown
         ) => AfterClickingScanState
     }
 }
@@ -166,10 +170,7 @@ export const afterClickingScanLogic = kea<afterClickingScanLogicType>([
     reducers({
         scanRequest: [null as ObservationRequestApi | null, { setScanRequest: (_, { request }) => request }],
         scanStarting: [false, { scanSessions: () => true, setScanRequest: () => false, failScan: () => false }],
-        scanError: [
-            null as string | null,
-            { scanSessions: () => null, failScan: (_, { error }) => scanErrorMessage(error) },
-        ],
+        scanError: [null as unknown, { scanSessions: () => null, failScan: (_, { error }) => error }],
     }),
     selectors({
         scanState: [
@@ -182,13 +183,13 @@ export const afterClickingScanLogic = kea<afterClickingScanLogicType>([
                 scanError: afterClickingScanLogicValues['scanError']
             ): AfterClickingScanState => {
                 if (scanError) {
-                    return { kind: 'scan-error', message: scanRequest ? POLL_ERROR : scanError }
+                    return { kind: 'scan-error', message: scanErrorMessage(scanError, !!scanRequest) }
                 }
                 if (scanRequest) {
                     return scanRequestState(scanRequest)
                 }
                 if (scanStarting) {
-                    return { kind: 'scanning', done: 0, total: sessions?.sessions.length ?? 0 }
+                    return { kind: 'scanning', done: 0, total: endedSessionIds(sessions).length }
                 }
                 if (sessionsLoading) {
                     return { kind: 'loading-sessions' }
@@ -196,10 +197,12 @@ export const afterClickingScanLogic = kea<afterClickingScanLogicType>([
                 if (!sessions) {
                     return { kind: 'sessions-error' }
                 }
-                if (sessions.sessions.length === 0) {
+                const ended = endedSessionIds(sessions).length
+                if (ended === 0) {
                     return { kind: 'no-sessions' }
                 }
-                return { kind: 'ready', sessionCount: sessions.sessions.length, hasMore: sessions.has_more }
+                const hasRecent = ended < sessions.sessions.length
+                return { kind: 'ready', sessionCount: ended, hasMore: sessions.has_more, hasRecent }
             },
         ],
     }),
@@ -210,7 +213,7 @@ export const afterClickingScanLogic = kea<afterClickingScanLogicType>([
                 cache.scanKey = uuid()
                 // pinned: analytics event name - renaming breaks dashboards
                 posthog.capture('transactional email impact scan started', {
-                    sessions: values.sessions?.sessions.length ?? 0,
+                    sessions: endedSessionIds(values.sessions).length,
                     days: props.days,
                 })
             }
@@ -219,9 +222,8 @@ export const afterClickingScanLogic = kea<afterClickingScanLogicType>([
                 request = values.scanRequest
                     ? await visionRequestsRetrieve(String(values.currentTeamId), values.scanRequest.id)
                     : await visionRequestsCreate(String(values.currentTeamId), {
-                          session_ids: (values.sessions?.sessions ?? []).map((session) => session.session_id),
+                          session_ids: endedSessionIds(values.sessions),
                           inline: { prompt: SCAN_PROMPT, scanner_config: { allow_inconclusive: true } },
-                          wait_for_session_end: true,
                           reference: `workflows-email:${props.workflowId}`,
                           idempotency_key: cache.scanKey,
                       })
@@ -241,7 +243,6 @@ export const afterClickingScanLogic = kea<afterClickingScanLogicType>([
                 }, 'scanPoll')
                 return
             }
-            cache.disposables.dispose('scanPoll')
             // pinned: analytics event name - renaming breaks dashboards
             posthog.capture('transactional email impact scan completed', {
                 sessions: request.sessions.length,
@@ -250,7 +251,6 @@ export const afterClickingScanLogic = kea<afterClickingScanLogicType>([
             })
         },
         failScan: ({ error }) => {
-            cache.disposables.dispose('scanPoll')
             // pinned: analytics event name - renaming breaks dashboards
             posthog.capture('transactional email impact scan failed', {
                 stage: values.scanRequest ? 'poll' : 'start',

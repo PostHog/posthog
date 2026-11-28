@@ -54,6 +54,7 @@ interface FakeReplayVision {
     startsRunning: boolean
     lostCreateAnswers: number
     failedPolls: number
+    pollFailure: [number, Record<string, string>]
     createGate: Promise<void>
     answers: Map<string, string>
 }
@@ -96,6 +97,7 @@ describe('AfterClickingCard', () => {
             startsRunning: false,
             lostCreateAnswers: 0,
             failedPolls: 0,
+            pollFailure: [502, {}],
             createGate: Promise.resolve(),
             answers: new Map(),
         }
@@ -113,11 +115,18 @@ describe('AfterClickingCard', () => {
                     return [
                         200,
                         {
-                            sessions: ['session-a', 'session-b'].map((session_id) => ({
-                                session_id,
-                                message_id: `message-${session_id}`,
-                                first_pageview_at: '2026-11-26T10:00:00Z',
-                            })),
+                            sessions: [
+                                ...['session-a', 'session-b'].map((session_id) => ({
+                                    session_id,
+                                    message_id: `message-${session_id}`,
+                                    first_pageview_at: '2026-11-26T10:00:00Z',
+                                })),
+                                {
+                                    session_id: 'session-recording',
+                                    message_id: 'message-session-recording',
+                                    first_pageview_at: new Date().toISOString(),
+                                },
+                            ],
                             has_more: false,
                         },
                     ]
@@ -129,7 +138,7 @@ describe('AfterClickingCard', () => {
                     }
                     if (vision.failedPolls > 0) {
                         vision.failedPolls -= 1
-                        return [502, {}]
+                        return vision.pollFailure
                     }
                     return [200, finished(scan, vision.answers.get(scan.id) ?? ANSWER)]
                 },
@@ -230,7 +239,8 @@ describe('AfterClickingCard', () => {
     it("asks the fixed question about the period's sessions and shows each answer", async () => {
         renderTab(REPLAY_ON)
 
-        await userEvent.click(await screen.findByText('Scan sessions'))
+        expect(await screen.findByText(/Sessions from the last 6 hours wait until they have ended/)).toBeInTheDocument()
+        await userEvent.click(screen.getByText('Scan sessions'))
 
         expect(await screen.findByText(ANSWER)).toBeInTheDocument()
         expect(screen.getByText('Inconclusive')).toBeInTheDocument()
@@ -246,7 +256,6 @@ describe('AfterClickingCard', () => {
                     prompt: expect.stringContaining('Did the person finish what they came to do?'),
                     scanner_config: { allow_inconclusive: true },
                 },
-                wait_for_session_end: true,
                 reference: `workflows-email:${WORKFLOW_ID}`,
             }),
         ])
@@ -258,17 +267,27 @@ describe('AfterClickingCard', () => {
         )
     })
 
-    it('resumes the same scan after a poll fails', async () => {
+    test.each([
+        { pollFailure: [502, {}] as [number, Record<string, string>], shows: /progress couldn't load/ },
+        {
+            pollFailure: [403, { detail: 'You no longer have access to these recordings.' }] as [
+                number,
+                Record<string, string>,
+            ],
+            shows: /no longer have access/,
+        },
+    ])('resumes the same scan after a poll fails with $pollFailure.0', async ({ pollFailure, shows }) => {
         jest.useFakeTimers({ doNotFake: ['queueMicrotask', 'nextTick', 'setImmediate'] })
         vision.startsRunning = true
         vision.failedPolls = 1
+        vision.pollFailure = pollFailure
         renderTab(REPLAY_ON)
         const user = userEvent.setup({ advanceTimers: jest.advanceTimersByTime })
 
         await user.click(await screen.findByText('Scan sessions'))
-        expect(await screen.findByText(/^0 of 1\ssession scanned\./)).toBeInTheDocument()
+        expect(await screen.findByText(/^0 of 1\ssession scanned$/)).toBeInTheDocument()
         await act(() => jest.advanceTimersByTimeAsync(SCAN_POLL_INTERVAL_MS))
-        expect(await screen.findByText(/progress couldn't load/)).toBeInTheDocument()
+        expect(await screen.findByText(shows)).toBeInTheDocument()
         await user.click(screen.getByText('Try again'))
 
         expect(await screen.findByText(ANSWER)).toBeInTheDocument()
@@ -314,7 +333,7 @@ describe('AfterClickingCard', () => {
         linkTrackingOn = false
         const trackingOff = { email_workflow_run_link_tag_enabled: false }
         renderTab({ ...REPLAY_ON, workflows_config: { ...REPLAY_ON.workflows_config, ...trackingOff } })
-        expect(await screen.findByText('No sessions yet')).toBeInTheDocument()
+        expect(await screen.findByText('No sessions to scan yet')).toBeInTheDocument()
 
         linkTrackingOn = true
         act(() => {

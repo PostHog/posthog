@@ -136,7 +136,7 @@ export const Ready: StoryObj<AfterClickingStoryArgs> = {
 export const Scanning: StoryObj<AfterClickingStoryArgs> = {
     render: Template,
     args: { sessions: SESSIONS },
-    play: ({ canvasElement }) => scan(canvasElement, /^5 of 12\ssessions scanned\./),
+    play: ({ canvasElement }) => scan(canvasElement, /^5 of 12\ssessions scanned$/),
 }
 
 export const Answers: StoryObj<AfterClickingStoryArgs> = {
@@ -151,7 +151,7 @@ export const Answers: StoryObj<AfterClickingStoryArgs> = {
 export const NoSessionsYet: StoryObj<AfterClickingStoryArgs> = {
     render: Template,
     args: { sessions: { sessions: [], has_more: false } },
-    parameters: { testOptions: { waitForSelector: 'text=No sessions yet' } },
+    parameters: { testOptions: { waitForSelector: 'text=No sessions to scan yet' } },
 }
 
 export const ScanError: StoryObj<AfterClickingStoryArgs> = {

@@ -44,8 +44,8 @@ export function AfterClickingScanPanel(): JSX.Element {
             )
         case 'no-sessions':
             return (
-                <AfterClickingNotice title="No sessions yet">
-                    <span className="text-secondary text-sm">No sessions started from this email in this period.</span>
+                <AfterClickingNotice title="No sessions to scan yet">
+                    <span className="text-secondary text-sm">Sessions show up here 6 hours after they start.</span>
                 </AfterClickingNotice>
             )
         case 'ready':
@@ -56,6 +56,7 @@ export function AfterClickingScanPanel(): JSX.Element {
                         {pluralize(state.sessionCount, 'session', 'sessions', !state.hasMore)} people started from this
                         email and answers one question for each: {SCAN_QUESTION} Each session it scans uses Replay
                         vision credits.
+                        {state.hasRecent && ' Sessions from the last 6 hours wait until they have ended.'}
                     </span>
                     {scanButton('Scan sessions')}
                 </AfterClickingNotice>
@@ -65,8 +66,7 @@ export function AfterClickingScanPanel(): JSX.Element {
                 <AfterClickingNotice title="Scanning sessions">
                     <LemonProgress className="self-stretch" percent={(state.done / Math.max(state.total, 1)) * 100} />
                     <span className="text-secondary text-sm">
-                        {`${state.done} of ${pluralize(state.total, 'session', 'sessions')} scanned. `}
-                        Replay vision scans each session once it has ended, so a session still recording waits.
+                        {`${state.done} of ${pluralize(state.total, 'session', 'sessions')} scanned`}
                     </span>
                 </AfterClickingNotice>
             )
