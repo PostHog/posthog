@@ -17,6 +17,7 @@ import datetime as dt
 from collections import Counter
 from collections.abc import Sequence
 
+from django.conf import settings
 from django.core.cache import caches
 from django.utils import timezone
 
@@ -27,7 +28,7 @@ from posthog.dataclasses import frozen
 from posthog.llm.gateway_client import resolve_ai_gateway_config
 from posthog.security.llm_prompt_sanitization import sanitize_user_text
 
-from products.aeo.backend import catalog
+from products.aeo.backend import catalog, decisions, keyword_candidates
 from products.aeo.backend.brand import brand_names
 from products.aeo.backend.engines import AICreditsExhausted
 from products.aeo.backend.facade.contracts import (
@@ -257,9 +258,46 @@ def _excluded_terms(request: KeywordSuggestionRequest, context: KeywordContext) 
     return frozenset(terms)
 
 
+def candidate_texts(request: KeywordSuggestionRequest, context: KeywordContext) -> dict[str, list[str]]:
+    """The project's material, by source, for the phrases Jev picks keywords from."""
+    return {
+        "prompt": [_plain(p, 300) for p in context.prompts[:MAX_PROMPTS_IN_INSTRUCTIONS]],
+        "topic": [_plain(t, 100) for t in context.topics[:MAX_TOPICS_IN_INSTRUCTIONS]],
+        "description": [_plain(request.description, 1000)] if request.description else [],
+        "search": [_plain(s.search, 200) for s in context.top_searches],
+    }
+
+
+def select_keyword_suggestions(
+    team_id: int, request: KeywordSuggestionRequest, context: KeywordContext, *, count: int
+) -> list[KeywordSuggestion]:
+    """Keywords Jev picks from the project's own phrases. Raises `decisions.DecisionError` without an answer."""
+    candidates = keyword_candidates.extract_candidates(
+        candidate_texts(request, context),
+        max_words=MAX_KEYWORD_WORDS,
+        existing_keywords=context.existing_keywords,
+        excluded_terms=_excluded_terms(request, context),
+    )
+    return keyword_candidates.select_keywords(team_id, request, candidates, count=count, searches=context.searches)
+
+
 def generate_keyword_suggestions(
     team_id: int, request: KeywordSuggestionRequest, context: KeywordContext, *, count: int
 ) -> list[KeywordSuggestion]:
+    if settings.AEO_JEV_KEYWORDS:
+        return decisions.with_fallback(
+            lambda: select_keyword_suggestions(team_id, request, context, count=count),
+            lambda: write_keyword_suggestions(team_id, request, context, count=count),
+            team_id=team_id,
+            feature=keyword_candidates.FEATURE,
+        )
+    return write_keyword_suggestions(team_id, request, context, count=count)
+
+
+def write_keyword_suggestions(
+    team_id: int, request: KeywordSuggestionRequest, context: KeywordContext, *, count: int
+) -> list[KeywordSuggestion]:
+    """Keywords Claude writes after researching the site."""
     gateway = resolve_ai_gateway_config()
     if gateway is None:
         raise KeywordSuggestionError("Keyword suggestions are not available on this instance")

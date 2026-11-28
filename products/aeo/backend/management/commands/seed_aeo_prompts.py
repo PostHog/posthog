@@ -1,12 +1,15 @@
+import dataclasses
 from typing import Any
 
+from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError, CommandParser
 
 from posthog.models.team import Team
 
+from products.aeo.backend import catalog, decisions, topic_tagging
 from products.aeo.backend.facade.contracts import PromptLimitError
 from products.aeo.backend.models import AEOPrompt
-from products.aeo.backend.seeding import import_prompts_csv, upsert_prompts
+from products.aeo.backend.seeding import PromptCandidate, import_prompts_csv, upsert_prompts
 
 
 class Command(BaseCommand):
@@ -30,6 +33,8 @@ class Command(BaseCommand):
             raise CommandError(f"Team {options['team_id']} does not exist")
 
         candidates = import_prompts_csv(options["csv"], source=options["csv_source"])
+        if settings.AEO_JEV_TOPICS:
+            candidates = _with_topics(team, candidates)
         for candidate in candidates:
             self.stdout.write(f"  [{candidate.source}] {candidate.text[:100]}")
 
@@ -50,3 +55,31 @@ class Command(BaseCommand):
                 f"({total_active} active total for team {team.id})"
             )
         )
+
+
+def _with_topics(team: Team, candidates: list[PromptCandidate]) -> list[PromptCandidate]:
+    """Give each untagged prompt the closest topic the team already tracks, when Jev is confident of one."""
+    untagged = [index for index, candidate in enumerate(candidates) if not candidate.topic]
+    existing = list(
+        AEOPrompt.objects.for_team(team.id)
+        .filter(archived_at__isnull=True)
+        .exclude(topic="")
+        .values_list("topic", flat=True)
+        .distinct()
+    )
+    if not untagged or not existing:
+        return candidates
+    own = catalog.own_domains(team.id)
+    tagged = decisions.with_fallback(
+        lambda: topic_tagging.tag_topics(
+            team.id, [candidates[index].text for index in untagged], existing, site=own[0] if own else ""
+        ),
+        lambda: [""] * len(untagged),
+        team_id=team.id,
+        feature=topic_tagging.FEATURE,
+    )
+    result = list(candidates)
+    for index, topic in zip(untagged, tagged):
+        if topic:
+            result[index] = dataclasses.replace(result[index], topic=topic)
+    return result

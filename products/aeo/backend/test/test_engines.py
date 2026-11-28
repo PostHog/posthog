@@ -25,7 +25,7 @@ from products.aeo.backend.engines import (
     ClaudeWebSearchEngine,
     OpenAIWebSearchEngine,
     PerplexityWebSearchEngine,
-    _SharedBackoff,
+    SharedBackoff,
     anthropic_truncated_error,
     available_engines,
     build_check_fields,
@@ -576,7 +576,7 @@ def test_gateway_post_json_retries_throttling_and_transient_errors(
     session.post.side_effect = responses
 
     with (
-        patch("products.aeo.backend.engines.GATEWAY_BACKOFF", _SharedBackoff()),
+        patch("products.aeo.backend.engines.GATEWAY_BACKOFF", SharedBackoff()),
         _fake_clock() as sleep,
     ):
         if raises is None:
@@ -598,7 +598,7 @@ def test_gateway_post_json_retries_throttling_and_transient_errors(
 def test_shared_backoff_waits_for_the_latest_deadline(
     _name: str, pauses: list[float], extend_during_sleep: float | None, sleeps: list[float]
 ) -> None:
-    backoff = _SharedBackoff()
+    backoff = SharedBackoff()
 
     def other_worker_pauses() -> None:
         if extend_during_sleep is not None:

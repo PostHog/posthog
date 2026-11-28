@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import uuid
 import datetime as dt
+from collections.abc import Mapping
 from urllib.parse import urlparse
 
+from django.conf import settings
 from django.db import connection
 from django.db.models import QuerySet
 from django.utils import timezone
@@ -15,6 +17,7 @@ import tldextract
 from posthog.dataclasses import frozen
 from posthog.models.scoping.manager import resolve_effective_team_id
 
+from products.aeo.backend import competitors, decisions, shadow
 from products.aeo.backend.brand import SEGMENT_SQL, brand_names, branded_filter, names_brand, segment_sql_params
 from products.aeo.backend.engines import is_target_url, own_domains_key, target_position
 from products.aeo.backend.facade.contracts import (
@@ -342,6 +345,10 @@ _COMPETITOR_CANDIDATES_SQL = f"""
 """
 
 
+# Asking about more brands than this per read costs more model time than the page saves a person.
+MAX_BRANDS_TO_CONFIRM = 48
+
+
 def competitor_candidates(team_id: int, *, limit: int) -> list[CompetitorCandidate]:
     team_id = resolve_effective_team_id(team_id)
     own = own_domains(team_id)
@@ -376,7 +383,32 @@ def competitor_candidates(team_id: int, *, limit: int) -> list[CompetitorCandida
             -max(row[1], row[2]),
             brands[row[0]].domain,
         ),
-    )[:limit]
+    )
+    asked_rows = ranked[:MAX_BRANDS_TO_CONFIRM]
+    asked_brands = [
+        competitors.BrandInput(name=brands[row[0]].name, domain=brands[row[0]].domain) for row in asked_rows
+    ]
+    live_model = shadow.LIVE_HEURISTIC
+    live_decisions = {brand.domain: True for brand in asked_brands}
+    if settings.AEO_JEV_COMPETITORS and own:
+        verdicts = decisions.with_fallback(
+            lambda: competitors.confirm_competitors(team_id, _site_context(team_id, own), asked_brands),
+            lambda: None,
+            team_id=team_id,
+            feature=competitors.FEATURE,
+        )
+        if verdicts is not None:
+            live_model = shadow.LIVE_JEV
+            live_decisions = {v.brand.domain: v.is_competitor for v in verdicts}
+            ranked = [row for row in asked_rows if live_decisions[brands[row[0]].domain]]
+    if settings.AEO_DECISION_SHADOW and own:
+        shadow.queue_competitor_shadow(
+            team_id,
+            site=_site_context(team_id, own),
+            brands=asked_brands,
+            live_model=live_model,
+            live_decisions=live_decisions,
+        )
     return [
         CompetitorCandidate(
             brand_id=str(brand_id),
@@ -385,5 +417,10 @@ def competitor_candidates(team_id: int, *, limit: int) -> list[CompetitorCandida
             answers_naming=naming,
             answers_citing=citing,
         )
-        for brand_id, naming, citing in ranked
+        for brand_id, naming, citing in ranked[:limit]
     ]
+
+
+def _site_context(team_id: int, own: list[str]) -> Mapping[str, str]:
+    own_brand = AEOBrand.objects.for_team(team_id).filter(domain=own[0]).values_list("name", flat=True).first() or ""
+    return competitors.site_context(domain=own[0], brand=own_brand)

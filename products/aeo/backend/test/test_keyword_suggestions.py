@@ -1,14 +1,17 @@
 import json
 
 import pytest
+from unittest.mock import patch
 
 from products.aeo.backend.facade.contracts import KeywordSuggestionError, KeywordSuggestionRequest
+from products.aeo.backend.keyword_candidates import KeywordCandidate, extract_candidates, select_keywords
 from products.aeo.backend.keyword_suggestions import (
     KeywordContext,
     build_keyword_instructions,
     parse_keyword_suggestions,
     suggestion_count,
 )
+from products.aeo.backend.test.fake_decisions import FakeDecisionModel
 
 # One tuple per answered check: the first check ran two searches that both contain "session replay".
 SEARCHES = (("session replay tools 2026", "best session replay"), ("session replay",), ("feature flags pricing",))
@@ -92,3 +95,48 @@ def test_instructions_rank_the_engine_searches_and_list_tracked_keywords() -> No
     assert "Competitors: Dropbox" in instructions
     assert "- file sharing for teams (2)\n- secure file transfer (1)" in instructions
     assert "which you must not repeat:\n- x\n- file sync" in instructions
+
+
+def test_extract_candidates_keeps_shared_or_repeated_phrases_and_drops_the_brand_and_tracked_keywords() -> None:
+    candidates = extract_candidates(
+        {
+            "prompt": [
+                "What is the best session replay tool for mobile apps?",
+                "Which session replay tool is open source?",
+                "Is Hedgebox good for product analytics?",
+            ],
+            "topic": ["Product analytics"],
+            "search": ["feature flags pricing"],
+            "description": ["Hedgebox records sessions for mobile apps."],
+        },
+        max_words=4,
+        existing_keywords=frozenset({"product analytics"}),
+        excluded_terms=frozenset({"hedgebox"}),
+    )
+
+    keywords = [candidate.keyword for candidate in candidates]
+    # Shared by prompts and the description, so first; "replay tool" is only ever inside the longer phrase.
+    assert keywords[0] == "mobile apps"
+    assert "session replay tool" in keywords and "replay tool" not in keywords
+    assert "feature flags pricing" in keywords, "a search is already a chosen phrase, one occurrence is enough"
+    assert "product analytics" not in keywords and not any("hedgebox" in keyword for keyword in keywords)
+    assert "open source" not in keywords, "one prompt saying it once is noise"
+    assert "replay" not in keywords and "apps" not in keywords, "a lone word nobody searched for is a fragment"
+
+
+def test_select_keywords_keeps_the_models_order_and_drops_unlikely_phrases() -> None:
+    candidates = [
+        KeywordCandidate(keyword="session replay", sources={"prompt": 2}),
+        KeywordCandidate(keyword="mobile apps", sources={"prompt": 1, "search": 1}),
+        KeywordCandidate(keyword="good for", sources={"prompt": 3}),
+    ]
+    model = FakeDecisionModel({"session replay": 0.8, "mobile apps": 0.95, "good for": 0.2}.__getitem__)
+
+    with patch("products.aeo.backend.decisions.build_system_one_client", return_value=model):
+        suggestions = select_keywords(
+            1, KeywordSuggestionRequest(domain="example.com"), candidates, count=5, searches=SEARCHES
+        )
+
+    assert [(s.keyword, s.searched_checks) for s in suggestions] == [("mobile apps", 0), ("session replay", 2)]
+    assert suggestions[0].reason == "Appears in 1 tracked question, 1 engine search."
+    assert model.requests[0]["site"] == "example.com"

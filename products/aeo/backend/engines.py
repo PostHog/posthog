@@ -154,7 +154,7 @@ def _retry_delay_seconds(response: requests.Response, attempt: int) -> float:
     return min(GATEWAY_RETRY_BASE_SECONDS * 2**attempt, GATEWAY_RETRY_MAX_SECONDS)
 
 
-class _SharedBackoff:
+class SharedBackoff:
     """A pause every worker thread honours before its next gateway request. One throttled
     response pauses the whole run, so the other workers stop adding load while it backs off."""
 
@@ -177,7 +177,7 @@ class _SharedBackoff:
             time.sleep(remaining)
 
 
-GATEWAY_BACKOFF = _SharedBackoff()
+GATEWAY_BACKOFF = SharedBackoff()
 
 CREDIT_REFUSAL_DENIAL = "credit_bucket_exhausted"
 
