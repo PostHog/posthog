@@ -13,6 +13,8 @@ import type {
     BulkUpdateTagsUUIDResponseApi,
     EnterpriseEventDefinitionApi,
     EnterpriseEventDefinitionRequestApi,
+    EventDefinitionBulkUpdateHiddenRequestApi,
+    EventDefinitionBulkUpdateHiddenResponseApi,
     EventDefinitionBulkUpdateVerifiedRequestApi,
     EventDefinitionBulkUpdateVerifiedResponseApi,
     EventDefinitionRecordApi,
@@ -190,6 +192,35 @@ export const eventDefinitionsStopIngestingCreate = async (
         ...options,
         method: 'POST',
     })
+}
+
+export const getEventDefinitionsBulkUpdateHiddenCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/event_definitions/bulk_update_hidden/`
+}
+
+/**
+ * Hide or unhide multiple event definitions in one request.
+ *
+ * Mirrors ``bulk_update_verified``: ``hidden`` lives on the ``EnterpriseEventDefinition``
+ * extension, so this requires an enterprise license, scopes by project, lazily promotes base
+ * rows, skips events already in the target state, and logs a "changed" activity per event.
+ * Mirrors the single-object semantics: hiding unverifies the event (an event cannot be both
+ * hidden and verified); unhiding cancels a scheduled delete.
+ */
+export const eventDefinitionsBulkUpdateHiddenCreate = async (
+    projectId: string,
+    eventDefinitionBulkUpdateHiddenRequestApi: EventDefinitionBulkUpdateHiddenRequestApi,
+    options?: RequestInit
+): Promise<EventDefinitionBulkUpdateHiddenResponseApi> => {
+    return apiMutator<EventDefinitionBulkUpdateHiddenResponseApi>(
+        getEventDefinitionsBulkUpdateHiddenCreateUrl(projectId),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(eventDefinitionBulkUpdateHiddenRequestApi),
+        }
+    )
 }
 
 export const getEventDefinitionsBulkUpdateTagsCreateUrl = (projectId: string) => {

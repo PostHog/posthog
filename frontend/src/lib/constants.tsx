@@ -343,6 +343,7 @@ export const FEATURE_FLAGS = {
     ERROR_TRACKING_RELATED_ISSUES: 'error-tracking-related-issues', // owner: #team-error-tracking
     ERROR_TRACKING_SENTRY_MIGRATION: 'error-tracking-sentry-migration', // owner: @ablaszkiewicz #team-error-tracking
     ERROR_TRACKING_WEEKLY_DIGEST: 'error-tracking-weekly-digest', // owner: #team-error-tracking
+    EVENT_DEFINITIONS_BULK_HIDE: 'event-definitions-bulk-hide', // owner: #team-analytics, gates Hide and Unhide in the events table's Bulk edit menu and the bulk_update_hidden endpoint
     EXPERIMENT_BEHAVIOR_COMPARISON: 'experiment-behavior-comparison', // owner: @mp-hog #team-experiments
     EXPERIMENT_HEALTH_FINDINGS: 'experiment-health-findings', // owner: @mp-hog #team-experiments, shows the server's health findings as the health panel instead of the page's own warnings
     EXPERIMENT_METRIC_EVENT_BREAKDOWNS: 'experiment-metric-event-breakdowns', // owner: @rodrigoi #team-experiments
