@@ -42,7 +42,12 @@ from products.workflows.backend.presentation.views.workflow_imports import Custo
 from products.workflows.backend.services.customerio_import import conditions, liquid
 from products.workflows.backend.services.customerio_import.images import _file_name
 from products.workflows.backend.services.customerio_import.segments import segment_cohort_filters
-from products.workflows.backend.services.customerio_import.translator import _json_with_liquid, translate_campaign
+from products.workflows.backend.services.customerio_import.translator import (
+    TRANSACTIONAL_TOPIC_CATEGORY,
+    WORKFLOW_EMAIL_IS_MARKETING,
+    _json_with_liquid,
+    translate_campaign,
+)
 
 
 def _encode(condition: list[dict[str, Any]]) -> str:
@@ -151,6 +156,13 @@ class TestCustomerioCampaignTranslation(BaseTest):
     def setUp(self) -> None:
         super().setUp()
         _sync_templates()
+
+    def test_an_imported_draft_cannot_add_a_transactional_email(self) -> None:
+        workflow = translate_campaign(_onboarding_campaign(), _OPTIONS).workflow
+        email = next(action for action in workflow["actions"] if action["type"] == "function_email")
+        email["config"]["message_category_type"] = "transactional"
+
+        assert validated_draft(self.team, workflow, EventSource.API) is None
 
     def test_translated_campaign_saves_as_a_draft_with_the_same_paths(self) -> None:
         translated = translate_campaign(_onboarding_campaign(), _OPTIONS)
@@ -380,7 +392,7 @@ class TestCustomerioCampaignTranslation(BaseTest):
         assert (welcome["message_category_id"], welcome["message_category_type"]) == ("cat-1", "marketing")
         assert actions_by_id["cio_5"]["config"]["message_category_id"] == "cat-2"
         nudge = actions_by_id["cio_7"]["config"]
-        assert (nudge.get("message_category_id"), nudge["message_category_type"]) == (None, "transactional")
+        assert (nudge.get("message_category_id"), nudge.get("message_category_type")) == (None, None)
         nudge_html = nudge["inputs"]["email"]["value"]["html"]
         assert "<title>Tips &amp; tricks for {{ person.properties.company }}</title>" in nudge_html
         assert "<h1>{{ message.subject | upcase }}</h1>" in nudge_html
@@ -402,6 +414,29 @@ class TestCustomerioCampaignTranslation(BaseTest):
         assert any(text.startswith('Only people in segment "Beta list" (9) can enter') for _, _, text in messages)
         assert not any(step == "cio_1" and "sender" in text for _, step, text in messages)
         assert any(step == "cio_7" and "`message`" in text for _, step, text in messages)
+        assert (NoteLevel.APPROXIMATED, "cio_7", WORKFLOW_EMAIL_IS_MARKETING) in messages
+
+    def test_an_email_under_a_transactional_topic_imports_as_marketing(self) -> None:
+        source = _onboarding_campaign()
+        actions = [
+            {**action, "subscription_topic_id": 3} if action["id"] == "1" else action for action in source.actions
+        ]
+        options = ImportOptions(
+            snippets={},
+            segment_cohorts={},
+            topic_categories={"3": ImportCategory(id="cat-receipts", category_type="transactional")},
+        )
+
+        translated = translate_campaign(
+            CampaignSource(campaign=source.campaign, actions=actions, templates=source.templates), options
+        )
+
+        welcome = next(action for action in translated.workflow["actions"] if action["id"] == "cio_1")["config"]
+        assert (welcome.get("message_category_id"), welcome.get("message_category_type")) == (None, None)
+        assert any(
+            (note.level, note.step_id, note.message) == (NoteLevel.NEEDS_INPUT, "cio_1", TRANSACTIONAL_TOPIC_CATEGORY)
+            for note in translated.notes
+        )
 
     def test_email_keeps_copies_and_names_what_it_drops(self) -> None:
         source = _onboarding_campaign()

@@ -34,6 +34,8 @@ def checked_draft(
             "event_source": event_source,
             # Checks gated on the user, like cohort conditions, need the caller's request.
             "request": request,
+            # Imports and data suggestions author new steps, so the transactional step rules apply.
+            "authors_new_workflow": True,
         },
     )
     validate_graph(workflow["actions"], workflow["edges"])

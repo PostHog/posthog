@@ -282,12 +282,12 @@ describe('workflowLogic pages opened from a link or a template', () => {
             { from: trigger.id, to: email.id, type: 'continue' },
             { from: email.id, to: exit.id, type: 'continue' },
         ])
+        expect(email.config).not.toHaveProperty('message_category_type')
         expect(email).toMatchObject({
             type: 'function_email',
             name: 'Order receipt',
             config: {
                 template_id: 'template-email',
-                message_category_type: 'transactional',
                 inputs: {
                     email: {
                         templating: 'liquid',

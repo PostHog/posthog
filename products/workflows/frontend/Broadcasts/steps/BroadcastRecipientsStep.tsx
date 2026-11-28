@@ -121,6 +121,10 @@ function MessageCategoryPicker(): JSX.Element {
     const { setEmailSettings } = useActions(broadcastWizardLogic)
     const { categories, categoriesLoading } = useValues(optOutCategoriesLogic())
     const selected = categories.find((category) => category.id === emailSettings.messageCategoryId)
+    // The API refuses a new transactional email step, so only a category the broadcast already uses stays offered.
+    const choices = categories.filter(
+        (category) => channel !== 'email' || category.category_type === 'marketing' || category.id === selected?.id
+    )
 
     return (
         <div className="flex flex-col gap-1 mt-4">
@@ -144,7 +148,7 @@ function MessageCategoryPicker(): JSX.Element {
                 }
                 options={[
                     { value: null, label: 'No category' },
-                    ...categories.map((category) => ({
+                    ...choices.map((category) => ({
                         value: category.id,
                         label: category.name,
                         labelInMenu: `${category.name} (${category.category_type})`,

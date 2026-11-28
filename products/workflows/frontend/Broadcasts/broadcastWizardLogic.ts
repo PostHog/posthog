@@ -211,6 +211,16 @@ export const DEFAULT_BROADCAST_EMAIL_SETTINGS: BroadcastEmailSettings = {
     utmParams: {},
 }
 
+/** A copy of an email broadcast is a new email step, which the API refuses as transactional. */
+export function withoutTransactionalEmailCategory(
+    settings: BroadcastEmailSettings,
+    channel: BroadcastChannel
+): BroadcastEmailSettings {
+    return channel === 'email' && settings.messageCategoryType === 'transactional'
+        ? { ...settings, messageCategoryId: null, messageCategoryType: null }
+        : settings
+}
+
 /** The push step's inputs the wizard edits, mirroring the `template-native-push` template. */
 export interface BroadcastPushValue {
     /** Firebase and Apple push integrations to send through. */
@@ -1354,6 +1364,8 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
             DEFAULT_BROADCAST_EMAIL_SETTINGS,
             {
                 setEmailSettings: (state, { settings }) => ({ ...state, ...settings }),
+                // A push broadcast may be transactional, but the API refuses a new transactional email step.
+                setChannel: (state, { channel }) => withoutTransactionalEmailCategory(state, channel),
                 // Not setEmailSettings: that one autosaves, and opening /broadcasts/new must not create a draft.
                 seedTeamUtmDefaults: (state, { settings }) => ({ ...state, ...settings }),
                 hydrateFromBroadcast: (state, { broadcast }) => readEmailSettings(broadcast) ?? state,
@@ -2821,7 +2833,12 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                 // the wizard's review and launch like any other send.
                 const copy = await hogFlowsCreate(
                     String(values.currentProjectId),
-                    buildBroadcastPayload({ ...values, name: `${values.name} (copy)`, broadcast: null }) as any
+                    buildBroadcastPayload({
+                        ...values,
+                        name: `${values.name} (copy)`,
+                        broadcast: null,
+                        emailSettings: withoutTransactionalEmailCategory(values.emailSettings, values.channel),
+                    }) as any
                 )
                 actions.duplicateBroadcastFinished()
                 router.actions.push(urls.broadcast(copy.id))

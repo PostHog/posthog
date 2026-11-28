@@ -37,8 +37,8 @@ export function prefilledWorkflow(base: HogFlow, trigger: WorkflowTriggerConfig,
 }
 
 /**
- * A new workflow that sends a transactional template's published email, the way its API sends do:
- * on every trigger and past marketing opt-outs. Pass no sensitive template: an event run stores the values it sends.
+ * A new workflow that sends a transactional template's published email on every trigger. Workflow emails are
+ * marketing email, so it skips people who opted out. Pass no sensitive template: an event run stores the values it sends.
  */
 export function templatePrefilledWorkflow(
     base: HogFlow,
@@ -53,12 +53,13 @@ export function templatePrefilledWorkflow(
             key === 'design' && someString(value, setsOwnVariables) ? value : withEventPropertiesForVariables(value),
         ])
     ) as typeof email
-    const emailAction = emailStep(
-        TEMPLATE_EMAIL_ACTION_ID,
-        template.name,
-        { cc: '', bcc: '', replyTo: '', ...content, from: typeof from === 'object' && from ? from : {} },
-        { message_category_type: 'transactional' }
-    )
+    const emailAction = emailStep(TEMPLATE_EMAIL_ACTION_ID, template.name, {
+        cc: '',
+        bcc: '',
+        replyTo: '',
+        ...content,
+        from: typeof from === 'object' && from ? from : {},
+    })
     return { ...withEmailStep(base, trigger, emailAction), name: template.name }
 }
 
@@ -134,12 +135,7 @@ function withTriggerConfigOnly(base: HogFlow, trigger: WorkflowTriggerConfig): H
     }
 }
 
-function emailStep(
-    id: string,
-    name: string,
-    value: Record<string, unknown>,
-    stepConfig: Record<string, unknown> = {}
-): HogFlowAction {
+function emailStep(id: string, name: string, value: Record<string, unknown>): HogFlowAction {
     return {
         id,
         type: 'function_email',
@@ -149,7 +145,6 @@ function emailStep(
         updated_at: 0,
         config: {
             template_id: 'template-email',
-            ...stepConfig,
             inputs: { email: { templating: 'liquid', value: { ...value, to: PERSON_RECIPIENT } } },
         },
     } as HogFlowAction

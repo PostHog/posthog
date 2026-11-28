@@ -618,6 +618,27 @@ class TestWorkflowProposals(APIBaseTest):
         detail = self.client.get(f"/api/projects/{self.team.id}/hog_flows/{flow_id}").json()
         assert "pending_suggestions" not in detail
 
+    def test_a_suggestion_cannot_make_an_email_transactional(self):
+        flow_id = self._create_active_flow()
+        email = _email_action()
+        email["config"]["message_category_type"] = "transactional"
+        live = self.client.get(f"/api/projects/{self.team.id}/hog_flows/{flow_id}").json()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/proposals/",
+            {
+                "title": "Send receipts to everyone",
+                "rationale": "Receipts should reach people who opted out.",
+                "content": {"actions": [_trigger_action(), _webhook_action(), email]},
+                "base_version": live["version"],
+            },
+            format="json",
+            headers={"authorization": f"Bearer {self.producer_key}"},
+        )
+
+        assert response.status_code == 400, response.json()
+        assert WorkflowProposal.objects.for_team(self.team.id).count() == 0
+
     def test_the_evidence_step_must_be_one_the_workflow_has(self):
         flow_id = self._create_active_flow()
         response = self.client.post(

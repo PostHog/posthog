@@ -32,6 +32,14 @@ _EXIT_ID = "exit_node"
 _MAX_DELAY_SECONDS = 365 * 86400
 _MAX_WAIT_SECONDS = 30 * 86400
 _MIN_REENTRY_SECONDS = 60
+WORKFLOW_EMAIL_IS_MARKETING = (
+    "Customer.io sends this email to unsubscribed people too. Workflow emails skip people who opted out. "
+    "Send emails people must get, such as receipts, with the transactional email API."
+)
+TRANSACTIONAL_TOPIC_CATEGORY = (
+    "This email's subscription topic maps to a transactional message category, and workflow emails are marketing "
+    "email. Pick a marketing category, or send this email with the transactional email API."
+)
 _MAX_REENTRY_SECONDS = 3 * 365 * 86400
 # Unit, seconds per unit, and the largest amount a workflow accepts in that unit.
 _DURATION_UNITS: tuple[tuple[str, int, int | None], ...] = (
@@ -713,9 +721,12 @@ class _Builder:
             topic_id = self.campaign.get("subscription_topic_id")
         if topic_id:
             category = self.options.topic_categories.get(str(topic_id))
-            if category is not None:
+            if category is not None and category.category_type == "marketing":
                 config["message_category_id"] = category.id
                 config["message_category_type"] = category.category_type
+                return
+            if category is not None:
+                self.note(NoteLevel.NEEDS_INPUT, TRANSACTIONAL_TOPIC_CATEGORY, action)
                 return
             self.note(
                 NoteLevel.NEEDS_INPUT,
@@ -725,7 +736,7 @@ class _Builder:
                 action,
             )
         if source.get("send_to_unsubscribed"):
-            config["message_category_type"] = "transactional"
+            self.note(NoteLevel.APPROXIMATED, WORKFLOW_EMAIL_IS_MARKETING, action)
 
     def _webhook(self, source: dict[str, Any], action: dict[str, Any]) -> dict[str, Any]:
         template = self._template(source, action)

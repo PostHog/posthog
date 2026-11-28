@@ -346,6 +346,7 @@ from products.workflows.backend.facade.tasks import schedule_batch_run_settle
 from products.workflows.backend.facade.templates import get_function_template_schema
 from products.workflows.backend.facade.validation import (
     DURATION_PATTERN,
+    added_transactional_email_steps,
     duration_cap_error,
     duration_error,
     duration_minutes,
@@ -354,8 +355,12 @@ from products.workflows.backend.facade.validation import (
     find_clock_function,
     find_group_field,
     find_realtime_behavioral_cohort,
+    holds_transactional_step,
     is_duration,
     is_signed_duration,
+    is_transactional_origin,
+    keeps_transactional_shape,
+    new_reserved_steps,
     realtime_audience_cohort,
     realtime_cohort_cant_finish_error,
 )
@@ -1102,6 +1107,9 @@ SANDBOX_SENDER_SETUP_FAILURES = Counter(
     labelnames=["path"],
 )
 WORKFLOW_SAVE_ACTIONS = frozenset({"create", "update", "partial_update", "graph", "action_email", "publish"})
+# A proposal's steps reach the live workflow through approval and publish, which compare against the staged draft.
+STEP_AUTHORING_ACTIONS = WORKFLOW_SAVE_ACTIONS | {"proposals"}
+DRAFT_EDIT_ACTIONS = frozenset({"update", "partial_update", "graph", "action_email"})
 
 
 def _with_default_senders_on_new_email_steps(data: Any, instance: Any, context: dict) -> Any:
@@ -1919,6 +1927,9 @@ class HogFlowActionSerializer(serializers.Serializer):
             "function_push also accepts sensitive?: <bool> (default false) - when true, the notification is "
             "still sent but PostHog keeps no copy of its title, subtitle, body or image, and the run keeps "
             "no variables, so it can't be rerun. "
+            "Workflow email steps are marketing email: a new function_email or email_sandbox step can't set "
+            "message_category_type to transactional, unless the trigger fires only on support ($conversation_*) "
+            "events. Send transactional email with the transactional email API. "
             "email_sandbox: {message_category_id?, message_category_type?: marketing|transactional, "
             "inputs: {email: {templating: hog|liquid, value: {to: {email, name?}, subject, preheader?, text?, "
             "html?, design?}}}}. Sends from the PostHog test sender to members of the organization only, "
@@ -3929,7 +3940,8 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
         required=False,
         allow_null=True,
         help_text="Product surface that owns this workflow (e.g. `loops` for Desktop loops). Set only when "
-        "creating a workflow, and never to `transactional_email_keys`: the email send API sets that one. "
+        "creating a workflow, and never to `transactional_emails`, `transactional_email_keys` or "
+        "`transactional_push`: the transactional send APIs set those. "
         "Filter the list with `?origin_product=`.",
     )
     source_record = serializers.RegexField(
@@ -4367,7 +4379,68 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
     def validate_origin_product(self, value: str | None) -> str | None:
         if value == HogFlowOriginProduct.TRANSACTIONAL_EMAIL_KEYS:
             raise serializers.ValidationError("A code send key's workflow is made by its first send.")
+        if is_transactional_origin(value):
+            raise serializers.ValidationError(
+                "A transactional message's workflow is made when its template is made transactional."
+            )
         return value
+
+    def _validate_transactional_steps(
+        self, data: dict, origin_product: str | None, stored: Optional[WorkflowEditState]
+    ) -> None:
+        """Usage reports count a send as transactional by its step id, so only the workflows the transactional send
+        APIs made may hold that step, and they keep the shape those APIs run."""
+        if origin_product and is_transactional_origin(origin_product):
+            actions = _steps(data["actions"]) if "actions" in data else _steps(stored.actions if stored else None)
+            edges = _steps(data["edges"]) if "edges" in data else _steps(stored.edges if stored else None)
+            if keeps_transactional_shape(origin_product, actions, edges):
+                self._refuse_marketing_category_on_transactional_step(actions)
+                return
+            # The send APIs always store the reserved step. A workflow made through the API before it refused
+            # transactional origins has none, and saves like any other workflow.
+            if stored is None or holds_transactional_step(origin_product, _steps(stored.actions)):
+                raise serializers.ValidationError(
+                    {
+                        "actions": "This workflow runs a transactional send, so its steps can't change. "
+                        "Edit its template to change the message."
+                    }
+                )
+        if "actions" not in data:
+            return
+        submitted = _steps(data["actions"])
+        existing = [_steps(stored.actions)] if stored else []
+        # An edit may keep the steps already staged in the draft. Publishing a draft, or suggesting a change, compares
+        # against the live steps alone, because a suggestion or a restored revision reaches the draft unchecked.
+        if stored and getattr(self.context.get("view"), "action", None) in DRAFT_EDIT_ACTIONS:
+            existing.append(_steps((stored.draft or {}).get("actions")))
+        if reserved := new_reserved_steps(submitted, *existing):
+            raise serializers.ValidationError(
+                {"actions": f"The step id '{reserved[0]}' is reserved for transactional sends. Use another id."}
+            )
+        if added := added_transactional_email_steps(submitted, *existing):
+            raise serializers.ValidationError(
+                {
+                    "actions": f"Email steps in workflows can't be transactional. Choose a marketing category for "
+                    f"'{added[0]}', or send transactional email with the transactional email API."
+                }
+            )
+
+    def _refuse_marketing_category_on_transactional_step(self, actions: list[Any]) -> None:
+        get_team = self.context.get("get_team")
+        if get_team is None:
+            return
+        for step in actions:
+            category_id = (step.get("config") or {}).get("message_category_id")
+            if not category_id:
+                continue
+            try:
+                category = get_category(get_team().id, category_id)
+            except MessageCategoryMissing:
+                continue
+            if category.category_type != "transactional":
+                raise serializers.ValidationError(
+                    {"actions": "Transactional messages ignore opt-outs. Choose a transactional category."}
+                )
 
     def validate(self, data):
         instance = cast(Optional[WorkflowEditState], self.instance)
@@ -4387,6 +4460,12 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
         stored = instance or self.context.get("instance")
         actions = data.get("actions", instance.actions if instance else [])
         origin_product = stored.origin_product if stored else data.get("origin_product")
+        authors_steps = (
+            getattr(self.context.get("view"), "action", None) in STEP_AUTHORING_ACTIONS
+            or self.context.get("authors_new_workflow") is True
+        )
+        if ("actions" in data or "edges" in data) and authors_steps:
+            self._validate_transactional_steps(data, origin_product, stored)
         if origin_product and any(
             isinstance(action, dict) and action.get("type") == SANDBOX_EMAIL_ACTION_TYPE
             for action in data.get("actions", stored.actions if stored else None) or []
@@ -4605,6 +4684,10 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
                         event_config["filters"] = event_serializer.validated_data
 
         return data
+
+
+def _steps(value: Any) -> list[dict[str, Any]]:
+    return value if isinstance(value, list) else []
 
 
 class HogFlowUpdateSerializer(HogFlowSerializer):
@@ -8552,7 +8635,7 @@ class HogFlowViewSet(
             team_id=hog_flow.team_id, hog_flow_id=hog_flow.id, actor=self._activity_actor()
         ):
             raise exceptions.ValidationError(
-                {"detail": "Only a workflow that sends one email to a batch audience can become a broadcast."}
+                {"detail": "Only a workflow that sends one marketing email to a batch audience can become a broadcast."}
             )
         return Response(
             HogFlowConvertedToBroadcastSerializer(

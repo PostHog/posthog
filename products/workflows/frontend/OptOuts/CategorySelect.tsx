@@ -2,18 +2,23 @@ import { useValues } from 'kea'
 
 import { LemonSelect } from '@posthog/lemon-ui'
 
-import { optOutCategoriesLogic } from './optOutCategoriesLogic'
+import { MessageCategory, optOutCategoriesLogic } from './optOutCategoriesLogic'
 
 export const CategorySelect = ({
     onChange,
     value,
     placeholder = 'Select message type',
+    transactionalCategories,
 }: {
     onChange: (value: string) => void
     value?: string
     placeholder?: string
+    /** The transactional categories to offer. All of them when not given. */
+    transactionalCategories?: MessageCategory[]
 }): JSX.Element => {
     const { categories, categoriesLoading } = useValues(optOutCategoriesLogic())
+    const transactional =
+        transactionalCategories ?? categories.filter((category) => category.category_type === 'transactional')
 
     return (
         <LemonSelect
@@ -35,15 +40,17 @@ export const CategorySelect = ({
                             value: category.id,
                         })),
                 },
-                {
-                    title: 'Transactional',
-                    options: categories
-                        .filter((category) => category.category_type === 'transactional')
-                        .map((category) => ({
-                            label: category.name,
-                            value: category.id,
-                        })),
-                },
+                ...(transactional.length
+                    ? [
+                          {
+                              title: 'Transactional',
+                              options: transactional.map((category) => ({
+                                  label: category.name,
+                                  value: category.id,
+                              })),
+                          },
+                      ]
+                    : []),
             ]}
             placeholder={placeholder}
         />
