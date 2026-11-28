@@ -355,6 +355,62 @@ class TestRouteThreadMessage(TestCase):
         start.assert_called_once()
         mock_delay.assert_not_called()
 
+    @parameterized.expand(
+        [
+            ("a post a product takes", {}, "slack", True, True, False),
+            ("a post no product takes", {}, "slack", False, True, True),
+            # The other region holds other projects, so its handlers see the post that its mirror carries.
+            ("a post the other region mirrored", {}, "mirror", True, True, False),
+            ("a thread reply", {"thread_ts": "1999.0000"}, "slack", True, False, False),
+            ("a bot post", {"bot_id": "B_OTHER"}, "slack", True, False, False),
+            ("an edit", {"subtype": "message_changed"}, "slack", True, False, False),
+            ("an externally shared channel", {}, "shared", True, False, False),
+            # A post that tags the app is a command, which the ``app_mention`` copy runs.
+            (
+                "a post that tags the app",
+                {"text": "<@U0BOT> stamp https://github.com/org/repo/pull/7"},
+                "slack",
+                True,
+                False,
+                False,
+            ),
+        ]
+    )
+    def test_a_channel_message_handler_that_takes_a_post_keeps_it_from_the_agent(
+        self, _name, overrides, delivery, takes, expect_offer, expect_question
+    ):
+        from products.slack_app.backend.api import (
+            EMIT_ONLY_MIRROR_HEADER,
+            REGION_PROXY_HEADER,
+            route_posthog_code_event_to_relevant_region,
+        )
+
+        offered: list[tuple[str, str, str, tuple[int, ...]]] = []
+
+        def handler(message):
+            offered.append((message.channel_id, message.message_ts, message.slack_user_id, message.poster_user_ids()))
+            return takes
+
+        overrides = dict(overrides)
+        text = overrides.pop(
+            "text", "How many people signed up last week in PostHog? https://github.com/org/repo/pull/7"
+        )
+        event = self._make_question_event(text=text, **overrides)
+        headers = {REGION_PROXY_HEADER: "1", EMIT_ONLY_MIRROR_HEADER: "1"} if delivery == "mirror" else {}
+        request = self.factory.post("/slack/event-callback/", HTTP_HOST="us.posthog.com", headers=headers)
+        with (
+            patch.dict("posthog.slack.channel_messages._handlers", {"test": handler}, clear=True),
+            patch("products.slack_app.backend.api.get_cached_bot_user_id", return_value="U0BOT"),
+            patch("products.slack_app.backend.slack_workflow_events.produce_internal_event"),
+            patch("products.slack_app.backend.api._start_mention_workflow") as mock_start,
+        ):
+            route_posthog_code_event_to_relevant_region(
+                request, event, "T_SLACK", is_ext_shared_channel=delivery == "shared"
+            )
+
+        assert offered == ([("C002", "2000.0000", "U_BOB", (self.bob.id,))] if expect_offer else [])
+        assert mock_start.called is expect_question
+
     # --- Mapping + FF gate -------------------------------------------------
 
     def test_thread_without_mapping_dropped(self):

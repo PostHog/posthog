@@ -8,10 +8,11 @@ import contextvars
 from collections.abc import AsyncGenerator, Callable, Iterable, Iterator
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import contextmanager, nullcontext
+from dataclasses import asdict
 from datetime import timedelta
 from enum import StrEnum
 from functools import partial
-from typing import TYPE_CHECKING, Any, Optional, TypedDict, cast
+from typing import TYPE_CHECKING, Any, Optional, cast
 
 from django.conf import settings
 from django.core.exceptions import ValidationError as DjangoValidationError
@@ -45,6 +46,7 @@ from drf_spectacular.extensions import OpenApiSerializerExtension
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_field, extend_schema_view
 from opentelemetry import trace
+from pydantic import JsonValue
 from rest_framework import exceptions, serializers, status, viewsets
 from rest_framework.fields import empty
 from rest_framework.permissions import SAFE_METHODS, BasePermission
@@ -103,14 +105,11 @@ from posthog.models.group_type_mapping import (
 )
 from posthog.models.quick_filter import QuickFilter
 from posthog.models.tagged_item import TaggedItem
-from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.permissions import dashboard_v2_enabled
 from posthog.renderers import SafeJSONRenderer, ServerSentEventRenderer
 from posthog.resource_limits import LimitKey, check_count_limit
 from posthog.session_recordings.session_recording_api import get_replay_listing_throttle_error
-from posthog.slo.context import SloSpec, slo_operation
-from posthog.slo.types import SloArea, SloOperation
 from posthog.sync import database_sync_to_async
 from posthog.user_permissions import UserPermissionsSerializerMixin
 from posthog.utils import (
@@ -138,18 +137,31 @@ from products.dashboards.backend.facade.access import (
     record_dashboard_view,
 )
 from products.dashboards.backend.facade.api import (
-    CachedTileStatus,
     CannotAddToDashboard,
     add_insight_to_dashboard,
     apply_dashboard_template,
     apply_dashboard_template_json,
     board_stream_cached_event,
     create_unlisted_dashboard,
+    create_widget_tiles,
     read_cached_tiles,
     shared_tile_work,
     tile_ids_prefetch,
+    update_widget,
+    validate_new_widget,
+    widget_product_access_error,
 )
-from products.dashboards.backend.facade.contracts import DashboardCustomizationRejected
+from products.dashboards.backend.facade.contracts import (
+    CachedTileResult,
+    DashboardCustomizationRejected,
+    DashboardQuerySharingCachedEvent,
+    DashboardQuerySharingTileEvent,
+    NewWidgetTile,
+    WidgetPatch,
+    WidgetRun,
+    WidgetRunRefusal,
+    WidgetRunResult,
+)
 from products.dashboards.backend.facade.customization import (
     clear_home_tab_dashboard,
     normalize_dashboard_customization,
@@ -172,14 +184,19 @@ from products.dashboards.backend.facade.enums import (
     MAX_GROUPS,
     MAX_TEXT_TILE_AGENT_CONTEXT_LENGTH,
     MAX_WIDGETS_BATCH_SIZE,
+    CachedTileStatus,
     DashboardAccessMethod,
     DashboardTileBadge,
     ResultFormat,
 )
-from products.dashboards.backend.facade.query_sharing import (
-    MAX_CACHED_TILES_BATCH_SIZE,
-    DashboardQuerySharingStream,
-    DashboardQuerySharingStreamEvent,
+from products.dashboards.backend.facade.query_sharing import MAX_CACHED_TILES_BATCH_SIZE, query_results_stream
+from products.dashboards.backend.facade.widgets import (
+    EXPECTED_WIDGET_TYPES,
+    plan_widget_runs,
+    public_widget_config,
+    run_widget,
+    widget_catalog,
+    widget_feature_enabled,
 )
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import ButtonTile, DashboardTile, Text
@@ -219,29 +236,13 @@ from products.dashboards.backend.presentation.widget_openapi_serializers import 
     BreakdownColorConfigSerializer,
     DashboardTileGroupSerializer,
     DashboardWidgetConfigField,
+    DashboardWidgetType,
     PatchedDashboardOpenApiSerializer,
     UpdateDashboardWidgetRequestOpenApi,
     WidgetCatalogResponseSerializer,
 )
 from products.dashboards.backend.presentation.widget_query_throttle import get_dashboard_widget_query_throttle_error
-from products.dashboards.backend.widget_access import (
-    check_widget_tile_product_access,
-    get_widget_api_scope_error,
-    get_widget_product_access_error,
-)
-from products.dashboards.backend.widget_availability import get_widget_feature_enabled
-from products.dashboards.backend.widget_catalog import get_widget_catalog_entries, parse_widget_type_filter
-from products.dashboards.backend.widget_create import create_widget_tile, prepare_widget_tile_create
-from products.dashboards.backend.widget_layouts import collect_dashboard_sm_layouts_for_dashboard
-from products.dashboards.backend.widget_registry import (
-    EXPECTED_WIDGET_TYPES,
-    SESSION_REPLAY_LIST_WIDGET_TYPE,
-    count_active_widget_filters,
-    extract_widget_filters,
-    get_widget_registry_entry,
-    validate_widget_config,
-)
-from products.dashboards.backend.widget_specs.configs import CONVERSATIONS_RECENT_TICKETS_WIDGET_TYPE
+from products.dashboards.backend.presentation.widgets import get_widget_api_scope_error, parse_widget_type_filter
 from products.mcp_analytics.backend.facade import api as mcp_analytics_api
 from products.notifications.backend.facade.api import (
     NotificationData,
@@ -429,65 +430,12 @@ WIDGET_TYPE_API_HELP = (
 )
 
 
-class _RunWidgetQueryWorkItem(TypedDict):
-    tile_id: int
-    widget_type: str
-    query_fn: Any
-    config: dict[str, Any]
-    user: User | None
-
-
-def _run_in_context(context: contextvars.Context, work: Callable[[], dict[str, Any]]) -> dict[str, Any]:
+def _run_in_context(context: contextvars.Context, work: Callable[[], WidgetRunResult]) -> WidgetRunResult:
     return context.run(work)
 
 
-def _run_widget_query(
-    team: Team,
-    work_item: _RunWidgetQueryWorkItem,
-    *,
-    dashboard_id: int,
-    distinct_id: str,
-) -> dict[str, Any]:
-    tile_id = work_item["tile_id"]
-    widget_type = work_item["widget_type"]
-
-    with slo_operation(
-        spec=SloSpec(
-            distinct_id=distinct_id,
-            area=SloArea.ANALYTIC_PLATFORM,
-            operation=SloOperation.DASHBOARD_WIDGET_DELIVERY,
-            team_id=team.id,
-            resource_id=str(tile_id),
-        ),
-        properties={
-            "widget_type": widget_type,
-            "dashboard_id": dashboard_id,
-            "tile_id": tile_id,
-        },
-    ) as slo:
-        try:
-            query_fn = work_item["query_fn"]
-            result = query_fn(
-                team,
-                work_item["config"],
-                user=work_item["user"],
-                include_total_count=False,
-            )
-            return {
-                "tile_id": tile_id,
-                "widget_type": widget_type,
-                "result": result,
-                "error": None,
-            }
-        except Exception as exc:
-            logger.exception("dashboard_run_widgets_failed", tile_id=tile_id, widget_type=widget_type)
-            slo.fail_with_error(exc)
-            return {
-                "tile_id": tile_id,
-                "widget_type": widget_type,
-                "result": None,
-                "error": "Widget query failed. Please try again later.",
-            }
+def _widget_run_error(tile_id: int, widget_type: str | None, error: str) -> dict[str, Any]:
+    return {"tile_id": tile_id, "widget_type": widget_type, "result": None, "error": error}
 
 
 def _tile_rects_overlap(rect_a: dict[str, int], rect_b: dict[str, int]) -> bool:
@@ -600,13 +548,20 @@ def serialize_tile_with_context(tile, order: int, context: dict) -> tuple[int, d
         return order, tile_data
 
 
-def _serialize_shared_tile(tile: DashboardTile, order: int, context: dict) -> DashboardQuerySharingStreamEvent:
+def _serialize_shared_tile(tile: DashboardTile, order: int, context: dict) -> DashboardQuerySharingTileEvent:
     _, data = serialize_tile_with_context(tile, order, context)
-    return {"type": "tile", "tile": cast(dict[str, object], data)}
+    return DashboardQuerySharingTileEvent(tile=cast(dict[str, JsonValue], data))
 
 
-def _shared_tile_access_denied(tile_id: int) -> DashboardQuerySharingStreamEvent:
-    return {"type": "tile", "tile": {"id": tile_id, "error": {"type": "access_denied"}}}
+def _shared_tile_access_denied(tile_id: int) -> DashboardQuerySharingTileEvent:
+    return DashboardQuerySharingTileEvent(tile={"id": tile_id, "error": {"type": "access_denied"}})
+
+
+def _cached_tile_json(result: CachedTileResult) -> dict[str, Any]:
+    data: dict[str, Any] = {"id": result.id, "status": result.status}
+    if result.insight is not None:
+        data["insight"] = result.insight
+    return data
 
 
 def serialize_tile_in_request_context(
@@ -1212,13 +1167,7 @@ class SharedDashboardWidgetMetadataSerializer(serializers.ModelSerializer):
 
     @extend_schema_field(DashboardWidgetConfigField(required=False))
     def get_config(self, widget: DashboardWidget) -> dict[str, Any]:
-        # Rows of a retired widget type can still exist, and nothing says which of their config keys are public.
-        if widget.widget_type not in EXPECTED_WIDGET_TYPES:
-            return {}
-        config = dict(widget.config)
-        if widget.widget_type == CONVERSATIONS_RECENT_TICKETS_WIDGET_TYPE:
-            config.pop("search", None)
-        return config
+        return public_widget_config(widget_type=widget.widget_type, config=widget.config)
 
 
 class DashboardTileSerializer(serializers.ModelSerializer):
@@ -1925,7 +1874,7 @@ def _report_dashboard_tile_added(
         "dashboard_id": dashboard.id,
         "dashboard_widget_count": _count_active_widget_tiles(dashboard),
     }
-    feature_enabled = get_widget_feature_enabled(widget_type, dashboard.team)
+    feature_enabled = widget_feature_enabled(widget_type=widget_type, team=dashboard.team)
     if feature_enabled is not None:
         # False means the user lands on the widget's setup/custom view rather than real data.
         widget_properties["feature_enabled"] = feature_enabled
@@ -2459,7 +2408,11 @@ class DashboardSerializer(DashboardMetadataSerializer):
         widget: DashboardWidget,
         user_access_control: UserAccessControl,
     ) -> None:
-        check_widget_tile_product_access(widget, user_access_control)
+        access_error = widget_product_access_error(
+            widget_type=widget.widget_type, user_access_control=user_access_control
+        )
+        if access_error:
+            raise exceptions.PermissionDenied(access_error)
 
     @monitor(feature=Feature.DASHBOARD, endpoint="dashboard", method="PATCH")
     def update(self, instance: Dashboard, validated_data: dict, *args: Any, **kwargs: Any) -> Dashboard:
@@ -2775,43 +2728,37 @@ class DashboardSerializer(DashboardMetadataSerializer):
     @staticmethod
     def _apply_patch_widget_update(
         *,
-        widget: DashboardWidget,
+        widget_id: uuid.UUID,
         widget_data: dict[str, Any],
         user: User,
         user_access_control: UserAccessControl,
         dashboard: Dashboard,
         request: Request | None = None,
     ) -> None:
-        DashboardSerializer._check_widget_tile_product_access(widget, user_access_control)
+        patch_fields = ("widget_type", "config", "name", "description")
         patch_widget_type = widget_data.get("widget_type")
-        if patch_widget_type is not None and str(patch_widget_type) != widget.widget_type:
-            raise serializers.ValidationError({"widget": "widget_type cannot be changed."})
-
-        previous_widget_filters = extract_widget_filters(widget.widget_type, widget.config)
-        if "config" in widget_data:
-            config_patch = widget_data["config"]
-            widget.config = validate_widget_config(
-                widget.widget_type,
-                {**widget.config, **config_patch},
-            )
-        if "name" in widget_data:
-            widget.name = widget_data["name"] or None
-        if "description" in widget_data:
-            widget.description = widget_data["description"]
-        widget.last_modified_by = user
-        widget.last_modified_at = now()
-        widget.save()
-
-        new_widget_filters = extract_widget_filters(widget.widget_type, widget.config)
-        if "config" in widget_data and new_widget_filters != previous_widget_filters:
+        updated = update_widget(
+            team_id=dashboard.team_id,
+            widget_id=widget_id,
+            user=user,
+            user_access_control=user_access_control,
+            patch=WidgetPatch(
+                fields_set=frozenset(field for field in patch_fields if field in widget_data),
+                widget_type=str(patch_widget_type) if patch_widget_type is not None else None,
+                config=widget_data.get("config"),
+                name=widget_data.get("name"),
+                description=widget_data.get("description", ""),
+            ),
+        )
+        if updated.filters_changed:
             report_user_action(
                 user,
                 "dashboard widget filters updated",
                 {
-                    "widget_type": widget.widget_type,
+                    "widget_type": updated.widget_type,
                     "dashboard_id": dashboard.id,
-                    "widget_id": str(widget.id),
-                    "filters_count": count_active_widget_filters(widget.widget_type, widget.config),
+                    "widget_id": str(widget_id),
+                    "filters_count": updated.filters_count,
                 },
                 team=dashboard.team,
                 request=request,
@@ -3007,7 +2954,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
                     if not DashboardTile.objects.filter(dashboard=instance, widget_id=existing_widget_id).exists():
                         raise serializers.ValidationError({"widget": "Widget tile not found."})
                     DashboardSerializer._apply_patch_widget_update(
-                        widget=widget,
+                        widget_id=widget.id,
                         widget_data=widget_data,
                         user=user,
                         user_access_control=user_access_control,
@@ -3018,12 +2965,12 @@ class DashboardSerializer(DashboardMetadataSerializer):
                     raise serializers.ValidationError({"widget": "Widget not found in this team."})
             else:
                 try:
-                    canonical_widget_type, config = prepare_widget_tile_create(
+                    new_widget = validate_new_widget(
                         team=instance.team,
-                        widget_type=str(widget_data["widget_type"]),
-                        config=widget_data.get("config", {}),
                         user=user,
                         user_access_control=user_access_control,
+                        widget_type=str(widget_data["widget_type"]),
+                        config=widget_data.get("config", {}),
                     )
                 except serializers.ValidationError as exc:
                     raise DashboardSerializer._widget_tile_validation_error(exc) from exc
@@ -3032,10 +2979,10 @@ class DashboardSerializer(DashboardMetadataSerializer):
 
                 widget = DashboardWidget.objects.create(
                     team_id=instance.team_id,
-                    widget_type=canonical_widget_type,
+                    widget_type=new_widget.widget_type,
                     name=widget_data.get("name") or None,
                     description=widget_data.get("description", ""),
-                    config=config,
+                    config=new_widget.config,
                     created_by=user,
                     last_modified_by=user,
                 )
@@ -3833,17 +3780,16 @@ class DashboardsViewSet(
         )
         context.update(tile_insights_context(tiles))
         by_id = {tile.id: tile for tile in tiles}
-        initial_events: list[DashboardQuerySharingStreamEvent] = []
+        cached: DashboardQuerySharingCachedEvent | None = None
         compute_ids = tile_ids
         if params.validated_data["cached_first"]:
             cached = board_stream_cached_event(
                 self._read_cached_tiles(request, dashboard, tile_ids),
                 force=params.validated_data["refresh"] == DashboardSharingRefreshType.FORCE_BLOCKING,
             )
-            compute_ids = cached["pending"]
-            initial_events.append(cached)
+            compute_ids = cached.pending
         order_of = {tile_id: order for order, tile_id in enumerate(tile_ids)}
-        jobs: list[Callable[[], DashboardQuerySharingStreamEvent]] = []
+        jobs: list[Callable[[], DashboardQuerySharingTileEvent]] = []
         for tile_id in compute_ids:
             tile = by_id[tile_id]
             level = access_by_team[tile.insight.team_id].get_user_access_level(tile.insight)
@@ -3851,19 +3797,16 @@ class DashboardsViewSet(
                 jobs.append(partial(_shared_tile_access_denied, tile_id))
             else:
                 jobs.append(partial(_serialize_shared_tile, tile, order_of[tile_id], context))
-        stream = DashboardQuerySharingStream(
+        stream = query_results_stream(
             jobs=jobs,
             team_id=self.team.pk,
             query_id=str(params.validated_data["client_query_id"]),
-            debug_tile_ids=compute_ids if params.validated_data["debug"] else (),
-            initial_events=initial_events,
             share_queries=share_queries,
-            kind="board" if initial_events else "sharing",
+            asynchronous=settings.SERVER_GATEWAY_INTERFACE == "ASGI",
+            debug_tile_ids=compute_ids if params.validated_data["debug"] else (),
+            cached=cached,
         )
-        return sse_streaming_response(
-            stream.astream() if settings.SERVER_GATEWAY_INTERFACE == "ASGI" else stream.stream(),
-            endpoint="dashboard_query_sharing",
-        )
+        return sse_streaming_response(stream, endpoint="dashboard_query_sharing")
 
     def _get_layout_size_from_request(self, request: Request) -> str:
         """Extract layout size parameter from request."""
@@ -4634,9 +4577,10 @@ class DashboardsViewSet(
             serialize_tile=serialize_tile,
             context=context,
         )
-        for result in results:
-            result |= tile_formats.get(result["id"], {})
-        return results
+        cached_tiles = [_cached_tile_json(result) for result in results]
+        for cached_tile in cached_tiles:
+            cached_tile |= tile_formats.get(cached_tile["id"], {})
+        return cached_tiles
 
     @extend_schema(
         parameters=[
@@ -4660,113 +4604,59 @@ class DashboardsViewSet(
 
         dashboard = self.get_object()
         user_access_control = UserAccessControl(user=cast(User, request.user), team=self.team)
-        distinct_id = str(cast(User, request.user).distinct_id)
-
-        tiles_by_id = {
-            tile.id: tile
-            for tile in DashboardTile.objects.select_related("widget").filter(
-                dashboard=dashboard, id__in=tile_ids, widget__isnull=False
-            )
-        }
 
         results_by_id: dict[int, dict[str, Any]] = {}
-        query_work_items: list[_RunWidgetQueryWorkItem] = []
+        runs: list[WidgetRun] = []
 
-        for tile_id in tile_ids:
-            tile = tiles_by_id.get(tile_id)
-            if tile is None or tile.widget is None:
-                results_by_id[tile_id] = {
-                    "tile_id": tile_id,
-                    "widget_type": None,
-                    "result": None,
-                    "error": "Tile not found or is not a widget tile.",
-                }
+        for plan in plan_widget_runs(dashboard_id=dashboard.id, tile_ids=tile_ids):
+            if isinstance(plan, WidgetRunRefusal):
+                results_by_id[plan.tile_id] = _widget_run_error(plan.tile_id, plan.widget_type, plan.error)
                 continue
 
-            widget = tile.widget
-            registry_entry = get_widget_registry_entry(widget.widget_type)
-            if registry_entry is None:
-                results_by_id[tile_id] = {
-                    "tile_id": tile_id,
-                    "widget_type": widget.widget_type,
-                    "result": None,
-                    "error": f"Unknown widget type: {widget.widget_type}",
-                }
-                continue
-
-            access_error = get_widget_product_access_error(registry_entry, user_access_control)
-            if access_error:
-                results_by_id[tile_id] = {
-                    "tile_id": tile_id,
-                    "widget_type": widget.widget_type,
-                    "result": None,
-                    "error": access_error,
-                }
-                continue
-
-            scope_error = get_widget_api_scope_error(registry_entry, request)
-            if scope_error:
-                results_by_id[tile_id] = {
-                    "tile_id": tile_id,
-                    "widget_type": widget.widget_type,
-                    "result": None,
-                    "error": scope_error,
-                }
-                continue
-
-            widget_throttle_error = get_dashboard_widget_query_throttle_error(request, self)
-            if widget_throttle_error:
-                results_by_id[tile_id] = {
-                    "tile_id": tile_id,
-                    "widget_type": widget.widget_type,
-                    "result": None,
-                    "error": widget_throttle_error,
-                }
-                continue
-
-            if widget.widget_type == SESSION_REPLAY_LIST_WIDGET_TYPE:
-                replay_throttle_error = get_replay_listing_throttle_error(request, self)
-                if replay_throttle_error:
-                    results_by_id[tile_id] = {
-                        "tile_id": tile_id,
-                        "widget_type": widget.widget_type,
-                        "result": None,
-                        "error": replay_throttle_error,
-                    }
-                    continue
-
-            query_work_items.append(
-                {
-                    "tile_id": tile_id,
-                    "widget_type": widget.widget_type,
-                    "query_fn": registry_entry["query_fn"],
-                    "config": widget.config,
-                    "user": cast(User, request.user),
-                }
+            # The checks run in this order and stop at the first error, so a refused tile takes no throttle token.
+            error = (
+                widget_product_access_error(widget_type=plan.widget_type, user_access_control=user_access_control)
+                or get_widget_api_scope_error(plan.required_scopes, request)
+                or get_dashboard_widget_query_throttle_error(request, self)
+                or (
+                    get_replay_listing_throttle_error(request, self)
+                    if plan.widget_type == DashboardWidgetType.SESSION_REPLAY_LIST
+                    else None
+                )
             )
+            if error:
+                results_by_id[plan.tile_id] = _widget_run_error(plan.tile_id, plan.widget_type, error)
+                continue
 
-        if query_work_items:
-            max_workers = min(RUN_WIDGETS_QUERY_CONCURRENCY, len(query_work_items))
+            runs.append(plan)
+
+        if runs:
+            max_workers = min(RUN_WIDGETS_QUERY_CONCURRENCY, len(runs))
             with ThreadPoolExecutor(max_workers=max_workers) as executor:
                 # Each worker gets a copy of the request context, so the query tags (such as the API key
                 # access method that the metrics concurrency limits read) reach the widget query.
-                futures = {
+                futures = [
                     executor.submit(
                         _run_in_context,
                         contextvars.copy_context(),
                         partial(
-                            _run_widget_query,
-                            self.team,
-                            work_item,
+                            run_widget,
+                            team=self.team,
+                            user=cast(User, request.user),
                             dashboard_id=dashboard.id,
-                            distinct_id=distinct_id,
+                            run=run,
                         ),
-                    ): work_item["tile_id"]
-                    for work_item in query_work_items
-                }
+                    )
+                    for run in runs
+                ]
                 for future in as_completed(futures):
-                    tile_id = futures[future]
-                    results_by_id[tile_id] = future.result()
+                    result = future.result()
+                    results_by_id[result.tile_id] = {
+                        "tile_id": result.tile_id,
+                        "widget_type": result.widget_type,
+                        "result": result.result,
+                        "error": result.error,
+                    }
 
         results = [results_by_id[tile_id] for tile_id in tile_ids]
 
@@ -4791,7 +4681,7 @@ class DashboardsViewSet(
     def widget_catalog(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """List registered dashboard widget types and per-type config_schema documentation for agents."""
         widget_types = parse_widget_type_filter(request.query_params.getlist("widget_type"))
-        return Response({"results": get_widget_catalog_entries(widget_types)})
+        return Response({"results": [asdict(entry) for entry in widget_catalog(widget_types)]})
 
     @extend_schema(
         request=AddDashboardWidgetsBatchRequestOpenApiSerializer,
@@ -4812,24 +4702,31 @@ class DashboardsViewSet(
         user_access_control = UserAccessControl(user=user, team=self.team)
         tile_context = {**self.get_serializer_context(), "dashboard": dashboard}
 
-        with transaction.atomic():
-            existing_sm_layouts = collect_dashboard_sm_layouts_for_dashboard(dashboard)
-            pending_sm_layouts: builtins.list[dict[str, Any]] = []
-            tiles: builtins.list[DashboardTile] = []
-
-            for payload in widget_payloads:
-                tile = self._create_widget_tile_from_payload(
-                    dashboard=dashboard,
-                    user=user,
-                    user_access_control=user_access_control,
-                    payload=payload,
-                    existing_sm_layouts=existing_sm_layouts,
-                    pending_sm_layouts=pending_sm_layouts,
+        tile_ids = create_widget_tiles(
+            team_id=dashboard.team_id,
+            dashboard_id=dashboard.id,
+            user=user,
+            user_access_control=user_access_control,
+            tiles=[
+                NewWidgetTile(
+                    widget_type=payload["widget_type"],
+                    config=payload["config"],
+                    name=payload.get("name"),
+                    description=payload.get("description", ""),
+                    layouts=payload.get("layouts"),
+                    show_description=payload.get("show_description"),
                 )
-                tiles.append(tile)
-                sm_layout = tile.layouts.get("sm") if isinstance(tile.layouts, dict) else None
-                if isinstance(sm_layout, dict):
-                    pending_sm_layouts.append(sm_layout)
+                for payload in widget_payloads
+            ],
+        )
+        # The tiles were just written, so read them from the writer: a replica that lags would miss them.
+        tiles_by_id = {
+            tile.id: tile
+            for tile in DashboardTile.objects.using(router.db_for_write(DashboardTile))
+            .select_related("widget", "widget__created_by", "widget__last_modified_by")
+            .filter(dashboard=dashboard, id__in=tile_ids)
+        }
+        tiles = [tiles_by_id[tile_id] for tile_id in tile_ids]
 
         for tile in tiles:
             assert tile.widget is not None
@@ -4845,25 +4742,6 @@ class DashboardsViewSet(
         return Response(
             {"tiles": DashboardTileSerializer(tiles, context=tile_context, many=True).data},
             status=status.HTTP_201_CREATED,
-        )
-
-    def _create_widget_tile_from_payload(
-        self,
-        *,
-        dashboard: Dashboard,
-        user: User,
-        user_access_control: UserAccessControl,
-        payload: dict[str, Any],
-        existing_sm_layouts: builtins.list[dict[str, Any]] | None = None,
-        pending_sm_layouts: builtins.list[dict[str, Any]] | None = None,
-    ) -> DashboardTile:
-        return create_widget_tile(
-            dashboard=dashboard,
-            user=user,
-            user_access_control=user_access_control,
-            payload=payload,
-            existing_sm_layouts=existing_sm_layouts,
-            pending_sm_layouts=pending_sm_layouts,
         )
 
     @extend_schema(
@@ -4935,7 +4813,7 @@ class DashboardsViewSet(
             dashboard=dashboard,
             dashboard__team__project_id=self.team.project_id,
         )
-        if tile.widget is None:
+        if tile.widget_id is None:
             raise exceptions.ValidationError(f"Tile {payload['tile_id']} is not a widget tile.")
 
         widget_data: dict[str, Any] = {
@@ -4943,7 +4821,7 @@ class DashboardsViewSet(
         }
         if widget_data:
             DashboardSerializer._apply_patch_widget_update(
-                widget=tile.widget,
+                widget_id=tile.widget_id,
                 widget_data=widget_data,
                 user=user,
                 user_access_control=user_access_control,

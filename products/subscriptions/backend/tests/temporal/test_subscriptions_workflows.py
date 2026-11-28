@@ -31,14 +31,14 @@ from posthog.models.instance_setting import set_instance_setting
 from posthog.models.integration import Integration
 from posthog.slo.types import SloArea, SloConfig, SloOperation, SloOutcome
 from posthog.temporal.common.slo_interceptor import SloInterceptor
-from posthog.temporal.exports.activities import export_asset_activity
+from posthog.temporal.exports.activities import export_asset_activity, export_assets_batch_activity
 from posthog.temporal.exports.types import ExportError
 from posthog.test.insight_queries import default_pageview_query
 
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.exports.backend.models.exported_asset import ExportedAsset
-from products.exports.backend.tasks.failure_handler import ExcelColumnLimitExceeded
+from products.exports.backend.tasks.failure_handler import BrowserlessUnavailable, ExcelColumnLimitExceeded
 from products.product_analytics.backend.facade.models import Insight
 from products.subscriptions.backend.facade.contracts import (
     ProcessSubscriptionWorkflowInputs,
@@ -233,6 +233,7 @@ SUBSCRIPTION_SCHEDULE_ACTIVITIES: Sequence[Callable[..., Any]] = cast(
         validate_subscription_for_delivery,
         create_export_assets,
         export_asset_activity,
+        export_assets_batch_activity,
         deliver_subscription,
         deliver_subscription_v2,
         notify_subscription_delivery_failure,
@@ -249,6 +250,7 @@ SUBSCRIPTION_PROCESS_ACTIVITIES: Sequence[Callable[..., Any]] = cast(
         validate_subscription_for_delivery,
         create_export_assets,
         export_asset_activity,
+        export_assets_batch_activity,
         deliver_subscription,
         deliver_subscription_v2,
         notify_subscription_delivery_failure,
@@ -2258,6 +2260,86 @@ async def test_partial_export_failure_delivers_successful_assets(
     else:
         assert "error_type" not in props
         assert props["asset_errors"] == []
+
+
+@pytest.mark.parametrize("batch_render_enabled", [True, False], ids=["flag_on", "flag_off"])
+@patch("products.subscriptions.backend.logic.subscription_utils.feature_enabled_or_false")
+@patch("posthog.temporal.exports.activities.exporter")
+@patch("products.subscriptions.backend.logic.get_metric_meter")
+@patch("products.subscriptions.backend.temporal.activities.send_email_subscription_report")
+@time_machine.travel("2022-02-02T08:55:00.000Z", tick=False)
+@pytest.mark.asyncio
+async def test_batched_render_hands_back_only_what_the_batch_could_not_finish(
+    mock_send_email: MagicMock,
+    mock_metric_meter: MagicMock,
+    mock_exporter: MagicMock,
+    mock_flag: MagicMock,
+    team,
+    user,
+    batch_render_enabled: bool,
+):
+    mock_flag.return_value = batch_render_enabled
+    dashboard = await sync_to_async(Dashboard.objects.create)(team=team, name="batched", created_by=user)
+    insights = []
+    for i in range(3):
+        insight = await sync_to_async(Insight.objects.create)(team=team, short_id=f"br{i:02d}", name=f"Insight {i}")
+        await sync_to_async(DashboardTile.objects.create)(dashboard=dashboard, insight=insight)
+        insights.append(insight)
+    subscription = await sync_to_async(create_subscription)(team=team, dashboard=dashboard, created_by=user)
+    dropped_insight_id, broken_insight_id = insights[0].id, insights[1].id
+    rendered_one_by_one: list[int] = []
+
+    def save_render(asset_obj: ExportedAsset) -> None:
+        asset_obj.content_location = "s3://bucket/ok.png"
+        asset_obj.save(update_fields=["content_location"])
+
+    def fake_batched_export(assets: list[ExportedAsset], **kwargs: Any) -> dict[int, Exception]:
+        failures: dict[int, Exception] = {}
+        for asset_obj in assets:
+            if asset_obj.insight_id == dropped_insight_id:
+                failures[asset_obj.id] = BrowserlessUnavailable("Target page, context or browser has been closed")
+            elif asset_obj.insight_id == broken_insight_id:
+                failures[asset_obj.id] = QueryError("Invalid HogQL query")
+            else:
+                save_render(asset_obj)
+        return failures
+
+    def fake_export(asset_obj: ExportedAsset, **kwargs: Any) -> None:
+        if asset_obj.insight_id == broken_insight_id:
+            raise QueryError("Invalid HogQL query")
+        assert asset_obj.insight_id is not None
+        rendered_one_by_one.append(asset_obj.insight_id)
+        save_render(asset_obj)
+
+    mock_exporter.export_image_assets_batched = fake_batched_export
+    mock_exporter.export_asset_direct = fake_export
+
+    async with await WorkflowEnvironment.start_time_skipping() as env:
+        async with Worker(
+            env.client,
+            task_queue=settings.TEMPORAL_TASK_QUEUE,
+            workflows=[ProcessSubscriptionWorkflow],
+            activities=SUBSCRIPTION_PROCESS_ACTIVITIES,
+            workflow_runner=UnsandboxedWorkflowRunner(),
+            activity_executor=ThreadPoolExecutor(max_workers=10),
+            debug_mode=True,
+        ):
+            await env.client.execute_workflow(
+                ProcessSubscriptionWorkflow.run,
+                TrackedSubscriptionInputs(
+                    subscription_id=subscription.id,
+                    team_id=subscription.team_id,
+                    distinct_id=str(user.distinct_id),
+                ),
+                id=str(uuid.uuid4()),
+                task_queue=settings.TEMPORAL_TASK_QUEUE,
+            )
+
+    delivered_assets = mock_send_email.call_args_list[0][0][2]
+    assert len(delivered_assets) == 3
+    assert sorted(a.insight_id for a in delivered_assets if a.content_location) == [insights[0].id, insights[2].id]
+    expected_one_by_one = [dropped_insight_id] if batch_render_enabled else [insights[0].id, insights[2].id]
+    assert sorted(rendered_one_by_one) == expected_one_by_one
 
 
 @patch("posthog.temporal.exports.activities.exporter")

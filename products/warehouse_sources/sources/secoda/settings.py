@@ -1,4 +1,5 @@
 from dataclasses import field
+from typing import Literal
 
 from products.warehouse_sources.sources.sdk import DependentEndpointConfig, IncrementalField, frozen
 
@@ -17,6 +18,7 @@ class SecodaEndpointConfig:
     page_size: int = 0
     incremental_fields: list[IncrementalField] = field(default_factory=list)
     default_incremental_field: str | None = None
+    pagination: Literal["link", "page", "single"] = "link"
 
 
 # Secoda v1 REST list endpoints. All are full-refresh only: Secoda's List Resources filter supports
@@ -57,6 +59,17 @@ SECODA_ENDPOINTS: dict[str, SecodaEndpointConfig] = {
         ),
     ),
     "charts": SecodaEndpointConfig(name="charts", path="/api/v1/dashboard/charts"),
+    "dashboards": SecodaEndpointConfig(name="dashboards", path="/api/v1/dashboard/dashboards"),
+    "queries": SecodaEndpointConfig(name="queries", path="/api/v1/query/queries"),
+    "audit_logs": SecodaEndpointConfig(
+        name="audit_logs",
+        path="/api/v1/activity_log/audit_logs/",
+        drop_fields=("metadata", "event_blocks"),
+        pagination="page",
+    ),
+    "custom_properties": SecodaEndpointConfig(
+        name="custom_properties", path="/api/v1/resource/all_v2/custom_properties/", pagination="single"
+    ),
     "events": SecodaEndpointConfig(name="events", path="/api/v1/event/events"),
     "event_properties": SecodaEndpointConfig(name="event_properties", path="/api/v1/event/event_properties"),
     "event_categories": SecodaEndpointConfig(name="event_categories", path="/api/v1/event/category"),

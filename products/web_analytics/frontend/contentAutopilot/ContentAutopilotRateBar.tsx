@@ -1,6 +1,6 @@
 import { Progress, Tooltip, TooltipContent, TooltipTrigger } from '@posthog/quill'
 
-import { percentage } from 'lib/utils/numbers'
+import { formatShare } from './shares'
 
 /** A share as a bar on a 0 to 100% track, with the percentage beside it. The base goes in the tooltip, never the cell. */
 export const ContentAutopilotRateBar = ({ rate, tooltip }: { rate: number | null; tooltip?: string }): JSX.Element => {
@@ -8,7 +8,7 @@ export const ContentAutopilotRateBar = ({ rate, tooltip }: { rate: number | null
         return <span className="block text-right text-muted-foreground">-</span>
     }
     const value = Math.max(0, Math.min(100, rate * 100))
-    const label = percentage(rate, 0)
+    const label = formatShare(rate)
     const bar = (
         // Reversed, so the percentage that Progress draws before its track sits after it.
         <Progress

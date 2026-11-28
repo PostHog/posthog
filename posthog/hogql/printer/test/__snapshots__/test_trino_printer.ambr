@@ -320,7 +320,6 @@
     ]),
     'scalar': list([
       'IPv4ToIPv6',
-      'IPv6CIDRToRange',
       'IPv6NumToString',
       'IPv6StringToNum',
       'IPv6StringToNumOrDefault',
@@ -460,10 +459,6 @@
       'subBitmap',
       'tgamma',
       'toDateTimeUS',
-      'toIPv6',
-      'toIPv6OrDefault',
-      'toIPv6OrNull',
-      'toIPv6OrZero',
       'tryBase58Decode',
       'tumble',
       'tumbleEnd',

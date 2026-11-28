@@ -1013,6 +1013,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
             {gridWidth > 0 && activeTabIndex >= 0 && (
                 <div className={clsx(showDecorationSpace && 'mt-10', 'mb-8')}>
                     <DashboardTileGroupTabs
+                        loading={dashboardLoading || dashboardStreaming}
                         sections={tileGroupSections}
                         activeSectionKey={tileGroupSections[activeTabIndex].key}
                         onSelect={selectTileGroupTab}

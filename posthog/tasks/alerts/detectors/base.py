@@ -9,6 +9,9 @@ from posthog.tasks.alerts.detectors.normalizers import MINMAX, FitError, Normali
 from posthog.tasks.alerts.detectors.preprocessing import preprocess_data
 
 # A change to what `fit` stores or what `score` reads needs a new version, so an older artifact is never read.
+# Signals anomaly scoring keeps its stored models across a new version only through an upgrade function in
+# `ARTIFACT_UPGRADES` (products/signals/backend/anomaly_scores/artifacts.py). Without one, every stored model is
+# refit, which takes days, so a PR that changes this without an upgrade must say so and state the expected refit.
 ARTIFACT_SCHEMA_VERSION = 2
 
 

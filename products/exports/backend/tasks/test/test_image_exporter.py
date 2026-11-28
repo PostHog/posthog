@@ -1197,6 +1197,41 @@ class TestScreenshotAssetBrowserless(SimpleTestCase):
         assert isinstance(ctx.exception.__cause__, PlaywrightTimeoutError)
         assert "Timeout 30000ms exceeded" in str(ctx.exception.__cause__)
 
+    def test_a_session_reuses_one_connection_and_reconnects_after_a_disconnect(self) -> None:
+        page = MagicMock()
+        page.evaluate.return_value = 600
+        page.screenshot.side_effect = lambda path: Path(path).write_bytes(b"PNG-rendered")
+        dropped_page = MagicMock()
+        dropped_page.goto.side_effect = PlaywrightError("Target page, context or browser has been closed")
+        first_browser, second_browser = MagicMock(), MagicMock()
+        first_browser.new_context.return_value.new_page.side_effect = [page, page, dropped_page]
+        second_browser.new_context.return_value.new_page.return_value = page
+        playwright_cm = MagicMock()
+        connect = playwright_cm.__enter__.return_value.chromium.connect_over_cdp
+        connect.side_effect = [first_browser, second_browser]
+
+        with (
+            TemporaryDirectory() as directory,
+            patch("products.exports.backend.tasks.image_exporter.sync_playwright", return_value=playwright_cm),
+            patch.object(settings, "BROWSERLESS_CDP_URL", "wss://chrome.browserless.io"),
+        ):
+            with image_exporter.BrowserlessRenderSession() as session:
+                for name in ("first", "second"):
+                    session.render(str(Path(directory) / f"{name}.png"), "u", 800, ".ExportedInsight")
+                assert connect.call_count == 1
+
+                with self.assertRaises(BrowserlessUnavailable):
+                    session.render(str(Path(directory) / "dropped.png"), "u", 800, ".ExportedInsight")
+                session.render(str(Path(directory) / "after.png"), "u", 800, ".ExportedInsight")
+
+            rendered = sorted(path.name for path in Path(directory).iterdir())
+
+        assert connect.call_count == 2
+        assert rendered == ["after.png", "first.png", "second.png"]
+        assert first_browser.new_context.return_value.close.call_count == first_browser.new_context.call_count == 3
+        first_browser.close.assert_called_once()
+        second_browser.close.assert_called_once()
+
     @parameterized.expand(
         [
             ("all_stylesheets_loaded", [], {"text_color": "#123456"}),

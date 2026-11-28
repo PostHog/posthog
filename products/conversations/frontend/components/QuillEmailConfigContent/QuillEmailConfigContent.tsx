@@ -1,5 +1,3 @@
-import { useActions, useValues } from 'kea'
-
 import { IconRefresh } from '@posthog/icons'
 import {
     Button,
@@ -12,57 +10,38 @@ import {
     Separator,
 } from '@posthog/quill'
 
-import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
-import { OrganizationMembershipLevel } from 'lib/constants'
-
-import {
-    confirmDisconnectEmail,
-    defaultEmailDisabledReason,
-    DnsRecord,
-    trustedRelaySenderValue,
-} from '../../scenes/settings/emailSettingsHelpers'
-import { EmailConfigStatus, supportSettingsLogic } from '../../scenes/settings/supportSettingsLogic'
+import { confirmDisconnectEmail, defaultEmailDisabledReason } from '../../scenes/settings/emailSettingsHelpers'
+import { EmailConfigStatus } from '../../scenes/settings/supportSettingsLogic'
+import { useEmailConfigContent } from '../../scenes/settings/useEmailConfigContent'
 import { QuillDnsRecordsTable } from '../QuillDnsRecordsTable/QuillDnsRecordsTable'
+import { QuillEmailDisplayNameSettings } from '../QuillEmailDisplayNameSettings/QuillEmailDisplayNameSettings'
 import { QuillEmailForwardingAddress } from '../QuillEmailForwardingAddress/QuillEmailForwardingAddress'
 import { QuillTrustedRelaySenderSettings } from '../QuillTrustedRelaySenderSettings/QuillTrustedRelaySenderSettings'
 
 export function QuillEmailConfigContent({ config }: { config: EmailConfigStatus }): JSX.Element {
-    const {
-        emailVerifyingConfigId,
-        emailTestingConfigId,
-        settingDefaultEmailConfigId,
-        trustedRelaySenderDrafts,
-        trustedRelaySavingConfigId,
-    } = useValues(supportSettingsLogic)
-    const {
-        disconnectEmail,
-        verifyEmailDomain,
-        sendTestEmail,
-        setDefaultEmail,
-        setTrustedRelaySenderDraft,
-        saveTrustedRelaySender,
-    } = useActions(supportSettingsLogic)
-    const adminRestrictionReason = useRestrictedArea({
-        scope: RestrictionScope.Organization,
-        minimumAccessLevel: OrganizationMembershipLevel.Admin,
-    })
-
-    const sendingRecords = (config.dns_records?.sending_dns_records as DnsRecord[] | undefined) ?? []
-    const isVerifying = emailVerifyingConfigId === config.id
-    const isTesting = emailTestingConfigId === config.id
-    const isSettingDefault = settingDefaultEmailConfigId === config.id
-    const isSettingAnyDefault = settingDefaultEmailConfigId !== null
-    const trustedRelaySender = trustedRelaySenderValue(config, trustedRelaySenderDrafts)
+    const email = useEmailConfigContent(config)
 
     return (
         <div className="flex flex-col gap-3">
             {config.forwarding_address && <QuillEmailForwardingAddress forwardingAddress={config.forwarding_address} />}
 
+            <QuillEmailDisplayNameSettings
+                configId={config.id}
+                value={email.displayName}
+                savedValue={config.from_name}
+                restrictionReason={email.adminRestrictionReason}
+                savingConfigId={email.emailDisplayNameSavingConfigId}
+                onChange={email.setDisplayNameDraft}
+                onSave={email.saveDisplayName}
+            />
+
+            <Separator />
+
             <Field>
                 <FieldLabel>Domain verification</FieldLabel>
                 <FieldDescription>Add DNS records to enable outbound sending (SPF/DKIM).</FieldDescription>
 
-                <QuillDnsRecordsTable records={sendingRecords} />
+                <QuillDnsRecordsTable records={email.sendingRecords} />
 
                 {!config.domain_verified && (
                     <Item tone="info" size="sm">
@@ -80,16 +59,16 @@ export function QuillEmailConfigContent({ config }: { config: EmailConfigStatus 
                 <div className="flex flex-wrap gap-2">
                     <Button
                         variant={config.domain_verified ? 'outline' : 'primary'}
-                        onClick={() => verifyEmailDomain(config.id)}
-                        loading={isVerifying}
-                        disabledReason={adminRestrictionReason}
+                        onClick={email.verifyEmail}
+                        loading={email.isVerifying}
+                        disabledReason={email.adminRestrictionReason}
                     >
                         <IconRefresh />
                         {config.domain_verified ? 'Re-verify' : 'Verify domain'}
                     </Button>
 
                     {config.domain_verified && (
-                        <Button variant="outline" onClick={() => sendTestEmail(config.id)} loading={isTesting}>
+                        <Button variant="outline" onClick={email.sendTestEmail} loading={email.isTesting}>
                             Send test email
                         </Button>
                     )}
@@ -101,12 +80,12 @@ export function QuillEmailConfigContent({ config }: { config: EmailConfigStatus 
                     <Separator />
                     <QuillTrustedRelaySenderSettings
                         configId={config.id}
-                        value={trustedRelaySender}
+                        value={email.trustedRelaySender}
                         savedValue={config.trusted_relay_sender}
-                        restrictionReason={adminRestrictionReason}
-                        savingConfigId={trustedRelaySavingConfigId}
-                        onChange={(value) => setTrustedRelaySenderDraft(config.id, value)}
-                        onSave={() => saveTrustedRelaySender(config.id)}
+                        restrictionReason={email.adminRestrictionReason}
+                        savingConfigId={email.trustedRelaySavingConfigId}
+                        onChange={email.setTrustedRelaySenderDraft}
+                        onSave={email.saveTrustedRelaySender}
                     />
                 </>
             )}
@@ -116,17 +95,21 @@ export function QuillEmailConfigContent({ config }: { config: EmailConfigStatus 
             <div className="flex flex-wrap items-center justify-between gap-2">
                 <Button
                     variant="outline"
-                    loading={isSettingDefault}
-                    disabledReason={defaultEmailDisabledReason(adminRestrictionReason, config, isSettingAnyDefault)}
+                    loading={email.isSettingDefault}
+                    disabledReason={defaultEmailDisabledReason(
+                        email.adminRestrictionReason,
+                        config,
+                        email.isSettingAnyDefault
+                    )}
                     tooltip="Tickets opened from the widget are sent from the primary address"
-                    onClick={() => setDefaultEmail(config.id)}
+                    onClick={email.setDefaultEmail}
                 >
                     {config.is_default ? 'Primary address' : 'Set as primary'}
                 </Button>
                 <Button
                     variant="destructive-outline"
-                    disabledReason={adminRestrictionReason}
-                    onClick={() => confirmDisconnectEmail(config, disconnectEmail)}
+                    disabledReason={email.adminRestrictionReason}
+                    onClick={() => confirmDisconnectEmail(config, email.disconnectEmail)}
                 >
                     Disconnect
                 </Button>

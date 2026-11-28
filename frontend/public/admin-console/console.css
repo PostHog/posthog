@@ -448,6 +448,9 @@
     .mt-0 {
         margin-top: calc(0.25rem * 0);
     }
+    .mt-0\.5 {
+        margin-top: calc(0.25rem * 0.5);
+    }
     .mt-1 {
         margin-top: calc(0.25rem * 1);
     }
@@ -846,6 +849,10 @@
         -moz-column-gap: calc(0.25rem * 4);
         column-gap: calc(0.25rem * 4);
     }
+    .gap-x-6 {
+        -moz-column-gap: calc(0.25rem * 6);
+        column-gap: calc(0.25rem * 6);
+    }
     .gap-y-0\.5 {
         row-gap: calc(0.25rem * 0.5);
     }
@@ -857,6 +864,9 @@
     }
     .gap-y-2 {
         row-gap: calc(0.25rem * 2);
+    }
+    .gap-y-4 {
+        row-gap: calc(0.25rem * 4);
     }
     .self-start {
         align-self: flex-start;
@@ -920,6 +930,10 @@
     .border {
         border-style: var(--tw-border-style);
         border-width: 1px;
+    }
+    .border-0 {
+        border-style: var(--tw-border-style);
+        border-width: 0px;
     }
     .border-t {
         border-top-style: var(--tw-border-style);
@@ -1317,8 +1331,22 @@
         -moz-user-select: none;
         user-select: none;
     }
+    :is(.\*\:mb-4 > *) {
+        margin-bottom: calc(0.25rem * 4);
+    }
     :is(.\*\:w-full > *) {
         width: 100%;
+    }
+    :is(.\*\:break-inside-avoid > *) {
+        page-break-inside: avoid;
+        -moz-column-break-inside: avoid;
+        break-inside: avoid;
+    }
+    .group-open\/fact\:hidden:is(:where(.group\/fact):is([open], :popover-open, :open) *) {
+        display: none;
+    }
+    .group-open\/fact\:inline:is(:where(.group\/fact):is([open], :popover-open, :open) *) {
+        display: inline;
     }
     .group-open\/group\:rotate-90:is(:where(.group\/group):is([open], :popover-open, :open) *) {
         rotate: 90deg;
@@ -1807,8 +1835,19 @@
         }
     }
     @container (width >= 48rem) {
+        .\@3xl\:columns-2 {
+            -moz-columns: 2;
+            columns: 2;
+        }
+    }
+    @container (width >= 48rem) {
         .\@3xl\:grid-cols-2 {
             grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+    }
+    @container (width >= 48rem) {
+        .\@3xl\:grid-cols-3 {
+            grid-template-columns: repeat(3, minmax(0, 1fr));
         }
     }
     @container (width >= 48rem) {

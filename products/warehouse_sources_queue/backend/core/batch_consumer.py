@@ -1823,10 +1823,11 @@ class BatchConsumer:
             and (await self._retry_budget_spent(status_conn, batch, attempt, limit=self._config.max_attempts))[0]
         ):
             reason = f"max retries exceeded: {err}"
-            if isinstance(err, NonReportableError):
-                # A sustained blip (e.g. TransientObjectStoreError) stays out of error tracking
-                # even once this batch's own retry budget runs out — it's still an infra
-                # condition, not a pipeline defect, no matter how many attempts it survived.
+            if self._adapter.is_expected_user_error(err) or isinstance(err, NonReportableError):
+                # Expected upstream/customer condition, or a sustained blip (e.g.
+                # TransientObjectStoreError) — stays out of error tracking even once this
+                # batch's own retry budget runs out — it's still not a pipeline defect, no
+                # matter how many attempts it survived.
                 logger.warning(
                     self._event("batch_failed_no_retries_left"),
                     batch_id=batch.id,

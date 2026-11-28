@@ -5,6 +5,7 @@ import datetime as dt
 import dataclasses
 from datetime import datetime
 
+from django.conf import settings
 from django.db.models import Q
 from django.utils import timezone as tz
 
@@ -38,6 +39,7 @@ from products.subscriptions.backend.logic.subscription_utils import (
     ASSET_GENERATION_FAILED_MESSAGE,
     MAX_INSIGHTS,
     _has_asset_failed,
+    organization_flag_enabled,
 )
 from products.subscriptions.backend.logic.teams_subscriptions import build_teams_subscription_card
 from products.subscriptions.backend.models.subscription import Subscription, SubscriptionDelivery
@@ -71,6 +73,8 @@ from products.subscriptions.backend.temporal.types import (
 )
 
 LOGGER = get_logger(__name__)
+
+BATCH_IMAGE_RENDER_FEATURE_FLAG_KEY = "subscription-batch-image-render"
 
 # Used only as the recipient_results error message — `no_assets` doesn't auto-disable
 # (it indicates a transient resolve failure that retries can recover from).
@@ -280,6 +284,17 @@ async def validate_subscription_for_delivery(subscription_id: int) -> DeliveryAb
     )
 
 
+def _batch_render_chunk_size(subscription: Subscription, asset_count: int) -> int:
+    if asset_count < 2 or subscription.created_by is None:
+        return 0
+    enabled = organization_flag_enabled(
+        BATCH_IMAGE_RENDER_FEATURE_FLAG_KEY,
+        subscription.team.organization_id,
+        str(subscription.created_by.distinct_id),
+    )
+    return settings.SUBSCRIPTION_BATCH_RENDER_CHUNK_SIZE if enabled else 0
+
+
 @temporalio.activity.defn
 async def create_export_assets(inputs: CreateExportAssetsInputs) -> CreateExportAssetsResult:
     await LOGGER.ainfo(
@@ -405,11 +420,16 @@ async def create_export_assets(inputs: CreateExportAssetsInputs) -> CreateExport
             snapshot_bytes=snapshot_bytes,
         )
 
+    batch_render_chunk_size = await database_sync_to_async(_batch_render_chunk_size, thread_sensitive=False)(
+        subscription, len(assets)
+    )
+
     await LOGGER.ainfo(
         "create_export_assets.assets_created",
         subscription_id=inputs.subscription_id,
         asset_count=len(assets),
         total_insights=total_insight_count,
+        batch_render_chunk_size=batch_render_chunk_size,
     )
     return CreateExportAssetsResult(
         exported_asset_ids=[a.id for a in assets],
@@ -420,6 +440,7 @@ async def create_export_assets(inputs: CreateExportAssetsInputs) -> CreateExport
         available_insight_count=resolved_insights.available_insight_count,
         selected_insight_count=resolved_insights.selected_insight_count,
         insight_limit=max_asset_count,
+        batch_render_chunk_size=batch_render_chunk_size,
     )
 
 

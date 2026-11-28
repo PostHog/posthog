@@ -33,6 +33,8 @@ from products.messaging.backend.facade.contracts import (
     EmailStatsInterval,
     TransactionalEmailConversions,
     TransactionalEmailImpact,
+    TransactionalEmailImpactSession,
+    TransactionalEmailImpactSessions,
     TransactionalEmailLogDetail,
     TransactionalEmailLogEntry,
     TransactionalEmailLogEvent,
@@ -71,6 +73,7 @@ MAX_CONVERSION_WINDOW_DAYS = 30
 MAX_RESULTS_RECIPIENTS = 10_000
 _SINCE_MS_LITERAL_BYTES = len("1700000000000, ")
 IMPACT_WINDOW_DAYS = 7
+MAX_IMPACT_SESSIONS = 200
 
 # A message's rows sit together in the table's sort key, so grouping can finish each message as it reads on.
 _GROUP_AS_READ: dict[str, int] = {"optimize_aggregation_in_order": 1}
@@ -731,6 +734,19 @@ def _sessions_with_a_pageview_from_the_email(
 
 
 def _count_sessions(team: Team, user: User | None, workflow_id: str, period: _Period) -> _SessionCount:
+    clicked = _clicked_message_ids(team, workflow_id, period, limit=MAX_RESULTS_RECIPIENTS + 1)
+    capped_at = MAX_RESULTS_RECIPIENTS if len(clicked) > MAX_RESULTS_RECIPIENTS else None
+    sessions: set[str] = set()
+    for batch in _batches_by_query_size(team.id, clicked[:MAX_RESULTS_RECIPIENTS], _escaped_literal_bytes):
+        batch_sessions = _sessions_in_batch(team, user, batch, period)
+        # A batch that fills the row limit can hold more sessions than it returned, so the count is unknown.
+        if len(batch_sessions) >= MAX_SELECT_RETURNED_ROWS:
+            return _SessionCount(sessions=None, capped_at=None)
+        sessions |= batch_sessions
+    return _SessionCount(sessions=len(sessions), capped_at=capped_at)
+
+
+def _clicked_message_ids(team: Team, workflow_id: str, period: _Period, *, limit: int) -> list[str]:
     rows = _execute(
         team.id,
         f"""
@@ -745,20 +761,11 @@ def _count_sessions(team: Team, user: User | None, workflow_id: str, period: _Pe
         ORDER BY queued_at DESC, message_id DESC
         LIMIT %(limit)s
         """,
-        {"start": period.start, "end": period.end, "workflow_id": workflow_id, "limit": MAX_RESULTS_RECIPIENTS + 1},
+        {"start": period.start, "end": period.end, "workflow_id": workflow_id, "limit": limit},
         _GROUP_AS_READ,
         query_type="transactional_email_impact_clicked_sends",
     )
-    capped_at = MAX_RESULTS_RECIPIENTS if len(rows) > MAX_RESULTS_RECIPIENTS else None
-    message_ids = [message_id for (message_id,) in rows[:MAX_RESULTS_RECIPIENTS]]
-    sessions: set[str] = set()
-    for batch in _batches_by_query_size(team.id, message_ids, _escaped_literal_bytes):
-        batch_sessions = _sessions_in_batch(team, user, batch, period)
-        # A batch that fills the row limit can hold more sessions than it returned, so the count is unknown.
-        if len(batch_sessions) >= MAX_SELECT_RETURNED_ROWS:
-            return _SessionCount(sessions=None, capped_at=None)
-        sessions |= batch_sessions
-    return _SessionCount(sessions=len(sessions), capped_at=capped_at)
+    return [message_id for (message_id,) in rows]
 
 
 def _sessions_in_batch(team: Team, user: User | None, message_ids: list[str], period: _Period) -> set[str]:
@@ -789,6 +796,71 @@ def _sessions_in_batch(team: Team, user: User | None, message_ids: list[str], pe
         settings=HogQLGlobalSettings(timeout_overflow_mode="throw"),
     )
     return {session_id for (session_id,) in response.results or []}
+
+
+def transactional_email_impact_sessions(
+    team: Team,
+    user: User | None,
+    workflow_id: str,
+    *,
+    date_from: datetime | None = None,
+    date_to: datetime | None = None,
+) -> TransactionalEmailImpactSessions:
+    if not is_email_workflow_run_link_tag_enabled(team_id=team.id):
+        return TransactionalEmailImpactSessions(sessions=(), has_more=False)
+    period = _window(date_from, date_to)
+    clicked = _clicked_message_ids(team, workflow_id, period, limit=MAX_RESULTS_RECIPIENTS)
+    batches = list(_batches_by_query_size(team.id, clicked, _escaped_literal_bytes))
+    if not batches:
+        return TransactionalEmailImpactSessions(sessions=(), has_more=False)
+    newest_sends = batches[0]
+    sends_left_out = len(batches) > 1 or len(clicked) >= MAX_RESULTS_RECIPIENTS
+    landings = _session_landings_in_batch(team, user, newest_sends, period)
+    newest = sorted(landings, key=lambda session: (session.first_pageview_at, session.session_id), reverse=True)
+    return TransactionalEmailImpactSessions(
+        sessions=tuple(newest[:MAX_IMPACT_SESSIONS]),
+        has_more=len(newest) > MAX_IMPACT_SESSIONS or sends_left_out,
+    )
+
+
+def _session_landings_in_batch(
+    team: Team, user: User | None, message_ids: list[str], period: _Period
+) -> list[TransactionalEmailImpactSession]:
+    response = execute_hogql_query(
+        """
+        SELECT
+            $session_id,
+            argMin(run_id, tuple(timestamp, run_id)),
+            min(timestamp) AS first_pageview_at
+        FROM (
+            SELECT $session_id, timestamp, extractURLParameter(properties.$current_url, 'ph_workflow_run') AS run_id
+            FROM events
+            WHERE event = '$pageview'
+              AND timestamp >= {start} AND timestamp < {end}
+              AND $session_id != ''
+              AND position(properties.$current_url, 'ph_workflow_run=') > 0
+              AND extractURLParameter(properties.$current_url, 'ph_workflow_run') IN {message_ids}
+        )
+        GROUP BY $session_id
+        ORDER BY first_pageview_at DESC, $session_id DESC
+        LIMIT {limit}
+        """,
+        team=team,
+        user=user,
+        placeholders={
+            "start": ast.Constant(value=period.start),
+            "end": ast.Constant(value=period.end + timedelta(days=IMPACT_WINDOW_DAYS)),
+            "message_ids": ast.Constant(value=message_ids),
+            "limit": ast.Constant(value=MAX_IMPACT_SESSIONS + 1),
+        },
+        query_type="transactional_email_impact_session_list",
+        workload=Workload.ONLINE,
+        settings=HogQLGlobalSettings(timeout_overflow_mode="throw"),
+    )
+    return [
+        TransactionalEmailImpactSession(session_id=session_id, message_id=message_id, first_pageview_at=at)
+        for (session_id, message_id, at) in response.results or []
+    ]
 
 
 @frozen

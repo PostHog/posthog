@@ -7,6 +7,7 @@ import { Scene } from 'scenes/sceneTypes'
 
 import { ProductKey } from '~/queries/schema/schema-general'
 
+import { AdventEntry } from '../AdventCalendar/entry/AdventEntry'
 import { WorkflowsPathChoice } from '../setupGuide/WorkflowsPathChoice'
 import { WorkflowsPreview } from './WorkflowsPreview'
 import { workflowsSetupLogic } from './workflowsSetupLogic'
@@ -19,6 +20,7 @@ export const workflowsEmptyState: SceneProductEmptyState = {
     // Channels, the message library, opt-outs, suppression, and reputation configure resources
     // that stand on their own, and a person often sets a channel up before a first workflow.
     scenes: [{ scene: Scene.Workflows, tabs: [undefined, 'workflows'] }],
+    SceneNav: AdventEntry,
     config: {
         productKey: ProductKey.WORKFLOWS,
         productName: 'Workflows',

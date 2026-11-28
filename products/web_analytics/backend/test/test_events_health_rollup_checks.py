@@ -5,6 +5,8 @@ from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, flus
 
 from parameterized import parameterized
 
+from posthog.models.health_issue import HealthIssue
+from posthog.temporal.health_checks.processing import _process_batch_detection
 from posthog.temporal.health_checks.rollups.checks import RollupHealthCheck
 from posthog.temporal.health_checks.rollups.freshness import RollupWindow, invalidate_published_days
 from posthog.temporal.health_checks.rollups.tests.helpers import window_ending_yesterday
@@ -59,6 +61,19 @@ class TestEventsHealthRollupChecks(ClickhouseTestMixin, BaseTest):
         )
         invalidate_published_days(EventsHealthDaily)
 
+    def _define_events(self, events: list[tuple[str, int | None]]) -> None:
+        self.team.ingested_event = True
+        self.team.save()
+        for event, last_seen_days_ago in events:
+            EventDefinition.objects.create(
+                team=self.team,
+                project_id=self.team.project_id,
+                name=event,
+                last_seen_at=None
+                if last_seen_days_ago is None
+                else dt.datetime.now(dt.UTC) - dt.timedelta(days=last_seen_days_ago),
+            )
+
     def _flagged(self, check: RollupHealthCheck, rows: list[Row]) -> bool:
         window = window_ending_yesterday(check.window_days)
         self._insert(rows, window)
@@ -88,7 +103,6 @@ class TestEventsHealthRollupChecks(ClickhouseTestMixin, BaseTest):
                 [PAGEVIEWS, PAGEVIEWS, ("$pageview", True, False, 1)],
                 False,
             ),
-            ("no_live_events_with_screens_only", NoLiveEventsCheck(), [SCREENS], False),
         ]
     )
     def test_rule(self, _name: str, check: RollupHealthCheck, rows: list[Row], expected: bool) -> None:
@@ -98,6 +112,7 @@ class TestEventsHealthRollupChecks(ClickhouseTestMixin, BaseTest):
     def test_no_live_events_probes_the_hours_after_the_rollup(
         self, _name: str, send_event_today: bool, expected: bool
     ) -> None:
+        self._define_events([("$pageview", 40)])
         if send_event_today:
             _create_event(team=self.team, event="$pageview", distinct_id="user", timestamp=dt.datetime.now(dt.UTC))
             flush_persons_and_events()
@@ -106,25 +121,82 @@ class TestEventsHealthRollupChecks(ClickhouseTestMixin, BaseTest):
 
     @parameterized.expand(
         [
-            ("web_project_gone_silent", True, "$pageview", True, True),
-            ("app_project_gone_silent", True, "$screen", True, True),
-            ("nothing_ingested_yet", False, None, False, True),
-            ("server_only_project", True, "$mcp_tool_call", True, False),
-            ("pageview_placeholder_never_seen", True, "$pageview", False, False),
+            ("web_project_gone_silent", True, [("$pageview", 40)], [], HealthIssue.Severity.CRITICAL, ["$pageview"]),
+            ("app_project_gone_silent", True, [("$screen", 40)], [], HealthIssue.Severity.CRITICAL, ["$screen"]),
+            (
+                "web_project_dark_past_horizon",
+                True,
+                [("$pageview", 120)],
+                [],
+                HealthIssue.Severity.CRITICAL,
+                ["$pageview"],
+            ),
+            ("nothing_ingested_yet", False, [], [], HealthIssue.Severity.CRITICAL, ["$pageview", "$screen"]),
+            ("server_only_project", True, [("$mcp_tool_call", 40)], [], None, None),
+            ("pageview_placeholder_never_seen", True, [("$pageview", None)], [], None, None),
+            ("app_project_sending_screens", True, [("$screen", 1)], [SCREENS], None, None),
+            (
+                "mixed_project_sending_both",
+                True,
+                [("$pageview", 1), ("$screen", 1)],
+                [PAGEVIEWS, SCREENS],
+                None,
+                None,
+            ),
+            (
+                "mixed_project_web_gone_silent",
+                True,
+                [("$pageview", 40), ("$screen", 1)],
+                [SCREENS],
+                HealthIssue.Severity.WARNING,
+                ["$pageview"],
+            ),
+            ("mixed_project_web_past_horizon", True, [("$pageview", 120), ("$screen", 1)], [SCREENS], None, None),
         ]
     )
-    def test_no_live_events_skips_projects_that_never_sent_web_events(
-        self, _name: str, ingested_event: bool, defined_event: str | None, seen: bool, expected: bool
+    def test_no_live_events_judges_each_event_type_the_project_sends(
+        self,
+        _name: str,
+        ingested_event: bool,
+        defined_events: list[tuple[str, int | None]],
+        rows: list[Row],
+        expected_severity: str | None,
+        expected_events: list[str] | None,
     ) -> None:
-        self.team.ingested_event = ingested_event
-        self.team.save()
-        if defined_event:
-            EventDefinition.objects.create(
-                team=self.team,
-                project_id=self.team.project_id,
-                name=defined_event,
-                last_seen_at=dt.datetime.now(dt.UTC) - dt.timedelta(days=90) if seen else None,
-            )
-        self._publish_window_for_another_project(window_ending_yesterday(NoLiveEventsCheck.window_days))
+        if ingested_event:
+            self._define_events(defined_events)
+        window = window_ending_yesterday(NoLiveEventsCheck.window_days)
+        self._insert(rows, window)
+        self._publish_window_for_another_project(window)
 
-        self.assertEqual(self.team.id in NoLiveEventsCheck().detect([self.team.id]), expected)
+        results = NoLiveEventsCheck().detect([self.team.id]).get(self.team.id)
+
+        if expected_severity is None:
+            self.assertIsNone(results)
+        else:
+            assert results is not None
+            self.assertEqual(
+                [(result.severity, result.payload["events"]) for result in results],
+                [(expected_severity, expected_events)],
+            )
+
+    def test_no_live_events_alerts_again_when_the_last_platform_stops(self) -> None:
+        self._define_events([("$pageview", 40), ("$screen", 1)])
+        window = window_ending_yesterday(NoLiveEventsCheck.window_days)
+        self._insert([SCREENS], window)
+        self._publish_window_for_another_project(window)
+        check = NoLiveEventsCheck()
+
+        _process_batch_detection([self.team.id], check.kind, check.detect)
+        EventsHealthDaily.objects.unscoped().filter(team_id=self.team.id).delete()
+        invalidate_published_days(EventsHealthDaily)
+        escalation = _process_batch_detection([self.team.id], check.kind, check.detect)
+
+        self.assertEqual(escalation.issues_upserted, 1)
+        self.assertCountEqual(
+            HealthIssue.objects.filter(team_id=self.team.id, kind=check.kind).values_list("severity", "status"),
+            [
+                (HealthIssue.Severity.WARNING, HealthIssue.Status.RESOLVED),
+                (HealthIssue.Severity.CRITICAL, HealthIssue.Status.ACTIVE),
+            ],
+        )

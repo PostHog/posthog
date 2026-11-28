@@ -8,9 +8,10 @@ from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 from uuid import UUID
 
-from django.db import models, transaction
+from django.db import OperationalError, models, transaction
 from django.db.models import Q, TextChoices
 
+import psycopg
 import temporalio
 from anthropic import APIConnectionError
 from drf_spectacular.utils import OpenApiResponse, extend_schema, extend_schema_field
@@ -91,7 +92,9 @@ from products.warehouse_sources.backend.facade.source_management import (
     get_cdc_adapter,
     is_history_table_mode,
     is_team_allowlisted_for_internal_hosts,
+    keep_flat_branch_copies,
     known_source_key,
+    nest_flat_select_containers,
     new_history_names_taken,
     new_history_naming,
     new_source_requires_ssl,
@@ -468,7 +471,14 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             if "require_tls" not in tunnel:
                 tunnel["require_tls"] = {"enabled": True}
 
-        stripped = helpers.strip_sensitive_from_dict(job_inputs, nonsensitive, split.sensitive)
+        job_inputs = nest_flat_select_containers(
+            job_inputs, source.get_source_config.fields, source.flat_stored_selects
+        )
+        stripped = keep_flat_branch_copies(
+            helpers.strip_sensitive_from_dict(job_inputs, nonsensitive, split.sensitive),
+            source.get_source_config.fields,
+            source.flat_stored_selects,
+        )
         declared = helpers.get_declared_field_names(source.get_source_config.fields)
         representation["job_inputs"] = helpers.restore_declared_field_names(stripped, declared.hyphenated)
         return representation
@@ -532,7 +542,7 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             source_inputs = self._source_inputs(instance)
         except UnreadableSourceInputsError:
             return None
-        return added_table_root(instance.source_type, source_inputs)
+        return added_table_root(instance.source_type, source_inputs, instance.team_id)
 
     @extend_schema_field(serializers.BooleanField())
     def get_supports_table_discovery(self, instance: ExternalDataSource) -> bool:
@@ -699,10 +709,16 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             # starts from the settings that `job_inputs` still holds.
             existing_job_inputs = SourceInputsStore.load_settings(instance)
         job_inputs_were_submitted = "job_inputs" in validated_data
-        incoming_job_inputs = validated_data.get("job_inputs", {})
 
         source_type_model = known_source_key(instance.source_type)
         source = SourceRegistry.get_source(source_type_model)
+        source_fields = source.get_source_config.fields
+        existing_job_inputs = nest_flat_select_containers(
+            existing_job_inputs, source_fields, source.flat_stored_selects
+        )
+        incoming_job_inputs: dict[str, Any] = nest_flat_select_containers(
+            validated_data.get("job_inputs", {}), source_fields, source.flat_stored_selects, existing_job_inputs
+        )
         sensitive_fields = helpers.get_sensitive_field_names(source.get_source_config.fields)
         declared_field_names = helpers.get_declared_field_names(source.get_source_config.fields)
         discovered_schemas: list[SourceSchema] | None = None
@@ -805,7 +821,9 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
                 raise ValidationError({"job_inputs": {container_key: "Must be an object."}})
             if not (isinstance(existing_container, dict) and isinstance(incoming_container, dict)):
                 continue
-            selection_changed = existing_container.get("selection") != incoming_container.get("selection")
+            selection_changed = existing_container.get("selection") != incoming_container.get(
+                "selection", existing_container.get("selection")
+            )
             if selection_changed:
                 # Selection switched (e.g. password→keypair) — use only incoming, don't carry over old secrets
                 new_job_inputs[container_key] = incoming_container
@@ -2400,22 +2418,35 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
         )
         return prefix_exists
 
-    def destroy(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        instance: ExternalDataSource = self.get_object()
-
-        schemas = list(
-            ExternalDataSchema.objects.exclude(deleted=True)
-            .filter(team_id=self.team_id, source_id=instance.id)
-            .select_related("table")
-            .all()
-        )
-
-        # Deleting the source deletes every table it synced, so it needs editor on each of them.
-        self._assert_can_write_schemas(schemas)
-
-        # Soft-delete source, schemas, tables, and companion _cdc tables atomically
-        # first so DB state is consistent even if the external cleanup below fails
+    def _soft_delete_source_rows(
+        self, instance: ExternalDataSource, schemas: list[ExternalDataSchema]
+    ) -> list[ExternalDataSchema]:
         with transaction.atomic():
+            # A sync locks a table row before it writes the schema row. Lock in the same order, each
+            # set by id, so that an overlapping sync makes this block wait instead of deadlock. The
+            # source's tables include a table that a first sync created but has not linked to its
+            # schema yet, so the in-memory `schema.table` is None for it.
+            list(
+                DataWarehouseTable.raw_objects.select_for_update()
+                .filter(
+                    Q(external_data_source_id=instance.id, deleted=False)
+                    | Q(id__in=[s.table_id for s in schemas if s.table_id is not None]),
+                    team_id=self.team_id,
+                )
+                .order_by("id")
+                .values_list("id", flat=True)
+            )
+            # The sync this block waited for can link its schema to a table before it commits, so
+            # re-read the schemas under their lock. A stale `schema.table` of None skips the table's
+            # joins here and its S3 data in `delete_table()` after the commit.
+            schemas = list(
+                ExternalDataSchema.objects.select_for_update(of=("self",))
+                .filter(team_id=self.team_id, id__in=[schema.id for schema in schemas])
+                .select_related("table")
+                .order_by("id")
+            )
+            self._assert_can_write_schemas(schemas)
+
             for schema in schemas:
                 if schema.table:
                     schema.table.soft_delete()
@@ -2444,6 +2475,33 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
             ).exclude(id__in=[s.table_id for s in schemas if s.table_id is not None]).update(deleted=True)
 
             instance.soft_delete()
+
+        return schemas
+
+    def destroy(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        instance: ExternalDataSource = self.get_object()
+
+        schemas = list(
+            ExternalDataSchema.objects.exclude(deleted=True)
+            .filter(team_id=self.team_id, source_id=instance.id)
+            .select_related("table")
+            .all()
+        )
+
+        # Deleting the source deletes every table it synced, so it needs editor on each of them.
+        self._assert_can_write_schemas(schemas)
+
+        # Soft-delete source, schemas, tables, and companion _cdc tables atomically
+        # first so DB state is consistent even if the external cleanup below fails
+        try:
+            schemas = self._soft_delete_source_rows(instance, schemas)
+        except OperationalError as e:
+            if not isinstance(e.__cause__, psycopg.errors.DeadlockDetected):
+                raise
+            # A CDC sync locks its schema row before it writes the companion table, which is the
+            # reverse of the lock order in `_soft_delete_source_rows`. Postgres rolled the whole
+            # block back, so it is safe to run it again once the sync commits.
+            schemas = self._soft_delete_source_rows(instance, schemas)
 
         # Best-effort webhook cleanup — soft-deletes are already committed
         try:

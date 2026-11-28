@@ -316,7 +316,7 @@ export function ProjectSwitcher({
                     {currentUser.email}
                   </ItemDescription>
                   {impersonationExpiry && (
-                    <ItemDescription className="text-[11px] text-warning">
+                    <ItemDescription className="text-[11px] text-warning-foreground">
                       Impersonated session ends at {impersonationExpiry}
                     </ItemDescription>
                   )}

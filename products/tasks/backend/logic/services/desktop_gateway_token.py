@@ -31,8 +31,7 @@ logger = logging.getLogger(__name__)
 
 POSTHOG_CODE_PRODUCT = "posthog_code"
 
-# Mirrors PRODUCTS[*].credit_bucket in services/llm-gateway/src/llm_gateway/products/config.py.
-# Both gateways refuse an exhausted bucket, and a mint checks it first so a capped or deactivated
+# The gateway refuses an exhausted bucket, and a mint checks it first so a capped or deactivated
 # org never gets a token.
 PRODUCT_CREDIT_BUCKET: dict[str, str] = {
     "posthog_ai": "ai_credits",
@@ -41,7 +40,7 @@ PRODUCT_CREDIT_BUCKET: dict[str, str] = {
     "workflows": "ai_credits",
 }
 
-# The legacy gateway's refusal for an exhausted Desktop bucket; the app matches on it.
+# The refusal for an exhausted Desktop bucket; the app matches on it.
 POSTHOG_CODE_CREDITS_EXHAUSTED_DETAIL = (
     "Your team has reached its PostHog Desktop usage limit for this billing period. "
     "See https://app.posthog.com/organization/billing for your usage and limits."
@@ -54,8 +53,8 @@ _MAX_CAP_DECIMAL_PLACES = 6
 _MIN_TTL_SECONDS = 60
 _MAX_TTL_SECONDS = 86400
 
-# One attempt on the web request path: the app falls back to the legacy gateway and retries later,
-# so a slow gateway must not hold the worker.
+# One attempt on the web request path: the app re-checks with backoff, so a slow gateway must not
+# hold the worker.
 _MINT_TIMEOUT_SECONDS = 3
 
 PosthogCodePlan = Literal["paid", "free"]
