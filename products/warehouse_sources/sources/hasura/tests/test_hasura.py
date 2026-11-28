@@ -1,5 +1,6 @@
 import re
 from datetime import UTC, date, datetime
+from decimal import Decimal
 from typing import Any
 
 import pytest
@@ -10,11 +11,13 @@ import requests
 from products.warehouse_sources.sources.hasura._config import HasuraSourceConfig
 from products.warehouse_sources.sources.hasura.hasura import (
     HasuraAccessDeniedError,
+    HasuraConfigError,
     HasuraGraphQLError,
     HasuraResumeConfig,
     resolve_graphql_url,
 )
-from products.warehouse_sources.sources.hasura.source import INVALID_SECRET_MESSAGE, HasuraSource
+from products.warehouse_sources.sources.hasura.source import INVALID_SECRET_MESSAGE, REFUSED_MESSAGE, HasuraSource
+from products.warehouse_sources.sources.sdk import UNRESOLVED_HOST_REASON, TemporaryHostResolutionError
 from products.warehouse_sources.sources.sdk.testing import (
     RecordedRequest,
     ScriptedResponse,
@@ -24,7 +27,19 @@ from products.warehouse_sources.sources.sdk.testing import (
 )
 
 MODULE = "products.warehouse_sources.sources.hasura.hasura"
-CONFIG = HasuraSourceConfig(graphql_url="https://acme.hasura.app/v1/graphql", admin_secret="adm1n-s3cret")
+# The query string stands in for a gateway key, which error messages must not repeat.
+CONFIG = HasuraSourceConfig(
+    graphql_url="https://acme.hasura.app/v1/graphql?apikey=gateway-key", admin_secret="adm1n-s3cret"
+)
+# Hasura v2.48.5 answered a wrong admin secret with this body, at HTTP 200.
+ACCESS_DENIED_BODY = {
+    "errors": [
+        {
+            "message": 'invalid "x-hasura-admin-secret"/"x-hasura-access-key"',
+            "extensions": {"path": "$", "code": "access-denied"},
+        }
+    ]
+}
 
 
 @pytest.fixture(autouse=True)
@@ -72,17 +87,24 @@ def _order_by(name: str, columns: list[str], relationships: list[str] | None = N
     return {"kind": "INPUT_OBJECT", "name": f"{name}_order_by", "fields": None, "inputFields": inputs}
 
 
-def _schema() -> dict[str, Any]:
-    """An introspection result in the shape Hasura v2 answers, with each discovery edge case."""
+def _by_pk(name: str, type_name: str, keys: dict[str, str]) -> dict[str, Any]:
+    args = [_arg(key, _scalar(scalar, required=True)) for key, scalar in keys.items()]
+    return {"name": name, "args": args, "type": _ref("OBJECT", type_name)}
+
+
+def _types() -> list[dict[str, Any]]:
+    # The introspection types Hasura v2 answers with, one per discovery edge case.
     orders = _object(
         "orders",
         {
             "id": _scalar("Int", required=True),
             "customer": _scalar("String"),
+            "total": _scalar("numeric"),
             "meta": _scalar("jsonb"),
             "status": _ref("ENUM", "order_status"),
             "created_at": _scalar("timestamptz"),
             "updated_at": _scalar("timestamptz"),
+            "legacy_at": _scalar("datetime"),
             "ship_date": _scalar("date"),
         },
         extra=[
@@ -96,30 +118,27 @@ def _schema() -> dict[str, Any]:
             },
         ],
     )
-    line_items = _object(
-        "line_items",
-        {"order_id": _scalar("Int", required=True), "line_no": _scalar("Int", required=True), "sku": _scalar("String")},
-    )
-    totals = _object("order_totals", {"customer": _scalar("String"), "total": _scalar("numeric")})
-    accounts = _object("accounts", {"id": _scalar("uuid", required=True), "name": _scalar("String")})
     root_fields = [
         {"name": "orders", "args": _table_args("orders"), "type": _list_of("orders")},
         {"name": "orders_aggregate", "args": _table_args("orders"), "type": _ref("OBJECT", "orders_aggregate")},
-        {"name": "orders_by_pk", "args": [_arg("id", _scalar("Int", required=True))], "type": _ref("OBJECT", "orders")},
+        _by_pk("orders_by_pk", "orders", {"id": "Int"}),
         {"name": "line_items", "args": _table_args("line_items"), "type": _list_of("line_items")},
+        _by_pk("line_items_by_pk", "line_items", {"order_id": "Int", "line_no": "Int"}),
+        # A key column that references an enum table has no `_gt`, so it can't carry a keyset.
+        {"name": "user_roles", "args": _table_args("user_roles"), "type": _list_of("user_roles")},
         {
-            "name": "line_items_by_pk",
-            "args": [_arg("order_id", _scalar("Int", required=True)), _arg("line_no", _scalar("Int", required=True))],
-            "type": _ref("OBJECT", "line_items"),
+            "name": "user_roles_by_pk",
+            "args": [
+                _arg("user_id", _scalar("Int", required=True)),
+                _arg("role", _ref("NON_NULL", of=_ref("ENUM", "roles_enum"))),
+            ],
+            "type": _ref("OBJECT", "user_roles"),
         },
         {"name": "order_totals", "args": _table_args("order_totals"), "type": _list_of("order_totals")},
+        {"name": "raw_blobs", "args": _table_args("raw_blobs"), "type": _list_of("raw_blobs")},
         # Custom root field names: no `_by_pk` suffix to find the key by.
         {"name": "allAccounts", "args": _table_args("accounts"), "type": _list_of("accounts")},
-        {
-            "name": "accountById",
-            "args": [_arg("id", _scalar("uuid", required=True))],
-            "type": _ref("OBJECT", "accounts"),
-        },
+        _by_pk("accountById", "accounts", {"id": "uuid"}),
         # A tracked function that needs arguments, and an action with no table arguments.
         {
             "name": "search_orders",
@@ -128,18 +147,51 @@ def _schema() -> dict[str, Any]:
         },
         {"name": "recentOrders", "args": [], "type": _list_of("orders")},
     ]
-    types = [
+    return [
         {"kind": "OBJECT", "name": "query_root", "fields": root_fields, "inputFields": None},
         orders,
-        line_items,
-        totals,
-        accounts,
-        _order_by("orders", ["id", "customer", "meta", "status", "created_at", "updated_at", "ship_date"], ["account"]),
+        _object(
+            "line_items",
+            {
+                "order_id": _scalar("Int", required=True),
+                "line_no": _scalar("Int", required=True),
+                "sku": _scalar("String"),
+            },
+        ),
+        _object(
+            "user_roles",
+            {"user_id": _scalar("Int", required=True), "role": _ref("NON_NULL", of=_ref("ENUM", "roles_enum"))},
+        ),
+        _object("order_totals", {"customer": _scalar("String"), "total": _scalar("numeric")}),
+        _object("raw_blobs", {"payload": _scalar("json")}),
+        _object("accounts", {"id": _scalar("uuid", required=True), "name": _scalar("String")}),
+        _order_by(
+            "orders",
+            ["id", "customer", "total", "meta", "status", "created_at", "updated_at", "legacy_at", "ship_date"],
+            ["account"],
+        ),
         _order_by("line_items", ["order_id", "line_no", "sku"]),
+        _order_by("user_roles", ["user_id", "role"]),
         _order_by("order_totals", ["customer", "total"]),
+        _order_by("raw_blobs", []),
         _order_by("accounts", ["id", "name"]),
     ]
-    return {"queryType": {"name": "query_root"}, "types": types}
+
+
+def _introspection_answer(request: RecordedRequest) -> ScriptedResponse | None:
+    body = request.json()
+    query = body["query"]
+    types = {t["name"]: t for t in _types()}
+    if "PostHogHasuraRootFields" in query:
+        return ScriptedResponse(json={"data": {"__schema": {"queryType": types["query_root"]}}})
+    if "PostHogHasuraTableTypes" in query:
+        variables = body["variables"]
+        return ScriptedResponse(
+            json={"data": {"object": types.get(variables["object"]), "orderBy": types.get(variables["orderBy"])}}
+        )
+    if "__schema" in query:
+        return ScriptedResponse(json={"data": {"__schema": {"queryType": {"name": "query_root"}, "types": _types()}}})
+    return None
 
 
 def _comparable(value: Any) -> Any:
@@ -172,19 +224,18 @@ def _matches(row: dict[str, Any], where: dict[str, Any]) -> bool:
 
 
 class FakeHasura:
-    """Answers introspection and page queries from in-memory rows, applying where, order_by, limit and offset."""
-
+    # Answers introspection, and page queries from in-memory rows with where, order_by, limit and offset.
     def __init__(self, tables: dict[str, list[dict[str, Any]]]) -> None:
         self.tables = tables
         self.page_variables: list[dict[str, Any]] = []
 
     def __call__(self, request: RecordedRequest) -> ScriptedResponse:
+        introspection = _introspection_answer(request)
+        if introspection is not None:
+            return introspection
         body = request.json()
-        query = body["query"]
-        if "__schema" in query:
-            return ScriptedResponse(json={"data": {"__schema": _schema()}})
-        table = re.search(r"\{ (\w+)\(limit:", query)
-        assert table is not None, query
+        table = re.search(r"\{ (\w+)\(limit:", body["query"])
+        assert table is not None, body["query"]
         variables = body["variables"]
         self.page_variables.append(variables)
         rows = [row for row in self.tables[table.group(1)] if _matches(row, variables.get("where") or {})]
@@ -200,11 +251,13 @@ def _orders(count: int) -> list[dict[str, Any]]:
         {
             "id": i,
             "customer": f"c{i % 3}",
+            "total": i,
             "meta": {"n": i},
             "status": "OPEN",
             "created_at": f"2024-01-{i:02d}T00:00:00+00:00",
             # Descending in id, so an incremental read orders differently from a full refresh.
             "updated_at": f"2024-02-{count + 1 - i:02d}T12:00:00+00:00",
+            "legacy_at": f"2024-04-{i:02d}T00:00:00.123Z",
             "ship_date": f"2024-03-{i:02d}",
         }
         for i in range(1, count + 1)
@@ -216,20 +269,22 @@ def _driver() -> SourceDriver:
 
 
 def test_get_schemas_discovers_tables_keys_and_incremental_columns() -> None:
-    with scripted_network(always(ScriptedResponse(json={"data": {"__schema": _schema()}}))):
+    with scripted_network(FakeHasura({})):
         schemas = {schema.name: schema for schema in HasuraSource().get_schemas(CONFIG, team_id=1)}
 
     # Aggregates, `_by_pk` lookups, functions with required args and actions are not tables.
-    assert set(schemas) == {"orders", "line_items", "order_totals", "allAccounts"}
+    assert set(schemas) == {"orders", "line_items", "user_roles", "order_totals", "raw_blobs", "allAccounts"}
     orders = schemas["orders"]
     # Relationships and a computed field that needs an argument are not columns.
     assert [column[0] for column in orders.columns] == [
         "id",
         "customer",
+        "total",
         "meta",
         "status",
         "created_at",
         "updated_at",
+        "legacy_at",
         "ship_date",
     ]
     assert orders.detected_primary_keys == ["id"]
@@ -237,16 +292,18 @@ def test_get_schemas_discovers_tables_keys_and_incremental_columns() -> None:
         "id": "integer",
         "created_at": "datetime",
         "updated_at": "datetime",
+        "legacy_at": "datetime",
         "ship_date": "date",
     }
     assert orders.supports_incremental and orders.supports_append
     assert schemas["line_items"].detected_primary_keys == ["order_id", "line_no"]
     # The key comes from the single custom root field that looks a row up by required column args.
     assert schemas["allAccounts"].detected_primary_keys == ["id"]
-    # A view has no key, so it can only be fully refreshed.
-    totals = schemas["order_totals"]
-    assert totals.detected_primary_keys is None
-    assert not totals.supports_incremental and not totals.supports_append and totals.incremental_fields == []
+    # A view, and a key with an enum column, can only be fully refreshed.
+    for name in ("order_totals", "user_roles"):
+        schema = schemas[name]
+        assert schema.detected_primary_keys is None
+        assert not schema.supports_incremental and not schema.supports_append and schema.incremental_fields == []
 
 
 def test_full_refresh_walks_keyset_pages_until_an_empty_page() -> None:
@@ -268,6 +325,8 @@ def test_full_refresh_walks_keyset_pages_until_an_empty_page() -> None:
     assert result.response is not None
     assert result.response.primary_keys == ["id"] and result.response.sort_mode is None
     assert result.committed_states[-1] == HasuraResumeConfig(keys=["id"], last_values=[5])
+    # A sync introspects only its own table, not every type of the schema.
+    assert "PostHogHasuraIntrospection" not in str(result.requests[0].json())
     # The admin secret rides in a header, so it must be redacted and never follow a redirect.
     assert result.requests[0].headers["x-hasura-admin-secret"] == "adm1n-s3cret"
     assert result.session_options[0]["redact_values"] == ("adm1n-s3cret",)
@@ -278,13 +337,16 @@ def test_full_refresh_walks_keyset_pages_until_an_empty_page() -> None:
     ("incremental_field", "watermark", "expected_bound", "expected_ids"),
     [
         ("updated_at", None, None, [5, 4, 3, 2, 1]),
-        ("updated_at", datetime(2024, 2, 3, 12, tzinfo=UTC), "2024-02-03T12:00:00.000000Z", [3, 2, 1]),
-        ("id", 4, 4, [4, 5]),
-        ("ship_date", date(2024, 3, 2), "2024-03-02", [2, 3, 4, 5]),
+        ("updated_at", datetime(2024, 2, 3, 12, tzinfo=UTC), {"_gt": "2024-02-03T12:00:00.000000Z"}, [2, 1]),
+        # SQL Server `datetime` takes at most three fractional digits.
+        ("legacy_at", datetime(2024, 4, 3, 0, 0, 0, 123456), {"_gt": "2024-04-03T00:00:00.123Z"}, [4, 5]),
+        ("id", 4, {"_gt": 4}, [5]),
+        # A later row can share the stored day, so a date bound stays inclusive.
+        ("ship_date", date(2024, 3, 2), {"_gte": "2024-03-02"}, [2, 3, 4, 5]),
     ],
 )
 def test_incremental_read_filters_on_the_watermark_and_orders_by_the_field(
-    incremental_field: str, watermark: Any, expected_bound: Any, expected_ids: list[int]
+    incremental_field: str, watermark: Any, expected_bound: dict[str, Any] | None, expected_ids: list[int]
 ) -> None:
     fake = FakeHasura({"orders": _orders(5)})
 
@@ -297,7 +359,7 @@ def test_incremental_read_filters_on_the_watermark_and_orders_by_the_field(
     first = fake.page_variables[0]
     expected_where: list[dict[str, Any]] = [{incremental_field: {"_is_null": False}}]
     if expected_bound is not None:
-        expected_where.append({incremental_field: {"_gte": expected_bound}})
+        expected_where.append({incremental_field: expected_bound})
     assert first.get("where") == (expected_where[0] if len(expected_where) == 1 else {"_and": expected_where})
     # The key breaks ties, and an incremental column that is the key is not ordered twice.
     expected_order = [{incremental_field: "asc"}] + ([] if incremental_field == "id" else [{"id": "asc"}])
@@ -305,7 +367,7 @@ def test_incremental_read_filters_on_the_watermark_and_orders_by_the_field(
     assert result.response is not None and result.response.sort_mode == "asc"
 
 
-def test_incremental_keyset_continues_after_ties_on_the_incremental_field() -> None:
+def test_incremental_keyset_continues_after_ties_with_a_range_bound() -> None:
     rows = [{**row, "updated_at": "2024-02-01T00:00:00+00:00"} for row in _orders(3)]
     fake = FakeHasura({"orders": rows})
 
@@ -314,45 +376,61 @@ def test_incremental_keyset_continues_after_ties_on_the_incremental_field() -> N
 
     assert [row["id"] for row in result.rows] == [1, 2, 3]
     tie = "2024-02-01T00:00:00+00:00"
+    # The leading `_gte` lets the database seek to the last row read instead of scanning past it.
     assert fake.page_variables[1]["where"] == {
         "_and": [
             {"updated_at": {"_is_null": False}},
-            {"_or": [{"updated_at": {"_gt": tie}}, {"_and": [{"updated_at": {"_eq": tie}}, {"id": {"_gt": 2}}]}]},
+            {
+                "_and": [
+                    {"updated_at": {"_gte": tie}},
+                    {
+                        "_or": [
+                            {"updated_at": {"_gt": tie}},
+                            {"_and": [{"updated_at": {"_eq": tie}}, {"id": {"_gt": 2}}]},
+                        ]
+                    },
+                ]
+            },
         ]
     }
 
 
 @pytest.mark.parametrize(
-    ("schema_name", "rows", "expected_second_page"),
+    ("schema_name", "rows"),
     [
-        (
-            "line_items",
-            [{"order_id": o, "line_no": n, "sku": f"{o}-{n}"} for o in (1, 2) for n in (1, 2)],
-            {
-                "where": {
-                    "_or": [{"order_id": {"_gt": 2}}, {"_and": [{"order_id": {"_eq": 2}}, {"line_no": {"_gt": 1}}]}]
-                }
-            },
-        ),
-        (
-            "order_totals",
-            [{"customer": f"c{i}", "total": i} for i in range(4)],
-            {"offset": 3},
-        ),
+        ("order_totals", [{"customer": f"c{i}", "total": i} for i in range(4)]),
+        ("user_roles", [{"user_id": i // 2, "role": ("ADMIN", "USER")[i % 2]} for i in range(4)]),
     ],
 )
-def test_composite_keys_page_by_keyset_and_keyless_views_by_offset(
-    schema_name: str, rows: list[dict[str, Any]], expected_second_page: dict[str, Any]
-) -> None:
+def test_tables_without_a_usable_key_page_by_offset(schema_name: str, rows: list[dict[str, Any]]) -> None:
     fake = FakeHasura({schema_name: rows})
 
-    with mock.patch(f"{MODULE}.PAGE_SIZE", 3):
+    with mock.patch(f"{MODULE}.OFFSET_PAGE_SIZE", 3):
         result = _driver().run(schema_name, fake, should_use_incremental_field=False)
 
     assert result.raised is None
     assert len(result.rows) == len(rows)
-    second = fake.page_variables[1]
-    assert {key: second[key] for key in expected_second_page} == expected_second_page
+    assert [variables.get("offset") for variables in fake.page_variables] == [0, 3, 4]
+    assert all("where" not in variables for variables in fake.page_variables)
+
+
+def test_decimal_columns_keep_every_digit_and_json_columns_stay_plain() -> None:
+    page = (
+        b'{"data": {"orders": [{"id": 1, "total": 12345678901234567890.123456789012345678, "meta": {"ratio": 0.5}},'
+        b' {"id": 2, "total": 7, "meta": null}]}}'
+    )
+    answers = iter([ScriptedResponse(body=page), ScriptedResponse(json={"data": {"orders": []}})])
+
+    def respond(request: RecordedRequest) -> ScriptedResponse:
+        return _introspection_answer(request) or next(answers)
+
+    result = _driver().run("orders", respond, should_use_incremental_field=False)
+
+    assert result.raised is None
+    assert result.rows[0]["total"] == Decimal("12345678901234567890.123456789012345678")
+    assert result.rows[1]["total"] == Decimal(7)
+    # A Decimal inside a json value would not serialize, so json columns keep the plain decode.
+    assert result.rows[0]["meta"] == {"ratio": 0.5} and isinstance(result.rows[0]["meta"]["ratio"], float)
 
 
 @pytest.mark.parametrize(
@@ -379,53 +457,77 @@ def test_resume_continues_from_a_matching_cursor_only(
     [
         ("missing", None, None, ValueError, "no longer exposes the table missing"),
         ("orders", "customer", None, HasuraGraphQLError, "can't sync this table incrementally on customer"),
-        ("order_totals", "total", None, HasuraGraphQLError, "can't sync this table incrementally on total"),
+        ("raw_blobs", None, None, HasuraGraphQLError, "can't page through the table raw_blobs"),
+        ("orders", None, ScriptedResponse(json=ACCESS_DENIED_BODY), HasuraAccessDeniedError, "Hasura access denied"),
         (
             "orders",
             None,
-            {"errors": [{"message": 'invalid "x-hasura-admin-secret"', "extensions": {"code": "access-denied"}}]},
-            HasuraAccessDeniedError,
-            "Hasura access denied",
-        ),
-        (
-            "orders",
-            None,
-            {"errors": [{"message": "field 'orders' not found", "extensions": {"code": "validation-failed"}}]},
+            ScriptedResponse(
+                json={
+                    "errors": [
+                        {
+                            "message": "database query error",
+                            "extensions": {
+                                "path": "$",
+                                "code": "unexpected",
+                                "internal": {
+                                    "error": {
+                                        "message": "canceling statement due to statement timeout",
+                                        "status_code": "57014",
+                                    }
+                                },
+                            },
+                        }
+                    ]
+                }
+            ),
             HasuraGraphQLError,
-            "validation-failed",
+            "database query error: canceling statement due to statement timeout",
         ),
-        ("orders", None, {"data": {"orders": [{"id": 1}]}}, HasuraGraphQLError, "same page of orders twice"),
+        (
+            "orders",
+            None,
+            ScriptedResponse(json={"data": {"orders": [{"id": 1}]}}),
+            HasuraGraphQLError,
+            "same page of orders twice",
+        ),
+        (
+            "orders",
+            None,
+            ScriptedResponse(body=b"<html>gateway</html>"),
+            HasuraGraphQLError,
+            "https://acme.hasura.app/v1/graphql did not answer with a GraphQL response",
+        ),
     ],
 )
 def test_extraction_errors(
     schema_name: str,
     incremental_field: str | None,
-    answer: dict[str, Any] | None,
+    answer: ScriptedResponse | None,
     expected_error: type[Exception],
     expected_message: str,
 ) -> None:
     def respond(request: RecordedRequest) -> ScriptedResponse:
-        if "__schema" in request.json()["query"] or answer is None:
-            return ScriptedResponse(json={"data": {"__schema": _schema()}})
-        return ScriptedResponse(json=answer)
+        introspection = _introspection_answer(request)
+        if introspection is not None:
+            return introspection
+        assert answer is not None
+        return answer
 
     result = _driver().run(schema_name, respond, incremental_field=incremental_field)
 
     assert isinstance(result.raised, expected_error)
     assert expected_message in str(result.raised)
+    assert "gateway-key" not in str(result.raised)
 
 
 @pytest.mark.parametrize(
     ("answer", "expected"),
     [
         (ScriptedResponse(json={"data": {"__schema": {"queryType": {"name": "query_root"}}}}), (True, None)),
-        (
-            ScriptedResponse(
-                json={"errors": [{"message": "invalid secret", "extensions": {"path": "$", "code": "access-denied"}}]}
-            ),
-            (False, INVALID_SECRET_MESSAGE),
-        ),
+        (ScriptedResponse(json=ACCESS_DENIED_BODY), (False, INVALID_SECRET_MESSAGE)),
         (ScriptedResponse(status=401), (False, INVALID_SECRET_MESSAGE)),
+        (ScriptedResponse(status=403), (False, REFUSED_MESSAGE)),
         (ScriptedResponse(body=b"<html>not graphql</html>"), (False, "Could not reach a Hasura GraphQL API")),
         (requests.ConnectionError("refused"), (False, "Could not reach a Hasura GraphQL API")),
     ],
@@ -454,23 +556,33 @@ def test_resolve_graphql_url_normalizes_the_endpoint(raw: str, expected: str) ->
 
 
 @pytest.mark.parametrize(
-    ("raw", "allowed", "expected_message"),
+    ("raw", "verdict", "expected_error", "expected_message"),
     [
-        ("", (True, None), "Enter the URL"),
-        ("http://acme.hasura.app/v1/graphql", (True, None), "must be an https URL"),
-        ("https://10.0.0.5/v1/graphql", (False, "private IP"), "can't connect to this Hasura URL: private IP"),
+        ("", (True, None), HasuraConfigError, "Enter the URL"),
+        ("http://acme.hasura.app/v1/graphql", (True, None), HasuraConfigError, "must be an https URL"),
+        ("https://user:pw@acme.hasura.app/v1/graphql", (True, None), HasuraConfigError, "Remove the user name"),
+        ("https://10.0.0.5/v1/graphql", (False, "private IP"), HasuraConfigError, "this Hasura URL: private IP"),
+        # A DNS blip is not a policy decision, so a sync retries it.
+        (
+            "https://acme.hasura.app/v1/graphql",
+            (False, UNRESOLVED_HOST_REASON),
+            TemporaryHostResolutionError,
+            "acme.hasura.app",
+        ),
     ],
 )
-def test_unsafe_endpoints_fail_validation_before_the_secret_is_sent(
-    raw: str, allowed: tuple[bool, str | None], expected_message: str
+def test_unsafe_endpoints_fail_before_the_secret_is_sent(
+    raw: str, verdict: tuple[bool, str | None], expected_error: type[Exception], expected_message: str
 ) -> None:
     with (
-        mock.patch(f"{MODULE}.is_url_allowed", return_value=allowed),
+        mock.patch(f"{MODULE}.is_url_allowed", return_value=verdict),
         scripted_network(always(ScriptedResponse(json={"data": {}}))) as network,
     ):
-        valid, message = HasuraSource().validate_credentials(
+        with pytest.raises(expected_error, match=re.escape(expected_message)):
+            resolve_graphql_url(raw)
+        valid, _ = HasuraSource().validate_credentials(
             HasuraSourceConfig(graphql_url=raw, admin_secret="secret"), team_id=1
         )
 
-    assert valid is False and expected_message in (message or "")
+    assert valid is False
     assert network.requests_log == []

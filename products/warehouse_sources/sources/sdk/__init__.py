@@ -31,7 +31,7 @@ from posthog.models.integration import (
 from posthog.models.integration.databricks import NOT_A_DATABRICKS_HOST_MESSAGE, is_databricks_workspace_host
 from posthog.schema_enums import ProductKey
 from posthog.security.postgres_hosts import SUPABASE_DIRECT_HOST_IPV4_HINT, SUPABASE_DIRECT_HOST_RE
-from posthog.security.url_validation import is_url_allowed
+from posthog.security.url_validation import UNRESOLVED_HOST_REASON, is_url_allowed
 from posthog.temporal.common.client import connect
 from posthog.temporal.common.errors import NonReportableError
 from posthog.temporal.common.shutdown import WorkerShuttingDownError
@@ -604,6 +604,7 @@ __all__ = [
     "TemporaryHostResolutionError",
     "TrackedHTTPAdapter",
     "UNKNOWN_RESOURCE_PREFIX",
+    "UNRESOLVED_HOST_REASON",
     "UNVERSIONED_API_VERSION",
     "UnknownResourceError",
     "UnmappableTableError",
