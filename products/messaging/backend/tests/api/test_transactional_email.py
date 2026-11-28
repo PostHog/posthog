@@ -680,14 +680,22 @@ class TestTransactionalEmail(APIBaseTest):
         ]
     )
     def test_reports_a_send_the_pipeline_refuses(
-        self, mock_post, _flag, _capture, pipeline_code, pipeline_status, expected_status, expected_code
+        self, mock_post, _flag, capture, pipeline_code, pipeline_status, expected_status, expected_code
     ):
+        analytics = FakeAnalytics()
+        capture.side_effect = analytics.capture
         mock_post.return_value = MagicMock(status_code=pipeline_status, json=lambda: {"error": pipeline_code})
         refusals_before = _sandbox_fallbacks("recipient_not_member")
 
-        response = self.client.post(self.url, self.body, format="json", headers={"Idempotency-Key": "key-1"})
+        response = self.client.post(
+            self.url, {**self.body, "to": "jane@Mail.Example.com"}, format="json", headers={"Idempotency-Key": "key-1"}
+        )
 
         assert response.status_code == expected_status
+        refuses_the_recipient = pipeline_code in ("recipient_suppressed", "recipient_unreachable")
+        assert [event.get("recipient_domain") for event in analytics.properties_of("transactional email api send")] == [
+            "mail.example.com" if refuses_the_recipient else None
+        ]
         assert _sandbox_fallbacks("recipient_not_member") == refusals_before
         assert response.json()["code"] == expected_code
         setup_url = f"{settings.SITE_URL}/project/{self.team.id}/workflows/channels/email/new"

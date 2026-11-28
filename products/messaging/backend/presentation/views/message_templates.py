@@ -1403,7 +1403,13 @@ class TransactionalEmailSendMixin(RequestBodyCapMixin):
             outcome.update({"outcome": "rejected", "error_code": e.code})
             raise field_not_accepted_refusal(e.field) from None
         except TransactionalEmailError as e:
-            outcome.update({"outcome": "rejected", "error_code": e.code})
+            outcome.update(
+                {
+                    "outcome": "rejected",
+                    "error_code": e.code,
+                    **refused_recipient_properties(e, request.validated_data.get("to") or ""),
+                }
+            )
             if attachments:
                 outcome["attachment_bytes"] = e.attachment_bytes
             if isinstance(e, AttachmentNotUploaded | MessageTooLarge):
@@ -2012,6 +2018,13 @@ def _scheduled_send_properties(
 
 def _lead_hours(lead: timedelta) -> float:
     return lead / timedelta(hours=1)
+
+
+def refused_recipient_properties(error: TransactionalEmailError, to: str) -> dict[str, Any]:
+    # The address stays out of analytics, but its domain shows whether a run of refusals was test data.
+    if error.code not in ("recipient_suppressed", "recipient_unreachable") or "@" not in to:
+        return {}
+    return {"recipient_domain": to.rpartition("@")[2].lower()}
 
 
 def _distinct_id(data: Mapping[str, Any]) -> str | None:

@@ -504,8 +504,10 @@ class TestTransactionalEmailBatch(APIBaseTest):
         ]
 
     def test_a_suppressed_or_unreachable_recipient_answers_what_a_single_send_to_it_answers(
-        self, mock_post, _flag, _capture
+        self, mock_post, _flag, capture
     ):
+        analytics = FakeAnalytics()
+        capture.side_effect = analytics.capture
         single_answers = {}
         for code in ("recipient_suppressed", "recipient_unreachable"):
             mock_post.return_value = _response(422, {"error": code, "invocation_id": self._id("key-0")})
@@ -521,9 +523,21 @@ class TestTransactionalEmailBatch(APIBaseTest):
             {"status": 422, "body": {"error": "recipient_unreachable", "invocation_id": self._id("key-2")}},
         )
 
-        response = self._batch("template", self._recipients(3))
+        recipients = self._recipients(3)
+        recipients[1]["to"], recipients[2]["to"] = "user1@Bounced.example.com", "user2@no-mail.example.org"
+        analytics.events.clear()
+
+        response = self._batch("template", recipients)
 
         assert response.status_code == status.HTTP_200_OK, response.json()
+        assert [
+            (event["outcome"], event.get("error_code"), event.get("recipient_domain"))
+            for event in analytics.properties_of(SEND_EVENT)
+        ] == [
+            ("queued", None, None),
+            ("rejected", "recipient_suppressed", "bounced.example.com"),
+            ("rejected", "recipient_unreachable", "no-mail.example.org"),
+        ]
         queued, suppressed, unreachable = response.json()["results"]
         assert queued == {"message_id": self._id("key-0"), "status": "queued", "replayed": False}
         assert [suppressed["message_id"], unreachable["message_id"]] == [self._id("key-1"), self._id("key-2")]
