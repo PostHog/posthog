@@ -7317,10 +7317,10 @@ Today (5): `destinations`, `models`, `sources`, `sync_runs`, `syncs`
 
 Diffed against: <https://api.hightouch.io/api/swagger.json>
 
-- [ ] `GET /decision-engine/flows` — AI Decisioning flows, Hightouch's headline product and completely absent today (medium)
-- [ ] `GET /decision-engine/flow/{flowId}/messages` — the messages inside each decisioning flow — the analytical rows behind flow performance (medium)
-- [ ] `GET /idr/{graphId}/runs` — identity resolution run history, the equivalent of sync_runs for identity graphs (medium)
-- [ ] `GET /events/contracts` — event schema contracts, a lookup for the event streams flowing through Hightouch (low)
+- [x] `GET /decision-engine/flows` — AI Decisioning flows, Hightouch's headline product and completely absent today (medium)
+- [x] `GET /decision-engine/flow/{flowId}/messages` — the messages inside each decisioning flow — the analytical rows behind flow performance (medium)
+- [ ] `GET /idr/{graphId}/runs` — identity resolution run history, the equivalent of sync_runs for identity graphs (medium). Skipped: The public API does not list identity graphs.
+- [x] `GET /events/contracts` — event schema contracts, a lookup for the event streams flowing through Hightouch (low)
 
 Note: The Redoc page at hightouch.com/docs/api-reference loads its spec from https://api.hightouch.io/api/swagger.json (found in the page's Next.js chunk). The public API is small — syncs, sync runs, models, sources and destinations are already covered, and the remaining paths are mostly single-object GETs or trigger POSTs (campaign sends, sync-sequence runs, trigger endpoints) that are not listable.
 
