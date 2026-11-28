@@ -3092,22 +3092,43 @@ class TestSignalReportListAPI(APIBaseTest):
         merged = self._create_report(title="Merged", status=SignalReport.Status.RESOLVED, tags=["billing"])
         self._create_assignment(merged, pr_url="https://github.com/org/repo/pull/43")
         self._create_report(title="Needs input", status=SignalReport.Status.PENDING_INPUT, tags=["billing"])
+        hidden = self._create_report(title="Hidden", tags=["billing"])
+        config = SignalScoutConfig.objects.create(
+            team=self.team, skill_name="signals-scout-digest", output_destinations={"inbox": False}
+        )
+        task = apps.get_model("tasks", "Task").objects.create(team=self.team, title="scout", description="d")
+        SignalScoutRun.objects.create(
+            team=self.team,
+            task_run=apps.get_model("tasks", "TaskRun").objects.create(team=self.team, task=task),
+            scout_config=config,
+            skill_name=config.skill_name,
+            skill_version=1,
+            emitted_report_ids=[str(hidden.id)],
+        )
 
         with patch("products.signals.backend.views.organization_inbox_cached_filters_enabled", return_value=cached):
-            response = self.client.get(f"{self._list_url()}section_counts/?exclude={excluded.id}&tags=billing")
-            list_counts = {
-                name: self.client.get(
-                    self._list_url(
-                        status="ready",
-                        has_implementation_pr=has_pr,
-                        exclude=excluded.id,
-                        tags="billing",
-                        count_only="true",
-                    )
-                ).json()["count"]
-                for name, has_pr in (("pull_requests", "true"), ("reports", "false"))
-            }
+            with CaptureQueriesContext(connection) as section_count_queries:
+                response = self.client.get(f"{self._list_url()}section_counts/?exclude={excluded.id}&tags=billing")
+            with CaptureQueriesContext(connection) as list_count_queries:
+                list_counts = {
+                    name: self.client.get(
+                        self._list_url(
+                            status="ready",
+                            has_implementation_pr=has_pr,
+                            exclude=excluded.id,
+                            tags="billing",
+                            count_only="true",
+                        )
+                    ).json()["count"]
+                    for name, has_pr in (("pull_requests", "true"), ("reports", "false"))
+                }
 
+        section_count_sql = "\n".join(query["sql"] for query in section_count_queries.captured_queries)
+        list_count_sql = "\n".join(query["sql"] for query in list_count_queries.captured_queries)
+
+        assert "@>" in section_count_sql
+        assert "jsonb_array_elements_text" not in section_count_sql
+        assert "jsonb_array_elements_text" in list_count_sql
         assert response.status_code == status.HTTP_200_OK
         assert response.json() == list_counts == {"pull_requests": 1, "reports": 1}
 
