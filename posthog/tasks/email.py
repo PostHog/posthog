@@ -35,6 +35,7 @@ from posthog.event_usage import groups
 from posthog.geoip import get_geoip_properties
 from posthog.helpers.email_utils import sanitize_display_name, sanitize_email_string, sanitize_message_body
 from posthog.helpers.two_factor_session import CODE_TTL_SECONDS
+from posthog.invite_analytics import invite_analytics_id, invite_distinct_id
 from posthog.models import (
     Organization,
     OrganizationInvite,
@@ -321,14 +322,13 @@ def should_send_pipeline_error_notification(
 
 
 def _mark_invite_email_suppressed(invite: OrganizationInvite) -> None:
-    invite_id = str(invite.id)
     OrganizationInvite.objects.filter(id=invite.id).update(email_suppressed=True)
     with ph_scoped_capture() as capture:
         capture(
-            distinct_id=str(invite.created_by.distinct_id) if invite.created_by else f"invite_{invite_id}",
+            distinct_id=str(invite.created_by.distinct_id) if invite.created_by else invite_distinct_id(invite.id),
             event="invite email suppressed",
             properties={
-                "invite_id": invite_id,
+                "invite_id": invite_analytics_id(invite.id),
                 "is_setup_delegation": invite.is_setup_delegation,
                 "$update_person_last_seen_at": False,
             },
@@ -339,7 +339,7 @@ def _mark_invite_email_suppressed(invite: OrganizationInvite) -> None:
 @shared_task(**EMAIL_TASK_KWARGS)
 @skip_team_scope_audit
 def send_invite(invite_id: str) -> None:
-    campaign_key: str = f"invite_email_{invite_id}"
+    campaign_key: str = f"invite_email_{invite_analytics_id(invite_id)}"
     invite = OrganizationInvite.objects.select_related("created_by", "organization").filter(id=invite_id).first()
     if invite is None:
         # Invite can be deleted (cancelled/accepted) before the worker picks up the task.
@@ -402,7 +402,7 @@ def send_invite(invite_id: str) -> None:
     # Using invite_id that will be aliased to user.distinct_id after invite is accepted
     if invite.target_email is None:
         return
-    message.add_recipient(email=invite.target_email, distinct_id=f"invite_{invite_id}")
+    message.add_recipient(email=invite.target_email, distinct_id=invite_distinct_id(invite_id))
     # For delegation invites the resubmit path retries email dispatch when
     # emailing_attempt_made is False, so we need that flag to track *actual* delivery,
     # not just task enqueue. _send_via_smtp / _send_via_http catch and swallow exceptions

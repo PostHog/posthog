@@ -1,4 +1,5 @@
 import os
+import re
 import atexit
 import threading
 from collections.abc import Callable, Iterator, Mapping
@@ -93,6 +94,64 @@ def self_hosted_capture_reaches_posthog() -> bool:
     return is_hobby() and not settings.TEST and not settings.SELF_CAPTURE
 
 
+_URL_SEPARATOR = r"(?:/|%2F)"
+_UUID = r"[0-9a-f]{8}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{12}"
+_URL_VALUE = r"[^/?#&%\s\"'<>\\]+"
+# The query of a reset link runs to its end in one greedy match, and a second pattern finds the token in it.
+# Two passes keep the scan linear, whatever the length or number of the query parameters.
+_RESET_QUERY = re.compile(
+    rf"{_URL_SEPARATOR}(?:reset|reset_2fa){_URL_SEPARATOR}{_UUID}{_URL_SEPARATOR}?(?:\?|%3F)[^#\s\"'<>]*", re.IGNORECASE
+)
+_QUERY_TOKEN = re.compile(rf"((?:\?|&|%3F|%26)token(?:=|%3D)){_URL_VALUE}", re.IGNORECASE)
+
+
+def _redact_query_token(query: re.Match[str]) -> str:
+    return _QUERY_TOKEN.sub(r"\1:token", query.group(0))
+
+
+# Mirrors frontend/src/lib/utils/sensitiveUrlRedaction.ts. Password reset, two-factor reset and email
+# verification links carry a token after the user id. The id of an invite link is itself the secret.
+_SENSITIVE_URL_SEGMENTS: tuple[tuple[re.Pattern[str], str | Callable[[re.Match[str]], str]], ...] = (
+    (
+        re.compile(
+            rf"({_URL_SEPARATOR}(?:reset|reset_2fa|verify_email){_URL_SEPARATOR}{_UUID}{_URL_SEPARATOR}){_URL_VALUE}",
+            re.IGNORECASE,
+        ),
+        r"\1:token",
+    ),
+    (_RESET_QUERY, _redact_query_token),
+    (re.compile(rf"({_URL_SEPARATOR}signup{_URL_SEPARATOR}){_UUID}(?![0-9a-f])", re.IGNORECASE), r"\1:id"),
+    # Invite signup passes the invite id to social login in the query.
+    (re.compile(rf"((?:\?|&|%3F|%26)invite_id(?:=|%3D)){_UUID}(?![0-9a-f])", re.IGNORECASE), r"\1:id"),
+)
+_MAY_HOLD_SENSITIVE_URL = re.compile(r"reset|verify_email|signup|invite_id", re.IGNORECASE)
+
+
+def _redact_sensitive_urls(value: Any) -> Any:
+    """Returns the value itself when nothing in it changes, so an event without these URLs is not copied."""
+    if isinstance(value, str):
+        if not _MAY_HOLD_SENSITIVE_URL.search(value):
+            return value
+        redacted = value
+        for pattern, replacement in _SENSITIVE_URL_SEGMENTS:
+            redacted = pattern.sub(replacement, redacted)
+        return value if redacted == value else redacted
+    if isinstance(value, dict):
+        redacted_dict = {key: _redact_sensitive_urls(item) for key, item in value.items()}
+        return value if all(redacted_dict[key] is item for key, item in value.items()) else redacted_dict
+    if isinstance(value, list):
+        redacted_list = [_redact_sensitive_urls(item) for item in value]
+        return value if all(new is old for new, old in zip(redacted_list, value)) else redacted_list
+    return value
+
+
+def redact_sensitive_url_segments(message: dict[str, Any]) -> dict[str, Any]:
+    # The request context stamps the request URL on every event, and query tags carry the referer.
+    properties = message.get("properties")
+    redacted = _redact_sensitive_urls(properties)
+    return message if redacted is properties else {**message, "properties": redacted}
+
+
 def default_before_send(*, private_scout_capture: bool, self_hosted: bool) -> BeforeSend:
     # A self-hosted install captures to the PostHog US project by default. Its exceptions carry
     # that install's own stack traces and data, so they must not reach our error tracking.
@@ -102,6 +161,7 @@ def default_before_send(*, private_scout_capture: bool, self_hosted: bool) -> Be
     if self_hosted:
         hooks.append(drop_exception_capture)
     hooks.append(filter_sql_query_capture)
+    hooks.append(redact_sensitive_url_segments)
     hooks.append(suppress_last_seen_updates)
 
     def chained(message: dict[str, Any]) -> dict[str, Any] | None:
@@ -339,7 +399,9 @@ def get_client(region: str = "US", **kwargs: Any):
                 return None
             message = next_message
         filtered_message = filter_sql_query_capture(message)
-        return suppress_last_seen_updates(filtered_message) if filtered_message is not None else None
+        if filtered_message is None:
+            return None
+        return suppress_last_seen_updates(redact_sensitive_url_segments(filtered_message))
 
     kwargs["before_send"] = capture_filter
 

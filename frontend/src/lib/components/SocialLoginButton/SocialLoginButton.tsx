@@ -40,7 +40,9 @@ function SocialLoginLink({ provider, extraQueryParams, onProviderClick, children
     return (
         // eslint-disable-next-line react/forbid-elements
         <a
-            className="block"
+            // The login URL can hold an invite id, or a reset link in `next`. Replay compresses the href
+            // before `before_send` runs, so the link is always blocked from replay.
+            className="block ph-replay-block"
             href={loginUrl}
             onClick={
                 onProviderClick

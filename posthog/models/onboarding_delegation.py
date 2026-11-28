@@ -10,6 +10,7 @@ import structlog
 import posthoganalytics
 
 from posthog.exceptions_capture import capture_exception
+from posthog.invite_analytics import invite_analytics_id
 from posthog.models.user import OnboardingSkippedReason, User
 
 if TYPE_CHECKING:
@@ -270,7 +271,7 @@ def schedule_delegation_side_effects(
                     "target_email_domain": target_email.split("@")[-1] if "@" in target_email else None,
                     "has_message": bool(message),
                     "step_at_delegation": step_at_delegation or None,
-                    "invite_id": str(invite_id),
+                    "invite_id": invite_analytics_id(invite_id),
                 },
             )
         except Exception as exc:  # noqa: BLE001
