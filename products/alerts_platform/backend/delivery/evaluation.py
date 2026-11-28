@@ -36,6 +36,7 @@ from products.alerts_platform.backend.delivery.destinations import (
 from products.alerts_platform.backend.delivery.discord import DiscordTransport
 from products.alerts_platform.backend.delivery.dispatch import (
     add_late_image as add_late_image_to_target,
+    count_failed_send,
     deliver,
 )
 from products.alerts_platform.backend.delivery.email import EmailTransport
@@ -168,9 +169,11 @@ class _WebhookTransports:
         try:
             keeps_legacy_body = legacy_webhook.keeps_legacy_webhook_body(self._team)
         except Exception as error:
-            raise DeliveryError("Could not read which webhook body this team receives.") from error
+            raise DeliveryError(
+                "Could not read which webhook body this team receives.", reason="platform_read"
+            ) from error
         if keeps_legacy_body is None:
-            raise DeliveryError("Could not read which webhook body this team receives.")
+            raise DeliveryError("Could not read which webhook body this team receives.", reason="platform_read")
         if not keeps_legacy_body:
             return None
         return self._source_legacy_body()
@@ -352,14 +355,7 @@ def deliver_evaluation(request: AlertDeliveryRequest) -> DeliveryOutcome:
                         succeeded=False,
                         error=str(error),
                     )
-                safe_record(
-                    increment_deliveries,
-                    request.source.value,
-                    WebhookTransport.provider,
-                    DeliveryPath.NATIVE.value,
-                    "failed",
-                    len(transitions),
-                )
+                count_failed_send(request.source.value, WebhookTransport.provider, error, len(transitions))
                 failures.append(str(error))
                 first_refusal = first_refusal or error
                 retryable = True
@@ -435,7 +431,13 @@ def deliver_evaluation(request: AlertDeliveryRequest) -> DeliveryOutcome:
                 )
                 failures.append(f"legacy events: {type(error).__name__}")
                 retryable = True
-                _count_emissions(request, "failed", len(emissions))
+                count_failed_send(
+                    request.source.value,
+                    DeliveryPath.HOG_FUNCTION.value,
+                    error,
+                    len(emissions),
+                    path=DeliveryPath.HOG_FUNCTION,
+                )
             else:
                 thread_store.delivered(emission, None)
                 emitted = emissions

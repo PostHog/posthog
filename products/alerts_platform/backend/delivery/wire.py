@@ -4,6 +4,7 @@ Each transport's credential, a webhook URL or a PagerDuty routing key, never rea
 message, a log line or a metric label, so the errors here name a status or an exception class only.
 """
 
+import ssl
 import json
 import time
 import hashlib
@@ -13,11 +14,18 @@ from datetime import UTC, datetime
 from typing import Any, Final
 
 import requests
-from urllib3.exceptions import ProtocolError
+from urllib3.exceptions import MaxRetryError, ProtocolError
+from urllib3.util.ssl_match_hostname import CertificateError
 
 from posthog.security.pinned_requests import SSRFBlockedError, pinned_session
+from posthog.security.url_validation import UNRESOLVED_HOST_REASON
 
-from products.alerts_platform.backend.delivery.transport import DeliveryAmbiguous, DeliveryError, DestinationRefused
+from products.alerts_platform.backend.delivery.transport import (
+    DeliveryAmbiguous,
+    DeliveryError,
+    DestinationRefused,
+    FailureReason,
+)
 
 # Request Timeout and Too Many Requests: the destination accepts this request at another time.
 _RETRYABLE_CLIENT_ERRORS: Final = frozenset({408, 429})
@@ -48,6 +56,10 @@ def rfc3339(moment: datetime) -> str:
     return aware.isoformat()
 
 
+def _host_did_not_resolve(error: SSRFBlockedError) -> bool:
+    return str(error) == UNRESOLVED_HOST_REASON
+
+
 def post_json(
     url: str,
     body: dict[str, Any],
@@ -55,12 +67,14 @@ def post_json(
     display_name: str,
     headers: dict[str, str] | None = None,
     owner_refusals: Mapping[int, bytes | None] | None = None,
+    rejected_certificate: FailureReason = "unreachable",
 ) -> None:
     """Posts `body` as JSON, raising `DestinationRefused` for a 4xx the destination's owner can fix.
 
     `owner_refusals` maps each such 4xx to None, or to the lowercase text that only the owner's
     mistake carries when the provider answers PostHog's mistakes with the same status. None means
-    every 4xx except 408 and 429.
+    every 4xx except 408 and 429. `rejected_certificate` is the reason a TLS certificate that does
+    not verify counts under, which is the owner's when the URL is their own endpoint.
     """
     try:
         # `pinned_session` validates the URL and connects to the IPs it validated, which
@@ -94,9 +108,10 @@ def post_json(
             status = response.status_code
             refused = _is_owner_refusal(status, response, owner_refusals)
             response.close()
-    except SSRFBlockedError:
+    except SSRFBlockedError as error:
         raise DeliveryError(
-            f"The {display_name} destination URL points to an address PostHog does not send to."
+            f"The {display_name} destination URL points to an address PostHog does not send to.",
+            reason="unreachable" if _host_did_not_resolve(error) else "blocked_address",
         ) from None
     except requests.RequestException as error:
         # Only the class name, and `from None` to keep the original out of the failure chain:
@@ -106,12 +121,37 @@ def post_json(
                 f"The {display_name} destination's answer was lost, so the message may have arrived: "
                 f"{type(error).__name__}"
             ) from None
-        raise DeliveryError(f"The {display_name} destination could not be reached: {type(error).__name__}") from None
+        raise DeliveryError(
+            f"The {display_name} destination could not be reached: {type(error).__name__}",
+            reason=rejected_certificate if _certificate_rejected(error) else "unreachable",
+        ) from None
     if not 200 <= status < 300:
         refusal = f"The {display_name} destination refused the message with status {status}."
         if refused:
             raise DestinationRefused(refusal)
-        raise DeliveryError(refusal)
+        raise DeliveryError(refusal, reason=_unrefused_status_reason(status))
+
+
+def _unrefused_status_reason(status: int) -> FailureReason:
+    if status >= 500 or status == 408:
+        return "provider_error"
+    if status == 429:
+        return "rate_limited"
+    if 300 <= status < 400:
+        return "destination_config"
+    return "rejected_body"
+
+
+def _certificate_rejected(error: requests.RequestException) -> bool:
+    if not isinstance(error, requests.exceptions.SSLError) or not error.args:
+        return False
+    failure = error.args[0]
+    if isinstance(failure, MaxRetryError):
+        failure = failure.reason
+    # urllib3 checks the hostname itself and raises its own `CertificateError` for a mismatch.
+    return isinstance(failure, Exception) and any(
+        isinstance(cause, ssl.SSLCertVerificationError | CertificateError) for cause in failure.args
+    )
 
 
 def _maybe_received(error: requests.RequestException) -> bool:

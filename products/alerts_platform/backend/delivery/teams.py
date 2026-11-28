@@ -99,7 +99,9 @@ class TeamsTransport(WebhookUrlTransport):
 
     def check_url(self, url: str) -> None:
         if not is_microsoft_teams_webhook_url(url):
-            raise DeliveryError("This Microsoft Teams destination's URL is not a Teams workflow URL.")
+            raise DeliveryError(
+                "This Microsoft Teams destination's URL is not a Teams workflow URL.", reason="destination_config"
+            )
 
     def body_for(self, message: AlertMessage) -> dict[str, Any]:
         return card_for(message)

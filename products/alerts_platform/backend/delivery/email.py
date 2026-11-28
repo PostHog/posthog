@@ -44,7 +44,7 @@ class EmailTransport:
     ) -> MessageHandle | None:
         addresses = target.get("email_addresses") or []
         if not addresses:
-            raise DeliveryError("This email destination has no recipients.")
+            raise DeliveryError("This email destination has no recipients.", reason="destination_config")
         try:
             email = EmailMessage(
                 campaign_key=transition_delivery_key(message),
@@ -58,7 +58,9 @@ class EmailTransport:
                 },
             )
         except ImproperlyConfigured as error:
-            raise DeliveryError("Email is not configured where this alert is delivered from.") from error
+            raise DeliveryError(
+                "Email is not configured where this alert is delivered from.", reason="platform_config"
+            ) from error
         for address in addresses:
             email.add_recipient(email=address)
         email.send()

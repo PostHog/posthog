@@ -14,7 +14,7 @@ from django.conf import settings
 
 from products.alerts_platform.backend.delivery.legacy_webhook import LEGACY_WEBHOOK_VERSION
 from products.alerts_platform.backend.delivery.message import AlertMessage
-from products.alerts_platform.backend.delivery.transport import DeliveryError
+from products.alerts_platform.backend.delivery.transport import DeliveryError, FailureReason
 from products.alerts_platform.backend.delivery.webhook_url import WebhookUrlTransport
 from products.alerts_platform.backend.delivery.wire import credential_digest, rfc3339
 from products.alerts_platform.backend.facade.contracts import AlertDestinationData, AlertEventKind, AnnouncedTransition
@@ -99,6 +99,7 @@ class WebhookTransport(WebhookUrlTransport):
     provider = PROVIDER
     display_name = "webhook"
     headers: ClassVar[dict[str, str]] = {"X-PostHog-Webhook-Version": WEBHOOK_VERSION}
+    rejected_certificate: ClassVar[FailureReason] = "destination_config"
 
     def __init__(self, legacy_body: Callable[[AlertMessage], dict[str, Any]] | None = None) -> None:
         self._legacy_body = legacy_body
@@ -122,9 +123,11 @@ class WebhookTransport(WebhookUrlTransport):
         try:
             scheme = urlsplit(url).scheme
         except ValueError:
-            raise DeliveryError("This webhook destination's URL is not a valid URL.") from None
+            raise DeliveryError(
+                "This webhook destination's URL is not a valid URL.", reason="destination_config"
+            ) from None
         if scheme != "https":
-            raise DeliveryError("This webhook destination's URL must use https.")
+            raise DeliveryError("This webhook destination's URL must use https.", reason="destination_config")
 
     def body_for(self, message: AlertMessage) -> dict[str, Any]:
         if self._legacy_body is not None:
