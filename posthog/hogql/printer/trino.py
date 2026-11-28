@@ -222,6 +222,11 @@ _TRINO_REGEX_PATTERN_ARGUMENTS = {
 
 # Printed as a Trino date, though the function registry declares no return type for them.
 _DATE_FUNCTIONS = frozenset({"tomonday", "tolastdayofmonth", "tolastdayofweek"})
+_TYPE_PRESERVING_ZEROS: tuple[tuple[type[ast.ConstantType], str], ...] = (
+    (ast.IntegerType, "TINYINT '0'"),
+    (ast.DecimalType, "DECIMAL '0'"),
+    (ast.FloatType, "REAL '0'"),
+)
 _BOOLEAN_PRINTED_FUNCTIONS = frozenset(
     {
         "bittest",
@@ -1277,7 +1282,9 @@ class TrinoPrinter(PostgresPrinter):
             binary_args = self._visit_binary_args(node)
             return f"any_match({binary_args.right}, __hogql_needle -> strpos(lower({binary_args.left}), lower(__hogql_needle)) > 0)"
         if name == "arrayelement":
-            return self._visit_binary_function(node, "element_at")
+            if len(node.args) != 2:
+                self._invalid_function_arguments(node, f"{node.name} expects exactly 2 arguments in Trino mode.")
+            return self._visit_element_at(node.args[0], node.args[1])
         if name == "arraydistinct":
             return self._visit_unary_function(node, "array_distinct")
         if name == "extractall":
@@ -1692,6 +1699,25 @@ class TrinoPrinter(PostgresPrinter):
         cache[id(node)] = (node, resolved)
         return resolved
 
+    def _boolean_array_items(self, node: ast.Expr) -> ast.BooleanType | None:
+        if isinstance(node, ast.Array):
+            item_types = [self._resolve_type(expr) for expr in node.exprs]
+        elif (
+            isinstance(node, ast.Call)
+            and node.name.lower() == "arraymap"
+            and node.args
+            and isinstance(node.args[0], ast.Lambda)
+            and isinstance(node.args[0].expr, ast.Expr)
+        ):
+            item_types = [self._resolve_type(node.args[0].expr)]
+        else:
+            return None
+        if not any(isinstance(item_type, ast.BooleanType) for item_type in item_types):
+            return None
+        resolved = node.type.resolve_constant_type(self.context) if node.type is not None else None
+        nullable = not isinstance(resolved, ast.ArrayType) or resolved.item_type.nullable
+        return ast.BooleanType(nullable=nullable)
+
     def _resolve_type_uncached(self, node: ast.Expr) -> ast.ConstantType | None:
         if isinstance(node, ast.Call) and node.name.lower() in TRINO_TUPLE_OPERATORS:
             if node.name.lower() == "tuplehammingdistance":
@@ -1699,6 +1725,9 @@ class TrinoPrinter(PostgresPrinter):
             return self._tuple_arithmetic_type(node)
         if isinstance(node, ast.Call) and node.name.lower() in _BOOLEAN_PRINTED_FUNCTIONS:
             return ast.BooleanType()
+        boolean_items = self._boolean_array_items(node)
+        if boolean_items is not None:
+            return ast.ArrayType(item_type=boolean_items)
         offset = self._date_offset_of(node)
         if offset is not None:
             amount_type = self._resolve_type(offset.amount)
@@ -3383,6 +3412,18 @@ class TrinoPrinter(PostgresPrinter):
             self._unsupported(
                 "TRINO_DEFAULT_VALUE_TYPE_UNSUPPORTED", f"{node.name} requires a known result type in Trino mode.", node
             )
+        default = self._known_default_value(value_type)
+        if default is None:
+            self._unsupported(
+                "TRINO_DEFAULT_VALUE_TYPE_UNSUPPORTED",
+                f"{node.name} requires a supported result type in Trino mode.",
+                node,
+            )
+        return default
+
+    def _known_default_value(self, value_type: ast.ConstantType | None) -> str | None:
+        if isinstance(value_type, ast.UnknownType):
+            return None
         if value_type is not None and value_type.nullable:
             return "NULL"
         if isinstance(value_type, ast.StringType):
@@ -3399,11 +3440,14 @@ class TrinoPrinter(PostgresPrinter):
             return "TIMESTAMP '1970-01-01 00:00:00'"
         if isinstance(value_type, ast.ArrayType):
             return "ARRAY[]"
+        if isinstance(value_type, ast.MapType):
+            return "MAP()"
         if isinstance(value_type, ast.TupleType):
-            return f"ROW({', '.join(self._default_value(item, node) for item in value_type.item_types)})"
-        self._unsupported(
-            "TRINO_DEFAULT_VALUE_TYPE_UNSUPPORTED", f"{node.name} requires a supported result type in Trino mode.", node
-        )
+            items = [self._known_default_value(item) for item in value_type.item_types]
+            if None in items:
+                return None
+            return f"ROW({', '.join(item for item in items if item is not None)})"
+        return None
 
     def _visit_vector_rewrite(self, node: ast.Call) -> str:
         name = node.name.lower()
@@ -4883,7 +4927,35 @@ class TrinoPrinter(PostgresPrinter):
                 else "json_extract_scalar"
             )
             return f"{function}({self.visit(node.array)}, {self._json_path([self._constant_string(node.property)])})"
-        return f"element_at({self.visit(node.array)}, {self.visit(node.property)})"
+        return self._visit_element_at(node.array, node.property)
+
+    def _visit_element_at(self, container: ast.Expr, key: ast.Expr) -> str:
+        container_type = self._resolve_type(container)
+        printed_key = self.visit(key)
+        if not isinstance(container_type, ast.ArrayType):
+            return f"element_at({self.visit(container)}, {printed_key})"
+        element = f"element_at({self.visit(container)}, {self._array_index(key, printed_key)})"
+        default = self._array_element_fallback(container_type.item_type)
+        if default is None:
+            return element
+        key_type = self._resolve_type(key)
+        if key_type is None or isinstance(key_type, ast.UnknownType) or key_type.nullable:
+            default = f"IF({printed_key} IS NULL, NULL, {default})"
+        return f"coalesce({element}, {default})"
+
+    @staticmethod
+    def _array_index(index: ast.Expr, printed_index: str) -> str:
+        if isinstance(index, ast.Constant) and isinstance(index.value, int):
+            return printed_index
+        return f"NULLIF({printed_index}, 0)"
+
+    def _array_element_fallback(self, item_type: ast.ConstantType) -> str | None:
+        if isinstance(item_type, ast.TupleType) or item_type.nullable:
+            return None
+        for zero_type, zero in _TYPE_PRESERVING_ZEROS:
+            if isinstance(item_type, zero_type):
+                return zero
+        return self._known_default_value(item_type)
 
     def _constant_string(self, node: ast.Expr) -> str:
         if isinstance(node, ast.Constant) and isinstance(node.value, str):
