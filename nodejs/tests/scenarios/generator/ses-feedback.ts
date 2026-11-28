@@ -3,7 +3,7 @@ import { setTimeout as sleep } from 'timers/promises'
 import { parseJSON } from '~/common/utils/json-parse'
 import { internalFetch } from '~/common/utils/request'
 
-import type { TruthHead, TruthPage, TruthRecord } from '../provider-edge'
+import type { FeedbackShares, TruthHead, TruthPage, TruthRecord } from '../provider-edge'
 
 export interface SesFeedback {
     settled(unitId: string, signal: AbortSignal): Promise<string | undefined>
@@ -18,6 +18,19 @@ export type SesFeedbackOptions = {
 
 const FEEDBACK_ANSWERED = 200
 const SEND_TAKEN = 200
+
+export async function planFeedback(edgeUrl: string, shares: FeedbackShares | undefined): Promise<void> {
+    const response = await internalFetch(
+        `${edgeUrl}/_feedback`,
+        shares === undefined
+            ? { method: 'DELETE' }
+            : { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify(shares) }
+    )
+    const text = await response.text()
+    if (response.status !== 204) {
+        throw new Error(`The edge refused the profile's feedback shares with ${response.status}: ${text}`)
+    }
+}
 
 async function truthHead(edgeUrl: string): Promise<number> {
     const response = await internalFetch(`${edgeUrl}/_truth/head`)
@@ -48,7 +61,7 @@ export async function watchSesFeedback({
         }
         const page = parseJSON(text) as TruthPage
         for (const { kind, unitId, status, fault, detail } of page.records) {
-            if (kind === 'ses.feedback' && unitId !== undefined) {
+            if (kind === 'ses.feedback' && unitId !== undefined && fault !== undefined) {
                 answers.set(unitId, { status, detail })
             }
             if (kind === 'ses.send' && unitId !== undefined && fault === undefined && status === SEND_TAKEN) {

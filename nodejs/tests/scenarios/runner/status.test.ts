@@ -47,6 +47,8 @@ const REFUSED_LOAD: Admission = { name: 'load', passed: false, reason: 'email cl
 
 const BROKEN = { name: 'at_least_once', passed: false, observed: 2, violation: 'run-1 email: lost', unitIds: ['run-1'] }
 
+const IN_FLIGHT = 'feedback in flight at the final read: the edge was still posting the feedback of 2 sends'
+
 const UNJUDGED: InvariantResult = {
     name: 'no_loss',
     passed: false,
@@ -358,6 +360,64 @@ describe('statusOf', () => {
             'the ramp broke: refused_at_intake broke at the 2x step; the judge could not read the final state: The operation was aborted due to timeout',
         ],
         [
+            'a run that held while SES feedback was still in flight at the final read',
+            { convergence: { converged: true, unfinishedJobs: 0, unrecorded: [], tookMs: 1000, feedbackInFlight: 2 } },
+            'invalid',
+            IN_FLIGHT,
+        ],
+        [
+            'a ramp that held to its ceiling while SES feedback was still in flight at the final read',
+            {
+                convergence: { converged: true, unfinishedJobs: 0, unrecorded: [], tookMs: 1000, feedbackInFlight: 2 },
+                ramp: { end: 'ceiling', sustainedScale: 10, reason: 'every step held up to the 10x ceiling' },
+            },
+            'invalid',
+            IN_FLIGHT,
+        ],
+        [
+            'a ramp whose intake broke mid-ramp while SES feedback was still in flight, on a card without no_loss',
+            {
+                convergence: { converged: true, unfinishedJobs: 0, unrecorded: [], tookMs: 1000, feedbackInFlight: 2 },
+                invariants: [
+                    { name: 'refused_at_intake', passed: false, observed: 3, unitIds: ['run-9'], crossedBy: 'run-9' },
+                ],
+                ramp: { end: 'broke', sustainedScale: 1, reason: 'refused_at_intake broke at the 2x step' },
+            },
+            'failed',
+            `the ramp broke: refused_at_intake broke at the 2x step; ${IN_FLIGHT}`,
+        ],
+        [
+            'a ramp whose intake broke mid-ramp while SES feedback was still in flight at the final read',
+            {
+                convergence: { converged: true, unfinishedJobs: 0, unrecorded: [], tookMs: 1000, feedbackInFlight: 2 },
+                invariants: [
+                    { ...BROKEN, crossedBy: 'run-1' },
+                    { name: 'refused_at_intake', passed: false, observed: 3, unitIds: ['run-9'], crossedBy: 'run-9' },
+                    { ...UNJUDGED, unjudged: IN_FLIGHT },
+                ],
+                ramp: { end: 'broke', sustainedScale: 1, reason: 'refused_at_intake broke at the 2x step' },
+            },
+            'failed',
+            `the ramp broke: refused_at_intake broke at the 2x step; no_loss was not judged: ${IN_FLIGHT}`,
+        ],
+        [
+            'a ramp that hit a harness limit while SES feedback was still in flight at the final read',
+            {
+                convergence: { converged: true, unfinishedJobs: 0, unrecorded: [], tookMs: 1000, feedbackInFlight: 2 },
+                invariants: [
+                    { ...BROKEN, crossedBy: 'run-1' },
+                    { ...UNJUDGED, unjudged: IN_FLIGHT },
+                ],
+                ramp: {
+                    end: 'harness_limit',
+                    sustainedScale: 1,
+                    reason: 'the generator offered 0 of 600 units in the 2x step, under minOffered 0.9',
+                },
+            },
+            'invalid',
+            `the ramp hit a harness limit: the generator offered 0 of 600 units in the 2x step, under minOffered 0.9; no_loss was not judged: ${IN_FLIGHT}`,
+        ],
+        [
             'a run that held but whose judge could not read the final state',
             {
                 convergence: {
@@ -520,6 +580,37 @@ describe('statusOf', () => {
             },
             'failed',
             'the ramp ran to its last step, but lost 2 of 360 deliveries (0.56%): 2 in the 2x step; sent 1 duplicate of 357 deliveries (0.28%): 1 in the 1x step',
+        ],
+        [
+            'a ramp that ran to its ceiling with a confirmed duplicate while SES feedback was still in flight',
+            {
+                convergence: { converged: true, unfinishedJobs: 0, unrecorded: [], tookMs: 1000, feedbackInFlight: 2 },
+                invariants: [
+                    { name: 'duplicate_sends', passed: false, observed: 1, unitIds: ['run-3'], crossedBy: 'run-3' },
+                    { ...UNJUDGED, unjudged: IN_FLIGHT },
+                ],
+                ramp: {
+                    end: 'ceiling',
+                    sustainedScale: 1,
+                    reason: 'every step held up to the 1x ceiling',
+                    rates: [
+                        {
+                            index: 0,
+                            scale: 1,
+                            expected: 120,
+                            lost: 0,
+                            lossRate: 0,
+                            sent: 120,
+                            duplicates: 1,
+                            duplicateRate: 1 / 120,
+                            refused: 0,
+                            refusedRate: 0,
+                        },
+                    ],
+                },
+            },
+            'failed',
+            `the ramp ran to its last step, but sent 1 duplicate of 120 deliveries (0.83%): 1 in the 1x step; no_loss was not judged: ${IN_FLIGHT}`,
         ],
         [
             'a ramp that ran to its ceiling with duplicates the janitor resets allow',

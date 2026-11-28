@@ -1,6 +1,7 @@
 import { z } from 'zod'
 
 import { Duration, MAX_TIMER_MS, TerminationGrace, durationMs } from '../duration'
+import { FeedbackShares } from '../provider-edge/feedback'
 
 const MAX_SEED = 2 ** 32 - 1
 
@@ -227,12 +228,18 @@ export const Profile = z
         load: Load.optional(),
         host: Host.optional(),
         alerts: AlertsProfile.optional(),
+        feedback: FeedbackShares.optional(),
         terminationGrace: TerminationGrace.optional(),
     })
     .strict()
     .refine(({ synthetic, backlog }) => !synthetic?.includes('backlog_padding') || backlog !== undefined, {
         path: ['synthetic'],
         message: 'backlog_padding requires a backlog',
+    })
+    .refine(({ feedback, replicas }) => feedback === undefined || (replicas['cdp-api'] ?? 1) === 1, {
+        path: ['feedback'],
+        message:
+            'the edge posts feedback to the first cdp-api replica only, so feedback shares need one cdp-api replica',
     })
     .refine(
         ({ synthetic, traffic }) =>

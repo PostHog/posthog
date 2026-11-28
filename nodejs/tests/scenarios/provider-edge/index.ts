@@ -8,7 +8,15 @@ import { parseJSON } from '~/common/utils/json-parse'
 
 import { createCertificates } from './certificates'
 import { CardFault, FaultList, FaultRule, SesAnswer, SesStatusAnswer, hitOf, ruleOf } from './faults'
-import { SIGNING_CERT_PATH, SnsSigner, hardBounceOf, postFeedback } from './feedback'
+import {
+    FeedbackEvent,
+    FeedbackPlan,
+    FeedbackShares,
+    SIGNING_CERT_PATH,
+    SnsSigner,
+    notificationOf,
+    postFeedback,
+} from './feedback'
 import { PgProxy, startPgProxy } from './postgres'
 import { problemsOf } from './problems'
 import { Proxy, serveConnect } from './proxy'
@@ -24,6 +32,7 @@ import {
 import { TRUTH_PAGE_LIMIT, Truth, truthMessageOf } from './truth'
 
 export type { CardFault, FaultRule } from './faults'
+export { FeedbackShares } from './feedback'
 export { AmbiguousParams, SesRejectParams, SesThrottleParams } from './faults'
 export type { SesAttachment, SesMessage } from './ses'
 export { UNIT_EMAIL_DOMAIN } from './ses'
@@ -110,6 +119,7 @@ export type ProviderEdge = {
     removeFault(faultId: string): void
     hold(rule: FaultRule): FaultHold
     clearFaults(): void
+    setConfigurationSets(configurationSets: ConfigurationSets): void
     close(): Promise<void>
 }
 
@@ -142,6 +152,10 @@ function parseBody(raw: string): unknown {
     }
 }
 
+const LONGEST_TIMER_MS = 2 ** 31 - 1
+
+export const headWaitOf = (waitMs: string | null): number => Math.min(integerAtLeast(waitMs, 0, 0), LONGEST_TIMER_MS)
+
 function integerAtLeast(value: string | null, min: number, fallback: number): number {
     const parsed = Number(value ?? fallback)
     return Number.isInteger(parsed) && parsed >= min ? parsed : fallback
@@ -151,6 +165,7 @@ type Feedback = { signer: SnsSigner; url: string }
 
 export async function startProviderEdge(options: ProviderEdgeOptions): Promise<ProviderEdge> {
     const truth = options.truth ?? new Truth()
+    let configurationSets = options.configurationSets
     const sent: SesMessage[] = []
     const faults = new FaultList()
     const trackingSigner = options.trackingKeys ? new EmailTrackingCodeSigner(options.trackingKeys, '') : undefined
@@ -163,7 +178,7 @@ export async function startProviderEdge(options: ProviderEdgeOptions): Promise<P
     }
 
     const sendEmail = (body: unknown): Reply | Silence | Held => {
-        const request = readSendEmail(body, options.configurationSets)
+        const request = readSendEmail(body, configurationSets)
         if ('error' in request) {
             truth.append({ kind: 'ses.send', status: request.error.status, detail: { error: request.error.message } })
             return sesError(request.error)
@@ -203,7 +218,12 @@ export async function startProviderEdge(options: ProviderEdgeOptions): Promise<P
             detail: { message: truthMessageOf(accepted) },
         })
         if (fault?.answer.kind === 'bounce' && feedback) {
-            setImmediate(() => void sendFeedback(feedback, accepted, fault.name, correlation.unitId))
+            postInBackground(() => sendFeedback(feedback, accepted, ['hardBounce'], correlation.unitId, fault.name))
+        } else if (plan && feedback && accepted.configurationSet !== undefined) {
+            const events = plan.eventsOfNextSend(accepted.tracked !== false)
+            if (events.length > 0) {
+                postInBackground(() => sendFeedback(feedback, accepted, events, correlation.unitId))
+            }
         }
         if (fault?.answer.kind === 'accepted-then-status') {
             return sesError(fault.answer.answer)
@@ -215,11 +235,29 @@ export async function startProviderEdge(options: ProviderEdgeOptions): Promise<P
         return fault?.answer.kind === 'ambiguous' ? 'drop-connection' : reply
     }
 
+    const posting = new Set<Promise<void>>()
+
+    const postInBackground = (post: () => Promise<void>): void => {
+        const posted = new Promise<void>((resolve) => setImmediate(resolve)).then(post)
+        posting.add(posted)
+        void posted.finally(() => posting.delete(posted))
+    }
+
+    const postedOrDeadline = async (until: number): Promise<void> => {
+        const deadline = new AbortController()
+        await Promise.race([
+            Promise.allSettled(posting),
+            sleep(until - performance.now(), undefined, { signal: deadline.signal }).catch(() => undefined),
+        ])
+        deadline.abort()
+    }
+
     const sendFeedback = async (
         { signer, url }: Feedback,
         message: SesMessage,
-        fault: string,
-        unitId: string | undefined
+        events: FeedbackEvent[],
+        unitId: string | undefined,
+        fault?: string
     ): Promise<void> => {
         if (message.configurationSet === undefined) {
             truth.append({
@@ -231,18 +269,46 @@ export async function startProviderEdge(options: ProviderEdgeOptions): Promise<P
             })
             return
         }
-        const { envelope, bouncedRecipients } = hardBounceOf(message, signer)
-        const answer = await postFeedback(url, envelope)
-        truth.append({
-            kind: 'ses.feedback',
-            status: answer.status,
-            fault,
-            unitId,
-            detail: {
-                error: answer.error,
-                feedback: { snsMessageId: envelope.MessageId, sesMessageId: message.messageId, bouncedRecipients },
-            },
-        })
+        for (const event of events) {
+            const { envelope, eventType, bouncedRecipients } = notificationOf(message, event, signer)
+            const postedAt = new Date().toISOString()
+            const started = performance.now()
+            const answer = await postFeedback(url, envelope)
+            truth.append({
+                kind: 'ses.feedback',
+                status: answer.status,
+                fault,
+                unitId,
+                detail: {
+                    error: answer.error,
+                    feedback: {
+                        eventType,
+                        snsMessageId: envelope.MessageId,
+                        sesMessageId: message.messageId,
+                        postedAt,
+                        durationMs: performance.now() - started,
+                        ...(bouncedRecipients ? { bouncedRecipients } : {}),
+                    },
+                },
+            })
+        }
+    }
+
+    let plan: FeedbackPlan | undefined
+
+    const missingForFeedback = (): string =>
+        signer ? 'no feedback URL' : 'no certificate directory to sign feedback with'
+
+    const planFeedback = (body: unknown): Reply => {
+        const parsed = FeedbackShares.safeParse(body)
+        if (!parsed.success) {
+            return { status: 400, body: { problems: problemsOf(parsed.error, 'feedback') } }
+        }
+        if (!feedback) {
+            return { status: 400, body: { problems: [`feedback: the edge has ${missingForFeedback()}`] } }
+        }
+        plan = new FeedbackPlan(parsed.data)
+        return { status: 204 }
     }
 
     const addCardFault = (body: unknown): Reply => {
@@ -286,7 +352,7 @@ export async function startProviderEdge(options: ProviderEdgeOptions): Promise<P
             case `POST ${SEND_EMAIL_PATH}`:
                 return sendEmail(body)
             case 'GET /_truth/head':
-                return { status: 200, body: truth.head() }
+                return { status: 200, body: { ...truth.head(), feedbackInFlight: posting.size } }
             case 'GET /_health':
                 return { status: 200, body: { ok: true } }
             case 'GET /_truth':
@@ -299,6 +365,11 @@ export async function startProviderEdge(options: ProviderEdgeOptions): Promise<P
                 }
             case 'POST /_faults':
                 return addCardFault(body)
+            case 'PUT /_feedback':
+                return planFeedback(body)
+            case 'DELETE /_feedback':
+                plan = undefined
+                return { status: 204 }
             case 'DELETE /_faults':
                 clearFaults()
                 return { status: 204 }
@@ -323,6 +394,12 @@ export async function startProviderEdge(options: ProviderEdgeOptions): Promise<P
         if (url === null) {
             respond(res, { status: 400, body: { message: 'The request target is not a URL.' } })
             return
+        }
+        if (req.method === 'GET' && url.pathname === '/_truth/head') {
+            const until = performance.now() + headWaitOf(url.searchParams.get('waitMs'))
+            while (posting.size > 0 && performance.now() < until) {
+                await postedOrDeadline(until)
+            }
         }
         const reply = route(req, url, body)
         if (reply === 'drop-connection') {
@@ -418,6 +495,9 @@ export async function startProviderEdge(options: ProviderEdgeOptions): Promise<P
         pgProxyOf: async (upstream) => (await pgProxyOf(upstream)).url,
         sent,
         addFault: (rule) => faults.add(rule),
+        setConfigurationSets: (sets) => {
+            configurationSets = sets
+        },
         firstAppliedAt: (faultId) => faults.firstAppliedAt(faultId),
         hitsOf: (faultId) => faults.hitsOf(faultId),
         removeFault: (faultId) => void removeFault(faultId),

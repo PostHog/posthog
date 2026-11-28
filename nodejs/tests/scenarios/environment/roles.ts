@@ -6,6 +6,7 @@ import { PluginServerMode } from '~/common/config'
 import { getDefaultConfig, overrideConfigWithEnv } from '~/common/config/config'
 
 import { CdpRole, PROCESS_ENV_SETTINGS, Profile } from '../cards'
+import type { ConfigurationSets } from '../provider-edge/ses'
 import { ReplicaOf } from './identity'
 import { MARKER_KEY } from './processes'
 
@@ -200,6 +201,14 @@ export function fetchRetriesOf({ env }: RoleSpec): number {
         throw new Error(`CDP_FETCH_RETRIES ${env.CDP_FETCH_RETRIES} is not a number of retries`)
     }
     return retries
+}
+
+export function configurationSetsOf(env: NodeJS.ProcessEnv): ConfigurationSets {
+    const config = overrideConfigWithEnv(getDefaultCdpConfig(), env)
+    return {
+        [config.SES_TRACKED_CONFIGURATION_SET]: { tracking: true },
+        [config.SES_UNTRACKED_CONFIGURATION_SET]: { tracking: false },
+    }
 }
 
 export function consumerGroupsOf(specs: RoleSpec[]): ConsumerGroup[] {

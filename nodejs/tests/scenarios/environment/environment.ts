@@ -27,6 +27,7 @@ import {
     RoleId,
     RoleSpec,
     configHashOf,
+    configurationSetsOf,
     consumerGroupsOf,
     intakeTopicsOf,
     portOf,
@@ -383,6 +384,7 @@ export function createEnvironment({
             PROBE_INTERVAL_MS
         )
         await edge.clearFaults()
+        await edge.setConfigurationSets(configurationSetsOf(direct[0].env))
         postgresServers = postgresServersOf(specs[0], postgresUrl)
         cyclotronUrl = cyclotronUrlOf(specs[0])
         await deleteUnfinishedJobs(cyclotronUrl)
@@ -479,6 +481,7 @@ export function createEnvironment({
             trackingKeys: secrets.encryptionSaltKeys,
             caDir: path.join(stateDir, 'edge-ca'),
             feedbackUrl: `http://127.0.0.1:${portOf({ role: 'cdp-api', replica: 0 })}/public/m/ses_webhook`,
+            configurationSets: configurationSetsOf(env),
         })
         const specs = roleSpecs(env, edge, secrets, stateDir, {}, sesRateLimiterValkey)
         running = specs

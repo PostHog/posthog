@@ -23,13 +23,20 @@ export type TruthRecord = {
         error?: string
         errorType?: string
         request?: { method: string; host: string; path: string }
-        feedback?: { snsMessageId: string; sesMessageId: string; bouncedRecipients: string[] }
+        feedback?: {
+            eventType: string
+            snsMessageId: string
+            sesMessageId: string
+            postedAt: string
+            durationMs: number
+            bouncedRecipients?: string[]
+        }
     }
 }
 
 export type TruthPage = { records: TruthRecord[]; next: number }
 
-export type TruthHead = { head: number }
+export type TruthHead = { head: number; feedbackInFlight?: number }
 
 export function truthMessageOf({ attachments, ...message }: SesMessage): TruthMessage {
     return {

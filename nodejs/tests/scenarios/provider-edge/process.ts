@@ -3,12 +3,17 @@ import { pathToFileURL } from 'url'
 
 import { FaultRule } from './faults'
 import { FaultHold, ProviderEdge, ProviderEdgeOptions, holdOf, startProviderEdge } from './index'
+import type { ConfigurationSets } from './ses'
 
-export type EdgeProcessOptions = Pick<ProviderEdgeOptions, 'port' | 'trackingKeys' | 'caDir' | 'feedbackUrl'>
+export type EdgeProcessOptions = Pick<
+    ProviderEdgeOptions,
+    'port' | 'trackingKeys' | 'caDir' | 'feedbackUrl' | 'configurationSets'
+>
 
 export type EdgeProcess = Pick<ProviderEdge, 'url' | 'caCertPath' | 'pgProxyOf'> & {
     hold(rule: FaultRule): Promise<FaultHold>
     clearFaults(): Promise<void>
+    setConfigurationSets(configurationSets: ConfigurationSets): Promise<void>
     close(): Promise<void>
     readonly pid: number | undefined
 }
@@ -20,6 +25,7 @@ type Call =
     | { op: 'remove'; faultId: string }
     | { op: 'clear' }
     | { op: 'pg-proxy'; upstream: string }
+    | { op: 'configuration-sets'; configurationSets: ConfigurationSets }
 
 type Request = Call & { id: number }
 
@@ -56,6 +62,8 @@ async function serveEdge(options: EdgeProcessOptions): Promise<void> {
                 return edge.clearFaults()
             case 'pg-proxy':
                 return edge.pgProxyOf(call.upstream)
+            case 'configuration-sets':
+                return edge.setConfigurationSets(call.configurationSets)
         }
     }
     process.on('message', (request: Request) => {
@@ -226,6 +234,7 @@ export async function startEdgeProcess(
             })
         },
         clearFaults: () => call<void>({ op: 'clear' }),
+        setConfigurationSets: (configurationSets) => call<void>({ op: 'configuration-sets', configurationSets }),
         close,
         pid: child.pid,
     }

@@ -35,7 +35,11 @@ export type Convergence = {
     unrecorded: string[]
     tookMs: number
     unread?: string
+    feedbackInFlight?: number
 }
+
+export const feedbackInFlightReasonOf = (posts: number): string =>
+    `feedback in flight at the final read: the edge was still posting the feedback of ${posts} send${posts === 1 ? '' : 's'}`
 
 export type InvariantResult = {
     name: string
@@ -70,6 +74,7 @@ export interface Judge {
         unread?: string
         unsettled?: string
         horizonAt?: number
+        feedbackInFlight?: number
     }
 }
 
@@ -128,6 +133,7 @@ export function createJudge({
     let teams: number[] = []
     let unread: string | undefined
     let unsettled: string | undefined
+    let feedbackInFlight: number | undefined
 
     const pullTruth = async (): Promise<void> => {
         for (;;) {
@@ -146,7 +152,7 @@ export function createJudge({
         let head: number | undefined
         let runRecordsPastHead = false
         let fullPageAtHead = false
-        const isRunRecord = ofThisRun()
+        const isRunSend = sendOfThisRun()
         try {
             if (signal?.aborted) {
                 throw new Error('the run was stopped')
@@ -162,7 +168,7 @@ export function createJudge({
                 }
                 const page = await retried(() => source.after(cursor, FINAL), finalRead, signal)
                 const records = page.records.filter(({ seq }) => seq > cursor && seq <= head!)
-                runRecordsPastHead ||= page.records.some((record) => record.seq > head! && isRunRecord(record))
+                runRecordsPastHead ||= page.records.some((record) => record.seq > head! && isRunSend(record))
                 fullPageAtHead = page.records.length >= TRUTH_PAGE_LIMIT && page.records.at(-1)!.seq === head
                 if (records.length === 0) {
                     throw new Error(`the edge answered no records past ${cursor}`)
@@ -180,9 +186,9 @@ export function createJudge({
     const readToSettledHead = async (signal?: AbortSignal): Promise<void> => {
         await pullToHead(signal)
         for (let pass = 2; pass <= FINAL_PASSES; pass++) {
-            const settled = runRecords()
+            const settled = runSends()
             const { runRecordsPastHead, fullPageAtHead } = await pullToHead(signal)
-            if (runRecords() === settled && !runRecordsPastHead && !fullPageAtHead) {
+            if (runSends() === settled && !runRecordsPastHead && !fullPageAtHead) {
                 return
             }
         }
@@ -222,6 +228,13 @@ export function createJudge({
 
     const runRecords = (): number => truth.filter(ofThisRun()).length
 
+    const sendOfThisRun = (): ((record: TruthRecord) => boolean) => {
+        const ofRun = ofThisRun()
+        return (record) => record.kind !== 'ses.feedback' && ofRun(record)
+    }
+
+    const runSends = (): number => truth.filter(sendOfThisRun()).length
+
     return {
         async open(seed) {
             journal = []
@@ -231,6 +244,7 @@ export function createJudge({
             truth = []
             unread = undefined
             unsettled = undefined
+            feedbackInFlight = undefined
             teams = [...seed.teamIds]
         },
 
@@ -273,6 +287,10 @@ export function createJudge({
         async check(invariants, gates, run, signal) {
             unsettled = undefined
             await read(() => readToSettledHead(signal))
+            feedbackInFlight = source.feedbackInFlight?.() || undefined
+            if (feedbackInFlight !== undefined) {
+                unsettled ??= feedbackInFlightReasonOf(feedbackInFlight)
+            }
             const resident = invariants.some(({ name }) => name === residentBacklogIntact.name)
                 ? await residentBacklog?.()
                 : undefined
@@ -301,6 +319,7 @@ export function createJudge({
             ...(unread !== undefined && { unread }),
             ...(unsettled !== undefined && { unsettled }),
             ...(horizon !== undefined && 'at' in horizon && { horizonAt: horizon.at }),
+            ...(feedbackInFlight !== undefined && { feedbackInFlight }),
         }),
     }
 }
