@@ -69,6 +69,8 @@ describe('message audience attempts', () => {
         featureFlagLogic: typeof import('scenes/feature-flags/featureFlagLogic').featureFlagLogic
         NEW_FLAG: typeof import('scenes/feature-flags/featureFlagLogic').NEW_FLAG
         surveyLogic: typeof import('scenes/surveys/surveyLogic').surveyLogic
+        SurveyFollowUpWorkflowButton: typeof import('scenes/surveys/components/SurveyFollowUpWorkflowButton').SurveyFollowUpWorkflowButton
+        openIssueWorkflow: typeof import('products/error_tracking/frontend/scenes/ErrorTrackingIssueScene/issueWorkflow').openIssueWorkflow
         surveyRespondentsBroadcastLogic: typeof import('scenes/surveys/components/surveyRespondentsBroadcastLogic').surveyRespondentsBroadcastLogic
         enrolledPeopleAudience: typeof import('products/early_access_features/frontend/enrolledPeopleAudience').enrolledPeopleAudience
         BroadcastScene: typeof import('../Broadcasts/BroadcastScene').BroadcastScene
@@ -106,6 +108,11 @@ describe('message audience attempts', () => {
             featureFlagLogic: featureFlags.featureFlagLogic,
             NEW_FLAG: featureFlags.NEW_FLAG,
             surveyLogic: (await import('scenes/surveys/surveyLogic')).surveyLogic,
+            SurveyFollowUpWorkflowButton: (await import('scenes/surveys/components/SurveyFollowUpWorkflowButton'))
+                .SurveyFollowUpWorkflowButton,
+            openIssueWorkflow: (
+                await import('products/error_tracking/frontend/scenes/ErrorTrackingIssueScene/issueWorkflow')
+            ).openIssueWorkflow,
             surveyRespondentsBroadcastLogic: (await import('scenes/surveys/components/surveyRespondentsBroadcastLogic'))
                 .surveyRespondentsBroadcastLogic,
             enrolledPeopleAudience: (await import('products/early_access_features/frontend/enrolledPeopleAudience'))
@@ -323,6 +330,30 @@ describe('message audience attempts', () => {
         const [attempt] = await sentAttempts(1)
         expect(attempt).toMatch(UUID)
         expect(await savedAttempt.broadcast()).toEqual(attempt)
+    })
+
+    it.each<{ entry: string; click: () => Promise<void> }>([
+        {
+            entry: "a survey's follow-up button",
+            click: async () => {
+                app.rtl.render(<app.SurveyFollowUpWorkflowButton surveyId="test-survey" />)
+                app.rtl.fireEvent.click(app.rtl.screen.getByText('Email everyone who responds'))
+            },
+        },
+        {
+            entry: "an issue's workflow action",
+            click: async () => app.openIssueWorkflow('issue-1'),
+        },
+    ])('saves the sent attempt in the workflow opened from $entry', async ({ click }) => {
+        useSendMocks({ senders: [verified] })
+        app.router.actions.push('/project/997/surveys/test-survey')
+
+        await click()
+        await opened(app.urls.workflowNew())
+
+        const [attempt] = await sentAttempts(1)
+        expect(attempt).toMatch(UUID)
+        expect(await savedAttempt.workflow()).toEqual(attempt)
     })
 
     it.each<MessageAudienceDestination>(['workflow', 'broadcast'])(

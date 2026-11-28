@@ -1602,13 +1602,7 @@ describe('featureFlagLogic', () => {
             expect(capturesOf('message audience clicked')).toEqual([
                 [
                     'message audience clicked',
-                    {
-                        source: 'feature_flag',
-                        destination: 'broadcast',
-                        attempt_id: expect.stringMatching(
-                            /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
-                        ),
-                    },
+                    expect.objectContaining({ source: 'feature_flag', destination: 'broadcast' }),
                 ],
             ])
             expect(lemonToast.loading).toHaveBeenCalledTimes(1)
