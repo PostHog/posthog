@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { Suspense, useEffect } from 'react'
 
-import { LemonBanner, LemonButton, LemonTag, Spinner } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonSwitch, LemonTag, Spinner, Tooltip } from '@posthog/lemon-ui'
 import { Button } from '@posthog/quill'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
@@ -18,15 +18,22 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { IngestionLimitBanner } from '../components/IngestionLimitBanner'
 import { RecordingsBlockBanner } from '../components/RecordingsBlockBanner'
 import { ReplayVisionFeedbackButton } from '../components/ReplayVisionFeedbackButton'
+import { replayRecordingsLogic } from '../logics/replayRecordingsLogic'
 import { visionQuotaLogic } from '../logics/visionQuotaLogic'
 import { getReplayVisionEditDisabledReason } from '../utils/accessControl'
 import { formatCreditsRange } from '../utils/credits'
 import { quotaBannerState } from '../utils/quotaProjection'
 import { ScannerObservationsTable } from './components/ScannerObservationsTable'
-import { ScannerOverview } from './components/ScannerOverview'
+import { ScannerPageMoreMenu } from './components/ScannerPageMoreMenu'
+import { ScannerStatusLabel } from './components/ScannerStatusLabel'
+import { ScannerStatusNote } from './components/ScannerStatusNote'
 import { replayScannerLogic } from './replayScannerLogic'
 import { ReplayScannerTab, replayScannerSceneLogic } from './replayScannerSceneLogic'
+import { scanDrought } from './scanDrought'
 import { scannerEditUrl } from './scannerEditorSceneLogic'
+import { scannerStatus } from './scannerStatus'
+import { scannerStatusDetail } from './scannerStatusDetail'
+import type { ReplayScanner } from './types'
 
 const ScannerAlertsTab = lazyWithRetry(() =>
     import('./components/ScannerAlertsTab').then((module) => ({ default: module.ScannerAlertsTab }))
@@ -54,7 +61,10 @@ export function ReplayScannerSceneComponent(): JSX.Element {
     const scannerLogic = replayScannerLogic({ id: scannerId })
     useAttachedLogic(scannerLogic, replayScannerSceneLogic)
 
-    const { scanner, scannerLoading } = useValues(scannerLogic)
+    const { scanner, scannerLoading, observationStatsApi, togglingEnabled } = useValues(scannerLogic)
+    const { toggleEnabled, setStatusPolling, refreshScannerStatus } = useActions(scannerLogic)
+    const { quota } = useValues(visionQuotaLogic)
+    const { recordingsBlock } = useValues(replayRecordingsLogic)
     const experimentScanners = useFeatureFlag('VISION_EXPERIMENT_SCANNER')
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
     const isExperimentScanner = experimentScanners && scanner?.scanner_type === 'experiment'
@@ -63,11 +73,26 @@ export function ReplayScannerSceneComponent(): JSX.Element {
     // The scene logic can't see the scanner's type, so the page tells it which tab this scanner lands on.
     useEffect(() => {
         if (loadedScannerId) {
-            setDefaultTab(isExperimentScanner ? ReplayScannerTab.Variants : ReplayScannerTab.Overview)
+            setDefaultTab(isExperimentScanner ? ReplayScannerTab.Variants : ReplayScannerTab.Observations)
         }
     }, [loadedScannerId, isExperimentScanner, setDefaultTab])
 
-    if (scannerLoading || !scanner) {
+    const quotaState = quotaBannerState(quota)
+    const status = scanner
+        ? scannerStatus(scanner, {
+              quotaExhausted: quotaState.kind === 'exhausted',
+              drought: scanDrought(scanner, observationStatsApi?.labels.version_markers ?? null, new Date()),
+              recordingsBlock,
+          })
+        : null
+    // Starting and delayed end when a sweep tick finishes, which the page only sees by refetching the scanner.
+    const waitingOnSweep = status?.kind === 'starting' || status?.kind === 'delayed'
+    useEffect(() => {
+        setStatusPolling(waitingOnSweep)
+        return () => setStatusPolling(false)
+    }, [waitingOnSweep, setStatusPolling])
+
+    if (scannerLoading || !scanner || !status) {
         return (
             <SceneContent>
                 <SceneTitleSection name="Loading…" resourceType={{ type: 'replay_vision' }} />
@@ -77,6 +102,20 @@ export function ReplayScannerSceneComponent(): JSX.Element {
 
     const editDisabledReason = getReplayVisionEditDisabledReason(scanner.user_access_level)
     const editUrl = scannerEditUrl(scannerId, activeTab === defaultTab ? null : activeTab)
+    const enabledSwitch = (
+        <LemonSwitch
+            checked={scanner.enabled}
+            onChange={() => toggleEnabled()}
+            loading={togglingEnabled}
+            disabledReason={editDisabledReason}
+            label="Enabled"
+            bordered
+            size="small"
+            data-attr="vision-scanner-toggle-enabled"
+            data-ph-capture-attribute-scanner-type={scanner.scanner_type}
+            data-ph-capture-attribute-will-be-enabled={!scanner.enabled}
+        />
+    )
 
     return (
         <SceneContent>
@@ -84,9 +123,17 @@ export function ReplayScannerSceneComponent(): JSX.Element {
                 name={scanner.name || 'Untitled scanner'}
                 description={scanner.description}
                 resourceType={{ type: 'replay_vision' }}
+                nameSuffix={
+                    <Tooltip title={scannerStatusDetail(status, quotaState.kind ? quotaState.resetsOn : null)}>
+                        <span className="ml-2 cursor-default text-sm font-normal" data-attr="vision-scanner-status">
+                            <ScannerStatusLabel status={status} />
+                        </span>
+                    </Tooltip>
+                }
                 actions={
                     todayRailNav ? (
                         <>
+                            {enabledSwitch}
                             <Button
                                 variant="primary"
                                 render={<LinkPrimitive to={editDisabledReason ? undefined : editUrl} />}
@@ -96,10 +143,12 @@ export function ReplayScannerSceneComponent(): JSX.Element {
                             >
                                 Edit scanner
                             </Button>
+                            <ScannerPageMoreMenu scanner={scanner} />
                             <ReplayVisionFeedbackButton />
                         </>
                     ) : (
                         <>
+                            {enabledSwitch}
                             <LemonButton
                                 type="primary"
                                 size="small"
@@ -110,6 +159,7 @@ export function ReplayScannerSceneComponent(): JSX.Element {
                             >
                                 Edit scanner
                             </LemonButton>
+                            <ScannerPageMoreMenu scanner={scanner} />
                             <ReplayVisionFeedbackButton />
                         </>
                     )
@@ -119,22 +169,18 @@ export function ReplayScannerSceneComponent(): JSX.Element {
             <IngestionLimitBanner />
             <RecordingsBlockBanner />
             <QuotaBanner />
+            <ScannerStatusNote scanner={scanner as ReplayScanner} status={status} onSaved={refreshScannerStatus} />
 
             <LemonTabs
                 // Only an experiment scanner has a Variants tab, so a stale ?tab=variants falls back.
                 activeKey={
                     activeTab === ReplayScannerTab.Variants && !isExperimentScanner
-                        ? ReplayScannerTab.Overview
+                        ? ReplayScannerTab.Observations
                         : activeTab
                 }
                 onChange={setActiveTab}
                 data-attr="vision-scanner-tabs"
                 tabs={[
-                    {
-                        key: ReplayScannerTab.Overview,
-                        label: 'Overview',
-                        content: <ScannerOverview scannerId={scannerId} />,
-                    },
                     ...(isExperimentScanner
                         ? [
                               {

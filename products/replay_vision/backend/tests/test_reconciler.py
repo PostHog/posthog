@@ -20,7 +20,7 @@ from temporalio.exceptions import ApplicationError
 from temporalio.service import RPCError, RPCStatusCode
 from temporalio.testing import ActivityEnvironment
 
-from posthog.models import Organization, Team
+from posthog.models import Organization, Team, User
 from posthog.temporal.common.search_attributes import POSTHOG_SCHEDULE_FINGERPRINT_KEY
 
 from products.replay_vision.backend.enqueue_claims import try_claim_enqueue_slot
@@ -673,10 +673,15 @@ async def test_start_launched_scanners_activity(org_team) -> None:
         launched = create_experiment(team, "launched-flag", launched=True, variants=["control", "test"])
         draft = create_experiment(team, "draft-flag", variants=["control", "test"])
 
+        # An experiment scanner sweeps as its creator, so one without a creator never starts.
+        creator = User.objects.create_user(email="creator@example.com", password="x", first_name="c")
+        team.organization.members.add(creator)
+
         def waiting(name: str, experiment_id: int) -> ReplayScanner:
             return _make_scanner(
                 team,
                 name=name,
+                created_by=creator,
                 scanner_type=ScannerType.EXPERIMENT,
                 enabled=False,
                 scanner_config={"prompt": "p", "experiment_id": experiment_id, "start_on_launch": True},

@@ -105,7 +105,6 @@ from products.replay_vision.backend.models.replay_observation import (
 from products.replay_vision.backend.models.replay_observation_feed_dismissal import ReplayObservationFeedDismissal
 from products.replay_vision.backend.models.replay_scanner import (
     ReplayScanner,
-    ScannerDisabledReason,
     ScannerModel,
     ScannerProvider,
     ScannerType,
@@ -179,6 +178,13 @@ from products.replay_vision.backend.scanner_query import (
     clean_scanner_query,
     query_references,
     unresolved_references,
+)
+from products.replay_vision.backend.scanner_status import (
+    ScannerStatus,
+    ScannerStatusInputs,
+    ScannerStatusReason,
+    ScannerStatusResult,
+    scanner_status,
 )
 from products.replay_vision.backend.scanning import (
     MAX_SESSIONS_PER_SCAN,
@@ -809,6 +815,29 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
             "an enabled alert, are checked as often as their read budget allows."
         ),
     )
+    status = serializers.SerializerMethodField(
+        help_text=(
+            "What the scanner is doing now, worked out from its own state. `off`: turned off, see `status_reason`. "
+            "`no_sampling`: sampling is 0%, so nothing is scanned. `limit_reached`: a credit limit stopped it. "
+            "`filter_error`: its filters fail, see `filter_error`. `paused`: on, but its sweep is paused until it "
+            "can scan again. `starting`: the first sweep has not finished. `delayed`: the sweep is behind schedule. "
+            "`throttled`: its filters read a lot of data, so it is checked less often. `running`: scanning normally. "
+            "Project-wide causes, such as session replay being off or the organization's credits being used up, "
+            "are not reflected here."
+        ),
+    )
+    status_reason = serializers.SerializerMethodField(
+        help_text=(
+            "Why the scanner has its `status`, or null when no reason applies. For `off`: `manual` (a person turned "
+            "it off), `free_credits_used` (a `free_only` scanner stopped when the free credits ran out), "
+            "`no_ai_consent` (the organization has not approved AI data processing), `creator_lost_access` (the "
+            "creator can no longer view recordings, or an experiment scanner has no creator, so turning it on "
+            "requires `take_over_as_creator`), or `experiment_deleted`; null when it was created off. For `limit_reached`: `free_credits_used` when the "
+            "organization's free credits stopped a free-only scanner, otherwise `credit_limit`. For `paused`: "
+            "`experiment_not_running` (its experiment is paused, ended, or archived), `credit_limit`, "
+            "`filter_error`, or `no_principal`."
+        ),
+    )
     dashboard_id = serializers.SerializerMethodField(
         help_text=(
             "Dashboard created for this scanner with the create_dashboard action. Null when none was created "
@@ -820,18 +849,6 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
             f"Whether to offer the user a dashboard for this scanner: true when the scanner has no dashboard and at "
             f"least {DASHBOARD_SUGGESTION_MIN_OBSERVATIONS} succeeded observations to chart. Offer it once and do not "
             "repeat the offer if the user declines."
-        ),
-    )
-    disabled_reason = serializers.ChoiceField(
-        choices=ScannerDisabledReason.choices,
-        read_only=True,
-        allow_null=True,
-        help_text=(
-            "Why the scanner is off, or null when it is on or was created off. `manual`: a person turned it off. "
-            "`free_credits_used`: a `free_only` scanner stopped when the free credits ran out. `no_ai_consent`: the "
-            "organization has not approved AI data processing. `creator_lost_access`: the creator can no longer "
-            "view recordings, which the sweep reads as them, so turning the scanner on requires "
-            "`take_over_as_creator`. `experiment_deleted`: its experiment was deleted."
         ),
     )
     last_swept_at = serializers.DateTimeField(
@@ -881,11 +898,12 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
             "limit_reached",
             "sweep_throttle_factor",
             "sweep_interval_minutes",
+            "status",
+            "status_reason",
             "dashboard_id",
             "dashboard_suggested",
             "last_swept_at",
             "filter_error",
-            "disabled_reason",
             "created_at",
             "created_by",
             "updated_at",
@@ -906,6 +924,8 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
             "limit_reached",
             "sweep_throttle_factor",
             "sweep_interval_minutes",
+            "status",
+            "status_reason",
             "dashboard_id",
             "dashboard_suggested",
             "last_swept_at",
@@ -993,11 +1013,49 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
             datetime.now(UTC),
         )
 
+    def _scanner_status(self, scanner: ReplayScanner) -> ScannerStatusResult:
+        # Both status fields read it, so it is worked out once per scanner.
+        statuses = self.context.setdefault("_scanner_statuses", {})
+        if scanner.id not in statuses:
+            budget = self._scanner_budget(scanner)
+            statuses[scanner.id] = scanner_status(
+                ScannerStatusInputs(
+                    enabled=scanner.enabled,
+                    disabled_reason=scanner.disabled_reason,
+                    sampling_rate=scanner.sampling_rate,
+                    limit_reached=budget.blocked,
+                    # The free credits stop a free-only scanner when it has no limit of its own, or when they
+                    # leave less room than it.
+                    stopped_by_free_credits=scanner.free_only
+                    and (scanner.credit_limit is None or budget.free_credits_bound),
+                    has_filter_error=bool(scanner.filter_error),
+                    sweep_interval=self._sweep_interval(scanner),
+                    sweep_pause_reason=scanner.sweep_pause_reason,
+                    created_at=scanner.created_at,
+                    last_swept_at=scanner.last_swept_at,
+                    throttle_factor=self.get_sweep_throttle_factor(scanner),
+                ),
+                datetime.now(UTC),
+            )
+        return statuses[scanner.id]
+
+    @extend_schema_field(serializers.ChoiceField(choices=ScannerStatus.choices))
+    def get_status(self, scanner: ReplayScanner) -> str:
+        return self._scanner_status(scanner).status
+
+    @extend_schema_field(serializers.ChoiceField(choices=ScannerStatusReason.choices, allow_null=True))
+    def get_status_reason(self, scanner: ReplayScanner) -> str | None:
+        return self._scanner_status(scanner).reason
+
     @extend_schema_field(serializers.IntegerField(allow_null=True))
     def get_sweep_interval_minutes(self, scanner: ReplayScanner) -> int | None:
+        interval = self._sweep_interval(scanner)
+        return None if interval is None else int(interval.total_seconds() // 60)
+
+    def _sweep_interval(self, scanner: ReplayScanner) -> timedelta | None:
         if not scanner.enabled:
             return None
-        interval = sweep_interval(
+        return sweep_interval(
             SweepCadenceInputs(
                 created_at=scanner.created_at,
                 updated_at=scanner.updated_at,
@@ -1011,7 +1069,6 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
             ),
             datetime.now(UTC),
         )
-        return None if interval is None else int(interval.total_seconds() // 60)
 
     def _page_alerting_scanner_ids(self, scanner: ReplayScanner) -> set[UUID]:
         # Shared across the list's children, so a page costs one query rather than one per scanner.
@@ -2364,6 +2421,24 @@ class HighlightFeedResponseSerializer(serializers.Serializer):
     as_of = serializers.DateTimeField(
         help_text="The time this feed ranks as of. Send it back with later pages.",
     )
+    highlight_count = serializers.IntegerField(
+        help_text=(
+            "How many items across every page carry a finding (`embedding_pick`), so a reader can be told how "
+            "many highlights the window holds. Padding rows are not counted."
+        ),
+    )
+    highlight_counts_by_scanner = serializers.DictField(
+        child=serializers.IntegerField(),
+        help_text="`highlight_count` split by scanner id. A scanner with no highlights is left out.",
+    )
+    observation_count = serializers.IntegerField(
+        allow_null=True,
+        help_text=(
+            "Succeeded observations in the window from the scanners the feed reads, highlighted or not, so the "
+            "highlights can be shown against everything that was scanned. Null on later pages, which repeat the "
+            "first page's window."
+        ),
+    )
 
 
 class HighlightFeedImpressionsSerializer(serializers.Serializer):
@@ -3111,6 +3186,38 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
             row["feed_impressions"] = impressions.get(row["id"], 0)
         ranked = rank_highlight_feed_by_embedding(candidate_rows)
         has_more = len(ranked) > page_end
+        scanner_by_observation = {row["id"]: row.get("scanner_id") for row in candidate_rows}
+        pick_ids = [
+            entry.observation_id for entry in ranked if entry.reason["kind"] == HighlightFeedReason.EMBEDDING_PICK
+        ]
+        # The rank row can admit a pick its snapshot hides, so the counts take the same snapshot gate as the page rows.
+        readable_pick_ids = set(
+            accessible_observations(
+                self.user_access_control,
+                self.team_id,
+                ReplayObservation.objects.filter(team_id=self.team_id, id__in=pick_ids),
+            ).values_list("id", flat=True)
+        )
+        highlight_counts_by_scanner: dict[str, int] = {}
+        for entry in ranked:
+            if entry.reason["kind"] == HighlightFeedReason.EMBEDDING_PICK and entry.observation_id in readable_pick_ids:
+                scanner_key = str(scanner_by_observation[entry.observation_id])
+                highlight_counts_by_scanner[scanner_key] = highlight_counts_by_scanner.get(scanner_key, 0) + 1
+        # Counted on the first page only, because every later page covers the same window.
+        observation_count = None
+        if params["offset"] == 0:
+            observation_count = accessible_observations(
+                self.user_access_control,
+                self.team_id,
+                ReplayObservation.objects.filter(
+                    team_id=self.team_id,
+                    scanner_id__in=allowed_ids,
+                    status=ObservationStatus.SUCCEEDED,
+                    created_at__gte=date_from,
+                    created_at__lte=window_end,
+                    completed_at__lte=as_of,
+                ),
+            ).count()
         ranked = ranked[params["offset"] : page_end]
         reasons_by_id = {entry.observation_id: entry.reason for entry in ranked}
         rows = {
@@ -3141,6 +3248,9 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
                 "results": results,
                 "has_more": has_more,
                 "as_of": as_of,
+                "highlight_count": sum(highlight_counts_by_scanner.values()),
+                "highlight_counts_by_scanner": highlight_counts_by_scanner,
+                "observation_count": observation_count,
             }
         )
 

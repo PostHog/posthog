@@ -55,10 +55,8 @@ interface visionUsageLogicActions {
 
 export type visionUsageLogicType = MakeLogicType<visionUsageLogicValues, visionUsageLogicActions>
 
-// Loads the whole team's scanners ordered by spend for the Usage tab and the overview's
-// usage bridge. Separate from replayScannersLogic so the list tab's filters and
-// pagination never leak into usage math. Loaded manually rather than via kea-loaders so a
-// per-row enable toggle can update the list optimistically without a refetch.
+// Loads the whole team's scanners ordered by spend for the Usage tab. Loaded manually rather than via
+// kea-loaders so a per-row enable toggle can update the list optimistically without a refetch.
 export const visionUsageLogic = kea<visionUsageLogicType>([
     path(['products', 'replay_vision', 'frontend', 'replay_scanners', 'visionUsageLogic']),
     connect(() => ({

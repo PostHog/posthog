@@ -326,11 +326,11 @@ describe('scannerRunTabLogic', () => {
     })
 
     it.each([
-        ['an unscheduled scanner after a scan', { enabled: false, disabled_reason: null }, 1, true],
-        ['before anything was scanned', { enabled: false, disabled_reason: null }, 0, false],
-        ['a scheduled scanner', { enabled: true, disabled_reason: null }, 1, false],
-        ['a scanner out of free credits', { enabled: false, disabled_reason: 'free_credits_used' }, 1, false],
-        ['a viewer', { enabled: false, disabled_reason: null, user_access_level: 'viewer' }, 1, false],
+        ['an unscheduled scanner after a scan', { status: 'off', status_reason: null }, 1, true],
+        ['before anything was scanned', { status: 'off', status_reason: null }, 0, false],
+        ['a scheduled scanner', { status: 'running', status_reason: null }, 1, false],
+        ['a scanner out of free credits', { status: 'off', status_reason: 'free_credits_used' }, 1, false],
+        ['a viewer', { status: 'off', status_reason: null, user_access_level: 'viewer' }, 1, false],
     ])('offers the schedule for %s', (_, fields, started, expected) => {
         const appContext = window.POSTHOG_APP_CONTEXT
         window.POSTHOG_APP_CONTEXT = {

@@ -18,6 +18,7 @@ import { LemonButton, Link, Tooltip } from '@posthog/lemon-ui'
 import { useAutoMarkRead } from 'lib/components/NotificationsMenu/useAutoMarkRead'
 import { TZLabel } from 'lib/components/TZLabel'
 import posthog from 'lib/posthog-typed'
+import { cn } from 'lib/utils/css-classes'
 import { inStorybookTestRunner } from 'lib/utils/dom'
 import { colonDelimitedDuration } from 'lib/utils/durations'
 import { pluralize } from 'lib/utils/strings'
@@ -307,6 +308,8 @@ interface HighlightFeedRowProps {
     columnIndex?: number
     /** The card belongs to the last result, kept on screen while a new one loads, so it must not count as seen. */
     stale?: boolean
+    /** Every card in a single-scanner feed names the same scanner, so the feed's header names it once instead. */
+    hideScanner?: boolean
 }
 
 function HighlightCardPerson({
@@ -398,6 +401,12 @@ const CATEGORY_CLASS =
 
 // More pills than this overflow a narrow card's answer line, so the rest collapse into a count.
 const MAX_CATEGORY_PILLS = 3
+// How many pills each answer width shows, so the "+N" count matches the pills left out.
+const PILL_STEPS = [
+    { visible: 1, className: '@[10rem]:hidden' },
+    { visible: 2, className: 'hidden @[10rem]:inline-flex @[15rem]:hidden' },
+    { visible: 3, className: 'hidden @[15rem]:inline-flex' },
+]
 
 const CONFIDENCE_ICON: Record<ConfidenceLevel['type'], typeof IconCheck> = {
     success: IconCheck,
@@ -451,17 +460,33 @@ function highlightCardResult(
         if (categories.length === 0) {
             return <span className="font-normal text-secondary">None</span>
         }
-        const hidden = categories.length - MAX_CATEGORY_PILLS
+        const shown = categories.slice(0, MAX_CATEGORY_PILLS)
         return (
-            // Pills shrink and truncate, and the count stays outside them, so a narrow card still shows how many are hidden.
-            <span className="flex min-w-0 items-center gap-1">
-                {categories.slice(0, MAX_CATEGORY_PILLS).map(({ tag, isFreeform }, index) => (
-                    <span key={`${index}-${tag}`} className={clsx(CATEGORY_CLASS, 'min-w-0')}>
+            // A narrow answer shows fewer whole pills and folds the rest into the count, rather than cutting every pill short.
+            <span className="@container flex min-w-0 flex-1 items-center gap-1">
+                {shown.map(({ tag, isFreeform }, index) => (
+                    <span
+                        key={`${index}-${tag}`}
+                        // cn, not clsx, so the hidden class replaces the pill's own display class rather than racing it.
+                        className={cn(
+                            CATEGORY_CLASS,
+                            index === 0 ? 'min-w-0' : 'hidden shrink-0',
+                            index === 1 && '@[10rem]:inline-flex',
+                            index === 2 && '@[15rem]:inline-flex'
+                        )}
+                    >
                         {isFreeform && <IconSparkles className="shrink-0" aria-hidden />}
                         <span className="truncate">{tag}</span>
                     </span>
                 ))}
-                {hidden > 0 && <span className={clsx(CATEGORY_CLASS, 'shrink-0')}>+{hidden}</span>}
+                {PILL_STEPS.map(({ visible, className }) => {
+                    const hidden = categories.length - Math.min(visible, shown.length)
+                    return hidden > 0 ? (
+                        <span key={visible} className={cn(CATEGORY_CLASS, 'shrink-0', className)}>
+                            +{hidden}
+                        </span>
+                    ) : null
+                })}
             </span>
         )
     }
@@ -520,10 +545,10 @@ function HighlightCardAnswer({
             )}
             <span className="text-secondary">Answer</span>
             <span className="flex h-5 min-w-0 items-center gap-3">
-                <span className="flex min-w-0 items-center overflow-hidden font-semibold">
+                <span className="flex min-w-0 flex-1 items-center overflow-hidden font-semibold">
                     {result ?? <span className="font-normal text-secondary">None</span>}
                 </span>
-                <span className="ml-auto">
+                <span className="ml-auto shrink-0">
                     <HighlightCardConfidence observation={observation} />
                 </span>
             </span>
@@ -556,6 +581,7 @@ export function HighlightFeedRow({
     position,
     columnIndex = 0,
     stale = false,
+    hideScanner = false,
 }: HighlightFeedRowProps): JSX.Element {
     const { observation, reason } = item
     const { feedLoad, feedReloading, dateFrom, categories } = useValues(highlightFeedLogic)
@@ -629,11 +655,13 @@ export function HighlightFeedRow({
             )}
             data-attr="vision-highlight-feed-row"
             scanner={
-                <HighlightFeedScannerLink
-                    observation={observation}
-                    scannerName={scannerName}
-                    scannerType={scannerType}
-                />
+                hideScanner ? undefined : (
+                    <HighlightFeedScannerLink
+                        observation={observation}
+                        scannerName={scannerName}
+                        scannerType={scannerType}
+                    />
+                )
             }
             meta={<HighlightCardPerson observation={observation} person={person} />}
             action={

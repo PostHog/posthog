@@ -1,6 +1,6 @@
 import { Dayjs, dayjs } from 'lib/dayjs'
 
-import type { ReplayScannerApi, ScannerDisabledReasonEnumApi, VisionQuotaApi } from '../generated/api.schemas'
+import { type ReplayScannerApi, type ScannerStatusReasonEnumApi, type VisionQuotaApi } from '../generated/api.schemas'
 import type { RecordingsBlock } from '../logics/replayRecordingsLogic'
 import { freeCreditsAllowance } from '../utils/quotaProjection'
 import type { ScanDrought } from './scanDrought'
@@ -8,22 +8,19 @@ import type { ReplayScanner } from './types'
 
 // Mirrors the backend sweep schedule: at most one tick every 5 minutes, over recordings that ended 35+ minutes ago.
 export const SWEEP_INTERVAL_MINUTES = 5
+// Kept in sync with SWEEP_SETTLE in backend/scanner_status.py.
 const SWEEP_SETTLE_MINUTES = 35
-// Slack past the expected watermark lag before a late sweep counts as delayed, so one slow tick doesn't flag it.
-const DELAYED_GRACE_MINUTES = 60
-// Matches the first-scan panel's cap: past it, a first sweep that never finished reads as delayed instead.
-const STARTING_MAX_AGE_MINUTES = 60
 
 export type ScannerStatus =
-    | { kind: 'off'; reason: ScannerDisabledReasonEnumApi | null }
+    | { kind: 'off'; reason: ScannerOffReason | null }
     | { kind: 'no_sampling' }
     | { kind: 'replay_off' }
     | { kind: 'no_recordings' }
-    | { kind: 'limit_reached'; free_only: boolean; credit_limit: number | null; limit_from_free_credits: boolean }
+    | { kind: 'limit_reached'; freeCredits: boolean }
     | { kind: 'quota_exhausted' }
     | { kind: 'filter_error'; message: string }
     | { kind: 'starting' }
-    | { kind: 'paused' }
+    | { kind: 'paused'; reason: ScannerStatusReasonEnumApi | null }
     | { kind: 'delayed'; lastCheckedAt: Dayjs }
     | { kind: 'no_matches'; drought: ScanDrought }
     | { kind: 'throttled'; intervalMinutes: number; lastCheckedAt: Dayjs }
@@ -31,27 +28,39 @@ export type ScannerStatus =
 
 export type ScannerStatusFields = Pick<
     ReplayScanner,
-    | 'enabled'
-    | 'sampling_rate'
-    | 'limit_reached'
-    | 'free_only'
-    | 'credit_limit'
-    | 'limit_from_free_credits'
-    | 'sweep_throttle_factor'
-    | 'sweep_interval_minutes'
-    | 'created_at'
-    | 'last_swept_at'
-    | 'filter_error'
-    | 'disabled_reason'
+    'status' | 'status_reason' | 'filter_error' | 'sweep_interval_minutes' | 'last_swept_at'
 >
 
-export function isOffByChoice(
-    scanner: Pick<ReplayScannerApi, 'enabled' | 'disabled_reason'> | null | undefined
-): boolean {
-    return !!scanner && scanner.enabled === false && (!scanner.disabled_reason || scanner.disabled_reason === 'manual')
+const OFF_REASONS = [
+    'manual',
+    'free_credits_used',
+    'no_ai_consent',
+    'creator_lost_access',
+    'experiment_deleted',
+] as const
+
+/** The `status_reason` values an `off` scanner can carry. */
+export type ScannerOffReason = Extract<ScannerStatusReasonEnumApi, (typeof OFF_REASONS)[number]>
+
+function isOffReason(reason: ScannerStatusReasonEnumApi | null): reason is ScannerOffReason {
+    return reason !== null && (OFF_REASONS as readonly string[]).includes(reason)
 }
 
-/** The one status the scanner page leads with. Earlier checks win, so a scanner that is off never also reads as stopped. */
+export function isOffByChoice(scanner: Pick<ReplayScannerApi, 'status' | 'status_reason'> | null | undefined): boolean {
+    return !!scanner && scanner.status === 'off' && (!scanner.status_reason || scanner.status_reason === 'manual')
+}
+
+// A sweep tick runs every few minutes, so checking once a minute keeps a status close without a request storm.
+export const STATUS_POLL_MS = 60_000
+
+export function isOffForAReason(status: ScannerStatus | undefined): boolean {
+    return status?.kind === 'off' && !!status.reason && status.reason !== 'manual'
+}
+
+/**
+ * The one status the scanner page leads with. The backend works out the scanner's own status, and this adds the
+ * project-wide causes and the no-matches check it can't see, each where it outranks the scanner's own.
+ */
 export function scannerStatus(
     scanner: ScannerStatusFields,
     options: {
@@ -61,59 +70,49 @@ export function scannerStatus(
         now?: Dayjs
     }
 ): ScannerStatus {
-    const now = options.now ?? dayjs()
-    if (!scanner.enabled) {
-        return { kind: 'off', reason: scanner.disabled_reason ?? null }
+    const reason = scanner.status_reason ?? null
+    if (scanner.status === 'off') {
+        return {
+            kind: 'off',
+            reason: isOffReason(reason) ? reason : null,
+        }
     }
-    if (scanner.sampling_rate === 0) {
+    if (scanner.status === 'no_sampling') {
         return { kind: 'no_sampling' }
     }
-    // With no recordings coming in, every check below would blame the scanner for a project-wide gap.
+    // With no recordings coming in, every status below would blame the scanner for a project-wide gap.
     if (options.recordingsBlock === 'replay-off') {
         return { kind: 'replay_off' }
     }
     if (options.recordingsBlock === 'no-recordings') {
         return { kind: 'no_recordings' }
     }
-    if (scanner.limit_reached) {
-        return {
-            kind: 'limit_reached',
-            free_only: !!scanner.free_only,
-            credit_limit: scanner.credit_limit ?? null,
-            limit_from_free_credits: !!scanner.limit_from_free_credits,
-        }
+    if (scanner.status === 'limit_reached') {
+        return { kind: 'limit_reached', freeCredits: reason === 'free_credits_used' }
     }
     if (options.quotaExhausted) {
         return { kind: 'quota_exhausted' }
     }
-    if (scanner.filter_error) {
-        return { kind: 'filter_error', message: scanner.filter_error }
-    }
-    // The backend leaves an enabled scanner unscheduled while it cannot scan, such as while its experiment is not running.
-    if (scanner.sweep_interval_minutes === null) {
-        return { kind: 'paused' }
-    }
-    const intervalMinutes = scanner.sweep_interval_minutes
-    const createdAt = dayjs(scanner.created_at)
-    const lastSweptAt = dayjs(scanner.last_swept_at)
-    // The watermark is seeded before created_at and only advances when a sweep tick finishes.
-    if (lastSweptAt.isBefore(createdAt) && now.diff(createdAt, 'minute') < STARTING_MAX_AGE_MINUTES) {
-        return { kind: 'starting' }
-    }
+    const now = options.now ?? dayjs()
     // The watermark trails wall clock by the settle window, so that lag is normal and not a delay.
     // Capped at now, so clock skew can't make the last check read as in the future.
-    const settledAt = lastSweptAt.add(SWEEP_SETTLE_MINUTES, 'minute')
+    const settledAt = dayjs(scanner.last_swept_at).add(SWEEP_SETTLE_MINUTES, 'minute')
     const lastCheckedAt = settledAt.isAfter(now) ? now : settledAt
-    if (now.diff(lastCheckedAt, 'minute') > intervalMinutes + DELAYED_GRACE_MINUTES) {
-        return { kind: 'delayed', lastCheckedAt }
+    const intervalMinutes = scanner.sweep_interval_minutes ?? SWEEP_INTERVAL_MINUTES
+    switch (scanner.status) {
+        case 'filter_error':
+            return { kind: 'filter_error', message: scanner.filter_error ?? '' }
+        case 'paused':
+            return { kind: 'paused', reason }
+        case 'starting':
+            return { kind: 'starting' }
+        case 'delayed':
+            return { kind: 'delayed', lastCheckedAt }
     }
     if (options.drought) {
         return { kind: 'no_matches', drought: options.drought }
     }
-    if (scanner.sweep_throttle_factor > 1) {
-        return { kind: 'throttled', intervalMinutes, lastCheckedAt }
-    }
-    return { kind: 'running', intervalMinutes, lastCheckedAt }
+    return { kind: scanner.status === 'throttled' ? 'throttled' : 'running', intervalMinutes, lastCheckedAt }
 }
 
 export interface SpendAgainstLimit {

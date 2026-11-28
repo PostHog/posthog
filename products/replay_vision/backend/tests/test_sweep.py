@@ -133,6 +133,12 @@ _PAST_DEEP_INTERVAL = DEEP_SWEEP_INTERVAL + dt.timedelta(hours=1)
 _WITHIN_DEEP_INTERVAL = DEEP_SWEEP_INTERVAL - dt.timedelta(hours=1)
 
 
+def _member(org: Organization) -> User:
+    user = User.objects.create_user(email=f"{uuid.uuid4()}@example.com", password="x", first_name="c")
+    org.members.add(user)
+    return user
+
+
 def _make_scanner(**overrides) -> ReplayScanner:
     org = Organization.objects.create(name="vision-sweep-test-org")
     team = Team.objects.create(organization=org, name="vision-sweep-test-team")
@@ -146,6 +152,9 @@ def _make_scanner(**overrides) -> ReplayScanner:
         "primed_at": timezone.now(),
     }
     defaults.update(overrides)
+    if "created_by" not in overrides and defaults["scanner_type"] == ScannerType.EXPERIMENT:
+        # An experiment scanner sweeps as its creator and turns off without one.
+        defaults["created_by"] = _member(org)
     return ReplayScanner.objects.create(**defaults)
 
 
@@ -191,9 +200,9 @@ class TestFindScannerCandidatesActivity:
         result = find_scanner_candidates(FindScannerCandidatesInputs(scanner_id=uuid.uuid4(), team_id=999))
         assert result == FindScannerCandidatesOutput(candidates=[], saturated=False)
 
-    def test_an_experiment_scanner_without_a_creator_skips_before_any_read(self) -> None:
-        # Every exposure read and every scan's variant lookup refuse a userless principal, so a tick
-        # that queried or dispatched anyway could only produce refusals.
+    def test_an_experiment_scanner_without_a_creator_turns_off_before_any_read(self) -> None:
+        # Every exposure read and every scan's variant lookup refuse a userless principal, so it turns off
+        # as having lost its creator, and a take-over turns it back on.
         scanner = _make_scanner(scanner_type=ScannerType.EXPERIMENT, created_by=None)
         experiment = create_experiment(scanner.team, "orphan-flag", launched=True, variants=["control", "test"])
         scanner.scanner_config = {"prompt": "p", "experiment_id": experiment.id}
@@ -206,6 +215,9 @@ class TestFindScannerCandidatesActivity:
 
         assert result.candidates == [] and result.swept_through is None
         assert not fast_query.called and not deep_query.called
+        scanner.refresh_from_db()
+        assert not scanner.enabled
+        assert scanner.disabled_reason == ScannerDisabledReason.CREATOR_LOST_ACCESS
 
     @parameterized.expand([("paused",), ("ended",), ("archived",), ("deleted",)])
     def test_an_experiment_that_is_not_running_stops_the_sweep(self, state: str) -> None:
@@ -323,6 +335,7 @@ class TestFindScannerCandidatesActivity:
         # Scanners that target an experiment through the column predate the lifecycle gate;
         # flipping them off on deploy would change scanners that exist today.
         scanner = _make_scanner(experiment_targeting=None)
+        ReplayScanner.objects.filter(pk=scanner.pk).update(created_by=_member(scanner.team.organization))
         experiment = create_experiment(scanner.team, "legacy-flag", launched=True, variants=["control", "test"])
         update_experiment(experiment, end_date=timezone.now())
         ReplayScanner.objects.filter(pk=scanner.pk).update(
@@ -375,13 +388,14 @@ class TestFindScannerCandidatesActivity:
             else ScannerDisabledReason.CREATOR_LOST_ACCESS
         )
 
-    def test_targeted_scanner_with_no_creator_skips_instead_of_failing(self) -> None:
+    def test_targeted_scanner_with_no_creator_turns_off_instead_of_failing(self) -> None:
         # The exposure filter refuses userless principals, so a deleted creator would otherwise
-        # raise out of the activity and fail every scheduled tick forever. The skip also keeps the
-        # watermark still, so access restored later resumes from where scanning stopped.
+        # raise out of the activity and fail every scheduled tick forever.
         scanner = _make_scanner(created_by=None, experiment_targeting={"experiment_id": 12345})
         result = find_scanner_candidates(FindScannerCandidatesInputs(scanner_id=scanner.id, team_id=scanner.team_id))
         assert result == FindScannerCandidatesOutput(candidates=[], saturated=False)
+        scanner.refresh_from_db()
+        assert scanner.disabled_reason == ScannerDisabledReason.CREATOR_LOST_ACCESS
 
     def test_proceeds_when_created_by_is_null(self) -> None:
         scanner = _make_scanner(created_by=None)

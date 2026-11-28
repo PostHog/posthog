@@ -39,7 +39,7 @@ When the question you just answered with an inline scan would apply to recording
 Say what the scanner would look for, which recordings it would cover, and roughly what it would cost, then wait for a yes.
 On a yes, follow this skill from Step 1, reusing the inline scan's `prompt`, `scanner_type` and `scanner_config`, and build the query from what the scanned sessions have in common.
 
-The same goes for a saved scanner you ran with `vision-scanners-scan-session` or `vision-scanners-scan-sessions` whose `enabled` is false and whose `disabled_reason` is null or `manual`: it only runs when asked.
+The same goes for a saved scanner you ran with `vision-scanners-scan-session` or `vision-scanners-scan-sessions` whose `status` is `off` and whose `status_reason` is null or `manual`: it only runs when asked.
 Offer to turn on its schedule, size it with Step 3 first, and enable it with `vision-scanners-update` only after the user agrees.
 
 Skip the offer when the question was about one past incident, or when the user has already turned it down.

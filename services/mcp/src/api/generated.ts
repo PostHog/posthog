@@ -61068,6 +61068,11 @@ export namespace Schemas {
     }
 
     /**
+     * `highlight_count` split by scanner id. A scanner with no highlights is left out.
+     */
+    export type HighlightFeedResponseHighlightCountsByScanner = {[key: string]: number};
+
+    /**
      * Response of GET /vision/scanners/highlight_feed/.
      */
     export interface HighlightFeedResponse {
@@ -61077,6 +61082,15 @@ export namespace Schemas {
       has_more: boolean;
       /** The time this feed ranks as of. Send it back with later pages. */
       as_of: string;
+      /** How many items across every page carry a finding (`embedding_pick`), so a reader can be told how many highlights the window holds. Padding rows are not counted. */
+      highlight_count: number;
+      /** `highlight_count` split by scanner id. A scanner with no highlights is left out. */
+      highlight_counts_by_scanner: HighlightFeedResponseHighlightCountsByScanner;
+      /**
+         * Succeeded observations in the window from the scanners the feed reads, highlighted or not, so the highlights can be shown against everything that was scanned. Null on later pages, which repeat the first page's window.
+         * @nullable
+         */
+      observation_count: number | null;
     }
 
     /**
@@ -85450,22 +85464,34 @@ export namespace Schemas {
       start_on_launch?: boolean;
     }
 
-    /**
-     * * `manual` - Turned off by a person
-     * * `free_credits_used` - Free credits used
-     * * `no_ai_consent` - No AI consent
-     * * `creator_lost_access` - Creator lost access
-     * * `experiment_deleted` - Experiment deleted
-     */
-    export type ScannerDisabledReasonEnum = typeof ScannerDisabledReasonEnum[keyof typeof ScannerDisabledReasonEnum];
+    export type ScannerStatusEnum = typeof ScannerStatusEnum[keyof typeof ScannerStatusEnum];
 
 
-    export const ScannerDisabledReasonEnum = {
+    export const ScannerStatusEnum = {
+      Off: 'off',
+      NoSampling: 'no_sampling',
+      LimitReached: 'limit_reached',
+      FilterError: 'filter_error',
+      Paused: 'paused',
+      Starting: 'starting',
+      Delayed: 'delayed',
+      Throttled: 'throttled',
+      Running: 'running',
+    } as const;
+
+    export type ScannerStatusReasonEnum = typeof ScannerStatusReasonEnum[keyof typeof ScannerStatusReasonEnum];
+
+
+    export const ScannerStatusReasonEnum = {
       Manual: 'manual',
       FreeCreditsUsed: 'free_credits_used',
       NoAiConsent: 'no_ai_consent',
       CreatorLostAccess: 'creator_lost_access',
       ExperimentDeleted: 'experiment_deleted',
+      CreditLimit: 'credit_limit',
+      ExperimentNotRunning: 'experiment_not_running',
+      FilterError: 'filter_error',
+      NoPrincipal: 'no_principal',
     } as const;
 
     /**
@@ -85597,6 +85623,10 @@ export namespace Schemas {
          * @nullable
          */
       readonly sweep_interval_minutes: number | null;
+      /** What the scanner is doing now, worked out from its own state. `off`: turned off, see `status_reason`. `no_sampling`: sampling is 0%, so nothing is scanned. `limit_reached`: a credit limit stopped it. `filter_error`: its filters fail, see `filter_error`. `paused`: on, but its sweep is paused until it can scan again. `starting`: the first sweep has not finished. `delayed`: the sweep is behind schedule. `throttled`: its filters read a lot of data, so it is checked less often. `running`: scanning normally. Project-wide causes, such as session replay being off or the organization's credits being used up, are not reflected here. */
+      readonly status: ScannerStatusEnum;
+      /** Why the scanner has its `status`, or null when no reason applies. For `off`: `manual` (a person turned it off), `free_credits_used` (a `free_only` scanner stopped when the free credits ran out), `no_ai_consent` (the organization has not approved AI data processing), `creator_lost_access` (the creator can no longer view recordings, or an experiment scanner has no creator, so turning it on requires `take_over_as_creator`), or `experiment_deleted`; null when it was created off. For `limit_reached`: `free_credits_used` when the organization's free credits stopped a free-only scanner, otherwise `credit_limit`. For `paused`: `experiment_not_running` (its experiment is paused, ended, or archived), `credit_limit`, `filter_error`, or `no_principal`. */
+      readonly status_reason: ScannerStatusReasonEnum | null;
       /**
          * Dashboard created for this scanner with the create_dashboard action. Null when none was created or the user deleted it.
          * @nullable
@@ -85611,14 +85641,6 @@ export namespace Schemas {
          * @nullable
          */
       readonly filter_error: string | null;
-      /** Why the scanner is off, or null when it is on or was created off. `manual`: a person turned it off. `free_credits_used`: a `free_only` scanner stopped when the free credits ran out. `no_ai_consent`: the organization has not approved AI data processing. `creator_lost_access`: the creator can no longer view recordings, which the sweep reads as them, so turning the scanner on requires `take_over_as_creator`. `experiment_deleted`: its experiment was deleted.
-       *
-       * * `manual` - Turned off by a person
-       * * `free_credits_used` - Free credits used
-       * * `no_ai_consent` - No AI consent
-       * * `creator_lost_access` - Creator lost access
-       * * `experiment_deleted` - Experiment deleted */
-      readonly disabled_reason: ScannerDisabledReasonEnum | null;
       readonly created_at: string;
       /** User who created the scanner. */
       readonly created_by: UserBasic | null;
@@ -100100,6 +100122,10 @@ export namespace Schemas {
          * @nullable
          */
       readonly sweep_interval_minutes?: number | null;
+      /** What the scanner is doing now, worked out from its own state. `off`: turned off, see `status_reason`. `no_sampling`: sampling is 0%, so nothing is scanned. `limit_reached`: a credit limit stopped it. `filter_error`: its filters fail, see `filter_error`. `paused`: on, but its sweep is paused until it can scan again. `starting`: the first sweep has not finished. `delayed`: the sweep is behind schedule. `throttled`: its filters read a lot of data, so it is checked less often. `running`: scanning normally. Project-wide causes, such as session replay being off or the organization's credits being used up, are not reflected here. */
+      readonly status?: ScannerStatusEnum;
+      /** Why the scanner has its `status`, or null when no reason applies. For `off`: `manual` (a person turned it off), `free_credits_used` (a `free_only` scanner stopped when the free credits ran out), `no_ai_consent` (the organization has not approved AI data processing), `creator_lost_access` (the creator can no longer view recordings, or an experiment scanner has no creator, so turning it on requires `take_over_as_creator`), or `experiment_deleted`; null when it was created off. For `limit_reached`: `free_credits_used` when the organization's free credits stopped a free-only scanner, otherwise `credit_limit`. For `paused`: `experiment_not_running` (its experiment is paused, ended, or archived), `credit_limit`, `filter_error`, or `no_principal`. */
+      readonly status_reason?: ScannerStatusReasonEnum | null;
       /**
          * Dashboard created for this scanner with the create_dashboard action. Null when none was created or the user deleted it.
          * @nullable
@@ -100114,14 +100140,6 @@ export namespace Schemas {
          * @nullable
          */
       readonly filter_error?: string | null;
-      /** Why the scanner is off, or null when it is on or was created off. `manual`: a person turned it off. `free_credits_used`: a `free_only` scanner stopped when the free credits ran out. `no_ai_consent`: the organization has not approved AI data processing. `creator_lost_access`: the creator can no longer view recordings, which the sweep reads as them, so turning the scanner on requires `take_over_as_creator`. `experiment_deleted`: its experiment was deleted.
-       *
-       * * `manual` - Turned off by a person
-       * * `free_credits_used` - Free credits used
-       * * `no_ai_consent` - No AI consent
-       * * `creator_lost_access` - Creator lost access
-       * * `experiment_deleted` - Experiment deleted */
-      readonly disabled_reason?: ScannerDisabledReasonEnum | null;
       readonly created_at?: string;
       /** User who created the scanner. */
       readonly created_by?: UserBasic | null;

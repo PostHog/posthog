@@ -166,6 +166,7 @@ class SweepPauseReason(models.TextChoices):
     CREDIT_LIMIT = "credit_limit", "Credit limit reached"
     EXPERIMENT_NOT_RUNNING = "experiment_not_running", "Experiment not running"
     FILTER_ERROR = "filter_error", "Filter cannot run"
+    # Legacy: a creator-less experiment scanner now turns off as `creator_lost_access`, but stored rows keep it.
     NO_PRINCIPAL = "no_principal", "No creator to run the filter as"
 
 

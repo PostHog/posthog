@@ -45,10 +45,11 @@ export function newScanner(teamName?: string | null): ScannerFormValues {
         limit_reached: false,
         sweep_throttle_factor: 1,
         sweep_interval_minutes: 5,
+        status: 'starting',
+        status_reason: null,
         dashboard_id: null,
         dashboard_suggested: false,
         filter_error: null,
-        disabled_reason: null,
     } as const
 
     return {

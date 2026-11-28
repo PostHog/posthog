@@ -2216,7 +2216,7 @@ class TestScannerLifecycleTelemetry(_VisionAPITestCase):
         scanner.refresh_from_db()
         self.assertEqual((scanner.enabled, scanner.disabled_reason), (enabled_after, reason_after))
         if status == 200:
-            self.assertEqual(resp.json()["disabled_reason"], reason_after)
+            self.assertEqual(resp.json()["status_reason"], reason_after)
 
     @parameterized.expand(
         [
@@ -5070,6 +5070,10 @@ class TestScannerSpend(_VisionAPITestCase):
             {name: row["limit_from_free_credits"] for name, row in by_name.items()},
             {"capped": False, "uncapped": False, "free": True},
         )
+        self.assertEqual(
+            {name: (row["status"], row["status_reason"]) for name, row in by_name.items()},
+            {"capped": ("limit_reached", "credit_limit"), "uncapped": ("starting", None), "free": ("starting", None)},
+        )
 
     def test_limit_below_one_observation_reports_reached_before_any_spend(self) -> None:
         # `limit_reached` answers "can this scanner run again", not "has it spent its limit". A cap
@@ -5537,6 +5541,7 @@ class TestHighlightFeedAPI(_VisionAPITestCase):
         sessions = [item["observation"]["session_id"] for item in first["results"] + second["results"]]
         assert sessions == [f"hit-{i}" for i in range(6)]
         assert second["has_more"] is False
+        assert (isinstance(first["observation_count"], int), second["observation_count"]) == (True, None)
 
     def test_a_later_page_stays_on_the_build_its_first_page_read(self) -> None:
         scanner = self._create_scanner(name="m")
@@ -5779,6 +5784,16 @@ class TestHighlightFeedAPI(_VisionAPITestCase):
             [item["observation"]["session_id"] for item in resp.json()["results"]],
             ["wanted-sess"],
         )
+        # The counts follow the same filter, so a scanner's view never reports another scanner's work.
+        body = resp.json()
+        self.assertEqual(
+            (body["highlight_count"], body["highlight_counts_by_scanner"], body["observation_count"]), (0, {}, 1)
+        )
+        body = self.client.get(self.feed_url).json()
+        self.assertEqual(
+            (body["highlight_count"], body["highlight_counts_by_scanner"], body["observation_count"]),
+            (1, {str(other.id): 1}, 11),
+        )
 
     def test_date_to_excludes_newer_observations(self) -> None:
         scanner = self._create_scanner(name="m")
@@ -5897,6 +5912,7 @@ class TestHighlightFeedAPI(_VisionAPITestCase):
         self.assertEqual(
             sorted(item["observation"]["session_id"] for item in resp.json()["results"]), ["open-sess", "open-sess-2"]
         )
+        assert resp.json()["observation_count"] == 2
 
     def test_restricted_picks_never_take_a_page_slot(self) -> None:
         experiment = create_experiment(self.team, "restricted-picks-flag")

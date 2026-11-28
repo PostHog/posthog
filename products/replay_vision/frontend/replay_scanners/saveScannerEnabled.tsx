@@ -31,7 +31,7 @@ export const ALLOW_AI_ANALYSIS_DIALOG: ConfirmDialog = {
 export const TAKE_OVER_DIALOG: ConfirmDialog = {
     title: 'Take over this scanner?',
     description:
-        "The person who created this scanner can no longer view recordings, so it can't run as them. Turning it on makes you its creator, and it will scan recordings as you.",
+        "The person who created this scanner left the organization or lost access to this project's recordings, so it can't scan as them. Turning it on makes you its creator, and it will scan recordings as you.",
     confirmLabel: 'Take over and turn on',
     confirmDataAttr: 'vision-scanner-turn-on-take-over',
 }

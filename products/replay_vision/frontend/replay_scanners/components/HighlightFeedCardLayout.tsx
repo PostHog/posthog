@@ -6,7 +6,8 @@ import { Link, Tooltip } from '@posthog/lemon-ui'
 import { cn } from 'lib/utils/css-classes'
 
 export interface HighlightFeedCardLayoutProps {
-    scanner: React.ReactNode
+    /** Left out where the whole feed comes from one scanner, so the person and age take the line. */
+    scanner?: React.ReactNode
     meta: React.ReactNode
     /** Short meta, like a pill, stays on the scanner's line at every width. */
     metaInline?: boolean
@@ -78,21 +79,35 @@ export const HighlightFeedCardLayout = forwardRef<HTMLElement, HighlightFeedCard
                         !metaInline && 'flex-wrap @[28rem]/highlight-card:flex-nowrap'
                     )}
                 >
-                    <div className={cn('flex min-w-0', !metaInline && 'flex-1 @[28rem]/highlight-card:flex-initial')}>
-                        {scanner}
-                    </div>
-                    <span
-                        className={cn('text-xs text-muted', !metaInline && 'hidden @[28rem]/highlight-card:inline')}
-                        aria-hidden
-                    >
-                        ·
-                    </span>
+                    {scanner && (
+                        <>
+                            <div
+                                className={cn(
+                                    'flex min-w-0',
+                                    !metaInline && 'flex-1 @[28rem]/highlight-card:flex-initial'
+                                )}
+                            >
+                                {scanner}
+                            </div>
+                            <span
+                                className={cn(
+                                    'text-xs text-muted',
+                                    !metaInline && 'hidden @[28rem]/highlight-card:inline'
+                                )}
+                                aria-hidden
+                            >
+                                ·
+                            </span>
+                        </>
+                    )}
                     <div
                         className={cn(
                             'flex min-w-0',
-                            metaInline
-                                ? 'max-w-[45%] shrink-0'
-                                : 'order-last basis-full pl-8 @[28rem]/highlight-card:order-none @[28rem]/highlight-card:max-w-[45%] @[28rem]/highlight-card:shrink-0 @[28rem]/highlight-card:basis-auto @[28rem]/highlight-card:pl-0'
+                            !scanner
+                                ? 'flex-1'
+                                : metaInline
+                                  ? 'max-w-[45%] shrink-0'
+                                  : 'order-last basis-full pl-8 @[28rem]/highlight-card:order-none @[28rem]/highlight-card:max-w-[45%] @[28rem]/highlight-card:shrink-0 @[28rem]/highlight-card:basis-auto @[28rem]/highlight-card:pl-0'
                         )}
                     >
                         {meta}

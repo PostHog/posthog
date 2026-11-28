@@ -39,7 +39,7 @@ import {
     markScannerGoalDraftIntent,
     markScannerHandoffIntent,
 } from './scannerHandoffIntent'
-import { observationsDrilldownSearchParams } from './scannerOverviewLogic'
+import { STATUS_POLL_MS } from './scannerStatus'
 import { ClassifierScanner, ReplayScanner, ScorerScanner } from './types'
 
 jest.mock('lib/forms/scrollToFormError', () => ({
@@ -1400,91 +1400,6 @@ describe('replayScannerLogic', () => {
             expect(patchedBody).not.toHaveProperty('credit_limit_enabled')
         })
 
-        it('turns on self-driving with a patch of that one field and keeps the version the save bumped', async () => {
-            let patchedBody: any
-            useMocks({
-                patch: {
-                    '/api/projects/:team/vision/scanners/:id/': async ({ request }: { request: Request }) => {
-                        patchedBody = await request.json()
-                        return [
-                            200,
-                            {
-                                ...loadedScanner,
-                                emits_signals: true,
-                                scanner_version: 7,
-                                updated_at: '2026-09-24T10:00:00Z',
-                            },
-                        ]
-                    },
-                },
-            })
-            await expectLogic(editLogic, () => editLogic.actions.loadScanner()).toFinishAllListeners()
-            await expectLogic(editLogic, () => editLogic.actions.turnOnSelfDriving()).toDispatchActions([
-                'turnOnSelfDrivingSuccess',
-            ])
-            expect(patchedBody).toEqual({ emits_signals: true })
-            expect(editLogic.values.scanner).toMatchObject({ emits_signals: true, scanner_version: 7 })
-            expect(editLogic.values.originalScanner).toMatchObject({
-                emits_signals: true,
-                scanner_version: 7,
-                updated_at: '2026-09-24T10:00:00Z',
-            })
-        })
-
-        it.each([
-            ['while capped, a patch of that one field', true, null, { free_only: false }],
-            [
-                'after the free credits turned it off, it turns on too',
-                false,
-                'free_credits_used' as const,
-                {
-                    free_only: false,
-                    enabled: true,
-                },
-            ],
-        ])('turns off free credits only %s', async (_name, enabled, disabled_reason, expectedBody) => {
-            let patchedBody: any
-            useMocks({
-                patch: {
-                    '/api/projects/:team/vision/scanners/:id/': async ({ request }: { request: Request }) => {
-                        patchedBody = await request.json()
-                        return [
-                            200,
-                            {
-                                ...loadedScanner,
-                                ...patchedBody,
-                                disabled_reason: null,
-                                limit_reached: false,
-                                limit_from_free_credits: false,
-                            },
-                        ]
-                    },
-                },
-            })
-            await expectLogic(editLogic, () => editLogic.actions.loadScanner()).toFinishAllListeners()
-            editLogic.actions.setScannerValues({
-                enabled,
-                disabled_reason,
-                free_only: true,
-                limit_reached: true,
-                limit_from_free_credits: true,
-            })
-            await expectLogic(editLogic, () => editLogic.actions.turnOffFreeOnly()).toDispatchActions([
-                'turnOffFreeOnlySuccess',
-            ])
-            expect(patchedBody).toEqual(expectedBody)
-            const running = {
-                enabled: true,
-                disabled_reason: null,
-                free_only: false,
-                limit_reached: false,
-                limit_from_free_credits: false,
-            }
-            expect(editLogic.values.scanner).toMatchObject(running)
-            expect(editLogic.values.originalScanner).toMatchObject(running)
-            expect(editLogic.values.turningOffFreeOnly).toBe(false)
-        })
-
         it('turning a blocked scanner on takes the saved blocker, creator and free-only, not just the flag', async () => {
             const newCreator = {
                 id: 99,
@@ -1500,7 +1415,8 @@ describe('replayScannerLogic', () => {
                         {
                             ...loadedScanner,
                             enabled: true,
-                            disabled_reason: null,
+                            status: 'starting',
+                            status_reason: null,
                             created_by: newCreator,
                             free_only: false,
                         },
@@ -1510,13 +1426,20 @@ describe('replayScannerLogic', () => {
             await expectLogic(editLogic, () => editLogic.actions.loadScanner()).toFinishAllListeners()
             editLogic.actions.setScannerValues({
                 enabled: false,
-                disabled_reason: 'creator_lost_access',
+                status: 'off',
+                status_reason: 'creator_lost_access',
                 free_only: true,
             })
             await expectLogic(editLogic, () => editLogic.actions.toggleEnabled()).toDispatchActions([
                 'toggleEnabledSuccess',
             ])
-            const runnable = { enabled: true, disabled_reason: null, created_by: newCreator, free_only: false }
+            const runnable = {
+                enabled: true,
+                status: 'starting',
+                status_reason: null,
+                created_by: newCreator,
+                free_only: false,
+            }
             expect(editLogic.values.scanner).toMatchObject(runnable)
             expect(editLogic.values.originalScanner).toMatchObject(runnable)
         })
@@ -1862,20 +1785,65 @@ describe('replayScannerLogic', () => {
         })
     })
 
-    describe('scannerWatermarkRefreshed', () => {
+    describe('scannerStatusRefreshed', () => {
         // Guards the background watermark refresh against regressing to the full loadScannerSuccess
         // path, which resets the form from the server and refires the observation loads.
-        it('advances the sweep watermark without resetting form edits or reloading observations', async () => {
+        it('takes the server status fields without resetting form edits or reloading observations', async () => {
             logic.actions.loadScannerSuccess({ ...logic.values.scanner!, id: 'abc', name: 'Loaded' })
             logic.actions.setScannerValues({ name: 'Edited' })
 
-            const refreshed = { ...logic.values.scanner!, name: 'Loaded', last_swept_at: '2026-08-13T10:00:00Z' }
+            const refreshed = {
+                ...logic.values.scanner!,
+                name: 'Loaded',
+                last_swept_at: '2026-08-13T10:00:00Z',
+                filter_error: 'Unknown property',
+            }
             // toDispatchActions moves the history pointer past the setup's own setScannerValues first.
-            await expectLogic(logic, () => logic.actions.scannerWatermarkRefreshed(refreshed))
-                .toDispatchActions(['scannerWatermarkRefreshed'])
+            await expectLogic(logic, () => logic.actions.scannerStatusRefreshed(refreshed))
+                .toDispatchActions(['scannerStatusRefreshed'])
                 .toNotHaveDispatchedActions(['setScannerValues', 'loadObservations', 'loadObservationStats'])
             expect(logic.values.scanner?.name).toBe('Edited')
             expect(logic.values.scanner?.last_swept_at).toBe('2026-08-13T10:00:00Z')
+            expect(logic.values.scanner?.filter_error).toBe('Unknown property')
+            expect(logic.values.originalScanner?.filter_error).toBe('Unknown property')
+        })
+
+        // The scanner page's status leaves "Starting" only through this poll, so it must run and stop on cue.
+        it('polls the watermark only while polling is on', async () => {
+            let swept = '2026-08-13T10:00:00Z'
+            const retrieveSpy = jest.fn(() => [
+                200,
+                {
+                    id: 'sid',
+                    name: 'Polled',
+                    scanner_type: 'monitor',
+                    scanner_config: { prompt: 'Find navigation failures.' },
+                    sampling_rate: 1,
+                    enabled: true,
+                    last_swept_at: swept,
+                },
+            ])
+            useMocks({ get: { '/api/projects/:team/vision/scanners/:id/': retrieveSpy } })
+            const sidLogic = replayScannerLogic({ id: 'sid' })
+            sidLogic.mount()
+            await expectLogic(sidLogic).toFinishAllListeners()
+            expect(sidLogic.values.scanner?.last_swept_at).toBe('2026-08-13T10:00:00Z')
+            swept = '2026-08-13T11:00:00Z'
+            jest.useFakeTimers({ doNotFake: ['nextTick', 'queueMicrotask'] })
+            try {
+                sidLogic.actions.setStatusPolling(true)
+                jest.advanceTimersByTime(STATUS_POLL_MS)
+                await expectLogic(sidLogic).toDispatchActions(['scannerStatusRefreshed'])
+                expect(sidLogic.values.scanner?.last_swept_at).toBe('2026-08-13T11:00:00Z')
+
+                sidLogic.actions.setStatusPolling(false)
+                const calls = retrieveSpy.mock.calls.length
+                jest.advanceTimersByTime(STATUS_POLL_MS * 3)
+                expect(retrieveSpy.mock.calls.length).toBe(calls)
+            } finally {
+                jest.useRealTimers()
+                sidLogic.unmount()
+            }
         })
     })
 
@@ -2017,18 +1985,17 @@ describe('replayScannerLogic', () => {
     })
 
     describe('observations drill-down round-trip', () => {
-        // Guards the URL contract between the Overview chart drill-down and this logic's urlToAction:
-        // a param rename on either side breaks the drill-down silently.
+        // Shared links into the list carry these params, so renaming one breaks them silently.
         it('restores the drill-down search params into the observations table filters', async () => {
             const sidLogic = replayScannerLogic({ id: 'sid' })
             sidLogic.mount()
             try {
-                const params = observationsDrilldownSearchParams({
-                    day: '2026-05-04',
-                    interval: 'day',
-                    scannerType: 'monitor',
+                router.actions.push(urls.replayVision('sid'), {
+                    tab: 'observations',
+                    date_from: '2026-05-04',
+                    date_to: '2026-05-04',
+                    verdict: 'yes',
                 })
-                router.actions.push(urls.replayVision('sid'), params!)
                 await expectLogic(sidLogic).toFinishAllListeners()
                 expect(sidLogic.values.observationDateFrom).toBe('2026-05-04')
                 expect(sidLogic.values.observationDateTo).toBe('2026-05-04')

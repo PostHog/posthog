@@ -36,7 +36,8 @@ describe('replayScannerSceneLogic', () => {
     it.each([
         ['on-demand', ReplayScannerTab.Run],
         ['backfills', ReplayScannerTab.Run],
-        ['configuration', ReplayScannerTab.Overview],
+        ['configuration', ReplayScannerTab.Observations],
+        ['overview', ReplayScannerTab.Observations],
     ])('an old %s tab link opens the tab it was merged into', (oldTab, expected) => {
         const logic = replayScannerSceneLogic()
         logic.mount()

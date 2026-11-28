@@ -1,53 +1,41 @@
 import { dayjs } from 'lib/dayjs'
 
 import { makeQuota } from '../utils/quotaTestUtils'
-import { stoppedByFreeCredits } from './scannerCopy'
 import { ScannerStatusFields, isOffByChoice, scannerStatus, spendAgainstLimit } from './scannerStatus'
 
 const NOW = dayjs('2026-05-12T12:00:00Z')
 
-// A healthy, long-running scanner: swept on schedule, its watermark trailing by the settle window.
-const HEALTHY: ScannerStatusFields = {
-    enabled: true,
-    sampling_rate: 1,
-    limit_reached: false,
-    credit_limit: null,
-    limit_from_free_credits: false,
-    sweep_throttle_factor: 1,
+const RUNNING: ScannerStatusFields = {
+    status: 'running',
+    status_reason: null,
     sweep_interval_minutes: 5,
-    created_at: '2026-05-01T00:00:00Z',
     last_swept_at: NOW.subtract(40, 'minute').toISOString(),
     filter_error: null,
-    disabled_reason: null,
 }
 
 const DROUGHT = { everScanned: true, samplingRate: 1 }
 
-// A new scanner's watermark starts one settle window before creation and only moves once a sweep finishes.
-const createdMinutesAgo = (minutes: number): Partial<ScannerStatusFields> => ({
-    created_at: NOW.subtract(minutes, 'minute').toISOString(),
-    last_swept_at: NOW.subtract(minutes + 35, 'minute').toISOString(),
-})
-
 describe('scannerStatus', () => {
     test.each([
-        ['running when nothing is wrong', {}, {}, 'running'],
-        ['off wins over every other problem', { enabled: false, limit_reached: true }, { quotaExhausted: true }, 'off'],
-        ['off at 0% sampling, ahead of a reached limit', { sampling_rate: 0, limit_reached: true }, {}, 'no_sampling'],
+        ['running', {}, {}, 'running'],
         [
-            "the scanner's own limit ahead of the org quota",
-            { limit_reached: true },
-            { quotaExhausted: true },
-            'limit_reached',
-        ],
-        ['stopped when the org quota is used up', {}, { quotaExhausted: true }, 'quota_exhausted'],
-        [
-            'replay off ahead of the limits it makes moot',
-            { limit_reached: true },
+            'off wins over every project-wide cause',
+            { status: 'off' as const },
             { quotaExhausted: true, recordingsBlock: 'replay-off' as const },
+            'off',
+        ],
+        [
+            'no sampling ahead of replay being off',
+            { status: 'no_sampling' as const },
+            { recordingsBlock: 'replay-off' as const },
+            'no_sampling',
+        ],
+        [
+            'replay off ahead of the limit it makes moot',
+            { status: 'limit_reached' as const },
+            { recordingsBlock: 'replay-off' as const },
             'replay_off',
         ],
-        ['off wins over replay being off', { enabled: false }, { recordingsBlock: 'replay-off' as const }, 'off'],
         [
             'no recordings instead of blaming the filters',
             {},
@@ -55,89 +43,50 @@ describe('scannerStatus', () => {
             'no_recordings',
         ],
         [
-            'filter error ahead of the delay it causes',
-            { filter_error: 'Unable to resolve field: event', last_swept_at: NOW.subtract(3, 'hour').toISOString() },
-            {},
-            'filter_error',
-        ],
-        ['starting while the first sweep has not finished', createdMinutesAgo(10), {}, 'starting'],
-        ['delayed once a first sweep is over an hour late', createdMinutesAgo(70), {}, 'delayed'],
-        [
-            'delayed when sweeps stopped advancing',
-            { last_swept_at: NOW.subtract(3, 'hour').toISOString() },
-            {},
-            'delayed',
+            "the scanner's own limit ahead of the org quota",
+            { status: 'limit_reached' as const },
+            { quotaExhausted: true },
+            'limit_reached',
         ],
         [
-            'not delayed while a throttled sweep waits out its longer interval',
-            {
-                sweep_throttle_factor: 12,
-                sweep_interval_minutes: 60,
-                last_swept_at: NOW.subtract(2, 'hour').toISOString(),
-            },
-            {},
-            'throttled',
+            'the org quota ahead of a filter error',
+            { status: 'filter_error' as const },
+            { quotaExhausted: true },
+            'quota_exhausted',
         ],
         [
             'delayed ahead of no matches, since no sweep ran to match anything',
-            { last_swept_at: NOW.subtract(3, 'hour').toISOString() },
+            { status: 'delayed' as const },
             { drought: DROUGHT },
             'delayed',
         ],
-        [
-            'not delayed while a low-yield sweep waits out its hourly interval',
-            { sweep_interval_minutes: 60, last_swept_at: NOW.subtract(2, 'hour').toISOString() },
-            {},
-            'running',
-        ],
-        [
-            'paused ahead of the delay a paused sweep would otherwise read as',
-            { sweep_interval_minutes: null, last_swept_at: NOW.subtract(3, 'hour').toISOString() },
-            {},
-            'paused',
-        ],
-        [
-            'no matches ahead of throttled',
-            { sweep_throttle_factor: 3, sweep_interval_minutes: 15 },
-            { drought: DROUGHT },
-            'no_matches',
-        ],
-        [
-            'throttled when the read budget stretches the cadence',
-            { sweep_throttle_factor: 3, sweep_interval_minutes: 15 },
-            {},
-            'throttled',
-        ],
+        ['no matches ahead of throttled', { status: 'throttled' as const }, { drought: DROUGHT }, 'no_matches'],
     ])('%s', (_name, scannerOverrides, options, expected) => {
         const status = scannerStatus(
-            { ...HEALTHY, ...scannerOverrides },
+            { ...RUNNING, ...scannerOverrides },
             { quotaExhausted: false, drought: null, now: NOW, ...options }
         )
         expect(status.kind).toBe(expected)
     })
 
     it.each([
-        ['free_credits_used' as const, 'free_credits_used'],
-        [null, null],
-    ])('an off scanner carries why it is off (%s)', (disabled_reason, expected) => {
+        [
+            { status: 'off' as const, status_reason: 'creator_lost_access' as const },
+            { kind: 'off', reason: 'creator_lost_access' },
+        ],
+        [
+            { status: 'limit_reached' as const, status_reason: 'free_credits_used' as const },
+            { kind: 'limit_reached', freeCredits: true },
+        ],
+        [
+            { status: 'paused' as const, status_reason: 'experiment_not_running' as const },
+            { kind: 'paused', reason: 'experiment_not_running' },
+        ],
+        [{ sweep_interval_minutes: 60 }, { kind: 'running', intervalMinutes: 60 }],
+    ])('carries what the copy needs from %o', (overrides, expected) => {
         expect(
-            scannerStatus(
-                { ...HEALTHY, enabled: false, disabled_reason },
-                { quotaExhausted: true, drought: null, now: NOW, recordingsBlock: 'replay-off' }
-            )
-        ).toEqual({ kind: 'off', reason: expected })
-    })
-
-    it("reports the backend's interval so the strip can say how often it checks", () => {
-        expect(
-            scannerStatus(
-                { ...HEALTHY, sweep_interval_minutes: 60 },
-                { quotaExhausted: false, drought: null, now: NOW }
-            )
-        ).toMatchObject({
-            kind: 'running',
-            intervalMinutes: 60,
-        })
+            scannerStatus({ ...RUNNING, ...overrides }, { quotaExhausted: false, drought: null, now: NOW })
+        ).toMatchObject(expected)
     })
 
     test.each([
@@ -165,22 +114,6 @@ describe('scannerStatus', () => {
     })
 
     test.each([
-        ['an own limit blames that limit', { credit_limit: 500 }, false],
-        ['no own limit blames the free credits', { credit_limit: null }, true],
-        [
-            'an own limit blames the free credits when they bind',
-            { credit_limit: 500, limit_from_free_credits: true },
-            true,
-        ],
-    ])('stopped free-only scanner with %s', (_name, overrides, expected) => {
-        const status = scannerStatus(
-            { ...HEALTHY, free_only: true, limit_reached: true, ...overrides },
-            { quotaExhausted: false, drought: null, now: NOW }
-        )
-        expect(status.kind === 'limit_reached' && stoppedByFreeCredits(status)).toBe(expected)
-    })
-
-    test.each([
         ['free credits bind', true, 2_400, { limit: 2_500, used: 2_400, usedPct: 96, freeCredits: true }],
         ['own limit binds', false, 300, { limit: 500, used: 300, usedPct: 60 }],
     ])('free-only scanner with its own limit when the %s', (_name, fromFree, usedAgainstLimit, expected) => {
@@ -199,11 +132,11 @@ describe('scannerStatus', () => {
     })
 
     test.each([
-        ['never turned on', { enabled: false, disabled_reason: null }, true],
-        ['turned off by hand', { enabled: false, disabled_reason: 'manual' }, true],
-        ['already scheduled', { enabled: true, disabled_reason: null }, false],
-        ['out of free credits', { enabled: false, disabled_reason: 'free_credits_used' }, false],
-        ['no AI consent', { enabled: false, disabled_reason: 'no_ai_consent' }, false],
+        ['never turned on', { status: 'off', status_reason: null }, true],
+        ['turned off by hand', { status: 'off', status_reason: 'manual' }, true],
+        ['already scheduled', { status: 'running', status_reason: null }, false],
+        ['out of free credits', { status: 'off', status_reason: 'free_credits_used' }, false],
+        ['no AI consent', { status: 'off', status_reason: 'no_ai_consent' }, false],
         ['not loaded', null, false],
     ] as const)('isOffByChoice: %s', (_, scanner, expected) => {
         expect(isOffByChoice(scanner)).toBe(expected)

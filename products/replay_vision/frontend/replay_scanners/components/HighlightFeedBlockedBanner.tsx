@@ -1,22 +1,20 @@
 import { useActions } from 'kea'
-import { router } from 'kea-router'
 
 import { LemonBanner } from '@posthog/lemon-ui'
 
-import { urls } from 'scenes/urls'
-
 import { HIGHLIGHT_FEED_BLOCKS, type HighlightFeedBlockReason } from '../highlightFeedEmptyState'
+import { visionHomeLogic } from '../visionHomeLogic'
 
 /** Sits above cards that are still in the window, to say the feed will not get new ones and why. */
 export function HighlightFeedBlockedBanner({ reason }: { reason: HighlightFeedBlockReason }): JSX.Element {
-    const { push } = useActions(router)
+    const { openBlockView } = useActions(visionHomeLogic)
     const block = HIGHLIGHT_FEED_BLOCKS[reason]
     return (
         <LemonBanner
             type="warning"
             action={{
                 children: block.actionLabel,
-                onClick: () => push(urls.replayVision(), { tab: block.tab }),
+                onClick: () => openBlockView(block.view),
                 'data-attr': block.bannerDataAttr,
             }}
         >

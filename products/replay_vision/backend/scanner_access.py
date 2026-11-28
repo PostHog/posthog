@@ -55,7 +55,10 @@ def recording_viewer_access(user: User | None, team: Team) -> UserAccessControl 
 
 def creator_can_scan(scanner: ReplayScanner) -> bool:
     """Whether the sweep, which reads recordings as the scanner's creator, can still read them."""
-    return scanner.created_by is None or recording_viewer_access(scanner.created_by, scanner.team) is not None
+    if scanner.created_by is None:
+        # The experiment exposure filter refuses a userless principal, so only other scanners can run without one.
+        return experiment_id_of(scanner) is None
+    return recording_viewer_access(scanner.created_by, scanner.team) is not None
 
 
 def unrunnable_reason(scanner: ReplayScanner) -> ScannerDisabledReason | None:

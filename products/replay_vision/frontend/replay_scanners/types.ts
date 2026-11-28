@@ -75,8 +75,6 @@ export const OBSERVATION_LIST_URL_PARAM_KEYS = [
 
 export type ObservationsUrlParams = Partial<Record<(typeof OBSERVATION_LIST_URL_PARAM_KEYS)[number], string>>
 
-export type EnabledFilter = 'enabled' | 'disabled'
-
 export type IneligibleKind =
     | 'no_recording'
     | 'no_snapshots'
@@ -286,11 +284,6 @@ export function ineligibleKindLabel(kind: IneligibleKind): string {
 
 export const DEFAULT_PROVIDER = 'google'
 export const DEFAULT_MODEL: ScannerModelEnumApi = ScannerModelEnumApi.Gemini3FlashPreview
-
-export const ENABLED_OPTIONS: { value: EnabledFilter; label: string }[] = [
-    { value: 'enabled', label: 'Enabled' },
-    { value: 'disabled', label: 'Disabled' },
-]
 
 // Mirrors the backend `OBSERVATION_CREDITS_BY_MODEL` table (the scanner/estimate API responses are authoritative);
 // the picker needs a price per model before anything is saved, so it can't come from a per-instance response.
