@@ -85,4 +85,46 @@ describe('destination secret redaction', () => {
         expect(maskedRequest.requestBody).toBe('{"webhook_url":"redacted"}')
         expect(maskedRequest.responseBody).toBe('{"id":"r1","pagerduty_routing_key":"redacted"}')
     })
+
+    it.each([
+        ['a personal API key', 'phx_'],
+        ['a project secret API key', 'phs_'],
+    ])('masks %s in a replay network response and keeps its masked form', (_name, prefix) => {
+        // Built at runtime, so the source holds nothing that looks like a key.
+        const key = prefix + 'a1B2'.repeat(10)
+        const event = redactDestinationSecretsInReplay({
+            event: '$snapshot',
+            properties: {
+                $snapshot_data: [
+                    {
+                        type: 6,
+                        data: {
+                            plugin: 'rrweb/network@1',
+                            payload: {
+                                requests: [
+                                    {
+                                        name: '/api/personal_api_keys/',
+                                        requestBody: JSON.stringify({ label: 'CI' }),
+                                        responseBody: JSON.stringify({
+                                            label: 'CI',
+                                            value: key,
+                                            mask_value: `${prefix}...a1B2`,
+                                        }),
+                                    },
+                                ],
+                            },
+                        },
+                    },
+                ],
+            },
+        } as any)
+
+        const [request] = event!.properties.$snapshot_data[0].data.payload.requests
+        expect(JSON.parse(request.responseBody)).toEqual({
+            label: 'CI',
+            value: `${prefix}redacted`,
+            mask_value: `${prefix}...a1B2`,
+        })
+        expect(request.requestBody).toBe('{"label":"CI"}')
+    })
 })

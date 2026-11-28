@@ -1,5 +1,7 @@
 import type { BeforeSendFn } from 'posthog-js'
 
+import { redactApiKeys } from './apiKeyRedaction'
+
 const NETWORK_PLUGIN = 'rrweb/network@1'
 const REDACTED = 'redacted'
 const REDACTED_BODY = '[SessionRecording] body redacted as might contain a destination secret'
@@ -62,8 +64,8 @@ function redactRequest(request: unknown): unknown {
         return request
     }
     const { requestBody, responseBody } = request as Record<string, unknown>
-    const redactedRequestBody = redactDestinationSecrets(requestBody)
-    const redactedResponseBody = redactDestinationSecrets(responseBody)
+    const redactedRequestBody = redactApiKeys(redactDestinationSecrets(requestBody))
+    const redactedResponseBody = redactApiKeys(redactDestinationSecrets(responseBody))
     if (redactedRequestBody === requestBody && redactedResponseBody === responseBody) {
         return request
     }
