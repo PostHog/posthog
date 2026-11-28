@@ -62,10 +62,18 @@ export function paced(bytesPerSecond: number, onDelay: () => void): Transform {
 
 type Pace = { bytesPerSecond: number; onDelay: () => void }
 
-const carry = (from: Readable, to: Writable, pace: Pace | undefined): void =>
-    pace === undefined
-        ? void pipeline(from, to, () => undefined)
-        : void pipeline(from, paced(pace.bytesPerSecond, pace.onDelay), to, () => undefined)
+const carry = (from: Readable, to: Writable, pace: Pace | undefined): void => {
+    // pipeline throws, outside any handler, into a stream that closed already, which would take the whole edge down.
+    if (to.destroyed) {
+        from.destroy()
+        return
+    }
+    if (pace === undefined) {
+        pipeline(from, to, () => undefined)
+    } else {
+        pipeline(from, paced(pace.bytesPerSecond, pace.onDelay), to, () => undefined)
+    }
+}
 
 function serverError(res: http.ServerResponse, status: number, method: string | undefined): void {
     const code = status === 503 ? 'SlowDown' : 'InternalError'
@@ -86,6 +94,11 @@ function forward(upstream: URL, req: http.IncomingMessage, res: http.ServerRespo
         }
     )
     outbound.on('error', () => res.destroy())
+    res.once('close', () => {
+        if (!res.writableFinished) {
+            outbound.destroy()
+        }
+    })
     carry(req, outbound, pace)
 }
 
