@@ -1,6 +1,6 @@
 <!doctype html>
 {# boot_theme mirrors themeLogic.isDarkModeOn (posthog/utils.py): "dark", "system", or "light" #}
-<html lang="en" data-boot-theme="{{ boot_theme|default:'light' }}">
+<html lang="en" data-boot-theme="{{ boot_theme|default:'light' }}" data-frontend-build="{{ frontend_build|default:'default' }}">
     <head>
         {# head.html first: it carries <meta charset>, which must stay within the first 1024 bytes #}
         {# so the browser's encoding prescan finds it #}
@@ -49,6 +49,10 @@
         {% for url in preload_js_urls %}
             <link rel="modulepreload" href="{{ js_url }}/{{ url }}">
         {% endfor %}
+        {# The app build that Vite makes boots through its own script. See posthog/vite_app.py. #}
+        {% if vite_app %}
+            {% include "vite_app_boot.html" %}
+        {% endif %}
     </head>
     <body>
         {% include "overlays.html" %}

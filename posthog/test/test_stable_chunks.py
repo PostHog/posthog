@@ -159,7 +159,7 @@ class TestStableChunks(SimpleTestCase):
         request.user = AnonymousUser()
         with (
             override_settings(E2E_TESTING=True),
-            patch("posthog.utils.stable_chunks_for_request", return_value=stable),
+            patch("posthog.vite_app.stable_chunks_for_request", return_value=stable),
         ):
             return get_context_for_template("index.html", request)
 

@@ -147,6 +147,7 @@ function copyPublicAssets(): void {
 export function publicAssetsPlugin(): Plugin {
     return {
         name: 'public-assets-copy',
+        apply: 'serve',
         configureServer() {
             // Copy assets when dev server starts
             deleteAssetsFiles()

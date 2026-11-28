@@ -41,3 +41,7 @@ export const WORKER_ENTRIES = [
         outfileName: 'monacoTsWorker.js',
     },
 ]
+
+// `{ fixedName: hashedName }` for each worker. build.mjs writes it and vite.app.config.mts reads it.
+// Not named `*-esbuild-meta.json`: bin/build-bundle-report.mjs reads that suffix as an esbuild metafile.
+export const WORKER_FILES_META = 'hashed-worker-files.json'

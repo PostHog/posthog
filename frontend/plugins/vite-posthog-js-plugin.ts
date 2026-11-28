@@ -98,6 +98,7 @@ function copyPostHogJsFiles(): void {
 export function posthogJsPlugin(): Plugin {
     return {
         name: 'posthog-js-copy',
+        apply: 'serve',
         configureServer() {
             // Copy posthog-js files when dev server starts
             copyPostHogJsFiles()

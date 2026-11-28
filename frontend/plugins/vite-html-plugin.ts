@@ -81,6 +81,8 @@ function generateHtmlFiles(): void {
 export function htmlGenerationPlugin(): Plugin {
     return {
         name: 'html-generation',
+        // Deletes and rewrites the HTML files in dist/, which a production build must not do.
+        apply: 'serve',
         buildStart() {
             deleteHtmlFiles()
             generateHtmlFiles()

@@ -169,9 +169,12 @@ export function copyIndexHtml(
 
     // With stable chunk names built, the backend picks the boot variant per request. See
     // frontend/bin/stableChunkNames.mjs and the stable_chunks context in posthog/utils.py.
-    const scripts = stable
+    const esbuildScripts = stable
         ? `{% if stable_chunks %}${bootScript(stable.chunks, stable.entrypoints, { isStable: true, eagerCss: stable.eagerCss ?? [] })}{% else %}${bootScript(chunks, entrypoints)}{% endif %}`
         : bootScript(chunks, entrypoints)
+    // A page on the app build that Vite makes boots through the script that src/index.html includes
+    // for it, and must not also boot this build. See posthog/vite_app.py.
+    const scripts = `{% if not vite_app %}${esbuildScripts}{% endif %}`
 
     fse.writeFileSync(
         path.resolve(absWorkingDir, to),
