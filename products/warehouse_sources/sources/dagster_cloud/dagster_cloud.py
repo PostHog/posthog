@@ -1,4 +1,5 @@
 import re
+import json
 from collections.abc import Iterator
 from datetime import UTC, date, datetime
 from typing import Any, Optional
@@ -9,6 +10,7 @@ from tenacity import retry_if_exception_type, stop_after_attempt, wait_exponenti
 
 from products.warehouse_sources.sources.dagster_cloud.queries import VALIDATION_QUERY
 from products.warehouse_sources.sources.dagster_cloud.settings import (
+    ASSET_CHECK_PARENTS_CONFIG,
     DAGSTER_CLOUD_ENDPOINTS,
     DAGSTER_CLOUD_INSIGHTS_ENTITY_LIMIT,
     DAGSTER_CLOUD_INSIGHTS_GRANULARITY,
@@ -150,6 +152,8 @@ def _normalize_row(row: dict[str, Any], endpoint_config: DagsterCloudEndpointCon
     for field_name in endpoint_config.millis_timestamp_fields:
         if normalized.get(field_name) is not None:
             normalized[field_name] = _millis_to_iso(normalized[field_name])
+    if endpoint_config.name == "asset_slas":
+        normalized["assetKeyId"] = json.dumps(normalized["assetKey"]["path"])
     return normalized
 
 
@@ -369,6 +373,19 @@ def _iter_asset_parents(sess: requests.Session, url: str) -> Iterator[dict[str, 
             yield {"assetId": row.get("id"), "assetKeyPath": path, "assetKeyInput": {"path": path}}
 
 
+def _iter_asset_check_parents(sess: requests.Session, url: str) -> Iterator[dict[str, Any]]:
+    for rows, _ in _iter_cursor_pages(sess, url, ASSET_CHECK_PARENTS_CONFIG, {"limit": DAGSTER_CLOUD_PAGE_SIZE}):
+        for row in rows:
+            definition = row.get("definition")
+            if definition is None:
+                continue
+            checks = definition["assetChecksOrError"]
+            if checks["__typename"] != "AssetChecks":
+                raise ValueError(f"Dagster Cloud could not list asset checks: {checks['__typename']}")
+            for check in checks["checks"]:
+                yield {"assetId": row["id"], "assetKeyInput": row["key"], "checkName": check["name"]}
+
+
 def _iter_run_parents(
     sess: requests.Session,
     url: str,
@@ -424,6 +441,8 @@ def _iter_parents(
         yield from _iter_repository_parents(sess, url)
     elif fan_out.parent_kind == "assets":
         yield from _iter_asset_parents(sess, url)
+    elif fan_out.parent_kind == "asset_checks":
+        yield from _iter_asset_check_parents(sess, url)
     elif fan_out.parent_kind == "runs":
         yield from _iter_run_parents(sess, url, watermark_epoch, sync_start_epoch)
     else:
@@ -532,6 +551,16 @@ def _iter_child_pages(
 
     if fan_out.cursor_variable is not None:
         yield from _iter_forward_cursor_pages(sess, url, endpoint_config, parent, variables)
+        return
+
+    if endpoint_config.cursor_mode == "row":
+        if start_window:
+            variables["cursor"] = start_window
+        for rows, next_cursor in _iter_cursor_pages(sess, url, endpoint_config, variables):
+            yield (
+                [_inject_parent_fields(_normalize_row(row, endpoint_config), parent, fan_out) for row in rows],
+                next_cursor,
+            )
         return
 
     if fan_out.after_variable is not None and watermark_epoch is not None:
