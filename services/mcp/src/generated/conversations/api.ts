@@ -226,7 +226,14 @@ export const ConversationsTicketsPartialUpdateBody = () => zod
             .array(zod.string())
             .optional()
             .describe(
-                "Tag names to set on the ticket. The list replaces the ticket's current tags. A request can add up to 100 new tags."
+                "Tag names to apply to the ticket. By default the list replaces the ticket's current tags; see tags_mode. A request can add up to 100 new tags."
+            ),
+        tags_mode: zod
+            .enum(['add', 'remove', 'set'])
+            .describe('\* `add` - add\n\* `remove` - remove\n\* `set` - set')
+            .optional()
+            .describe(
+                "How tags apply: 'set' replaces the ticket's current tags, 'add' keeps them and adds these, 'remove' deletes only these. Defaults to 'set'.\n\n\* `add` - add\n\* `remove` - remove\n\* `set` - set"
             ),
     })
     .describe('Fields accepted when updating a ticket.')

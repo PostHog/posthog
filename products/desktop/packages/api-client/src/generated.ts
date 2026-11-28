@@ -5520,6 +5520,12 @@ export namespace Schemas {
      */
     export type BucketingIdentifierEnum = "distinct_id" | "device_id";
     /**
+     * * `add` - add
+     * * `remove` - remove
+     * * `set` - set
+     */
+    export type BulkUpdateTagsActionEnum = "add" | "remove" | "set";
+    /**
      * * `zip` - zip
      */
     export type BundleFormatEnum = "zip";
@@ -17563,6 +17569,7 @@ export namespace Schemas {
         sla_due_at: string | null;
         snoozed_until: string | null;
         tags: Array<string>;
+        tags_mode: BulkUpdateTagsActionEnum & unknown;
     }>;
     export type PatchedUser = Partial<{
         date_joined: string;
@@ -19641,6 +19648,7 @@ export namespace Schemas {
         sla_due_at: string | null;
         snoozed_until: string | null;
         tags: Array<string>;
+        tags_mode: BulkUpdateTagsActionEnum & unknown;
     }>;
     export type UserGithubLogin = {
         /**

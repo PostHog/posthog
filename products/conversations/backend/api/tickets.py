@@ -41,10 +41,12 @@ from posthog.api.pagination import BoundedLimitOffsetPagination
 from posthog.api.person import get_person_name
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.tagged_item import (
+    BulkUpdateTagsAction,
     BulkUpdateTagsUUIDRequestSerializer,
     BulkUpdateTagsUUIDResponseSerializer,
     TaggedItemSerializerMixin,
     TaggedItemViewSetMixin,
+    apply_bulk_tag_changes,
     current_tag_names,
     normalize_tag_names,
     set_tags_on_object,
@@ -664,8 +666,18 @@ class TicketUpdateRequestSerializer(TaggedItemSerializerMixin, serializers.Model
         child=serializers.CharField(),
         required=False,
         help_text=(
-            "Tag names to set on the ticket. The list replaces the ticket's current tags. "
-            f"A request can add up to {MAX_TAGS_ADDED_PER_UPDATE} new tags."
+            "Tag names to apply to the ticket. By default the list replaces the ticket's current tags; "
+            f"see tags_mode. A request can add up to {MAX_TAGS_ADDED_PER_UPDATE} new tags."
+        ),
+    )
+    tags_mode = serializers.ChoiceField(
+        choices=BulkUpdateTagsAction.choices,
+        required=False,
+        default=BulkUpdateTagsAction.SET,
+        write_only=True,
+        help_text=(
+            "How tags apply: 'set' replaces the ticket's current tags, 'add' keeps them and adds these, "
+            "'remove' deletes only these. Defaults to 'set'."
         ),
     )
 
@@ -681,6 +693,7 @@ class TicketUpdateRequestSerializer(TaggedItemSerializerMixin, serializers.Model
             "sla_due_at",
             "snoozed_until",
             "tags",
+            "tags_mode",
         ]
         extra_kwargs = {
             "status": {"help_text": "Ticket status: new, open, pending, on_hold, or resolved."},
@@ -713,6 +726,7 @@ class TicketUpdateRequestSerializer(TaggedItemSerializerMixin, serializers.Model
     def update(self, instance: Ticket, validated_data: dict[str, Any]) -> Ticket:
         validated_data.pop("assignee", None)
         tags = validated_data.pop("tags", None)
+        validated_data.pop("tags_mode", None)
         traits = validated_data.get("anonymous_traits")
         if isinstance(traits, dict):
             existing = instance.anonymous_traits if isinstance(instance.anonymous_traits, dict) else {}
@@ -725,6 +739,17 @@ class TicketUpdateRequestSerializer(TaggedItemSerializerMixin, serializers.Model
         instance.save(update_fields=[*validated_data, "updated_at"])
         self._attempt_set_tags(tags, instance)
         return instance
+
+    def _attempt_set_tags(self, tags, obj):
+        tags_mode = self.validated_data.get("tags_mode", BulkUpdateTagsAction.SET)
+        if tags is None or tags_mode == BulkUpdateTagsAction.SET:
+            super()._attempt_set_tags(tags, obj)
+            return
+        # Resolved from the tags read under the tag lock, not the ones loaded with the ticket,
+        # so a tag another request added in between survives.
+        apply_bulk_tag_changes([obj], tags_mode, tags)
+        # That read is left on the ticket; drop it so the response reads the new tags.
+        del obj.prefetched_tags
 
 
 class TicketUnreadCountResponseSerializer(serializers.Serializer):

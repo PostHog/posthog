@@ -102692,8 +102692,14 @@ export namespace Schemas {
          * @nullable
          */
       snoozed_until?: string | null;
-      /** Tag names to set on the ticket. The list replaces the ticket's current tags. A request can add up to 100 new tags. */
+      /** Tag names to apply to the ticket. By default the list replaces the ticket's current tags; see tags_mode. A request can add up to 100 new tags. */
       tags?: string[];
+      /** How tags apply: 'set' replaces the ticket's current tags, 'add' keeps them and adds these, 'remove' deletes only these. Defaults to 'set'.
+       *
+       * * `add` - add
+       * * `remove` - remove
+       * * `set` - set */
+      tags_mode?: BulkUpdateTagsActionEnum;
     }
 
     export interface PatchedTicketView {
@@ -130550,8 +130556,14 @@ export namespace Schemas {
          * @nullable
          */
       snoozed_until?: string | null;
-      /** Tag names to set on the ticket. The list replaces the ticket's current tags. A request can add up to 100 new tags. */
+      /** Tag names to apply to the ticket. By default the list replaces the ticket's current tags; see tags_mode. A request can add up to 100 new tags. */
       tags?: string[];
+      /** How tags apply: 'set' replaces the ticket's current tags, 'add' keeps them and adds these, 'remove' deletes only these. Defaults to 'set'.
+       *
+       * * `add` - add
+       * * `remove` - remove
+       * * `set` - set */
+      tags_mode?: BulkUpdateTagsActionEnum;
     }
 
     export interface TolerationPileupEntry {
