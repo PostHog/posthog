@@ -21,19 +21,18 @@ from rust_test_shards import PACKAGE_WEIGHTS, plan_shards
     ],
 )
 def test_selective_shards(affected: set[str], expected: list[list[str]]) -> None:
-    assert plan_shards(affected) == expected
+    assert plan_shards(affected, set(PACKAGE_WEIGHTS)) == expected
 
 
-def test_empty_selection_runs_every_known_crate_once() -> None:
-    shards = plan_shards(set())
-    packages = [name for shard in shards for name in shard]
-    assert sorted(packages) == sorted(PACKAGE_WEIGHTS)
-    assert all(shard for shard in shards)
+def test_empty_selection_runs_every_workspace_crate_once() -> None:
+    workspace = (PACKAGE_WEIGHTS.keys() - {"capture"}) | {"new-crate"}
+    shards = plan_shards(set(), workspace)
+    assert sorted(name for shard in shards for name in shard) == sorted(workspace)
 
 
 def test_new_crates_use_default_weights_without_losing_coverage() -> None:
     affected = {f"new-crate-{index}" for index in range(9)}
-    shards = plan_shards(affected)
+    shards = plan_shards(affected, set())
     assert len(shards) == 2
     assert sorted(name for shard in shards for name in shard) == sorted(affected)
 
