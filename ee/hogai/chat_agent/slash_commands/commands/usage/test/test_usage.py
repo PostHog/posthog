@@ -101,6 +101,20 @@ class TestUsage(BaseTest):
                 DEFAULT_FREE_TIER_CREDITS,
             ),
             (
+                "subscription_billing_free_tier",
+                True,
+                {"ai_credits": {"usage": 400, "limit": 15500, "free_tier_units": 500}},
+                None,
+                500,
+            ),
+            (
+                "billing_free_tier_zero",
+                True,
+                {"ai_credits": {"usage": 400, "limit": 15500, "free_tier_units": 0}},
+                None,
+                0,
+            ),
+            (
                 "subscription_unknown",
                 None,
                 {"ai_credits": {"usage": 400, "limit": 500}},
@@ -440,7 +454,7 @@ class TestUsage(BaseTest):
                 query_start=datetime(2026, 5, 2, tzinfo=UTC),
             ),
         )
-        self.assertIn("**Overage**: 500 credits over limit", message)
+        self.assertIn("**Overage**: 500 credits over the free tier", message)
         self.assertIn("125% of free tier", message)
 
     @patch("ee.hogai.chat_agent.slash_commands.commands.usage.queries.posthoganalytics.get_feature_flag_payload")
