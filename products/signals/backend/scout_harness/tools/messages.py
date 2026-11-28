@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import uuid
 import logging
+from datetime import datetime
 
 from django.db import models, transaction
 from django.db.models import Q
@@ -259,7 +260,7 @@ def _record_refusal(
     outcome: SendMessageOutcome,
     route_key: str,
     dedupe_key: str,
-    now,
+    now: datetime,
     message_cap: int,
 ) -> None:
     metadata = dict(locked_run.metadata or {})
