@@ -1,4 +1,4 @@
-import { POSTHOG_EU_BASE_URL, POSTHOG_US_BASE_URL } from '@/lib/constants'
+import { POSTHOG_EU_BASE_URL, POSTHOG_US_BASE_URL, proxyOrigin, sharedCallbackUrl } from '@/lib/constants'
 import type { ClientMapping } from '@/lib/kv'
 import { putClientMapping } from '@/lib/kv'
 
@@ -16,9 +16,7 @@ export async function handleRegister(request: Request, kv: KVNamespace): Promise
     const headers = new Headers(request.headers)
     headers.delete('host')
 
-    // Add proxy callback URL to redirect_uris so regional servers accept it
-    // during the callback interception flow
-    const proxyCallbackUrl = `${new URL(request.url).protocol}//${new URL(request.url).host}/oauth/callback/`
+    const proxyCallbackUrl = sharedCallbackUrl(proxyOrigin(request))
     let originalRedirectUris: string[] | undefined
     let registrationBody = body
     try {

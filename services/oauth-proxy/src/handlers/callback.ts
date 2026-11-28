@@ -1,3 +1,4 @@
+import { isClientCallbackPath } from '@/lib/constants'
 import { deletePendingCallback, getPendingCallback, putCodeRoute } from '@/lib/kv'
 
 /**
@@ -9,20 +10,23 @@ import { deletePendingCallback, getPendingCallback, putCodeRoute } from '@/lib/k
  */
 export async function handleCallback(request: Request, kv: KVNamespace): Promise<Response> {
     const url = new URL(request.url)
-    const state = url.searchParams.get('state')
+    if (!isClientCallbackPath(url.pathname)) {
+        return new Response('Unknown callback path', { status: 400 })
+    }
 
+    const state = url.searchParams.get('state')
     if (!state) {
         return new Response('Missing state parameter', { status: 400 })
     }
 
-    const record = await getPendingCallback(kv, state)
+    const record = await getPendingCallback(kv, url.pathname, state)
     if (!record) {
         return new Response('State expired or invalid', { status: 400 })
     }
 
     // A transient KV failure here should not turn an already-verified callback into a 500.
     try {
-        await deletePendingCallback(kv, state)
+        await deletePendingCallback(kv, url.pathname, state)
     } catch {
         console.warn(JSON.stringify({ handler: 'callback', error: 'pending_callback_delete_failed' }))
     }

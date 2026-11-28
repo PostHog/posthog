@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { handleAuthorize } from '@/handlers/authorize'
 import { handleCallback } from '@/handlers/callback'
 import { handleToken } from '@/handlers/token'
-import { hashKey } from '@/lib/kv'
+import { hashKey, putPendingCallback } from '@/lib/kv'
 
 import { createInMemoryKV } from './helpers'
 
@@ -45,7 +45,12 @@ function stubRegions(issued: Record<string, Region>): ReturnType<typeof vi.fn> {
     return fetchMock
 }
 
-async function authorize(kv: KVNamespace, region: Region, state: string): Promise<string> {
+interface PendingFlow {
+    nonce: string
+    callbackUrl: string
+}
+
+async function authorize(kv: KVNamespace, region: Region, state: string): Promise<PendingFlow> {
     const response = await handleAuthorize(
         new Request(
             `https://oauth.posthog.com/oauth/authorize/?client_id=${PROXY_CLIENT_ID}` +
@@ -53,11 +58,12 @@ async function authorize(kv: KVNamespace, region: Region, state: string): Promis
         ),
         kv
     )
-    return new URL(response.headers.get('location')!).searchParams.get('state')!
+    const regionalParams = new URL(response.headers.get('location')!).searchParams
+    return { nonce: regionalParams.get('state')!, callbackUrl: regionalParams.get('redirect_uri')! }
 }
 
-async function callback(kv: KVNamespace, nonce: string, code: string): Promise<Response> {
-    return handleCallback(new Request(`https://oauth.posthog.com/oauth/callback/?code=${code}&state=${nonce}`), kv)
+async function callback(kv: KVNamespace, flow: PendingFlow, query: string): Promise<Response> {
+    return handleCallback(new Request(`${flow.callbackUrl}?${query}&state=${flow.nonce}`), kv)
 }
 
 async function token(kv: KVNamespace, params: Record<string, string>): Promise<Response> {
@@ -89,10 +95,10 @@ describe('a client shared by users in both regions', () => {
 
         // The EU user starts first, then a US user starts before the EU user finishes,
         // overwriting the client_id selection with "us".
-        const euNonce = await authorize(kv, 'eu', 'eu_state')
-        const usNonce = await authorize(kv, 'us', 'us_state')
-        await callback(kv, euNonce, 'code_eu')
-        await callback(kv, usNonce, 'code_us')
+        const euFlow = await authorize(kv, 'eu', 'eu_state')
+        const usFlow = await authorize(kv, 'us', 'us_state')
+        await callback(kv, euFlow, 'code=code_eu')
+        await callback(kv, usFlow, 'code=code_us')
 
         const euResponse = await token(kv, {
             grant_type: 'authorization_code',
@@ -115,7 +121,7 @@ describe('a client shared by users in both regions', () => {
         expect(String(fetchMock.mock.calls[0]![0])).toMatch(/^https:\/\/eu\.posthog\.com/)
         expect(euCall.get('client_id')).toBe('shared_eu_client')
         expect(euCall.get('client_secret')).toBe('eu_secret')
-        expect(euCall.get('redirect_uri')).toBe('https://oauth.posthog.com/oauth/callback/')
+        expect(euCall.get('redirect_uri')).toBe('https://oauth.posthog.com/oauth/callback/shared_eu_client/')
     })
 
     it("retries a refresh in the other region when the client_id selection names another user's region", async () => {
@@ -155,15 +161,18 @@ describe('a client shared by users in both regions', () => {
 
     it('falls back to the client_id selection for a code whose flow predates per-code routing', async () => {
         const fetchMock = stubRegions({ legacy_code: 'eu' })
-        const nonce = 'legacy_nonce'
-        await kv.put(
-            `pending_callback:${await hashKey(nonce)}`,
-            JSON.stringify({ redirect_uri: CLIENT_REDIRECT_URI, state: 'orig' })
-        )
+        const flow = {
+            nonce: 'legacy_nonce',
+            callbackUrl: 'https://oauth.posthog.com/oauth/callback/shared_eu_client/',
+        }
+        await putPendingCallback(kv, new URL(flow.callbackUrl).pathname, flow.nonce, {
+            redirect_uri: CLIENT_REDIRECT_URI,
+            state: 'orig',
+        })
         await kv.put(`region:${await hashKey(PROXY_CLIENT_ID)}`, 'eu')
         await kv.put(`callback:${await hashKey(PROXY_CLIENT_ID)}`, CLIENT_REDIRECT_URI)
 
-        await callback(kv, nonce, 'legacy_code')
+        await callback(kv, flow, 'code=legacy_code')
         expect(await kv.get(`code_route:${await hashKey('legacy_code')}`)).toBeNull()
 
         const response = await token(kv, {
@@ -178,14 +187,17 @@ describe('a client shared by users in both regions', () => {
     it('ignores a code route recorded by a flow for a different client', async () => {
         const fetchMock = stubRegions({ victim_code: 'us' })
         await kv.put(`client:other_client`, JSON.stringify({ ...MAPPING, us_client_id: 'other_client' }))
-        const attackerNonce = await handleAuthorize(
+        const attackerFlow = await handleAuthorize(
             new Request(
                 `https://oauth.posthog.com/oauth/authorize/?client_id=other_client` +
                     `&redirect_uri=${encodeURIComponent(CLIENT_REDIRECT_URI)}&response_type=code&state=x&_region=eu`
             ),
             kv
-        ).then((r) => new URL(r.headers.get('location')!).searchParams.get('state')!)
-        await callback(kv, attackerNonce, 'victim_code')
+        ).then((r) => {
+            const regionalParams = new URL(r.headers.get('location')!).searchParams
+            return { nonce: regionalParams.get('state')!, callbackUrl: regionalParams.get('redirect_uri')! }
+        })
+        await callback(kv, attackerFlow, 'code=victim_code')
         await kv.put(`region:${await hashKey(PROXY_CLIENT_ID)}`, 'us')
         await kv.put(`callback:${await hashKey(PROXY_CLIENT_ID)}`, CLIENT_REDIRECT_URI)
 
@@ -200,11 +212,8 @@ describe('a client shared by users in both regions', () => {
     })
 
     it('records nothing for a callback that carries an error instead of a code', async () => {
-        const nonce = await authorize(kv, 'eu', 'denied_state')
-        const response = await handleCallback(
-            new Request(`https://oauth.posthog.com/oauth/callback/?error=access_denied&state=${nonce}`),
-            kv
-        )
+        const flow = await authorize(kv, 'eu', 'denied_state')
+        const response = await callback(kv, flow, 'error=access_denied')
 
         expect(response.status).toBe(302)
         expect(new URL(response.headers.get('location')!).searchParams.get('error')).toBe('access_denied')
