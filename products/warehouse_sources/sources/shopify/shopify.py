@@ -129,8 +129,10 @@ SHOPIFY_STORE_NOT_FOUND_ERROR = (
 # Substring of the GraphQL error Shopify returns when the connected access token lacks the
 # scope needed to read a field, e.g. "Access denied for fulfillmentOrders field." or
 # "Access denied for paymentTerms field. Required access: `read_payment_terms` access scope."
-# Retrying can't grant the missing scope — the user must reconnect with expanded permissions —
-# so `ShopifySource.get_non_retryable_errors` matches this substring to fail the job fast.
+# Retrying can't grant the missing scope — the user must add it to the app — so
+# `ShopifySource.get_non_retryable_errors` matches this substring to fail the job fast.
+# A response where every error is a denial raises `ShopifyAccessDeniedError` instead, which names
+# the scope; this match covers any other response that carries a denial.
 # The field name varies, so the match anchors on the stable leading phrase.
 SHOPIFY_GRAPHQL_ACCESS_DENIED_ERROR = "Access denied for"
 
@@ -152,11 +154,6 @@ SHOPIFY_GRAPHQL_PII_PLAN_RESTRICTED_ERROR = (
 # `ShopifySource.get_non_retryable_errors` matches on the stable status text (not the
 # per-store URL) to fail the job fast.
 SHOPIFY_PAYMENT_REQUIRED_ERROR_MATCH = "402 Client Error: Payment Required"
-SHOPIFY_PAYMENT_REQUIRED_ERROR_MESSAGE = (
-    "Shopify returned 402 Payment Required — your Shopify store appears to be frozen due to "
-    "an unpaid bill. Settle your outstanding balance in Shopify to unfreeze the store, then "
-    "the import will resume."
-)
 
 # 404 from the Admin API GraphQL endpoint itself (as opposed to the OAuth token endpoint above) —
 # Shopify serves no Admin API at a subdomain with no live store behind it, so the store closed or
@@ -171,10 +168,22 @@ SHOPIFY_GRAPHQL_NOT_FOUND_ERROR_MATCH = "404 Client Error: Not Found"
 # `ShopifySource.get_non_retryable_errors` matches on the stable status text (not the
 # per-store URL) to fail the job fast.
 SHOPIFY_GRAPHQL_UNAUTHORIZED_ERROR_MATCH = "401 Client Error: Unauthorized"
+# A non-retryable sync error turns the table's sync off, and reconnecting resumes only tables
+# that still sync, so these sync-time messages end with re-enabling the sync.
 SHOPIFY_GRAPHQL_UNAUTHORIZED_ERROR_MESSAGE = (
-    "Shopify rejected the request with 401 Unauthorized — your Shopify access token is no "
-    "longer valid, likely because the app was uninstalled or access was revoked. Please "
-    "reconnect your Shopify integration."
+    "Shopify no longer accepts your access token. Check that the app is still installed on your "
+    "store and your credentials are current, then re-enable the sync."
+)
+# The denied field can be nested and need a scope other than the table's own read scope.
+SHOPIFY_GRAPHQL_ACCESS_DENIED_ERROR_MESSAGE = (
+    "Your Shopify access token is missing an access scope this table needs. Add the missing scope "
+    "to your Shopify app and update the app on your store, then re-enable the sync."
+)
+# Every missing-scope message starts with this, so `get_non_retryable_errors` can match a
+# `ShopifyAccessDeniedError` and keep its message, which names the scope.
+SHOPIFY_ACCESS_SCOPE_MISSING_PREFIX = "Your Shopify access token is missing"
+SHOPIFY_PAYMENT_REQUIRED_ERROR_MESSAGE = (
+    "Your Shopify store is frozen because of an unpaid bill. Settle your balance in Shopify, then re-enable the sync."
 )
 
 # The wizard shows these when the token check in `validate_credentials` fails. A supplied Admin API
@@ -214,6 +223,28 @@ class ShopifyPermissionError(Exception):
 
 # Shopify names the scope a denied field needs as "Required access: `read_x` access scope."
 _REQUIRED_SCOPE_RE = re.compile(r"`(read_\w+|write_\w+)`")
+
+
+class ShopifyAccessDeniedError(Exception):
+    """A sync query asked for a field the token lacks the scope to read.
+
+    The message is what the customer reads, so it names the scope instead of Shopify's raw error.
+    """
+
+    def __init__(self, graphql_error: str):
+        self.graphql_error = graphql_error
+        super().__init__(access_denied_message(graphql_error))
+
+
+def access_denied_message(graphql_error: str) -> str:
+    scopes = list(dict.fromkeys(_REQUIRED_SCOPE_RE.findall(graphql_error)))
+    if not scopes:
+        return SHOPIFY_GRAPHQL_ACCESS_DENIED_ERROR_MESSAGE
+    noun, pronoun = ("scope", "it") if len(scopes) == 1 else ("scopes", "them")
+    return (
+        f"{SHOPIFY_ACCESS_SCOPE_MISSING_PREFIX} the {', '.join(scopes)} access {noun} this table needs. "
+        f"Add {pronoun} to your Shopify app and update the app on your store, then re-enable the sync."
+    )
 
 
 def missing_permissions_message(missing_permissions: dict[str, str]) -> str:
@@ -432,6 +463,8 @@ def iter_shopify_pages(
             joined = "; ".join(error_messages)
             if _is_max_cost_exceeded(payload["errors"]):
                 raise ShopifyQueryCostExceededError(f"Shopify GraphQL error: {joined}")
+            if error_messages and all(SHOPIFY_GRAPHQL_ACCESS_DENIED_ERROR in message for message in error_messages):
+                raise ShopifyAccessDeniedError(joined)
             raise Exception(f"Shopify GraphQL error: {joined}")
 
         if "data" not in payload:

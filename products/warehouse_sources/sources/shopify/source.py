@@ -36,6 +36,7 @@ from products.warehouse_sources.sources.shopify.constants import (
 from products.warehouse_sources.sources.shopify.settings import ENDPOINT_CONFIGS
 from products.warehouse_sources.sources.shopify.shopify import (
     CREATED_AT_FILTER_OPERATORS,
+    SHOPIFY_ACCESS_SCOPE_MISSING_PREFIX,
     SHOPIFY_ACCESS_TOKEN_APP_NOT_INSTALLED_ERROR,
     SHOPIFY_ACCESS_TOKEN_AUTH_ERROR,
     SHOPIFY_ACCESS_TOKEN_INVALID_CLIENT_ERROR,
@@ -43,6 +44,7 @@ from products.warehouse_sources.sources.shopify.shopify import (
     SHOPIFY_ACCESS_TOKEN_SHOP_NOT_PERMITTED_ERROR,
     SHOPIFY_ACCESS_TOKEN_UNSUPPORTED_GRANT_ERROR,
     SHOPIFY_GRAPHQL_ACCESS_DENIED_ERROR,
+    SHOPIFY_GRAPHQL_ACCESS_DENIED_ERROR_MESSAGE,
     SHOPIFY_GRAPHQL_NOT_FOUND_ERROR_MATCH,
     SHOPIFY_GRAPHQL_PII_PLAN_RESTRICTED_ERROR,
     SHOPIFY_GRAPHQL_UNAUTHORIZED_ERROR_MATCH,
@@ -237,11 +239,11 @@ class ShopifySource(ResumableSource[ShopifySourceConfig, ShopifyResumeConfig]):
             SHOPIFY_STORE_NOT_FOUND_ERROR: SHOPIFY_STORE_NOT_FOUND_ERROR,
             # GraphQL "Access denied for <field> field" — the access token is missing the
             # scope required to read this resource. The scope can't change on retry, so fail
-            # fast and tell the user to reconnect with the required permissions.
-            SHOPIFY_GRAPHQL_ACCESS_DENIED_ERROR: (
-                "Your Shopify access token is missing the permissions required to read some of your data. "
-                "Please reconnect your Shopify integration and grant the requested access scopes."
-            ),
+            # fast and tell the user to add the scope, then re-enable the sync.
+            SHOPIFY_GRAPHQL_ACCESS_DENIED_ERROR: SHOPIFY_GRAPHQL_ACCESS_DENIED_ERROR_MESSAGE,
+            # `ShopifyAccessDeniedError` already carries the customer message, naming the scope
+            # Shopify reported, so the match keeps it rather than swapping in the generic copy.
+            SHOPIFY_ACCESS_SCOPE_MISSING_PREFIX: None,
             # GraphQL "This app is not approved to access the <object> object" — the store's
             # Shopify plan doesn't grant apps access to customer PII. No scope or reconnect can
             # fix this; the merchant must upgrade their plan or stop syncing tables with PII.
@@ -254,8 +256,8 @@ class ShopifySource(ResumableSource[ShopifySourceConfig, ShopifyResumeConfig]):
             # bill. Retrying cannot recover; the shop owner must settle their Shopify balance.
             SHOPIFY_PAYMENT_REQUIRED_ERROR_MATCH: SHOPIFY_PAYMENT_REQUIRED_ERROR_MESSAGE,
             # 401 from the Admin API GraphQL endpoint itself — the token was valid at mint
-            # time but Shopify now rejects it. Retrying cannot recover; the user must
-            # reconnect their integration.
+            # time but Shopify now rejects it. Retrying cannot recover; the user must check
+            # the app install and credentials, then re-enable the sync.
             SHOPIFY_GRAPHQL_UNAUTHORIZED_ERROR_MATCH: SHOPIFY_GRAPHQL_UNAUTHORIZED_ERROR_MESSAGE,
             # 404 from the Admin API GraphQL endpoint — no live store answers at the configured
             # address. Retrying cannot recover; the user must correct the store id, the same fix
