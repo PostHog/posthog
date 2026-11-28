@@ -39,6 +39,7 @@ from posthog.hogql.database.schema.util.where_clause_extractor import (
     SESSION_BUFFER_DAYS,
     SessionMinTimestampWhereClauseExtractorV2,
     SessionMinTimestampWhereClauseExtractorV3,
+    flatten_ors,
 )
 from posthog.hogql.errors import QueryError
 from posthog.hogql.parser import parse_expr, parse_select
@@ -51,7 +52,7 @@ from posthog.hogql.property import (
 )
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.transforms.flag_calls_from_flag_evaluations import names_flag_called_event
-from posthog.hogql.visitor import clone_expr
+from posthog.hogql.visitor import TraversingVisitor, clone_expr
 
 from posthog.caching.insights_api import BASE_MINIMUM_INSIGHT_REFRESH_INTERVAL, REDUCED_MINIMUM_INSIGHT_REFRESH_INTERVAL
 from posthog.clickhouse.query_tagging import Feature, Product, get_query_tag_value, tag_queries
@@ -142,6 +143,21 @@ WebQueryNode = Union[
 ]
 
 WAR = typing.TypeVar("WAR", bound=AnalyticsQueryResponseProtocol)
+
+
+def _expr_reads_session_field(expr: ast.Expr) -> bool:
+    found = False
+
+    class Visitor(TraversingVisitor):
+        def visit_field(self, node: ast.Field) -> None:
+            nonlocal found
+            # The events table reaches sessions only through its `session` lazy join. A match elsewhere in a chain
+            # only declines the restriction, which is safe.
+            if "session" in node.chain:
+                found = True
+
+    Visitor().visit(expr)
+    return found
 
 
 def session_restriction_pays(matching_sessions: Optional[int], sessions_in_range: Optional[int]) -> bool:
@@ -448,6 +464,11 @@ WHERE and(
             return False
         if not self._session_restriction_flag_enabled:
             return False
+        # A conversion goal can read person or session fields that the pushdown drops, so its sessions would
+        # differ from the preflight's count, or lose their pageviews (see `_where_has_or_mixing_session_branches`).
+        if getattr(self.query, "conversionGoal", None) or self._where_has_or_mixing_session_branches():
+            tag_queries(web_analytics_sessions_restricted=False)
+            return False
         started = perf_counter()
         restricted = self._run_session_restriction_preflight()
         # Tagged both ways, so query_log tells declined reads (False) apart from reads with the flag off (no tag).
@@ -458,13 +479,46 @@ WHERE and(
         )
         return restricted
 
+    def _where_has_or_mixing_session_branches(self) -> bool:
+        """Whether an OR in the query's filters has branches that read session fields and branches that do not.
+
+        The lazy join's pushdown keeps only the OR branches that read the session, because it assumes the other
+        rows never read session columns. A web analytics query reads session columns for every row, so the rows of
+        the dropped branches would lose their sessions.
+        """
+        mixed = False
+
+        class Visitor(TraversingVisitor):
+            def _visit_disjuncts(self, exprs: list[ast.Expr]) -> None:
+                nonlocal mixed
+                reads_session = [_expr_reads_session_field(expr) for expr in flatten_ors(exprs)]
+                if any(reads_session) and not all(reads_session):
+                    mixed = True
+                for expr in exprs:
+                    self.visit(expr)
+
+            def visit_or(self, node: ast.Or) -> None:
+                self._visit_disjuncts(node.exprs)
+
+            def visit_call(self, node: ast.Call) -> None:
+                if node.name == "or":
+                    self._visit_disjuncts(node.args)
+                else:
+                    super().visit_call(node)
+
+        Visitor().visit(self.all_properties())
+        return mixed
+
     def events_evaluable_filters(self) -> ast.Expr:
-        """The user and test-account filters the events table can evaluate alone. Session, cohort and group
-        filters are left out, so the events they match are a superset of the events the full filters match."""
+        """The user and test-account filters on event properties, which the lazy join's pushdown keeps.
+
+        The pushdown drops person, session, cohort and group filters, so the preflight leaves them out too. The
+        events these filters match are a superset of the events the full filters match.
+        """
         filters = [
             p
             for p in [*self.effective_query_properties, *self._test_account_filters]
-            if get_property_type(p) in ("event", "person")
+            if get_property_type(p) == "event"
         ]
         return property_to_expr(filters, team=self.team)
 
@@ -472,7 +526,25 @@ WHERE and(
         v3 = self.modifiers.sessionTableVersion == SessionTableVersion.V3
         raw_table = "raw_sessions_v3" if v3 else "raw_sessions"
         extractor = SessionMinTimestampWhereClauseExtractorV3 if v3 else SessionMinTimestampWhereClauseExtractorV2
-        earliest = self.query_compare_to_date_range or self.query_date_range
+        # The sessions subquery reads each period with a buffer, and not the gap between a period and its comparison.
+        periods = [self.query_date_range]
+        if self.query_compare_to_date_range is not None:
+            periods.append(self.query_compare_to_date_range)
+        sessions_in_periods = ast.Or(
+            exprs=[
+                parse_expr(
+                    "and({start} >= {date_from} - toIntervalDay({buffer_days}), {start_copy} <= {date_to} + toIntervalDay({buffer_days}))",
+                    placeholders={
+                        "start": clone_expr(extractor.timestamp_field),
+                        "start_copy": clone_expr(extractor.timestamp_field),
+                        "date_from": period.date_from_as_hogql(),
+                        "date_to": period.date_to_as_hogql(),
+                        "buffer_days": ast.Constant(value=SESSION_BUFFER_DAYS),
+                    },
+                )
+                for period in periods
+            ]
+        )
         count_query = parse_select(
             """
 SELECT
@@ -489,10 +561,7 @@ SELECT
     (
         SELECT uniq(session_id_v7)
         FROM {raw_table}
-        WHERE and(
-            {session_start} >= {date_from} - toIntervalDay({buffer_days}),
-            {session_start_copy} <= {date_to} + toIntervalDay({buffer_days}),
-        )
+        WHERE {sessions_in_periods}
     ) AS sessions_in_range
             """,
             placeholders={
@@ -500,11 +569,7 @@ SELECT
                 "event_type_expr": self.event_type_expr,
                 "inside_timestamp_period": self._periods_expression("timestamp"),
                 "filters": self.events_evaluable_filters(),
-                "session_start": clone_expr(extractor.timestamp_field),
-                "session_start_copy": clone_expr(extractor.timestamp_field),
-                "date_from": earliest.date_from_as_hogql(),
-                "date_to": self.query_date_range.date_to_as_hogql(),
-                "buffer_days": ast.Constant(value=SESSION_BUFFER_DAYS),
+                "sessions_in_periods": sessions_in_periods,
             },
         )
         try:

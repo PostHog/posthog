@@ -3181,6 +3181,133 @@ class TestWebStatsTableNoJoinFastPath(ClickhouseTestMixin, APIBaseTest):
             assert tags.web_analytics_session_restriction_sessions_in_range is None
             assert tags.web_analytics_session_restriction_preflight_ms is None
 
+    def _run_restriction_preflight(self, **query_kwargs) -> tuple[WebStatsTableQueryRunner, list]:
+        reset_query_tags()
+        with (
+            time_machine.travel(self.QUERY_TIMESTAMP, tick=False),
+            patch.object(WebStatsTableQueryRunner, "_session_restriction_flag_enabled", True),
+            patch(
+                "products.web_analytics.backend.hogql_queries.web_analytics_query_runner.SESSION_RESTRICTION_MIN_SESSIONS_IN_RANGE",
+                0,
+            ),
+        ):
+            runner = self._make_runner(breakdownBy=WebStatsBreakdown.INITIAL_CHANNEL_TYPE, **query_kwargs)
+            results = runner.calculate().results
+        return runner, sorted(results, key=str)
+
+    @parameterized.expand(
+        [
+            # The goal's session filter is the only branch of the event type OR that reads a session field, so the
+            # pushdown would keep only the goal's sessions, and the pageview-only sessions would lose their channel.
+            (
+                "conversion_goal_with_session_filter",
+                {
+                    "conversionGoal": CustomEventConversionGoal(
+                        customEventName="signup",
+                        properties=[
+                            SessionPropertyFilter(key="$entry_pathname", operator=PropertyOperator.EXACT, value="/")
+                        ],
+                    )
+                },
+            ),
+            # The pushdown would keep only the second branch of this test-account filter, so the session that never
+            # visits / would lose its channel.
+            (
+                "or_filter_mixing_session_and_event_branches",
+                {"filterTestAccounts": True},
+                [
+                    {
+                        "type": "hogql",
+                        "key": "properties.$pathname = '/pricing' or (session.$entry_pathname = '/' and properties.$pathname = '/')",
+                    }
+                ],
+            ),
+        ]
+    )
+    def test_session_restriction_skips_queries_the_pushdown_would_narrow(
+        self, _name: str, query_kwargs: dict, test_account_filters: Optional[list] = None
+    ):
+        if test_account_filters is not None:
+            self.team.test_account_filters = test_account_filters
+            self.team.save()
+        self._create_channel_sessions()
+        self._create_server_only_sessions(10)
+        goal_session, pricing_only_session = str(uuid7("2025-01-13")), str(uuid7("2025-01-14"))
+        for event, ts, session_id, pathname in [
+            ("$pageview", "2025-01-13T09:00:00Z", goal_session, "/"),
+            ("signup", "2025-01-13T09:05:00Z", goal_session, "/"),
+            ("$pageview", "2025-01-14T09:00:00Z", pricing_only_session, "/pricing"),
+        ]:
+            _create_event(
+                team=self.team,
+                event=event,
+                distinct_id="paid",
+                timestamp=ts,
+                properties={
+                    "$session_id": session_id,
+                    "$pathname": pathname,
+                    "$current_url": f"https://example.com{pathname}",
+                    "utm_source": "google",
+                },
+            )
+        flush_persons_and_events()
+
+        runner, restricted = self._run_restriction_preflight(**query_kwargs)
+        with time_machine.travel(self.QUERY_TIMESTAMP, tick=False):
+            unrestricted = sorted(
+                self._make_runner(breakdownBy=WebStatsBreakdown.INITIAL_CHANNEL_TYPE, **query_kwargs)
+                .calculate()
+                .results,
+                key=str,
+            )
+
+        # repr, because a rate over zero visitors is NaN, and NaN never equals itself.
+        assert repr(restricted) == repr(unrestricted)
+        assert runner.restrict_sessions is False
+        assert len(unrestricted) >= 2
+
+    def test_session_restriction_preflight_ignores_person_filters_the_pushdown_drops(self):
+        self._create_channel_sessions()
+        self._create_server_only_sessions(10)
+        self.team.test_account_filters = [
+            {"key": "email", "value": "nobody@example.com", "operator": "exact", "type": "person"}
+        ]
+        self.team.save()
+
+        self._run_restriction_preflight(includeBounceRate=True)
+        unfiltered_matching = get_query_tags().web_analytics_session_restriction_matching_sessions
+        self._run_restriction_preflight(includeBounceRate=True, filterTestAccounts=True)
+        filtered_matching = get_query_tags().web_analytics_session_restriction_matching_sessions
+
+        # The lazy join's pushdown keeps only events fields, so it ships every session the person filter removes.
+        assert unfiltered_matching
+        assert filtered_matching == unfiltered_matching
+
+    def test_session_restriction_preflight_counts_only_the_compared_periods(self):
+        self._create_channel_sessions()
+        self._create_server_only_sessions(10)
+        # Server-only sessions between the period and the same period a year earlier, which neither period reads.
+        for day in ("2024-05-01", "2024-07-01", "2024-09-01"):
+            _create_event(
+                team=self.team,
+                event="$ai_generation",
+                distinct_id="organic",
+                timestamp=f"{day}T08:00:00Z",
+                properties={"$session_id": str(uuid7(day))},
+            )
+        flush_persons_and_events()
+
+        self._run_restriction_preflight(compareFilter=CompareFilter(compare=True, compare_to="-1y"))
+
+        tags = get_query_tags()
+        assert tags.web_analytics_session_restriction_matching_sessions
+        assert tags.web_analytics_session_restriction_sessions_in_range is not None
+        assert (
+            tags.web_analytics_session_restriction_sessions_in_range
+            - tags.web_analytics_session_restriction_matching_sessions
+            == 10
+        )
+
     @parameterized.expand(
         [
             ("visitors_and_views", {}, True, "stats_table_channel_type_two_phase"),

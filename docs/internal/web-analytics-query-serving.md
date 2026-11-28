@@ -74,7 +74,9 @@ request
 It applies to the strategies in `SESSION_RESTRICTABLE_STRATEGIES` and to the overview join, and it runs on sessions v2 and v3.
 It costs one more scan of the matching events, so it helps teams whose sessions table also holds sessions without web events, such as server-side or AI events, and queries with a selective filter.
 The no-join shapes count sessions on their own and are never restricted.
-Once the flag is on, the `web_analytics_sessions_restricted` query tag is `true` on a restricted read and `false` when the preflight declines. Reads with the flag off carry no tag.
+Queries with a conversion goal, or with an OR filter that mixes session and non-session branches, are never restricted either, because the pushdown keeps only an OR's session branches.
+The preflight counts only the filters the pushdown keeps (event properties), and counts sessions over each compared period's own range.
+Once the flag is on, the `web_analytics_sessions_restricted` query tag is `true` on a restricted read and `false` when the preflight or the query's shape declines. Reads with the flag off carry no tag.
 Whenever the preflight runs, the read also carries its counts (`web_analytics_session_restriction_matching_sessions`, `web_analytics_session_restriction_sessions_in_range`) and its wall time (`web_analytics_session_restriction_preflight_ms`), so query_log can relate the speed-up to the share of sessions matched.
 
 **Conversion goals on the overview** run ahead of this ladder as two independent reads: the goal-less overview (which climbs the ladder above for visitors) plus a scan of goal events only (`web_overview_conversion_goal_query`). The joined shape grouped every pageview session in range to count the goal, so its memory scaled with traffic; the split scales with conversions. Visitors therefore equal the goal-less visitors card, and a session with a goal event but no pageview or screenview no longer counts as a visitor. Legacy sessions v1 and queries with session or cohort filters keep the joined shape.
