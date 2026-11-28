@@ -16066,14 +16066,14 @@ Note: Static endpoint list, no dynamic table discovery. Deliberately excluded va
 
 ## Wise — **thin**
 
-Today (5): `activities`, `balances`, `profiles`, `recipients`, `transfers`
+Today (6): `activities`, `balance_statements`, `balances`, `profiles`, `recipients`, `transfers`
 
 Diffed against: <https://docs.wise.com/api-reference/legacy.md>
 
-- [ ] `Balance statement (GET /v1/profiles/{profileId}/balance-statements/{balanceId}/statement.json)` — per-balance ledger of every credit and debit with running balance, the base for reconciliation; fan-out over profiles and balances, needs intervalStart and intervalEnd (high)
-- [ ] `Cards (GET /v3/spend/profiles/{profileId}/cards)` — issued cards per profile with status and type; parent for card transactions (high)
-- [ ] `Card transactions (GET /v4/spend/profiles/{profileId}/cards/{cardToken}/transactions)` — card spend by merchant, amount and status; fan-out over profiles and cards (high)
-- [ ] `Account details (GET /v1/profiles/{profileId}/account-details)` — bank account details (IBAN, account numbers) assigned to each balance (medium)
+- [x] `Balance statement (GET /v1/profiles/{profileId}/balance-statements/{balanceId}/statement.json)` — per-balance ledger of every credit and debit with running balance, the base for reconciliation; fan-out over profiles and balances, needs intervalStart and intervalEnd (high). Shipped as `balance_statements` on the `2026Q4` route. Starts with up to 469 days per request and reduces the window when a response is too large.
+- [ ] `Cards (GET /v3/spend/profiles/{profileId}/cards)` — issued cards per profile with status and type; parent for card transactions (high). Skipped because the `2026Q4` endpoint requires an OAuth user token.
+- [ ] `Card transactions (GET /v4/spend/profiles/{profileId}/cards/{cardToken}/transactions)` — card spend by merchant, amount and status; fan-out over profiles and cards (high). Skipped because the `2026Q4` endpoint requires an OAuth user token.
+- [ ] `Account details (GET /v1/profiles/{profileId}/account-details)` — bank account details (IBAN, account numbers) assigned to each balance (medium). Skipped because `2026Q4` does not have the profile-wide list.
 - [ ] `Disputes (GET /v3/spend/profiles/{profileId}/disputes)` — card dispute cases and their status per profile (medium)
 - [ ] `Card orders (GET /v3/spend/profiles/{profileId}/card-orders)` — card ordering requests and their status per profile (low)
 - [ ] `Spend limits (GET /v4/spend/profiles/{profileId}/spend-limits)` — profile-level spend limits; a card-level variant exists under each card token (low)
@@ -16081,7 +16081,7 @@ Diffed against: <https://docs.wise.com/api-reference/legacy.md>
 - [ ] `Addresses (GET /v1/addresses)` — addresses held on profiles (low)
 - [ ] `Currencies (GET /v1/currencies)` — lookup for the currency codes on balances and transfers (low)
 
-Note: Parsed the GET index of the Wise Platform API reference (legacy.md). We sync profiles, balances, transfers, recipients and activities, but not the ledger or the card-issuing area. Card endpoints need Wise card-issuing access and several use SCA or client-credentials tokens, so some may not work for every key. Balance statements and card transactions are date-windowed and need fan-out. Excluded: KYC, SCA, JOSE, quotes, rates, receipts, PDFs, cases and webhooks.
+Note: The audit used the legacy API index. This source uses `2026Q4` and personal API tokens. Balance statements are off by default because Wise limits personal API token access by country. Excluded: KYC, SCA, JOSE, quotes, rates, receipts, PDFs, cases and webhooks.
 
 ## Wistia — gaps
 

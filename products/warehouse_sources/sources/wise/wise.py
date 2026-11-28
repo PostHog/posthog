@@ -1,34 +1,84 @@
-from collections.abc import Iterable
-from typing import Any
+from collections.abc import Callable, Iterable, Iterator
+from datetime import UTC, datetime, timedelta
+from typing import Any, ClassVar, TypedDict
 
 from requests import Response
-from requests.exceptions import RequestException
+from requests.exceptions import ContentDecodingError, RequestException
 
 from products.warehouse_sources.sources.sdk import (
     BasePaginator,
+    BearerTokenAuth,
     ClientConfig,
     Endpoint,
     IncrementalConfig,
     JSONResponseCursorPaginator,
     OffsetPaginator,
+    RESTClient,
+    RESTClientNonRetryableError,
     ResumableSourceManager,
     SinglePagePaginator,
+    SourceCursorManager,
     SourceResponse,
     build_dependent_resource,
+    format_datetime,
     frozen,
     make_tracked_session,
     parse_datetime_value,
+    resolve_incremental_start,
     rest_api_resource,
 )
-from products.warehouse_sources.sources.wise.settings import BASE_URL, ENDPOINTS, WiseEndpoint
+from products.warehouse_sources.sources.wise.settings import BALANCE_STATEMENTS, BASE_URL, ENDPOINTS, WiseEndpoint
 
 INVALID_TOKEN_MESSAGE = "Wise rejected your API token. Create a new personal API token in Wise and reconnect."
 FORBIDDEN_MESSAGE = "Your Wise API token can't read this data. Check that the token belongs to a business account."
+STATEMENT_FORBIDDEN_MESSAGE = (
+    "Your Wise API token can't read balance statements. Wise limits access by country. "
+    "Leave balance statements off and continue syncing your other tables."
+)
+
+STATEMENT_WINDOW = timedelta(days=469)
+MIN_STATEMENT_WINDOW = timedelta(seconds=1)
+STATEMENT_WINDOW_OVERLAP = timedelta(milliseconds=1)
+MAX_STATEMENT_BYTES = 8 * 1024 * 1024
+
+
+StatementRowKey = tuple[str, str, str]
+
+
+class StatementInterval(TypedDict):
+    start: str
+    window_microseconds: int
+    seen_rows: list[StatementRowKey]
+
+
+class StatementCheckpoint(TypedDict):
+    end: str
+    next_intervals: dict[str, StatementInterval | None]
 
 
 @frozen
 class WiseResumeConfig:
     paginator_state: dict[str, Any] | None = None
+    statement: StatementCheckpoint | None = None
+
+
+@frozen
+class WiseStatementCursor:
+    cursor_kind: ClassVar[str] = "wise_statement_v1"
+    completed_through: dict[str, str]
+
+
+@frozen
+class StatementWindow:
+    end: datetime
+    rows: list[dict[str, Any]]
+
+
+class WiseStatementTooLargeError(RESTClientNonRetryableError):
+    def __init__(self) -> None:
+        super().__init__(
+            "Wise returned too much statement data for this interval. Contact support for help syncing this balance."
+        )
 
 
 class WiseCursorPaginator(JSONResponseCursorPaginator):
@@ -92,6 +142,168 @@ def _client_config(token: str) -> ClientConfig:
     }
 
 
+def _statement_balance_pages(client: RESTClient, safe_point: Callable[[], None]) -> Iterator[list[dict[str, Any]]]:
+    balances = ENDPOINTS["balances"]
+    for profiles in client.paginate(ENDPOINTS["profiles"].path, data_selector_required=True):
+        safe_point()
+        for profile in profiles:
+            profile_id = int(profile["id"])
+            path = balances.path.format(profile_id=profile_id)
+            for page in client.paginate(path, params=_child_params(balances), data_selector_required=True):
+                safe_point()
+                yield [{**balance, "profileId": profile_id} for balance in page]
+
+
+def _statement_params(currency: str, start: datetime, end: datetime) -> dict[str, str]:
+    return {
+        "currency": currency,
+        "intervalStart": format_datetime(start, "iso_z_millis"),
+        "intervalEnd": format_datetime(end, "iso_z_millis"),
+    }
+
+
+def _cap_statement_response(response: Response, **_kwargs: Any) -> None:
+    """Limit compressed chunks because urllib3 inflates each chunk before returning it."""
+    with response:
+        if response.status_code == 413:
+            raise WiseStatementTooLargeError()
+        encoding = response.headers.get("Content-Encoding", "identity").lower()
+        if encoding not in ("identity", "gzip", "deflate"):
+            raise ContentDecodingError("Wise returned an unsupported content encoding.")
+        body = bytearray()
+        for chunk in response.iter_content(chunk_size=64 * 1024 if encoding == "identity" else 512):
+            remaining = MAX_STATEMENT_BYTES - len(body)
+            if len(chunk) > remaining:
+                if response.ok:
+                    raise WiseStatementTooLargeError()
+                body.extend(chunk[:remaining])
+                break
+            body.extend(chunk)
+        response._content = bytes(body)
+
+
+def _read_statement_window(
+    client: RESTClient,
+    endpoint: WiseEndpoint,
+    path: str,
+    currency: str,
+    start: datetime,
+    end: datetime,
+    safe_point: Callable[[], None],
+) -> StatementWindow:
+    while True:
+        params = {**endpoint.params, **_statement_params(currency, start, end)}
+        try:
+            page = next(
+                client.paginate(path, params=params, data_selector=endpoint.data_selector, data_selector_required=True)
+            )
+        except WiseStatementTooLargeError:
+            safe_point()
+            if end - start <= MIN_STATEMENT_WINDOW:
+                raise
+            end = start + max(MIN_STATEMENT_WINDOW, (end - start) / 2)
+        else:
+            return StatementWindow(end=end, rows=page)
+
+
+def _statement_row_key(row: dict[str, Any]) -> StatementRowKey:
+    return row["referenceNumber"], row["date"], row["type"]
+
+
+def _statement_pages(
+    token: str,
+    endpoint: WiseEndpoint,
+    incremental: bool,
+    lookback: timedelta,
+    cursor_manager: SourceCursorManager[WiseStatementCursor] | None,
+    initial_state: StatementCheckpoint | None,
+    save_state: Callable[[StatementCheckpoint], None],
+    safe_point: Callable[[], None],
+) -> Iterator[list[dict[str, Any]]]:
+    client = RESTClient(
+        base_url=BASE_URL,
+        auth=BearerTokenAuth(token),
+        paginator=SinglePagePaginator(),
+        capture=False,
+    )
+    session = make_tracked_session(redact_values=(token,), capture=False)
+    session.hooks["response"].append(_cap_statement_response)
+    statement_client = RESTClient(
+        base_url=BASE_URL, auth=BearerTokenAuth(token), session=session, headers={"Accept-Encoding": "gzip, deflate"}
+    )
+    run_end = datetime.fromisoformat(initial_state["end"]) if initial_state else datetime.now(UTC)
+    next_intervals = dict(initial_state["next_intervals"]) if initial_state else {}
+    stored = cursor_manager.load() if cursor_manager is not None and incremental else None
+    previous = stored.completed_through if stored is not None else {}
+
+    for balance_page in _statement_balance_pages(client, safe_point):
+        for balance in balance_page:
+            profile_id, balance_id = int(balance["profileId"]), int(balance["id"])
+            path = endpoint.path.format(profile_id=profile_id, balance_id=balance_id)
+            seen_rows: set[StatementRowKey] = set()
+            window_size = STATEMENT_WINDOW
+            if path in next_intervals:
+                saved = next_intervals[path]
+                if saved is None:
+                    continue
+                start = datetime.fromisoformat(saved["start"])
+                seen_rows.update((reference, date, direction) for reference, date, direction in saved["seen_rows"])
+                window_size = timedelta(microseconds=saved["window_microseconds"])
+            else:
+                created = parse_datetime_value(balance.get("creationTime"))
+                if created is None:
+                    raise ValueError("Wise did not return a valid balance creation time.")
+                start = resolve_incremental_start(
+                    incremental, previous.get(path), default=created, floor=created, lookback=lookback, now=run_end
+                )
+
+            while start < run_end:
+                requested_end = min(start + window_size, run_end)
+                window = _read_statement_window(
+                    statement_client, endpoint, path, balance["currency"], start, requested_end, safe_point
+                )
+                if window.end < requested_end:
+                    window_size = window.end - start
+                next_start = window.end - STATEMENT_WINDOW_OVERLAP if window.end < run_end else None
+                rows = [
+                    {**row, "profileId": profile_id, "balanceId": balance_id}
+                    for row in window.rows
+                    if _statement_row_key(row) not in seen_rows
+                ]
+                seen_rows = (
+                    {
+                        _statement_row_key(row)
+                        for row in window.rows
+                        if datetime.fromisoformat(row["date"]) >= next_start
+                    }
+                    if next_start is not None
+                    else set()
+                )
+                next_intervals[path] = (
+                    {
+                        "start": next_start.isoformat(),
+                        "window_microseconds": window_size // timedelta(microseconds=1),
+                        "seen_rows": sorted(seen_rows),
+                    }
+                    if next_start is not None
+                    else None
+                )
+                save_state({"end": run_end.isoformat(), "next_intervals": next_intervals})
+                if rows:
+                    yield rows
+                else:
+                    safe_point()
+
+                if next_start is None:
+                    break
+                start = next_start
+
+    if cursor_manager is not None:
+        completed = {path: run_end.isoformat() for path, interval in next_intervals.items() if interval is None}
+        if completed:
+            cursor_manager.stage(WiseStatementCursor(completed_through=completed))
+
+
 def wise_source(
     token: str,
     endpoint_name: str,
@@ -101,6 +313,8 @@ def wise_source(
     should_use_incremental_field: bool = False,
     incremental_field: str | None = None,
     db_incremental_field_last_value: Any = None,
+    statement_cursor_manager: SourceCursorManager[WiseStatementCursor] | None = None,
+    statement_lookback: timedelta = timedelta(),
 ) -> SourceResponse:
     if endpoint_name not in ENDPOINTS:
         raise ValueError(f"Unknown Wise schema: {endpoint_name}")
@@ -124,7 +338,18 @@ def wise_source(
         }
 
     resource: Iterable[Any]
-    if endpoint.fanout is not None:
+    if endpoint_name == BALANCE_STATEMENTS:
+        resource = _statement_pages(
+            token,
+            endpoint,
+            should_use_incremental_field,
+            statement_lookback,
+            statement_cursor_manager,
+            resume.statement if resume else None,
+            lambda state: resumable_source_manager.save_state(WiseResumeConfig(statement=state)),
+            resumable_source_manager.safe_point,
+        )
+    elif endpoint.fanout is not None:
         resource = build_dependent_resource(
             endpoint_configs=ENDPOINTS,
             child_endpoint=endpoint.name,
@@ -175,13 +400,16 @@ def wise_source(
     )
 
 
-def _get(token: str, path: str, params: dict[str, Any] | None = None) -> Response:
-    session = make_tracked_session(redact_values=(token,))
+def _get(
+    token: str, path: str, params: dict[str, Any] | None = None, *, capture: bool = True, stream: bool = False
+) -> Response:
+    session = make_tracked_session(redact_values=(token,), capture=capture)
     return session.get(
         f"{BASE_URL}{path}",
         params=params,
         headers={"Authorization": f"Bearer {token}", "Accept": "application/json"},
         timeout=30,
+        stream=stream,
     )
 
 
@@ -200,6 +428,28 @@ def validate_credentials(token: str) -> tuple[bool, str | None]:
     return False, f"Wise returned an unexpected response (HTTP {response.status_code})."
 
 
+def _probe_statement_access(token: str, profile_id: str) -> str | None:
+    balances = ENDPOINTS["balances"]
+    response = _get(token, balances.path.format(profile_id=int(profile_id)), balances.params)
+    if response.status_code == 401:
+        return INVALID_TOKEN_MESSAGE
+    if response.status_code == 403:
+        return FORBIDDEN_MESSAGE
+    if response.status_code != 200:
+        return None
+    rows = response.json()
+    if not isinstance(rows, list) or not rows:
+        return None
+
+    balance = rows[0]
+    endpoint = ENDPOINTS[BALANCE_STATEMENTS]
+    path = endpoint.path.format(profile_id=int(profile_id), balance_id=int(balance["id"]))
+    end = datetime.now(UTC)
+    params = {**endpoint.params, **_statement_params(balance["currency"], end - timedelta(days=1), end)}
+    with _get(token, path, params, capture=False, stream=True) as statement:
+        return STATEMENT_FORBIDDEN_MESSAGE if statement.status_code in (401, 403) else None
+
+
 def get_endpoint_permissions(token: str, endpoint_names: list[str]) -> dict[str, str | None]:
     """Probe each table with the first profile. Only a 401 or 403 marks a table as unreachable."""
     permissions: dict[str, str | None] = dict.fromkeys(endpoint_names)
@@ -215,6 +465,13 @@ def get_endpoint_permissions(token: str, endpoint_names: list[str]) -> dict[str,
     profile_id = str(profiles[0]["id"])
 
     for name in endpoint_names:
+        if name == BALANCE_STATEMENTS:
+            try:
+                permissions[name] = _probe_statement_access(token, profile_id)
+            except RequestException:
+                pass
+            continue
+
         endpoint = ENDPOINTS.get(name)
         if endpoint is None or endpoint.fanout is None:
             continue

@@ -5,6 +5,7 @@ from products.warehouse_sources.sources.sdk import DependentEndpointConfig, Incr
 
 API_VERSION = "2026Q4"
 BASE_URL = f"https://api.wise.com/{API_VERSION}"
+BALANCE_STATEMENTS = "balance_statements"
 
 # Transfers and activities change status for days after they are created, so an incremental run re-reads
 # this window. It also covers rows created in one profile while the run read another profile.
@@ -56,6 +57,15 @@ ENDPOINTS: dict[str, WiseEndpoint] = {
         params={"types": "STANDARD,SAVINGS"},
         partition_key="creationTime",
         fanout=PROFILE_FANOUT,
+    ),
+    BALANCE_STATEMENTS: WiseEndpoint(
+        name=BALANCE_STATEMENTS,
+        path="/profiles/{profile_id}/balance-statements/{balance_id}/statement.json",
+        primary_keys=("profileId", "balanceId", "referenceNumber", "date", "type"),
+        data_selector="transactions",
+        params={"type": "COMPACT"},
+        partition_key="date",
+        incremental_fields=[incremental_field("date")],
     ),
     "transfers": WiseEndpoint(
         name="transfers",

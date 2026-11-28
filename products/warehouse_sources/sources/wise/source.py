@@ -1,7 +1,9 @@
+from datetime import timedelta
 from typing import Optional, cast
 
 from products.warehouse_sources.sources.sdk import (
     CanonicalDescriptions,
+    CursorSource,
     DataWarehouseSourceCategory,
     ExternalDataSourceType,
     FieldType,
@@ -17,10 +19,12 @@ from products.warehouse_sources.sources.sdk import (
     SourceSchema,
     build_endpoint_schemas,
     detect,
+    parse_datetime_value,
 )
 from products.warehouse_sources.sources.wise._config import WiseSourceConfig
 from products.warehouse_sources.sources.wise.settings import (
     API_VERSION,
+    BALANCE_STATEMENTS,
     ENDPOINTS,
     INCREMENTAL_FIELDS,
     INCREMENTAL_LOOKBACK,
@@ -28,6 +32,7 @@ from products.warehouse_sources.sources.wise.settings import (
 )
 from products.warehouse_sources.sources.wise.wise import (
     WiseResumeConfig,
+    WiseStatementCursor,
     get_endpoint_permissions as get_wise_endpoint_permissions,
     validate_credentials as validate_wise_credentials,
     wise_source,
@@ -35,7 +40,7 @@ from products.warehouse_sources.sources.wise.wise import (
 
 
 @SourceRegistry.register
-class WiseSource(ResumableSource[WiseSourceConfig, WiseResumeConfig]):
+class WiseSource(ResumableSource[WiseSourceConfig, WiseResumeConfig], CursorSource[WiseStatementCursor]):
     # Wise publishes no official API SDK, so only the env key names give it away.
     codebase_detection = detect(env=("^WISE_API_", "^TRANSFERWISE_"))
 
@@ -74,6 +79,7 @@ class WiseSource(ResumableSource[WiseSourceConfig, WiseResumeConfig]):
             INCREMENTAL_FIELDS,
             names,
             merge_only=MERGE_ONLY_ENDPOINTS,
+            should_sync_default={BALANCE_STATEMENTS: False},
             default_incremental_lookback_seconds=INCREMENTAL_LOOKBACK,
         )
 
@@ -94,12 +100,31 @@ class WiseSource(ResumableSource[WiseSourceConfig, WiseResumeConfig]):
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[WiseResumeConfig]:
         return ResumableSourceManager[WiseResumeConfig](inputs, WiseResumeConfig)
 
+    def cursor_class(self) -> type[WiseStatementCursor]:
+        return WiseStatementCursor
+
+    def merge_cursors(self, current: WiseStatementCursor, candidate: WiseStatementCursor) -> WiseStatementCursor:
+        completed = dict(current.completed_through)
+        for path, end in candidate.completed_through.items():
+            completed[path] = max(end, completed.get(path, end))
+        return WiseStatementCursor(completed_through=completed)
+
     def source_for_pipeline(
         self,
         config: WiseSourceConfig,
         resumable_source_manager: ResumableSourceManager[WiseResumeConfig],
         inputs: SourceInputs,
     ) -> SourceResponse:
+        statement_cursor_manager = None
+        statement_lookback = timedelta(seconds=INCREMENTAL_LOOKBACK[BALANCE_STATEMENTS])
+        if inputs.schema_name == BALANCE_STATEMENTS:
+            if inputs.source_cursor is not None:
+                statement_cursor_manager = self.get_cursor_manager(inputs)
+            unshifted = parse_datetime_value(inputs.db_incremental_field_last_value_before_lookback)
+            shifted = parse_datetime_value(inputs.db_incremental_field_last_value)
+            if unshifted is not None and shifted is not None:
+                statement_lookback = max(timedelta(), unshifted - shifted)
+
         return wise_source(
             token=config.api_token,
             endpoint_name=inputs.schema_name,
@@ -111,6 +136,8 @@ class WiseSource(ResumableSource[WiseSourceConfig, WiseResumeConfig]):
             db_incremental_field_last_value=inputs.db_incremental_field_last_value
             if inputs.should_use_incremental_field
             else None,
+            statement_cursor_manager=statement_cursor_manager,
+            statement_lookback=statement_lookback,
         )
 
     @property
@@ -121,7 +148,7 @@ class WiseSource(ResumableSource[WiseSourceConfig, WiseResumeConfig]):
             label="Wise",
             keywords=["transferwise"],
             caption=(
-                "Import profiles, balances, transfers, recipients and activities from your Wise account. "
+                "Import profiles, balances, balance statements, transfers, recipients, and activities from your Wise account. "
                 "In Wise, open your account settings, select **Accounting integrations**, then go to "
                 "**Developer tools** > **API tokens** and create a token. Personal API tokens are only "
                 "available for Wise business accounts. Wise limits what some tokens can read, for example "
