@@ -79,12 +79,9 @@ interface OpenTool {
   span: Span;
   context: Context;
   kind: string;
-  /** Wiki pages the tool names, by path. Only completed reads report them. */
+  /** Wiki pages the tool read, by path. Only a completed tool reports them. */
   wikiPages: Map<string, string>;
 }
-
-// The tool kinds whose wiki pages count as reads: an edit or a run command is not one.
-const WIKI_READ_TOOL_KINDS = new Set(["read", "search"]);
 
 export class RunTraceBuilder {
   private provider: BasicTracerProvider;
@@ -290,7 +287,7 @@ export class RunTraceBuilder {
     );
     const context = trace.setSpan(parentContext, span);
     const tool: OpenTool = { span, context, kind, wikiPages: new Map() };
-    collectContextWikiPages(update, this.wikiMount(), tool.wikiPages);
+    collectContextWikiPages(update, kind, this.wikiMount(), tool.wikiPages);
     // A tool call can arrive already terminal, as a memory recall does. No
     // later update follows it, so settling it here keeps it out of the sweep,
     // which would otherwise report a known outcome as unterminated.
@@ -317,7 +314,7 @@ export class RunTraceBuilder {
   ): void {
     const { span } = tool;
     span.setAttribute("tool_status", status);
-    if (status === "completed" && WIKI_READ_TOOL_KINDS.has(tool.kind)) {
+    if (status === "completed") {
       span.setAttributes(contextWikiReadAttributes(tool.wikiPages));
     }
     if (status === "failed") {
@@ -339,7 +336,12 @@ export class RunTraceBuilder {
 
     // Tool input can finish streaming after the call starts, so a later update
     // may name more pages than the first one did.
-    collectContextWikiPages(update, this.wikiMount(), open.wikiPages);
+    collectContextWikiPages(
+      update,
+      open.kind,
+      this.wikiMount(),
+      open.wikiPages,
+    );
 
     const status = update.status;
     if (status === "completed" || status === "failed") {

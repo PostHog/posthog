@@ -29,6 +29,8 @@ export function resolveContextWikiPath(
 }
 
 // The directories that hold content pages, as the server's wiki linter defines them.
+// Customers name other project subdirectories, so those names must not leave the sandbox as kinds.
+const PROJECT_PAGE_KINDS = new Set(["spaces", "slack-channels"]);
 const CONTENT_PAGE_DIRECTORIES = new Set([
   "org",
   "areas",
@@ -36,23 +38,29 @@ const CONTENT_PAGE_DIRECTORIES = new Set([
   "projects",
 ]);
 
-/**
- * The kind of wiki content page a path names: `org`, `areas`, `decisions`, a
- * project subdirectory such as `spaces`, or `project` for a project's own page.
- * Undefined for any other path, including generated indexes and the
- * instruction files every agent reads, which would make each run look like a
- * wiki read. Normalizing first keeps a `..` path that leaves the mount out.
- */
-export function contextWikiPageKind(
+/** A path relative to the wiki mount, or undefined for a path outside it. */
+export function contextWikiRelativePath(
   path: string,
   mountPath: string,
 ): string | undefined {
   const root = `${posix.normalize(mountPath).replace(/\/+$/, "")}/`;
   const normalized = posix.normalize(path);
-  if (!normalized.startsWith(root) || !normalized.endsWith(".md")) {
-    return undefined;
-  }
-  const parts = normalized.slice(root.length).split("/");
+  return normalized.startsWith(root)
+    ? normalized.slice(root.length)
+    : undefined;
+}
+
+/**
+ * The kind of wiki content page a mount-relative path names: `org`, `areas`,
+ * `decisions`, a project subdirectory such as `spaces`, or `project` for a
+ * project's own page. Undefined for any other path, including generated indexes
+ * and the instruction files every agent reads, which would make each run look
+ * like a wiki read.
+ */
+export function contextWikiPageKind(relativePath: string): string | undefined {
+  const normalized = posix.normalize(relativePath);
+  if (!normalized.endsWith(".md")) return undefined;
+  const parts = normalized.split("/");
   if (
     !CONTENT_PAGE_DIRECTORIES.has(parts[0]) ||
     parts[parts.length - 1] === "index.md" ||
@@ -61,7 +69,9 @@ export function contextWikiPageKind(
     return undefined;
   }
   if (parts[0] !== "projects") return parts[0];
-  return parts.length >= 4 ? parts[2] : "project";
+  return parts.length >= 4 && PROJECT_PAGE_KINDS.has(parts[2])
+    ? parts[2]
+    : "project";
 }
 
 /**

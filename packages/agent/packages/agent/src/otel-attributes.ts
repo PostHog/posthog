@@ -2,7 +2,10 @@ import {
   readAgentToolName,
   readMcpToolDescriptor,
 } from "@posthog/agent-contracts";
-import { contextWikiPageKind } from "@posthog/harness/extensions/context-wiki";
+import {
+  contextWikiPageKind,
+  contextWikiRelativePath,
+} from "@posthog/harness/extensions/context-wiki";
 
 const MAX_BODY_CHARS = 2000;
 // PostHog Logs only facets attribute key/value pairs shorter than 256 chars,
@@ -57,22 +60,71 @@ export function toolNameAttribute(
   return readAgentToolName(update._meta) || undefined;
 }
 
+// Agents read pages with read and search tools and with shell commands; an edit is not a read.
+const WIKI_READ_TOOL_KINDS = new Set(["read", "search", "execute"]);
+const WIKI_PAGE_RETRIEVE_TOOL = /^(?:task-)?context-wiki-page-retrieve$/;
+// The PostHog MCP `exec` tool takes `call [--flags] <tool> <json input>`.
+const MCP_EXEC_CALL = /^\s*call\s+(?:--\S+\s+)*(\S+)\s*([\s\S]*)$/;
+const SHELL_PATH_END = "[^\\s'\"`;|&<>()]+";
+
 /**
- * Adds the context wiki pages a tool update names to `pages`, keyed by path
- * with the page's kind as the value. The paths stay in the sandbox: page names
- * are written by customers, so only the count and the kinds are exported.
+ * Adds the context wiki pages a tool update names to `pages`, keyed by their
+ * path relative to the mount, with the page's kind as the value. The paths stay
+ * in the sandbox: page names are written by customers, so only the count and
+ * the kinds are exported.
  */
 export function collectContextWikiPages(
   update: Record<string, unknown>,
+  toolKind: string,
   wikiPath: string | undefined,
   pages: Map<string, string>,
 ): void {
-  if (!wikiPath || !Array.isArray(update.locations)) return;
-  for (const location of update.locations) {
+  const add = (relativePath: string | undefined): void => {
+    const kind = relativePath && contextWikiPageKind(relativePath);
+    if (relativePath && kind) pages.set(relativePath, kind);
+  };
+  add(mcpRetrievedPagePath(update));
+  if (!wikiPath || !WIKI_READ_TOOL_KINDS.has(toolKind)) return;
+  for (const location of Array.isArray(update.locations)
+    ? update.locations
+    : []) {
     const path = asString(asRecord(location)?.path);
-    const kind = path && contextWikiPageKind(path, wikiPath);
-    if (path && kind) pages.set(path, kind);
+    if (path) add(contextWikiRelativePath(path, wikiPath));
   }
+  // A shell read carries no locations: Claude's Bash input holds the command,
+  // and Codex puts the command in the title.
+  const root = escapeRegExp(wikiPath.replace(/\/+$/, ""));
+  const shellPath = new RegExp(`${root}/${SHELL_PATH_END}`, "g");
+  for (const text of [
+    asString(asRecord(update.rawInput)?.command),
+    asString(update.title),
+  ]) {
+    for (const match of text?.match(shellPath) ?? []) {
+      add(contextWikiRelativePath(match, wikiPath));
+    }
+  }
+}
+
+/** The page a context wiki retrieve tool asked for, called directly or through PostHog MCP `exec`. */
+function mcpRetrievedPagePath(
+  update: Record<string, unknown>,
+): string | undefined {
+  const mcp = readMcpToolDescriptor(update._meta);
+  if (!mcp) return undefined;
+  const input = asRecord(update.rawInput);
+  if (WIKI_PAGE_RETRIEVE_TOOL.test(mcp.tool)) return asString(input?.path);
+  if (mcp.tool !== "exec") return undefined;
+  const call = MCP_EXEC_CALL.exec(asString(input?.command) ?? "");
+  if (!call || !WIKI_PAGE_RETRIEVE_TOOL.test(call[1])) return undefined;
+  try {
+    return asString(asRecord(JSON.parse(call[2]))?.path);
+  } catch {
+    return undefined;
+  }
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 export function contextWikiReadAttributes(

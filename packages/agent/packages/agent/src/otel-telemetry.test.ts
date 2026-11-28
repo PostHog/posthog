@@ -738,7 +738,7 @@ describe("OtelRunTelemetry", () => {
       expect(surface).not.toContain(".env");
     });
 
-    it("counts completed reads of wiki content pages, and exports no path", async () => {
+    it("counts wiki pages read by tools, shell commands and MCP, and exports no path", async () => {
       await telemetry.shutdown();
       mockSpanExport.mockClear();
       const wiki = mkdtempSync(join(tmpdir(), "context-wiki-"));
@@ -760,6 +760,7 @@ describe("OtelRunTelemetry", () => {
           status: string,
           start: string[],
           update: string[],
+          extra: Record<string, unknown> = {},
         ): void => {
           telemetry.append(
             RUN_ID,
@@ -769,6 +770,7 @@ describe("OtelRunTelemetry", () => {
               kind,
               status: "pending",
               locations: start.map((path) => ({ path })),
+              ...extra,
             }),
           );
           telemetry.append(
@@ -794,6 +796,28 @@ describe("OtelRunTelemetry", () => {
         );
         tool("failed", "read", "failed", [`${wiki}/areas/missing.md`], []);
         tool("edit", "edit", "completed", [`${wiki}/decisions/d.md`], []);
+        tool("claude-shell", "execute", "completed", [], [], {
+          rawInput: {
+            command: `sed -n 1,40p ${wiki}/decisions/pricing.md | head && cat ${wiki}/index.md`,
+          },
+        });
+        tool("codex-shell", "execute", "completed", [], [], {
+          title: `cat ${wiki}/org/mission.md`,
+        });
+        tool("mcp", "other", "completed", [], [], {
+          _meta: { claudeCode: { toolName: "mcp__posthog__exec" } },
+          rawInput: {
+            command:
+              'call task-context-wiki-page-retrieve {"path": "projects/2/slack-channels/C0123ABCD.md"}',
+          },
+        });
+        tool("project-folder", "other", "completed", [], [], {
+          _meta: { claudeCode: { toolName: "mcp__posthog__exec" } },
+          rawInput: {
+            command:
+              'call task-context-wiki-page-retrieve {"path": "projects/2/customer-merger/plan.md"}',
+          },
+        });
         await telemetry.shutdown();
 
         const byId = (id: string) =>
@@ -805,11 +829,30 @@ describe("OtelRunTelemetry", () => {
         });
         expect(byId("failed")).not.toHaveProperty("context_wiki_page_reads");
         expect(byId("edit")).not.toHaveProperty("context_wiki_page_reads");
+        expect(byId("claude-shell")).toMatchObject({
+          context_wiki_page_reads: 1,
+          context_wiki_page_kinds: "decisions",
+        });
+        expect(byId("codex-shell")).toMatchObject({
+          context_wiki_page_reads: 1,
+          context_wiki_page_kinds: "org",
+        });
+        expect(byId("mcp")).toMatchObject({
+          context_wiki_page_reads: 1,
+          context_wiki_page_kinds: "slack-channels",
+        });
+        expect(byId("project-folder")).toMatchObject({
+          context_wiki_page_reads: 1,
+          context_wiki_page_kinds: "project",
+        });
         const surface = JSON.stringify(
           exportedSpans().map((span) => span.attributes),
         );
         expect(surface).not.toContain("secret-acquisition");
         expect(surface).not.toContain("growth");
+        expect(surface).not.toContain("pricing");
+        expect(surface).not.toContain("C0123ABCD");
+        expect(surface).not.toContain("customer-merger");
       } finally {
         rmSync(wiki, { recursive: true, force: true });
       }
