@@ -137,6 +137,38 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "created": "Time at which the campaign was created, in seconds since the UNIX epoch.",
         },
     },
+    "rss_update_campaigns": {
+        "description": "Individual email sends from an RSS campaign.",
+        "docs_url": "https://docs.bigmailer.io/reference/listrssupdatecampaigns",
+        "columns": {
+            "id": "Identifier of the RSS update campaign.",
+            "brand_id": "Identifier of the brand.",
+            "rss_campaign_id": "Identifier of the parent RSS campaign.",
+            "created": "Time at which BigMailer created the update, in seconds since the UNIX epoch.",
+            "num_sent": "Number of emails sent.",
+        },
+    },
+    "brand_properties": {
+        "description": "Custom properties defined for a brand.",
+        "docs_url": "https://docs.bigmailer.io/reference/listbrandproperties",
+        "columns": {
+            "id": "Identifier of the property.",
+            "brand_id": "Identifier of the brand.",
+            "name": "Name of the property.",
+            "merge_tag_name": "Name of the merge tag that refers to the property.",
+            "created": "Time at which BigMailer created the property, in seconds since the UNIX epoch.",
+        },
+    },
+    "test_campaigns": {
+        "description": "Test email campaigns in a brand.",
+        "docs_url": "https://docs.bigmailer.io/reference/listtestcampaigns",
+        "columns": {
+            "id": "Identifier of the test campaign.",
+            "brand_id": "Identifier of the brand.",
+            "recipients": "Email addresses of the test recipients.",
+            "created": "Time at which BigMailer created the test campaign, in seconds since the UNIX epoch.",
+        },
+    },
     "message_types": {
         "description": "Message types in a brand, the subscription categories contacts can opt out of independently.",
         "docs_url": "https://docs.bigmailer.io/reference/listmessagetypes",
