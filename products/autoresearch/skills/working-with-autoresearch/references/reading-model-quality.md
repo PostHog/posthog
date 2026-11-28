@@ -25,7 +25,22 @@ The UI gives each champion a label from AUC, and states its basis:
 
 - The basis is **confirmed** when the champion has realized AUC and `champion_is_preliminary` is false. Otherwise it is **testing only** and comes from holdout AUC.
 - A new champion has no realized rows until its first horizon has passed. `first_check_expected_at` says when the first check is due.
-- AUC 0.5 is a coin flip. Above about 0.97 on holdout is suspicious: check that the features do not read the target or something that happens because of it.
+- AUC 0.5 is a coin flip. A holdout AUC above about 0.9 needs a check before you call the model strong. See [When holdout AUC looks too good](#when-holdout-auc-looks-too-good).
+
+## When holdout AUC looks too good
+
+A holdout AUC above about 0.9 has four common causes. Check each one before you call the model strong.
+
+| Cause                                                              | How to check                                                                                                                                                                                                                                                                                                              |
+| ------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Leakage: the features read the target, or something that it causes | Read the feature importances with `posthog:autoresearch-models-retrieve`. The top feature must not be the target or a step after it. Leakage is the most likely cause above about 0.97.                                                                                                                                   |
+| An easy question: the target is a habit                            | Read the `iterations` in `posthog:autoresearch-training-runs-history`. One recency or frequency feature on the target that scores close to the full model means that the model restates a simple rule. The baseline query in [defining-a-question.md](defining-a-question.md#measure-a-naive-baseline) measures this too. |
+| The training population differs from the scored population         | Compare `training_population` and `inference_population` on `posthog:autoresearch-retrieve`. A feature that only tells the two groups apart scores well in training and adds little in production.                                                                                                                        |
+| The holdout has few positives                                      | Run `posthog:autoresearch-validate-create` again with the model's definition, and read `positive_count`. The holdout holds about one fifth of those people. Below about 20 holdout positives, treat the holdout AUC as noise.                                                                                             |
+
+Tell the user each cause that applies, and say what the model probably adds beyond it.
+Realized AUC, when it exists, is the stronger evidence.
+The checks in [defining-a-question.md](defining-a-question.md#sense-check-before-you-create) find the last three causes before a model is created.
 
 ## When realized AUC is missing after the horizon
 
