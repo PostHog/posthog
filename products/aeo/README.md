@@ -253,8 +253,9 @@ Web analytics' Content autopilot (`/web/ai-visibility`, flag `web-analytics-cont
 ## Cost
 
 Measured in October 2026: about \$0.14 per Claude check, provider web-search fees and tokens included (`$ai_web_search_cost_usd` and `$ai_total_cost_usd` on the `$ai_generation` event).
-An OpenAI check on `gpt-6-luna` is estimated at about \$0.07, from `gpt-5` checks in November 2026 repriced at Luna's token rates. OpenAI's \$10 per 1,000 web searches is most of it.
-A daily run of 1,000 prompts on both engines is about \$200.
+An OpenAI check on `gpt-6-luna` is estimated at about \$0.035, from `gpt-5` checks in November 2026 repriced at Luna's token rates. This stays an estimate until capped checks are measured.
+The OpenAI engine caps each check at 3 searches with `max_tool_calls`, the same as Claude's `max_uses`, so the web search fee (\$10 per 1,000 searches) is at most \$0.03 a check. OpenAI does not always enforce the cap, so a response over it logs `aeo_openai_search_cap_exceeded` and is still counted in full.
+A daily run of 1,000 prompts on both engines is about \$175.
 Exa adds \$5 per 1,000 requests (`cost_usd` on the check event).
 No-search checks cost about a quarter (Claude) to two fifths (OpenAI) of a web-search check, since they pay no search fees and read no search results. Set weekly, a set of about 1,300 prompts runs about 190 a day on each no-search engine (an estimate, not measured).
 
