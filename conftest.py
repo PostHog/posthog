@@ -240,9 +240,13 @@ def pytest_configure(config) -> None:
     _cache_drf_field_info()
     _cache_url_resolution()
     _cache_fixture_parent_nodeids()
-    from posthog.test import authentication_checks  # noqa: PLC0415 — deferred until pytest_configure
+    from posthog.test import (  # noqa: PLC0415 — deferred until pytest_configure
+        access_control_checks,
+        authentication_checks,
+    )
 
     authentication_checks.install()
+    access_control_checks.install()
     if record_path := os.environ.get("POSTHOG_EVENTS_SCHEMA_RECORD_PATH"):
         from posthog.test.events_schema_recorder import (  # noqa: PLC0415 - keeps the Temporal client off other runs
             EventsSchemaRecorder,
@@ -273,10 +277,11 @@ def _fail_on_caught_peer_lazy_loads() -> None:
 @pytest.hookimpl(wrapper=True)
 def pytest_runtest_setup(item: pytest.Item) -> Generator[None]:
     from posthog.models.scoping import peer_lazy_loads  # noqa: PLC0415
-    from posthog.test import authentication_checks  # noqa: PLC0415
+    from posthog.test import access_control_checks, authentication_checks  # noqa: PLC0415
 
     marker = item.get_closest_marker("covers_authentication")
     authentication_checks.start_test(marker.args if marker else ())
+    access_control_checks.start_test()
     peer_lazy_loads.start_test()
     try:
         result = yield
@@ -290,14 +295,14 @@ def pytest_runtest_setup(item: pytest.Item) -> Generator[None]:
 
 @pytest.hookimpl(wrapper=True)
 def pytest_runtest_call(item: pytest.Item) -> Generator[None]:
-    from posthog.test import authentication_checks  # noqa: PLC0415
+    from posthog.test import access_control_checks, authentication_checks  # noqa: PLC0415
 
     try:
         result = yield
     except (pytest.skip.Exception, pytest.xfail.Exception):
         _fail_on_caught_peer_lazy_loads()
         raise
-    if problems := authentication_checks.finish_test():
+    if problems := [*authentication_checks.finish_test(), *access_control_checks.finish_test()]:
         pytest.fail("\n".join(problems))
     _fail_on_caught_peer_lazy_loads()
     return result

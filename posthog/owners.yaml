@@ -25,6 +25,8 @@ rules:
     - match:
           - '/csp_middleware.py'
           - '/test/test_csp_middleware.py'
+          - '/test/access_control_checks.py'
+          - '/test/test_access_control_checks.py'
       owners: team-security
     - match: '/data_freshness.py'
       owners: team-platform-features
