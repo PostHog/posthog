@@ -7,6 +7,7 @@ from posthog.hogql.database.lazy_join_tags import (
 from posthog.hogql.database.models import (
     DatabaseField,
     DateTimeDatabaseField,
+    EnumArrayDatabaseField,
     EventsRetentionTable,
     FieldOrTable,
     FieldTraverser,
@@ -206,7 +207,7 @@ class EventsTable(EventsRetentionTable):
         "elements_chain_href": StringDatabaseField(name="elements_chain_href", nullable=False),
         "elements_chain_texts": StringArrayDatabaseField(name="elements_chain_texts", nullable=False),
         "elements_chain_ids": StringArrayDatabaseField(name="elements_chain_ids", nullable=False),
-        "elements_chain_elements": StringArrayDatabaseField(name="elements_chain_elements", nullable=False),
+        "elements_chain_elements": EnumArrayDatabaseField(name="elements_chain_elements", nullable=False),
     }
 
     def to_printed_clickhouse(self, context):

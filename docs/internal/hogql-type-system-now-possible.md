@@ -221,6 +221,7 @@ Struct database fields also carry their field names into `TupleType`, which give
 Array slices preserve array element type.
 Array access resolves to the array element type.
 `StringArrayType` remains supported as a compatibility alias, but structured runtime adapters can represent it as `Array(String)`.
+For `events.elements_chain_elements`, indexing and the `arrayElement`, `arrayFirst`, and `arrayLast` functions return the tag as a string. A missing tag returns an empty string.
 `arrayZip(...)` now returns an array of tuples using the element type of each input array.
 `arrayFlatten(...)` preserves the flattened item type across nested arrays.
 Array-preserving transforms such as `arrayDistinct(...)`, `arraySort(...)`, `arrayReverseSort(...)`, `arrayFill(...)`, and `arrayReverse(...)` keep their input element type.
