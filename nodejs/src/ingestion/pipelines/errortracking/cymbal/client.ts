@@ -111,16 +111,53 @@ export interface CymbalClientConfig {
 /**
  * Error class that indicates whether the error is retriable.
  */
-class CymbalError extends Error {
+export class CymbalError extends Error {
     isRetriable: boolean
     isTimeout: boolean
+    status?: number
 
-    constructor(message: string, isRetriable: boolean, isTimeout: boolean = false) {
+    constructor(message: string, isRetriable: boolean, isTimeout: boolean = false, status?: number) {
         super(message)
         this.name = 'CymbalError'
         this.isRetriable = isRetriable
         this.isTimeout = isTimeout
+        this.status = status
     }
+}
+
+/** The code of the `retry` result an event gets when Cymbal could not take its own request. */
+export const CYMBAL_UNAVAILABLE_CODE = 'unavailable'
+
+/** A timeout is kept apart from a network error because one slow event can cause it. */
+function toCymbalError(error: unknown): CymbalError {
+    const isTimeout = error instanceof Error && (error.name === 'TimeoutError' || error.name === 'AbortError')
+    return new CymbalError(error instanceof Error ? error.message : String(error), true, isTimeout)
+}
+
+/**
+ * Cymbal answers 500 when no event of the request resolved, so a 500 can come from the events and
+ * gives each of them a `retry`.
+ *
+ * @throws the error when Cymbal could not take the request (a network error, 429 or 503), or when
+ * it is not a request failure.
+ */
+function resultForFailedRequest(error: unknown): CymbalResult {
+    if (error instanceof ServiceResponseError) {
+        return { result: 'fail', error: { code: 'invalid_response', message: error.message } }
+    }
+    if (!(error instanceof CymbalError)) {
+        throw error
+    }
+    if (error.isTimeout) {
+        return { result: 'retry', error: { code: 'deadline_exceeded', message: error.message } }
+    }
+    if (!error.isRetriable) {
+        return { result: 'fail', error: { code: 'invalid_request', message: error.message } }
+    }
+    if (error.status !== undefined && error.status >= 500 && error.status !== 503) {
+        return { result: 'retry', error: { code: 'server_error', message: error.message } }
+    }
+    throw error
 }
 
 /**
@@ -161,9 +198,9 @@ function jumpConsistentHash(key: number, numBuckets: number): number {
  * When DNS returns a single IP (e.g., local dev or ClusterIP service),
  * all events are sent to that address — no grouping overhead.
  *
- * Note: This client does not implement retry logic. Retries are handled at
- * the pipeline level using pipeChunk()'s retry option. The client throws
- * CymbalError with isRetriable flag to indicate whether errors should be retried.
+ * The client does not retry. Each event of a failed request gets a `retry` or
+ * `fail` result, except when Cymbal could not take the request (a network
+ * error, 429 or 503), which throws a retriable CymbalError.
  */
 export class CymbalClient {
     private hostname: string
@@ -207,7 +244,7 @@ export class CymbalClient {
      * @param items - Array of requests paired with their estimated byte size
      *        (e.g. from Kafka message.value.length).
      * @returns One result per input event, in input order.
-     * @throws CymbalError with isRetriable flag indicating whether the error should be retried
+     * @throws a retriable error when DNS resolution fails, or when Cymbal cannot take a request
      */
     async processExceptions(items: { request: CymbalRequest; estimatedSize: number }[]): Promise<CymbalResult[]> {
         if (items.length === 0) {
@@ -255,6 +292,51 @@ export class CymbalClient {
     }
 
     /**
+     * Sends each event in its own request, so that one slow or failing event cannot hold back the
+     * others. No request starts at or after `startBefore`, a `Date.now()` time. A request that
+     * Cymbal could not take gives its event a `retry` with CYMBAL_UNAVAILABLE_CODE.
+     *
+     * @returns One result per input event, in input order, or `undefined` for an event not sent.
+     * @throws a retriable error when DNS resolution fails
+     */
+    async processEachException(
+        items: { request: CymbalRequest; estimatedSize: number }[],
+        { concurrency, startBefore }: { concurrency: number; startBefore: number }
+    ): Promise<(CymbalResult | undefined)[]> {
+        if (items.length === 0) {
+            return []
+        }
+
+        const endpoints = await this.resolveEndpoints()
+        const results: (CymbalResult | undefined)[] = items.map(() => undefined)
+        let next = 0
+        const sendNext = async (): Promise<void> => {
+            while (next < items.length && Date.now() < startBefore) {
+                const index = next++
+                results[index] = await this.processAlone(items[index], endpoints)
+            }
+        }
+        await Promise.all(Array.from({ length: Math.min(concurrency, items.length) }, sendNext))
+        return results
+    }
+
+    private async processAlone(
+        item: { request: CymbalRequest; estimatedSize: number },
+        endpoints: string[]
+    ): Promise<CymbalResult> {
+        const endpoint = endpoints[jumpConsistentHash(item.request.team_id, endpoints.length)]
+        try {
+            const [result] = await this.processChunkOrFanOut(`http://${endpoint}:${this.port}`, [item])
+            return result
+        } catch (error) {
+            if (error instanceof CymbalError && error.isRetriable) {
+                return { result: 'retry', error: { code: CYMBAL_UNAVAILABLE_CODE, message: error.message } }
+            }
+            throw error
+        }
+    }
+
+    /**
      * Process items against a specific Cymbal URL, with size-based chunking.
      */
     private async processExceptionsToUrl(
@@ -266,38 +348,45 @@ export class CymbalClient {
         const allResults: CymbalResult[] = []
 
         for (const chunk of chunks) {
-            try {
-                const results = await this.processChunk(
-                    url,
-                    chunk.map((item) => item.request)
-                )
-                allResults.push(...results)
-            } catch (error) {
-                if (!(error instanceof CymbalError) || !error.isTimeout || chunk.length <= 1) {
-                    throw error
-                }
-                // Timeout on a multi-event chunk — fan out to individual events
-                // to isolate the poison pill. Non-timeout errors on individual
-                // events are thrown to let the retry wrapper handle them.
-                logger.warn('⚠️', 'cymbal_timeout_fan_out', {
-                    url,
-                    chunkSize: chunk.length,
-                })
-                const results = await this.fanOutOnTimeout(url, chunk)
-                allResults.push(...results)
-            }
+            allResults.push(...(await this.processChunkOrFanOut(url, chunk)))
         }
 
         return allResults
     }
 
+    private async processChunkOrFanOut(
+        url: string,
+        chunk: { request: CymbalRequest; estimatedSize: number }[]
+    ): Promise<CymbalResult[]> {
+        try {
+            return await this.processChunk(
+                url,
+                chunk.map((item) => item.request)
+            )
+        } catch (error) {
+            if (error instanceof CymbalError && error.isTimeout && chunk.length > 1) {
+                // A timeout can come from one slow event, so fan out to find it and keep the others.
+                logger.warn('⚠️', 'cymbal_timeout_fan_out', {
+                    url,
+                    chunkSize: chunk.length,
+                })
+                return await this.fanOutOnTimeout(url, chunk)
+            }
+            const result = resultForFailedRequest(error)
+            logger.warn('⚠️', 'cymbal_request_failed', {
+                url,
+                chunkSize: chunk.length,
+                result: result.result,
+                error: error instanceof Error ? error.message : String(error),
+            })
+            return chunk.map(() => result)
+        }
+    }
+
     /**
      * Fan out a timed-out chunk to individual events. Each event gets a single
-     * attempt through processChunk. Events that succeed return their response.
-     * Events that timeout come back as a `retry` result, so the caller decides where the
-     * next attempt happens.
-     * Non-timeout errors (5xx, network) are thrown to abort the fan-out and let
-     * the retry wrapper handle them.
+     * attempt through processChunk. An event whose own request fails gets the
+     * result of that failure, so a timeout comes back as a `retry`.
      */
     private async fanOutOnTimeout(
         url: string,
@@ -320,9 +409,8 @@ export class CymbalClient {
                                 uuid: item.request.uuid,
                                 teamId: item.request.team_id,
                             })
-                            return { result: 'retry', error: { code: 'deadline_exceeded', message: error.message } }
                         }
-                        throw error
+                        return resultForFailedRequest(error)
                     }
                 })
             )
@@ -348,10 +436,20 @@ export class CymbalClient {
 
             // 5xx errors and 429 are retriable
             const isRetriable = response.status >= 500 || response.status === 429
-            throw new CymbalError(`Cymbal returned ${response.status}`, isRetriable)
+            throw new CymbalError(`Cymbal returned ${response.status}`, isRetriable, false, response.status)
         }
 
-        const rawResults = await response.json()
+        let rawResults: unknown
+        try {
+            rawResults = await response.json()
+        } catch (error) {
+            if (error instanceof SyntaxError) {
+                this.recordMetrics('error_invalid_response', durationMs, requests.length)
+                throw new ServiceResponseError(`Invalid Cymbal response body: ${error.message}`, false)
+            }
+            this.recordMetrics('error', durationMs, requests.length)
+            throw toCymbalError(error)
+        }
 
         let results: CymbalResult[]
         try {
@@ -435,11 +533,7 @@ export class CymbalClient {
         } catch (error) {
             const durationMs = performance.now() - startTime
             this.recordMetrics('error', durationMs, requests.length)
-            // Network/timeout errors are retriable. Preserve whether the
-            // original error was a timeout so the retry wrapper can distinguish
-            // "Cymbal is hanging on this data" from "Cymbal is down."
-            const isTimeout = error instanceof Error && (error.name === 'TimeoutError' || error.name === 'AbortError')
-            throw new CymbalError(error instanceof Error ? error.message : String(error), true, isTimeout)
+            throw toCymbalError(error)
         }
     }
 

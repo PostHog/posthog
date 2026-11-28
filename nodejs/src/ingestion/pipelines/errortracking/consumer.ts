@@ -34,6 +34,7 @@ export type ErrorTrackingLaneConfig = CommonIngestionConsumerConfig &
         ErrorTrackingConsumerConfig,
         | 'ERROR_TRACKING_CYMBAL_BASE_URL'
         | 'ERROR_TRACKING_CYMBAL_TIMEOUT_MS'
+        | 'ERROR_TRACKING_CYMBAL_RETRY_SOFT_DEADLINE_MS'
         | 'ERROR_TRACKING_CYMBAL_MAX_BODY_BYTES'
         | 'ERROR_TRACKING_OVERFLOW_BUCKET_CAPACITY'
         | 'ERROR_TRACKING_OVERFLOW_BUCKET_REPLENISH_RATE'
@@ -142,6 +143,7 @@ export function createErrorTrackingConsumer(config: ErrorTrackingLaneConfig, sha
             eventFilterManager: container.eventFilterManager,
             overflowMode,
             preservePartitionLocality,
+            cymbalRetrySoftDeadlineMs: config.ERROR_TRACKING_CYMBAL_RETRY_SOFT_DEADLINE_MS,
             overflowRedirectService: container.overflowRedirectService,
             overflowLaneTTLRefreshService: container.overflowLaneTTLRefreshService,
             topHog: container.topHog,

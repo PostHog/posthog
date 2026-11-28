@@ -23,6 +23,14 @@ export type ErrorTrackingConsumerConfig = {
     ERROR_TRACKING_CONSUMER_OUTPUT_TOPIC: string
     ERROR_TRACKING_CYMBAL_BASE_URL: string
     ERROR_TRACKING_CYMBAL_TIMEOUT_MS: number
+    /**
+     * On a lane that cannot redirect, no resend of an event that Cymbal asks to retry starts after
+     * this much time since the step's attempt began. 0 turns the resends off. The step can take the
+     * retry wrapper's 10 s soft deadline, plus this, plus ERROR_TRACKING_CYMBAL_TIMEOUT_MS, which
+     * must stay under CONSUMER_LOOP_STALL_THRESHOLD_MS (CONSUMER_MAX_HEARTBEAT_INTERVAL_MS on the
+     * legacy consumer).
+     */
+    ERROR_TRACKING_CYMBAL_RETRY_SOFT_DEADLINE_MS: number
 
     /** Token bucket capacity for rate limiting (events per token:distinct_id) */
     ERROR_TRACKING_OVERFLOW_BUCKET_CAPACITY: number
@@ -66,6 +74,7 @@ export function getDefaultErrorTrackingConsumerConfig(): ErrorTrackingConsumerCo
         ERROR_TRACKING_CONSUMER_OUTPUT_TOPIC: KAFKA_EVENTS_JSON,
         ERROR_TRACKING_CYMBAL_BASE_URL: 'http://localhost:3302',
         ERROR_TRACKING_CYMBAL_TIMEOUT_MS: 15000,
+        ERROR_TRACKING_CYMBAL_RETRY_SOFT_DEADLINE_MS: 0,
         ERROR_TRACKING_OVERFLOW_BUCKET_CAPACITY: 1000,
         ERROR_TRACKING_OVERFLOW_BUCKET_REPLENISH_RATE: 1.0,
         ERROR_TRACKING_STATEFUL_OVERFLOW_REDIS_TTL_SECONDS: 300, // 5 minutes

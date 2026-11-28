@@ -1,7 +1,8 @@
-import { Message } from 'node-rdkafka'
+import { Counter } from 'prom-client'
 
 import { OVERFLOW_OUTPUT, OverflowOutput } from '~/common/outputs'
 import { logger } from '~/common/utils/logger'
+import { sleep } from '~/common/utils/utils'
 import { IngestionWarningType } from '~/ingestion/common/ingestion-warnings'
 import { invalidTimestampCounter } from '~/ingestion/common/metrics'
 import { toPipelineResults } from '~/ingestion/common/service-response'
@@ -13,58 +14,97 @@ import { PipelineResult, ok, redirect } from '~/ingestion/framework/results'
 import { PluginEvent } from '~/plugin-scaffold'
 import { ISOTimestamp, Team } from '~/types'
 
-import { CymbalClient } from './cymbal/client'
-import { CymbalResponse } from './cymbal/types'
+import { CYMBAL_UNAVAILABLE_CODE, CymbalClient, CymbalError, CymbalResult } from './cymbal/client'
+import { CymbalRequest, CymbalResponse } from './cymbal/types'
 
 export interface CymbalProcessingInput {
     event: PluginEvent
     team: Team
     /** Byte size of the original Kafka message, used to estimate HTTP payload size. */
     messageBytes?: number
-    /** The original Kafka message, whose headers count the attempts made on the overflow lane. */
-    message?: Pick<Message, 'headers'>
 }
 
 export interface CymbalRetryOptions {
     overflowMode: IngestionOverflowMode
     preservePartitionLocality: boolean
+    /** See ERROR_TRACKING_CYMBAL_RETRY_SOFT_DEADLINE_MS. */
+    inPlaceRetrySoftDeadlineMs: number
 }
 
-export const CYMBAL_RETRY_ATTEMPTS_HEADER = 'cymbal-retry-attempts'
+/** The wait before each in-place retry round. Its length is the maximum number of rounds. */
+const IN_PLACE_RETRY_DELAYS_MS = [1_000, 3_000, 9_000]
 
-/** Attempts the overflow lane makes on an event that Cymbal asks to retry, before the DLQ. */
-export const CYMBAL_MAX_OVERFLOW_ATTEMPTS = 3
+/** Each wait is shortened by a random part of up to this fraction, so pods do not resend in step. */
+const IN_PLACE_RETRY_JITTER = 0.5
 
-function previousOverflowAttempts(message: Pick<Message, 'headers'> | undefined): number {
-    for (const header of message?.headers ?? []) {
-        const value = header[CYMBAL_RETRY_ATTEMPTS_HEADER]
-        if (value !== undefined) {
-            const attempts = Number.parseInt(value.toString(), 10)
-            return Number.isNaN(attempts) ? 0 : attempts
+/** Cymbal answers 429 above a fixed number of requests in flight per pod. */
+const IN_PLACE_RETRY_CONCURRENCY = 10
+
+const cymbalInPlaceRetries = new Counter({
+    name: 'error_tracking_cymbal_in_place_retries_total',
+    help: 'Events resent to Cymbal on their own after a retry result, by the result of the resend',
+    labelNames: ['result'],
+})
+
+/**
+ * Resends each event that asks to retry in its own request, after a growing wait, until no event
+ * asks or the soft deadline passes. Returns the latest result of every event.
+ */
+async function retryInPlace(
+    cymbalClient: CymbalClient,
+    items: { request: CymbalRequest; estimatedSize: number }[],
+    results: CymbalResult[],
+    softDeadlineMs: number,
+    startedAt: number
+): Promise<CymbalResult[]> {
+    const deadline = startedAt + softDeadlineMs
+    const latest = [...results]
+    for (const delayMs of IN_PLACE_RETRY_DELAYS_MS) {
+        const pending = latest.flatMap((result, index) => (result.result === 'retry' ? [index] : []))
+        const waitMs = delayMs * (1 - IN_PLACE_RETRY_JITTER * Math.random())
+        if (pending.length === 0 || Date.now() + waitMs > deadline) {
+            break
         }
+        await sleep(waitMs)
+        const retried = await cymbalClient.processEachException(
+            pending.map((index) => items[index]),
+            { concurrency: IN_PLACE_RETRY_CONCURRENCY, startBefore: deadline }
+        )
+        pending.forEach((itemIndex, retriedIndex) => {
+            const result = retried[retriedIndex]
+            if (result) {
+                latest[itemIndex] = result
+                cymbalInPlaceRetries.labels({ result: result.result }).inc()
+            }
+        })
     }
-    return 0
+    return latest
 }
 
-/** Returns `undefined` when the event has no further attempt to make, which sends it to the DLQ. */
+/**
+ * An event is not at fault when Cymbal could not take its last resend, so a lane that cannot
+ * redirect retries the whole batch instead of sending the event to the DLQ. Any other `retry` can
+ * come from the event itself, so it goes to the DLQ, and a batch of such events cannot stall the lane.
+ */
+function resendNotTakenError(results: CymbalResult[]): CymbalError | undefined {
+    const notTaken = results.filter(
+        (result) => result.result === 'retry' && result.error.code === CYMBAL_UNAVAILABLE_CODE
+    ).length
+    if (notTaken === 0) {
+        return undefined
+    }
+    return new CymbalError(`Cymbal could not take the last resend of ${notTaken} of ${results.length} events`, true)
+}
+
+/** Returns `undefined`, which sends the event to the DLQ, unless this lane redirects to an overflow lane. */
 function retryOnOverflow<T>(
     { overflowMode, preservePartitionLocality }: CymbalRetryOptions,
-    message: Pick<Message, 'headers'> | undefined,
     warnings: PipelineWarning[]
 ): PipelineResult<T, OverflowOutput> | undefined {
-    if (overflowMode === 'disabled') {
+    if (overflowMode !== 'redirect') {
         return undefined
     }
-    // Only the overflow lane counts attempts, because the main lane always hands the event over.
-    const attempts = overflowMode === 'consume' ? previousOverflowAttempts(message) + 1 : 0
-    if (attempts >= CYMBAL_MAX_OVERFLOW_ATTEMPTS) {
-        return undefined
-    }
-    return redirect('cymbal_item_retry', OVERFLOW_OUTPUT, {
-        preserveKey: preservePartitionLocality,
-        warnings,
-        headers: attempts > 0 ? { [CYMBAL_RETRY_ATTEMPTS_HEADER]: String(attempts) } : undefined,
-    })
+    return redirect('cymbal_item_retry', OVERFLOW_OUTPUT, { preserveKey: preservePartitionLocality, warnings })
 }
 
 /**
@@ -97,19 +137,23 @@ function validateEventTimestamp(event: PluginEvent): { timestamp: ISOTimestamp; 
  * happens after Cymbal to reduce payload size and avoid wasted work
  * if events are suppressed.
  *
- * An event that Cymbal asks to retry gets its next attempt on the overflow lane, so the lane that
- * read it does not wait. The main lane redirects it there. The overflow lane puts it back on its
- * own topic, and sends it to the DLQ after {@link CYMBAL_MAX_OVERFLOW_ATTEMPTS} attempts. A
- * consumer without an overflow lane sends it to the DLQ.
+ * The main lane sends an event that Cymbal asks to retry to the overflow lane. A lane that cannot
+ * redirect resends it on its own after a growing wait, and sends it to the DLQ when it still asks
+ * to retry after the last round.
  */
 export function createCymbalProcessingStep<T extends CymbalProcessingInput>(
     cymbalClient: CymbalClient,
-    retryOptions: CymbalRetryOptions = { overflowMode: 'disabled', preservePartitionLocality: true }
+    retryOptions: CymbalRetryOptions = {
+        overflowMode: 'disabled',
+        preservePartitionLocality: true,
+        inPlaceRetrySoftDeadlineMs: 0,
+    }
 ): ChunkProcessingStep<T, T, OverflowOutput> {
     return async function cymbalProcessingStep(inputs: T[]): Promise<PipelineResult<T, OverflowOutput>[]> {
         if (inputs.length === 0) {
             return []
         }
+        const startedAt = Date.now()
 
         // Validate timestamps and collect warnings for each input.
         // This must happen before building Cymbal requests since Cymbal needs valid timestamps.
@@ -136,7 +180,20 @@ export function createCymbalProcessingStep<T extends CymbalProcessingInput>(
         }))
 
         try {
-            const results = await cymbalClient.processExceptions(items)
+            let results = await cymbalClient.processExceptions(items)
+            if (retryOptions.overflowMode !== 'redirect') {
+                results = await retryInPlace(
+                    cymbalClient,
+                    items,
+                    results,
+                    retryOptions.inPlaceRetrySoftDeadlineMs,
+                    startedAt
+                )
+                const notTaken = resendNotTakenError(results)
+                if (notTaken) {
+                    throw notTaken
+                }
+            }
 
             return toPipelineResults<CymbalResponse, T, OverflowOutput>(
                 'cymbal',
@@ -153,8 +210,7 @@ export function createCymbalProcessingStep<T extends CymbalProcessingInput>(
 
                     return ok({ ...input, event: input.event }, [], warnings)
                 },
-                (_error, index, warnings) =>
-                    retryOnOverflow(retryOptions, validatedInputs[index].input.message, warnings)
+                (_error, _index, warnings) => retryOnOverflow(retryOptions, warnings)
             )
         } catch (error) {
             logger.error('❌', 'cymbal_batch_processing_error', {
@@ -162,9 +218,7 @@ export function createCymbalProcessingStep<T extends CymbalProcessingInput>(
                 batchSize: inputs.length,
             })
 
-            // Throw so Kafka retries the batch. For retriable errors (5xx, timeout, network),
-            // this allows automatic recovery when Cymbal comes back. For non-retriable errors
-            // (4xx), this indicates a bug in our request building that needs fixing.
+            // Throw so that the retry wrapper retries the whole batch.
             throw error
         }
     }

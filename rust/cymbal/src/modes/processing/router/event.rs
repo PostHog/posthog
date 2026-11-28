@@ -71,6 +71,16 @@ impl From<JsonRejection> for ProcessEventsError {
 impl IntoResponse for ProcessEventsError {
     fn into_response(self) -> axum::response::Response {
         match self {
+            // A 503 tells the caller to retry the whole request later. A 500 can come from an
+            // event, so the caller retries its events one by one instead.
+            ProcessEventsError::Unhandled(err) if err.is_dependency_unavailable() => (
+                StatusCode::SERVICE_UNAVAILABLE,
+                Json(json!({
+                    "error": "A dependency is unavailable",
+                    "details": err.to_string(),
+                })),
+            )
+                .into_response(),
             ProcessEventsError::Unhandled(err) => (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(json!({

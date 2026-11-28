@@ -349,6 +349,7 @@ describe('ErrorTrackingPipeline', () => {
             eventFilterManager: mockEventFilterManager,
             overflowMode: 'disabled',
             preservePartitionLocality: false,
+            cymbalRetrySoftDeadlineMs: 0,
             topHog: mockTopHog,
             createEventUsageBatch: () => new UsageRecordBatch(null, { unit: 'events', isTeamEnabled: () => false }),
         }
@@ -745,37 +746,14 @@ describe('ErrorTrackingPipeline', () => {
             expect(getProducedEvents()).toHaveLength(1)
         })
 
-        it('sends events to DLQ on non-retriable Cymbal errors', async () => {
+        it('sends all batch events to DLQ when Cymbal rejects the request', async () => {
             mockPersonRepository.fetchPerson.mockResolvedValue(undefined)
 
-            // Non-retriable error (e.g., 400 Bad Request from Cymbal)
-            const nonRetriableError = new Error('Bad request - invalid event format')
-            ;(nonRetriableError as any).isRetriable = false
-            mockCymbalClient.processExceptions.mockRejectedValue(nonRetriableError)
-
-            const message = createKafkaMessage({})
-
-            const pipeline = createErrorTrackingPipeline(pipelineConfig)
-            await runErrorTrackingPipeline(pipeline, [message])
-
-            // Non-retriable errors should not be retried
-            expect(mockCymbalClient.processExceptions).toHaveBeenCalledTimes(1)
-            // Processing should not continue past Cymbal
-            expect(mockHogTransformer.transformEventAndProduceMessages).not.toHaveBeenCalled()
-            // Event should not be produced to output topic
-            expect(getProducedEvents()).toHaveLength(0)
-            // Event should be sent to DLQ
-            const dlqMessages = getDLQMessages()
-            expect(dlqMessages).toHaveLength(1)
-        })
-
-        it('sends all batch events to DLQ on non-retriable Cymbal error', async () => {
-            mockPersonRepository.fetchPerson.mockResolvedValue(undefined)
-
-            // Non-retriable error affects the entire batch
-            const nonRetriableError = new Error('Bad request - invalid batch')
-            ;(nonRetriableError as any).isRetriable = false
-            mockCymbalClient.processExceptions.mockRejectedValue(nonRetriableError)
+            const rejected = {
+                result: 'fail' as const,
+                error: { code: 'invalid_request', message: 'Cymbal returned 400' },
+            }
+            mockCymbalClient.processExceptions.mockResolvedValue([rejected, rejected, rejected])
 
             const messages = [
                 createKafkaMessage({ distinctId: 'user-1' }),

@@ -963,7 +963,7 @@ async fn assert_one_event_ends_alone(db: PgPool, kind: ErrorKind, result: &str, 
 }
 
 #[sqlx::test(migrations = "./tests/test_migrations")]
-async fn item_results_fail_the_whole_request_on_a_dependency_failure(db: PgPool) {
+async fn item_results_fail_the_whole_request_with_a_503_when_postgres_is_unreachable(db: PgPool) {
     let (addr, _) = common::spawn_stub_server(common::ServerBehavior::Happy).await;
     let mut config = ProcessingConfig::init_with_defaults().unwrap();
     use_resolution_stub(addr)(&mut config);
@@ -988,7 +988,7 @@ async fn item_results_fail_the_whole_request_on_a_dependency_failure(db: PgPool)
         .await
         .unwrap();
 
-    assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
+    assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
 }
 
 #[sqlx::test(migrations = "./tests/test_migrations")]
