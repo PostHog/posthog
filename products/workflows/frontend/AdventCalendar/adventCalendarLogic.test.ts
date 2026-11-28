@@ -11,6 +11,8 @@ import type { Mocks } from '~/mocks/utils'
 import { initKeaTests } from '~/test/init'
 import { UserType } from '~/types'
 
+import type { AdventCalendarDoorOpenRequestApi } from 'products/workflows/frontend/generated/api.schemas'
+
 import { workflowsSetupLogic } from '../emptyState/workflowsSetupLogic'
 import { adventCalendarLogic } from './adventCalendarLogic'
 import { ADVENT_QUESTIONS } from './adventContent'
@@ -39,30 +41,47 @@ function resultsOf(...questions: object[]): { questions: object[] } {
 }
 
 function calendarApi(
-    replies: { answer?: Reply; results?: Reply; open?: Reply } = {},
+    replies: {
+        answer?: Reply
+        results?: Reply
+        open?: Reply | Reply[]
+        openHeld?: Promise<void>
+        ticketDays?: number[] | null
+        lateOpens?: boolean
+    } = {},
     results = resultsOf(DAY_TWO_ANSWERED),
     resultsHeld: Promise<void> = Promise.resolve()
-): { mocks: Mocks; answers: unknown[]; opens: unknown[]; reads: number[] } {
+): { mocks: Mocks; answers: unknown[]; opens: AdventCalendarDoorOpenRequestApi[]; reads: number[] } {
     const answers: unknown[] = []
-    const opens: unknown[] = []
+    const opens: AdventCalendarDoorOpenRequestApi[] = []
     const reads: number[] = []
+    const serverDays = new Set(replies.ticketDays ?? [])
+    const withTickets = (body: object): object =>
+        replies.ticketDays === null ? body : { ...body, ticket_days: [...serverDays].sort((x, y) => x - y) }
     const mocks: Mocks = {
         get: {
             [`${CALENDAR_API}/results/`]: async () => {
                 reads.push(reads.length + 1)
                 await resultsHeld
-                return replyWith(replies.results ?? 200, results)
+                return replyWith(replies.results ?? 200, withTickets(results))
             },
         },
         post: {
             [`${CALENDAR_API}/answer/`]: async ({ request }) => {
                 answers.push(await request.json())
-                return replyWith(replies.answer ?? 200, results)
+                return replyWith(replies.answer ?? 200, withTickets(results))
             },
             [`${CALENDAR_API}/open/`]: async ({ request }) => {
-                const open = (await request.json()) as { day: number }
+                const open = (await request.json()) as AdventCalendarDoorOpenRequestApi
                 opens.push(open)
-                return replyWith(replies.open ?? 200, { day: open.day, opened_at: '2026-12-03T09:00:00Z' })
+                const attempts = [replies.open ?? 200].flat()
+                const reply =
+                    attempts[Math.min(opens.filter(({ day }) => day === open.day).length, attempts.length) - 1]
+                await replies.openHeld
+                if (reply === 200 && !replies.lateOpens && open.day === new Date().getDate()) {
+                    serverDays.add(open.day)
+                }
+                return replyWith(reply, withTickets({ day: open.day, opened_at: '2026-12-03T09:00:00Z' }))
             },
         },
     }
@@ -84,11 +103,16 @@ function doorOf(
 describe('adventCalendarLogic', () => {
     let logic: ReturnType<typeof adventCalendarLogic.build>
     let capture: jest.SpyInstance
+    let sent: [string, unknown][]
 
     beforeEach(async () => {
         jest.useFakeTimers({ now: new Date(2026, 11, 3, 9, 0), advanceTimers: true })
         window.localStorage.clear()
-        capture = jest.spyOn(posthog, 'capture').mockImplementation()
+        sent = []
+        capture = jest.spyOn(posthog, 'capture').mockImplementation((event: string, properties?: unknown) => {
+            sent.push([event, properties])
+            return undefined
+        })
         initKeaTests()
         await expectLogic(userLogic).toFinishAllListeners()
         signIn({ uuid: UUID, is_staff: false })
@@ -141,7 +165,7 @@ describe('adventCalendarLogic', () => {
         logic.actions.activateDoor('door-1')
 
         expect(doorOf(logic, 'door-1')?.status).toBe('open')
-        expect(capture).toHaveBeenCalledWith('workflows advent door opened', { day: 1 })
+        expect(sent).toContainEqual(['workflows advent door opened', { day: 1, on_time: false }])
 
         logic.unmount()
         logic = adventCalendarLogic()
@@ -151,7 +175,7 @@ describe('adventCalendarLogic', () => {
         expect(logic.values.openCount).toBe(1)
     })
 
-    it.each<Reply>([200, 500, 'network error'])(
+    it.each<Reply>([200, 403])(
         'sends each opened door to the server once and keeps it open when it replies %s',
         async (reply) => {
             const api = calendarApi({ open: reply })
@@ -169,13 +193,151 @@ describe('adventCalendarLogic', () => {
             expect(api.opens).toHaveLength(2)
             expect(api.opens).toEqual(
                 expect.arrayContaining([
-                    { day: 1, hoggy: hoggyOne, utc_offset_minutes: offset },
-                    { day: 2, hoggy: 'tim', utc_offset_minutes: offset },
+                    { day: 1, hoggy: hoggyOne, utc_offset_minutes: offset, user_uuid: UUID },
+                    { day: 2, hoggy: 'tim', utc_offset_minutes: offset, user_uuid: UUID },
                 ])
             )
             expect(doorOf(logic, 'door-1')?.status).toBe('open')
         }
     )
+
+    const remount = async (): Promise<void> => {
+        logic.unmount()
+        logic = adventCalendarLogic()
+        logic.mount()
+        await jest.advanceTimersByTimeAsync(100)
+    }
+    const openThroughDoorThree = (): void => {
+        logic.actions.activateDoor('door-1')
+        logic.actions.finishReveal()
+        logic.actions.answerDoor('door-2', 'james')
+        logic.actions.finishReveal()
+        logic.actions.activateDoor('door-3-upper')
+    }
+
+    it.each<[string, Parameters<typeof calendarApi>[0], number, number]>([
+        ['takes the open on its day', {}, 1, 1],
+        ['puts the first open on another day', { lateOpens: true }, 0, 1],
+        ['refuses the open', { open: 403 }, 0, 1],
+        ['refuses the open as another account', { open: 409 }, 0, 1],
+        ['fails, then takes the open on a retry', { open: [500, 200] }, 1, 2],
+        ['throttles, then takes the open on a retry', { open: [429, 200] }, 1, 2],
+        ['loses the reply, then takes the open on a retry', { open: ['network error', 200] }, 1, 2],
+        ['keeps failing the open', { open: 500 }, 1, 4],
+    ])(
+        'counts the tickets the server returns when it %s, with the retries on time while the tab is hidden',
+        async (_, replies, tickets, sends) => {
+            const api = calendarApi(replies)
+            useMocks(api.mocks)
+            await remount()
+            const showTab = async (hidden: boolean): Promise<{ tickets: number | null; sends: number }> => {
+                Object.defineProperty(document, 'hidden', { configurable: true, value: hidden })
+                document.dispatchEvent(new Event('visibilitychange'))
+                await jest.advanceTimersByTimeAsync(25_000)
+                return { tickets: logic.values.tickets, sends: api.opens.filter(({ day }) => day === 3).length }
+            }
+
+            openThroughDoorThree()
+
+            expect(await showTab(true)).toEqual({ tickets, sends })
+            expect(await showTab(false)).toEqual({ tickets, sends })
+        }
+    )
+
+    it.each<[string, Parameters<typeof calendarApi>[0], Date, number, number]>([
+        [
+            'comes back after an outage past the first retries',
+            { open: [500, 500, 500, 500, 200] },
+            new Date(2026, 11, 3, 9, 0),
+            1,
+            5,
+        ],
+        ['stays down until the day is over', { open: 500 }, new Date(2026, 11, 3, 23, 59, 30), 0, 4],
+    ])('retries the open of the day while the server %s', async (_, replies, openedAt, tickets, sends) => {
+        jest.setSystemTime(openedAt)
+        const api = calendarApi(replies)
+        useMocks(api.mocks)
+        await remount()
+
+        openThroughDoorThree()
+        await jest.advanceTimersByTimeAsync(120_000)
+
+        expect({ tickets: logic.values.tickets, sends: api.opens.filter(({ day }) => day === 3).length }).toEqual({
+            tickets,
+            sends,
+        })
+    })
+
+    it('counts the ticket of an on-time open while it is in flight, and drops it when the server puts it on another day', async () => {
+        let release: () => void = () => {}
+        useMocks(calendarApi({ lateOpens: true, openHeld: new Promise<void>((resolve) => (release = resolve)) }).mocks)
+        await remount()
+
+        openThroughDoorThree()
+        const inFlight = logic.values.tickets
+        release()
+        await jest.advanceTimersByTimeAsync(100)
+
+        expect({ inFlight, settled: logic.values.tickets }).toEqual({ inFlight: 1, settled: 0 })
+    })
+
+    it.each<[string, () => ReturnType<typeof calendarApi>, number | null]>([
+        ['no count while the first read is pending', () => calendarApi({}, undefined, new Promise(() => {})), null],
+        ['no count when the reply has no ticket days', () => calendarApi({ ticketDays: null }), null],
+        ["the server's count on a device with empty storage", () => calendarApi({ ticketDays: [1, 2] }), 2],
+    ])('shows %s', async (_, api, tickets) => {
+        useMocks(api().mocks)
+        await remount()
+
+        expect(logic.values.tickets).toBe(tickets)
+    })
+
+    it.each<[string, Reply, number[], number[], boolean]>([
+        ['the open never reached the server', 200, [], [3], false],
+        ['the earlier open is refused after the reload', 403, [], [3], false],
+        ['the server already holds the open', 200, [3], [], false],
+        ['the open never reached the server and the reload mounts in a hidden tab', 200, [], [3], true],
+    ])('counts the ticket after a reload during the open when %s', async (_, lateReply, serverDays, resent, hidden) => {
+        let release: () => void = () => {}
+        useMocks(calendarApi({ open: lateReply, openHeld: new Promise<void>((resolve) => (release = resolve)) }).mocks)
+        await remount()
+        openThroughDoorThree()
+
+        const afterReload = calendarApi({ ticketDays: serverDays })
+        useMocks(afterReload.mocks)
+        Object.defineProperty(document, 'hidden', { configurable: true, value: hidden })
+        await remount()
+        release()
+        Object.defineProperty(document, 'hidden', { configurable: true, value: false })
+        document.dispatchEvent(new Event('visibilitychange'))
+        await jest.advanceTimersByTimeAsync(25_000)
+
+        expect({ tickets: logic.values.tickets, resent: afterReload.opens.map(({ day }) => day) }).toEqual({
+            tickets: 1,
+            resent,
+        })
+    })
+
+    it('earns a ticket for every door a preview opens, and saves none of them', async () => {
+        const api = calendarApi()
+        useMocks(api.mocks)
+        signIn({ is_staff: true })
+        router.actions.push('/workflows/advent', { day: '4' })
+        openThroughDoorThree()
+        await expectLogic(logic).toFinishAllListeners()
+
+        const previewTickets = logic.values.tickets
+        router.actions.push('/workflows/advent')
+        await remount()
+
+        expect(previewTickets).toBe(3)
+        expect({
+            door: doorOf(logic, 'door-1')?.status,
+            tickets: logic.values.tickets,
+            opens: api.opens,
+            events: sent.filter(([event]) => event === 'workflows advent door opened'),
+        }).toEqual({ door: 'ready', tickets: 0, opens: [], events: [] })
+    })
 
     it('keeps a door shut until its day comes, then unlocks it on an open page', () => {
         logic.actions.activateDoor('door-1')
@@ -415,8 +577,8 @@ describe('adventCalendarLogic', () => {
         logic.mount()
         await waitFor(() => expect(failing.reads).toEqual([1]))
         signIn({ uuid: UUID, is_staff: false })
-        logic.actions.openDoor(UUID, 1, null, true)
-        logic.actions.openDoor(UUID, 2, 'tim', true)
+        logic.actions.openDoor(UUID, 1, null, true, false)
+        logic.actions.openDoor(UUID, 2, 'tim', true, false)
         release()
         await expectLogic(logic).toFinishAllListeners()
 
@@ -719,10 +881,6 @@ describe('adventCalendarLogic', () => {
             signIn({ is_staff: isStaff })
             router.actions.push('/workflows/advent', searchParams)
             const storedBefore = window.localStorage.getItem('workflows-advent-calendar-progress')
-            const sent: string[] = []
-            capture.mockImplementation((event: string) => {
-                sent.push(event)
-            })
             logic.actions.activateDoor('door-1')
             logic.actions.finishReveal()
             logic.actions.answerDoor('door-2', ADVENT_QUESTIONS[2].options[0].id)
@@ -733,11 +891,11 @@ describe('adventCalendarLogic', () => {
 
             expect(doorOf(logic, 'door-2')?.status).toBe('open')
             expect({
-                opens: api.opens.map((open) => (open as { day: number }).day),
+                opens: api.opens.map((open) => open.day),
                 answers: api.answers.length,
                 storesProgress: window.localStorage.getItem('workflows-advent-calendar-progress') !== storedBefore,
-                openEvents: sent.filter((event) => event === 'workflows advent door opened').length,
-                answerEvents: sent.filter((event) => event === 'workflows advent answer picked').length,
+                openEvents: sent.filter(([event]) => event === 'workflows advent door opened').length,
+                answerEvents: sent.filter(([event]) => event === 'workflows advent answer picked').length,
             }).toEqual({ opens, answers, storesProgress: isLive, openEvents: opens.length, answerEvents: answers })
         }
     )
@@ -765,15 +923,32 @@ describe('adventCalendarLogic', () => {
         logic.actions.answerDoor('door-2', ADVENT_QUESTIONS[2].options[0].id)
         await waitFor(() => expect(api.answers).toHaveLength(1))
 
-        expect({ doorsBefore, opens: api.opens.map((open) => (open as { day: number }).day) }).toEqual({
+        expect({ doorsBefore, opens: api.opens.map((open) => open.day) }).toEqual({
             doorsBefore: ['ready', 'locked'],
             opens: [1, 2],
         })
     })
 
-    it('reports a tip click with its day', () => {
+    it.each<[string, boolean, unknown[][]]>([
+        [
+            'live',
+            false,
+            [
+                ['workflows advent tip clicked', { day: 7 }],
+                ['workflows advent shared', {}],
+            ],
+        ],
+        ['in a staff preview of another day', true, []],
+    ])('reports a tip click with its day and a share %s', (_, isPreview, sent) => {
+        if (isPreview) {
+            preflightLogic.actions.loadPreflightSuccess({ ...preflightLogic.values.preflight!, is_debug: false })
+            signIn({ is_staff: true })
+            router.actions.push('/workflows/advent', { day: '2' })
+        }
+        capture.mockClear()
         logic.actions.clickTip(7)
+        logic.actions.share()
 
-        expect(capture).toHaveBeenCalledWith('workflows advent tip clicked', { day: 7 })
+        expect(capture.mock.calls).toEqual(sent)
     })
 })

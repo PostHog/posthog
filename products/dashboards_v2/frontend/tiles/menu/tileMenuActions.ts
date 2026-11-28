@@ -1,8 +1,18 @@
 import posthog from 'posthog-js'
 
-import { downloadImageAction } from '../../dashboard/actions/dashboardImage'
-import { type DashboardState, useDashboard } from '../../dashboard/core/dashboardContext'
-import { type SectionPanel, gridTabs, panelRef } from '../../dashboard/document/dashboardTypes'
+// TODO(2026-11-27): Replace with quill once it can; the app does not mount quill's ToastProvider yet.
+// oxlint-disable-next-line no-restricted-imports
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
+
+import { imageActions } from '../../dashboard/actions/dashboardImage'
+import { useDashboard } from '../../dashboard/core/dashboardContext'
+import {
+    type SectionPanel,
+    type Tile,
+    gridTabs,
+    isSectionPanel,
+    panelRef,
+} from '../../dashboard/document/dashboardTypes'
 import { everyTile } from '../../dashboard/document/tileTree'
 import type { DashboardEdit } from '../../dashboard/edits/dashboardEdits'
 import type { MenuAction } from '../../menu/menuAction'
@@ -15,9 +25,9 @@ import { backgroundColorAction, showAction } from './appearanceActions'
  * options. It is the whole menu of a tile shown outside a dashboard.
  */
 export function useContentTileActions(id: string, panel: SavedPanel): MenuAction[] {
-    const { panels, disabledReasonFor, onEdit, tileActions, downloadImage, downloadingImage } = useDashboard()
+    const { panels, disabledReasonFor, onEdit, tileActions } = useDashboard()
     const definition = findPanel(panels, panel.type)
-    const actions: MenuAction[] = [tileImageAction(id, downloadingImage, downloadImage)]
+    const actions = useTileImageActions(id)
     const show = showAction(TILE_SHOW, [{ id, panel }], panels, disabledReasonFor('setTilesAppearance'), onEdit)
     if (show) {
         actions.push(show)
@@ -49,21 +59,32 @@ export function useContentTileActions(id: string, panel: SavedPanel): MenuAction
     return tileActions ? tileActions(withPanel, { id, panel }) : withPanel
 }
 
-/** What a person can do to where a content tile sits on the dashboard: its slideshow, its tab, and removing it. */
+/**
+ * What a person can do to where a content tile sits on the dashboard: its slideshow, its tab, a copy, and removing it.
+ * A tile that is not movable gets only the copy, and only when its panel type allows one.
+ */
 export function useContentTilePlacementActions(id: string, panel: SavedPanel): MenuAction[] {
-    const { dashboard, activeTab, disabledReasonFor, onEdit, tilePlacementActions, showSlideshow } = useDashboard()
+    const { dashboard, activeTab, panels, disabledReasonFor, onEdit, tilePlacementActions, showSlideshow } =
+        useDashboard()
+    const panelType = findPanel(panels, panel.type)
+    const movable = panelType?.movable(panel) ?? true
+    const duplicable = panelType?.duplicable(panel) ?? true
+    if (!movable && !duplicable) {
+        return NO_ACTIONS
+    }
     const otherTabs = gridTabs(dashboard).filter((tab) => tab.id !== activeTab.id)
-    const actions: MenuAction[] = [
-        {
+    const actions: MenuAction[] = []
+    if (movable) {
+        actions.push({
             key: 'slideshow',
             label: 'Slideshow',
             dataAttr: 'dashboard-v2-tile-slideshow-open',
             group: 'view',
             disabledReason: null,
             onSelect: () => showSlideshow(id),
-        },
-    ]
-    if (otherTabs.length > 0) {
+        })
+    }
+    if (movable && otherTabs.length > 0) {
         actions.push({
             key: 'move',
             label: 'Move to tab',
@@ -99,15 +120,36 @@ export function useContentTilePlacementActions(id: string, panel: SavedPanel): M
             }),
         })
     }
-    actions.push({
-        key: 'remove',
-        label: 'Remove tile',
-        dataAttr: 'dashboard-v2-tile-remove',
-        disabledReason: disabledReasonFor('removeTile'),
-        destructive: true,
-        onSelect: () => onEdit({ edit: 'removeTile', id }),
-    })
+    if (duplicable) {
+        actions.push({
+            key: 'duplicate',
+            label: 'Duplicate',
+            dataAttr: 'dashboard-v2-tile-duplicate',
+            group: 'dashboard',
+            disabledReason: disabledReasonFor('duplicateTile'),
+            onSelect: () => onEdit({ edit: 'duplicateTile', id }),
+        })
+    }
+    if (movable) {
+        actions.push({
+            key: 'remove',
+            label: 'Remove tile',
+            dataAttr: 'dashboard-v2-tile-remove',
+            disabledReason: disabledReasonFor('removeTile'),
+            destructive: true,
+            onSelect: () => onEdit({ edit: 'removeTile', id }),
+        })
+    }
     return tilePlacementActions ? tilePlacementActions(actions, { id, panel }) : actions
+}
+
+const NO_ACTIONS: MenuAction[] = []
+
+function leftOutMessage(leftOut: Tile[]): string {
+    const names = leftOut.map((tile) => tile.panel.title || 'an untitled tile').join(', ')
+    const what =
+        leftOut.length === 1 ? "1 tile that can't be duplicated" : `${leftOut.length} tiles that can't be duplicated`
+    return `Section duplicated without ${what}: ${names}.`
 }
 
 // pinned: `dashboard-v2-tile-parts` data-attrs shipped before border joined this menu.
@@ -118,14 +160,16 @@ const TILE_BACKGROUND_COLOR = {
     dataAttr: 'dashboard-v2-tile-background-color',
 }
 
-function tileImageAction(
-    id: string,
-    downloadingImage: boolean,
-    downloadImage: DashboardState['downloadImage']
-): MenuAction {
-    return downloadImageAction('Download as image', 'dashboard-v2-tile-download-image', downloadingImage, (format) =>
-        downloadImage(format, id)
-    )
+function useTileImageActions(id: string): MenuAction[] {
+    const { downloadImage, copyImage, downloadingImage } = useDashboard()
+    return imageActions({
+        downloadLabel: 'Download as image',
+        copyLabel: 'Copy as image',
+        dataAttrPrefix: 'dashboard-v2-tile',
+        making: downloadingImage,
+        download: (format) => downloadImage(format, id),
+        copy: () => copyImage(id),
+    })
 }
 
 const AUTO_LAYOUT_COLUMNS = [1, 2, 3, 4]
@@ -153,7 +197,8 @@ function autoLayoutAction(
 }
 
 export function useSectionActions(id: string, panel: SectionPanel, onStartRename: () => void): MenuAction[] {
-    const { panels, disabledReasonFor, onEdit, tileActions, downloadImage, downloadingImage } = useDashboard()
+    const { panels, disabledReasonFor, onEdit, tileActions } = useDashboard()
+    const imageEntries = useTileImageActions(id)
     const show = showAction(TILE_SHOW, [{ id, panel }], panels, disabledReasonFor('setTilesAppearance'), onEdit)
     const actions: MenuAction[] = [
         {
@@ -163,23 +208,42 @@ export function useSectionActions(id: string, panel: SectionPanel, onStartRename
             disabledReason: disabledReasonFor('updateSection'),
             onSelect: onStartRename,
         },
-        tileImageAction(id, downloadingImage, downloadImage),
+        ...imageEntries,
         autoLayoutAction(id, disabledReasonFor('autoLayout'), onEdit),
         ...(show ? [show] : []),
     ]
     return tileActions ? tileActions(actions, { id, panel }) : actions
 }
 
-export function useSectionPlacementActions(id: string, panel: SectionPanel): MenuAction[] {
-    const { disabledReasonFor, onEdit, tilePlacementActions } = useDashboard()
+/** `onConfirmRemove` asks the person first. It is called for a section that holds tiles, which go with it. */
+export function useSectionPlacementActions(id: string, panel: SectionPanel, onConfirmRemove: () => void): MenuAction[] {
+    const { panels, disabledReasonFor, onEdit, tilePlacementActions } = useDashboard()
+    const empty = panel.tiles.length === 0
+    const duplicate = (): void => {
+        const leftOut = everyTile(panel.tiles).filter(
+            ({ panel: inner }) => !isSectionPanel(inner) && findPanel(panels, inner.type)?.duplicable(inner) === false
+        )
+        onEdit({ edit: 'duplicateTile', id, without: leftOut.map((tile) => tile.id) })
+        if (leftOut.length > 0) {
+            lemonToast.info(leftOutMessage(leftOut))
+        }
+    }
     const actions: MenuAction[] = [
         {
+            key: 'duplicate',
+            label: 'Duplicate',
+            dataAttr: 'dashboard-v2-section-duplicate',
+            group: 'dashboard',
+            disabledReason: disabledReasonFor('duplicateTile'),
+            onSelect: duplicate,
+        },
+        {
             key: 'remove',
-            label: 'Remove section and its tiles',
+            label: empty ? 'Remove section' : 'Remove section and its tiles',
             dataAttr: 'dashboard-v2-section-remove',
             disabledReason: disabledReasonFor('removeTile'),
             destructive: true,
-            onSelect: () => onEdit({ edit: 'removeTile', id }),
+            onSelect: empty ? () => onEdit({ edit: 'removeTile', id }) : onConfirmRemove,
         },
     ]
     return tilePlacementActions ? tilePlacementActions(actions, { id, panel }) : actions

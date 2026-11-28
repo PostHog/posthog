@@ -91,6 +91,8 @@ export type DashboardState = Omit<
     can: (action: DashboardAction) => boolean
     /** Downloads the tab on screen, or with `tileId`, just that tile. */
     downloadImage: (format: ImageFormat, tileId?: string) => void
+    /** Puts a PNG of the tab on screen, or with `tileId` of that tile, on the clipboard. */
+    copyImage: (tileId?: string) => void
     downloadingImage: boolean
     /** The tile shown on its own over the dashboard, or null. Only the screen keeps it. */
     slideshowTileId: string | null

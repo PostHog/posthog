@@ -20,13 +20,12 @@ type DashboardContentTileProps = {
     id: string
     panel: SavedPanel
     editable: boolean
-    movable: boolean
 }
 
-type WindowedContentTileProps = Omit<DashboardContentTileProps, 'movable'> & { panels: PanelType[] }
+type WindowedContentTileProps = DashboardContentTileProps & { panels: PanelType[] }
 
 // Kept apart from `WindowedContentTile`, so a tile reads the dashboard state only once its card mounts.
-function DashboardContentTile({ id, panel, editable, movable }: DashboardContentTileProps): JSX.Element {
+function DashboardContentTile({ id, panel, editable }: DashboardContentTileProps): JSX.Element {
     const { panels, disabledReasonFor, onEdit } = useDashboard()
     const actions = useContentTileActions(id, panel)
     const placementActions = useContentTilePlacementActions(id, panel)
@@ -41,7 +40,7 @@ function DashboardContentTile({ id, panel, editable, movable }: DashboardContent
             panel={panel}
             panels={panels}
             actions={actions}
-            placementActions={movable ? placementActions : undefined}
+            placementActions={placementActions}
             editable={editable}
             setConfig={canSetConfig ? setConfig : undefined}
         />
@@ -59,13 +58,12 @@ function WindowedContentTile({ id, panel, editable, panels }: WindowedContentTil
     const wasInView = useRef(false)
     wasInView.current ||= inView
     const mounted = inView || (wasInView.current && !!panelType?.keepMounted(panel))
-    const movable = panelType?.movable(panel) ?? true
-    const canArrange = editable && movable
+    const canArrange = editable && (panelType?.movable(panel) ?? true)
     return (
         <>
             <span ref={sentinel} aria-hidden className="DashboardTileGrid__sentinel" />
             {mounted ? (
-                <DashboardContentTile id={id} panel={panel} editable={canArrange} movable={movable} />
+                <DashboardContentTile id={id} panel={panel} editable={canArrange} />
             ) : (
                 <ContentTilePlaceholder panel={panel} definition={panelType} editable={canArrange} />
             )}

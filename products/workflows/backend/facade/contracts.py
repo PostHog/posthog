@@ -1524,6 +1524,7 @@ class AdventCalendarShare:
 class AdventCalendarDoorOpenResult:
     day: int
     opened_at: datetime
+    ticket_days: tuple[int, ...]
 
 
 @frozen

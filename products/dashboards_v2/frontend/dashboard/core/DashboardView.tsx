@@ -81,7 +81,11 @@ function DashboardViewContent({ header, surface, ...props }: DashboardViewProps)
     const rootRef = useRef<HTMLDivElement>(null)
     const [slideshowTileId, showSlideshow] = useState<string | null>(null)
     const refresh = useDashboardRefresh(controller.refresh)
-    const { capturing, downloadImage } = useDashboardImage(rootRef, controller.dashboard, controller.activeTabId)
+    const { capturing, downloadImage, copyImage } = useDashboardImage(
+        rootRef,
+        controller.dashboard,
+        controller.activeTabId
+    )
     const downloadingImage = capturing !== null
 
     const state = useMemo<DashboardState>(() => {
@@ -100,6 +104,7 @@ function DashboardViewContent({ header, surface, ...props }: DashboardViewProps)
             onEdit: (edit) => hostOnEdit(edit, view),
             onSectionFoldedChange,
             downloadImage: (format, tileId) => void downloadImage(format, tileId),
+            copyImage: (tileId) => void copyImage(tileId),
             downloadingImage,
             slideshowTileId,
             showSlideshow,
@@ -112,6 +117,7 @@ function DashboardViewContent({ header, surface, ...props }: DashboardViewProps)
         folds,
         onSectionFoldedChange,
         downloadImage,
+        copyImage,
         downloadingImage,
         slideshowTileId,
         refresh.button,
