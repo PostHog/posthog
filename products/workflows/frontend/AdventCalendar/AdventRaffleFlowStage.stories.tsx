@@ -13,6 +13,7 @@ import { ADVENT_LAST_DAY, ADVENT_QUESTION_DAYS, ADVENT_QUESTIONS } from './adven
 import { AdventRaffleFlowStage } from './AdventRaffleFlowStage'
 
 const DAYS = Array.from({ length: ADVENT_LAST_DAY }, (_, index) => index + 1)
+let ticketDays: number[] = []
 
 function seed(openedUntil: number, tickets: number[]): void {
     const opened = DAYS.slice(0, openedUntil)
@@ -26,7 +27,7 @@ function seed(openedUntil: number, tickets: number[]): void {
         'workflows-advent-calendar-progress',
         JSON.stringify({ [MOCK_USER_UUID]: { opened, answers } })
     )
-    window.localStorage.setItem('workflows-advent-calendar-tickets', JSON.stringify({ [MOCK_USER_UUID]: tickets }))
+    ticketDays = tickets
 }
 
 function MountedStage(): JSX.Element {
@@ -48,12 +49,15 @@ const meta: Meta<typeof AdventRaffleFlowStage> = {
     decorators: [
         mswDecorator({
             get: {
-                '/api/projects/:team_id/workflow_advent_calendar/results/': { questions: [] },
+                '/api/projects/:team_id/workflow_advent_calendar/results/': () => [
+                    200,
+                    { questions: [], ticket_days: ticketDays },
+                ],
             },
             post: {
                 '/api/projects/:team_id/workflow_advent_calendar/open/': async ({ request }) => {
                     const { day } = (await request.json()) as { day: number }
-                    return [200, { day, opened_at: new Date().toISOString() }]
+                    return [200, { day, opened_at: new Date().toISOString(), ticket_days: [...ticketDays, day] }]
                 },
             },
         }),
@@ -85,6 +89,6 @@ export const Preview: Story = {
     parameters: { mockDate: '2026-11-28 09:00:00', pageUrl: `${urls.workflowsAdventCalendar()}?day=24` },
     beforeEach: () => {
         window.localStorage.removeItem('workflows-advent-calendar-progress')
-        window.localStorage.removeItem('workflows-advent-calendar-tickets')
+        ticketDays = []
     },
 }

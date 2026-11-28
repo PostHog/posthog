@@ -3,7 +3,7 @@ import { Component, type ErrorInfo, type ReactNode } from 'react'
 
 import { isChunkLoadError } from 'lib/utils/isChunkLoadError'
 
-import type { SavedPanel } from '../../dashboard/document/dashboardTypes'
+import { type SavedPanel } from './panelSchema'
 
 type PanelErrorState = {
     failed: boolean

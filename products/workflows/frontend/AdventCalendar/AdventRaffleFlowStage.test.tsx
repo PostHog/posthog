@@ -35,12 +35,23 @@ describe('AdventRaffleFlowStage', () => {
             'workflows-advent-calendar-progress',
             JSON.stringify({ [UUID]: { opened, answers: ANSWERS } })
         )
-        window.localStorage.setItem('workflows-advent-calendar-tickets', JSON.stringify({ [UUID]: tickets }))
+        useMocks({
+            get: {
+                '/api/projects/:team_id/workflow_advent_calendar/results/': { questions: [], ticket_days: tickets },
+            },
+            post: {
+                '/api/projects/:team_id/workflow_advent_calendar/open/': async ({ request }) => {
+                    const { day } = (await request.json()) as { day: number }
+                    return [200, { day, opened_at: new Date().toISOString(), ticket_days: [...tickets, day] }]
+                },
+            },
+        })
         initKeaTests()
         await expectLogic(userLogic).toFinishAllListeners()
         userLogic.actions.loadUserSuccess({ ...userLogic.values.user, uuid: UUID } as UserType)
         measure.mockReturnValue(size as DOMRect)
         adventCalendarLogic.mount()
+        await expectLogic(adventCalendarLogic).toFinishAllListeners()
         stage = render(<AdventRaffleFlowStage />)
     }
 
@@ -59,15 +70,6 @@ describe('AdventRaffleFlowStage', () => {
 
     beforeEach(() => {
         window.localStorage.clear()
-        useMocks({
-            get: { '/api/projects/:team_id/workflow_advent_calendar/results/': { questions: [] } },
-            post: {
-                '/api/projects/:team_id/workflow_advent_calendar/open/': async ({ request }) => {
-                    const { day } = (await request.json()) as { day: number }
-                    return [200, { day, opened_at: new Date().toISOString() }]
-                },
-            },
-        })
         jest.spyOn(window, 'matchMedia').mockReturnValue({ matches: false } as MediaQueryList)
         capture = jest.spyOn(posthog, 'capture').mockImplementation()
         measure = jest.spyOn(HTMLElement.prototype, 'getBoundingClientRect')

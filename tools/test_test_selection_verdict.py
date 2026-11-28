@@ -211,6 +211,68 @@ class TestComputeVerdict(unittest.TestCase):
         self.assertEqual(result["caught"], ["posthog/api/test/test_foo.py"])
         self.assertEqual(result["missed"], [])
 
+    def test_event_properties_carry_the_verdict_and_cap_long_lists(self) -> None:
+        missed_modules = [f"posthog.api.test.test_missed_{index:02d}" for index in range(21)]
+        testcases = "".join(
+            f'<testcase classname="{module}.TestMissed" name="test_x"><failure message="boom"/></testcase>'
+            for module in missed_modules
+        )
+        junit = f'<?xml version="1.0" encoding="utf-8"?><testsuites><testsuite name="pytest">{testcases}</testsuite></testsuites>'
+        missed_files = [module.replace(".", "/") + ".py" for module in missed_modules]
+
+        result = self._run(combined_tests=["posthog/api/test/test_unrelated.py"], junit_files=[("junit.xml", junit)])
+        properties = _load_verdict_module().event_properties(
+            result, pr_number=7, pr_draft=True, merge_queue=False, branch="feature", sha="abc", run_id="1"
+        )
+
+        self.assertEqual(
+            properties,
+            {
+                "suite": "backend",
+                "backend_conclusion": "failure",
+                "junit_xml_files_seen": 1,
+                "total_tests_run": 21,
+                "failure_count": 21,
+                "selected_test_count": 1,
+                "caught_count": 0,
+                "missed_count": 21,
+                "missed_files": missed_files[:20],
+                "missed_files_truncated": True,
+                "recall": 0.0,
+                "full_run_triggered": False,
+                "full_run_reasons": [],
+                "pr_number": 7,
+                "pr_draft": True,
+                "merge_queue": False,
+                "branch": "feature",
+                "sha": "abc",
+                "run_id": "1",
+            },
+        )
+
+    @parameterized.expand(
+        [
+            ("unknown", None),
+            ("success", [("junit.xml", JUNIT_ALL_PASS)]),
+        ]
+    )
+    def test_event_properties_without_failures(
+        self, conclusion: str, junit_files: list[tuple[str, str]] | None
+    ) -> None:
+        reasons = [f"reason {index}" for index in range(6)]
+        result = self._run(
+            combined_tests=["posthog/api/test/test_bar.py"], full_run_reasons=reasons, junit_files=junit_files
+        )
+        properties = _load_verdict_module().event_properties(
+            result, pr_number=None, pr_draft=None, merge_queue=True, branch="trunk-merge/x", sha="abc", run_id="1"
+        )
+
+        self.assertEqual(properties["backend_conclusion"], conclusion)
+        self.assertIsNone(properties["recall"])
+        self.assertEqual(properties["missed_files"], [])
+        self.assertFalse(properties["missed_files_truncated"])
+        self.assertEqual(properties["full_run_reasons"], reasons[:5])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -1,7 +1,3 @@
-.AdventDoor--ready {
-    animation: AdventDoor__ready 1800ms ease-in-out infinite;
-}
-
 .AdventTrigger {
     border-radius: 1.75rem 0.75rem 0.75rem 1.75rem;
 }
@@ -89,8 +85,7 @@
     inset: 0;
     z-index: 5;
     pointer-events: none;
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0.45 0 0 0 0 0.4 0 0 0 0 0.35 0 0 0 0.4 0'/%3E%3C/filter%3E%3Crect width='180' height='180' fill='white' filter='url(%23n)'/%3E%3C/svg%3E");
-    mix-blend-mode: multiply;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0.24 0'/%3E%3C/filter%3E%3Crect width='180' height='180' fill='white' filter='url(%23n)'/%3E%3C/svg%3E");
     opacity: 0.45;
 }
 
@@ -199,11 +194,10 @@
 
 .AdventTicketFlight__arc {
     display: block;
-    animation: AdventTicketFlight__y 820ms linear both;
+    animation: AdventTicketFlight__y 820ms ease-in-out both;
 
     .AdventTicketIcon {
         display: block;
-        filter: drop-shadow(0 0 8px var(--advent-gold));
         transform: translate(-50%, -50%);
     }
 }
@@ -221,27 +215,14 @@
 @keyframes AdventTicketFlight__y {
     0% {
         transform: translateY(var(--advent-fly-dy)) scale(1);
-        animation-timing-function: cubic-bezier(0.2, 0.6, 0.4, 1);
     }
 
     40% {
         transform: translateY(var(--advent-fly-peak)) scale(0.9);
-        animation-timing-function: cubic-bezier(0.6, 0, 0.8, 0.4);
     }
 
     100% {
         transform: translateY(0) scale(0.5);
-    }
-}
-
-@keyframes AdventDoor__ready {
-    0%,
-    100% {
-        box-shadow: 0 0 0 0 color-mix(in oklab, var(--advent-gold) 80%, transparent);
-    }
-
-    50% {
-        box-shadow: 0 0 0 7px transparent;
     }
 }
 
@@ -250,10 +231,6 @@
     .AdventCard,
     .AdventCard__fade {
         transition: none;
-    }
-
-    .AdventDoor--ready {
-        animation: none;
     }
 
     .AdventTicketFlight,

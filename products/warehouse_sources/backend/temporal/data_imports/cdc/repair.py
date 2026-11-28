@@ -27,6 +27,8 @@ from __future__ import annotations
 
 import typing
 import datetime as dt
+from collections.abc import Iterator
+from contextlib import contextmanager
 
 import structlog
 
@@ -77,18 +79,27 @@ def repair_cdc_source(source: ExternalDataSource) -> int:
     ``CDCRepairInProgress`` when another repair holds the lock; lets engine/RPC errors
     propagate for the caller to surface — the flow is safe to re-run after any failure.
     """
+    with repair_lock(source) as acquired:
+        if not acquired:
+            raise CDCRepairInProgress("A repair is already running for this source. Try again in a few minutes.")
+        return _repair_locked(source)
+
+
+@contextmanager
+def repair_lock(source: ExternalDataSource) -> Iterator[bool]:
+    """Hold the source's repair lock for the block, yielding whether it was free to take."""
     redis = get_client()
     lock_key = _repair_lock_key(str(source.id))
-    if not redis.set(lock_key, "1", nx=True, ex=REPAIR_LOCK_TTL_SECONDS):
-        raise CDCRepairInProgress("A repair is already running for this source. Try again in a few minutes.")
+    acquired = bool(redis.set(lock_key, "1", nx=True, ex=REPAIR_LOCK_TTL_SECONDS))
     try:
-        return _repair_locked(source)
+        yield acquired
     finally:
-        # Best-effort: the TTL reaps the lock if this delete is lost.
-        try:
-            redis.delete(lock_key)
-        except Exception:
-            logger.warning("cdc_repair_lock_release_failed", source_id=str(source.id), exc_info=True)
+        if acquired:
+            # Best-effort: the TTL reaps the lock if this delete is lost.
+            try:
+                redis.delete(lock_key)
+            except Exception:
+                logger.warning("cdc_repair_lock_release_failed", source_id=str(source.id), exc_info=True)
 
 
 def _repair_locked(source: ExternalDataSource) -> int:

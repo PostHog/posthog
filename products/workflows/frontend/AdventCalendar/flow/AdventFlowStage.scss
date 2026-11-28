@@ -79,8 +79,7 @@
 }
 
 // The glow is painted once on a layer of its own, and only its opacity and scale move, so the pulse runs on
-// the compositor. It pulses three times when the stage wakes, then rests: an endless pulse would keep the
-// compositor drawing every frame of an idle stage.
+// the compositor and repaints nothing while the stage sits idle.
 .AdventFlowStep__tile--today::after {
     position: absolute;
     inset: -2px;
@@ -119,7 +118,6 @@
     outline-offset: 4px;
 }
 
-// An open door: the button keeps the tile's place, and the peek inside it draws past its edges.
 .AdventFlowStep__tile--open {
     cursor: pointer;
     background: none;
@@ -152,7 +150,6 @@
     display: flex;
 }
 
-// The canvas edge throws a shadow onto the hoggy standing behind it.
 .AdventFlowPeek__shade {
     position: absolute;
     inset: 0;
@@ -208,32 +205,20 @@
     transform: rotateY(180deg);
 }
 
-.AdventFlowPeek__tab {
-    position: absolute;
-    inset: 0;
-    z-index: 3;
-}
-
-// The opening moves only transforms and opacity, so it runs on the compositor. Under reduced motion the
-// logic skips the reveal, so the door shows open at once.
 @media (prefers-reduced-motion: no-preference) {
     .AdventFlowPeek--opening {
         .AdventFlowPeek__stitch,
         .AdventFlowPeek__window,
         .AdventFlowPeek__frame {
-            animation: AdventFlowPeek__grow 2400ms cubic-bezier(0.3, 0.8, 0.3, 1) both;
+            animation: AdventFlowPeek__grow var(--advent-flow-opening) cubic-bezier(0.3, 0.8, 0.3, 1) both;
         }
 
         .AdventFlowPeek__leaf {
-            animation: AdventFlowPeek__swing 2400ms cubic-bezier(0.35, 0.6, 0.3, 1) both;
+            animation: AdventFlowPeek__swing var(--advent-flow-opening) cubic-bezier(0.35, 0.6, 0.3, 1) both;
         }
 
         .AdventFlowPeek__hoggy {
-            animation: AdventFlowPeek__rise 2400ms cubic-bezier(0.25, 0.8, 0.3, 1.15) both;
-        }
-
-        .AdventFlowPeek__tab {
-            animation: AdventFlowPeek__fade-in 300ms ease-out 900ms both;
+            animation: AdventFlowPeek__rise var(--advent-flow-opening) cubic-bezier(0.25, 0.8, 0.3, 1.15) both;
         }
     }
 }
@@ -293,12 +278,6 @@
 
     100% {
         transform: none;
-    }
-}
-
-@keyframes AdventFlowPeek__fade-in {
-    from {
-        opacity: 0;
     }
 }
 

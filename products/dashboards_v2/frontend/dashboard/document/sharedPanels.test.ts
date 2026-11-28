@@ -20,6 +20,24 @@ describe('sharedPanels', () => {
         expect('tiles' in tab && everyTile(tab.tiles).map((tile) => tile.id)).toEqual([])
     })
 
+    it('leaves out a tile whose shared panel is a section', () => {
+        const document = {
+            version: 2,
+            title: 'Hostile',
+            panels: { s: { type: 'section', title: 's', tiles: [] } },
+            tabs: [
+                {
+                    id: 'one',
+                    title: 'One',
+                    tiles: [{ id: 'a', place: { x: 0, y: 0, w: 8, h: 8 }, panel: { ref: 's' } }],
+                },
+            ],
+        } as unknown as DashboardDocument
+
+        const [tab] = loadDashboard(document).tabs
+        expect('tiles' in tab && tab.tiles).toEqual([])
+    })
+
     it.each(['signups', 'constructor', '__proto__'])(
         "loads a shared panel onto each tile with that tile's own parts, and saves it back once (ref %s)",
         (ref) => {

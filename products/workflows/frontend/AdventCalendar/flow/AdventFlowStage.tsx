@@ -22,6 +22,7 @@ import { useAdventFlowWake } from './useAdventFlowWake'
 
 const DOT_GAP = 36
 export const ADVENT_FLOW_OPENING_MS = 2400
+const OPENING_STYLE = { '--advent-flow-opening': `${ADVENT_FLOW_OPENING_MS}ms` } as CSSProperties
 const SHOWN_NODE_AT = 0.65
 
 export interface AdventFlowView {
@@ -30,8 +31,6 @@ export interface AdventFlowView {
 }
 
 export interface AdventFlowStageProps {
-    // Draws the last door in place of the peek door. While it opens, the stage holds the card back until the
-    // drawn door calls `onOpened`, so that door sets the length of its own opening.
     renderLastDoor?: (step: AdventFlowStepProps) => ReactNode
     isEdgeEmphasized?: (edge: AdventFlowEdge) => boolean
     renderOverlay?: (view: AdventFlowView, layout: AdventFlowLayout) => ReactNode
@@ -39,6 +38,7 @@ export interface AdventFlowStageProps {
 }
 
 const noEmphasis = (): boolean => false
+const ignoreClick = (): void => undefined
 
 function gridOf({ zoom, box }: AdventFlowFit): CSSProperties {
     return {
@@ -48,8 +48,6 @@ function gridOf({ zoom, box }: AdventFlowFit): CSSProperties {
     } as CSSProperties
 }
 
-// The peek door's opening runs in CSS for this long, then the card shows. A door drawn by `renderLastDoor`
-// ends its own opening through `onOpened`.
 function useOpening(revealingDoor: AdventDoor | null, drawsLastDoor: boolean, finishReveal: () => void): void {
     const revealingDoorId = revealingDoor?.id ?? null
     const isHandedOff = drawsLastDoor && revealingDoor?.day === ADVENT_LAST_DAY
@@ -100,9 +98,8 @@ export function AdventFlowStage({
             dismiss()
         }
     }
-    // Scrolling the column moves the doors under a card placed for the old scroll, so the card closes.
     const onColumnScroll = (): void => {
-        if (hover.card.current?.doorId) {
+        if (revealingDoor || hover.card.current?.doorId) {
             dismiss()
         }
     }
@@ -113,7 +110,7 @@ export function AdventFlowStage({
         isSelected: node.door?.id === selectedDoorId,
         isOpening: !!revealingDoor && node.door?.id === revealingDoor.id,
         onOpened: finishReveal,
-        onActivate: activateDoor,
+        onActivate: revealingDoor ? ignoreClick : activateDoor,
         onEnter: hover.onEnter,
         onLeave: hover.onLeave,
         exitNote: node.kind === 'exit' ? exitNote : undefined,
@@ -123,7 +120,7 @@ export function AdventFlowStage({
         <div
             ref={ref}
             className="AdventFlowStage"
-            style={{ ...adventPaletteStyle(), ...gridOf(fit) }}
+            style={{ ...adventPaletteStyle(), ...gridOf(fit), ...OPENING_STYLE }}
             data-attr="advent-stage"
         >
             {zoom > 0 && (

@@ -671,8 +671,10 @@ const AssistantWebVitalsPathBreakdownQuery = z.object({
     ).optional(),
     doPathCleaning: z.coerce
         .boolean()
-        .describe("Apply the team's path-cleaning rules to the returned paths.")
-        .default(false)
+        .describe(
+            "Apply the team's path-cleaning rules to the returned paths, so `/project/123/settings` and `/project/456/settings` roll up into one row. On by default, like the Web vitals tab; a team with no rules sees raw paths either way."
+        )
+        .default(true)
         .optional(),
     filterTestAccounts: z.coerce
         .boolean()
@@ -683,6 +685,11 @@ const AssistantWebVitalsPathBreakdownQuery = z.object({
     metric: WebVitalsMetric.describe(
         'Required. Which Core Web Vital to break down by: `LCP` (load, ms), `INP` (interactivity, ms), `CLS` (layout stability, unitless score), or `FCP` (first paint, ms).'
     ),
+    minSamples: positive_integer
+        .describe(
+            'Drop pages with fewer than this many samples in the period. Each row carries its `count`; set this (e.g. 50 or 100 on a busy site) so one-off slow loads on rarely visited pages do not fill the `poor` band ahead of real problems.'
+        )
+        .optional(),
     percentile: WebVitalsPercentile.describe(
         "Required. Percentile to aggregate each page's samples at. Use `p75` unless the user asks otherwise — the Google bands are defined at p75."
     ),

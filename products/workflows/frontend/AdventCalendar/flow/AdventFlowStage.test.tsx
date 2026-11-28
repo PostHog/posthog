@@ -1,4 +1,5 @@
 import { act, fireEvent, render, RenderResult } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
@@ -19,9 +20,9 @@ function seed(opened: number[], answers: Record<number, string>): void {
 }
 
 describe('AdventFlowStage', () => {
-    let capture: jest.SpyInstance
     let measure: jest.SpyInstance
     let stage: RenderResult | null
+    const bodiesOverflow = { current: false }
 
     function renderStage(size: { width: number; height: number }, props: AdventFlowStageProps = {}): RenderResult {
         measure.mockReturnValue(size as DOMRect)
@@ -49,24 +50,32 @@ describe('AdventFlowStage', () => {
     beforeEach(async () => {
         jest.useFakeTimers({ now: new Date(2026, 11, 3, 9, 0), advanceTimers: true })
         window.localStorage.clear()
-        capture = jest.spyOn(posthog, 'capture').mockImplementation()
+        jest.spyOn(posthog, 'capture').mockImplementation()
         measure = jest.spyOn(HTMLElement.prototype, 'getBoundingClientRect')
         initKeaTests()
         await expectLogic(userLogic).toFinishAllListeners()
         userLogic.actions.loadUserSuccess({ ...userLogic.values.user, uuid: UUID } as UserType)
         stage = null
+        bodiesOverflow.current = false
+        const bodyHeight = (scrolled: number, element: Element): number =>
+            bodiesOverflow.current && element.classList.contains('AdventCard__body') ? scrolled : 0
+        jest.spyOn(Element.prototype, 'scrollHeight', 'get').mockImplementation(function (this: Element) {
+            return bodyHeight(400, this)
+        })
+        jest.spyOn(Element.prototype, 'clientHeight', 'get').mockImplementation(function (this: Element) {
+            return bodyHeight(120, this)
+        })
     })
 
     afterEach(() => {
         stage?.unmount()
         adventCalendarLogic.findMounted()?.unmount()
-        measure.mockRestore()
-        capture.mockRestore()
+        jest.restoreAllMocks()
         jest.useRealTimers()
     })
 
     it.each([
-        [2, 'advent-hog-2', 'Door 2, open: Tim Glaser', ['Tim Glaser', 'Tim'], '2Dec 2', 1],
+        [2, 'advent-hog-2', 'Door 2, open: Tim Glaser', ['Tim Glaser', 'Tim'], '2', 1],
         [3, 'advent-door-3', 'Door 3, ready', ['Today'], '3Thu', 0],
         [4, 'advent-door-4', 'Door 4, opens December 4', [], '4Fri', 0],
         [21, 'advent-door-21', 'Door 21, opens December 21', ['Coffee or tea?'], '212 paths', 0],
@@ -87,14 +96,15 @@ describe('AdventFlowStage', () => {
         }
     )
 
-    it('slides the card out over a closed door on hover, not over an open one, and pins it on a click until Escape', () => {
+    it('slides the card out over a closed door on hover, not over an open one, and pins it as a dialog named by its title on a click until Escape', () => {
         seed([1, 2], { 2: 'tim' })
         renderStage({ width: 1200, height: 830 })
 
         act(() => fireEvent.mouseEnter(door(4) as HTMLElement))
         const face = card()?.querySelector<HTMLElement>('.AdventCard__door')
-        expect([card()?.textContent, face?.querySelector('svg')]).toEqual([
+        expect([card()?.textContent, face?.querySelector('svg'), card()?.getAttribute('role')]).toEqual([
             expect.stringContaining('Opens December 4.'),
+            null,
             null,
         ])
         act(() => fireEvent.mouseLeave(door(4) as HTMLElement))
@@ -103,30 +113,59 @@ describe('AdventFlowStage', () => {
         expect(card()).toBeNull()
 
         act(() => fireEvent.click(door(2) as HTMLElement))
-        expect(card()?.querySelector('[data-attr="advent-door-card-close"]')).not.toBeNull()
+        const name = document.getElementById(card()?.getAttribute('aria-labelledby') ?? '')?.textContent
+        expect([
+            card()?.querySelector('[data-attr="advent-door-card-close"]'),
+            card()?.getAttribute('role'),
+            name,
+        ]).toEqual([expect.anything(), 'dialog', 'Tim Glaser'])
         act(() => fireEvent.keyDown(window, { key: 'Escape' }))
         waitForTheCardToClose()
         expect(card()).toBeNull()
     })
 
-    it('opens the ready door on a click, plays its opening, then pins its card on the hoggy behind it', async () => {
+    it.each([
+        ['open', [1, 2, 24]],
+        ['locked', [1, 2]],
+    ])('names every pinned card by an element on the stage, with door 24 %s', (_, opened) => {
+        seed(opened, { 2: 'tim' })
+        renderStage({ width: 1200, height: 830 })
+
+        const names = Array.from({ length: 24 }, (_, index) => {
+            act(() => fireEvent.click(door(index + 1) as HTMLElement))
+            act(() => jest.advanceTimersByTime(2600))
+            const label = card()?.getAttribute('aria-labelledby')
+            const name = [card()?.getAttribute('role'), document.getElementById(label ?? '')?.textContent?.trim()]
+            act(() => fireEvent.keyDown(window, { key: 'Escape' }))
+            waitForTheCardToClose()
+            return name
+        })
+
+        expect(names).toEqual(Array.from({ length: 24 }, () => ['dialog', expect.stringMatching(/\S/)]))
+    })
+
+    it('opens the hovered ready door on a click, hides its card and ignores the next door during the opening, then pins its card on the hoggy behind it', async () => {
         jest.spyOn(window, 'matchMedia').mockReturnValue({ matches: false } as MediaQueryList)
         seed([1, 2], { 2: 'tim' })
         renderStage({ width: 1200, height: 830 })
 
-        act(() => fireEvent.click(door(3) as HTMLElement))
+        act(() => fireEvent.mouseEnter(door(3) as HTMLElement))
+        act(() => fireEvent.click(card()?.querySelector('.AdventCard__face') as HTMLElement))
+        const atClick = card()
+        act(() => fireEvent.click(door(4) as HTMLElement))
         await act(async () => {
             await jest.advanceTimersByTimeAsync(2300)
         })
-        const whileOpening = [door(3)?.getAttribute('data-attr'), card()]
+        const whileOpening = [atClick, door(3)?.getAttribute('data-attr'), card()]
         for (const step of [200, 100]) {
             await act(async () => {
                 await jest.advanceTimersByTimeAsync(step)
             })
         }
 
-        expect(whileOpening).toEqual(['advent-hog-3', null])
-        expect(card()?.getAttribute('data-open')).toBe('true')
+        expect(whileOpening).toEqual([null, 'advent-hog-3', null])
+        const name = document.getElementById(card()?.getAttribute('aria-labelledby') ?? '')?.textContent
+        expect([card()?.getAttribute('data-open'), name]).toEqual(['true', 'Reading'])
         act(() => fireEvent.click(card()?.querySelector('[data-attr="advent-door-card-close"]') as HTMLElement))
         waitForTheCardToClose()
         expect(card()).toBeNull()
@@ -135,66 +174,225 @@ describe('AdventFlowStage', () => {
     it.each([
         ['Close', 2, '[data-attr="advent-door-card-close"]'],
         ['the tip link', 1, '[data-attr="advent-tip-link"]'],
-    ])('moves focus into a pinned card and back to its door when Escape closes it from %s', (_, day, focused) => {
+    ])(
+        'moves focus into a pinned card, makes the closing card inert, and moves focus back to its door when Escape closes it from %s',
+        (_, day, focused) => {
+            seed([1, 2], { 2: 'tim' })
+            renderStage({ width: 375, height: 700 })
+
+            act(() => (door(day) as HTMLElement).focus())
+            act(() => fireEvent.click(door(day) as HTMLElement))
+            const focusInCard = document.activeElement?.getAttribute('data-attr')
+            act(() => (document.querySelector(focused) as HTMLElement).focus())
+            act(() => fireEvent.keyDown(window, { key: 'Escape' }))
+            const isClosingCardInert = card()?.hasAttribute('inert')
+            waitForTheCardToClose()
+
+            expect([focusInCard, isClosingCardInert, document.activeElement === door(day)]).toEqual([
+                'advent-door-card-close',
+                true,
+                true,
+            ])
+        }
+    )
+
+    type CardSetup =
+        | 'pinned'
+        | 'overflowing'
+        | 'overflowing at pin'
+        | 'overflowing after pin'
+        | 'fitting after pin'
+        | 'answered'
+        | 'hovered'
+    type Key = 'Tab' | 'Shift+Tab' | 'Escape' | 'Enter' | 'pointer down'
+    const CONTROLS: Record<string, string> = {
+        Close: '[data-attr="advent-door-card-close"]',
+        'the face': '.AdventCard__face',
+        'the link': '[data-attr="advent-tip-link"]',
+        'the body': '.AdventCard__body',
+        'the first answer': '[data-attr="advent-door-answer"]',
+        'the last answer': '[data-attr="advent-door-answer"]:last-of-type',
+    }
+    const [CLOSE, FACE, LINK, BODY, FIRST_ANSWER, LAST_ANSWER] = Object.keys(CONTROLS)
+
+    it.each<
+        [string, Key, string | number, string | number, 'pinned' | 'hover' | 'closed', number, number[], CardSetup]
+    >([
+        ['day 1 with a link', 'Tab', CLOSE, LINK, 'pinned', 1, [1, 2], 'pinned'],
+        ['day 1 with a link', 'Tab', LINK, CLOSE, 'pinned', 1, [1, 2], 'pinned'],
+        ['day 1 with a link', 'Shift+Tab', LINK, CLOSE, 'pinned', 1, [1, 2], 'pinned'],
+        ['day 1 with a link', 'Shift+Tab', CLOSE, LINK, 'pinned', 1, [1, 2], 'pinned'],
+        ['day 1 with a link', 'Escape', LINK, 1, 'closed', 1, [1, 2], 'pinned'],
+        ['day 1 with a link', 'Enter', CLOSE, 1, 'closed', 1, [1, 2], 'pinned'],
+        ['day 1 with a link and a body that overflows', 'Tab', LINK, CLOSE, 'pinned', 1, [1, 2], 'overflowing'],
+        ['day 2 without a link', 'Tab', CLOSE, CLOSE, 'pinned', 2, [1, 2], 'pinned'],
+        ['day 2 without a link', 'Shift+Tab', CLOSE, CLOSE, 'pinned', 2, [1, 2], 'pinned'],
+        ['day 2 without a link', 'Escape', CLOSE, 2, 'closed', 2, [1, 2], 'pinned'],
+        ['day 2 with a body that overflows', 'Tab', CLOSE, BODY, 'pinned', 2, [1, 2], 'overflowing'],
+        ['day 2 with a body that overflows', 'Tab', BODY, CLOSE, 'pinned', 2, [1, 2], 'overflowing'],
+        ['day 2 with a body that overflows', 'Shift+Tab', CLOSE, BODY, 'pinned', 2, [1, 2], 'overflowing'],
+        ['day 2 with a body that overflows', 'Escape', BODY, 2, 'closed', 2, [1, 2], 'overflowing'],
+        [
+            'day 2 with a body that overflows when it pins',
+            'Tab',
+            CLOSE,
+            BODY,
+            'pinned',
+            2,
+            [1, 2],
+            'overflowing at pin',
+        ],
+        [
+            'day 2 with a body that overflows when it pins',
+            'Shift+Tab',
+            CLOSE,
+            BODY,
+            'pinned',
+            2,
+            [1, 2],
+            'overflowing at pin',
+        ],
+        [
+            'day 2 with a body that overflows once the card is pinned',
+            'Tab',
+            CLOSE,
+            BODY,
+            'pinned',
+            2,
+            [1, 2],
+            'overflowing after pin',
+        ],
+        ['day 2 with a body that fits again', 'Tab', CLOSE, CLOSE, 'pinned', 2, [1, 2], 'fitting after pin'],
+        ['day 2 with a body that fits again', 'Shift+Tab', CLOSE, CLOSE, 'pinned', 2, [1, 2], 'fitting after pin'],
+        ['day 24', 'Tab', LINK, CLOSE, 'pinned', 24, [1, 2, 24], 'pinned'],
+        ['day 24', 'Shift+Tab', CLOSE, LINK, 'pinned', 24, [1, 2, 24], 'pinned'],
+        ['a poll before an answer', 'Tab', CLOSE, FIRST_ANSWER, 'pinned', 2, [1], 'pinned'],
+        ['a poll before an answer', 'Tab', LAST_ANSWER, CLOSE, 'pinned', 2, [1], 'pinned'],
+        ['a poll before an answer', 'Shift+Tab', CLOSE, LAST_ANSWER, 'pinned', 2, [1], 'pinned'],
+        ['a poll before an answer', 'Escape', LAST_ANSWER, 2, 'closed', 2, [1], 'pinned'],
+        ['a poll after a keyboard answer', 'Tab', CLOSE, CLOSE, 'pinned', 2, [1], 'answered'],
+        ['a poll after a keyboard answer', 'Shift+Tab', CLOSE, CLOSE, 'pinned', 2, [1], 'answered'],
+        ['a hover-only card', 'Tab', 24, CLOSE, 'pinned', 4, [1, 2], 'hovered'],
+        ['a hover-only card', 'pointer down', FACE, FACE, 'hover', 4, [1, 2], 'hovered'],
+        ['a hover-only card', 'Escape', FACE, 4, 'closed', 4, [1, 2], 'hovered'],
+    ])(
+        'on %s, %s from %s moves focus to %s and leaves the card %s',
+        async (_, key, from, focusTarget, cardState, day, opened, setup) => {
+            jest.spyOn(window, 'matchMedia').mockReturnValue({ matches: true } as MediaQueryList)
+            const user = userEvent.setup({ advanceTimers: jest.advanceTimersByTime })
+            seed(opened, opened.includes(2) ? { 2: 'tim' } : {})
+            renderStage({ width: 1200, height: 830 })
+            const target = (selector: string | number): HTMLElement | null =>
+                typeof selector === 'number'
+                    ? door(selector)
+                    : (card()?.querySelector<HTMLElement>(CONTROLS[selector]) ?? null)
+
+            bodiesOverflow.current = setup === 'overflowing at pin' || setup === 'fitting after pin'
+            if (setup === 'hovered') {
+                act(() => fireEvent.mouseEnter(door(day) as HTMLElement))
+            } else {
+                act(() => fireEvent.click(door(day) as HTMLElement))
+            }
+            if (setup === 'answered') {
+                const option = target(FIRST_ANSWER) as HTMLElement
+                act(() => option.focus())
+                act(() => fireEvent.click(option))
+                await act(async () => {
+                    await jest.advanceTimersByTimeAsync(700)
+                })
+            }
+            const body = target(BODY) as HTMLElement
+            if (setup === 'overflowing after pin' || setup === 'fitting after pin') {
+                bodiesOverflow.current = setup === 'overflowing after pin'
+            }
+            if (setup === 'overflowing') {
+                Object.defineProperties(body, { scrollHeight: { value: 400 }, clientHeight: { value: 120 } })
+                body.tabIndex = body.querySelector('button, a[href]') ? -1 : 0
+            }
+            const start = target(from) as HTMLElement
+            act(() => start.focus())
+            if (key === 'pointer down') {
+                act(() => {
+                    fireEvent.keyDown(window, { key: 'Tab' })
+                    fireEvent.pointerDown(start)
+                    start.blur()
+                    start.focus()
+                })
+            } else if (key === 'Tab' || key === 'Shift+Tab') {
+                await user.tab({ shift: key === 'Shift+Tab' })
+            } else {
+                await user.keyboard(`{${key}}`)
+            }
+            waitForTheCardToClose()
+
+            const state = !card() ? 'closed' : target(CLOSE) ? 'pinned' : 'hover'
+            expect([document.activeElement === target(focusTarget), state]).toEqual([true, cardState])
+        }
+    )
+
+    it.each([
+        ['a pinned card', 2, true],
+        ['the card of a door still opening', 3, false],
+    ])('closes %s when the phone column scrolls under it', async (_, day, isPinnedBeforeScroll) => {
+        jest.spyOn(window, 'matchMedia').mockReturnValue({ matches: false } as MediaQueryList)
         seed([1, 2], { 2: 'tim' })
         renderStage({ width: 375, height: 700 })
 
-        act(() => (door(day) as HTMLElement).focus())
         act(() => fireEvent.click(door(day) as HTMLElement))
-        const focusInCard = document.activeElement?.getAttribute('data-attr')
-        act(() => (document.querySelector(focused) as HTMLElement).focus())
-        act(() => fireEvent.keyDown(window, { key: 'Escape' }))
-        waitForTheCardToClose()
-
-        expect([focusInCard, document.activeElement === door(day)]).toEqual(['advent-door-card-close', true])
-    })
-
-    it('closes a pinned card when the phone column scrolls under it', () => {
-        seed([1, 2], { 2: 'tim' })
-        renderStage({ width: 375, height: 700 })
-
-        act(() => fireEvent.click(door(2) as HTMLElement))
         const isPinned = !!card()
         act(() => fireEvent.scroll(document.querySelector('.AdventFlowStage__track') as HTMLElement))
-        waitForTheCardToClose()
+        await act(async () => {
+            await jest.advanceTimersByTimeAsync(2600)
+        })
 
-        expect([isPinned, card()]).toEqual([true, null])
+        expect([isPinned, card()]).toEqual([isPinnedBeforeScroll, null])
     })
 
     it.each([
-        ['Tab from Close', 2, '[data-attr="advent-door-card-close"]', false, 3],
-        ['Shift+Tab from its face', 2, '.AdventCard__face', true, 2],
-        ["Tab from the last door's link", 24, '[data-attr="advent-tip-link"]', false, 24],
-    ])('leaves a pinned card on %s and closes the card', (_, pinned, from, shiftKey, landsOn) => {
-        seed([1, 2, 24], { 2: 'tim' })
-        renderStage({ width: 1200, height: 830 })
-
-        act(() => fireEvent.click(door(pinned) as HTMLElement))
-        act(() => card()?.querySelector<HTMLElement>(from)?.focus())
-        act(() => void fireEvent.keyDown(document.activeElement as HTMLElement, { key: 'Tab', shiftKey }))
-        waitForTheCardToClose()
-
-        expect([document.activeElement === door(landsOn), card()]).toEqual([true, null])
-    })
-
-    it('keeps focus in a pinned card after a keyboard answer opens its door', async () => {
+        ['day 1, whose overflowing body holds a link', 1, true],
+        ['day 2, whose body fits', 2, false],
+    ])('gives the body of the pinned card for %s no tab stop', async (_, day, overflows) => {
         jest.spyOn(window, 'matchMedia').mockReturnValue({ matches: true } as MediaQueryList)
-        seed([1], {})
+        const user = userEvent.setup({ advanceTimers: jest.advanceTimersByTime })
+        seed([1, 2], { 2: 'tim' })
+        bodiesOverflow.current = overflows
         renderStage({ width: 1200, height: 830 })
 
-        act(() => fireEvent.click(door(2) as HTMLElement))
-        const option = card()?.querySelector<HTMLElement>('[data-attr="advent-door-answer"]') as HTMLElement
-        act(() => option.focus())
-        act(() => fireEvent.click(option))
-        await act(async () => {
-            await jest.advanceTimersByTimeAsync(700)
-        })
+        act(() => fireEvent.click(door(day) as HTMLElement))
+        await user.tab()
 
-        expect([door(2)?.getAttribute('data-attr'), document.activeElement?.getAttribute('data-attr')]).toEqual([
-            'advent-hog-2',
-            'advent-door-card-close',
-        ])
+        expect(card()?.querySelector('.AdventCard__body')?.getAttribute('tabindex')).toBeNull()
     })
+
+    it.each([
+        ['under reduced motion', true, 'advent-door-card-close'],
+        ['while its door opens', false, 'advent-hog-2'],
+    ])(
+        'keeps focus on the answered door or its pinned card after a keyboard answer %s',
+        async (_, reducesMotion, focusAtOnce) => {
+            jest.spyOn(window, 'matchMedia').mockReturnValue({ matches: reducesMotion } as MediaQueryList)
+            seed([1], {})
+            renderStage({ width: 1200, height: 830 })
+
+            act(() => fireEvent.click(door(2) as HTMLElement))
+            const option = card()?.querySelector<HTMLElement>('[data-attr="advent-door-answer"]') as HTMLElement
+            act(() => option.focus())
+            act(() => fireEvent.click(option))
+            await act(async () => {
+                await jest.advanceTimersByTimeAsync(100)
+            })
+            const focusedAtOnce = document.activeElement?.getAttribute('data-attr')
+            await act(async () => {
+                await jest.advanceTimersByTimeAsync(2600)
+            })
+
+            expect([
+                door(2)?.getAttribute('data-attr'),
+                focusedAtOnce,
+                document.activeElement?.getAttribute('data-attr'),
+            ]).toEqual(['advent-hog-2', focusAtOnce, 'advent-door-card-close'])
+        }
+    )
 
     it.each([
         ['row', 'a desktop stage', { width: 1200, height: 830 }],
@@ -265,11 +463,25 @@ describe('AdventFlowStage', () => {
         ['out of view', false, false, 'false'],
         ['in view in a hidden tab', true, true, 'false'],
     ])("wakes today's glow only while the stage is %s", (_, isIntersecting, isHidden, awake) => {
+        let reportView: (isIntersecting: boolean) => void = () => undefined
+        jest.mocked(IntersectionObserver).mockImplementation((callback) => {
+            const observer: IntersectionObserver = {
+                root: null,
+                rootMargin: '',
+                scrollMargin: '',
+                thresholds: [],
+                observe: () => undefined,
+                unobserve: () => undefined,
+                disconnect: () => undefined,
+                takeRecords: () => [],
+            }
+            reportView = (isIntersecting) => callback([{ isIntersecting } as IntersectionObserverEntry], observer)
+            return observer
+        })
         renderStage({ width: 1200, height: 830 })
-        const observe = (IntersectionObserver as unknown as jest.Mock).mock.calls.at(-1)?.[0]
         jest.spyOn(document, 'hidden', 'get').mockReturnValue(isHidden)
 
-        act(() => observe([{ isIntersecting }]))
+        act(() => reportView(isIntersecting))
         act(() => void document.dispatchEvent(new Event('visibilitychange')))
 
         expect(document.querySelector('[data-attr="advent-stage"]')?.getAttribute('data-awake')).toBe(awake)

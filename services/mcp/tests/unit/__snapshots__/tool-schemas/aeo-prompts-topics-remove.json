@@ -1,0 +1,12 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "topic": {
+            "description": "The topic to remove. Its prompts are kept and are left with no topic. Letter case is ignored.",
+            "maxLength": 200,
+            "type": "string"
+        }
+    },
+    "required": ["topic"],
+    "type": "object"
+}

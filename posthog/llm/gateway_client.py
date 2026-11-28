@@ -63,11 +63,23 @@ class GatewayNotConfiguredError(ValueError):
 _private_scout_gateway_token: ContextVar[str | None] = ContextVar("private_scout_gateway_token", default=None)
 
 
+def _gateway_path_misconfig(url: str) -> str | None:
+    """Return a reason string unless the URL's path is exactly /v1, else None.
+
+    The SDK appends /chat/completions, so the base URL must carry /v1. Anything in front of it, such
+    as the retired per-product route /stamphog/v1, is refused so the gateway key is never sent there.
+    """
+    path = urlparse(url).path.rstrip("/")
+    if path != "/v1":
+        return f"AI_GATEWAY_URL path must be /v1, e.g. https://<host>/v1, got {path or '/'}"
+    return None
+
+
 def ensure_scout_trial_capture_ready() -> None:
     if not getattr(settings, "SCOUT_LIVE_TRIALS_PRIVATE_CAPTURE", False):
         raise GatewayNotConfiguredError("Private capture must be enabled for scout trials on the Go AI gateway")
-    if not urlparse(settings.AI_GATEWAY_URL).path.rstrip("/").endswith("/v1"):
-        raise GatewayNotConfiguredError("Scout trials require AI_GATEWAY_URL with the /v1 base path")
+    if misconfig := _gateway_path_misconfig(settings.AI_GATEWAY_URL):
+        raise GatewayNotConfiguredError(misconfig)
 
 
 @contextmanager
@@ -87,10 +99,7 @@ def _gateway_misconfig(url: str, api_key: str) -> str | None:
     """Return a reason string if the gateway env is half-applied or malformed, else None."""
     if not (url and api_key):
         return "AI_GATEWAY_URL and AI_GATEWAY_API_KEY must be set together"
-    # The SDK appends /chat/completions, so base_url must already carry the /v1 path.
-    if not urlparse(url).path.rstrip("/").endswith("/v1"):
-        return "AI_GATEWAY_URL must include the OpenAI base path, e.g. https://<host>/v1"
-    return None
+    return _gateway_path_misconfig(url)
 
 
 @frozen
@@ -306,8 +315,8 @@ def build_ai_gateway_openai_client(
     url = settings.AI_GATEWAY_URL
     if not url:
         raise GatewayNotConfiguredError("AI_GATEWAY_URL is not set")
-    if not urlparse(url).path.rstrip("/").endswith("/v1"):
-        raise GatewayNotConfiguredError(f"AI_GATEWAY_URL must end with /v1, got {url}")
+    if misconfig := _gateway_path_misconfig(url):
+        raise GatewayNotConfiguredError(misconfig)
     if not api_key:
         raise GatewayNotConfiguredError("api_key is required")
     return OpenAI(

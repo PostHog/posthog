@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { RefObject } from 'react'
+import { ReactNode, RefObject } from 'react'
 
 import { adventCalendarLogic } from '../adventCalendarLogic'
 import { AdventCardFace, AdventDoorCard } from '../AdventDoorCard'
@@ -42,7 +42,6 @@ function cardDoorOf(node: AdventFlowNode, face: AdventCardFace, stageHeight: num
 const nodeOfDoor = (layout: AdventFlowLayout, doorId: string | null): AdventFlowNode | null =>
     layout.nodes.find((node) => !!node.door && node.door.id === doorId) ?? null
 
-// The door card over the stage. It holds the hover state, so moving between doors re-renders only the card.
 export function AdventFlowCard({
     stageRef,
     stage,
@@ -54,31 +53,39 @@ export function AdventFlowCard({
     onDismiss,
 }: AdventFlowCardProps): JSX.Element | null {
     const { selectedDoorId, revealingDoor, pollShares } = useValues(adventCalendarLogic)
-    const { activateDoor, answerDoor, clickTip } = useActions(adventCalendarLogic)
+    const { activateDoor, pinDoor, answerDoor, clickTip } = useActions(adventCalendarLogic)
     const card = useAdventCard(selectedDoorId, !revealingDoor)
     hover.card.current = card
-    const cardNode = nodeOfDoor(layout, card.doorId)
-    useAdventCardFocus(stageRef, card.isPinned, cardNode, onDismiss)
+    const cardNode = revealingDoor ? null : nodeOfDoor(layout, card.doorId)
+    const guards = useAdventCardFocus(stageRef, card.isPinned, cardNode, pinDoor)
 
     if (!cardNode) {
         return null
     }
     const face = faceOf(cardNode, zoom, rectOnStage)
+    const focusGuard = (onFocus: () => void): ReactNode =>
+        card.isPinned && <span tabIndex={0} aria-hidden onFocus={onFocus} />
     return (
-        <AdventDoorCard
-            key={cardNode.id}
-            door={cardDoorOf(cardNode, face, stage.height, isRows)}
-            shares={pollShares[cardNode.door?.day ?? 0]}
-            face={face}
-            stage={stage}
-            isOpen={card.isOpen}
-            isPinned={card.isPinned}
-            onPin={activateDoor}
-            onAnswer={answerDoor}
-            onTipClick={clickTip}
-            onClose={onDismiss}
-            onMouseEnter={card.onEnterCard}
-            onMouseLeave={card.onLeaveDoor}
-        />
+        <>
+            {focusGuard(guards.onFocusStart)}
+            <AdventDoorCard
+                key={cardNode.id}
+                door={cardDoorOf(cardNode, face, stage.height, isRows)}
+                shares={pollShares[cardNode.door?.day ?? 0]}
+                face={face}
+                stage={stage}
+                isOpen={card.isOpen}
+                isPinned={card.isPinned}
+                isDialog
+                isClosing={card.isClosing}
+                onPin={activateDoor}
+                onAnswer={answerDoor}
+                onTipClick={clickTip}
+                onClose={onDismiss}
+                onMouseEnter={card.onEnterCard}
+                onMouseLeave={card.onLeaveDoor}
+            />
+            {focusGuard(guards.onFocusEnd)}
+        </>
     )
 }

@@ -17,7 +17,6 @@ export interface AdventFlowStepProps {
     orientation: AdventFlowOrientation
     today: number
     isSelected: boolean
-    // The door opens right now. A door drawn by `renderLastDoor` calls `onOpened` once its own opening ends.
     isOpening: boolean
     onOpened: () => void
     onActivate: (doorId: string) => void
@@ -69,6 +68,13 @@ function doorName(door: AdventDoor): string {
 const at = ({ x, y, width, height }: AdventFlowRect): CSSProperties => ({ left: x, top: y, width, height })
 
 const captionId = (node: AdventFlowNode): string => `advent-flow-caption-${node.id}`
+
+function captionAlign(orientation: AdventFlowOrientation, node: AdventFlowNode): string {
+    if (orientation === 'column') {
+        return 'items-start justify-center text-left'
+    }
+    return node.lane === 'upper' ? 'items-center justify-end text-center' : 'items-center justify-start text-center'
+}
 
 const endTileClass = (orientation: AdventFlowOrientation, isExit: boolean): string =>
     cn(
@@ -150,7 +156,6 @@ function ClosedDoor({ door, face }: { door: AdventDoor; face?: ReactNode }): JSX
     )
 }
 
-// An opening door keeps its button, so a keyboard user who opened it keeps focus on it.
 function DoorTile({
     node,
     today,
@@ -202,13 +207,14 @@ export const AdventFlowStep = memo(function AdventFlowStep(props: AdventFlowStep
                 id={captionId(node)}
                 className={cn(
                     'AdventFlowStep__caption pointer-events-none absolute flex flex-col leading-tight',
-                    orientation === 'rows' ? 'items-center text-center' : 'items-start text-left',
-                    !columnNote && 'justify-center'
+                    columnNote ? 'items-start text-left' : captionAlign(orientation, node)
                 )}
                 style={columnNote ? columnNoteAt(node) : at(node.caption)}
             >
-                {title && <span className="max-w-full truncate text-[12px] font-semibold text-primary">{title}</span>}
-                {detail && <span className="max-w-full truncate text-[11px] text-secondary">{detail}</span>}
+                {title && (
+                    <span className="line-clamp-2 max-w-full text-[12px] font-semibold text-primary">{title}</span>
+                )}
+                {detail && <span className="line-clamp-2 max-w-full text-[11px] text-secondary">{detail}</span>}
                 {columnNote && <span className="AdventFlowStep__columnNote text-secondary">{columnNote.body}</span>}
             </span>
         </>

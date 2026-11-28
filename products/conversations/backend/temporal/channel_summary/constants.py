@@ -7,8 +7,6 @@ COORDINATOR_INTERVAL_MINUTES = 60
 MAX_SUMMARIES_PER_RUN = 50
 MAX_SUMMARIES_PER_TEAM_PER_RUN = 10
 
-# Must be in the LLM gateway `conversations` product allowlist
-# (`services/llm-gateway/src/llm_gateway/products/config.py`).
 SUMMARY_MODEL = "claude-sonnet-5"
 SUMMARY_MAX_TOKENS = 10_000
 

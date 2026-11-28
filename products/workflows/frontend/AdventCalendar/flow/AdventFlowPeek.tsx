@@ -2,7 +2,6 @@ import { CSSProperties } from 'react'
 
 import { cn } from 'lib/utils/css-classes'
 
-import { TileBadge } from '../../Workflows/hogflows/editor/tile-canvas/TileBadge'
 import { AdventDoor, adventDayColor } from '../adventGraph'
 import { AdventRewardArt } from '../AdventRewardArt'
 import { ADVENT_FLOW_DOOR } from './adventFlowLayout'
@@ -13,8 +12,6 @@ interface Pose {
     shift: number
 }
 
-// Where each hoggy stands behind the opening. `sink` is the share of the art hidden under the bottom edge of
-// the frame, and `shift` moves it sideways away from the leaf, so faces stay whole.
 const POSES: Record<string, Partial<Pose>> = {
     safari: { height: 100, sink: 0.12, shift: 18 },
     scientist: { height: 93, sink: 0.4, shift: 15 },
@@ -52,8 +49,6 @@ export interface AdventFlowPeekProps {
     isOpening: boolean
 }
 
-// An open door: the hoggy stands behind the canvas, so the opening clips it, the frame shades it, and the
-// door leaf hangs open in front of it. The button around it carries the door's name.
 export function AdventFlowPeek({ door, isOpening }: AdventFlowPeekProps): JSX.Element {
     const color = adventDayColor(door.day)
     return (
@@ -75,9 +70,6 @@ export function AdventFlowPeek({ door, isOpening }: AdventFlowPeekProps): JSX.El
                     </span>
                     <span className="AdventFlowPeek__face AdventFlowPeek__face--back" style={{ borderColor: color }} />
                 </span>
-            </span>
-            <span className="AdventFlowPeek__tab">
-                <TileBadge placement="setting" color={color}>{`Dec ${door.day}`}</TileBadge>
             </span>
         </span>
     )

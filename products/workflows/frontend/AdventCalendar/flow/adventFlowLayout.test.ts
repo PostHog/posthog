@@ -9,21 +9,26 @@ const REWARDS = drawAdventRewards('0190d8a2-1c4e-7b3a-9f21-5a6b7c8d9e01')
 const ORIENTATIONS: AdventFlowOrientation[] = ['rows', 'column']
 const DAYS = Array.from({ length: ADVENT_LAST_DAY }, (_, index) => index + 1)
 
-function answered(days: number[]): Record<number, string> {
+function answered(days: number[], pick = 0): Record<number, string> {
     return Object.fromEntries(
         ADVENT_QUESTION_DAYS.filter((day) => days.includes(day)).map((day) => [
             day,
-            ADVENT_QUESTIONS[day].options[day % 2].id,
+            ADVENT_QUESTIONS[day].options[(day + pick) % 2].id,
         ])
     )
 }
 
 const LEAF_REACH = 26
+const ARROW_CLEARANCE = 10
 
 const STATES = {
     'nothing open': { progress: { opened: [], answers: {} }, today: 1 },
     'the first week open': { progress: { opened: DAYS.slice(0, 6), answers: answered(DAYS.slice(0, 6)) }, today: 7 },
     'every door open': { progress: { opened: DAYS, answers: answered(DAYS) }, today: ADVENT_LAST_DAY },
+    'every door open with the other answers': {
+        progress: { opened: DAYS, answers: answered(DAYS, 1) },
+        today: ADVENT_LAST_DAY,
+    },
 } satisfies Record<string, { progress: AdventProgress; today: number }>
 
 type State = keyof typeof STATES
@@ -97,7 +102,7 @@ describe('adventFlowLayout', () => {
     })
 
     it.each(cases)(
-        'routes each edge from tile edge to tile edge, square, through no tile or caption in %s with %s',
+        'routes each edge from tile edge to tile edge, square, through no tile or caption, apart from the other arrows into its tile in %s with %s',
         (orientation, state) => {
             const layout = layoutOf(state, orientation)
             const byId = new Map(layout.nodes.map((node) => [node.id, node]))
@@ -122,7 +127,19 @@ describe('adventFlowLayout', () => {
                 .filter((node) => node.id !== 'trigger' && !layout.edges.some((edge) => edge.target === node.id))
                 .map((node) => node.id)
 
-            expect({ faults, unreached }).toEqual({ faults: [], unreached: [] })
+            const crowded = layout.nodes.flatMap((node) => {
+                const ends = layout.edges
+                    .filter((edge) => edge.target === node.id)
+                    .map((edge) => edge.points[edge.points.length - 1])
+                const touch = ends.some((end, index) =>
+                    ends
+                        .slice(index + 1)
+                        .some((other) => Math.hypot(end.x - other.x, end.y - other.y) < ARROW_CLEARANCE)
+                )
+                return touch ? [node.id] : []
+            })
+
+            expect({ faults, unreached, crowded }).toEqual({ faults: [], unreached: [], crowded: [] })
         }
     )
 
@@ -130,9 +147,11 @@ describe('adventFlowLayout', () => {
         const { progress, today } = STATES[state]
         const graph = buildAdventGraph(progress, today, REWARDS)
 
-        const edgeIds = adventFlowLayout(graph, {}, orientation).edges.map((edge) => edge.id)
+        const edgeOf = new Map(adventFlowLayout(graph, {}, orientation).edges.map((edge) => [edge.id, edge]))
 
-        expect(graph.links.map((link) => link.id).filter((id) => !edgeIds.includes(id))).toEqual([])
+        expect(graph.links.map((link) => [link.id, edgeOf.get(link.id)?.source, edgeOf.get(link.id)?.target])).toEqual(
+            graph.links.map((link) => [link.id, link.from, link.to])
+        )
     })
 
     it.each(cases)('walks an edge once its source and its target door are open in %s with %s', (orientation, state) => {
@@ -148,20 +167,34 @@ describe('adventFlowLayout', () => {
         )
     })
 
-    it.each(ORIENTATIONS)('moves nothing when doors open and questions get answered in %s', (orientation) => {
-        const before = layoutOf('nothing open', orientation)
-        const after = layoutOf('every door open', orientation)
-        const placeOf = new Map(before.nodes.map((node) => [node.id, { tile: node.tile, caption: node.caption }]))
-        const routeOf = new Map(before.edges.map((edge) => [edge.id, edge.points]))
+    it.each(
+        ORIENTATIONS.flatMap((orientation) =>
+            (['every door open', 'every door open with the other answers'] as const).map(
+                (state): [AdventFlowOrientation, State] => [orientation, state]
+            )
+        )
+    )(
+        'keeps every tile 70 × 74 and moves nothing when doors open and questions get answered in %s with %s',
+        (orientation, state) => {
+            const before = layoutOf('nothing open', orientation)
+            const after = layoutOf(state, orientation)
+            const placeOf = new Map(before.nodes.map((node) => [node.id, { tile: node.tile, caption: node.caption }]))
+            const routeOf = new Map(
+                before.edges.map((edge) => [edge.id, { points: edge.points, labelAt: edge.labelAt }])
+            )
 
-        expect(after.nodes.map((node) => [node.id, { tile: node.tile, caption: node.caption }])).toEqual(
-            after.nodes.map((node) => [node.id, placeOf.get(node.id)])
-        )
-        expect(after.edges.map((edge) => [edge.id, edge.points])).toEqual(
-            after.edges.map((edge) => [edge.id, routeOf.get(edge.id)])
-        )
-        expect([after.width, after.height]).toEqual([before.width, before.height])
-    })
+            expect(after.nodes.map((node) => [node.id, { tile: node.tile, caption: node.caption }])).toEqual(
+                after.nodes.map((node) => [node.id, placeOf.get(node.id)])
+            )
+            expect(after.edges.map((edge) => [edge.id, { points: edge.points, labelAt: edge.labelAt }])).toEqual(
+                after.edges.map((edge) => [edge.id, routeOf.get(edge.id)])
+            )
+            expect([after.width, after.height]).toEqual([before.width, before.height])
+            expect(
+                new Set([...before.nodes, ...after.nodes].map(({ tile }) => `${tile.width} × ${tile.height}`))
+            ).toEqual(new Set(['70 × 74']))
+        }
+    )
 
     it('puts the hover label of a desktop door on its right, or on its left at the right edge, clear of the leaf', () => {
         const layout = layoutOf('nothing open', 'rows')
