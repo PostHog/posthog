@@ -35,6 +35,8 @@ export interface LemonModalProps {
     /** When enabled, the modal content will only include children allowing greater customisation */
     simple?: boolean
     closable?: boolean
+    /** When disabled, clicking outside the modal does nothing. Escape and the close button still work. */
+    closeOnOverlayClick?: boolean
     hideCloseButton?: boolean
     /** If there is unsaved input that's not persisted, the modal can't be closed closed on overlay click. */
     hasUnsavedInput?: boolean
@@ -85,6 +87,7 @@ export function LemonModal({
     inline,
     simple,
     closable = true,
+    closeOnOverlayClick = true,
     hasUnsavedInput,
     fullScreen = false,
     forceAbovePopovers = false,
@@ -188,7 +191,7 @@ export function LemonModal({
                     onClose?.()
                 }
             }}
-            shouldCloseOnOverlayClick={closable}
+            shouldCloseOnOverlayClick={closable && closeOnOverlayClick}
             shouldCloseOnEsc={closable}
             onAfterClose={onAfterClose}
             closeTimeoutMS={250}
