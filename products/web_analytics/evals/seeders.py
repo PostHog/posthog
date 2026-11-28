@@ -3,8 +3,8 @@
 Every seeder computes the case's oracle answer against the case team at run time, using the
 same query runners the MCP tools wrap, and returns it under ``oracle`` so the answer judge can
 compare the agent's final message with a number that moves with the seeded data. The web vitals
-case also writes a designed set of ``$web_vitals`` events, because the Hedgebox simulation does
-not capture them.
+and AI agent traffic cases also write designed events (``$web_vitals``, and pageviews from crawler
+user agents), because the Hedgebox simulation captures neither.
 """
 
 from __future__ import annotations
@@ -97,10 +97,10 @@ def _overview(team: Team, **kwargs: Any) -> dict[str, dict[str, float | None]]:
     }
 
 
-def _stats_rows(team: Team, breakdown: WebStatsBreakdown, limit: int, **kwargs: Any) -> list[dict[str, Any]]:
+def _stats_cells(team: Team, breakdown: WebStatsBreakdown, limit: int, **kwargs: Any) -> list[dict[str, Any]]:
     query = WebStatsTableQuery(
         breakdownBy=breakdown,
-        dateRange=DateRange(date_from="-7d"),
+        dateRange=kwargs.pop("dateRange", DateRange(date_from="-7d")),
         limit=limit,
         orderBy=[WebAnalyticsOrderByFields.VISITORS, WebAnalyticsOrderByDirection.DESC],
         properties=[],
@@ -108,12 +108,19 @@ def _stats_rows(team: Team, breakdown: WebStatsBreakdown, limit: int, **kwargs: 
     )
     response = WebStatsTableQueryRunner(team=team, query=query).calculate()
     columns = [column.removeprefix("context.columns.") for column in response.columns or []]
-    rows = []
-    for row in response.results:
-        cells = dict(zip(columns, row))
-        # Every metric cell is a `[current, previous]` pair.
-        rows.append({name: value[0] if isinstance(value, list | tuple) else value for name, value in cells.items()})
-    return rows
+    return [dict(zip(columns, row)) for row in response.results]
+
+
+def _stats_rows(team: Team, breakdown: WebStatsBreakdown, limit: int, **kwargs: Any) -> list[dict[str, Any]]:
+    # Every metric cell is a `[current, previous]` pair; these rows keep the current value.
+    return [
+        {name: value[0] if isinstance(value, list | tuple) else value for name, value in cells.items()}
+        for cells in _stats_cells(team, breakdown, limit, **kwargs)
+    ]
+
+
+def _share(part: float | None, total: float | None) -> float:
+    return round(100 * (part or 0) / total, 1) if total else 0.0
 
 
 def _rounded(value: float | None, digits: int = 0) -> float | int | None:
@@ -326,6 +333,183 @@ def seed_weekly_digest(context: CustomPromptSandboxContext) -> dict[str, Any]:
     }
 
 
+def seed_traffic_change_drivers(context: CustomPromptSandboxContext) -> dict[str, Any]:
+    team = _team(context)
+    complete_week = DateRange(date_from="-7d", excludeIncompletePeriods=True)
+    compare = CompareFilter(compare=True)
+    visitors = _overview(team, dateRange=complete_week, compareFilter=compare)["visitors"]
+
+    def movers(breakdown: WebStatsBreakdown) -> list[tuple[str, int, int]]:
+        rows = []
+        for cells in _stats_cells(team, breakdown, limit=50, dateRange=complete_week, compareFilter=compare):
+            current, previous = (cells["visitors"] or [0, 0])[:2]
+            rows.append((str(cells["breakdown_value"]), round(current or 0), round(previous or 0)))
+        return sorted(rows, key=lambda row: abs(row[1] - row[2]), reverse=True)[:3]
+
+    def described(rows: list[tuple[str, int, int]]) -> str:
+        return ", ".join(f"{value} ({previous} to {current})" for value, current, previous in rows)
+
+    channels = movers(WebStatsBreakdown.INITIAL_CHANNEL_TYPE)
+    referrers = movers(WebStatsBreakdown.INITIAL_REFERRING_DOMAIN)
+    return {
+        "oracle": {
+            "answer": (
+                f"Visitors went from {_rounded(visitors['previous'])} to {_rounded(visitors['value'])} "
+                f"({_rounded(visitors['change_pct'], 1)}%) over the last 7 complete days against the 7 before. "
+                f"Channels that moved most: {described(channels)}. Referring domains that moved most: "
+                f"{described(referrers)}."
+            ),
+            "tolerance": (
+                "The direction of the headline change must match and the percentage must be within 3 points. The "
+                f"answer must name {channels[0][0] if channels else 'the top channel mover'} or "
+                f"{referrers[0][0] if referrers else 'the top referrer mover'} as a driver, with before and after "
+                "visitor counts within 5%, and say which days each period covers."
+            ),
+        }
+    }
+
+
+def seed_traffic_sources(context: CustomPromptSandboxContext) -> dict[str, Any]:
+    team = _team(context)
+    total = _overview(team, dateRange=DateRange(date_from="-7d"))["visitors"]["value"]
+    channels = _stats_rows(team, WebStatsBreakdown.INITIAL_CHANNEL_TYPE, limit=10)
+    referrers = _stats_rows(team, WebStatsBreakdown.INITIAL_REFERRING_DOMAIN, limit=10)
+    channel_text = ", ".join(
+        f"{row['breakdown_value']} ({_rounded(row['visitors'])}, {_share(row['visitors'], total)}%)"
+        for row in channels[:3]
+    )
+    referrer_text = ", ".join(f"{row['breakdown_value']} ({_rounded(row['visitors'])})" for row in referrers[:5])
+    return {
+        "oracle": {
+            "answer": f"Top channels by visitors: {channel_text}. Top referring domains: {referrer_text}.",
+            "tolerance": (
+                "The top three channels and the top three referring domains must appear in the same order, with "
+                "visitor counts within 5%. '$direct' may be reported as direct traffic."
+            ),
+        }
+    }
+
+
+def seed_goal_conversions_by_channel(context: CustomPromptSandboxContext) -> dict[str, Any]:
+    rows = _stats_rows(
+        _team(context),
+        WebStatsBreakdown.INITIAL_CHANNEL_TYPE,
+        limit=10,
+        conversionGoal=CustomEventConversionGoal(customEventName=SIGNUP_EVENT),
+    )
+    rows.sort(key=lambda row: row["total_conversions"] or 0, reverse=True)
+    ranked = ", ".join(
+        f"{row['breakdown_value']} ({_rounded(row['total_conversions'])} conversions from "
+        f"{_rounded(row['visitors'])} visitors, {_rounded((row['conversion_rate'] or 0) * 100, 1)}%)"
+        for row in rows[:3]
+    )
+    return {
+        "oracle": {
+            "answer": f"Channels by '{SIGNUP_EVENT}' conversions over the last 7 days: {ranked}.",
+            "tolerance": (
+                "The top channel must match, conversion counts within 5% and conversion rates within one percentage "
+                "point. The answer must say the goal is the signed_up event."
+            ),
+        }
+    }
+
+
+def seed_audience(context: CustomPromptSandboxContext) -> dict[str, Any]:
+    team = _team(context)
+    total = _overview(team, dateRange=DateRange(date_from="-7d"))["visitors"]["value"]
+    countries = _stats_rows(team, WebStatsBreakdown.COUNTRY, limit=10)
+    devices = _stats_rows(team, WebStatsBreakdown.DEVICE_TYPE, limit=10)
+    country_text = ", ".join(f"{row['breakdown_value']} ({_rounded(row['visitors'])})" for row in countries[:5])
+    device_text = ", ".join(
+        f"{row['breakdown_value']} ({_rounded(row['visitors'])}, {_share(row['visitors'], total)}%)" for row in devices
+    )
+    return {
+        "oracle": {
+            "answer": f"Top countries by visitors: {country_text}. Device types: {device_text}.",
+            "tolerance": (
+                "The top three countries in the same order, and the leading device type must match with its share "
+                "within 3 points."
+            ),
+        }
+    }
+
+
+# Pageviews from public crawler user agents, spread over the last six days. GPTBot and ClaudeBot classify
+# as AI agents and Googlebot as a bot, so the answer has to split AI agents from other automated traffic.
+AI_AGENT_VISITS: tuple[tuple[str, str, int], ...] = (
+    (
+        "gptbot",
+        "Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko; compatible; GPTBot/1.2; +https://openai.com/gptbot)",
+        40,
+    ),
+    (
+        "claudebot",
+        "Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko; compatible; ClaudeBot/1.0; +claudebot@anthropic.com)",
+        25,
+    ),
+    ("googlebot", "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)", 15),
+)
+_AI_AGENT_PATHS = ("/", "/pricing/", "/blog/")
+
+
+def seed_ai_agent_traffic(context: CustomPromptSandboxContext) -> dict[str, Any]:
+    team = _team(context)
+    now = datetime.now(UTC)
+    for crawler, user_agent, visits in AI_AGENT_VISITS:
+        distinct_id = f"{crawler}-crawler"
+        _insert_person(team, distinct_id, now - timedelta(days=10))
+        for index in range(visits):
+            timestamp = now - timedelta(days=1 + index % 6, hours=index % 13)
+            path = _AI_AGENT_PATHS[index % len(_AI_AGENT_PATHS)]
+            _insert_event(
+                team,
+                "$pageview",
+                distinct_id,
+                timestamp,
+                {
+                    "$pathname": path,
+                    "$current_url": f"https://hedgebox.net{path}",
+                    "$host": "hedgebox.net",
+                    "$raw_user_agent": user_agent,
+                    "$session_id": str(uuid7(timestamp.isoformat())),
+                },
+            )
+
+    def grouped(query: str) -> list[tuple[str, int]]:
+        response = execute_hogql_query(
+            query_type="web_analytics_mcp_eval_oracle",
+            query=parse_select(query, placeholders={"date_from": ast.Constant(value=now - timedelta(days=7))}),
+            team=team,
+        )
+        return [(str(value), int(count)) for value, count in response.results]
+
+    types = grouped(
+        "SELECT `$virt_traffic_type` AS value, count() AS pageviews FROM events "
+        "WHERE event = '$pageview' AND timestamp >= {date_from} GROUP BY value ORDER BY pageviews DESC"
+    )
+    total = sum(count for _, count in types)
+    agents = grouped(
+        "SELECT `$virt_bot_name` AS value, count() AS pageviews FROM events "
+        "WHERE event = '$pageview' AND timestamp >= {date_from} AND `$virt_traffic_type` = 'AI Agent' "
+        "GROUP BY value ORDER BY pageviews DESC"
+    )
+    type_text = ", ".join(f"{name} {count} ({_share(count, total)}%)" for name, count in types)
+    agent_text = ", ".join(f"{name} ({count})" for name, count in agents[:5])
+    return {
+        "oracle": {
+            "answer": (
+                f"Pageviews over the last 7 days by traffic type: {type_text}. AI agents with the most pageviews: "
+                f"{agent_text}."
+            ),
+            "tolerance": (
+                "The share of AI Agent pageviews within 3 points, Googlebot not counted as an AI agent, and the AI "
+                "agents named in the same order with counts within 5%. Test accounts may be included or excluded if "
+                "the answer says which."
+            ),
+        }
+    }
+
+
 def _person_id(distinct_id: str) -> str:
     return str(uuid.uuid5(_WEB_VITALS_PERSON_NAMESPACE, distinct_id))
 
@@ -358,14 +542,14 @@ def _insert_person(team: Team, distinct_id: str, created_at: datetime) -> None:
     )
 
 
-def _insert_web_vitals_event(team: Team, distinct_id: str, timestamp: datetime, properties: dict[str, Any]) -> None:
+def _insert_event(team: Team, event: str, distinct_id: str, timestamp: datetime, properties: dict[str, Any]) -> None:
     stamp = timestamp.astimezone(UTC).strftime("%Y-%m-%d %H:%M:%S.%f")
     native_schema = use_new_events_schema(team.pk)
     sync_execute(
         INSERT_EVENT_SQL(table_name=EVENTS_JSON_DATA_TABLE if native_schema else None),
         {
             "uuid": str(uuid7(timestamp.isoformat())),
-            "event": "$web_vitals",
+            "event": event,
             "properties": _json_dumps_for_clickhouse(properties) if native_schema else json.dumps(properties),
             "timestamp": stamp,
             "team_id": team.pk,
@@ -405,8 +589,9 @@ def seed_web_vitals(context: CustomPromptSandboxContext) -> dict[str, Any]:
         for raw_path, value in _web_vitals_samples(page):
             # Spread samples over the last six days so any "this week" window sees all of them.
             timestamp = now - timedelta(days=1 + sample_index % 6, hours=sample_index % 17)
-            _insert_web_vitals_event(
+            _insert_event(
                 team,
+                "$web_vitals",
                 distinct_ids[sample_index % len(distinct_ids)],
                 timestamp,
                 {

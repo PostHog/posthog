@@ -1,6 +1,8 @@
 import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person, flush_persons_and_events
 
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
 
 from posthog.schema import DateRange, WebVitalsMetric, WebVitalsPathBreakdownQuery, WebVitalsPercentile
@@ -9,9 +11,14 @@ from posthog.models.utils import uuid7
 
 from products.tasks.backend.facade.agents import CustomPromptSandboxContext
 from products.web_analytics.backend.hogql_queries.web_vitals_path_breakdown import WebVitalsPathBreakdownQueryRunner
+from products.web_analytics.evals.eval_mcp_web_questions import CASES, READY_PROMPT_SEEDERS, READY_PROMPTS_WITHOUT_CASES
+from products.web_analytics.evals.ready_prompts import load_ready_prompts
 from products.web_analytics.evals.seeders import (
     WEB_VITALS_TRAP_PATH,
+    seed_ai_agent_traffic,
+    seed_audience,
     seed_daily_visitors,
+    seed_goal_conversions_by_channel,
     seed_highest_bounce_landing_page,
     seed_signup_conversion_rate,
     seed_signups_by_channel,
@@ -19,6 +26,8 @@ from products.web_analytics.evals.seeders import (
     seed_top_countries,
     seed_top_pages,
     seed_top_referrers,
+    seed_traffic_change_drivers,
+    seed_traffic_sources,
     seed_unique_visitors,
     seed_web_vitals,
     seed_week_over_week,
@@ -77,6 +86,10 @@ class TestWebAnalyticsEvalSeeders(ClickhouseTestMixin, APIBaseTest):
             (seed_yesterday_vs_last_week, "same day last week"),
             (seed_daily_visitors, "2025-01-28"),
             (seed_weekly_digest, "2025-01-22 to 2025-01-28"),
+            (seed_traffic_change_drivers, "Visitors went from 25 to 25"),
+            (seed_traffic_sources, "Organic Search (12, 48.0%)"),
+            (seed_goal_conversions_by_channel, "'signed_up' conversions"),
+            (seed_audience, "Top countries by visitors: US"),
         ]
     )
     def test_oracle_seeders_answer_from_the_seeded_team(self, seeder, expected_fragment: str) -> None:
@@ -115,3 +128,25 @@ class TestWebAnalyticsEvalSeeders(ClickhouseTestMixin, APIBaseTest):
         assert [(item.path, item.count) for item in floored.poor] == [("/account/billing/", 30), ("/files/<id>/", 50)]
         assert [item.path for item in floored.needs_improvements] == ["/pricing/"]
         assert [item.path for item in floored.good] == ["/"]
+
+    def test_ai_agent_traffic_seed_counts_ai_agents_apart_from_other_bots(self) -> None:
+        with time_machine.travel(NOW, tick=False):
+            answer = seed_ai_agent_traffic(self._context())["oracle"]["answer"]
+
+        assert "AI Agent 65" in answer, answer
+        assert "Bot 15" in answer, answer
+        assert answer.endswith("AI agents with the most pageviews: GPTBot (40), Claude (25)."), answer
+
+
+class TestReadyPromptEvalCases(SimpleTestCase):
+    def test_every_ready_prompt_has_an_eval_case_or_a_reason_it_has_none(self) -> None:
+        prompts = {prompt.name: prompt for prompt in load_ready_prompts()}
+        assert set(READY_PROMPT_SEEDERS) | set(READY_PROMPTS_WITHOUT_CASES) == set(prompts)
+        assert not set(READY_PROMPT_SEEDERS) & set(READY_PROMPTS_WITHOUT_CASES)
+
+        ready_cases = {case.metadata["ready_prompt"]: case for case in CASES if "ready_prompt" in case.metadata}
+        assert set(ready_cases) == set(READY_PROMPT_SEEDERS)
+        for name, case in ready_cases.items():
+            assert case.prompt.startswith(prompts[name].text), name
+            assert case.expected == {"first_relevant_tool": {"tool": prompts[name].tools[0]}}, name
+        assert ready_cases["web-analytics-goal-conversion-by-channel"].prompt.endswith("\n\ngoal: signed_up")
