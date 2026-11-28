@@ -1519,7 +1519,6 @@ describe('HogFunctionHandler', () => {
             })
 
             it('records a click on the unsubscribe link without the token that changes the preferences', async () => {
-                hub.SITE_URL = 'https://app.example.com'
                 const { deliver } = await emailStepThroughSes(
                     {},
                     {
@@ -1540,7 +1539,7 @@ describe('HogFunctionHandler', () => {
                     (reported.metrics ?? [])
                         .filter(({ metricName }) => metricName === 'email_link_clicked')
                         .map(({ properties }) => properties?.$link_url)
-                ).toEqual(['https://app.example.com/messaging-preferences/*/'])
+                ).toEqual([`${hub.SITE_URL}/messaging-preferences/*/`])
             })
 
             it('does not send a marketing email that its unsubscribe links make too large to send', async () => {
