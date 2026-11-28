@@ -1,4 +1,4 @@
-import { LemonBanner, LemonSkeleton, Link } from '@posthog/lemon-ui'
+import { LemonBanner, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 
@@ -13,10 +13,11 @@ export interface TransactionalEmailClicksProps {
 
 function ClickLink({ link, links }: { link: string | null; links: EmailClickLinks }): JSX.Element {
     if (link) {
+        // Anyone with the project token can send the event that names this link, so it never opens from here.
         return (
-            <Link to={link} target="_blank" className="text-sm truncate" title={link}>
+            <span className="text-sm truncate" title={link}>
                 {linkLabel(link)}
-            </Link>
+            </span>
         )
     }
     if (links === 'loading') {

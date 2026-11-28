@@ -24,4 +24,18 @@ describe('TransactionalEmailClicks', () => {
 
         expect(screen.getByText(text)).toBeTruthy()
     })
+
+    it('shows a clicked link as text that never opens', () => {
+        const { container } = render(
+            <TransactionalEmailClicks
+                rows={[{ key: 'a', at: '2026-06-15T09:05:00Z', link: 'https://example.com/billing' }]}
+                links="loaded"
+                moreClicks={false}
+                onRetry={() => {}}
+            />
+        )
+
+        expect(screen.getByTitle('https://example.com/billing')).toBeTruthy()
+        expect(container.querySelector('a')).toBeNull()
+    })
 })
