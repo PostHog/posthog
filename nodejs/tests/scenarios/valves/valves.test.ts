@@ -1023,6 +1023,36 @@ describe('valves', () => {
             }
         )
 
+        it('holds the answers to the next sends its count names until release, after recording that SES took them', async () => {
+            const valves = createValves({ pollMs: 5 })
+            const edgeHeld = onEdgeHeld()
+
+            await valves.start(
+                [{ valve: 'ses.hold', target: 'ses', dose: { count: 2 }, at: '0ms', for: '1m' }],
+                edgeHeld.context
+            )
+            await edgeHeld.held
+            const answered: string[] = []
+            const noted = (name: string) => (outcome: string) => answered.push(`${name} ${outcome}`)
+            const heldSends = [send(), send()].map((sending) => sending.then(noted('held')))
+            await waitForExpect(() => expect(edge.sent).toHaveLength(2), 2000, 5)
+            const third = send().then(noted('third'))
+            await waitForExpect(() => expect(answered).toContain('third sent'), 2000, 5)
+            answered.push('release')
+            await valves.releaseAll()
+            await Promise.all([...heldSends, third])
+            const truth = parseJSON(await (await internalFetch(`${edge.url}/_truth`)).text()) as TruthPage
+
+            expect({ answered, sends: truth.records.map(({ status, fault }) => [status, fault]) }).toEqual({
+                answered: ['third sent', 'release', 'held sent', 'held sent'],
+                sends: [
+                    [200, 'ses.hold'],
+                    [200, 'ses.hold'],
+                    [200, undefined],
+                ],
+            })
+        })
+
         const killAfterAccept = kill({ when: { name: 'edge_accepted', params: { channel: 'ses' } } })
 
         const withWorker = (running: boolean) => {

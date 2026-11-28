@@ -1,0 +1,41 @@
+id: email-worker-terminated-holding-ses
+version: 1
+clock: real
+profile: synthetic-rollout
+seed: 9
+setup:
+    teams: 1
+drive:
+    for: 240s
+    warmUp: 160s
+    traffic:
+        - name: event_email
+        - name: transactional_email
+valves:
+    - valve: ses.hold
+      target: ses
+      dose:
+          count: 5
+      at: 190s
+      for: 40s
+    - valve: role.terminate
+      target: cdp-cyclotron-worker-email
+      dose: {}
+      at: 197s
+      for: 10s
+convergeWithin: 4m
+invariants:
+    - name: at_least_once
+    - name: duplicate_sends
+    - name: refused_at_intake
+    - name: no_loss
+gates:
+    duplicate_sends: 0
+    refused_at_intake: 0
+measure:
+    - name: role_exit_ms
+    - name: resent_invocations
+    - name: ses_calls_held_past_exit
+    - name: sends_per_delivery
+    - name: delivery_latency_ms
+pair: true

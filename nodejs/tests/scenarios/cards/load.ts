@@ -10,7 +10,7 @@ import { getDefaultConfig } from '~/common/config/config'
 import { durationMs } from '../duration'
 import { EMAIL_ACTION, TRAFFIC } from '../generator/traffic'
 import { MIN_BASELINE_SECONDS, SAMPLE_INTERVAL_MS, SCRAPE_TIMEOUT_MS } from '../judge/measurements'
-import { roleFreeze, roleKill, roleTerminate } from '../valves/valves'
+import { roleFreeze, roleKill, roleTerminate, sesHold } from '../valves/valves'
 import { DEFINITIONS, Definition, Definitions } from './definitions'
 import { AdmissionTargets, loadTargetsOf } from './load-targets'
 import { AlertsProfile, Card, Load, Named, Profile, SeedOverride, stepsOf } from './schema'
@@ -260,13 +260,15 @@ function checkAcceptedBoundaryReplicas(card: Card, profile: Profile): string[] {
     if ((profile.replicas[EMAIL_WORKER] ?? 1) === 1) {
         return []
     }
-    return card.valves.flatMap((entry, i) =>
-        entry.when?.name === 'edge_accepted' && killsEmailWorker(entry)
+    const holdsSes = card.valves.some(({ valve }) => valve === sesHold.name)
+    return card.valves.flatMap((entry, i) => {
+        const holder = entry.when?.name === 'edge_accepted' ? 'edge_accepted' : holdsSes ? sesHold.name : undefined
+        return holder !== undefined && killsEmailWorker(entry)
             ? [
-                  `valves.${i}.target: ${entry.valve} stops ${EMAIL_WORKER} replica 0 only, and edge_accepted can hold another replica's send; run one email worker replica on this card`,
+                  `valves.${i}.target: ${entry.valve} stops ${EMAIL_WORKER} replica 0 only, and ${holder} can hold another replica's send; run one email worker replica on this card`,
               ]
             : []
-    )
+    })
 }
 
 const durationTextOf = (ms: number): string => (ms % 1000 === 0 ? `${ms / 1000}s` : `${ms}ms`)

@@ -316,6 +316,47 @@ describe('measurements', () => {
         ])
     })
 
+    it('counts deliveries never, once and twice, and leaves the held ones unmeasured though the hold outlasted the exit', () => {
+        const journal = ['run-a-1', 'run-a-2', 'run-a-3', 'run-a-4', 'run-a-5'].map((unitId) => offered(unitId, 0))
+        const heldBy = (truth: TruthRecord): TruthRecord => ({ ...truth, fault: 'ses.hold' })
+        const holding: ValveTimelineEntry = {
+            valve: 'ses.hold',
+            target: 'ses',
+            requestedAt: at(3000),
+            appliedAt: at(3000),
+            observedAt: at(4000),
+            releasedAt: at(40_100),
+        }
+        const truth = [
+            heldBy(record(1, 'run-a-1', 4000)),
+            heldBy(record(2, 'run-a-2', 4500)),
+            record(3, 'run-a-3', 4600),
+            heldBy(record(4, 'run-a-5', 35_000)),
+            record(5, 'run-a-1', 42_000),
+        ]
+        const timeline = [holding, terminated({ exitedAt: at(30_000), code: 0 })]
+        const unread = {
+            value: null,
+            censored: true,
+            unmeasured: 'not measured: the edge does not record when the hold answered its sends, a follow-up',
+        }
+
+        expect(
+            measure(
+                ['ses_calls_held_past_exit', 'sends_per_delivery'].map((name) => ({ name, params: {} })),
+                evidence({ journal, truth, timeline, converged: false })
+            ).map(({ unit: _unit, ...value }) => value)
+        ).toEqual([
+            { name: 'ses_calls_held_past_exit', ...unread },
+            ...[
+                ['never', 1],
+                ['once', 3],
+                ['twice', 1],
+            ].map(([key, value]) => ({ name: 'sends_per_delivery', key, value, incomplete: true })),
+            ...['held_once', 'held_twice'].map((key) => ({ name: 'sends_per_delivery', key, ...unread })),
+        ])
+    })
+
     it('times each delivery from its offer to its first accepted send, skipping refused and undelivered units', () => {
         const latencies = Array.from({ length: 20 }, (_, i) => (i + 1) * 100)
         const journal = [

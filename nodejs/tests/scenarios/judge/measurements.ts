@@ -12,7 +12,7 @@ import type { QueueCounts, WriterBackends } from '../probe/cyclotron-probe'
 import type { WriterSample } from '../probe/writer-probe'
 import type { ValveTimelineEntry } from '../valves/valves'
 import { CounterReading, counterDrift } from './drift'
-import { deliveryKey } from './invariants'
+import { acceptedDeliveriesOf, deliveryKey, truthGapOf } from './invariants'
 import type { JudgeEvidence } from './invariants'
 import { SCRAPE_GAP_MS, WORKER_OF } from './pickups'
 
@@ -222,6 +222,54 @@ export const resentInvocations: MeasurementDefinition = {
     params: z.object({}).strict(),
     unit: 'invocations',
     measure: () => [{ key: 'total', ...unmeasured('not measured: a run-scoped resend count is a follow-up') }],
+}
+
+const unreadTruthOf = ({ unread, unsettled, truth, truthFrom }: MeasureEvidence): string | undefined =>
+    unread !== undefined ? `the truth could not be read: ${unread}` : (unsettled ?? truthGapOf(truth, truthFrom))
+
+// The runner's release time comes after the edge already answered the held sends, so it cannot show that the hold
+// still kept them at the exit.
+const HELD_UNREAD = 'not measured: the edge does not record when the hold answered its sends, a follow-up'
+
+export const sesCallsHeldPastExit: MeasurementDefinition = {
+    name: 'ses_calls_held_past_exit',
+    params: z.object({}).strict(),
+    unit: 'sends',
+    measure: () => [unmeasured(HELD_UNREAD)],
+}
+
+const SENDS = ['never', 'once', 'twice'] as const
+const HELD_SENDS = ['once', 'twice'] as const
+
+export const sendsPerDelivery: MeasurementDefinition = {
+    name: 'sends_per_delivery',
+    params: z.object({}).strict(),
+    unit: 'deliveries',
+    measure: (evidence) => {
+        const unreadTruth = unreadTruthOf(evidence)
+        if (unreadTruth !== undefined) {
+            return [unmeasured(unreadTruth)]
+        }
+        const accepted = new Map(
+            acceptedDeliveriesOf(evidence.truth).map(({ record, accepted }) => [
+                deliveryKey(record.unitId, record.actionId),
+                accepted,
+            ])
+        )
+        const expected = evidence.journal
+            .filter(({ answer }) => answer.accepted)
+            .flatMap(({ unitId, expect }) => expect.deliveries.map((actionId) => deliveryKey(unitId, actionId)))
+        const sendsOf = (key: string): (typeof SENDS)[number] => SENDS[Math.min(accepted.get(key) ?? 0, 2)]
+        const unconverged = evidence.converged === false ? { incomplete: true as const } : {}
+        return [
+            ...SENDS.map((sends) => ({
+                key: sends,
+                value: expected.filter((key) => sendsOf(key) === sends).length,
+                ...unconverged,
+            })),
+            ...HELD_SENDS.map((sends) => ({ key: `held_${sends}`, ...unmeasured(HELD_UNREAD) })),
+        ]
+    },
 }
 
 export type Phase = { from: number; to: number }
@@ -1009,6 +1057,8 @@ export const MEASUREMENTS: MeasurementDefinition[] = [
     roleExitMs,
     leaseReclaimMs,
     resentInvocations,
+    sesCallsHeldPastExit,
+    sendsPerDelivery,
     counterDrift,
     ...RECOVERY_MEASUREMENTS,
 ]
