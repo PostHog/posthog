@@ -8,3 +8,4 @@ from products.warehouse_sources.sources.sdk import config
 class AlphaVantageSourceConfig(config.Config):
     api_key: str
     symbols: str
+    transcript_quarter: str | None = None

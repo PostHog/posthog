@@ -358,4 +358,64 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "unit": "Unit of `value`.",
         },
     },
+    "inflation": {
+        "description": "Annual US consumer price inflation.",
+        "docs_url": "https://www.alphavantage.co/documentation/#inflation",
+        "columns": {"date": "Start of the observation year.", "value": "Annual inflation rate, in percent."},
+    },
+    "nonfarm_payroll": {
+        "description": "Monthly US nonfarm employment.",
+        "docs_url": "https://www.alphavantage.co/documentation/#nonfarm-payroll",
+        "columns": {"date": "Start of the observation month.", "value": "Number of employees, in thousands."},
+    },
+    "retail_sales": {
+        "description": "Monthly advance estimates of US retail trade sales.",
+        "docs_url": "https://www.alphavantage.co/documentation/#retail-sales",
+        "columns": {"date": "Start of the observation month.", "value": "Sales, in millions of dollars."},
+    },
+    "durables": {
+        "description": "Monthly US manufacturers' new orders for durable goods.",
+        "docs_url": "https://www.alphavantage.co/documentation/#durable-goods",
+        "columns": {"date": "Start of the observation month.", "value": "New orders, in millions of dollars."},
+    },
+    "real_gdp_per_capita": {
+        "description": "Quarterly US real gross domestic product per person.",
+        "docs_url": "https://www.alphavantage.co/documentation/#real-gdp-per-capita",
+        "columns": {"date": "Start of the observation quarter.", "value": "Real GDP per person, in chained dollars."},
+    },
+    "ipo_calendar": {
+        "description": "Market-wide IPOs expected in the next three months.",
+        "docs_url": "https://www.alphavantage.co/documentation/#ipo-calendar",
+        "columns": {
+            "symbol": "Ticker symbol for the listing.",
+            "ipoDate": "Expected IPO date.",
+            "exchange": "Exchange where the security is expected to list.",
+            "priceRangeLow": "Low end of the expected IPO price range.",
+            "priceRangeHigh": "High end of the expected IPO price range.",
+        },
+    },
+    "historical_options": {
+        "description": "Options chains from the previous trading session. Requires a paid Alpha Vantage plan.",
+        "docs_url": "https://www.alphavantage.co/documentation/#historical-options",
+        "columns": {
+            "symbol": "Ticker symbol of the underlying security.",
+            "contract_id": "Options contract identifier.",
+            "date": "Date of the trading session.",
+            "expiration": "Contract expiration date.",
+            "implied_volatility": "Implied volatility of the contract.",
+        },
+    },
+    "earnings_call_transcript": {
+        "description": "Earnings call transcripts for the fiscal quarter in the source settings.",
+        "docs_url": "https://www.alphavantage.co/documentation/#transcript",
+        "columns": {
+            "symbol": "Ticker symbol of the company.",
+            "quarter": "Fiscal quarter in YYYYQn format.",
+            "turn_index": "Position of the speaker turn, starting at zero.",
+            "speaker": "Name of the speaker.",
+            "title": "Job title of the speaker.",
+            "content": "Text for the speaker turn.",
+            "sentiment": "Sentiment score for the speaker turn.",
+        },
+    },
 }

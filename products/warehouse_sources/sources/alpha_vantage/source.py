@@ -5,6 +5,7 @@ from products.warehouse_sources.sources.alpha_vantage.alpha_vantage import (
     alpha_vantage_source,
     validate_credentials as validate_alpha_vantage_credentials,
     validate_symbols,
+    validate_transcript_quarter,
 )
 from products.warehouse_sources.sources.alpha_vantage.settings import ALPHA_VANTAGE_ENDPOINTS
 from products.warehouse_sources.sources.sdk import (
@@ -91,6 +92,13 @@ class AlphaVantageSource(SimpleSource[AlphaVantageSourceConfig]):
         if symbols_error:
             return False, symbols_error
 
+        if schema_name in (None, "earnings_call_transcript"):
+            _, quarter_error = validate_transcript_quarter(
+                config.transcript_quarter, required=schema_name == "earnings_call_transcript"
+            )
+            if quarter_error:
+                return False, quarter_error
+
         if validate_alpha_vantage_credentials(config.api_key):
             return True, None
 
@@ -110,6 +118,7 @@ class AlphaVantageSource(SimpleSource[AlphaVantageSourceConfig]):
             db_incremental_field_last_value=inputs.db_incremental_field_last_value
             if inputs.should_use_incremental_field
             else None,
+            transcript_quarter=config.transcript_quarter,
         )
 
     @property
@@ -145,6 +154,16 @@ Note: the free tier is limited to roughly 25 requests per day, and each selected
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,
                         placeholder="IBM, AAPL, MSFT",
+                        secret=False,
+                    ),
+                    SourceFieldInputConfig(
+                        name="transcript_quarter",
+                        sync_setting=True,
+                        label="Earnings call quarter",
+                        type=SourceFieldInputConfigType.TEXT,
+                        required=False,
+                        placeholder="2024Q1",
+                        caption="Set a fiscal quarter to sync earnings call transcripts. Leave blank if you do not use that table.",
                         secret=False,
                     ),
                 ],

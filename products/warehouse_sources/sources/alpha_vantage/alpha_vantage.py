@@ -38,9 +38,6 @@ LISTING_STATES = ("active", "delisted")
 # The CSV functions return tens of thousands of rows in one body, so yield in chunks.
 CSV_CHUNK_SIZE = 5000
 
-# The widest horizon the function offers, for the same single request as the 3-month default.
-EARNINGS_CALENDAR_HORIZON = "12month"
-
 # NEWS_SENTIMENT has no cursor pagination; `limit` caps one response at 1000 articles. The page cap
 # bounds the time-window walk in `_news_rows` over a symbol with a very deep archive.
 NEWS_PAGE_LIMIT = 1000
@@ -324,6 +321,29 @@ def _parse_economic(body: dict[str, Any], maturity: str | None) -> Iterator[dict
         yield row
 
 
+def _parse_options(body: dict[str, Any], symbol: str) -> Iterator[dict[str, Any]]:
+    contracts = body.get("data")
+    if not isinstance(contracts, list):
+        return
+    for contract in contracts:
+        if not isinstance(contract, dict) or not contract.get("contractID") or not contract.get("date"):
+            continue
+        yield {
+            **{"contract_id" if key == "contractID" else key: _nullable(value) for key, value in contract.items()},
+            "symbol": symbol,
+        }
+
+
+def _parse_transcript(body: dict[str, Any], symbol: str) -> Iterator[dict[str, Any]]:
+    turns = body.get("transcript")
+    quarter = body.get("quarter")
+    if not isinstance(turns, list) or not quarter:
+        return
+    for turn_index, turn in enumerate(turns):
+        if isinstance(turn, dict):
+            yield {**turn, "symbol": symbol, "quarter": quarter, "turn_index": turn_index}
+
+
 def _economic_rows(
     session: requests.Session, api_key: str, config: AlphaVantageEndpointConfig, logger: FilteringBoundLogger
 ) -> Iterator[list[dict[str, Any]]]:
@@ -407,13 +427,13 @@ def _listing_status_rows(
         yield from _csv_row_chunks(listing)
 
 
-def _earnings_calendar_rows(
-    session: requests.Session, api_key: str, logger: FilteringBoundLogger
+def _calendar_rows(
+    session: requests.Session, api_key: str, config: AlphaVantageEndpointConfig, logger: FilteringBoundLogger
 ) -> Iterator[list[dict[str, Any]]]:
-    params = {"function": "EARNINGS_CALENDAR", "horizon": EARNINGS_CALENDAR_HORIZON, "apikey": api_key}
+    params = {"function": config.function, **config.extra_params, "apikey": api_key}
     calendar = _fetch_csv(session, params)
     if calendar is None:
-        logger.warning("Alpha Vantage: no earnings calendar returned")
+        logger.warning(f"Alpha Vantage: no {config.name.replace('_', ' ')} returned")
         return
 
     yield from _csv_row_chunks(calendar)
@@ -480,6 +500,8 @@ _PARSERS = {
     "etf_profile": _parse_etf_profile,
     "insider": _parse_insider,
     "institutional": _parse_institutional,
+    "options": _parse_options,
+    "transcript": _parse_transcript,
 }
 
 
@@ -508,6 +530,15 @@ def validate_symbols(symbols: str) -> tuple[list[str], str | None]:
     if len(parsed) > MAX_SYMBOLS:
         return parsed, f"Too many symbols ({len(parsed)}); enter at most {MAX_SYMBOLS} distinct symbols."
     return parsed, None
+
+
+def validate_transcript_quarter(value: str | None, *, required: bool) -> tuple[str, str | None]:
+    quarter = (value or "").strip().upper()
+    if not quarter and not required:
+        return quarter, None
+    if not re.fullmatch(r"[0-9]{4}Q[1-4]", quarter) or quarter < "2010Q1":
+        return quarter, "Enter an earnings call quarter in YYYYQn format, such as 2024Q1. Use 2010Q1 or later."
+    return quarter, None
 
 
 def _request_params(
@@ -545,8 +576,15 @@ def get_rows(
     endpoint: str,
     logger: FilteringBoundLogger,
     db_incremental_field_last_value: Any = None,
+    transcript_quarter: str | None = None,
 ) -> Iterator[list[dict[str, Any]]]:
     config = ALPHA_VANTAGE_ENDPOINTS[endpoint]
+    quarter = ""
+    if config.kind == "transcript":
+        quarter, quarter_error = validate_transcript_quarter(transcript_quarter, required=True)
+        if quarter_error:
+            raise ValueError(quarter_error)
+
     # apikey rides as a query param on every request, so mask its value from logged URLs and samples.
     session = make_tracked_session(redact_values=(api_key,))
 
@@ -557,7 +595,7 @@ def get_rows(
 
     if config.kind == "calendar":
         # The whole market's schedule arrives in one call, so the configured symbols don't apply either.
-        yield from _earnings_calendar_rows(session, api_key, logger)
+        yield from _calendar_rows(session, api_key, config, logger)
         return
 
     if config.kind == "economic":
@@ -579,7 +617,10 @@ def get_rows(
         # A permanent quota/premium error (AlphaVantageAPIError) or transport failure (HTTPError)
         # affects every symbol equally, so let it propagate and fail the whole sync rather than
         # syncing a partial set of symbols.
-        body = _fetch(session, _request_params(config, symbol, api_key, db_incremental_field_last_value), logger)
+        params = _request_params(config, symbol, api_key, db_incremental_field_last_value)
+        if quarter:
+            params["quarter"] = quarter
+        body = _fetch(session, params, logger)
 
         if "Error Message" in body:
             # Scoped to one symbol (unknown ticker / unsupported for this function). Skip it so one bad
@@ -598,6 +639,7 @@ def alpha_vantage_source(
     endpoint: str,
     logger: FilteringBoundLogger,
     db_incremental_field_last_value: Any = None,
+    transcript_quarter: str | None = None,
 ) -> SourceResponse:
     config = ALPHA_VANTAGE_ENDPOINTS[endpoint]
 
@@ -609,6 +651,7 @@ def alpha_vantage_source(
             endpoint=endpoint,
             logger=logger,
             db_incremental_field_last_value=db_incremental_field_last_value,
+            transcript_quarter=transcript_quarter,
         ),
         primary_keys=config.primary_keys,
         partition_count=1,
