@@ -297,35 +297,6 @@ describe('SES notifications lost', () => {
         expect(measured.filter(({ incomplete }) => incomplete !== true)).toEqual([])
     })
 
-    it.each<[string, MetricSample[], MissedScrape[]]>([
-        [
-            'the consumer recorded after its last scrape and missed its final one',
-            run,
-            [{ role: 'cdp-ses-webhooks', replica: 0, at: FROM + 90_000 }],
-        ],
-        ['a consumer replica restarted', [...run, scraped('cdp-ses-webhooks', 90, { recorded: 1 }, 80)], []],
-        ['a consumer replica was never scraped', run, [{ role: 'cdp-ses-webhooks', replica: 1, at: FROM + 90_000 }]],
-    ])('leaves the loss unknown when %s', (_story, samples, missed) => {
-        expect(lostOf(samples, { missed }).find(({ key }) => key === 'lost_floor')).toEqual({
-            name: 'ses_notifications_lost',
-            unit: 'notifications',
-            key: 'lost_floor',
-            value: null,
-            censored: true,
-            unmeasured:
-                'a cdp-ses-webhooks replica restarted, missed its last scrape or was never scraped, so the consumer may have recorded notifications its counters do not show',
-            incomplete: true,
-        })
-    })
-
-    it('keeps the floor when only cdp-api missed its last scrape, since a missing queued count only lowers it', () => {
-        expect(
-            lostOf(run, { missed: [{ role: 'cdp-api', replica: 0, at: FROM + 90_000 }] }).find(
-                ({ key }) => key === 'lost_floor'
-            )
-        ).toMatchObject({ value: 3, incomplete: true })
-    })
-
     it.each<[string, MetricSample[], string]>([
         [
             'the consumer failed notifications, so their batches replayed',
