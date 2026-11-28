@@ -165,7 +165,7 @@ class FakeSnuffle:
             return {time: left[time] if time in left else right[time] for time in left.keys() | right.keys()}
         operations = {"+": numpy.add, "-": numpy.subtract, "*": numpy.multiply, "/": numpy.divide}
         vectors = [operand for operand in (left, right) if isinstance(operand, dict)]
-        if not vectors:
+        if not isinstance(left, dict) and not isinstance(right, dict):
             with numpy.errstate(all="ignore"):
                 return float(operations[node.op](numpy.float64(left), numpy.float64(right)))
         times = set.intersection(*(set(vector) for vector in vectors))

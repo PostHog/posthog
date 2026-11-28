@@ -26,6 +26,7 @@ import datetime as dt
 from collections.abc import Callable, Iterator, Sequence
 from functools import lru_cache
 from typing import Any
+from uuid import UUID
 
 from django.utils import timezone
 
@@ -794,7 +795,7 @@ def evaluate_plan(team: Team, plan: "PromQLPlan | PromQLExpressionPlan") -> list
     Raises `TooManyStoredPointsError` past the stored data budget."""
     if isinstance(plan, PromQLPlan):
         return _evaluate_leaf(team, plan)
-    entries_by_read: dict[tuple[int, dt.datetime, dt.datetime, dt.datetime], dict[EntryKey, Entry]] = {}
+    entries_by_read: dict[tuple[UUID, dt.datetime, dt.datetime, dt.datetime], dict[EntryKey, Entry]] = {}
     stored = 0
     series: dict[PromQLLeafQuery, dict[float, float]] = {}
     for leaf, leaf_plan in plan.plans.items():
