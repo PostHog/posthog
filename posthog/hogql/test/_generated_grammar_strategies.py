@@ -2476,6 +2476,13 @@ def columnExprValue_strategy(depth: int = _DEFAULT_DEPTH) -> st.SearchStrategy[s
                 seed = seed + " " + " ".join(p for p in parts if p)
             if suffix_idx == 12:
                 parts = []
+                if _include_optional(draw):
+                    parts.append("as")
+                    group_idx = draw(st.integers(min_value=0, max_value=1))
+                    if group_idx == 0:
+                        parts.append(draw(identifier_strategy(_dec(depth))))
+                    if group_idx == 1:
+                        parts.append(draw(string_literal_token))
                 group_idx = draw(st.integers(min_value=0, max_value=14))
                 if group_idx == 0:
                     parts.append("==")
