@@ -108,7 +108,8 @@ def _key_as_expr(key: str | ast.Expr) -> ast.Expr:
 
 
 def _properties_document() -> ast.Expr:
-    return ast.Call(name="toJSONString", args=[ast.Field(chain=["properties"])])
+    # A bare `properties` with a runtime key compiles to a read routed by the key. `toString` reads the whole document.
+    return ast.Call(name="toString", args=[ast.Field(chain=["properties"])])
 
 
 def _build_property_array_raw(key: str | ast.Expr, use_new_schema: bool) -> ast.Expr:

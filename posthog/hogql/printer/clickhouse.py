@@ -751,19 +751,6 @@ class ClickHousePrinter(BasePrinter):
         placeholder = self.context.add_sensitive_value(restricted_flags)
         return f"mapFilter((key, value) -> not(has({placeholder}, key)), {flags})"
 
-    def _serialize_to_json_string_call(self, node: ast.Call) -> str | None:
-        if node.name != "toJSONString" or len(node.args) != 1:
-            return None
-        arg = node.args[0]
-        arg_type = resolve_field_type(arg)
-        if not isinstance(arg_type, ast.FieldType):
-            return None
-        field_sql = super().visit_field_type(arg_type)
-        serialized = self._serialize_events_json_field(arg_type, field_sql)
-        if serialized is None:
-            return None
-        return self._maybe_apply_json_drop_keys(arg_type, serialized)
-
     def visit_property_access(self, node: ast.PropertyAccess) -> str:
         first_key = node.keys[0] if node.keys else None
         with self._without_json_drop_keys(self._unmasked_key_read_type(node.expr, first_key)):
@@ -1159,9 +1146,6 @@ class ClickHousePrinter(BasePrinter):
             if not isinstance(first_type, (ast.StringType, ast.UnknownType)):
                 # OrZero parsers require String inputs even when a projection exposes another scalar type.
                 node = dataclasses.replace(node, args=[ast.Call(name="toString", args=[node.args[0]]), *node.args[1:]])
-        serialized = self._serialize_to_json_string_call(node)
-        if serialized is not None:
-            return serialized
 
         # Property-group call optimizations (isNull/isNotNull/JSONHas over a property-group key) now run in ClickHouse
         # property resolution, which rewrites them to the keys-index `has(group, key)` form before printing.

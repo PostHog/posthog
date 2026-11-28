@@ -346,6 +346,7 @@ A read of a value inside an object or an array extracts it from the property's t
 `IS NULL` and `IS NOT NULL` on a String or untyped property test the path without reading its value.
 Whole-document reads put each stored object and array back and still remove declared defaults.
 A string that is a valid JSON object or array reads as that object or array, because nothing records whether the cleaner stored it or the SDK sent that text.
+`toJSONString(properties)` serializes that rebuilt text, as the legacy table serializes its stored text, so it returns the document as a quoted JSON string on both tables.
 An empty property name uses a bound `getSubcolumn` call because ClickHouse rejects empty SQL identifiers.
 A JSON function on the native `properties` column needs JSON text, and rebuilding the whole document as text from every path is the slowest way to get it.
 A call with a constant first key, such as `JSONLength(properties, 'details')`, serializes only that key's value and runs the function on it. This includes calls through `toString(properties)` and keys stored among the temporary properties.

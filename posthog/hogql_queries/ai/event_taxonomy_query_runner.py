@@ -142,11 +142,6 @@ class EventTaxonomyQueryRunner(TaxonomyCacheMixin, AnalyticsQueryRunner[EventTax
             )
         )
 
-    def _properties_document_expr(self) -> ast.Expr:
-        if self._use_new_events_schema:
-            return ast.Call(name="toJSONString", args=[ast.Field(chain=["properties"])])
-        return ast.Field(chain=["properties"])
-
     def _get_subquery_filter(self) -> ast.Expr:
         date_filter = parse_expr("timestamp >= now() - INTERVAL 30 DAY")
         filter_expr: list[ast.Expr] = [date_filter]
@@ -235,7 +230,7 @@ class EventTaxonomyQueryRunner(TaxonomyCacheMixin, AnalyticsQueryRunner[EventTax
                             max(timestamp) as latest_seen
                         FROM (
                             SELECT
-                                JSONExtractKeysAndValues({properties_doc}, 'String') as kv,
+                                JSONExtractKeysAndValues(properties, 'String') as kv,
                                 timestamp
                             FROM
                                 events
@@ -257,7 +252,6 @@ class EventTaxonomyQueryRunner(TaxonomyCacheMixin, AnalyticsQueryRunner[EventTax
                         GROUP BY key, value
                     """,
                 placeholders={
-                    "properties_doc": self._properties_document_expr(),
                     "subquery_filter": self._get_subquery_filter(),
                     "sampled_events": ast.Constant(value=SAMPLED_EVENTS),
                     "omit_filter": self._get_omit_filter(),
