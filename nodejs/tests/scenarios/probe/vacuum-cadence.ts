@@ -1,1 +1,0 @@
-export const VACUUM_PROBE_EVERY_MS = 10_000

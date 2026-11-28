@@ -39,7 +39,7 @@ export class DashboardErrorBoundary extends Component<
     }
 
     override render(): ReactNode {
-        // A widget's failed code download goes on up to the app's chunk boundary, which reloads the page.
+        // A panel's failed code download goes on up to the app's chunk boundary, which reloads the page.
         if (this.state.failed && isChunkLoadError(this.state.error)) {
             throw this.state.error
         }

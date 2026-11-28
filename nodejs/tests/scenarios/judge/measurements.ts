@@ -8,16 +8,14 @@ import type { CdpRole, Named, Step } from '../cards'
 import type { Definition } from '../cards/definitions'
 import type { ObservationName } from '../environment/failover'
 import { ReplicaOf, nameOf } from '../environment/identity'
-import type { QueueCounts } from '../probe/cyclotron-probe'
+import type { QueueCounts, WriterActivity, WriterBackends } from '../probe/cyclotron-probe'
 import type { VacuumRead, VacuumSettingsRead } from '../probe/vacuum-probe'
 import type { WriterSample } from '../probe/writer-probe'
 import type { ValveTimelineEntry } from '../valves/valves'
-import type { WriterCpu } from './bars'
 import { CounterReading, counterDrift } from './drift'
 import { deliveryKey } from './invariants'
 import type { JudgeEvidence } from './invariants'
-import { SCRAPE_GAP_MS, WORKER_OF, p99Of, pickupsBetween } from './pickups'
-import { SOAK_MEASUREMENTS } from './vacuum'
+import { SCRAPE_GAP_MS, WORKER_OF } from './pickups'
 
 export type MetricSample = {
     role: string
@@ -42,9 +40,23 @@ export type Sampled = { samples: MetricSample[]; missed: MissedScrape[]; host: H
 
 export type QueueSample = { at: number } & (QueueCounts | { error: string })
 
+export type ActivitySample = { at: number } & ({ backends: WriterBackends } | { error: string })
+
+export function readActivity(
+    read: () => Promise<WriterActivity>,
+    now: () => number = Date.now
+): Promise<ActivitySample> {
+    const at = now()
+    return read().then(
+        (answer) => answer,
+        (error: unknown) => ({ at, error: error instanceof Error ? error.message : String(error) })
+    )
+}
+
 export type Probed = {
     writer: WriterSample[]
     queue: QueueSample[]
+    activity?: ActivitySample[]
     vacuum?: VacuumRead[]
     vacuumSettings?: VacuumSettingsRead
 }
@@ -65,17 +77,16 @@ export type MeasureEvidence = Omit<JudgeEvidence, 'janitorResets' | 'boundary'> 
         steps: readonly Step[]
         timeline: readonly ValveTimelineEntry[]
         counters?: CounterReading
+        truthFrom: number
         unread?: string
         horizonAt?: number
         converged?: boolean
         unsettled?: string
-        writerCpu?: WriterCpu
-        autovacuumProfile?: Readonly<Record<string, string>>
     }
 
 export type MeasurementDefinition = Definition & {
     unit: string
-    measure(evidence: MeasureEvidence, params: unknown): Measured[]
+    measure(evidence: MeasureEvidence): Measured[]
 }
 
 export const SAMPLE_INTERVAL_MS = 5000
@@ -180,6 +191,46 @@ export const deliveryLatencyMs: MeasurementDefinition = {
     },
 }
 
+const terminationsOf = (
+    timeline: readonly ValveTimelineEntry[]
+): (ValveTimelineEntry & Required<Pick<ValveTimelineEntry, 'exit'>>)[] =>
+    timeline.flatMap((entry) => (entry.exit === undefined ? [] : [{ ...entry, exit: entry.exit }]))
+
+const unmeasured = (reason: string): Measured => ({ value: null, censored: true, unmeasured: reason })
+
+export const roleExitMs: MeasurementDefinition = {
+    name: 'role_exit_ms',
+    params: z.object({}).strict(),
+    unit: 'ms',
+    measure: ({ timeline }) => {
+        const terminations = terminationsOf(timeline)
+        if (timeline.filter(({ valve }) => valve === 'role.terminate').length > 1) {
+            return [unmeasured('the card terminates more than one role, so its exits have no stable key')]
+        }
+        return terminations.map(({ target, exit }) =>
+            exit.exitedAt === undefined
+                ? { key: 'sigterm', ...unmeasured(`${target} did not exit`) }
+                : exit.signal === 'SIGKILL'
+                  ? { key: 'sigterm', ...unmeasured('a SIGKILL exit is not measured in this release') }
+                  : { key: 'sigterm', value: Date.parse(exit.exitedAt) - Date.parse(exit.signalledAt) }
+        )
+    },
+}
+
+export const leaseReclaimMs: MeasurementDefinition = {
+    name: 'lease_reclaim_ms',
+    params: z.object({}).strict(),
+    unit: 'ms',
+    measure: () => [unmeasured('not measured in this release')],
+}
+
+export const resentInvocations: MeasurementDefinition = {
+    name: 'resent_invocations',
+    params: z.object({}).strict(),
+    unit: 'invocations',
+    measure: () => [{ key: 'total', ...unmeasured('not measured: a run-scoped resend count is a follow-up') }],
+}
+
 export type Phase = { from: number; to: number }
 
 export type Phases = { baseline: Phase; valve?: Phase; failback?: Phase }
@@ -217,8 +268,7 @@ const byTime = <T extends { at: number }>(series: readonly T[]): T[] => [...seri
 const committedAt = ({ at, latencyMs }: WriterSample): number => at + latencyMs
 
 function longestIdle(writer: readonly WriterSample[], from: number, to: number): number {
-    const endsBefore = writer.map(committedAt).filter((end) => end < from)
-    let probedUntil = endsBefore.length > 0 ? maxOf(endsBefore) : from
+    let probedUntil = from
     let longest = 0
     for (const sample of byTime(writer)) {
         if (sample.at >= to || committedAt(sample) <= probedUntil) {
@@ -446,26 +496,114 @@ function busyShareOf(span: readonly HostSample[], before: Opened<HostSample>['be
 export const stepHostBusyShareOf = (host: readonly HostSample[], step: Phase): number | undefined =>
     busyShareOf(inside(byTime(host), step))
 
-function stepClaimRate(samples: readonly MetricSample[], queue: string, step: Phase): Measured {
-    let value = 0
+type StepRates = { rates: number[]; incomplete: boolean }
+
+function gappedIn(window: readonly MetricSample[], step: Phase): boolean {
+    const edges = [step.from, ...window.map(({ at }) => at), step.to]
+    return (
+        spanOf(window) <= 0 ||
+        edges.some((at, i) => i > 0 && at - edges[i - 1] > SCRAPE_GAP_MS) ||
+        window.some(({ startedAt }) => startedAt * 1000 > step.from)
+    )
+}
+
+function stepRatesOf(replicas: readonly MetricSample[][], read: Counter, step: Phase): StepRates {
+    const rates: number[] = []
     let incomplete = false
-    for (const ofReplica of replicasOf(samples).filter((series) =>
-        series.some(({ processed }) => queue in processed)
-    )) {
+    for (const ofReplica of replicas) {
         const window = inside(ofReplica, step)
         const span = spanOf(window)
-        const edges = [step.from, ...window.map(({ at }) => at), step.to]
-        incomplete ||=
-            span <= 0 ||
-            edges.some((at, i) => i > 0 && at - edges[i - 1] > SCRAPE_GAP_MS) ||
-            window.some(({ startedAt }) => startedAt * 1000 > step.from)
-        if (span <= 0) {
-            continue
+        incomplete ||= gappedIn(window, step)
+        if (span > 0) {
+            rates.push(increaseOf(window, read, window[0].at) / seconds(span))
         }
-        value += increaseOf(window, ({ processed }) => processed[queue] ?? 0, window[0].at) / seconds(span)
     }
-    return { value, ...(incomplete ? { incomplete: true as const } : {}) }
+    return { rates, incomplete }
 }
+
+const measuredOf = (value: number, incomplete: boolean): Measured => ({
+    value,
+    ...(incomplete ? { incomplete: true as const } : {}),
+})
+
+function stepClaimRate(samples: readonly MetricSample[], queue: string, step: Phase): Measured {
+    const claiming = replicasOf(samples).filter((series) => series.some(({ processed }) => queue in processed))
+    const { rates, incomplete } = stepRatesOf(claiming, ({ processed }) => processed[queue] ?? 0, step)
+    return measuredOf(
+        rates.reduce((sum, rate) => sum + rate, 0),
+        incomplete
+    )
+}
+
+const stepCpuOf = (ofRole: readonly MetricSample[], step: Phase): StepRates =>
+    stepRatesOf(replicasOf(ofRole), ({ cpuSeconds }) => cpuSeconds, step)
+
+type ScaledPhase = { scale: number; step: Phase }
+
+const stepPhasesOf = (drive: DriveWindow, steps: readonly Step[]): ScaledPhase[] =>
+    steps.flatMap(({ scale, fromMs, toMs }) => {
+        const step = { from: drive.startedAt + fromMs, to: Math.min(drive.startedAt + toMs, drive.endedAt) }
+        return step.to <= step.from ? [] : [{ scale, step }]
+    })
+
+const perRoleStep = (
+    samples: readonly MetricSample[],
+    drive: DriveWindow,
+    steps: readonly Step[],
+    read: (ofRole: readonly MetricSample[], step: Phase) => Measured[]
+): Measured[] => {
+    const roles = [...byRole(samples)].sort(([a], [b]) => a.localeCompare(b))
+    return stepPhasesOf(drive, steps).flatMap(({ scale, step }) =>
+        roles.flatMap(([role, ofRole]) =>
+            read(ofRole, step).map((measured) => ({ key: `${role}_${scale}x`, ...measured }))
+        )
+    )
+}
+
+const meanBackendsOf = (
+    activity: readonly ActivitySample[],
+    step: Phase,
+    keyOf: (backend: WriterBackends[number]) => string | undefined
+): Measured[] => {
+    const taken = inside(activity, step)
+    const read = taken.flatMap((sample) => ('backends' in sample ? [sample.backends] : []))
+    const failed = taken.find((sample) => 'error' in sample)
+    if (taken.length === 0) {
+        return [{ value: null, censored: true, unmeasured: 'no pg_stat_activity read landed in the step' }]
+    }
+    if (read.length === 0 && failed !== undefined && 'error' in failed) {
+        return [
+            {
+                value: null,
+                censored: true,
+                unmeasured: `every pg_stat_activity read in the step failed: ${failed.error}`,
+            },
+        ]
+    }
+    const totals = new Map<string, number>()
+    for (const backend of read.flat()) {
+        const key = keyOf(backend)
+        if (key !== undefined) {
+            totals.set(key, (totals.get(key) ?? 0) + backend.count)
+        }
+    }
+    if (totals.size === 0 && read.length < taken.length) {
+        return [measuredOf(0, true)]
+    }
+    return [...totals]
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([key, total]) => ({ key, ...measuredOf(total / read.length, read.length < taken.length) }))
+}
+
+const perWriterStep =
+    (keyOf: (backend: WriterBackends[number]) => string | undefined): MeasurementDefinition['measure'] =>
+    ({ activity = [], drive, steps }) =>
+        stepPhasesOf(drive, steps).flatMap(({ scale, step }) =>
+            meanBackendsOf(activity, step, keyOf).map(({ key, ...measured }) => ({
+                key: key === undefined ? `${scale}x` : `${key}_${scale}x`,
+                ...measured,
+            }))
+        )
 
 export type Baseline = {
     seconds: number
@@ -530,7 +668,13 @@ type SeriesPoint = {
 const NO_WHOLE_MINUTE = 'the valve phase holds no whole minute'
 const UNBOUNDED_PICKUPS = "scrape windows cannot bound a minute's pickups"
 
-type Series = { baseline: number | null; bar: number | null; points: SeriesPoint[]; valve: Phase }
+type Series = {
+    baseline: number | null
+    bar: number | null
+    unmeasured?: string
+    points: SeriesPoint[]
+    valve: Phase
+}
 
 const recentBaselineOf = (baseline: Phase): Phase | undefined =>
     seconds(baseline.to - baseline.from) < MIN_BASELINE_SECONDS
@@ -579,15 +723,21 @@ function seriesOver(
                       ...(unmeasured ? { unmeasured } : {}),
                   }
               })
-    return { baseline: usable ? reference.value : null, bar, points, valve }
+    return {
+        baseline: usable ? reference.value : null,
+        bar,
+        ...(reference.unmeasured ? { unmeasured: reference.unmeasured } : {}),
+        points,
+        valve,
+    }
 }
 
 const valueOf = (value: number | null, censored?: true): Value =>
     value === null ? { value, censored: true } : censored ? { value, censored } : { value }
 
-const pointsOf = ({ baseline, bar, points }: Series, prefix = ''): Measured[] => [
-    { key: `${prefix}baseline`, ...valueOf(baseline) },
-    { key: `${prefix}bar`, ...valueOf(bar) },
+const pointsOf = ({ baseline, bar, unmeasured, points }: Series, prefix = ''): Measured[] => [
+    { key: `${prefix}baseline`, ...valueOf(baseline), ...(unmeasured ? { unmeasured } : {}) },
+    { key: `${prefix}bar`, ...valueOf(bar), ...(unmeasured ? { unmeasured } : {}) },
     ...points.map(
         ({ offsetS, value, censored, incomplete, unmeasured }): Measured => ({
             key: `${prefix}t${offsetS}`,
@@ -641,24 +791,12 @@ function pickupSeries({ samples, drive, timeline }: MeasureEvidence): [string, S
         if (!samples.some((sample) => sample.role === role)) {
             return []
         }
-        const series = seriesOver({ drive, timeline }, (window, baseline): WindowP99 => {
-            if (!baseline) {
-                return { value: null, clean: false, censored: true, unmeasured: UNBOUNDED_PICKUPS }
-            }
-            const pickups = pickupsBetween(samples, [role], window, { straddlesEnd: false, fetchedBefore: window.to })
-            if (pickups.reset) {
-                return { value: null, clean: false, censored: true }
-            }
-            if ('unread' in pickups) {
-                return { value: null, clean: false, incomplete: true }
-            }
-            const buckets = pickups.picked[queue] ?? {}
-            if ((buckets['+Inf'] ?? 0) === 0) {
-                return { value: null, clean: false }
-            }
-            const { value, beyond } = p99Of(buckets)
-            return { value, clean: !beyond, ...(beyond ? { censored: true as const } : {}) }
-        })
+        const series = seriesOver({ drive, timeline }, () => ({
+            value: null,
+            clean: false,
+            censored: true,
+            unmeasured: UNBOUNDED_PICKUPS,
+        }))
         return series ? [[queue, series] as [string, Series]] : []
     })
 }
@@ -806,14 +944,58 @@ export const RECOVERY_MEASUREMENTS: MeasurementDefinition[] = [
         params: z.object({}).strict(),
         unit: 'jobs/s',
         measure: ({ samples, drive, steps }) =>
-            steps.flatMap(({ scale, fromMs, toMs }) => {
-                const step = { from: drive.startedAt + fromMs, to: Math.min(drive.startedAt + toMs, drive.endedAt) }
-                return step.to <= step.from
-                    ? []
-                    : queuesOf(samples).map((queue) => ({
-                          key: `${queue}_${scale}x`,
-                          ...stepClaimRate(samples, queue, step),
-                      }))
+            stepPhasesOf(drive, steps).flatMap(({ scale, step }) =>
+                queuesOf(samples).map((queue) => ({
+                    key: `${queue}_${scale}x`,
+                    ...stepClaimRate(samples, queue, step),
+                }))
+            ),
+    },
+    {
+        name: 'step_writer_backends',
+        params: z.object({}).strict(),
+        unit: 'backends',
+        measure: perWriterStep(({ state }) => state.replace(/ /g, '_')),
+    },
+    {
+        name: 'step_writer_active_waits',
+        params: z.object({}).strict(),
+        unit: 'backends',
+        measure: perWriterStep(({ state, wait }) => (state === 'active' ? wait : undefined)),
+    },
+    {
+        name: 'step_host_busy_percent',
+        params: z.object({}).strict(),
+        unit: '%',
+        measure: ({ host, drive, steps }) =>
+            stepPhasesOf(drive, steps).flatMap(({ scale, step }) => {
+                const share = stepHostBusyShareOf(host, step)
+                return share === undefined ? [] : [{ key: `${scale}x`, value: share * 100 }]
+            }),
+    },
+    {
+        name: 'step_role_cpu_cores',
+        params: z.object({}).strict(),
+        unit: 'cores',
+        measure: ({ samples, drive, steps }) =>
+            perRoleStep(samples, drive, steps, (ofRole, step) => {
+                const { rates, incomplete } = stepCpuOf(ofRole, step)
+                return [
+                    measuredOf(
+                        rates.reduce((sum, rate) => sum + rate, 0),
+                        incomplete
+                    ),
+                ]
+            }),
+    },
+    {
+        name: 'step_role_busiest_cpu_cores',
+        params: z.object({}).strict(),
+        unit: 'cores',
+        measure: ({ samples, drive, steps }) =>
+            perRoleStep(samples, drive, steps, (ofRole, step) => {
+                const { rates, incomplete } = stepCpuOf(ofRole, step)
+                return [measuredOf(Math.max(0, ...rates), incomplete)]
             }),
     },
     {
@@ -831,18 +1013,20 @@ export const MEASUREMENTS: MeasurementDefinition[] = [
     roleCpuSeconds,
     roleRssMaxBytes,
     deliveryLatencyMs,
+    roleExitMs,
+    leaseReclaimMs,
+    resentInvocations,
     counterDrift,
     ...RECOVERY_MEASUREMENTS,
-    ...SOAK_MEASUREMENTS,
 ]
 
 export function measure(measurements: Named[], evidence: MeasureEvidence): Measurement[] {
-    return measurements.flatMap(({ name, params }) => {
+    return measurements.flatMap(({ name }) => {
         const definition = MEASUREMENTS.find((measurement) => measurement.name === name)
         if (!definition) {
             throw new Error(`No measurement ${name}`)
         }
-        return definition.measure(evidence, params).map((value) => ({ name, unit: definition.unit, ...value }))
+        return definition.measure(evidence).map((value) => ({ name, unit: definition.unit, ...value }))
     })
 }
 

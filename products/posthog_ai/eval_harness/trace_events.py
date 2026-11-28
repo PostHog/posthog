@@ -142,7 +142,7 @@ class TraceEventEmitter:
         if gen_start:
             capture_kwargs["timestamp"] = gen_start
 
-        self._client.capture(
+        self._client.capture_ai(
             distinct_id=DISTINCT_ID,
             event="$ai_generation",
             properties=properties,
@@ -174,7 +174,7 @@ class TraceEventEmitter:
             properties["$ai_latency"] = (ended - started).total_seconds()
 
         capture_kwargs: dict[str, Any] = {"timestamp": started} if started else {}
-        self._client.capture(distinct_id=DISTINCT_ID, event="$ai_span", properties=properties, **capture_kwargs)
+        self._client.capture_ai(distinct_id=DISTINCT_ID, event="$ai_span", properties=properties, **capture_kwargs)
 
     @staticmethod
     def _apply_token_usage(properties: dict[str, Any], token_usage: dict[str, int]) -> None:
@@ -216,7 +216,7 @@ class TraceEventEmitter:
         if span_ts:
             capture_kwargs["timestamp"] = span_ts
 
-        self._client.capture(
+        self._client.capture_ai(
             distinct_id=DISTINCT_ID,
             event="$ai_span",
             properties={
@@ -276,7 +276,7 @@ class TraceEventEmitter:
         if ts:
             capture_kwargs["timestamp"] = ts
 
-        self._client.capture(
+        self._client.capture_ai(
             distinct_id=DISTINCT_ID,
             event="$ai_trace",
             properties=properties,

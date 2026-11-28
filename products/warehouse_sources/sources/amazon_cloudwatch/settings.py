@@ -167,3 +167,17 @@ ENDPOINT_DESCRIPTIONS: dict[str, str] = {
     "metric_filters": "Metric filters in the region, which turn matching log events into CloudWatch metrics.",
     "log_anomalies": "Anomalies that log anomaly detectors found in the log groups.",
 }
+
+
+# The IAM actions this source calls. A role session can use only these.
+AWS_SESSION_ACTIONS = (
+    "cloudwatch:DescribeAlarmHistory",
+    "cloudwatch:DescribeAlarms",
+    "cloudwatch:GetMetricData",
+    "cloudwatch:ListMetrics",
+    "logs:DescribeLogGroups",
+    "logs:DescribeLogStreams",
+    "logs:DescribeMetricFilters",
+    "logs:FilterLogEvents",
+    "logs:ListAnomalies",
+)

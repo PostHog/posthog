@@ -13,11 +13,8 @@ export type VacuumSample = {
     indexBytes: Record<string, number>
 }
 
-export type SettingType = { unit: string | null; vartype: string }
-
 export type VacuumSettings = {
     settings: Record<string, string>
-    types: Record<string, SettingType>
     storage: Record<string, string[] | null>
     statsHidden: boolean
 }
@@ -78,8 +75,8 @@ export function createVacuumProbe(cyclotronUrl: string): VacuumProbe {
             }, cyclotronUrl),
         settings: () =>
             withPostgres(async (client) => {
-                const settings = await client.query<{ name: string; value: string } & SettingType>(
-                    `SELECT name, current_setting(name) AS value, unit, vartype
+                const settings = await client.query<{ name: string; value: string }>(
+                    `SELECT name, current_setting(name) AS value
                      FROM pg_settings
                      WHERE name LIKE 'autovacuum%' OR name LIKE 'vacuum%' OR name = 'maintenance_work_mem'`
                 )
@@ -96,9 +93,6 @@ export function createVacuumProbe(cyclotronUrl: string): VacuumProbe {
                 )
                 return {
                     settings: Object.fromEntries(settings.rows.map(({ name, value }) => [name, value])),
-                    types: Object.fromEntries(
-                        settings.rows.map(({ name, unit, vartype }) => [name, { unit, vartype }])
-                    ),
                     storage: Object.fromEntries(storage.rows.map(({ name, options }) => [name, options])),
                     statsHidden: hidden.rows[0].hidden,
                 }

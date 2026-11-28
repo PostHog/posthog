@@ -51,6 +51,7 @@ from posthog.admin.console.panels import (
     MAX_FACTS_PER_PANEL,
     Fact,
     Gate,
+    Handoff,
     Operation,
     Owner,
     Panel,
@@ -496,6 +497,25 @@ class TestAdminConsoleContract(SimpleTestCase):
                 "download_name_that_would_break_the_header",
                 lambda: Download(filename='certificate".json', content_type="application/json", content="{}"),
                 "only letters",
+            ),
+            *[
+                (f"handoff_to_{name}", lambda url=url: Handoff(url=url, tool="Viewer"), "must be an https URL")
+                for name, url in (
+                    ("a_script_url", "javascript:alert(1)"),
+                    ("plain_http_off_this_machine", "http://viewer.example.com/"),
+                    ("a_relative_path", "/viewer"),
+                )
+            ],
+            (
+                "handoff_operation_with_a_form",
+                lambda: Operation(
+                    key="open",
+                    label="Open in viewer",
+                    handler=lambda request, obj, form: None,
+                    form_class=forms.Form,
+                    handoff=Handoff(url="https://viewer.example.com/", tool="Viewer"),
+                ),
+                "takes no form",
             ),
         ]
     )

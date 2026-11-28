@@ -3,12 +3,15 @@ import { router } from 'kea-router'
 import { useMemo, useRef } from 'react'
 
 import { Spinner } from '@posthog/quill'
+import { ChartThemeProvider } from '@posthog/quill-charts'
 
+import { useChartTheme } from 'lib/charts/hooks'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { NotFound } from 'lib/components/NotFound'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { sampleDataStateLogic } from 'scenes/insights/EmptyStates/sampleDataStateLogic'
+import { organizationLogic } from 'scenes/organizationLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -24,7 +27,12 @@ import { runSampleQuery } from '../fixtures/runSampleQuery'
 import { createChartPanel } from '../panels/chart/createChartPanel'
 import { markdownPanel } from '../panels/markdown/markdownSpec'
 import { createQueryBatchRunner } from '../query/queryBatchRunner'
-import { type DashboardSceneLogicProps, savedDashboardLogicProps, dashboardSceneLogic } from './dashboardSceneLogic'
+import {
+    type DashboardSceneLogicProps,
+    KITCHEN_SINK_CUSTOM_PANEL,
+    savedDashboardLogicProps,
+    dashboardSceneLogic,
+} from './dashboardSceneLogic'
 
 export const scene: SceneExport = {
     component: DashboardScene,
@@ -48,9 +56,14 @@ function DashboardV2(): JSX.Element {
     const { activeTabId } = useValues(dashboardSceneLogic)
     const { applyDashboardEdit, setActiveTab } = useActions(dashboardSceneLogic)
     const { featureFlags } = useValues(featureFlagLogic)
+    // The app theme adds the tooltip z-index above app overlays and the Storybook snapshot switch.
+    const chartTheme = useChartTheme()
     const { currentTeamId, timezone } = useValues(teamLogic)
     const tabRef = useRef(activeTabId)
     tabRef.current = activeTabId
+    const { currentOrganization } = useValues(organizationLogic)
+    const organizationRef = useRef(currentOrganization)
+    organizationRef.current = currentOrganization
     // The same check as v1 insights: a project that has sent no events yet sees sample charts instead of empty ones.
     const { shouldShowSampleData } = useValues(sampleDataStateLogic)
     // TODO(2026-11-25): Remove with the kitchen sink fixture, once the board list can open saved boards.
@@ -68,9 +81,15 @@ function DashboardV2(): JSX.Element {
     const panels = useMemo(() => {
         const runQuery =
             runsRealQueries && currentTeamId
-                ? createQueryBatchRunner(currentTeamId, { context: () => ({ dashboard_tab_id: tabRef.current }) })
+                ? createQueryBatchRunner(currentTeamId, {
+                      context: () => ({ dashboard_tab_id: tabRef.current }),
+                      allowsProject: (project) =>
+                          !!organizationRef.current?.teams.some(
+                              (team) => team.id === project || team.project_id === project
+                          ),
+                  })
                 : runSampleQuery
-        return [createChartPanel({ runQuery, sampleData }), markdownPanel]
+        return [createChartPanel({ runQuery, sampleData }), markdownPanel, KITCHEN_SINK_CUSTOM_PANEL]
     }, [runsRealQueries, currentTeamId, sampleData])
     // TODO(2026-11-25): Offer filters with real queries once the query batch request carries them; until then only the
     // sample runner applies them, so a filter bar there would narrow nothing.
@@ -88,7 +107,7 @@ function DashboardV2(): JSX.Element {
         )
     }
     return (
-        <>
+        <ChartThemeProvider value={chartTheme}>
             <DashboardView
                 surface="dashboard-v2-scene"
                 dashboard={dashboard}
@@ -117,6 +136,6 @@ function DashboardV2(): JSX.Element {
                 }
             />
             <SaveConflictDialog />
-        </>
+        </ChartThemeProvider>
     )
 }

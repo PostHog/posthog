@@ -1,20 +1,44 @@
-import { useCallback, useLayoutEffect, useMemo, useRef } from 'react'
+import { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react'
 
-import type { DashboardController, RefreshController } from './dashboardContext'
+import type { DashboardAction, DashboardController, RefreshController } from './dashboardContext'
+
+const READ_ONLY = 'This dashboard is read-only'
+
+/** The controller with what a host left out filled in, so the components never check for it. */
+export type StableController = Omit<
+    DashboardController,
+    'activeTabId' | 'disabledReasonFor' | 'onEdit' | 'onActiveTabChange'
+> &
+    Required<Pick<DashboardController, 'disabledReasonFor' | 'onEdit' | 'onActiveTabChange'>> & {
+        activeTabId: string | null
+    }
 
 /**
  * Builds the controller from a host's props, so the host can pass inline event handlers and a new `history` or
  * `refresh` object on each render without re-rendering every tile. Functions that decide what renders
  * (`disabledReasonFor`, `tileActions`, `tilePlacementActions`, `dashboardActions`) are used as given, because a new one has to re-render.
  */
-export function useStableController(props: DashboardController): DashboardController {
+export function useStableController(props: DashboardController): StableController {
     const latest = useRef(props)
     useLayoutEffect(() => {
         latest.current = props
     })
 
-    const onEdit = useCallback<DashboardController['onEdit']>((edit, view) => latest.current.onEdit(edit, view), [])
-    const onActiveTabChange = useCallback((tabId: string) => latest.current.onActiveTabChange(tabId), [])
+    const onEdit = useCallback<StableController['onEdit']>((edit, view) => latest.current.onEdit?.(edit, view), [])
+    const [ownTabId, setOwnTabId] = useState(props.activeTabId ?? null)
+    const activeTabId = props.onActiveTabChange ? (props.activeTabId ?? null) : ownTabId
+    const onActiveTabChange = useCallback(
+        (tabId: string) => (latest.current.onActiveTabChange ?? setOwnTabId)(tabId),
+        []
+    )
+    const readOnly = !props.onEdit
+    const hostReason = props.disabledReasonFor
+    const disabledReasonFor = useMemo(
+        () =>
+            (action: DashboardAction): string | null =>
+                readOnly ? READ_ONLY : (hostReason?.(action) ?? null),
+        [readOnly, hostReason]
+    )
 
     const hasHistory = !!props.history
     const canUndo = props.history?.canUndo ?? false
@@ -49,17 +73,7 @@ export function useStableController(props: DashboardController): DashboardContro
         [hasRefresh, intervalsKey, initialInterval, refreshing]
     )
 
-    const {
-        dashboard,
-        activeTabId,
-        panels,
-        disabledReasonFor,
-        tileActions,
-        tilePlacementActions,
-        dashboardActions,
-        filters,
-        timeRange,
-    } = props
+    const { dashboard, panels, tileActions, tilePlacementActions, dashboardActions, filters, timeRange } = props
     return useMemo(
         () => ({
             dashboard,

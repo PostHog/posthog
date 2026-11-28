@@ -148,72 +148,6 @@ describe('load', () => {
             'measure.0.name: unknown measurement queue_depth',
         ],
         [
-            'a series window shorter than one vacuum sample',
-            { ...card, measure: [{ name: 'dead_tuple_share', params: { every: '0s' } }] },
-            undefined,
-            'measure.0.params.every: a series window spans at least 10s, one vacuum sample',
-        ],
-        [
-            'a series window one second shorter than one vacuum sample',
-            { ...card, measure: [{ name: 'dead_tuple_share', params: { every: '9s' } }] },
-            undefined,
-            'measure.0.params.every: a series window spans at least 10s, one vacuum sample',
-        ],
-        [
-            'a measurement listed twice, whose keys would overwrite each other',
-            {
-                ...card,
-                measure: [
-                    { name: 'dead_tuple_share', params: { every: '5m' } },
-                    { name: 'dead_tuple_share', params: { every: '10m' } },
-                ],
-            },
-            undefined,
-            'measure: dead_tuple_share is listed more than once, and its keys would overwrite each other; list it once',
-        ],
-        [
-            'a profile that names an empty map of autovacuum settings',
-            card,
-            { ...profile, postgres: { autovacuum: {} } },
-            'profile.postgres.autovacuum: name at least one autovacuum setting, or leave postgres out',
-        ],
-        [
-            'a profile autovacuum value with a leading zero, which PostgreSQL reads as octal',
-            card,
-            { ...profile, postgres: { autovacuum: { autovacuum_naptime: '060' } } },
-            'profile.postgres.autovacuum.autovacuum_naptime: write the value as a decimal with no sign, space or leading zero and an optional unit, as 60s or 0.2, or as a word, as on',
-        ],
-        [
-            'a profile autovacuum value with a leading space before a leading zero',
-            card,
-            { ...profile, postgres: { autovacuum: { autovacuum_naptime: ' 060' } } },
-            'profile.postgres.autovacuum.autovacuum_naptime: write the value as a decimal with no sign, space or leading zero and an optional unit, as 60s or 0.2, or as a word, as on',
-        ],
-        [
-            'a profile autovacuum value with a plus sign before a leading zero',
-            card,
-            { ...profile, postgres: { autovacuum: { autovacuum_naptime: '+060' } } },
-            'profile.postgres.autovacuum.autovacuum_naptime: write the value as a decimal with no sign, space or leading zero and an optional unit, as 60s or 0.2, or as a word, as on',
-        ],
-        [
-            'a profile autovacuum value in hex',
-            card,
-            { ...profile, postgres: { autovacuum: { autovacuum_work_mem: '-0x1' } } },
-            'profile.postgres.autovacuum.autovacuum_work_mem: write the value as a decimal with no sign, space or leading zero and an optional unit, as 60s or 0.2, or as a word, as on',
-        ],
-        [
-            'a profile autovacuum value in exponent notation',
-            card,
-            { ...profile, postgres: { autovacuum: { autovacuum_naptime: '6e1' } } },
-            'profile.postgres.autovacuum.autovacuum_naptime: write the value as a decimal with no sign, space or leading zero and an optional unit, as 60s or 0.2, or as a word, as on',
-        ],
-        [
-            'a profile autovacuum value with a space before its unit',
-            card,
-            { ...profile, postgres: { autovacuum: { autovacuum_naptime: '1 min' } } },
-            'profile.postgres.autovacuum.autovacuum_naptime: write the value as a decimal with no sign, space or leading zero and an optional unit, as 60s or 0.2, or as a word, as on',
-        ],
-        [
             'an unknown bar',
             { ...card, bars: [{ name: 'writer_iops_under' }] },
             undefined,
@@ -364,14 +298,17 @@ describe('load', () => {
             `edge_accepted on ${valve} of ${target}`,
             { ...card, valves: [{ ...emailWorkerKill, valve, target, when: edgeAccepted }] },
             { ...profile, replicas: { 'cdp-cyclotron-worker-email': 2 } },
-            "valves.0.when: edge_accepted holds an email worker's send, so it fires only role.kill on cdp-cyclotron-worker-email",
+            "valves.0.when: edge_accepted holds an email worker's send, so it fires only role.kill or role.terminate on cdp-cyclotron-worker-email",
         ]),
-        [
-            'edge_accepted while the profile runs more than one email worker',
-            { ...card, valves: [{ ...emailWorkerKill, when: edgeAccepted }] },
+        ...[
+            ['role.kill', {}],
+            ['role.terminate', { grace: '20s' }],
+        ].map(([valve, dose]): [string, object, object, string] => [
+            `edge_accepted on ${valve} while the profile runs more than one email worker`,
+            { ...card, valves: [{ ...emailWorkerKill, valve, dose, when: edgeAccepted }] },
             { ...profile, replicas: { 'cdp-cyclotron-worker-email': 2 } },
-            "valves.0.target: role.kill stops cdp-cyclotron-worker-email replica 0 only, and edge_accepted can hold another replica's send; run one email worker replica on this card",
-        ],
+            `valves.0.target: ${valve} stops cdp-cyclotron-worker-email replica 0 only, and edge_accepted can hold another replica's send; run one email worker replica on this card`,
+        ]),
         [
             'an unknown valve',
             { ...card, valves: [{ ...emailWorkerKill, valve: 'role.melt' }] },
@@ -388,6 +325,33 @@ describe('load', () => {
             },
             undefined,
             'valves.0.dose.share: ',
+        ],
+        [
+            'a terminate armed on running_on_queue',
+            { ...card, valves: [{ ...emailWorkerKill, valve: 'role.terminate', dose: { grace: '20s' } }] },
+            undefined,
+            'valves.0.when: arm role.terminate on edge_accepted or at, since a worker given SIGTERM drains its jobs before it exits',
+        ],
+        [
+            'a terminate with no grace on a profile that names none',
+            { ...card, valves: [{ ...emailWorkerKill, valve: 'role.terminate', when: edgeAccepted }] },
+            profile,
+            'valves.0.dose.grace: role.terminate needs a grace; give one here or terminationGrace in profile synthetic',
+        ],
+        [
+            'a terminate whose grace is longer than a stopped run waits for its release',
+            {
+                ...card,
+                valves: [{ ...emailWorkerKill, valve: 'role.terminate', dose: { grace: '301s' }, when: edgeAccepted }],
+            },
+            undefined,
+            'valves.0.dose.grace: at most 5m, so a stopped run releases the role within its release window',
+        ],
+        [
+            'a profile whose termination grace is longer than a stopped run waits for its release',
+            { ...card, valves: [{ ...emailWorkerKill, valve: 'role.terminate', when: edgeAccepted }] },
+            { ...profile, terminationGrace: '301s' },
+            'terminationGrace: at most 5m, so a stopped run releases the role within its release window',
         ],
         [
             'a kill aimed at something that is not a role',
@@ -887,17 +851,6 @@ describe('load', () => {
         expect(loadCard({ ...card, bars: TWICE_DECLARED_BARS }).card.bars).toEqual(TWICE_DECLARED_BARS)
     })
 
-    it('loads the autovacuum values a profile writes as a decimal with a unit, a fraction, a negative number or a word', () => {
-        const autovacuum = {
-            autovacuum: 'on',
-            autovacuum_naptime: '1min',
-            autovacuum_vacuum_scale_factor: '0.2',
-            autovacuum_work_mem: '-1',
-        }
-
-        expect(loadCard(card, { ...profile, postgres: { autovacuum } }).profile.postgres).toEqual({ autovacuum })
-    })
-
     it('keeps the name of a profile passed from outside the repository', () => {
         expect(loadCard(card, { ...profile, name: 'measured-2026-11' }).profile.name).toBe('measured-2026-11')
     })
@@ -1067,6 +1020,14 @@ describe('load', () => {
             { ...card, valves: [emailWorkerKill] },
             { ...profile, replicas: { 'cdp-api': 2 } },
         ],
+        [
+            'a terminate armed on edge_accepted while the profile runs one email worker',
+            {
+                ...card,
+                valves: [{ ...emailWorkerKill, valve: 'role.terminate', dose: { grace: '20s' }, when: edgeAccepted }],
+            },
+            profile,
+        ],
     ])('loads %s', (_name, content, profileContent) => {
         expect(loadCard(content, profileContent).card.id).toBe(card.id)
     })
@@ -1189,4 +1150,24 @@ describe('load', () => {
             expect(load(path.join(__dirname, `${id}.yaml`), { profilePath }).card.id).toBe(id)
         }
     )
+
+    it('admits cyclotron-failover-at-scale on a profile shaped like the US scale profile', () => {
+        const scaleShaped = {
+            name: 'scale-shaped',
+            traffic: {
+                event_email: { ratePerSecond: 20, parks: 1 },
+                event_webhook: { ratePerSecond: 20, parks: 1 },
+                transactional_email: { ratePerSecond: 5, parks: 1 },
+            },
+            replicas: { 'cdp-cyclotron-worker-hogflow': 4, 'cdp-cyclotron-worker-email': 4, 'cdp-api': 4 },
+            settings: { CDP_SES_RATE_LIMIT_REFILL_PER_SECOND: '2000', CDP_SES_RATE_LIMIT_CAPACITY: '5000' },
+            load: { targets: { claimsPerSecond: { hogflow: 40, email: 30 } }, tolerance: 0.1 },
+            host: { cpuCeiling: 0.5 },
+        }
+        const profilePath = write('profile.yaml', scaleShaped)
+
+        expect(load(path.join(__dirname, 'cyclotron-failover-at-scale.yaml'), { profilePath }).card.id).toBe(
+            'cyclotron-failover-at-scale'
+        )
+    })
 })

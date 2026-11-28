@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 
-import type { TimeRange } from '../../dashboard/document/dashboardTypes'
 import type { QuickRange } from './timeRanges'
+import { type TimeRange } from './timeRangeSchema'
 
 export type TimeRangeController = {
     /** Undefined shows the saved range. */

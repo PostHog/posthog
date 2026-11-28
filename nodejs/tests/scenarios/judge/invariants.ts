@@ -323,6 +323,11 @@ export const bouncedSuppressed: InvariantDefinition = {
     },
 }
 
+export const truthGapOf = (truth: readonly TruthRecord[], truthFrom: number): string | undefined => {
+    const gap = truth.findIndex(({ seq }, i) => seq !== truthFrom + i + 1)
+    return gap < 0 ? undefined : `the truth skips from seq ${truth[gap - 1]?.seq ?? truthFrom} to ${truth[gap].seq}`
+}
+
 const runOf = (unitId: string): string => unitId.slice(0, unitId.lastIndexOf('-'))
 
 function unjudgedNoLoss({ journal, truth, boundary }: JudgeEvidence): string | undefined {
@@ -332,9 +337,9 @@ function unjudgedNoLoss({ journal, truth, boundary }: JudgeEvidence): string | u
     if (boundary.unsettled !== undefined) {
         return boundary.unsettled
     }
-    const gap = truth.findIndex(({ seq }, i) => seq !== boundary.truthFrom + i + 1)
-    if (gap >= 0) {
-        return `the truth skips from seq ${truth[gap - 1]?.seq ?? boundary.truthFrom} to ${truth[gap].seq}`
+    const gap = truthGapOf(truth, boundary.truthFrom)
+    if (gap !== undefined) {
+        return gap
     }
     if (boundary.unobserved.length > 0) {
         return boundary.unobserved.join('; ')

@@ -68,4 +68,45 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "up_votes_count": "Number of question upvotes the person gave in the session.",
         },
     },
+    "session_chat_messages": {
+        "description": "Chat messages sent during Livestorm sessions.",
+        "docs_url": "https://developers.livestorm.co/reference/get_sessions-id-chat-messages",
+        "columns": {
+            "session_id": "Identifier of the session where the author sent the message.",
+            "author_id": "Identifier of the person who sent the message.",
+            "text_content": "Plain text of the message.",
+            "html_content": "HTML content of the message.",
+        },
+    },
+    "session_questions": {
+        "description": "Questions asked during Livestorm sessions and the answers to those questions.",
+        "docs_url": "https://developers.livestorm.co/reference/get_sessions-id-questions",
+        "columns": {
+            "session_id": "Identifier of the session where the participant asked the question.",
+            "question": "Text of the question.",
+            "response": "Written answer to the question, if available.",
+            "response_orally": "Whether someone answered the question aloud.",
+        },
+    },
+    "team_members": {
+        "description": "Livestorm workspace team members. Requires Admin read access.",
+        "docs_url": "https://developers.livestorm.co/reference/get_users-1",
+        "columns": {
+            "id": "Identifier of the team member.",
+            "email": "Email address of the team member.",
+            "workspace_role": "Role assigned to the team member in the workspace.",
+            "pending_invite": "Whether the team member has a pending invitation.",
+        },
+    },
+    "people_attributes": {
+        "description": "Built-in and custom person field definitions. Requires Admin read access.",
+        "docs_url": "https://developers.livestorm.co/reference/get_people-attributes",
+        "columns": {
+            "id": "Identifier of the field.",
+            "slug": "Machine-readable name of the field.",
+            "name": "Display name of the field.",
+            "type": "Type of value the field accepts.",
+            "builtin": "Whether Livestorm supplies the field by default.",
+        },
+    },
 }

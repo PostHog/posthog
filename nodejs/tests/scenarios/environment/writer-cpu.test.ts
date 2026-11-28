@@ -54,19 +54,6 @@ describe('writerCpuOf', () => {
         await expect(read).resolves.toEqual(minutes.map((minute) => ({ at: T + minute * MINUTE, percent: 50 })))
     })
 
-    it('reads nothing and waits for nothing when the drive holds no whole minute', async () => {
-        const read = writerCpuOf(
-            {
-                call: () => Promise.reject(new Error('the drive has no minute to read')),
-                text: () => Promise.reject(new Error('the CPU read only calls')),
-            },
-            MANIFEST,
-            { startedAt: T + 5_000, endedAt: T + 7_000 }
-        )
-
-        await expect(read).resolves.toEqual([])
-    })
-
     it('stops waiting for a CloudWatch read that has not answered by the deadline', async () => {
         let settled = false
         const read = writerCpuOf(

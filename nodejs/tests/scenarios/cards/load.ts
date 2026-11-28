@@ -10,7 +10,7 @@ import { getDefaultConfig } from '~/common/config/config'
 import { durationMs } from '../duration'
 import { EMAIL_ACTION, TRAFFIC } from '../generator/traffic'
 import { MIN_BASELINE_SECONDS, SAMPLE_INTERVAL_MS, SCRAPE_TIMEOUT_MS } from '../judge/measurements'
-import { roleFreeze, roleKill } from '../valves/valves'
+import { roleFreeze, roleKill, roleTerminate } from '../valves/valves'
 import { DEFINITIONS, Definition, Definitions } from './definitions'
 import { AdmissionTargets, loadTargetsOf } from './load-targets'
 import { AlertsProfile, Card, Load, Named, Profile, SeedOverride, stepsOf } from './schema'
@@ -202,7 +202,7 @@ function checkWorkflowRate(card: Card, profile: Profile, defaults: Settings): st
     })
 }
 
-const ROLE_STOPPING_VALVES = [roleKill.name, roleFreeze.name]
+const ROLE_STOPPING_VALVES = [roleKill.name, roleTerminate.name, roleFreeze.name]
 
 function checkIntakeReplicaValves(card: Card, profile: Profile): string[] {
     if ((profile.replicas['cdp-api'] ?? 1) === 1) {
@@ -219,17 +219,41 @@ function checkIntakeReplicaValves(card: Card, profile: Profile): string[] {
 
 const EMAIL_WORKER = 'cdp-cyclotron-worker-email'
 
+const SEND_STRANDING_VALVES = [roleKill.name, roleTerminate.name]
+
 const killsEmailWorker = ({ valve, target }: Card['valves'][number]): boolean =>
-    valve === roleKill.name && target === EMAIL_WORKER
+    SEND_STRANDING_VALVES.includes(valve) && target === EMAIL_WORKER
 
 function checkAcceptedBoundary(card: Card): string[] {
     return card.valves.flatMap((entry, i) =>
         entry.when?.name === 'edge_accepted' && !killsEmailWorker(entry)
             ? [
-                  `valves.${i}.when: edge_accepted holds an email worker's send, so it fires only role.kill on ${EMAIL_WORKER}`,
+                  `valves.${i}.when: edge_accepted holds an email worker's send, so it fires only ${SEND_STRANDING_VALVES.join(' or ')} on ${EMAIL_WORKER}`,
               ]
             : []
     )
+}
+
+function checkTerminateTrigger(card: Card): string[] {
+    return card.valves.flatMap(({ valve, when }, i) =>
+        valve === roleTerminate.name && when?.name === 'running_on_queue'
+            ? [
+                  `valves.${i}.when: arm ${valve} on edge_accepted or at, since a worker given SIGTERM drains its jobs before it exits`,
+              ]
+            : []
+    )
+}
+
+function checkTerminationGrace(card: Card, profile: Profile): string[] {
+    return profile.terminationGrace !== undefined
+        ? []
+        : card.valves.flatMap(({ valve, dose }, i) =>
+              valve === roleTerminate.name && dose.grace === undefined
+                  ? [
+                        `valves.${i}.dose.grace: ${valve} needs a grace; give one here or terminationGrace in profile ${profile.name}`,
+                    ]
+                  : []
+          )
 }
 
 function checkAcceptedBoundaryReplicas(card: Card, profile: Profile): string[] {
@@ -239,7 +263,7 @@ function checkAcceptedBoundaryReplicas(card: Card, profile: Profile): string[] {
     return card.valves.flatMap((entry, i) =>
         entry.when?.name === 'edge_accepted' && killsEmailWorker(entry)
             ? [
-                  `valves.${i}.target: role.kill stops ${EMAIL_WORKER} replica 0 only, and edge_accepted can hold another replica's send; run one email worker replica on this card`,
+                  `valves.${i}.target: ${entry.valve} stops ${EMAIL_WORKER} replica 0 only, and edge_accepted can hold another replica's send; run one email worker replica on this card`,
               ]
             : []
     )
@@ -350,13 +374,6 @@ function checkTrafficOnce(card: Card): string[] {
         .map((name) => ({ name, times: listed.filter((listedName) => listedName === name).length }))
         .filter(({ times }) => times > 1)
         .map(({ name, times }) => `drive.traffic: ${name} is listed ${times} times; list each traffic kind once`)
-}
-
-function checkMeasureOnce(card: Card): string[] {
-    const listed = card.measure.map(({ name }) => name)
-    return [...new Set(listed.filter((name, i) => listed.indexOf(name) !== i))].map(
-        (name) => `measure: ${name} is listed more than once, and its keys would overwrite each other; list it once`
-    )
 }
 
 type ProfileRead = { profile: Profile; unscaledProfile: Profile; dir?: string } | { problems: string[] }
@@ -497,9 +514,9 @@ function check(
         ...checkNames(card, DEFINITIONS),
         ...checkSuppression(card),
         ...checkTrafficOnce(card),
-        ...checkMeasureOnce(card),
         ...checkIntakeVerdict(card),
         ...checkAcceptedBoundary(card),
+        ...checkTerminateTrigger(card),
         ...('profile' in loaded
             ? [
                   ...checkProfile(card, loaded.profile, DEFINITIONS, defaults),
@@ -509,6 +526,7 @@ function check(
                   ...checkFaultFreeBaseline(card, loaded.profile),
                   ...checkIntakeReplicaValves(card, loaded.profile),
                   ...checkAcceptedBoundaryReplicas(card, loaded.profile),
+                  ...checkTerminationGrace(card, loaded.profile),
                   ...checkIntakeProfile(loaded.profile),
                   ...targetProblems(card, loaded.profile, target),
                   ...checkAlerts(loaded.profile, readAlertFile !== undefined, target),

@@ -2,10 +2,11 @@ import clsx from 'clsx'
 
 import { Card, CardContent, CardHeader, CardTitle } from '@posthog/quill'
 
-import type { SavedPanel } from '../../dashboard/document/dashboardTypes'
 import { type PanelType, panelSlots } from '../../panels/core/panelDefinition'
 import { PanelErrorBoundary } from '../../panels/core/PanelErrorBoundary'
+import { type SavedPanel } from '../../panels/core/panelSchema'
 import { PanelLoading } from '../../panels/core/PanelView'
+import { INTERACTIVE_ONLY_CLASS } from './ContentTile'
 import { isPartShown } from './tileParts'
 
 /**
@@ -24,7 +25,15 @@ export function ContentTilePlaceholder({
     const showHeader = isPartShown(panel, 'header', panelSlots(definition))
     const Loading = definition?.Loading ?? PanelLoading
     return (
-        <Card size="sm" className={clsx('dash-ContentTile', editable && !showHeader && 'TileGrid__handle')} aria-busy>
+        <Card
+            size="sm"
+            className={clsx(
+                'dash-ContentTile',
+                editable && !showHeader && 'TileGrid__handle',
+                definition?.showOnInteractiveOnly(panel) && INTERACTIVE_ONLY_CLASS
+            )}
+            aria-busy
+        >
             {showHeader && (
                 <CardHeader className={clsx(editable && 'TileGrid__handle')}>
                     <CardTitle className="TileGrid__text truncate">{panel.title}</CardTitle>

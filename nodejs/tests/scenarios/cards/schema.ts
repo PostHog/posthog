@@ -1,8 +1,7 @@
 import { z } from 'zod'
 
-import { Duration, durationMs } from '../duration'
+import { Duration, MAX_TIMER_MS, TerminationGrace, durationMs } from '../duration'
 
-const MAX_TIMER_MS = 2 ** 31 - 1
 const MAX_SEED = 2 ** 32 - 1
 
 export const SeedOverride = z.number().int().min(0).max(MAX_SEED)
@@ -215,10 +214,6 @@ export const AlertsProfile = z
     .strict()
 export type AlertsProfile = z.infer<typeof AlertsProfile>
 
-const VacuumSettingName = z.string().regex(/^(autovacuum|vacuum)[a-z_]*$|^maintenance_work_mem$/, {
-    message: 'an autovacuum or vacuum setting, or maintenance_work_mem',
-})
-
 export const Profile = z
     .object({
         name: z.string(),
@@ -232,22 +227,7 @@ export const Profile = z
         load: Load.optional(),
         host: Host.optional(),
         alerts: AlertsProfile.optional(),
-        postgres: z
-            .object({
-                autovacuum: z
-                    .record(
-                        VacuumSettingName,
-                        z.string().regex(/^(-?(0|[1-9]\d*)(\.\d+)?(B|kB|MB|GB|TB|us|ms|s|min|h|d)?|[a-zA-Z_]+)$/, {
-                            message:
-                                'write the value as a decimal with no sign, space or leading zero and an optional unit, as 60s or 0.2, or as a word, as on',
-                        })
-                    )
-                    .refine((settings) => Object.keys(settings).length > 0, {
-                        message: 'name at least one autovacuum setting, or leave postgres out',
-                    }),
-            })
-            .strict()
-            .optional(),
+        terminationGrace: TerminationGrace.optional(),
     })
     .strict()
     .refine(({ synthetic, backlog }) => !synthetic?.includes('backlog_padding') || backlog !== undefined, {

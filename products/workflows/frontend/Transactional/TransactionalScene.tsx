@@ -16,6 +16,7 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
+import { AdventEntry } from '../AdventCalendar/entry/AdventEntry'
 import { EmailSuspensionBanner } from '../EmailSuspensionBanner'
 import { EngagementEventsBanner } from '../EngagementEventsBanner'
 import { MessagingTabActions } from '../MessagingTabActions'
@@ -56,6 +57,7 @@ export function TransactionalScene(): JSX.Element {
                 resourceType={{ type: 'transactional' }}
                 actions={<TransactionalSceneActions tab={currentTab} />}
             />
+            <AdventEntry />
             <EmailSuspensionBanner />
             <EngagementEventsBanner />
             <TransactionalTabs currentTab={currentTab} showWebhooks={showWebhooks} />

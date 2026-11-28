@@ -15,16 +15,18 @@ import {
     TooltipTrigger,
 } from '@posthog/quill'
 
-import type { SavedPanel } from '../../dashboard/document/dashboardTypes'
 import type { MenuAction } from '../../menu/menuAction'
 import { type PanelType, panelSlots } from '../../panels/core/panelDefinition'
 import { PanelErrorBoundary } from '../../panels/core/PanelErrorBoundary'
+import { type SavedPanel } from '../../panels/core/panelSchema'
 import { type TileCustomization, findPanel } from '../../panels/core/panelSpec'
 import { PanelView } from '../../panels/core/PanelView'
 import { TileActions } from './TileActions'
 import { NO_BACKGROUND, showsBorder, tileBackgroundColor } from './tileAppearance'
 import { TileContextMenu, hasTileMenu } from './TileContextMenu'
 import { isPartShown } from './tileParts'
+
+export const INTERACTIVE_ONLY_CLASS = 'dash-ContentTile--interactive-only'
 
 const NO_ACTIONS: MenuAction[] = []
 
@@ -84,7 +86,12 @@ export function ContentTile({
             <Card
                 size="sm"
                 // A tile without a header has no title bar, so the whole tile is what it is dragged by.
-                className={clsx('dash-ContentTile', look.className, editable && !showHeader && 'TileGrid__handle')}
+                className={clsx(
+                    'dash-ContentTile',
+                    look.className,
+                    editable && !showHeader && 'TileGrid__handle',
+                    definition?.showOnInteractiveOnly(panel) && INTERACTIVE_ONLY_CLASS
+                )}
                 style={look.style}
             >
                 {showHeader && (

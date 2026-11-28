@@ -51,7 +51,7 @@ MODULE = "products.experiments.backend.temporal.scheduled_recalculation_activiti
 DISPATCH = "products.experiments.backend.recalculation.admission.start_metrics_recalculation_workflow"
 
 # Unwrap the database_sync_to_async_pool decorator so the bodies run synchronously in the test
-# transaction, matching recalculation/test_activities.py.
+# transaction, matching recalculation/test_helpers.py.
 _check_exposures_raw = _check_experiment_exposures_sync.func  # type: ignore[attr-defined]
 _start_recalculation_raw = _start_scheduled_recalculation_sync.func  # type: ignore[attr-defined]
 _discover_raw = _discover_scheduled_recalculation_candidates_sync.func  # type: ignore[attr-defined]
