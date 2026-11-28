@@ -84,9 +84,25 @@ function finished(scan: ObservationRequestApi, answer: string): ObservationReque
     }
 }
 
+function parseDatetime(value: string): number {
+    const day = /^(\d{4})-(\d{2})-(\d{2})T/.exec(value)
+    const at = Date.parse(value)
+    if (!day || Number.isNaN(at)) {
+        return NaN
+    }
+    const [year, month, date] = day.slice(1).map(Number)
+    const calendar = new Date(Date.UTC(year, month - 1, date))
+    return calendar.getUTCMonth() === month - 1 && calendar.getUTCDate() === date ? at : NaN
+}
+
+function byteOrder(a: string, b: string): number {
+    return a < b ? -1 : a > b ? 1 : 0
+}
+
 describe('AfterClickingCard', () => {
     let vision: FakeReplayVision
     let failedSessionLists: number
+    let sendCapReached: boolean
     let linkTrackingOn: boolean
     let captured: string[]
 
@@ -98,6 +114,7 @@ describe('AfterClickingCard', () => {
             return undefined
         })
         failedSessionLists = 0
+        sendCapReached = false
         linkTrackingOn = true
         vision = {
             bodies: [],
@@ -118,6 +135,15 @@ describe('AfterClickingCard', () => {
                     { ...IMPACT, link_tagging_enabled: linkTrackingOn },
                 ],
                 '/api/projects/:team_id/transactional_email_log/impact_sessions/': ({ request }) => {
+                    const query = new URL(request.url).searchParams
+                    const bounds: Record<string, number> = {}
+                    for (const attr of ['date_from', 'date_to', 'landed_before']) {
+                        const value = query.get(attr)
+                        bounds[attr] = value === null ? NaN : parseDatetime(value)
+                        if (value !== null && Number.isNaN(bounds[attr])) {
+                            return [400, { attr, detail: 'Datetime has wrong format.' }]
+                        }
+                    }
                     if (!linkTrackingOn) {
                         return [200, { sessions: [], has_more: false }]
                     }
@@ -125,27 +151,25 @@ describe('AfterClickingCard', () => {
                         failedSessionLists -= 1
                         return [500, {}]
                     }
-                    const query = new URL(request.url).searchParams
-                    const from = Date.parse(query.get('date_from') ?? '')
-                    const landedBefore = query.get('landed_before')
-                    const before = landedBefore === null ? Infinity : Date.parse(landedBefore)
-                    if (Number.isNaN(before)) {
-                        return [400, { attr: 'landed_before', detail: 'Datetime has wrong format.' }]
-                    }
+                    const from = Number.isNaN(bounds.date_from) ? -Infinity : bounds.date_from
+                    const before = Number.isNaN(bounds.landed_before) ? Infinity : bounds.landed_before
                     const landed = LANDINGS.filter(({ first_pageview_at }) => {
                         const at = Date.parse(first_pageview_at)
                         return at >= from && at < before
                     })
                     landed.sort(
                         (a, b) =>
-                            b.first_pageview_at.localeCompare(a.first_pageview_at) ||
-                            b.session_id.localeCompare(a.session_id)
+                            Date.parse(b.first_pageview_at) - Date.parse(a.first_pageview_at) ||
+                            byteOrder(b.session_id, a.session_id)
                     )
                     const sessions = landed.map((landing) => ({
                         ...landing,
                         message_id: `message-${landing.session_id}`,
                     }))
-                    return [200, { sessions: sessions.slice(0, 200), has_more: sessions.length > 200 }]
+                    return [
+                        200,
+                        { sessions: sessions.slice(0, 200), has_more: sessions.length > 200 || sendCapReached },
+                    ]
                 },
                 '/api/projects/:team_id/vision/requests/:id/': async ({ params }) => {
                     vision.polls += 1
@@ -274,6 +298,13 @@ describe('AfterClickingCard', () => {
         await userEvent.click(await screen.findByText('Try again'))
 
         expect(await screen.findByText(READY)).toBeInTheDocument()
+    })
+
+    it('says it watches some of the sessions when the send cap leaves more out', async () => {
+        sendCapReached = true
+        renderTab(REPLAY_ON)
+
+        expect(await screen.findByText(/^Replay vision watches 2 of the sessions people started/)).toBeInTheDocument()
     })
 
     it("asks the fixed question about the period's sessions and shows each answer", async () => {
