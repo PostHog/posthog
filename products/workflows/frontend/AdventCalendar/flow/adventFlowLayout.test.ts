@@ -161,20 +161,28 @@ describe('adventFlowLayout', () => {
         )
     })
 
-    it.each(ORIENTATIONS)('moves nothing when doors open and questions get answered in %s', (orientation) => {
-        const before = layoutOf('nothing open', orientation)
-        const after = layoutOf('every door open', orientation)
-        const placeOf = new Map(before.nodes.map((node) => [node.id, { tile: node.tile, caption: node.caption }]))
-        const routeOf = new Map(before.edges.map((edge) => [edge.id, edge.points]))
+    it.each(ORIENTATIONS)(
+        'keeps every tile 70 × 74 and moves nothing when doors open and questions get answered in %s',
+        (orientation) => {
+            const before = layoutOf('nothing open', orientation)
+            const after = layoutOf('every door open', orientation)
+            const placeOf = new Map(before.nodes.map((node) => [node.id, { tile: node.tile, caption: node.caption }]))
+            const routeOf = new Map(
+                before.edges.map((edge) => [edge.id, { points: edge.points, labelAt: edge.labelAt }])
+            )
 
-        expect(after.nodes.map((node) => [node.id, { tile: node.tile, caption: node.caption }])).toEqual(
-            after.nodes.map((node) => [node.id, placeOf.get(node.id)])
-        )
-        expect(after.edges.map((edge) => [edge.id, edge.points])).toEqual(
-            after.edges.map((edge) => [edge.id, routeOf.get(edge.id)])
-        )
-        expect([after.width, after.height]).toEqual([before.width, before.height])
-    })
+            expect(after.nodes.map((node) => [node.id, { tile: node.tile, caption: node.caption }])).toEqual(
+                after.nodes.map((node) => [node.id, placeOf.get(node.id)])
+            )
+            expect(after.edges.map((edge) => [edge.id, { points: edge.points, labelAt: edge.labelAt }])).toEqual(
+                after.edges.map((edge) => [edge.id, routeOf.get(edge.id)])
+            )
+            expect([after.width, after.height]).toEqual([before.width, before.height])
+            expect(
+                new Set([...before.nodes, ...after.nodes].map(({ tile }) => `${tile.width} × ${tile.height}`))
+            ).toEqual(new Set(['70 × 74']))
+        }
+    )
 
     it('puts the hover label of a desktop door on its right, or on its left at the right edge, clear of the leaf', () => {
         const layout = layoutOf('nothing open', 'rows')
