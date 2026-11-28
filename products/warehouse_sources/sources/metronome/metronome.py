@@ -1,11 +1,11 @@
 import json
 import threading
+import dataclasses
 from collections import deque
 from collections.abc import Callable, Generator, Iterable, Iterator
 from concurrent.futures import Future, ThreadPoolExecutor, wait
 from datetime import UTC, datetime, timedelta
 from typing import Any, Literal, Optional, cast
-from urllib.parse import quote
 
 from requests import PreparedRequest, Request, Response, Session
 
@@ -33,6 +33,7 @@ from products.warehouse_sources.sources.sdk import (
     SinglePagePaginator,
     SourceResponse,
     WorkerShuttingDownError,
+    build_dependent_resource,
     coerce_datetime_to_utc,
     create_auth,
     frozen,
@@ -74,16 +75,6 @@ USAGE_REQUESTS_PER_SECOND = 7.5
 USAGE_RATE_LIMIT_HOLD_SECONDS = 5.0
 # Caps a batch when an account's customers are small enough that the row cap never trips.
 USAGE_CUSTOMERS_PER_BATCH = 100
-# A customer fan-out (`invoices`, `invoice_breakdowns`) walks one customer at a time, at about the
-# rate its sequential walk always ran at. It shares the account's tier with a usage walk that may
-# run at the same time, and most customers answer in one page, so a second worker buys little.
-FANOUT_CUSTOMER_CONCURRENCY = 1
-FANOUT_REQUESTS_PER_SECOND = 2.5
-# An invoice carries unbounded `line_items`, so a fan-out batch holds far fewer rows than a usage
-# batch. Most customers hold a few invoices, so the row cap rather than the customer count ends a
-# batch, which keeps each Delta write from shrinking to a handful of rows.
-FANOUT_COALESCE_ROWS = 1_000
-FANOUT_CUSTOMERS_PER_BATCH = 1_000
 # How long the walk waits on one customer before it looks for a worker shutdown again. One customer
 # can take minutes on an account with many billable metrics, and a batch can take hours to fill.
 USAGE_SHUTDOWN_POLL_SECONDS = 5.0
@@ -94,9 +85,8 @@ class MetronomeResumeConfig:
     """Checkpoint for a walk, plus the request window it belongs to.
 
     A sequential walk stores `next_page`, the cursor of the page it has not fetched yet. A usage walk
-    or a customer fan-out is partitioned by customer, so it stores where the customer list had
-    reached and which customers of that page are already written; the rest of the page is re-walked
-    from the start.
+    is partitioned by customer, so it stores where the customer list had reached and which customers
+    of that page are already written; the rest of the page is re-walked from the start.
     """
 
     next_page: str | None = None
@@ -107,11 +97,14 @@ class MetronomeResumeConfig:
     # The `starting_on` bound of the same request. A bucketed table with no watermark resolves it
     # against the clock, so it is pinned for the walk for the same reason.
     starting_on: str | None = None
-    # Walks partitioned by customer. The cursor that fetches the customer page being worked on, and the
+    # Partitioned usage walks. The cursor that fetches the customer page being worked on, and the
     # customers within that page whose rows are already written. Both reset together when a page
     # finishes, so the checkpoint stays the size of one customer page however large the account is.
     parent_cursor: str | None = None
     completed_customers: tuple[str, ...] = ()
+    # Customer fan-outs. The state `build_dependent_resource` checkpoints: where the customer list
+    # had reached, the customers already finished, and the child cursor of the one in progress.
+    fanout_state: dict[str, Any] | None = None
 
 
 class MetronomeCursorPaginator(JSONResponseCursorPaginator):
@@ -269,6 +262,7 @@ class MetronomeWalkStart:
     paginator_state: dict[str, Any] | None = None
     parent_cursor: str | None = None
     completed_customers: tuple[str, ...] = ()
+    fanout_state: dict[str, Any] | None = None
 
 
 def _walk_start(
@@ -292,6 +286,7 @@ def _walk_start(
     paginator_state: dict[str, Any] | None = None
     parent_cursor: str | None = None
     completed_customers: tuple[str, ...] = ()
+    fanout_state: dict[str, Any] | None = None
 
     windowed = config.window_size is not None or config.query_window_history is not None
 
@@ -309,6 +304,7 @@ def _walk_start(
                 paginator_state = {"cursor": resume_config.next_page}
             parent_cursor = resume_config.parent_cursor
             completed_customers = tuple(resume_config.completed_customers or ())
+            fanout_state = resume_config.fanout_state
             ending_before = resume_config.ending_before
             starting_on = resume_config.starting_on
 
@@ -331,6 +327,7 @@ def _walk_start(
         paginator_state=paginator_state,
         parent_cursor=parent_cursor,
         completed_customers=completed_customers,
+        fanout_state=fanout_state,
     )
 
 
@@ -464,16 +461,16 @@ class _PacedClients:
 
 
 def _customer_id(row: dict[str, Any]) -> str:
-    """The id that partitions one customer's walk.
+    """The id that partitions one customer's usage walk.
 
     A customer that cannot be asked for has to fail the sync. Skipping it would drop that
-    customer's rows from the table with no signal, and a table that is quietly short is worse
-    than one that stops and says why. A missing key raises on its own; a null or empty id
+    customer's usage from the table with no signal, and a usage table that is quietly short is
+    worse than one that stops and says why. A missing key raises on its own; a null or empty id
     needs saying, because `str(None)` would otherwise ask Metronome for a customer called "None".
     """
     customer_id = row["id"]
     if customer_id is None or customer_id == "":
-        raise ValueError("Metronome returned a customer with no id, so its rows cannot be read")
+        raise ValueError("Metronome returned a customer with no id, so its usage cannot be read")
     return str(customer_id)
 
 
@@ -483,15 +480,6 @@ class _WalkCancelled(Exception):
     Raised rather than returning the rows gathered so far, because the checkpoint records whole
     customers: a partial one must never be mistakable for a finished one.
     """
-
-
-@frozen
-class CustomerWalkLimits:
-    """How hard one walk partitioned by customer may push, and how much it holds before a write."""
-
-    concurrency: int
-    coalesce_rows: int
-    customers_per_batch: int
 
 
 def _usage_rows_for_customer(
@@ -533,61 +521,34 @@ def _usage_rows_for_customer(
     return rows
 
 
-def _fanout_rows_for_customer(
-    client: RESTClient,
-    config: MetronomeEndpointConfig,
-    params: dict[str, Any],
-    customer_id: str,
-    cancelled: threading.Event,
-) -> list[Any]:
-    """Every row of a customer-scoped child endpoint for one customer, gathered whole.
-
-    Gathered whole for the same reason as a usage walk: the checkpoint records whole customers. A
-    resumed attempt appends, so a customer written in part and walked again would write its first
-    pages twice. Nothing caps one customer's history, so the fan-out walks one customer at a time
-    and holds at most that customer next to a batch under `FANOUT_COALESCE_ROWS`.
-    """
-    if config.fanout is None:
-        raise ValueError(f"'{config.name}' has no customer fan-out configured")
-    rows: list[Any] = []
-    for page in client.paginate(
-        config.path.format(**{config.fanout.resolve_param: quote(customer_id, safe="")}),
-        params=params,
-        data_selector=DATA_SELECTOR,
-        data_selector_required=True,
-        paginator=_paginator_for(config),
-    ):
-        rows.extend(page)
-        if cancelled.is_set():
-            raise _WalkCancelled(customer_id)
-    return rows
-
-
 def _fill_in_flight(
     submit: Callable[[str], "Future[list[Any]]"],
     todo: deque[str],
     in_flight: deque[tuple[str, "Future[list[Any]]"]],
-    concurrency: int,
 ) -> None:
     """Keep as many walks in flight as there are workers, and no more.
 
     Submitting a whole customer page at once would leave every finished customer's rows in memory
     behind a slow one, which is how a batch gets past the row cap.
     """
-    while todo and len(in_flight) < concurrency:
+    while todo and len(in_flight) < USAGE_CUSTOMER_CONCURRENCY:
         customer_id = todo.popleft()
         in_flight.append((customer_id, submit(customer_id)))
 
 
-def _parallel_customer_pages(
+def _parallel_usage_pages(
     clients: _PacedClients,
+    config: MetronomeEndpointConfig,
+    json_body: dict[str, Any],
     walk: "MetronomeWalkStart",
     stage_checkpoint: Callable[[Optional[str], tuple[str, ...]], None],
-    safe_point: Callable[[], None],
-    rows_for_customer: Callable[[RESTClient, str, threading.Event], list[Any]],
-    limits: CustomerWalkLimits,
+    safe_point: Callable[[], None] = lambda: None,
 ) -> Generator[list[Any]]:
-    """Walk the customer list, read each customer's rows separately, and yield whole customers.
+    """Walk each customer's usage separately, several at a time, and yield whole customers.
+
+    `customer_ids` makes each customer's walk independent, which is the only parallelism this
+    endpoint allows: its cursor is one opaque chain per customer and billable metric, so the next
+    cursor is unknowable until the previous page returns.
 
     A batch carries only customers whose walk finished, and its checkpoint is staged before the
     `yield`. The pipeline commits a staged checkpoint when it has written the rows yielded so far,
@@ -596,7 +557,7 @@ def _parallel_customer_pages(
     set never runs ahead of rows that reached Delta, and a resumed attempt re-walks only customers
     that wrote nothing. That is what lets a full refresh resume here without duplicating rows.
 
-    A customer with no rows yields nothing, so its checkpoint is staged at a safe point instead.
+    A customer with no usage yields nothing, so its checkpoint is staged at a safe point instead.
     `safe_point` also tells the walk about a worker shutdown. The walk then hands over the customers
     it has finished, so the attempt ends in seconds and keeps its progress.
     """
@@ -618,12 +579,14 @@ def _parallel_customer_pages(
     done_in_page = set(walk.completed_customers)
     batch: list[Any] = []
     batch_customers: list[str] = []
-    pool = ThreadPoolExecutor(max_workers=limits.concurrency, thread_name_prefix="metronome-customers")
+    pool = ThreadPoolExecutor(max_workers=USAGE_CUSTOMER_CONCURRENCY, thread_name_prefix="metronome-usage")
 
     cancelled = threading.Event()
 
     def submit_walk(customer_id: str) -> "Future[list[Any]]":
-        return submit_with_context(pool, lambda: rows_for_customer(clients.get(), customer_id, cancelled))
+        return submit_with_context(
+            pool, lambda: _usage_rows_for_customer(clients.get(), config, json_body, customer_id, cancelled)
+        )
 
     def take_batch() -> list[Any]:
         """Stage the checkpoint that covers the finished customers, and give back their rows."""
@@ -651,7 +614,7 @@ def _parallel_customer_pages(
 
             todo = deque(cid for row in customer_page if (cid := _customer_id(row)) not in done_in_page)
             in_flight: deque[tuple[str, Future[list[Any]]]] = deque()
-            _fill_in_flight(submit_walk, todo, in_flight, limits.concurrency)
+            _fill_in_flight(submit_walk, todo, in_flight)
             while in_flight:
                 customer_id, future = in_flight[0]
                 # Not `future.result(timeout=...)`: a walk that fails with a `TimeoutError` of its
@@ -661,12 +624,12 @@ def _parallel_customer_pages(
                     in_flight.popleft()
                     batch.extend(future.result())
                     batch_customers.append(customer_id)
-                    _fill_in_flight(submit_walk, todo, in_flight, limits.concurrency)
+                    _fill_in_flight(submit_walk, todo, in_flight)
                     if not batch:
-                        # Only customers with no rows so far. Nothing has to be written before
+                        # Only customers with no usage so far. Nothing has to be written before
                         # their checkpoint is safe, so the walk does not wait for a batch to fill.
                         take_batch()
-                    elif len(batch) >= limits.coalesce_rows or len(batch_customers) >= limits.customers_per_batch:
+                    elif len(batch) >= USAGE_COALESCE_ROWS or len(batch_customers) >= USAGE_CUSTOMERS_PER_BATCH:
                         yield take_batch()
                 try:
                     # Any staged checkpoint covers only rows already yielded, so this is a safe
@@ -686,36 +649,6 @@ def _parallel_customer_pages(
         # at its next page, then never block on the ones still in flight.
         cancelled.set()
         pool.shutdown(wait=False, cancel_futures=True)
-
-
-def _parallel_usage_pages(
-    clients: _PacedClients,
-    config: MetronomeEndpointConfig,
-    json_body: dict[str, Any],
-    walk: "MetronomeWalkStart",
-    stage_checkpoint: Callable[[Optional[str], tuple[str, ...]], None],
-    safe_point: Callable[[], None] = lambda: None,
-) -> Generator[list[Any]]:
-    """Walk each customer's usage separately, several at a time, and yield whole customers.
-
-    `customer_ids` makes each customer's walk independent, which is the only parallelism this
-    endpoint allows: its cursor is one opaque chain per customer and billable metric, so the next
-    cursor is unknowable until the previous page returns.
-    """
-    return _parallel_customer_pages(
-        clients,
-        walk,
-        stage_checkpoint,
-        safe_point,
-        lambda client, customer_id, cancelled: _usage_rows_for_customer(
-            client, config, json_body, customer_id, cancelled
-        ),
-        CustomerWalkLimits(
-            concurrency=USAGE_CUSTOMER_CONCURRENCY,
-            coalesce_rows=USAGE_COALESCE_ROWS,
-            customers_per_batch=USAGE_CUSTOMERS_PER_BATCH,
-        ),
-    )
 
 
 def _float_usage_value(row: dict[str, Any]) -> dict[str, Any]:
@@ -905,54 +838,57 @@ def metronome_source(
 
     walk = _walk_start(endpoint_config, resumable_source_manager, db_incremental_field_last_value, usage_history)
 
-    def stage_customer_checkpoint(parent_cursor: Optional[str], completed: tuple[str, ...]) -> None:
-        # Nothing to resume to once the customer list is exhausted and its last page is written.
-        if resumable_source_manager is None or (parent_cursor is None and not completed):
-            return
-        resumable_source_manager.save_state(
-            MetronomeResumeConfig(
-                ending_before=walk.ending_before,
-                starting_on=walk.starting_on,
-                parent_cursor=parent_cursor,
-                completed_customers=completed,
-            )
-        )
-
-    def reach_customer_safe_point() -> None:
-        if resumable_source_manager is not None:
-            resumable_source_manager.safe_point()
-
-    # A customer-scoped child is one walk per customer, which on a large account runs for hours.
-    # The shared dependent resource cannot resume, so this goes through the same partitioned walk as
-    # usage, and an attempt that a worker restart ends resumes at the customers it had not finished.
     if endpoint_config.fanout:
-        # The walk reads the customer list itself and takes each customer's `id`.
-        if endpoint_config.fanout.parent_name != "customers" or endpoint_config.fanout.resolve_field != "id":
-            raise ValueError(f"'{endpoint}' must fan out over customer ids")
-        child_params = _list_params(endpoint_config)
+        parent_config = METRONOME_ENDPOINTS[endpoint_config.fanout.parent_name]
+        child_params = dict(endpoint_config.extra_params)
         if walk.starting_on is not None and walk.ending_before is not None:
             child_params.update(starting_on=walk.starting_on, ending_before=walk.ending_before)
-        fanout_clients = _PacedClients(
-            api_key, RequestPacer(FANOUT_REQUESTS_PER_SECOND, hold_seconds=USAGE_RATE_LIMIT_HOLD_SECONDS)
-        )
-        return _make_source_response(
-            endpoint_config,
-            lambda: _parallel_customer_pages(
-                fanout_clients,
-                walk,
-                stage_customer_checkpoint,
-                reach_customer_safe_point,
-                lambda client, customer_id, cancelled: _fanout_rows_for_customer(
-                    client, endpoint_config, child_params, customer_id, cancelled
-                ),
-                CustomerWalkLimits(
-                    concurrency=FANOUT_CUSTOMER_CONCURRENCY,
-                    coalesce_rows=FANOUT_COALESCE_ROWS,
-                    customers_per_batch=FANOUT_CUSTOMERS_PER_BATCH,
-                ),
+
+        def save_fanout_state(state: Optional[dict[str, Any]]) -> None:
+            # The pinned window rides along, so a resumed attempt replays the window it started with.
+            if resumable_source_manager is None or not state:
+                return
+            resumable_source_manager.save_state(
+                MetronomeResumeConfig(
+                    fanout_state=state, starting_on=walk.starting_on, ending_before=walk.ending_before
+                )
+            )
+
+        dependent_resource = cast(
+            Iterable[Any],
+            build_dependent_resource(
+                endpoint_configs=METRONOME_ENDPOINTS,
+                child_endpoint=endpoint,
+                fanout=dataclasses.replace(endpoint_config.fanout, child_params=child_params),
+                client_config=_rest_api_client_config(api_key),
+                path_format_values={},
+                team_id=team_id,
+                job_id=job_id,
+                db_incremental_field_last_value=db_incremental_field_last_value,
+                should_use_incremental_field=should_use_incremental_field,
+                incremental_field=incremental_field,
+                # The window rides `child_params`, so there is no cursor param for the framework to
+                # inject. The child still merges on its primary key.
+                incremental_config_factory=lambda _field: None,
+                parent_endpoint_extra={
+                    "paginator": _paginator_for(parent_config),
+                    "data_selector": DATA_SELECTOR,
+                    "data_selector_required": True,
+                },
+                child_endpoint_extra={
+                    "paginator": _paginator_for(endpoint_config),
+                    "data_selector": DATA_SELECTOR,
+                    "data_selector_required": True,
+                },
+                # A walk over every customer runs for hours on a large account, longer than a worker
+                # lives between restarts. The checkpoint holds the customer list's page and the child
+                # cursor, so a resumed attempt continues where the last one stopped.
+                resume_hook=save_fanout_state if resumable_source_manager is not None else None,
+                initial_paginator_state=walk.fanout_state,
+                resume_parent_pagination=True,
             ),
-            chunk_size=1,
         )
+        return _make_source_response(endpoint_config, lambda: dependent_resource)
 
     # A usage walk pages per customer and billable metric, so one sequential pass is one request
     # per page for the whole account. Partition it by customer and run several walks at once.
@@ -968,10 +904,27 @@ def metronome_source(
             api_key, RequestPacer(USAGE_REQUESTS_PER_SECOND, hold_seconds=USAGE_RATE_LIMIT_HOLD_SECONDS)
         )
 
+        def stage_usage_checkpoint(parent_cursor: Optional[str], completed: tuple[str, ...]) -> None:
+            # Nothing to resume to once the customer list is exhausted and its last page is written.
+            if resumable_source_manager is None or (parent_cursor is None and not completed):
+                return
+            resumable_source_manager.save_state(
+                MetronomeResumeConfig(
+                    ending_before=walk.ending_before,
+                    starting_on=walk.starting_on,
+                    parent_cursor=parent_cursor,
+                    completed_customers=completed,
+                )
+            )
+
+        def reach_usage_safe_point() -> None:
+            if resumable_source_manager is not None:
+                resumable_source_manager.safe_point()
+
         return _make_source_response(
             endpoint_config,
             lambda: _parallel_usage_pages(
-                clients, endpoint_config, json_body, walk, stage_customer_checkpoint, reach_customer_safe_point
+                clients, endpoint_config, json_body, walk, stage_usage_checkpoint, reach_usage_safe_point
             ),
             chunk_size=1,
         )

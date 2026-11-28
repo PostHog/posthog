@@ -607,24 +607,23 @@ class TestMetronomeSourceResponse:
     def test_a_resumed_invoices_walk_skips_the_customers_it_already_wrote(self) -> None:
         # A large account's invoice walk runs for hours, longer than a worker lives between restarts,
         # so a resumed attempt has to skip the customers already written or the table never finishes.
-        result = _driver().run(
+        customers = ScriptedResponse(json={"data": [{"id": "c1"}, {"id": "c2"}], "next_page": None})
+        first = _driver().run(
             "invoices",
-            [
-                ScriptedResponse(json={"data": [{"id": "c1"}, {"id": "c2"}], "next_page": None}),
-                ScriptedResponse(json={"data": [{"id": "inv_2", "customer_id": "c2"}], "next_page": None}),
-            ],
-            resume_state=MetronomeResumeConfig(parent_cursor="cursor-2", completed_customers=("c1",)),
+            [customers, ScriptedResponse(json={"data": [{"id": "inv_1", "customer_id": "c1"}], "next_page": None})],
+        )
+        assert first.raised is not None
+        assert first.final_state is not None
+
+        resumed = _driver().run(
+            "invoices",
+            [customers, ScriptedResponse(json={"data": [{"id": "inv_2", "customer_id": "c2"}], "next_page": None})],
+            resume_state=first.final_state,
         )
 
-        assert result.raised is None
-        assert result.paths == ["/v1/customers", "/v1/customers/c2/invoices"]
-        assert result.requests[0].param("next_page") == "cursor-2"
-        assert [row["id"] for row in result.rows] == ["inv_2"]
-        last_checkpoint = result.committed_states[-1]
-        assert (last_checkpoint.parent_cursor, sorted(last_checkpoint.completed_customers)) == (
-            "cursor-2",
-            ["c1", "c2"],
-        )
+        assert resumed.raised is None
+        assert resumed.paths == ["/v1/customers", "/v1/customers/c2/invoices"]
+        assert [row["id"] for row in resumed.rows] == ["inv_2"]
 
 
 class TestMetronomeBodyFanout:
@@ -798,7 +797,6 @@ class TestMetronomeNewFanoutTables:
                 "resumed",
                 {
                     "resume_state": MetronomeResumeConfig(
-                        completed_customers=("cust_0",),
                         starting_on="2026-08-01T00:00:00Z",
                         ending_before="2026-09-02T00:00:00Z",
                     )
