@@ -114,12 +114,12 @@ export const personEmailsLogic = kea<personEmailsLogicType>([
                 actions.previewEmail(asset)
                 return
             }
-            let logged = true
+            // Only an answer from the log shows it keeps the send; a busy or failing log leaves the preview.
+            let logged = false
             try {
                 await transactionalEmailLogRetrieve(String(values.currentProjectId), asset.invocation_id)
-            } catch (error: any) {
-                logged = error?.status !== 404
-            }
+                logged = true
+            } catch {}
             breakpoint()
             if (logged) {
                 actions.openSendPage(url)

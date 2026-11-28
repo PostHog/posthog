@@ -85,13 +85,7 @@ describe('personEmailsLogic', () => {
             null,
             [EXPIRED],
         ],
-        [
-            'a busy log still opens the send page, which offers a retry',
-            SEND_FLAGS,
-            asset({ invocation_id: BUSY }),
-            sendPage(BUSY),
-            [BUSY],
-        ],
+        ['a busy log opens its preview', SEND_FLAGS, asset({ invocation_id: BUSY }), null, [BUSY]],
         [
             'a send older than the log opens its preview without asking the log',
             SEND_FLAGS,

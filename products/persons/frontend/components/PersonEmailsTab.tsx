@@ -40,13 +40,10 @@ export function PersonEmailsTab({ teamId, personId }: PersonEmailsTabProps): JSX
         <>
             <LemonTable
                 loading={emailsLoading || openingEmail}
+                disableTableWhileLoading={!openingEmail}
                 dataSource={emails}
                 onRow={(asset: MessageAsset) => ({
-                    onClick: () => {
-                        if (!openingEmail) {
-                            openEmail(asset)
-                        }
-                    },
+                    onClick: () => openEmail(asset),
                     className: 'cursor-pointer',
                 })}
                 emptyState={<EmptyEmails />}
