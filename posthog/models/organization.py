@@ -79,6 +79,15 @@ class OrganizationUsageInfo(TypedDict):
     period: list[str] | None
     billing_status_computed_at: NotRequired[str]
     billing_latest_usage_report_date: NotRequired[str | None]
+    # Billing's AI credit settings, with amounts in USD such as "250.00". The AI gateway reads them from
+    # llm_gateway_org.json.
+    ai_low_balance_threshold_usd: NotRequired[str | None]
+    ai_automatic_reload_enabled: NotRequired[bool]
+    ai_start_day: NotRequired[str]
+    ai_end_day: NotRequired[str]
+    # When billing first saw the organization's subscription past due or unpaid in Stripe, as an ISO 8601 time.
+    # Absent while the subscription is current. The AI gateway reads it from llm_gateway_org.json.
+    subscription_past_due_since: NotRequired[str]
 
 
 @frozen

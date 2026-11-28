@@ -1,12 +1,19 @@
 import gzip
 import json
 import logging
-from typing import Any, Optional, cast
+from typing import Any, NoReturn, Optional, cast
 
 from django.db import close_old_connections
 
 from posthog.cloud_utils import get_cached_instance_license
 from posthog.exceptions_capture import capture_exception
+from posthog.llm.gateway_internal_client import (
+    AIGatewayRequestRejected,
+    MalformedSignedMessage,
+    SignedMessage,
+    post_signed_message,
+    read_signed_message,
+)
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.organization import Organization
 from posthog.models.user import User
@@ -23,6 +30,12 @@ logger = logging.getLogger(__name__)
 # usage-spike events resolve against. Billing emits these spike messages to the US queue.
 POSTHOG_SELF_TEAM_ID = 2
 
+AI_WITHDRAWAL_REQUESTED = "ai_withdrawal_requested"
+
+
+class AIGatewayMessageNotDelivered(Exception):
+    """A message for the AI gateway that can never succeed. PostHog has already captured it, and it stays on the queue."""
+
 
 class BillingConsumer(SQSConsumer):
     """
@@ -38,12 +51,15 @@ class BillingConsumer(SQSConsumer):
         """
         close_old_connections()
 
+        # Set these before parsing the body, so the handlers below can report a body that PostHog can't read.
+        message_id = message.get("MessageId", "unknown")
+        message_type = None
+
         try:
             raw_body = message.get("Body", "{}")
             message_attributes = message.get("MessageAttributes", {})
 
             body = self._decompress_and_parse_message(raw_body, message_attributes)
-            message_id = message.get("MessageId", "unknown")
 
             # Extract message type to determine processing logic
             message_type = body.get("type")
@@ -57,14 +73,19 @@ class BillingConsumer(SQSConsumer):
                 self._process_usage_spike_detected(body)
             elif message_type == "billing_activity":
                 self._process_billing_activity(body)
+            elif message_type == "ai_gateway_message":
+                self._relay_ai_gateway_message(body)
             # Add more message types as needed
             # elif message_type == "invoice_created":
             #     self._process_invoice_created(body)
             else:
+                # Billing can send a type before this consumer handles it. Leaving the message on the queue lets
+                # SQS move it to the dead-letter queue, so a redrive delivers it once PostHog handles the type.
                 logger.warning(f"Unknown message type: {message_type} for message {message_id}")
                 capture_exception(
                     Exception("Unknown message type"), {"message_id": message_id, "message_type": message_type}
                 )
+                return
 
             # Delete the message after successful processing
             if self.delete_message(message["ReceiptHandle"]):
@@ -72,6 +93,12 @@ class BillingConsumer(SQSConsumer):
             else:
                 logger.error(f"Failed to delete message", {"message_id": message_id})
 
+        except AIGatewayMessageNotDelivered:
+            # Already captured with its context. Leaving the message on the queue lets SQS move it
+            # to the dead-letter queue, whose alarm covers every message that never reaches the gateway.
+            logger.warning(
+                "ai_gateway_message.left_on_queue", extra={"message_id": message_id, "message_type": message_type}
+            )
         except json.JSONDecodeError as e:
             logger.exception(f"Invalid JSON in message body: {message.get('Body', '')[:100]}... Error: {e}")
             capture_exception(
@@ -180,6 +207,57 @@ class BillingConsumer(SQSConsumer):
             detected_at=data.get("detected_at"),
         )
 
+    def _relay_ai_gateway_message(self, body: dict[str, Any]) -> None:
+        """
+        Pass a message that billing signed for the AI gateway, unchanged, to the gateway route for its body type.
+
+        The gateway checks the signature, and it acts once for each operation ID or reload key. So a message
+        that SQS delivers again changes nothing. A gateway or network failure raises, which leaves the message
+        on the queue for another delivery. PostHog captures a message that can never succeed and leaves it on
+        the queue too, so SQS moves it to the dead-letter queue.
+        """
+        try:
+            message = read_signed_message(body.get("envelope"))
+        except MalformedSignedMessage as e:
+            _not_delivered(e, {})
+
+        context = {
+            "message_type": message.type,
+            "organization_id": message.organization_id,
+            "key_id": message.envelope["key_id"],
+        }
+        if message.type == AI_WITHDRAWAL_REQUESTED:
+            self._relay_ai_withdrawal(message, context)
+            return
+
+        answer = _post_to_gateway(message, context)
+        logger.info("ai_gateway_message.relayed", extra={**context, **_ledger_entry(answer)})
+
+    def _relay_ai_withdrawal(self, message: SignedMessage, context: dict[str, Any]) -> None:
+        """
+        Ask the AI gateway to withdraw credit for a refund, and pass its signed answer to billing unchanged.
+
+        The gateway keeps its answer for each operation ID and sends that answer again on a repeat. So when
+        either call fails, the message stays on the queue, and the next delivery withdraws nothing new.
+        """
+        # Billing's headers need the organization, so a missing one stops the message before the gateway
+        # takes any credit.
+        organization = Organization.objects.filter(id=message.organization_id).first()
+        if organization is None:
+            _not_delivered(Exception("The withdrawal's organization doesn't exist"), context)
+
+        answer = _post_to_gateway(message, context)
+        try:
+            signed_answer = read_signed_message(answer)
+        except MalformedSignedMessage as e:
+            _not_delivered(e, context)
+
+        try:
+            BillingManager(get_cached_instance_license()).send_ai_withdrawal_answer(organization, signed_answer)
+        except MalformedSignedMessage as e:
+            _not_delivered(e, context)
+        logger.info("ai_withdrawal.answer_relayed", extra=context)
+
     def _process_billing_activity(self, body: dict[str, Any]) -> None:
         """
         Write a billing-originated change (spend limits, addons/products) to the
@@ -273,3 +351,27 @@ class BillingConsumer(SQSConsumer):
         # deleting it and silently dropping the audit entry.
         if written is None:
             raise Exception("Failed to write billing activity to the activity log")
+
+
+def _post_to_gateway(message: SignedMessage, context: dict[str, Any]) -> object:
+    try:
+        return post_signed_message(message)
+    except MalformedSignedMessage as e:
+        _not_delivered(e, context)
+    except AIGatewayRequestRejected as e:
+        # A 400 or a 409, such as an operation ID that the gateway holds with another amount, fails the
+        # same way on every delivery.
+        _not_delivered(e, {**context, "status_code": e.status_code})
+
+
+def _not_delivered(error: Exception, context: dict[str, Any]) -> NoReturn:
+    logger.error("ai_gateway_message.not_delivered", extra={**context, "error": str(error)})
+    capture_exception(error, context)
+    raise AIGatewayMessageNotDelivered(str(error)) from error
+
+
+def _ledger_entry(answer: object) -> dict[str, Any]:
+    """The gateway's ledger entry for funding or a reversal, to log. Other answers have none."""
+    if not isinstance(answer, dict):
+        return {}
+    return {key: answer[key] for key in ("entry_id", "duplicate") if key in answer}

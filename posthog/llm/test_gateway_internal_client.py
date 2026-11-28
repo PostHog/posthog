@@ -1,3 +1,5 @@
+import json
+
 import pytest
 from unittest.mock import patch
 
@@ -5,18 +7,26 @@ import httpx
 
 from posthog.llm.gateway_internal_client import (
     ADMIN_ACTOR,
+    BILLING_ACTOR,
     IDEMPOTENCY_KEY_HEADER,
     INTERNAL_ACTOR_HEADER,
     USAGE_REPORT_TIMEOUT_SECONDS,
     AIGatewayInternalError,
     AIGatewayNotConfigured,
+    AIGatewayRequestRejected,
+    MalformedSignedMessage,
     add_credit,
     get_usage_report,
     get_usage_report_rows,
     get_wallet,
+    post_signed_message,
+    read_signed_message,
 )
 
 ORG_ID = "0190b3a1-1111-7000-8000-000000000001"
+
+
+GATEWAY_REQUEST = "posthog.llm.gateway_internal_client.httpx.request"
 
 
 def _response(status: int, payload: dict | None = None) -> httpx.Response:
@@ -238,3 +248,131 @@ class TestNotConfigured:
         mock_settings.AI_GATEWAY_INTERNAL_TOKEN = ""
         with pytest.raises(AIGatewayNotConfigured):
             add_credit(42, ORG_ID, "10", "x", "key")
+
+
+def _body(message_type: str = "ai_funding_added", **fields: object) -> str:
+    # Spaced unlike json.dumps, so a relay that serializes the body again changes it.
+    return (
+        "{"
+        + ",  ".join(
+            f"{json.dumps(key)}:  {json.dumps(value)}"
+            for key, value in {"type": message_type, "version": 1, "organization_id": ORG_ID, **fields}.items()
+        )
+        + "}"
+    )
+
+
+def _envelope(**fields: object) -> dict:
+    return {
+        "body": _body(),
+        "signed_at": "2026-11-23T18:04:05Z",
+        "key_id": "billing-us-1",
+        "signature": "5f0c1e",
+        **fields,
+    }
+
+
+class TestReadSignedMessage:
+    def test_reads_the_type_and_organization_and_keeps_the_envelope(self):
+        envelope = _envelope()
+
+        message = read_signed_message(envelope)
+
+        assert (message.type, message.organization_id) == ("ai_funding_added", ORG_ID)
+        assert message.envelope is envelope
+
+    @pytest.mark.parametrize(
+        "envelope",
+        [
+            pytest.param(None, id="no_envelope"),
+            pytest.param({k: v for k, v in _envelope().items() if k != "signature"}, id="missing_signature"),
+            pytest.param(_envelope(signed_at=1795543445), id="signed_at_not_a_string"),
+            pytest.param(_envelope(body="not json"), id="body_not_json"),
+            pytest.param(_envelope(body="[]"), id="body_not_an_object"),
+            pytest.param(_envelope(body=json.dumps({"organization_id": ORG_ID})), id="no_type"),
+            pytest.param(_envelope(body=json.dumps({"type": "ai_funding_added"})), id="no_organization"),
+            pytest.param(
+                _envelope(body=json.dumps({"type": "ai_funding_added", "organization_id": "../../admin"})),
+                id="organization_not_a_uuid",
+            ),
+        ],
+    )
+    def test_an_envelope_that_cannot_be_routed_is_malformed(self, envelope):
+        with pytest.raises(MalformedSignedMessage):
+            read_signed_message(envelope)
+
+
+class TestPostSignedMessage:
+    @pytest.mark.parametrize(
+        "message_type, method, path",
+        [
+            ("ai_funding_added", "POST", f"/internal/accounts/{ORG_ID}/credits"),
+            ("ai_funding_reversed", "POST", f"/internal/accounts/{ORG_ID}/reversals"),
+            ("ai_withdrawal_requested", "POST", f"/internal/accounts/{ORG_ID}/withdrawals"),
+            ("ai_reload_outcome", "PUT", f"/internal/accounts/{ORG_ID}/reloads/low-balance-1"),
+        ],
+    )
+    @patch("posthog.llm.gateway_internal_client.settings")
+    def test_sends_the_envelope_unchanged_to_the_route_for_its_type(self, mock_settings, message_type, method, path):
+        _configured(mock_settings)
+        envelope = _envelope(body=_body(message_type, reload_key="low-balance-1"))
+        answer = {"entry_id": "entry-1", "duplicate": False}
+        with patch(GATEWAY_REQUEST, return_value=_response(200, answer)) as mock_post:
+            result = post_signed_message(read_signed_message(envelope))
+
+        assert mock_post.call_args.args == (method, f"http://gw{path}")
+        assert mock_post.call_args.kwargs["json"] == envelope
+        assert mock_post.call_args.kwargs["headers"] == {
+            "Authorization": "Bearer tok",
+            INTERNAL_ACTOR_HEADER: BILLING_ACTOR,
+        }
+        assert mock_post.call_args.kwargs["trust_env"] is False
+        assert result == answer
+
+    @pytest.mark.parametrize(
+        "answer, rejected",
+        [
+            pytest.param(_response(400), True, id="bad_body"),
+            pytest.param(_response(409), True, id="operation_with_another_amount"),
+            pytest.param(_response(204), False, id="no_content"),
+            pytest.param(_response(401), False, id="unknown_key"),
+            pytest.param(_response(429), False, id="rate_limited"),
+            pytest.param(_response(503), False, id="unavailable"),
+            pytest.param(httpx.ConnectError("refused"), False, id="no_answer"),
+        ],
+    )
+    @patch("posthog.llm.gateway_internal_client.settings")
+    def test_only_a_200_delivers_and_only_400_or_409_is_rejected(self, mock_settings, answer, rejected):
+        _configured(mock_settings)
+        with patch(GATEWAY_REQUEST, side_effect=[answer]):
+            with pytest.raises(AIGatewayInternalError) as excinfo:
+                post_signed_message(read_signed_message(_envelope()))
+
+        assert isinstance(excinfo.value, AIGatewayRequestRejected) is rejected
+
+    @patch("posthog.llm.gateway_internal_client.settings")
+    def test_percent_encodes_the_reload_key_for_the_path(self, mock_settings):
+        _configured(mock_settings)
+        envelope = _envelope(body=_body("ai_reload_outcome", reload_key="low/balance 1"))
+        with patch(GATEWAY_REQUEST, return_value=_response(200)) as mock_post:
+            post_signed_message(read_signed_message(envelope))
+
+        assert mock_post.call_args.args[1] == f"http://gw/internal/accounts/{ORG_ID}/reloads/low%2Fbalance%201"
+
+    @pytest.mark.parametrize(
+        "body",
+        [
+            pytest.param(_body("ai_reload_requested"), id="type_without_a_route"),
+            pytest.param(_body("ai_reload_outcome"), id="reload_outcome_without_a_reload_key"),
+            pytest.param(_body("ai_reload_outcome", reload_key=""), id="empty_reload_key"),
+            pytest.param(_body("ai_reload_outcome", reload_key=7), id="reload_key_not_a_string"),
+        ],
+    )
+    @patch("posthog.llm.gateway_internal_client.settings")
+    def test_a_message_that_no_route_takes_is_malformed_and_never_sent(self, mock_settings, body):
+        _configured(mock_settings)
+        with patch(GATEWAY_REQUEST) as mock_post:
+            with pytest.raises(MalformedSignedMessage):
+                post_signed_message(read_signed_message(_envelope(body=body)))
+
+        mock_post.assert_not_called()
