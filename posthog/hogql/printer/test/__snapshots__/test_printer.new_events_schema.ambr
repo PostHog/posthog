@@ -3513,7 +3513,7 @@
      HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
   LEFT JOIN
     (SELECT person.id AS id,
-            JSONExtractString(nullIf(nullIf(JSONExtractRaw(person.properties, 'email', ''), 'null')) AS properties___email,
+            JSONExtractString(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null')) AS properties___email,
             person.properties AS properties
      FROM person
      WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version),

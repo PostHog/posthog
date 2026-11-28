@@ -287,7 +287,7 @@
         HAVING equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0) SETTINGS optimize_aggregation_in_order=1) AS ai_events__pdi ON equals(ai_events.distinct_id, ai_events__pdi.distinct_id)
      LEFT JOIN
        (SELECT person.id AS id,
-               JSONExtractString(nullIf(nullIf(JSONExtractRaw(person.properties, 'bar', ''), 'null')) AS properties___bar
+               JSONExtractString(nullIf(nullIf(JSONExtractRaw(person.properties, 'bar'), ''), 'null')) AS properties___bar
         FROM person
         WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version),
                                                       (SELECT person.id AS id, max(person.version) AS version
@@ -364,7 +364,7 @@
         HAVING equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0) SETTINGS optimize_aggregation_in_order=1) AS ai_events__pdi ON equals(ai_events.distinct_id, ai_events__pdi.distinct_id)
      LEFT JOIN
        (SELECT person.id AS id,
-               JSONExtractString(nullIf(nullIf(JSONExtractRaw(person.properties, 'bar', ''), 'null')) AS properties___bar
+               JSONExtractString(nullIf(nullIf(JSONExtractRaw(person.properties, 'bar'), ''), 'null')) AS properties___bar
         FROM person
         WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version),
                                                       (SELECT person.id AS id, max(person.version) AS version

@@ -195,7 +195,7 @@
     FROM ((
         SELECT persons.id AS id 
         FROM (
-          SELECT tupleElement(argMax(tuple(JSONExtractString(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_0)s, ''), 'null'))), person.version), 1) AS properties___test_prop, person.id AS id 
+          SELECT tupleElement(argMax(tuple(JSONExtractString(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_0)s), ''), ''), 'null')), person.version), 1) AS properties___test_prop, person.id AS id 
           FROM person 
           WHERE and(equals(person.team_id, 99999), in(id, (
                 SELECT where_optimization.id AS id 
@@ -235,7 +235,7 @@
     FROM ((
         SELECT persons.id AS id 
         FROM (
-          SELECT tupleElement(argMax(tuple(JSONExtractString(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_0)s, ''), 'null'))), person.version), 1) AS properties___test_prop, person.id AS id 
+          SELECT tupleElement(argMax(tuple(JSONExtractString(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_0)s), ''), ''), 'null')), person.version), 1) AS properties___test_prop, person.id AS id 
           FROM person 
           WHERE and(equals(person.team_id, 99999), in(id, (
                 SELECT where_optimization.id AS id 
@@ -250,7 +250,7 @@
     FROM ((
         SELECT persons.id AS id 
         FROM (
-          SELECT tupleElement(argMax(tuple(JSONExtractString(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_7)s, ''), 'null'))), person.version), 1) AS properties___test_prop, person.id AS id 
+          SELECT tupleElement(argMax(tuple(JSONExtractString(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_7)s), ''), ''), 'null')), person.version), 1) AS properties___test_prop, person.id AS id 
           FROM person 
           WHERE and(equals(person.team_id, 99999), in(id, (
                 SELECT where_optimization.id AS id 
@@ -315,7 +315,7 @@
     FROM ((
         SELECT persons.id AS id 
         FROM (
-          SELECT tupleElement(argMax(tuple(JSONExtractString(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_0)s, ''), 'null'))), person.version), 1) AS properties___test_prop, person.id AS id 
+          SELECT tupleElement(argMax(tuple(JSONExtractString(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_0)s), ''), ''), 'null')), person.version), 1) AS properties___test_prop, person.id AS id 
           FROM person 
           WHERE and(equals(person.team_id, 99999), in(id, (
                 SELECT where_optimization.id AS id 
