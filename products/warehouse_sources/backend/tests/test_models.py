@@ -26,6 +26,7 @@ from products.warehouse_sources.backend.models.external_data_job import External
 from products.warehouse_sources.backend.models.external_data_schema import (
     DUPLICATE_PRIMARY_KEY_DISABLED_MESSAGE,
     DUPLICATE_PRIMARY_KEYS_RAW_ERROR,
+    HISTORY_SEED_PENDING_KEY,
     MISSING_PRIMARY_KEY_DISABLED_MESSAGE,
     MISSING_PRIMARY_KEYS_RAW_ERROR,
     PREFIX_PROMOTION_KEY,
@@ -1089,9 +1090,10 @@ def _merge_in_memory(schema: ExternalDataSchema) -> Iterator[None]:
     [
         {"source_cursor": {"kind": "postgres_xmin", "data": {"ceiling_xid": 100}}},
         {"xmin_last_value": 100, "xmin_ceiling": 4294967396, "xmin_num_wraparound": 1},
+        {HISTORY_SEED_PENDING_KEY: "2026-10-05T00:00:00+00:00"},
     ],
 )
-def test_reset_pipeline_clears_the_source_cursor(sync_type_config: dict[str, Any]) -> None:
+def test_reset_pipeline_clears_what_described_the_old_table(sync_type_config: dict[str, Any]) -> None:
     schema = ExternalDataSchema(
         sync_type=ExternalDataSchema.SyncType.XMIN,
         sync_type_config=dict(sync_type_config),

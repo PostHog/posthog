@@ -59,6 +59,7 @@ from products.warehouse_sources.backend.facade.models import (
 from products.warehouse_sources.backend.facade.source_management import CDC_RESET_PENDING_KEY
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 from products.warehouse_sources.backend.models.external_data_schema import (
+    HISTORY_SEED_PENDING_KEY,
     MANUAL_RUN_REQUESTED_AT_KEY,
     SCHEMA_PINNED_METADATA_KEY,
 )
@@ -5426,7 +5427,7 @@ class TestSerializerLostUpdateProtection(APIBaseTest):
         expected_pin = ("legacy" if legacy_table else "ph_validity") if keeps_history else None
         assert self.schema.sync_type_config.get("history_naming") == expected_pin
 
-    def _save_through_serializer(self, schema: ExternalDataSchema, request_body: dict) -> None:
+    def _save_through_serializer(self, schema: ExternalDataSchema, request_body: dict, *, paused: bool = False) -> None:
         from products.warehouse_sources.backend.presentation.views.external_data_schema import (
             ExternalDataSchemaSerializer,
         )
@@ -5436,7 +5437,7 @@ class TestSerializerLostUpdateProtection(APIBaseTest):
         )
         with mock.patch(
             "products.warehouse_sources.backend.presentation.views.external_data_schema.is_any_external_data_schema_paused",
-            return_value=False,
+            return_value=paused,
         ):
             serializer.is_valid(raise_exception=True)
             serializer.save()
@@ -5555,15 +5556,34 @@ class TestSerializerLostUpdateProtection(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("turn_on", _OutputTablesCase(mode="both", initial_mode="consolidated"), True),
+            ("turn_on", _OutputTablesCase(mode="both", initial_mode="consolidated"), False, True),
+            ("turn_on_history_only", _OutputTablesCase(mode="cdc_only", initial_mode="consolidated"), False, True),
             (
                 "turn_on_with_a_column_named_like_a_capture_column",
                 _OutputTablesCase(mode="both", initial_mode="consolidated", source_columns=("_ph_cdc_seq",)),
+                False,
                 True,
             ),
-            ("turn_off", _OutputTablesCase(mode="consolidated", initial_mode="both", cursor_type="date"), False),
+            (
+                "turn_on_with_a_new_mask",
+                _OutputTablesCase(
+                    mode="both",
+                    initial_mode="consolidated",
+                    request_body={"cdc_table_mode": "both", "masked_columns": ["email"]},
+                    source_columns=("email",),
+                ),
+                True,
+                False,
+            ),
+            ("add_the_main_table", _OutputTablesCase(mode="both", initial_mode="cdc_only"), True, False),
+            ("turn_off", _OutputTablesCase(mode="consolidated", initial_mode="both", cursor_type="date"), False, False),
             # The form sends the mode it shows on every save, which must not need the flag again.
-            ("flag_off_keeping_the_mode", _OutputTablesCase(mode="both", initial_mode="both", flag_on=False), False),
+            (
+                "flag_off_keeping_the_mode",
+                _OutputTablesCase(mode="both", initial_mode="both", flag_on=False),
+                False,
+                False,
+            ),
             (
                 "switch_from_cdc_keeping_the_history_table",
                 _OutputTablesCase(
@@ -5573,21 +5593,23 @@ class TestSerializerLostUpdateProtection(APIBaseTest):
                     initial_sync_type=ExternalDataSchema.SyncType.CDC,
                 ),
                 False,
+                False,
             ),
         ]
     )
     @mock.patch(_PH_HISTORY_NAMING_FLAG, new=lambda *_: True)
     def test_patch_sets_the_output_tables_of_an_incremental_table(
-        self, _name: str, case: _OutputTablesCase, reloads: bool
+        self, _name: str, case: _OutputTablesCase, reloads: bool, seeds: bool
     ):
-        self._patch_output_tables(case)
+        self._patch_output_tables(case, paused=seeds and not reloads)
 
         self.schema.refresh_from_db()
         assert self.schema.cdc_table_mode == case.mode
         assert self.schema.keeps_history == (case.mode != "consolidated")
         assert bool(self.schema.sync_type_config.get("reset_pipeline")) == reloads
+        assert (HISTORY_SEED_PENDING_KEY in self.schema.sync_type_config) == seeds
 
-    def _patch_output_tables(self, case: _OutputTablesCase) -> None:
+    def _patch_output_tables(self, case: _OutputTablesCase, *, paused: bool = False) -> None:
         from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers import build_table_name
 
         self.schema.sync_type = case.initial_sync_type
@@ -5630,7 +5652,9 @@ class TestSerializerLostUpdateProtection(APIBaseTest):
                 new=case.source_supports_history,
             ),
         ):
-            self._save_through_serializer(self.schema, case.request_body or {"cdc_table_mode": case.mode})
+            self._save_through_serializer(
+                self.schema, case.request_body or {"cdc_table_mode": case.mode}, paused=paused
+            )
 
     # A history-only table is the history table, so leaving it reloads the consolidated table from the start.
     @parameterized.expand([("both", False), ("cdc_only", True)])

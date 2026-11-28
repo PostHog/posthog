@@ -299,6 +299,10 @@ MANUAL_RUN_REQUESTED_AT_KEY = "manual_run_requested_at"
 # Set when a user chooses history for an incremental schema. `cdc_table_mode` alone is not enough,
 # because a schema that left CDC keeps the mode it had there.
 INCREMENTAL_HISTORY_KEY = "incremental_history"
+# Late events can land before it, so the history table cannot tell when tracking began.
+HISTORY_TRACKED_SINCE_KEY = "history_tracked_since"
+# When history was turned on for a table that already holds rows, which the next run copies into the history table.
+HISTORY_SEED_PENDING_KEY = "history_seed_pending"
 
 
 class ExternalDataSchema(  # nosemgrep: semgrep.rules.security.prefer-uuid7-django-pk -- grandfathered UUIDT primary key
@@ -1462,6 +1466,8 @@ class ExternalDataSchema(  # nosemgrep: semgrep.rules.security.prefer-uuid7-djan
             "xmin_last_value",
             "xmin_ceiling",
             "xmin_num_wraparound",
+            # The reset run reads every row again, so a copy of the old table would bill them twice.
+            HISTORY_SEED_PENDING_KEY,
         ]
         # We don't reset partition_format
         # We don't reset chunk_size_override

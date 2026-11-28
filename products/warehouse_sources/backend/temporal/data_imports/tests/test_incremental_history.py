@@ -1,20 +1,31 @@
 import uuid
+import tempfile
+from collections.abc import Sequence
 from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any
 
 import pytest
+from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
 import pyarrow as pa
 import deltalake
+from asgiref.sync import async_to_sync
 from parameterized import parameterized
 
 from posthog.models.team import Team
 
 from products.warehouse_sources.backend.facade.contracts import LegacyHistoryTableError
-from products.warehouse_sources.backend.models.external_data_schema import INCREMENTAL_HISTORY_KEY, ExternalDataSchema
+from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
+from products.warehouse_sources.backend.models.external_data_schema import (
+    HISTORY_SEED_PENDING_KEY,
+    INCREMENTAL_HISTORY_KEY,
+    ExternalDataSchema,
+)
+from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import HISTORY_NAMING
+from products.warehouse_sources.backend.temporal.data_imports.cdc.companion_jobs import COMPANION_RUN_SUFFIX
 from products.warehouse_sources.backend.temporal.data_imports.cdc.history_table import HistoryTableNameTakenError
 from products.warehouse_sources.backend.temporal.data_imports.incremental_history import (
     IncrementalHistoryUnavailableError,
@@ -24,9 +35,12 @@ from products.warehouse_sources.backend.temporal.data_imports.incremental_histor
     stage_history_batch,
     stamp_history_batch,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import PARTITION_KEY
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta import history_upsert
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.history_upsert import (
     STAGED_BATCH_COLUMN,
     STAGED_ROW_COLUMN,
+    HistoryFinalizeResult,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.table import DeltaTableRef
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.test.helpers import make_logger
@@ -214,32 +228,172 @@ class TestStampHistoryBatch:
             _stamp(batch)
 
 
-class TestHistoryLaneWrites:
-    @pytest.mark.asyncio
-    async def test_staged_batches_become_versions_at_finalize(self, tmp_path: Path) -> None:
-        with (
-            patch.object(DeltaTableRef, "_get_delta_table_uri", autospec=True, side_effect=_local_uri(tmp_path)),
-            patch.object(DeltaTableRef, "_get_credentials", return_value={}),
-        ):
-            table = DeltaTableRef(resource_name="orders_history", job=MagicMock(), logger=make_logger())
-            assert await finalize_history_lane(table, ["id"], run_uuid="run", batch_index=0) is None
+class TestHistoryLaneWrites(BaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.root = Path(self.enterContext(tempfile.TemporaryDirectory()))
+        self.enterContext(
+            patch.object(DeltaTableRef, "_get_delta_table_uri", autospec=True, side_effect=_local_uri(self.root))
+        )
+        self.enterContext(patch.object(DeltaTableRef, "_get_credentials", return_value={}))
+        source = ExternalDataSource.objects.create(team=self.team)
+        self.schema = ExternalDataSchema.objects.create(
+            team=self.team,
+            source=source,
+            name="orders",
+            sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
+            sync_type_config={
+                "incremental_field": "updated_at",
+                "incremental_field_type": "datetime",
+                "cdc_table_mode": "both",
+                INCREMENTAL_HISTORY_KEY: True,
+            },
+        )
+        self.job = ExternalDataJob.objects.create(
+            team=self.team, pipeline=source, schema=self.schema, status=ExternalDataJob.Status.RUNNING, rows_synced=2
+        )
+        self.history = DeltaTableRef(resource_name="orders_history", job=self.job, logger=make_logger())
 
-            def _batch(rows: list[tuple[int, datetime]]) -> pa.Table:
-                cursors = pa.array([at for _, at in rows], type=_TS)
-                return pa.table({"id": [key for key, _ in rows], "updated_at": cursors, "_ph_valid_from": cursors})
+    def test_staged_batches_become_versions_at_finalize(self) -> None:
+        assert self._finalize(0) is None
 
-            first, second = datetime(2026, 1, 1, tzinfo=UTC), datetime(2026, 2, 1, tzinfo=UTC)
-            # The second batch re-reads key 1 inside the lookback window.
-            for index, batch in enumerate([_batch([(1, first)]), _batch([(1, first), (2, second)])]):
-                await stage_history_batch(table, batch, primary_keys=["id"], run_uuid="run", batch_index=index)
-            result = await finalize_history_lane(table, ["id"], run_uuid="run", batch_index=1)
+        # The second batch re-reads key 1 inside the lookback window.
+        for index, rows in enumerate([[(1, "a", _JAN)], [(1, "a", _JAN), (2, "b", _FEB)]]):
+            self._stage(rows, batch_index=index)
+        result = self._finalize(1)
 
-        rows = deltalake.DeltaTable(str(tmp_path / "orders_history")).to_pyarrow_table().sort_by("id").to_pylist()
-        assert [(r["id"], r["_ph_valid_from"], r["_ph_valid_to"], r["_ph_history_partition"]) for r in rows] == [
-            (1, first, None, "current"),
-            (2, second, None, "current"),
-        ]
+        assert self._history_rows() == [(1, "a", _JAN, None, "current"), (2, "b", _FEB, None, "current")]
         assert result is not None and result.staged_rows == 3
+
+    @parameterized.expand(
+        [
+            ("history_rows_bill", True, 2 + 3, False),
+            ("history_rows_free", False, 2, False),
+            ("renamed_schema_keeps_its_folder", True, 2 + 3, True),
+        ]
+    )
+    def test_a_seed_starts_the_history_from_the_main_table_as_it_was_before_the_run(
+        self, _name: str, billable: bool, rows_synced: int, renamed: bool
+    ) -> None:
+        self.job.billable = billable
+        self.job.save()
+        if renamed:
+            self.schema.name = "public.orders"
+            self.schema.s3_folder_name = "orders"
+        requested_at = "2026-10-05T00:00:00+00:00"
+        self.schema.sync_type_config[HISTORY_SEED_PENDING_KEY] = requested_at
+        self.schema.save()
+        self._write_main([(1, "a", _JAN), (2, "b", _FEB), (3, "c", None)], run_uuid="earlier-run")
+        # A partitioned write tags only its last merge.
+        self._write_main([(2, "b2", _MAR)], run_uuid=None)
+        self._write_main([(1, "a2", _MAR)], run_uuid="run")
+        self._stage([(1, "a2", _MAR), (2, "b2", _MAR)], batch_index=0)
+
+        with patch.object(history_upsert, "finalize", side_effect=RuntimeError("lost the loader")):
+            with pytest.raises(RuntimeError):
+                self._finalize(0)
+        result = self._finalize(0)
+
+        expected = [
+            (1, "a", _JAN, _MAR, "2026-03"),
+            (1, "a2", _MAR, None, "current"),
+            (2, "b", _FEB, _MAR, "2026-03"),
+            (2, "b2", _MAR, None, "current"),
+            (3, "c", datetime.fromisoformat(requested_at), None, "current"),
+        ]
+        assert self._history_rows() == expected
+        assert result is not None and result.staged_rows == 5
+        assert PARTITION_KEY not in deltalake.DeltaTable(str(self.root / "orders_history")).schema().to_arrow().names
+        self.schema.refresh_from_db()
+        assert HISTORY_SEED_PENDING_KEY not in self.schema.sync_type_config
+        self.job.refresh_from_db()
+        assert self.job.rows_synced == rows_synced
+
+    def test_history_turned_off_and_on_during_the_run_keeps_its_new_request(self) -> None:
+        self.schema.sync_type_config[HISTORY_SEED_PENDING_KEY] = "2026-10-05T00:00:00+00:00"
+        self.schema.save()
+        loaded = ExternalDataSchema.objects.get(id=self.schema.id)
+        self.schema.sync_type_config[HISTORY_SEED_PENDING_KEY] = "2026-10-06T00:00:00+00:00"
+        self.schema.save()
+        self._write_main([(1, "a", _JAN)], run_uuid="earlier-run")
+        self._stage([(2, "b", _FEB)], batch_index=0)
+
+        self._finalize(0, schema=loaded)
+
+        self.schema.refresh_from_db()
+        assert self.schema.sync_type_config[HISTORY_SEED_PENDING_KEY] == "2026-10-06T00:00:00+00:00"
+        self.job.refresh_from_db()
+        assert self.job.rows_synced == 2
+
+    def test_a_pending_reset_holds_the_seed_back(self) -> None:
+        self.schema.sync_type_config.update(
+            {HISTORY_SEED_PENDING_KEY: "2026-10-05T00:00:00+00:00", "reset_pipeline": True}
+        )
+        self.schema.save()
+        self._write_main([(1, "a", _JAN)], run_uuid="earlier-run")
+        self._stage([(2, "b", _FEB)], batch_index=0)
+
+        self._finalize(0)
+
+        assert self._history_rows() == [(2, "b", _FEB, None, "current")]
+        self.schema.refresh_from_db()
+        assert HISTORY_SEED_PENDING_KEY in self.schema.sync_type_config
+
+    def test_a_seed_copies_nothing_from_a_main_table_this_run_created(self) -> None:
+        self.schema.sync_type_config[HISTORY_SEED_PENDING_KEY] = "2026-10-05T00:00:00+00:00"
+        self.schema.save()
+        self._write_main([(2, "b", _FEB)], run_uuid=None)
+        self._write_main([(1, "a", _JAN)], run_uuid="run")
+        self._stage([(1, "a", _JAN), (2, "b", _FEB)], batch_index=0)
+
+        result = self._finalize(0)
+
+        assert self._history_rows() == [(1, "a", _JAN, None, "current"), (2, "b", _FEB, None, "current")]
+        assert result is not None and result.staged_rows == 2
+
+    def _write_main(self, rows: Sequence[tuple[int, str, datetime | None]], *, run_uuid: str | None) -> None:
+        table = _rows(rows).append_column(PARTITION_KEY, pa.array(["p"] * len(rows)))
+        deltalake.write_deltalake(
+            str(self.root / "orders"),
+            table,
+            mode="append",
+            commit_properties=deltalake.CommitProperties(
+                custom_metadata={"run_uuid": run_uuid, "batch_index": "0"} if run_uuid else None
+            ),
+        )
+
+    def _stage(self, rows: Sequence[tuple[int, str, datetime | None]], *, batch_index: int) -> None:
+        batch = _rows(rows)
+        batch = batch.append_column("_ph_valid_from", batch.column("updated_at"))
+        async_to_sync(stage_history_batch)(
+            self.history, batch, primary_keys=["id"], run_uuid=_HISTORY_RUN, batch_index=batch_index
+        )
+
+    def _finalize(self, batch_index: int, schema: ExternalDataSchema | None = None) -> HistoryFinalizeResult | None:
+        schema = schema or ExternalDataSchema.objects.get(id=self.schema.id)
+        return async_to_sync(finalize_history_lane)(
+            self.history, ["id"], schema=schema, run_uuid=_HISTORY_RUN, batch_index=batch_index
+        )
+
+    def _history_rows(self) -> list[tuple[Any, ...]]:
+        rows = deltalake.DeltaTable(str(self.root / "orders_history")).to_pyarrow_table().to_pylist()
+        return sorted(
+            (r["id"], r["name"], r["_ph_valid_from"], r["_ph_valid_to"], r["_ph_history_partition"]) for r in rows
+        )
+
+
+_HISTORY_RUN = f"run{COMPANION_RUN_SUFFIX}"
+_JAN, _FEB, _MAR = (datetime(2026, month, 1, tzinfo=UTC) for month in (1, 2, 3))
+
+
+def _rows(rows: Sequence[tuple[int, str, datetime | None]]) -> pa.Table:
+    return pa.table(
+        {
+            "id": pa.array([key for key, _, _ in rows], pa.int64()),
+            "name": [name for _, name, _ in rows],
+            "updated_at": pa.array([at for _, _, at in rows], _TS),
+        }
+    )
 
 
 def _local_uri(root: Path) -> Any:

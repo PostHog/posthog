@@ -3,22 +3,32 @@
 Each version starts at the row's incremental field value, and the lane writes versions once per run (see `history_upsert`).
 """
 
+import asyncio
 import functools
-from collections.abc import Mapping, Sequence
-from datetime import UTC, datetime
-from typing import TypeVar
+from collections.abc import Iterator, Mapping, Sequence
+from datetime import UTC, datetime, timedelta
+from typing import Any, TypeVar
+
+from django.db import transaction
+from django.db.models import F
 
 import pyarrow as pa
 import deltalake
 import structlog
 import pyarrow.compute as pc
+from asgiref.sync import sync_to_async
 
 from posthog.models.team import Team
 from posthog.ph_client import feature_enabled_or_false
 
 from products.warehouse_sources.backend.facade.contracts import LegacyHistoryTableError
 from products.warehouse_sources.backend.facade.types import IncrementalFieldType
-from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
+from products.warehouse_sources.backend.models.external_data_schema import (
+    HISTORY_SEED_PENDING_KEY,
+    ExternalDataSchema,
+    update_sync_type_config_keys,
+)
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
 from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import (
     CAPTURE_COLUMNS,
@@ -28,6 +38,7 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import
     history_columns,
     reserved_column_collisions,
 )
+from products.warehouse_sources.backend.temporal.data_imports.cdc.companion_jobs import COMPANION_RUN_SUFFIX
 from products.warehouse_sources.backend.temporal.data_imports.cdc.history_table import (
     HISTORY_STAGING_SUFFIX,
     HistoryTableNameTakenError,
@@ -41,11 +52,16 @@ from products.warehouse_sources.backend.temporal.data_imports.destinations.enabl
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.extract import resolve_primary_keys
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import normalize_column_name
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import PARTITION_KEY
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta import history_upsert
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.history_upsert import (
+    STAGED_BATCH_COLUMN,
     HistoryFinalizeResult,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.maintenance import VACUUM_RETENTION
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.table import DeltaTableRef
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.writer import commit_runs
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers import resolve_table_and_folder_names
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.projection import (
     filter_dwh_columns_by_enabled_columns,
 )
@@ -58,6 +74,9 @@ INCREMENTAL_HISTORY_FLAG = "dwh-incremental-history"
 # while the consolidated table takes each of them.
 HISTORY_CURSOR_TYPES = frozenset({IncrementalFieldType.DateTime, IncrementalFieldType.Timestamp})
 _VALID_FROM_TYPE = pa.timestamp("us", tz="UTC")
+_SEED_BATCH_ROWS = 50_000
+_MAX_SEED_HISTORY_SCAN = 2000
+_VACUUM_MARGIN = timedelta(hours=1)
 
 _TColumn = TypeVar("_TColumn")
 
@@ -226,13 +245,182 @@ async def stage_history_batch(
 
 
 async def finalize_history_lane(
-    table: DeltaTableRef, primary_keys: Sequence[str], *, run_uuid: str, batch_index: int
+    table: DeltaTableRef,
+    primary_keys: Sequence[str],
+    *,
+    schema: ExternalDataSchema,
+    run_uuid: str,
+    batch_index: int,
 ) -> HistoryFinalizeResult | None:
-    """Write the run's staged rows as versions, at the run's final batch. None when the lane staged nothing."""
-    return await history_upsert.finalize(
+    """Write the run's staged rows as versions, at the run's final batch. None when the lane staged nothing.
+
+    When history was turned on for a table that already holds rows, the main table's rows are staged
+    too and become the first versions. The request stays until the finalize completes.
+    """
+    # A reset still to run reads every row again and cancels the request when it does.
+    seed_requested_at = (
+        None if schema.sync_type_config.get("reset_pipeline") else schema.sync_type_config.get(HISTORY_SEED_PENDING_KEY)
+    )
+    seed_rows = 0
+    if isinstance(seed_requested_at, str):
+        staged_rows = await _staged_seed_rows(_staging_ref(table), _seed_tag(seed_requested_at))
+        seed_rows = (
+            staged_rows
+            if staged_rows is not None
+            else await _stage_seed(table, schema, primary_keys, run_uuid, seed_requested_at)
+        )
+    result = await history_upsert.finalize(
         table,
         _staging_ref(table),
         key_columns=primary_keys,
         naming=HISTORY_NAMING,
         commit_metadata={"run_uuid": run_uuid, "batch_index": str(batch_index)},
+    )
+    if isinstance(seed_requested_at, str):
+        await sync_to_async(_complete_seed_request)(schema, seed_requested_at, table.job, seed_rows)
+    return result
+
+
+async def _staged_seed_rows(staging: DeltaTableRef, seed_tag: str) -> int | None:
+    """The rows of this request's copy that a failed finalize left staged, else None.
+
+    Staged rows are deleted only after a finalize, so a retry or the next run reuses the copy instead of
+    making another. The copy holds the main table from before the run that made it, and that run's rows
+    stay staged beside it.
+    """
+    staged = await staging.get_delta_table()
+    if staged is None:
+        return None
+    batch = f"{seed_tag}:0"
+    rows = await asyncio.to_thread(
+        lambda: staged.to_pyarrow_dataset().count_rows(filter=pc.field(STAGED_BATCH_COLUMN) == batch)
+    )
+    return rows or None
+
+
+def _complete_seed_request(schema: ExternalDataSchema, requested_at: str, job: ExternalDataJob, rows: int) -> None:
+    """Clear the request and bill the copied rows on the history lane's job, together so a retry bills nothing.
+
+    That job bills only when the history table's rows bill, so the copy follows the same rules.
+    """
+    cleared = False
+
+    def _clear(config: dict) -> None:
+        nonlocal cleared
+        # History turned off and on again during the run asks for a seed of its own.
+        if config.get(HISTORY_SEED_PENDING_KEY) == requested_at:
+            config.pop(HISTORY_SEED_PENDING_KEY)
+            cleared = True
+
+    with transaction.atomic():
+        update_sync_type_config_keys(schema.id, schema.team_id, mutate=_clear)
+        if cleared and rows and job.billable is not False:
+            ExternalDataJob.objects.filter(id=job.id).update(rows_synced=F("rows_synced") + rows)
+
+
+async def _stage_seed(
+    table: DeltaTableRef,
+    schema: ExternalDataSchema,
+    primary_keys: Sequence[str],
+    run_uuid: str,
+    requested_at: str,
+) -> int:
+    """Stage the main table's rows as they were before this run, each version starting at its cursor.
+
+    A row without a cursor starts when history was turned on.
+    """
+    # A schema renamed bare to qualified keeps its main table in the old folder.
+    main_folder = resolve_table_and_folder_names(schema.name, schema.resolved_s3_folder_name).folder_name
+    main = DeltaTableRef(resource_name=main_folder, job=table.job, logger=table.logger)
+    rows = await _rows_before_run(main, run_uuid)
+    if rows is None:
+        await table.logger.awarning("history_seed_found_no_main_table", main_folder=main_folder)
+        return 0
+    if schema.incremental_field is None:
+        raise IncrementalHistoryUnavailableError(
+            f"{schema.name} keeps a history table, which needs an incremental field"
+        )
+    stamp = functools.partial(
+        stamp_history_batch,
+        schema_name=schema.name,
+        cursor=normalize_column_name(schema.incremental_field),
+        naming=HISTORY_NAMING,
+        tracked_since=datetime.fromisoformat(requested_at),
+    )
+    dataset = rows.to_pyarrow_dataset()
+    columns = [name for name in dataset.schema.names if name != PARTITION_KEY]
+
+    def _tables() -> Iterator[pa.Table]:
+        scanner = dataset.scanner(
+            columns=columns, batch_size=_SEED_BATCH_ROWS, batch_readahead=1, fragment_readahead=1, use_threads=False
+        )
+        for batch in scanner.to_batches():
+            if batch.num_rows:
+                yield stamp(pa.Table.from_batches([batch]))
+
+    staged = await history_upsert.stage_seed(
+        _staging_ref(table),
+        stamp(dataset.schema.empty_table().select(columns)).schema,
+        _tables(),
+        key_columns=primary_keys,
+        naming=HISTORY_NAMING,
+        run_uuid=_seed_tag(requested_at),
+        batch_index=0,
+    )
+    await table.logger.ainfo("history_seed_staged", rows=staged, main_table_version=rows.version())
+    return staged
+
+
+def _seed_tag(requested_at: str) -> str:
+    # Per request: a run's redelivery check never finds it, and turning history on again copies anew.
+    return f"seed-{requested_at}"
+
+
+async def _rows_before_run(main: DeltaTableRef, run_uuid: str) -> deltalake.DeltaTable | None:
+    """The main table at its last version before this run wrote to it. None when this run created it.
+
+    A partitioned write tags only its last merge, so the boundary is the newest commit an earlier run
+    tagged, also while this run's first write is still in progress. Falls back to the current version
+    when the run's first write is old enough that a vacuum may have removed the files it replaced.
+    """
+    current = await main.get_delta_table()
+    if current is None:
+        return None
+    # The history lane of a run that keeps both tables runs as a companion, under the run's ID plus a suffix.
+    run_uuid = run_uuid.removesuffix(COMPANION_RUN_SUFFIX)
+    commits = await asyncio.to_thread(current.history, _MAX_SEED_HISTORY_SCAN)
+    first: dict[str, Any] | None = None
+    boundary: dict[str, Any] | None = None
+    earliest: dict[str, Any] | None = None
+    # Newest first. The pipeline lock keeps other runs from writing while this one loads.
+    for commit in commits:
+        runs = commit_runs(commit)
+        if run_uuid in runs:
+            first = commit
+        elif runs:
+            boundary = commit
+            break
+        earliest = commit
+    if first is not None and len(commit_runs(first)) > 1:
+        # A write shared with an earlier run holds rows of both, so the copy keeps it.
+        version = int(first["version"])
+    elif boundary is not None:
+        version = int(boundary["version"])
+    elif first is None:
+        return current
+    elif int(commits[-1]["version"]) == 0:
+        return None
+    else:
+        version = int(first["version"]) - 1
+    if earliest is None or version == current.version():
+        return current
+    written_at = datetime.fromtimestamp(int(earliest["timestamp"]) / 1000, UTC)
+    if datetime.now(UTC) - written_at > VACUUM_RETENTION - _VACUUM_MARGIN:
+        await main.logger.awarning("history_seed_reads_current_version", run_first_write=written_at.isoformat())
+        return current
+    return await asyncio.to_thread(
+        deltalake.DeltaTable,
+        await main.get_table_uri(),
+        version=version,
+        storage_options=main.get_storage_options(),
     )

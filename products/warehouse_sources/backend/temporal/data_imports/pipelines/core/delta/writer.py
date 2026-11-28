@@ -284,6 +284,19 @@ def commit_covers_batch(commit: dict[str, Any], run_uuid: str, batch_index: int)
     return False
 
 
+def commit_runs(commit: dict[str, Any]) -> set[str]:
+    """Every run whose batches this commit wrote, read from the same tags as `commit_covers_batch`."""
+    runs: set[str] = set()
+    for layout in _commit_metadata_layouts(commit):
+        members = layout.get("members")
+        if isinstance(members, str):
+            runs.update(member.rpartition(":")[0] for member in members.split(",") if member)
+        run_uuid = layout.get("run_uuid")
+        if isinstance(run_uuid, str):
+            runs.add(run_uuid)
+    return runs
+
+
 class DeltaWriter:
     """The core write/merge path for one schema's Delta table, plus commit-metadata idempotency.
 
