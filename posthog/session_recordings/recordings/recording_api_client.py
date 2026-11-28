@@ -1,3 +1,5 @@
+import random
+import asyncio
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
@@ -18,6 +20,10 @@ from posthog.session_recordings.recordings.recording_api_jwt import (
 )
 
 logger = structlog.get_logger(__name__)
+
+# A busy recording-api pod answers 503 when its block bytes in flight are spent, which clears as its reads finish.
+BUSY_RETRIES = 3
+BUSY_RETRY_BASE_DELAY_SECONDS = 0.5
 
 
 async def _recording_deleted_error(response: aiohttp.ClientResponse) -> RecordingDeletedError:
@@ -61,21 +67,17 @@ class RecordingApiClient:
             headers = {**headers, "Connection": "close"}
 
         try:
-            async with self.session.get(url, params=params, headers=headers) as response:
-                if response.status == 404:
-                    raise BlockNotFoundError("Block not found")
-                if response.status == 410:
-                    error = await _recording_deleted_error(response)
-                    logger.info(
-                        "recording_api_client.recording_deleted",
-                        session_id=session_id,
-                        team_id=team_id,
-                        deleted_at=error.deleted_at,
-                        deleted_by=error.deleted_by,
-                    )
-                    raise error
-                response.raise_for_status()
-                return await response.read()
+            for attempt in range(BUSY_RETRIES + 1):
+                if attempt:
+                    # Kube-proxy balances per connection, so a retry that closes its connection lets the next one reach another pod.
+                    headers = {**headers, "Connection": "close"}
+                    await asyncio.sleep(BUSY_RETRY_BASE_DELAY_SECONDS * attempt * (0.5 + random.random()))
+                async with self.session.get(url, params=params, headers=headers) as response:
+                    if response.status != 503:
+                        return await self._read_block(response, session_id, team_id)
+                    # Closing keeps this connection to the busy pod out of the pool the retry draws from.
+                    response.close()
+            raise BlockFetchError("Recording API stayed busy")
         except (RecordingDeletedError, BlockFetchError):
             raise
         except aiohttp.ClientError as e:
@@ -88,6 +90,23 @@ class RecordingApiClient:
                 exc_info=False,
             )
             raise BlockFetchError(f"Failed to fetch block from Recording API: {str(e)}")
+
+    @staticmethod
+    async def _read_block(response: aiohttp.ClientResponse, session_id: str, team_id: int) -> bytes:
+        if response.status == 404:
+            raise BlockNotFoundError("Block not found")
+        if response.status == 410:
+            error = await _recording_deleted_error(response)
+            logger.info(
+                "recording_api_client.recording_deleted",
+                session_id=session_id,
+                team_id=team_id,
+                deleted_at=error.deleted_at,
+                deleted_by=error.deleted_by,
+            )
+            raise error
+        response.raise_for_status()
+        return await response.read()
 
     async def list_blocks(self, session_id: str, team_id: int) -> list[dict]:
         url = f"{self.base_url}/api/projects/{team_id}/recordings/{session_id}/blocks"

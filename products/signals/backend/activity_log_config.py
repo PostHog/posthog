@@ -24,6 +24,7 @@ FIELD_NAME_OVERRIDES = {
         "write_scopes": "write access",
         "report_actions": "report actions",
         "max_report_actions_per_day": "report actions per day",
+        "max_messages_per_day": "messages per day",
         "lifecycle_locked": "owner-only pause, resume, and delete",
         "allowed_mcp_tools": "allowed MCP tools",
         "tool_preset": "tool preset",

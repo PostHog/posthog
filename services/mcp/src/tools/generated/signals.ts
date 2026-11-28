@@ -1834,6 +1834,9 @@ const scoutConfigCreate = (): ToolBase<ReturnType<typeof ScoutConfigCreateSchema
         if (params.max_report_actions_per_day !== undefined) {
             body['max_report_actions_per_day'] = params.max_report_actions_per_day
         }
+        if (params.max_messages_per_day !== undefined) {
+            body['max_messages_per_day'] = params.max_messages_per_day
+        }
         if (params.lifecycle_locked !== undefined) {
             body['lifecycle_locked'] = params.lifecycle_locked
         }
@@ -3641,6 +3644,9 @@ const signalsScoutConfigCreate = (): ToolBase<
         }
         if (params.max_report_actions_per_day !== undefined) {
             body['max_report_actions_per_day'] = params.max_report_actions_per_day
+        }
+        if (params.max_messages_per_day !== undefined) {
+            body['max_messages_per_day'] = params.max_messages_per_day
         }
         if (params.lifecycle_locked !== undefined) {
             body['lifecycle_locked'] = params.lifecycle_locked

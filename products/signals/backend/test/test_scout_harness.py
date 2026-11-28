@@ -78,12 +78,7 @@ from products.signals.backend.scout_harness.limits import (
     TRIGGERED_BY_WORKFLOW,
     failure_streak_pause_threshold,
 )
-from products.signals.backend.scout_harness.message_routes import (
-    MAX_MESSAGE_TITLE_LENGTH,
-    MAX_MESSAGES_PER_SCOUT_PER_WINDOW,
-    MessageRoute,
-    MessageTarget,
-)
+from products.signals.backend.scout_harness.message_routes import MAX_MESSAGE_TITLE_LENGTH, MessageRoute, MessageTarget
 from products.signals.backend.scout_harness.model_selection import ScoutModel
 from products.signals.backend.scout_harness.prompt import (
     _EXTERNAL_MCP_LISTING_CAP,
@@ -585,6 +580,7 @@ class TestPromptCacheablePrefix(SimpleTestCase):
                 started_at=started_at,
                 message_routes=_MESSAGE_ROUTES,
                 messages_dry_run=dry_run,
+                message_cap=12,
             )
             start = prompt.index("# Messages")
             return prompt[start : prompt.index("# Your run identity", start)]
@@ -597,10 +593,13 @@ class TestPromptCacheablePrefix(SimpleTestCase):
         assert ("leave `report_id` out" in first) is dry_run
         assert "Silence is the normal outcome" in first
         assert "The cap is a safety limit, never a target" in first
-        assert f"{MAX_MESSAGES_PER_SCOUT_PER_WINDOW} messages" not in first
+        assert "12 messages" not in first
         assert f"at most {MAX_MESSAGE_TITLE_LENGTH} characters" in first
 
-    def test_messages_section_is_absent_without_routes(self) -> None:
+    @parameterized.expand([("no_routes", (), 5), ("cap_of_zero", _MESSAGE_ROUTES, 0)])
+    def test_messages_section_is_absent_when_the_scout_cannot_send(
+        self, _name: str, routes: tuple, message_cap: int
+    ) -> None:
         prompt = build_run_prompt(
             LoadedSkill(
                 name="signals-scout-routes",
@@ -616,6 +615,8 @@ class TestPromptCacheablePrefix(SimpleTestCase):
             run_id="00000000-0000-0000-0000-000000000001",
             team_id=1,
             started_at=datetime(2026, 5, 1, tzinfo=UTC),
+            message_routes=routes,
+            message_cap=message_cap,
         )
 
         assert "# Messages" not in prompt

@@ -6,6 +6,7 @@ from posthog.test.base import APIBaseTest, BaseTest
 from unittest.mock import AsyncMock, patch
 
 from django.apps import apps
+from django.test import SimpleTestCase
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -23,7 +24,12 @@ from products.signals.backend.models import (
     SignalScoutRun,
 )
 from products.signals.backend.scout_harness.limits import STALE_RUN_CUTOFF_S
-from products.signals.backend.scout_harness.message_routes import MAX_MESSAGE_BODY_LENGTH, MAX_MESSAGE_TITLE_LENGTH
+from products.signals.backend.scout_harness.message_routes import (
+    MAX_MESSAGE_BODY_LENGTH,
+    MAX_MESSAGE_TITLE_LENGTH,
+    ScoutMessageCap,
+    resolve_scout_message_cap,
+)
 from products.signals.backend.scout_harness.message_send import DELIVERY_REPUBLISH_AFTER, send_queued_scout_messages
 from products.signals.backend.scout_harness.runner import _message_routes_for_run, _self_heal_stale_runs
 from products.signals.backend.scout_harness.slack_delivery import (
@@ -44,6 +50,7 @@ _FLAG_CHECKS = (
 _ENQUEUE = "products.signals.backend.scout_harness.message_send.enqueue_scout_slack_delivery"
 _CAPTURE = "products.signals.backend.scout_harness.message_send.capture_batch_internal"
 _JUDGE = "products.signals.backend.scout_harness.tools.messages.judge_edited_report_content"
+_FLAG_PAYLOAD = "products.signals.backend.scout_harness.team_limits._read_flag_payload"
 
 
 @contextmanager
@@ -194,19 +201,34 @@ class TestSendMessageAPI(_MessagesFixture, APIBaseTest):
         assert queued.title == "Second draft"
         assert queued.status == SignalScoutMessage.Status.QUEUED
 
-    def test_the_sixth_message_in_24_hours_is_refused_and_recorded_on_the_run(self) -> None:
+    @parameterized.expand(
+        [
+            ("default_cap_reached", None, 5, "over_cap"),
+            ("own_lower_cap_reached", 2, 2, "over_cap"),
+            ("own_higher_cap_not_reached", 8, 5, "queued"),
+        ]
+    )
+    def test_a_message_past_the_scouts_cap_is_refused_and_recorded_with_the_cap(
+        self, _name: str, max_messages_per_day: int | None, already_sent: int, outcome: str
+    ) -> None:
         TaskRun = apps.get_model("tasks", "TaskRun")
         earlier = self._run(task_run_status=TaskRun.Status.COMPLETED)
-        for index in range(5):
+        for index in range(already_sent):
             self._message(earlier, key=f"pr-{index}", status=SignalScoutMessage.Status.SENT)
         run = self._run()
+        assert run.scout_config is not None
+        run.scout_config.max_messages_per_day = max_messages_per_day
+        run.scout_config.save(update_fields=["max_messages_per_day"])
 
-        response = self._send(run, report_id=str(self._report(run).id), dedupe_key="pr-new")
+        with patch(_FLAG_PAYLOAD, return_value=None):
+            response = self._send(run, report_id=str(self._report(run).id), dedupe_key="pr-new")
 
-        assert response.json()["outcome"] == "over_cap"
-        assert not SignalScoutMessage.all_teams.filter(run=run).exists()
+        assert response.json()["outcome"] == outcome
+        assert SignalScoutMessage.all_teams.filter(run=run).exists() is (outcome == "queued")
         run.refresh_from_db()
-        assert [refusal["outcome"] for refusal in (run.metadata or {})[MESSAGE_REFUSALS_METADATA_KEY]] == ["over_cap"]
+        refusals = (run.metadata or {}).get(MESSAGE_REFUSALS_METADATA_KEY, [])
+        expected = [] if outcome == "queued" else [("over_cap", max_messages_per_day or 5)]
+        assert [(refusal["outcome"], refusal["message_cap"]) for refusal in refusals] == expected
 
     def test_a_queued_message_left_by_a_failed_send_stops_counting_after_the_window(self) -> None:
         TaskRun = apps.get_model("tasks", "TaskRun")
@@ -266,6 +288,60 @@ class TestSendMessageAPI(_MessagesFixture, APIBaseTest):
         assert response.status_code == status.HTTP_200_OK, response.json()
         row = SignalScoutMessage.all_teams.get(run=run)
         assert (row.status, row.report_id) == (SignalScoutMessage.Status.QUEUED, report.id)
+
+
+class TestResolveScoutMessageCap(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("no_setting_no_payload", None, [], ScoutMessageCap(limit=5, default=5, ceiling=24)),
+            ("own_setting", 9, [], ScoutMessageCap(limit=9, default=5, ceiling=24)),
+            ("zero_stops_sending", 0, [], ScoutMessageCap(limit=0, default=5, ceiling=24)),
+            ("own_setting_above_code_ceiling", 30, [], ScoutMessageCap(limit=24, default=5, ceiling=24)),
+            (
+                "payload_default_for_no_setting",
+                None,
+                [{}, {"default_scout_messages_per_day": 3}],
+                ScoutMessageCap(limit=3, default=3, ceiling=24),
+            ),
+            (
+                "team_layer_beats_fleet_default",
+                None,
+                [{"default_scout_messages_per_day": 7}, {"default_scout_messages_per_day": 3}],
+                ScoutMessageCap(limit=7, default=7, ceiling=24),
+            ),
+            (
+                "lowered_ceiling_clamps_a_stored_value",
+                20,
+                [{"max_scout_messages_per_day": 10}, {}],
+                ScoutMessageCap(limit=10, default=5, ceiling=10),
+            ),
+            (
+                "ceiling_clamps_the_default",
+                None,
+                [{"max_scout_messages_per_day": 2}, {"default_scout_messages_per_day": 4}],
+                ScoutMessageCap(limit=2, default=4, ceiling=2),
+            ),
+            (
+                "malformed_team_values_fall_through",
+                None,
+                [
+                    {"default_scout_messages_per_day": "8", "max_scout_messages_per_day": -1},
+                    {"default_scout_messages_per_day": 6, "max_scout_messages_per_day": 40},
+                ],
+                ScoutMessageCap(limit=6, default=6, ceiling=40),
+            ),
+            (
+                "bools_are_not_counts",
+                True,
+                [{"default_scout_messages_per_day": True, "max_scout_messages_per_day": False}],
+                ScoutMessageCap(limit=5, default=5, ceiling=24),
+            ),
+        ]
+    )
+    def test_resolves_the_cap_from_the_setting_and_the_payload_layers(
+        self, _name: str, stored: object, layers: list[dict], expected: ScoutMessageCap
+    ) -> None:
+        assert resolve_scout_message_cap(stored, layers) == expected
 
 
 class TestScoutMessageRoutesConfigAPI(_MessagesFixture, APIBaseTest):
@@ -328,6 +404,45 @@ class TestScoutMessageRoutesConfigAPI(_MessagesFixture, APIBaseTest):
         assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
         config.refresh_from_db()
         assert not config.output_destinations.get("messages")
+
+    @parameterized.expand(
+        [
+            ("within_the_ceiling", None, 10, True, status.HTTP_200_OK, 10),
+            ("above_the_ceiling", None, 11, True, status.HTTP_400_BAD_REQUEST, None),
+            ("without_skill_editor_access", None, 3, False, status.HTTP_403_FORBIDDEN, None),
+            ("resend_of_the_stored_value_without_editor_access", 3, 3, False, status.HTTP_200_OK, 3),
+            ("resend_of_a_stored_value_above_a_lowered_ceiling", 20, 20, True, status.HTTP_200_OK, 20),
+        ]
+    )
+    def test_setting_the_message_cap_is_bounded_by_the_ceiling_and_gated_like_routes(
+        self,
+        _name: str,
+        stored: int | None,
+        requested: int,
+        skill_editor: bool,
+        expected_status: int,
+        expected_stored: int | None,
+    ) -> None:
+        config = SignalScoutConfig.objects.create(
+            team=self.team, skill_name="signals-scout-foo", max_messages_per_day=stored
+        )
+
+        with (
+            patch(_FLAG_PAYLOAD, return_value={"default_team_config": {"max_scout_messages_per_day": 10}}),
+            patch("products.signals.backend.scout_harness.views.has_skill_editor_access", return_value=skill_editor),
+        ):
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/signals/scout/configs/{config.id}/",
+                data={"max_messages_per_day": requested},
+                format="json",
+            )
+
+        assert response.status_code == expected_status, response.json()
+        config.refresh_from_db()
+        assert config.max_messages_per_day == expected_stored
+        if expected_status == status.HTTP_200_OK:
+            assert expected_stored is not None
+            assert response.json()["message_cap"] == min(expected_stored, 10)
 
     def test_an_upsert_with_an_empty_list_clears_the_stored_routes(self) -> None:
         LLMSkill.objects.create(team=self.team, name="signals-scout-foo", description="d", body="watch")
@@ -398,6 +513,7 @@ class TestSendQueuedScoutMessages(_MessagesFixture, BaseTest):
         [
             ("flag_off", "flag_off"),
             ("emit_turned_off_during_the_run", "emit_off"),
+            ("cap_spent_by_an_overlapping_run", "over_cap"),
             ("route_removed_during_the_run", "route_removed"),
             ("report_deleted_during_the_run", "report_hidden"),
             ("sent_by_an_overlapping_run", "duplicate"),
@@ -412,6 +528,9 @@ class TestSendQueuedScoutMessages(_MessagesFixture, BaseTest):
             self._set_routes(run.scout_config, _route("another-route", _DM))
         elif reason == "emit_off":
             SignalScoutConfig.all_teams.filter(pk=run.scout_config.pk).update(emit=False)
+        elif reason == "over_cap":
+            SignalScoutConfig.all_teams.filter(pk=run.scout_config.pk).update(max_messages_per_day=1)
+            self._message(self._run(), key="pr-2", status=SignalScoutMessage.Status.SENT)
         elif reason == "report_hidden":
             SignalReport.objects.filter(pk=report.pk).update(status=SignalReport.Status.DELETED)
         elif reason == "duplicate":
