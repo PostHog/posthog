@@ -3,11 +3,10 @@ import { MOCK_ORGANIZATION_ID } from 'lib/api.mock'
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { billingLogic } from 'lib/logic/billing/billingLogic'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { dateMapping } from 'lib/utils/dateFilters'
+import { organizationLogic } from 'scenes/organizationLogic'
 import { urls } from 'scenes/urls'
 
 import { billingJson } from '~/mocks/fixtures/_billing'
@@ -18,14 +17,6 @@ import { BillingSpendResponse, BillingSpendResponseBreakdownType, billingSpendLo
 import { fitsOneRequest, isDayOrCoarser, SUB_DAY_DATE_FILTER_INTERVALS } from './billingUsageLogic'
 import type { BillingFilters } from './types'
 
-// These cases cover the organization billing API reads. The legacy reads are covered in billingReads.test.ts.
-function readFromTheOrganizationBillingApi(): void {
-    featureFlagLogic.mount()
-    featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.ORGANIZATION_BILLING_API], {
-        [FEATURE_FLAGS.ORGANIZATION_BILLING_API]: true,
-    })
-}
-
 describe('billingSpendLogic chart type', () => {
     let logic: ReturnType<typeof billingSpendLogic.build>
 
@@ -33,7 +24,7 @@ describe('billingSpendLogic chart type', () => {
     // hook-named call inside an ordinary helper.
     const mocks = (): Parameters<typeof useMocks>[0] => ({
         get: {
-            '/api/billing': () => [200, billingJson],
+            '/api/organizations/:organization_id/billing/': () => [200, billingJson],
             [`/api/organizations/${MOCK_ORGANIZATION_ID}/billing/spend/timeseries/`]: () => [
                 200,
                 { count: 0, next: null, previous: null, results: [] },
@@ -51,11 +42,24 @@ describe('billingSpendLogic chart type', () => {
 
     beforeEach(() => {
         initKeaTests()
-        readFromTheOrganizationBillingApi()
     })
 
     afterEach(() => {
         logic?.unmount()
+    })
+
+    it("links the organization's exports, and nothing before the organization loads", async () => {
+        useMocks(mocks())
+        await mount()
+
+        const exportPath = `/api/organizations/${MOCK_ORGANIZATION_ID}/billing/spend/export/`
+        expect(logic.values.spendExportUrl?.split('?')[0]).toEqual(exportPath)
+        expect(logic.values.spendChartExportUrl?.split('?')[0]).toEqual(exportPath)
+
+        organizationLogic.actions.loadCurrentOrganizationSuccess(null)
+
+        expect(logic.values.spendExportUrl).toBeNull()
+        expect(logic.values.spendChartExportUrl).toBeNull()
     })
 
     it('places markers on the usage dates assigned to new pricing periods', async () => {
@@ -203,7 +207,6 @@ describe('billingSpendLogic project breakdown requests', () => {
 
     beforeEach(() => {
         initKeaTests()
-        readFromTheOrganizationBillingApi()
         requests = []
     })
 
@@ -214,7 +217,7 @@ describe('billingSpendLogic project breakdown requests', () => {
     it('asks once, with the project cap, when top_projects bounds the answer', async () => {
         useMocks({
             get: {
-                '/api/billing': () => [200, billingJson],
+                '/api/organizations/:organization_id/billing/': () => [200, billingJson],
                 [`/api/organizations/${MOCK_ORGANIZATION_ID}/billing/spend/timeseries/`]: ({ request }) => {
                     record(request)
                     return [200, empty]
@@ -230,7 +233,7 @@ describe('billingSpendLogic project breakdown requests', () => {
     it('asks for every project on every product in one request', async () => {
         useMocks({
             get: {
-                '/api/billing': () => [200, billingJson],
+                '/api/organizations/:organization_id/billing/': () => [200, billingJson],
                 [`/api/organizations/${MOCK_ORGANIZATION_ID}/billing/spend/timeseries/`]: ({ request }) => {
                     record(request)
                     return [200, { ...empty, results: seriesFor('1') }]
@@ -248,7 +251,7 @@ describe('billingSpendLogic project breakdown requests', () => {
     it('sends one request without a project breakdown', async () => {
         useMocks({
             get: {
-                '/api/billing': () => [200, billingJson],
+                '/api/organizations/:organization_id/billing/': () => [200, billingJson],
                 [`/api/organizations/${MOCK_ORGANIZATION_ID}/billing/spend/timeseries/`]: ({ request }) => {
                     record(request)
                     return [200, empty]
@@ -304,13 +307,12 @@ describe('billing spend load triggers', () => {
 
     beforeEach(() => {
         initKeaTests()
-        readFromTheOrganizationBillingApi()
         requests = 0
         startDates = []
         endDates = []
         useMocks({
             get: {
-                '/api/billing': () => [200, billingJson],
+                '/api/organizations/:organization_id/billing/': () => [200, billingJson],
                 [`/api/organizations/${MOCK_ORGANIZATION_ID}/billing/spend/timeseries/`]: ({ request }) => {
                     requests += 1
                     const params = new URL(request.url).searchParams
@@ -390,7 +392,7 @@ describe('billingSpendLogic export', () => {
     // useMocks has to be called from the test body: the hooks lint rule rejects it in a helper.
     const mocks = (periods: number): Parameters<typeof useMocks>[0] => ({
         get: {
-            '/api/billing': () => [200, billingJson],
+            '/api/organizations/:organization_id/billing/': () => [200, billingJson],
             [`/api/organizations/${MOCK_ORGANIZATION_ID}/billing/spend/timeseries/`]: () => [200, response(periods)],
         },
     })
@@ -403,11 +405,10 @@ describe('billingSpendLogic export', () => {
         await expectLogic(logic).toDispatchActions(['loadBillingSpendSuccess']).toFinishAllListeners()
     }
 
-    const params = (url: string): URLSearchParams => new URL(url, 'http://localhost').searchParams
+    const params = (url: string | null): URLSearchParams => new URL(String(url), 'http://localhost').searchParams
 
     beforeEach(() => {
         initKeaTests()
-        readFromTheOrganizationBillingApi()
     })
 
     afterEach(() => {

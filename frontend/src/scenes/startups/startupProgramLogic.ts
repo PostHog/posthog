@@ -6,13 +6,15 @@ import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
-import api from 'lib/api'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { billingLogic } from 'lib/logic/billing/billingLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { BillingType } from '~/types'
+
+import { billingOrganizationStartupsApplyCreate } from 'products/billing/frontend/generated/api'
+import type { BillingStartupApplicationRequestApi } from 'products/billing/frontend/generated/api.schemas'
 
 import type { OrganizationType, StartupProgramLabel, UserType } from '../../types'
 import { YC_VERIFICATION_URL_REGEX } from './constants'
@@ -402,7 +404,7 @@ export const startupProgramLogic = kea<startupProgramLogicType>([
                 },
             ],
             submit: async (formValues: StartupProgramFormValues) => {
-                const valuesToSubmit: Record<string, any> = {
+                const valuesToSubmit: BillingStartupApplicationRequestApi = {
                     program: values.isYC ? StartupProgramType.YC : StartupProgramType.Startup,
                     organization_id: formValues.organization_id,
                     yc_merch_count: formValues.yc_merch_count,
@@ -426,8 +428,7 @@ export const startupProgramLogic = kea<startupProgramLogicType>([
                 }
 
                 try {
-                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. billingStartupsApplyCreate() from 'products/billing/frontend/generated/api' serves this route, but its generated types do not describe this call yet, so fix the endpoint's OpenAPI schema first.
-                    await api.create('api/billing/startups/apply', valuesToSubmit)
+                    await billingOrganizationStartupsApplyCreate(formValues.organization_id, valuesToSubmit)
                     actions.setFormSubmitted(true)
                     // The verification link is bearer proof of YC founder status, so it stays out of analytics
                     const { yc_verification_url: _discarded, ...capturedValues } = valuesToSubmit

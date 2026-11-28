@@ -70,7 +70,11 @@ const setCustomRetentionHidden = (hidden: boolean): void => {
 }
 
 const seedBilling = async (products: BillingProductV2Type[], overrides: Partial<BillingType> = {}): Promise<void> => {
-    useMocks({ get: { '/api/billing': () => [200, { ...billingJson, ...overrides, products }] } })
+    useMocks({
+        get: {
+            '/api/organizations/:organization_id/billing/': () => [200, { ...billingJson, ...overrides, products }],
+        },
+    })
     billingLogic.mount()
     await expectLogic(billingLogic, () => billingLogic.actions.loadBilling()).toFinishAllListeners()
 }

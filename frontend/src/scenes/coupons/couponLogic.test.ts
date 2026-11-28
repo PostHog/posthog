@@ -17,11 +17,14 @@ describe('couponLogic', () => {
         claimBodies = []
         useMocks({
             get: {
-                '/api/billing': () => [200, { ...billingJson, has_active_subscription: false }],
-                '/api/billing/coupons/overview': () => [200, { claimed_coupons: [] }],
+                '/api/organizations/:organization_id/billing/': () => [
+                    200,
+                    { ...billingJson, has_active_subscription: false },
+                ],
+                '/api/organizations/:organization_id/billing/coupons/overview': () => [200, { claimed_coupons: [] }],
             },
             post: {
-                '/api/billing/coupons/claim': async ({ request }) => {
+                '/api/organizations/:organization_id/billing/coupons/claim': async ({ request }) => {
                     claimBodies.push((await request.json()) as Record<string, unknown>)
                     return [200, { success: true }]
                 },

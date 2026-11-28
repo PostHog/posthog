@@ -84,7 +84,7 @@ export const _Billing: Story = {
     render: () => {
         useStorybookMocks({
             get: {
-                '/api/billing/': {
+                '/api/organizations/:organization_id/billing/': {
                     ...billingJson,
                 },
             },
@@ -98,7 +98,7 @@ export const BillingManagedByPartner: Story = {
     render: () => {
         useStorybookMocks({
             get: {
-                '/api/billing/': {
+                '/api/organizations/:organization_id/billing/': {
                     ...billingUnsubscribedJson,
                     customer_id: '',
                     billing_managed_by_partner: { partner_name: 'Example Partner' },
@@ -114,7 +114,7 @@ export const BillingManagedByVercel: Story = {
     render: () => {
         useStorybookMocks({
             get: {
-                '/api/billing/': {
+                '/api/organizations/:organization_id/billing/': {
                     ...billingJson,
                     billing_provider: BillingProvider.Vercel,
                     external_billing_provider_invoices_url: VERCEL_INVOICES_URL,
@@ -130,7 +130,7 @@ export const BillingManagedByVercelWithoutSubscription: Story = {
     render: () => {
         useStorybookMocks({
             get: {
-                '/api/billing/': {
+                '/api/organizations/:organization_id/billing/': {
                     ...billingUnsubscribedJson,
                     billing_provider: BillingProvider.Vercel,
                     external_billing_provider_invoices_url: VERCEL_INVOICES_URL,
@@ -146,7 +146,7 @@ export const BillingOnStartupPlan: Story = {
     render: () => {
         useStorybookMocks({
             get: {
-                '/api/billing/': {
+                '/api/organizations/:organization_id/billing/': {
                     ...billingJson,
                     startup_program_label: StartupProgramLabel.Startup,
                 },
@@ -170,7 +170,7 @@ export const BillingOnYCPlan: Story = {
     render: () => {
         useStorybookMocks({
             get: {
-                '/api/billing/': billingJsonOnYCPlan,
+                '/api/organizations/:organization_id/billing/': billingJsonOnYCPlan,
             },
         })
 
@@ -182,7 +182,10 @@ export const BillingOnYCPlanWithCreditsUsed: Story = {
     render: () => {
         useStorybookMocks({
             get: {
-                '/api/billing/': { ...billingJsonOnYCPlan, discount_amount_usd: undefined },
+                '/api/organizations/:organization_id/billing/': {
+                    ...billingJsonOnYCPlan,
+                    discount_amount_usd: undefined,
+                },
             },
         })
 
@@ -194,7 +197,10 @@ export const BillingOnYCPlanWithCreditsNotRenewing: Story = {
     render: () => {
         useStorybookMocks({
             get: {
-                '/api/billing/': { ...billingJsonOnYCPlan, startup_program_credits_renew: false },
+                '/api/organizations/:organization_id/billing/': {
+                    ...billingJsonOnYCPlan,
+                    startup_program_credits_renew: false,
+                },
             },
         })
 
@@ -206,7 +212,7 @@ export const BillingWithDiscount: Story = {
     render: () => {
         useStorybookMocks({
             get: {
-                '/api/billing/': {
+                '/api/organizations/:organization_id/billing/': {
                     ...billingJsonWithDiscount,
                 },
             },
@@ -220,7 +226,7 @@ export const BillingWithCredits: Story = {
     render: () => {
         useStorybookMocks({
             get: {
-                '/api/billing/': {
+                '/api/organizations/:organization_id/billing/': {
                     ...billingJsonWithCredits,
                 },
             },
@@ -234,11 +240,11 @@ export const BillingWithCreditCTA: Story = {
     render: () => {
         useStorybookMocks({
             get: {
-                '/api/billing/': {
+                '/api/organizations/:organization_id/billing/': {
                     ...billingJson,
                     account_owner: null,
                 },
-                '/api/billing/credits/overview': {
+                '/api/organizations/:organization_id/billing/credits/overview': {
                     status: 'none',
                     eligible: true,
                     estimated_monthly_credit_amount_usd: 1200,
@@ -257,7 +263,7 @@ export const BillingWithLimitAnd100PercentDiscount: Story = {
     render: () => {
         useStorybookMocks({
             get: {
-                '/api/billing/': {
+                '/api/organizations/:organization_id/billing/': {
                     ...billingJsonWith100PercentDiscount,
                 },
             },
@@ -271,10 +277,10 @@ export const BillingPurchaseCreditsModal: Story = {
     render: () => {
         useStorybookMocks({
             get: {
-                '/api/billing/': {
+                '/api/organizations/:organization_id/billing/': {
                     ...billingJson,
                 },
-                '/api/billing/credits/overview': {
+                '/api/organizations/:organization_id/billing/credits/overview': {
                     status: 'none',
                     eligible: true,
                     estimated_monthly_credit_amount_usd: 1200,
@@ -299,7 +305,7 @@ export const BillingWithoutIconKeys: Story = {
     render: () => {
         useStorybookMocks({
             get: {
-                '/api/billing/': {
+                '/api/organizations/:organization_id/billing/': {
                     ...billingJsonWithoutIconKeys,
                 },
             },
@@ -313,7 +319,7 @@ export const BillingUnsubscribeModal: Story = {
     render: () => {
         useStorybookMocks({
             get: {
-                '/api/billing/': {
+                '/api/organizations/:organization_id/billing/': {
                     ...billingJson,
                 },
             },
@@ -347,7 +353,7 @@ export const BillingUnsubscribeModalShorteningEventsRetention: Story = {
     ],
     parameters: { testOptions: { snapshotBrowsers: [] } },
     render: () => {
-        useStorybookMocks({ get: { '/api/billing/': billingJson } })
+        useStorybookMocks({ get: { '/api/organizations/:organization_id/billing/': billingJson } })
 
         return <UnsubscribeSurveyModal product={billingJson.products[0]} />
     },
@@ -357,7 +363,7 @@ export const BillingUnsubscribeModalWithGrandfatheredEventsRetention: Story = {
     render: () => {
         useStorybookMocks({
             get: {
-                '/api/billing/': billingJsonWithGrandfatheredEventsRetention,
+                '/api/organizations/:organization_id/billing/': billingJsonWithGrandfatheredEventsRetention,
                 '/api/organizations/:organization_id/events_retention_setting/downgrade_deletion_count/': {
                     retention_months: 12,
                     events_deleted: 1234567,

@@ -3,11 +3,10 @@ import { MOCK_ORGANIZATION_ID } from 'lib/api.mock'
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { billingLogic } from 'lib/logic/billing/billingLogic'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { organizationLogic } from 'scenes/organizationLogic'
 import { urls } from 'scenes/urls'
 
 import { billingJson } from '~/mocks/fixtures/_billing'
@@ -23,14 +22,6 @@ import {
     billingUsageLogic,
 } from './billingUsageLogic'
 import type { BillingFilters } from './types'
-
-// These cases cover the organization billing API reads. The legacy reads are covered in billingReads.test.ts.
-function readFromTheOrganizationBillingApi(): void {
-    featureFlagLogic.mount()
-    featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.ORGANIZATION_BILLING_API], {
-        [FEATURE_FLAGS.ORGANIZATION_BILLING_API]: true,
-    })
-}
 
 const series = (label: string, usageType: string, data: number[]): BillingUsageResponse['results'][number] => ({
     id: 1,
@@ -117,7 +108,7 @@ describe('billingUsageLogic loader', () => {
     it('lists the projects with usage beside the live ones, apart from the chart', async () => {
         useMocks({
             get: {
-                '/api/billing': () => [200, billingJson],
+                '/api/organizations/:organization_id/billing/': () => [200, billingJson],
                 [`/api/organizations/${MOCK_ORGANIZATION_ID}/billing/usage/timeseries/`]: () => [
                     200,
                     { count: 0, next: null, previous: null, results: [] },
@@ -151,47 +142,37 @@ describe('billingUsageLogic loader', () => {
         ])
     })
 
-    it('reads again from the organization routes when the flag turns on after mount', async () => {
-        const requested: string[] = []
-        const series = { count: 0, next: null, previous: null, results: [] }
+    it("links the organization's exports, and nothing before the organization loads", async () => {
         useMocks({
             get: {
-                '/api/billing': () => [200, billingJson],
-                '/api/billing/usage/': () => {
-                    requested.push('legacy series')
-                    return [200, series]
-                },
-                '/api/billing/usage/team_options/': () => [200, { team_id_options: [] }],
-                [`/api/organizations/${MOCK_ORGANIZATION_ID}/billing/usage/timeseries/`]: () => {
-                    requested.push('organization series')
-                    return [200, series]
-                },
-                [`/api/organizations/${MOCK_ORGANIZATION_ID}/billing/projects/`]: () => [
+                '/api/organizations/:organization_id/billing/': () => [200, billingJson],
+                [`/api/organizations/${MOCK_ORGANIZATION_ID}/billing/usage/timeseries/`]: () => [
                     200,
                     { count: 0, next: null, previous: null, results: [] },
                 ],
             },
         })
-        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.ORGANIZATION_BILLING_API]: false })
         billingLogic.mount()
         await expectLogic(billingLogic, () => billingLogic.actions.loadBilling()).toFinishAllListeners()
         logic = billingUsageLogic()
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
 
-        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.ORGANIZATION_BILLING_API], {
-            [FEATURE_FLAGS.ORGANIZATION_BILLING_API]: true,
-        })
-        await expectLogic(logic).toDispatchActions(['loadBillingUsageSuccess']).toFinishAllListeners()
+        const exportPath = `/api/organizations/${MOCK_ORGANIZATION_ID}/billing/usage/export/`
+        expect(logic.values.usageExportUrl?.split('?')[0]).toEqual(exportPath)
+        expect(logic.values.usageChartExportUrl?.split('?')[0]).toEqual(exportPath)
 
-        expect(requested).toEqual(['legacy series', 'organization series'])
+        organizationLogic.actions.loadCurrentOrganizationSuccess(null)
+
+        expect(logic.values.usageExportUrl).toBeNull()
+        expect(logic.values.usageChartExportUrl).toBeNull()
     })
 
     it('keeps an open-ended preset open, and asks for a range that ends yesterday', async () => {
         const endDates: string[] = []
         useMocks({
             get: {
-                '/api/billing': () => [200, billingJson],
+                '/api/organizations/:organization_id/billing/': () => [200, billingJson],
                 [`/api/organizations/${MOCK_ORGANIZATION_ID}/billing/usage/timeseries/`]: ({ request }) => {
                     endDates.push(new URL(request.url).searchParams.get('end_date') ?? '')
                     return [200, { count: 0, next: null, previous: null, results: [] }]
@@ -213,7 +194,6 @@ describe('billingUsageLogic loader', () => {
 
     beforeEach(() => {
         initKeaTests()
-        readFromTheOrganizationBillingApi()
         toastErrorSpy = jest.spyOn(lemonToast, 'error').mockImplementation(() => ({ id: 'x' }) as any)
     })
 
@@ -233,7 +213,7 @@ describe('billingUsageLogic loader', () => {
     ])('handles $case without failing the loader', async ({ answer, pageError, toasts }) => {
         useMocks({
             get: {
-                '/api/billing': () => [200, billingJson],
+                '/api/organizations/:organization_id/billing/': () => [200, billingJson],
                 [`/api/organizations/${MOCK_ORGANIZATION_ID}/billing/usage/timeseries/`]: () =>
                     answer as [number, unknown],
             },
@@ -269,7 +249,7 @@ describe('billingUsageLogic series toggling', () => {
 
     const mocksFor = (results: BillingUsageResponse['results']): Parameters<typeof useMocks>[0] => ({
         get: {
-            '/api/billing': () => [200, billingJson],
+            '/api/organizations/:organization_id/billing/': () => [200, billingJson],
             [`/api/organizations/${MOCK_ORGANIZATION_ID}/billing/usage/timeseries/`]: () => [
                 200,
                 { count: results.length, next: null, previous: null, results } as BillingUsageResponse,
@@ -288,7 +268,6 @@ describe('billingUsageLogic series toggling', () => {
 
     beforeEach(() => {
         initKeaTests()
-        readFromTheOrganizationBillingApi()
     })
 
     afterEach(() => {
@@ -343,7 +322,7 @@ describe('billingUsageLogic chart type', () => {
     // hook-named call inside an ordinary helper.
     const mocks = (): Parameters<typeof useMocks>[0] => ({
         get: {
-            '/api/billing': () => [200, billingJson],
+            '/api/organizations/:organization_id/billing/': () => [200, billingJson],
             [`/api/organizations/${MOCK_ORGANIZATION_ID}/billing/usage/timeseries/`]: () => [
                 200,
                 { count: 0, next: null, previous: null, results: [] },
@@ -361,7 +340,6 @@ describe('billingUsageLogic chart type', () => {
 
     beforeEach(() => {
         initKeaTests()
-        readFromTheOrganizationBillingApi()
     })
 
     afterEach(() => {
@@ -456,7 +434,6 @@ describe('billingUsageLogic project breakdown requests', () => {
 
     beforeEach(() => {
         initKeaTests()
-        readFromTheOrganizationBillingApi()
         requests = []
     })
 
@@ -467,7 +444,7 @@ describe('billingUsageLogic project breakdown requests', () => {
     it('asks once, with the project cap, when top_projects bounds the answer', async () => {
         useMocks({
             get: {
-                '/api/billing': () => [200, billingJson],
+                '/api/organizations/:organization_id/billing/': () => [200, billingJson],
                 [`/api/organizations/${MOCK_ORGANIZATION_ID}/billing/usage/timeseries/`]: ({ request }) => {
                     record(request)
                     return [200, empty]
@@ -483,7 +460,7 @@ describe('billingUsageLogic project breakdown requests', () => {
     it('asks for every project on every usage type in one request', async () => {
         useMocks({
             get: {
-                '/api/billing': () => [200, billingJson],
+                '/api/organizations/:organization_id/billing/': () => [200, billingJson],
                 [`/api/organizations/${MOCK_ORGANIZATION_ID}/billing/usage/timeseries/`]: ({ request }) => {
                     record(request)
                     return [200, { ...empty, results: seriesFor('1') }]
@@ -501,7 +478,7 @@ describe('billingUsageLogic project breakdown requests', () => {
     it('sends one request when there is no project breakdown', async () => {
         useMocks({
             get: {
-                '/api/billing': () => [200, billingJson],
+                '/api/organizations/:organization_id/billing/': () => [200, billingJson],
                 [`/api/organizations/${MOCK_ORGANIZATION_ID}/billing/usage/timeseries/`]: ({ request }) => {
                     record(request)
                     return [200, empty]
@@ -521,11 +498,10 @@ describe('billing section URL scoping', () => {
 
     beforeEach(() => {
         initKeaTests()
-        readFromTheOrganizationBillingApi()
         usageRequests = 0
         useMocks({
             get: {
-                '/api/billing': () => [200, billingJson],
+                '/api/organizations/:organization_id/billing/': () => [200, billingJson],
                 [`/api/organizations/${MOCK_ORGANIZATION_ID}/billing/usage/timeseries/`]: () => {
                     usageRequests += 1
                     return [200, { count: 0, next: null, previous: null, results: [] }]
@@ -577,7 +553,7 @@ describe('billingUsageLogic export', () => {
     // useMocks has to be called from the test body: the hooks lint rule rejects it in a helper.
     const mocks = (): Parameters<typeof useMocks>[0] => ({
         get: {
-            '/api/billing': () => [200, billingJson],
+            '/api/organizations/:organization_id/billing/': () => [200, billingJson],
             [`/api/organizations/${MOCK_ORGANIZATION_ID}/billing/usage/timeseries/`]: () => [
                 200,
                 { count: 0, next: null, previous: null, results: [] },
@@ -593,11 +569,10 @@ describe('billingUsageLogic export', () => {
         await expectLogic(logic).toDispatchActions(['loadBillingUsageSuccess']).toFinishAllListeners()
     }
 
-    const params = (url: string): URLSearchParams => new URL(url, 'http://localhost').searchParams
+    const params = (url: string | null): URLSearchParams => new URL(String(url), 'http://localhost').searchParams
 
     beforeEach(() => {
         initKeaTests()
-        readFromTheOrganizationBillingApi()
     })
 
     afterEach(() => {

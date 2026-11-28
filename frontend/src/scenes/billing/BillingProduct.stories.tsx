@@ -100,7 +100,7 @@ const renderPostHogCodeUsageBillingProduct = ({
 
     useStorybookMocks({
         get: {
-            '/api/billing/': billing,
+            '/api/organizations/:organization_id/billing/': billing,
         },
     })
 
@@ -115,7 +115,7 @@ export const BillingProductWithoutAddons: Story = {
     render: () => {
         useStorybookMocks({
             get: {
-                '/api/billing/': {
+                '/api/organizations/:organization_id/billing/': {
                     ...billingJson,
                 },
             },
@@ -131,7 +131,7 @@ export const BillingProductWithAddons: Story = {
     render: () => {
         useStorybookMocks({
             get: {
-                '/api/billing/': {
+                '/api/organizations/:organization_id/billing/': {
                     ...billingJson,
                 },
             },
@@ -147,7 +147,7 @@ export const BillingProductWithStandalonePricingAddon: Story = {
     render: () => {
         useStorybookMocks({
             get: {
-                '/api/billing/': {
+                '/api/organizations/:organization_id/billing/': {
                     ...billingJson,
                 },
             },
@@ -189,7 +189,7 @@ export const BillingProductTemporarilyFree: Story = {
     render: () => {
         useStorybookMocks({
             get: {
-                '/api/billing/': {
+                '/api/organizations/:organization_id/billing/': {
                     ...billingJson,
                 },
             },
@@ -402,7 +402,7 @@ export const BillingProductInclusionOnlyWithAddon: Story = {
     render: () => {
         useStorybookMocks({
             get: {
-                '/api/billing/': {
+                '/api/organizations/:organization_id/billing/': {
                     ...billingJson,
                 },
             },
@@ -418,7 +418,7 @@ const renderPlatformAddonsStory = (scenario: Parameters<typeof makeBillingWithPl
     const billing = makeBillingWithPlatformAddons(billingJson, scenario)
     useStorybookMocks({
         get: {
-            '/api/billing/': billing,
+            '/api/organizations/:organization_id/billing/': billing,
         },
     })
     const product = billing.products.find((p) => p.type === 'platform_and_support')

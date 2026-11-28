@@ -25,7 +25,7 @@ const withPinnedSceneHeight: Decorator = function PinnedSceneHeightDecorator(Sto
 }
 
 function withBilling(billing: BillingType): Decorator {
-    return mswDecorator({ get: { '/api/billing/': billing } })
+    return mswDecorator({ get: { '/api/organizations/:organization_id/billing/': billing } })
 }
 
 /** Signs the story in as someone whose email domain the program does not accept. */

@@ -2518,19 +2518,6 @@ export interface BillingType {
     billing_managed_by_partner?: { partner_name: string } | null
 }
 
-export interface ClaimedCouponInfo {
-    code: string
-    campaign_name: string
-    campaign_slug: string | null
-    claimed_at: string
-    expires_at: string | null
-    status: 'claimed' | 'expired'
-}
-
-export interface CouponsOverview {
-    claimed_coupons: ClaimedCouponInfo[]
-}
-
 export interface BillingPeriod {
     start: Dayjs | null
     end: Dayjs | null
