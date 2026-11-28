@@ -1,8 +1,10 @@
+import time
 import uuid as uuid_lib
 import asyncio
 import builtins
 from collections import defaultdict
 from collections.abc import Iterable, Iterator
+from contextlib import contextmanager
 from dataclasses import field
 from datetime import timedelta
 from enum import StrEnum
@@ -13,6 +15,7 @@ from django.utils import timezone
 
 import structlog
 from prometheus_client import Counter, Histogram
+from redis.exceptions import RedisError
 from temporalio import common
 
 from posthog.dataclasses import frozen
@@ -25,7 +28,9 @@ from posthog.models.activity_logging.activity_log import (
     bulk_log_activity,
 )
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
+from posthog.models.instance_setting import get_instance_setting
 from posthog.models.person import Person
+from posthog.models.person.team_delete_batch_slots import BatchSlotWaitTimeout, TeamDeletePersonsBatchSlots
 from posthog.models.person.util import (
     LIFECYCLE_DELETE_PERSONS_PER_RPC,
     DistinctIdForPerson,
@@ -72,7 +77,8 @@ PERSON_DELETION_STEP_FAILURES_COUNTER = Counter(
 )
 
 # path: "sync" for the request-time delete, "queued" for the Celery task.
-# outcome: "queued" when handed to the task, "deleted" once removed, "failed" per person per attempt.
+# outcome: "queued" when handed to the task, "deleted" once removed, "failed" per person per attempt,
+# "deferred" per person per attempt that found no free persons batch slot.
 PERSON_DELETION_PERSONS_COUNTER = Counter(
     "posthog_person_deletion_persons_total",
     "Persons handled by a deletion, by path and per-attempt outcome.",
@@ -85,10 +91,21 @@ PERSON_DELETION_DISTINCT_IDS_PER_PERSON = Histogram(
     buckets=(1, 10, 100, 1_000, 10_000, 100_000, 1_000_000, float("inf")),
 )
 
+PERSON_DELETION_BATCH_SLOT_WAIT_SECONDS = Histogram(
+    "posthog_person_deletion_batch_slot_wait_seconds",
+    "Time that a queued person deletion batch waited for a persons batch slot.",
+    buckets=(0.1, 0.5, 1, 2, 5, 10, float("inf")),
+)
+
+# The wait holds a Celery worker, so it stays short. A task that finds no free slot hands its persons back to
+# the queue for a later attempt instead of waiting for the slot.
+QUEUED_DELETION_SLOT_WAIT_SECONDS = 10
+
 
 def _observe_person_outcomes(path: str, result: "PersonProfileDeletionResult") -> None:
     PERSON_DELETION_PERSONS_COUNTER.labels(path=path, outcome="deleted").inc(result.deleted_count)
     PERSON_DELETION_PERSONS_COUNTER.labels(path=path, outcome="failed").inc(len(result.errors))
+    PERSON_DELETION_PERSONS_COUNTER.labels(path=path, outcome="deferred").inc(len(result.deferred))
 
 
 @frozen
@@ -103,6 +120,8 @@ class PersonDeletionFailure:
 class PersonProfileDeletionResult:
     deleted_count: int
     failures: list[PersonDeletionFailure] = field(default_factory=list)
+    # Persons that no step ran for, because no persons batch slot came free. Only the queued deletion defers.
+    deferred: list[uuid_lib.UUID] = field(default_factory=list)
 
     @property
     def errors(self) -> list[uuid_lib.UUID]:
@@ -375,6 +394,11 @@ def process_queued_person_deletion(
     when the steps before it succeeded, because it removes the distinct IDs a retry of those
     steps would need.
 
+    With ``delete_profile``, each batch takes a persons batch slot before its first step, because
+    its tombstones add read load on the persons writer. When no slot comes free in time, the
+    attempt stops. That batch and every person after it are returned as ``deferred``, and no step
+    ran for them, so a later attempt does not repeat a step.
+
     ``run_id`` is the task id, which Celery keeps across retries and redeliveries of the chunk.
     """
     from posthog.personhog_client.client import personhog_call
@@ -412,29 +436,35 @@ def process_queued_person_deletion(
         )
 
     deleted_count = 0
+    deferred: builtins.list[uuid_lib.UUID] = []
     batch: builtins.list[Person] = []
     batch_distinct_id_count = 0
-    for person in persons:
-        try:
-            distinct_ids = _fetch_distinct_ids(person.pk)
-        except Exception as exc:
-            _record_step_failure(
-                failures,
-                step=PersonDeletionStep.FETCH_DISTINCT_IDS,
-                team_id=team_id,
-                exc=exc,
-                person_uuids=[person.uuid],
-            )
-            continue
-        PERSON_DELETION_DISTINCT_IDS_PER_PERSON.observe(len(distinct_ids))
-        person._distinct_ids = [d.id for d in distinct_ids]
-        batch.append(person)
-        batch_distinct_id_count += len(distinct_ids)
-        if batch_distinct_id_count >= QUEUED_DELETION_DISTINCT_IDS_PER_BATCH:
+    unvisited = iter(persons)
+    try:
+        for person in unvisited:
+            try:
+                distinct_ids = _fetch_distinct_ids(person.pk)
+            except Exception as exc:
+                _record_step_failure(
+                    failures,
+                    step=PersonDeletionStep.FETCH_DISTINCT_IDS,
+                    team_id=team_id,
+                    exc=exc,
+                    person_uuids=[person.uuid],
+                )
+                continue
+            PERSON_DELETION_DISTINCT_IDS_PER_PERSON.observe(len(distinct_ids))
+            person._distinct_ids = [d.id for d in distinct_ids]
+            batch.append(person)
+            batch_distinct_id_count += len(distinct_ids)
+            if batch_distinct_id_count >= QUEUED_DELETION_DISTINCT_IDS_PER_BATCH:
+                deleted_count += _run_batch_and_release(team_id, batch, failures, options)
+                batch, batch_distinct_id_count = [], 0
+        if batch:
             deleted_count += _run_batch_and_release(team_id, batch, failures, options)
-            batch, batch_distinct_id_count = [], 0
-    if batch:
-        deleted_count += _run_batch_and_release(team_id, batch, failures, options)
+    except _BatchSlotUnavailable:
+        deferred = [person.uuid for person in [*batch, *unvisited]]
+        logger.info("person_deletion.deferred", team_id=team_id, person_count=len(deferred))
 
     if unmatched_distinct_ids:
         try:
@@ -444,7 +474,7 @@ def process_queued_person_deletion(
                 failures, step=PersonDeletionStep.QUEUE_TRAINING_DELETION, team_id=team_id, exc=exc, person_uuids=[]
             )
 
-    result = PersonProfileDeletionResult(deleted_count=deleted_count, failures=failures)
+    result = PersonProfileDeletionResult(deleted_count=deleted_count, failures=failures, deferred=deferred)
     _observe_person_outcomes("queued", result)
     return result
 
@@ -455,12 +485,41 @@ def _run_batch_and_release(
     failures: builtins.list[PersonDeletionFailure],
     options: _QueuedDeletionOptions,
 ) -> int:
-    deleted = _run_queued_deletion_steps(team_id, persons, failures, options)
+    with _persons_batch_slot(needed=options.delete_profile):
+        deleted = _run_queued_deletion_steps(team_id, persons, failures, options)
     # The resolved person objects outlive the batch, so drop their ID strings too; without this the
     # per-batch memory bound only covers the dataclass wrappers. Any later read raises, on purpose.
     for person in persons:
         person._distinct_ids = None
     return deleted
+
+
+class _BatchSlotUnavailable(Exception):
+    """No persons batch slot was taken, so no step of the batch ran and the batch can wait for a later attempt."""
+
+
+@contextmanager
+def _persons_batch_slot(*, needed: bool) -> Iterator[None]:
+    """Hold one of the persons batch slots that team deletions share, or raise _BatchSlotUnavailable."""
+    if not needed:
+        yield
+        return
+    slots = TeamDeletePersonsBatchSlots(
+        lambda: get_instance_setting("TEAM_DELETE_PERSONS_MAX_CONCURRENT_BATCHES"),
+        max_wait_seconds=QUEUED_DELETION_SLOT_WAIT_SECONDS,
+    )
+    wait_started = time.monotonic()
+    try:
+        slot_id = slots.acquire()
+    except BatchSlotWaitTimeout as exc:
+        raise _BatchSlotUnavailable() from exc
+    except RedisError as exc:
+        logger.warning("person_deletion.batch_slot_redis_failed", exc_info=exc)
+        raise _BatchSlotUnavailable() from exc
+    PERSON_DELETION_BATCH_SLOT_WAIT_SECONDS.observe(time.monotonic() - wait_started)
+    assert slot_id is not None
+    with slots.hold(slot_id):
+        yield
 
 
 # After this many consecutive per-person failures the fallback stops and marks the rest failed,

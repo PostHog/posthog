@@ -10,7 +10,12 @@ from parameterized import parameterized
 
 from posthog.models.person import Person
 from posthog.models.person.bulk_delete import PersonDeletionFailure, PersonDeletionStep, PersonProfileDeletionResult
-from posthog.tasks.delete_persons import PersonDeletionIncomplete, delete_persons_async, queue_person_deletion
+from posthog.tasks.delete_persons import (
+    MAX_DELETION_RETRIES,
+    PersonDeletionIncomplete,
+    delete_persons_async,
+    queue_person_deletion,
+)
 
 
 def _person() -> Person:
@@ -83,7 +88,7 @@ class TestQueuePersonDeletion(SimpleTestCase):
 
 
 class TestDeletePersonsAsync(SimpleTestCase):
-    def _run(self, result: PersonProfileDeletionResult | Exception) -> None:
+    def _run(self, result: PersonProfileDeletionResult | Exception, slot_deferrals: int = 0) -> None:
         with patch(
             "posthog.tasks.delete_persons.process_queued_person_deletion",
             side_effect=result if isinstance(result, Exception) else None,
@@ -98,7 +103,13 @@ class TestDeletePersonsAsync(SimpleTestCase):
                 organization_id="00000000-0000-0000-0000-00000000000a",
                 was_impersonated=True,
                 unmatched_distinct_ids=["ghost"],
+                slot_deferrals=slot_deferrals,
             )
+
+    def _attempt(self, retries: int) -> None:
+        # An eager request runs Celery's own retry, so its max_retries check decides between a retry and giving up.
+        delete_persons_async.push_request(retries=retries, called_directly=False, is_eager=True)
+        self.addCleanup(delete_persons_async.pop_request)
 
     def test_passes_the_task_id_and_attempt_as_the_deletion_run(self) -> None:
         delete_persons_async.push_request(id="task-1", retries=2)
@@ -161,6 +172,60 @@ class TestDeletePersonsAsync(SimpleTestCase):
         assert kwargs["person_uuids"] == []
         assert kwargs["unmatched_distinct_ids"] == ["ghost"]
 
+    @parameterized.expand(
+        [
+            ("only_deferrals", []),
+            (
+                "deferrals_and_a_failure_after_deletion",
+                [
+                    PersonDeletionFailure(
+                        step=PersonDeletionStep.PUBLISH_CLICKHOUSE_TOMBSTONE, person_uuid=uuid4(), error="x"
+                    )
+                ],
+            ),
+        ]
+    )
+    def test_defers_persons_without_using_a_retry_even_after_the_last_failed_attempt(
+        self, _name: str, failures: list[PersonDeletionFailure]
+    ) -> None:
+        deferred = uuid4()
+        self._attempt(retries=MAX_DELETION_RETRIES)
+
+        with self.assertRaises(Retry) as raised:
+            self._run(PersonProfileDeletionResult(deleted_count=1, failures=failures, deferred=[deferred]))
+
+        assert raised.exception.sig is not None
+        kwargs = raised.exception.sig.kwargs
+        assert (kwargs["person_uuids"], kwargs["unmatched_distinct_ids"], kwargs["slot_deferrals"]) == (
+            [str(deferred)],
+            [],
+            1,
+        )
+
+    @parameterized.expand(
+        [
+            ("failures_before_the_last_attempt", "failures", False, Retry),
+            ("failures_on_the_last_attempt", "failures", True, PersonDeletionIncomplete),
+            ("crash_before_the_last_attempt", "crash", False, Retry),
+            ("crash_on_the_last_attempt", "crash", True, RuntimeError),
+        ]
+    )
+    def test_deferrals_do_not_count_against_the_failure_budget(
+        self, _name: str, how: str, last_attempt: bool, expected: type[Exception]
+    ) -> None:
+        slot_deferrals = 2
+        failed_attempts = MAX_DELETION_RETRIES if last_attempt else MAX_DELETION_RETRIES - 1
+        self._attempt(retries=failed_attempts + slot_deferrals)
+        failed = PersonProfileDeletionResult(
+            deleted_count=0,
+            failures=[
+                PersonDeletionFailure(step=PersonDeletionStep.TOMBSTONE_POSTGRES, person_uuid=uuid4(), error="x")
+            ],
+        )
+
+        with self.assertRaises(expected):
+            self._run(RuntimeError("database down") if how == "crash" else failed, slot_deferrals=slot_deferrals)
+
     def test_retries_the_whole_chunk_when_the_task_crashes_before_recording_anything(self) -> None:
         crash = RuntimeError("database down")
         with patch.object(delete_persons_async, "retry", side_effect=Retry("retry")) as retry:
@@ -174,6 +239,13 @@ class TestDeletePersonsAsync(SimpleTestCase):
             ("crash_on_an_earlier_attempt", 2, "crash", None, None),
             ("crash_on_the_last_attempt", 3, "crash", ["a", "b"], ["ghost"]),
             ("failures_on_the_last_attempt", 3, "failures", ["00000000-0000-0000-0000-000000000001"], []),
+            (
+                "failures_and_deferrals_on_the_last_attempt",
+                3,
+                "failures_and_deferrals",
+                ["00000000-0000-0000-0000-000000000001", "00000000-0000-0000-0000-000000000002"],
+                [],
+            ),
         ]
     )
     def test_the_last_attempt_logs_every_person_it_leaves_undeleted(
@@ -188,6 +260,7 @@ class TestDeletePersonsAsync(SimpleTestCase):
                     error="x",
                 )
             ],
+            deferred=[UUID("00000000-0000-0000-0000-000000000002")] if how == "failures_and_deferrals" else [],
         )
         delete_persons_async.push_request(retries=retries)
         self.addCleanup(delete_persons_async.pop_request)

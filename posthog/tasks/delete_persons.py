@@ -32,7 +32,8 @@ class PersonDeletionIncomplete(Exception):
 # Retries per chunk. Failed persons are retried through Celery's retry with the person list
 # narrowed to them, never by re-running the original chunk: with the person kept, every person
 # still resolves on a retry, so a chunk-wide re-run would start new recording workflows and
-# training deletion for persons that already succeeded.
+# training deletion for persons that already succeeded. A retry that carries only deferred persons
+# does not count against this limit. Deferred persons that go with a failure retry share its limit.
 MAX_DELETION_RETRIES = 3
 GAVE_UP_LOGGED_DISTINCT_IDS = 1000
 RETRY_BACKOFF_SECONDS = 60
@@ -134,9 +135,13 @@ def delete_persons_async(
     organization_id: str | None,
     was_impersonated: bool,
     unmatched_distinct_ids: list[str] | None = None,
+    slot_deferrals: int = 0,
 ) -> None:
     unmatched_distinct_ids = unmatched_distinct_ids or []
     retries = self.request.retries
+    # Celery counts every retry, so the deferrals are taken out to count the failed attempts alone.
+    failed_attempts = retries - slot_deferrals
+    max_retries = MAX_DELETION_RETRIES + slot_deferrals
     logger.info(
         "delete_persons_async started",
         team_id=team_id,
@@ -145,6 +150,7 @@ def delete_persons_async(
         delete_profile=delete_profile,
         delete_recordings=delete_recordings,
         retries=retries,
+        slot_deferrals=slot_deferrals,
     )
     try:
         actor = User.objects.filter(pk=actor_id).first() if actor_id is not None else None
@@ -163,47 +169,81 @@ def delete_persons_async(
     except Exception as exc:
         # Nothing per person was recorded, so the same arguments go round again.
         logger.exception("delete_persons_async crashed", team_id=team_id, retries=retries)
-        _log_if_giving_up(retries, team_id, person_uuids, delete_profile, delete_recordings, unmatched_distinct_ids)
-        raise self.retry(exc=exc, countdown=_retry_countdown(retries))
+        _log_if_giving_up(
+            failed_attempts, team_id, person_uuids, delete_profile, delete_recordings, unmatched_distinct_ids
+        )
+        raise self.retry(exc=exc, countdown=_retry_countdown(failed_attempts), max_retries=max_retries)
 
     logger.info(
         "delete_persons_async finished",
         team_id=team_id,
         deleted_count=result.deleted_count,
         error_count=len(result.errors),
+        deferred_count=len(result.deferred),
         retries=retries,
     )
-    if not result.failures:
+    if not result.failures and not result.deferred:
         return
 
     failures_by_step = Counter(failure.step.value for failure in result.failures)
     failed_uuids = [str(u) for u in result.retryable_errors]
+    deferred_uuids = [str(u) for u in result.deferred]
     # A training failure with no person is the unmatched distinct IDs; they come back on the retry.
     unmatched_failed = any(
         f.step is PersonDeletionStep.QUEUE_TRAINING_DELETION and f.person_uuid is None for f in result.failures
     )
     summary = ", ".join(f"{step}={count}" for step, count in failures_by_step.items())
+    retry_kwargs = {
+        "team_id": team_id,
+        "delete_profile": delete_profile,
+        "delete_recordings": delete_recordings,
+        "actor_id": actor_id,
+        "organization_id": organization_id,
+        "was_impersonated": was_impersonated,
+        "slot_deferrals": slot_deferrals,
+    }
     if not failed_uuids and not unmatched_failed:
-        # Every failed person is deleted and no longer resolves, so a retry would find nothing. The
-        # step's own metric reports the failure, and the deletion sweep repairs an unpublished tombstone.
-        logger.warning(
-            "delete_persons_async finished with failures a retry cannot fix",
+        if result.failures:
+            # Every failed person is deleted and no longer resolves, so a retry would find nothing. The
+            # step's own metric reports the failure, and the deletion sweep repairs an unpublished tombstone.
+            logger.warning(
+                "delete_persons_async finished with failures a retry cannot fix",
+                team_id=team_id,
+                retries=retries,
+                failures_by_step=dict(failures_by_step),
+            )
+        if not deferred_uuids:
+            return
+        logger.info(
+            "delete_persons_async deferring persons until a batch slot is free",
             team_id=team_id,
-            retries=retries,
-            failures_by_step=dict(failures_by_step),
+            deferred_count=len(deferred_uuids),
+            slot_deferrals=slot_deferrals,
         )
-        return
+        raise self.retry(
+            kwargs={
+                **retry_kwargs,
+                "person_uuids": deferred_uuids,
+                "unmatched_distinct_ids": [],
+                "slot_deferrals": slot_deferrals + 1,
+            },
+            countdown=_retry_countdown(slot_deferrals),
+            max_retries=max_retries + 1,
+        )
+    # Deferred persons go with the failure retry, so they share its budget and are named in its give-up log.
+    retried_uuids = failed_uuids + deferred_uuids
     logger.warning(
         "delete_persons_async retrying failed persons",
         team_id=team_id,
         retries=retries,
         failures_by_step=dict(failures_by_step),
         failed_person_uuids=failed_uuids[:20],
+        deferred_count=len(deferred_uuids),
     )
     _log_if_giving_up(
-        retries,
+        failed_attempts,
         team_id,
-        failed_uuids,
+        retried_uuids,
         delete_profile,
         delete_recordings,
         unmatched_distinct_ids if unmatched_failed else [],
@@ -211,17 +251,13 @@ def delete_persons_async(
     # Past max_retries this raises the exception given here instead of scheduling another run.
     raise self.retry(
         kwargs={
-            "team_id": team_id,
-            "person_uuids": failed_uuids,
-            "delete_profile": delete_profile,
-            "delete_recordings": delete_recordings,
-            "actor_id": actor_id,
-            "organization_id": organization_id,
-            "was_impersonated": was_impersonated,
+            **retry_kwargs,
+            "person_uuids": retried_uuids,
             "unmatched_distinct_ids": unmatched_distinct_ids if unmatched_failed else [],
         },
-        countdown=_retry_countdown(retries),
+        countdown=_retry_countdown(failed_attempts),
+        max_retries=max_retries,
         exc=PersonDeletionIncomplete(
-            f"team {team_id}: {len(failed_uuids)} persons failed after {retries + 1} attempts ({summary})"
+            f"team {team_id}: {len(failed_uuids)} persons failed after {failed_attempts + 1} attempts ({summary})"
         ),
     )
