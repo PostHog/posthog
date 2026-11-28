@@ -22,6 +22,7 @@ import { autoCaptureEventToDescription } from 'lib/utils/events'
 import { getPrimaryPropertyForEvent } from 'lib/utils/events'
 import { isNumber, isString } from 'lib/utils/guards'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
+import { MCPEventView } from 'scenes/activity/explore/MCPEventView'
 import { insightUrlForEvent } from 'scenes/insights/utils'
 import { urls } from 'scenes/urls'
 
@@ -262,6 +263,8 @@ function SingleEventDetail({ item }: ItemEventProps): JSX.Element {
                         )
                     case 'conversation':
                         return <AIEventExpanded event={event} />
+                    case 'mcp':
+                        return <MCPEventView properties={properties} />
                     case '$set_properties':
                         return (
                             <>
