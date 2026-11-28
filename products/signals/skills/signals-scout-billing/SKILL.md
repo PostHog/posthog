@@ -332,7 +332,7 @@ A false alarm about someone's invoice costs trust faster than almost anything el
 ## Seams — what is not yours
 
 - **`signals-scout-revenue-analytics`** watches the customer's _own_ revenue from _their_ customers. Different money entirely. You never file "MRR is down".
-- **`signals-scout-customer-analytics-billing-and-usage`** is the internal, per-account view of _other_ organizations' usage, read from billing warehouse views. You read this org's own bill through the customer-facing billing tools. Different data plane, no overlap.
+- **Other organizations' usage** is not yours. You read this org's own bill through the customer-facing billing tools.
 - **The product specialists** own root cause. Recordings, logs, exceptions, synced rows, AI events, flag requests — each has a scout that knows why its volume moved. You own that the bill moved, and the handoff.
 - **`signals-scout-data-warehouse`** owns sync health. A synced-rows spike from a source it already reported is an `append_note` about the billing impact, not a parallel report.
 - **Official skills own the drilldowns.** Before you write a drilldown query this skill does not carry, find the meter's row in the handoff table in [`references/usage-types.md`](references/usage-types.md) and read the skill it names. Use the skill's queries rather than your own, and never run a step that changes a setting.
