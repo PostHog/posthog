@@ -28,13 +28,7 @@ export type DrivenStep = {
     runnerCpuMs?: number
 }
 
-export type DriveSummary = {
-    targetUnits: number
-    offeredUnits: number
-    sendRetries: number
-    steps: DrivenStep[]
-    interrupted?: true
-}
+export type DriveSummary = { targetUnits: number; offeredUnits: number; sendRetries: number; steps: DrivenStep[] }
 
 export type StepWindow = Omit<DrivenStep, 'offeredUnits' | 'waitedFor'>
 
@@ -336,7 +330,7 @@ export async function drive(
     }
     const targetUnits =
         stoppedEarly || fixedSteps ? steps.reduce((sum, { dueUnits }) => sum + dueUnits, 0) : schedules.flat().length
-    return { targetUnits, offeredUnits, sendRetries, steps, ...(stop.aborted && { interrupted: true as const }) }
+    return { targetUnits, offeredUnits, sendRetries, steps }
 }
 
 const retriesOf = (answer: FollowUpAnswer | undefined): number =>

@@ -790,7 +790,7 @@ export function createRunner(
                     steps,
                     timeline: valves.timeline(),
                     unobserved,
-                    ...(units.interrupted && { interrupted: true as const }),
+                    ...((signal.aborted || valves.refusal.aborted) && { interrupted: true as const }),
                 }
                 const measurements = measure(card.measure, evidence)
                 const admissions = admissionsOf(

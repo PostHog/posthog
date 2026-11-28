@@ -438,7 +438,7 @@ describe('drive', () => {
         }
     })
 
-    it('stops waiting for acknowledgements on an interrupt, leaves the pending units out of the summary and the journal, and marks the summary interrupted', async () => {
+    it('stops waiting for acknowledgements on an interrupt and leaves the pending units out of the summary and the journal', async () => {
         const kafka = heldKafka()
         const interrupt = new AbortController()
         const { driving, journal } = startDrive(cardWith({ ratePerSecond: 50, driveFor: '100ms' }), kafka.produce, {
@@ -454,7 +454,7 @@ describe('drive', () => {
         await jest.advanceTimersByTimeAsync(0)
 
         expect({ summary, journaled: journal.map(({ unitId }) => unitId) }).toMatchObject({
-            summary: { targetUnits: 5, offeredUnits: 2, interrupted: true },
+            summary: { targetUnits: 5, offeredUnits: 2 },
             journaled: ['run-a-1', 'run-a-2'],
         })
     })
