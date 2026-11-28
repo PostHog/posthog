@@ -389,6 +389,8 @@ sequenceDiagram
 
 During the 15-day retry window, Vercel owns all customer-facing payment failure communication. We do not need to send any dunning emails during that period.
 
+After the retry window, the finance team owns collections on Vercel invoices. Finance decides how and when we chase an overdue invoice, if we accept a settlement or a partial payment, and when we write off a balance. Finance also reconciles Vercel payouts against our invoices. The steps below are the technical options. Ask finance before you use them on a customer. Refunds and credits stay with RevOps. See [failed/late payments](/handbook/growth/sales/billing#failedlate-payments).
+
 ### Recommended response after `overdue`
 
 Once the `marketplace.invoice.overdue` webhook fires:
