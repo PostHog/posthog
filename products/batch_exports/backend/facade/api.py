@@ -39,7 +39,12 @@ from products.batch_exports.backend import (
     destination_tests,
     filters as batch_export_filters,
 )
-from products.batch_exports.backend.billing import exclude_non_billable_runs
+from products.batch_exports.backend.billing import (
+    UNIFIED_PIPELINES_PRICING_START,
+    count_billable_rows_exported,
+    exclude_non_billable_runs,
+    exports_bill_as_rows_synced,
+)
 from products.batch_exports.backend.models.batch_export import (
     BATCH_EXPORT_INTERVALS,
     BatchExport,
@@ -58,11 +63,13 @@ if TYPE_CHECKING:
 __all__ = [
     "FAILED_BACKFILL_STATUSES",
     "MultipleBatchExportsError",
+    "UNIFIED_PIPELINES_PRICING_START",
     "backfill_batch_export",
     "cancel_batch_export_backfill",
     "cancel_batch_export_run",
     "cancel_file_download",
     "count_batch_exports_for_teams",
+    "count_billable_rows_exported",
     "count_hogql_rows",
     "create_batch_export",
     "create_batch_export_backfill",
@@ -72,6 +79,7 @@ __all__ = [
     "delete_batch_exports_for_teams",
     "describe_destination_test",
     "drop_unknown_hogql_modifiers",
+    "exports_bill_as_rows_synced",
     "find_hogql_interval_placeholders",
     "get_batch_export",
     "get_batch_export_backfill",

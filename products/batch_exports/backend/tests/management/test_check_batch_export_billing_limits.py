@@ -3,6 +3,7 @@ import datetime as dt
 from io import StringIO
 
 import pytest
+import time_machine
 
 from django.core.management import call_command
 from django.core.management.base import CommandError
@@ -17,6 +18,13 @@ from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, add_li
 pytestmark = [
     pytest.mark.django_db,
 ]
+
+
+@pytest.fixture(autouse=True)
+def before_unified_pricing_cutover():
+    # Most cases seed ROWS_EXPORTED, which the command stops reading at the cutover.
+    with time_machine.travel(dt.datetime(2027, 1, 15, tzinfo=dt.UTC), tick=False):
+        yield
 
 
 @pytest.fixture
@@ -41,11 +49,11 @@ def _create_batch_export(team, destination_type="AwsS3", paused=False, deleted=F
     )
 
 
-def _limit_team(team, expired=False):
+def _limit_team(team, expired=False, resource=QuotaResource.ROWS_EXPORTED):
     delta = dt.timedelta(days=-1) if expired else dt.timedelta(days=1)
     score = int((dt.datetime.now(dt.UTC) + delta).timestamp())
     add_limited_team_tokens(
-        QuotaResource.ROWS_EXPORTED,
+        resource,
         {team.api_token: score},
         QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY,
     )
@@ -137,6 +145,37 @@ def test_organization_id_reports_all_teams(organization):
 
     over_limit_by_team = {report["team_id"]: report["over_billing_limit"] for report in reports}
     assert over_limit_by_team == {team_limited.id: True, team_not_limited.id: False}
+
+
+@pytest.mark.parametrize(
+    "now,billed_resource,other_resource",
+    [
+        (dt.datetime(2027, 1, 31, 23, tzinfo=dt.UTC), QuotaResource.ROWS_EXPORTED, QuotaResource.ROWS_SYNCED),
+        (dt.datetime(2027, 2, 1, 1, tzinfo=dt.UTC), QuotaResource.ROWS_SYNCED, QuotaResource.ROWS_EXPORTED),
+    ],
+)
+def test_reads_the_quota_resource_billed_at_the_time(organization, now, billed_resource, other_resource):
+    organization.usage = {
+        "rows_exported": {"usage": 500, "limit": 300},
+        "rows_synced": {"usage": 900, "limit": 800},
+    }
+    organization.save()
+    team_billed = create_team(organization=organization)
+    _create_batch_export(team_billed)
+    team_other = create_team(organization=organization)
+    _create_batch_export(team_other)
+
+    with time_machine.travel(now, tick=False):
+        _limit_team(team_billed, resource=billed_resource)
+        _limit_team(team_other, resource=other_resource)
+        fleet_reports = _parse_json_output(_call_command("--json"))
+        org_reports = _parse_json_output(_call_command("--organization-id", str(organization.id), "--json"))
+
+    assert [report["team_id"] for report in fleet_reports] == [team_billed.id]
+    assert fleet_reports[0]["limited_until"] is not None
+    assert fleet_reports[0]["usage"] == organization.usage[billed_resource.value]["usage"]
+    over_limit_by_team = {report["team_id"]: report["over_billing_limit"] for report in org_reports}
+    assert over_limit_by_team == {team_billed.id: True, team_other.id: False}
 
 
 def test_unknown_organization_raises():

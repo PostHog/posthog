@@ -2,6 +2,7 @@ import asyncio
 import datetime as dt
 
 import pytest
+import time_machine
 import unittest.mock
 
 from django.test import override_settings
@@ -238,6 +239,43 @@ async def test_finish_batch_export_run(activity_environment, team, batch_export,
     run = await sync_to_async(runs.first)()
     assert run is not None
     assert run.status == "Completed"
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "now,expected_usage_key",
+    [
+        (dt.datetime(2027, 1, 31, 23, 59, tzinfo=dt.UTC), "batch_export_rows"),
+        (dt.datetime(2027, 2, 1, tzinfo=dt.UTC), "warehouse_rows_synced"),
+    ],
+)
+async def test_finish_batch_export_run_reports_rows_on_the_meter_billed_at_the_time(
+    activity_environment, team, batch_export, now, expected_usage_key
+):
+    inputs = StartBatchExportRunInputs(
+        team_id=team.id,
+        batch_export_id=str(batch_export.id),
+        data_interval_start=(now - dt.timedelta(hours=1)).isoformat(),
+        data_interval_end=now.isoformat(),
+    )
+    run_id = await activity_environment.run(start_batch_export_run, inputs)
+    finish_inputs = FinishBatchExportRunInputs(
+        id=str(run_id),
+        batch_export_id=str(batch_export.id),
+        status="Completed",
+        team_id=team.id,
+        records_completed=42,
+    )
+
+    with (
+        time_machine.travel(now, tick=False),
+        unittest.mock.patch("products.batch_exports.backend.temporal.batch_exports.areport_usage") as report_usage,
+    ):
+        await activity_environment.run(finish_batch_export_run, finish_inputs)
+
+    [records] = report_usage.call_args.args
+    assert [(record.usage_key, record.quantity) for record in records] == [(expected_usage_key, 42)]
 
 
 @pytest.mark.django_db(transaction=True)
