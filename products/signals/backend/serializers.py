@@ -3853,6 +3853,15 @@ class SignalReportSectionCountsSerializer(serializers.Serializer):
     reports = serializers.IntegerField(help_text="Ready reports without an implementation pull request.")
 
 
+class SignalReportForYouCountSerializer(serializers.Serializer):
+    count = serializers.IntegerField(
+        help_text=(
+            "Reports in the requesting person's own inbox: the total a list request with `view=for_you` returns. "
+            "Cached for a few minutes, so it can trail the list."
+        )
+    )
+
+
 class SignalReportTagOptionsSerializer(serializers.Serializer):
     tags = serializers.ListField(
         child=serializers.CharField(),

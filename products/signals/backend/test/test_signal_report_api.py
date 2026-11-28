@@ -3120,18 +3120,69 @@ class TestSignalReportListAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK
 
-    def test_section_counts_refuse_a_private_scout_trial(self) -> None:
+    @parameterized.expand([("section_counts",), ("for_you_count",)])
+    def test_count_endpoints_refuse_a_private_scout_trial(self, endpoint: str) -> None:
         self._create_report()
         with patch("products.signals.backend.views.trial_store_for_request", return_value=MagicMock()):
-            response = self.client.get(f"{self._list_url()}section_counts/")
+            response = self.client.get(f"{self._list_url()}{endpoint}/")
 
         assert response.status_code == status.HTTP_403_FORBIDDEN
 
-    def test_section_counts_reject_a_condition_a_section_sets(self) -> None:
-        response = self.client.get(f"{self._list_url()}section_counts/?status=ready")
+    @parameterized.expand([("section_counts",), ("for_you_count",)])
+    def test_count_endpoints_reject_a_condition_they_set(self, endpoint: str) -> None:
+        response = self.client.get(f"{self._list_url()}{endpoint}/?status=ready")
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json()["attr"] == "status"
+
+    def _report_naming_me(self) -> SignalReport:
+        report = self._create_report()
+        SignalReportArtefact.objects.create(
+            team=self.team,
+            report=report,
+            type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS,
+            content=json.dumps([{"user_uuid": str(self.user.uuid)}]),
+        )
+        return report
+
+    def test_for_you_count_matches_the_for_you_list_total(self) -> None:
+        self._report_naming_me()
+        self._create_report(title="Names nobody")
+        unlisted = self._report_naming_me()
+        config = SignalScoutConfig.objects.create(
+            team=self.team, skill_name="signals-scout-digest", output_destinations={"inbox": False}
+        )
+        task = apps.get_model("tasks", "Task").objects.create(team=self.team, title="scout", description="d")
+        SignalScoutRun.objects.create(
+            team=self.team,
+            task_run=apps.get_model("tasks", "TaskRun").objects.create(team=self.team, task=task),
+            scout_config=config,
+            skill_name=config.skill_name,
+            skill_version=1,
+            emitted_report_ids=[str(unlisted.id)],
+        )
+
+        response = self.client.get(f"{self._list_url()}for_you_count/")
+        list_count = self.client.get(self._list_url(view="for_you", count_only="true")).json()["count"]
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {"count": 1}
+        assert list_count == 1
+
+    def test_for_you_count_is_cached_for_each_person(self) -> None:
+        url = f"{self._list_url()}for_you_count/"
+        self._report_naming_me()
+        assert self.client.get(url).json() == {"count": 1}
+
+        self._report_naming_me()
+        assert self.client.get(url).json() == {"count": 1}
+
+        self.client.force_login(User.objects.create_and_join(self.organization, "teammate@example.com", None))
+        assert self.client.get(url).json() == {"count": 0}
+
+        cache.clear()
+        self.client.force_login(self.user)
+        assert self.client.get(url).json() == {"count": 2}
 
     def test_priority_preference_uses_personal_threshold_then_project_threshold(self):
         reports_by_priority: dict[str, SignalReport] = {}
