@@ -161,7 +161,6 @@ function requestHeaders({ token = 'phx_default', sessionId, mode = 'tools' }: Ca
         'Content-Type': 'application/json',
         Accept: 'application/json, text/event-stream',
         'x-posthog-mcp-mode': mode,
-        'x-posthog-flag-overrides': JSON.stringify({ 'organization-billing-api': true }),
         ...(sessionId ? { 'mcp-session-id': sessionId } : {}),
     }
 }

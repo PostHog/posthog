@@ -18,7 +18,7 @@ A weekend build that ships events straight into ClickHouse is cheap to run, but 
 ## Workflow
 
 1. **Get their real numbers.**
-   Call `posthog:billing-spend-get` and `posthog:billing-usage-get` for the last three months with `breakdowns: ["type"]`.
+   Call `posthog:billing-spend-timeseries-get` and `posthog:billing-usage-timeseries-get` for the last three months with `breakdowns: ["type"]`.
    Note which products drive spend and how much of the event volume is identified.
    A pipeline that only replaces product analytics events leaves replay, flags, and the other products on the bill.
    If they are inside the free tier, their events cost nothing; say so first.

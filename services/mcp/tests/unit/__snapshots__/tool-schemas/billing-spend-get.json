@@ -11,7 +11,7 @@
                     "type": "null"
                 }
             ],
-            "description": "The `next` cursor from the previous page. Opaque. Ignored without page_size."
+            "description": "Deprecated name for `cursor`: the cursor from the previous page's `next` link."
         },
         "breakdowns": {
             "anyOf": [
@@ -27,6 +27,18 @@
                 }
             ],
             "description": "Dimensions to break spend down by. Pass `[\"type\"]` for per-product series, `[\"team\"]` for one series per project summed across products, or `[\"type\",\"team\"]` for per-project series within each product. Omit for one aggregate series."
+        },
+        "cursor": {
+            "anyOf": [
+                {
+                    "maxLength": 512,
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "The cursor from a previous page's `next` link. Opaque. Ignored without `limit`."
         },
         "end_date": {
             "anyOf": [
@@ -50,7 +62,7 @@
             ],
             "description": "Time bucket size, one of \"day\", \"week\" or \"month\". Default \"day\"."
         },
-        "page_size": {
+        "limit": {
             "anyOf": [
                 {
                     "maximum": 1000,
@@ -61,7 +73,20 @@
                     "type": "null"
                 }
             ],
-            "description": "Return at most this many series, ranked by total, with a `next` cursor for the page after. A caller that pages never approaches the size this endpoint refuses oversized breakdowns at. Requires a project breakdown."
+            "description": "Series per page, ranked by total, with a `next` link for the page after. Requires a project breakdown and is ignored without one. Omit it to get every series at once."
+        },
+        "page_size": {
+            "anyOf": [
+                {
+                    "maximum": 1000,
+                    "minimum": 1,
+                    "type": "integer"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Deprecated name for `limit`: series per page, ranked by total. Requires a project breakdown."
         },
         "start_date": {
             "anyOf": [

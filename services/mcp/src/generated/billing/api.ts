@@ -3,139 +3,29 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 15 enabled ops
+ * PostHog API - MCP 13 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
 
-export const BillingListQueryParams = () => zod.object({
+/**
+ * The billing API at /api/organizations/:organization_id/billing/, which names the organization instead of
+ * following the user's current project.
+ *
+ * It shares that prefix with OrganizationBillingViewSet, which serves usage, spend and their exports at the same
+ * paths in its own shapes, so this viewset leaves those reads to it.
+ */
+export const BillingOrganizationListParams = () => zod.object({
+    organization_id: zod
+        .string()
+        .describe(
+            "ID of the organization you're trying to access. To find the ID of the organization, make a call to \/api\/organizations\/."
+        ),
+})
+
+export const BillingOrganizationListQueryParams = () => zod.object({
     include_forecasting: zod.boolean().nullish().describe('Whether to include usage forecasting.'),
     organization_id: zod.string().optional().describe('Explicit organization to refresh after payment.'),
-})
-
-/**
- * Endpoint to fetch spend data (proxy to billing service).
- */
-export const billingSpendRetrieveQueryAfterMax = 512
-
-export const billingSpendRetrieveQueryPageSizeMax = 1000
-
-export const billingSpendRetrieveQueryTopProjectsMax = 200
-
-export const BillingSpendRetrieveQueryParams = () => zod.object({
-    after: zod
-        .string()
-        .max(billingSpendRetrieveQueryAfterMax)
-        .nullish()
-        .describe('The `next` cursor from the previous page. Opaque. Ignored without page_size.'),
-    breakdowns: zod
-        .string()
-        .nullish()
-        .describe(
-            'JSON-encoded array of breakdown dimensions. Valid values are \"type\" and \"team\", for example [\"type\",\"team\"]. Omit for a single aggregate series.'
-        ),
-    end_date: zod
-        .string()
-        .nullish()
-        .describe(
-            'End date (YYYY-MM-DD, UTC), inclusive. Defaults to yesterday if both dates are omitted, or today if only start_date is provided.'
-        ),
-    interval: zod.string().nullish(),
-    page_size: zod
-        .number()
-        .min(1)
-        .max(billingSpendRetrieveQueryPageSizeMax)
-        .nullish()
-        .describe(
-            'Return at most this many series, ranked by total, with a `next` cursor for the page after. A caller that pages never approaches the size this endpoint refuses oversized breakdowns at. Requires a project breakdown.'
-        ),
-    start_date: zod
-        .string()
-        .nullish()
-        .describe(
-            'Start date (YYYY-MM-DD, UTC), or \"all\" for 2020-01-01. If both dates are omitted, defaults to 30 days ago.'
-        ),
-    team_ids: zod
-        .string()
-        .nullish()
-        .describe(
-            'JSON-encoded array of numeric team\/project IDs to filter on, for example [1,2]. Omit for all projects available to the caller. Full billing-access callers can read all organization projects; member read-only callers are limited to visible projects and any project scope on their token.'
-        ),
-    top_projects: zod
-        .number()
-        .min(1)
-        .max(billingSpendRetrieveQueryTopProjectsMax)
-        .nullish()
-        .describe(
-            "With a project breakdown, return only this many highest-usage projects and fold the rest into a single 'all other projects' series, so the totals still reconcile. Omit it to get every project."
-        ),
-    usage_types: zod
-        .string()
-        .nullish()
-        .describe(
-            'JSON-encoded array of usage type identifiers to filter on. Valid values: event_count_in_period, exceptions_captured_in_period, recording_count_in_period, rows_synced_in_period, free_historical_rows_synced_in_period, survey_responses_count_in_period, mobile_recording_count_in_period, mobile_billable_recording_count_in_period, billable_feature_flag_requests_count_in_period, enhanced_persons_event_count_in_period, ai_event_count_in_period, cdp_billable_invocations_in_period, rows_exported_in_period, ai_credits_used_in_period, signals_credits_used_in_period, signals_spend_credits_used_in_period, posthog_code_credits_used_in_period, posthog_code_token_credits_used_in_period, sandbox_compute_credits_used_in_period, sandbox_compute_cpu_millicore_seconds_in_period, sandbox_compute_memory_mib_seconds_in_period, workflow_emails_sent_in_period, workflow_billable_invocations_in_period, logs_and_traces_mb_in_period, logs_mb_in_period, apm_tracing_mb_in_period, logs_retention_30d_mb_in_period, logs_retention_mb_days_in_period, replay_vision_credits_used_in_period, data_pipelines, group_analytics. E.g. [\"event_count_in_period\",\"recording_count_in_period\"]. Omit for all types.'
-        ),
-})
-
-export const billingUsageRetrieveQueryAfterMax = 512
-
-export const billingUsageRetrieveQueryPageSizeMax = 1000
-
-export const billingUsageRetrieveQueryTopProjectsMax = 200
-
-export const BillingUsageRetrieveQueryParams = () => zod.object({
-    after: zod
-        .string()
-        .max(billingUsageRetrieveQueryAfterMax)
-        .nullish()
-        .describe('The `next` cursor from the previous page. Opaque. Ignored without page_size.'),
-    breakdowns: zod
-        .string()
-        .nullish()
-        .describe(
-            'JSON-encoded array of breakdown dimensions. Valid values are \"type\" and \"team\", for example [\"type\",\"team\"]. Omit for a single aggregate series.'
-        ),
-    end_date: zod
-        .string()
-        .nullish()
-        .describe(
-            'End date (YYYY-MM-DD, UTC), inclusive. Defaults to yesterday if both dates are omitted, or today if only start_date is provided.'
-        ),
-    interval: zod.string().nullish(),
-    page_size: zod
-        .number()
-        .min(1)
-        .max(billingUsageRetrieveQueryPageSizeMax)
-        .nullish()
-        .describe(
-            'Return at most this many series, ranked by total, with a `next` cursor for the page after. A caller that pages never approaches the size this endpoint refuses oversized breakdowns at. Requires a project breakdown.'
-        ),
-    start_date: zod
-        .string()
-        .nullish()
-        .describe(
-            'Start date (YYYY-MM-DD, UTC), or \"all\" for 2020-01-01. If both dates are omitted, defaults to 30 days ago.'
-        ),
-    team_ids: zod
-        .string()
-        .nullish()
-        .describe(
-            'JSON-encoded array of numeric team\/project IDs to filter on, for example [1,2]. Omit for all projects available to the caller. Full billing-access callers can read all organization projects; member read-only callers are limited to visible projects and any project scope on their token.'
-        ),
-    top_projects: zod
-        .number()
-        .min(1)
-        .max(billingUsageRetrieveQueryTopProjectsMax)
-        .nullish()
-        .describe(
-            "With a project breakdown, return only this many highest-usage projects and fold the rest into a single 'all other projects' series, so the totals still reconcile. Omit it to get every project."
-        ),
-    usage_types: zod
-        .string()
-        .nullish()
-        .describe(
-            'JSON-encoded array of usage type identifiers to filter on. Valid values: event_count_in_period, exceptions_captured_in_period, recording_count_in_period, rows_synced_in_period, free_historical_rows_synced_in_period, survey_responses_count_in_period, mobile_recording_count_in_period, mobile_billable_recording_count_in_period, billable_feature_flag_requests_count_in_period, enhanced_persons_event_count_in_period, ai_event_count_in_period, cdp_billable_invocations_in_period, rows_exported_in_period, ai_credits_used_in_period, signals_credits_used_in_period, signals_spend_credits_used_in_period, posthog_code_credits_used_in_period, posthog_code_token_credits_used_in_period, sandbox_compute_credits_used_in_period, sandbox_compute_cpu_millicore_seconds_in_period, sandbox_compute_memory_mib_seconds_in_period, workflow_emails_sent_in_period, workflow_billable_invocations_in_period, logs_and_traces_mb_in_period, logs_mb_in_period, apm_tracing_mb_in_period, logs_retention_30d_mb_in_period, logs_retention_mb_days_in_period, replay_vision_credits_used_in_period, data_pipelines, group_analytics. E.g. [\"event_count_in_period\",\"recording_count_in_period\"]. Omit for all types.'
-        ),
 })
 
 /**

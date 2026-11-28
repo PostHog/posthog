@@ -5,7 +5,7 @@ import {
     aiObservabilityOfflineExperimentsUploadCreateBodyItemsMax,
     aiObservabilityOfflineExperimentsUploadCreateBodyResultsMax,
 } from '../generated/ai_observability/api'
-import { BillingUsageRetrieveQueryParams } from '../generated/billing/api'
+import { BillingUsageTimeseriesRetrieveQueryParams } from '../generated/billing/api'
 import { FeatureFlagsPartialUpdateBody, FeatureFlagsPartialUpdateParams } from '../generated/feature_flags/api'
 import {
     IntegrationsDomainConnectApplyUrlCreateBody,
@@ -171,7 +171,12 @@ export const BillingTeamIdsSchema = z
 export const BillingUsageTypesSchema = z
     .array(z.string().min(1))
     .nullish()
-    .describe(BillingUsageRetrieveQueryParams().shape.usage_types.description!.replace('JSON-encoded array', 'Array'))
+    .describe(
+        BillingUsageTimeseriesRetrieveQueryParams().shape.usage_types.description!.replace(
+            'JSON-encoded array',
+            'Array'
+        )
+    )
 
 const EmailSenderConfigFields = IntegrationsEmailPartialUpdateBody().shape.config.unwrap()
 

@@ -7,19 +7,19 @@ Read this when a meter has cleared the gates and you need to price it, quote a p
 `billing-overview-get` returns it as `billing_period` (`current_period_start` / `current_period_end`).
 Every tiered product meters cumulatively **within** a period and resets at the boundary, so:
 
-1. **Never compare spend across a period boundary day-for-day.** Identical usage bills higher early in a period, because the cheaper high-volume tiers have not been reached yet. Compare usage instead, or compare spend only at matched positions within a period. `billing-spend-get` returns `pricing_reset_dates`, the dates tiers actually reset. Trust those over `billing_period` when the two disagree, because the renewal date and the pricing reset can differ.
+1. **Never compare spend across a period boundary day-for-day.** Identical usage bills higher early in a period, because the cheaper high-volume tiers have not been reached yet. Compare usage instead, or compare spend only at matched positions within a period. `billing-spend-timeseries-get` returns `pricing_reset_dates`, the dates tiers actually reset. Trust those over `billing_period` when the two disagree, because the renewal date and the pricing reset can differ.
 2. **A spend move with flat usage is a tier crossing** until proven otherwise.
 3. **Read billing detail fresh each run.** Tier schedules, limits, and period totals change at the rollover and when the plan changes, and they never go into memory, which project members without billing access can read.
 4. **Periods are not the same length.** Comparing a 31-day period's projected total against a 28-day period's actual shows a ~11% rise at an unchanged daily rate. Normalize both sides to a daily run rate — total ÷ days in that period — before treating a period-over-period difference as a trajectory finding. Fixed charges (a tier's `flat_amount_usd`, a platform fee) do not scale with days, so take them out before dividing and add them back after.
 
-The overview reflects the current period only. For history, use `billing-usage-get` / `billing-spend-get` with explicit dates.
+The overview reflects the current period only. For history, use `billing-usage-timeseries-get` / `billing-spend-timeseries-get` with explicit dates.
 
 ## Three vocabularies for one meter
 
 The same meter is named three ways across the tools, and none of them is a prefix of another:
 
-- `billing-usage-get` keys series by **usage type** (`recording_count_in_period`) — the names in the routing table below.
-- `billing-spend-get` with a `type` breakdown, and `billing-overview-get`'s `products[].type`, key by **product** (`session_replay`).
+- `billing-usage-timeseries-get` keys series by **usage type** (`recording_count_in_period`) — the names in the routing table below.
+- `billing-spend-timeseries-get` with a `type` breakdown, and `billing-overview-get`'s `products[].type`, key by **product** (`session_replay`).
 - `billing-overview-get`'s `products[].usage_key` and `usage_summary` key by a **short name** (`recordings`).
 - `custom_limits_usd` takes **either**: look the product up by `type` first, then by `usage_key`, the order the billing UI resolves them. Checking only `type` misses the organizations whose limits are stored under the short name.
 

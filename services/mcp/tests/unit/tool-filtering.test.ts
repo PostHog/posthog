@@ -390,7 +390,14 @@ describe('Tool Filtering - API Scopes', () => {
         const tools = await getToolsFromContext(createMockContext(scopes), { featureFlags: {} })
         const names = tools.map((tool) => tool.name)
 
-        for (const name of ['billing-overview-get', 'billing-usage-get', 'billing-spend-get']) {
+        for (const name of [
+            'billing-overview-get',
+            'billing-usage-timeseries-get',
+            'billing-spend-timeseries-get',
+            'billing-subscription-get',
+            'billing-usage-get',
+            'billing-spend-get',
+        ]) {
             expect(names.includes(name)).toBe(visible)
         }
     })
@@ -1084,22 +1091,17 @@ describe('Tool Filtering - Feature Flags', () => {
         }
     })
 
-    it('organization-billing-api flag gates the tools that call the organization billing API', () => {
-        const gated = [
+    it('the organization billing tools need no feature flag', () => {
+        const tools = getToolsForFeatures({ featureFlags: {} })
+
+        for (const tool of [
             'billing-subscription-get',
             'billing-usage-status-get',
             'billing-usage-timeseries-get',
             'billing-spend-timeseries-get',
             'billing-projects-list',
-        ]
-        const off = getToolsForFeatures({ featureFlags: { 'organization-billing-api': false } })
-        for (const tool of gated) {
-            expect(off).not.toContain(tool)
-        }
-
-        const on = getToolsForFeatures({ featureFlags: { 'organization-billing-api': true } })
-        for (const tool of gated) {
-            expect(on).toContain(tool)
+        ]) {
+            expect(tools).toContain(tool)
         }
     })
 
@@ -1215,7 +1217,6 @@ describe('Tool Filtering - Feature Flags', () => {
                 'stamphog',
                 'review-hog',
                 'warehouse-person-properties',
-                'organization-billing-api',
                 'streamlit-apps',
                 'posthog-connect',
                 'experiment-behavior-comparison',
@@ -1235,8 +1236,9 @@ describe('Tool Filtering - Feature Flags', () => {
         )
         expect(flags).toContain('ai-observability-composite-validation')
         expect(allFlags).not.toContain('dashboard-widgets')
+        expect(allFlags).not.toContain('organization-billing-api')
         expect(allFlags).not.toContain('self-driving-usage-mcp')
-        expect(flags).toHaveLength(39)
+        expect(flags).toHaveLength(38)
     })
 
     it('keeps human and task context wiki tools on separate scopes', () => {

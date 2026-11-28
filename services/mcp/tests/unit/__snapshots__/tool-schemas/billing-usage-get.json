@@ -11,7 +11,7 @@
                     "type": "null"
                 }
             ],
-            "description": "The `next` cursor from the previous page. Opaque - do not construct one. Omit it for the first page, and stop when a response comes back with `next` null."
+            "description": "Deprecated name for `cursor`: the cursor from the previous page's `next` link."
         },
         "breakdowns": {
             "anyOf": [
@@ -27,6 +27,18 @@
                 }
             ],
             "description": "Dimensions to break usage down by. Pass `[\"type\"]` for per-usage-type series or `[\"type\",\"team\"]` for per-project series within each usage type. Team breakdowns require `\"type\"`; do not pass `[\"team\"]` by itself. Omit for one aggregate series."
+        },
+        "cursor": {
+            "anyOf": [
+                {
+                    "maxLength": 512,
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "The cursor from the previous page's `next` link. Opaque - do not construct one. Omit it for the first page, and stop when a response comes back with `next` null."
         },
         "end_date": {
             "anyOf": [
@@ -50,7 +62,7 @@
             ],
             "description": "Time bucket size, one of \"day\" or \"week\". Default \"day\"."
         },
-        "page_size": {
+        "limit": {
             "anyOf": [
                 {
                     "maximum": 1000,
@@ -61,7 +73,20 @@
                     "type": "null"
                 }
             ],
-            "description": "Return at most this many series, ranked by total, with a `next` cursor in the response for the page after. Prefer this over asking for everything at once on a large organization: a paged request stays well inside the size this endpoint refuses oversized breakdowns at, and combining it with a single-product `usage_types` filter is the cheapest way to walk a lot of data. Requires a project breakdown."
+            "description": "Return at most this many series, ranked by total, with a `next` link in the response for the page after. Prefer this over asking for everything at once on a large organization: a paged request stays well inside the size this endpoint refuses oversized breakdowns at, and combining it with a single-product `usage_types` filter is the cheapest way to walk a lot of data. Requires a project breakdown."
+        },
+        "page_size": {
+            "anyOf": [
+                {
+                    "maximum": 1000,
+                    "minimum": 1,
+                    "type": "integer"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Deprecated name for `limit`: series per page, ranked by total. Requires a project breakdown."
         },
         "start_date": {
             "anyOf": [
