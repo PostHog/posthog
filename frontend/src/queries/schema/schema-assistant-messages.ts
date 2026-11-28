@@ -176,6 +176,11 @@ export interface ApprovalResumePayload {
     payload?: Record<string, unknown>
 }
 
+export interface ApproveAllResumePayload {
+    action: 'approve_all'
+    proposal_ids: string[]
+}
+
 export interface FormResumePayload {
     action: 'form'
     form_answers: MultiQuestionFormAnswers
@@ -193,7 +198,12 @@ export interface ClientToolResultPayload {
     result: Record<string, unknown>
 }
 
-export type ResumePayload = ApprovalResumePayload | FormResumePayload | FormDismissPayload | ClientToolResultPayload
+export type ResumePayload =
+    | ApprovalResumePayload
+    | ApproveAllResumePayload
+    | FormResumePayload
+    | FormDismissPayload
+    | ClientToolResultPayload
 
 export interface AssistantMessageMetadata {
     form?: AssistantForm
