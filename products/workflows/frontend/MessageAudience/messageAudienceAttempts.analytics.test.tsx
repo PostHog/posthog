@@ -240,6 +240,7 @@ describe('message audience attempts', () => {
             expect(own).toHaveLength(1)
             return own[0]
         })
+        await app.rtl.waitFor(() => expect(app.router.values.location.pathname).toContain(CREATED_ID))
         return created.entry_attempt_id
     }
 
@@ -349,6 +350,52 @@ describe('message audience attempts', () => {
 
         const [attempt] = await sentAttempts(1)
         expect(attempt).toMatch(UUID)
+        expect(await savedAttempt.broadcast()).toEqual(attempt)
+    })
+
+    it('saves the sent attempt in the broadcast opened from the toast of a flag that went live', async () => {
+        useSendMocks({ senders: [verified] })
+        let live = false
+        useMocks({
+            get: {
+                '/api/projects/:team_id/feature_flags/1/': () => [
+                    200,
+                    {
+                        ...app.NEW_FLAG,
+                        id: 1,
+                        key: 'test-flag',
+                        active: live,
+                        filters: { groups: [{ properties: [], rollout_percentage: 100 }] },
+                    },
+                ],
+            },
+        })
+        app.appFeatureFlagLogic.actions.setFeatureFlags([app.FEATURE_FLAGS.FEATURE_FLAG_COHORT_CREATION], {
+            [app.FEATURE_FLAGS.FEATURE_FLAG_COHORT_CREATION]: true,
+        })
+        app.router.actions.push(app.urls.featureFlag(1))
+        app.rtl.render(<app.toastify.ToastContainer />)
+        const logic = app.featureFlagLogic({ id: 1 })
+        logic.mount()
+        await app.rtl.waitFor(() => expect(logic.values.featureFlag.id).toEqual(1))
+
+        live = true
+        logic.actions.saveFeatureFlagSuccess({ ...logic.values.featureFlag, active: true })
+        app.rtl.fireEvent.click(
+            await app.rtl.waitFor(() => {
+                const button = document.querySelector<HTMLElement>('[data-attr="feature-flag-live-broadcast"]')
+                expect(button).toBeInTheDocument()
+                return button!
+            })
+        )
+        await opened(app.urls.broadcastNew())
+        logic.unmount()
+
+        const [attempt] = await sentAttempts(1)
+        expect(attempt).toMatch(UUID)
+        expect(sentEvents.find(({ event }) => event === 'message audience clicked')?.properties.source).toEqual(
+            'feature_flag_live'
+        )
         expect(await savedAttempt.broadcast()).toEqual(attempt)
     })
 
