@@ -1,7 +1,7 @@
 import clsx from 'clsx'
 import { Suspense, useContext, useEffect, useMemo, useRef } from 'react'
 
-import { FiltersContext } from '../../filters/filtersContext'
+import { FilterControlsContext, FiltersContext } from '../../filters/filtersContext'
 import type { DataFrame, RunQuery } from '../../query/queryTypes'
 import { useQueryFrames } from '../../query/useQueryFrames'
 import { type ContentPanel } from '../core/panelSchema'
@@ -40,7 +40,7 @@ function TargetFailures({ failures }: { failures: TargetFailure[] }): JSX.Elemen
     )
 }
 
-/** Returns one of `TILE_BACKGROUND_COLORS`, any CSS color, or null for the tile's own background. */
+/** Returns one of `ACCENT_COLORS`, any CSS color, or null for the tile's own background. */
 export type ChartBackgroundColor = (chart: { panel: ContentPanel<ChartConfig>; frames: DataFrame[] }) => string | null
 
 // A menu entry is built before the chart's data arrives and outside its component, so it reads the frames from here.
@@ -70,7 +70,9 @@ function ChartData({
     states?: ChartStates
     backgroundColor?: ChartBackgroundColor
 }): JSX.Element {
-    const { time: surroundingTime, filters } = useContext(FiltersContext)
+    const { time: surroundingTime, filters: surroundingFilters } = useContext(FiltersContext)
+    const ignored = panel.config.ignoredFilterTypes
+    const filters = ignored ? surroundingFilters.filter((filter) => !ignored.includes(filter.type)) : surroundingFilters
     const time = panel.config.time ?? surroundingTime
     const targets = chartTargets(panel.config)
     // Filters are left out when empty, so a chart's cached result from before any filter existed still matches.
@@ -110,6 +112,12 @@ function ChartData({
     const Empty = viz.Empty ?? states?.Empty ?? DefaultEmpty
     const ErrorState = viz.Error ?? states?.Error ?? DefaultError
     const isEmpty = viz.isEmpty ?? states?.isEmpty ?? hasNoValues
+    const controls = useContext(FilterControlsContext)
+    // A chart with its own range ignores the surrounding one, so a drag across it must not change that range.
+    const vizControls = useMemo(
+        () => (panel.config.time ? { ...controls, timeRange: undefined } : controls),
+        [controls, panel.config.time]
+    )
 
     // The panel's config check already parsed them, and a transforming schema must not run twice.
     const options = panel.config.viz.options ?? {}
@@ -132,9 +140,11 @@ function ChartData({
             {isEmpty(result.frames) ? (
                 <Empty options={options} />
             ) : (
-                <Suspense fallback={<Loading options={options} />}>
-                    <viz.Component frames={result.frames} options={options} />
-                </Suspense>
+                <FilterControlsContext.Provider value={vizControls}>
+                    <Suspense fallback={<Loading options={options} />}>
+                        <viz.Component frames={result.frames} options={options} />
+                    </Suspense>
+                </FilterControlsContext.Provider>
             )}
         </div>
     )

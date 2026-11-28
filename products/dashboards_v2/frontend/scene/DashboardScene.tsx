@@ -26,7 +26,7 @@ import { useDashboardFilters } from '../filters/useDashboardFilters'
 import { runSampleQuery } from '../fixtures/runSampleQuery'
 import type { ChartBackgroundColor } from '../panels/chart/ChartPanel'
 import { createChartPanel } from '../panels/chart/createChartPanel'
-import { TILE_BACKGROUND_COLORS } from '../panels/core/tileBackground'
+import { ACCENT_COLORS } from '../panels/core/accentColors'
 import { markdownPanel } from '../panels/markdown/markdownSpec'
 import { createQueryBatchRunner } from '../query/queryBatchRunner'
 import {
@@ -42,7 +42,7 @@ const kitchenSinkBackgroundColor: ChartBackgroundColor = ({ panel, frames }) => 
         return null
     }
     const latest = frames[0]?.fields.find((field) => field.type === 'number')?.values.at(-1)
-    return typeof latest === 'number' && latest > 0.5 ? TILE_BACKGROUND_COLORS.red : TILE_BACKGROUND_COLORS.green
+    return typeof latest === 'number' && latest > 0.5 ? ACCENT_COLORS.red.css : ACCENT_COLORS.green.css
 }
 
 export const scene: SceneExport = {

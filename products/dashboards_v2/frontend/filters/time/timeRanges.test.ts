@@ -1,6 +1,6 @@
 import { CUSTOM_RANGE } from '@posthog/quill'
 
-import { type QuickRange, fromPickerValue, toPickerValue } from './timeRanges'
+import { type QuickRange, describeTimeRange, fromPickerValue, toPickerValue } from './timeRanges'
 import { type TimeRange } from './timeRangeSchema'
 
 const RANGES: QuickRange[] = [
@@ -56,5 +56,26 @@ describe('timeRanges', () => {
 
         expect(value.range.id === CUSTOM_RANGE.id).toBe(custom)
         expect(fromPickerValue(value, RANGES)).toEqual(saved)
+    })
+
+    test.each<{ name: string; time: TimeRange; label: string }>([
+        { name: 'unlisted relative range', time: { from: 'now-3h', to: 'now' }, label: 'Last 3 hours' },
+        {
+            name: 'whole days name their last day',
+            time: { from: '2026-01-05T00:00:00Z', to: '2026-01-08T00:00:00Z' },
+            label: 'Jan 5 – Jan 7',
+        },
+        {
+            name: 'hours within one day',
+            time: { from: '2026-01-05T09:00:00Z', to: '2026-01-05T13:30:00Z' },
+            label: 'Jan 5, 09:00 – 13:30',
+        },
+        {
+            name: 'hours across days',
+            time: { from: '2026-01-05T22:00:00Z', to: '2026-01-06T02:00:00Z' },
+            label: 'Jan 5, 22:00 – Jan 6, 02:00',
+        },
+    ])('describes $name', ({ time, label }) => {
+        expect(describeTimeRange(time, RANGES, 'UTC')).toBe(label)
     })
 })

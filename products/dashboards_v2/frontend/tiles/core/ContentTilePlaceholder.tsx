@@ -2,12 +2,12 @@ import clsx from 'clsx'
 
 import { Card, CardContent, CardHeader, CardTitle } from '@posthog/quill'
 
+import { TILE_PLACEHOLDER_CLASS } from '../../menu/ActionContextMenu'
 import { ErrorBoundary, PANEL_ERROR_TAG } from '../../panels/core/ErrorBoundary'
 import { type PanelType, panelSlots } from '../../panels/core/panelDefinition'
 import { type SavedPanel } from '../../panels/core/panelSchema'
 import { PanelLoading } from '../../panels/core/PanelView'
 import { INTERACTIVE_ONLY_CLASS } from './ContentTile'
-import { TILE_PLACEHOLDER_CLASS } from './TileContextMenu'
 import { isPartShown } from './tileParts'
 
 /**

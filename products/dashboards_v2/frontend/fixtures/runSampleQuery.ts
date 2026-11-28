@@ -1,6 +1,10 @@
 import { PropertyOperator } from '~/types'
 
-import { type AnalyticsPropertyFilter, analyticsPropertyFilters } from '../filters/analytics/analyticsPropertyFilters'
+import {
+    type AnalyticsPropertyFilter,
+    analyticsBreakdownFilter,
+    analyticsPropertyFilters,
+} from '../filters/analytics/analyticsPropertyFilters'
 import type { DataFrame, RunQuery } from '../query/queryTypes'
 import { type PanelQuery } from '../query/querySchema'
 
@@ -19,6 +23,13 @@ function seededRandom(seed: string): () => number {
 
 function queryText(query: PanelQuery): string {
     return typeof query.query === 'string' ? query.query : JSON.stringify(query.query)
+}
+
+const SAMPLE_BREAKDOWN_VALUES: Record<string, string[]> = {
+    $browser: ['Chrome', 'Safari', 'Firefox'],
+    $os: ['Mac OS X', 'Windows', 'iOS', 'Android'],
+    $device_type: ['Desktop', 'Mobile', 'Tablet'],
+    $geoip_country_name: ['United States', 'Germany', 'United Kingdom', 'Brazil'],
 }
 
 function seriesNames(query: PanelQuery): string[] {
@@ -51,6 +62,15 @@ function keepsSeries(filter: AnalyticsPropertyFilter, name: string): boolean {
 export type SampleCase = 'empty' | 'error' | 'slow' | 'loading' | 'stale' | 'malformed'
 
 const SLOW_MS = 4000
+
+// Sample text queries stand in for trends, so they split by a breakdown the way a trends insight would.
+function sampleKind(query: PanelQuery): string {
+    if (query.language !== 'query') {
+        return 'TrendsQuery'
+    }
+    const node = query.query as { kind: string; source?: { kind?: string } }
+    return node.source?.kind ?? node.kind
+}
 
 function sampleCase(query: PanelQuery): SampleCase | null {
     const match = /-- sample: (empty|error|slow|loading|stale|malformed)/.exec(queryText(query))
@@ -93,8 +113,10 @@ function sampleFrames({ query, time, legend, filters = [] }: Parameters<RunQuery
         return day.toISOString().slice(0, 10)
     })
     const base = 200 + Math.round(random() * 2000)
-    const names = seriesNames(query)
-    const shown = names.length > 1 ? names.filter((name) => browser.every((filter) => keepsSeries(filter, name))) : names
+    const breakdown = analyticsBreakdownFilter(filters, sampleKind(query))?.breakdown
+    const names = typeof breakdown === 'string' ? (Object.hasOwn(SAMPLE_BREAKDOWN_VALUES, breakdown) ? SAMPLE_BREAKDOWN_VALUES[breakdown] : ['Other']) : seriesNames(query)
+    const splitByBrowser = breakdown === undefined || breakdown === '$browser'
+    const shown = names.length > 1 && splitByBrowser ? names.filter((name) => browser.every((filter) => keepsSeries(filter, name))) : names
     const frames = shown.map(
         (name, position): DataFrame => ({
             name: legend ? legend.replace(/\{\{\s*[\w.]+\s*\}\}/g, name) : name,

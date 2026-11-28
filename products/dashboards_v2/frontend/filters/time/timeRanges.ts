@@ -68,10 +68,41 @@ export function fromPickerValue(value: DateTimeValue, quick: QuickRange[]): Time
         : { from: value.start.toISOString(), to: value.end.toISOString() }
 }
 
+const UNIT_NAMES: Record<string, string> = {
+    s: 'second',
+    m: 'minute',
+    h: 'hour',
+    d: 'day',
+    w: 'week',
+    M: 'month',
+    y: 'year',
+}
+
+function isMidnight(time: Dayjs): boolean {
+    return time.hour() === 0 && time.minute() === 0 && time.second() === 0
+}
+
 export function describeTimeRange(time: TimeRange, quick: QuickRange[], timezone?: string): string {
     const preset = time.to === 'now' ? quick.find((range) => range.from === time.from) : undefined
     if (preset) {
         return preset.label
     }
-    return `${resolve(time.from, timezone).format('MMM D')} – ${resolve(time.to, timezone).format('MMM D')}`
+    const relative = time.to === 'now' ? RELATIVE_TIME.exec(time.from) : null
+    if (relative) {
+        const amount = Number(relative[1])
+        return `Last ${amount} ${UNIT_NAMES[relative[2]]}${amount === 1 ? '' : 's'}`
+    }
+    const start = resolve(time.from, timezone)
+    const end = resolve(time.to, timezone)
+    // An end at midnight closes the day before, so a range of whole days names its last day.
+    if (isMidnight(start) && isMidnight(end)) {
+        const lastDay = end.subtract(1, 'day')
+        return lastDay.isSame(start, 'day')
+            ? start.format('MMM D')
+            : `${start.format('MMM D')} – ${lastDay.format('MMM D')}`
+    }
+    if (start.isSame(end, 'day')) {
+        return `${start.format('MMM D, HH:mm')} – ${end.format('HH:mm')}`
+    }
+    return `${start.format('MMM D, HH:mm')} – ${end.format('MMM D, HH:mm')}`
 }

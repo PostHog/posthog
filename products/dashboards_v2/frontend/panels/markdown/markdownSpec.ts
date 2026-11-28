@@ -11,7 +11,7 @@ export type MarkdownConfig = z.infer<typeof markdownConfigSchema>
 
 export const markdownSpec: PanelSpec<MarkdownConfig, 'markdown'> = {
     type: 'markdown',
-    size: { w: 8, h: 8, minW: 3, minH: 4 },
+    size: { w: 8, h: 8, minW: 3, minH: 3 },
     configSchema: markdownConfigSchema,
     allowedCustomizations: ['backgroundColor'],
 }

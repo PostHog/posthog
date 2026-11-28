@@ -122,3 +122,8 @@
         translate: none;
     }
 }
+
+/* A click on a link follows it until the person is editing, so the cursor says so. */
+.dash-MarkdownPanel .ProseMirror:not(.ProseMirror-focused) a[href] {
+    cursor: pointer;
+}

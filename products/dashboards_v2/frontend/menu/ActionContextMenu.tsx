@@ -28,8 +28,8 @@ import {
     MenuLabel,
 } from '@posthog/quill'
 
-import type { MenuAction } from '../../menu/menuAction'
-import { MenuActionList, type MenuParts } from '../../menu/MenuActionList'
+import type { MenuAction } from './menuAction'
+import { MenuActionList, type MenuParts } from './MenuActionList'
 
 // Quill's dropdown heading inside the context menu's own, so a tile's menu and the dashboard's menu have one heading.
 const CapsLabel = forwardRef<HTMLDivElement, ComponentProps<typeof ContextMenuLabel>>(function CapsLabel(
@@ -63,7 +63,7 @@ function isUsable(action: MenuAction): boolean {
     return action.submenu ? action.submenu.some(isUsable) : true
 }
 
-export function hasTileMenu(actions: MenuAction[]): boolean {
+export function hasMenuActions(actions: MenuAction[]): boolean {
     return actions.some(isUsable)
 }
 
@@ -88,10 +88,10 @@ function isLoading(root: HTMLElement): boolean {
 }
 
 /**
- * Opens the tile's actions on right-click. When the person may use none of them, it renders the children alone so the
- * browser's own menu still shows.
+ * Opens a list of actions, such as a tile's or a tab's, on right-click. When the person may use none of them, it
+ * renders the children alone so the browser's own menu still shows.
  */
-export function TileContextMenu({ actions, children }: { actions: MenuAction[]; children: ReactNode }): JSX.Element {
+export function ActionContextMenu({ actions, children }: { actions: MenuAction[]; children: ReactNode }): JSX.Element {
     const trigger = useRef<HTMLDivElement>(null)
     const [open, setOpen] = useState(false)
     const [loading, setLoading] = useState(false)
@@ -106,7 +106,7 @@ export function TileContextMenu({ actions, children }: { actions: MenuAction[]; 
         observer.observe(root, { subtree: true, childList: true, attributes: true, attributeFilter: ['aria-busy'] })
         return () => observer.disconnect()
     }, [open])
-    if (!hasTileMenu(actions)) {
+    if (!hasMenuActions(actions)) {
         return <>{children}</>
     }
     return (
@@ -123,7 +123,7 @@ export function TileContextMenu({ actions, children }: { actions: MenuAction[]; 
                     // A tile inside a section has its own menu, so its right-click must not also open the section's.
                     <div
                         ref={trigger}
-                        className="TileContextMenu__trigger contents"
+                        className="ActionContextMenu__trigger contents"
                         onContextMenu={(event) => event.stopPropagation()}
                     />
                 }
@@ -139,10 +139,10 @@ export function TileContextMenu({ actions, children }: { actions: MenuAction[]; 
 }
 
 /**
- * Opens the surrounding `TileContextMenu` from a click. It fires a `contextmenu` event at the button, which bubbles to
+ * Opens the surrounding `ActionContextMenu` from a click. It fires a `contextmenu` event at the button, which bubbles to
  * that menu's trigger, so the click and the right-click show the same menu at the same place.
  */
-export function TileContextMenuButton({ className }: { className?: string }): JSX.Element {
+export function ActionContextMenuButton({ className }: { className?: string }): JSX.Element {
     const openMenu = (event: MouseEvent<HTMLButtonElement>): void => {
         const rect = event.currentTarget.getBoundingClientRect()
         event.currentTarget.dispatchEvent(

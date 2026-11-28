@@ -39,6 +39,7 @@ export type LayoutEdit =
     /** With `href`, the new tab is a link elsewhere and holds no tiles. */
     | { edit: 'addTab'; title: string; href?: string }
     | { edit: 'renameTab'; id: string; title: string }
+    | { edit: 'setTabColor'; id: string; color: string | null }
     | { edit: 'removeTab'; id: string }
     /** `before` is the tab it lands in front of; null puts it last. */
     | { edit: 'moveTab'; id: string; before: string | null }
@@ -320,6 +321,17 @@ function applyOnce(dashboard: Dashboard, edit: DashboardEdit, view: View, sizeOf
             return {
                 ...dashboard,
                 tabs: dashboard.tabs.map((tab) => (tab.id === edit.id ? { ...tab, title: edit.title } : tab)),
+            }
+        case 'setTabColor':
+            return {
+                ...dashboard,
+                tabs: dashboard.tabs.map((tab) => {
+                    if (tab.id !== edit.id) {
+                        return tab
+                    }
+                    const { color: _, ...rest } = tab
+                    return edit.color ? { ...rest, color: edit.color } : rest
+                }),
             }
         case 'removeTab':
             const rest = dashboard.tabs.filter((tab) => tab.id !== edit.id)

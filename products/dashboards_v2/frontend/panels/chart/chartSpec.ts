@@ -39,6 +39,8 @@ export type ChartConfig = {
     viz: { type: string; options?: unknown }
     /** Overrides the time range around the chart, such as the dashboard's. */
     time?: TimeRange
+    /** Kinds of filter around the chart that it ignores, such as `breakdown` on a single number. */
+    ignoredFilterTypes?: string[]
 }
 
 // Every target is a query the moment its tile mounts, so a cap keeps one tile from flooding the query batch.
@@ -91,6 +93,7 @@ export function chartSpec(vizTypes: VizSpec[]): PanelSpec<ChartConfig, 'chart'> 
                     vizSchemas.length > 0 ? z.union(vizSchemas) : z.never()
                 ),
                 time: timeRangeSchema.optional(),
+                ignoredFilterTypes: z.array(z.string().min(1)).optional(),
             })
             .refine((config) => (config.query === undefined) !== (config.targets === undefined), {
                 message: 'A chart needs either a query or a list of targets, not both',

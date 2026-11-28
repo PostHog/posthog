@@ -1,3 +1,6 @@
+import clsx from 'clsx'
+import { useState } from 'react'
+
 import {
     type ContextMenuCheckboxItem,
     type ContextMenuGroup,
@@ -9,6 +12,8 @@ import {
     type ContextMenuSub,
     type ContextMenuSubContent,
     type ContextMenuSubTrigger,
+    Button,
+    Input,
     Spinner,
 } from '@posthog/quill'
 
@@ -84,8 +89,120 @@ function RadioChoices({ choices, parts }: { choices: MenuAction[]; parts: MenuPa
     )
 }
 
+function swatchClass(on: boolean): string {
+    return clsx(
+        'relative size-[22px] shrink-0 cursor-pointer justify-center rounded-md border border-black/10 p-0',
+        on
+            ? 'outline-2 outline-offset-2 outline-foreground'
+            : 'hover:outline-2 hover:outline-offset-2 hover:outline-border'
+    )
+}
+
+/** Choices of color as a row of swatches. Each says its name to a screen reader and in a tooltip. */
+function SwatchRow({
+    action,
+    choices,
+    parts,
+}: {
+    action: MenuAction
+    choices: MenuAction[]
+    parts: MenuParts
+}): JSX.Element {
+    const { Group, Label, Item } = parts
+    const custom = action.customColor
+    const isCustom = !!custom?.value && !choices.some((choice) => choice.checked)
+    const [draft, setDraft] = useState<string | null>(null)
+    const validDraft = draft !== null && /^#[0-9a-f]{6}$/i.test(draft)
+    const apply = (): void => {
+        if (custom && validDraft) {
+            custom.onPick(draft)
+            setDraft(null)
+        }
+    }
+    const disabled = !!action.disabledReason
+    return (
+        <Group>
+            <Label>{action.label}</Label>
+            <div className="flex flex-wrap gap-1.5 px-2 pt-1 pb-2">
+                {choices.map((choice) => (
+                    <Item
+                        key={choice.key}
+                        data-attr={choice.dataAttr}
+                        aria-label={choice.label}
+                        aria-checked={!!choice.checked}
+                        role="menuitemradio"
+                        disabled={disabled || !!choice.disabledReason}
+                        closeOnClick={!choice.keepOpen}
+                        onClick={choice.onSelect}
+                        title={choice.label}
+                        className={clsx(
+                            swatchClass(!!choice.checked),
+                            choice.swatch === null &&
+                                'bg-card bg-[linear-gradient(135deg,transparent_45%,var(--muted-foreground)_45%,var(--muted-foreground)_55%,transparent_55%)]'
+                        )}
+                        style={choice.swatch ? { background: choice.swatch } : undefined}
+                    />
+                ))}
+                {custom && (
+                    <Item
+                        data-attr={`${action.dataAttr}-custom`}
+                        aria-label="Custom color"
+                        disabled={disabled}
+                        closeOnClick={false}
+                        onClick={() => setDraft(draft === null ? (custom.value ?? '#1d4aff') : null)}
+                        title="Custom color"
+                        className={swatchClass(isCustom)}
+                        style={{
+                            background: isCustom
+                                ? custom.value!
+                                : 'conic-gradient(red, yellow, lime, cyan, blue, magenta, red)',
+                        }}
+                    />
+                )}
+            </div>
+            {custom && draft !== null && (
+                <form
+                    className="flex items-center gap-1.5 px-2 pb-2"
+                    // The menu reads letters as a jump to an entry, so typing a hex code stays in the field.
+                    onKeyDown={(event) => event.stopPropagation()}
+                    onSubmit={(event) => {
+                        event.preventDefault()
+                        apply()
+                    }}
+                >
+                    <input
+                        type="color"
+                        aria-label="Pick a color"
+                        className="size-7 shrink-0 cursor-pointer rounded-md border border-border bg-transparent p-0.5"
+                        value={validDraft ? draft : '#000000'}
+                        onChange={(event) => setDraft(event.target.value)}
+                    />
+                    <Input
+                        size="sm"
+                        aria-label="Hex color"
+                        className="min-w-0 flex-1 font-mono"
+                        value={draft}
+                        onChange={(event) => setDraft(event.target.value)}
+                    />
+                    <Button
+                        type="submit"
+                        size="sm"
+                        variant="primary"
+                        disabledReason={validDraft ? undefined : 'Enter a hex color, such as #1d4aff'}
+                    >
+                        Apply
+                    </Button>
+                </form>
+            )}
+        </Group>
+    )
+}
+
 function MenuEntry({ action, parts }: { action: MenuAction; parts: MenuParts }): JSX.Element {
     const { Group, Label, Separator, Item, CheckboxItem, Sub, SubTrigger, SubContent } = parts
+    if (action.submenu && action.choice && action.submenu.every((choice) => choice.swatch !== undefined)) {
+        return <SwatchRow action={action} choices={action.submenu} parts={parts} />
+    }
     if (action.submenu && action.choice) {
         return (
             <Sub>

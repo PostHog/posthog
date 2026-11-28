@@ -3,7 +3,7 @@ import { useMemo } from 'react'
 import { TimeSeriesLineChart, type TimeSeriesLineChartConfig } from '@posthog/quill-charts'
 
 import type { DataFrame } from '../../../../query/queryTypes'
-import { useTimeSeriesChart } from '../../data/useTimeSeriesChart'
+import { useTimeSeriesChart, useZoomToTimeRange } from '../../data/useTimeSeriesChart'
 import type { NoOptions } from '../../vizTypes'
 
 export function LineViz({ frames }: { frames: DataFrame[]; options: NoOptions }): JSX.Element {
@@ -19,5 +19,11 @@ export function LineViz({ frames }: { frames: DataFrame[]; options: NoOptions })
         }),
         [baseConfig, multiTarget, severalTargets]
     )
-    return <TimeSeriesLineChart series={series} labels={labels} config={config} />
+    const onDateRangeZoom = useZoomToTimeRange(labels, frames[0]?.meta?.interval)
+    // A drag on the plot zooms, so it must not also move a headerless tile.
+    return (
+        <div className={onDateRangeZoom ? 'TileGrid__zoomable contents' : 'contents'}>
+            <TimeSeriesLineChart series={series} labels={labels} config={config} onDateRangeZoom={onDateRangeZoom} />
+        </div>
+    )
 }
