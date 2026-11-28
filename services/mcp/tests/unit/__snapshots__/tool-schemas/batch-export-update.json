@@ -30,6 +30,10 @@
                                     "description": "Whether to let Databricks evolve the destination table schema automatically.",
                                     "type": "boolean"
                                 },
+                                "use_new_events_schema": {
+                                    "description": "Whether this export reads the new events table. Use it to try the new table on one export, such as a copy of a production export, before your other exports move. Setting it to false does not keep the export on the old table after all exports move.",
+                                    "type": "boolean"
+                                },
                                 "use_variant_type": {
                                     "default": true,
                                     "description": "Whether to use the Databricks VARIANT type for JSON-like columns.",
@@ -99,6 +103,10 @@
                                     "default": "",
                                     "description": "Object key prefix applied to every exported file.",
                                     "type": "string"
+                                },
+                                "use_new_events_schema": {
+                                    "description": "Whether this export reads the new events table. Use it to try the new table on one export, such as a copy of a production export, before your other exports move. Setting it to false does not keep the export on the old table after all exports move.",
+                                    "type": "boolean"
                                 }
                             },
                             "required": ["container_name"],
@@ -134,6 +142,10 @@
                                 "use_json_type": {
                                     "default": false,
                                     "description": "Whether to export 'properties', 'set', and 'set_once' fields as the BigQuery JSON type rather than STRING. Cannot be changed after the export is created.",
+                                    "type": "boolean"
+                                },
+                                "use_new_events_schema": {
+                                    "description": "Whether this export reads the new events table. Use it to try the new table on one export, such as a copy of a production export, before your other exports move. Setting it to false does not keep the export on the old table after all exports move.",
                                     "type": "boolean"
                                 }
                             },
@@ -176,6 +188,10 @@
                                     "default": "events",
                                     "description": "PostgreSQL table name to write exported rows into.",
                                     "type": "string"
+                                },
+                                "use_new_events_schema": {
+                                    "description": "Whether this export reads the new events table. Use it to try the new table on one export, such as a copy of a production export, before your other exports move. Setting it to false does not keep the export on the old table after all exports move.",
+                                    "type": "boolean"
                                 }
                             },
                             "required": ["database"],
@@ -266,6 +282,10 @@
                                 "region": {
                                     "description": "Region the bucket is in (e.g. 'us-east-1').",
                                     "type": "string"
+                                },
+                                "use_new_events_schema": {
+                                    "description": "Whether this export reads the new events table. Use it to try the new table on one export, such as a copy of a production export, before your other exports move. Setting it to false does not keep the export on the old table after all exports move.",
+                                    "type": "boolean"
                                 }
                             },
                             "required": ["bucket_name", "region", "prefix"],
@@ -335,6 +355,10 @@
                                     "description": "Region the bucket is in (e.g. 'us-east-1').",
                                     "type": "string"
                                 },
+                                "use_new_events_schema": {
+                                    "description": "Whether this export reads the new events table. Use it to try the new table on one export, such as a copy of a production export, before your other exports move. Setting it to false does not keep the export on the old table after all exports move.",
+                                    "type": "boolean"
+                                },
                                 "use_virtual_style_addressing": {
                                     "default": false,
                                     "description": "Use virtual-hosted-style addressing rather than path-style.",
@@ -385,6 +409,10 @@
                                     "default": "events",
                                     "description": "Destination table name.",
                                     "type": "string"
+                                },
+                                "use_new_events_schema": {
+                                    "description": "Whether this export reads the new events table. Use it to try the new table on one export, such as a copy of a production export, before your other exports move. Setting it to false does not keep the export on the old table after all exports move.",
+                                    "type": "boolean"
                                 },
                                 "warehouse": {
                                     "description": "Snowflake compute warehouse to use.",
@@ -488,6 +516,10 @@
                                     "default": "events",
                                     "description": "Redshift table name to write exported rows into.",
                                     "type": "string"
+                                },
+                                "use_new_events_schema": {
+                                    "description": "Whether this export reads the new events table. Use it to try the new table on one export, such as a copy of a production export, before your other exports move. Setting it to false does not keep the export on the old table after all exports move.",
+                                    "type": "boolean"
                                 }
                             },
                             "required": ["database"],

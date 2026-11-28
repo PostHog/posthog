@@ -3,6 +3,7 @@ import { render, within } from '@testing-library/react'
 import { AlertConditionType, InsightThresholdType } from '~/queries/schema/schema-general'
 
 import { AlertFormType } from 'products/alerts/frontend/logic/alertFormLogic'
+import { deriveMetricsAlertPreviewSeries } from 'products/alerts/frontend/logic/metricsAlertPreview'
 
 import { AlertPreviewCard, AlertPreviewCardProps } from './AlertPreviewCard'
 
@@ -51,6 +52,69 @@ describe('AlertPreviewCard', () => {
         const container = renderCard(seriesWithMissingAndPresentData)
 
         expect(within(container).queryByText(EMPTY_BREAKDOWN_TEXT)).toBeNull()
+    })
+
+    it.each([
+        ['builder', false, 'Preview'],
+        ['grouped', true, 'All series'],
+    ])('charts a new metrics alert from the %s insight results', (_, grouped, title) => {
+        const points = [
+            { time: '2026-11-25T10:00:00Z', value: 10 },
+            { time: '2026-11-25T11:00:00Z', value: null },
+        ]
+        const results = grouped
+            ? [
+                  { labels: { service: 'api' }, metricName: 'latency', points },
+                  { labels: { service: 'web' }, metricName: 'latency', points },
+              ]
+            : [{ labels: {}, metricName: 'latency', points }]
+        const { container } = render(
+            <AlertPreviewCard
+                alertForm={{ ...alertForm, config: { type: 'MetricsAlertConfig' } } as AlertFormType}
+                trendsValues={null}
+                funnelPreview={null}
+                hogqlPreview={null}
+                metricsPreview={deriveMetricsAlertPreviewSeries({ results }, true)}
+            />
+        )
+
+        expect(within(container).queryByText('No insight data available to preview.')).toBeNull()
+        expect(within(container).getByText(title)).toBeTruthy()
+    })
+
+    it('charts a metrics preview too large to spread into Math.max', () => {
+        const metricsForm = { ...alertForm, config: { type: 'MetricsAlertConfig' } } as AlertFormType
+        const data = Array.from({ length: 200_000 }, (_, i) => i % 100)
+
+        expect(() =>
+            render(
+                <AlertPreviewCard
+                    alertForm={metricsForm}
+                    trendsValues={null}
+                    funnelPreview={null}
+                    hogqlPreview={null}
+                    metricsPreview={{ rows: [{ key: '0', label: 'latency', data }], labels: [] }}
+                />
+            )
+        ).not.toThrow()
+    })
+
+    it('offers a retry when the metrics preview fails to load', () => {
+        const { container } = render(
+            <AlertPreviewCard
+                alertForm={{ ...alertForm, config: { type: 'MetricsAlertConfig' } } as AlertFormType}
+                trendsValues={null}
+                funnelPreview={null}
+                hogqlPreview={null}
+                metricsPreview={null}
+                metricsPreviewFailed
+                onRetryMetricsPreview={() => {}}
+            />
+        )
+
+        expect(within(container).getByText("Couldn't load metric data for the preview.")).toBeTruthy()
+        expect(within(container).getByText('Try again')).toBeTruthy()
+        expect(within(container).queryByText('No insight data available to preview.')).toBeNull()
     })
 
     it.each([false, true])('explains when the delayed %s preview runs out of loaded history', (isBreakdown) => {

@@ -8,13 +8,15 @@ from oauth2_provider.models import AbstractApplication
 
 from posthog.api import id_jag
 from posthog.api.oauth.claims import OIDC_CLAIMS
-from posthog.dataclasses import frozen
 from posthog.models.oauth import TokenEndpointAuthMethod
-from posthog.scopes.exposure import get_scope_descriptions
 from posthog.scopes.oauth import AUTHORIZATION_SERVER_SCOPES_SUPPORTED, OAUTH_SCOPES_SUPPORTED
 from posthog.workload_identity.token_exchange import TOKEN_EXCHANGE_GRANT_TYPE
 
 type Document = dict[str, object]
+
+# One manifest covers every region and self-hosted instance, so the endpoints it names come from
+# the metadata an agent discovered rather than from the manifest itself.
+AGENT_AUTH_SKILL_URL = "https://posthog.com/auth.md"
 
 SUPPORTED_GRANT_TYPES = [
     "authorization_code",
@@ -95,7 +97,7 @@ def authorization_server_metadata(base_url: str, region_info: Document | None = 
         # (claim_endpoint) and revocation receiver (events_endpoint) are not
         # built yet, so they are deliberately omitted rather than advertised.
         "agent_auth": {
-            "skill": f"{base_url}/auth.md",
+            "skill": AGENT_AUTH_SKILL_URL,
             "identity_endpoint": f"{base_url}/oauth/token/",
             "identity_types_supported": ["identity_assertion"],
             "identity_assertion": {
@@ -121,36 +123,3 @@ def protected_resource_metadata(base_url: str) -> Document:
         "bearer_methods_supported": ["header"],
         "resource_documentation": SERVICE_DOCUMENTATION,
     }
-
-
-# Identity and token-management scopes have no entry in get_scope_descriptions(),
-# which only covers obj:action scopes. Every bare scope in
-# `OAUTH_SCOPES_SUPPORTED` needs a line here, or the manifest prints the
-# scope name where its description belongs.
-_IDENTITY_SCOPE_DESCRIPTIONS = {
-    "openid": "Sign in and read your user identifier",
-    "profile": "Read your basic profile",
-    "email": "Read your email address",
-    "introspection": "Check whether a token you hold is still valid",
-}
-
-
-@frozen
-class ManifestScope:
-    """One advertised scope as the auth.md manifest lists it."""
-
-    name: str
-    description: str
-
-
-def client_manifest_scopes() -> list[ManifestScope]:
-    descriptions = get_scope_descriptions()
-    return [
-        ManifestScope(
-            name=scope,
-            description=descriptions[scope]
-            if scope in descriptions
-            else _IDENTITY_SCOPE_DESCRIPTIONS.get(scope, scope),
-        )
-        for scope in OAUTH_SCOPES_SUPPORTED
-    ]

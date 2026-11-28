@@ -58,7 +58,11 @@ from two_factor.views.utils import get_remember_device_cookie, validate_remember
 from webauthn.helpers import base64url_to_bytes, bytes_to_base64url, options_to_json
 from webauthn.helpers.structs import AuthenticatorTransport, PublicKeyCredentialDescriptor
 
-from posthog.api.email_verification import email_verification_code_verifier, is_email_verification_disabled
+from posthog.api.email_verification import (
+    EmailVerificationCodeUndeliverable,
+    email_verification_code_verifier,
+    is_email_verification_disabled,
+)
 from posthog.auth import ACCOUNT_BLOCKED_DETAIL
 from posthog.caching.login_device_cache import check_and_cache_login_device
 from posthog.constants import AUTH_BACKEND_DISPLAY_NAMES, POSTHOG_INTERNAL_EMAIL_SUFFIX
@@ -415,7 +419,11 @@ def require_verified_email_for_login(user: User) -> None:
         return
 
     if user.is_email_verified is None:
-        email_verification_code_verifier.send_code(user)
+        try:
+            email_verification_code_verifier.send_code(user)
+        except EmailVerificationCodeUndeliverable:
+            # These accounts may sign in unverified, so a refused address must not lock them out.
+            pass
         return
 
     inbox_lookup = InboxProviderLookup.start(user.email)
@@ -667,7 +675,7 @@ class LoginSerializer(serializers.Serializer):
                 user.id, timezone.now(), short_user_agent, ip_address, backend_name
             )
 
-        report_user_logged_in(user, social_provider="")
+        report_user_logged_in(user, request=request, social_provider="")
         return user
 
 
@@ -881,7 +889,7 @@ class DevLoginSerializer(serializers.Serializer):
         login(request, user, backend="django.contrib.auth.backends.ModelBackend")
         request.session["reauth"] = "false"
         request.session.save()
-        report_user_logged_in(user, social_provider="")
+        report_user_logged_in(user, request=request, social_provider="")
         return user
 
     def _create_fresh_account(self) -> Any:
@@ -902,7 +910,7 @@ class DevLoginSerializer(serializers.Serializer):
         login(request, user, backend="django.contrib.auth.backends.ModelBackend")
         request.session["reauth"] = "false"
         request.session.save()
-        report_user_logged_in(user, social_provider="")
+        report_user_logged_in(user, request=request, social_provider="")
         return user
 
 
@@ -1008,7 +1016,7 @@ class TwoFactorViewSet(NonCreatingViewSetMixin, viewsets.GenericViewSet):
         login(request, user, backend="django.contrib.auth.backends.ModelBackend")
         otp_login(request, device)
         set_two_factor_verified_in_session(request)
-        report_user_logged_in(user, social_provider="")
+        report_user_logged_in(user, request=request, social_provider="")
         device.throttle_reset()
 
         # Clean up pre-2FA session keys to prevent reuse
@@ -1079,7 +1087,7 @@ class TwoFactorViewSet(NonCreatingViewSetMixin, viewsets.GenericViewSet):
             # Complete 2FA verification
             login(request, user, backend="django.contrib.auth.backends.ModelBackend")
             set_two_factor_verified_in_session(request)
-            report_user_logged_in(user, social_provider="")
+            report_user_logged_in(user, request=request, social_provider="")
 
             # Clean up pre-2FA session keys to prevent reuse
             request.session.pop("user_authenticated_but_no_2fa", None)
@@ -1446,7 +1454,7 @@ class CodeBasedVerificationViewSet(NonCreatingViewSetMixin, viewsets.GenericView
             _complete_idp_login(request, user, sso)
         else:
             login(request, user, backend="django.contrib.auth.backends.ModelBackend")
-            report_user_logged_in(user, social_provider="")
+            report_user_logged_in(user, request=request, social_provider="")
         set_two_factor_verified_in_session(request)
         mfa_logger.info("Code-based verification successful", user_id=user.pk)
         LOGIN_CODE_VERIFICATION_COUNTER.labels(result="success").inc()
@@ -1599,7 +1607,7 @@ class PasswordResetCompleteSerializer(serializers.Serializer):
         # action, so revoke every existing login session for this user.
         revoke_other_sessions(user, keep_session_key=None)
 
-        report_user_password_reset(user)
+        report_user_password_reset(user, request=self.context["request"])
         return {"email": user.email}
 
 
@@ -2002,7 +2010,7 @@ def social_grant_staff_to_google_workspace_members(
 
 
 def _notify_social_login(request: HttpRequest, user: User, backend_name: str) -> None:
-    report_user_logged_in(user, social_provider=backend_name)
+    report_user_logged_in(user, request=request, social_provider=backend_name)
     if not has_valid_known_device_cookie(request, user):
         login_from_new_device_notification.delay(
             user.id, timezone.now(), get_short_user_agent(request), get_ip_address(request), backend_name

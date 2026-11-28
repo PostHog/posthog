@@ -4,7 +4,7 @@ from contextlib import nullcontext
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from importlib import import_module
-from types import FunctionType
+from types import FunctionType, SimpleNamespace
 from urllib.parse import urlencode
 
 import time_machine
@@ -20,12 +20,14 @@ from django.contrib.auth.models import Group
 from django.contrib.messages.storage.cookie import CookieStorage
 from django.core.cache import caches
 from django.core.exceptions import PermissionDenied
+from django.db import connection
 from django.db.models import PROTECT, Model
 from django.db.models.signals import post_delete, post_save
 from django.http import HttpRequest, HttpResponse
 from django.template.loader import render_to_string
 from django.test import Client, RequestFactory, SimpleTestCase, override_settings
-from django.urls import URLResolver, resolve
+from django.test.utils import CaptureQueriesContext
+from django.urls import URLResolver, resolve, reverse
 from django.urls.exceptions import Resolver404
 from django.urls.resolvers import RegexPattern
 from django.utils import timezone
@@ -44,9 +46,21 @@ from posthog.admin.authorization import DELETION_AUTHORIZED_GROUP
 from posthog.admin.console.api_key_search_tool import ApiKeySearchForm
 from posthog.admin.console.moved import MovedAction, MovedPage
 from posthog.admin.console.organization_panels import BillingPanel, QuotaLimits
-from posthog.admin.console.panels import MAX_FACTS_PER_PANEL, Fact, Gate, Operation, Owner, Panel, ReasonForm, Tone
+from posthog.admin.console.panels import (
+    COLLAPSE_FACT_CHARS,
+    MAX_FACTS_PER_PANEL,
+    Fact,
+    Gate,
+    Handoff,
+    Operation,
+    Owner,
+    Panel,
+    ReasonForm,
+    Tone,
+)
 from posthog.admin.console.records import RECORD_TYPES
 from posthog.admin.console.registry import ConsoleRegistry, console
+from posthog.admin.console.related import RELATED_PREVIEW_SIZE, RelatedRecords
 from posthog.admin.console.results import (
     CACHE_ALIAS as RESULTS_CACHE_ALIAS,
     KEY_COOKIE,
@@ -74,12 +88,14 @@ from posthog.admin.console.tools import (
     Stat,
     Stats,
     Table,
+    TableSelect,
     ToolOperation,
 )
 from posthog.admin.console.urls import moved_url_patterns
-from posthog.admin.console.user_panels import Impersonation, is_acting_as
+from posthog.admin.console.user_panels import is_acting_as
 from posthog.admin.console.views import _offered_operations
 from posthog.csp_middleware import CSPMiddleware
+from posthog.helpers.impersonation import Impersonation
 from posthog.middleware import IMPERSONATION_READ_ONLY_SESSION_KEY, IMPERSONATION_REASON_SESSION_KEY
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.activity_logging.utils import activity_visibility_manager
@@ -325,6 +341,11 @@ class TestAdminConsoleContract(SimpleTestCase):
                 "needs a title",
             ),
             (
+                "panel_key_that_would_shadow_related_lists",
+                lambda: ConsoleRegistry().register_panel(type("P", (_DuplicatePanel,), {"key": "related"})),
+                "URL segment of related lists",
+            ),
+            (
                 "tool_group_outside_the_navigation",
                 lambda: ConsoleRegistry().register_tool(type("T", (_Tool,), {"group": "Misc"})),
                 "not one of",
@@ -477,6 +498,25 @@ class TestAdminConsoleContract(SimpleTestCase):
                 lambda: Download(filename='certificate".json', content_type="application/json", content="{}"),
                 "only letters",
             ),
+            *[
+                (f"handoff_to_{name}", lambda url=url: Handoff(url=url, tool="Viewer"), "must be an https URL")
+                for name, url in (
+                    ("a_script_url", "javascript:alert(1)"),
+                    ("plain_http_off_this_machine", "http://viewer.example.com/"),
+                    ("a_relative_path", "/viewer"),
+                )
+            ],
+            (
+                "handoff_operation_with_a_form",
+                lambda: Operation(
+                    key="open",
+                    label="Open in viewer",
+                    handler=lambda request, obj, form: None,
+                    form_class=forms.Form,
+                    handoff=Handoff(url="https://viewer.example.com/", tool="Viewer"),
+                ),
+                "takes no form",
+            ),
         ]
     )
     def test_the_console_contract_refuses_a_contribution_that_would_render_wrong(
@@ -515,6 +555,25 @@ class TestAdminConsoleContract(SimpleTestCase):
 
         assert len(facts) == expected_facts
         assert (facts[-1].label == "More limits") == mentions_more
+
+
+class TestAdminConsoleRelations(SimpleTestCase):
+    @parameterized.expand(
+        [
+            (f"{record_type.key}_{relation.key}", record_type.key, relation.key)
+            for record_type in RECORD_TYPES.values()
+            for relation in record_type.relations()
+        ]
+    )
+    def test_a_relation_targets_a_record_type_whose_inverse_leads_back(self, _name: str, record: str, key: str) -> None:
+        relation = RECORD_TYPES[record].relation(key)
+        assert relation is not None
+        assert relation.target in RECORD_TYPES, f"{record} relation {key!r} targets unknown {relation.target!r}"
+        if relation.inverse is None:
+            return
+        inverse = RECORD_TYPES[relation.target].relation(relation.inverse)
+        assert inverse is not None, f"{relation.target} has no relation {relation.inverse!r} back to {record}"
+        assert inverse.target == record and inverse.inverse == key
 
 
 class TestAdminConsoleTheme(SimpleTestCase):
@@ -700,6 +759,24 @@ class TestAdminConsoleOverriddenAdminViews(BaseTest):
             match.func(request, *match.args, **match.kwargs)
 
 
+class TestAdminConsoleLongFacts(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("short_value", Fact(label="Query", value="SELECT 1"), False),
+            ("long_value", Fact(label="Query", value="x" * (COLLAPSE_FACT_CHARS + 1)), True),
+            ("many_lines", Fact(label="Query", value="a\nb\nc\nd"), True),
+            ("long_link", Fact(label="Team", value="x" * 200, href="/admin/console/teams/1/"), False),
+        ]
+    )
+    def test_a_long_plain_fact_collapses_to_its_start(self, _name: str, fact: Fact, collapsed: bool) -> None:
+        html = render_to_string(
+            "admin_console/_panel.html", {"rendered": SimpleNamespace(panel=None, facts=[fact], operations=[])}
+        )
+
+        assert ("Show all" in html) == collapsed
+        assert fact.value in html
+
+
 class TestAdminConsoleFormField(SimpleTestCase):
     @parameterized.expand(
         [
@@ -721,6 +798,21 @@ class TestAdminConsoleFormField(SimpleTestCase):
 
         assert "Not found." in html
         assert ("phx_pasted_secret_key" in html or "typed note" in html) == value_shown
+
+    def test_a_checkbox_list_shown_again_after_an_error_keeps_what_staff_ticked(self) -> None:
+        class _PickForm(forms.Form):
+            picks = forms.MultipleChoiceField(
+                choices=[("a", "First"), ("b", "Second")], widget=forms.CheckboxSelectMultiple
+            )
+
+        form = _PickForm(data={"picks": ["b"]})
+        form.is_valid()
+        form.add_error("picks", "Pick again.")
+
+        html = render_to_string("admin_console/_form_field.html", {"field": form["picks"]})
+
+        ticked = re.findall(r'value="(\w)"\s+class="mt-0.5"\s+checked', html)
+        assert (ticked, "Pick again." in html) == (["b"], True)
 
 
 class TestAdminConsoleViews(BaseTest):
@@ -872,6 +964,73 @@ class TestAdminConsoleViews(BaseTest):
         for opened_page in opened_pages:
             assert opened_page in home, f"home misses {opened_page}, which was opened before"
 
+    @parameterized.expand(
+        [
+            ("everyone", "", {"user1@posthog.com", "alice@example.com", "bob@example.com"}),
+            ("part_of_an_email", "ALI", {"alice@example.com"}),
+            ("last_name", "smith", {"bob@example.com"}),
+            ("no_match", "nobody", set()),
+        ]
+    )
+    def test_organization_members_page_lists_only_that_organizations_members(
+        self, _name: str, search: str, expected_emails: set[str]
+    ) -> None:
+        User.objects.create_and_join(self.organization, "alice@example.com", None, first_name="Alice")
+        User.objects.create_and_join(self.organization, "bob@example.com", None, last_name="Smith")
+        other = Organization.objects.create(name="Another organization")
+        User.objects.create_and_join(other, "alice@other.example.com", None, first_name="Alice")
+
+        response = self.client.get(
+            "/admin/console/tools/organization-members/",
+            {"organization": str(self.organization.pk), "search": search, "page": "1"},
+            follow=True,
+        )
+
+        assert response.redirect_chain[-1][0].startswith(
+            f"/admin/console/organizations/{self.organization.pk}/related/members/"
+        )
+        assert "page=1" in response.redirect_chain[-1][0]
+        table = next(block for block in response.context["page"].blocks if isinstance(block, Table))
+        assert {row.cells[0].text for row in table.rows if isinstance(row, Row)} == expected_emails
+
+    def test_every_relation_previews_the_first_rows_of_its_full_list_and_links_back(self) -> None:
+        for number in range(RELATED_PREVIEW_SIZE + 2):
+            User.objects.create_and_join(self.organization, f"member{number}@example.com", None)
+        Team.objects.create(organization=self.organization, project=self.project, name="Staging")
+        # Same name as the user's own organization, so a link that matched by name would land on the wrong one.
+        twin = Organization.objects.create(name=self.organization.name)
+        OrganizationMembership.objects.create(organization=twin, user=self.user)
+        records = {"organization": self.organization, "project": self.project, "team": self.team, "user": self.user}
+
+        for record, obj in records.items():
+            for preview in self.client.get(RECORD_TYPES[record].url(obj)).context["related"]:
+                relation = preview.relation
+                full = self.client.get(preview.all_url).context["page"]
+                table = next(block for block in full.blocks if isinstance(block, Table))
+                hrefs = [row.cells[0].href for row in table.rows if isinstance(row, Row)]
+                assert [link.href for link in preview.links] == hrefs[:RELATED_PREVIEW_SIZE], (record, relation.key)
+                assert preview.total == len(hrefs), (record, relation.key)
+                if relation.inverse is None:
+                    continue
+                for href in hrefs:
+                    back = self.client.get(f"{href}related/{relation.inverse}/").context["page"]
+                    back_table = next(block for block in back.blocks if isinstance(block, Table))
+                    back_hrefs = [row.cells[0].href for row in back_table.rows if isinstance(row, Row)]
+                    assert RECORD_TYPES[record].url(obj) in back_hrefs, (record, relation.key, href)
+
+    def test_related_previews_load_their_rows_without_a_query_per_row(self) -> None:
+        def preview_queries() -> int:
+            with CaptureQueriesContext(connection) as queries:
+                RelatedRecords(RECORD_TYPES["organization"], self.organization).previews()
+            return len(queries)
+
+        one_member = preview_queries()
+        for number in range(RELATED_PREVIEW_SIZE * 3):
+            User.objects.create_and_join(self.organization, f"member{number}@example.com", None)
+
+        # Past the preview size, the members relation counts the rest with one more query.
+        assert preview_queries() == one_member + 1
+
     @parameterized.expand([("team",), ("project",), ("user",)])
     def test_django_admin_page_points_moved_actions_to_registered_panels(self, record: str) -> None:
         obj = self._record(record)
@@ -994,6 +1153,34 @@ class TestAdminConsoleViews(BaseTest):
         assert 'value="2026-10-22"' in content and "Preview" in content
         assert re.search(r'<input type="hidden" name="step" value="details"', content)
 
+    @parameterized.expand([("for_its_record", True), ("without_a_record", False)])
+    def test_a_tool_about_one_record_leads_back_through_that_record(self, _name: str, with_record: bool) -> None:
+        tool = type("TeamReport", (_Tool,), {"subject": "team", "page": lambda self, request: Page(blocks=())})()
+        url = tool.url_for(self.team) if with_record else f"/admin/console/tools/{tool.key}/"
+
+        with patch.object(console, "get_tool", return_value=tool):
+            response = self.client.get(url)
+
+        crumbs = [crumb.href for crumb in response.context["subject_crumbs"]]
+        if with_record:
+            assert crumbs == [
+                f"/admin/console/organizations/{self.organization.pk}/",
+                f"/admin/console/projects/{self.project.pk}/",
+                f"/admin/console/teams/{self.team.pk}/",
+            ]
+        else:
+            assert crumbs == [] and "/admin/console/tools/#tools-infrastructure" in response.content.decode()
+
+    def test_a_tool_looks_its_record_up_once_per_request(self) -> None:
+        tool = type("TeamReport", (_Tool,), {"subject": "team"})()
+        request = RequestFactory().get(tool.url_for(self.team))
+
+        with CaptureQueriesContext(connection) as queries:
+            first, second = tool.subject_of(request), tool.subject_of(request)
+
+        assert first == second == self.team
+        assert len(queries) == 1
+
     def test_a_decision_runs_its_operation_in_one_click_and_returns_to_the_next_item(self) -> None:
         _DecidingTool.decided = []
         with patch.object(console, "get_tool", return_value=_DecidingTool()):
@@ -1015,6 +1202,20 @@ class TestAdminConsoleViews(BaseTest):
         with patch.object(console, "get_tool", return_value=_DecidingTool()):
             with self.assertRaisesRegex(ValueError, "must offer with a form"):
                 self.client.get("/admin/console/tools/deciding-tool/?runs=missing")
+
+    def test_a_table_that_selects_for_an_operation_without_a_multiple_choice_field_fails_the_page(self) -> None:
+        tool = _DecidingTool()
+        table = Table(
+            columns=("Item",),
+            rows=(Row(cells=(Cell(text="Item 3"),), select_value="3"),),
+            select=TableSelect(operation_key="judge", field="verdict", label="Judge selected"),
+        )
+        with (
+            patch.object(console, "get_tool", return_value=tool),
+            patch.object(tool, "page", return_value=Page(blocks=(table,))),
+        ):
+            with self.assertRaisesRegex(ValueError, "multiple choice field 'verdict'"):
+                self.client.get("/admin/console/tools/deciding-tool/")
 
     def test_a_tool_operation_needs_a_csrf_token_even_with_an_api_key_parameter(self) -> None:
         client = Client(enforce_csrf_checks=True)
@@ -1587,6 +1788,38 @@ class TestAdminConsoleViews(BaseTest):
         assert activity_visibility_manager.is_restricted(log, restrict_for_staff=True)
 
 
+class TestAdminConsoleDuringImpersonation(BaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.user.is_staff = True
+        self.user.save()
+        self.customer = User.objects.create_and_join(self.organization, "customer@example.com", None)
+        self.client.force_login(self.user)
+
+    @parameterized.expand([("read_only", "true"), ("read_write", "false")])
+    @patch("posthog.admin.console.redis_tool.get_client")
+    @patch("posthog.admin.console.redis_tool.log_activity")
+    def test_a_console_write_runs_as_the_staff_user_while_impersonating(
+        self, _name: str, read_only: str, log_activity: MagicMock, get_client: MagicMock
+    ) -> None:
+        get_client.return_value.ttl.return_value = -1
+        self.client.post(
+            reverse("loginas-user-login", kwargs={"user_id": self.customer.id}),
+            data={"read_only": read_only, "reason": "Debugging a ticket"},
+        )
+
+        response = self.client.post(
+            "/admin/console/tools/redis-values/set-ttl/",
+            data={"key": "test:key", "ttl_seconds": "60", "reason": "Test"},
+        )
+
+        # The read-only impersonation middleware answers 403 to writes, and the admin swap must keep the
+        # console out of its reach. Audit entries must name the staff user, never the customer.
+        assert response.status_code == 302, response.content
+        get_client.return_value.expire.assert_called_once_with("test:key", 60)
+        assert {call.kwargs["user"].id for call in log_activity.call_args_list} == {self.user.id}
+
+
 @time_machine.travel("2026-10-20T12:00:00Z", tick=False)
 class TestAdminConsoleProjectDeletion(BaseTest):
     def setUp(self) -> None:
@@ -1841,6 +2074,7 @@ class TestAdminConsoleLogInAsUser(BaseTest):
         record_page = self.client.get(f"/admin/console/users/{self.target.pk}/", {"ticket": self.ticket})
         operation_url = f"{self.url}?{urlencode({'ticket': self.ticket})}"
         assert f'href="{escape(operation_url)}"' in record_page.content.decode()
+        assert operation_url in [link.href for link in record_page.context["record_links"]]
 
         form = self.client.get(operation_url).context["form"]
 

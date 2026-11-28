@@ -27,8 +27,9 @@ import type {
 } from 'products/signals/frontend/generated/api.schemas'
 
 import type { SourceFilterPreviewRequestError } from '../components/config/SourceFilterPreviewPanel'
-import { SignalSourceConfig } from '../types'
-import { SourceFilterFormValues, sourceReadsLinearTeams } from './sourceFilterModalLogic'
+import { captureSignalSourceFilterPreviewShown } from '../inboxAnalytics'
+import { SignalSourceConfig, sourceReadsLinearTeams } from '../types'
+import type { SourceFilterFormValues } from './sourceFilterModalLogic'
 
 export interface SourceFilterPreviewInput {
     expression: string
@@ -252,6 +253,16 @@ export const sourceFilterPreviewLogic: LogicWrapper<sourceFilterPreviewLogicType
             expression: input.expression,
         })
 
+        const captureShown = (requestError: SourceFilterPreviewRequestError | null): void => {
+            captureSignalSourceFilterPreviewShown({
+                sourceProduct: logicProps.sourceConfig.source_product,
+                sourceType: logicProps.sourceConfig.source_type,
+                // The panel shows only the error notice, so an older result does not describe what the person sees.
+                result: requestError ? null : values.previewResult,
+                requestError,
+            })
+        }
+
         const requestFailed = (error: unknown): void => {
             if (isThrottled(error)) {
                 actions.previewRequestFailed('throttled')
@@ -270,6 +281,13 @@ export const sourceFilterPreviewLogic: LogicWrapper<sourceFilterPreviewLogicType
             previewInputChanged: () => {
                 schedule(PREVIEW_VALIDATE_DELAY_MS, () => actions.validatePreviewInput(false))
             },
+            validationLoaded: ({ validation }) => {
+                if (!validation.valid) {
+                    captureShown(null)
+                }
+            },
+            previewLoaded: () => captureShown(null),
+            previewRequestFailed: ({ error }) => captureShown(error),
             retryPreview: () => {
                 if (values.previewInput) {
                     cache.disposables.dispose(PREVIEW_TIMER_KEY)

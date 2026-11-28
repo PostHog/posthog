@@ -1,4 +1,5 @@
 import dataclasses
+from collections.abc import Callable
 from datetime import UTC, date, datetime
 from typing import Any, Optional, cast
 
@@ -6,22 +7,26 @@ from requests import Request, Response
 from requests.auth import HTTPBasicAuth
 
 from products.warehouse_sources.sources.planning_center.settings import (
+    FANOUT_ENDPOINTS,
     PAGE_SIZE,
     PLANNING_CENTER_BASE_URL,
     PLANNING_CENTER_ENDPOINTS,
     PRODUCT_API_VERSIONS,
+    IncludedResourceConfig,
     PlanningCenterEndpointConfig,
 )
 from products.warehouse_sources.sources.sdk import (
     BasePaginator,
     ClientConfig,
     Endpoint,
+    EndpointResource,
     IncrementalConfig,
     OffsetPaginator,
     Resource,
     RESTAPIConfig,
     ResumableSourceManager,
     SourceResponse,
+    build_chained_resource,
     build_dependent_resource,
     make_tracked_session,
     rest_api_resource,
@@ -92,6 +97,45 @@ def flatten_resource(item: dict[str, Any]) -> dict[str, Any]:
                 row.setdefault(f"{name}_id", data.get("id") if isinstance(data, dict) else None)
 
     return row
+
+
+def included_rows(included: IncludedResourceConfig) -> Callable[[dict[str, Any]], list[dict[str, Any]]]:
+    """Turn one list response body into rows of its `included` resources, each with its parent id."""
+
+    def _rows(body: dict[str, Any]) -> list[dict[str, Any]]:
+        parent_ids: dict[Any, Any] = {}
+        for parent in body.get("data") or []:
+            relationships = parent.get("relationships") if isinstance(parent, dict) else None
+            relationship = relationships.get(included.relationship) if isinstance(relationships, dict) else None
+            data = relationship.get("data") if isinstance(relationship, dict) else None
+            for entry in data if isinstance(data, list) else [data]:
+                if isinstance(entry, dict) and entry.get("type") == included.resource_type:
+                    parent_ids[entry.get("id")] = parent.get("id")
+
+        rows = []
+        for item in body.get("included") or []:
+            if not isinstance(item, dict) or item.get("type") != included.resource_type:
+                continue
+            if item.get("id") not in parent_ids:
+                continue
+            row = flatten_resource(item)
+            row[included.parent_id_field] = parent_ids[item["id"]]
+            rows.append(row)
+        return rows
+
+    return _rows
+
+
+class IncludedPagePaginator(OffsetPaginator):
+    """Offset pages for a read that selects the whole body, so the page size comes from its `data`."""
+
+    def __init__(self) -> None:
+        super().__init__(limit=PAGE_SIZE, offset_param="offset", limit_param="per_page", total_path="meta.total_count")
+
+    def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
+        body = data[0] if data else None
+        rows = body.get("data") if isinstance(body, dict) else None
+        super().update_state(response, rows if isinstance(rows, list) else [])
 
 
 def _incremental_config(_cursor_path: str) -> IncrementalConfig:
@@ -196,7 +240,9 @@ def _client_config(application_id: str, secret: str, product: str) -> ClientConf
     }
 
 
-def _source_response(config: PlanningCenterEndpointConfig, resource: Any, use_incremental: bool) -> SourceResponse:
+def _source_response(
+    config: PlanningCenterEndpointConfig, resource: Any, use_incremental: bool, supports_resume: bool = True
+) -> SourceResponse:
     # Rows arrive in ascending `updated_at` order only on an incremental read of a top-level endpoint
     # that sorts on `updated_at`. A fan-out restarts the order for each parent.
     ordered = use_incremental and config.orders_by_updated_at and config.fanout is None
@@ -210,6 +256,7 @@ def _source_response(config: PlanningCenterEndpointConfig, resource: Any, use_in
         partition_format="month" if config.partition_key else None,
         partition_keys=[config.partition_key] if config.partition_key else None,
         sort_mode="asc" if ordered else None,
+        supports_resume=supports_resume,
     )
 
 
@@ -223,12 +270,21 @@ def _top_level_source(
     use_incremental: bool,
     db_incremental_field_last_value: Optional[Any],
 ) -> SourceResponse:
+    params = _order_param(config, use_incremental)
+    if config.included is not None:
+        params["include"] = config.included.include
     endpoint: Endpoint = {
         "path": config.path,
-        "params": _order_param(config, use_incremental),
+        "params": params,
         "data_selector": "data",
         "paginator": _paginator(config, use_incremental),
     }
+    data_map: Callable[[dict[str, Any]], dict[str, Any] | list[dict[str, Any]]] = flatten_resource
+    if config.included is not None:
+        # The included children sit next to `data`, so the selector keeps the whole body.
+        endpoint["data_selector"] = "$"
+        endpoint["paginator"] = IncludedPagePaginator()
+        data_map = included_rows(config.included)
     if use_incremental:
         endpoint["incremental"] = _incremental_config("updated_at")
 
@@ -241,7 +297,7 @@ def _top_level_source(
                 "primary_key": config.primary_keys,
                 "write_disposition": {"disposition": "merge", "strategy": "upsert"} if use_incremental else "replace",
                 "endpoint": endpoint,
-                "data_map": flatten_resource,
+                "data_map": data_map,
                 "table_format": "delta",
             }
         ],
@@ -295,7 +351,7 @@ def _fanout_source(
     resource = cast(
         Resource,
         build_dependent_resource(
-            endpoint_configs=PLANNING_CENTER_ENDPOINTS,
+            endpoint_configs=FANOUT_ENDPOINTS,
             child_endpoint=config.name,
             fanout=config.fanout,
             client_config=_client_config(application_id, secret, config.product),
@@ -313,11 +369,81 @@ def _fanout_source(
             page_size_param=None,
             resume_hook=save_checkpoint,
             initial_paginator_state=initial_paginator_state,
+            resume_parent_pagination=config.resume_parent_pagination,
         ),
     )
-    # Added after the helper renames the parent id, so `service_type_id` is already on the row.
+    # Added after the helper renames the parent id, so the parent id is already on the row.
     resource.add_map(flatten_resource)
     return _source_response(config, resource, use_incremental)
+
+
+def _chained_source(
+    application_id: str,
+    secret: str,
+    config: PlanningCenterEndpointConfig,
+    team_id: int,
+    job_id: str,
+) -> SourceResponse:
+    chained = config.chained_fanout
+    assert chained is not None
+    middle_config = PLANNING_CENTER_ENDPOINTS[chained.parent_name]
+    root_fanout = middle_config.fanout
+    if root_fanout is None:
+        raise ValueError(f"'{chained.parent_name}' is not a fan-out endpoint")
+    root_config = PLANNING_CENTER_ENDPOINTS[root_fanout.parent_name]
+
+    def _resource(
+        endpoint_config: PlanningCenterEndpointConfig,
+        params: dict[str, Any],
+        include_from_parent: Optional[list[str]] = None,
+        ignore_not_found: bool = False,
+    ) -> EndpointResource:
+        endpoint: Endpoint = {
+            "path": endpoint_config.path,
+            "params": {**params, **_order_param(endpoint_config, use_incremental=False)},
+            "data_selector": "data",
+            "paginator": _paginator(),
+        }
+        if ignore_not_found:
+            endpoint["response_actions"] = [{"status_code": 404, "action": "ignore"}]
+        resource: EndpointResource = {
+            "name": endpoint_config.name,
+            "table_name": endpoint_config.name,
+            "write_disposition": "replace",
+            "endpoint": endpoint,
+            "table_format": "delta",
+        }
+        if include_from_parent:
+            resource["include_from_parent"] = include_from_parent
+        return resource
+
+    middle_params = {
+        root_fanout.resolve_param: {"type": "resolve", "resource": root_config.name, "field": root_fanout.resolve_field}
+    }
+    child_params = {
+        param: {"type": "resolve", "resource": middle_config.name, "field": field_name}
+        for param, field_name in chained.resolve_fields.items()
+    }
+    resource = cast(
+        Resource,
+        build_chained_resource(
+            resources=[
+                _resource(root_config, {}),
+                _resource(middle_config, middle_params, root_fanout.include_from_parent),
+                # A plan deleted between its plans page and this fetch must not fail the run.
+                _resource(config, child_params, chained.include_from_parent, ignore_not_found=True),
+            ],
+            child_name=config.name,
+            parent_name=middle_config.name,
+            parent_field_renames=chained.parent_field_renames,
+            client_config=_client_config(application_id, secret, config.product),
+            team_id=team_id,
+            job_id=job_id,
+        ),
+    )
+    resource.add_map(flatten_resource)
+    # A chain of two fan-outs saves no checkpoint, so a shutdown restarts the walk.
+    return _source_response(config, resource, use_incremental=False, supports_resume=False)
 
 
 def planning_center_source(
@@ -331,6 +457,8 @@ def planning_center_source(
     db_incremental_field_last_value: Optional[Any] = None,
 ) -> SourceResponse:
     config = PLANNING_CENTER_ENDPOINTS[endpoint]
+    if config.chained_fanout is not None:
+        return _chained_source(application_id, secret, config, team_id, job_id)
     use_incremental = should_use_incremental_field and config.incremental
     build = _fanout_source if config.fanout is not None else _top_level_source
     return build(
@@ -358,7 +486,8 @@ def probe_status(application_id: str, secret: str, path: str, product: str) -> O
 
 def probe_endpoint_status(application_id: str, secret: str, endpoint: str) -> Optional[int]:
     config = PLANNING_CENTER_ENDPOINTS[endpoint]
-    # A fan-out child path holds an unbound parent id, so probe the parent list, which needs the same access.
-    if config.fanout is not None:
-        config = PLANNING_CENTER_ENDPOINTS[config.fanout.parent_name]
+    # A fan-out child path holds an unbound parent id, so probe the top-level ancestor list, which
+    # needs the same access.
+    while (parent := config.fanout or config.chained_fanout) is not None:
+        config = FANOUT_ENDPOINTS[parent.parent_name]
     return probe_status(application_id, secret, config.path, config.product)

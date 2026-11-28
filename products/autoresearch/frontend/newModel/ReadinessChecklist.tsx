@@ -8,6 +8,7 @@ import {
     ReadinessCheck,
     autoresearchNewLogic,
     hasTarget,
+    isTargetRefusal,
     populationChosen,
     populationHasEvent,
 } from '../autoresearchNewLogic'
@@ -116,6 +117,7 @@ export function ReadinessChecklist(): JSX.Element {
         validation,
         validationLoading,
         validationFailed,
+        validationRefusal,
         newPipeline,
         newPipelineValidationErrors,
         readiness,
@@ -125,6 +127,17 @@ export function ReadinessChecklist(): JSX.Element {
     // The form hides field errors until the first submit, and the validate loader skips invalid day values.
     // So this panel is the only place that says why no check appears.
     const dayError = newPipelineValidationErrors.training_lookback_days ?? newPipelineValidationErrors.horizon_days
+
+    // The target picker shows a refused target, and a retry sends the same values, so this offers no Retry.
+    if (validationRefusal && !validationLoading) {
+        return isTargetRefusal(validationRefusal) ? (
+            <div className="border rounded p-4 bg-bg-light text-muted text-sm">
+                Pick a different target to check if this model is ready to train.
+            </div>
+        ) : (
+            <LemonBanner type="error">Couldn't check this model: {validationRefusal.message}</LemonBanner>
+        )
+    }
 
     if (validationFailed && !validationLoading) {
         return (

@@ -52,6 +52,7 @@ from products.signals.backend.models import (
     SignalReportMonitoringResult,
     SignalScoutConfig,
     SignalScoutEmission,
+    SignalScoutMessageDelivery,
     SignalScratchpadRevision,
     scout_lists_reports_in_inbox,
 )
@@ -66,7 +67,12 @@ from products.signals.backend.report_discussions import (
     ReportInvolvement,
 )
 from products.signals.backend.report_metrics import MAX_LIVE_METRIC_QUERY_POINTS, MAX_REPORT_METRICS
-from products.signals.backend.report_prompts import MAX_SUGGESTED_PROMPT_LENGTH, MAX_SUGGESTED_PROMPTS
+from products.signals.backend.report_prompts import (
+    MAX_SUGGESTED_PROMPT_LENGTH,
+    MAX_SUGGESTED_PROMPT_REQUEST_LENGTH,
+    MAX_SUGGESTED_PROMPTS,
+    MAX_SUGGESTED_PROMPTS_PER_REQUEST,
+)
 from products.signals.backend.report_scout_notes import MAX_REPORT_NOTE_TEXT_LENGTH
 from products.signals.backend.scout_harness.config_registry import CRON_SCHEDULE_MAX_LENGTH, cron_schedule_error
 from products.signals.backend.scout_harness.derived_metadata import DERIVED_FLAG_KEYS, DERIVED_METADATA_KEY
@@ -76,6 +82,18 @@ from products.signals.backend.scout_harness.lazy_seed import (
     canonical_structured_output_schema_for,
 )
 from products.signals.backend.scout_harness.limits import MAX_RUN_NOTE_CHARS
+from products.signals.backend.scout_harness.message_routes import (
+    MAX_MESSAGE_BODY_LENGTH,
+    MAX_MESSAGE_ROUTES,
+    MAX_MESSAGE_TITLE_LENGTH,
+    MAX_ROUTE_KEY_LENGTH,
+    MAX_ROUTE_TARGETS,
+    MAX_ROUTE_WHEN_LENGTH,
+    MESSAGE_TARGET_SLACK_CHANNEL,
+    MESSAGE_TARGET_SLACK_DM,
+    ROUTE_KEY_RE,
+    SLACK_CHANNEL_TARGET_RE,
+)
 from products.signals.backend.scout_harness.model_selection import scout_model_config_enabled, scout_model_pin_catalog
 from products.signals.backend.scout_harness.note_targets import PIPELINE_AUDIENCES
 from products.signals.backend.scout_harness.precheck import (
@@ -104,6 +122,7 @@ from products.signals.backend.scout_harness.tools.lighthouse import (
     FORM_FACTORS,
     MAX_AUDITS_PER_RUN,
 )
+from products.signals.backend.scout_harness.tools.messages import MAX_DEDUPE_KEY_LENGTH, SendMessageOutcome
 from products.signals.backend.scout_harness.tools.notes import MAX_NOTE_CONTENT_LENGTH, MAX_NOTES_LIST_LIMIT
 from products.signals.backend.scout_harness.tools.report import (
     MAX_EVIDENCE_DESCRIPTION_LENGTH,
@@ -584,6 +603,71 @@ class RecordStructuredOutputResponseSerializer(serializers.Serializer):
             "order. Stable across a resubmission of the identical batch, which is what makes retrying "
             "a failed delivery safe."
         ),
+    )
+
+
+class SendScoutMessageRequestSerializer(serializers.Serializer):
+    """Request body for `scout-send-message`: one message on an owner-set route."""
+
+    route = serializers.CharField(
+        max_length=MAX_ROUTE_KEY_LENGTH,
+        help_text=(
+            "Key of the route to send on, from the scout config's `output_destinations.messages`. The route "
+            "decides who receives the message; the scout never names a recipient."
+        ),
+    )
+    report_id = serializers.CharField(
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        max_length=64,
+        help_text=(
+            "Id of the report this message is about. Required unless the scout is on a dry run. The report "
+            "must belong to this project and must have been written or edited by this run."
+        ),
+    )
+    title = serializers.CharField(
+        max_length=MAX_MESSAGE_TITLE_LENGTH,
+        trim_whitespace=True,
+        help_text=f"Short plain-text title. At most {MAX_MESSAGE_TITLE_LENGTH} characters.",
+    )
+    body = serializers.CharField(
+        max_length=MAX_MESSAGE_BODY_LENGTH,
+        trim_whitespace=True,
+        help_text=(
+            f"Markdown body with the links the reader needs. At most {MAX_MESSAGE_BODY_LENGTH} characters. A link "
+            "whose label looks like an address on another host is shown as the bare URL."
+        ),
+    )
+    dedupe_key = serializers.CharField(
+        max_length=MAX_DEDUPE_KEY_LENGTH,
+        trim_whitespace=True,
+        help_text=(
+            "Stable id for the subject of the message, for example `pr-12345`. A message whose route and key were "
+            "sent in the last 30 days is refused as a duplicate. A second call in the same run with the same route "
+            "and key replaces the queued message."
+        ),
+    )
+
+
+class SendScoutMessageResponseSerializer(serializers.Serializer):
+    """Outcome of a `scout-send-message` call."""
+
+    outcome = serializers.ChoiceField(
+        choices=SendMessageOutcome.choices,
+        help_text=(
+            "`queued`: saved and sent when the run ends. `replaced`: this run already queued a message on this "
+            "route and key, and it now holds this content. `duplicate`: the route and key were sent in the last "
+            "30 days, so nothing was queued. `over_cap`: the scout reached its message limit, so nothing was "
+            "queued. `dry_run`: recorded for review and never sent."
+        ),
+    )
+    message_id = serializers.UUIDField(
+        allow_null=True, help_text="Id of the queued message, or null when nothing was queued."
+    )
+    recent_dedupe_keys = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="On `duplicate`: the keys recently sent on this route, newest first. Empty otherwise.",
     )
 
 
@@ -1812,6 +1896,12 @@ _REPORT_METRICS_WRITE_HELP = (
     "without a query is invalid."
 )
 
+_SUGGESTED_PROMPTS_BOUNDS_HELP = (
+    f"The report stores at most {MAX_SUGGESTED_PROMPTS} unique prompts of up to {MAX_SUGGESTED_PROMPT_LENGTH} "
+    "characters each. A prompt past those bounds is left out, not cut, and the rest of the report is "
+    "stored. `quality_hints` says which bound left a prompt out."
+)
+
 
 class SourceIssueWriteSerializer(serializers.Serializer):
     """One external issue the report is about."""
@@ -1946,13 +2036,13 @@ class EmitReportRequestSerializer(serializers.Serializer):
     )
     suggested_prompts = serializers.ListField(
         required=False,
-        child=serializers.CharField(max_length=MAX_SUGGESTED_PROMPT_LENGTH),
-        max_length=MAX_SUGGESTED_PROMPTS,
+        child=serializers.CharField(max_length=MAX_SUGGESTED_PROMPT_REQUEST_LENGTH),
+        max_length=MAX_SUGGESTED_PROMPTS_PER_REQUEST,
         help_text=(
             "Optional follow-up prompts to offer above the report's `Ask AI` box: questions to ask, or "
             "next-step actions to request (e.g. carrying out the report's recommendation). The reader "
             "clicks one to fill the box with it, then sends or edits it. Write the prompts your own "
-            "research left open, phrased as the reader would send them."
+            "research left open, phrased as the reader would send them. " + _SUGGESTED_PROMPTS_BOUNDS_HELP
         ),
     )
     links = serializers.ListField(
@@ -2024,8 +2114,9 @@ class ReportQualityHintSerializer(serializers.Serializer):
 
 
 QUALITY_HINTS_HELP_TEXT = (
-    "Quality checks the title or summary matched. A `repair` hint means the stored text differs from what "
-    "you sent: escape the JSON one time only next time. A `hint` means the text was stored as sent: "
+    "Quality checks the title, summary, or suggested prompts matched. A `repair` hint means what was stored "
+    "differs from what you sent: escape the JSON one time only next time, and keep suggested prompts within "
+    "their bounds. A `hint` means the text was stored as sent: "
     "correct it with edit_report if the hint applies. Empty when no check matched."
 )
 
@@ -2196,14 +2287,15 @@ class EditReportRequestSerializer(ReviewerProposalSerializer):
     suggested_prompts = serializers.ListField(
         required=False,
         allow_null=True,
-        child=serializers.CharField(max_length=MAX_SUGGESTED_PROMPT_LENGTH),
-        max_length=MAX_SUGGESTED_PROMPTS,
+        child=serializers.CharField(max_length=MAX_SUGGESTED_PROMPT_REQUEST_LENGTH),
+        max_length=MAX_SUGGESTED_PROMPTS_PER_REQUEST,
         help_text=(
             "The full set of follow-up prompts (questions or next-step actions) the report should "
             "offer above its `Ask AI` box. Replaces the report's prompts rather than adding to them, "
             "so send every one you want kept. Omit the field (or send null) to leave them untouched, "
             "and send an empty list to take them down, which is what you want once a rewrite has "
-            "left them pointing at the old report."
+            "left them pointing at the old report. " + _SUGGESTED_PROMPTS_BOUNDS_HELP + " When every prompt you "
+            "send is left out, the stored prompts stay as they were."
         ),
     )
     links = serializers.ListField(
@@ -3360,6 +3452,54 @@ class SignalScoutWebhookDestinationSerializer(serializers.Serializer):
     )
 
 
+# Help text here is kept short on purpose: every scout config tool embeds this schema, and the MCP
+# catalog caps each tool's input schema size.
+class SignalScoutMessageTargetSerializer(serializers.Serializer):
+    type = serializers.ChoiceField(choices=SignalScoutMessageDelivery.TargetType.choices)
+    user = serializers.CharField(required=False, max_length=255, help_text="Slack member ID, for `slack_dm`.")
+    channel = serializers.CharField(
+        required=False, max_length=255, help_text="Slack channel ID, for `slack_channel`. Never a shared channel."
+    )
+
+    def validate(self, attrs: dict) -> dict:
+        # DRF skips required fields on a partial update, nested ones included, so check them here.
+        if "type" not in attrs:
+            raise serializers.ValidationError({"type": "This field is required."})
+        if attrs["type"] == MESSAGE_TARGET_SLACK_DM:
+            if not attrs.get("user") or attrs.get("channel"):
+                raise serializers.ValidationError("A `slack_dm` target needs `user` and no `channel`.")
+            if not re.match(SLACK_MEMBER_TARGET_RE, attrs["user"]):
+                raise serializers.ValidationError({"user": SLACK_MEMBER_TARGET_ERROR})
+            return {"type": MESSAGE_TARGET_SLACK_DM, "user": attrs["user"]}
+        if not attrs.get("channel") or attrs.get("user"):
+            raise serializers.ValidationError("A `slack_channel` target needs `channel` and no `user`.")
+        if not re.match(SLACK_CHANNEL_TARGET_RE, attrs["channel"]):
+            raise serializers.ValidationError(
+                {"channel": "Expected a Slack channel ID such as `C0456DEF789` or `C0456DEF789|#name`."}
+            )
+        return {"type": MESSAGE_TARGET_SLACK_CHANNEL, "channel": attrs["channel"]}
+
+
+class SignalScoutMessageRouteSerializer(serializers.Serializer):
+    key = serializers.RegexField(
+        ROUTE_KEY_RE,
+        max_length=MAX_ROUTE_KEY_LENGTH,
+        error_messages={"invalid": "Route keys are lowercase kebab-case slugs, e.g. `outside-team-change`."},
+        help_text="Slug the scout names to send on this route.",
+    )
+    when = serializers.CharField(
+        max_length=MAX_ROUTE_WHEN_LENGTH, help_text="When the scout should send, shown in its run prompt."
+    )
+    to = serializers.ListField(child=SignalScoutMessageTargetSerializer(), min_length=1, max_length=MAX_ROUTE_TARGETS)
+
+    def validate(self, attrs: dict) -> dict:
+        # DRF skips required fields on a partial update, nested ones included, so check them here.
+        missing = [field for field in ("key", "when", "to") if field not in attrs]
+        if missing:
+            raise serializers.ValidationError(dict.fromkeys(missing, "This field is required."))
+        return attrs
+
+
 class SignalScoutOutputDestinationsSerializer(serializers.Serializer):
     slack = SignalScoutSlackDestinationSerializer(
         required=False,
@@ -3392,7 +3532,26 @@ class SignalScoutOutputDestinationsSerializer(serializers.Serializer):
         return data
 
 
-class SignalScoutOutputDestinationsUpdateSerializer(SignalScoutOutputDestinationsSerializer):
+class SignalScoutRoutedOutputDestinationsSerializer(SignalScoutOutputDestinationsSerializer):
+    """Output destinations plus message routes. Only the config create and update paths take routes, so the
+    scout and source-product create tools keep their schemas small."""
+
+    messages = serializers.ListField(
+        child=SignalScoutMessageRouteSerializer(),
+        required=False,
+        max_length=MAX_MESSAGE_ROUTES,
+        help_text="Routes the scout may message on, through `slack.integration_id`. Omit to keep, `[]` to clear.",
+    )
+
+    def validate_messages(self, value: list[dict]) -> list[dict]:
+        keys = [route["key"] for route in value]
+        duplicates = sorted({key for key in keys if keys.count(key) > 1})
+        if duplicates:
+            raise serializers.ValidationError(f"Route keys must be unique within a scout: {', '.join(duplicates)}.")
+        return value
+
+
+class SignalScoutOutputDestinationsUpdateSerializer(SignalScoutRoutedOutputDestinationsSerializer):
     slack = SignalScoutSlackDestinationUpdateSerializer(
         required=False,
         allow_null=True,
@@ -3406,9 +3565,17 @@ def _validate_output_destinations(value: dict, context: dict) -> dict:
     webhook = value.get("webhook") or None
     # Absent means "not supplied", which the update path reads to keep a stored opt-out.
     inbox = {"inbox": value["inbox"]} if "inbox" in value else {}
+    # Kept when supplied, `[]` included: a second validation pass (the upsert path) reads an absent key
+    # as "keep the stored routes", so dropping an explicit clear here would restore them. The update
+    # path fills in the stored routes before this runs when the key is absent.
+    messages = {"messages": value["messages"]} if "messages" in value else {}
     slack = value.get("slack")
     if slack is None:
-        return {**({"webhook": webhook} if webhook else {}), **inbox}
+        if value.get("messages"):
+            raise serializers.ValidationError(
+                {"messages": "Message routes need a Slack integration. Set `slack.integration_id` too."}
+            )
+        return {**({"webhook": webhook} if webhook else {}), **inbox, **messages}
 
     project_id = context.get("project_id")
     if not isinstance(project_id, int):
@@ -3435,7 +3602,7 @@ def _validate_output_destinations(value: dict, context: dict) -> dict:
         if scopes_missing_after_legacy_fallback(request, context.get("view"), key_scopes, ["inbox:read"]):
             raise InsufficientScope(["inbox:read"])
 
-    return {"slack": slack, **({"webhook": webhook} if webhook else {}), **inbox}
+    return {"slack": slack, **({"webhook": webhook} if webhook else {}), **inbox, **messages}
 
 
 _SCOUT_TAGS_HELP_TEXT = (
@@ -4066,7 +4233,7 @@ class SignalScoutConfigSerializer(serializers.ModelSerializer):
         allow_null=True,
         help_text="Id of the owning object in `source_product`, e.g. a Replay Vision scanner id.",
     )
-    output_destinations = SignalScoutOutputDestinationsSerializer(
+    output_destinations = SignalScoutRoutedOutputDestinationsSerializer(
         read_only=True,
         help_text="Destinations that receive each finding or report this scout emits. Empty when none is configured.",
     )
@@ -4551,6 +4718,14 @@ class SignalScoutConfigUpdateSerializer(_ScoutConfigCapabilityFieldsMixin, seria
     )
 
     def validate_output_destinations(self, value: dict) -> dict:
+        stored = self.instance.output_destinations if isinstance(self.instance, SignalScoutConfig) else None
+        if "messages" not in value and isinstance(stored, dict) and stored.get("messages"):
+            value = {**value, "messages": stored["messages"]}
+            # Turning Slack delivery off sends no `slack`. The kept routes send through the integration,
+            # so it stays, without its channel or members: reports stop posting and the routes keep working.
+            stored_slack = stored.get("slack")
+            if value.get("slack") is None and isinstance(stored_slack, dict) and "integration_id" in stored_slack:
+                value["slack"] = {"integration_id": stored_slack["integration_id"]}
         return _validate_output_destinations(value, self.context)
 
     def update(self, instance: SignalScoutConfig, validated_data: dict) -> SignalScoutConfig:
@@ -4741,6 +4916,10 @@ class SignalScoutConfigCreateSerializer(SignalScoutConfigOptionsSerializer):
     """
 
     display_name = _display_name_field()
+    output_destinations = SignalScoutRoutedOutputDestinationsSerializer(
+        required=False,
+        help_text="Destinations that receive each finding or report this scout emits. Empty by default.",
+    )
     skill_name = serializers.CharField(
         max_length=200,
         help_text=(

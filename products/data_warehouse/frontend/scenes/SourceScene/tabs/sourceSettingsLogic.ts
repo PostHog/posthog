@@ -98,7 +98,13 @@ function nextJobsPollDelay(softFailureCount: number): number {
 // dropped edits like sync_frequency.
 // Incremental is missing here on purpose: it merges on a primary key, which differs per table and
 // so cannot come from one batch choice.
-export type BulkSyncMethod = 'full_refresh' | 'append'
+export type BulkSyncMethod = 'full_refresh' | 'append' | 'xmin'
+
+// xmin reads Postgres' system column, so only a source that can sync it gets the option. The schema
+// API still refuses a table that has no physical `xmin`, such as a view.
+export function bulkSyncMethodOptions(sourceSupportsXmin: boolean): BulkSyncMethod[] {
+    return sourceSupportsXmin ? ['full_refresh', 'append', 'xmin'] : ['full_refresh', 'append']
+}
 
 // CDC and webhook tables are held back because moving them off their sync method drops changes
 // that only a full resync recovers.
@@ -111,6 +117,13 @@ export function bulkSyncMethodDisabledReason(
     }
     if (syncType === 'append' && schemas.some((schema) => !schema.incremental_field)) {
         return 'Append needs an incremental field, which some selected tables have not got'
+    }
+    // The schema API refuses a switch to xmin without a key, and a table already on xmin keeps its own.
+    if (
+        syncType === 'xmin' &&
+        schemas.some((schema) => schema.sync_type !== 'xmin' && !schema.primary_key_columns?.length)
+    ) {
+        return 'xmin needs a primary key, which some selected tables have not got'
     }
     return undefined
 }

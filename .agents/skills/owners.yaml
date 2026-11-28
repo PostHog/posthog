@@ -2,9 +2,7 @@ version: 1
 owners: []
 rules:
     - match:
-          - '/auditing-llm-gateway-parity/'
-          - '/finding-llm-gateway-migration-candidates/'
-          - '/migrating-llm-gateway-callers/'
+          - '/calling-the-ai-gateway/'
       owners: team-agent-infrastructure
       sensitive: true
     - match:

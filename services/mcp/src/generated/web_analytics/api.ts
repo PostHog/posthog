@@ -422,7 +422,7 @@ export const SavedRegenerateCreateParams = () => zod.object({
 })
 
 /**
- * Summarizes a project's web analytics over a lookback window (default 7 days): unique visitors, pageviews, sessions, bounce rate, and average session duration with period-over-period comparisons, plus the top 5 pages, top 5 traffic sources, and goal conversions.
+ * Summarizes a project's web analytics over the last `days` complete days, ending yesterday (default 7): unique visitors, pageviews, sessions, bounce rate, and average session duration compared with the equal-length period before, plus the top 5 pages, top 5 traffic sources, and goal conversions. Test accounts are excluded when the project's default says so; see `metadata.filter_test_accounts`.
  * @summary Summarize web analytics
  */
 export const WebAnalyticsWeeklyDigestParams = () => zod.object({
@@ -441,12 +441,14 @@ export const WebAnalyticsWeeklyDigestQueryParams = () => zod.object({
         .boolean()
         .default(webAnalyticsWeeklyDigestQueryCompareDefault)
         .describe(
-            'When true (default), include period-over-period change for each metric comparing against the prior equal-length period. Set to false to skip the comparison query (faster).'
+            'When true (default), include period-over-period change for each metric comparing against the `days` complete days before the window. Set to false to skip the comparison query (faster).'
         ),
     days: zod
         .number()
         .default(webAnalyticsWeeklyDigestQueryDaysDefault)
-        .describe('Lookback window in days (1–90). Defaults to 7.'),
+        .describe(
+            'Number of complete days to summarize (1–90), ending yesterday in the project timezone. Defaults to 7.'
+        ),
 })
 
 /**

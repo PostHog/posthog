@@ -1,4 +1,3 @@
-import { percentage } from 'lib/utils/numbers'
 import { pluralize } from 'lib/utils/strings'
 
 import type {
@@ -11,6 +10,7 @@ import { AiVisibilityTag } from './AiVisibilityTag'
 import { ContentAutopilotCitationsLink } from './ContentAutopilotCitationsLink'
 import { ContentAutopilotRateBar } from './ContentAutopilotRateBar'
 import { isCitationGap } from './keywordsReport'
+import { formatShare } from './shares'
 import { engineLabel } from './utils'
 
 /** The words of one modifier group, with gaps against the baseline cited rate highlighted. */
@@ -66,7 +66,7 @@ export const ContentAutopilotKeywordModifierTerms = ({
                             rate={modifier.cited_rate}
                             tooltip={
                                 baselineCitedRate !== null
-                                    ? `Against ${percentage(baselineCitedRate, 0)} across all answers`
+                                    ? `Against ${formatShare(baselineCitedRate)} across all answers`
                                     : undefined
                             }
                         />

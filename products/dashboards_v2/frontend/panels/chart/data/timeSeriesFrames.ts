@@ -1,6 +1,10 @@
 import type { Series, YAxisConfig } from '@posthog/quill-charts'
 
 import type { DataFrame } from '../../../query/queryTypes'
+import { unitValuesFormatter } from './units'
+
+// The first unit's axis. A series on it carries no `yAxisId`.
+const LEFT_AXIS = 'left'
 
 export type TimeSeriesData = {
     labels: string[]
@@ -10,7 +14,7 @@ export type TimeSeriesData = {
     multiTarget: boolean
 }
 
-function fieldValues(frame: DataFrame, type: DataFrame['fields'][number]['type']): unknown[] {
+export function fieldValues(frame: DataFrame, type: DataFrame['fields'][number]['type']): unknown[] {
     return frame.fields.find((field) => field.type === type)?.values ?? []
 }
 
@@ -127,7 +131,7 @@ export function timeSeriesFromFrames(
     const units = [...new Set(frames.map(unitOf))]
     const axes =
         units.length > 1 || units[0]
-            ? units.map((unit, index) => ({ id: index === 0 ? 'left' : `unit-${index}`, unit }))
+            ? units.map((unit, index) => ({ id: index === 0 ? LEFT_AXIS : `unit-${index}`, unit }))
             : []
     // A legend such as `{{job}}` can give several frames of one target the same name, and the chart needs unique keys.
     const keyCounts = new Map<string, number>()
@@ -146,7 +150,7 @@ export function timeSeriesFromFrames(
                 const value = byTime.get(labelKey)
                 return typeof value === 'number' ? value : NaN
             }),
-            ...(axis && axis.id !== 'left' ? { yAxisId: axis.id } : {}),
+            ...(axis && axis.id !== LEFT_AXIS ? { yAxisId: axis.id } : {}),
         }
     })
     if (multiTarget && palette) {
@@ -160,17 +164,23 @@ export function timeSeriesFromFrames(
     return { labels, series, axes, multiTarget }
 }
 
-const UNIT_FORMATS: Record<string, YAxisConfig['format']> = { s: 'duration', ms: 'duration_ms', ns: 'duration_ns' }
-
-export function yAxisFor(axes: TimeSeriesData['axes']): YAxisConfig | YAxisConfig[] {
+/**
+ * One axis per unit, its ticks and tooltips formatted as OpenTelemetry units: `s`, `ms`, `By`,
+ * `1`, `{request}/s` and so on. A ratio axis reads as a percent only when every value on it fits one.
+ */
+export function yAxisFor(axes: TimeSeriesData['axes'], series: Series[]): YAxisConfig | YAxisConfig[] {
     if (axes.length === 0) {
         return { showGrid: true }
     }
-    return axes.map(({ id, unit }, index) => ({
-        id,
-        position: index === 0 ? 'left' : 'right',
-        // A duration axis already prints its unit on every tick.
-        ...(UNIT_FORMATS[unit] ? { format: UNIT_FORMATS[unit] } : unit ? { label: unit } : {}),
-        showGrid: index === 0,
-    }))
+    return axes.map(({ id, unit }, index) => {
+        const values = series
+            .filter((one) => (one.yAxisId ?? LEFT_AXIS) === id)
+            .flatMap((one) => one.data.filter(Number.isFinite))
+        return {
+            id,
+            position: index === 0 ? 'left' : 'right',
+            ...(unit ? { tickFormatter: unitValuesFormatter(unit, values) } : {}),
+            showGrid: index === 0,
+        }
+    })
 }

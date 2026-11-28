@@ -38,6 +38,8 @@ class NoCRMEndpointConfig:
     paginated: bool = True
     default_incremental_field: Optional[str] = None
     page_size: int = PAGE_SIZE
+    # Path to the row list when the response is an object rather than a bare JSON array.
+    data_selector: Optional[str] = None
 
 
 def _updated_at_incremental_fields() -> list[IncrementalField]:
@@ -74,6 +76,17 @@ USER_FANOUT = DependentEndpointConfig(
     resolve_field="id",
     include_from_parent=[],
     child_params={"status": "todo,standby,done"},
+    child_response_actions=[{"status_code": 404, "action": "ignore"}],
+)
+
+# Rows of a prospecting list are only returned inside `GET /spreadsheets/{id}`, so fan out over the lists.
+SPREADSHEET_FANOUT = DependentEndpointConfig(
+    parent_name="spreadsheets",
+    resolve_param="spreadsheet_id",
+    resolve_field="id",
+    include_from_parent=["id"],
+    parent_field_renames={"id": "spreadsheet_id"},
+    parent_params={"order": "id", "direction": "asc"},
     child_response_actions=[{"status_code": 404, "action": "ignore"}],
 )
 
@@ -161,6 +174,32 @@ NOCRM_ENDPOINTS: dict[str, NoCRMEndpointConfig] = {
         partition_key="created_at",
         fanout=USER_FANOUT,
         paginated=False,
+    ),
+    "lead_attachments": NoCRMEndpointConfig(
+        name="lead_attachments",
+        path="/leads/{lead_id}/attachments",
+        incremental_fields=[],
+        primary_keys=["lead_id", "id"],
+        should_sync_default=False,
+        fanout=LEAD_FANOUT,
+        paginated=False,
+    ),
+    "spreadsheets": NoCRMEndpointConfig(
+        name="spreadsheets",
+        path="/spreadsheets",
+        incremental_fields=[],
+        default_sort_order="id",
+        partition_key="created_at",
+    ),
+    "spreadsheet_rows": NoCRMEndpointConfig(
+        name="spreadsheet_rows",
+        path="/spreadsheets/{spreadsheet_id}",
+        incremental_fields=[],
+        primary_keys=["spreadsheet_id", "id"],
+        should_sync_default=False,
+        fanout=SPREADSHEET_FANOUT,
+        paginated=False,
+        data_selector="spreadsheet_rows",
     ),
 }
 

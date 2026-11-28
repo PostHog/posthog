@@ -14,6 +14,7 @@ from posthog.hogql.errors import ExposedHogQLError
 
 from posthog.constants import AvailableFeature
 from posthog.models import OrganizationMembership
+from posthog.models.instance_setting import override_instance_config
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.experiments.backend.metric_calculation.config import (
@@ -31,9 +32,10 @@ from products.experiments.backend.recalculation.admission import (
     RECALCULATION_AGE_LIMIT_FEATURE_FLAG,
     RECALCULATION_WINDOW_TOO_LONG_MESSAGE,
 )
+from products.experiments.backend.recalculation.kill_switch import RECALCULATION_ENABLED_SETTING
 from products.experiments.backend.recalculation.payloads import RUN_ENTRY_HIDDEN_MESSAGE
 from products.experiments.backend.temporal.models import ExperimentMetricsRecalculationWorkflowInputs
-from products.experiments.backend.temporal.recalculation.logic import (
+from products.experiments.backend.temporal.recalculation.calculation import (
     _calculate_experiment_metric_for_recalculation_sync,
 )
 from products.experiments.backend.temporal.recalculation.routing import RECALCULATION_ACTIVITY_QUEUE_FEATURE_FLAG
@@ -365,6 +367,30 @@ class TestMetricsRecalculationAPI(APIBaseTest):
         assert not mock_connect.called
         assert ExperimentMetricsRecalculation.objects.filter(experiment=exp).count() == 1
 
+    @parameterized.expand([("no_active_run", False), ("active_run", True)])
+    @mock.patch("products.experiments.backend.temporal.recalculation.dispatch.sync_connect")
+    @mock.patch("products.experiments.backend.temporal.recalculation.dispatch.asyncio.run")
+    def test_post_while_recalculation_is_paused(self, _name, has_active_run, mock_run, mock_connect):
+        exp = self._launched_experiment()
+        active = (
+            ExperimentMetricsRecalculation.objects.create(team=self.team, experiment=exp, status="pending")
+            if has_active_run
+            else None
+        )
+
+        with override_instance_config(RECALCULATION_ENABLED_SETTING, False):
+            resp = self.client.post(self._post_url(exp.id), {"trigger": "manual"}, format="json")
+
+        if active is not None:
+            assert resp.status_code == status.HTTP_200_OK, resp.content
+            assert resp.json()["id"] == str(active.id)
+        else:
+            assert resp.status_code == status.HTTP_503_SERVICE_UNAVAILABLE, resp.content
+            assert resp.json()["code"] == "recalculation_paused"
+            assert resp["Retry-After"] == "60"
+        assert not mock_connect.called
+        assert ExperimentMetricsRecalculation.objects.filter(experiment=exp).count() == int(has_active_run)
+
     @mock.patch(
         "products.experiments.backend.organization_flags.feature_enabled_or_false",
         side_effect=lambda key, *args, **kwargs: key == RECALCULATION_AGE_LIMIT_FEATURE_FLAG,
@@ -681,8 +707,10 @@ class TestMetricsRecalculationAPI(APIBaseTest):
     ) -> None:
         assert run.query_to is not None
         with (
-            mock.patch("products.experiments.backend.temporal.recalculation.logic.close_old_connections"),
-            mock.patch("products.experiments.backend.temporal.recalculation.logic.ExperimentQueryRunner") as runner,
+            mock.patch("products.experiments.backend.temporal.recalculation.calculation.close_old_connections"),
+            mock.patch(
+                "products.experiments.backend.temporal.recalculation.calculation.ExperimentQueryRunner"
+            ) as runner,
         ):
             runner.return_value.exposures_path = None
             runner.return_value.run.side_effect = error

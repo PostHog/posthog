@@ -141,6 +141,7 @@ export function QuillPropertyAccessRules({
             ) : (
                 <PropertyRuleRowEditingContext.Provider value={rowEditing}>
                     <DataTable
+                        className="rounded-md border border-border"
                         columns={COLUMNS}
                         data={properties}
                         getRowId={(rule) => rule.property_definition_id}

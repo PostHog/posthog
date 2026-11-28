@@ -1,6 +1,7 @@
 from products.warehouse_sources.sources.sdk import CanonicalDescriptions
 
 _EXPORT_DOCS = "https://docs.scarf.sh/data-export/"
+_API_DOCS = "https://api-docs.scarf.sh/v2.html"
 
 _EVENT_COLUMNS = {
     "id": "Identifier of the event. Scarf exports are at-least-once, so the same id can arrive twice.",
@@ -82,6 +83,47 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "company_industry": "Industry of the company.",
             "company_size": "Approximate employee count of the company.",
             "company_country": "Country of the company.",
+        },
+    },
+    "company_package_rollup": {
+        "description": "Daily package downloads per matched company and package.",
+        "docs_url": _API_DOCS,
+        "columns": {
+            "date": "Day the downloads happened, in UTC.",
+            "package": "Identifier of the package.",
+            "package_name": "Name of the package.",
+            "company": "Name of the company Scarf matched to the downloads.",
+            "company_domain": "Web domain of the matched company.",
+            "total": "Downloads of the package matched to the company on that day.",
+            "total_unique": "Unique downloads of the package matched to the company on that day.",
+        },
+    },
+    "company_pixel_rollup": {
+        "description": "Daily tracking pixel views per matched company and pixel.",
+        "docs_url": _API_DOCS,
+        "columns": {
+            "date": "Day the views happened, in UTC.",
+            "pixel": "Identifier of the tracking pixel.",
+            "pixel_name": "Name of the tracking pixel.",
+            "company": "Name of the company Scarf matched to the views.",
+            "company_domain": "Web domain of the matched company.",
+            "total": "Views of the pixel matched to the company on that day.",
+            "total_unique": "Unique views of the pixel matched to the company on that day.",
+        },
+    },
+    "daily_aggregates": {
+        "description": "Daily download and view totals per package and tracking pixel.",
+        "docs_url": _API_DOCS,
+        "columns": {
+            "date": "Day the totals cover, in UTC.",
+            "artifact": "Identifier of the package or tracking pixel.",
+            "artifact_name": "Name of the package or tracking pixel.",
+            "artifact_type": "Whether the row is for a package or a tracking pixel.",
+            "rollup": "Time period of the row, always daily here.",
+            "breakdown": "Breakdown of the row, always by-total here.",
+            "total": "Downloads or views on that day.",
+            "unique_origins": "Unique users behind the downloads or views on that day.",
+            "unique_endpoints": "Unique public-facing devices behind the downloads or views on that day.",
         },
     },
 }

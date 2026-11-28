@@ -218,9 +218,7 @@ export class InsightPage {
     // permanently intercepts clicks on the panel's lowest actions — View source
     // and Delete insight. Close every open toast so those actions are reachable.
     private async dismissToasts(): Promise<void> {
-        const closeButtons = this.page.locator(
-            '.Toastify__toast [data-attr="toast-close-button"], .Toastify__toast [data-attr="mcp-hint-close"]'
-        )
+        const closeButtons = this.page.locator('.Toastify__toast [data-attr="toast-close-button"]')
         for (let attempt = 0; attempt < 10 && (await closeButtons.count()) > 0; attempt++) {
             await closeButtons
                 .first()

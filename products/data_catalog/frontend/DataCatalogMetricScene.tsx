@@ -107,7 +107,7 @@ function LemonDataCatalogMetricScene({ name }: DataCatalogMetricSceneLogicProps)
     const { featureFlags } = useValues(featureFlagLogic)
     const sceneMenuBarEnabled = !!featureFlags[FEATURE_FLAGS.SCENE_MENU_BAR]
     const usageEnabled = !!featureFlags[FEATURE_FLAGS.DATA_CATALOG_USAGE]
-    const { isMaxAvailable } = useValues(maxGlobalLogic)
+    const { isAiAvailable } = useValues(maxGlobalLogic)
 
     if (metricLoading && !metric) {
         return <MetricSceneSkeleton />
@@ -188,7 +188,7 @@ function LemonDataCatalogMetricScene({ name }: DataCatalogMetricSceneLogicProps)
         metric,
         mutating,
         running: runResultLoading,
-        isMaxAvailable,
+        isAiAvailable,
         handlers: {
             approve: approveMetric,
             refreshFromInsight: refreshMetricFromInsight,
@@ -324,7 +324,7 @@ function LemonDataCatalogMetricScene({ name }: DataCatalogMetricSceneLogicProps)
                             }
                             onRun={loadRunResult}
                             onRunWithAI={runMetricWithAI}
-                            runWithAIDisabledReason={isMaxAvailable ? undefined : MAX_UNAVAILABLE_REASON}
+                            runWithAIDisabledReason={isAiAvailable ? undefined : MAX_UNAVAILABLE_REASON}
                         />
                     </div>
                 )}

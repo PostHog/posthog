@@ -4,7 +4,11 @@ import { FEATURE_FLAGS } from 'lib/constants'
 
 import { mswDecorator } from '~/mocks/browser'
 
-import type { SourceFilterCatalogApi } from 'products/signals/frontend/generated/api.schemas'
+import type {
+    SourceFilterCatalogApi,
+    SourceFilterPreviewRecordApi,
+    SourceFilterPreviewResponseApi,
+} from 'products/signals/frontend/generated/api.schemas'
 
 import { SignalSourceConfig, SignalSourceProduct, SignalSourceType } from '../../types'
 import { SourceFilterModal } from './SourceFilterModal'
@@ -68,6 +72,52 @@ const LINEAR_TEAMS = [
     { id: 'team-support', name: 'Support' },
 ]
 
+function issue(number: number, title: string, createdAt: string): SourceFilterPreviewRecordApi {
+    return {
+        id: `issue-${number}`,
+        identifier: `ENG-${number}`,
+        title,
+        url: `https://linear.app/example/issue/ENG-${number}`,
+        created_at: createdAt,
+        malformed: false,
+        field_values: {},
+        failed_conditions: null,
+    }
+}
+
+const PASSING = [
+    issue(2481, 'Checkout button unresponsive on Safari 18', '2026-11-15T22:00:00Z'),
+    issue(2479, 'Export to CSV drops rows past 10k', '2026-11-15T19:00:00Z'),
+    issue(2477, 'Push notifications arrive twice on Android', '2026-11-15T13:00:00Z'),
+    issue(2473, 'Dark mode contrast too low on settings page', '2026-11-14T17:00:00Z'),
+    issue(2470, 'Search results ignore accented characters', '2026-11-13T17:00:00Z'),
+]
+
+const EXCLUDED = [
+    issue(2480, 'Bump eslint plugin to latest', '2026-11-15T21:00:00Z'),
+    issue(2478, 'Investigate flaky billing test', '2026-11-15T16:00:00Z'),
+    issue(2474, 'Q4 planning doc review', '2026-11-14T22:00:00Z'),
+    issue(2471, 'Rotate staging database credentials', '2026-11-14T02:00:00Z'),
+]
+
+function preview(filtered: boolean): SourceFilterPreviewResponseApi {
+    return {
+        status: 'ok',
+        error: null,
+        error_code: null,
+        error_start: null,
+        error_end: null,
+        catalog_version: 2,
+        lookback_days: 7,
+        total_count: 64,
+        passing_count: filtered ? 38 : 64,
+        excluded_count: filtered ? 26 : 0,
+        malformed_count: 0,
+        passing: filtered ? PASSING : [...PASSING, ...EXCLUDED],
+        excluded: filtered ? EXCLUDED : [],
+    }
+}
+
 const meta: Meta<typeof SourceFilterModal> = {
     title: 'Scenes-App/Inbox/SourceFilterModal',
     component: SourceFilterModal,
@@ -77,6 +127,20 @@ const meta: Meta<typeof SourceFilterModal> = {
             get: {
                 '/api/projects/:team_id/integrations/': { results: [LINEAR_INTEGRATION] },
                 '/api/environments/:team_id/integrations/:id/linear_teams/': { teams: LINEAR_TEAMS },
+            },
+            post: {
+                '/api/projects/:team_id/signals/source_configs/filter_validate/': {
+                    valid: true,
+                    catalog_version: 2,
+                    error: null,
+                    error_code: null,
+                    error_start: null,
+                    error_end: null,
+                },
+                '/api/projects/:team_id/signals/source_configs/filter_preview/': async ({ request }) => {
+                    const { expression } = (await request.json()) as { expression: string }
+                    return [200, preview(!!expression.trim())]
+                },
             },
         }),
     ],
@@ -117,6 +181,15 @@ export const WithPickedTeams: Story = {
     args: {
         sourceConfig: linearConfig({
             linear_team_ids: ['team-eng', 'team-support'],
+            hogql_filter: { expression: "NOT has(label_names, 'internal')", catalog_version: 2 },
+        }),
+    },
+}
+
+export const SourceWithoutPreview: Story = {
+    args: {
+        catalog: { ...CATALOG, preview_supported: false },
+        sourceConfig: linearConfig({
             hogql_filter: { expression: "NOT has(label_names, 'internal')", catalog_version: 2 },
         }),
     },

@@ -2615,6 +2615,7 @@ class HogFlowActionSerializer(serializers.Serializer):
 
                 function_inputs_context = {
                     "function_type": template.type,
+                    "in_workflow": True,
                     "is_dwh_source": self.context.get("is_dwh_source", False),
                     # The existing (decrypted) secret inputs for this action, so a resent
                     # {"secret": true} marker recovers the stored value instead of wiping it.
@@ -3602,8 +3603,9 @@ class TeamEmailReputationResponseSerializer(serializers.Serializer):
         read_only=True,
         help_text=(
             "Sending health across every project in this PostHog region over the last 30 whole days, which "
-            "all send through the same infrastructure. Null when AWS is unreachable or has no data, or "
-            "while the feature is not yet released to this project."
+            "all send through the same infrastructure. Null when AWS is unreachable or has no data, when "
+            "the region sent too few emails for its totals to stay private, or while the feature is not "
+            "yet released to this project."
         ),
     )
 

@@ -118,6 +118,9 @@ export const notebooksPartialUpdateBodyAppDraftOneBlocksItemTitleMax = 256
 export const notebooksPartialUpdateBodyAppDraftOneBlocksItemWidthDefault = 12
 export const notebooksPartialUpdateBodyAppDraftOneBlocksItemWidthMax = 12
 
+export const notebooksPartialUpdateBodyAppDraftOneBlocksItemHeightMin = 120
+export const notebooksPartialUpdateBodyAppDraftOneBlocksItemHeightMax = 1600
+
 export const notebooksPartialUpdateBodyAppDraftOneBlocksItemNodeIdDefault = ``
 export const notebooksPartialUpdateBodyAppDraftOneBlocksItemNodeIdMax = 160
 
@@ -158,6 +161,9 @@ export const notebooksPartialUpdateBodyAppPublishedOneBlocksItemTitleMax = 256
 
 export const notebooksPartialUpdateBodyAppPublishedOneBlocksItemWidthDefault = 12
 export const notebooksPartialUpdateBodyAppPublishedOneBlocksItemWidthMax = 12
+
+export const notebooksPartialUpdateBodyAppPublishedOneBlocksItemHeightMin = 120
+export const notebooksPartialUpdateBodyAppPublishedOneBlocksItemHeightMax = 1600
 
 export const notebooksPartialUpdateBodyAppPublishedOneBlocksItemNodeIdDefault = ``
 export const notebooksPartialUpdateBodyAppPublishedOneBlocksItemNodeIdMax = 160
@@ -289,6 +295,12 @@ export const NotebooksPartialUpdateBody = () => zod.object({
                                 .max(notebooksPartialUpdateBodyAppDraftOneBlocksItemWidthMax)
                                 .default(notebooksPartialUpdateBodyAppDraftOneBlocksItemWidthDefault)
                                 .describe('Width in a twelve-column grid.'),
+                            height: zod
+                                .number()
+                                .min(notebooksPartialUpdateBodyAppDraftOneBlocksItemHeightMin)
+                                .max(notebooksPartialUpdateBodyAppDraftOneBlocksItemHeightMax)
+                                .optional()
+                                .describe('Card height in pixels. Omit for automatic height.'),
                             node_id: zod
                                 .string()
                                 .max(notebooksPartialUpdateBodyAppDraftOneBlocksItemNodeIdMax)
@@ -405,6 +417,12 @@ export const NotebooksPartialUpdateBody = () => zod.object({
                                 .max(notebooksPartialUpdateBodyAppPublishedOneBlocksItemWidthMax)
                                 .default(notebooksPartialUpdateBodyAppPublishedOneBlocksItemWidthDefault)
                                 .describe('Width in a twelve-column grid.'),
+                            height: zod
+                                .number()
+                                .min(notebooksPartialUpdateBodyAppPublishedOneBlocksItemHeightMin)
+                                .max(notebooksPartialUpdateBodyAppPublishedOneBlocksItemHeightMax)
+                                .optional()
+                                .describe('Card height in pixels. Omit for automatic height.'),
                             node_id: zod
                                 .string()
                                 .max(notebooksPartialUpdateBodyAppPublishedOneBlocksItemNodeIdMax)

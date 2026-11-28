@@ -1,6 +1,7 @@
 from collections.abc import Callable
 from enum import StrEnum
 from typing import TYPE_CHECKING, ClassVar, Protocol
+from urllib.parse import urlsplit
 
 from django import forms
 from django.utils.safestring import SafeData
@@ -40,6 +41,10 @@ class Owner:
 
 # A card with more facts than this is a report. Put the detail in a tool and link to it.
 MAX_FACTS_PER_PANEL = 8
+# A plain fact value longer than this, or on more lines, shows its start and opens to the full value, so one long
+# value such as a query does not push the rest of the page down.
+COLLAPSE_FACT_CHARS = 160
+COLLAPSE_FACT_LINES = 3
 
 
 @frozen
@@ -50,14 +55,26 @@ class Fact:
     mono: bool = False
     # A console page the value links to, for example the team page of a team the fact names.
     href: str | None = None
+    detail: str = ""
 
     def __post_init__(self) -> None:
         # The shell escapes facts. Markup from format_html or mark_safe would bypass the shared design.
-        if isinstance(self.label, SafeData) or isinstance(self.value, SafeData):
+        if any(isinstance(text, SafeData) for text in (self.label, self.value, self.detail)):
             raise ValueError(f"Fact {self.label!r} must be plain text, not markup")
         # Facts link within PostHog only, so a value that came from customer data cannot become an outside link.
         if self.href is not None and not is_internal_path(self.href):
             raise ValueError(f"Fact {self.label!r} links to {self.href!r}. Link to a PostHog path that starts with /.")
+
+    @property
+    def collapsed(self) -> bool:
+        if self.href is not None or self.tone is not None:
+            return False
+        return len(self.value) > COLLAPSE_FACT_CHARS or self.value.count("\n") >= COLLAPSE_FACT_LINES
+
+    @property
+    def summary(self) -> str:
+        first_line = self.value.split("\n", 1)[0]
+        return f"{first_line[:COLLAPSE_FACT_CHARS].rstrip()}…"
 
 
 def _unresolved_owner_gate(request: "HttpRequest") -> bool:
@@ -119,11 +136,40 @@ def check_danger(key: str, danger: bool, form_class: type[forms.Form] | None, un
         )
 
 
+HANDOFF_LOCAL_HOSTS = frozenset({"localhost", "127.0.0.1"})
+
+
+@frozen
+class Handoff:
+    """Hands the file an operation returns to another tool, opened in a new tab, instead of downloading it.
+
+    The console opens `url` when staff click, runs the operation in the background, and posts the file to that
+    tab once it sends `{"type": "posthog-admin:ready"}`. The message is `{"type": "posthog-admin:handoff",
+    "version": 1, "files": [{"name", "text"}]}`, and only the tab the console opened, at `url`'s origin, gets it.
+    The file never goes through a server outside PostHog.
+
+    The tool's tab keeps a handle that can navigate the admin tab until it lets go, so the tool must accept the
+    message only from the PostHog origins it trusts, and set `window.opener = null` as soon as the file arrives.
+    """
+
+    url: str
+    tool: str
+
+    def __post_init__(self) -> None:
+        parts = urlsplit(self.url)
+        if not parts.netloc or not (
+            parts.scheme == "https" or (parts.scheme == "http" and parts.hostname in HANDOFF_LOCAL_HOSTS)
+        ):
+            raise ValueError(f"Handoff url {self.url!r} must be an https URL")
+        if not self.tool.strip():
+            raise ValueError("A handoff needs the tool's name")
+
+
 class OperationHandler(Protocol):
     """Returns None when done. To report a failure, add an error message and return a 4xx or 5xx response.
 
     It may return a `Page` instead, which the console shows once as the result, for example a password that
-    staff must copy now in a `Secret` block.
+    staff must copy now in a `Secret` block. An operation with a `Handoff` returns the file as an `HttpResponse`.
     """
 
     def __call__(
@@ -164,9 +210,12 @@ class Operation:
     # Opened from a support ticket link (`?ticket=<url>`), the reason starts as "For ticket <url>". Staff still read
     # and submit it, so only an operation whose reason names the ticket anyway opts in.
     reason_from_ticket: bool = False
+    handoff: Handoff | None = None
 
     def __post_init__(self) -> None:
         check_danger(self.key, self.danger, self.form_class, self.undo_hint)
+        if self.handoff is not None and (self.form_class is not None or self.danger):
+            raise ValueError(f"Operation {self.key!r} hands off a file, so it takes no form and cannot be a danger")
         if self.preview is not None and self.form_class is None:
             raise ValueError(f"Operation {self.key!r} has a preview, so it needs a form for the preview to read")
         if self.reason_from_ticket and (self.form_class is None or "reason" not in self.form_class.base_fields):

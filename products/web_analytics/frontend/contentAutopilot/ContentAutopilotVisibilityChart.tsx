@@ -1,19 +1,18 @@
 import { useMemo } from 'react'
 
-import { Empty, EmptyDescription, EmptyHeader, Text, ToggleGroup, ToggleGroupItem } from '@posthog/quill'
+import { Empty, EmptyDescription, EmptyHeader, ToggleGroup, ToggleGroupItem } from '@posthog/quill'
 import { TimeSeriesLineChart } from '@posthog/quill-charts'
 import type { Series, TimeSeriesLineChartConfig } from '@posthog/quill-charts'
 
 import { useChartTheme } from 'lib/charts/hooks'
-import { pluralize } from 'lib/utils/strings'
 
 import { DataVisualizationNode } from '~/queries/schema/schema-general'
 
 import { AiVisibilityCard } from './AiVisibilityCard'
-import { ContentAutopilotChartAverages } from './ContentAutopilotChartAverages'
 import { ContentAutopilotOpenInsightButton } from './ContentAutopilotOpenInsightButton'
 import type { PromptVisibilityMetric } from './promptReport'
-import { type EngineVisibilityChart, MIN_TREND_DAYS, daysWithData, trendDisplay } from './visibilityChart'
+import { formatShare } from './shares'
+import { DAY_POINTS, type EngineVisibilityChart } from './visibilityChart'
 
 const BASE_CONFIG: TimeSeriesLineChartConfig = {
     // The labels are calendar days, so UTC keeps each tick and tooltip date on its own day.
@@ -27,6 +26,7 @@ const BASE_CONFIG: TimeSeriesLineChartConfig = {
 const RATE_CONFIG: TimeSeriesLineChartConfig = {
     ...BASE_CONFIG,
     yAxis: { format: 'percentage_scaled', showGrid: true },
+    tooltip: { valueFormatter: (value: number) => (Number.isFinite(value) ? formatShare(value) : '-') },
 }
 
 const POSITION_CONFIG: TimeSeriesLineChartConfig = {
@@ -70,12 +70,17 @@ export const ContentAutopilotVisibilityChart = ({
 }): JSX.Element => {
     const theme = useChartTheme()
     const series = useMemo<Series[]>(
-        () => chart.series.map(({ engine, label, color, data }) => ({ key: engine, label, color, data })),
+        () =>
+            chart.series.map(({ engine, label, color, data }) => ({
+                key: engine,
+                label,
+                color,
+                data,
+                points: DAY_POINTS,
+            })),
         [chart]
     )
     const hasData = chart.series.some(({ data }) => data.some(Number.isFinite))
-    const days = daysWithData(chart)
-    const display = trendDisplay(days)
     return (
         <AiVisibilityCard
             title={TITLES[metric]}
@@ -104,36 +109,22 @@ export const ContentAutopilotVisibilityChart = ({
                 </>
             }
         >
-            {hasData && display === 'averages' ? (
-                <ContentAutopilotChartAverages chart={chart} metric={metric} days={days} data-attr={dataAttr} />
-            ) : (
-                <div className="flex h-72 min-w-0 flex-col" data-attr={dataAttr}>
-                    {hasData && display === 'waiting' ? (
-                        <Text
-                            size="xs"
-                            variant="muted"
-                            render={<p className="m-0 pb-1" />}
-                            data-attr={`${dataAttr}-waiting`}
-                        >
-                            Waiting for more days of data. {pluralize(days, 'day')} of {MIN_TREND_DAYS} so far.
-                        </Text>
-                    ) : null}
-                    {hasData ? (
-                        <TimeSeriesLineChart
-                            series={series}
-                            labels={chart.labels}
-                            theme={theme}
-                            config={metric === 'position' ? POSITION_CONFIG : RATE_CONFIG}
-                        />
-                    ) : (
-                        <Empty className="flex-1">
-                            <EmptyHeader>
-                                <EmptyDescription>{EMPTY[metric]}</EmptyDescription>
-                            </EmptyHeader>
-                        </Empty>
-                    )}
-                </div>
-            )}
+            <div className="flex h-72 min-w-0 flex-col" data-attr={dataAttr}>
+                {hasData ? (
+                    <TimeSeriesLineChart
+                        series={series}
+                        labels={chart.labels}
+                        theme={theme}
+                        config={metric === 'position' ? POSITION_CONFIG : RATE_CONFIG}
+                    />
+                ) : (
+                    <Empty className="flex-1">
+                        <EmptyHeader>
+                            <EmptyDescription>{EMPTY[metric]}</EmptyDescription>
+                        </EmptyHeader>
+                    </Empty>
+                )}
+            </div>
         </AiVisibilityCard>
     )
 }

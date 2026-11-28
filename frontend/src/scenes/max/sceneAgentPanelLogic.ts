@@ -15,7 +15,7 @@ export interface sceneAgentPanelLogicValues {
     featureFlags: FeatureFlagsSet // featureFlagLogic
     receivedFeatureFlags: boolean // featureFlagLogic
     effectivePhaiView: PhaiViewMode // maxGlobalLogic
-    isMaxAvailable: boolean // maxGlobalLogic
+    isTaskRunnerAvailable: boolean // maxGlobalLogic
     modalMode: boolean // sidePanelStateLogic
     selectedTab: SidePanelTab | null // sidePanelStateLogic
     sidePanelAvailable: boolean // sidePanelStateLogic
@@ -51,7 +51,7 @@ export interface sceneAgentPanelLogicMeta {
         sceneIntegrationEnabled: (
             featureFlags: FeatureFlagsSet,
             effectivePhaiView: PhaiViewMode,
-            isMaxAvailable: boolean
+            isTaskRunnerAvailable: boolean
         ) => boolean
     }
 }
@@ -76,7 +76,7 @@ export const sceneAgentPanelLogic = kea<sceneAgentPanelLogicType>([
             featureFlagLogic,
             ['featureFlags', 'receivedFeatureFlags'],
             maxGlobalLogic,
-            ['effectivePhaiView', 'isMaxAvailable'],
+            ['effectivePhaiView', 'isTaskRunnerAvailable'],
             sidePanelStateLogic,
             ['sidePanelOpen', 'selectedTab', 'sidePanelAvailable', 'modalMode'],
         ],
@@ -112,10 +112,12 @@ export const sceneAgentPanelLogic = kea<sceneAgentPanelLogicType>([
         // of the feature reaches users the rollout flag hasn't. Only the new (sandbox) view qualifies,
         // because only it consumes attached context.
         sceneIntegrationEnabled: [
-            (s) => [s.featureFlags, s.effectivePhaiView, s.isMaxAvailable],
-            (featureFlags: FeatureFlagsSet, effectivePhaiView: PhaiViewMode, isMaxAvailable: boolean): boolean =>
+            (s) => [s.featureFlags, s.effectivePhaiView, s.isTaskRunnerAvailable],
+            (featureFlags: FeatureFlagsSet, effectivePhaiView: PhaiViewMode, isTaskRunnerAvailable: boolean): boolean =>
                 Boolean(
-                    featureFlags[FEATURE_FLAGS.PHAI_SCENE_AUTO_OPEN] && effectivePhaiView === 'new' && isMaxAvailable
+                    featureFlags[FEATURE_FLAGS.PHAI_SCENE_AUTO_OPEN] &&
+                    effectivePhaiView === 'new' &&
+                    isTaskRunnerAvailable
                 ),
         ],
     }),

@@ -3,6 +3,7 @@ import pino from 'pino'
 import { parseJSON } from '~/common/utils/json-parse'
 import { logger } from '~/common/utils/logger'
 
+import { createSandboxSesSender } from '../ses-transport'
 import {
     FakeSesEndpoint,
     SES_ACCESS_DENIED,
@@ -14,7 +15,7 @@ import {
 } from './_tests/fake-ses-endpoint'
 import { SES_SEND_TIMEOUT_MS } from './sandbox-deadlines'
 import { SandboxMessage } from './sandbox-message'
-import { SandboxSesClient, createSandboxSesV2Client } from './sandbox-ses-client'
+import { SandboxSesClient } from './sandbox-ses-client'
 
 const captureLogRecords = (): { records: Record<string, unknown>[]; stop: () => void } => {
     const target = logger as unknown as { pino: pino.Logger }
@@ -57,7 +58,7 @@ describe('SandboxSesClient', () => {
     beforeEach(async () => {
         ses = new FakeSesEndpoint()
         const endpoint = await ses.start()
-        client = new SandboxSesClient(createSandboxSesV2Client({ region: 'us-east-1', endpoint }), {
+        client = new SandboxSesClient(createSandboxSesSender({ region: 'us-east-1', endpoint }), {
             configurationSet: 'sandbox-config-set',
             tenantName: 'sandbox-tenant',
         })

@@ -565,9 +565,6 @@ if get_from_env("POSTHOG_REPLAY_VISION_REDIS_HOST", ""):
         os.getenv("POSTHOG_REPLAY_VISION_REDIS_PORT", "6379"),
     )
 
-# The LLM gateway caches per-team quota state in its own Redis (llm_gateway/services/quota_resolver.py).
-# The central-Redis default only suits single-Redis setups; cloud must point this at the gateway's instance.
-LLM_GATEWAY_REDIS_URL = os.getenv("LLM_GATEWAY_REDIS_URL", REDIS_URL)
 
 if not REDIS_URL:
     raise ImproperlyConfigured(
@@ -804,6 +801,15 @@ WAREHOUSE_SOURCE_CATALOG_CACHE_CONFIG = {
 }
 CACHES["warehouse_source_catalog"] = WAREHOUSE_SOURCE_CATALOG_CACHE_CONFIG
 
+WORKFLOWS_EMAIL_INFRASTRUCTURE_HEALTH_CACHE_CONFIG = {
+    **CACHES["default"],
+    "OPTIONS": {
+        **CACHES["default"]["OPTIONS"],
+        "SERIALIZER": "django_redis.serializers.json.JSONSerializer",
+    },
+}
+CACHES["workflows_email_infrastructure_health"] = WORKFLOWS_EMAIL_INFRASTRUCTURE_HEALTH_CACHE_CONFIG
+
 # Authorization cache reads must use the writer. Reading membership versions and values from
 # different replicas can otherwise make a revoked membership appear valid after invalidation.
 CACHES["organization_access"] = {
@@ -1004,6 +1010,7 @@ else:
 if TEST:
     CACHES["default"] = {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}
     CACHES["warehouse_source_catalog"] = CACHES["default"]
+    CACHES["workflows_email_infrastructure_health"] = CACHES["default"]
     CACHES["query_cache"] = CACHES["default"]
     CACHES["organization_access"] = CACHES["default"]
     CACHES["cohort_dependencies"] = CACHES["default"]

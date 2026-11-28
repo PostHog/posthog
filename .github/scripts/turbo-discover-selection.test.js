@@ -31,6 +31,9 @@ const selectionFixture = (extra) => ({
         total_seconds: 90000,
         selected_seconds: 120,
         skipped_seconds: 4500,
+        narrowable_baseline_seconds: 4600,
+        selected_django_seconds: 80,
+        selected_product_seconds: 40,
         selected_seconds_by_segment: { core: 0, poe: 0, temporal: 0 },
     },
     ...extra,
@@ -137,6 +140,9 @@ test('a fallback still reports the counts the selector produced', () => {
     assert.equal(decision.changed_file_count, 3)
     assert.equal(decision.selected_test_seconds, 120)
     assert.equal(decision.skipped_test_seconds, 4500)
+    assert.equal(decision.selected_django_seconds, 80)
+    assert.equal(decision.django_baseline_seconds, 4600)
+    assert.equal(decision.selected_product_seconds, 40)
 })
 
 test('a selected run hands each matrix leg its own file list', () => {

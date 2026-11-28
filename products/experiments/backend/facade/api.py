@@ -588,6 +588,16 @@ def start_timeseries_recalculation_workflow(recalculation_id: str, *, team_id: i
     admission.start_timeseries_recalculation_workflow(recalculation_id, team_id=team_id)
 
 
+# drf-spectacular names a choice field's enum by its (value, label) pairs, so these keep the model's enum names.
+RECALCULATION_STATUS_CHOICES: list[tuple[str, str]] = [
+    (value, str(label)) for value, label in ExperimentMetricsRecalculation.Status.choices
+]
+RECALCULATION_REQUEST_TRIGGER_CHOICES: list[tuple[str, str]] = [
+    (value, str(label)) for value, label in ExperimentMetricsRecalculation.RequestTrigger.choices
+]
+RECALCULATION_TRIGGER_AGENT_MCP: str = ExperimentMetricsRecalculation.Trigger.AGENT_MCP.value
+
+
 def start_metrics_recalculation(
     *, team_id: int, experiment_id: int, user_id: int, trigger: str
 ) -> RequestedRecalculation:
