@@ -4413,7 +4413,7 @@ Note: Parsed the OpenAPI spec (34 paths). Existing tables cover members, groups,
 
 ## DagsterCloud — gaps
 
-Today (18): `asset_materializations`, `asset_nodes`, `asset_observations`, `assets`, `backfills`, `custom_roles`, `deployments`, `insights_asset_metrics`, `insights_deployment_metrics`, `insights_job_metrics`, `instigation_states`, `instigation_ticks`, `run_logs`, `runs`, `schedules`, `sensors`, `teams`, `users`
+Today (22): `asset_check_executions`, `asset_materializations`, `asset_nodes`, `asset_observations`, `asset_slas`, `assets`, `backfills`, `code_locations`, `custom_roles`, `deployments`, `insights_asset_metrics`, `insights_deployment_metrics`, `insights_job_metrics`, `instigation_states`, `instigation_ticks`, `repositories`, `run_logs`, `runs`, `schedules`, `sensors`, `teams`, `users`
 
 Diffed against: <https://raw.githubusercontent.com/dagster-io/dagster/master/python_modules/libraries/dagster-dg-cli/dagster_dg_cli/cli/plus/schema.graphql>
 
@@ -4423,12 +4423,13 @@ Diffed against: <https://raw.githubusercontent.com/dagster-io/dagster/master/pyt
 - [x] `instigationStatesOrError / InstigationTick history (autoMaterializeTicks)` — schedule and sensor tick success/failure/skip history — orchestration reliability analysis (high)
 - [x] `deployments / fullDeployments / branchDeployments` — lookup resolving which Dagster+ deployment each run and asset belongs to (high)
 - [x] `reportingMetricsByJob / reportingMetricsByAsset / reportingMetricsByDeployment (Dagster+ Insights)` — Dagster+'s headline metrics — credits consumed, run duration, materialization and retry counts per job/asset/deployment (high)
-- [ ] `assetCheckExecutions` — data quality check results per asset over time (medium)
-- [ ] `repositoriesOrError / workspaceOrError (code locations, jobs, pipelines)` — lookup resolving repositoryOrigin and jobName already present on run rows (medium)
+- [x] `assetCheckExecutions` — data quality check results per asset over time (medium)
+- [x] `repositoriesOrError / workspaceOrError (code locations, jobs, pipelines)` — lookup resolving repositoryOrigin and jobName already present on run rows (medium)
 - [x] `logsForRun (run event / step log)` — step-level timings, failures and retries inside runs we already sync (medium)
 - [x] `usersOrError / teamPermissions / customRoles` — org membership and role assignment for attributing runs and backfills to people (medium)
-- [ ] `auditLog` — who changed deployments, code locations and automation settings (medium)
-- [ ] `slasForAssets / assetSlaTimeline` — asset SLA state and breach timeline for freshness reporting (low)
+- [ ] `auditLog` — who changed deployments, code locations and automation settings (medium). Skipped: The API accepts a cursor but does not document how to get the next one.
+- [x] `slasForAssets` — current asset SLA state (low)
+- [ ] `assetSlaTimeline` — breach timeline for freshness reporting (low). Skipped: The public schema does not give a history limit or a way to check completeness.
 
 Note: Diffed against the Dagster+ cloud GraphQL schema snapshot vendored in dagster-dg-cli (type CloudQuery), which is a superset of the OSS webserver schema at js_modules/ui-core/src/graphql/schema.graphql. The `assets` table stays thin by design — ASSETS_QUERY is the asset-key enumeration the `asset_nodes`, `asset_materializations` and `asset_observations` fan-outs walk, and the metadata and event history land in those tables instead.
 
