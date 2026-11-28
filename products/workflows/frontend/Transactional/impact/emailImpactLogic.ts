@@ -368,6 +368,7 @@ export const emailImpactLogic = kea<emailImpactLogicType>([
             actions.setEvent(event)
         },
         setDays: () => actions.loadImpact(),
+        turnOnLinkTrackingSuccess: () => actions.loadImpact(),
         loadCurrentTeamSuccess: () => {
             if (!values.impact && !values.impactLoading) {
                 actions.loadImpact()
