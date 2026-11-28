@@ -31,6 +31,8 @@ export const CAPABILITIES_CDP_WORKFLOWS: PluginServerCapabilities = {
     cdpCyclotronWorkerBatchResolve: true,
     cdpCyclotronWorkerHogFlow: true,
     cdpCyclotronWorkerEmail: true,
+    // Only dev provides the limiter's Valkey by default, and the worker refuses to start without it.
+    cdpCyclotronWorkerClassify: isDevEnv(),
     // PostHog Cloud runs the janitor as its own deployment. A self-hosted install has only this
     // process, and without a janitor nothing deletes finished jobs or recovers jobs that a crash
     // left running, so the Cyclotron database grows without limit.
@@ -154,6 +156,10 @@ export function getPluginServerCapabilities(
         case PluginServerMode.cdp_cyclotron_worker_email_sandbox:
             return {
                 cdpCyclotronWorkerEmailSandbox: true,
+            }
+        case PluginServerMode.cdp_cyclotron_worker_classify:
+            return {
+                cdpCyclotronWorkerClassify: true,
             }
         case PluginServerMode.cdp_precalculated_filters:
             // The consumer is gone. Boot with no capabilities so a pod that charts still

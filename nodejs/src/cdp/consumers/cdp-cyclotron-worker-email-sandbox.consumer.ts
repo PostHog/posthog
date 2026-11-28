@@ -1,5 +1,3 @@
-import { DateTime } from 'luxon'
-
 import { PluginsServerConfig } from '~/types'
 
 import { sendsOnSandboxSender } from '../services/hogflows/actions/email_sandbox'
@@ -7,7 +5,7 @@ import { JobQueue } from '../services/job-queue/job-queue.interface'
 import { CyclotronJobInvocation, CyclotronJobInvocationHogFlow, CyclotronJobInvocationResult } from '../types'
 import { createInvocationResult } from '../utils/invocation-utils'
 import { CdpConsumerBaseDeps } from './cdp-base.consumer'
-import { CdpCyclotronWorkerHogFlow } from './cdp-cyclotron-worker-hogflow.consumer'
+import { CdpCyclotronWorkerHogFlow, routeBackToHogFlowQueue } from './cdp-cyclotron-worker-hogflow.consumer'
 
 export class CdpCyclotronWorkerEmailSandbox extends CdpCyclotronWorkerHogFlow {
     protected override name = 'CdpCyclotronWorkerEmailSandbox'
@@ -49,16 +47,4 @@ function isStillOnSandboxEmailStep(invocation: CyclotronJobInvocationHogFlow): b
     return invocation.hogFlow.actions.some(
         (action) => action.id === currentActionId && sendsOnSandboxSender(invocation, action)
     )
-}
-
-function routeBackToHogFlowQueue(
-    result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow>
-): CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow> {
-    result.invocation.queue = 'hogflow'
-    result.invocation.queueParameters = null
-    result.invocation.queueScheduledAt = DateTime.now()
-    if (result.invocation.state?.currentAction) {
-        result.invocation.state.currentAction.routingOnlyReschedule = true
-    }
-    return result
 }

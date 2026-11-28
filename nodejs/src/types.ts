@@ -153,6 +153,7 @@ export interface PluginServerCapabilities {
     cdpCyclotronWorkerHogFlow?: boolean
     cdpCyclotronWorkerEmail?: boolean
     cdpCyclotronWorkerEmailSandbox?: boolean
+    cdpCyclotronWorkerClassify?: boolean
     cdpCohortMembership?: boolean
     cdpCohortMembershipTriggers?: boolean
     cdpApi?: boolean
