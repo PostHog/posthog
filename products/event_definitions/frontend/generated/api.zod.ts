@@ -91,6 +91,29 @@ export const EventDefinitionsPartialUpdateBody = /* @__PURE__ */ zod
     .describe('Serializer mixin that handles tags for objects.')
 
 /**
+ * Hide or unhide multiple event definitions in one request.
+ *
+ * Mirrors ``bulk_update_verified``: ``hidden`` lives on the ``EnterpriseEventDefinition``
+ * extension, so this requires an enterprise license, scopes by project, lazily promotes base
+ * rows, skips events already in the target state, and logs a "changed" activity per event.
+ * Mirrors the single-object semantics: hiding unverifies the event (an event cannot be both
+ * hidden and verified); unhiding cancels a scheduled delete.
+ */
+export const eventDefinitionsBulkUpdateHiddenCreateBodyIdsMax = 500
+
+export const EventDefinitionsBulkUpdateHiddenCreateBody = /* @__PURE__ */ zod.object({
+    ids: zod
+        .array(zod.uuid())
+        .max(eventDefinitionsBulkUpdateHiddenCreateBodyIdsMax)
+        .describe('List of event definition UUIDs to update.'),
+    hidden: zod
+        .boolean()
+        .describe(
+            'Target hidden state to apply to every matched event. `true` hides the events (and unverifies them, since an event cannot be both hidden and verified); `false` unhides them.'
+        ),
+})
+
+/**
  * Add, remove, or replace tags across multiple event definitions in one request.
  *
  * Overrides ``TaggedItemViewSetMixin.bulk_update_tags``, which assumes integer PKs and runs

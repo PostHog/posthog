@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import uuid
+import builtins
 import functools
 from collections import defaultdict
 from collections.abc import Sequence
-from typing import Any, Literal, Optional, cast
+from datetime import datetime
+from typing import TYPE_CHECKING, Any, Literal, Optional, cast
 
 from django.core.cache import cache
 from django.core.exceptions import ValidationError as DjangoValidationError
@@ -21,6 +23,8 @@ from prometheus_client import Counter
 from rest_framework import exceptions, mixins, request, response, serializers, status, viewsets
 from rest_framework.permissions import SAFE_METHODS
 from rest_framework.settings import api_settings
+from rest_framework.throttling import BaseThrottle
+from rest_framework.views import APIView
 
 from posthog.accessible_teams import AccessibleTeams, CredentialScopeDenied
 from posthog.api.event_definition_generators.base import EventDefinitionGenerator
@@ -53,12 +57,19 @@ from posthog.event_usage import report_user_action
 from posthog.filters import TermSearchFilterBackend, term_search_filter_sql
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models import ObjectMediaPreview, Team
-from posthog.models.activity_logging.activity_log import Detail, dict_changes_between, log_activity
+from posthog.models.activity_logging.activity_log import (
+    Detail,
+    LogActivityEntry,
+    bulk_log_activity,
+    dict_changes_between,
+    log_activity,
+)
 from posthog.models.event_filter_config import add_event_name_drop
 from posthog.models.tagged_item_registry import content_type_for
 from posthog.models.user import User
 from posthog.models.utils import UUIDT
 from posthog.permissions import is_scout_sandbox_request, is_service_auth
+from posthog.rate_limit import PersonalApiKeyOrUserRateThrottle
 from posthog.settings import EE_AVAILABLE
 from posthog.taxonomy.definition_listing import (
     DEFINITION_LIST_STATEMENT_TIMEOUT_MS,
@@ -77,9 +88,15 @@ from posthog.taxonomy.taxonomy import CORE_EVENTS, STALE_EVENT_DAYS
 from posthog.utils import get_safe_cache, relative_date_parse
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
-from products.event_definitions.backend.facade.api import batch_definition_metadata_copies
+from products.event_definitions.backend.facade.api import (
+    batch_definition_metadata_copies,
+    copy_definition_metadata_on_commit,
+)
 from products.event_definitions.backend.models import EventDefinition
 from products.event_definitions.backend.models.property_definition import effective_project_id_expr
+
+if TYPE_CHECKING:
+    from ee.models.event_definition import EnterpriseEventDefinition
 
 # If EE is enabled, we use ee.api.ee_event_definition.EnterpriseEventDefinitionSerializer
 
@@ -388,6 +405,35 @@ class EventDefinitionBulkUpdateVerifiedResponseSerializer(serializers.Serializer
     )
 
 
+class EventDefinitionBulkUpdateHiddenRequestSerializer(serializers.Serializer):
+    ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        allow_empty=False,
+        max_length=BULK_UPDATE_TAGS_MAX_IDS,
+        help_text="List of event definition UUIDs to update.",
+    )
+    hidden = serializers.BooleanField(
+        help_text=(
+            "Target hidden state to apply to every matched event. `true` hides the events "
+            "(and unverifies them, since an event cannot be both hidden and verified); `false` unhides them."
+        ),
+    )
+
+
+class EventDefinitionBulkUpdateHiddenItemSerializer(serializers.Serializer):
+    id = serializers.UUIDField(help_text="UUID of the event definition whose hidden state changed.")
+    hidden = serializers.BooleanField(help_text="The event's hidden state after the update.")
+
+
+class EventDefinitionBulkUpdateHiddenResponseSerializer(serializers.Serializer):
+    updated = EventDefinitionBulkUpdateHiddenItemSerializer(
+        many=True, help_text="Events whose hidden state was changed. Events already in the target state are omitted."
+    )
+    skipped = BulkUpdateTagsUUIDErrorSerializer(
+        many=True, help_text="Events that were skipped (e.g. not found in this project), with a reason each."
+    )
+
+
 # Postgres LIMIT and OFFSET take a bigint. DRF accepts arbitrary-size ints, and binding one past
 # the bigint range makes Postgres answer with a 500, so clamp them.
 POSTGRES_BIGINT_MAX = 2**63 - 1
@@ -461,6 +507,27 @@ class GeneratedGolangDefinitionsSerializer(GeneratedDefinitionsSerializer):
     )
 
 
+BULK_HIDE_FLAG = "event-definitions-bulk-hide"
+
+
+class BulkHideBurstRateThrottle(PersonalApiKeyOrUserRateThrottle):
+    """Each bulk hide writes up to 500 rows and as many activity logs, so session callers get a budget too."""
+
+    scope = "event_definition_bulk_hide_burst"
+    rate = "30/minute"
+
+    def get_cache_key(self, request: request.Request, view: APIView) -> str:
+        return self.cache_format % {
+            "scope": self.scope,
+            "ident": f"{self.safely_get_team_id_from_view(view)}:{request.user.pk}",
+        }
+
+
+class BulkHideSustainedRateThrottle(BulkHideBurstRateThrottle):
+    scope = "event_definition_bulk_hide_sustained"
+    rate = "300/hour"
+
+
 class EventDefinitionViewSet(
     TeamAndOrgViewSetMixin,
     TaggedItemViewSetMixin,
@@ -472,7 +539,7 @@ class EventDefinitionViewSet(
     viewsets.GenericViewSet,
 ):
     scope_object = "event_definition"
-    # "bulk_update_tags"/"bulk_update_verified" must be opted in here so personal API keys with
+    # "bulk_update_tags"/"bulk_update_verified"/"bulk_update_hidden" must be opted in here so personal API keys with
     # event_definition:write can use them.
     scope_object_write_actions = [
         "create",
@@ -482,6 +549,7 @@ class EventDefinitionViewSet(
         "destroy",
         "bulk_update_tags",
         "bulk_update_verified",
+        "bulk_update_hidden",
     ]
     serializer_class = EventDefinitionSerializer
     lookup_field = "id"
@@ -880,23 +948,49 @@ class EventDefinitionViewSet(
             non_enterprise_event = EventDefinition.objects.alias(effective_project_id=effective_project_id_expr()).get(
                 **filters
             )
-            new_enterprise_event = EnterpriseEventDefinition(
-                eventdefinition_ptr_id=non_enterprise_event.id, description=""
-            )
-            new_enterprise_event.__dict__.update(non_enterprise_event.__dict__)
-            try:
-                # Savepoint so a losing race here doesn't poison a surrounding transaction.
-                with transaction.atomic():
-                    new_enterprise_event.save()
-            except IntegrityError:
-                # A concurrent request promoted the same base row first; reuse its extension.
-                existing = EnterpriseEventDefinition.objects.filter(pk=non_enterprise_event.pk).first()
-                if existing is None:
-                    raise
-                return existing
-            return new_enterprise_event
+            return self._promote_to_enterprise(non_enterprise_event)
 
         return EventDefinition.objects.alias(effective_project_id=effective_project_id_expr()).get(**filters)
+
+    @staticmethod
+    def _promote_to_enterprise(non_enterprise_event: EventDefinition) -> EnterpriseEventDefinition:
+        """Give an ingestion-created base row its enterprise extension. Requires EE_AVAILABLE."""
+        from ee.models.event_definition import EnterpriseEventDefinition
+
+        new_enterprise_event = EnterpriseEventDefinition(eventdefinition_ptr_id=non_enterprise_event.id, description="")
+        new_enterprise_event.__dict__.update(non_enterprise_event.__dict__)
+        try:
+            # Savepoint so a losing race here doesn't poison a surrounding transaction.
+            with transaction.atomic():
+                new_enterprise_event.save()
+        except IntegrityError:
+            # A concurrent request promoted the same base row first; reuse its extension.
+            existing = EnterpriseEventDefinition.objects.filter(pk=non_enterprise_event.pk).first()
+            if existing is None:
+                raise
+            return existing
+        return new_enterprise_event
+
+    def _bulk_hide_enabled(self, user: User) -> bool:
+        team = self.team
+        organization_id = str(team.organization_id)
+        return bool(
+            posthoganalytics.feature_enabled(
+                BULK_HIDE_FLAG,
+                str(user.distinct_id),
+                groups={"organization": organization_id, "project": str(team.id)},
+                group_properties={"organization": {"id": organization_id}, "project": {"id": str(team.id)}},
+                only_evaluate_locally=False,
+                send_feature_flag_events=False,
+            )
+        )
+
+    # `builtins.list` because this class's own `list` action shadows the builtin in annotations
+    def get_throttles(self) -> builtins.list[BaseThrottle]:
+        throttles = super().get_throttles()
+        if self.action == "bulk_update_hidden":
+            return [BulkHideBurstRateThrottle(), BulkHideSustainedRateThrottle(), *throttles]
+        return throttles
 
     def check_permissions(self, request: request.Request) -> None:
         super().check_permissions(request)
@@ -952,12 +1046,36 @@ class EventDefinitionViewSet(
         )
         return response.Response({"updated": updated, "skipped": skipped})
 
+    def _log_bulk_state_change(
+        self,
+        definition: EventDefinition,
+        before: dict[str, bool | datetime | None],
+        after: dict[str, bool | datetime | None],
+        *,
+        user: User,
+        was_impersonated: bool,
+    ) -> None:
+        """Log a "changed" activity for one event of a bulk update, as the single-object path does."""
+        log_activity(
+            organization_id=None,
+            team_id=self.team_id,
+            user=user,
+            item_id=str(definition.id),
+            scope="EventDefinition",
+            activity="changed",
+            was_impersonated=was_impersonated,
+            detail=Detail(
+                name=str(definition.name),
+                changes=dict_changes_between("EventDefinition", before, after, use_field_exclusions=True),
+            ),
+        )
+
     @extend_schema(
         request=EventDefinitionBulkUpdateVerifiedRequestSerializer,
         responses={200: EventDefinitionBulkUpdateVerifiedResponseSerializer},
     )
     @action(methods=["POST"], detail=False)
-    def bulk_update_verified(self, request, *args, **kwargs) -> response.Response:
+    def bulk_update_verified(self, request: request.Request, *args, **kwargs) -> response.Response:
         """Mark multiple event definitions as verified or unverified in one request.
 
         In the same vein as ``bulk_update_tags``, but ``verified`` lives on the enterprise
@@ -1031,6 +1149,7 @@ class EventDefinitionViewSet(
                 before_hidden = bool(enterprise.hidden)
 
                 enterprise.verified = verified
+                enterprise.updated_by = user
                 if verified:
                     enterprise.verified_by = user
                     enterprise.verified_at = now
@@ -1042,24 +1161,134 @@ class EventDefinitionViewSet(
                 enterprise.save()
 
                 # `verified` was necessarily the opposite before (no-ops were skipped above).
-                changes = dict_changes_between(
-                    "EventDefinition",
+                self._log_bulk_state_change(
+                    enterprise,
                     {"verified": not verified, "hidden": before_hidden},
                     {"verified": verified, "hidden": bool(enterprise.hidden)},
-                    use_field_exclusions=True,
-                )
-                log_activity(
-                    organization_id=None,
-                    team_id=self.team_id,
                     user=user,
-                    item_id=str(enterprise.id),
-                    scope="EventDefinition",
-                    activity="changed",
                     was_impersonated=was_impersonated,
-                    detail=Detail(name=str(enterprise.name), changes=changes),
                 )
                 updated.append({"id": enterprise.id, "verified": verified})
 
+        return response.Response({"updated": updated, "skipped": skipped})
+
+    @extend_schema(
+        request=EventDefinitionBulkUpdateHiddenRequestSerializer,
+        responses={200: EventDefinitionBulkUpdateHiddenResponseSerializer},
+    )
+    @action(methods=["POST"], detail=False)
+    def bulk_update_hidden(self, request: request.Request, *args, **kwargs) -> response.Response:
+        """Hide or unhide multiple event definitions in one request.
+
+        Mirrors ``bulk_update_verified``: ``hidden`` lives on the ``EnterpriseEventDefinition``
+        extension, so this requires an enterprise license, scopes by project, lazily promotes base
+        rows, skips events already in the target state, and logs a "changed" activity per event.
+        Mirrors the single-object semantics: hiding unverifies the event (an event cannot be both
+        hidden and verified); unhiding cancels a scheduled delete.
+        """
+        if not EE_AVAILABLE:
+            raise serializers.ValidationError("Hiding event definitions requires an enterprise license.")
+        if not self._bulk_hide_enabled(cast(User, request.user)):
+            raise exceptions.PermissionDenied(
+                "Bulk hide isn't turned on for this project yet. Hide events one at a time from each event's page."
+            )
+
+        from ee.models.event_definition import EnterpriseEventDefinition
+
+        serializer = EventDefinitionBulkUpdateHiddenRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        validated_ids = list(dict.fromkeys(serializer.validated_data["ids"]))
+        hidden = serializer.validated_data["hidden"]
+
+        user = cast(User, request.user)
+        now = timezone.now()
+        was_impersonated = is_impersonated(request)
+        changed: list[EnterpriseEventDefinition] = []
+        log_entries: list[LogActivityEntry] = []
+
+        # Same batch semantics as bulk_update_verified: one transaction, so a failure rolls back the
+        # whole set and its activity logs. Each table's rows are locked in id order, base rows first as
+        # a single-object save does, and ee rows in the order the metadata copy takes them, so neither
+        # can deadlock with this edit.
+        with transaction.atomic(), batch_definition_metadata_copies():
+            base_by_id = {
+                row.id: row
+                for row in EventDefinition.objects.select_for_update(of=("self",))
+                .filter(id__in=validated_ids, team__project_id=self.project_id)
+                .order_by("id")
+            }
+            enterprise_by_id = {
+                row.id: row
+                for row in EnterpriseEventDefinition.objects.select_for_update(of=("self",))
+                .filter(id__in=base_by_id.keys(), team__project_id=self.project_id)
+                .order_by("id")
+            }
+
+            for obj_id in sorted(base_by_id):
+                enterprise = enterprise_by_id.get(obj_id)
+                # A base row without an extension is visible and unverified
+                if bool(enterprise and enterprise.hidden) == hidden:
+                    continue  # no-op: skip without promoting a base row or writing
+                if enterprise is None:
+                    # One insert per row: Django can't bulk-create a multi-table child of an existing row
+                    enterprise = self._promote_to_enterprise(base_by_id[obj_id])
+
+                before = {
+                    "hidden": bool(enterprise.hidden),
+                    "verified": bool(enterprise.verified),
+                    "scheduled_deletion_at": enterprise.scheduled_deletion_at,
+                }
+                enterprise.hidden = hidden
+                enterprise.updated_by = user
+                enterprise.updated_at = now  # bulk_update skips auto_now
+                if hidden:
+                    enterprise.verified = False  # an event cannot be both hidden and verified
+                    enterprise.verified_by = None
+                    enterprise.verified_at = None
+                else:
+                    enterprise.scheduled_deletion_at = None  # a scheduled delete only applies to hidden events
+                after = {
+                    "hidden": hidden,
+                    "verified": bool(enterprise.verified),
+                    "scheduled_deletion_at": enterprise.scheduled_deletion_at,
+                }
+                changed.append(enterprise)
+                log_entries.append(
+                    LogActivityEntry(
+                        organization_id=None,
+                        team_id=self.team_id,
+                        user=user,
+                        item_id=str(enterprise.id),
+                        scope="EventDefinition",
+                        activity="changed",
+                        was_impersonated=was_impersonated,
+                        detail=Detail(
+                            name=str(enterprise.name),
+                            changes=dict_changes_between("EventDefinition", before, after, use_field_exclusions=True),
+                        ),
+                    )
+                )
+
+            # `scheduled_deletion_at` lives on the base table, so Django updates both tables. bulk_update
+            # bypasses save(), which is what queues the metadata copy, so queue it here.
+            EnterpriseEventDefinition.objects.bulk_update(
+                changed,
+                [
+                    "hidden",
+                    "verified",
+                    "verified_by",
+                    "verified_at",
+                    "updated_by",
+                    "updated_at",
+                    "scheduled_deletion_at",
+                ],
+            )
+            for enterprise in changed:
+                copy_definition_metadata_on_commit("event", enterprise.pk)
+            bulk_log_activity(log_entries)
+
+        updated = [{"id": enterprise.id, "hidden": hidden} for enterprise in changed]
+        skipped = [{"id": obj_id, "reason": "Not found"} for obj_id in validated_ids if obj_id not in base_by_id]
         return response.Response({"updated": updated, "skipped": skipped})
 
     @extend_schema(request=None, responses={200: EventDefinitionSerializer})

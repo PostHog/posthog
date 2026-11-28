@@ -1,17 +1,21 @@
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any, Optional, cast
+from uuid import uuid4
 
 import time_machine
 from posthog.test.base import APIBaseTest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
+from django.core.cache.backends.locmem import LocMemCache
 from django.db import connection
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 import dateutil.parser
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.api.event_definition import BULK_HIDE_FLAG, BulkHideBurstRateThrottle, BulkHideSustainedRateThrottle
 from posthog.api.test.test_event_definition import EventFixture, capture_event
 from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
@@ -20,6 +24,7 @@ from posthog.models import ActivityLog, ObjectMediaPreview, Tag, Team, UploadedM
 from posthog.models.event_filter_config import EventFilterConfig, EventFilterMode
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
+from posthog.rate_limit import PersonalApiKeyOrUserRateThrottle
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.event_definitions.backend.logic.definition_metadata import copy_definition_metadata
@@ -332,6 +337,7 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
         to_change.refresh_from_db()
         assert already.verified is target
         assert to_change.verified is target
+        assert to_change.updated_by_id == self.user.id
         # Verifying stamps metadata; unverifying clears it.
         if target:
             assert to_change.verified_by_id == self.user.id
@@ -501,6 +507,172 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
         # The batch is atomic: a failure on the second event rolls back the first too.
         assert first.verified is False
         assert second.verified is False
+
+    @parameterized.expand(
+        [
+            # Ingestion creates base rows without the enterprise extension, so hiding has to promote one.
+            ("hide_base_row", True, {}, [("hidden", False, True)]),
+            (
+                "hide_verified",
+                True,
+                {"hidden": False, "verified": True},
+                [("hidden", False, True), ("verified", True, False)],
+            ),
+            (
+                "unhide_scheduled_for_deletion",
+                False,
+                {"hidden": True, "scheduled_deletion_at": datetime(2500, 1, 1, tzinfo=UTC)},
+                [("hidden", True, False), ("scheduled_deletion_at", "2500-01-01T00:00:00+00:00", None)],
+            ),
+        ]
+    )
+    @patch("posthog.api.event_definition.posthoganalytics.feature_enabled", new=Mock(return_value=True))
+    def test_bulk_update_hidden_flips_state_and_skips_noops(self, _name, target, enterprise_fields, expected_changes):
+        super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            plan="enterprise", valid_until=datetime(2500, 1, 19, 3, 14, 7)
+        )
+        already = EnterpriseEventDefinition.objects.create(team=self.demo_team, name="bulk_hide_already", hidden=target)
+        if enterprise_fields:
+            to_change: EventDefinition = EnterpriseEventDefinition.objects.create(
+                team=self.demo_team, name="bulk_hide_change", **enterprise_fields
+            )
+        else:
+            to_change = EventDefinition.objects.create(team=self.demo_team, name="bulk_hide_change")
+        ActivityLog.objects.filter(team_id=self.demo_team.pk, scope="EventDefinition").delete()
+
+        response = self.client.post(
+            f"/api/projects/{self.demo_team.pk}/event_definitions/bulk_update_hidden/",
+            {"ids": [str(already.id), str(to_change.id)], "hidden": target},
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        data = response.json()
+        assert data["updated"] == [{"id": str(to_change.id), "hidden": target}]
+        assert data["skipped"] == []
+
+        changed = EnterpriseEventDefinition.objects.get(pk=to_change.pk)
+        assert changed.hidden is target
+        # An event cannot be both hidden and verified, and a scheduled delete only applies to hidden events.
+        assert changed.verified is False
+        assert changed.scheduled_deletion_at is None
+        assert changed.updated_by_id == self.user.id
+
+        log = ActivityLog.objects.get(team_id=self.demo_team.pk, scope="EventDefinition")
+        assert (log.item_id, log.activity) == (str(to_change.id), "changed")
+        assert log.detail is not None
+        assert sorted((c["field"], c["before"], c["after"]) for c in log.detail["changes"]) == expected_changes
+
+    @patch("posthog.api.event_definition.posthoganalytics.feature_enabled", new=Mock(return_value=True))
+    def test_bulk_update_hidden_query_count_does_not_grow_with_the_batch(self):
+        super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            plan="enterprise", valid_until=datetime(2500, 1, 19, 3, 14, 7)
+        )
+
+        def hide(count: int) -> tuple[int, list[EnterpriseEventDefinition]]:
+            events = [
+                EnterpriseEventDefinition.objects.create(
+                    team=self.demo_team, name=f"bulk_hide_batch_{count}_{i}", verified=True
+                )
+                for i in range(count)
+            ]
+            with CaptureQueriesContext(connection) as queries, self.captureOnCommitCallbacks(execute=True):
+                response = self.client.post(
+                    f"/api/projects/{self.demo_team.pk}/event_definitions/bulk_update_hidden/",
+                    {"ids": [str(e.id) for e in events], "hidden": True},
+                )
+            assert response.status_code == status.HTTP_200_OK, response.json()
+            assert len(response.json()["updated"]) == count
+            return len(queries), events
+
+        hide(1)  # the first request warms per-process caches
+        small_count, _ = hide(2)
+        large_count, events = hide(6)
+
+        assert large_count == small_count
+        # bulk_update skips save(), so the metadata copy and the activity log must still cover every row
+        metadata = EventDefinitionMetadata.objects.for_team(self.demo_team.pk, canonical=True)
+        assert set(metadata.filter(hidden=True, verified=False).values_list("pk", flat=True)) >= {e.id for e in events}
+        assert ActivityLog.objects.filter(
+            team_id=self.demo_team.pk, scope="EventDefinition", item_id__in=[str(e.id) for e in events]
+        ).count() == len(events)
+
+    @parameterized.expand([(BulkHideBurstRateThrottle,), (BulkHideSustainedRateThrottle,)])
+    @patch("posthog.api.event_definition.posthoganalytics.feature_enabled", new=Mock(return_value=True))
+    def test_bulk_update_hidden_throttles_session_callers(self, throttle_class: type[BulkHideBurstRateThrottle]):
+        super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            plan="enterprise", valid_until=datetime(2500, 1, 19, 3, 14, 7)
+        )
+        event = EnterpriseEventDefinition.objects.create(team=self.demo_team, name="bulk_hide_throttled")
+        url = f"/api/projects/{self.demo_team.pk}/event_definitions/"
+
+        with (
+            patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True),
+            patch.object(PersonalApiKeyOrUserRateThrottle, "cache", LocMemCache(f"bulk-hide-{uuid4()}", {})),
+            patch.object(throttle_class, "rate", "1/minute"),
+        ):
+            first = self.client.post(f"{url}bulk_update_hidden/", {"ids": [str(event.id)], "hidden": True})
+            second = self.client.post(f"{url}bulk_update_hidden/", {"ids": [str(event.id)], "hidden": False})
+            listed = self.client.get(url)
+
+        assert first.status_code == status.HTTP_200_OK, first.json()
+        assert second.status_code == status.HTTP_429_TOO_MANY_REQUESTS
+        assert listed.status_code == status.HTTP_200_OK
+
+    @patch("posthog.api.event_definition.posthoganalytics.feature_enabled", new=Mock(return_value=True))
+    def test_bulk_update_hidden_ignores_event_definitions_in_other_project(self):
+        super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            plan="enterprise", valid_until=datetime(2500, 1, 19, 3, 14, 7)
+        )
+        other_team = Team.objects.create(organization=self.organization, name="other")
+        other = EnterpriseEventDefinition.objects.create(team=other_team, name="bulk_hide_other", hidden=False)
+
+        response = self.client.post(
+            f"/api/projects/{self.demo_team.pk}/event_definitions/bulk_update_hidden/",
+            {"ids": [str(other.id)], "hidden": True},
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["updated"] == []
+        assert response.json()["skipped"] == [{"id": str(other.id), "reason": "Not found"}]
+        other.refresh_from_db()
+        assert other.hidden is False
+
+    @parameterized.expand(
+        [("flag_off", False, status.HTTP_403_FORBIDDEN, False), ("flag_on", True, status.HTTP_200_OK, True)]
+    )
+    def test_bulk_update_hidden_requires_the_feature_flag(self, _name, flag_on, expected_status, expected_hidden):
+        super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            plan="enterprise", valid_until=datetime(2500, 1, 19, 3, 14, 7)
+        )
+        event = EnterpriseEventDefinition.objects.create(team=self.demo_team, name="bulk_hide_flagged", hidden=False)
+
+        with patch(
+            "posthog.api.event_definition.posthoganalytics.feature_enabled",
+            side_effect=lambda key, *args, **kwargs: flag_on and key == BULK_HIDE_FLAG,
+        ):
+            response = self.client.post(
+                f"/api/projects/{self.demo_team.pk}/event_definitions/bulk_update_hidden/",
+                {"ids": [str(event.id)], "hidden": True},
+            )
+
+        assert response.status_code == expected_status, response.json()
+        if not flag_on:
+            assert "Bulk hide isn't turned on" in response.json()["detail"]
+        event.refresh_from_db()
+        assert event.hidden is expected_hidden
+
+    def test_bulk_update_hidden_requires_enterprise_build(self):
+        event = EnterpriseEventDefinition.objects.create(team=self.demo_team, name="bulk_hide_foss", hidden=False)
+
+        with patch("posthog.api.event_definition.EE_AVAILABLE", False):
+            response = self.client.post(
+                f"/api/projects/{self.demo_team.pk}/event_definitions/bulk_update_hidden/",
+                {"ids": [str(event.id)], "hidden": True},
+            )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        event.refresh_from_db()
+        assert event.hidden is False
 
     def test_bulk_update_verified_requires_enterprise_build(self):
         event = EnterpriseEventDefinition.objects.create(team=self.demo_team, name="bulk_verify_foss", verified=False)
