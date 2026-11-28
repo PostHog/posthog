@@ -23,6 +23,7 @@ interface Page {
     text: (text: string) => HTMLElement | null
     sent: (event: string) => Promise<Record<string, any>[]>
     waitFor: (assertion: () => Promise<void>) => Promise<void>
+    failFlagsRefresh: () => Promise<void>
     switchViewer: (uuid: string) => void
     close: () => void
 }
@@ -140,6 +141,20 @@ function openFreshPageLoad(
                     .map((sent) => sent.properties)
             },
             waitFor: (assertion) => rtl.waitFor(assertion),
+            failFlagsRefresh: () =>
+                rtl.act(async () => {
+                    useMocks({ post: { [`${INGESTION_HOST}/flags/`]: () => [500, {}] } })
+                    let callbacks = 0
+                    await new Promise<void>((resolve) => {
+                        const stop = posthog.onFeatureFlags(() => {
+                            if (++callbacks > 1) {
+                                stop()
+                                resolve()
+                            }
+                        })
+                        posthog.reloadFeatureFlags()
+                    })
+                }),
             switchViewer: (uuid) => rtl.act(() => userLogic.actions.loadUserSuccess({ ...MOCK_DEFAULT_USER, uuid })),
             close: () => rtl.cleanup(),
         }
@@ -276,7 +291,7 @@ describe('MessagingCtaChip', () => {
             const flagsRequest = new Promise<Record<string, string | boolean>>((resolve) => {
                 answerFlags = resolve
             })
-            const { renderChip, chip, sent, waitFor } = open(bootstrapped, { flagsRequest })
+            const { renderChip, chip, sent, waitFor, failFlagsRefresh } = open(bootstrapped, { flagsRequest })
             renderChip()
 
             expect(chip()).toBeNull()
@@ -294,6 +309,9 @@ describe('MessagingCtaChip', () => {
                     }),
                 ])
             )
+            expect(chip()?.textContent).toContain('From an email?')
+
+            await failFlagsRefresh()
             expect(chip()?.textContent).toContain('From an email?')
         }
     )

@@ -52,8 +52,12 @@ export function useMessagingCta(key: MessagingPlacementKey, viewerId: string): M
     const placement = placementFor(key)
     const flag = areaFlag(placement.area) as FeatureFlagKey
     // An answer equal to the bootstrap leaves featureFlagLogic's values unchanged, so it renders nothing new.
+    // A failed refresh keeps the answered values but clears the SDK's fresh marker, so the first answer holds.
     const [flagAnswered, setFlagAnswered] = useState(() => hasThisPageLoadsValue(flag))
-    useEffect(() => posthog.onFeatureFlags(() => setFlagAnswered(hasThisPageLoadsValue(flag))), [flag])
+    useEffect(
+        () => posthog.onFeatureFlags(() => setFlagAnswered((answered) => answered || hasThisPageLoadsValue(flag))),
+        [flag]
+    )
     const flagValue = peekFeatureFlag(featureFlags, flag)
     const destinationFlag = DESTINATION_FLAGS[placement.destination]
     const destinationAvailable = !destinationFlag || !!peekFeatureFlag(featureFlags, destinationFlag)
