@@ -14,10 +14,12 @@ import {
     ADD_DIRECT_CONNECTION_PREFIX,
     CONFIGURE_SOURCES,
     type ConnectionSelectOption,
+    type ConnectionSelectorConfig,
     POSTHOG_WAREHOUSE,
-    addHiddenSelectedConnectionOption,
+    getConnectionSelectOptions,
     connectionSelectorLogic,
     getConnectionSelectorValue,
+    isConnectionSelectorRestricted,
 } from 'products/data_warehouse/frontend/shared/logics/connectionSelectorLogic'
 
 import { sqlEditorLogic } from './sqlEditorLogic'
@@ -28,9 +30,10 @@ const sourceIcon = (src: string): JSX.Element => (
 
 interface ConnectionSelectorProps {
     tabId: string
+    connectionSelectorConfig?: ConnectionSelectorConfig
 }
 
-export function ConnectionSelector({ tabId }: ConnectionSelectorProps): JSX.Element | null {
+export function ConnectionSelector({ tabId, connectionSelectorConfig }: ConnectionSelectorProps): JSX.Element | null {
     const logic = sqlEditorLogic({ tabId })
     const { sourceQuery, selectedConnectionId } = useValues(logic)
     const { connectionOptions, connectionOptionsLoading, connectionSelectOptions } =
@@ -39,6 +42,7 @@ export function ConnectionSelector({ tabId }: ConnectionSelectorProps): JSX.Elem
     const { setSourceQuery, syncUrlWithQuery, setExecutionTarget } = useActions(logic)
     const { featureFlags } = useValues(featureFlagLogic)
     const hostedTrinoEnabled = !!featureFlags[FEATURE_FLAGS.MANAGED_TRINO_QUERY]
+    const restricted = isConnectionSelectorRestricted(connectionSelectorConfig)
 
     useOnMountEffect(() => {
         maybeLoadConnectionOptions()
@@ -46,12 +50,16 @@ export function ConnectionSelector({ tabId }: ConnectionSelectorProps): JSX.Elem
     const connectionSelectorValue =
         sourceQuery.source.executionTarget === 'managed_trino'
             ? 'managed_trino'
-            : getConnectionSelectorValue(connectionOptionsLoading, selectedConnectionId)
-    const displayedConnectionSelectOptions = addHiddenSelectedConnectionOption(
+            : getConnectionSelectorValue(
+                  connectionOptionsLoading || (restricted && connectionOptions === null),
+                  selectedConnectionId
+              )
+    const displayedConnectionSelectOptions = getConnectionSelectOptions(
         connectionSelectOptions,
         connectionOptions,
         connectionOptionsLoading,
-        selectedConnectionId
+        sourceQuery.source.executionTarget === 'managed_trino' ? 'managed_trino' : selectedConnectionId,
+        connectionSelectorConfig
     )
     // Strip the legacy top-level connectionId so source.connectionId stays canonical.
     const { connectionId: _legacyConnectionId, ...sourceQueryWithoutLegacyConnectionId } =
@@ -70,7 +78,22 @@ export function ConnectionSelector({ tabId }: ConnectionSelectorProps): JSX.Elem
             className="flex-1 min-w-0"
             truncateText={{ maxWidthClass: 'max-w-full' }}
             value={connectionSelectorValue}
+            status={
+                displayedConnectionSelectOptions.some((group) =>
+                    group.options.some((option) => option.value === connectionSelectorValue && option.disabledReason)
+                )
+                    ? 'danger'
+                    : undefined
+            }
             onChange={(nextValue) => {
+                if (
+                    restricted &&
+                    !displayedConnectionSelectOptions.some((group) =>
+                        group.options.some((option) => option.value === nextValue && !option.disabled)
+                    )
+                ) {
+                    return
+                }
                 if (nextValue === 'managed_trino') {
                     setExecutionTarget('managed_trino')
                     return
@@ -118,6 +141,7 @@ export function ConnectionSelector({ tabId }: ConnectionSelectorProps): JSX.Elem
                     const connectionOption = toLemonSelectOption(option)
                     if (
                         option.value === POSTHOG_WAREHOUSE &&
+                        !restricted &&
                         (hostedTrinoEnabled || sourceQuery.source.executionTarget === 'managed_trino')
                     ) {
                         return [
@@ -151,6 +175,7 @@ function toLemonSelectOption(option: ConnectionSelectOption): LemonSelectOption<
         label: option.label,
         icon,
         hidden: option.hidden,
+        disabledReason: option.disabledReason ?? (option.disabled ? 'Loading connections' : undefined),
         sideAction: option.managementUrl
             ? {
                   onClick: () => newInternalTab(option.managementUrl),

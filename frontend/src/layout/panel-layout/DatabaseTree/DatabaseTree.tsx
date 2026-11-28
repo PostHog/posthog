@@ -16,6 +16,7 @@ import { sqlEditorLogic } from 'scenes/data-warehouse/editor/sqlEditorLogic'
 
 import { ExpressionModal } from 'products/data_warehouse/frontend/shared/components/ExpressionModal'
 import { ViewLinkModal } from 'products/data_warehouse/frontend/shared/components/ViewLinkModal'
+import type { ConnectionSelectorConfig } from 'products/data_warehouse/frontend/shared/logics/connectionSelectorLogic'
 
 import { SyncMoreNotice } from './SyncMoreNotice'
 
@@ -24,6 +25,8 @@ export const DatabaseTree = memo(function DatabaseTree({
     tabId,
     extraTreeSections,
     embedded = false,
+    hideConnectionSelector,
+    connectionSelectorConfig,
 }: {
     databaseTreeRef: React.RefObject<HTMLDivElement>
     tabId: string
@@ -31,6 +34,8 @@ export const DatabaseTree = memo(function DatabaseTree({
     extraTreeSections?: TreeDataItem[]
     /** Rendered inside a notebook cell rather than the editor scene. */
     embedded?: boolean
+    hideConnectionSelector?: boolean
+    connectionSelectorConfig?: ConnectionSelectorConfig
 }): JSX.Element | null {
     const scrollContainerRef = useRef<HTMLDivElement | null>(null)
     const {
@@ -75,7 +80,9 @@ export const DatabaseTree = memo(function DatabaseTree({
                     >
                         <IconSidebarClose className="size-4 text-tertiary rotate-180" />
                     </ButtonPrimitive>
-                    <ConnectionSelector tabId={tabId} />
+                    {!hideConnectionSelector && (
+                        <ConnectionSelector tabId={tabId} connectionSelectorConfig={connectionSelectorConfig} />
+                    )}
                 </div>
                 <DatabaseSearchField placeholder={searchPlaceholder} />
             </div>
@@ -104,7 +111,7 @@ export const DatabaseTree = memo(function DatabaseTree({
                         extraTreeSections={extraTreeSections}
                     />
                 </div>
-                <SyncMoreNotice />
+                {connectionSelectorConfig?.showSourceActions !== false && <SyncMoreNotice />}
                 <ViewLinkModal />
                 <ExpressionModal />
             </ScrollableShadows>

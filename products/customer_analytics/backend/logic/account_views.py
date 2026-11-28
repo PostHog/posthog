@@ -1,7 +1,7 @@
 import re
 import json
 from collections import Counter
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from functools import cache, cached_property
 from time import monotonic
 from typing import TYPE_CHECKING, Any
@@ -79,24 +79,33 @@ ACCOUNT_VIEW_NATIVE_PROPERTY_KEYS = {
 ACCOUNT_VIEW_MAX_PROPERTIES = 50
 
 
+def is_account_sql_source_field(field: ast.Expr, aliases: set[str]) -> bool:
+    return isinstance(field, ast.Field) and not any(
+        ".".join(str(part) for part in field.chain[:length]) in aliases for length in range(1, len(field.chain) + 1)
+    )
+
+
 def is_account_sql_query_filter(
-    expression: ast.Expr | None, aliases: set[str], allowed_fields: set[tuple[str | int, ...]] | None = None
+    expression: ast.Expr | None,
+    aliases: set[str],
+    allowed_fields: set[tuple[str | int, ...]] | None = None,
+    source_alias: str | None = None,
 ) -> bool:
     if isinstance(expression, ast.And):
-        return any(is_account_sql_query_filter(item, aliases, allowed_fields) for item in expression.exprs)
+        return any(
+            is_account_sql_query_filter(item, aliases, allowed_fields, source_alias) for item in expression.exprs
+        )
     if isinstance(expression, ast.Or):
         return bool(expression.exprs) and all(
-            is_account_sql_query_filter(item, aliases, allowed_fields) for item in expression.exprs
+            is_account_sql_query_filter(item, aliases, allowed_fields, source_alias) for item in expression.exprs
         )
     if isinstance(expression, ast.CompareOperation) and expression.op == ast.CompareOperationOp.Eq:
         for field, placeholder in [(expression.left, expression.right), (expression.right, expression.left)]:
             if (
                 isinstance(field, ast.Field)
+                and is_account_sql_source_field(field, aliases)
+                and (source_alias is None or (len(field.chain) >= 2 and field.chain[0] == source_alias))
                 and (allowed_fields is None or tuple(field.chain) in allowed_fields)
-                and not any(
-                    ".".join(str(part) for part in field.chain[:length]) in aliases
-                    for length in range(1, len(field.chain) + 1)
-                )
                 and isinstance(placeholder, ast.Placeholder)
                 and placeholder.chain == ["account_external_id"]
             ):
@@ -104,39 +113,226 @@ def is_account_sql_query_filter(
     return False
 
 
+def get_account_sql_query_allowed_fields(source: ast.JoinExpr) -> set[tuple[str | int, ...]] | None:
+    if isinstance(source.table, ast.Field) and ".".join(str(part) for part in source.table.chain) == "system.accounts":
+        fields: set[tuple[str | int, ...]] = {
+            ("external_id",),
+            ("accounts", "external_id"),
+            ("system", "accounts", "external_id"),
+        }
+        if source.alias:
+            fields.add((source.alias, "external_id"))
+        return fields
+    return None
+
+
+def get_account_sql_query_sources(node: ast.SelectQuery) -> list[ast.JoinExpr]:
+    sources = []
+    source = node.select_from
+    while source:
+        sources.append(source)
+        source = source.next_join
+    return sources
+
+
+def is_account_sql_projected_field(
+    expression: ast.Expr, node: ast.SelectQuery, aliases: set[str], tail: list[str | int]
+) -> bool:
+    field = expression.expr if isinstance(expression, ast.Alias) else expression
+    if not isinstance(field, ast.Field) or not is_account_sql_source_field(field, aliases) or "*" in field.chain:
+        return False
+    sources = get_account_sql_query_sources(node)
+    if len(field.chain) == 1:
+        return bool(sources) and all(
+            is_account_sql_join_source(source, field.chain + tail, aliases) for source in sources
+        )
+    for source in sources:
+        prefixes: list[list[str | int]] = [[source.alias]] if source.alias else []
+        if not source.alias and isinstance(source.table, ast.Field):
+            prefixes = [source.table.chain, source.table.chain[-1:]]
+        for prefix in prefixes:
+            if field.chain[: len(prefix)] == prefix and len(field.chain) > len(prefix):
+                return is_account_sql_join_source(source, field.chain[len(prefix) :] + tail, aliases)
+    return False
+
+
+def get_account_sql_union_queries(node: ast.SelectQuery | ast.SelectSetQuery) -> list[ast.SelectQuery]:
+    if isinstance(node, ast.SelectQuery):
+        return [node]
+    if any(query.set_operator not in {"UNION ALL", "UNION DISTINCT"} for query in node.subsequent_select_queries):
+        return []
+    queries = []
+    for query in node.select_queries():
+        branches = get_account_sql_union_queries(query)
+        if not branches:
+            return []
+        queries.extend(branches)
+    return queries
+
+
+def get_account_sql_projection_name(expression: ast.Expr) -> str | int | None:
+    if isinstance(expression, ast.Alias):
+        return expression.alias
+    if isinstance(expression, ast.Field) and expression.chain:
+        return expression.chain[-1]
+    return None
+
+
+def get_account_sql_union_aliases(node: ast.SelectQuery | ast.SelectSetQuery) -> set[str]:
+    while isinstance(node, ast.SelectSetQuery):
+        node = node.initial_select_query
+    return set(node.ctes or {})
+
+
+def is_account_sql_expanding_projection(expression: ast.Expr) -> bool:
+    expression = expression.expr if isinstance(expression, ast.Alias) else expression
+    return (
+        isinstance(expression, ast.ColumnsExpr | ast.SpreadExpr)
+        or (isinstance(expression, ast.Field) and "*" in expression.chain)
+        or (isinstance(expression, ast.Call) and expression.name.lower() == "untuple")
+    )
+
+
+def is_account_sql_join_projection(
+    node: ast.SelectQuery | ast.SelectSetQuery, column: list[str | int], aliases: set[str]
+) -> bool:
+    queries = get_account_sql_union_queries(node)
+    if not queries or not column:
+        return False
+    first_select = queries[0].select or []
+    positions = [
+        index
+        for index, expression in enumerate(first_select)
+        if get_account_sql_projection_name(expression) == column[0]
+    ]
+    if len(positions) != 1:
+        return False
+    aliases = aliases | get_account_sql_union_aliases(node)
+    for query in queries:
+        projections = query.select or []
+        if len(projections) != len(first_select) or any(
+            is_account_sql_expanding_projection(expr) for expr in projections
+        ):
+            return False
+        projection = projections[positions[0]]
+        collector = AccountSqlQueryAliasCollector(query, projection)
+        collector.visit(query)
+        if not is_account_sql_projected_field(
+            projections[positions[0]], query, aliases | collector.aliases, column[1:]
+        ):
+            return False
+    return True
+
+
+def is_account_sql_join_source(source: ast.JoinExpr, column: list[str | int], aliases: set[str]) -> bool:
+    if isinstance(source.table, ast.Field):
+        return is_account_sql_source_field(source.table, aliases)
+    if isinstance(source.table, ast.SelectQuery | ast.SelectSetQuery):
+        return is_account_sql_join_projection(source.table, column, aliases)
+    return False
+
+
+def is_account_sql_join_filter(
+    expression: ast.Expr | None, previous_sources: dict[str, ast.JoinExpr], source: ast.JoinExpr, aliases: set[str]
+) -> bool:
+    if isinstance(expression, ast.And):
+        return any(is_account_sql_join_filter(item, previous_sources, source, aliases) for item in expression.exprs)
+    if not isinstance(expression, ast.CompareOperation) or expression.op != ast.CompareOperationOp.Eq:
+        return False
+    return any(
+        isinstance(left, ast.Field)
+        and isinstance(right, ast.Field)
+        and is_account_sql_source_field(left, aliases)
+        and is_account_sql_source_field(right, aliases)
+        and len(left.chain) >= 2
+        and len(right.chain) >= 2
+        and isinstance(left.chain[0], str)
+        and left.chain[0] in previous_sources
+        and right.chain[0] == source.alias
+        and is_account_sql_join_source(previous_sources[left.chain[0]], left.chain[1:], aliases)
+        and is_account_sql_join_source(source, right.chain[1:], aliases)
+        for left, right in [(expression.left, expression.right), (expression.right, expression.left)]
+    )
+
+
+def is_account_sql_join_scoped(node: ast.SelectQuery, aliases: set[str]) -> bool:
+    sources: dict[str, ast.JoinExpr] = {}
+    scoped = False
+    source = node.select_from
+    while source:
+        if not source.alias or source.alias in sources or source.alias in aliases:
+            return False
+        if sources and (
+            source.join_type not in {"JOIN", "INNER", "INNER JOIN"}
+            or not source.constraint
+            or source.constraint.constraint_type != "ON"
+            or not is_account_sql_join_filter(source.constraint.expr, sources, source, aliases)
+        ):
+            return False
+        allowed_fields = get_account_sql_query_allowed_fields(source)
+        filtered = is_account_sql_query_filter(node.where, aliases, allowed_fields, source.alias)
+        if allowed_fields is not None and not filtered:
+            return False
+        scoped = scoped or filtered or isinstance(source.table, ast.SelectQuery | ast.SelectSetQuery)
+        sources[source.alias] = source
+        source = source.next_join
+    return scoped
+
+
 class AccountSqlQueryAliasCollector(TraversingVisitor):
+    def __init__(self, select: ast.SelectQuery, defining_projection: ast.Expr | None = None) -> None:
+        super().__init__()
+        self.select = select
+        self.defining_projection = defining_projection
+        self.aliases: set[str] = set()
+
+    def visit_alias(self, node: ast.Alias) -> None:
+        if node is not self.defining_projection:
+            self.aliases.add(node.alias)
+        super().visit_alias(node)
+
+    def visit_select_query(self, node: ast.SelectQuery) -> None:
+        if node is self.select:
+            self.aliases.update(node.ctes or {})
+            super().visit_select_query(node)
+
+
+class AccountSqlQueryScopeValidator(TraversingVisitor):
     def __init__(self) -> None:
         super().__init__()
         self.aliases: set[str] = set()
 
-    def visit_alias(self, node: ast.Alias) -> None:
-        self.aliases.add(node.alias)
-        super().visit_alias(node)
+    def visit_select_set_query(self, node: ast.SelectSetQuery) -> None:
+        parent_aliases = self.aliases
+        self.aliases = parent_aliases | get_account_sql_union_aliases(node)
+        try:
+            super().visit_select_set_query(node)
+        finally:
+            self.aliases = parent_aliases
 
     def visit_select_query(self, node: ast.SelectQuery) -> None:
-        self.aliases.update(node.ctes or {})
-        super().visit_select_query(node)
+        collector = AccountSqlQueryAliasCollector(node)
+        collector.visit(node)
+        parent_aliases = self.aliases
+        self.aliases = parent_aliases | collector.aliases
+        try:
+            self.validate_select_query(node)
+            super().visit_select_query(node)
+        finally:
+            self.aliases = parent_aliases
 
-
-class AccountSqlQueryScopeValidator(TraversingVisitor):
-    def __init__(self, aliases: set[str]) -> None:
-        super().__init__()
-        self.aliases = aliases
-
-    def visit_select_query(self, node: ast.SelectQuery) -> None:
+    def validate_select_query(self, node: ast.SelectQuery) -> None:
+        for source in get_account_sql_query_sources(node):
+            self.validate_join_source(source)
         if node.select_from and node.select_from.next_join:
-            raise InvalidAccountViewContent(
-                ["SQL account widgets do not support joins. Use a single table per SELECT."]
-            )
-        allowed_fields: set[tuple[str | int, ...]] | None = None
-        if (
-            node.select_from
-            and isinstance(node.select_from.table, ast.Field)
-            and ".".join(str(part) for part in node.select_from.table.chain) == "system.accounts"
-        ):
-            allowed_fields = {("external_id",), ("accounts", "external_id"), ("system", "accounts", "external_id")}
-            if node.select_from.alias:
-                allowed_fields.add((node.select_from.alias, "external_id"))
+            if not is_account_sql_join_scoped(node, self.aliases):
+                raise InvalidAccountViewContent(
+                    [
+                        "Use INNER JOIN with unique table aliases and column equalities connecting every table to an account-filtered source."
+                    ]
+                )
+            return
+        allowed_fields = get_account_sql_query_allowed_fields(node.select_from) if node.select_from else None
         reads_validated_subquery = node.select_from is not None and isinstance(
             node.select_from.table, ast.SelectQuery | ast.SelectSetQuery
         )
@@ -148,17 +344,19 @@ class AccountSqlQueryScopeValidator(TraversingVisitor):
                     ["SQL queries on system.accounts must filter external_id by {account_external_id}."]
                 )
             raise InvalidAccountViewContent(["SQL query must filter by {account_external_id} in every SELECT's WHERE."])
-        super().visit_select_query(node)
 
     def visit_placeholder(self, node: ast.Placeholder) -> None:
         if not isinstance(node.expr, ast.Field) or node.expr.chain != ["account_external_id"]:
             raise InvalidAccountViewContent(["SQL account widgets only support the {account_external_id} placeholder."])
 
-    def visit_join_expr(self, node: ast.JoinExpr) -> None:
+    def validate_join_source(self, node: ast.JoinExpr) -> None:
         if node.column_aliases:
             raise InvalidAccountViewContent(["SQL account widgets do not support table column aliases."])
         if not isinstance(node.table, ast.Field | ast.SelectQuery | ast.SelectSetQuery) or node.table_args:
             raise InvalidAccountViewContent(["SQL account widgets require a table name or scoped subquery in FROM."])
+
+    def visit_join_expr(self, node: ast.JoinExpr) -> None:
+        self.validate_join_source(node)
         super().visit_join_expr(node)
 
 
@@ -319,9 +517,26 @@ def get_account_sql_formatting_bytecodes() -> dict[str, str]:
     }
 
 
+def validate_sql_query_connection_config(config: Mapping[str, object]) -> list[str]:
+    if "connectionId" not in config:
+        return []
+    connection_id = config["connectionId"]
+    if isinstance(connection_id, str):
+        try:
+            if str(UUID(connection_id)) == connection_id.lower():
+                return []
+        except ValueError:
+            pass
+    return ["SQL connectionId must be a UUID string. Choose a connection again."]
+
+
 def validate_sql_query_widget_config(config: dict[str, Any]) -> list[str]:
-    if not set(config) <= {"query", "visualization"}:
-        return ["SQL query config must contain only a query and optional visualization settings."]
+    if not set(config) <= {"query", "visualization", "connectionId"}:
+        return [
+            "SQL query config must contain only a query, an optional connection, and optional visualization settings."
+        ]
+    if connection_errors := validate_sql_query_connection_config(config):
+        return connection_errors
     query = config.get("query")
     if not isinstance(query, str) or not query.strip():
         return ["SQL query config needs a query."]
@@ -330,9 +545,7 @@ def validate_sql_query_widget_config(config: dict[str, Any]) -> list[str]:
     except ExposedHogQLError:
         return ["Enter a valid SQL query."]
     try:
-        aliases = AccountSqlQueryAliasCollector()
-        aliases.visit(select)
-        AccountSqlQueryScopeValidator(aliases.aliases).visit(select)
+        AccountSqlQueryScopeValidator().visit(select)
     except InvalidAccountViewContent as error:
         return error.errors
     if "visualization" in config:
@@ -380,12 +593,14 @@ class AccountViewQueryAccess:
         self.user = user
         self.can_query = can_query
         self.deadline = monotonic() + ACCOUNT_VIEW_SQL_VALIDATION_SECONDS
-        self.authorized_queries: set[str] = set()
+        self.authorized_queries: set[tuple[str | None, str]] = set()
+        self.connection_databases: dict[str, Database] = {}
 
     @cached_property
     def database(self) -> "Database":
         from posthog.hogql.database.database import Database  # noqa: PLC0415 -- load the catalog only for SQL writes
 
+        self.check_deadline()
         database = Database.create_for(team=self.team, user=self.user, trigger="metadata")
         self.check_deadline()
         return database
@@ -394,12 +609,48 @@ class AccountViewQueryAccess:
         if monotonic() >= self.deadline:
             raise InvalidAccountViewContent(["SQL validation took too long. Try fewer or simpler SQL widgets."])
 
-    def authorize_query(self, query: str) -> None:
+    def get_connection_database(self, connection_id: str) -> "Database":
+        from posthog.hogql.database.database import Database  # noqa: PLC0415 -- load the catalog only for SQL writes
+
+        self.check_deadline()
+        connection_id = str(UUID(connection_id))
+        if connection_id not in self.connection_databases:
+            database = Database.create_for(
+                team=self.team,
+                user=self.user,
+                connection_id=connection_id,
+                use_cached_sources=False,
+                trigger="metadata",
+            )
+            self.check_deadline()
+            self.connection_databases[connection_id] = database
+        return self.connection_databases[connection_id]
+
+    def authorize_query(self, query: str, connection_id: str | None = None) -> None:
         if not self.can_query:
             raise AccountViewPermissionDenied("Saving SQL widgets requires the query:read API scope.")
-        if query in self.authorized_queries:
-            return
         self.check_deadline()
+        query_key = (connection_id, query)
+        if query_key in self.authorized_queries:
+            return
+
+        if connection_id is not None:
+            from posthog.hogql.direct_connection import (  # noqa: PLC0415 -- keep direct-query imports off startup
+                get_direct_connection_source_none_or_raise,
+            )
+            from posthog.hogql.direct_sql.capability import (  # noqa: PLC0415 -- keep drivers off startup
+                direct_supports_hogql,
+            )
+
+            source = get_direct_connection_source_none_or_raise(
+                self.team, connection_id, user=self.user, error_factory=AccountViewPermissionDenied
+            )
+            self.check_deadline()
+            if source is None or source.direct_engine != "clickhouse" or not direct_supports_hogql(source):
+                raise AccountViewPermissionDenied(
+                    "SQL account widgets require a ClickHouse connection with HogQL support. Choose another connection."
+                )
+            self.check_deadline()
 
         from posthog.schema import HogLanguage, HogQLMetadata  # noqa: PLC0415 -- load query schemas only for SQL writes
 
@@ -407,25 +658,28 @@ class AccountViewQueryAccess:
             get_hogql_metadata,  # noqa: PLC0415 -- load the query engine only for SQL writes
         )
 
+        database = self.get_connection_database(connection_id) if connection_id else self.database
+        self.check_deadline()
         metadata = get_hogql_metadata(
             HogQLMetadata(
                 language=HogLanguage.HOG_QL,
                 query=query,
                 globals={"account_external_id": ""},
                 freshSources=True,
+                connectionId=connection_id,
             ),
             team=self.team,
             user=self.user,
-            database=self.database,
+            database=database,
         )
         self.check_deadline()
         if not metadata.isValid:
             raise AccountViewPermissionDenied("The SQL query must be valid and accessible to the person saving it.")
-        self.authorized_queries.add(query)
+        self.authorized_queries.add(query_key)
 
 
 def authorize_sql_query_widget_config(config: dict[str, Any], access: AccountViewQueryAccess) -> None:
-    access.authorize_query(config["query"])
+    access.authorize_query(config["query"], config.get("connectionId"))
 
 
 ACCOUNT_VIEW_CONFIG_AUTHORIZERS: dict[str, Callable[[dict[str, Any], AccountViewQueryAccess], None]] = {

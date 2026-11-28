@@ -10,7 +10,12 @@ import { Query } from '~/queries/Query/Query'
 import { DataVisualizationNode, NodeKind } from '~/queries/schema/schema-general'
 import { ChartDisplayType } from '~/types'
 
-import { ACCOUNT_SQL_QUERY_PLACEHOLDER, createAccountSqlVisualizationNode, getAccountSqlQuery } from './accountSqlQuery'
+import {
+    ACCOUNT_SQL_QUERY_PLACEHOLDER,
+    createAccountSqlVisualizationNode,
+    getAccountSqlQuery,
+    getAccountSqlQueryConnectionError,
+} from './accountSqlQuery'
 import { accountSqlQueryLogic } from './accountSqlQueryLogic'
 import type { AccountViewTileConfig } from './accountViewTileConfig'
 
@@ -33,9 +38,13 @@ export function AccountSqlQueryTile({
 }: AccountSqlQueryTileProps): JSX.Element {
     const [resultLoading, setResultLoading] = useState(true)
     const query = getAccountSqlQuery(initialConfig)
-    const { queryNode: node, queryNodeLoading } = useValues(
-        accountSqlQueryLogic({ accountId, externalId, instanceId, query })
-    )
+    const connectionId = initialConfig?.connectionId
+    const connectionError = getAccountSqlQueryConnectionError(connectionId)
+    const {
+        queryNode: node,
+        queryNodeLoading,
+        queryKey,
+    } = useValues(accountSqlQueryLogic({ accountId, externalId, instanceId, query, connectionId }))
     const visualization = useMemo(
         () =>
             node && node.source.kind === NodeKind.HogQLQuery && (initialConfig?.visualization || onVisualizationChange)
@@ -49,6 +58,9 @@ export function AccountSqlQueryTile({
         onLoadingChange?.(queryNodeLoading || (!!node && resultLoading))
     }, [onLoadingChange, queryNodeLoading, node, resultLoading])
     useEffect(() => () => onLoadingChange?.(false), [onLoadingChange])
+    if (connectionError) {
+        return <LemonBanner type="error">{connectionError}</LemonBanner>
+    }
     if (!query.trim()) {
         return (
             <p className="m-0 pb-2 text-sm text-secondary">
@@ -64,7 +76,7 @@ export function AccountSqlQueryTile({
         return (
             <LemonBanner type="warning" className="mb-2">
                 {externalId.trim()
-                    ? `Couldn't validate this query. Edit this tile and add a column = ${ACCOUNT_SQL_QUERY_PLACEHOLDER} filter to every SELECT's WHERE clause.`
+                    ? `Couldn't validate this query. Edit this tile and check its ${ACCOUNT_SQL_QUERY_PLACEHOLDER} filter and INNER JOIN conditions.`
                     : "This account isn't linked to analytics data yet, so the query can't be filtered to it."}
             </LemonBanner>
         )
@@ -77,7 +89,8 @@ export function AccountSqlQueryTile({
             })}
         >
             <Query
-                uniqueKey={`SQLEditor-account-sql-${accountId}-${externalId}-${instanceId ?? 'tile'}`}
+                key={queryKey}
+                uniqueKey={`SQLEditor-account-sql-${queryKey}`}
                 query={visualization ?? node}
                 setQuery={
                     onVisualizationChange
@@ -94,7 +107,7 @@ export function AccountSqlQueryTile({
                     dataTableCaptureQueryTelemetry: false,
                     dataTableRenderPlainText: true,
                     insightProps: {
-                        dashboardItemId: `new-SQLEditor-account-sql-query-${accountId}-${instanceId ?? 'tile'}-${externalId}`,
+                        dashboardItemId: `new-SQLEditor-account-sql-query-${queryKey}`,
                     },
                 }}
                 readOnly={!onVisualizationChange}

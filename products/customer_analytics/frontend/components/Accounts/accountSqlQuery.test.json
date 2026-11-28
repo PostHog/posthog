@@ -1,5 +1,32 @@
 [
     {
+        "name": "inherited union scalar cannot forge mapping key",
+        "query": "SELECT e.event FROM example_events e JOIN (WITH 'other-account' AS forged_key SELECT external_id FROM system.accounts WHERE external_id = {account_external_id} UNION ALL SELECT forged_key FROM system.accounts WHERE external_id = {account_external_id}) a ON e.account_id = a.external_id",
+        "error": "Use INNER JOIN with unique table aliases and column equalities connecting every table to an account-filtered source.",
+        "valid": false
+    },
+    {
+        "name": "inherited union scalar cannot forge account filter",
+        "query": "WITH {account_external_id} AS account_id SELECT id FROM example_projects p WHERE p.account_id = {account_external_id} UNION ALL SELECT id FROM example_projects WHERE account_id = {account_external_id}",
+        "valid": false
+    },
+    {
+        "name": "identity alias preserves physical mapping key",
+        "query": "SELECT e.event FROM example_events e JOIN (SELECT id AS id FROM example_projects WHERE account_id = {account_external_id}) p ON e.project_id = p.id",
+        "valid": true
+    },
+    {
+        "name": "unqualified physical key from joined mapping",
+        "query": "SELECT e.event FROM example_events e JOIN (SELECT project_id FROM example_projects p JOIN example_accounts a ON p.account_id = a.id WHERE a.external_id = {account_external_id}) m ON e.project_id = m.project_id",
+        "valid": true
+    },
+    {
+        "name": "unqualified key cannot choose a constant subquery projection",
+        "query": "SELECT e.event FROM example_events e JOIN (SELECT project_id FROM example_projects p JOIN (SELECT 1 AS project_id, external_id FROM system.accounts WHERE external_id = {account_external_id}) a ON p.account_id = a.external_id) m ON e.project_id = m.project_id",
+        "error": "Use INNER JOIN with unique table aliases and column equalities connecting every table to an account-filtered source.",
+        "valid": false
+    },
+    {
         "name": "system accounts external ID",
         "query": "SELECT * FROM system.accounts WHERE external_id = {account_external_id}",
         "valid": true
@@ -95,19 +122,250 @@
     {
         "name": "cross join",
         "query": "select e.event from events e cross join system.accounts a where a.external_id = {account_external_id}",
-        "error": "SQL account widgets do not support joins. Use a single table per SELECT.",
+        "error": "Use INNER JOIN with unique table aliases and column equalities connecting every table to an account-filtered source.",
         "valid": false
     },
     {
         "name": "comma join",
         "query": "select e.event from events e, system.accounts a where a.external_id = {account_external_id}",
-        "error": "SQL account widgets do not support joins. Use a single table per SELECT.",
+        "error": "Use INNER JOIN with unique table aliases and column equalities connecting every table to an account-filtered source.",
         "valid": false
     },
     {
         "name": "inner join",
         "query": "select e.event from events e join system.accounts a on e.properties.account_id = a.external_id where a.external_id = {account_external_id}",
-        "error": "SQL account widgets do not support joins. Use a single table per SELECT.",
+        "valid": true
+    },
+    {
+        "name": "deduplicated account mapping join",
+        "query": "SELECT e.event, count() FROM example_events e INNER JOIN (SELECT DISTINCT id, account_id FROM example_projects WHERE account_id = {account_external_id}) p ON e.project_id = p.id WHERE p.account_id = {account_external_id} AND e.timestamp >= now() - INTERVAL 1 DAY GROUP BY e.event",
+        "valid": true
+    },
+    {
+        "name": "account mapping join without repeated filter",
+        "query": "SELECT e.event, count() FROM example_events e JOIN (SELECT DISTINCT id FROM example_projects WHERE account_id = {account_external_id}) p ON e.project_id = p.id GROUP BY e.event",
+        "valid": true
+    },
+    {
+        "name": "account mapping on the left",
+        "query": "SELECT e.event FROM (SELECT DISTINCT id FROM example_projects WHERE account_id = {account_external_id}) p INNER JOIN example_events e ON e.project_id = p.id",
+        "valid": true
+    },
+    {
+        "name": "multiple connected joins",
+        "query": "SELECT e.event FROM example_events e JOIN example_users u ON e.user_id = u.id JOIN (SELECT DISTINCT id FROM example_projects WHERE account_id = {account_external_id}) p ON p.id = u.project_id AND u.active = true",
+        "valid": true
+    },
+    {
+        "name": "joined account disjunction",
+        "query": "SELECT e.event FROM example_events e JOIN example_projects p ON e.project_id = p.id WHERE (p.account_id = {account_external_id} AND e.active) OR (p.account_id = {account_external_id} AND e.recent)",
+        "valid": true
+    },
+    {
+        "name": "unscoped joined mapping",
+        "query": "SELECT e.event FROM example_events e JOIN (SELECT id, account_id FROM example_projects) p ON e.project_id = p.id WHERE p.account_id = {account_external_id}",
+        "valid": false
+    },
+    {
+        "name": "unscoped joined union branch",
+        "query": "SELECT e.event FROM example_events e JOIN (SELECT id FROM example_projects WHERE account_id = {account_external_id} UNION ALL SELECT id FROM other_projects) p ON e.project_id = p.id",
+        "valid": false
+    },
+    {
+        "name": "unscoped scalar subquery in join",
+        "query": "SELECT (SELECT count() FROM unrelated_events) FROM example_events e JOIN example_projects p ON e.project_id = p.id WHERE p.account_id = {account_external_id}",
+        "valid": false
+    },
+    {
+        "name": "unscoped inner join",
+        "query": "SELECT e.event FROM example_events e JOIN example_projects p ON e.project_id = p.id",
+        "error": "Use INNER JOIN with unique table aliases and column equalities connecting every table to an account-filtered source.",
+        "valid": false
+    },
+    {
+        "name": "left join preserves unscoped events",
+        "query": "SELECT e.event FROM example_events e LEFT JOIN (SELECT id FROM example_projects WHERE account_id = {account_external_id}) p ON e.project_id = p.id",
+        "error": "Use INNER JOIN with unique table aliases and column equalities connecting every table to an account-filtered source.",
+        "valid": false
+    },
+    {
+        "name": "right join preserves unscoped events",
+        "query": "SELECT e.event FROM (SELECT id FROM example_projects WHERE account_id = {account_external_id}) p RIGHT JOIN example_events e ON e.project_id = p.id",
+        "error": "Use INNER JOIN with unique table aliases and column equalities connecting every table to an account-filtered source.",
+        "valid": false
+    },
+    {
+        "name": "full join preserves unscoped events",
+        "query": "SELECT e.event FROM example_events e FULL JOIN example_projects p ON e.project_id = p.id WHERE p.account_id = {account_external_id}",
+        "error": "Use INNER JOIN with unique table aliases and column equalities connecting every table to an account-filtered source.",
+        "valid": false
+    },
+    {
+        "name": "join on constant",
+        "query": "SELECT e.event FROM example_events e JOIN example_projects p ON 1 = 1 WHERE p.account_id = {account_external_id}",
+        "error": "Use INNER JOIN with unique table aliases and column equalities connecting every table to an account-filtered source.",
+        "valid": false
+    },
+    {
+        "name": "join on only one source",
+        "query": "SELECT e.event FROM example_events e JOIN example_projects p ON p.id = p.id WHERE p.account_id = {account_external_id}",
+        "error": "Use INNER JOIN with unique table aliases and column equalities connecting every table to an account-filtered source.",
+        "valid": false
+    },
+    {
+        "name": "join with unrelated OR branch",
+        "query": "SELECT e.event FROM example_events e JOIN example_projects p ON e.project_id = p.id OR true WHERE p.account_id = {account_external_id}",
+        "error": "Use INNER JOIN with unique table aliases and column equalities connecting every table to an account-filtered source.",
+        "valid": false
+    },
+    {
+        "name": "unscoped joined WHERE disjunction",
+        "query": "SELECT e.event FROM example_events e JOIN example_projects p ON e.project_id = p.id WHERE p.account_id = {account_external_id} OR true",
+        "error": "Use INNER JOIN with unique table aliases and column equalities connecting every table to an account-filtered source.",
+        "valid": false
+    },
+    {
+        "name": "unqualified joined account filter",
+        "query": "SELECT e.event FROM example_events e JOIN example_projects p ON e.project_id = p.id WHERE account_id = {account_external_id}",
+        "error": "Use INNER JOIN with unique table aliases and column equalities connecting every table to an account-filtered source.",
+        "valid": false
+    },
+    {
+        "name": "duplicate table alias",
+        "query": "SELECT e.event FROM example_events e JOIN example_projects e ON e.project_id = e.id WHERE e.account_id = {account_external_id}",
+        "error": "Use INNER JOIN with unique table aliases and column equalities connecting every table to an account-filtered source.",
+        "valid": false
+    },
+    {
+        "name": "join without table aliases",
+        "query": "SELECT example_events.event FROM example_events JOIN example_projects ON example_events.project_id = example_projects.id WHERE example_projects.account_id = {account_external_id}",
+        "error": "Use INNER JOIN with unique table aliases and column equalities connecting every table to an account-filtered source.",
+        "valid": false
+    },
+    {
+        "name": "join using unqualified columns",
+        "query": "SELECT e.event FROM example_events e JOIN example_projects p USING project_id WHERE p.account_id = {account_external_id}",
+        "error": "Use INNER JOIN with unique table aliases and column equalities connecting every table to an account-filtered source.",
+        "valid": false
+    },
+    {
+        "name": "disconnected third source",
+        "query": "SELECT e.event FROM example_events e JOIN example_projects p ON e.project_id = p.id JOIN unrelated_events x ON e.project_id = p.id WHERE p.account_id = {account_external_id}",
+        "error": "Use INNER JOIN with unique table aliases and column equalities connecting every table to an account-filtered source.",
+        "valid": false
+    },
+    {
+        "name": "joined system accounts unrelated column",
+        "query": "SELECT e.event FROM example_events e JOIN system.accounts a ON e.account_id = a.external_id WHERE a.name = {account_external_id}",
+        "error": "Use INNER JOIN with unique table aliases and column equalities connecting every table to an account-filtered source.",
+        "valid": false
+    },
+    {
+        "name": "joined scoped subquery column remapping",
+        "query": "SELECT e.event FROM example_events e JOIN (SELECT id FROM example_projects WHERE account_id = {account_external_id}) p (other_id) ON e.project_id = p.other_id",
+        "error": "SQL account widgets do not support table column aliases.",
+        "valid": false
+    },
+    {
+        "name": "constant projected join key",
+        "query": "SELECT e.event FROM example_events e JOIN (SELECT 'example_event' AS event FROM system.accounts WHERE external_id = {account_external_id}) a ON e.event = a.event",
+        "error": "Use INNER JOIN with unique table aliases and column equalities connecting every table to an account-filtered source.",
+        "valid": false
+    },
+    {
+        "name": "constant projected join key on the left",
+        "query": "SELECT e.event FROM (SELECT 1 AS project_id FROM example_projects WHERE account_id = {account_external_id}) p JOIN example_events e ON e.project_id = p.project_id",
+        "error": "Use INNER JOIN with unique table aliases and column equalities connecting every table to an account-filtered source.",
+        "valid": false
+    },
+    {
+        "name": "nested constant projected join key",
+        "query": "SELECT e.event FROM example_events e JOIN (SELECT p.project_id FROM (SELECT 1 AS project_id FROM example_projects WHERE account_id = {account_external_id}) p) a ON e.project_id = a.project_id",
+        "error": "Use INNER JOIN with unique table aliases and column equalities connecting every table to an account-filtered source.",
+        "valid": false
+    },
+    {
+        "name": "scalar alias projected join key",
+        "query": "SELECT e.event FROM example_events e JOIN (WITH 1 AS project_id SELECT project_id FROM example_projects WHERE account_id = {account_external_id}) p ON e.project_id = p.project_id",
+        "error": "Use INNER JOIN with unique table aliases and column equalities connecting every table to an account-filtered source.",
+        "valid": false
+    },
+    {
+        "name": "computed projected join key",
+        "query": "SELECT e.event FROM example_events e JOIN (SELECT toString(id) AS project_id FROM example_projects WHERE account_id = {account_external_id}) p ON e.project_id = p.project_id",
+        "error": "Use INNER JOIN with unique table aliases and column equalities connecting every table to an account-filtered source.",
+        "valid": false
+    },
+    {
+        "name": "constant join key in union branch",
+        "query": "SELECT e.event FROM example_events e JOIN (SELECT id FROM example_projects WHERE account_id = {account_external_id} UNION ALL SELECT 1 AS id FROM other_projects WHERE account_id = {account_external_id}) p ON e.project_id = p.id",
+        "error": "Use INNER JOIN with unique table aliases and column equalities connecting every table to an account-filtered source.",
+        "valid": false
+    },
+    {
+        "name": "union key matches by position instead of name",
+        "query": "SELECT e.event FROM example_events e JOIN (SELECT id, account_id FROM example_projects WHERE account_id = {account_external_id} UNION ALL SELECT 1 AS other_id, id FROM other_projects WHERE account_id = {account_external_id}) p ON e.project_id = p.id",
+        "error": "Use INNER JOIN with unique table aliases and column equalities connecting every table to an account-filtered source.",
+        "valid": false
+    },
+    {
+        "name": "scoped union mapping with renamed columns",
+        "query": "SELECT e.event FROM example_events e JOIN (SELECT project_id FROM example_projects WHERE account_id = {account_external_id} UNION ALL SELECT id FROM other_projects WHERE account_id = {account_external_id}) p ON e.project_id = p.project_id",
+        "valid": true
+    },
+    {
+        "name": "computed values alongside a direct join key",
+        "query": "SELECT e.event, p.total FROM example_events e JOIN (SELECT id, count() AS total FROM example_projects WHERE account_id = {account_external_id} GROUP BY id) p ON e.project_id = p.id",
+        "valid": true
+    },
+    {
+        "name": "nested source column join key",
+        "query": "SELECT e.event FROM example_events e JOIN (SELECT p.id AS project_id FROM (SELECT id FROM example_projects WHERE account_id = {account_external_id}) p) a ON e.project_id = a.project_id",
+        "valid": true
+    },
+    {
+        "name": "wildcard mapping needs explicit join keys",
+        "query": "SELECT e.event FROM example_events e JOIN (SELECT * FROM example_projects WHERE account_id = {account_external_id}) p ON e.project_id = p.id",
+        "error": "Use INNER JOIN with unique table aliases and column equalities connecting every table to an account-filtered source.",
+        "valid": false
+    },
+    {
+        "name": "expanding projection cannot shift union keys",
+        "query": "SELECT e.event FROM example_events e JOIN (SELECT id, account_id FROM example_projects WHERE account_id = {account_external_id} UNION ALL SELECT untuple(tuple(1)), id FROM other_projects WHERE account_id = {account_external_id}) p ON e.project_id = p.id",
+        "error": "Use INNER JOIN with unique table aliases and column equalities connecting every table to an account-filtered source.",
+        "valid": false
+    },
+    {
+        "name": "constant projection from cte table",
+        "query": "WITH mapping AS (SELECT 1 AS project_id, external_id FROM system.accounts WHERE external_id = {account_external_id}) SELECT e.event FROM example_events e JOIN mapping p ON e.project_id = p.project_id WHERE p.external_id = {account_external_id}",
+        "error": "Use INNER JOIN with unique table aliases and column equalities connecting every table to an account-filtered source.",
+        "valid": false
+    },
+    {
+        "name": "nested column alias matches outer table alias",
+        "query": "SELECT e.event FROM example_events e JOIN (SELECT DISTINCT id AS project_id FROM example_projects WHERE account_id = {account_external_id}) project_id ON e.project_id = project_id.project_id",
+        "valid": true
+    },
+    {
+        "name": "sibling union column alias matches table alias",
+        "query": "SELECT account_id AS p FROM example_projects WHERE account_id = {account_external_id} UNION ALL SELECT e.event FROM example_events e JOIN example_projects p ON e.project_id = p.id WHERE p.account_id = {account_external_id}",
+        "valid": true
+    },
+    {
+        "name": "inherited scalar alias cannot scope joined subquery",
+        "query": "WITH {account_external_id} AS account_id SELECT e.event FROM example_events e JOIN (SELECT id FROM example_projects WHERE account_id = {account_external_id}) p ON e.project_id = p.id",
+        "valid": false
+    },
+    {
+        "name": "joined scalar alias shadows account column",
+        "query": "SELECT {account_external_id} AS `p.account_id`, e.event FROM example_events e JOIN example_projects p ON e.project_id = p.id WHERE p.account_id = {account_external_id}",
+        "error": "Use INNER JOIN with unique table aliases and column equalities connecting every table to an account-filtered source.",
+        "valid": false
+    },
+    {
+        "name": "joined scalar alias shadows ON column",
+        "query": "SELECT 1 AS `e.project_id`, e.event FROM example_events e JOIN example_projects p ON e.project_id = p.id WHERE p.account_id = {account_external_id}",
+        "error": "Use INNER JOIN with unique table aliases and column equalities connecting every table to an account-filtered source.",
         "valid": false
     },
     {

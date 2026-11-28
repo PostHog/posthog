@@ -181,6 +181,7 @@ export interface SqlEditorLogicProps {
     singleStatement?: boolean
     hideAgentHints?: boolean
     captureQueryTelemetry?: boolean
+    allowRawSql?: boolean
     monaco?: Monaco | null
     editor?: editor.IStandaloneCodeEditor | null
 }
@@ -461,12 +462,14 @@ function metricEditorSourceQuery(definition: Record<string, unknown> | null | un
     return hogQLEditorSourceQuery(definition as Partial<HogQLQuery>)
 }
 
-function sanitizeSourceQuery(sourceQuery: DataVisualizationNode): DataVisualizationNode {
+function sanitizeSourceQuery(sourceQuery: DataVisualizationNode, allowRawSql = true): DataVisualizationNode {
     const { connectionId: _ignoredConnectionId, ...sanitizedSourceQuery } = sourceQuery as LegacyDataVisualizationNode
 
     return {
         ...sanitizedSourceQuery,
-        source: normalizeRawQuerySource(sourceQuery.source),
+        source: normalizeRawQuerySource(
+            allowRawSql ? sourceQuery.source : { ...sourceQuery.source, sendRawQuery: undefined }
+        ),
     }
 }
 
@@ -732,6 +735,7 @@ export interface sqlEditorLogicValues {
     placeholders: SQLEditorPlaceholder[]
     queryInput: string | null
     queryModifiers: HogQLQueryModifiers | null
+    rawSqlAllowed: boolean
     rejectText: string
     saveAsMetricModal: SaveAsMetricModalState | null
     saveAsViewDisabledReason: string | null
@@ -1175,6 +1179,9 @@ export interface sqlEditorLogicActions {
         activeQueryOffset: number
         activeQueryText: string | null
     }
+    setAllowRawSql: (allowRawSql: boolean) => {
+        allowRawSql: boolean
+    }
     setDashboardId: (dashboardId: number | null) => {
         dashboardId: number | null
     }
@@ -1364,7 +1371,11 @@ export interface sqlEditorLogicMeta {
             connectionOptions: ExternalDataSourceConnectionOptionApi[] | null,
             selectedConnectionId: string | undefined
         ) => ExternalDataSourceConnectionOptionApi | undefined
-        sendRawQueryEnabled: (sourceQuery: DataVisualizationNode, selectedConnectionId: string | undefined) => boolean
+        sendRawQueryEnabled: (
+            sourceQuery: DataVisualizationNode,
+            selectedConnectionId: string | undefined,
+            rawSqlAllowed: boolean
+        ) => boolean
         selectedConnectionSupportsHogQL: (
             connectionOptions: ExternalDataSourceConnectionOptionApi[] | null,
             selectedConnectionId: string | undefined
@@ -1463,7 +1474,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             ['loadConnectionOptionsSuccess', 'maybeLoadConnectionOptions'],
         ],
     })),
-    actions(() => ({
+    actions(({ values }) => ({
         setSelectedQueryTablesAndColumns: (tablesAndColumns: Record<string, Record<string, boolean>>) => ({
             tablesAndColumns,
         }),
@@ -1564,8 +1575,9 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
         setError: (error: string | null) => ({ error }),
         setDataError: (error: string | null) => ({ error }),
         setSourceQuery: (sourceQuery: DataVisualizationNode) => ({
-            sourceQuery,
+            sourceQuery: sanitizeSourceQuery(sourceQuery, values.rawSqlAllowed),
         }),
+        setAllowRawSql: (allowRawSql: boolean) => ({ allowRawSql }),
         setMetadata: (metadata: HogQLMetadataResponse | null) => ({ metadata }),
         setMetadataLoading: (loading: boolean) => ({ loading }),
         setInsightLoading: (loading: boolean) => ({ loading }),
@@ -1660,7 +1672,10 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
         }),
         closeAccessControlModal: true,
     })),
-    propsChanged(({ actions, props, cache }, oldProps) => {
+    propsChanged(({ actions, props, cache, values }, oldProps) => {
+        if (props.allowRawSql !== undefined && props.allowRawSql !== values.rawSqlAllowed) {
+            actions.setAllowRawSql(props.allowRawSql)
+        }
         if (oldProps.editor && oldProps.editor !== props.editor) {
             clearQueryOutlineOverlay(cache, oldProps.editor)
         }
@@ -1759,6 +1774,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
         ],
     })),
     reducers(({ props }) => ({
+        rawSqlAllowed: [props.allowRawSql ?? true, { setAllowRawSql: (_, { allowRawSql }) => allowRawSql }],
         upstream: {
             // The value is shared across views, so a new load must not leave the previous graph on screen.
             loadUpstream: () => null,
@@ -1794,6 +1810,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             } as DataVisualizationNode,
             {
                 setSourceQuery: (_, { sourceQuery }) => sanitizeSourceQuery(sourceQuery),
+                setAllowRawSql: (state, { allowRawSql }) => sanitizeSourceQuery(state, allowRawSql),
             },
         ],
         placeholders: [
@@ -2354,7 +2371,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     return
                 }
 
-                const nextSourceQuery = sanitizeSourceQuery(sourceQuery)
+                const nextSourceQuery = sanitizeSourceQuery(sourceQuery, values.rawSqlAllowed)
                 const currentTab = values.activeTab
                 if (currentTab) {
                     actions.updateTab({
@@ -2365,6 +2382,9 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 persistEditorDraft()
             },
             setExecutionTarget: ({ executionTarget }) => {
+                if (!values.rawSqlAllowed && executionTarget === 'managed_trino') {
+                    return
+                }
                 posthog.capture('sql-editor-execution-target-selected', {
                     execution_target: executionTarget ?? 'default',
                 })
@@ -2381,6 +2401,9 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 actions.syncUrlWithQuery()
             },
             setSendRawQuery: ({ sendRawQuery }) => {
+                if (!values.rawSqlAllowed && sendRawQuery) {
+                    return
+                }
                 posthog.capture('sql-editor-query-mode-selected', {
                     mode: sendRawQuery ? 'raw' : 'hogql',
                     execution_target: values.sourceQuery.source.executionTarget ?? 'default',
@@ -2397,6 +2420,9 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 actions.syncUrlWithQuery()
             },
             enforceConnectionRawQueryMode: () => {
+                if (!values.rawSqlAllowed) {
+                    return
+                }
                 // Raw-only connections cannot compile HogQL, so force raw SQL mode.
                 // Trino and the managed warehouse default to raw so native SQL reaches the engine unchanged.
                 // They still advertise HogQL support, which keeps the mode toggle available.
@@ -2418,6 +2444,9 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             // Options can load after a connection was restored from the URL.
             loadConnectionOptionsSuccess: () => {
                 actions.enforceConnectionRawQueryMode()
+            },
+            setAllowRawSql: () => {
+                actions.setSourceQuery(values.sourceQuery)
             },
             runSubquery: async () => {
                 if (!props.editor) {
@@ -4010,8 +4039,9 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             },
         ],
         sendRawQueryEnabled: [
-            (s) => [s.sourceQuery, s.selectedConnectionId],
-            (sourceQuery: DataVisualizationNode, selectedConnectionId: string | undefined) =>
+            (s) => [s.sourceQuery, s.selectedConnectionId, s.rawSqlAllowed],
+            (sourceQuery: DataVisualizationNode, selectedConnectionId: string | undefined, rawSqlAllowed: boolean) =>
+                rawSqlAllowed &&
                 (!!selectedConnectionId || sourceQuery.source.executionTarget === 'managed_trino') &&
                 (sourceQuery.source.sendRawQuery ?? false),
         ],

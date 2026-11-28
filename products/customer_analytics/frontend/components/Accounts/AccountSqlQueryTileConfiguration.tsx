@@ -8,7 +8,7 @@ import { SQLEditorMode } from 'scenes/data-warehouse/editor/sqlEditorModes'
 
 import { ProductKey } from '~/queries/schema/schema-general'
 
-import { ACCOUNT_SQL_QUERY_PLACEHOLDER } from './accountSqlQuery'
+import { ACCOUNT_SQL_QUERY_PLACEHOLDER, getAccountSqlQueryConnectionError } from './accountSqlQuery'
 import { accountSqlQueryEditorLogic } from './accountSqlQueryEditorLogic'
 import { AccountSqlQueryTile } from './AccountSqlQueryTile'
 import type { AccountViewTileConfigEditorProps } from './accountViewTileConfig'
@@ -19,24 +19,29 @@ export function AccountSqlQueryTileConfiguration(props: AccountViewTileConfigEdi
     const logic = accountSqlQueryEditorLogic({ ...props, tabId })
     const { account, accountLoading, accountLoadFailed, previewConfig, previewRevision } = useValues(logic)
     const { runPreview, setVisualization, loadAccount } = useActions(logic)
+    const connectionError = getAccountSqlQueryConnectionError(props.config.connectionId)
     const runDisabledReason = props.saving
         ? 'Saving changes'
         : accountLoading
           ? 'Loading the account'
           : !account?.external_id?.trim()
             ? 'This account needs an external ID before you can preview its query'
-            : undefined
+            : connectionError
     return (
         <div className="flex flex-col gap-2 ph-no-capture">
+            {connectionError ? <LemonBanner type="error">{connectionError}</LemonBanner> : null}
             <LemonLabel
                 info={
                     <>
-                        Filter an account ID column in every SELECT's WHERE clause, including subqueries and UNION
-                        branches. For example:{' '}
+                        Filter an account ID column in WHERE. For example:{' '}
                         <code>SELECT * FROM system.accounts WHERE external_id = {ACCOUNT_SQL_QUERY_PLACEHOLDER}</code>.
                         For warehouse tables, choose the column that stores the account's external ID. The validator
-                        relies on your column choice. Every OR branch must keep this filter. Use the column directly,
-                        without a SELECT or WITH alias. Joins are not supported.
+                        relies on your column choice. Subqueries, UNION branches, and every OR branch must keep this
+                        filter. Use the column directly, without a SELECT or WITH alias. INNER JOIN can connect other
+                        tables to a filtered source. Give each table a unique alias and use qualified column equalities
+                        in ON. In mapping subqueries, explicitly select join keys from source columns. Choose keys that
+                        link rows to the account. The validator cannot infer these relationships. Deduplicate mapping
+                        rows when keys repeat to avoid multiplying counts.
                     </>
                 }
             >
@@ -60,7 +65,12 @@ export function AccountSqlQueryTileConfiguration(props: AccountViewTileConfigEdi
                     hideVariables
                     hideFilters
                     hideAiTools
-                    hideConnectionSelector
+                    connectionSelectorConfig={{
+                        allowedEngines: ['clickhouse'],
+                        requireHogQL: true,
+                        showSourceActions: false,
+                    }}
+                    allowRawSql={false}
                     captureQueryTelemetry={false}
                     onRunQuery={runPreview}
                     runQueryDisabledReason={runDisabledReason}

@@ -1150,8 +1150,9 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
         metadata = self._expr("is_identified", "persons")
         self.assertEqual(metadata.isValid, True)
 
+    @parameterized.expand(["missing", "matching", "different"])
     @patch("posthog.hogql.metadata.Database.create_for")
-    def test_metadata_resolves_database_from_connection_id(self, mock_create_for):
+    def test_metadata_resolves_database_from_connection_id(self, supplied_catalog: str, mock_create_for):
         source = ExternalDataSource.objects.create(
             source_id="selected-upstream-source",
             connection_id="selected-connection",
@@ -1162,18 +1163,32 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
             access_method=ExternalDataSource.AccessMethod.DIRECT,
         )
 
-        get_hogql_metadata(
+        connection_database = Database(include_posthog_tables=False)
+        connection_database._connection_id = str(source.id)
+        mock_create_for.return_value = connection_database
+        database = None
+        if supplied_catalog != "missing":
+            database = Database(include_posthog_tables=False)
+            database._connection_id = str(source.id) if supplied_catalog == "matching" else str(self.organization.id)
+
+        metadata = get_hogql_metadata(
             query=HogQLMetadata(
                 kind="HogQLMetadata",
                 language=HogLanguage.HOG_QL,
                 query="SELECT 1",
                 response=None,
                 connectionId=str(source.id),
+                freshSources=True,
             ),
             team=self.team,
             user=self.user,
+            database=database,
         )
 
+        self.assertTrue(metadata.isValid, metadata.errors)
+        if supplied_catalog == "matching":
+            self.assertEqual(mock_create_for.call_count, 0)
+            return
         self.assertEqual(mock_create_for.call_count, 1)
         self.assertEqual(mock_create_for.call_args.kwargs["team"], self.team)
         self.assertEqual(mock_create_for.call_args.kwargs["user"], self.user)
