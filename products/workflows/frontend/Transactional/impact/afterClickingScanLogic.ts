@@ -54,11 +54,6 @@ function scanErrorMessage(error: unknown, polling: boolean): string {
     return shown || (polling ? POLL_ERROR : "Replay vision couldn't scan these sessions. Try again.")
 }
 
-function endedSessionIds(sessions: TransactionalEmailImpactSessionsApi | null): string[] {
-    const ended = (sessions?.sessions ?? []).filter((session) => dayjs().diff(session.first_pageview_at, 'day') >= 1)
-    return ended.map((session) => session.session_id)
-}
-
 function sessionAnswer(session: ObservationRequestSessionApi): SessionAnswer | null {
     const output = session.scanner_result?.model_output as Record<string, unknown> | null | undefined
     const verdict = output?.verdict
@@ -85,6 +80,7 @@ export interface afterClickingScanLogicValues {
     scanRequest: ObservationRequestApi | null
     scanStarting: boolean
     scanState: AfterClickingScanState
+    sessionIds: string[]
     sessions: TransactionalEmailImpactSessionsApi | null
     sessionsLoading: boolean
 }
@@ -121,8 +117,10 @@ export interface afterClickingScanLogicActions {
 export interface afterClickingScanLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
+        sessionIds: (sessions: TransactionalEmailImpactSessionsApi | null) => string[]
         scanState: (
             sessions: TransactionalEmailImpactSessionsApi | null,
+            sessionIds: string[],
             sessionsLoading: boolean,
             scanRequest: ObservationRequestApi | null,
             scanStarting: boolean,
@@ -159,7 +157,7 @@ export const afterClickingScanLogic = kea<afterClickingScanLogicType>([
                             date_from: dayjs()
                                 .subtract(props.days * 24, 'hour')
                                 .toISOString(),
-                            date_to: dayjs().subtract(1, 'day').toISOString(),
+                            landed_before: dayjs().subtract(24, 'hour').toISOString(),
                         })
                     } finally {
                         breakpoint()
@@ -174,10 +172,15 @@ export const afterClickingScanLogic = kea<afterClickingScanLogicType>([
         scanError: [null as unknown, { scanSessions: () => null, failScan: (_, { error }) => error }],
     }),
     selectors({
+        sessionIds: [
+            (s) => [s.sessions],
+            (sessions): string[] => sessions?.sessions.map(({ session_id }) => session_id) ?? [],
+        ],
         scanState: [
-            (s) => [s.sessions, s.sessionsLoading, s.scanRequest, s.scanStarting, s.scanError],
+            (s) => [s.sessions, s.sessionIds, s.sessionsLoading, s.scanRequest, s.scanStarting, s.scanError],
             (
                 sessions: afterClickingScanLogicValues['sessions'],
+                sessionIds: afterClickingScanLogicValues['sessionIds'],
                 sessionsLoading: afterClickingScanLogicValues['sessionsLoading'],
                 scanRequest: afterClickingScanLogicValues['scanRequest'],
                 scanStarting: afterClickingScanLogicValues['scanStarting'],
@@ -190,7 +193,7 @@ export const afterClickingScanLogic = kea<afterClickingScanLogicType>([
                     return scanRequestState(scanRequest)
                 }
                 if (scanStarting) {
-                    return { kind: 'scanning', done: 0, total: endedSessionIds(sessions).length }
+                    return { kind: 'scanning', done: 0, total: sessionIds.length }
                 }
                 if (sessionsLoading) {
                     return { kind: 'loading-sessions' }
@@ -198,11 +201,10 @@ export const afterClickingScanLogic = kea<afterClickingScanLogicType>([
                 if (!sessions) {
                     return { kind: 'sessions-error' }
                 }
-                const ended = endedSessionIds(sessions).length
-                if (ended === 0) {
+                if (sessionIds.length === 0) {
                     return { kind: 'no-sessions' }
                 }
-                return { kind: 'ready', sessionCount: ended, hasMore: sessions.has_more }
+                return { kind: 'ready', sessionCount: sessionIds.length, hasMore: sessions.has_more }
             },
         ],
     }),
@@ -213,7 +215,7 @@ export const afterClickingScanLogic = kea<afterClickingScanLogicType>([
                 cache.scanKey = uuid()
                 // pinned: analytics event name - renaming breaks dashboards
                 posthog.capture('transactional email impact scan started', {
-                    sessions: endedSessionIds(values.sessions).length,
+                    sessions: values.sessionIds.length,
                     days: props.days,
                 })
             }
@@ -222,7 +224,7 @@ export const afterClickingScanLogic = kea<afterClickingScanLogicType>([
                 request = values.scanRequest
                     ? await visionRequestsRetrieve(String(values.currentTeamId), values.scanRequest.id)
                     : await visionRequestsCreate(String(values.currentTeamId), {
-                          session_ids: endedSessionIds(values.sessions),
+                          session_ids: values.sessionIds,
                           inline: { prompt: SCAN_PROMPT, scanner_config: { allow_inconclusive: true } },
                           reference: `workflows-email:${props.workflowId}`,
                           idempotency_key: cache.scanKey,

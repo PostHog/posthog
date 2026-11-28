@@ -18,18 +18,15 @@ export function AfterClickingCard(): JSX.Element | null {
     const { replayEnabled, days, linkTagging } = useValues(impactLogic)
     const replayVisionEnabled = useFeatureFlag('WORKFLOWS_EMAIL_IMPACT_REPLAY_VISION')
 
-    if (replayEnabled && !replayVisionEnabled) {
-        return null
-    }
     if (replayEnabled) {
-        return (
+        return replayVisionEnabled ? (
             <LemonCard hoverEffect={false} className="flex flex-col gap-3 p-4">
                 <h3 className="m-0 text-base font-semibold">What people did after clicking</h3>
                 <BindLogic logic={afterClickingScanLogic} props={{ ...impactLogic.props, days, linkTagging }}>
                     <AfterClickingScanPanel />
                 </BindLogic>
             </LemonCard>
-        )
+        ) : null
     }
 
     return (

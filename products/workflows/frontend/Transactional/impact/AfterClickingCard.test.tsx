@@ -23,6 +23,12 @@ import { SCAN_POLL_INTERVAL_MS } from './afterClickingScanLogic'
 import { EmailImpactTab } from './EmailImpactTab'
 
 const WORKFLOW_ID = '0192c3a4-5b6c-7d8e-9f01-23456789abcd'
+const NOW = new Date('2026-11-28T12:00:00Z')
+const LANDINGS = [
+    { session_id: 'session-recording', first_pageview_at: '2026-11-28T00:00:00Z' },
+    { session_id: 'session-a', first_pageview_at: '2026-11-26T10:00:00Z' },
+    { session_id: 'session-b', first_pageview_at: '2026-11-26T10:00:00Z' },
+]
 const REPLAY_ON = { ...MOCK_DEFAULT_TEAM, session_recording_opt_in: true }
 const READY = 'Ask Replay vision about these sessions'
 const ANSWER = "They opened the invoice page, but the page didn't show whether they found the download."
@@ -83,6 +89,7 @@ describe('AfterClickingCard', () => {
     let captured: string[]
 
     beforeEach(() => {
+        jest.useFakeTimers({ now: NOW, advanceTimers: true })
         captured = []
         jest.spyOn(posthog, 'capture').mockImplementation((event) => {
             captured.push(event)
@@ -103,7 +110,7 @@ describe('AfterClickingCard', () => {
         useMocks({
             get: {
                 '/api/projects/:team_id/transactional_email_log/impact/': () => [200, IMPACT],
-                '/api/projects/:team_id/transactional_email_log/impact_sessions/': () => {
+                '/api/projects/:team_id/transactional_email_log/impact_sessions/': ({ request }) => {
                     if (!linkTrackingOn) {
                         return [200, { sessions: [], has_more: false }]
                     }
@@ -111,24 +118,18 @@ describe('AfterClickingCard', () => {
                         failedSessionLists -= 1
                         return [500, {}]
                     }
-                    return [
-                        200,
-                        {
-                            sessions: [
-                                ...['session-a', 'session-b'].map((session_id) => ({
-                                    session_id,
-                                    message_id: `message-${session_id}`,
-                                    first_pageview_at: '2026-11-26T10:00:00Z',
-                                })),
-                                {
-                                    session_id: 'session-recording',
-                                    message_id: 'message-session-recording',
-                                    first_pageview_at: new Date(Date.now() - 12 * 3600 * 1000).toISOString(),
-                                },
-                            ],
-                            has_more: false,
-                        },
-                    ]
+                    const query = new URL(request.url).searchParams
+                    const from = Date.parse(query.get('date_from') ?? '')
+                    const before = Date.parse(query.get('landed_before') ?? 'invalid')
+                    const landed = LANDINGS.filter(({ first_pageview_at }) => {
+                        const at = Date.parse(first_pageview_at)
+                        return at >= from && !(at >= before)
+                    })
+                    const sessions = landed.map((landing) => ({
+                        ...landing,
+                        message_id: `message-${landing.session_id}`,
+                    }))
+                    return [200, { sessions: sessions.slice(0, 200), has_more: sessions.length > 200 }]
                 },
                 '/api/projects/:team_id/vision/requests/:id/': ({ params }) => {
                     const scan = [...vision.scansByKey.values()].find(({ id }) => id === params.id)
@@ -292,7 +293,7 @@ describe('AfterClickingCard', () => {
             shows: /no longer have access/,
         },
     ])('resumes the same scan after a poll fails with $pollFailure.0', async ({ pollFailure, shows }) => {
-        jest.useFakeTimers({ doNotFake: ['queueMicrotask', 'nextTick', 'setImmediate'] })
+        jest.useFakeTimers({ now: NOW, doNotFake: ['queueMicrotask', 'nextTick', 'setImmediate'] })
         vision.startsRunning = true
         vision.failedPolls = 1
         vision.pollFailure = pollFailure
@@ -350,7 +351,7 @@ describe('AfterClickingCard', () => {
         renderTab({ ...REPLAY_ON, workflows_config: { ...REPLAY_ON.workflows_config, ...trackingOff } })
         expect(await screen.findByText('No sessions to scan yet')).toBeInTheDocument()
 
-        await userEvent.click(screen.getByText('Turn on for project'))
+        await userEvent.click(await screen.findByText('Turn on for project'))
 
         expect(await screen.findByText(READY)).toBeInTheDocument()
     })
