@@ -15247,7 +15247,7 @@ Note: developers.tremendous.com is a JS-rendered ReadMe site and the documented 
 
 ## TriggerDev — gaps
 
-Today (7): `deployments`, `errors`, `queues`, `run_events`, `runs`, `schedules`, `waitpoint_tokens`
+Today (9): `bulk_actions`, `deployments`, `errors`, `queues`, `run_events`, `runs`, `schedules`, `sessions`, `waitpoint_tokens`
 
 Diffed against: <https://trigger.dev/docs/llms.txt>
 
@@ -15255,8 +15255,8 @@ Diffed against: <https://trigger.dev/docs/llms.txt>
 - [x] `deployments (list)` — deploy history and worker versions, the dimension that explains run behavior changes (high)
 - [x] `runs/{id}/events` — OTel span events per run; the step-level detail behind a run's duration and failure (medium)
 - [x] `waitpoints/tokens (list)` — waitpoint tokens and their completion state, showing where runs block on external systems (medium)
-- [ ] `sessions (list)` — durable session records tying multiple runs to one external identity (medium)
-- [ ] `bulk-actions (list)` — bulk cancel/replay operations and their processing counts (low)
+- [x] `sessions (list)` — durable session records tying multiple runs to one external identity (medium)
+- [x] `bulk-actions (list)` — bulk cancel/replay operations and their processing counts (low)
 
 Note: Trigger.dev also ships a TRQL query endpoint (management/query/execute) that exposes run data as a SQL-like surface; its schema endpoint (management/query/schema) lists every queryable table and would be the cheapest way to widen coverage. Env vars and queue concurrency controls were excluded as config.
 

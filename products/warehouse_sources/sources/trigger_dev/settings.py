@@ -130,6 +130,34 @@ TRIGGER_DEV_ENDPOINTS: dict[str, TriggerDevEndpointConfig] = {
             },
         ],
     ),
+    "sessions": TriggerDevEndpointConfig(
+        name="sessions",
+        path="/api/v1/sessions",
+        pagination="cursor",
+        default_incremental_field="createdAt",
+        partition_key="createdAt",
+        sort_mode="desc",
+        should_sync_default=False,
+        incremental_lookback=timedelta(days=7),
+        created_from_param="filter[createdAt][from]",
+        incremental_fields=[
+            {
+                "label": "createdAt",
+                "type": IncrementalFieldType.DateTime,
+                "field": "createdAt",
+                "field_type": IncrementalFieldType.DateTime,
+            },
+        ],
+    ),
+    "bulk_actions": TriggerDevEndpointConfig(
+        name="bulk_actions",
+        path="/api/v1/bulk-actions",
+        pagination="cursor",
+        partition_key="createdAt",
+        sort_mode="desc",
+        should_sync_default=False,
+        incremental_fields=[],
+    ),
     # OTel span events per run, fetched once per run while walking the runs endpoint newest-first.
     # Each row carries the parent run's id and createdAt, so the sync is incremental on the parent's
     # creation time with the same lookback as runs. Off by default: it costs one request per run.
