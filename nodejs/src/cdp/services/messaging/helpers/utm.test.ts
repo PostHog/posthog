@@ -278,12 +278,27 @@ describe('addUtmTagsToEmail', () => {
             html: '<a href="https://example.com/?a=1&amp;ph_workflow_run=old">x</a><a href="https://other.com/?ph_workflow_run=old">y</a>',
             expected: '<a href="https://example.com/?a=1">x</a><a href="https://other.com/?ph_workflow_run=old">y</a>',
         },
-    ])('$case', ({ html, expected, sender, runId }) => {
+        {
+            case: 'tags only the links without a query or a character reference on a sensitive email',
+            queryFreeLinksOnly: true,
+            html: '<a href="https://example.com/reset?token=abc">x</a><a href="https://example.com/a&lowbar;b">y</a><a href="https://example.com/p&#63;token=abc">z</a><a href="https://example.com/help">w</a>',
+            expected:
+                '<a href="https://example.com/reset?token=abc">x</a><a href="https://example.com/a&lowbar;b">y</a><a href="https://example.com/p&#63;token=abc">z</a><a href="https://example.com/help?ph_workflow_run=run-1">w</a>',
+        },
+        {
+            case: 'leaves the earlier run id on a link with a query on a sensitive email for a team that turned the tag off',
+            queryFreeLinksOnly: true,
+            runId: null,
+            html: '<a href="https://example.com/?ph_workflow_run=old">x</a>',
+            expected: '<a href="https://example.com/?ph_workflow_run=old">x</a>',
+        },
+    ])('$case', ({ html, expected, sender, runId, queryFreeLinksOnly }) => {
         expect(
             addWorkflowRunTagToEmail(html, {
                 runId: runId === undefined ? 'run-1' : runId,
                 senderEmail: sender ?? 'hi@mail.example.com',
                 siteUrl: SITE_URL,
+                queryFreeLinksOnly,
             })
         ).toEqual(expected)
     })

@@ -758,13 +758,18 @@ export class EmailService {
     ): Promise<WorkflowRunTag | null> {
         // A send that opts out of click tracking gets no run tag added and no earlier one stripped.
         // `trackingEnabled` reflects opens only, and the click opt-out is applied after the links are tagged.
-        if (!trackingEnabled || !isClickTrackingEnabled(invocation) || isTest || isSensitiveMessage(invocation)) {
+        if (!trackingEnabled || !isClickTrackingEnabled(invocation) || isTest) {
             return null
         }
         if (!this.workflowRunLinkTagTeams(invocation.teamId)) {
             return null
         }
-        const untagged = { runId: null, senderEmail, siteUrl: this.siteUrl }
+        const untagged = {
+            runId: null,
+            senderEmail,
+            siteUrl: this.siteUrl,
+            queryFreeLinksOnly: isSensitiveMessage(invocation),
+        }
         // The stored config skips schema checks, so any value other than true or absent counts as an opt-out.
         const runLinkTag: unknown = invocation.hogFunction.metadata?.run_link_tag_enabled
         if (runLinkTag !== undefined && runLinkTag !== true) {
