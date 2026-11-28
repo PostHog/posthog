@@ -6,13 +6,15 @@ import { Button, Tooltip, TooltipContent, TooltipTrigger, cn } from '@posthog/qu
 import { todayShellLogic } from './todayShellLogic'
 
 export function TodaySidebarPinButton(): JSX.Element | null {
-    const { sidebarPinned, mobileLayout } = useValues(todayShellLogic)
-    const { toggleSidebarPinned } = useActions(todayShellLogic)
+    const { sidebarPinned, sidebarPeeking, mobileLayout } = useValues(todayShellLogic)
+    const { clickSidebarPin } = useActions(todayShellLogic)
 
     // The drawer always closes when a page opens, so pinning has no effect there.
     if (mobileLayout) {
         return null
     }
+    // A sidebar the rail only showed for this page closes on the next one, as an unpinned sidebar does.
+    const pinned = sidebarPinned && !sidebarPeeking
 
     return (
         <Tooltip disableHoverablePopup>
@@ -24,20 +26,20 @@ export function TodaySidebarPinButton(): JSX.Element | null {
                         className={cn(
                             'shrink-0 text-muted-foreground',
                             // Pinned is the default, so the pin hides until the header is hovered. Unpinned stays in view.
-                            sidebarPinned &&
+                            pinned &&
                                 'opacity-0 transition-opacity duration-150 ease-[ease] group-hover/header:opacity-100 focus-visible:opacity-100 motion-reduce:transition-none'
                         )}
                         aria-label="Pin sidebar"
-                        aria-pressed={sidebarPinned}
+                        aria-pressed={pinned}
                         data-attr="today-pane-pin-sidebar"
-                        onClick={toggleSidebarPinned}
+                        onClick={clickSidebarPin}
                     />
                 }
             >
-                {sidebarPinned ? <IconPinFilled /> : <IconPin />}
+                {pinned ? <IconPinFilled /> : <IconPin />}
             </TooltipTrigger>
             <TooltipContent>
-                {sidebarPinned ? 'Unpin to hide the sidebar after you open a page' : 'Pin to keep the sidebar open'}
+                {pinned ? 'Unpin to hide the sidebar after you open a page' : 'Pin to keep the sidebar open'}
             </TooltipContent>
         </Tooltip>
     )
