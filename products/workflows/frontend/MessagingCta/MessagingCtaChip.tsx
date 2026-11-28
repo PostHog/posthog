@@ -34,15 +34,24 @@ function MessagingCtaChipForViewer({
     return (
         <LemonTag
             type="muted"
+            size="small"
             icon={<IconLetter />}
             className="min-w-0 max-w-full"
             data-attr={`messaging-cta-chip-${cta.placement.key}`}
         >
             <Tooltip title={disabledReason || cta.copy.description}>
                 {disabledReason ? (
-                    <span className="min-w-0 truncate">{cta.copy.label}</span>
+                    <span tabIndex={0} className="min-w-0 truncate">
+                        {cta.copy.label}
+                    </span>
                 ) : (
-                    <Link to={urls.transactionalNew()} onClick={cta.onClick} subtle className="min-w-0 truncate">
+                    <Link
+                        to={urls.transactionalNew()}
+                        onClickCapture={cta.onClick}
+                        onAuxClick={(event) => event.button === 1 && cta.onClick()}
+                        subtle
+                        className="min-w-0 truncate"
+                    >
                         {cta.copy.label}
                     </Link>
                 )}

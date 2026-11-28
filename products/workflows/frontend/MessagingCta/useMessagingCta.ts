@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
-import { FeatureFlagKey } from 'lib/constants'
+import { FEATURE_FLAGS, FeatureFlagKey } from 'lib/constants'
 import {
     featureFlagLogic,
     getFeatureFlagPayload,
@@ -11,6 +11,7 @@ import {
 
 import {
     MessagingCtaCopy,
+    MessagingCtaDestination,
     MessagingPlacement,
     MessagingPlacementKey,
     areaFlag,
@@ -19,6 +20,10 @@ import {
 } from '../../mcp/messagingPlacements'
 import { captureMessageAudienceClicked, messageAudienceAccessDisabledReason } from '../MessageAudience/messageAudience'
 import { messagingCtaDismissalLogic } from './messagingCtaDismissalLogic'
+
+const DESTINATION_FLAGS: Partial<Record<MessagingCtaDestination, FeatureFlagKey>> = {
+    send_from_code: FEATURE_FLAGS.WORKFLOWS_TRANSACTIONAL_EMAIL_API,
+}
 
 export interface MessagingCta {
     placement: MessagingPlacement
@@ -32,9 +37,13 @@ export function useMessagingCta(key: MessagingPlacementKey, viewerId: string): M
     const { isDismissed } = useValues(messagingCtaDismissalLogic({ viewerId, placement: key }))
     const { dismiss } = useActions(messagingCtaDismissalLogic({ viewerId, placement: key }))
 
-    const flag = areaFlag(placementFor(key).area) as FeatureFlagKey
+    const placement = placementFor(key)
+    const flag = areaFlag(placement.area) as FeatureFlagKey
     const flagValue = peekFeatureFlag(featureFlags, flag)
-    const eligible = receivedFeatureFlags && !isDismissed && !messageAudienceAccessDisabledReason()
+    const destinationFlag = DESTINATION_FLAGS[placement.destination]
+    const destinationAvailable = !destinationFlag || !!peekFeatureFlag(featureFlags, destinationFlag)
+    const eligible =
+        receivedFeatureFlags && destinationAvailable && !isDismissed && !messageAudienceAccessDisabledReason()
     const state = placementState(key, { value: () => flagValue, payload: () => getFeatureFlagPayload(flag) })
 
     useEffect(() => {
