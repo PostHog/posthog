@@ -228,7 +228,7 @@ def test_placement_snapshot_keeps_each_type_and_variant(onboarding_rows: list[di
         and request.path == "/api/v1/client-api/exports/placements/"
         for request in result.requests
     )
-    assert result.rows == [
+    assert result.items == [
         {**paywall, "placement_type": "paywall"},
         {**variant, "placement_type": "paywall"},
         *[{**row, "placement_type": "onboarding"} for row in onboarding_rows],

@@ -101,7 +101,7 @@ def fetch_placements(client: RESTClient, endpoint: AdaptyEndpoint, placement_typ
     rows = payload.get(response_key) if isinstance(payload, dict) else None
     if not isinstance(rows, list) or any(not isinstance(row, dict) for row in rows):
         raise ValueError(f"Adapty returned an invalid placement export. Expected an array of {response_key} objects.")
-    return [{**row, "placement_type": placement_type} for row in rows]
+    return rows
 
 
 def validate_credentials(api_key: str, schema_name: str | None) -> tuple[bool, str | None]:
@@ -187,14 +187,13 @@ def iter_reports(
         client.session.close()
 
 
-def iter_placements(api_key: str, endpoint: AdaptyEndpoint) -> Iterator[list[dict[str, Any]]]:
+def iter_placements(api_key: str, endpoint: AdaptyEndpoint) -> Iterator[dict[str, Any]]:
     client = api_client(api_key)
     try:
         for placement_type in PLACEMENT_TYPES:
             interruptible_wait(0.5)
-            rows = fetch_placements(client, endpoint, placement_type)
-            if rows:
-                yield rows
+            for row in fetch_placements(client, endpoint, placement_type):
+                yield {**row, "placement_type": placement_type}
     finally:
         client.session.close()
 
