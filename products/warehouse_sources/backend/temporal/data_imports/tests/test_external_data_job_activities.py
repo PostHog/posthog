@@ -140,6 +140,42 @@ class TestCustomerFacingError(SimpleTestCase):
         assert "timeout" not in result
 
 
+class TestTimeoutFinalization(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("stalled", TimeoutType.HEARTBEAT, False),
+            ("over_budget", TimeoutType.START_TO_CLOSE, True),
+        ]
+    )
+    def test_only_import_budget_timeouts_count_as_source_failures(
+        self, _name: str, timeout_type: TimeoutType, counts_as_source_failure: bool
+    ) -> None:
+        cause = TimeoutError("activity timed out", type=timeout_type, last_heartbeat_details=[])
+        inputs = UpdateExternalDataJobStatusInputs(
+            team_id=1,
+            job_id="example-job",
+            schema_id="example-schema",
+            source_id="example-source",
+            status=ExternalDataJob.Status.FAILED,
+            internal_error=str(cause),
+            latest_error=_customer_facing_error(cause, IMPORT_ACTIVITY_TYPE),
+        )
+        module = "products.warehouse_sources.backend.temporal.data_imports.external_data_job"
+        source = ExternalDataSource(source_type=ExternalDataSourceType.POSTGRES)
+
+        with (
+            mock.patch.object(ExternalDataSource.objects, "get", return_value=source),
+            mock.patch(f"{module}.get_rows", return_value=0),
+            mock.patch(f"{module}.finish_row_tracking"),
+            mock.patch("posthoganalytics.capture"),
+            mock.patch(f"{module}.update_external_job_status") as write_status,
+        ):
+            asyncio.run(ActivityEnvironment().run(update_external_data_job_model, inputs))
+
+        assert write_status.call_args.kwargs["status"] == ExternalDataJob.Status.FAILED
+        assert write_status.call_args.kwargs["counts_as_source_failure"] is counts_as_source_failure
+
+
 class TestIsAppDbFailure(SimpleTestCase):
     @parameterized.expand(
         [

@@ -710,7 +710,7 @@ async def _update_job_status(inputs: UpdateExternalDataJobStatusInputs, logger: 
 
     source: ExternalDataSource | None = None
     has_non_retryable_error = False
-    platform_failure = False
+    platform_failure = inputs.latest_error == SYNC_RUN_STALLED_MESSAGE
     if inputs.internal_error:
         logger.exception(
             f"External data job failed for external data schema {inputs.schema_id} on job {inputs.job_id} with error: {inputs.internal_error}"
