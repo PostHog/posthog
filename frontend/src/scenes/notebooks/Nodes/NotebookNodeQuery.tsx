@@ -32,6 +32,8 @@ import { DataTableNode, InsightVizNode, NodeKind, QuerySchema } from '~/queries/
 import { isEventsQuery, isSavedInsightNode } from '~/queries/utils'
 import { InsightLogicProps, InsightShortId } from '~/types'
 
+import { NotebookFilteredQuery } from 'products/notebooks/frontend/NotebookFilteredQuery'
+import { notebookFilterLogic } from 'products/notebooks/frontend/notebookFilterLogic'
 import { NotebookInsightDataframe } from 'products/notebooks/frontend/NotebookInsightDataframe'
 import type { InsightDataframeAttributes } from 'products/notebooks/frontend/notebookInsightDataframeLogic'
 
@@ -78,7 +80,31 @@ export const DEFAULT_QUERY: QuerySchema = {
     },
 }
 
-const Component = ({
+function Component(props: NotebookNodeProps<NotebookNodeQueryAttributes>): JSX.Element | null {
+    const node = useRequiredNotebookNode()
+    const { notebookLogic, expanded } = useValues(node)
+    const { shortId, isShared } = useValues(notebookLogic)
+    const { filters } = useValues(notebookFilterLogic({ shortId }))
+    const panel = useComponentPanelState()
+
+    if (isShared || !filters) {
+        return <NotebookQueryOutput {...props} />
+    }
+    if (!(panel?.showViewPanel ?? expanded)) {
+        return null
+    }
+    return (
+        <NotebookFilteredQuery
+            shortId={shortId}
+            nodeId={props.attributes.nodeId}
+            filters={filters}
+            unfiltered={<NotebookQueryOutput {...props} />}
+            query={getResolvedNotebookQuery(props.attributes)}
+        />
+    )
+}
+
+const NotebookQueryOutput = ({
     attributes,
     updateAttributes,
 }: NotebookNodeProps<NotebookNodeQueryAttributes>): JSX.Element | null => {
@@ -172,8 +198,8 @@ const Component = ({
             modifiedQuery.embedded = true
         }
 
-        if (isDataTableNode(modifiedQuery) && isEventsQuery(modifiedQuery.source)) {
-            modifiedQuery.source.fixedProperties = canvasFiltersOverride
+        if (canvasFiltersOverride.length && isDataTableNode(modifiedQuery) && isEventsQuery(modifiedQuery.source)) {
+            modifiedQuery.source = { ...modifiedQuery.source, fixedProperties: canvasFiltersOverride }
             updateAttributes({ isDefaultFilterApplied: true })
         }
 
@@ -360,6 +386,7 @@ export const Settings = ({
     const nodeLogic = useRequiredNotebookNode()
     const { notebookLogic } = useValues(nodeLogic)
     const { canvasFiltersOverride } = useValues(notebookLogic)
+    const applyCanvasDefaults = canvasFiltersOverride.length > 0 && !isDefaultFilterApplied
 
     const modifiedQuery = useMemo(() => {
         const modifiedQuery = { ...query, full: false }
@@ -392,22 +419,22 @@ export const Settings = ({
         }
 
         if (
+            applyCanvasDefaults &&
             isInsightVizNode(modifiedQuery) &&
             !isHogQLQuery(modifiedQuery.source) &&
-            !isActorsQuery(modifiedQuery.source) &&
-            !isDefaultFilterApplied
+            !isActorsQuery(modifiedQuery.source)
         ) {
             modifiedQuery.source.properties = canvasFiltersOverride
             updateAttributes({ isDefaultFilterApplied: true })
         }
 
-        if (isDataTableNode(modifiedQuery) && isEventsQuery(modifiedQuery.source) && !isDefaultFilterApplied) {
+        if (applyCanvasDefaults && isDataTableNode(modifiedQuery) && isEventsQuery(modifiedQuery.source)) {
             modifiedQuery.source.fixedProperties = canvasFiltersOverride
             updateAttributes({ isDefaultFilterApplied: true })
         }
 
         return modifiedQuery
-    }, [query, canvasFiltersOverride, isDefaultFilterApplied, attributes, updateAttributes])
+    }, [query, canvasFiltersOverride, applyCanvasDefaults, attributes, updateAttributes])
 
     const detachSavedInsight = (): void => {
         if (isSavedInsightNode(query)) {

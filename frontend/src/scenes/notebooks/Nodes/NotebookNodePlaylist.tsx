@@ -1,5 +1,5 @@
 import { BuiltLogic, useActions, useValues } from 'kea'
-import { useEffect, useMemo } from 'react'
+import { type ComponentProps, useEffect, useMemo } from 'react'
 
 import { LemonTag } from '@posthog/lemon-ui'
 import { PostHogErrorBoundary } from '@posthog/react'
@@ -17,13 +17,21 @@ import { SessionRecordingsPlaylist } from 'scenes/session-recordings/playlist/Se
 import {
     asUniversalFilters,
     DEFAULT_RECORDING_FILTERS,
+    PINNED_RECORDINGS_LIMIT,
     SessionRecordingPlaylistLogicProps,
     sessionRecordingsPlaylistLogic,
 } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
 import { sessionRecordingsPlaylistSceneLogic } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistSceneLogic'
 import { urls } from 'scenes/urls'
 
-import { FilterType, RecordingUniversalFilters } from '~/types'
+import { FilterType, RecordingUniversalFilters, SessionRecordingPlaylistType } from '~/types'
+
+import { notebookFilterLogic } from 'products/notebooks/frontend/notebookFilterLogic'
+import {
+    getFilteredNotebookPlaylist,
+    notebookFilteredBlockKey,
+    type NotebookPlaylistCollection,
+} from 'products/notebooks/frontend/notebookFilters'
 
 import { notebookLogic } from '../Notebook/notebookLogic'
 import { NotebookNodeAttributeProperties, NotebookNodeProps, NotebookNodeType } from '../types'
@@ -37,7 +45,75 @@ const Component = ({
         return <SavedPlaylistDetail attributes={attributes} updateAttributes={updateAttributes} />
     }
 
-    return <PlaylistContent attributes={attributes} updateAttributes={updateAttributes} />
+    return <NotebookPlaylistView attributes={attributes} updateAttributes={updateAttributes} />
+}
+
+interface NotebookCollectionStatus extends NotebookPlaylistCollection {
+    loading: boolean
+    count?: number
+}
+
+function collectionPreviewNotice({ loading, count, ids }: NotebookCollectionStatus): JSX.Element | null {
+    if (loading) {
+        return <LemonSkeleton className="m-3 h-6" />
+    }
+    const complete = ids && (count == null ? ids.length < PINNED_RECORDINGS_LIMIT : ids.length >= count)
+    if (!complete) {
+        return <div className="p-3 text-secondary">Clear notebook filters to view the full recording collection.</div>
+    }
+    if (!ids.length) {
+        return <div className="p-3 text-secondary">This collection has no recordings.</div>
+    }
+    return null
+}
+
+function NotebookPlaylistView({
+    collection,
+    ...props
+}: NotebookNodeProps<NotebookNodePlaylistAttributes> & {
+    collection?: NotebookCollectionStatus
+}): JSX.Element {
+    const { shortId, isShared, personUUIDFromCanvasOverride } = useValues(notebookLogic)
+    const { filters: notebookFilters } = useValues(notebookFilterLogic({ shortId }))
+    if (isShared || !notebookFilters) {
+        return <PlaylistContent {...props} />
+    }
+    const notice = collection && collectionPreviewNotice(collection)
+    if (notice) {
+        return notice
+    }
+    const filters = getFilteredNotebookPlaylist(props.attributes.universalFilters, notebookFilters, collection)
+    if (!filters) {
+        return (
+            <div className="flex h-full flex-col">
+                <LemonTag className="self-start">Notebook filters don’t apply to this “match any” list</LemonTag>
+                <PlaylistContent {...props} />
+            </div>
+        )
+    }
+    if (collection && filters.session_ids?.length === 0) {
+        return <div className="p-3 text-secondary">No recordings match the notebook and collection filters.</div>
+    }
+    const key = notebookFilteredBlockKey(shortId, props.attributes.nodeId, notebookFilters)
+    return (
+        <div className="flex h-full flex-col">
+            <LemonTag className="self-start" type="highlight">
+                Notebook filters applied
+            </LemonTag>
+            <NotebookReplayPlaylist
+                key={key}
+                logicKey={key}
+                filters={filters}
+                filterSessionIdsByDate={!!notebookFilters.dateRange}
+                personUUID={personUUIDFromCanvasOverride ?? undefined}
+                autoPlay={false}
+                updateSearchParams={false}
+                resetToCallerFilters
+                readOnlyFilters
+                listEmptyState={<span>No recordings match the notebook filters.</span>}
+            />
+        </div>
+    )
 }
 
 const PlaylistContent = ({
@@ -69,9 +145,16 @@ const PlaylistContent = ({
         [playerKey, universalFilters, pinned]
     )
 
+    return <NotebookReplayPlaylist {...recordingPlaylistLogicProps} logicKey={playerKey} />
+}
+
+function NotebookReplayPlaylist(
+    props: ComponentProps<typeof SessionRecordingsPlaylist> & { logicKey: string }
+): JSX.Element {
+    const playerKey = props.logicKey
     const { setActions, insertAfter, setMessageListeners } = useActions(notebookNodeLogic)
 
-    const logic = sessionRecordingsPlaylistLogic(recordingPlaylistLogicProps)
+    const logic = sessionRecordingsPlaylistLogic(props)
     const { activeSessionRecording } = useValues(logic)
     const { setSelectedRecordingId } = useActions(logic)
 
@@ -118,15 +201,16 @@ const PlaylistContent = ({
                 }, 100)
             },
         })
+        return () => {
+            setActions([])
+            setMessageListeners({})
+        }
     })
 
-    return <SessionRecordingsPlaylist {...recordingPlaylistLogicProps} />
+    return <SessionRecordingsPlaylist {...props} />
 }
 
-function SavedPlaylistDetail(props: NotebookNodeProps<NotebookNodePlaylistAttributes>): JSX.Element {
-    const { id } = props.attributes
-    const logic = sessionRecordingsPlaylistSceneLogic({ shortId: id || 'new' })
-    const { filters, pinnedRecordings, playlist, playlistLoading } = useValues(logic)
+function usePlaylistNodeTitle(playlist: SessionRecordingPlaylistType | null): void {
     const { setTitlePlaceholder, setTitleStatus } = useActions(notebookNodeLogic)
 
     useEffect(() => {
@@ -137,6 +221,13 @@ function SavedPlaylistDetail(props: NotebookNodeProps<NotebookNodePlaylistAttrib
                 : null
         )
     }, [playlist, setTitlePlaceholder, setTitleStatus])
+}
+
+function SavedPlaylistDetail(props: NotebookNodeProps<NotebookNodePlaylistAttributes>): JSX.Element {
+    const { id } = props.attributes
+    const logic = sessionRecordingsPlaylistSceneLogic({ shortId: id || 'new' })
+    const { filters, pinnedRecordings, pinnedRecordingsLoading, playlist, playlistLoading } = useValues(logic)
+    usePlaylistNodeTitle(playlist)
 
     if (!playlist && !playlistLoading) {
         return <NotFound object="recording playlist" />
@@ -149,14 +240,25 @@ function SavedPlaylistDetail(props: NotebookNodeProps<NotebookNodePlaylistAttrib
         )
     }
 
+    const pinned = pinnedRecordings?.map((recording) => String(recording.id))
     return (
-        <PlaylistContent
+        <NotebookPlaylistView
             {...props}
+            collection={
+                playlist.type === 'collection'
+                    ? {
+                          ids: pinned,
+                          loading: pinnedRecordingsLoading,
+                          count: playlist.recordings_counts?.collection?.count,
+                          savedFilters: filters,
+                      }
+                    : undefined
+            }
             attributes={{
                 ...props.attributes,
                 id: undefined,
                 universalFilters: asUniversalFilters(filters) || DEFAULT_RECORDING_FILTERS,
-                pinned: pinnedRecordings?.map((recording) => String(recording.id)),
+                pinned,
             }}
         />
     )
@@ -202,16 +304,7 @@ function PlaylistSummary({ attributes }: NotebookNodeProps<NotebookNodePlaylistA
 function SavedPlaylistSummary({ id }: { id: string }): JSX.Element {
     const logic = sessionRecordingsPlaylistSceneLogic({ shortId: id })
     const { derivedName, playlist, playlistLoading } = useValues(logic)
-    const { setTitlePlaceholder, setTitleStatus } = useActions(notebookNodeLogic)
-
-    useEffect(() => {
-        setTitlePlaceholder(playlist?.name || playlist?.derived_name || 'Recording playlist')
-        setTitleStatus(
-            playlist?.type
-                ? { label: playlist.type === 'collection' ? 'Collection' : 'Saved filter', type: 'default' }
-                : null
-        )
-    }, [playlist, setTitlePlaceholder, setTitleStatus])
+    usePlaylistNodeTitle(playlist)
 
     if (!playlist && !playlistLoading) {
         return <NotFound object="recording playlist" />
@@ -249,16 +342,7 @@ function PlaylistConditions({ attributes }: NotebookNodeProps<NotebookNodePlayli
 
 function SavedPlaylistConditions({ id }: { id: string }): JSX.Element {
     const { playlist, playlistLoading } = useValues(sessionRecordingsPlaylistSceneLogic({ shortId: id }))
-    const { setTitlePlaceholder, setTitleStatus } = useActions(notebookNodeLogic)
-
-    useEffect(() => {
-        setTitlePlaceholder(playlist?.name || playlist?.derived_name || 'Recording playlist')
-        setTitleStatus(
-            playlist?.type
-                ? { label: playlist.type === 'collection' ? 'Collection' : 'Saved filter', type: 'default' }
-                : null
-        )
-    }, [playlist, setTitlePlaceholder, setTitleStatus])
+    usePlaylistNodeTitle(playlist)
 
     if (!playlist && !playlistLoading) {
         return <NotFound object="recording playlist" />

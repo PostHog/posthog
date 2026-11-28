@@ -17,7 +17,7 @@ import { RecordingsUniversalFiltersEmbedButton } from 'scenes/session-recordings
 import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
 import { ListCollapsedToggle } from 'scenes/session-recordings/playlist/ListCollapsedToggle'
 import { ListLoadingState } from 'scenes/session-recordings/playlist/ListLoadingState'
-import { ListLoadMoreFooter } from 'scenes/session-recordings/playlist/ListLoadMoreFooter'
+import { ListLoadMoreFooter, ListLoadMoreFooterProps } from 'scenes/session-recordings/playlist/ListLoadMoreFooter'
 import { ListOnlyLiveState } from 'scenes/session-recordings/playlist/ListOnlyLiveState'
 import { OngoingRecordingsGroup } from 'scenes/session-recordings/playlist/OngoingRecordingsGroup'
 import { playlistFiltersLogic } from 'scenes/session-recordings/playlist/playlistFiltersLogic'
@@ -72,6 +72,7 @@ export type PlaylistProps = {
     isSynthetic?: boolean
     description?: string
     selectInitialItem?: boolean
+    readOnlyFilters?: boolean
     /**
      * Replaces the shared replay troubleshooting panel when a filters list comes back empty. Set it
      * on a surface that already knows why its list is empty, because the shared panel can only
@@ -88,6 +89,7 @@ export function Playlist({
     isSynthetic,
     description,
     selectInitialItem,
+    readOnlyFilters = false,
     listEmptyState,
     watchLayout = false,
 }: PlaylistProps): JSX.Element {
@@ -116,7 +118,8 @@ export function Playlist({
 
     const notebookNode = useNotebookNode()
     const embedded = !!notebookNode
-    const watchListHeader = newLayout && !notebookNode
+    const standaloneFilters = !readOnlyFilters && !notebookNode
+    const watchListHeader = newLayout && standaloneFilters
     const watchFilterBar = watchListHeader && type !== 'collection'
 
     // bound outside here
@@ -207,10 +210,12 @@ export function Playlist({
             ),
             items: finishedRecordings,
             render: renderRow,
-            footer: newLayout ? (
-                <QuillListLoadMoreFooter {...loadMoreFooterProps} />
-            ) : (
-                <ListLoadMoreFooter {...loadMoreFooterProps} />
+            footer: (
+                <PlaylistResultsFooter
+                    {...loadMoreFooterProps}
+                    newLayout={newLayout}
+                    readOnlyFilters={readOnlyFilters}
+                />
             ),
         })
     }
@@ -233,11 +238,6 @@ export function Playlist({
 
     const activeItemId = activeSessionRecordingId === undefined ? controlledActiveItemId : activeSessionRecordingId
 
-    const selectedBarProps = (count: number): { count: number; loading: boolean; onShowAll: () => void } => ({
-        count,
-        loading: !!sessionRecordingsResponseLoading,
-        onShowAll: () => setFilters({ session_ids: undefined }),
-    })
     const onlyLiveProps = {
         hasNext,
         loading: !!sessionRecordingsResponseLoading,
@@ -278,7 +278,7 @@ export function Playlist({
                     />
                 </div>
             )}
-            {!watchListHeader && !notebookNode && type !== 'collection' && (
+            {!watchListHeader && standaloneFilters && type !== 'collection' && (
                 <div className="mb-2 flex gap-2">
                     <DraggableToNotebook className="flex-1" href={urls.replay(ReplayTabs.Home, filters)}>
                         <RecordingsUniversalFiltersEmbedButton
@@ -291,12 +291,11 @@ export function Playlist({
                     </DraggableToNotebook>
                 </div>
             )}
-            {!!filters?.session_ids?.length &&
-                (newLayout ? (
-                    <QuillSelectedRecordingsBar {...selectedBarProps(filters.session_ids.length)} />
-                ) : (
-                    <SelectedRecordingsBar {...selectedBarProps(filters.session_ids.length)} />
-                ))}
+            <PlaylistSessionSelection
+                ids={filters.session_ids}
+                newLayout={newLayout}
+                readOnlyFilters={readOnlyFilters}
+            />
             <div
                 ref={playlistRef}
                 data-attr="session-recordings-playlist"
@@ -330,7 +329,7 @@ export function Playlist({
                                         <div className="flex items-center gap-0.5 flex-1 min-w-0">
                                             <SessionRecordingsPlaylistTopSettings
                                                 filters={filters}
-                                                setFilters={setFilters}
+                                                setFilters={readOnlyFilters ? undefined : setFilters}
                                                 type={type}
                                                 shortId={type === 'collection' ? logicKey : undefined}
                                             />
@@ -415,6 +414,42 @@ const TitleWithCount = ({ title, count }: { title?: string; count: number }): JS
             )}
         </div>
     )
+}
+
+function PlaylistSessionSelection({
+    ids,
+    newLayout,
+    readOnlyFilters,
+}: {
+    ids?: string[]
+    newLayout: boolean
+    readOnlyFilters: boolean
+}): JSX.Element | null {
+    const { sessionRecordingsResponseLoading } = useValues(sessionRecordingsPlaylistLogic)
+    const { setFilters } = useActions(sessionRecordingsPlaylistLogic)
+    if (readOnlyFilters || !ids?.length) {
+        return null
+    }
+    const Bar = newLayout ? QuillSelectedRecordingsBar : SelectedRecordingsBar
+    return (
+        <Bar
+            count={ids.length}
+            loading={sessionRecordingsResponseLoading}
+            onShowAll={() => setFilters({ session_ids: undefined })}
+        />
+    )
+}
+
+function PlaylistResultsFooter({
+    readOnlyFilters,
+    newLayout,
+    ...props
+}: ListLoadMoreFooterProps & { readOnlyFilters: boolean; newLayout: boolean }): JSX.Element | null {
+    if (readOnlyFilters && !props.hasNext) {
+        return null
+    }
+    const Footer = newLayout ? QuillListLoadMoreFooter : ListLoadMoreFooter
+    return <Footer {...props} />
 }
 
 const ListEmptyState = ({

@@ -1,10 +1,17 @@
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { BindLogic } from 'kea'
 import posthog from 'posthog-js'
 import { createElement } from 'react'
 
 import { useMocks } from '~/mocks/jest'
+import { examples } from '~/queries/examples'
 import { NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
+import { InsightShortId, PropertyFilterType, PropertyOperator } from '~/types'
+
+import { NotebookFilteredQuery } from 'products/notebooks/frontend/NotebookFilteredQuery'
+import { notebookFilterLogic } from 'products/notebooks/frontend/notebookFilterLogic'
+import { NotebookFiltersBar } from 'products/notebooks/frontend/NotebookFiltersBar'
 
 import { notebookLogic } from '../Notebook/notebookLogic'
 import { NotebookNodeType } from '../types'
@@ -72,6 +79,156 @@ describe('NotebookNodeQuery', () => {
             unmountNode()
             unmountNotebook()
             capture.mockRestore()
+        }
+    })
+
+    it('offers filters only while the notebook has a filterable block', async () => {
+        initKeaTests()
+        const notebook = notebookLogic({ shortId: 'template-filter-bar' })
+        const unmountNotebook = notebook.mount()
+        const query = notebookNodeLogic({
+            notebookLogic: notebook,
+            nodeType: NotebookNodeType.Query,
+            titlePlaceholder: 'Events',
+            attributes: {
+                nodeId: 'events',
+                query: { kind: NodeKind.DataTableNode, source: { kind: NodeKind.EventsQuery, select: ['event'] } },
+            },
+            updateAttributes: () => {},
+        })
+        try {
+            render(
+                createElement(BindLogic, {
+                    logic: notebookLogic,
+                    props: notebook.props,
+                    children: createElement(NotebookFiltersBar),
+                })
+            )
+            expect(screen.queryByLabelText('Notebook filters')).toBeNull()
+            const unmountQuery = query.mount()
+            try {
+                expect(await screen.findByLabelText('Notebook filters')).toBeTruthy()
+                act(() =>
+                    notebookFilterLogic({ shortId: notebook.props.shortId }).actions.setFilters({
+                        properties: [],
+                        dateRange: { date_from: '-7d' },
+                    })
+                )
+            } finally {
+                act(unmountQuery)
+            }
+            await waitFor(() => expect(screen.queryByLabelText('Notebook filters')).toBeNull())
+            fireEvent.click(screen.getByText('Clear notebook filters'))
+            expect(screen.queryByText('Clear notebook filters')).toBeNull()
+        } finally {
+            cleanup()
+            unmountNotebook()
+        }
+    })
+
+    it('requeries the insight when a viewer combines notebook filters without editing the notebook', async () => {
+        const requested: unknown[] = []
+        useMocks({
+            post: {
+                '/api/projects/:project_id/query/TrendsQuery/': async ({ request }) => {
+                    const { query } = (await request.json()) as { query: { properties?: unknown } }
+                    requested.push(query.properties)
+                    return [200, { results: [], last_refresh: '2026-01-01T00:00:00Z' }]
+                },
+            },
+        })
+        initKeaTests()
+        const shortId = 'template-cohort-preview'
+        const notebook = notebookLogic({ shortId })
+        const preview = notebookFilterLogic({ shortId })
+        const attributes = {
+            nodeId: 'signups',
+            isDefaultFilterApplied: true,
+            query: {
+                kind: NodeKind.InsightVizNode as const,
+                source: {
+                    kind: NodeKind.TrendsQuery as const,
+                    series: [{ kind: NodeKind.EventsNode as const, event: 'signup' }],
+                },
+            },
+        }
+        const originalAttributes = structuredClone(attributes)
+        const updateAttributes = (changes: object): void => {
+            Object.assign(attributes, changes)
+        }
+        const node = notebookNodeLogic({
+            notebookLogic: notebook,
+            nodeType: NotebookNodeType.Query,
+            titlePlaceholder: 'Signups',
+            attributes,
+            updateAttributes,
+        })
+        const unmountNotebook = notebook.mount()
+        const unmountNode = node.mount()
+        const unmountPreview = preview.mount()
+        try {
+            const cohort = {
+                type: PropertyFilterType.Cohort,
+                key: 'id',
+                operator: PropertyOperator.In,
+                value: 17,
+            } as const
+            const person = {
+                type: PropertyFilterType.Person as const,
+                key: 'plan',
+                operator: PropertyOperator.Exact,
+                value: ['basic'],
+            }
+            preview.actions.setFilters({ properties: [cohort] })
+            render(
+                createElement(
+                    NotebookNodeContext.Provider,
+                    { value: node },
+                    createElement(NotebookNodeQuery.Component, { attributes, updateAttributes })
+                )
+            )
+            await waitFor(() =>
+                expect(requested).toContainEqual([{ type: 'cohort', key: 'id', operator: 'in', value: 17 }])
+            )
+            act(() => preview.actions.setFilters({ properties: [cohort, person] }))
+            await waitFor(() => expect(requested).toContainEqual([cohort, person]))
+            expect(attributes).toEqual(originalAttributes)
+            act(() => preview.actions.setFilters(null))
+            expect(await screen.findByText('Refresh')).toBeTruthy()
+        } finally {
+            cleanup()
+            unmountPreview()
+            unmountNode()
+            unmountNotebook()
+        }
+    })
+
+    it('requests only the saved insight definition when filtering a saved block', async () => {
+        const shortId = 'saved-filter-test' as InsightShortId
+        const requests: URL[] = []
+        useMocks({
+            get: {
+                '/api/environments/:team_id/insights/': ({ request }) => {
+                    requests.push(new URL(request.url))
+                    return { results: [{ id: 1, short_id: shortId, query: examples.InsightTrends }] }
+                },
+            },
+        })
+        initKeaTests()
+        try {
+            render(
+                createElement(NotebookFilteredQuery, {
+                    shortId: 'notebook-test',
+                    nodeId: 'saved-insight',
+                    filters: { dateRange: { date_from: '-7d' }, properties: [] },
+                    unfiltered: createElement('div'),
+                    query: { kind: NodeKind.SavedInsightNode, shortId },
+                })
+            )
+            expect(await screen.findByText('Notebook filters applied')).toBeTruthy()
+            expect(requests.map((request) => request.searchParams.get('basic'))).toEqual(['true'])
+        } finally {
+            cleanup()
         }
     })
 
