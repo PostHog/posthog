@@ -1,6 +1,7 @@
 import io
 import re
 import json
+import time
 import base64
 from datetime import UTC, datetime
 from typing import Any
@@ -40,9 +41,10 @@ from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 from products.workflows.backend.presentation.views.data_suggestion_drafts import validated_draft
 from products.workflows.backend.presentation.views.workflow_imports import CustomerioSegmentSerializer
 from products.workflows.backend.services.customerio_import import conditions, liquid
-from products.workflows.backend.services.customerio_import.images import _file_name
+from products.workflows.backend.services.customerio_import.images import CUSTOMERIO_IMAGES
 from products.workflows.backend.services.customerio_import.segments import segment_cohort_filters
 from products.workflows.backend.services.customerio_import.translator import _json_with_liquid, translate_campaign
+from products.workflows.backend.services.email_images import file_name
 
 
 def _encode(condition: list[dict[str, Any]]) -> str:
@@ -1460,13 +1462,14 @@ class TestWorkflowImportAPI(APIBaseTest):
         # A longer URL that starts with `hero`, and one whose query the HTML escapes.
         hero_webp, sized = f"{hero}.webp", f"{hero}?w=1(2&amp;h=2"
         logo = "https://userimg-assets.customeriomail.com/images/client-env-1/logo(1).png"
+        accented = "https://userimg-assets.customeriomail.com/images/client-env-1/été\u202fPM.png"
         # Neither may be requested: one only has an address at send time, one unescapes to another host.
         templated = "https://userimg-assets.customeriomail.com/images/client-env-1/v.png?v={{ person.properties.v }}"
         smuggled = "https://userimg-assets.customeriomail.com&#64;evil.example.com/a.png"
         lookalike = "https://userimg-assets.customeriomaİl.com/a.png"
         guide = "https://userimg-assets.customeriomail.com/files/client-env-1/guide.pdf"
         stalled = "https://userimg-assets.customeriomail.com/images/client-env-1/stalled.png"
-        served = {hero, hero_webp, f"{hero}?w=1(2&h=2", logo}
+        served = {hero, hero_webp, f"{hero}?w=1(2&h=2", logo, accented}
 
         def respond(url: str, **kwargs: Any) -> MagicMock:
             response = MagicMock(status_code=200 if url in served or url == stalled else 404)
@@ -1485,20 +1488,20 @@ class TestWorkflowImportAPI(APIBaseTest):
                 "body": f'<img src="{hero}"><img src="{gone}"><img src="https://cdn.example.com/logo.png">'
                 f'<img src="{hero_webp}"><img src="{sized}"><style>.a{{background:url({logo})}}.b{{background:url(&quot;{logo}&quot;)}}</style>'
                 f'<img src="{templated}"><img src="{smuggled}"><img src="{lookalike}">'
-                f'<a href="{guide}">Guide</a><img src="{hero}?w=1(2&h=2"><img src="{stalled}">',
+                f'<a href="{guide}">Guide</a><img src="{hero}?w=1(2&h=2"><img src="{stalled}"><img src="{accented}">',
             },
         }
         campaigns = [{"campaign": source.campaign, "actions": source.actions, "templates": list(templates.values())}]
 
         preview = self._import(campaigns=campaigns, dry_run=True)
-        assert any("6 email images on Customer.io's servers will be copied" in n["message"] for n in preview["notes"])
+        assert any("7 email images on Customer.io's servers will be copied" in n["message"] for n in preview["notes"])
         assert not mock_get.called
 
         planted = UploadedMedia.objects.create(
             team=self.team,
             created_by=User.objects.create_and_join(self.organization, "other@example.com", None),
             purpose="email",
-            file_name=_file_name(hero),
+            file_name=file_name(hero, CUSTOMERIO_IMAGES),
             media_location="planted/hero.png",
         )
         first = self._import(campaigns=campaigns)
@@ -1509,14 +1512,14 @@ class TestWorkflowImportAPI(APIBaseTest):
         copies = list(
             UploadedMedia.objects.filter(team=self.team, purpose="email", created_by=self.user).order_by("created_at")
         )
-        assert [(m.content_type, m.width, m.height) for m in copies] == [("image/png", 3, 2)] * 4
+        assert [(m.content_type, m.width, m.height) for m in copies] == [("image/png", 3, 2)] * 5
         urls = [media.get_absolute_url() for media in copies]
         assert html == (
             '<div style="font-family: Arial, Helvetica, sans-serif;">'
             f'<img src="{urls[0]}"><img src="{gone}"><img src="https://cdn.example.com/logo.png">'
             f'<img src="{urls[1]}"><img src="{urls[2]}"><style>.a{{background:url({urls[3]})}}.b{{background:url(&quot;{urls[3]}&quot;)}}</style>'
             f'<img src="{templated}"><img src="{smuggled}"><img src="{lookalike}">'
-            f'<a href="{guide}">Guide</a><img src="{urls[2]}"><img src="{stalled}"></div>'
+            f'<a href="{guide}">Guide</a><img src="{urls[2]}"><img src="{stalled}"><img src="{urls[4]}"></div>'
         )
         requested = [call.args[0] for call in mock_get.call_args_list]
         assert "evil.example.com" not in " ".join(requested)
@@ -1531,7 +1534,7 @@ class TestWorkflowImportAPI(APIBaseTest):
         assert hero_webp not in design and urls[1] in design
 
         self._import(campaigns=campaigns)
-        assert UploadedMedia.objects.filter(team=self.team, purpose="email", created_by=self.user).count() == 4
+        assert UploadedMedia.objects.filter(team=self.team, purpose="email", created_by=self.user).count() == 5
         assert [call.args[0] for call in mock_get.call_args_list].count(hero) == 1
 
         UploadedMedia.objects.filter(pk=copies[0].pk).update(archived_at=timezone.now())
@@ -1541,9 +1544,98 @@ class TestWorkflowImportAPI(APIBaseTest):
             UploadedMedia.objects.filter(
                 team=self.team, purpose="email", created_by=self.user, archived_at__isnull=True
             ).count()
-            == 4
+            == 5
         )
         assert all(call.kwargs["allow_redirects"] is False for call in mock_get.call_args_list)
+
+        copies[1].stop_serving()
+        taken_down = self._import(campaigns=campaigns)
+        assert any(hero_webp in n["message"] for n in taken_down["notes"])
+        assert [call.args[0] for call in mock_get.call_args_list].count(hero_webp) == 1
+
+    @parameterized.expand(
+        [
+            (
+                "lone_surrogate_in_an_image_url",
+                '<img src="https://userimg-assets.customeriomail.com/a/\ud800.png">',
+                "{}",
+            ),
+            ("lone_surrogate_in_text", "<p>\ud800</p>", "{}"),
+            ("nul", "<p>\x00</p>", "{}"),
+            ("escaped_in_a_webhook_body", "<p>Hi</p>", r'{"a": "\u0000", "b": "\ud800"}'),
+            ("deep_in_a_webhook_body", "<p>Hi</p>", r'{"a": ' + "[" * 250 + r'"\u0000"' + "]" * 250 + "}"),
+        ]
+    )
+    @patch("products.workflows.backend.services.remote_images.requests.get", return_value=MagicMock(status_code=404))
+    def test_a_character_postgres_refuses_stops_no_automation(
+        self, _name: str, body: str, webhook_body: str, _mock_get: MagicMock
+    ) -> None:
+        source = _onboarding_campaign()
+        webhook: dict[str, Any] = {
+            "id": "15",
+            "url": "https://crm.example.com",
+            "request_method": "POST",
+            "body": webhook_body,
+        }
+        campaigns: list[dict[str, Any]] = [
+            {
+                "campaign": {**source.campaign, "id": campaign_id},
+                "actions": [
+                    {"id": "2", "type": "webhook_action", "name": "CRM", "template_id": "15"}
+                    if action["id"] == "2"
+                    else action
+                    for action in source.actions
+                ],
+                "templates": [
+                    dict[str, Any](source.templates["11"], body=campaign_body),
+                    *list(source.templates.values())[1:],
+                    webhook if campaign_id == "43" else {**webhook, "body": "{}"},
+                ],
+            }
+            for campaign_id, campaign_body in (("42", "<p>Hi</p>"), ("43", body), ("44", "<p>Hi</p>"))
+        ]
+
+        # The test client's own JSON renderer refuses a lone surrogate, so the body goes out as a JSON escape.
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/workflow_imports/",
+            data=json.dumps({"source": "customerio", "campaigns": campaigns, "snippets": {"footer": "x"}}),
+            content_type="application/json",
+        )
+
+        assert response.status_code == 200
+        assert [result["status"] for result in response.json()["results"]] == ["created"] * 3
+        assert HogFlow.objects.filter(team=self.team).count() == 3
+
+    @parameterized.expand([("in_time", 20, True), ("past_its_limit", 31, False)])
+    def test_an_image_has_to_finish_within_its_limit(self, _name: str, last_read_seconds: int, copied: bool) -> None:
+        png = io.BytesIO()
+        Image.new("RGB", (3, 2)).save(png, "PNG")
+        waited = 0
+
+        def read(_size: int) -> bytes:
+            nonlocal waited
+            if content := png.read1(1_000_000):
+                return content
+            waited = last_read_seconds
+            return b""
+
+        png.seek(0)
+        response = MagicMock(status_code=200, raw=MagicMock(spec=["read"], read=read))
+        response.__enter__.return_value = response
+        source = _onboarding_campaign()
+        image = "https://userimg-assets.customeriomail.com/images/client-env-1/slow.png"
+        templates = {**source.templates, "11": {**source.templates["11"], "body": f'<img src="{image}">'}}
+        with (
+            patch("products.workflows.backend.services.remote_images.requests.get", return_value=response),
+            patch("products.workflows.backend.services.email_images.time.monotonic", lambda: time.time() + waited),
+        ):
+            self._import(
+                campaigns=[
+                    {"campaign": source.campaign, "actions": source.actions, "templates": list(templates.values())}
+                ]
+            )
+
+        assert UploadedMedia.objects.filter(team=self.team).exists() is copied
 
     @patch("products.workflows.backend.presentation.views.workflow_import_drafts._REQUEST_SECONDS", 0)
     @patch("products.workflows.backend.services.remote_images.requests.get")

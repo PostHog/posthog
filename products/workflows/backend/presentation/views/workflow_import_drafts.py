@@ -63,6 +63,7 @@ from products.workflows.backend.facade.workflow_imports import (
 from products.workflows.backend.facade.writes import create_workflow, defer_hog_flow_reloads, update_workflow
 from products.workflows.backend.presentation.views.data_suggestion_drafts import checked_draft
 from products.workflows.backend.presentation.views.hog_flow import cohort_conditions_rolled_out
+from products.workflows.backend.presentation.views.storable import storable
 
 logger = structlog.get_logger(__name__)
 
@@ -388,6 +389,19 @@ def _campaign_source(payload: dict[str, Any]) -> CampaignSource:
     )
 
 
+def _storable_workflow(translated: TranslatedWorkflow) -> TranslatedWorkflow:
+    return dataclasses.replace(
+        translated,
+        source_id=storable(translated.source_id),
+        name=storable(translated.name),
+        workflow=storable(translated.workflow),
+        notes=tuple(
+            dataclasses.replace(note, message=storable(note.message), step_name=storable(note.step_name))
+            for note in translated.notes
+        ),
+    )
+
+
 def import_campaign(
     team: Team,
     user: User,
@@ -400,7 +414,8 @@ def import_campaign(
 ) -> dict[str, Any]:
     """Imports one Customer.io automation, or previews it, and returns its result in the response shape."""
     try:
-        translated = translate_campaign(source, options, context.snippet_room)
+        # Again after translating, which decodes JSON inside message bodies and may read content from Customer.io.
+        translated = _storable_workflow(translate_campaign(source, options, context.snippet_room))
     except _UNREADABLE as error:
         logger.info("workflows.import.unreadable_campaign", team_id=team.id, error=type(error).__name__)
         return {

@@ -1429,6 +1429,18 @@ class RehostedWorkflow:
     notes: tuple[ImportNote, ...]
 
 
+@frozen
+class EmailImageSource:
+    """An email tool that hosts the images of the emails built in it."""
+
+    # Starts the file name of every copy, so importing again finds it.
+    key: str
+    label: str
+    hosts: tuple[str, ...] = ()
+    # Every subdomain of these is an image host too.
+    host_suffixes: tuple[str, ...] = ()
+
+
 @dataclass(frozen=False)
 class ImageBudget:
     """How many more email images one import request may copy, and until when, shared by every automation in it."""
