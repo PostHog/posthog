@@ -332,6 +332,7 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
         to_change.refresh_from_db()
         assert already.verified is target
         assert to_change.verified is target
+        assert to_change.updated_by_id == self.user.id
         # Verifying stamps metadata; unverifying clears it.
         if target:
             assert to_change.verified_by_id == self.user.id
@@ -548,6 +549,7 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
         # An event cannot be both hidden and verified, and a scheduled delete only applies to hidden events.
         assert changed.verified is False
         assert changed.scheduled_deletion_at is None
+        assert changed.updated_by_id == self.user.id
 
         log = ActivityLog.objects.get(team_id=self.demo_team.pk, scope="EventDefinition")
         assert (log.item_id, log.activity) == (str(to_change.id), "changed")

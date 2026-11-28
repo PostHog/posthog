@@ -1086,6 +1086,7 @@ class EventDefinitionViewSet(
                 before_hidden = bool(enterprise.hidden)
 
                 enterprise.verified = verified
+                enterprise.updated_by = user
                 if verified:
                     enterprise.verified_by = user
                     enterprise.verified_at = now
@@ -1164,6 +1165,7 @@ class EventDefinitionViewSet(
                 )
                 before_scheduled_deletion_at = enterprise.scheduled_deletion_at
                 enterprise.hidden = hidden
+                enterprise.updated_by = user
                 if hidden:
                     enterprise.verified = False  # an event cannot be both hidden and verified
                     enterprise.verified_by = None
