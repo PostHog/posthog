@@ -127,6 +127,61 @@ class TestHightouchTransport:
         assert result.saved_states == [HightouchResumeConfig(paginator_state={"offset": 100})]
         assert result.committed_states == [HightouchResumeConfig(paginator_state={"offset": 100})]
 
+    def test_decision_engine_flows_exclude_config(self) -> None:
+        result = _driver().run(
+            "decision_engine_flows",
+            [ScriptedResponse(json={"data": [{"id": "flow-a", "config": {"token": "fake-token"}}], "hasMore": False})],
+        )
+
+        assert result.raised is None
+        assert result.paths == ["/api/v1/decision-engine/flows"]
+        assert result.rows == [{"id": "flow-a"}]
+
+    def test_decision_engine_messages_keep_flow_ids_and_exclude_config(self) -> None:
+        result = _driver().run(
+            "decision_engine_messages",
+            [
+                ScriptedResponse(json={"data": [{"id": "flow-a"}, {"id": "flow-b"}], "hasMore": False}),
+                ScriptedResponse(
+                    json={
+                        "data": [{"id": "message-a", "config": {"token": "fake-token"}, "name": "Welcome"}],
+                        "hasMore": False,
+                    }
+                ),
+                ScriptedResponse(
+                    json={"data": [{"id": "message-a", "config": {}, "name": "Reminder"}], "hasMore": False}
+                ),
+            ],
+        )
+
+        assert result.raised is None
+        assert result.paths == [
+            "/api/v1/decision-engine/flows",
+            "/api/v1/decision-engine/flow/flow-a/messages",
+            "/api/v1/decision-engine/flow/flow-b/messages",
+        ]
+        assert result.params("orderBy") == ["id", None, None]
+        assert result.rows == [
+            {"id": "message-a", "name": "Welcome", "flow_id": "flow-a"},
+            {"id": "message-a", "name": "Reminder", "flow_id": "flow-b"},
+        ]
+
+    def test_event_contracts_read_past_a_full_page_without_has_more(self) -> None:
+        first_page = [{"id": str(index)} for index in range(100)]
+        last_page = [{"id": "100", "events": [{"type": "track", "schema": {"type": "object"}}]}]
+        result = _driver().run(
+            "event_contracts",
+            [
+                ScriptedResponse(json={"data": first_page}),
+                ScriptedResponse(json={"data": last_page}),
+            ],
+        )
+
+        assert result.raised is None
+        assert result.paths == ["/api/v1/events/contracts", "/api/v1/events/contracts"]
+        assert result.params("offset") == ["0", "100"]
+        assert result.rows == first_page + last_page
+
     @parameterized.expand(
         [
             ("incremental", True, datetime(2026, 3, 1, tzinfo=UTC), "2026-03-01T00:00:00Z"),

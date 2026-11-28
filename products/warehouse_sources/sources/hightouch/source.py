@@ -73,7 +73,17 @@ class HightouchSource(ResumableSource[HightouchSourceConfig, HightouchResumeConf
         # sync_runs is merge-only: runs still in progress mutate (status, finishedAt, row
         # counts) and the trailing lookback window re-reads them, so append mode would
         # duplicate rows instead of upserting.
-        schemas = build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names, merge_only=("sync_runs",))
+        schemas = build_endpoint_schemas(
+            ENDPOINTS,
+            INCREMENTAL_FIELDS,
+            names,
+            merge_only=("sync_runs",),
+            should_sync_default={
+                "decision_engine_flows": False,
+                "decision_engine_messages": False,
+                "event_contracts": False,
+            },
+        )
         for schema in schemas:
             if schema.name == "sync_runs":
                 schema.default_incremental_lookback_seconds = SYNC_RUNS_LOOKBACK_SECONDS
