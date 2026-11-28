@@ -146,6 +146,34 @@ describe('ResourceCatalog', () => {
             expect(mockManifestEntriesSet).toHaveBeenCalledWith(2)
         })
 
+        it('appends declared prompt arguments to the message and drops undeclared ones', async () => {
+            vi.mocked(fetchAndExtractEntries).mockResolvedValue({ entries: [], omnibusSkillsArchive: null })
+            vi.mocked(getPromptsFromManifest).mockResolvedValue([
+                {
+                    id: 'conversions',
+                    name: 'conversions',
+                    title: 'Conversions',
+                    description: 'Conversions to a goal',
+                    arguments: [{ name: 'goal', description: 'The goal event', required: false }],
+                    messages: [{ role: 'user', content: { type: 'text', text: 'Which channels convert?' } }],
+                },
+            ])
+
+            const catalog = new ResourceCatalog(mockEnv, redis)
+            await catalog.warmup()
+
+            expect(catalog.getPromptsList().prompts[0]!.arguments).toEqual([
+                { name: 'goal', description: 'The goal event', required: false },
+            ])
+            const text = (args?: Record<string, string>): unknown =>
+                catalog.getPrompt({ name: 'conversions', ...(args ? { arguments: args } : {}) }).messages[0]!.content
+            expect(text({ goal: ' signed_up ', other: 'ignored' })).toEqual({
+                type: 'text',
+                text: 'Which channels convert?\n\ngoal: signed_up',
+            })
+            expect(text()).toEqual({ type: 'text', text: 'Which channels convert?' })
+        })
+
         it('pre-merges resource list so getResourcesList returns a stable array', async () => {
             vi.mocked(fetchAndExtractEntries).mockResolvedValue({
                 entries: [makeEntry('a')],
