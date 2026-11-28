@@ -698,14 +698,18 @@ describe('SesWebhookHandler', () => {
                 mail: baseMail,
                 delivery: {
                     timestamp: '2025-10-03T12:04:00Z',
-                    recipients: ['to@example.com'],
+                    recipients: ['"Recipient Name" <to@example.com>', '"\\"jo\\""@example.com'],
                 },
             },
         ]
         const result = await handler.handleWebhook({ body, headers: {} })
         expect(result.status).toBe(200)
         expect(result.deliveredRecipients).toEqual([
-            { teamId: '1', emailAddresses: ['to@example.com'], timestamp: '2025-10-03T12:04:00Z' },
+            {
+                teamId: '1',
+                emailAddresses: ['to@example.com', '"jo"@example.com'],
+                timestamp: '2025-10-03T12:04:00Z',
+            },
         ])
         expect(result.transientBounceRecipients).toEqual([])
     })
@@ -805,10 +809,18 @@ describe('SesWebhookHandler', () => {
         ],
     ])('keeps only sent-to recipients of a %s for suppression', async (_label, arrayKey, buildEvent) => {
         // The send passes a display name with the address, so the destination entry can carry it too.
-        const mail = { ...baseMail, destination: ['"Recipient Name" <to@example.com>'] }
+        const mail = { ...baseMail, destination: ['"Recipient Name" <to@example.com>', 'jo@example.com'] }
         const body = [
-            { mail, ...buildEvent(['TO@example.com', 'not-sent-to@example.org']) },
-            { mail, ...buildEvent(['not-sent-to@example.org']) },
+            { mail, ...buildEvent(['"Recipient Name" <TO@example.com>', 'not-sent-to@example.org']) },
+            {
+                mail,
+                ...buildEvent([
+                    'not-sent-to@example.org',
+                    'to@example.com, not-sent-to@example.org',
+                    '"\\"jo\\""@example.com',
+                    `"${'x'.repeat(1100)}" <to@example.com>`,
+                ]),
+            },
         ]
         // Other tests in the process add to the counter, so read it as a delta.
         const notSentToCount = async (): Promise<number> => {
@@ -820,7 +832,7 @@ describe('SesWebhookHandler', () => {
         const result = await handler.handleWebhook({ body, headers: {} })
 
         expect(result[arrayKey]).toEqual([expect.objectContaining({ teamId: '1', emailAddresses: ['TO@example.com'] })])
-        expect((await notSentToCount()) - countBefore).toBe(2)
+        expect((await notSentToCount()) - countBefore).toBe(5)
     })
 
     it('returns 200, no metrics and no logged payload if tracking code is missing from both carriers', async () => {
@@ -1362,6 +1374,12 @@ describe('SesWebhookHandler', () => {
                 update('delivered', '2025-10-03T12:01:00Z'),
             ],
             ['a hard bounce', {}, bounce('Permanent'), update('bounced', '2025-10-03T12:02:00Z', 'hard')],
+            [
+                'a hard bounce reported with the display name',
+                {},
+                bounce('Permanent', '"Jane Doe" <To@Example.com>'),
+                update('bounced', '2025-10-03T12:02:00Z', 'hard'),
+            ],
             ['a soft bounce', {}, bounce('Transient'), update('bounced', '2025-10-03T12:02:00Z', 'soft')],
             [
                 'an undetermined bounce',
@@ -1398,6 +1416,7 @@ describe('SesWebhookHandler', () => {
             ['a delivery of an untagged email', { tags: baseMail.tags }, delivery(['to@example.com']), []],
             ['a delivery to the cc recipient only', {}, delivery(['cc@example.com']), []],
             ['a bounce of the cc recipient', {}, bounce('Permanent', 'cc@example.com'), []],
+            ['a bounce entry that names two addresses', {}, bounce('Permanent', 'to@example.com, cc@example.com'), []],
             ['a complaint from a bcc recipient', {}, complaint('bcc@example.com'), []],
             [
                 'a bounce of a test send',

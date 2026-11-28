@@ -9,7 +9,7 @@ import { type EmailStatus, type EmailStatusReason } from '../email-status.servic
 import { removeWorkflowRunTag } from './link-tags'
 import { SesBounce, SesEventRecord, sanitizeSesField } from './ses-events'
 import { SnsEnvelope, SnsEnvelopeVerifier } from './sns-envelope'
-import { unquoteMailbox } from './suppressed-recipients'
+import { parseAddressList, unquoteMailbox } from './suppressed-recipients'
 import {
     EmailTrackingCodeSigner,
     MESSAGE_CREATED_HEADER_NAME,
@@ -138,7 +138,27 @@ const mailboxAddresses = (entries: string[]): Set<string> =>
 const toHeaderAddresses = (rec: SesEventRecord): Set<string> => mailboxAddresses(rec.mail.commonHeaders?.to ?? [])
 
 const reachesToRecipient = (to: Set<string>, addresses: string[]): boolean =>
-    addresses.some((address) => to.has(normalizeAddress(address)))
+    [...mailboxAddresses(addresses)].some((address) => to.has(address))
+
+const MAX_REPORTED_RECIPIENT_LENGTH = 512
+
+// Parsing a bare entry would unquote its local part twice, and parsing is super-linear, so only short named ones are.
+const reportedAddress = (entry: string): string | null => {
+    if (entry.length > MAX_REPORTED_RECIPIENT_LENGTH) {
+        return null
+    }
+    if (!entry.trimEnd().endsWith('>')) {
+        return unquoteMailbox(entry) || null
+    }
+    const parsed = parseAddressList(entry)
+    return parsed.length === 1 ? parsed[0].email : null
+}
+
+const reportsToRecipient = (to: Set<string>, entries: string[]): boolean =>
+    entries.some((entry) => {
+        const address = reportedAddress(entry)
+        return address !== null && to.has(address.toLowerCase())
+    })
 
 const sesDeliveriesNotToRecipientCounter = new Counter({
     name: 'email_tracking_deliveries_not_to_recipient_total',
@@ -167,7 +187,10 @@ const sesRecipientsNotSentToCounter = new Counter({
 // Only an address this send went to may change suppression state.
 export const sentToRecipients = <T extends { emailAddress: string }>(rec: SesEventRecord, recipients: T[]): T[] => {
     const sentTo = mailboxAddresses(rec.mail.destination)
-    const kept = recipients.filter((r) => sentTo.has(normalizeAddress(r.emailAddress)))
+    const kept = recipients.flatMap((r) => {
+        const address = reportedAddress(r.emailAddress)
+        return address !== null && sentTo.has(address.toLowerCase()) ? [{ ...r, emailAddress: address }] : []
+    })
     if (kept.length < recipients.length) {
         sesRecipientsNotSentToCounter.inc({ event_type: rec.eventType }, recipients.length - kept.length)
     }
@@ -191,7 +214,7 @@ const resolveEmailStatusUpdate = (
                 ? { status: 'delivered', timestamp: rec.delivery.timestamp }
                 : null
         case 'Bounce':
-            return reachesToRecipient(
+            return reportsToRecipient(
                 to,
                 rec.bounce.bouncedRecipients.map((r) => r.emailAddress)
             )
@@ -204,7 +227,7 @@ const resolveEmailStatusUpdate = (
         case 'Complaint':
             // A "not-spam" feedback type corrects an earlier spam report, so it is not a complaint.
             return rec.complaint.complaintFeedbackType?.toLowerCase() !== 'not-spam' &&
-                reachesToRecipient(
+                reportsToRecipient(
                     to,
                     rec.complaint.complainedRecipients.map((r) => r.emailAddress)
                 )
@@ -816,7 +839,9 @@ export class SesWebhookHandler extends SnsEnvelopeVerifier {
             // last-recorded bounce (checked at the SQL layer), so an out-of-order delivery from an
             // older send can't erase a fresh bounce.
             if (suppressionAllowed && rec.eventType === 'Delivery') {
-                const emails = rec.delivery.recipients ?? rec.mail.destination ?? []
+                const emails = (rec.delivery.recipients ?? rec.mail.destination ?? []).flatMap(
+                    (entry) => reportedAddress(entry) ?? []
+                )
                 if (emails.length > 0) {
                     deliveredRecipients.push({
                         teamId,
