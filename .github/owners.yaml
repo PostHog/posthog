@@ -16,6 +16,14 @@ rules:
       owners: team-devex
     - match: ['/scripts/junit_node_ids.py', '/scripts/test_junit_node_ids.py']
       owners: team-devex
+    - match:
+          [
+              '/scripts/check_touched_typing.py',
+              '/scripts/test_check_touched_typing.py',
+              '/scripts/check-touched-typing.sh',
+              '/scripts/post-touched-typing-section.mjs',
+          ]
+      owners: team-devex
     - match: ['/scripts/check-new-events-schema-targets.py', '/scripts/test_check_new_events_schema_targets.py']
       owners: team-devex
     - match: ['/scripts/hoglint_shadow.py', '/scripts/test_hoglint_shadow.py', '/scripts/fixtures/hoglint-shadow/']
@@ -73,13 +81,9 @@ rules:
           - '/workflows/ci-mcp.yml'
       owners: [team-devex, team-context-and-mcp]
     - match:
-          - '/workflows/ci-llm-gateway.yml'
-          - '/workflows/llm-gateway-cd.yml'
           - '/workflows/update-ai-costs.yml'
           - '/workflows/update-ai-costs-stale-alert.yml'
       owners: [team-devex, team-agent-infrastructure]
-    - match: ['/workflows/ci-llm-gateway.yml', '/workflows/llm-gateway-cd.yml']
-      sensitive: true
     - match:
           - '/workflows/ci-agent-proxy.yml'
           - '/workflows/cd-agent-proxy-image.yml'

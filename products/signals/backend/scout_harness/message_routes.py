@@ -34,6 +34,10 @@ MAX_ROUTE_WHEN_LENGTH = 300
 ROUTE_KEY_RE = r"^[a-z0-9]+(?:-[a-z0-9]+)*$"
 SLACK_CHANNEL_TARGET_RE = r"^[CG][A-Z0-9]{4,}\s*(\|.*)?$"
 
+# A message is a few sentences that point at a report, so the limits hold it to that rather than to a summary.
+MAX_MESSAGE_TITLE_LENGTH = 80
+MAX_MESSAGE_BODY_LENGTH = 500
+
 # How many messages a scout may send in any `MESSAGE_CAP_WINDOW`, resolved by `resolve_scout_message_cap`
 # from the config's `max_messages_per_day` and the `signals-scout` flag payload. These two are the code
 # fallbacks when neither payload layer sets `TEAM_CONFIG_DEFAULT_SCOUT_MESSAGES_PER_DAY` or

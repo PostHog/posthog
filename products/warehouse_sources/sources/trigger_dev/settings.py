@@ -29,6 +29,7 @@ class TriggerDevEndpointConfig:
     incremental_lookback: Optional[timedelta] = None
     # Query param that takes the created-at lower bound on the first cursor page.
     created_from_param: Optional[str] = None
+    created_from_epoch_ms: bool = False
     extra_params: dict[str, str] = field(default_factory=dict)
     # Fields dropped from every row before it is yielded.
     excluded_fields: tuple[str, ...] = ()
@@ -129,6 +130,35 @@ TRIGGER_DEV_ENDPOINTS: dict[str, TriggerDevEndpointConfig] = {
                 "field_type": IncrementalFieldType.DateTime,
             },
         ],
+    ),
+    "sessions": TriggerDevEndpointConfig(
+        name="sessions",
+        path="/api/v1/sessions",
+        pagination="cursor",
+        default_incremental_field="createdAt",
+        partition_key="createdAt",
+        sort_mode="desc",
+        should_sync_default=False,
+        incremental_lookback=timedelta(days=7),
+        created_from_param="filter[createdAt][from]",
+        created_from_epoch_ms=True,
+        incremental_fields=[
+            {
+                "label": "createdAt",
+                "type": IncrementalFieldType.DateTime,
+                "field": "createdAt",
+                "field_type": IncrementalFieldType.DateTime,
+            },
+        ],
+    ),
+    "bulk_actions": TriggerDevEndpointConfig(
+        name="bulk_actions",
+        path="/api/v1/bulk-actions",
+        pagination="cursor",
+        partition_key="createdAt",
+        sort_mode="desc",
+        should_sync_default=False,
+        incremental_fields=[],
     ),
     # OTel span events per run, fetched once per run while walking the runs endpoint newest-first.
     # Each row carries the parent run's id and createdAt, so the sync is incremental on the parent's

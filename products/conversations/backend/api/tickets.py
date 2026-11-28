@@ -98,6 +98,7 @@ from products.conversations.backend.events import (
     capture_ticket_assigned,
     capture_ticket_priority_changed,
     capture_ticket_status_changed,
+    has_unverified_relayed_identity,
 )
 from products.conversations.backend.metrics import TICKET_SEARCH_DURATION_SECONDS
 from products.conversations.backend.models import (
@@ -1108,11 +1109,16 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
 
         # Fallback: for email-channel tickets with no person match,
         # try matching on properties.email (handles cases where the
-        # person's distinct_id differs from their email address)
+        # person's distinct_id differs from their email address).
+        # An unverified relayed email can carry any sender address, so it gets no email match.
         unmatched = [
             t
             for t in tickets
-            if t.distinct_id and not getattr(t, "person", None) and t.channel_source == Channel.EMAIL and t.email_from
+            if t.distinct_id
+            and not getattr(t, "person", None)
+            and t.channel_source == Channel.EMAIL
+            and t.email_from
+            and not has_unverified_relayed_identity(t)
         ]
         if unmatched:
             emails = [t.email_from for t in unmatched if t.email_from]
@@ -2170,7 +2176,7 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
             }
             if trace_id:
                 feedback_properties["$ai_trace_id"] = trace_id
-            posthoganalytics.capture(
+            posthoganalytics.capture_ai(
                 distinct_id=distinct_id, event="$ai_feedback", properties=feedback_properties, groups=event_groups
             )
         else:
@@ -2185,7 +2191,7 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
             }
             if trace_id:
                 properties["$ai_trace_id"] = trace_id
-            posthoganalytics.capture(
+            posthoganalytics.capture_ai(
                 distinct_id=distinct_id, event="$ai_metric", properties=properties, groups=event_groups
             )
 

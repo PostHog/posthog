@@ -1,1 +1,1 @@
-0266_signalscoutconfig_max_messages_per_day
+0267_signalscoutconfig_max_messages_per_day

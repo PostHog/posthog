@@ -264,11 +264,13 @@ export interface taskTrackerSceneLogicActions {
     contextDelivered: (
         taskId: string,
         items: AttachedContextItem[],
-        fromNewChat?: boolean | undefined
+        fromNewChat?: boolean | undefined,
+        wireItems?: AttachedContextItem[] | undefined
     ) => {
         fromNewChat: boolean
         items: AttachedContextItem[]
         taskId: string
+        wireItems: AttachedContextItem[]
     } // attachedContextLogic
     addFiles: (files: File[]) => {
         files: File[]

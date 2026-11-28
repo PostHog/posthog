@@ -1,5 +1,4 @@
 import type { LemonTableColumn } from '@posthog/lemon-ui'
-import { Button, Text } from '@posthog/quill'
 
 import { pluralize } from 'lib/utils/strings'
 
@@ -12,19 +11,22 @@ import { AiVisibilityTable } from './AiVisibilityTable'
 import { ContentAutopilotCitationsLink } from './ContentAutopilotCitationsLink'
 import { ContentAutopilotEngineMarks } from './ContentAutopilotEngineMarks'
 import { ContentAutopilotRateBar } from './ContentAutopilotRateBar'
+import { ContentAutopilotSearchDetail } from './ContentAutopilotSearchDetail'
 
 type SearchRow = AEOPromptSetSearchApi
 type SearchColumn = LemonTableColumn<SearchRow, keyof SearchRow | undefined>
 
 const citedShare = (row: SearchRow): number => (row.answers ? row.cited / row.answers : 0)
 
-/** One row per web search the engines ran. A search opens the answers that ran it, and expanding a row lists the
- *  prompts that ran it most. */
+/** One row per web search the engines ran. A search opens the answers that ran it, and expanding a row shows the
+ *  sites those answers cite, the searches that come with it and the prompts that ran it. */
 export const ContentAutopilotPromptsSearchTable = ({
     rows,
     dateFrom,
     dateTo,
     branded,
+    engine,
+    topic,
     onOpenPrompt,
 }: {
     rows: SearchRow[]
@@ -32,6 +34,9 @@ export const ContentAutopilotPromptsSearchTable = ({
     dateFrom: string
     dateTo: string
     branded: BrandedSegmentEnumApi
+    /** The engine and topic filters of the report, so an expanded row counts the same answers. */
+    engine: string | null
+    topic: string | null
     onOpenPrompt: (promptId: string) => void
 }): JSX.Element => {
     const columns: SearchColumn[] = [
@@ -91,32 +96,15 @@ export const ContentAutopilotPromptsSearchTable = ({
                 expandable={{
                     noIndent: true,
                     expandedRowRender: (row) => (
-                        <div
-                            className="flex flex-col gap-1 px-3 py-2"
-                            data-attr="content-autopilot-prompts-overview-search-prompts"
-                        >
-                            <Text size="xs" variant="muted" className="m-0">
-                                {row.prompts > row.top_prompts.length
-                                    ? `Top ${row.top_prompts.length} of ${pluralize(row.prompts, 'prompt')} that ran this search`
-                                    : 'Prompts that ran this search'}
-                            </Text>
-                            <ul className="m-0 flex flex-col gap-1">
-                                {row.top_prompts.map((prompt) => (
-                                    <li key={prompt.id}>
-                                        {/* A prompt is a sentence, so the link wraps instead of truncating. */}
-                                        <Button
-                                            variant="link"
-                                            size="inline"
-                                            onClick={() => onOpenPrompt(prompt.id)}
-                                            className="whitespace-normal text-left"
-                                            data-attr="content-autopilot-prompts-overview-search-prompt"
-                                        >
-                                            {prompt.text}
-                                        </Button>
-                                    </li>
-                                ))}
-                            </ul>
-                        </div>
+                        <ContentAutopilotSearchDetail
+                            query={row.query}
+                            dateFrom={dateFrom}
+                            dateTo={dateTo}
+                            branded={branded}
+                            engine={engine}
+                            topic={topic}
+                            onOpenPrompt={onOpenPrompt}
+                        />
                     ),
                 }}
                 emptyState="No web searches in this date range. Only some engines report the searches they run."

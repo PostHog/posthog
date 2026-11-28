@@ -13067,13 +13067,13 @@ export interface SendScoutMessageRequestApi {
      */
     report_id?: string | null
     /**
-     * Short plain-text title. At most 150 characters.
-     * @maxLength 150
+     * Short plain-text title. At most 80 characters.
+     * @maxLength 80
      */
     title: string
     /**
-     * Markdown body with the links the reader needs. At most 3000 characters. A link whose label looks like an address on another host is shown as the bare URL.
-     * @maxLength 3000
+     * Markdown body with the links the reader needs. At most 500 characters. A link whose label looks like an address on another host is shown as the bare URL.
+     * @maxLength 500
      */
     body: string
     /**
@@ -13308,6 +13308,8 @@ export interface SlackScoutChannelApi {
 export interface SlackScoutChannelSourceApi {
     /** Id of the Slack data warehouse source. */
     id: string
+    /** Name that tells the project's Slack sources apart: the source's table prefix, or the date it was connected when it has no prefix. */
+    label: string
     /** Channels the source syncs, ordered by name. */
     channels: SlackScoutChannelApi[]
 }

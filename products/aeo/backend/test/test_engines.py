@@ -11,6 +11,7 @@ from django.core.management import CommandError, call_command
 from django.test import override_settings
 
 import requests
+import structlog.testing
 from parameterized import parameterized
 
 from products.aeo.backend.engines import (
@@ -276,6 +277,43 @@ def test_openai_engine_run_wires_response_error(_name: str, body: dict, expected
         assert check.cited_urls  # completed body carries citations
 
 
+# OpenAI's deprecations page lists these as shut down or shutting down: https://developers.openai.com/api/docs/deprecations
+RETIRED_OPENAI_MODELS = {
+    "gpt-4o-search-preview",
+    "gpt-4o-mini-search-preview",
+    "o4-mini",
+    "o3",
+    "o3-pro",
+    "gpt-5",
+    "gpt-5-2025-08-07",
+    "gpt-5-mini",
+    "gpt-5-nano",
+    "gpt-5-pro",
+}
+
+
+@parameterized.expand([("at_the_cap", MAX_WEB_SEARCHES_PER_PROMPT, False), ("over_the_cap", 5, True)])
+def test_openai_engine_warns_when_a_response_searches_past_the_cap(_name: str, searches: int, warns: bool) -> None:
+    search_call = OPENAI_RESPONSES_BODY["output"][0]
+    body = {"output": [search_call] * searches + OPENAI_RESPONSES_BODY["output"][1:]}
+    with (
+        patch("products.aeo.backend.engines.resolve_ai_gateway_config", return_value=GATEWAY_CONFIG),
+        patch("products.aeo.backend.engines.gateway_post_json", return_value=body),
+        structlog.testing.capture_logs() as logs,
+    ):
+        check = OpenAIWebSearchEngine(model="gpt-6-luna").run("best flags tool", trace_id="t1", custom_properties={})
+
+    assert check.error is None
+    warnings = [log for log in logs if log["event"] == "aeo_openai_search_cap_exceeded"]
+    expected = [{"engine": "openai-web-search", "model": "gpt-6-luna", "count": searches, "cap": 3}] if warns else []
+    assert [{k: log[k] for k in ("engine", "model", "count", "cap")} for log in warnings] == expected
+
+
+def test_openai_engine_does_not_default_to_a_retired_model() -> None:
+    with patch("products.aeo.backend.engines.resolve_ai_gateway_config", return_value=GATEWAY_CONFIG):
+        assert OpenAIWebSearchEngine().model not in RETIRED_OPENAI_MODELS
+
+
 CLAUDE_SEARCH_TOOLS = [
     {
         "type": ANTHROPIC_WEB_SEARCH_TOOL_TYPE,
@@ -297,8 +335,18 @@ OPENAI_SEARCH_TOOLS = [{"type": "web_search"}]
             "/messages",
             CLAUDE_SEARCH_TOOLS,
             "claude-web-search",
+            None,
         ),
-        ("claude_no_search", ClaudeWebSearchEngine, False, ANTHROPIC_BODY, "/messages", None, "claude-no-search"),
+        (
+            "claude_no_search",
+            ClaudeWebSearchEngine,
+            False,
+            ANTHROPIC_BODY,
+            "/messages",
+            None,
+            "claude-no-search",
+            None,
+        ),
         (
             "openai_web_search",
             OpenAIWebSearchEngine,
@@ -307,6 +355,7 @@ OPENAI_SEARCH_TOOLS = [{"type": "web_search"}]
             "/responses",
             OPENAI_SEARCH_TOOLS,
             "openai-web-search",
+            MAX_WEB_SEARCHES_PER_PROMPT,
         ),
         (
             "openai_no_search",
@@ -316,6 +365,7 @@ OPENAI_SEARCH_TOOLS = [{"type": "web_search"}]
             "/responses",
             None,
             "openai-no-search",
+            None,
         ),
     ]
 )
@@ -327,6 +377,7 @@ def test_gateway_engines_send_the_search_tool_only_with_search(
     path: str,
     expected_tools: list[dict[str, Any]] | None,
     expected_engine: str,
+    expected_max_tool_calls: int | None,
 ) -> None:
     captured: dict[str, Any] = {}
 
@@ -356,6 +407,7 @@ def test_gateway_engines_send_the_search_tool_only_with_search(
     )
     assert (captured["url"], captured["payload"]["model"]) == (f"https://gw.test/v1{path}", web_search_model)
     assert captured["headers"]["X-PostHog-Product"] == "ai_visibility"
+    assert captured["payload"].get("max_tool_calls") == expected_max_tool_calls
     assert check.error is None and fields["answer_text"]
     assert (fields["engine"], fields["mode"]) == (expected_engine, "web_search" if search else "no_search")
     assert captured["payload"].get("tools") == expected_tools

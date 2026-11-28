@@ -42,6 +42,8 @@ from products.signals.backend.models import SignalReport, SignalScoutConfig, Sig
 from products.signals.backend.scout_harness.limits import SCOUT_TRIAL_METADATA_KEY
 from products.signals.backend.scout_harness.message_routes import (
     DEDUPE_WINDOW,
+    MAX_MESSAGE_BODY_LENGTH,
+    MAX_MESSAGE_TITLE_LENGTH,
     MESSAGE_CAP_WINDOW,
     UNSENDABLE_REPORT_STATUSES,
     find_message_route,
@@ -55,8 +57,6 @@ from products.signals.backend.scout_report.judge import judge_edited_report_cont
 
 logger = logging.getLogger(__name__)
 
-MAX_MESSAGE_TITLE_LENGTH = 150
-MAX_MESSAGE_BODY_LENGTH = 3000
 MAX_DEDUPE_KEY_LENGTH = 200
 MAX_RECENT_DEDUPE_KEYS = 10
 # `SignalScoutRun.metadata` key holding the refused calls of the run, newest last.

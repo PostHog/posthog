@@ -337,6 +337,7 @@ export interface billingLogicValues {
     isCreditCTAHeroDismissed: boolean
     isCreditFormSubmitting: boolean
     isCreditFormValid: boolean
+    isDirectlyBilledPayingCustomer: boolean
     isExternallyBilled: boolean
     isManagedAccount: boolean
     isOnboarding: boolean
@@ -811,6 +812,11 @@ export interface billingLogicMeta {
         ) => boolean
         isManagedAccount: (billing: BillingType | null) => boolean
         isExternallyBilled: (billing: BillingType | null) => boolean
+        isDirectlyBilledPayingCustomer: (
+            billing: BillingType | null,
+            isExternallyBilled: boolean,
+            isBillingManagedByPartner: boolean
+        ) => boolean
         billingError: (
             openInvoices: OpenInvoices | null,
             billing: BillingType | null,
@@ -1580,6 +1586,11 @@ export const billingLogic = kea<billingLogicType>([
             (billing: BillingType | null): boolean =>
                 (!!billing?.billing_provider && billing.billing_provider !== BillingProvider.PostHog) ||
                 !!billing?.external_billing_provider_invoices_url,
+        ],
+        isDirectlyBilledPayingCustomer: [
+            (s) => [s.billing, s.isExternallyBilled, s.isBillingManagedByPartner],
+            (billing: BillingType | null, isExternallyBilled: boolean, isBillingManagedByPartner: boolean): boolean =>
+                !!billing?.has_active_subscription && !isExternallyBilled && !isBillingManagedByPartner,
         ],
         billingError: [
             (s) => [s.openInvoices, s.billing, s.isExternallyBilled],

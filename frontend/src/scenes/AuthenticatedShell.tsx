@@ -1,6 +1,5 @@
 import { useMountedLogic, useValues } from 'kea'
 import { Suspense, useEffect } from 'react'
-import { Slide, ToastContainer } from 'react-toastify'
 
 import { PostHogErrorBoundary } from '@posthog/react'
 
@@ -8,7 +7,6 @@ import { commandLogic } from 'lib/components/Command/commandLogic'
 import { productSetupPreloadLogic } from 'lib/components/ProductEmptyState/productSetupPreloadLogic'
 import { globalSetupLogic, useSetupHighlight } from 'lib/components/ProductSetup'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { ToastCloseButton } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
 import { billingLogic } from 'lib/logic/billing/billingLogic'
 import { eventIngestionRestrictionLogic } from 'lib/logic/eventIngestionRestrictionLogic'
@@ -23,13 +21,13 @@ import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { GlobalModals } from '~/layout/GlobalModals'
 import { GlobalShortcuts } from '~/layout/GlobalShortcuts'
 import { Navigation } from '~/layout/navigation-3000/Navigation'
-import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
 import { ImpersonationNoticeSlot } from '~/layout/navigation/ImpersonationNotice/ImpersonationNoticeSlot'
 import { NewEventsTableBar } from '~/layout/navigation/NewEventsTableBar'
 
 import { webmcpLogic } from 'products/webmcp/frontend/logics/webmcpLogic'
 
+import { AppToaster } from './AppToaster'
 import { mountRealtimeCohortsJoin } from './mountRealtimeCohortsJoin'
 import { sceneLogic } from './sceneLogic'
 
@@ -67,19 +65,8 @@ export default function AuthenticatedShell({ children }: { children: React.React
 
     const { sceneConfig } = useValues(sceneLogic)
     const { featureFlags } = useValues(featureFlagLogic)
-    const { isDarkModeOn } = useValues(themeLogic)
     const { hasOpenedCommand } = useValues(commandLogic)
     useEffect(() => (isEmbeddedPageFrame() ? undefined : runWhenIdle(() => preloadCommand())), [])
-
-    const toasts = (
-        <ToastContainer
-            autoClose={6000}
-            transition={Slide}
-            closeButton={<ToastCloseButton />}
-            position="bottom-right"
-            theme={isDarkModeOn ? 'dark' : 'light'}
-        />
-    )
 
     // The page around the frame already has the command palette, shortcuts and floating buttons.
     if (isEmbeddedPageFrame()) {
@@ -89,7 +76,7 @@ export default function AuthenticatedShell({ children }: { children: React.React
                     <Navigation sceneConfig={sceneConfig}>{children}</Navigation>
                     <GlobalModals />
                 </div>
-                {toasts}
+                <AppToaster />
             </>
         )
     }
@@ -131,7 +118,7 @@ export default function AuthenticatedShell({ children }: { children: React.React
                     <div data-attr="experiments-freeze-exposure-aa-test-variant" className="hidden" />
                 )}
             </div>
-            {toasts}
+            <AppToaster />
         </>
     )
 }

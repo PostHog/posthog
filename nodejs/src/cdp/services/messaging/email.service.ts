@@ -13,6 +13,7 @@ import {
     IntegrationType,
     MessageAssetRow,
     MinimalAppMetric,
+    isEmailQueue,
 } from '~/cdp/types'
 import { createAddLogFunction, logEntry } from '~/cdp/utils'
 import { createInvocationResult } from '~/cdp/utils/invocation-utils'
@@ -67,7 +68,14 @@ import {
 import { transactionalEmailIdentity, transactionalEmailIdentityTags } from './helpers/transactional-email-identity'
 import { WorkflowRunTag } from './helpers/utm'
 import { parseWorkflowEmailPause } from './helpers/workflow-email-pause'
-import { callsSettledBefore, declaredFileBytes, exceedsLargestSend, settledBeforeAbort } from './in-flight-registry'
+import {
+    AttachmentsNotAdmittedError,
+    callsSettledBefore,
+    declaredFileBytes,
+    exceedsLargestSend,
+    requireAdmission,
+    settledBeforeAbort,
+} from './in-flight-registry'
 import { MessageAssetsService } from './message-assets.service'
 import { MESSAGE_MAX_BYTES, estimateMessageBytes } from './message-estimate'
 import {
@@ -214,7 +222,9 @@ class SesNotReachedError extends Error {
 }
 
 const isAttachmentLoadFailure = (error: unknown): boolean =>
-    error instanceof AttachmentStoreUnavailableError || error instanceof EmailSendDeadlineError
+    error instanceof AttachmentStoreUnavailableError ||
+    error instanceof EmailSendDeadlineError ||
+    error instanceof AttachmentsNotAdmittedError
 
 const isRetryableBeforeSes = (error: unknown): boolean =>
     isAttachmentLoadFailure(error) || error instanceof SesNotReachedError
@@ -797,7 +807,7 @@ export class EmailService {
         const addLog = createAddLogFunction(result.logs)
 
         // Read from the incoming invocation: result.invocation is a clone, and a clone drops the scheduled time.
-        const queueWait = invocation.queue === 'email' && !isTest ? emailQueueWait(invocation) : undefined
+        const queueWait = isEmailQueue(invocation.queue) && !isTest ? emailQueueWait(invocation) : undefined
 
         const params = invocation.queueParameters
         const integrationId = selectEmailSenderIntegrationId(invocation.id, params.from)
@@ -1265,10 +1275,11 @@ export class EmailService {
             // function. Checking here means callers can't bypass it by taking a different upstream
             // route. Suppressed addresses are removed from every list. A suppressed `to` is replaced by
             // the first deliverable cc address, and the send is skipped only when none is left.
+            const recipients = this.withoutMarketingCopies(invocation, params, addLog)
             const suppressionOptions: SuppressionCheckOptions = {
                 transactional: invocation.hogFunction?.metadata?.message_category_type === 'transactional',
             }
-            const suppression = await removeSuppressedRecipients(params, (email) =>
+            const suppression = await removeSuppressedRecipients(recipients, (email) =>
                 this.emailSuppressionService.isSuppressed(invocation.teamId, email, suppressionOptions)
             )
             if (suppression.skip) {
@@ -1293,12 +1304,12 @@ export class EmailService {
             }
             // Always send the lists the suppression check parsed, so delivery uses the addresses it checked.
             const deliverableParams = this.withUnsubscribeLink(invocation, {
-                ...params,
+                ...recipients,
                 to:
                     suppression.promotedTo ??
-                    (params.to?.email
-                        ? { ...params.to, email: quoteMailbox(unquoteMailbox(params.to.email)) }
-                        : params.to),
+                    (recipients.to?.email
+                        ? { ...recipients.to, email: quoteMailbox(unquoteMailbox(recipients.to.email)) }
+                        : recipients.to),
                 cc: suppression.cc,
                 bcc: suppression.bcc,
             })
@@ -1602,6 +1613,7 @@ export class EmailService {
         if (exceedsLargestSend(declaredFileBytes(files))) {
             throw new MessageTooLargeError()
         }
+        const admission = requireAdmission(files)
         if (!this.attachmentStore) {
             throw new AttachmentStoreUnavailableError(new Error('No attachment store is configured on this pod'))
         }
@@ -1610,7 +1622,7 @@ export class EmailService {
         })
         const loadFailed = new AbortController()
         try {
-            return await this.attachmentStore.load(teamId, files, AbortSignal.any([deadline, loadFailed.signal]))
+            return await this.attachmentStore.load(teamId, admission, AbortSignal.any([deadline, loadFailed.signal]))
         } catch (error) {
             loadFailed.abort(error)
             throw error
@@ -1845,6 +1857,23 @@ export class EmailService {
             deadline ? { email: sendEmailParams, files, deadline } : { email: sendEmailParams }
         )
         return messageIdOrSendError(outcome, from.email)
+    }
+
+    private withoutMarketingCopies(
+        invocation: CyclotronJobInvocationHogFunction,
+        params: CyclotronInvocationQueueParametersEmailType,
+        addLog: ReturnType<typeof createAddLogFunction>
+    ): CyclotronInvocationQueueParametersEmailType {
+        if (invocation.state?.send?.category?.type !== 'marketing') {
+            return params
+        }
+        if (params.cc?.trim() || params.bcc?.trim()) {
+            addLog(
+                'warn',
+                "Not sending this email's copies: a marketing email goes only to its recipient, with their own unsubscribe link."
+            )
+        }
+        return { ...params, cc: undefined, bcc: undefined }
     }
 
     private withUnsubscribeLink(

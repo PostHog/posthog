@@ -1,5 +1,6 @@
 import { expectLogic } from 'kea-test-utils'
 import { HttpResponse } from 'msw'
+import posthog from 'posthog-js'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -10,6 +11,7 @@ import type {
     SourceFilterValidateResponseApi,
 } from 'products/signals/frontend/generated/api.schemas'
 
+import { INBOX_EVENTS } from '../inboxAnalytics'
 import { SignalSourceConfig, SignalSourceProduct, SignalSourceType } from '../types'
 import { previewScopeIds, sourceFilterPreviewLogic } from './sourceFilterPreviewLogic'
 
@@ -301,6 +303,36 @@ describe('sourceFilterPreviewLogic', () => {
             hiddenSpy.mockRestore()
             document.dispatchEvent(new Event('visibilitychange'))
         }
+    })
+
+    it('captures each shown result once, with counts and no expression', async () => {
+        const capture = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined)
+        const shown = (): unknown[] =>
+            capture.mock.calls.filter(([event]) => event === INBOX_EVENTS.SOURCE_FILTER_PREVIEW_SHOWN).map(([, p]) => p)
+        const base = { inbox_client: 'cloud', source_product: 'linear', source_type: 'issue' }
+
+        logic.actions.setPreviewInput({ expression: 'assignee_id IS NULL', scopeIds: null })
+        await advance(800)
+        logic.actions.setPreviewInput({ expression: "projct = 'Core'", scopeIds: null })
+        await advance(800)
+        respondToValidate = () => [500, { detail: 'Nope.' }]
+        logic.actions.setPreviewInput({ expression: 'priority = 1', scopeIds: null })
+        await advance(800)
+
+        expect(shown()).toEqual([
+            {
+                ...base,
+                status: 'ok',
+                request_error: null,
+                total_count: 10,
+                passing_count: 4,
+                excluded_count: 6,
+                malformed_count: 0,
+            },
+            { ...base, status: 'invalid_expression', request_error: null },
+            { ...base, status: null, request_error: 'failed' },
+        ])
+        capture.mockRestore()
     })
 
     it('sends nothing for an input equal to the current one', async () => {

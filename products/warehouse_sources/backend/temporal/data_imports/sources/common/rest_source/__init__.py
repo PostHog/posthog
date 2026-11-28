@@ -11,6 +11,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.fan
     FanoutParentSource,
     log_fanout_parent_rows_consumed,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.safe_point import (
+    reach_framework_safe_point,
+)
 
 from .config_setup import (
     Incremental,
@@ -352,6 +355,9 @@ def _make_paginate_dependent_resource(
                 current_path = None
                 current_child_state = None
                 checkpoint(None, None)
+                # An ignored response produces no page, so hand its checkpoint to the Resource before checking shutdown.
+                yield []
+                reach_framework_safe_point()
 
         # Counted after the page so parents a resume skips don't inflate it. A running total,
         # since there's no end-of-parent signal: the last line of a run carries the fan-out's

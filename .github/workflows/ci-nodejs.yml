@@ -658,12 +658,6 @@ jobs:
               run: |
                   ./bin/download-mmdb
 
-            - name: Install pnpm dependencies
-              uses: ./.github/actions/pnpm-install
-              with:
-                  install-command: pnpm --filter=@posthog/nodejs... install --frozen-lockfile
-                  token: ${{ steps.setup-gh-token.outputs.token || github.token }}
-
             - name: Wait for Clickhouse, Redis, Kafka, DynamoDB, SeaweedFS
               # seaweedfs backs the blob-store integration tests; the profile-scoped
               # stack launch above never starts it (it sits in the replay/agents
@@ -675,13 +669,38 @@ jobs:
             - name: Create Kafka topics
               run: docker compose -f docker-compose.dev.yml up kafka-init
 
+            # The Django test database takes about a minute and needs only Python and the
+            # compose services, so it runs while pnpm installs. The "Set up databases" step
+            # below waits for it and fails the job if it failed.
+            - name: Start Django test database setup in the background
+              env:
+                  TEST: 'true'
+                  SECRET_KEY: 'abcdef' # unsafe - for testing only
+                  DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
+                  BEHAVIORAL_COHORTS_DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/test_behavioral_cohorts'
+              run: |
+                  nohup bash -c 'python manage.py setup_test_environment; echo $? > "$RUNNER_TEMP/django-db-setup.exit"' > "$RUNNER_TEMP/django-db-setup.log" 2>&1 &
+
+            - name: Install pnpm dependencies
+              uses: ./.github/actions/pnpm-install
+              with:
+                  install-command: pnpm --filter=@posthog/nodejs... install --frozen-lockfile
+                  token: ${{ steps.setup-gh-token.outputs.token || github.token }}
+
             - name: Set up databases
               env:
                   TEST: 'true'
                   SECRET_KEY: 'abcdef' # unsafe - for testing only
                   DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
                   BEHAVIORAL_COHORTS_DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/test_behavioral_cohorts'
-              run: pnpm --filter=@posthog/nodejs setup:test
+              run: |
+                  for _ in $(seq 1 600); do
+                      [ -f "$RUNNER_TEMP/django-db-setup.exit" ] && break
+                      sleep 1
+                  done
+                  cat "$RUNNER_TEMP/django-db-setup.log"
+                  [ "$(cat "$RUNNER_TEMP/django-db-setup.exit" 2>/dev/null)" = "0" ] || { echo "Django test database setup failed or timed out"; exit 1; }
+                  pnpm --filter=@posthog/nodejs setup:test:rust
 
             - name: Set up postgres-parity database
               if: matrix.lane == 'serial' && matrix.shard == 1

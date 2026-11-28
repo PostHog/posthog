@@ -428,6 +428,7 @@ const aeoPromptsCitationsList = (): ToolBase<
                 limit: params.limit,
                 offset: params.offset,
                 search: params.search,
+                topic: params.topic,
                 url: params.url,
             },
         })
@@ -598,6 +599,32 @@ const aeoPromptsRankingsGet = (): ToolBase<
     },
 })
 
+const AeoPromptsSetTopicSchema = () => {
+    const AeoPromptsBulkSetTopicBody = orvalSchemas.AeoPromptsBulkSetTopicBody()
+    return AeoPromptsBulkSetTopicBody
+}
+
+const aeoPromptsSetTopic = (): ToolBase<ReturnType<typeof AeoPromptsSetTopicSchema>, Schemas.AEOPromptTopicChange> => ({
+    name: 'aeo-prompts-set-topic',
+    schema: AeoPromptsSetTopicSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof AeoPromptsSetTopicSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.prompt_ids !== undefined) {
+            body['prompt_ids'] = params.prompt_ids
+        }
+        if (params.topic !== undefined) {
+            body['topic'] = params.topic
+        }
+        const result = await context.api.request<Schemas.AEOPromptTopicChange>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/aeo_prompts/bulk_set_topic/`,
+            body,
+        })
+        return result
+    },
+})
+
 const AeoPromptsStatsGetSchema = () => {
     const AeoPromptsStatsParams = orvalSchemas.AeoPromptsStatsParams()
     return AeoPromptsStatsParams.omit({ project_id: true }).extend({
@@ -690,6 +717,90 @@ const aeoPromptsTopicsList = (): ToolBase<ReturnType<typeof AeoPromptsTopicsList
         const result = await context.api.request<Schemas.AEOPromptTopic[]>({
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/aeo_prompts/topics/`,
+        })
+        return result
+    },
+})
+
+const AeoPromptsTopicsMergeSchema = () => {
+    const AeoPromptsTopicsMergeBody = orvalSchemas.AeoPromptsTopicsMergeBody()
+    return AeoPromptsTopicsMergeBody
+}
+
+const aeoPromptsTopicsMerge = (): ToolBase<
+    ReturnType<typeof AeoPromptsTopicsMergeSchema>,
+    Schemas.AEOPromptTopicChange
+> => ({
+    name: 'aeo-prompts-topics-merge',
+    schema: AeoPromptsTopicsMergeSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof AeoPromptsTopicsMergeSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.topic !== undefined) {
+            body['topic'] = params.topic
+        }
+        if (params.into_topic !== undefined) {
+            body['into_topic'] = params.into_topic
+        }
+        const result = await context.api.request<Schemas.AEOPromptTopicChange>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/aeo_prompts/topics/merge/`,
+            body,
+        })
+        return result
+    },
+})
+
+const AeoPromptsTopicsRemoveSchema = () => {
+    const AeoPromptsTopicsRemoveBody = orvalSchemas.AeoPromptsTopicsRemoveBody()
+    return AeoPromptsTopicsRemoveBody
+}
+
+const aeoPromptsTopicsRemove = (): ToolBase<
+    ReturnType<typeof AeoPromptsTopicsRemoveSchema>,
+    Schemas.AEOPromptTopicChange
+> => ({
+    name: 'aeo-prompts-topics-remove',
+    schema: AeoPromptsTopicsRemoveSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof AeoPromptsTopicsRemoveSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.topic !== undefined) {
+            body['topic'] = params.topic
+        }
+        const result = await context.api.request<Schemas.AEOPromptTopicChange>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/aeo_prompts/topics/remove/`,
+            body,
+        })
+        return result
+    },
+})
+
+const AeoPromptsTopicsRenameSchema = () => {
+    const AeoPromptsTopicsRenameBody = orvalSchemas.AeoPromptsTopicsRenameBody()
+    return AeoPromptsTopicsRenameBody
+}
+
+const aeoPromptsTopicsRename = (): ToolBase<
+    ReturnType<typeof AeoPromptsTopicsRenameSchema>,
+    Schemas.AEOPromptTopicChange
+> => ({
+    name: 'aeo-prompts-topics-rename',
+    schema: AeoPromptsTopicsRenameSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof AeoPromptsTopicsRenameSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.topic !== undefined) {
+            body['topic'] = params.topic
+        }
+        if (params.new_topic !== undefined) {
+            body['new_topic'] = params.new_topic
+        }
+        const result = await context.api.request<Schemas.AEOPromptTopicChange>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/aeo_prompts/topics/rename/`,
+            body,
         })
         return result
     },
@@ -917,10 +1028,14 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'aeo-prompts-list': aeoPromptsList,
     'aeo-prompts-overview-get': aeoPromptsOverviewGet,
     'aeo-prompts-rankings-get': aeoPromptsRankingsGet,
+    'aeo-prompts-set-topic': aeoPromptsSetTopic,
     'aeo-prompts-stats-get': aeoPromptsStatsGet,
     'aeo-prompts-suggest': aeoPromptsSuggest,
     'aeo-prompts-suggestion-get': aeoPromptsSuggestionGet,
     'aeo-prompts-topics-list': aeoPromptsTopicsList,
+    'aeo-prompts-topics-merge': aeoPromptsTopicsMerge,
+    'aeo-prompts-topics-remove': aeoPromptsTopicsRemove,
+    'aeo-prompts-topics-rename': aeoPromptsTopicsRename,
     'aeo-prompts-update': aeoPromptsUpdate,
     'aeo-prompts-versions-list': aeoPromptsVersionsList,
     'aeo-setup-cancel': aeoSetupCancel,

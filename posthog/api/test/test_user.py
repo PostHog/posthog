@@ -53,6 +53,7 @@ from posthog.models.team.team_provisioning_config import TeamProvisioningConfig
 from posthog.models.user import UserType
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.models.webauthn_credential import WebauthnCredential
+from posthog.session.activity import session_public_id
 from posthog.temporal.tests.delete_teams.inline import execute_deletion_workflows_inline
 from posthog.test.authentication_checks import covers_authentication
 
@@ -1321,8 +1322,17 @@ class TestUserAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK, response.content
         mock_report.assert_not_called()
 
-    @patch("posthog.api.user.report_user_identity_change_refused")
-    def test_refusing_a_token_identity_change_reports_the_reason(self, mock_report):
+    @staticmethod
+    def _identity_change_refused_properties(mock_capture) -> dict:
+        [properties] = [
+            call.kwargs["properties"]
+            for call in mock_capture.call_args_list
+            if call.kwargs.get("event") == "user identity change refused"
+        ]
+        return properties
+
+    @patch("posthoganalytics.capture")
+    def test_refusing_a_token_identity_change_reports_the_reason(self, mock_capture):
         self.user.email = "alpha@example.com"
         self.user.save()
         key = self.create_personal_api_key_with_scopes(["user:write"])
@@ -1336,10 +1346,15 @@ class TestUserAPI(APIBaseTest):
         )
 
         assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
-        mock_report.assert_called_once_with(self.user, field="email", reason="token_auth")
+        assert self._identity_change_refused_properties(mock_capture) == {
+            "field": "email",
+            "reason": "token_auth",
+            "$set": ANY,
+            "$ip": "127.0.0.1",
+        }
 
-    @patch("posthog.api.user.report_user_identity_change_refused")
-    def test_refusing_a_stale_session_email_change_reports_the_reason(self, mock_report):
+    @patch("posthoganalytics.capture")
+    def test_refusing_a_stale_session_email_change_reports_the_reason(self, mock_capture):
         self.user.email = "alpha@example.com"
         self.user.save()
         self.client.force_login(self.user)
@@ -1350,7 +1365,15 @@ class TestUserAPI(APIBaseTest):
         response = self.client.patch("/api/users/@me/", {"email": "beta@example.com"})
 
         assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
-        mock_report.assert_called_once_with(self.user, field="email", reason="stale_reauth")
+        session_key = session.session_key
+        assert session_key
+        assert self._identity_change_refused_properties(mock_capture) == {
+            "field": "email",
+            "reason": "stale_reauth",
+            "$set": ANY,
+            "$ip": "127.0.0.1",
+            "session_public_id": str(session_public_id(session_key)),
+        }
 
     @parameterized.expand(
         [
@@ -3695,10 +3718,16 @@ class TestEmailVerificationAPI(APIBaseTest):
         self.assertTrue(self.user.is_email_verified)
 
         # assert events were captured
+        session_key = self.client.session.session_key
+        assert session_key
         mock_capture.assert_any_call(
             event="user logged in",
             distinct_id=self.user.distinct_id,
-            properties={"social_provider": ""},
+            properties={
+                "social_provider": "",
+                "$ip": "127.0.0.1",
+                "session_public_id": str(session_public_id(session_key)),
+            },
             groups={
                 "instance": ANY,
                 "organization": str(self.team.organization_id),

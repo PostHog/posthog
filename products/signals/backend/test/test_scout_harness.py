@@ -78,7 +78,7 @@ from products.signals.backend.scout_harness.limits import (
     TRIGGERED_BY_WORKFLOW,
     failure_streak_pause_threshold,
 )
-from products.signals.backend.scout_harness.message_routes import MessageRoute, MessageTarget
+from products.signals.backend.scout_harness.message_routes import MAX_MESSAGE_TITLE_LENGTH, MessageRoute, MessageTarget
 from products.signals.backend.scout_harness.model_selection import ScoutModel
 from products.signals.backend.scout_harness.prompt import (
     _EXTERNAL_MCP_LISTING_CAP,
@@ -591,7 +591,10 @@ class TestPromptCacheablePrefix(SimpleTestCase):
         assert first == second
         assert "- `outside-team-change`: Someone outside the team merges a significant change" in first
         assert ("leave `report_id` out" in first) is dry_run
-        assert "This scout sends at most 12 messages in any 24 hours." in first
+        assert "Silence is the normal outcome" in first
+        assert "The cap is a safety limit, never a target" in first
+        assert "12 messages" not in first
+        assert f"at most {MAX_MESSAGE_TITLE_LENGTH} characters" in first
 
     @parameterized.expand([("no_routes", (), 5), ("cap_of_zero", _MESSAGE_ROUTES, 0)])
     def test_messages_section_is_absent_when_the_scout_cannot_send(

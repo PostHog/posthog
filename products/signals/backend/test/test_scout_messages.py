@@ -24,7 +24,12 @@ from products.signals.backend.models import (
     SignalScoutRun,
 )
 from products.signals.backend.scout_harness.limits import STALE_RUN_CUTOFF_S
-from products.signals.backend.scout_harness.message_routes import ScoutMessageCap, resolve_scout_message_cap
+from products.signals.backend.scout_harness.message_routes import (
+    MAX_MESSAGE_BODY_LENGTH,
+    MAX_MESSAGE_TITLE_LENGTH,
+    ScoutMessageCap,
+    resolve_scout_message_cap,
+)
 from products.signals.backend.scout_harness.message_send import DELIVERY_REPUBLISH_AFTER, send_queued_scout_messages
 from products.signals.backend.scout_harness.runner import _message_routes_for_run, _self_heal_stale_runs
 from products.signals.backend.scout_harness.slack_delivery import (
@@ -152,6 +157,8 @@ class TestSendMessageAPI(_MessagesFixture, APIBaseTest):
             ("report_this_run_did_not_touch", "untouched_report"),
             ("report_the_safety_judge_suppressed", "suppressed_report"),
             ("text_the_safety_judge_rejects", "unsafe_text"),
+            ("title_over_the_limit", "long_title"),
+            ("body_over_the_limit", "long_body"),
         ]
     )
     def test_refuses_a_message_it_cannot_tie_to_this_run(self, _name: str, case: str) -> None:
@@ -166,6 +173,10 @@ class TestSendMessageAPI(_MessagesFixture, APIBaseTest):
             body = {"report_id": str(SignalReport.objects.create(team=self.team, title="t", status="ready").id)}
         elif case == "suppressed_report":
             body = {"report_id": str(self._report(run, report_status=SignalReport.Status.SUPPRESSED).id)}
+        elif case == "long_title":
+            body = {"report_id": str(self._report(run).id), "title": "x" * (MAX_MESSAGE_TITLE_LENGTH + 1)}
+        elif case == "long_body":
+            body = {"report_id": str(self._report(run).id), "body": "x" * (MAX_MESSAGE_BODY_LENGTH + 1)}
         else:
             body = {"report_id": str(self._report(run).id)}
 
@@ -173,6 +184,9 @@ class TestSendMessageAPI(_MessagesFixture, APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         assert not SignalScoutMessage.all_teams.filter(run=run).exists()
+        if case in ("long_title", "long_body"):
+            limit = MAX_MESSAGE_TITLE_LENGTH if case == "long_title" else MAX_MESSAGE_BODY_LENGTH
+            assert str(limit) in response.json()["detail"]
 
     def test_a_second_call_on_the_same_route_and_key_replaces_the_queued_message(self) -> None:
         run = self._run()

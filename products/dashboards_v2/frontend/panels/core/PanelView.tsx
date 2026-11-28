@@ -3,10 +3,10 @@ import { type ComponentType, Suspense, memo, useContext, useLayoutEffect } from 
 import { IconLineGraph, IconPuzzle, IconWarning, IconWrench } from '@posthog/icons'
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle, IconStack, IconStackItem, Skeleton } from '@posthog/quill'
 
-import type { SavedPanel } from '../../dashboard/document/dashboardTypes'
 import type { PanelType } from './panelDefinition'
 import { PanelErrorBoundary } from './PanelErrorBoundary'
 import { PanelHostContext } from './panelHostContext'
+import { type SavedPanel } from './panelSchema'
 
 // A panel that suspends before its query starts would otherwise let the load end without it.
 function HoldsLoad(): null {
@@ -92,7 +92,6 @@ export const PanelView = memo(function PanelView({
     definition: PanelType | undefined
     setConfig?: (config: unknown) => void
 }): JSX.Element {
-    const { sampleData } = useContext(PanelHostContext)
     if (!definition) {
         return (
             <PanelMessage
@@ -112,7 +111,6 @@ export const PanelView = memo(function PanelView({
         )
     }
     const Loading: ComponentType<{ panel: SavedPanel }> = definition.Loading ?? PanelLoading
-    const SampleData = sampleData ? definition.SampleData : undefined
     // One panel that throws or suspends shows its own state, and the rest of the dashboard keeps working.
     return (
         <PanelErrorBoundary
@@ -133,11 +131,7 @@ export const PanelView = memo(function PanelView({
                     </>
                 }
             >
-                {SampleData ? (
-                    <SampleData panel={panel} />
-                ) : (
-                    <definition.Component panel={panel} setConfig={setConfig} />
-                )}
+                <definition.Component panel={panel} setConfig={setConfig} />
             </Suspense>
         </PanelErrorBoundary>
     )

@@ -22,7 +22,8 @@ import { waitForExpect } from '~/tests/helpers/expectations'
 import { isPortFree } from '~/tests/helpers/service-process'
 
 import { CdpRole } from '../cards'
-import { Environment, createEnvironment, proxiesOf } from './environment'
+import { Environment, ROLE_COMMAND, createEnvironment, proxiesOf } from './environment'
+import { nameOf } from './identity'
 import { startProbeProcess } from './probe-process'
 import * as processes from './processes'
 import {
@@ -61,6 +62,7 @@ import {
     terminateRoleConnections,
     topicCreateFailures,
     withPostgres,
+    writerUrlOf,
 } from './stack'
 import { createSupervisor } from './supervisor'
 
@@ -536,12 +538,14 @@ describe('scenario environment', () => {
 
         it('splits the role processes evenly across the poolers the host names, spreading a role over them', () => {
             const poolers = ['postgres://a@127.0.0.1:6432/cyclotron_node', 'postgres://a@127.0.0.1:6433/cyclotron_node']
+            const writer = 'postgres://posthog:posthog@localhost:5432/cyclotron_writer'
+            const pooled = { ...base, SCENARIO_POOLER_URLS: poolers.join(','), SCENARIO_WRITER_URL: writer }
             const split = roleSpecs(
-                { ...base, SCENARIO_POOLER_URLS: poolers.join(',') },
+                pooled,
                 EDGE,
                 secretsOf({}),
                 STATE_DIR,
-                { CYCLOTRON_NODE_DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/cyclotron_node' },
+                { CYCLOTRON_NODE_DATABASE_URL: writer },
                 undefined,
                 { 'cdp-cyclotron-worker-hogflow': 2 }
             )
@@ -551,7 +555,29 @@ describe('scenario environment', () => {
             expect(
                 shares.map((share) => share.filter(({ role }) => role === 'cdp-cyclotron-worker-hogflow').length)
             ).toEqual([1, 1])
-            expect(split.filter(({ env }) => 'SCENARIO_POOLER_URLS' in env)).toEqual([])
+            expect(split.filter(({ env }) => 'SCENARIO_POOLER_URLS' in env || 'SCENARIO_WRITER_URL' in env)).toEqual([])
+        })
+
+        it.each([
+            ['the host names', { SCENARIO_WRITER_URL: 'postgres://a@writer.example.com:5432/cyclotron_node' }, {}],
+            [
+                "a cloud run's host names",
+                {
+                    SCENARIO_RUN_MANIFEST: '/opt/scenario/input/manifest.json',
+                    SCENARIO_WRITER_URL: 'postgres://a@writer.example.com:5432/cyclotron_node',
+                    CYCLOTRON_NODE_DATABASE_URL: 'postgres://a@127.0.0.1:5432/cyclotron_node',
+                },
+                { CYCLOTRON_NODE_DATABASE_URL: 'postgres://a@profile.example.com:5432/cyclotron_node' },
+            ],
+            [
+                'the profile sets',
+                {},
+                { CYCLOTRON_NODE_DATABASE_URL: 'postgres://a@writer.example.com:5432/cyclotron_node' },
+            ],
+        ])('probes the writer %s itself, past the poolers the roles reach it through', (_, env, settings) => {
+            const pooled = { ...base, SCENARIO_POOLER_URLS: 'postgres://a@127.0.0.1:6432/cyclotron_node', ...env }
+
+            expect(writerUrlOf(pooled, settings)).toBe('postgres://a@writer.example.com:5432/cyclotron_node')
         })
 
         const POOLERS = ['postgres://a@127.0.0.1:6432/cyclotron_node', 'postgres://a@127.0.0.1:6433/cyclotron_node']
@@ -1311,6 +1337,142 @@ describe('scenario environment', () => {
             }
         }
 
+        const READY = "process.on('SIGTERM', ON_SIGTERM); console.log('ready'); setInterval(() => {}, 1000)"
+
+        const BUSY = 'Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 1000)'
+
+        it.each([
+            [
+                'lets a role that stops on SIGTERM exit within its grace',
+                '() => setTimeout(() => process.exit(0), 100)',
+                { code: 0, signal: null },
+                1000,
+                false,
+            ],
+            [
+                'kills a role that outlasts its grace and records when the SIGKILL went out',
+                '() => {}',
+                { killedAt: expect.any(String), code: null, signal: 'SIGKILL' },
+                1000,
+                false,
+            ],
+            [
+                'lets a role launched as the environment launches it finish a SIGTERM that found its event loop busy',
+                '() => setTimeout(() => process.exit(0), 100)',
+                { code: 0, signal: null },
+                5000,
+                true,
+            ],
+        ])(
+            'terminate %s, and records the exit as the valve',
+            async (_story, onSigterm, exit, graceMs, launchedAsRole) => {
+                const logDir = mkdtempSync(path.join(tempRoot, 'logs-'))
+                const script = READY.replace('ON_SIGTERM', onSigterm)
+                const terminating = createSupervisor({
+                    ...(launchedAsRole
+                        ? { command: ROLE_COMMAND.command, args: [...ROLE_COMMAND.args, '-e', `${script}; ${BUSY}`] }
+                        : { command: process.execPath, args: ['-e', script] }),
+                    cwd: os.tmpdir(),
+                    logDir,
+                    graceMs: 1000,
+                    restartBackoffMs: 60_000,
+                })
+                const [spec] = roleSpecs(process.env, EDGE, secretsOf({}), STATE_DIR)
+                try {
+                    await terminating.start([spec])
+                    await waitForExpect(
+                        () => expect(readFileSync(path.join(logDir, `${nameOf(spec)}.log`), 'utf8')).toContain('ready'),
+                        5000,
+                        20
+                    )
+
+                    const termination = terminating.terminate(spec, graceMs)
+                    await termination.release()
+
+                    expect(termination.journal()).toEqual({
+                        exit: { signalledAt: expect.any(String), exitedAt: expect.any(String), ...exit },
+                    })
+                    expect(terminating.exits()).toEqual([
+                        expect.objectContaining({
+                            role: spec.role,
+                            code: exit.code,
+                            signal: exit.signal,
+                            byValve: true,
+                        }),
+                    ])
+                } finally {
+                    await terminating.stop()
+                }
+            },
+            15_000
+        )
+
+        it.each([
+            [
+                'fails the release of a role still running after its SIGKILL, and keeps its exit unfinished',
+                false,
+                { signalledAt: expect.any(String), killedAt: expect.any(String) },
+            ],
+            [
+                'fails the release of a role that exited after its deadline, though the release began later',
+                true,
+                {
+                    signalledAt: expect.any(String),
+                    killedAt: expect.any(String),
+                    exitedAt: expect.any(String),
+                    code: null,
+                    signal: 'SIGKILL',
+                },
+            ],
+        ])(
+            '%s',
+            async (_story, killLate, exit) => {
+                const logDir = mkdtempSync(path.join(tempRoot, 'logs-'))
+                const surviving = createSupervisor({
+                    command: process.execPath,
+                    args: ['-e', READY.replace('ON_SIGTERM', '() => {}')],
+                    cwd: os.tmpdir(),
+                    logDir,
+                    graceMs: 1000,
+                    restartBackoffMs: 60_000,
+                    killedExitWithinMs: 200,
+                })
+                const [spec] = roleSpecs(process.env, EDGE, secretsOf({}), STATE_DIR)
+                const realSignal = processes.signal
+                const heldKill = jest.spyOn(processes, 'signal').mockImplementation((target, sig) => {
+                    if (sig !== 'SIGKILL') {
+                        return realSignal(target, sig)
+                    }
+                    if (killLate) {
+                        setTimeout(() => realSignal(target, sig), 500)
+                    }
+                    return true
+                })
+                try {
+                    await surviving.start([spec])
+                    await waitForExpect(
+                        () => expect(readFileSync(path.join(logDir, `${nameOf(spec)}.log`), 'utf8')).toContain('ready'),
+                        5000,
+                        20
+                    )
+
+                    const termination = surviving.terminate(spec, 100)
+                    if (killLate) {
+                        await waitForExpect(() => expect(surviving.exits()).toHaveLength(1), 5000, 20)
+                    }
+
+                    await expect(termination.release()).rejects.toThrow(
+                        `${nameOf(spec)} did not exit 0.2s after its grace`
+                    )
+                    expect(termination.journal()).toEqual({ exit })
+                } finally {
+                    heldKill.mockRestore()
+                    await surviving.stop()
+                }
+            },
+            15_000
+        )
+
         it('refuses to kill a role that something else killed before its exit was reported', async () => {
             const killedElsewhere = createSupervisor({
                 command: process.execPath,
@@ -1784,7 +1946,9 @@ describe('scenario environment', () => {
                 if (command.endsWith(path.join('bin', 'hogli')) && command !== path.join(fakes, 'hogli')) {
                     throw new Error('The up test reached the dev stack.')
                 }
-                if (!command.endsWith(path.join('node_modules', '.bin', 'tsx'))) {
+                const launchesRole =
+                    command === ROLE_COMMAND.command && ROLE_COMMAND.args.every((arg, i) => args[i] === arg)
+                if (!launchesRole) {
                     return realSpawn(command, args, options)
                 }
                 if (options.env?.PLUGIN_SERVER_MODE === unspawnable) {

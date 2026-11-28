@@ -2,9 +2,13 @@ import os
 import json
 import time
 import uuid
-from collections.abc import Callable
+import functools
+import contextlib
+import contextvars
+from collections.abc import Callable, Iterator
+from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
-from typing import Literal, Optional
+from typing import Concatenate, Literal, Optional
 from urllib.parse import parse_qsl, quote, quote_plus, urlencode, urlparse, urlunparse
 
 from django.conf import settings
@@ -12,8 +16,10 @@ from django.conf import settings
 import structlog
 import posthoganalytics
 from playwright.sync_api import (
+    Browser,
     Error as PlaywrightError,
     Page,
+    Playwright,
     Request,
     Response,
     TimeoutError as PlaywrightTimeoutError,
@@ -66,6 +72,11 @@ IMAGE_EXPORT_RENDER_STAGE_DURATION = Histogram(
     "Image export render time per completed stage, by the content the render waits for",
     labelnames=["content", "stage"],
     buckets=(0.25, 0.5, 1, 2, 5, 10, 20, 30, 60, float("inf")),
+)
+IMAGE_EXPORT_BROWSERLESS_SESSIONS_COUNTER = Counter(
+    "image_export_browserless_sessions_total",
+    "Browserless sessions opened for image exports, by whether the session renders one asset or a batch",
+    labelnames=["mode"],
 )
 IMAGE_EXPORT_RENDER_FAILURE_COUNTER = Counter(
     "image_export_render_failure_total",
@@ -330,6 +341,7 @@ def _export_rendered_asset(
     exported_asset: ExportedAsset,
     max_height_pixels: Optional[int] = None,
     insight_cache_keys: Optional[dict[int, str]] = None,
+    session: Optional["BrowserlessRenderSession"] = None,
 ) -> None:
     """
     Exporting a rendered asset means:
@@ -475,6 +487,7 @@ def _export_rendered_asset(
                 fixed_width=image_size.get("width"),
                 device_scale_factor=1 if any(image_size.values()) else 2,
                 export_pdf=exported_asset.export_format == ExportedAsset.ExportFormat.PDF,
+                session=session,
             )
             if exported_asset.export_format != ExportedAsset.ExportFormat.PDF:
                 fit_image_to_size(image_path, image_size.get("width"), image_size.get("height"))
@@ -611,36 +624,116 @@ class _RenderStages:
         self._started_at = now
 
 
-def _screenshot_asset_browserless(
-    image_path: str,
-    url_to_render: str,
-    screenshot_width: int,
-    wait_for_css_selector: CSSSelector,
-    screenshot_height: int = 600,
-    max_height_pixels: Optional[int] = None,
-    page_load_timeout: int = 40,
-    read_site_style: bool = False,
-    fixed_width: int | None = None,
-    device_scale_factor: int = 2,
-    *,
-    export_pdf: bool = False,
-) -> Optional[dict]:
-    endpoint = _build_cdp_endpoint(
-        settings.BROWSERLESS_CDP_URL, settings.BROWSERLESS_TOKEN, settings.BROWSERLESS_SESSION_TIMEOUT_MS
-    )
+_MAX_SESSION_CONNECTION_FAILURES = 2
 
-    stages = _RenderStages(content=_RENDER_STAGE_CONTENT.get(str(wait_for_css_selector), "other"))
-    with sync_playwright() as p:
+
+RenderSessionMode = Literal["single", "batched"]
+
+
+def _on_playwright_thread[**P, R](
+    method: Callable[Concatenate["BrowserlessRenderSession", P], R],
+) -> Callable[Concatenate["BrowserlessRenderSession", P], R]:
+    @functools.wraps(method)
+    def run(session: "BrowserlessRenderSession", *args: P.args, **kwargs: P.kwargs) -> R:
+        if session._playwright_thread is None:
+            return method(session, *args, **kwargs)
+        context = contextvars.copy_context()
+
+        def call() -> R:
+            return context.run(method, session, *args, **kwargs)
+
+        return session._playwright_thread.submit(call).result()
+
+    return run
+
+
+class BrowserlessRenderSession:
+    def __init__(self, *, session_timeout_ms: int | None = None, mode: RenderSessionMode = "single") -> None:
+        self._mode = mode
+        self._endpoint = _build_cdp_endpoint(
+            settings.BROWSERLESS_CDP_URL,
+            settings.BROWSERLESS_TOKEN,
+            session_timeout_ms or settings.BROWSERLESS_SESSION_TIMEOUT_MS,
+        )
+        self._exit_stack = contextlib.ExitStack()
+        self._playwright: Playwright | None = None
+        self._browser: Browser | None = None
+        self._connection_failures = 0
+        self._playwright_thread = (
+            ThreadPoolExecutor(max_workers=1, thread_name_prefix="browserless-session") if mode == "batched" else None
+        )
+
+    def __enter__(self) -> "BrowserlessRenderSession":
+        return self
+
+    def __exit__(self, *exc_info: object) -> None:
         try:
-            browser = p.chromium.connect_over_cdp(endpoint, timeout=settings.BROWSERLESS_CONNECT_TIMEOUT_MS)
+            self._shut_down()
+        finally:
+            if self._playwright_thread is not None:
+                self._playwright_thread.shutdown(wait=True)
+
+    @_on_playwright_thread
+    def _shut_down(self) -> None:
+        self._close_browser()
+        self._exit_stack.close()
+        self._playwright = None
+
+    def _connected_browser(self, stages: _RenderStages) -> Browser:
+        if self._browser is not None and self._browser.is_connected():
+            return self._browser
+        self._close_browser()
+        if self._connection_failures >= _MAX_SESSION_CONNECTION_FAILURES:
+            raise BrowserlessUnavailable("Browserless session gave up after repeated connection failures")
+        if self._playwright is None:
+            self._playwright = self._exit_stack.enter_context(sync_playwright())
+
+        try:
+            browser = self._playwright.chromium.connect_over_cdp(
+                self._endpoint, timeout=settings.BROWSERLESS_CONNECT_TIMEOUT_MS
+            )
         except (PlaywrightError, PlaywrightTimeoutError) as e:
+            self._connection_failures += 1
             raise BrowserlessUnavailable(
                 f"Failed to connect to browserless: {_redact_browserless_token(str(e))}"
             ) from None
 
-        disconnected = [False]
-        browser.on("disconnected", lambda *_: disconnected.__setitem__(0, True))
+        IMAGE_EXPORT_BROWSERLESS_SESSIONS_COUNTER.labels(mode=self._mode).inc()
+        self._browser = browser
         stages.done("connect")
+        return browser
+
+    def _drop_after_connection_error(self) -> None:
+        self._connection_failures += 1
+        self._close_browser()
+
+    def _close_browser(self) -> None:
+        if self._browser is None:
+            return
+        try:
+            self._browser.close()
+        except Exception:
+            pass
+        self._browser = None
+
+    @_on_playwright_thread
+    def render(
+        self,
+        image_path: str,
+        url_to_render: str,
+        screenshot_width: int,
+        wait_for_css_selector: CSSSelector,
+        screenshot_height: int = 600,
+        max_height_pixels: Optional[int] = None,
+        page_load_timeout: int = 40,
+        read_site_style: bool = False,
+        fixed_width: int | None = None,
+        device_scale_factor: int = 2,
+        *,
+        export_pdf: bool = False,
+    ) -> Optional[dict]:
+        stages = _RenderStages(content=_RENDER_STAGE_CONTENT.get(str(wait_for_css_selector), "other"))
+        browser = self._connected_browser(stages)
 
         context = None
         page = None
@@ -719,7 +812,8 @@ def _screenshot_asset_browserless(
         except PlaywrightTimeoutError:
             raise
         except PlaywrightError as e:
-            if disconnected[0] or _is_browserless_connection_error(e):
+            if not browser.is_connected() or _is_browserless_connection_error(e):
+                self._drop_after_connection_error()
                 raise BrowserlessUnavailable(_redact_browserless_token(str(e))) from None
 
             with posthoganalytics.new_context():
@@ -730,15 +824,42 @@ def _screenshot_asset_browserless(
 
             raise
         finally:
-            if context:
+            if context is not None:
                 try:
                     context.close()
                 except Exception:
                     pass
-            try:
-                browser.close()
-            except Exception:
-                pass
+
+
+def _screenshot_asset_browserless(
+    image_path: str,
+    url_to_render: str,
+    screenshot_width: int,
+    wait_for_css_selector: CSSSelector,
+    screenshot_height: int = 600,
+    max_height_pixels: Optional[int] = None,
+    page_load_timeout: int = 40,
+    read_site_style: bool = False,
+    fixed_width: int | None = None,
+    device_scale_factor: int = 2,
+    *,
+    export_pdf: bool = False,
+    session: BrowserlessRenderSession | None = None,
+) -> Optional[dict]:
+    with contextlib.nullcontext(session) if session else BrowserlessRenderSession() as render_session:
+        return render_session.render(
+            image_path,
+            url_to_render,
+            screenshot_width,
+            wait_for_css_selector,
+            screenshot_height=screenshot_height,
+            max_height_pixels=max_height_pixels,
+            page_load_timeout=page_load_timeout,
+            read_site_style=read_site_style,
+            fixed_width=fixed_width,
+            device_scale_factor=device_scale_factor,
+            export_pdf=export_pdf,
+        )
 
 
 def _watch_failed_stylesheets(page: Page) -> list[str]:
@@ -770,168 +891,14 @@ def _read_site_style(page: Page, failed_stylesheets: list[str]) -> Optional[dict
         return None
 
 
-def export_image(
-    exported_asset: ExportedAsset, max_height_pixels: Optional[int] = None, source: Optional[EventSource] = None
-) -> None:
+@contextlib.contextmanager
+def _reported_image_export_failure(exported_asset: ExportedAsset) -> Iterator[None]:
     with posthoganalytics.new_context():
         posthoganalytics.tag("team_id", exported_asset.team_id if exported_asset else "unknown")
         posthoganalytics.tag("asset_id", exported_asset.id if exported_asset else "unknown")
 
         try:
-            # Track cache keys for insights so we can pass them to Chrome for guaranteed cache hits
-            insight_cache_keys: dict[int, str] = {}
-            export_analytics_props: AnalyticsProps = {"source": source or EventSource.EXPORT}
-
-            if exported_asset.insight:
-                logger.info(
-                    "export_image.calculate_insight",
-                    insight_id=exported_asset.insight.id,
-                    dashboard_id=exported_asset.dashboard.id if exported_asset.dashboard else None,
-                )
-
-                # When export_context contains a source query, use it as the query for cache warming.
-                # This captures the user's full current state (variables, filters, date ranges, etc.).
-                # Falls back to the saved insight query for subscriptions and other server-initiated exports.
-                export_context = exported_asset.export_context or {}
-                query_override = export_context.get("source")
-                insight_execution_mode = export_execution_mode(export_context)
-
-                dashboard_variables = None
-                tile_filters_override = None
-                if exported_asset.dashboard:
-                    if exported_asset.dashboard.variables:
-                        variables = insight_variables_for_team(exported_asset.team_id)
-                        dashboard_variables = map_stale_to_latest(exported_asset.dashboard.variables, variables)
-                    tile_filters_override = dashboards_api.tile_filters_overrides(
-                        dashboard_id=exported_asset.dashboard.id, insight_id=exported_asset.insight.id
-                    )
-
-                result: InsightResult | None = None
-                if query_override:
-                    # query_override is upgraded inside calculate_for_query_based_insight,
-                    # so we skip upgrade_insight (which only upgrades insight.query we won't use).
-                    # variables_override is None because query_override already encodes the
-                    # user's full current state — applying saved dashboard variables on top
-                    # would clobber unsaved variable selections.
-                    result = calculate_for_query_based_insight(
-                        exported_asset.insight,
-                        team=exported_asset.team,
-                        dashboard=exported_asset.dashboard,
-                        execution_mode=insight_execution_mode,
-                        # Background render (no request user); attribute the read to the export owner.
-                        user=exported_asset.created_by,
-                        variables_override=None,
-                        tile_filters_override=tile_filters_override,
-                        query_override=query_override,
-                        analytics_props=export_analytics_props,
-                    )
-                elif exported_asset.insight.query is None:
-                    # Nothing to warm: the insight stores only legacy filters, and nothing converts
-                    # those into a query, so the insight renders blank. Raising here would fail the
-                    # whole export instead of producing it with one blank insight, so the render
-                    # starts without a warm cache. The dashboard branch below skips such a tile for
-                    # the same reason.
-                    logger.info(
-                        "export_image.skip_warming_insight_without_query",
-                        insight_id=exported_asset.insight.id,
-                    )
-                else:
-                    with upgrade_insight(exported_asset.insight):
-                        result = calculate_for_query_based_insight(
-                            exported_asset.insight,
-                            team=exported_asset.team,
-                            dashboard=exported_asset.dashboard,
-                            execution_mode=insight_execution_mode,
-                            # Background render (no request user); attribute the read to the export owner.
-                            user=exported_asset.created_by,
-                            variables_override=dashboard_variables,
-                            tile_filters_override=tile_filters_override,
-                            analytics_props=export_analytics_props,
-                        )
-                if result is not None and result.cache_key:
-                    insight_cache_keys[exported_asset.insight.id] = result.cache_key
-            elif exported_asset.dashboard:
-                is_pdf = exported_asset.export_format == ExportedAsset.ExportFormat.PDF
-                if is_pdf:
-                    validate_dashboard_pdf(exported_asset.dashboard.id)
-                logger.info(
-                    "export_image.calculate_dashboard_insights",
-                    dashboard_id=exported_asset.dashboard.id,
-                )
-                if not is_pdf and not dashboards_api.has_tiles_shown_in_image_export(exported_asset.dashboard.id):
-                    raise InvalidExportContext(
-                        "This dashboard has no insights or text cards to show in an image. "
-                        "Add an insight to the dashboard, then export it again."
-                    )
-                # Use variable overrides from export_context (user's current unsaved selection),
-                # falling back to saved dashboard variables
-                export_context = exported_asset.export_context or {}
-                dashboard_variables = export_context.get("variables_override")
-                dashboard_filters = exported_asset.get_dashboard_filters()
-                if not dashboard_variables and exported_asset.dashboard.variables:
-                    variables = insight_variables_for_team(exported_asset.team_id)
-                    dashboard_variables = map_stale_to_latest(exported_asset.dashboard.variables, variables)
-
-                tiles = (
-                    exported_asset.dashboard.tiles.select_related("insight")
-                    .filter(insight__isnull=False, insight__deleted=False)
-                    .all()
-                )
-                for tile in tiles:
-                    insight = tile.insight
-                    if not insight or not insight.query:
-                        continue
-
-                    with upgrade_insight(insight):
-                        result = calculate_for_query_based_insight(
-                            insight,
-                            team=exported_asset.team,
-                            dashboard=exported_asset.dashboard,
-                            execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
-                            # Background render (no request user); attribute the read to the export owner.
-                            user=exported_asset.created_by,
-                            variables_override=dashboard_variables,
-                            tile_filters_override=tile.filters_overrides,
-                            filters_override=dashboard_filters,
-                            analytics_props=export_analytics_props,
-                        )
-                        if result.cache_key:
-                            insight_cache_keys[insight.id] = result.cache_key
-            elif exported_asset.export_context and exported_asset.export_context.get("source"):
-                logger.info("export_image.calculate_adhoc_query", asset_id=exported_asset.id)
-                # Ad-hoc query export: run the query now so a bad query fails here (with a real
-                # exception on the asset) rather than inside the headless browser, and so the
-                # sharing view's cache-aggressive recompute at page load is a cache hit.
-                warm_result = process_query_dict(
-                    exported_asset.team,
-                    exported_asset.export_context["source"],
-                    execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
-                    limit_context=export_limit_context(exported_asset.export_context),
-                    # Background render (no request user); attribute the read to the export owner.
-                    user=exported_asset.created_by,
-                )
-                # Validation failures come back as an error response rather than raising
-                # (process_query_dict only raises for dashboard contexts) — surface them here
-                # instead of letting the render burn a browserless timeout on a broken page.
-                warm_error = (
-                    warm_result.get("error") if isinstance(warm_result, dict) else getattr(warm_result, "error", None)
-                )
-                if warm_error:
-                    raise InvalidExportContext(f"Invalid query: {warm_error}")
-
-            if exported_asset.export_format == ExportedAsset.ExportFormat.PNG or (
-                exported_asset.export_format == ExportedAsset.ExportFormat.PDF and exported_asset.dashboard_id
-            ):
-                with EXPORT_TIMER.labels(type=exported_asset.export_format).time():
-                    _export_rendered_asset(
-                        exported_asset,
-                        max_height_pixels=max_height_pixels,
-                        insight_cache_keys=insight_cache_keys or None,
-                    )
-            else:
-                raise NotImplementedError(
-                    f"Export to format {exported_asset.export_format} is not supported for insights"
-                )
+            yield
         except Exception as e:
             team_id = str(exported_asset.team.id) if exported_asset else "unknown"
             logger.error("image_exporter.failed", exception=e, exc_info=True)
@@ -971,3 +938,177 @@ def export_image(
             elif is_reportable_export_failure(e):
                 capture_exception(e, additional_properties={"task": "image_export", "team_id": team_id})
             raise
+
+
+def warm_image_export(exported_asset: ExportedAsset, source: Optional[EventSource] = None) -> dict[int, str]:
+    with _reported_image_export_failure(exported_asset):
+        # Track cache keys for insights so we can pass them to Chrome for guaranteed cache hits
+        insight_cache_keys: dict[int, str] = {}
+        export_analytics_props: AnalyticsProps = {"source": source or EventSource.EXPORT}
+
+        if exported_asset.insight:
+            logger.info(
+                "export_image.calculate_insight",
+                insight_id=exported_asset.insight.id,
+                dashboard_id=exported_asset.dashboard.id if exported_asset.dashboard else None,
+            )
+
+            # When export_context contains a source query, use it as the query for cache warming.
+            # This captures the user's full current state (variables, filters, date ranges, etc.).
+            # Falls back to the saved insight query for subscriptions and other server-initiated exports.
+            export_context = exported_asset.export_context or {}
+            query_override = export_context.get("source")
+            insight_execution_mode = export_execution_mode(export_context)
+
+            dashboard_variables = None
+            tile_filters_override = None
+            if exported_asset.dashboard:
+                if exported_asset.dashboard.variables:
+                    variables = insight_variables_for_team(exported_asset.team_id)
+                    dashboard_variables = map_stale_to_latest(exported_asset.dashboard.variables, variables)
+                tile_filters_override = dashboards_api.tile_filters_overrides(
+                    dashboard_id=exported_asset.dashboard.id, insight_id=exported_asset.insight.id
+                )
+
+            result: InsightResult | None = None
+            if query_override:
+                # query_override is upgraded inside calculate_for_query_based_insight,
+                # so we skip upgrade_insight (which only upgrades insight.query we won't use).
+                # variables_override is None because query_override already encodes the
+                # user's full current state — applying saved dashboard variables on top
+                # would clobber unsaved variable selections.
+                result = calculate_for_query_based_insight(
+                    exported_asset.insight,
+                    team=exported_asset.team,
+                    dashboard=exported_asset.dashboard,
+                    execution_mode=insight_execution_mode,
+                    # Background render (no request user); attribute the read to the export owner.
+                    user=exported_asset.created_by,
+                    variables_override=None,
+                    tile_filters_override=tile_filters_override,
+                    query_override=query_override,
+                    analytics_props=export_analytics_props,
+                )
+            elif exported_asset.insight.query is None:
+                # Nothing to warm: the insight stores only legacy filters, and nothing converts
+                # those into a query, so the insight renders blank. Raising here would fail the
+                # whole export instead of producing it with one blank insight, so the render
+                # starts without a warm cache. The dashboard branch below skips such a tile for
+                # the same reason.
+                logger.info(
+                    "export_image.skip_warming_insight_without_query",
+                    insight_id=exported_asset.insight.id,
+                )
+            else:
+                with upgrade_insight(exported_asset.insight):
+                    result = calculate_for_query_based_insight(
+                        exported_asset.insight,
+                        team=exported_asset.team,
+                        dashboard=exported_asset.dashboard,
+                        execution_mode=insight_execution_mode,
+                        # Background render (no request user); attribute the read to the export owner.
+                        user=exported_asset.created_by,
+                        variables_override=dashboard_variables,
+                        tile_filters_override=tile_filters_override,
+                        analytics_props=export_analytics_props,
+                    )
+            if result is not None and result.cache_key:
+                insight_cache_keys[exported_asset.insight.id] = result.cache_key
+        elif exported_asset.dashboard:
+            is_pdf = exported_asset.export_format == ExportedAsset.ExportFormat.PDF
+            if is_pdf:
+                validate_dashboard_pdf(exported_asset.dashboard.id)
+            logger.info(
+                "export_image.calculate_dashboard_insights",
+                dashboard_id=exported_asset.dashboard.id,
+            )
+            if not is_pdf and not dashboards_api.has_tiles_shown_in_image_export(exported_asset.dashboard.id):
+                raise InvalidExportContext(
+                    "This dashboard has no insights or text cards to show in an image. "
+                    "Add an insight to the dashboard, then export it again."
+                )
+            # Use variable overrides from export_context (user's current unsaved selection),
+            # falling back to saved dashboard variables
+            export_context = exported_asset.export_context or {}
+            dashboard_variables = export_context.get("variables_override")
+            dashboard_filters = exported_asset.get_dashboard_filters()
+            if not dashboard_variables and exported_asset.dashboard.variables:
+                variables = insight_variables_for_team(exported_asset.team_id)
+                dashboard_variables = map_stale_to_latest(exported_asset.dashboard.variables, variables)
+
+            tiles = (
+                exported_asset.dashboard.tiles.select_related("insight")
+                .filter(insight__isnull=False, insight__deleted=False)
+                .all()
+            )
+            for tile in tiles:
+                insight = tile.insight
+                if not insight or not insight.query:
+                    continue
+
+                with upgrade_insight(insight):
+                    result = calculate_for_query_based_insight(
+                        insight,
+                        team=exported_asset.team,
+                        dashboard=exported_asset.dashboard,
+                        execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+                        # Background render (no request user); attribute the read to the export owner.
+                        user=exported_asset.created_by,
+                        variables_override=dashboard_variables,
+                        tile_filters_override=tile.filters_overrides,
+                        filters_override=dashboard_filters,
+                        analytics_props=export_analytics_props,
+                    )
+                    if result.cache_key:
+                        insight_cache_keys[insight.id] = result.cache_key
+        elif exported_asset.export_context and exported_asset.export_context.get("source"):
+            logger.info("export_image.calculate_adhoc_query", asset_id=exported_asset.id)
+            # Ad-hoc query export: run the query now so a bad query fails here (with a real
+            # exception on the asset) rather than inside the headless browser, and so the
+            # sharing view's cache-aggressive recompute at page load is a cache hit.
+            warm_result = process_query_dict(
+                exported_asset.team,
+                exported_asset.export_context["source"],
+                execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
+                limit_context=export_limit_context(exported_asset.export_context),
+                # Background render (no request user); attribute the read to the export owner.
+                user=exported_asset.created_by,
+            )
+            # Validation failures come back as an error response rather than raising
+            # (process_query_dict only raises for dashboard contexts) — surface them here
+            # instead of letting the render burn a browserless timeout on a broken page.
+            warm_error = (
+                warm_result.get("error") if isinstance(warm_result, dict) else getattr(warm_result, "error", None)
+            )
+            if warm_error:
+                raise InvalidExportContext(f"Invalid query: {warm_error}")
+
+        return insight_cache_keys
+
+
+def render_image_export(
+    exported_asset: ExportedAsset,
+    insight_cache_keys: dict[int, str],
+    max_height_pixels: Optional[int] = None,
+    session: BrowserlessRenderSession | None = None,
+) -> None:
+    with _reported_image_export_failure(exported_asset):
+        if exported_asset.export_format == ExportedAsset.ExportFormat.PNG or (
+            exported_asset.export_format == ExportedAsset.ExportFormat.PDF and exported_asset.dashboard_id
+        ):
+            with EXPORT_TIMER.labels(type=exported_asset.export_format).time():
+                _export_rendered_asset(
+                    exported_asset,
+                    max_height_pixels=max_height_pixels,
+                    insight_cache_keys=insight_cache_keys or None,
+                    session=session,
+                )
+        else:
+            raise NotImplementedError(f"Export to format {exported_asset.export_format} is not supported for insights")
+
+
+def export_image(
+    exported_asset: ExportedAsset, max_height_pixels: Optional[int] = None, source: Optional[EventSource] = None
+) -> None:
+    insight_cache_keys = warm_image_export(exported_asset, source=source)
+    render_image_export(exported_asset, insight_cache_keys, max_height_pixels=max_height_pixels)

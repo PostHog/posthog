@@ -4925,10 +4925,13 @@ class AnomalyScoringState(TeamScopedRootMixin, UUIDModel):
     insight_id = models.BigIntegerField()
     # The model profile, which scoring profiles with the same local part share. See `ScoringProfile.model_profile`.
     profile = models.CharField(max_length=64)
-    # The insight as the state was built for it. A change to any of them makes the next visit train.
+    # The insight as the state was built for it. A change to the interval or the query makes the next visit train.
+    # A change to the detector version only makes a retrain due, and the model scores with `scoring` until then.
     interval = models.CharField(max_length=16)
     detector_version = models.CharField(max_length=32)
     query_hash = models.CharField(max_length=32)
+    # The local scoring settings that the artifacts were fit with: `min_points` and the detector config.
+    scoring = models.JSONField(null=True, blank=True)
     trained_at = models.DateTimeField()
     # The newest scored bucket start over all series. Null when the insight returned no completed bucket.
     scored_through = models.DateTimeField(null=True, blank=True)

@@ -250,6 +250,42 @@ class TestUrls(APIBaseTest):
         # )
 
 
+class TestStockTwoFactorViewsAreNotMounted(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("login", "/account/login/"),
+            ("setup", "/account/two_factor/setup/"),
+            ("setup_complete", "/account/two_factor/setup/complete/"),
+            ("backup_tokens", "/account/two_factor/backup/tokens/"),
+            ("profile", "/account/two_factor/"),
+            ("disable", "/account/two_factor/disable/"),
+        ]
+    )
+    def test_path_does_not_resolve_to_a_stock_two_factor_view(self, _name: str, path: str) -> None:
+        view = resolve(path).func
+        view_module = getattr(view, "view_class", view).__module__
+
+        self.assertFalse(view_module.startswith("two_factor."), f"{path} resolves to {view_module}")
+
+
+class TestAccountLoginPath(APIBaseTest):
+    def test_account_login_path_does_not_start_a_session(self) -> None:
+        self.client.logout()
+
+        self.client.post(
+            "/account/login/",
+            {
+                "login_view-current_step": "auth",
+                "auth-username": self.CONFIG_EMAIL,
+                "auth-password": self.CONFIG_PASSWORD,
+            },
+            format="multipart",
+        )
+
+        self.assertNotIn("_auth_user_id", self.client.session)
+        self.assertEqual(self.client.get("/api/users/@me/").status_code, status.HTTP_401_UNAUTHORIZED)
+
+
 class TestRegionHostFromCurrentInstance(SimpleTestCase):
     @parameterized.expand(
         [

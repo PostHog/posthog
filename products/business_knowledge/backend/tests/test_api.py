@@ -501,6 +501,26 @@ class TestKnowledgeSourceAPI(APIBaseTest):
     def _libraries_url(self) -> str:
         return f"/api/projects/{self.team.id}/business_knowledge/libraries/"
 
+    def test_several_libraries_can_receive_learned_sources_but_not_none(self, _ff) -> None:
+        learned = self.client.post(self._libraries_url(), {"name": "Learned"}, format="json").json()["id"]
+        support = self.client.post(self._libraries_url(), {"name": "Support"}, format="json").json()["id"]
+
+        for library_id in (learned, support):
+            added = self.client.patch(f"{self._libraries_url()}{library_id}/", {"is_default": True}, format="json")
+            assert added.status_code == status.HTTP_200_OK, added.content
+            assert added.json()["is_default"] is True
+
+        removed = self.client.patch(f"{self._libraries_url()}{learned}/", {"is_default": False}, format="json")
+        assert removed.status_code == status.HTTP_200_OK, removed.content
+        last = self.client.patch(f"{self._libraries_url()}{support}/", {"is_default": False}, format="json")
+
+        assert last.status_code == status.HTTP_400_BAD_REQUEST
+        assert last.json()["attr"] == "is_default"
+        receiving = {
+            library["name"] for library in self.client.get(self._libraries_url()).json() if library["is_default"]
+        }
+        assert receiving == {"Support"}
+
     def test_lists_live_indexed_urls(self, _ff) -> None:
         from posthog.models.team import Team
 

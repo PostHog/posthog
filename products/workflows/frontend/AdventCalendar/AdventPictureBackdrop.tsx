@@ -1,3 +1,5 @@
+import { memo } from 'react'
+
 import { ADVENT_PICTURE, adventDoorGround, AdventGraph, openDoors } from './adventGraph'
 import { adventPalette, adventStroke } from './adventPalette'
 import { AdventVillageArt } from './AdventVillageArt'
@@ -7,7 +9,10 @@ export interface AdventPictureBackdropProps {
     hasTracks: boolean
 }
 
-export function AdventPictureBackdrop({ graph, hasTracks }: AdventPictureBackdropProps): JSX.Element {
+export const AdventPictureBackdrop = memo(function AdventPictureBackdrop({
+    graph,
+    hasTracks,
+}: AdventPictureBackdropProps): JSX.Element {
     const palette = adventPalette()
     const steps = openDoors(graph).map(adventDoorGround)
 
@@ -32,4 +37,4 @@ export function AdventPictureBackdrop({ graph, hasTracks }: AdventPictureBackdro
             )}
         </>
     )
-}
+})

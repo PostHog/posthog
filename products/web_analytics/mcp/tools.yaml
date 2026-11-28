@@ -223,12 +223,15 @@ tools:
             idempotent: true
         title: Summarize web analytics
         description: >
-            Summarizes a project's web analytics over a lookback window (default 7 days): unique visitors, pageviews,
-            sessions, bounce rate, and average session duration with period-over-period comparisons, plus the top 5
-            pages, top 5 traffic sources, and goal conversions. Accepts optional `days` (1–90, default 7) and `compare`
-            (bool, default true) query params — pass `days=30` to summarize the last month, or `compare=false` to skip
-            the period-over-period comparison for a faster response. Use this to answer questions like "how are my web
-            analytics?", "how did the site do last week?", or "what's my traffic looking like this month?".
+            Summarizes a project's web analytics over the last `days` complete days (default 7, ending yesterday):
+            unique visitors, pageviews, sessions, bounce rate, and average session duration compared with the `days`
+            complete days before, plus the top 5 pages, top 5 traffic sources, and goal conversions. Accepts optional
+            `days` (1–90, default 7) and `compare` (bool, default true) query params — pass `days=30` to summarize the
+            last month, or `compare=false` to skip the period-over-period comparison for a faster response. Test
+            accounts are excluded when the project's "Filter out internal and test users" default is on, the same rule
+            the `query-web-*` tools follow; `metadata.filter_test_accounts` says which applied, and `metadata.date_from`
+            / `date_to` give the exact window. Use this to answer questions like "how are my web analytics?", "how did
+            the site do last week?", or "what's my traffic looking like this month?".
 wrappers:
     query-web-overview:
         schema_ref: AssistantWebOverviewQuery

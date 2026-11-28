@@ -1,12 +1,9 @@
 import { MakeLogicType, actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import posthog from 'posthog-js'
-import { toast } from 'react-toastify'
-
-import { IconX } from '@posthog/icons'
 
 import api from 'lib/api'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { userLogic } from 'scenes/userLogic'
@@ -294,29 +291,19 @@ export const mcpHintLogic = kea<mcpHintLogicType>([
                 // toast and the agent prompt button with every one of them, including in Jest setup.
                 const { MCPHintToast } = await import('./MCPHintToast')
                 const toastId = `mcp-hint-${surfaceKey}-${now}`
-                toast.info(<MCPHintToast surfaceKey={surfaceKey} derivedPrompt={derivedPrompt} toastId={toastId} />, {
-                    toastId,
-                    autoClose: AUTO_DISMISS_MS,
-                    closeOnClick: false,
-                    draggable: false,
-                    hideProgressBar: true,
-                    icon: false,
-                    // Clicking the X is the only way to permanently hide this surface — auto-dismiss
-                    // (timeout) shouldn't count, so we wire dismissSurface here, not in onClose.
-                    // Close first so the toast always dismisses, independent of the bookkeeping action.
-                    closeButton: ({ closeToast }) => (
-                        <LemonButton
-                            type="tertiary"
-                            size="small"
-                            icon={<IconX />}
-                            onClick={(e) => {
-                                closeToast(e)
-                                actions.dismissSurface(surfaceKey)
-                            }}
-                            data-attr="mcp-hint-close"
-                        />
-                    ),
-                })
+                lemonToast.info(
+                    <MCPHintToast surfaceKey={surfaceKey} derivedPrompt={derivedPrompt} toastId={toastId} />,
+                    {
+                        toastId,
+                        autoClose: AUTO_DISMISS_MS,
+                        closeOnClick: false,
+                        draggable: false,
+                        hideProgressBar: true,
+                        icon: false,
+                        // Closing it is the only way to permanently hide this surface. A timeout does not count.
+                        onDismiss: () => actions.dismissSurface(surfaceKey),
+                    }
+                )
                 actions.reportMCPHintShown(surfaceKey)
             } catch (error) {
                 console.warn('[mcpHint] toast render failed', { surfaceKey, error })
@@ -334,7 +321,7 @@ export const mcpHintLogic = kea<mcpHintLogicType>([
         },
         keepHintOpen: ({ toastId }) => {
             // The agent menu renders outside the toast, so hovering it does not pause the auto-dismiss timer.
-            toast.update(toastId, { autoClose: false })
+            lemonToast.keepOpen(toastId)
         },
         reportUseCaseCardShown: ({ surfaceKey }) => {
             posthog.capture('mcp use case card shown', { surface_key: surfaceKey })

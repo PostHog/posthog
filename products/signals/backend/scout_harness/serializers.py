@@ -83,7 +83,9 @@ from products.signals.backend.scout_harness.lazy_seed import (
 )
 from products.signals.backend.scout_harness.limits import MAX_RUN_NOTE_CHARS
 from products.signals.backend.scout_harness.message_routes import (
+    MAX_MESSAGE_BODY_LENGTH,
     MAX_MESSAGE_ROUTES,
+    MAX_MESSAGE_TITLE_LENGTH,
     MAX_ROUTE_KEY_LENGTH,
     MAX_ROUTE_TARGETS,
     MAX_ROUTE_WHEN_LENGTH,
@@ -122,12 +124,7 @@ from products.signals.backend.scout_harness.tools.lighthouse import (
     FORM_FACTORS,
     MAX_AUDITS_PER_RUN,
 )
-from products.signals.backend.scout_harness.tools.messages import (
-    MAX_DEDUPE_KEY_LENGTH,
-    MAX_MESSAGE_BODY_LENGTH,
-    MAX_MESSAGE_TITLE_LENGTH,
-    SendMessageOutcome,
-)
+from products.signals.backend.scout_harness.tools.messages import MAX_DEDUPE_KEY_LENGTH, SendMessageOutcome
 from products.signals.backend.scout_harness.tools.notes import MAX_NOTE_CONTENT_LENGTH, MAX_NOTES_LIST_LIMIT
 from products.signals.backend.scout_harness.tools.report import (
     MAX_EVIDENCE_DESCRIPTION_LENGTH,
