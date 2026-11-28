@@ -53,7 +53,10 @@ describe('ContentAutopilotVisibilityChart', () => {
         expect(screen.queryByText(/waiting for more days/i)).toBeNull()
     })
 
-    it('puts only the days with data on the axis of a 30-day range, one engine with a gap', async () => {
+    it.each([
+        ['only the last day', ['2026-10-30'], 1],
+        ['days 10 and 12', ['2026-10-10', '2026-10-12'], 21],
+    ])('starts a 30-day axis at the first day of data when there is data on %s', async (_name, withData, days) => {
         const dates = Array.from({ length: 30 }, (_, index) => `2026-10-${String(index + 1).padStart(2, '0')}`)
         const day = (date: string, engine: string): AEOPromptDailyEngineStatsApi => ({
             date,
@@ -65,11 +68,7 @@ describe('ContentAutopilotVisibilityChart', () => {
             avg_position: 2,
         })
         const chart = engineVisibilityChart(
-            [
-                day('2026-10-05', 'claude-web-search'),
-                day('2026-10-20', 'claude-web-search'),
-                day('2026-10-20', 'openai-web-search'),
-            ],
+            withData.flatMap((date) => [day(date, 'claude-web-search'), day(date, 'openai-web-search')]),
             dates,
             'mentioned'
         )
@@ -84,9 +83,9 @@ describe('ContentAutopilotVisibilityChart', () => {
         )
 
         const rendered = getChart()
-        await waitFor(() => expect(rendered.xTicks()).toHaveLength(2))
-        // ChatGPT has no answer on the first day, so its row is absent there rather than reading 0%.
-        const tooltip = createDefaultTooltipAccessor(await hoverUntilTooltip(rendered.element, 0, 2))
-        await waitFor(() => expect(tooltip.rows()).toEqual(['Claude']))
+        await waitFor(() => expect(rendered.seriesCount).toBe(2))
+        expect(chart.labels).toHaveLength(days)
+        // The axis starts at the first day of data, not at the start of the range.
+        await waitFor(() => expect(rendered.xTicks()[0]).toEqual(withData[0] === '2026-10-30' ? 'Oct 30' : 'Oct 10'))
     })
 })

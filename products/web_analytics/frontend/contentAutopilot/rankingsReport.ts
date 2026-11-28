@@ -1,6 +1,6 @@
 import type { AEOPromptSetRankingsApi } from 'products/web_analytics/frontend/generated/api.schemas'
 
-import { daysWithData } from './visibilityChart'
+import { daysFromFirstData } from './visibilityChart'
 
 export interface RankingsChartSeries {
     domain: string
@@ -35,7 +35,7 @@ export function rankingsChart(rankings: AEOPromptSetRankingsApi): RankingsChart 
         colorIndex: colorOrder.indexOf(brand.domain),
         data: labels.map((date) => visibility.get(`${brand.domain}|${date}`) ?? NaN),
     }))
-    const days = daysWithData(
+    const days = daysFromFirstData(
         labels.length,
         series.map(({ data }) => data)
     )

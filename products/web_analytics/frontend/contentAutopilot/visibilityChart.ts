@@ -26,14 +26,17 @@ const dayValue = (row: AEOPromptDailyEngineStatsApi | undefined, metric: PromptV
     return answered > 0 ? (metric === 'cited' ? row.cited : row.mentioned) / answered : NaN
 }
 
-/** The positions of the days to draw: the ones where some series has a value. A day without checks is left off
- *  the axis rather than drawn as 0, so the axis starts at the first day of data and one day of data is one date. */
-export const daysWithData = (dayCount: number, series: number[][]): number[] =>
-    Array.from({ length: dayCount }, (_, index) => index).filter((index) =>
+/** The positions of the days to draw: from the first day where some series has a value to the end of the range.
+ *  The axis starts at the first day of data, so one day of data is one date. A later day without data stays on the
+ *  axis as a gap, where the line breaks, and is never drawn as 0. */
+export const daysFromFirstData = (dayCount: number, series: number[][]): number[] => {
+    const first = Array.from({ length: dayCount }, (_, index) => index).find((index) =>
         series.some((data) => Number.isFinite(data[index]))
     )
+    return first === undefined ? [] : Array.from({ length: dayCount - first }, (_, offset) => first + offset)
+}
 
-/** One line per engine over the days in `dates` that have data. A day one engine didn't answer is NaN, so its line
+/** One line per engine from the first day in `dates` with data. A day an engine didn't answer is NaN, so its line
  *  breaks there instead of dropping to 0. */
 export function engineVisibilityChart(
     daily: AEOPromptDailyEngineStatsApi[],
@@ -47,7 +50,7 @@ export function engineVisibilityChart(
         color: engineColor(engine),
         data: dates.map((date) => dayValue(byDay.get(`${engine}|${date}`), metric)),
     }))
-    const days = daysWithData(
+    const days = daysFromFirstData(
         dates.length,
         series.map(({ data }) => data)
     )
@@ -81,8 +84,9 @@ export function answerOutcomeChart(
         yes.set(row.date, (yes.get(row.date) ?? 0) + met)
         no.set(row.date, (no.get(row.date) ?? 0) + row.checks - row.failed - met)
     }
-    // A day without answers is left off the axis, the same as on the visibility charts.
-    const days = dates.filter((date) => (yes.get(date) ?? 0) + (no.get(date) ?? 0) > 0)
+    // The axis starts at the first day with answers, the same as on the visibility charts.
+    const first = dates.findIndex((date) => (yes.get(date) ?? 0) + (no.get(date) ?? 0) > 0)
+    const days = first === -1 ? [] : dates.slice(first)
     return {
         labels: days,
         yes: days.map((date) => yes.get(date) ?? 0),
