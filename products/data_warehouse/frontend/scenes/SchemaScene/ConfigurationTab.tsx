@@ -21,6 +21,7 @@ import api, { ApiConfig } from 'lib/api'
 import { TZLabel } from 'lib/components/TZLabel'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
+import { LemonField } from 'lib/lemon-ui/LemonField'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { newInternalTab } from 'lib/utils/newInternalTab'
 import { teamLogic } from 'scenes/teamLogic'
@@ -33,6 +34,7 @@ import {
     ExternalDataSource,
     ExternalDataSourceSchema,
     RowFilter,
+    WarehouseNewColumnPolicy,
 } from '~/types'
 
 import { supportsDirectQuery } from 'products/data_warehouse/frontend/shared/components/forms/schemaGroupingUtils'
@@ -921,6 +923,9 @@ function ColumnsAndRowFiltersSection({
     const [draftColumns, setDraftColumns] = useState<string[] | null>(schema.enabled_columns ?? null)
     const [draftRowFilters, setDraftRowFilters] = useState<RowFilter[] | null>(schema.row_filters ?? null)
     const [draftMasked, setDraftMasked] = useState<string[]>(schema.masked_columns ?? [])
+    const [draftNewColumnPolicy, setDraftNewColumnPolicy] = useState<WarehouseNewColumnPolicy | null>(
+        schema.new_column_policy ?? null
+    )
     const [saving, setSaving] = useState(false)
 
     // Reset drafts on schema switch or when server values change (e.g. reload after save).
@@ -929,12 +934,14 @@ function ColumnsAndRowFiltersSection({
         setDraftColumns(schema.enabled_columns ?? null)
         setDraftRowFilters(schema.row_filters ?? null)
         setDraftMasked(schema.masked_columns ?? [])
+        setDraftNewColumnPolicy(schema.new_column_policy ?? null)
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [
         schema.id,
         JSON.stringify(schema.enabled_columns ?? null),
         JSON.stringify(schema.row_filters ?? null),
         JSON.stringify(schema.masked_columns ?? []),
+        schema.new_column_policy,
     ])
 
     const alwaysRetained = new Set<string>([
@@ -965,6 +972,7 @@ function ColumnsAndRowFiltersSection({
     const isDirty =
         !sameColumns(draftColumns, schema.enabled_columns ?? null, available) ||
         JSON.stringify(draftRowFilters ?? null) !== JSON.stringify(schema.row_filters ?? null) ||
+        draftNewColumnPolicy !== (schema.new_column_policy ?? null) ||
         masksChanged
 
     const commit = (resyncAfter: boolean): void => {
@@ -977,6 +985,7 @@ function ColumnsAndRowFiltersSection({
             enabled_columns: draftColumns,
             row_filters: draftRowFilters,
             masked_columns: draftMasked,
+            new_column_policy: draftNewColumnPolicy,
         }
         if (resyncAfter || masksChanged) {
             // Bypass the bulk-update debounce so resync reads the new config from the DB, not the
@@ -986,6 +995,7 @@ function ColumnsAndRowFiltersSection({
             void externalDataSchemasPartialUpdate(String(ApiConfig.getCurrentTeamId()), schema.id, {
                 enabled_columns: draftColumns,
                 row_filters: draftRowFilters,
+                new_column_policy: draftNewColumnPolicy,
                 // Unchanged masks stay out, so a column that left the source can't block the save.
                 ...(masksChanged ? { masked_columns: draftMasked } : {}),
                 ...(masksDeleteHistory ? { drop_history_table: true } : {}),
@@ -1146,6 +1156,22 @@ function ColumnsAndRowFiltersSection({
                                     onChange={setDraftColumns}
                                     onMaskedChange={setDraftMasked}
                                 />
+                                <LemonField.Pure
+                                    label="New columns"
+                                    help="What happens when the source adds a column to this table. Held-back columns show here unselected until you turn them on."
+                                    className="mt-3"
+                                >
+                                    <LemonSelect
+                                        value={draftNewColumnPolicy}
+                                        onChange={setDraftNewColumnPolicy}
+                                        options={[
+                                            { value: null, label: 'Same as the source' },
+                                            { value: 'include', label: 'Always sync them' },
+                                            { value: 'exclude', label: 'Hold them back until I turn them on' },
+                                        ]}
+                                        data-attr="schema-new-column-policy"
+                                    />
+                                </LemonField.Pure>
                             </fieldset>
                         </>
                     )}

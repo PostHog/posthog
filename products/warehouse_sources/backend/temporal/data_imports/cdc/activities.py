@@ -37,9 +37,11 @@ from products.warehouse_sources.backend.models.external_data_job import External
 from products.warehouse_sources.backend.models.external_data_schema import (
     CDC_SNAPSHOT_LANE_KEY,
     ExternalDataSchema,
+    effective_new_column_policy,
+    schema_metadata_column_names,
     update_sync_type_config_keys,
 )
-from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource, NewColumnPolicy
 from products.warehouse_sources.backend.temporal.data_imports.cdc import metrics
 from products.warehouse_sources.backend.temporal.data_imports.cdc.adapters import (
     CDCSourceAdapter,
@@ -251,6 +253,8 @@ class CDCExtractActivity:
         self.split_key_columns: dict[str, list[str]] = {}
         # Missing entry = sync all columns; otherwise the set is the projection (always includes PKs).
         self.enabled_columns_by_table: dict[str, set[str]] = {}
+        # Known columns of `include` tables. Any other column is new and syncs until it joins the selection.
+        self.known_columns_by_table: dict[str, set[str]] = {}
         # Folded names of the columns to mask. Missing entry = mask nothing.
         self.masked_columns_by_table: dict[str, set[str]] = {}
         # Whether each raw column name is masked, per table. Folding a name costs too much per event.
@@ -775,20 +779,26 @@ class CDCExtractActivity:
                 self.history_naming_by_table[schema.name] = (
                     history_namings.naming_unless_taken(schema) or HISTORY_NAMING
                 )
-            enabled = schema.enabled_columns
-            # `None` = sync all; `[]` = retain PKs + incremental only. Match the
-            # invariant used by build_select_clause / pipeline_sync / filter_dwh_columns.
-            if isinstance(enabled, list):
-                retained: set[str] = {str(c) for c in enabled}
-                # PKs must stay even if the user dropped them from enabled_columns — merges break otherwise.
-                for pk in self.pk_columns_by_table.get(schema.name, []):
-                    retained.add(pk)
-                inc = schema.incremental_field
-                if isinstance(inc, str) and inc:
-                    retained.add(inc)
-                self.enabled_columns_by_table[schema.name] = retained
-
+            self._load_enabled_columns(schema)
             self._load_masked_columns(schema)
+
+    def _load_enabled_columns(self, schema: ExternalDataSchema) -> None:
+        enabled = schema.enabled_columns
+        # `None` = sync all; `[]` = retain PKs + incremental only. Match the
+        # invariant used by build_select_clause / pipeline_sync / filter_dwh_columns.
+        if not isinstance(enabled, list):
+            return
+        retained: set[str] = {str(c) for c in enabled}
+        # PKs must stay even if the user dropped them from enabled_columns — merges break otherwise.
+        for pk in self.pk_columns_by_table.get(schema.name, []):
+            retained.add(pk)
+        inc = schema.incremental_field
+        if isinstance(inc, str) and inc:
+            retained.add(inc)
+        self.enabled_columns_by_table[schema.name] = retained
+        known = set(schema_metadata_column_names(schema.schema_metadata))
+        if known and effective_new_column_policy(schema, self.source) == NewColumnPolicy.INCLUDE:
+            self.known_columns_by_table[schema.name] = known
 
     def _read_masked_columns(self, schema: ExternalDataSchema) -> list[str] | None:
         return (
@@ -856,10 +866,15 @@ class CDCExtractActivity:
         retained = self.enabled_columns_by_table.get(event.table_name)
         if retained is None:
             return event
-        filtered = {name: value for name, value in event.columns.items() if name in retained}
+        known = self.known_columns_by_table.get(event.table_name)
+
+        def keep(name: str) -> bool:
+            return name in retained or (known is not None and name not in known)
+
+        filtered = {name: value for name, value in event.columns.items() if keep(name)}
         # Omitted (unchanged-TOAST) markers for disabled columns must go too, or the
         # batcher would materialize a disabled column just to carry the marker.
-        filtered_omitted = frozenset(name for name in event.omitted_columns if name in retained)
+        filtered_omitted = frozenset(name for name in event.omitted_columns if keep(name))
         if filtered.keys() == event.columns.keys() and filtered_omitted == event.omitted_columns:
             return event
         return ChangeEvent(

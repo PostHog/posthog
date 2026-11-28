@@ -42,6 +42,19 @@
         "id": {
             "description": "A UUID string identifying this external data source.",
             "type": "string"
+        },
+        "new_column_policy": {
+            "anyOf": [
+                {
+                    "description": "* `include` - Include\n* `exclude` - Exclude",
+                    "enum": ["include", "exclude"],
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "What happens when a table of this source gets a new column. `include` syncs new columns, even on tables where you picked the columns. `exclude` holds new columns back: they show in the column picker unselected until you turn them on, and a table without a column selection is pinned to its current columns. Null (default) syncs new columns only on tables without a column selection. Changing `exclude` back to null keeps the pinned selections. A table's own `new_column_policy` overrides this. A pinned table has a column selection, so on a source with live queries `exclude` turns off raw SQL. Not supported for sources whose tables have a fixed schema, such as Stripe.\n\n* `include` - Include\n* `exclude` - Exclude"
         }
     },
     "required": ["id"],

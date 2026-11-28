@@ -6522,6 +6522,8 @@ export interface ExternalDataSourceConnectionMetadata {
     available_functions?: string[]
 }
 
+export type WarehouseNewColumnPolicy = 'include' | 'exclude'
+
 export interface ExternalDataSource {
     id: string
     source_id: string
@@ -6536,6 +6538,7 @@ export interface ExternalDataSource {
     direct_query_enabled?: boolean
     auto_sync_new_schemas?: boolean
     auto_sync_schema_patterns?: string[] | null
+    new_column_policy?: WarehouseNewColumnPolicy | null
     created_via: 'web' | 'api' | 'mcp' | 'wizard' | null
     engine?: 'duckdb' | 'postgres' | 'mysql' | 'snowflake' | 'redshift' | null
     latest_error: string | null
@@ -6792,6 +6795,7 @@ export interface ExternalDataSourceSchema extends SimpleExternalDataSourceSchema
      * Primary-key + active incremental columns are always retained even if not listed.
      */
     enabled_columns?: string[] | null
+    new_column_policy?: WarehouseNewColumnPolicy | null
     /** Source columns whose values are replaced with a one-way hash at sync time. */
     masked_columns?: string[] | null
     available_columns?: SchemaAvailableColumn[]

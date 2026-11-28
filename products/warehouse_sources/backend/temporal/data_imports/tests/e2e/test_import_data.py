@@ -20,7 +20,9 @@ from products.warehouse_sources.backend.facade.models import (
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 from products.warehouse_sources.backend.models.ssh_tunnel import SSHTunnel
 from products.warehouse_sources.backend.temporal.data_imports.settings import import_data_activity_sync
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.tls import TLSOptions
+from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source import PostgresSource
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.import_data_sync import (
     ImportDataActivityInputs,
 )
@@ -32,6 +34,8 @@ def _setup(
     job_inputs: dict[Any, Any],
     sync_type: str | None = None,
     sync_type_config: dict[str, Any] | None = None,
+    new_column_policy: str | None = None,
+    enabled_columns: list[str] | None = None,
 ) -> ImportDataActivityInputs:
     source = ExternalDataSource.objects.create(
         team=team,
@@ -40,6 +44,7 @@ def _setup(
         status=ExternalDataSource.Status.COMPLETED,
         source_type=ExternalDataSourceType.POSTGRES,
         job_inputs=job_inputs,
+        new_column_policy=new_column_policy,
     )
     credentials = DataWarehouseCredential.objects.create(access_key="blah", access_secret="blah", team=team)
     warehouse_table = DataWarehouseTable.objects.create(
@@ -62,6 +67,7 @@ def _setup(
         last_synced_at="2024-01-01",
         sync_type=sync_type,
         sync_type_config=sync_type_config or {},
+        enabled_columns=enabled_columns,
     )
     job = ExternalDataJob.objects.create(
         team=team,
@@ -238,6 +244,59 @@ async def test_postgres_source_without_ssh_tunnel(activity_environment, team, **
             worker_deaths=0,
             resumable_source_manager=mock.ANY,
         )
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "policy, expected_enabled_columns",
+    [("include", ["id", "note"]), ("exclude", ["id"]), (None, ["id"])],
+    ids=["include", "exclude", "unset"],
+)
+async def test_a_column_added_at_the_source_syncs_in_the_next_run_under_include(
+    activity_environment, team, policy: str | None, expected_enabled_columns: list[str]
+):
+    job_inputs = {"host": "host.com", "port": 5432, "user": "u", "password": "p", "database": "db", "schema": "s"}
+    known = [("id", "integer", False), ("name", "text", True)]
+    activity_inputs = await _setup(
+        team,
+        job_inputs,
+        sync_type_config={"schema_metadata": {"columns": [{"name": name} for name, _, _ in known]}},
+        new_column_policy=policy,
+        enabled_columns=["id"],
+    )
+    discovered = SourceSchema(
+        name="table_1",
+        supports_incremental=False,
+        supports_append=False,
+        columns=[*known, ("note", "text", True)],
+        source_schema="s",
+        source_table_name="table_1",
+    )
+
+    with (
+        mock.patch.object(PostgresSource, "get_schemas", return_value=[discovered]) as get_schemas,
+        mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source.postgres_source"
+        ) as mock_postgres_source,
+        mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.workflow_activities.import_data_sync._run"
+        ),
+        mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins._is_host_safe",
+            return_value=(True, None),
+        ),
+    ):
+        await activity_environment.run(import_data_activity_sync, activity_inputs)
+
+    assert mock_postgres_source.call_args.kwargs["enabled_columns"] == expected_enabled_columns
+    # The lookup connects under the same TLS requirement as the extraction.
+    assert [call.kwargs.get("require_ssl") for call in get_schemas.call_args_list] == (
+        [mock_postgres_source.call_args.kwargs["require_ssl"]] if policy == "include" else []
+    )
+    assert mock_postgres_source.call_args.kwargs["require_ssl"] is True
+    schema = await ExternalDataSchema.objects.aget(id=activity_inputs.schema_id)
+    assert schema.enabled_columns == expected_enabled_columns
 
 
 @pytest.mark.django_db(transaction=True)

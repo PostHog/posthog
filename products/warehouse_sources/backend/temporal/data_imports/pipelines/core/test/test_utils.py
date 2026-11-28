@@ -23,6 +23,7 @@ from products.warehouse_sources.backend.temporal.data_imports.external_data_job 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
     BillingLimitsWillBeReachedException,
     BinaryColumnReporter,
+    HeldBackColumnsOnlyError,
     NonMappingRowError,
     SchemaColumnTypeChangedException,
     _get_max_decimal_type,
@@ -1820,6 +1821,18 @@ def test_apply_enabled_columns_projection(
 
     assert table.column_names == expected_columns
     assert sorted(dropped) == sorted(set(_projection_input_table().column_names) - set(expected_columns))
+
+
+@pytest.mark.parametrize("hold_back_new_columns", [False, True])
+def test_apply_enabled_columns_projection_with_no_selected_column_left(hold_back_new_columns: bool):
+    table = pa.table({"new_secret": ["s"], "_ph_debug": ["{}"]})
+
+    if hold_back_new_columns:
+        with pytest.raises(HeldBackColumnsOnlyError):
+            apply_enabled_columns_projection(table, ["old_column"], None, None, None, hold_back_new_columns=True)
+        return
+    result, dropped = apply_enabled_columns_projection(table, ["old_column"], None, None, None)
+    assert (result.column_names, dropped) == (["new_secret", "_ph_debug"], [])
 
 
 def test_apply_enabled_columns_projection_drops_spoofed_internal_lookalikes():

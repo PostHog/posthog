@@ -7,7 +7,7 @@ from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, time, timedelta
-from functools import partial
+from functools import cache, partial
 from typing import TYPE_CHECKING, Any, Literal, Optional
 
 from django.conf import settings
@@ -26,6 +26,7 @@ from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UpdatedMe
 from posthog.sync import database_sync_to_async
 
 from products.warehouse_sources.backend.facade.contracts import UnsupportedSyncTypeError
+from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource, NewColumnPolicy
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
 from products.warehouse_sources.backend.temporal.data_imports.retry_limits import (
     MAX_RESUMABLE_SOURCE_RETRIES_PRODUCTION,
@@ -44,7 +45,6 @@ from products.warehouse_sources.backend.types import (
 )
 
 if TYPE_CHECKING:
-    from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
     from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
 
 logger = structlog.get_logger(__name__)
@@ -397,6 +397,8 @@ class ExternalDataSchema(  # nosemgrep: semgrep.rules.security.prefer-uuid7-djan
     row_filters = models.JSONField(null=True, blank=True, default=None)
     # null (default) = no masking. Source column names whose values the sync replaces with a one-way digest.
     masked_columns = models.JSONField(null=True, blank=True, default=None)
+    # Overrides the source's `new_column_policy` for this table. Null follows the source.
+    new_column_policy = models.CharField(max_length=16, choices=NewColumnPolicy.choices, null=True, blank=True)
 
     objects = ExternalDataSchemaQuerySet.as_manager()
 
@@ -2097,6 +2099,123 @@ def request_manual_runs(schema_ids: Iterable[str | uuid.UUID], team_id: int) -> 
         update_sync_type_config_keys(schema_id, team_id, mutate=_mark)
 
 
+def effective_new_column_policy(schema: "ExternalDataSchema", source: ExternalDataSource | None = None) -> str | None:
+    """The table's override, else its source's setting. Null keeps the default behavior."""
+    if schema.new_column_policy:
+        return schema.new_column_policy
+    if source is not None:
+        return source.new_column_policy
+    return _source_new_column_policy(schema)
+
+
+def _source_new_column_policy(schema: "ExternalDataSchema") -> str | None:
+    if ExternalDataSchema.source.is_cached(schema):
+        return schema.source.new_column_policy
+    return _fresh_source_new_column_policy(schema)
+
+
+def _fresh_source_new_column_policy(schema: "ExternalDataSchema") -> str | None:
+    # Loading the whole source row would decrypt its inputs.
+    return ExternalDataSource.objects.filter(id=schema.source_id).values_list("new_column_policy", flat=True).first()
+
+
+def schema_metadata_column_names(schema_metadata: Any) -> list[str]:
+    """Column names of a `schema_metadata` dict, in the source's order."""
+    columns = schema_metadata.get("columns") if isinstance(schema_metadata, dict) else None
+    if not isinstance(columns, list):
+        return []
+    return [c["name"] for c in columns if isinstance(c, dict) and isinstance(c.get("name"), str)]
+
+
+def apply_new_column_policy(
+    enabled_columns: list[str] | None,
+    policy: str | None,
+    *,
+    previous_names: list[str],
+    current_names: list[str],
+) -> list[str] | None:
+    """The column selection after a table's known columns go from `previous_names` to `current_names`.
+
+    `exclude` pins a table with no selection to the columns it had, so a column first seen now stays out. A
+    table with no known columns yet is pinned to `current_names`. `include` adds the columns new to the table
+    to its selection. Only a column missing from `previous_names` is new, so a column the user deselected stays
+    out, and a table with no known columns yet has nothing new.
+    """
+    if policy == NewColumnPolicy.EXCLUDE:
+        pinned = previous_names or current_names
+        return list(pinned) if enabled_columns is None and pinned else enabled_columns
+    if policy == NewColumnPolicy.INCLUDE and enabled_columns is not None and previous_names:
+        seen = {*previous_names, *enabled_columns}
+        added = [name for name in current_names if name not in seen]
+        return [*enabled_columns, *added] if added else enabled_columns
+    return enabled_columns
+
+
+def pin_columns_for_exclude_policy(
+    team_id: int, source_id: str | uuid.UUID, schema_ids: list[uuid.UUID] | None = None
+) -> None:
+    """Pin each table of the source whose policy is `exclude` and that has no column selection to its known
+    columns. `schema_ids` limits this to those tables.
+
+    A table with no known columns yet is pinned when PostHog first sees them, by discovery or its first sync.
+    """
+    source_policy = (
+        ExternalDataSource.objects.filter(id=source_id, team_id=team_id)
+        .values_list("new_column_policy", flat=True)
+        .first()
+    )
+    candidates = ExternalDataSchema.objects.filter(
+        team_id=team_id, source_id=source_id, enabled_columns__isnull=True
+    ).exclude(deleted=True)
+    if schema_ids is not None:
+        candidates = candidates.filter(id__in=schema_ids)
+    if source_policy == NewColumnPolicy.EXCLUDE:
+        candidates = candidates.filter(
+            models.Q(new_column_policy__isnull=True) | models.Q(new_column_policy=NewColumnPolicy.EXCLUDE)
+        )
+    else:
+        candidates = candidates.filter(new_column_policy=NewColumnPolicy.EXCLUDE)
+    with transaction.atomic():
+        pinned = []
+        for schema in candidates.select_for_update().order_by("id").only("id", "enabled_columns", "sync_type_config"):
+            names = schema_metadata_column_names(schema.schema_metadata)
+            if names:
+                schema.enabled_columns = names
+                schema.updated_at = timezone.now()
+                pinned.append(schema)
+        ExternalDataSchema.objects.bulk_update(pinned, ["enabled_columns", "updated_at"], batch_size=500)
+
+
+def persist_observed_columns(schema_id: str | uuid.UUID, team_id: int, observed_columns: list[dict[str, Any]]) -> None:
+    """Union the columns a sync saw into `schema_metadata`, and apply the table's new-column policy to them,
+    under one row lock so a concurrent selection change from the API is not lost."""
+    # Function-local because `arrow_utils` pulls pyarrow into `django.setup()`.
+    from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (  # noqa: PLC0415
+        merge_observed_columns_into_schema_metadata,
+    )
+
+    with transaction.atomic():
+        locked = ExternalDataSchema.objects.select_for_update().get(id=schema_id, team_id=team_id)
+        config = locked.sync_type_config or {}
+        # A table with no selection wrote every column the run saw, so its pin keeps them all.
+        previous_names = (
+            schema_metadata_column_names(config.get("schema_metadata")) if locked.enabled_columns is not None else []
+        )
+        merge_observed_columns_into_schema_metadata(config, observed_columns)
+        locked.sync_type_config = config
+        update_fields = ["sync_type_config", "updated_at"]
+        enabled_columns = apply_new_column_policy(
+            locked.enabled_columns,
+            effective_new_column_policy(locked),
+            previous_names=previous_names,
+            current_names=schema_metadata_column_names(config.get("schema_metadata")),
+        )
+        if enabled_columns != locked.enabled_columns:
+            locked.enabled_columns = enabled_columns
+            update_fields.append("enabled_columns")
+        locked.save(update_fields=update_fields, skip_activity_log=True)
+
+
 def persist_schema_metadata(
     schema: "ExternalDataSchema",
     *,
@@ -2104,8 +2223,8 @@ def persist_schema_metadata(
     detected_primary_keys: list[str] | None = None,
 ) -> list[str]:
     """Store discovered `schema_metadata` on a schema row, plus `detected_primary_keys` when the row
-    has no primary key yet, and drop `enabled_columns` the source no longer has. Returns the dropped
-    column names and refreshes `schema` in place.
+    has no primary key yet, drop `enabled_columns` the source no longer has, and apply the table's
+    new-column policy. Returns the dropped column names and refreshes `schema` in place.
 
     Only these keys are merged, under the row lock, because syncs write other `sync_type_config`
     keys (CDC positions, watermarks) at the same time. Scheduled discovery calls this for every
@@ -2123,22 +2242,36 @@ def persist_schema_metadata(
 
     available_names = extract_available_column_names(schema_metadata)
 
-    def _prune(row: ExternalDataSchema) -> PrunedColumns:
+    current_names = schema_metadata_column_names(schema_metadata)
+    cached_source_policy = cache(partial(_source_new_column_policy, schema))
+
+    def _next_selection(row: ExternalDataSchema, source_policy: Callable[[], str | None]) -> PrunedColumns:
+        """The row's selection after pruning the columns the source lost and applying the new-column policy."""
         pruned = prune_enabled_columns(row.enabled_columns, available_names)
+        previous_names = schema_metadata_column_names(row.schema_metadata)
+        kept = pruned.kept
+        # No policy changes a selection when the table's columns did not change.
+        if kept is None or previous_names != current_names:
+            kept = apply_new_column_policy(
+                kept,
+                row.new_column_policy or source_policy(),
+                previous_names=previous_names,
+                current_names=current_names,
+            )
         # A selection pruned to nothing projects as `SELECT *` and reads the columns the user left out. The
         # read always projects the incremental field it is given, but not a stored primary key: some sources
         # detect keys live and can find none. Unless the incremental field keeps the projection, keep the
         # stale selection so the next read fails on the dropped column.
         incremental_field = row.incremental_field if row.should_use_incremental_field else None
-        if pruned.removed and compute_projected_columns(pruned.kept, None, incremental_field) is None:
+        if pruned.removed and compute_projected_columns(kept, None, incremental_field) is None:
             return PrunedColumns(kept=row.enabled_columns, removed=[])
-        return pruned
+        return PrunedColumns(kept=kept, removed=pruned.removed)
 
     stored = schema.sync_type_config if isinstance(schema.sync_type_config, dict) else {}
     if (
         stored.get("schema_metadata") == schema_metadata
         and (not detected_primary_keys or stored.get("primary_key_columns"))
-        and not _prune(schema).removed
+        and _next_selection(schema, cached_source_policy).kept == schema.enabled_columns
     ):
         return []
 
@@ -2150,8 +2283,9 @@ def persist_schema_metadata(
 
     with transaction.atomic():
         locked = ExternalDataSchema.objects.select_for_update().get(id=schema.id, team_id=schema.team_id)
-        pruned = _prune(locked)
-        if pruned.removed:
+        # Read under the lock, so a source policy saved during a long discovery pass applies here.
+        pruned = _next_selection(locked, partial(_fresh_source_new_column_policy, locked))
+        if pruned.kept != locked.enabled_columns:
             locked.enabled_columns = pruned.kept
             locked.save(update_fields=["enabled_columns", "updated_at"])
         schema.sync_type_config = update_sync_type_config_keys(schema.id, schema.team_id, mutate=_merge)

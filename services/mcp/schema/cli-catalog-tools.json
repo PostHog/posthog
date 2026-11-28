@@ -22830,6 +22830,10 @@
                     "key": "enabled_columns"
                 },
                 {
+                    "param": "new_column_policy",
+                    "key": "new_column_policy"
+                },
+                {
                     "param": "masked_columns",
                     "key": "masked_columns"
                 },
@@ -23546,6 +23550,10 @@
                     "key": "auto_sync_schema_patterns"
                 },
                 {
+                    "param": "new_column_policy",
+                    "key": "new_column_policy"
+                },
+                {
                     "param": "job_inputs",
                     "key": "job_inputs"
                 },
@@ -23603,6 +23611,10 @@
                 {
                     "param": "auto_sync_schema_patterns",
                     "key": "auto_sync_schema_patterns"
+                },
+                {
+                    "param": "new_column_policy",
+                    "key": "new_column_policy"
                 }
             ],
             "injectBody": {},
@@ -23654,6 +23666,10 @@
                 {
                     "param": "auto_sync_schema_patterns",
                     "key": "auto_sync_schema_patterns"
+                },
+                {
+                    "param": "new_column_policy",
+                    "key": "new_column_policy"
                 }
             ],
             "injectBody": {},

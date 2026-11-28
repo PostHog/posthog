@@ -303,6 +303,15 @@ export const ExternalDataSchemasUpdateBody = /* @__PURE__ */ zod
             .describe(
                 'Names of source columns to sync. `null` (default) syncs all columns. Primary-key columns and the active incremental field are always retained, even if not listed here.'
             ),
+        new_column_policy: zod
+            .union([
+                zod.enum(['include', 'exclude']).describe('\* `include` - Include\n\* `exclude` - Exclude'),
+                zod.null(),
+            ])
+            .optional()
+            .describe(
+                "Overrides the source's `new_column_policy` for this table. `include` syncs new columns even when `enabled_columns` lists the columns to sync. `exclude` leaves new columns out of `enabled_columns`, and pins a null `enabled_columns` to the table's current columns. Null (default) follows the source. Not supported for sources whose tables have a fixed schema, such as Stripe.\n\n\* `include` - Include\n\* `exclude` - Exclude"
+            ),
         masked_columns: zod
             .array(zod.string())
             .nullish()
@@ -443,6 +452,15 @@ export const ExternalDataSchemasPartialUpdateBody = /* @__PURE__ */ zod
             .nullish()
             .describe(
                 'Names of source columns to sync. `null` (default) syncs all columns. Primary-key columns and the active incremental field are always retained, even if not listed here.'
+            ),
+        new_column_policy: zod
+            .union([
+                zod.enum(['include', 'exclude']).describe('\* `include` - Include\n\* `exclude` - Exclude'),
+                zod.null(),
+            ])
+            .optional()
+            .describe(
+                "Overrides the source's `new_column_policy` for this table. `include` syncs new columns even when `enabled_columns` lists the columns to sync. `exclude` leaves new columns out of `enabled_columns`, and pins a null `enabled_columns` to the table's current columns. Null (default) follows the source. Not supported for sources whose tables have a fixed schema, such as Stripe.\n\n\* `include` - Include\n\* `exclude` - Exclude"
             ),
         masked_columns: zod
             .array(zod.string())
@@ -608,6 +626,15 @@ export const ExternalDataSourcesUpdateBody = /* @__PURE__ */ zod
             .describe(
                 'Optional fnmatch-style globs (`\*` and `?` wildcards) restricting which newly discovered schema names auto-sync, matched case-insensitively against both the qualified and bare table name. Null or empty means every new schema qualifies. Only used when `auto_sync_new_schemas` is true.'
             ),
+        new_column_policy: zod
+            .union([
+                zod.enum(['include', 'exclude']).describe('\* `include` - Include\n\* `exclude` - Exclude'),
+                zod.null(),
+            ])
+            .optional()
+            .describe(
+                "What happens when a table of this source gets a new column. `include` syncs new columns, even on tables where you picked the columns. `exclude` holds new columns back: they show in the column picker unselected until you turn them on, and a table without a column selection is pinned to its current columns. Null (default) syncs new columns only on tables without a column selection. Changing `exclude` back to null keeps the pinned selections. A table's own `new_column_policy` overrides this. A pinned table has a column selection, so on a source with live queries `exclude` turns off raw SQL. Not supported for sources whose tables have a fixed schema, such as Stripe.\n\n\* `include` - Include\n\* `exclude` - Exclude"
+            ),
         job_inputs: zod.unknown().optional(),
         payload: zod
             .object({
@@ -677,6 +704,15 @@ export const ExternalDataSourcesPartialUpdateBody = /* @__PURE__ */ zod
             .nullish()
             .describe(
                 'Optional fnmatch-style globs (`\*` and `?` wildcards) restricting which newly discovered schema names auto-sync, matched case-insensitively against both the qualified and bare table name. Null or empty means every new schema qualifies. Only used when `auto_sync_new_schemas` is true.'
+            ),
+        new_column_policy: zod
+            .union([
+                zod.enum(['include', 'exclude']).describe('\* `include` - Include\n\* `exclude` - Exclude'),
+                zod.null(),
+            ])
+            .optional()
+            .describe(
+                "What happens when a table of this source gets a new column. `include` syncs new columns, even on tables where you picked the columns. `exclude` holds new columns back: they show in the column picker unselected until you turn them on, and a table without a column selection is pinned to its current columns. Null (default) syncs new columns only on tables without a column selection. Changing `exclude` back to null keeps the pinned selections. A table's own `new_column_policy` overrides this. A pinned table has a column selection, so on a source with live queries `exclude` turns off raw SQL. Not supported for sources whose tables have a fixed schema, such as Stripe.\n\n\* `include` - Include\n\* `exclude` - Exclude"
             ),
         job_inputs: zod.unknown().optional(),
         payload: zod
@@ -810,6 +846,15 @@ export const ExternalDataSourcesBulkUpdateSchemasPartialUpdateBody = /* @__PURE_
                     .array(zod.string())
                     .nullish()
                     .describe('Columns to sync. Null means sync all columns.'),
+                new_column_policy: zod
+                    .union([
+                        zod.enum(['include', 'exclude']).describe('\* `include` - Include\n\* `exclude` - Exclude'),
+                        zod.null(),
+                    ])
+                    .optional()
+                    .describe(
+                        "Overrides the source's `new_column_policy` for this table: `include` syncs new columns, `exclude` leaves them out of `enabled_columns`. Null follows the source.\n\n\* `include` - Include\n\* `exclude` - Exclude"
+                    ),
                 masked_columns: zod
                     .array(zod.string())
                     .nullish()
@@ -906,6 +951,15 @@ export const ExternalDataSourcesCheckCdcPrerequisitesForSourceCreateBody = /* @_
             .nullish()
             .describe(
                 'Optional fnmatch-style globs (`\*` and `?` wildcards) restricting which newly discovered schema names auto-sync, matched case-insensitively against both the qualified and bare table name. Null or empty means every new schema qualifies. Only used when `auto_sync_new_schemas` is true.'
+            ),
+        new_column_policy: zod
+            .union([
+                zod.enum(['include', 'exclude']).describe('\* `include` - Include\n\* `exclude` - Exclude'),
+                zod.null(),
+            ])
+            .optional()
+            .describe(
+                "What happens when a table of this source gets a new column. `include` syncs new columns, even on tables where you picked the columns. `exclude` holds new columns back: they show in the column picker unselected until you turn them on, and a table without a column selection is pinned to its current columns. Null (default) syncs new columns only on tables without a column selection. Changing `exclude` back to null keeps the pinned selections. A table's own `new_column_policy` overrides this. A pinned table has a column selection, so on a source with live queries `exclude` turns off raw SQL. Not supported for sources whose tables have a fixed schema, such as Stripe.\n\n\* `include` - Include\n\* `exclude` - Exclude"
             ),
         job_inputs: zod.unknown().optional(),
         payload: zod
@@ -1043,6 +1097,15 @@ export const ExternalDataSourcesRefreshSchemasCreateBody = /* @__PURE__ */ zod
             .describe(
                 'Optional fnmatch-style globs (`\*` and `?` wildcards) restricting which newly discovered schema names auto-sync, matched case-insensitively against both the qualified and bare table name. Null or empty means every new schema qualifies. Only used when `auto_sync_new_schemas` is true.'
             ),
+        new_column_policy: zod
+            .union([
+                zod.enum(['include', 'exclude']).describe('\* `include` - Include\n\* `exclude` - Exclude'),
+                zod.null(),
+            ])
+            .optional()
+            .describe(
+                "What happens when a table of this source gets a new column. `include` syncs new columns, even on tables where you picked the columns. `exclude` holds new columns back: they show in the column picker unselected until you turn them on, and a table without a column selection is pinned to its current columns. Null (default) syncs new columns only on tables without a column selection. Changing `exclude` back to null keeps the pinned selections. A table's own `new_column_policy` overrides this. A pinned table has a column selection, so on a source with live queries `exclude` turns off raw SQL. Not supported for sources whose tables have a fixed schema, such as Stripe.\n\n\* `include` - Include\n\* `exclude` - Exclude"
+            ),
         job_inputs: zod.unknown().optional(),
         payload: zod
             .object({
@@ -1112,6 +1175,15 @@ export const ExternalDataSourcesReloadCreateBody = /* @__PURE__ */ zod
             .nullish()
             .describe(
                 'Optional fnmatch-style globs (`\*` and `?` wildcards) restricting which newly discovered schema names auto-sync, matched case-insensitively against both the qualified and bare table name. Null or empty means every new schema qualifies. Only used when `auto_sync_new_schemas` is true.'
+            ),
+        new_column_policy: zod
+            .union([
+                zod.enum(['include', 'exclude']).describe('\* `include` - Include\n\* `exclude` - Exclude'),
+                zod.null(),
+            ])
+            .optional()
+            .describe(
+                "What happens when a table of this source gets a new column. `include` syncs new columns, even on tables where you picked the columns. `exclude` holds new columns back: they show in the column picker unselected until you turn them on, and a table without a column selection is pinned to its current columns. Null (default) syncs new columns only on tables without a column selection. Changing `exclude` back to null keeps the pinned selections. A table's own `new_column_policy` overrides this. A pinned table has a column selection, so on a source with live queries `exclude` turns off raw SQL. Not supported for sources whose tables have a fixed schema, such as Stripe.\n\n\* `include` - Include\n\* `exclude` - Exclude"
             ),
         job_inputs: zod.unknown().optional(),
         payload: zod
@@ -1579,6 +1651,15 @@ export const ExternalDataSourcesSourcePrefixCreateBody = /* @__PURE__ */ zod
             .nullish()
             .describe(
                 'Optional fnmatch-style globs (`\*` and `?` wildcards) restricting which newly discovered schema names auto-sync, matched case-insensitively against both the qualified and bare table name. Null or empty means every new schema qualifies. Only used when `auto_sync_new_schemas` is true.'
+            ),
+        new_column_policy: zod
+            .union([
+                zod.enum(['include', 'exclude']).describe('\* `include` - Include\n\* `exclude` - Exclude'),
+                zod.null(),
+            ])
+            .optional()
+            .describe(
+                "What happens when a table of this source gets a new column. `include` syncs new columns, even on tables where you picked the columns. `exclude` holds new columns back: they show in the column picker unselected until you turn them on, and a table without a column selection is pinned to its current columns. Null (default) syncs new columns only on tables without a column selection. Changing `exclude` back to null keeps the pinned selections. A table's own `new_column_policy` overrides this. A pinned table has a column selection, so on a source with live queries `exclude` turns off raw SQL. Not supported for sources whose tables have a fixed schema, such as Stripe.\n\n\* `include` - Include\n\* `exclude` - Exclude"
             ),
         job_inputs: zod.unknown().optional(),
         payload: zod

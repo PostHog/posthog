@@ -489,13 +489,21 @@ class TestDiscoveryStoresColumnMetadata(BaseTest):
 
     @parameterized.expand(
         [
-            ("one_selected_column_dropped", {}, ["id", "total"], ["id"]),
-            ("last_selected_column_dropped", {}, ["total"], ["total"]),
+            ("one_selected_column_dropped", {}, ["id", "total"], [], ["id"]),
+            ("last_selected_column_dropped", {}, ["total"], [], ["total"]),
             (
                 "last_selected_column_dropped_incremental_field_survives",
                 {"sync_type": ExternalDataSchema.SyncType.INCREMENTAL},
                 ["total"],
                 [],
+                [],
+            ),
+            (
+                "last_selected_column_replaced_under_include",
+                {"new_column_policy": "include"},
+                ["total"],
+                [("note", "text", True)],
+                ["note"],
             ),
         ]
     )
@@ -504,6 +512,7 @@ class TestDiscoveryStoresColumnMetadata(BaseTest):
         _name: str,
         schema_fields: dict,
         enabled_columns: list[str],
+        added_columns: list[tuple[str, str, bool]],
         expected_enabled_columns: list[str],
     ) -> None:
         source = self._make_source()
@@ -511,7 +520,36 @@ class TestDiscoveryStoresColumnMetadata(BaseTest):
         ExternalDataSchema.objects.filter(id=schema_id).update(enabled_columns=enabled_columns, **schema_fields)
         update_sync_type_config_keys(schema_id, self.team.pk, updates={"incremental_field": "id"})
 
-        schema = self._discover(source, [("id", "integer", False)])
+        schema = self._discover(source, [("id", "integer", False), *added_columns])
+
+        assert schema.enabled_columns == expected_enabled_columns
+
+    @parameterized.expand(
+        [
+            ("unset_without_selection", None, None, None, None),
+            ("unset_with_selection", None, None, ["id"], ["id"]),
+            ("exclude_pins_a_table_without_selection", "exclude", None, None, ["id", "total"]),
+            ("exclude_keeps_the_selection", "exclude", None, ["id"], ["id"]),
+            ("include_adds_the_column_not_the_deselected_one", "include", None, ["id"], ["id", "note"]),
+            ("table_exclude_overrides_source_include", "include", "exclude", None, ["id", "total"]),
+            ("table_include_overrides_source_exclude", "exclude", "include", ["id"], ["id", "note"]),
+        ]
+    )
+    def test_a_column_added_upstream_follows_the_new_column_policy(
+        self,
+        _name: str,
+        source_policy: str | None,
+        table_policy: str | None,
+        enabled_columns: list[str] | None,
+        expected_enabled_columns: list[str] | None,
+    ) -> None:
+        source = self._make_source(new_column_policy=source_policy)
+        schema_id = self._discover(source, _ORDERS_COLUMNS).id
+        ExternalDataSchema.objects.filter(id=schema_id).update(
+            new_column_policy=table_policy, enabled_columns=enabled_columns
+        )
+
+        schema = self._discover(source, [*_ORDERS_COLUMNS, ("note", "text", True)])
 
         assert schema.enabled_columns == expected_enabled_columns
 

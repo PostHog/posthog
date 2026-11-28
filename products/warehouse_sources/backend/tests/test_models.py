@@ -35,6 +35,7 @@ from products.warehouse_sources.backend.models.external_data_schema import (
     apply_incremental_lookback,
     mark_initial_sync_complete,
     mark_schema_running_unless_halted,
+    persist_observed_columns,
     prefix_promotion_rows_synced,
     process_incremental_value,
     staged_handoff_resume_point,
@@ -876,6 +877,51 @@ class TestUpdateSyncTypeConfigKeys(BaseTest):
         assert stale.sync_type_config["cdc_last_log_position"] == "0/100"  # the copy really was stale
         schema.refresh_from_db()
         assert schema.sync_type_config["cdc_last_log_position"] == "0/900"
+
+
+class TestPersistObservedColumns(BaseTest):
+    @parameterized.expand(
+        [
+            ("unset_without_selection", None, [], None, None),
+            ("unset_with_selection", None, ["id", "name"], ["id"], ["id"]),
+            ("exclude_pins_the_columns_of_the_first_run", "exclude", [], None, ["id", "name", "added"]),
+            ("exclude_holds_back_a_new_column", "exclude", ["id", "name"], ["id"], ["id"]),
+            ("include_adds_the_new_column_not_the_deselected_one", "include", ["id", "name"], ["id"], ["id", "added"]),
+        ]
+    )
+    def test_observed_columns_follow_the_new_column_policy(
+        self,
+        _name: str,
+        policy: str | None,
+        known_columns: list[str],
+        enabled_columns: list[str] | None,
+        expected_enabled_columns: list[str] | None,
+    ) -> None:
+        source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            status="Completed",
+            source_type="Hubspot",
+            new_column_policy=policy,
+        )
+
+        def column(name: str) -> dict[str, Any]:
+            return {"name": name, "data_type": "string", "is_nullable": True}
+
+        schema = ExternalDataSchema.objects.create(
+            team_id=self.team.pk,
+            source=source,
+            name="contacts",
+            enabled_columns=enabled_columns,
+            sync_type_config={"schema_metadata": {"columns": [column(name) for name in known_columns]}},
+        )
+
+        persist_observed_columns(schema.id, self.team.pk, [column("id"), column("name"), column("added")])
+
+        schema.refresh_from_db()
+        assert schema.enabled_columns == expected_enabled_columns
+        assert [c["name"] for c in schema.sync_type_config["schema_metadata"]["columns"]] == ["id", "name", "added"]
 
 
 class TestMarkInitialSyncComplete(BaseTest):

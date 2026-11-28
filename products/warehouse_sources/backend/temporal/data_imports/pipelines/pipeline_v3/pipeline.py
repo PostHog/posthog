@@ -25,11 +25,14 @@ from products.warehouse_sources.backend.models.external_data_job import External
 from products.warehouse_sources.backend.models.external_data_schema import (
     ExternalDataSchema,
     attempt_run_uuid,
+    effective_new_column_policy,
+    persist_observed_columns,
     process_incremental_value,
+    schema_metadata_column_names,
     staged_run_last_value,
     update_sync_type_config_keys,
 )
-from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource, NewColumnPolicy
 from products.warehouse_sources.backend.temporal.data_imports.cdc.load_resolution import SCD2_APPEND_MODE
 from products.warehouse_sources.backend.temporal.data_imports.import_attempt import (
     current_import_attempt,
@@ -75,11 +78,11 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.s
     source_items_are_framework_output,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
+    HeldBackColumnsOnlyError,
     _append_debug_column_to_pyarrows_table,
     _handle_null_columns_with_definitions,
     drop_internal_columns,
     evolve_pyarrow_schema,
-    merge_observed_columns_into_schema_metadata,
     normalize_column_name,
     normalize_table_column_names,
     observe_and_project_table,
@@ -138,6 +141,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
     ResumableData,
     SourceResponse,
 )
+from products.warehouse_sources.backend.temporal.data_imports.util import NonRetryableException
 
 if TYPE_CHECKING:
     from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.import_data_sync import (
@@ -174,6 +178,17 @@ def should_coalesce_tables(
 
 class StagedSchemeWithoutResetError(Exception):
     """The attempt took the partition scheme of a new table, and then did not delete the old table."""
+
+
+def columns_known_before_run(schema: ExternalDataSchema, source: ExternalDataSource) -> set[str] | None:
+    """The columns an `include` table with a column selection knew before this run, or None.
+
+    A column outside the set is new, and syncs from the run that first sees it. Finalizing the run adds it to
+    the selection for later runs.
+    """
+    if schema.enabled_columns is None or effective_new_column_policy(schema, source) != NewColumnPolicy.INCLUDE:
+        return None
+    return set(schema_metadata_column_names(schema.schema_metadata)) or None
 
 
 class PipelineV3(Generic[ResumableData]):
@@ -316,6 +331,13 @@ class PipelineV3(Generic[ResumableData]):
         # write-side drop plus observed-columns capture so the column picker has a catalog.
         self._uses_delta_write_column_selection = source_uses_delta_write_column_selection(models.source.source_type)
         self._observed_columns: dict[str, dict[str, Any]] = {}
+        self._columns_known_before_run = (
+            columns_known_before_run(self._schema, self._source) if self._uses_delta_write_column_selection else None
+        )
+        self._holds_back_new_columns = (
+            self._uses_delta_write_column_selection
+            and effective_new_column_policy(self._schema, self._source) == NewColumnPolicy.EXCLUDE
+        )
 
         self._source_resume_manager = resumable_source_manager
         self._resumable_source_manager = resolve_resume_manager(resumable_source_manager, self._resource)
@@ -1213,24 +1235,16 @@ class PipelineV3(Generic[ResumableData]):
             pa_table = normalize_table_column_names(pa_table)
 
         if self._uses_delta_write_column_selection:
-            # The loader deletes rows by the replace scope's column, so a column selection must keep it.
-            replace_scope = self._resource.replace_scope
-            pa_table = await observe_and_project_table(
-                pa_table,
-                self._schema.enabled_columns,
-                [*(self._resource.primary_keys or []), *([replace_scope.column] if replace_scope else [])],
-                self._schema.incremental_field,
-                [
-                    *(self._schema.partitioning_keys_override or []),
-                    *(self._schema.partitioning_keys or []),
-                    *(self._resource.partition_keys or []),
-                    # The loader deletes by this column, so a row without it could never be replaced.
-                    *([self._resource.replace_scope.column] if self._resource.replace_scope else []),
-                ],
-                self._observed_columns,
-                self._logger,
-                "V3 Pipeline: Dropped non-enabled columns before write",
-            )
+            enabled_columns = self._schema.enabled_columns
+            if enabled_columns is not None and self._columns_known_before_run is not None:
+                known = self._columns_known_before_run
+                enabled_columns = [*enabled_columns, *(name for name in pa_table.column_names if name not in known)]
+            try:
+                pa_table = await self._observe_and_project(pa_table, enabled_columns)
+            except HeldBackColumnsOnlyError as e:
+                # Saved before failing, so the column picker lists the held-back columns for review.
+                await self._persist_observed_columns()
+                raise NonRetryableException(str(e)) from e
 
         pa_table = evolve_pyarrow_schema(pa_table, None)
         pa_table = _handle_null_columns_with_definitions(pa_table, self._resource)
@@ -1296,18 +1310,40 @@ class PipelineV3(Generic[ResumableData]):
         except Exception:
             await self._logger.aexception("V3 Pipeline: Failed to stamp last_full_run_at")
 
-    async def _finalize(self, row_count: int) -> None:
+    async def _observe_and_project(self, pa_table: pa.Table, enabled_columns: list[str] | None) -> pa.Table:
+        # The loader deletes rows by the replace scope's column, so a column selection must keep it.
+        replace_scope = self._resource.replace_scope
+        return await observe_and_project_table(
+            pa_table,
+            enabled_columns,
+            [*(self._resource.primary_keys or []), *([replace_scope.column] if replace_scope else [])],
+            self._schema.incremental_field,
+            [
+                *(self._schema.partitioning_keys_override or []),
+                *(self._schema.partitioning_keys or []),
+                *(self._resource.partition_keys or []),
+                # The loader deletes by this column, so a row without it could never be replaced.
+                *([replace_scope.column] if replace_scope else []),
+            ],
+            self._observed_columns,
+            self._logger,
+            "V3 Pipeline: Dropped non-enabled columns before write",
+            self._holds_back_new_columns,
+        )
+
+    async def _persist_observed_columns(self) -> None:
         # Column-picker bookkeeping — a failure here must not fail an otherwise successful sync.
         if self._observed_columns:
             observed = list(self._observed_columns.values())
             try:
-                await database_sync_to_async_pool(update_sync_type_config_keys)(
-                    self._schema.id,
-                    self._job.team_id,
-                    mutate=lambda config: merge_observed_columns_into_schema_metadata(config, observed),
+                await database_sync_to_async_pool(persist_observed_columns)(
+                    self._schema.id, self._job.team_id, observed
                 )
             except Exception:
                 await self._logger.aexception("V3 Pipeline: Failed to persist observed columns into schema_metadata")
+
+    async def _finalize(self, row_count: int) -> None:
+        await self._persist_observed_columns()
 
         total_batches = self._total_batches()
 

@@ -109,6 +109,19 @@
                         ],
                         "description": "Columns whose values are replaced with a one-way digest at sync time. Null means mask nothing. Any change starts a full resync of the table."
                     },
+                    "new_column_policy": {
+                        "anyOf": [
+                            {
+                                "description": "* `include` - Include\n* `exclude` - Exclude",
+                                "enum": ["include", "exclude"],
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "description": "Overrides the source's `new_column_policy` for this table: `include` syncs new columns, `exclude` leaves them out of `enabled_columns`. Null follows the source.\n\n* `include` - Include\n* `exclude` - Exclude"
+                    },
                     "primary_key_columns": {
                         "anyOf": [
                             {

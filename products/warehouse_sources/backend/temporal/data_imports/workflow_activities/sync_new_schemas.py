@@ -15,10 +15,12 @@ from posthog.temporal.common.logger import get_logger
 from products.data_warehouse.backend.facade.api import delete_discover_schemas_schedule, get_direct_query_engine
 from products.warehouse_sources.backend.logic.source_inputs import SourceInputsStore
 from products.warehouse_sources.backend.models.external_data_schema import (
+    ExternalDataSchema,
     auto_enable_new_schemas,
+    effective_new_column_policy,
     sync_old_schemas_with_new_schemas,
 )
-from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource, NewColumnPolicy
 from products.warehouse_sources.backend.models.ssh_tunnel import SSHGatewayClosedBeforeBannerError
 from products.warehouse_sources.backend.temporal.data_imports.external_data_job import Any_Source_Errors
 from products.warehouse_sources.backend.temporal.data_imports.sources import SourceRegistry
@@ -63,8 +65,39 @@ def _persist_column_metadata(
     engine = get_direct_query_engine(source.direct_engine)
     if engine is not None:
         engine.reconcile_schemas(source=source, source_schemas=schemas, team_id=team_id)
-    elif isinstance(source_impl, (SQLSource, ClickHouseSource)) and source_impl.supports_column_selection:
+    elif reconciles_column_metadata(source_impl):
         source_impl.reconcile_schema_metadata(source=source, source_schemas=schemas, team_id=team_id)
+
+
+def reconciles_column_metadata(source_impl: AnySource) -> t.TypeGuard[SQLSource | ClickHouseSource]:
+    """Whether discovery stores the source's introspected columns, which also applies the new-column policy."""
+    return isinstance(source_impl, (SQLSource, ClickHouseSource)) and source_impl.supports_column_selection
+
+
+def include_new_columns_before_sync(
+    source_impl: AnySource, config: t.Any, schema: ExternalDataSchema, source: ExternalDataSource
+) -> list[str] | None:
+    """The table's column selection for this sync, with columns new at the source added under `include`.
+
+    A source that projects the selection into its query never reads a column the selection lacks, so without
+    this a new column waits for the next discovery pass. Only an `include` table with a selection and no CDC
+    pays for the introspection. Returns the selection to sync with.
+    """
+    if (
+        schema.enabled_columns is None
+        or schema.is_cdc
+        or source.is_direct_query
+        or not reconciles_column_metadata(source_impl)
+        or effective_new_column_policy(schema, source) != NewColumnPolicy.INCLUDE
+    ):
+        return schema.enabled_columns
+    source_schemas = source_impl.get_schemas_for_sync(config, source, [schema.name])
+    source_impl.reconcile_schema_metadata(source=source, source_schemas=source_schemas, team_id=schema.team_id)
+    return (
+        ExternalDataSchema.objects.filter(id=schema.id, team_id=schema.team_id)
+        .values_list("enabled_columns", flat=True)
+        .first()
+    )
 
 
 @activity.defn

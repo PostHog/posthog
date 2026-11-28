@@ -55964,6 +55964,18 @@ export namespace Schemas {
       NotRouted: 'not_routed',
     } as const;
 
+    /**
+     * * `include` - Include
+     * * `exclude` - Exclude
+     */
+    export type NewColumnPolicyEnum = typeof NewColumnPolicyEnum[keyof typeof NewColumnPolicyEnum];
+
+
+    export const NewColumnPolicyEnum = {
+      Include: 'include',
+      Exclude: 'exclude',
+    } as const;
+
     export interface RowFilterColumn {
       /** Column name to use as `column` in a row filter. */
       name: string;
@@ -56119,6 +56131,11 @@ export namespace Schemas {
          * @nullable
          */
       enabled_columns?: string[] | null;
+      /** Overrides the source's `new_column_policy` for this table. `include` syncs new columns even when `enabled_columns` lists the columns to sync. `exclude` leaves new columns out of `enabled_columns`, and pins a null `enabled_columns` to the table's current columns. Null (default) follows the source. Not supported for sources whose tables have a fixed schema, such as Stripe.
+       *
+       * * `include` - Include
+       * * `exclude` - Exclude */
+      new_column_policy?: NewColumnPolicyEnum | null;
       /**
          * Names of source columns whose values are replaced with a deterministic one-way digest at sync time, for sensitive data such as passwords or PII. `null` (default) masks nothing. Primary-key, partition and incremental columns can't be masked, and direct query sources don't support masking. Any change to this list starts a full resync of the table (CDC tables take a new snapshot), or stages it until syncing is turned on. A synced webhook table can't change its masked columns, because its data can't be fetched again.
          * @nullable
@@ -56254,6 +56271,11 @@ export namespace Schemas {
          * @nullable
          */
       enabled_columns?: string[] | null;
+      /** Overrides the source's `new_column_policy` for this table: `include` syncs new columns, `exclude` leaves them out of `enabled_columns`. Null follows the source.
+       *
+       * * `include` - Include
+       * * `exclude` - Exclude */
+      new_column_policy?: NewColumnPolicyEnum | null;
       /**
          * Columns whose values are replaced with a one-way digest at sync time. Null means mask nothing. Any change starts a full resync of the table.
          * @nullable
@@ -56531,6 +56553,11 @@ export namespace Schemas {
          * @items.maxLength 250
          */
       auto_sync_schema_patterns?: string[] | null;
+      /** What happens when a table of this source gets a new column. `include` syncs new columns, even on tables where you picked the columns. `exclude` holds new columns back: they show in the column picker unselected until you turn them on, and a table without a column selection is pinned to its current columns. Null (default) syncs new columns only on tables without a column selection. Changing `exclude` back to null keeps the pinned selections. A table's own `new_column_policy` overrides this. A pinned table has a column selection, so on a source with live queries `exclude` turns off raw SQL. Not supported for sources whose tables have a fixed schema, such as Stripe.
+       *
+       * * `include` - Include
+       * * `exclude` - Exclude */
+      new_column_policy?: NewColumnPolicyEnum | null;
       /** Backend engine detected for the direct connection.
        *
        * * `duckdb` - duckdb
@@ -95759,6 +95786,11 @@ export namespace Schemas {
          * @nullable
          */
       enabled_columns?: string[] | null;
+      /** Overrides the source's `new_column_policy` for this table. `include` syncs new columns even when `enabled_columns` lists the columns to sync. `exclude` leaves new columns out of `enabled_columns`, and pins a null `enabled_columns` to the table's current columns. Null (default) follows the source. Not supported for sources whose tables have a fixed schema, such as Stripe.
+       *
+       * * `include` - Include
+       * * `exclude` - Exclude */
+      new_column_policy?: NewColumnPolicyEnum | null;
       /**
          * Names of source columns whose values are replaced with a deterministic one-way digest at sync time, for sensitive data such as passwords or PII. `null` (default) masks nothing. Primary-key, partition and incremental columns can't be masked, and direct query sources don't support masking. Any change to this list starts a full resync of the table (CDC tables take a new snapshot), or stages it until syncing is turned on. A synced webhook table can't change its masked columns, because its data can't be fetched again.
          * @nullable
@@ -95864,6 +95896,11 @@ export namespace Schemas {
          * @items.maxLength 250
          */
       auto_sync_schema_patterns?: string[] | null;
+      /** What happens when a table of this source gets a new column. `include` syncs new columns, even on tables where you picked the columns. `exclude` holds new columns back: they show in the column picker unselected until you turn them on, and a table without a column selection is pinned to its current columns. Null (default) syncs new columns only on tables without a column selection. Changing `exclude` back to null keeps the pinned selections. A table's own `new_column_policy` overrides this. A pinned table has a column selection, so on a source with live queries `exclude` turns off raw SQL. Not supported for sources whose tables have a fixed schema, such as Stripe.
+       *
+       * * `include` - Include
+       * * `exclude` - Exclude */
+      new_column_policy?: NewColumnPolicyEnum | null;
       /** Backend engine detected for the direct connection.
        *
        * * `duckdb` - duckdb

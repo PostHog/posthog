@@ -1972,6 +1972,12 @@ class PostgresSource(
             _FOREIGN_SERVER_UNREACHABLE_ERROR: _FOREIGN_SERVER_UNREACHABLE_EXHAUSTED_MESSAGE,
         }
 
+    def get_schemas_for_sync(
+        self, config: PostgresSourceConfig, source: "ExternalDataSource", names: list[str]
+    ) -> list[SourceSchema]:
+        """Introspect the named tables with the TLS requirement the sync enforces."""
+        return self.get_schemas(config, source.team_id, names=names, require_ssl=source_requires_ssl(source, config))
+
     def reconcile_schema_metadata(
         self,
         source: "ExternalDataSource",

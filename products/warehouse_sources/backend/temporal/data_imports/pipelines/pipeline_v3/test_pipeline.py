@@ -62,6 +62,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.pipeline import (
     PipelineV3,
     StagedSchemeWithoutResetError,
+    columns_known_before_run,
     should_coalesce_tables,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.producer import (
@@ -148,6 +149,8 @@ def _make_pipeline() -> PipelineV3:
     pipeline._attempt = 1
     pipeline._uses_delta_write_column_selection = False
     pipeline._observed_columns = {}
+    pipeline._columns_known_before_run = None
+    pipeline._holds_back_new_columns = False
     pipeline._continues_incremental_handoff = False
     pipeline._resumed_incremental_run_uuid = None
     pipeline._sent_resumed_run_finalization = False
@@ -498,6 +501,91 @@ class TestReplaceScopeHandOff:
         [result] = projected
         assert "_file_name" in result.column_names
         assert "other" not in result.column_names
+
+    @pytest.mark.parametrize(
+        "known_before_run, expected_columns",
+        [(None, ["value"]), ({"value", "other"}, ["value", "added"])],
+        ids=["no_include_policy", "include_policy"],
+    )
+    @pytest.mark.asyncio
+    async def test_a_column_new_to_the_table_syncs_under_the_include_policy(
+        self, known_before_run: set[str] | None, expected_columns: list[str]
+    ) -> None:
+        pipeline = _make_pipeline()
+        pipeline._uses_delta_write_column_selection = True
+        pipeline._columns_known_before_run = known_before_run
+        schema = cast(Any, pipeline._schema)
+        schema.enabled_columns = ["value"]
+        schema.incremental_field = None
+        schema.partitioning_keys_override = None
+        schema.partitioning_keys = None
+        pipeline._resource.primary_keys = None
+        pipeline._resource.partition_keys = None
+        pipeline._resource.replace_scope = None
+        table = pa.table({"value": [1], "other": [2], "added": [3]})
+
+        class _Stop(Exception):
+            pass
+
+        projected: list[pa.Table] = []
+
+        async def project(*args: Any) -> pa.Table:
+            projected.append(await _real_observe_and_project_table(*args))
+            raise _Stop
+
+        with patch(f"{_PIPELINE}.observe_and_project_table", side_effect=project), pytest.raises(_Stop):
+            await pipeline._process_batch(pa_table=table, batch_index=0, row_count=1)
+
+        [result] = projected
+        assert [name for name in result.column_names if name != "_ph_debug"] == expected_columns
+
+    @pytest.mark.asyncio
+    async def test_a_batch_of_only_held_back_columns_fails_after_saving_them_for_review(self) -> None:
+        pipeline = _make_pipeline()
+        pipeline._uses_delta_write_column_selection = True
+        pipeline._holds_back_new_columns = True
+        schema = cast(Any, pipeline._schema)
+        schema.enabled_columns = ["old_column"]
+        schema.incremental_field = None
+        schema.partitioning_keys_override = None
+        schema.partitioning_keys = None
+        pipeline._resource.primary_keys = None
+        pipeline._resource.partition_keys = None
+        pipeline._resource.replace_scope = None
+        pipeline._job = MagicMock(team_id=1)
+        saved: list[list[dict[str, Any]]] = []
+
+        with (
+            patch(f"{_PIPELINE}.persist_observed_columns", side_effect=lambda _id, _team, cols: saved.append(cols)),
+            pytest.raises(NonRetryableException, match="holds new columns back"),
+        ):
+            await pipeline._process_batch(pa_table=pa.table({"new_secret": ["s"]}), batch_index=0, row_count=1)
+
+        assert [[column["name"] for column in columns] for columns in saved] == [["new_secret"]]
+
+    @pytest.mark.parametrize(
+        "source_policy, table_policy, enabled_columns, expected",
+        [
+            ("include", None, ["id"], {"id", "name"}),
+            ("exclude", "include", ["id"], {"id", "name"}),
+            ("include", "exclude", ["id"], None),
+            ("include", None, None, None),
+            (None, None, ["id"], None),
+        ],
+        ids=["source_include", "table_overrides_to_include", "table_overrides_to_exclude", "no_selection", "unset"],
+    )
+    def test_columns_known_before_run_follows_the_effective_policy(
+        self, source_policy: str | None, table_policy: str | None, enabled_columns: list[str] | None, expected
+    ) -> None:
+        schema = SimpleNamespace(
+            new_column_policy=table_policy,
+            enabled_columns=enabled_columns,
+            schema_metadata={"columns": [{"name": "id"}, {"name": "name"}]},
+        )
+
+        known = columns_known_before_run(cast(Any, schema), cast(Any, SimpleNamespace(new_column_policy=source_policy)))
+
+        assert known == expected
 
 
 class TestPreWriteMaintenanceBeforeAnAppendRestore:

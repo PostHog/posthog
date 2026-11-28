@@ -85,6 +85,8 @@ logger = structlog.get_logger(__name__)
 WORKFLOW_ID_PREFIX = "file-upload"
 # Kept when a new file replaces a schema's read options: they tie a migration schema to the table it adopts.
 _MIGRATION_METADATA_KEYS = (SCHEMA_PINNED_METADATA_KEY, SCHEMA_SELF_MANAGED_TABLE_METADATA_KEY)
+# The columns earlier syncs saw. The new-column policy compares a sync's columns with them to find new ones.
+_KNOWN_COLUMNS_METADATA_KEY = "columns"
 
 
 @frozen
@@ -383,7 +385,11 @@ def replace_file_upload(
             stored = stored if isinstance(stored, dict) else {}
             config["schema_metadata"] = {
                 **metadata,
-                **{key: stored[key] for key in _MIGRATION_METADATA_KEYS if key in stored},
+                **{
+                    key: stored[key]
+                    for key in (*_MIGRATION_METADATA_KEYS, _KNOWN_COLUMNS_METADATA_KEY)
+                    if key in stored
+                },
             }
 
         schema.sync_type_config = update_sync_type_config_keys(schema.id, schema.team_id, mutate=replace_metadata)

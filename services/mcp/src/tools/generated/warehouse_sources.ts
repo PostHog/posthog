@@ -332,6 +332,9 @@ const externalDataSchemasPartialUpdate = (): ToolBase<
         if (params.enabled_columns !== undefined) {
             body['enabled_columns'] = params.enabled_columns
         }
+        if (params.new_column_policy !== undefined) {
+            body['new_column_policy'] = params.new_column_policy
+        }
         if (params.masked_columns !== undefined) {
             body['masked_columns'] = params.masked_columns
         }
@@ -970,6 +973,9 @@ const externalDataSourcesPartialUpdate = (): ToolBase<
         if (params.auto_sync_schema_patterns !== undefined) {
             body['auto_sync_schema_patterns'] = params.auto_sync_schema_patterns
         }
+        if (params.new_column_policy !== undefined) {
+            body['new_column_policy'] = params.new_column_policy
+        }
         if (params.job_inputs !== undefined) {
             body['job_inputs'] = params.job_inputs
         }
@@ -1017,6 +1023,9 @@ const externalDataSourcesRefreshSchemas = (): ToolBase<
         if (params.auto_sync_schema_patterns !== undefined) {
             body['auto_sync_schema_patterns'] = params.auto_sync_schema_patterns
         }
+        if (params.new_column_policy !== undefined) {
+            body['new_column_policy'] = params.new_column_policy
+        }
         const result = await context.api.request<unknown>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/external_data_sources/${encodeURIComponent(String(params.id))}/refresh_schemas/`,
@@ -1054,6 +1063,9 @@ const externalDataSourcesReload = (): ToolBase<ReturnType<typeof ExternalDataSou
         }
         if (params.auto_sync_schema_patterns !== undefined) {
             body['auto_sync_schema_patterns'] = params.auto_sync_schema_patterns
+        }
+        if (params.new_column_policy !== undefined) {
+            body['new_column_policy'] = params.new_column_policy
         }
         const result = await context.api.request<unknown>({
             method: 'POST',
