@@ -10,6 +10,40 @@
 import * as zod from 'zod'
 
 /**
+ * The same search as the GET form. The query travels in the request body, so it does not appear in request URLs or in the logs that record them.
+ * @summary Search business knowledge with the query in the request body
+ */
+export const businessKnowledgeDocumentsSearchCreateBodyQueryMax = 2000
+
+export const businessKnowledgeDocumentsSearchCreateBodyLimitDefault = 10
+export const businessKnowledgeDocumentsSearchCreateBodyRerankDefault = false
+
+export const BusinessKnowledgeDocumentsSearchCreateBody = /* @__PURE__ */ zod
+    .object({
+        query: zod
+            .string()
+            .max(businessKnowledgeDocumentsSearchCreateBodyQueryMax)
+            .describe(
+                'Natural-language search query. Runs hybrid (semantic + full-text) retrieval over all SAFE, READY knowledge chunks in this project. At most 2000 characters.'
+            ),
+        limit: zod
+            .number()
+            .default(businessKnowledgeDocumentsSearchCreateBodyLimitDefault)
+            .describe('Maximum number of ranked chunks to return. Defaults to 10, capped at 20.'),
+        rerank: zod
+            .boolean()
+            .default(businessKnowledgeDocumentsSearchCreateBodyRerankDefault)
+            .describe(
+                'When true, rerank search results with a listwise LLM pass for better relevance. Defaults to false (RRF order only). Falls back to RRF order on rerank failure.'
+            ),
+        library_id: zod
+            .uuid()
+            .nullish()
+            .describe('Limit retrieval to sources in this library. Omit to search every ready source.'),
+    })
+    .describe('Body of a search sent with POST, which keeps the query text out of the request URL.')
+
+/**
  * Surfaces topics the support AI couldn't answer from the knowledge base.
  *
  * Two list shapes controlled by the ``ticket_id`` query param:
@@ -67,7 +101,7 @@ export const BusinessKnowledgeLibrariesCreateBody = /* @__PURE__ */ zod.object({
 
 /**
  * Send only the fields you want to change. `source_ids` replaces every source in the library. `repos` replaces this environment's repositories and leaves repositories that only another environment allows.
- * @summary Rename a library or replace its sources and repositories
+ * @summary Rename a library, replace its sources and repositories, or choose whether learned sources join it
  */
 export const businessKnowledgeLibrariesPartialUpdateBodyNameMax = 255
 
@@ -88,6 +122,12 @@ export const BusinessKnowledgeLibrariesPartialUpdateBody = /* @__PURE__ */ zod.o
         .optional()
         .describe(
             "Replaces this environment's repositories in the library. Omit to leave them unchanged. Repositories only another environment allows stay."
+        ),
+    is_default: zod
+        .boolean()
+        .optional()
+        .describe(
+            'Whether new sources learned from support tickets join this library. Omit to leave it unchanged. Sources that are already in the library stay. At least one library must have it.'
         ),
 })
 

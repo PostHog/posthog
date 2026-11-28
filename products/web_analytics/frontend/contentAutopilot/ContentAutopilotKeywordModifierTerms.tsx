@@ -1,4 +1,4 @@
-import { percentage } from 'lib/utils/numbers'
+import { pluralize } from 'lib/utils/strings'
 
 import type {
     AEOKeywordModifierApi,
@@ -8,7 +8,9 @@ import type {
 import { AiVisibilityTable } from './AiVisibilityTable'
 import { AiVisibilityTag } from './AiVisibilityTag'
 import { ContentAutopilotCitationsLink } from './ContentAutopilotCitationsLink'
+import { ContentAutopilotRateBar } from './ContentAutopilotRateBar'
 import { isCitationGap } from './keywordsReport'
+import { formatShare } from './shares'
 import { engineLabel } from './utils'
 
 /** The words of one modifier group, with gaps against the baseline cited rate highlighted. */
@@ -44,10 +46,10 @@ export const ContentAutopilotKeywordModifierTerms = ({
                 align: 'right',
                 tooltip: 'Share of answers whose searches used this word.',
                 render: (_, modifier) => (
-                    <span className="tabular-nums">
-                        {percentage(modifier.share, 0)}{' '}
-                        <span className="text-muted-foreground">({modifier.answers})</span>
-                    </span>
+                    <ContentAutopilotRateBar
+                        rate={modifier.share}
+                        tooltip={`${pluralize(modifier.answers, 'answer')}`}
+                    />
                 ),
             },
             {
@@ -60,10 +62,14 @@ export const ContentAutopilotKeywordModifierTerms = ({
                         {isCitationGap(modifier, baselineCitedRate) ? (
                             <AiVisibilityTag type="danger">Gap</AiVisibilityTag>
                         ) : null}
-                        {modifier.cited_rate === null ? '-' : percentage(modifier.cited_rate, 0)}
-                        {baselineCitedRate !== null ? (
-                            <span className="text-muted-foreground">vs {percentage(baselineCitedRate, 0)}</span>
-                        ) : null}
+                        <ContentAutopilotRateBar
+                            rate={modifier.cited_rate}
+                            tooltip={
+                                baselineCitedRate !== null
+                                    ? `Against ${formatShare(baselineCitedRate)} across all answers`
+                                    : undefined
+                            }
+                        />
                     </span>
                 ),
             },

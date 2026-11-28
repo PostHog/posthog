@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 import React, { ReactNode, useState } from 'react'
 
-import { IconPlus, IconX } from '@posthog/icons'
+import { IconCode, IconPlus, IconX } from '@posthog/icons'
 import {
     Button,
     Field,
@@ -24,6 +24,14 @@ import {
     SelectValue,
 } from '@posthog/quill'
 
+import {
+    CyclotronJobTemplateSuggestionsButton,
+    useTemplateEditorCursor,
+} from 'lib/components/CyclotronJob/CyclotronJobTemplateSuggestions'
+import {
+    insertTemplateReference,
+    templateReferenceForOption,
+} from 'lib/components/CyclotronJob/cyclotronJobTemplateSuggestionsLogic'
 import { closesIntoLemonPopover } from 'lib/components/QuillSurface/closesIntoLemonPopover'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
@@ -130,19 +138,48 @@ function LiquidInput({
     invalid?: boolean
     trailing?: ReactNode
 }): JSX.Element {
-    const { logicProps } = useValues(emailTemplaterLogic)
+    const { logicProps, templatingEngine } = useValues(emailTemplaterLogic)
+    const { setTemplatingEngine } = useActions(emailTemplaterLogic)
+    const { onEditorMount, cursorOffset } = useTemplateEditorCursor()
     return (
-        <InputGroup size="sm" className="min-w-0 overflow-hidden">
+        <InputGroup size="sm" className="min-w-0">
             <div data-slot="input-group-control" aria-invalid={invalid || undefined} className="flex-1 min-w-0 pl-2">
                 <LiquidSupportedText
                     value={value}
                     onChange={onChange}
                     globals={logicProps.variables}
                     placeholder={placeholder}
+                    onEditorMount={onEditorMount}
                     plain
                 />
             </div>
-            {trailing ? <InputGroupAddon align="inline-end">{trailing}</InputGroupAddon> : null}
+            <InputGroupAddon align="inline-end">
+                <CyclotronJobTemplateSuggestionsButton
+                    templating={templatingEngine}
+                    setTemplatingEngine={setTemplatingEngine}
+                    value={value}
+                    onOptionSelect={(option) =>
+                        onChange(
+                            insertTemplateReference(
+                                value || '',
+                                templateReferenceForOption(option, templatingEngine ?? 'hog'),
+                                cursorOffset()
+                            )
+                        )
+                    }
+                    trigger={
+                        <InputGroupButton
+                            size="icon-xs"
+                            aria-label="Insert a variable"
+                            tooltip="Supports templating - click to see available options"
+                            className="opacity-0 transition-opacity focus-visible:opacity-100 group-hover/input-group:opacity-100 group-focus-within/input-group:opacity-100"
+                        >
+                            <IconCode />
+                        </InputGroupButton>
+                    }
+                />
+                {trailing}
+            </InputGroupAddon>
         </InputGroup>
     )
 }

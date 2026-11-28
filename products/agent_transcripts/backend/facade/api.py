@@ -25,6 +25,7 @@ from .contracts import (
     PresignedUpload,
     StartUploadInput,
     SubmissionForReview,
+    TranscriptFile,
 )
 from .enums import SubmissionStatus, TranscriptAgent
 
@@ -142,6 +143,11 @@ def get_submission_for_review(organization_id: UUID) -> SubmissionForReview | No
 def get_transcript_download_url(organization_id: UUID) -> str | None:
     """A presigned GET that expires after a minute, or None when there is no stored file."""
     return submissions.get_download_url(organization_id)
+
+
+def get_transcript_file(organization_id: UUID) -> TranscriptFile | None:
+    """The stored file, or None when there is none. Raises TranscriptStorageUnavailable when storage fails."""
+    return submissions.read_file(organization_id)
 
 
 def approve_submission(

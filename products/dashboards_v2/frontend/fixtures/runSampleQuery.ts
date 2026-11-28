@@ -2,7 +2,7 @@ import { PropertyOperator } from '~/types'
 
 import { type AnalyticsPropertyFilter, analyticsPropertyFilters } from '../filters/analytics/analyticsPropertyFilters'
 import type { DataFrame, RunQuery } from '../query/queryTypes'
-import type { PanelQuery } from '../dashboard/document/dashboardSchema'
+import { type PanelQuery } from '../query/querySchema'
 
 // TODO(2026-11-25): Delete once the scene always runs real queries through the query batch runner.
 // Without both v2 query flags, the scene draws charts from these seeded sample frames.
@@ -27,7 +27,7 @@ function seriesNames(query: PanelQuery): string[] {
         : ['Value']
 }
 
-// A rate drawn as a count reads as 272,300% on a percentage stat.
+// A rate drawn as a count reads as 272,300% on a percentage metric.
 function isRatio(query: PanelQuery): boolean {
     return /_rate\b/.test(queryText(query))
 }
@@ -48,18 +48,18 @@ function keepsSeries(filter: AnalyticsPropertyFilter, name: string): boolean {
  * A `-- sample: <case>` comment in a query's text picks how the sample runner answers, so the kitchen sink can show
  * every tile state. The queries that carry one fail or come back empty on the real runner too.
  */
-export type SampleCase = 'empty' | 'error' | 'slow' | 'stale' | 'malformed'
+export type SampleCase = 'empty' | 'error' | 'slow' | 'loading' | 'stale' | 'malformed'
 
 const SLOW_MS = 4000
 
 function sampleCase(query: PanelQuery): SampleCase | null {
-    const match = /-- sample: (empty|error|slow|stale|malformed)/.exec(queryText(query))
+    const match = /-- sample: (empty|error|slow|loading|stale|malformed)/.exec(queryText(query))
     return match ? (match[1] as SampleCase) : null
 }
 
 // Draws charts for people outside the dashboard-v2 query flags, and for stories. The data is made up from each
 // query's text, so the same query always draws the same chart.
-export const runSampleQuery: RunQuery = async (request) => {
+export const runSampleQuery: RunQuery = async (request, signal) => {
     switch (sampleCase(request.query)) {
         case 'empty':
             return { frames: [{ fields: [{ name: 'value', type: 'number', values: [] }] }] }
@@ -71,6 +71,11 @@ export const runSampleQuery: RunQuery = async (request) => {
         case 'slow':
             await new Promise((resolve) => setTimeout(resolve, SLOW_MS))
             return sampleFrames(request)
+        case 'loading':
+            // Never answers, so the tile keeps its loading skeleton.
+            return new Promise((_, reject) =>
+                signal?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')))
+            )
         case 'stale':
             return { ...sampleFrames(request), fetchedAt: '2026-11-20T09:00:00Z', stale: true }
         default:

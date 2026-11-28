@@ -611,7 +611,10 @@ class TestSendGridImport(BaseTest):
         assert run.progress["templates"]["counts"]["already_present"] == 4
         assert run.status == "completed"
 
-    def test_an_empty_account_completes_with_nothing_imported(self) -> None:
+    @parameterized.expand([("empty_lists", False), ("null_results", True)])
+    def test_an_empty_account_completes_with_nothing_imported(self, _name: str, null_when_empty: bool) -> None:
+        self.state.null_when_empty = null_when_empty
+
         run = self._run(api_key=EMPTY_ACCOUNT_KEY)
 
         assert run.status == "completed"

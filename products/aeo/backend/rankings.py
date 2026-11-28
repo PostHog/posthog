@@ -35,7 +35,8 @@ from products.aeo.backend.facade.contracts import (
     RankedDomain,
     RankedPage,
 )
-from products.aeo.backend.models import AEOBrand, AEOCitationCheck
+from products.aeo.backend.models import AEOBrand, AEOCheckBrand, AEOCitationCheck
+from products.aeo.backend.page_urls import page_url_sql
 from products.aeo.backend.scope import (
     NAMED_SCOPE_SQL,
     SCOPE_SQL,
@@ -44,6 +45,7 @@ from products.aeo.backend.scope import (
     scope_filter,
     scope_sql_params,
 )
+from products.aeo.backend.sentiment import SENTIMENT_LABELS
 from products.aeo.backend.window import CheckWindow
 
 # Registrable names of sites answers cite whatever the brand, so they are never a competitor.
@@ -111,18 +113,18 @@ _DOMAIN_ANSWERS_SQL = f"""
     GROUP BY citation.domain
 """
 _DOMAIN_URLS_SQL = f"""
-    SELECT citation.domain, count(DISTINCT citation.url)
+    SELECT citation.domain, count(DISTINCT {page_url_sql("citation.url")})
     {_CITED_FROM_SQL}
         AND citation.domain = ANY(%s) AND citation.url <> ''
     GROUP BY citation.domain
 """
 # A URL without a host has no domain to rank under, and a host cited after the stored URLs has no URL.
 _PAGES_SQL = f"""
-    SELECT citation.url, citation.domain, count(DISTINCT citation.citation_check_id)
+    SELECT {page_url_sql("citation.url")} AS page, citation.domain, count(DISTINCT citation.citation_check_id)
     {_CITED_FROM_SQL}
         AND citation.domain <> '' AND citation.url <> ''
-    GROUP BY citation.url, citation.domain
-    ORDER BY count(DISTINCT citation.citation_check_id) DESC, citation.url
+    GROUP BY 1, citation.domain
+    ORDER BY count(DISTINCT citation.citation_check_id) DESC, page
     LIMIT %s
 """
 
@@ -154,18 +156,27 @@ def get_rankings(
         resolve_effective_team_id(team_id), since=window_start, until=until, scope_params=scope_params
     )
     ranked_domains = citations.ranked_domains()
-    # Competitors a person confirmed in the brand catalog win; until there are any, derive them from citations.
-    # Our own domains always rank as the target, even when someone labeled one a competitor.
-    confirmed = {domain: name for domain, name in _confirmed_competitors(team_id).items() if domain not in targets}
+    # Competitors a person confirmed in the brand catalog win, then the ones setup suggested; until there are any,
+    # derive them from citations. Our own domains always rank as the target, even when someone labeled one a competitor.
+    confirmed = {
+        domain: name
+        for domain, name in _catalog_competitors(team_id, BrandStatus.CONFIRMED).items()
+        if domain not in targets
+    }
+    named = confirmed or {
+        domain: name
+        for domain, name in _catalog_competitors(team_id, BrandStatus.SUGGESTED).items()
+        if domain not in targets
+    }
     catalog_ids = _catalog_brand_ids(team_id)
     # Each competitor ranks by its catalog brand, so a domain the catalog does not have yet waits for the sync.
-    competitors = list(confirmed) or _competitors(
+    competitors = list(named) or _competitors(
         [(domain, count) for domain, count in ranked_domains if domain in catalog_ids],
         targets,
         brand_names(target_domains),
         catalog_excluded=_catalog_exclusions(team_id),
     )
-    names = {domain: confirmed[domain] if domain in confirmed else _brand_name(domain) for domain in competitors}
+    names = {domain: named[domain] if domain in named else _brand_name(domain) for domain in competitors}
     top_domains = ranked_domains[:MAX_RANKED_DOMAINS]
     domain_urls = citations.urls_per_domain([domain for domain, _ in top_domains])
     target_domain = registrable_domain(target_domains[0].lower()) if target_domains else None
@@ -184,6 +195,9 @@ def get_rankings(
         scope=scope,
     )
     positive_share = _positive_share(answered) if target_domain else None
+    brand_positive_shares = _brand_positive_shares(
+        team_id, answered, [ids[0] for _, ids, is_target in brands if not is_target]
+    )
 
     ranked_brands = sorted(
         (
@@ -194,9 +208,9 @@ def get_rankings(
                 answers_mentioning=brand_days.current[domain][1],
                 visibility=_share(*brand_days.current[domain]),
                 previous_visibility=comparable_previous_share(brand_days.current[domain], brand_days.previous[domain]),
-                positive_share=positive_share if is_target else None,
+                positive_share=positive_share if is_target else brand_positive_shares.get(ids[0]),
             )
-            for domain, _, is_target in brands
+            for domain, ids, is_target in brands
         ),
         key=lambda brand: (-(brand.visibility or 0), brand.domain),
     )
@@ -218,7 +232,8 @@ def get_rankings(
                 share_of_answers=count / answers if answers else 0.0,
                 urls=domain_urls.get(domain, 0),
                 is_target=domain in targets,
-                is_competitor=domain in competitors,
+                # Only a competitor in the catalog is labeled one. Brands the fallback ranks are only mentioned.
+                is_competitor=domain in named,
             )
             for domain, count in top_domains
         ),
@@ -254,7 +269,9 @@ class _Citations:
     """Cited registrable domains and pages across the answered checks in a window, counted in Postgres
     once per answer from the stored cited URL rows."""
 
-    def __init__(self, team_id: int, *, since: dt.datetime, until: dt.datetime, scope_params: list[str | None]) -> None:
+    def __init__(
+        self, team_id: int, *, since: dt.datetime, until: dt.datetime, scope_params: list[str | bool | None]
+    ) -> None:
         self._params: list[Any] = [team_id, since, until, team_id, since, until, *scope_params]
 
     def ranked_domains(self) -> list[tuple[str, int]]:
@@ -277,11 +294,10 @@ class _Citations:
             return [_CitedPage(url=url, domain=domain, answers=count) for url, domain, count in cursor.fetchall()]
 
 
-def _confirmed_competitors(team_id: int) -> dict[str, str]:
-    """Confirmed competitors from the brand catalog: their names by domain."""
+def _catalog_competitors(team_id: int, status: BrandStatus) -> dict[str, str]:
     rows = (
         AEOBrand.objects.for_team(team_id)
-        .filter(kind=BrandKind.COMPETITOR.value, status=BrandStatus.CONFIRMED.value)
+        .filter(kind=BrandKind.COMPETITOR.value, status=status.value)
         .order_by("domain")
         .values_list("domain", "name")[:MAX_RANKED_COMPETITORS]
     )
@@ -371,6 +387,22 @@ def _positive_share(answered: QuerySet[AEOCitationCheck]) -> float | None:
         positive=Count("id", filter=Q(brand_sentiment="positive")),
     )
     return counts["positive"] / counts["scored"] if counts["scored"] else None
+
+
+def _brand_positive_shares(
+    team_id: int, answered: QuerySet[AEOCitationCheck], brand_ids: list[uuid.UUID]
+) -> dict[uuid.UUID, float]:
+    """Per competitor, the share of the answers naming it whose sentences about it were scored positive.
+    A brand with no scored answer is left out, so it reads as not scored rather than as 0%."""
+    if not brand_ids:
+        return {}
+    rows = (
+        AEOCheckBrand.objects.for_team(team_id)
+        .filter(brand_id__in=brand_ids, citation_check_id__in=answered.values("id"), sentiment__in=SENTIMENT_LABELS)
+        .values("brand_id")
+        .annotate(scored=Count("id"), positive=Count("id", filter=Q(sentiment="positive")))
+    )
+    return {row["brand_id"]: row["positive"] / row["scored"] for row in rows}
 
 
 def _brand_name(domain: str) -> str:

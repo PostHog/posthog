@@ -3026,10 +3026,13 @@ database "posthog" {
       type = "DateTime64(6, 'UTC')"
     }
     engine "kafka" {
-      collection = "warpstream_ingestion"
-      topic_list = "clickhouse_billing_usage_records"
-      group_name = "clickhouse_billing_usage_records"
-      format     = "JSONEachRow"
+      collection           = "warpstream_ingestion"
+      topic_list           = "clickhouse_billing_usage_records"
+      group_name           = "clickhouse_billing_usage_records"
+      format               = "JSONEachRow"
+      num_consumers        = 1
+      skip_broken_messages = 100
+      thread_per_consumer  = true
     }
   }
 
@@ -5905,6 +5908,10 @@ SQL
       type    = "LowCardinality(String)"
       default = "''"
     }
+    column "auth_type" {
+      type    = "LowCardinality(String)"
+      default = "''"
+    }
     index "idx_severity_text_set" {
       expr        = "severity_text"
       type        = "set(10)"
@@ -6134,6 +6141,10 @@ SQL
       type = "UInt8"
     }
     column "internal_source" {
+      type    = "LowCardinality(String)"
+      default = "''"
+    }
+    column "auth_type" {
       type    = "LowCardinality(String)"
       default = "''"
     }
@@ -10407,6 +10418,41 @@ SQL
     }
   }
 
+  table "series_values_preaggregated" {
+    column "team_id" {
+      type = "Int64"
+    }
+    column "job_id" {
+      type = "UUID"
+    }
+    column "time_window_start" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "time_window_end" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "series_key" {
+      type = "String"
+    }
+    column "value" {
+      type = "Float64"
+    }
+    column "computed_at" {
+      type    = "DateTime64(6, 'UTC')"
+      default = "now()"
+    }
+    column "expires_at" {
+      type    = "DateTime64(6, 'UTC')"
+      default = "now() + toIntervalDay(7)"
+    }
+    engine "distributed" {
+      cluster_name    = "aux"
+      remote_database = "posthog"
+      remote_table    = "sharded_series_values_preaggregated"
+      sharding_key    = "sipHash64(job_id)"
+    }
+  }
+
   table "session_replay_embeddings" {
     column "session_id" {
       type = "String"
@@ -14015,6 +14061,47 @@ SQL
     engine "replicated_aggregating_merge_tree" {
       zoo_path     = "/clickhouse/tables/{shard}/posthog.raw_sessions_v3"
       replica_name = "{replica}"
+    }
+  }
+
+  table "sharded_series_values_preaggregated" {
+    order_by     = ["team_id", "job_id", "series_key", "time_window_start"]
+    partition_by = "toYYYYMMDD(expires_at)"
+    ttl          = "toDateTime(expires_at)"
+    settings = {
+      index_granularity   = "8192"
+      ttl_only_drop_parts = "1"
+    }
+    column "team_id" {
+      type = "Int64"
+    }
+    column "job_id" {
+      type = "UUID"
+    }
+    column "time_window_start" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "time_window_end" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "series_key" {
+      type = "String"
+    }
+    column "value" {
+      type = "Float64"
+    }
+    column "computed_at" {
+      type    = "DateTime64(6, 'UTC')"
+      default = "now()"
+    }
+    column "expires_at" {
+      type    = "DateTime64(6, 'UTC')"
+      default = "now() + toIntervalDay(7)"
+    }
+    engine "replicated_replacing_merge_tree" {
+      zoo_path       = "/clickhouse/tables/{shard}/posthog.series_values_preaggregated"
+      replica_name   = "{replica}"
+      version_column = "computed_at"
     }
   }
 
@@ -18106,6 +18193,10 @@ SQL
       type    = "LowCardinality(String)"
       default = "''"
     }
+    column "auth_type" {
+      type    = "LowCardinality(String)"
+      default = "''"
+    }
     engine "distributed" {
       cluster_name    = "posthog_single_shard"
       remote_database = "posthog"
@@ -21930,7 +22021,8 @@ SELECT
   toInt64OrNull(_headers.value[indexOf(_headers.name, 'bytes_compressed')]) / _record_count AS _bytes_compressed,
   ifNull(pattern, '') AS pattern,
   toUInt8(ifNull(pattern_version, 0)) AS pattern_version,
-  _headers.value[indexOf(_headers.name, 'internal-source')] AS internal_source
+  _headers.value[indexOf(_headers.name, 'internal-source')] AS internal_source,
+  _headers.value[indexOf(_headers.name, 'auth-type')] AS auth_type
 FROM posthog.kafka_logs_avro
 SQL
 
@@ -22007,6 +22099,9 @@ SQL
       type = "UInt8"
     }
     column "internal_source" {
+      type = "LowCardinality(String)"
+    }
+    column "auth_type" {
       type = "LowCardinality(String)"
     }
   }

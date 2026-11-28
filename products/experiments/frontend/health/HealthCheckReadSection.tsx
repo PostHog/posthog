@@ -1,3 +1,5 @@
+import type { ReactNode } from 'react'
+
 import type { ExperimentExposureQueryResponse } from '~/queries/schema/schema-general'
 
 import { healthCheckRowsTable, healthDetectableEffects } from './healthCheckRows'
@@ -16,10 +18,12 @@ export function HealthCheckReadSection({
     check,
     units,
     exposures,
+    chart,
 }: {
     check: HealthPanelCheck
     units: string
     exposures: ExperimentExposureQueryResponse | null
+    chart?: ReactNode
 }): JSX.Element | null {
     const table = healthCheckRowsTable(check, units)
     // An exposure answer cached before the server added the values keeps the layout without them.
@@ -36,6 +40,7 @@ export function HealthCheckReadSection({
 
     return (
         <HealthPanelSection title="What it read">
+            {chart}
             {split && <HealthExposureSplitTable rows={split} units={units} />}
             {readings.length > 0 && <HealthReadingList readings={readings} />}
             {table && <HealthCheckRowsTable table={table} />}

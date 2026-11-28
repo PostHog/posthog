@@ -13,6 +13,11 @@ _COMMON_COLUMNS = {
 }
 
 CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
+    "account_types": {
+        "description": "Categories that define forms and settings for accounts.",
+        "docs_url": _DOCS_URL,
+        "columns": {**_COMMON_COLUMNS, "name": "Name of the account type."},
+    },
     "accounts": {
         "description": "Companies or organizations tracked in the CRM, including address, industry, and ownership details.",
         "docs_url": _DOCS_URL,
@@ -35,6 +40,11 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "unit_id": "Id of the sales unit this account is assigned to.",
             "is_archived": "True when the account has been archived.",
         },
+    },
+    "appointment_types": {
+        "description": "Categories that define forms and icons for appointments.",
+        "docs_url": _DOCS_URL,
+        "columns": {**_COMMON_COLUMNS, "name": "Name of the appointment type."},
     },
     "appointments": {
         "description": "Calendar appointments (meetings), including start/end times, location, and linked CRM records.",
@@ -70,6 +80,30 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "last_active": "Timestamp of the user's most recent login or API request.",
             "timezone_name": "IANA timezone name from the user profile.",
         },
+    },
+    "contact_account_account_role_relations": {
+        "description": "Roles assigned to contacts at their linked accounts.",
+        "docs_url": _DOCS_URL,
+        "columns": {
+            **_COMMON_COLUMNS,
+            "contact_account_relation_id": "ID of the link between the contact and the account.",
+            "account_role_id": "ID of the role assigned to the contact at the account.",
+        },
+    },
+    "contact_account_relations": {
+        "description": "Links between contacts and accounts, including each contact's position at the account.",
+        "docs_url": _DOCS_URL,
+        "columns": {
+            **_COMMON_COLUMNS,
+            "contact_id": "ID of the contact.",
+            "account_id": "ID of the account.",
+            "position": "Position of the contact at the account.",
+        },
+    },
+    "contact_types": {
+        "description": "Categories that define forms and settings for contacts.",
+        "docs_url": _DOCS_URL,
+        "columns": {**_COMMON_COLUMNS, "name": "Name of the contact type."},
     },
     "contacts": {
         "description": "People who have a relation to an account, including contact details and their primary account link.",
@@ -120,6 +154,15 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
         "columns": {
             **_COMMON_COLUMNS,
             "valid_from": "Date from which the exchange rates in this list apply.",
+        },
+    },
+    "lead_types": {
+        "description": "Categories that define which forms and processes leads use.",
+        "docs_url": _DOCS_URL,
+        "columns": {
+            **_COMMON_COLUMNS,
+            "name": "Name of the lead type.",
+            "lead_process_id": "ID of the process that leads of this type follow.",
         },
     },
     "leads": {
@@ -178,6 +221,15 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "unit_id": "Id of the sales unit this opportunity is assigned to.",
         },
     },
+    "opportunity_types": {
+        "description": "Categories that define which forms and pipelines opportunities use.",
+        "docs_url": _DOCS_URL,
+        "columns": {
+            **_COMMON_COLUMNS,
+            "name": "Name of the opportunity type.",
+            "pipeline_id": "ID of the pipeline that opportunities of this type follow.",
+        },
+    },
     "oppty_product_relations": {
         "description": "Product line items on opportunities and quotes, with quantity, price, and discounts.",
         "docs_url": _DOCS_URL,
@@ -218,6 +270,33 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "unit_symbol": "Unit of measure shown next to product quantities (e.g. pcs, kg, hours).",
         },
     },
+    "quote_processes": {
+        "description": "Processes that define the ordered steps quotes move through.",
+        "docs_url": _DOCS_URL,
+        "columns": {**_COMMON_COLUMNS, "name": "Name of the quote process."},
+    },
+    "quote_types": {
+        "description": "Categories that define which forms and processes quotes use.",
+        "docs_url": _DOCS_URL,
+        "columns": {
+            **_COMMON_COLUMNS,
+            "name": "Name of the quote type.",
+            "quote_process_id": "ID of the process that quotes of this type follow.",
+        },
+    },
+    "quotes": {
+        "description": "Price offers for customers, usually linked to an opportunity.",
+        "docs_url": _DOCS_URL,
+        "columns": {
+            **_COMMON_COLUMNS,
+            "quote_number": "Reference number for the quote.",
+            "oppty_id": "ID of the linked opportunity.",
+            "quote_type_id": "ID of the quote type.",
+            "step_id": "ID of the current step in the quote process.",
+            "expiration_date": "Date after which the quote is no longer valid.",
+            "total_amount": "Total value of the quote.",
+        },
+    },
     "sales_unit_client_relations": {
         "description": "Membership of users in sales units, with each user's role in the unit.",
         "docs_url": _DOCS_URL,
@@ -249,6 +328,11 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "sort_order": "Position of the step within its pipeline or process; lower values appear first.",
             "timeframe": "Expected number of days a record should spend in this step.",
         },
+    },
+    "task_types": {
+        "description": "Categories that define forms and icons for tasks.",
+        "docs_url": _DOCS_URL,
+        "columns": {**_COMMON_COLUMNS, "name": "Name of the task type."},
     },
     "tasks": {
         "description": "To-do items and logged activities (e.g. tasks, calls), with due dates, priority, and linked CRM records.",

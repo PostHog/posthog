@@ -6,10 +6,8 @@ from django import forms
 from django.apps import apps
 from django.conf import settings
 from django.contrib import messages
-from django.core.exceptions import ValidationError
 from django.db.models import Model
 from django.http import HttpRequest, HttpResponse
-from django.urls import reverse
 
 import structlog
 from temporalio.exceptions import WorkflowAlreadyStartedError
@@ -90,7 +88,7 @@ def data_counts(organization: Organization) -> list[Notice | Table]:
 
 
 def data_tool_url(organization: Organization) -> str:
-    return f"{reverse('admin_console_tool', kwargs={'tool_key': DATA_TOOL_KEY})}?organization={organization.pk}"
+    return OrganizationDataTool.url_for(organization)
 
 
 def preview_deletion(request: HttpRequest, obj: Model, form: forms.Form) -> Page:
@@ -210,14 +208,11 @@ class OrganizationDataTool(ConsoleTool):
     owner = None
     group = "Organizations"
     description = "Counts the data that deleting one organization removes."
+    subject = "organization"
 
     def page(self, request: HttpRequest) -> Page:
-        organization_id = request.GET.get("organization", "")
-        try:
-            organization = Organization.objects.filter(pk=organization_id).first() if organization_id else None
-        except ValidationError:
-            organization = None
-        if organization is None:
+        organization = self.subject_of(request)
+        if not isinstance(organization, Organization):
             return Page(
                 blocks=(Notice(text="Open an organization's data counts from the Deletion panel on its page."),)
             )

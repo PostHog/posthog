@@ -1,5 +1,6 @@
 import { useValues } from 'kea'
 import { router } from 'kea-router'
+import posthog from 'posthog-js'
 import { useState } from 'react'
 
 import { IconArrowRight } from '@posthog/icons'
@@ -17,23 +18,29 @@ import {
     SelectTriggerIcon,
     Separator,
 } from 'lib/ui/quill'
+import { cn } from 'lib/utils/css-classes'
 import { pluralize } from 'lib/utils/strings'
 import type { SettingId } from 'scenes/settings/types'
 
 import type { ErrorTrackingIssueTag } from '~/queries/schema/schema-general'
 
 import { configurationRedirect } from '../../settingsRedirects'
+import { issueTagColor } from '../IssueTag/issueTagColors'
+import { IssueTagDot } from '../IssueTag/IssueTagDot'
 
 const TAG_RULES_SETTING_ID: SettingId = 'error-tracking-tag-rules'
+const MAX_BUTTON_DOTS = 3
 
 export function IssueTagsButton({
     tags,
     onTagClick,
+    surface,
     size = 'sm',
     defaultOpen = false,
 }: {
-    tags: Pick<ErrorTrackingIssueTag, 'key' | 'label'>[] | null | undefined
+    tags: Pick<ErrorTrackingIssueTag, 'key' | 'label' | 'color'>[] | null | undefined
     onTagClick: (key: string) => void
+    surface: 'issues_list' | 'issue_page'
     size?: 'sm' | 'default'
     defaultOpen?: boolean
 }): JSX.Element | null {
@@ -44,11 +51,32 @@ export function IssueTagsButton({
         return null
     }
 
+    const buttonDotColors = [...new Set(tags.map((tag) => issueTagColor(tag.label, tag.color)))].slice(
+        0,
+        MAX_BUTTON_DOTS
+    )
+
+    const onOpenChange = (nextOpen: boolean): void => {
+        if (nextOpen) {
+            posthog.capture('error_tracking_issue_tags_opened', { ui_source: surface, tag_count: tags.length })
+        }
+        setOpen(nextOpen)
+    }
+
     return (
-        <Popover open={open} onOpenChange={setOpen}>
+        <Popover open={open} onOpenChange={onOpenChange}>
             <PopoverTrigger
                 render={<Button variant="outline" size={size} data-attr="error-tracking-issue-tags-button" />}
             >
+                <span className="flex">
+                    {buttonDotColors.map((color, index) => (
+                        <IssueTagDot
+                            key={color}
+                            color={color}
+                            className={cn('ring-1 ring-background', index > 0 && '-ms-1')}
+                        />
+                    ))}
+                </span>
                 <span className="text-secondary">{pluralize(tags.length, 'tag')}</span>
                 <SelectTriggerIcon />
             </PopoverTrigger>
@@ -66,10 +94,12 @@ export function IssueTagsButton({
                                     aria-label={`Show issues tagged ${tag.label}`}
                                     data-attr="error-tracking-issue-tags-button-tag"
                                     onClick={() => {
+                                        posthog.capture('error_tracking_issue_tag_clicked', { ui_source: surface })
                                         setOpen(false)
                                         onTagClick(tag.key)
                                     }}
                                 >
+                                    <IssueTagDot color={issueTagColor(tag.label, tag.color)} />
                                     <ItemContent variant="menuItem" className="min-w-0">
                                         <ItemTitle
                                             className="block w-full min-w-0 truncate font-normal"

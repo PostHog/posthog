@@ -3975,6 +3975,120 @@ class SignalScoutEmission(TeamScopedRootMixin, UUIDModel):
         ]
 
 
+class SignalScoutMessage(TeamScopedRootMixin, UUIDModel):
+    """One message a scout run asked to send to a person or channel through an owner-set route.
+
+    Written by the `scout-send-message` tool (`scout_harness/tools/messages.py`) as `queued` and sent
+    when the run ends, so a report the run edits several times reaches Slack once. A second call in
+    the same run with the same route and `dedupe_key` replaces the queued row, which the unique
+    constraint on `(run, route_key, dedupe_key)` enforces. The rows that reach `sent` are what the
+    per-scout cap and the 30-day dedupe window read.
+    """
+
+    class Status(models.TextChoices):
+        QUEUED = "queued", "Queued"
+        SENT = "sent", "Sent"
+        # A dry run (`emit=False`) records what it would have sent and posts nothing.
+        DRY_RUN = "dry_run", "Dry run"
+        # Queued, then not sent at the end of the run: see `drop_reason`.
+        DROPPED = "dropped", "Dropped"
+
+    class DropReason(models.TextChoices):
+        FLAG_OFF = "flag_off", "Feature off"
+        # The owner turned `emit` off after the message was queued.
+        EMIT_OFF = "emit_off", "Emit off"
+        ROUTE_REMOVED = "route_removed", "Route removed"
+        REPORT_MISSING = "report_missing", "Report missing"
+        # The report is suppressed by the safety judge, deleted, or failed, so the inbox does not show it.
+        REPORT_HIDDEN = "report_hidden", "Report hidden"
+        NO_SLACK_INTEGRATION = "no_slack_integration", "No Slack integration"
+        # Another run sent the same route and key after this message was queued.
+        DUPLICATE = "duplicate", "Duplicate"
+        # Left queued by a failed send for longer than the cap window, so no longer worth sending.
+        EXPIRED = "expired", "Expired"
+
+    # See SignalScoutConfig.all_teams for rationale: the end-of-run send runs with no team scope set.
+    all_teams = models.Manager()  # noqa: DJ012
+
+    team = models.ForeignKey(
+        "posthog.Team", on_delete=models.CASCADE, db_constraint=False, db_index=False, related_name="+"
+    )
+    run = models.ForeignKey(SignalScoutRun, on_delete=models.CASCADE, related_name="messages")
+    # The scout is the lane, not the config row, as for the run guard: configs are SET_NULL on runs,
+    # so a config recreated mid-window must not reset the cap or the dedupe window.
+    skill_name = models.CharField(max_length=200)
+    # Null only on a dry run, which writes no report. The tool requires it on every other run.
+    report = models.ForeignKey(SignalReport, on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
+    route_key = models.CharField(max_length=64)
+    dedupe_key = models.CharField(max_length=200)
+    title = models.CharField(max_length=200)
+    body = models.TextField()
+    status = models.CharField(max_length=16, choices=Status.choices, default=Status.QUEUED)
+    drop_reason = models.CharField(max_length=32, choices=DropReason.choices, null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    sent_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        verbose_name = "Signal scout message"
+        verbose_name_plural = "Signal scout messages"
+        default_manager_name = "all_teams"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["run", "route_key", "dedupe_key"], name="signal_scout_message_run_key_uniq"
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["team", "skill_name", "status", "sent_at"], name="signal_scout_message_lane_idx"),
+        ]
+
+
+class SignalScoutMessageDelivery(TeamScopedRootMixin, UUIDModel):
+    """One Slack recipient of a sent `SignalScoutMessage`, with the outcome of its delivery task.
+
+    A message whose route names two targets that resolve to the same Slack id gets one row, and so
+    one post. The Celery delivery task reads the row by id and writes `status`, `slack_ts` and
+    `error_code` back, so a retry of the task cannot post a second time once one post landed.
+    """
+
+    class Status(models.TextChoices):
+        PENDING = "pending", "Pending"
+        SENT = "sent", "Sent"
+        FAILED = "failed", "Failed"
+
+    class TargetType(models.TextChoices):
+        SLACK_DM = "slack_dm", "Slack direct message"
+        SLACK_CHANNEL = "slack_channel", "Slack channel"
+
+    all_teams = models.Manager()  # noqa: DJ012
+
+    team = models.ForeignKey(
+        "posthog.Team", on_delete=models.CASCADE, db_constraint=False, db_index=False, related_name="+"
+    )
+    message = models.ForeignKey(SignalScoutMessage, on_delete=models.CASCADE, related_name="deliveries")
+    target_type = models.CharField(max_length=16, choices=TargetType.choices)
+    # The Slack member or channel id, without the picker's `|name` suffix.
+    target_id = models.CharField(max_length=64)
+    integration_id = models.IntegerField()
+    status = models.CharField(max_length=16, choices=Status.choices, default=Status.PENDING)
+    slack_ts = models.CharField(max_length=64, null=True, blank=True)
+    error_code = models.CharField(max_length=64, null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "Signal scout message delivery"
+        verbose_name_plural = "Signal scout message deliveries"
+        default_manager_name = "all_teams"
+        constraints = [
+            models.UniqueConstraint(fields=["message", "target_id"], name="signal_scout_msg_delivery_uniq"),
+        ]
+        indexes = [
+            # The FK's own index is off; team deletion and the pending-delivery recovery read by team.
+            models.Index(fields=["team", "status", "created_at"], name="signal_scout_msg_dlv_team_idx"),
+        ]
+
+
 class SignalScoutPendingTrigger(TeamScopedRootMixin, UUIDModel):
     """A workflow "Run scout" fire that arrived while its scout was busy, waiting for a run.
 
@@ -4806,10 +4920,13 @@ class AnomalyScoringState(TeamScopedRootMixin, UUIDModel):
     insight_id = models.BigIntegerField()
     # The model profile, which scoring profiles with the same local part share. See `ScoringProfile.model_profile`.
     profile = models.CharField(max_length=64)
-    # The insight as the state was built for it. A change to any of them makes the next visit train.
+    # The insight as the state was built for it. A change to the interval or the query makes the next visit train.
+    # A change to the detector version only makes a retrain due, and the model scores with `scoring` until then.
     interval = models.CharField(max_length=16)
     detector_version = models.CharField(max_length=32)
     query_hash = models.CharField(max_length=32)
+    # The local scoring settings that the artifacts were fit with: `min_points` and the detector config.
+    scoring = models.JSONField(null=True, blank=True)
     trained_at = models.DateTimeField()
     # The newest scored bucket start over all series. Null when the insight returned no completed bucket.
     scored_through = models.DateTimeField(null=True, blank=True)

@@ -8,6 +8,8 @@ The picked channels live in the scout's own text, so a person can read and edit 
 instruction. The config records the warehouse source the scout reads as its `(source_product, source_id)` owner.
 """
 
+from datetime import datetime
+
 from posthog.dataclasses import frozen
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
@@ -38,6 +40,8 @@ class SlackChannel:
 @frozen
 class SlackChannelSource:
     id: str
+    # The source's table prefix, or its connection date when it has no prefix.
+    label: str
     channels: list[SlackChannel]
 
 
@@ -46,6 +50,12 @@ class SlackScoutDefinition:
     description: str
     body: str
     precheck_query: str
+
+
+def _source_label(prefix: str | None, created_at: datetime) -> str:
+    # Table names strip the underscores around a prefix, so the label does too.
+    name = (prefix or "").strip().strip("_")
+    return name or f"Connected {created_at:%b} {created_at.day}, {created_at.year}"
 
 
 def list_slack_channel_sources(team_id: int, user_access_control: UserAccessControl) -> list[SlackChannelSource]:
@@ -90,7 +100,11 @@ def list_slack_channel_sources(team_id: int, user_access_control: UserAccessCont
                 )
             )
         result.append(
-            SlackChannelSource(id=str(source.id), channels=sorted(channels, key=lambda channel: channel.name.lower()))
+            SlackChannelSource(
+                id=str(source.id),
+                label=_source_label(source.prefix, source.created_at),
+                channels=sorted(channels, key=lambda channel: channel.name.lower()),
+            )
         )
     return result
 

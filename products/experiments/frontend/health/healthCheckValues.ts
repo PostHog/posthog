@@ -365,6 +365,10 @@ export function healthCheckShowsDecidingValue(check: Pick<HealthPanelCheck, 'val
     return !rule.minimum || (minimumValue !== null && minimumValue >= rule.minimum.threshold)
 }
 
+export function healthIsComparedVariant(variant: string, expected: Record<string, number> | null | undefined): boolean {
+    return expected ? variant in expected : variant !== EXPERIMENT_VARIANT_MULTIPLE
+}
+
 /**
  * The exposed users of each compared variant against the planned split, from the exposure answer. The planned shares
  * come from the sample ratio test, so they are missing while too few users are exposed for it.
@@ -381,9 +385,7 @@ export function healthExposureSplit(
     const ordered = exposures.timeseries?.length
         ? exposures.timeseries.map(({ variant }) => variant)
         : Object.keys(totals)
-    const variants = ordered.filter((variant) =>
-        expected ? variant in expected : variant !== EXPERIMENT_VARIANT_MULTIPLE
-    )
+    const variants = ordered.filter((variant) => healthIsComparedVariant(variant, expected))
     const comparedCount = variants.reduce((sum, variant) => sum + (totals[variant] ?? 0), 0)
     const plannedTotal = expected ? Object.values(expected).reduce((sum, count) => sum + count, 0) : 0
     if (variants.length < 2 || comparedCount === 0) {

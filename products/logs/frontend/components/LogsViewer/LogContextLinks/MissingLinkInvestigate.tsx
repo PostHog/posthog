@@ -31,7 +31,7 @@ export function MissingLinkInvestigate({
     surface: LogContextLinksSurface
     onLeave?: () => void
 }): JSX.Element {
-    const { isMaxAvailable } = useValues(maxGlobalLogic)
+    const { isAiAvailable } = useValues(maxGlobalLogic)
     const { launching, startsSidePanelTask } = useValues(missingLinkInvestigateLogic)
     const { startTask } = useActions(missingLinkInvestigateLogic)
 
@@ -47,7 +47,7 @@ export function MissingLinkInvestigate({
             </span>
             <LemonMenu
                 items={[
-                    isMaxAvailable && {
+                    isAiAvailable && {
                         label: 'PostHog AI',
                         icon: <IconSparkles />,
                         onClick: () =>

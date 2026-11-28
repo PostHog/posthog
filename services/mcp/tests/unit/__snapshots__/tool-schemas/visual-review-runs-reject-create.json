@@ -1,0 +1,68 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "expected_seq": {
+            "anyOf": [
+                {
+                    "minimum": 0,
+                    "type": "number"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Optional: the highest decision `seq` you read on these snapshots, or 0 when you read none. The call is refused with 409 `decided_since` when someone decided on one of them after that."
+        },
+        "id": {
+            "description": "The UUID of a run of the pull request, not a snapshot `id`.",
+            "type": "string"
+        },
+        "snapshots": {
+            "description": "Snapshots to reject, each with `identifier`, `new_hash` and `reason`.",
+            "items": {
+                "properties": {
+                    "identifier": {
+                        "description": "The snapshot identifier, such as a Storybook story id plus theme.",
+                        "maxLength": 512,
+                        "type": "string"
+                    },
+                    "new_hash": {
+                        "anyOf": [
+                            {
+                                "maxLength": 128,
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "description": "The snapshot's `current_artifact.content_hash` on the run you pass as `id`. Null only for a `removed` snapshot, and only in a ledger-mode repo: elsewhere finalize accepts removals by itself."
+                    },
+                    "old_hash": {
+                        "anyOf": [
+                            {
+                                "maxLength": 128,
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "description": "Optional: the snapshot's `baseline_artifact.content_hash` on that run, or an empty string for a `new` snapshot. When given, the call is refused if the run compares against another baseline, so the decision lands only on the pair of pictures you looked at."
+                    },
+                    "reason": {
+                        "description": "What is wrong with the new picture, so the author can fix it. Shown on the pull request.",
+                        "maxLength": 500,
+                        "minLength": 1,
+                        "type": "string"
+                    }
+                },
+                "required": ["identifier", "reason"],
+                "type": "object"
+            },
+            "type": "array"
+        }
+    },
+    "required": ["id", "snapshots"],
+    "type": "object"
+}

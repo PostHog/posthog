@@ -132,8 +132,8 @@ AI_CREDITS_BILLED_PRODUCTS = frozenset(p for p, bucket in PRODUCT_CREDIT_BUCKET.
 
 _PRODUCT_ALLOWED_MODELS = PRODUCT_ALLOWED_MODELS
 
-# Minting is optional (no token = Python-gateway fallback), so the total budget
-# stays a few seconds: 2 attempts x 3s + one short backoff, not a 30s provisioning stall.
+# Bounded to a few seconds (2 attempts x 3s + one short backoff) so a gateway outage fails
+# provisioning fast instead of stalling it.
 _MINT_ATTEMPTS = 2
 _MINT_TIMEOUT_SECONDS = 3
 

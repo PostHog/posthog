@@ -225,3 +225,28 @@ class TestSearchSourceWiring:
         assert result.raised is None
         assert result.requests[0].json()["sort"][0]["field"]["field_name"] == expected_cursor_field
         assert _anchor_of(result.requests[0].json()) == expected_anchor
+
+    @pytest.mark.parametrize(
+        ("endpoint", "object_type", "sends_custom_selector"),
+        [
+            ("Leads", "lead", True),
+            ("Contacts", "contact", True),
+            ("CustomObjects", "custom_object", True),
+            ("SequenceSubscriptions", "sequence_subscription", False),
+        ],
+    )
+    def test_search_body_targets_the_object_type_and_its_custom_fields(
+        self, endpoint: str, object_type: str, sends_custom_selector: bool
+    ) -> None:
+        # Custom object rows keep their values only in custom fields, and sequence subscriptions
+        # have none, so the `custom` selector must follow the object type.
+        result = SourceDriver(CloseSource(), CloseSourceConfig(api_key="test-key")).run(
+            endpoint, [ScriptedResponse(json={"data": []})]
+        )
+
+        assert result.raised is None
+        assert result.paths == ["/api/v1/data/search/"]
+        body = result.requests[0].json()
+        assert body["query"]["queries"][0] == {"type": "object_type", "object_type": object_type}
+        assert list(body["_fields"]) == [object_type]
+        assert ("custom" in body["_fields"][object_type]) is sends_custom_selector

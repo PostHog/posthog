@@ -159,8 +159,7 @@ class CatalogModel:
 
 # Rates a model family lists at. Sources, checked 2026-09-17: Anthropic and OpenAI publish
 # theirs; the models PostHog serves through Cloudflare, Baseten and Modal are quoted at what
-# the gateway bills, pinned in
-# `services/llm-gateway/src/llm_gateway/rate_limiting/model_cost_overrides.py`.
+# the AI gateway (PostHog/ai-gateway) bills.
 _GLM_COST = ModelCost(1.4, 4.4)
 _GLM_FLASH_COST = ModelCost(0.15, 0.5)
 _KIMI_COST = ModelCost(3, 15)

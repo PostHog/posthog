@@ -51,6 +51,47 @@ class TestPagination:
         assert result.rows == [{"id": "z"}]
         assert result.urls == [saved]
 
+    @parameterized.expand([("fresh", None), ("resumed", 7)])
+    def test_audit_logs_follow_page_numbers(self, _name: str, resume_page: int | None) -> None:
+        next_page = (resume_page or 1) + 1
+        first_row = {"id": "audit-1", "activity_type": "UPDATE", "resource_id": "resource-1"}
+        second_row = {"id": "audit-2", "activity_type": "CREATE", "resource_id": "resource-2"}
+        result = _driver().run(
+            "audit_logs",
+            [
+                ScriptedResponse(
+                    json={
+                        "results": [
+                            {
+                                **first_row,
+                                "metadata": {"previous_value": "example-value"},
+                                "event_blocks": [{"type": "text", "style": "normal", "value": "example-value"}],
+                            }
+                        ],
+                        "meta": {"next_page": next_page},
+                    }
+                ),
+                ScriptedResponse(json={"results": [second_row], "meta": {"next_page": None}}),
+            ],
+            resume_state=SecodaResumeConfig(next_page=resume_page) if resume_page is not None else None,
+        )
+
+        assert result.rows == [first_row, second_row]
+        assert result.paths == ["/api/v1/activity_log/audit_logs/"] * 2
+        assert result.params("page") == [str(resume_page) if resume_page is not None else None, str(next_page)]
+        assert result.saved_states == [SecodaResumeConfig(next_page=next_page)]
+
+    def test_custom_properties_accepts_a_bare_list_after_a_malformed_response(self) -> None:
+        row = {"id": "property-1", "name": "Lifecycle", "entity_types": ["table"], "value_type": "text"}
+        result = _driver().run(
+            "custom_properties",
+            [ScriptedResponse(json={"error": "try again"}), ScriptedResponse(json=[row])],
+        )
+
+        assert result.rows == [row]
+        assert result.paths == ["/api/v1/resource/all_v2/custom_properties/"] * 2
+        assert result.saved_states == []
+
 
 class TestMonitorMeasurementsFanout:
     def test_fetches_measurements_per_monitor_across_pages(self) -> None:
@@ -136,7 +177,8 @@ class TestValidateCredentials:
 class TestSecodaSourceResponse:
     @parameterized.expand([(e,) for e in ENDPOINTS])
     def test_source_response_shape(self, endpoint: str) -> None:
-        result = _driver().run(endpoint, [_page([])])
+        empty_response = ScriptedResponse(json=[]) if endpoint == "custom_properties" else _page([])
+        result = _driver().run(endpoint, [empty_response])
 
         response = result.response
         assert response is not None

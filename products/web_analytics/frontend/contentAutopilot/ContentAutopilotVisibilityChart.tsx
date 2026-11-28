@@ -11,7 +11,8 @@ import { DataVisualizationNode } from '~/queries/schema/schema-general'
 import { AiVisibilityCard } from './AiVisibilityCard'
 import { ContentAutopilotOpenInsightButton } from './ContentAutopilotOpenInsightButton'
 import type { PromptVisibilityMetric } from './promptReport'
-import type { EngineVisibilityChart } from './visibilityChart'
+import { formatShare } from './shares'
+import { DAY_POINTS, type EngineVisibilityChart } from './visibilityChart'
 
 const BASE_CONFIG: TimeSeriesLineChartConfig = {
     // The labels are calendar days, so UTC keeps each tick and tooltip date on its own day.
@@ -25,6 +26,7 @@ const BASE_CONFIG: TimeSeriesLineChartConfig = {
 const RATE_CONFIG: TimeSeriesLineChartConfig = {
     ...BASE_CONFIG,
     yAxis: { format: 'percentage_scaled', showGrid: true },
+    tooltip: { valueFormatter: (value: number) => (Number.isFinite(value) ? formatShare(value) : '-') },
 }
 
 const POSITION_CONFIG: TimeSeriesLineChartConfig = {
@@ -68,7 +70,14 @@ export const ContentAutopilotVisibilityChart = ({
 }): JSX.Element => {
     const theme = useChartTheme()
     const series = useMemo<Series[]>(
-        () => chart.series.map(({ engine, label, color, data }) => ({ key: engine, label, color, data })),
+        () =>
+            chart.series.map(({ engine, label, color, data }) => ({
+                key: engine,
+                label,
+                color,
+                data,
+                points: DAY_POINTS,
+            })),
         [chart]
     )
     const hasData = chart.series.some(({ data }) => data.some(Number.isFinite))

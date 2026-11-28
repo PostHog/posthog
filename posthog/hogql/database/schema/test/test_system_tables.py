@@ -1984,11 +1984,11 @@ class TestSystemTablesFileSystemWorkflowExclusion(NonAtomicBaseTest):
     CLASS_DATA_LEVEL_SETUP = False
 
     def test_workflow_files_are_not_listed(self):
-        from posthog.models.file_system.constants import WORKFLOW_FILE_SYSTEM_TYPES
+        from posthog.models.file_system.constants import UNFILED_FILE_SYSTEM_TYPES
         from posthog.models.file_system.file_system import FileSystem
 
         FileSystem.objects.create(team=self.team, path="Reports/Weekly", type="insight", ref="weekly")
-        for file_type in WORKFLOW_FILE_SYSTEM_TYPES:
+        for file_type in UNFILED_FILE_SYSTEM_TYPES:
             FileSystem.objects.create(team=self.team, path=f"Campaigns/{file_type}", type=file_type, ref=file_type)
 
         response = execute_hogql_query("SELECT type FROM system.file_system", team=self.team, user=self.user)

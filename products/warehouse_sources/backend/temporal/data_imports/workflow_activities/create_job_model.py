@@ -112,16 +112,25 @@ class V2PipelineRemovedError(NonReportableError):
     """
 
 
-def _statistics_stale(team_id: int, table: DataWarehouseTable | None) -> bool:
+def _statistics_stale(team_id: int, table: DataWarehouseTable | None, *, wrote_rows: bool | None = None) -> bool:
     """Whether column statistics need recomputing: no stats yet, or the freshest column row is older
-    than the recompute interval. Mirrors compute_table_statistics' own skip check so we don't spawn a
-    child that would immediately no-op on every sync."""
+    than the minimum recompute interval. Mirrors compute_table_statistics' own skip check so we don't
+    spawn a child that would immediately no-op on every sync.
+
+    The post-import gate also says whether its sync wrote rows. For a sync that wrote nothing, the
+    child then starts only when the activity could recompute: a column has no row, the oldest row is
+    past the maximum interval, or no unchanged-version check ran in the last minimum interval. A sync
+    that writes after such a check starts the child itself.
+    """
     if table is None:
         # First-ever sync — the table is created during it, so let the (post-sync) profiling run once.
         return True
     # Lazy: compute_table_statistics drags deltalake/pyarrow; keep it off this activity's import path.
     from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.compute_table_statistics import (  # noqa: PLC0415
+        MAX_RECOMPUTE_INTERVAL,
         MIN_RECOMPUTE_INTERVAL,
+        _all_columns_have_stats,
+        _most_recent_computed_at,
     )
 
     latest = (
@@ -129,7 +138,24 @@ def _statistics_stale(team_id: int, table: DataWarehouseTable | None) -> bool:
         .filter(table_id=table.id)
         .aggregate(latest=Max("computed_at"))["latest"]
     )
-    return latest is None or (timezone.now() - latest) >= MIN_RECOMPUTE_INTERVAL
+    if latest is None:
+        return True
+    now = timezone.now()
+    if now - latest < MIN_RECOMPUTE_INTERVAL:
+        return False
+    if wrote_rows is not False:
+        return True
+    # The activity skips an unchanged version only when every current column has a row, and it times
+    # the maximum interval from the oldest of them, so a partly written run still has work.
+    existing = {
+        stat.column_name: stat for stat in WarehouseColumnStatistics.objects.for_team(team_id).filter(table_id=table.id)
+    }
+    columns = table.columns or {}
+    oldest = _most_recent_computed_at(existing, columns)
+    if oldest is None or not _all_columns_have_stats(existing, columns) or now - oldest >= MAX_RECOMPUTE_INTERVAL:
+        return True
+    checked = [stamp for name in columns if (stamp := existing[name].checked_at) is not None]
+    return not checked or now - max(checked) >= MIN_RECOMPUTE_INTERVAL
 
 
 def _enrichment_pending(team_id: int, table: DataWarehouseTable | None, schema: ExternalDataSchema) -> bool:
@@ -140,9 +166,15 @@ def _enrichment_pending(team_id: int, table: DataWarehouseTable | None, schema: 
     if table is None:
         # First-ever sync — nothing is annotated yet, so there is work to do.
         return True
-    # Hidden plumbing columns (_dlt_id, partition key, …) are never enriched, so they'd otherwise
-    # show up perpetually in `columns - annotated` and keep this returning True on every sync.
-    columns = set((table.columns or {}).keys()) - table.hidden_columns()
+    # Lazy: enrich_table_semantics pulls in the LLM client; keep it off this activity's import path.
+    from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.enrich_table_semantics import (  # noqa: PLC0415
+        enrichable_column_names,
+    )
+
+    # Annotations use the HogQL-renamed names, so raw names would leave a renamed column pending forever.
+    columns = enrichable_column_names(table)
+    if not columns:
+        return False
     annotated = set(
         WarehouseColumnAnnotation.objects.for_team(team_id)
         .filter(table_id=table.id)
@@ -487,7 +519,7 @@ def create_external_data_job_model_activity(
 
         # The repartition activity re-checks this itself; deciding here lets the workflow skip
         # scheduling it at all, which for most syncs is its whole cost.
-        repartition_needed = repartition_activity_has_work(schema)
+        repartition_needed = repartition_activity_has_work(schema, job)
 
         # Answered here, after the job row exists, in the order the separate activity ran it. A
         # transient app-DB failure is retried in place: this activity has one Temporal attempt.

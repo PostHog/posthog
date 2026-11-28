@@ -43,13 +43,14 @@ def _read_table(s3: Any, path: str) -> pa.Table:
         return pq.read_table(f)
 
 
-def _first_non_null(column: pa.ChunkedArray) -> Any:
+def _first_non_null(column: pa.ChunkedArray) -> pa.Array | None:
+    # A slice, not a Python value: a string column can hold bytes that do not decode as UTF-8.
     for chunk in column.chunks:
         if chunk.null_count == len(chunk):
             continue
         index = pc.index(chunk.is_valid(), True).as_py()
         if index != -1:
-            return chunk[index].as_py()
+            return chunk.slice(index, 1)
     return None
 
 
@@ -76,7 +77,7 @@ def _read_first_values(s3: Any, path: str) -> pa.Table:
         parquet_file = pq.ParquetFile(f)
         schema = parquet_file.schema_arrow
         pending = [field.name for field in schema if pa.types.is_string(field.type)]
-        first_values: dict[str, Any] = {}
+        first_values: dict[str, pa.Array] = {}
         for index in range(parquet_file.num_row_groups):
             if not pending:
                 break
@@ -91,12 +92,7 @@ def _read_first_values(s3: Any, path: str) -> pa.Table:
                     first_values[name] = value
                     pending.remove(name)
     return pa.table(
-        [
-            pa.array([first_values[field.name]], type=field.type)
-            if field.name in first_values
-            else pa.nulls(1, type=field.type)
-            for field in schema
-        ],
+        [first_values[field.name] if field.name in first_values else pa.nulls(1, type=field.type) for field in schema],
         schema=schema,
     )
 

@@ -34,10 +34,14 @@ from products.warehouse_sources.backend.models.external_data_schema import (
     update_sync_type_config_keys,
 )
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
-from products.warehouse_sources.backend.temporal.data_imports.cdc.errors import CDCErrorCategory
+from products.warehouse_sources.backend.temporal.data_imports.cdc.errors import CDCErrorCategory, cdc_error_info
+from products.warehouse_sources.backend.temporal.data_imports.cdc.repair import repair_lock
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.create_job_model import (
     _build_schema_snapshot,
 )
+
+if typing.TYPE_CHECKING:
+    from products.warehouse_sources.backend.temporal.data_imports.cdc.adapters import CDCSourceAdapter
 
 logger = structlog.get_logger(__name__)
 
@@ -183,8 +187,10 @@ def tables_wait_for_repair(source: ExternalDataSource) -> bool:
     """Whether a broken marker holds this source's CDC table schedules paused, for Repair CDC to unpause.
 
     A marker set with `pause=False` leaves the schedules running, so it does not count: self-managed
-    critical lag, and a billing stop that kept the slot. A table with sync off counts, because every
-    path that lifts a marker lifts it from those tables too.
+    critical lag, and a billing stop that kept the slot. A lost slot found after capture stopped is
+    marked without a pause too, but still counts, because a restored schedule would recreate the slot and
+    resnapshot without a person. A table with sync off counts, because every path that lifts a marker
+    lifts it from those tables too.
     """
     return (
         ExternalDataSchema.objects.filter(
@@ -200,6 +206,45 @@ def tables_wait_for_repair(source: ExternalDataSource) -> bool:
     )
 
 
+def _syncing_cdc_tables(source: ExternalDataSource) -> list[ExternalDataSchema]:
+    return list(
+        ExternalDataSchema.objects.filter(
+            team_id=source.team_id, source=source, sync_type=ExternalDataSchema.SyncType.CDC, should_sync=True
+        )
+        .exclude(deleted=True)
+        .only("sync_type_config", "sync_frequency_interval")
+    )
+
+
+def mark_lost_slot_broken(source: ExternalDataSource, adapter: CDCSourceAdapter[typing.Any]) -> bool:
+    """Mark a source broken whose slot is gone while its capture no longer runs. Returns whether it was marked.
+
+    A capture run that finds the slot gone recreates it and resnapshots on its own, so a source whose
+    capture still runs needs nothing. One whose capture stopped would sit behind tables that read
+    Completed until someone noticed, so it gets the marker that offers Repair CDC.
+    """
+    syncing_tables = _syncing_cdc_tables(source)
+    if (
+        not syncing_tables
+        or tables_wait_for_repair(source)
+        or not _capture_is_stale(syncing_tables, dt.datetime.now(tz=dt.UTC))
+    ):
+        return False
+    # A repair keeps the stale run stamps and recreates the slot, so the slot is checked again under the
+    # repair lock, where no repair can be running or start before the marker lands.
+    with repair_lock(source) as acquired:
+        if not acquired or tables_wait_for_repair(source):
+            return False
+        with adapter.management_connection(source, connect_timeout=10) as conn:
+            if adapter.stream_exists(conn, source):
+                return False
+        category = CDCErrorCategory.SLOT_MISSING
+        # Capture has already stopped, so pausing gains nothing, and a capture run that recovers the slot later
+        # lifts the marker with no paused schedule left behind.
+        mark_cdc_broken(source, category.value, cdc_error_info(category).friendly_message, pause=False)
+    return True
+
+
 def restore_missing_extraction_schedule(source: ExternalDataSource, *, lagging: bool = True) -> bool:
     """Recreate the extraction schedule of a source that has syncing CDC tables but no schedule.
 
@@ -207,13 +252,7 @@ def restore_missing_extraction_schedule(source: ExternalDataSource, *, lagging: 
     so nothing else notices. A source that is not `lagging` pays for the Temporal lookup only once
     its capture stops recording runs. Returns whether the schedule was recreated.
     """
-    syncing_tables = list(
-        ExternalDataSchema.objects.filter(
-            team_id=source.team_id, source=source, sync_type=ExternalDataSchema.SyncType.CDC, should_sync=True
-        )
-        .exclude(deleted=True)
-        .only("sync_type_config", "sync_frequency_interval")
-    )
+    syncing_tables = _syncing_cdc_tables(source)
     # A marker that waits for repair keeps the schedule paused on purpose. Capture would only fail
     # against the lost slot, so Repair CDC recreates the schedule instead.
     if not syncing_tables or tables_wait_for_repair(source):
@@ -236,6 +275,11 @@ def clear_recovered_self_managed_lag(source: ExternalDataSource) -> int:
     long after the customer has recovered. Returns how many schemas were cleared.
     """
     return clear_broken_markers(source, reason=SELF_MANAGED_LAG_REASON)
+
+
+def marks_slot_loss(schema: ExternalDataSchema) -> bool:
+    """Whether this table carries a marker that a recreated slot resolves."""
+    return ((schema.sync_type_config or {}).get("cdc_broken") or {}).get("reason") in _SLOT_LOSS_REASONS
 
 
 def clear_slot_loss_markers(source: ExternalDataSource) -> int:
