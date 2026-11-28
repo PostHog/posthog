@@ -313,6 +313,8 @@ describe('emailImpactLogic', () => {
             await jest.advanceTimersByTimeAsync(500)
             expect(logic.values.steps?.find(({ key }) => key === 'session')?.missingFixedByLinkTagging).toBe(true)
             requestedParams = []
+            await jest.advanceTimersByTimeAsync(500)
+            expect(requestedParams).toEqual([])
             releaseSave()
             await jest.advanceTimersByTimeAsync(500)
         } finally {
