@@ -176,7 +176,7 @@ describe('cyclotron probe', () => {
     })
 
     it('stamps a writer activity read when its rows arrive, before its connection closes', async () => {
-        const end = Client.prototype.end
+        const end: (this: Client) => Promise<void> = Client.prototype.end
         let closingAt: number | undefined
         let closed: () => void = () => undefined
         const closing = new Promise<void>((resolve) => (closed = resolve))
