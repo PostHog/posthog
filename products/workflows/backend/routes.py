@@ -10,8 +10,10 @@ from products.workflows.backend.presentation.views import (
     email_drafts,
     hog_flow,
     hog_flow_template,
+    inbound_email_domains,
     people_imports,
     push_token_imports,
+    received_emails,
     workflow_advent_calendar,
     workflow_classifications,
     workflow_data_suggestions,
@@ -139,6 +141,18 @@ def register_routes(routers: RouterRegistry) -> None:
         r"workflow_advent_calendar",
         workflow_advent_calendar.WorkflowAdventCalendarViewSet,
         "project_workflow_advent_calendar",
+        ["team_id"],
+    )
+    routers.projects.register(
+        r"inbound_email_domains",
+        inbound_email_domains.InboundEmailDomainViewSet,
+        "project_inbound_email_domains",
+        ["team_id"],
+    )
+    routers.projects.register(
+        r"received_emails",
+        received_emails.ReceivedEmailViewSet,
+        "project_received_emails",
         ["team_id"],
     )
     routers.root.register(
