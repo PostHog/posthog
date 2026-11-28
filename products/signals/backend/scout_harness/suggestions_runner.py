@@ -20,6 +20,7 @@ from posthog.models.team.team import Team
 from posthog.sync import database_sync_to_async
 
 from products.signals.backend.agent_runtime import STEP_SCOUT_SUGGESTIONS, resolve_agent_runtime
+from products.signals.backend.facade.constants import MAX_SCOUT_SUGGESTION_GOAL_CHARS
 from products.signals.backend.scout_harness.config_registry import (
     MAX_RUN_INTERVAL_MINUTES,
     MIN_RUN_INTERVAL_MINUTES,
@@ -112,10 +113,15 @@ def validate_suggestion_items(
             continue
         if not item.title.strip() or not item.why_here.strip():
             continue
+        goal = item.goal.strip()
         seen.add(name)
         kept.append(
             item.model_copy(
-                update={"skill_name": name, "proposed_config": config.model_copy(update={"run_cron_schedule": cron})}
+                update={
+                    "skill_name": name,
+                    "goal": goal if len(goal) <= MAX_SCOUT_SUGGESTION_GOAL_CHARS else "",
+                    "proposed_config": config.model_copy(update={"run_cron_schedule": cron}),
+                }
             )
         )
         if len(kept) == MAX_SUGGESTIONS_PER_BATCH:

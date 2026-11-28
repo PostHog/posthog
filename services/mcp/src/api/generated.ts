@@ -68127,6 +68127,11 @@ export namespace Schemas {
       title: string;
       /** Project-specific evidence for this suggestion, in prose. */
       why_here: string;
+      /**
+         * One plain sentence saying what the scout would do. Blank on batches stored before the field existed, so a client falls back to `description`, then to the first sentence of `why_here`.
+         * @maxLength 200
+         */
+      goal?: string;
       /** Custom only: the one-line description the scout would be created with. */
       description: string;
       /** Custom only: the complete skill body the scout would be created with. */
