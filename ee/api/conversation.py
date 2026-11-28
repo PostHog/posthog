@@ -14,7 +14,6 @@ import structlog
 from asgiref.sync import async_to_sync as asgi_async_to_sync
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
-from loginas.utils import is_impersonated_session
 from prometheus_client import Histogram
 from rest_framework import exceptions, serializers, status
 from rest_framework.decorators import action
@@ -31,6 +30,7 @@ from posthog.api.streaming import sse_streaming_response
 from posthog.event_usage import report_user_action
 from posthog.exceptions import Conflict, QuotaLimitExceeded
 from posthog.exceptions_capture import capture_exception
+from posthog.helpers import impersonation
 from posthog.models.user import User
 from posthog.rate_limit import (
     AIBurstRateThrottle,
@@ -355,7 +355,7 @@ class ConversationViewSet(
                 type__in=[Conversation.Type.DEEP_RESEARCH, Conversation.Type.ASSISTANT, Conversation.Type.SLACK],
             )
             # Hide internal conversations from customers, but show them to support agents during impersonation
-            if not is_impersonated_session(self.request):
+            if not impersonation.is_impersonated(self.request):
                 queryset = queryset.filter(is_internal=False)
             # `id` breaks ties, because equal `updated_at` values give no stable page order
             queryset = queryset.order_by("-updated_at", "-id")
@@ -511,7 +511,7 @@ class ConversationViewSet(
                 )
             # Use frontend-provided conversation ID
             # Mark conversation as internal if created during an impersonated session (support agents)
-            is_impersonated = is_impersonated_session(request)
+            is_impersonated = impersonation.is_impersonated(request)
             conversation_type = Conversation.Type.DEEP_RESEARCH if is_research else Conversation.Type.ASSISTANT
             # This endpoint is LangGraph-only — sandbox conversations are created via `open`. New rows
             # are always LangGraph (the model default), never stamped from the sandbox flag here.
@@ -554,7 +554,7 @@ class ConversationViewSet(
         if not has_message and conversation.status == Conversation.Status.IDLE and not has_resume_payload:
             raise exceptions.ValidationError("Cannot continue streaming from an idle conversation")
 
-        is_impersonated = is_impersonated_session(request)
+        is_impersonated = impersonation.is_impersonated(request)
 
         workflow_inputs: ChatAgentWorkflowInputs | ResearchAgentWorkflowInputs
         workflow_class: type[ChatAgentWorkflow] | type[ResearchAgentWorkflow]
@@ -784,7 +784,7 @@ class ConversationViewSet(
                 team=self.team,
                 id=conversation_id,
                 type=Conversation.Type.ASSISTANT,
-                is_internal=is_impersonated_session(request),
+                is_internal=impersonation.is_impersonated(request),
                 agent_runtime=Conversation.AgentRuntime.SANDBOX,
                 task_id=bind_task,
             )

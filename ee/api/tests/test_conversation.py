@@ -115,8 +115,36 @@ class TestConversation(APIBaseTest):
         cast(Any, mock_response).streaming_content = [content]
         return mock_response
 
-    def test_create_conversation(self):
+    @parameterized.expand(
+        [
+            ("session", False),
+            ("oauth", False),
+            ("oauth_impersonated", True),
+        ]
+    )
+    def test_create_conversation(self, authentication: str, expect_impersonated: bool):
         conversation_id = str(uuid.uuid4())
+        if authentication != "session":
+            self.client.logout()
+            token = "pha_fake_conversation_create_test"
+            application = OAuthApplication.objects.create(
+                name="Create test",
+                user=self.user,
+                organization=self.organization,
+                client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+                authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+                redirect_uris="https://example.com/callback",
+                algorithm="RS256",
+            )
+            OAuthAccessToken.objects.create(
+                user=self.user,
+                application=application,
+                token=token,
+                expires=timezone.now() + datetime.timedelta(hours=1),
+                scope="conversation:write",
+                impersonated_by=self.other_user if authentication == "oauth_impersonated" else None,
+            )
+            self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
 
         with patch(
             "ee.hogai.core.executor.AgentExecutor.astream",
@@ -135,6 +163,7 @@ class TestConversation(APIBaseTest):
                 assert conversation is not None
                 self.assertEqual(conversation.user, self.user)
                 self.assertEqual(conversation.team, self.team)
+                self.assertEqual(conversation.is_internal, expect_impersonated)
                 # Check that the method was called with workflow_inputs
                 mock_start_workflow_and_stream.assert_called_once()
                 call_args = mock_start_workflow_and_stream.call_args
@@ -144,6 +173,8 @@ class TestConversation(APIBaseTest):
                 self.assertEqual(workflow_inputs.conversation_id, conversation.id)
                 self.assertEqual(str(workflow_inputs.trace_id), trace_id)
                 self.assertEqual(workflow_inputs.message["content"], "test query")
+                self.assertEqual(workflow_inputs.is_impersonated, expect_impersonated)
+                self.assertEqual(workflow_inputs.is_agent_billable, not expect_impersonated)
 
     def test_add_message_to_existing_conversation(self):
         with patch(
