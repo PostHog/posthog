@@ -407,19 +407,20 @@ describe('RecordingApi', () => {
             ])('refuses %s while another read is held, then serves it', async (_, endByte, decompress) => {
                 const { target, close } = await buildBudgetedApp()
                 let releaseFirst!: () => void
+                let firstStarted!: () => void
+                const firstReading = new Promise<void>((resolve) => (firstStarted = resolve))
                 mockService.getBlock.mockImplementationOnce(
                     () =>
                         new Promise((resolve) => {
                             releaseFirst = () => resolve({ ok: true, data: Buffer.from('first') })
+                            firstStarted()
                         })
                 )
                 mockService.getBlock.mockResolvedValue({ ok: true, data: Buffer.from('second') })
 
                 try {
                     const first = fetchBlock(target, 59).then((r) => r)
-                    while (mockService.getBlock.mock.calls.length === 0) {
-                        await new Promise((resolve) => setImmediate(resolve))
-                    }
+                    await firstReading
 
                     const refused = await fetchBlock(target, endByte, decompress)
                     expect(refused.status).toBe(503)
@@ -451,19 +452,20 @@ describe('RecordingApi', () => {
                 const { target, close } = await buildBudgetedApp()
                 failOnce()
                 let releaseHeld!: () => void
+                let heldStarted!: () => void
+                const heldReading = new Promise<void>((resolve) => (heldStarted = resolve))
                 mockService.getBlock.mockImplementationOnce(
                     () =>
                         new Promise((resolve) => {
                             releaseHeld = () => resolve({ ok: true, data: Buffer.from('held') })
+                            heldStarted()
                         })
                 )
 
                 try {
                     expect((await fetchBlock(target, 59)).status).toBe(expectedStatus)
                     const held = fetchBlock(target, 59).then((r) => r)
-                    while (mockService.getBlock.mock.calls.length < 2) {
-                        await new Promise((resolve) => setImmediate(resolve))
-                    }
+                    await heldReading
                     mockService.getBlock.mockResolvedValue({ ok: true, data: Buffer.from('next') })
 
                     expect((await fetchBlock(target, 39)).status).toBe(200)

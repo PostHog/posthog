@@ -578,7 +578,7 @@ class SessionRecordingSnapshotsRequestSerializer(serializers.Serializer):
     def get_if_none_match(self) -> str | None:
         return self.context.get("if_none_match")
 
-    def validate(self, data):
+    def validate(self, data: dict[str, Any]) -> dict[str, Any]:
         source = data.get("source")
         start_blob_key = data.get("start_blob_key")
         end_blob_key = data.get("end_blob_key")
@@ -1648,7 +1648,7 @@ class SessionRecordingViewSet(
             SnapshotsSustainedRateThrottle,
         ],
     )
-    def snapshots(self, request: request.Request, **kwargs):
+    def snapshots(self, request: request.Request, **kwargs: Any) -> HttpResponse:
         """
         Clients need to call this API twice.
         First without a source parameter to get a list of sources supported by the given session.
