@@ -56,10 +56,10 @@ export function AdventFlowCard({
     const { activateDoor, pinDoor, answerDoor, clickTip } = useActions(adventCalendarLogic)
     const card = useAdventCard(selectedDoorId, !revealingDoor)
     hover.card.current = card
-    const cardNode = nodeOfDoor(layout, card.doorId)
+    const cardNode = revealingDoor ? null : nodeOfDoor(layout, card.doorId)
     const guards = useAdventCardFocus(stageRef, card.isPinned, cardNode, pinDoor)
 
-    if (!cardNode || revealingDoor) {
+    if (!cardNode) {
         return null
     }
     const face = faceOf(cardNode, zoom, rectOnStage)

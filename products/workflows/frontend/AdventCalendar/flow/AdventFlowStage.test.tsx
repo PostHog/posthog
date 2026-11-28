@@ -150,7 +150,7 @@ describe('AdventFlowStage', () => {
         renderStage({ width: 1200, height: 830 })
 
         act(() => fireEvent.mouseEnter(door(3) as HTMLElement))
-        act(() => fireEvent.click(door(3) as HTMLElement))
+        act(() => fireEvent.click(card()?.querySelector('.AdventCard__face') as HTMLElement))
         const atClick = card()
         act(() => fireEvent.click(door(4) as HTMLElement))
         await act(async () => {
@@ -364,24 +364,35 @@ describe('AdventFlowStage', () => {
         expect(card()?.querySelector('.AdventCard__body')?.getAttribute('tabindex')).toBeNull()
     })
 
-    it('keeps focus in a pinned card after a keyboard answer opens its door', async () => {
-        jest.spyOn(window, 'matchMedia').mockReturnValue({ matches: true } as MediaQueryList)
-        seed([1], {})
-        renderStage({ width: 1200, height: 830 })
+    it.each([
+        ['under reduced motion', true, 'advent-door-card-close'],
+        ['while its door opens', false, 'advent-hog-2'],
+    ])(
+        'keeps focus on the answered door or its pinned card after a keyboard answer %s',
+        async (_, reducesMotion, focusAtOnce) => {
+            jest.spyOn(window, 'matchMedia').mockReturnValue({ matches: reducesMotion } as MediaQueryList)
+            seed([1], {})
+            renderStage({ width: 1200, height: 830 })
 
-        act(() => fireEvent.click(door(2) as HTMLElement))
-        const option = card()?.querySelector<HTMLElement>('[data-attr="advent-door-answer"]') as HTMLElement
-        act(() => option.focus())
-        act(() => fireEvent.click(option))
-        await act(async () => {
-            await jest.advanceTimersByTimeAsync(700)
-        })
+            act(() => fireEvent.click(door(2) as HTMLElement))
+            const option = card()?.querySelector<HTMLElement>('[data-attr="advent-door-answer"]') as HTMLElement
+            act(() => option.focus())
+            act(() => fireEvent.click(option))
+            await act(async () => {
+                await jest.advanceTimersByTimeAsync(100)
+            })
+            const focusedAtOnce = document.activeElement?.getAttribute('data-attr')
+            await act(async () => {
+                await jest.advanceTimersByTimeAsync(2600)
+            })
 
-        expect([door(2)?.getAttribute('data-attr'), document.activeElement?.getAttribute('data-attr')]).toEqual([
-            'advent-hog-2',
-            'advent-door-card-close',
-        ])
-    })
+            expect([
+                door(2)?.getAttribute('data-attr'),
+                focusedAtOnce,
+                document.activeElement?.getAttribute('data-attr'),
+            ]).toEqual(['advent-hog-2', focusAtOnce, 'advent-door-card-close'])
+        }
+    )
 
     it.each([
         ['row', 'a desktop stage', { width: 1200, height: 830 }],
