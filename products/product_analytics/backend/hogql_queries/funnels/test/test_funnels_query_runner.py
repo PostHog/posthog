@@ -3,6 +3,8 @@ from datetime import UTC, datetime
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+from django.test import SimpleTestCase, override_settings
+
 from parameterized import parameterized
 
 from posthog.schema import (
@@ -17,11 +19,17 @@ from posthog.schema import (
 )
 
 from posthog.hogql_queries.query_runner import ExecutionMode
+from posthog.models import Team
 
 from products.product_analytics.backend.hogql_queries.funnels.funnels_query_runner import FunnelsQueryRunner
 
 
-class TestFunnelsDashboardFilters(BaseTest):
+@override_settings(PERSON_ON_EVENTS_V2_OVERRIDE=True, CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
+class TestFunnelsDashboardFilters(SimpleTestCase):
+    def setUp(self) -> None:
+        super().setUp()
+        self.team = Team(id=1, timezone="UTC")
+
     def _runner(self, date_from: str | None = None, compare_filter: CompareFilter | None = None) -> FunnelsQueryRunner:
         return FunnelsQueryRunner(
             query=FunnelsQuery(

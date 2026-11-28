@@ -6,6 +6,7 @@ export interface AdventCardState {
     doorId: string | null
     isOpen: boolean
     isPinned: boolean
+    isClosing: boolean
     onEnterDoor: (doorId: string) => void
     onLeaveDoor: () => void
     onEnterCard: () => void
@@ -59,6 +60,7 @@ export function useAdventCard(pinnedDoorId: string | null, isEnabled: boolean): 
         doorId: shown.doorId,
         isOpen: shown.isOpen && shown.doorId === targetId,
         isPinned: !!pinnedDoorId && shown.doorId === pinnedDoorId,
+        isClosing: !!shown.doorId && shown.doorId !== targetId && shown.doorId !== pinnedDoorId,
         onEnterDoor: (doorId) => {
             if (quiet.current) {
                 quiet.current.doorId = doorId

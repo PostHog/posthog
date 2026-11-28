@@ -8,7 +8,7 @@ import type { CdpRole, Named, Step } from '../cards'
 import type { Definition } from '../cards/definitions'
 import type { ObservationName } from '../environment/failover'
 import { ReplicaOf, nameOf } from '../environment/identity'
-import type { QueueCounts, WriterBackends } from '../probe/cyclotron-probe'
+import type { QueueCounts, WriterActivity, WriterBackends } from '../probe/cyclotron-probe'
 import type { WriterSample } from '../probe/writer-probe'
 import type { ValveTimelineEntry } from '../valves/valves'
 import { CounterReading, counterDrift } from './drift'
@@ -42,12 +42,12 @@ export type QueueSample = { at: number } & (QueueCounts | { error: string })
 export type ActivitySample = { at: number } & ({ backends: WriterBackends } | { error: string })
 
 export function readActivity(
-    read: () => Promise<WriterBackends>,
+    read: () => Promise<WriterActivity>,
     now: () => number = Date.now
 ): Promise<ActivitySample> {
     const at = now()
     return read().then(
-        (backends) => ({ at: now(), backends }),
+        (answer) => answer,
         (error: unknown) => ({ at, error: error instanceof Error ? error.message : String(error) })
     )
 }
