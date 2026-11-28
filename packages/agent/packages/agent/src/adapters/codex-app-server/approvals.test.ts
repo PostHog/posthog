@@ -345,6 +345,37 @@ describe("handleServerRequest", () => {
     },
   );
 
+  it("declines an elicitation the host cancelled with a reason and steers the reason in", async () => {
+    const steerReason = vi.fn();
+    const client = {
+      requestPermission: async (): Promise<RequestPermissionResponse> => ({
+        outcome: { outcome: "cancelled" },
+        _meta: { message: "The tool needs approval in PostHog." },
+      }),
+    };
+
+    const result = await handleServerRequest(
+      APP_SERVER_REQUESTS.MCP_ELICITATION,
+      {
+        threadId: "t",
+        turnId: "turn",
+        serverName: "metrics",
+        mode: "form",
+        message: "Allow get_stats?",
+      },
+      client,
+      { ...opts, steerReason },
+    );
+
+    expect({
+      response: result.response,
+      steered: steerReason.mock.calls,
+    }).toEqual({
+      response: { action: "decline", content: null, _meta: null },
+      steered: [["The tool needs approval in PostHog."]],
+    });
+  });
+
   it("enriches an elicitation with the in-flight MCP tool call so the host renders the real tool", async () => {
     const { client, calls } = fakeClient([
       { outcome: "selected", optionId: "accept" },

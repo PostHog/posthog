@@ -1821,6 +1821,58 @@ describe("CodexAppServerAgent", () => {
     await done;
   });
 
+  it("declines instead of aborting the turn when the host cancels an approval with a reason", async () => {
+    const stub = makeStubRpc({
+      initialize: {},
+      "thread/start": { thread: { id: "thr_1" } },
+      "turn/start": { turn: { id: "turn_1" } },
+      "turn/steer": { turnId: "turn_2" },
+    });
+    const client = {
+      sessionUpdate: async () => {},
+      requestPermission: async () => ({
+        outcome: { outcome: "cancelled" },
+        _meta: { message: "The tool needs approval in PostHog." },
+      }),
+      extNotification: async () => {},
+    } as unknown as AgentSideConnection;
+    const agent = new CodexAppServerAgent(client, {
+      processOptions: { binaryPath: "/x/codex" },
+      model: "gpt-5.5",
+      rpcFactory: stub.factory,
+    });
+    await agent.initialize(init);
+    await agent.newSession({ cwd: "/repo" } as unknown as NewSessionRequest);
+    const done = agent.prompt({
+      sessionId: "thr_1",
+      prompt: [{ type: "text", text: "go" }],
+    } as unknown as PromptRequest);
+    stub.emit("turn/started", { turn: { id: "turn_1" } });
+
+    const decision = await stub.invokeRequest(
+      "item/commandExecution/requestApproval",
+      { itemId: "c1", command: "ls" },
+    );
+
+    expect({
+      decision,
+      steered: stub.requests.find((r) => r.method === "turn/steer")?.params,
+    }).toEqual({
+      decision: { decision: "decline" },
+      steered: expect.objectContaining({
+        input: [
+          expect.objectContaining({
+            text: "The tool needs approval in PostHog.",
+          }),
+        ],
+        expectedTurnId: "turn_1",
+      }),
+    });
+
+    stub.emit("turn/completed", { turn: { status: "completed" } });
+    await done;
+  });
+
   it("routes a non-MCP file-change approval to an edit permission (kind + diff + locations)", async () => {
     const { agent, stub, permissionToolCalls } = makeApprovalAgent();
     await agent.initialize(init);

@@ -130,6 +130,22 @@ export interface HandleServerRequestOptions {
     tool: string;
     args: unknown;
   }) => boolean;
+  /**
+   * Delivers the host's reason for cancelling a prompt into the running turn.
+   * codex tells the model only "user cancelled", so without this the model
+   * never sees why the call was refused or what to tell the user.
+   */
+  steerReason?: (reason: string) => void;
+}
+
+export function cancelReason(
+  response: RequestPermissionResponse,
+): string | undefined {
+  const message = (response._meta as { message?: unknown } | null | undefined)
+    ?.message;
+  return response.outcome.outcome === "cancelled" && typeof message === "string"
+    ? message
+    : undefined;
 }
 
 export function networkApprovalOptions(
@@ -451,6 +467,11 @@ async function handleMcpElicitation(
     return declined;
   }
 
+  const reason = cancelReason(response);
+  if (reason && opts.steerReason) {
+    opts.steerReason(reason);
+    return declined;
+  }
   if (response.outcome.outcome === "cancelled") {
     return { action: "cancel", content: null, _meta: null };
   }

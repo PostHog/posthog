@@ -78,7 +78,11 @@ import {
   type AppServerClientHandlers,
   type AppServerRpc,
 } from "./app-server-client";
-import { handleServerRequest, networkApprovalOptions } from "./approvals";
+import {
+  cancelReason,
+  handleServerRequest,
+  networkApprovalOptions,
+} from "./approvals";
 import {
   buildSdkSessionParams,
   buildTurnCompleteParams,
@@ -2449,6 +2453,21 @@ export class CodexAppServerAgent extends BaseAcpAgent {
     );
   }
 
+  private steerActiveTurn(text: string, purpose: string): void {
+    const activeTurnId = this.turns.activeTurnId;
+    if (!activeTurnId) return;
+    void this.rpc
+      .request<{ turnId?: string }>(APP_SERVER_METHODS.TURN_STEER, {
+        threadId: this.threadId,
+        input: toCodexInput([{ type: "text", text }]),
+        expectedTurnId: activeTurnId,
+      })
+      // codex rotates the turn id on steer; adopt it or later
+      // interrupts/steers target a dead turn.
+      .then((res) => this.turns.onSteered(res?.turnId))
+      .catch((err) => this.logger.warn(`turn/steer (${purpose}) failed`, err));
+  }
+
   private shouldAutoAcceptMcpToolCall(mcp: {
     server: string;
     tool: string;
@@ -2516,6 +2535,7 @@ export class CodexAppServerAgent extends BaseAcpAgent {
       resolveMcpToolCall: (serverName) => this.mcp.byServer(serverName),
       shouldAutoAcceptMcpToolCall: (mcp) =>
         this.shouldAutoAcceptMcpToolCall(mcp),
+      steerReason: (reason) => this.steerActiveTurn(reason, "cancel reason"),
     });
     if (richer.handled) {
       return richer.response;
@@ -2654,23 +2674,18 @@ export class CodexAppServerAgent extends BaseAcpAgent {
           // into the running turn (as its TUI does: Denied + a follow-up message).
           const feedback = (response as { _meta?: { customInput?: unknown } })
             ._meta?.customInput;
-          const activeTurnId = this.turns.activeTurnId;
-          if (typeof feedback === "string" && feedback.trim() && activeTurnId) {
-            void this.rpc
-              .request<{ turnId?: string }>(APP_SERVER_METHODS.TURN_STEER, {
-                threadId: this.threadId,
-                input: toCodexInput([{ type: "text", text: feedback.trim() }]),
-                expectedTurnId: activeTurnId,
-              })
-              // codex rotates the turn id on steer; adopt it or later
-              // interrupts/steers target a dead turn.
-              .then((res) => this.turns.onSteered(res?.turnId))
-              .catch((err) =>
-                this.logger.warn("turn/steer (reject feedback) failed", err),
-              );
+          if (typeof feedback === "string" && feedback.trim()) {
+            this.steerActiveTurn(feedback.trim(), "reject feedback");
           }
           return { decision: "decline" };
         }
+      }
+      // A cancel aborts codex's whole turn, so a refusal the model should act
+      // on is a decline with its reason steered in.
+      const reason = cancelReason(response);
+      if (reason) {
+        this.steerActiveTurn(reason, "cancel reason");
+        return { decision: "decline" };
       }
       if (response.outcome.outcome === "cancelled") {
         return { decision: "cancel" };
