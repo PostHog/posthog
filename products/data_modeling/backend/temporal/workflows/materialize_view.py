@@ -379,6 +379,7 @@ class MaterializeViewWorkflow(PostHogWorkflow):
                     file_uris=materialize_result.file_uris,
                     row_count=materialize_result.row_count,
                     incremental=materialize_result.incremental,
+                    file_sizes=materialize_result.file_sizes,
                 )
                 if quality_audit == QUALITY_AUDIT_GATE:
                     stage_result: StageQueryableFilesResult = await temporalio.workflow.execute_activity(
@@ -424,6 +425,7 @@ class MaterializeViewWorkflow(PostHogWorkflow):
                         PublishQueryableTableInputs(
                             **dataclasses.asdict(prepare_inputs),
                             staged_folder_path=stage_result.staged_folder_path,
+                            staged_size_mib=stage_result.staged_size_mib,
                         ),
                         start_to_close_timeout=dt.timedelta(minutes=5),
                         retry_policy=temporalio.common.RetryPolicy(maximum_attempts=3),

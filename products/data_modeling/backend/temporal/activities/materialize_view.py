@@ -423,12 +423,27 @@ class MaterializeViewResult:
     # Whether this run staged rows for a warehouse-view CDP trigger, so the workflow knows to start
     # the producer job. Defaulted so old workflow histories decode without it.
     should_trigger_cdp_producer: bool = False
+    file_sizes: dict[str, int] = dataclasses.field(default_factory=dict)
+
+
+@dataclasses.dataclass(frozen=True, kw_only=True, slots=True)
+class LiveFiles:
+    uris: list[str]
+    sizes_by_relative_path: dict[str, int]
+
+
+def live_files(delta_table: deltalake.DeltaTable) -> LiveFiles:
+    sizes = delta_table._table.get_add_file_sizes()
+    return LiveFiles(
+        uris=delta_table.file_uris(),
+        sizes_by_relative_path={path: size for path, size in sizes.items() if isinstance(size, int)},
+    )
 
 
 @frozen
 class _FullMaterializationResult:
     row_count: int
-    file_uris: list[str]
+    files: LiveFiles
     person_property_complete_table_read: bool
 
 
@@ -1112,20 +1127,20 @@ async def _materialize_fully(
             tracker.close()
 
     await logger.ainfo(f"Finished writing to delta table. row_count={row_count}")
-    file_uris: list[str] = []
+    files = LiveFiles(uris=[], sizes_by_relative_path={})
     if delta_table is not None:
         await logger.ainfo("Compacting delta table")
         progress.enter("compacting the Delta table")
         await _compact(delta_table)
         progress.enter("vacuuming the Delta table")
         await _vacuum(delta_table, logger)
-        file_uris = delta_table.file_uris()
-        if not file_uris and row_count == 0 and pa_schema is not None:
+        files = live_files(delta_table)
+        if not files.uris and row_count == 0 and pa_schema is not None:
             # delta-rs writes no parquet for an empty batch. emit one so the
             # queryable folder has a file with a schema attached that's queryable
             progress.enter("writing an empty parquet file")
             empty_parquet_uri = await _write_empty_parquet_for_zero_rows(table_uri, pa_schema, logger)
-            file_uris = [empty_parquet_uri]
+            files = LiveFiles(uris=[empty_parquet_uri], sizes_by_relative_path={})
 
     # Recording the watermark here is what lets the *next* run go incremental. A rebuild that
     # can't produce one (no config, or the key missing from the output) simply leaves the query
@@ -1141,7 +1156,7 @@ async def _materialize_fully(
         )
     return _FullMaterializationResult(
         row_count=row_count,
-        file_uris=file_uris,
+        files=files,
         person_property_complete_table_read=person_property_complete_table_read,
     )
 
@@ -1157,7 +1172,7 @@ async def _materialize_incrementally(
     person_property_sink: PersonPropertyRowSink | None = None,
     *,
     progress: _AttemptProgress,
-) -> tuple[int, list[str]]:
+) -> tuple[int, LiveFiles]:
     """Upsert only the rows at or after the watermark into the existing table.
 
     The watermark is saved after the last upsert but before the queryable publish. That is only
@@ -1268,7 +1283,7 @@ async def _materialize_incrementally(
 
     # Re-listed after maintenance: compaction rewrites files, so the pre-compaction list would
     # name parquet the publish can no longer copy.
-    return row_count, delta_table.file_uris()
+    return row_count, live_files(delta_table)
 
 
 @tracer.start_as_current_span("materialize_view.compact")
@@ -1426,7 +1441,7 @@ async def materialize_view_activity(inputs: MaterializeViewInputs) -> Materializ
                 person_property_complete_table_read = False
                 with _rust_panics_as_errors():
                     if plan.incremental:
-                        row_count, file_uris = await _materialize_incrementally(
+                        row_count, files = await _materialize_incrementally(
                             objects,
                             plan,
                             hogql_query,
@@ -1451,7 +1466,7 @@ async def materialize_view_activity(inputs: MaterializeViewInputs) -> Materializ
                             progress=progress,
                         )
                         row_count = full_materialization.row_count
-                        file_uris = full_materialization.file_uris
+                        files = full_materialization.files
                         person_property_complete_table_read = full_materialization.person_property_complete_table_read
             except (Exception, asyncio.CancelledError):
                 # A retry stages from scratch and a terminal failure produces nothing, so whatever
@@ -1483,7 +1498,8 @@ async def materialize_view_activity(inputs: MaterializeViewInputs) -> Materializ
             node_name=objects.node.name,
             row_count=row_count,
             table_uri=table_uri,
-            file_uris=file_uris,
+            file_uris=files.uris,
+            file_sizes=files.sizes_by_relative_path,
             saved_query_id=str(objects.saved_query.id),
             quality_audit=quality_audit,
             incremental=plan.incremental,

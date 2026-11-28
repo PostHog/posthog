@@ -94,6 +94,7 @@ from products.data_modeling.backend.temporal.activities.materialize_view import 
     HogQLModelQueryError,
     IncrementalWindow,
     InvalidNodeTypeException,
+    LiveFiles,
     _adaptive_retry_delay,
     _describe_columns,
     _recent_capacity_errors,
@@ -109,6 +110,7 @@ from products.data_modeling.backend.temporal.activities.materialize_view_managed
     materialize_view_managed_warehouse_activity,
 )
 from products.data_modeling.backend.temporal.activities.notify_materialization_failure import _SavedQueryViewers
+from products.data_modeling.backend.temporal.activities.prepare_queryable_table import staged_size_mib
 from products.data_modeling.backend.temporal.workflows.materialize_view import NON_RETRYABLE_ERRORS
 from products.data_quality.backend.facade.enums import (
     CheckRunStatus,
@@ -1598,6 +1600,19 @@ class TestSucceedMaterializationActivity:
         assert result.enrichment_needed is True
 
 
+@pytest.mark.parametrize(
+    "file_uris,expected_mib",
+    [
+        (["s3://bucket/model/part-0.parquet", "s3://bucket/model/part-1.parquet"], 3.0),
+        (["s3://bucket/model/part-0.parquet", "s3://bucket/model/empty.parquet"], None),
+    ],
+)
+def test_staged_size_needs_a_logged_size_for_every_staged_file(file_uris, expected_mib):
+    sizes = {"part-0.parquet": 1024 * 1024, "part-1.parquet": 2 * 1024 * 1024}
+    files = LiveFiles(uris=file_uris, sizes_by_relative_path=sizes)
+    assert staged_size_mib("s3://bucket/model", files) == expected_mib
+
+
 class TestPrepareQueryableTableActivity:
     @pytest.mark.parametrize("incremental,expected_row_count", [(False, 100), (True, None)])
     async def test_creates_warehouse_table_from_saved_query(
@@ -1608,9 +1623,10 @@ class TestPrepareQueryableTableActivity:
             job_id=str(ajob.id),
             saved_query_id=str(asaved_query.id),
             table_uri="s3://test-bucket/test_table",
-            file_uris=["s3://test-bucket/test_file.parquet"],
+            file_uris=["s3://test-bucket/test_table/part-0.parquet"],
             row_count=100,
             incremental=incremental,
+            file_sizes={"part-0.parquet": 2 * 1024 * 1024},
         )
         warehouse_table = await database_sync_to_async(DataWarehouseTable.objects.create)(
             team=ateam,
@@ -1637,6 +1653,7 @@ class TestPrepareQueryableTableActivity:
                 ateam.pk,
                 "test-bucket/queryable_folder",
                 row_count=expected_row_count,
+                size_in_s3_mib=2.0,
             )
         await database_sync_to_async(warehouse_table.delete)()
 
@@ -1651,8 +1668,9 @@ class TestPrepareQueryableTableActivity:
             job_id=str(ajob.id),
             saved_query_id=str(asaved_query.id),
             table_uri="s3://test-bucket/test_table",
-            file_uris=["s3://test-bucket/test_file.parquet"],
+            file_uris=["s3://test-bucket/test_table/part-0.parquet"],
             row_count=100,
+            file_sizes={"part-0.parquet": 2 * 1024 * 1024},
         )
         warehouse_table = await database_sync_to_async(DataWarehouseTable.objects.create)(
             team=ateam,
@@ -1662,6 +1680,13 @@ class TestPrepareQueryableTableActivity:
         refreshed_file_uris = ["s3://test-bucket/test_table/compacted.parquet"]
         mock_delta_table = unittest.mock.MagicMock()
         mock_delta_table.file_uris.return_value = refreshed_file_uris
+        mock_delta_table._table.get_add_file_sizes.return_value = {"compacted.parquet": 1024 * 1024}
+        file_lists_read_during_copy: list[list[str]] = []
+
+        async def copy_that_loses_a_source_file(**kwargs: Any) -> str:
+            file_lists_read_during_copy.append(await kwargs["refresh_file_uris"]())
+            return "test-bucket/queryable_folder"
+
         with (
             unittest.mock.patch(
                 "products.data_modeling.backend.temporal.activities.prepare_queryable_table.prepare_s3_files_for_querying"
@@ -1678,15 +1703,15 @@ class TestPrepareQueryableTableActivity:
                 return_value=mock_delta_table,
             ) as mock_delta_table_cls,
         ):
-            mock_prepare.return_value = "test-bucket/queryable_folder"
+            mock_prepare.side_effect = copy_that_loses_a_source_file
             mock_create_table.return_value = CreateTableResult(
                 table=warehouse_table, published=True, storage_delta_mib=None, total_storage_mib=None
             )
             await activity_environment.run(prepare_queryable_table_activity, inputs)
 
-            refresh_file_uris = mock_prepare.call_args.kwargs["refresh_file_uris"]
-            assert await refresh_file_uris() == refreshed_file_uris
+            assert file_lists_read_during_copy == [refreshed_file_uris]
             mock_delta_table_cls.assert_called_once_with(inputs.table_uri, storage_options={})
+            assert mock_create_table.call_args.kwargs["size_in_s3_mib"] is None
         await database_sync_to_async(warehouse_table.delete)()
 
     async def test_updates_saved_query_with_table_reference(self, activity_environment, ateam, asaved_query, ajob):
