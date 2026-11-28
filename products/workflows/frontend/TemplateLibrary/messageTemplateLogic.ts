@@ -1027,7 +1027,15 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
 
                 // The person can come back before the tags they left with are saved.
                 await pendingTagWrites.get(props.id)
-                const { form, draft, published } = splitDraft(await api.messaging.getTemplate(props.id))
+                const loaded = await api.messaging.getTemplate(props.id)
+                if (loaded.type === 'push') {
+                    // The email form can't hold a push, and older links to a push still open this page.
+                    if (router.values.location.pathname.includes(loaded.id)) {
+                        router.actions.replace(urls.transactionalPush(loaded.id))
+                    }
+                    return { ...NEW_TEMPLATE } as MessageTemplate
+                }
+                const { form, draft, published } = splitDraft(loaded)
                 actions.setDraftState(draft, published)
                 return form
             },

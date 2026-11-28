@@ -42,6 +42,26 @@ describe('messageTemplateLogic', () => {
         logic?.unmount()
     })
 
+    it('opens a push on its own page, because the email form cannot hold one', async () => {
+        useMocks({
+            get: {
+                '/api/environments/:team_id/messaging_templates/:id/': {
+                    id: 'push-id',
+                    name: 'Order shipped',
+                    type: 'push',
+                    content: { push: { title: 'Shipped', body: '', channels: [] } },
+                },
+            },
+        })
+        router.actions.push('/workflows/library/templates/push-id')
+        logic = messageTemplateLogic({ id: 'push-id' })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(router.values.location.pathname).toMatch(/\/transactional\/push\/push-id$/)
+        expect(logic.values.templateErrors).toBeTruthy()
+    })
+
     describe('unsaved-changes guard', () => {
         let confirmSpy: jest.SpyInstance
 

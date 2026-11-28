@@ -25,6 +25,8 @@ import { urls } from 'scenes/urls'
 
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
+import type { MessageTemplateApi } from 'products/messaging/frontend/generated/api.schemas'
+
 import { EmailMetricsIncidentBanner } from '../EmailMetricsIncidentBanner'
 import { ImportFromAnotherToolPrompt } from '../OptOuts/ImportFromAnotherToolPrompt'
 import { CodeBadge } from './code/CodeBadge'
@@ -192,7 +194,7 @@ export function TransactionalEmailsTable(): JSX.Element {
                             }
                             return (
                                 <LemonTableLink
-                                    to={urls.transactionalTemplate(row.id)}
+                                    to={templateUrl(row.template)}
                                     title={
                                         <span className="flex flex-wrap items-center gap-1">
                                             {row.name || 'Unnamed template'}
@@ -318,7 +320,7 @@ export function TransactionalEmailsTable(): JSX.Element {
                                     to={
                                         row.source === 'code'
                                             ? urls.transactionalCodeEmail(row.id)
-                                            : urls.transactionalTemplate(row.id)
+                                            : templateUrl(row.template)
                                     }
                                 >
                                     {sparkline}
@@ -361,4 +363,8 @@ export function TransactionalEmailsTable(): JSX.Element {
             )}
         </div>
     )
+}
+
+function templateUrl(template: MessageTemplateApi): string {
+    return template.type === 'push' ? urls.transactionalPush(template.id) : urls.transactionalTemplate(template.id)
 }
