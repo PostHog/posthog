@@ -38,6 +38,7 @@ from posthog.hogql.database.models import (
     VirtualTable,
 )
 from posthog.hogql.database.schema.traffic_type import create_is_bot_field
+from posthog.hogql.errors import QueryError
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.property_access_types import RestrictedProperty
@@ -53,6 +54,32 @@ from products.event_definitions.backend.models import PropertyDefinition
 
 
 class TestNamespacedLazyTables(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("persons", "WITH properties.email AS e SELECT e FROM persons UNION ALL SELECT e FROM persons", 2),
+            ("groups", "WITH properties.email AS e SELECT e FROM groups UNION ALL SELECT e FROM groups", 2),
+            (
+                "nested_union",
+                "WITH properties.email AS e SELECT e FROM persons UNION ALL (SELECT e FROM persons UNION ALL SELECT e FROM persons)",
+                3,
+            ),
+            (
+                "branch_override",
+                "WITH properties.email AS e SELECT e FROM persons UNION ALL WITH 1 AS e SELECT e FROM persons",
+                1,
+            ),
+            (
+                "alias_dependency",
+                "WITH properties.email AS e, e AS f SELECT f FROM persons UNION ALL SELECT f FROM persons",
+                2,
+            ),
+        ]
+    )
+    def test_scalar_alias_lazy_properties_are_rebound_in_union_branches(
+        self, _name: str, query: str, exports: int
+    ) -> None:
+        self.assertEqual(self._compile(query).count("AS properties___email"), exports)
+
     @parameterized.expand(
         [
             ("persons_star", "persons", "SELECT * FROM {table} LIMIT 1"),
@@ -473,6 +500,151 @@ class TestWrappedEventJoins(SimpleTestCase):
 
         printed, _ = self._compile(f"SELECT joined.properties {WRAPPED_JOIN}", native=native, restricted=restricted)
         assert "JSONDropKeysPool(" in self._wrapper_select_list(printed, "joined", native)
+
+    @parameterized.expand(
+        [
+            ("person_legacy", "events", "raw_persons", PropertyDefinition.Type.PERSON, False),
+            ("person_native", "events", "raw_persons", PropertyDefinition.Type.PERSON, True),
+            ("event_legacy", "raw_persons", "events", PropertyDefinition.Type.EVENT, False),
+            ("event_native", "raw_persons", "events", PropertyDefinition.Type.EVENT, True),
+        ]
+    )
+    def test_scalar_alias_masks_properties_from_its_own_from_table(
+        self, _name: str, outer: str, inner: str, property_type: int, native: bool
+    ) -> None:
+        printed, context = self._compile(
+            f"SELECT (WITH t.properties AS x SELECT x FROM {inner} AS t LIMIT 1) FROM {outer} AS t LIMIT 1",
+            native=native,
+            restricted={RestrictedProperty(name="private_key", property_type=property_type)},
+        )
+        self.assertIn("JSONDropKeysPool(", printed)
+        self.assertTrue(any(isinstance(value, list) and "private_key" in value for value in context.values.values()))
+
+    @parameterized.expand(
+        [
+            ("direct", "t.properties AS x", "x"),
+            ("dependent", "t.properties AS x, x AS y", "y"),
+            ("subquery", "t.properties AS x, (SELECT x) AS y", "y"),
+            ("intervening_from", "t.properties AS x", "(SELECT x)"),
+            ("intervening_from_local_alias", "t.properties AS x", "(WITH x AS y SELECT y)"),
+            ("dotted", "t.properties AS x", "x.private_key"),
+            ("dotted_intervening_from", "t.properties AS x", "(SELECT x.private_key)"),
+            ("expression_alias", "tuple(concat(t.properties, '') AS z) AS x, z AS y", "y"),
+        ]
+    )
+    def test_table_bound_scalar_alias_cannot_be_inherited_by_a_different_from(
+        self, _name: str, aliases: str, selected: str
+    ) -> None:
+        with self.assertRaisesRegex(QueryError, "references another SELECT's tables"):
+            self._compile(
+                f"WITH {aliases} SELECT (SELECT {selected} FROM raw_persons AS t LIMIT 1) FROM events AS t LIMIT 1",
+                restricted={RestrictedProperty(name="private_key", property_type=PropertyDefinition.Type.PERSON)},
+            )
+
+    def test_nested_table_capture_cannot_be_inherited_by_a_different_from(self) -> None:
+        with self.assertRaisesRegex(QueryError, "Unable to resolve field: t"):
+            self._compile(
+                "SELECT (WITH (WITH t.properties AS local_value SELECT local_value) AS y "
+                "SELECT (SELECT y FROM raw_persons AS t LIMIT 1)) FROM events AS t LIMIT 1",
+                restricted={RestrictedProperty(name="private_key", property_type=PropertyDefinition.Type.PERSON)},
+            )
+
+    def test_nested_scalar_with_cannot_capture_tables_before_its_from(self) -> None:
+        with self.assertRaisesRegex(QueryError, "Unable to resolve field: t"):
+            self._compile(
+                "SELECT (WITH (WITH t.properties AS q SELECT q) AS x "
+                "SELECT x FROM raw_persons AS t LIMIT 1) FROM events AS t LIMIT 1",
+                restricted={RestrictedProperty(name="private_key", property_type=PropertyDefinition.Type.PERSON)},
+            )
+
+    def test_nested_scalar_expression_alias_stays_in_its_select_scope(self) -> None:
+        printed, context = self._compile(
+            "SELECT (WITH tuple(1 AS properties) AS a SELECT a) AS m, properties FROM raw_persons AS t LIMIT 1",
+            restricted={RestrictedProperty(name="private_key", property_type=PropertyDefinition.Type.PERSON)},
+        )
+        self.assertIn("JSONDropKeysPool(", printed)
+        self.assertIn(["private_key"], context.values.values())
+
+    @parameterized.expand(
+        [
+            ("column", "properties AS (SELECT 1 AS a), properties AS x"),
+            ("table", "t AS (SELECT 1 AS a), t.properties AS x"),
+        ]
+    )
+    def test_scalar_cte_name_collision_cannot_bind_an_outer_table(self, _name: str, aliases: str) -> None:
+        with self.assertRaises(QueryError):
+            self._compile(
+                f"SELECT (WITH {aliases} SELECT x FROM raw_persons AS t LIMIT 1) FROM (SELECT '' AS properties) AS t",
+                restricted={RestrictedProperty(name="private_key", property_type=PropertyDefinition.Type.PERSON)},
+            )
+
+    @parameterized.expand(
+        [
+            (
+                "event_table_cte",
+                "WITH '' AS properties, sub AS (WITH properties AS y SELECT y FROM events AS e) SELECT y FROM sub",
+                PropertyDefinition.Type.EVENT,
+            ),
+            (
+                "person_scalar_subquery",
+                "WITH '' AS properties SELECT (WITH properties AS y SELECT groupArray(y) FROM raw_persons AS t)",
+                PropertyDefinition.Type.PERSON,
+            ),
+            (
+                "person_join",
+                "WITH '' AS properties SELECT (WITH properties AS y SELECT groupArray(y) "
+                "FROM numbers(1) AS n JOIN raw_persons AS t ON n.number = length(y) * 0)",
+                PropertyDefinition.Type.PERSON,
+            ),
+        ]
+    )
+    def test_inherited_scalar_alias_does_not_hide_local_property_column(
+        self, _name: str, query: str, property_type: int
+    ) -> None:
+        printed, context = self._compile(
+            query, restricted={RestrictedProperty(name="private_key", property_type=property_type)}
+        )
+        self.assertIn("JSONDropKeysPool(", printed)
+        self.assertTrue(any(isinstance(value, list) and "private_key" in value for value in context.values.values()))
+
+    @parameterized.expand([("columns", "COLUMNS('^leak$')"), ("spread", "toString(*COLUMNS('^leak$')) AS out")])
+    def test_union_expanded_columns_cannot_use_another_branch_table_alias(self, _name: str, selected: str) -> None:
+        with self.assertRaisesRegex(QueryError, "references another SELECT's tables"):
+            self._compile(
+                "WITH t.properties AS leak SELECT leak AS out FROM (SELECT '' AS properties) AS t "
+                f"UNION ALL SELECT {selected} FROM (SELECT '' AS leak) CROSS JOIN events AS t",
+                restricted={RestrictedProperty(name="private_key", property_type=PropertyDefinition.Type.EVENT)},
+            )
+
+    def test_unused_union_alias_does_not_block_unrelated_column_expansion(self) -> None:
+        printed, _ = self._compile(
+            "WITH t.properties AS leak SELECT leak AS out FROM (SELECT '' AS properties) AS t "
+            "UNION ALL SELECT COLUMNS('^safe$') FROM (SELECT '' AS safe) CROSS JOIN events AS t"
+        )
+        self.assertIn("UNION ALL", printed)
+
+    def test_table_independent_expression_alias_can_be_inherited(self) -> None:
+        printed, _ = self._compile("WITH tuple(concat('a', 'b') AS z) AS x, z AS y SELECT (SELECT y FROM numbers(1))")
+        self.assertIn("SELECT y", printed)
+
+    @parameterized.expand(
+        [
+            (
+                "root",
+                "WITH (SELECT properties FROM raw_persons LIMIT 1) AS x, x AS y SELECT (SELECT y FROM numbers(1)) FROM numbers(1)",
+            ),
+            (
+                "nested",
+                "SELECT (WITH (SELECT properties FROM raw_persons LIMIT 1) AS x, x AS y SELECT (SELECT y FROM numbers(1))) FROM numbers(1)",
+            ),
+        ]
+    )
+    def test_independent_scalar_subquery_alias_can_be_inherited(self, _name: str, query: str) -> None:
+        printed, context = self._compile(
+            query, restricted={RestrictedProperty(name="private_key", property_type=PropertyDefinition.Type.PERSON)}
+        )
+        self.assertIn("JSONDropKeysPool(", printed)
+        self.assertIn(["private_key"], context.values.values())
 
     def _compile(
         self,
