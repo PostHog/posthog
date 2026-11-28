@@ -294,6 +294,11 @@ class TransactionalEmailImpactSerializer(serializers.Serializer):
 
 class TransactionalEmailImpactSessionsQuerySerializer(DateRangeQuerySerializer):
     workflow_id = serializers.UUIDField(help_text="The workflow behind the transactional email.")
+    landed_before = serializers.DateTimeField(
+        required=False,
+        help_text="Only sessions whose first pageview from a link in the sends read came before this time. "
+        "Applied before the 200-session limit.",
+    )
 
 
 class TransactionalEmailImpactSessionSerializer(serializers.Serializer):
@@ -675,5 +680,6 @@ class TransactionalEmailLogViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 workflow_id,
                 date_from=query.get("date_from"),
                 date_to=query.get("date_to"),
+                landed_before=query.get("landed_before"),
             )
         return Response(TransactionalEmailImpactSessionsSerializer(asdict(sessions)).data)

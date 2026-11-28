@@ -2143,6 +2143,10 @@ export type TransactionalEmailLogImpactSessionsRetrieveParams = {
      */
     date_to?: string
     /**
+     * Only sessions whose first pageview from a link in the sends read came before this time. Applied before the 200-session limit.
+     */
+    landed_before?: string
+    /**
      * The workflow behind the transactional email.
      */
     workflow_id: string

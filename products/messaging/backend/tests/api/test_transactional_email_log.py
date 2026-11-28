@@ -34,7 +34,7 @@ from products.messaging.backend.facade.contracts import EmailStatsInterval
 from products.messaging.backend.models.email_status_sql import EMAIL_STATUS_DATA_TABLE, EMAIL_STATUS_EVENTS_DATA_TABLE
 from products.messaging.backend.models.message_template import MessageTemplate
 from products.messaging.backend.models.transactional_email_key import TransactionalEmailKey
-from products.messaging.backend.services.transactional_email_log import _bucket_starts
+from products.messaging.backend.services.transactional_email_log import MAX_RESULTS_RECIPIENTS, _bucket_starts
 from products.workflows.backend.facade.team_extension import TeamWorkflowsConfig
 from products.workflows.backend.facade.testing import create_workflow_for_test
 from products.workflows.backend.facade.transactional_emails import create_code_email_workflow
@@ -103,8 +103,9 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
         status_consumer_behind: bool = False,
         first: str = "queued",
         message_id: str | None = None,
+        at: datetime | None = None,
     ) -> str:
-        queued_at = NOW - timedelta(minutes=minutes_ago)
+        queued_at = at or NOW - timedelta(minutes=minutes_ago)
         message_id = message_id or (
             str(uuid5(NAMESPACE_URL, f"{recipient}/{minutes_ago}"))
             if keyed
@@ -161,6 +162,38 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
             ],
         )
         return message_id
+
+    def _clicked_sends(self, count: int, minutes_ago: int) -> None:
+        queued_at = NOW - timedelta(minutes=minutes_ago)
+        statuses = [("queued", 0), ("sent", 1), ("delivered", 2), ("clicked", 60)]
+        sync_execute(
+            f"""
+            INSERT INTO {EMAIL_STATUS_EVENTS_DATA_TABLE}
+                (team_id, message_id, status, version, created_at, status_at, reason, recipient, function_id,
+                 sending_domain, _timestamp, _offset, _partition)
+            VALUES
+            """,
+            [
+                {
+                    "team_id": self.team.id,
+                    "message_id": message_id,
+                    "status": row_status,
+                    "version": RANK[row_status] * 2**48
+                    + int((queued_at + timedelta(seconds=seconds)).timestamp() * 1000),
+                    "created_at": queued_at,
+                    "status_at": queued_at + timedelta(seconds=seconds),
+                    "reason": "",
+                    "recipient": f"bulk-{n}@example.com" if row_status == "queued" else "",
+                    "function_id": self.workflow_id if row_status == "queued" else "",
+                    "sending_domain": "mail.example.com" if row_status == "sent" else "",
+                    "_timestamp": queued_at,
+                    "_offset": 0,
+                    "_partition": 0,
+                }
+                for n, message_id in enumerate(str(UUIDT()) for _ in range(count))
+                for row_status, seconds in statuses
+            ],
+        )
 
     def _record_distinct_id(self, message_id: str, distinct_id: str, recipient: str, sent_at: datetime) -> None:
         sync_execute(
@@ -985,6 +1018,92 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
         assert [session["session_id"] for session in listed["sessions"][1:]] == sorted(tied_sessions, reverse=True)[
             :199
         ]
+
+    def test_leaves_out_later_landings_before_the_session_cap(self, _flag):
+        clicked = [("sent", 1, ""), ("delivered", 2, ""), ("clicked", 60, "")]
+        message_id = self._send(120, "reader@example.com", clicked)
+        self._land("reader", "earlier-session", message_id, at=NOW - timedelta(minutes=100))
+        for n in range(201):
+            self._land("reader", f"later-session-{n:03d}", message_id, at=NOW - timedelta(minutes=10))
+        flush_persons_and_events()
+
+        listed = self._impact_sessions(
+            date_from=(NOW - timedelta(days=1)).isoformat(),
+            landed_before=(NOW - timedelta(hours=1)).isoformat(),
+        )
+
+        assert listed == {
+            "sessions": [
+                {"session_id": "earlier-session", "message_id": message_id, "first_pageview_at": "2026-06-15T10:20:00Z"}
+            ],
+            "has_more": False,
+        }
+
+    @parameterized.expand(
+        [
+            ("send_stamped_after_its_landing", 1000, -1000),
+            ("sub_second_stamps", -200, -100),
+            ("send_at_the_end_of_the_pad", 5 * 60 * 1000 - 200, -100),
+        ]
+    )
+    def test_keeps_a_landing_just_before_the_cutoff(self, _flag, _name, send_offset_ms, landing_offset_ms):
+        cutoff = NOW - timedelta(hours=2) + timedelta(milliseconds=300)
+        clicked = [("sent", 1, ""), ("delivered", 2, ""), ("clicked", 60, "")]
+        message_id = self._send(0, "edge@example.com", clicked, at=cutoff + timedelta(milliseconds=send_offset_ms))
+        self._land("edge", "edge-session", message_id, at=cutoff + timedelta(milliseconds=landing_offset_ms))
+        self._land("at-cutoff", "at-cutoff-session", message_id, at=cutoff)
+        flush_persons_and_events()
+
+        listed = self._impact_sessions(
+            date_from=(NOW - timedelta(days=1)).isoformat(), landed_before=cutoff.isoformat()
+        )
+
+        assert [session["session_id"] for session in listed["sessions"]] == ["edge-session"]
+
+    def test_lists_sessions_for_a_cutoff_at_the_end_of_time(self, _flag):
+        clicked = [("sent", 1, ""), ("delivered", 2, ""), ("clicked", 60, "")]
+        message_id = self._send(30, "late@example.com", clicked)
+        self._land("late", "late-session", message_id, at=NOW - timedelta(minutes=20))
+        flush_persons_and_events()
+
+        listed = self._impact_sessions(
+            date_from=(NOW - timedelta(days=1)).isoformat(), landed_before="9999-12-31T23:59:00Z"
+        )
+
+        assert [session["session_id"] for session in listed["sessions"]] == ["late-session"]
+
+    def test_lists_no_sessions_for_a_cutoff_at_the_start_of_time(self, _flag):
+        clicked = [("sent", 1, ""), ("delivered", 2, ""), ("clicked", 60, "")]
+        message_id = self._send(30, "early@example.com", clicked)
+        self._land("early", "early-session", message_id, at=NOW - timedelta(minutes=20))
+        flush_persons_and_events()
+
+        with self.capture_select_queries() as queries:
+            listed = self._impact_sessions(
+                date_from=(NOW - timedelta(days=1)).isoformat(), landed_before="0001-01-01T00:00:00Z"
+            )
+
+        assert listed == {"sessions": [], "has_more": False}
+        assert queries == []
+
+    def test_finds_an_older_landing_behind_a_full_cap_of_recent_sends(self, _flag):
+        clicked = [("sent", 1, ""), ("delivered", 2, ""), ("clicked", 60, "")]
+        older_send = self._send(120, "reader@example.com", clicked)
+        self._land("reader", "older-session", older_send, at=NOW - timedelta(minutes=100))
+        self._clicked_sends(MAX_RESULTS_RECIPIENTS, minutes_ago=30)
+        flush_persons_and_events()
+
+        listed = self._impact_sessions(
+            date_from=(NOW - timedelta(days=1)).isoformat(),
+            landed_before=(NOW - timedelta(hours=1)).isoformat(),
+        )
+
+        assert listed == {
+            "sessions": [
+                {"session_id": "older-session", "message_id": older_send, "first_pageview_at": "2026-06-15T10:20:00Z"}
+            ],
+            "has_more": False,
+        }
 
     def test_lists_only_the_sessions_of_the_sends_in_the_first_query(self, _flag):
         clicked = [("sent", 1, ""), ("delivered", 2, ""), ("clicked", 60, "")]
