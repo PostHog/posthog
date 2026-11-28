@@ -11,10 +11,15 @@ export type CredentialNameRule = (name: string) => boolean
 export const isLogCredentialName: CredentialNameRule = (name) =>
     CREDENTIAL_NAMES.has(name) || CREDENTIAL_NAME_FRAGMENTS.some((part) => name.includes(part))
 
+// A quoted name holds at most four escaped quotes of its own kind. Otherwise, in escaped JSON, every `\"` opens a name
+// that reads the following `\"` pairs as escapes until the end of the text, which makes the scan quadratic.
 const ASSIGNMENT_PATTERN =
-    /(?:^|(?<=[?&;\s{,("'\\]))(?:"((?:\\.|[^"\\])*)"|'((?:\\.|[^'\\])*)'|([A-Za-z0-9_%.[\]-]+))\s*([=:])\s*/g
+    /(?:^|(?<=[?&;\s{,("'\\]))(?:"((?:\\[^"]|[^"\\])*(?:\\"(?:\\[^"]|[^"\\])*){0,4})"|'((?:\\[^']|[^'\\])*(?:\\'(?:\\[^']|[^'\\])*){0,4})'|([A-Za-z0-9_%.[\]-]+))\s*([=:])\s*/g
+// A value that runs past this window is redacted to the end of the text, so overlapping values stay linear.
+const MAX_VALUE_LENGTH = 4096
 const QUOTED_VALUE_PATTERN = /^("(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*')/
-const URL_PASSWORD_PATTERN = /\b[a-z][a-z\d+.-]*:\/\/[^\s/"'<>\\]*@/gi
+// The scheme is not matched, because a scheme pattern starts again at every word boundary of a long dotted run.
+const URL_PASSWORD_PATTERN = /:\/\/[^\s/"'<>\\]*@/g
 // Project tokens (phc_) are public; these prefixes identify private tokens in posthog/models/utils.py.
 const POSTHOG_TOKEN_PATTERN = /\b(?:phx|phs|pha|phr)_([A-Za-z0-9_-]{16,})/g
 const BEARER_PATTERN = /\bBearer\s+([^\s"'\\,;}]+)/gi
@@ -69,18 +74,35 @@ interface RedactionRange {
     end: number
 }
 
-function containerLength(text: string): number {
+function containerLength(text: string, truncated: boolean): number {
     let depth = 0
-    for (const match of text.matchAll(/"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|[{}[\]]/g)) {
+    for (const match of text.matchAll(/"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|[{}[\]"']/g)) {
         if (match[0] === '{' || match[0] === '[') {
             depth++
         } else if (match[0] === '}' || match[0] === ']') {
             if (--depth === 0) {
                 return match.index + 1
             }
+        } else if (truncated && match[0].length === 1) {
+            // The string may close past the window, so the brackets after this quote can be string content.
+            return text.length
         }
     }
     return text.length
+}
+
+function unquotedValueLength(rest: string, separator: string, truncated: boolean): number {
+    if (truncated && /^["']/.test(rest)) {
+        return rest.length
+    }
+    if (/^[{[]/.test(rest)) {
+        return containerLength(rest, truncated)
+    }
+    if (rest.startsWith(REDACTED_VALUE)) {
+        return REDACTED_VALUE.length
+    }
+    const value = rest.match(separator === '=' ? /^(?:\\(?!["'])|[^&;\s"'\\#<>])+/ : /^[^\r\n,}\]]+/)?.[0]
+    return value?.trimEnd().length ?? 0
 }
 
 function findCredentialRanges(text: string, rule: CredentialNameRule): RedactionRange[] {
@@ -90,23 +112,25 @@ function findCredentialRanges(text: string, rule: CredentialNameRule): Redaction
             continue
         }
         const start = match.index + match[0].length
-        const rest = text.slice(start)
+        const rest = text.slice(start, start + MAX_VALUE_LENGTH)
+        const truncated = start + rest.length < text.length
         const quoted = rest.match(QUOTED_VALUE_PATTERN)
         if (quoted) {
             ranges.push({ start: start + 1, end: start + quoted[0].length - 1 })
-        } else if (/^[{[]/.test(rest)) {
-            ranges.push({ start, end: start + containerLength(rest) })
-        } else {
-            const value = rest.startsWith(REDACTED_VALUE)
-                ? REDACTED_VALUE
-                : rest.match(match[4] === '=' ? /^(?:\\(?!["'])|[^&;\s"'\\#<>])+/ : /^[^\r\n,}\]]+/)?.[0].trimEnd()
-            if (value) {
-                ranges.push({ start, end: start + value.length })
-            }
+            continue
+        }
+        const length = unquotedValueLength(rest, match[4]!, truncated)
+        if (truncated && length >= rest.trimEnd().length) {
+            // Every later assignment starts inside this range, so the loop has nothing left to add.
+            ranges.push({ start, end: text.length })
+            break
+        }
+        if (length) {
+            ranges.push({ start, end: start + length })
         }
     }
     for (const match of text.matchAll(URL_PASSWORD_PATTERN)) {
-        const userInfoStart = match.index + match[0].indexOf('://') + 3
+        const userInfoStart = match.index + 3
         const passwordStart = text.indexOf(':', userInfoStart)
         const end = match.index + match[0].length - 1
         if (passwordStart >= userInfoStart && passwordStart < end) {

@@ -166,15 +166,59 @@ describe('credential redaction', () => {
             input: '/e?ip=1&ver=1.2&keyword=shoes&monkey=1&api_host=phc_INVENTEDprojectTOKEN00000',
             expected: '/e?ip=1&ver=1.2&keyword=shoes&monkey=1&api_host=phc_INVENTEDprojectTOKEN00000',
         },
+        {
+            name: 'a quoted value that closes past the scan window, up to the end of the text',
+            input: `password="${'x'.repeat(5_000)}" user=jo`,
+            expected: 'password=[REDACTED]',
+        },
+        {
+            name: 'a credential name that contains an escaped quote',
+            input: `{"password\\"label":"${OTHER_SECRET}"}`,
+            expected: '{"password\\"label":"[REDACTED]"}',
+        },
+        {
+            name: 'a long quoted credential name',
+            input: `{"${'x'.repeat(130)}_password": "${OTHER_SECRET}"}`,
+            expected: `{"${'x'.repeat(130)}_password": "[REDACTED]"}`,
+        },
+        {
+            name: 'a credential container whose string runs past the scan window',
+            input: `token={"a": "${'x'.repeat(4_000)}}${'x'.repeat(200)}", "b": "${OTHER_SECRET}"}`,
+            expected: 'token=[REDACTED]',
+        },
     ])('masks $name', ({ input, expected }) => {
         expect(redactCredentialsInText(input)).toBe(expected)
     })
 
-    it('parses an unclosed private key label in linear time', () => {
-        // A backtracking header pattern takes tens of seconds on this input, far past the test timeout.
-        const input = `-----BEGIN ${'PRIVATE KEY '.repeat(100_000)}`
-
-        expect(redactCredentialsInText(input)).toBe(input)
+    // A quadratic scan takes tens of seconds on each of these inputs, far past the test timeout.
+    it.each([
+        {
+            name: 'an unclosed private key label',
+            input: `-----BEGIN ${'PRIVATE KEY '.repeat(100_000)}`,
+            expected: `-----BEGIN ${'PRIVATE KEY '.repeat(100_000)}`,
+        },
+        {
+            name: 'escaped JSON',
+            input: `{${'\\"k\\": \\"v\\", '.repeat(20_000)}}`,
+            expected: `{${'\\"k\\": \\"v\\", '.repeat(20_000)}}`,
+        },
+        {
+            name: 'a long dotted run',
+            input: 'a.'.repeat(50_000),
+            expected: 'a.'.repeat(50_000),
+        },
+        {
+            name: 'unclosed credential containers',
+            input: ' token={'.repeat(30_000),
+            expected: ' token=[REDACTED]',
+        },
+        {
+            name: 'credential values that run to the end of one long line',
+            input: ' key: v'.repeat(60_000),
+            expected: ' key: [REDACTED]',
+        },
+    ])('parses $name in linear time', ({ input, expected }) => {
+        expect(redactCredentialsInText(input)).toBe(expected)
     })
 
     it.each([
