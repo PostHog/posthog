@@ -34,6 +34,7 @@ LOGIN_ATTEMPTS = 3
 # A server-supplied date range outside this span is implausible. Rejecting it bounds the number of event windows.
 MIN_TIMESTAMP_MS = 631_152_000_000  # 1990-01-01
 MAX_FUTURE_MS = 366 * DAY_MS
+MAX_SESSION_PROPERTY_PAGES = 1_000
 
 
 class UmamiError(ValueError):
@@ -230,6 +231,44 @@ class UmamiClient:
         return properties
 
 
+def _read_session_properties_page(
+    client: UmamiClient,
+    inputs: SourceInputs,
+    manager: ResumableSourceManager[UmamiResumeState],
+    state: UmamiResumeState,
+    website_id: str,
+    batch: list[dict[str, Any]],
+) -> Iterator[list[dict[str, Any]]]:
+    if state.page > MAX_SESSION_PROPERTY_PAGES:
+        inputs.logger.warning(
+            "umami.session_property_page_limit_reached",
+            resource=inputs.schema_name,
+            website_id=website_id,
+            page=state.page,
+            page_limit=MAX_SESSION_PROPERTY_PAGES,
+        )
+        raise UmamiError(
+            f"The session properties sync exceeded the session page limit "
+            f"of {MAX_SESSION_PROPERTY_PAGES:,} pages for one website."
+        )
+
+    for index, session in enumerate(batch[state.session_index :], start=state.session_index):
+        manager.safe_point()
+        session_id = str(session["id"])
+        properties = client.session_properties(website_id, session_id)
+        manager.save_state(replace(state, session_index=index + 1))
+        if properties:
+            yield [
+                {
+                    "websiteId": website_id,
+                    "sessionId": session_id,
+                    "createdAt": session["createdAt"],
+                    "sessionProperties": properties,
+                }
+            ]
+        manager.safe_point()
+
+
 def get_rows(
     config: UmamiSourceConfig,
     inputs: SourceInputs,
@@ -329,22 +368,7 @@ def get_rows(
                     )
                     for batch in resource:
                         if inputs.schema_name == "session_properties":
-                            for index, session in enumerate(batch[state.session_index :], start=state.session_index):
-                                manager.safe_point()
-                                session_id = str(session["id"])
-                                properties = client.session_properties(website_id, session_id)
-                                state = replace(state, session_index=index + 1)
-                                manager.save_state(state)
-                                if properties:
-                                    yield [
-                                        {
-                                            "websiteId": website_id,
-                                            "sessionId": session_id,
-                                            "createdAt": session["createdAt"],
-                                            "sessionProperties": properties,
-                                        }
-                                    ]
-                                manager.safe_point()
+                            yield from _read_session_properties_page(client, inputs, manager, state, website_id, batch)
                             state = replace(state, page=state.page + 1, session_index=0)
                             manager.save_state(state)
                         else:

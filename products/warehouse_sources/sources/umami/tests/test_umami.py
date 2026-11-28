@@ -1,6 +1,7 @@
 from typing import Any
 
 import pytest
+from unittest.mock import patch
 
 from requests.exceptions import HTTPError
 
@@ -194,6 +195,30 @@ def test_session_properties_resume_within_a_page_and_keep_repeated_keys() -> Non
         "/v1/websites/site-a/sessions/no-properties/properties",
     ]
     assert any(state.page == 2 and state.session_index == 2 for state in result.committed_states)
+
+
+@pytest.mark.parametrize("repeats_last_page", [False, True])
+def test_session_properties_stop_at_the_website_page_limit(repeats_last_page: bool) -> None:
+    session = {"id": "session-a", "createdAt": "2024-01-01T00:00:00Z"}
+    with patch("products.warehouse_sources.sources.umami.umami.MAX_SESSION_PROPERTY_PAGES", 2):
+        result = driver("https://analytics.example.com").run(
+            "session_properties",
+            route(
+                {
+                    "/websites": [page([{"id": "site-a"}]), page([])],
+                    "/site-a/sessions": [page([session]), page([session] if repeats_last_page else [])],
+                    "/session-a/properties": [ScriptedResponse(json=[{"dataKey": "plan", "stringValue": "basic"}])],
+                }
+            ),
+            resume_state=UmamiResumeState(page=2, website_id="site-a", start_at=START, end_at=START, stop_at=START),
+        )
+
+    assert [request.param("page") for request in result.requests if request.path.endswith("/sessions")] == ["2", "3"]
+    assert result.paths.count("/api/websites/site-a/sessions/session-a/properties") == 1
+    if repeats_last_page:
+        assert "exceeded the session page limit" in str(result.raised)
+    else:
+        assert result.raised is None
 
 
 @pytest.mark.parametrize("second_status", [200, 401])
