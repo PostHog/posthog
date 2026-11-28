@@ -331,18 +331,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         max_batch_distinct_ids: config.stub_create_max_batch_distinct_ids,
         max_queued_calls: config.stub_create_max_queued_calls,
         max_queue_wait,
+        batch_wait: Duration::from_millis(config.stub_create_batch_wait_ms),
     });
     let attaches = (config.attach_workers > 0).then_some(CoalesceSettings {
         workers: config.attach_workers,
         max_batch_distinct_ids: config.attach_max_batch_distinct_ids,
         max_queued_calls: config.attach_max_queued_calls,
         max_queue_wait,
+        batch_wait: Duration::from_millis(config.attach_batch_wait_ms),
     });
     if let Some(settings) = &stub_creates {
         tracing::info!(
             workers = settings.workers,
             max_batch_distinct_ids = settings.max_batch_distinct_ids,
             max_queued_calls = settings.max_queued_calls,
+            batch_wait_ms = config.stub_create_batch_wait_ms,
             "Coalescing stub-creation transactions"
         );
     }
@@ -351,6 +354,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             workers = settings.workers,
             max_batch_distinct_ids = settings.max_batch_distinct_ids,
             max_queued_calls = settings.max_queued_calls,
+            batch_wait_ms = config.attach_batch_wait_ms,
             "Coalescing attach statements"
         );
     }
