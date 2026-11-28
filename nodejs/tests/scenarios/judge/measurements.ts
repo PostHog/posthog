@@ -87,7 +87,7 @@ export type MeasureEvidence = Omit<JudgeEvidence, 'janitorResets' | 'boundary'> 
 
 export type MeasurementDefinition = Definition & {
     unit: string
-    measure(evidence: MeasureEvidence, params: unknown): Measured[]
+    measure(evidence: MeasureEvidence): Measured[]
 }
 
 export const SAMPLE_INTERVAL_MS = 5000
@@ -1023,12 +1023,12 @@ export const MEASUREMENTS: MeasurementDefinition[] = [
 ]
 
 export function measure(measurements: Named[], evidence: MeasureEvidence): Measurement[] {
-    return measurements.flatMap(({ name, params }) => {
+    return measurements.flatMap(({ name }) => {
         const definition = MEASUREMENTS.find((measurement) => measurement.name === name)
         if (!definition) {
             throw new Error(`No measurement ${name}`)
         }
-        return definition.measure(evidence, params).map((value) => ({ name, unit: definition.unit, ...value }))
+        return definition.measure(evidence).map((value) => ({ name, unit: definition.unit, ...value }))
     })
 }
 

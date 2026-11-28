@@ -148,28 +148,16 @@ describe('load', () => {
             'measure.0.name: unknown measurement queue_depth',
         ],
         [
-            'a series window shorter than one vacuum sample',
-            { ...card, measure: [{ name: 'dead_tuple_share', params: { every: '0s' } }] },
-            undefined,
-            'measure.0.params.every: a series window spans at least 10s, one vacuum sample',
-        ],
-        [
-            'a series window one second shorter than one vacuum sample',
-            { ...card, measure: [{ name: 'dead_tuple_share', params: { every: '9s' } }] },
-            undefined,
-            'measure.0.params.every: a series window spans at least 10s, one vacuum sample',
-        ],
-        [
             'a measurement listed twice, whose keys would overwrite each other',
             {
                 ...card,
                 measure: [
-                    { name: 'dead_tuple_share', params: { every: '5m' } },
-                    { name: 'dead_tuple_share', params: { every: '10m' } },
+                    { name: 'cyclotron_jobs_tuples', params: {} },
+                    { name: 'cyclotron_jobs_tuples', params: {} },
                 ],
             },
             undefined,
-            'measure: dead_tuple_share is listed more than once, and its keys would overwrite each other; list it once',
+            'measure: cyclotron_jobs_tuples is listed more than once, and its keys would overwrite each other; list it once',
         ],
         [
             'an unknown bar',

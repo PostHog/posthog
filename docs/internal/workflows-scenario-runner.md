@@ -976,10 +976,8 @@ export type JournalEntry = {
     - A minute's p99 from about 60 probes is its slowest probe, so one outlier can delay recovery.
   - `pickup_p99_seconds` and `pickup_recovery_seconds`, seconds, per queue, keyed `<queue>_`: job pickup lateness from `cdp_cyclotron_job_lateness_seconds` through a `pg.failover` valve.
     - Every key is `null` and censored: `<queue>_baseline`, `<queue>_bar`, each valve point and the recovery. The worker scrapes come every 5 seconds, so no scrape window ends at T0 or at a minute boundary, and `_unmeasured` says so.
-  - The soak measures read the samples of the vacuum probe. The loader refuses a measurement listed twice, because its keys would overwrite each other.
-    - A series measure takes `every`, a window of at least 10 seconds and 10 minutes by default, and keys each point `t<seconds into the drive>`. A window with no reading is `null` and censored, with its reason.
-    - `dead_tuple_share`, the highest share of dead tuples in each window. `heap_bytes_per_row`, the heap bytes per live row at the end of each window. `seconds_since_autovacuum`, the longest wait since the last autovacuum in each window, censored while the table had none.
-    - `cyclotron_jobs_tuples` compares the first and the last sample of the drive. Each end needs a sample within 20 seconds of it, or the values are incomplete, and one sample alone is unmeasured.
+  - `cyclotron_jobs_tuples` reads the samples of the vacuum probe and compares the live and dead tuples of the first and the last sample of the drive, with the most dead tuples between. Each end needs a sample within 20 seconds of it, or the values are incomplete, and one sample alone is unmeasured.
+  - The loader refuses a measurement listed twice, because its keys would overwrite each other.
 
 ### Cyclotron probe
 
