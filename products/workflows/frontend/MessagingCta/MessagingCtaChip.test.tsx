@@ -22,6 +22,7 @@ interface Page {
     tab: () => Promise<void>
     text: (text: string) => HTMLElement | null
     sent: (event: string) => Promise<Record<string, any>[]>
+    waitFor: (assertion: () => Promise<void>) => Promise<void>
     switchViewer: (uuid: string) => void
     close: () => void
 }
@@ -56,12 +57,12 @@ function fillStorage(): void {
 interface PageLoadOptions {
     sendsFromCode?: boolean
     payload?: unknown
-    flagsLoaded?: boolean
+    flagsRequest?: Promise<Record<string, string | boolean>>
 }
 
 function openFreshPageLoad(
     replayArm: string | boolean | undefined,
-    { sendsFromCode = true, payload, flagsLoaded = true }: PageLoadOptions = {}
+    { sendsFromCode = true, payload, flagsRequest }: PageLoadOptions = {}
 ): Page {
     let page: Page | undefined
     jest.isolateModules(() => {
@@ -83,23 +84,34 @@ function openFreshPageLoad(
             persistence: 'memory',
             request_batching: false,
             disable_compression: true,
-            advanced_disable_flags: flagsLoaded,
+            advanced_disable_flags: !flagsRequest,
             autocapture: false,
             capture_pageview: false,
-            ...(payload === undefined
+            ...(payload === undefined && !flagsRequest
                 ? {}
                 : {
                       bootstrap: {
-                          featureFlags: { [FEATURE_FLAGS.XPM_REPLAY_PLACEMENT]: replayArm as string },
-                          featureFlagPayloads: { [FEATURE_FLAGS.XPM_REPLAY_PLACEMENT]: payload as any },
+                          featureFlags: {
+                              [FEATURE_FLAGS.XPM_REPLAY_PLACEMENT]: replayArm as string,
+                              [FEATURE_FLAGS.WORKFLOWS_TRANSACTIONAL_EMAIL_API]: sendsFromCode,
+                          },
+                          featureFlagPayloads:
+                              payload === undefined ? {} : { [FEATURE_FLAGS.XPM_REPLAY_PLACEMENT]: payload as any },
                       },
                   }),
         })
         const pageLoad = ++pageLoads
         posthog.register({ test_page_load: pageLoad })
         initKeaTests()
-        if (!flagsLoaded) {
-            useMocks({ post: { [`${INGESTION_HOST}/flags/`]: () => new Promise(() => {}) } })
+        if (flagsRequest) {
+            useMocks({
+                post: {
+                    [`${INGESTION_HOST}/flags/`]: async () => [
+                        200,
+                        { featureFlags: await flagsRequest, featureFlagPayloads: {} },
+                    ],
+                },
+            })
         } else {
             featureFlagLogic.actions.setFeatureFlags([], {
                 [FEATURE_FLAGS.WORKFLOWS_TRANSACTIONAL_EMAIL_API]: sendsFromCode,
@@ -127,6 +139,7 @@ function openFreshPageLoad(
                     .filter((sent) => sent.event === event)
                     .map((sent) => sent.properties)
             },
+            waitFor: (assertion) => rtl.waitFor(assertion),
             switchViewer: (uuid) => rtl.act(() => userLogic.actions.loadUserSuccess({ ...MOCK_DEFAULT_USER, uuid })),
             close: () => rtl.cleanup(),
         }
@@ -253,13 +266,30 @@ describe('MessagingCtaChip', () => {
         expect(nextShowing.attempt_id).not.toBe(clicks[0].attempt_id)
     })
 
-    it("waits for this page load's flags before it shows or reports, even with an arm cached from an earlier one", async () => {
-        open('player_chip').renderChip()
-        const { renderChip, chip, sent } = open('player_chip', { flagsLoaded: false })
+    it("waits for this page load's flags before it shows or reports, even when the page bootstraps another arm", async () => {
+        let answerFlags: (flags: Record<string, string | boolean>) => void = () => {}
+        const flagsRequest = new Promise<Record<string, string | boolean>>((resolve) => {
+            answerFlags = resolve
+        })
+        const { renderChip, chip, sent, waitFor } = open('control', { flagsRequest })
         renderChip()
 
         expect(chip()).toBeNull()
         expect(await sent('$feature_flag_called')).toEqual([])
+
+        answerFlags({
+            [FEATURE_FLAGS.XPM_REPLAY_PLACEMENT]: 'player_chip',
+            [FEATURE_FLAGS.WORKFLOWS_TRANSACTIONAL_EMAIL_API]: true,
+        })
+        await waitFor(async () =>
+            expect(await sent('$feature_flag_called')).toEqual([
+                expect.objectContaining({
+                    $feature_flag: FEATURE_FLAGS.XPM_REPLAY_PLACEMENT,
+                    $feature_flag_response: 'player_chip',
+                }),
+            ])
+        )
+        expect(chip()?.textContent).toContain('From an email?')
     })
 
     it('shows the copy its flag payload sets', () => {

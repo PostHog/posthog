@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import posthog from 'posthog-js'
 import { useEffect, useMemo } from 'react'
 
 import { FEATURE_FLAGS, FeatureFlagKey } from 'lib/constants'
@@ -26,6 +27,16 @@ const DESTINATION_FLAGS: Partial<Record<MessagingCtaDestination, FeatureFlagKey>
     send_from_code: FEATURE_FLAGS.WORKFLOWS_TRANSACTIONAL_EMAIL_API,
 }
 
+// posthog-js reports the page bootstrap's flags before /flags answers, and the bootstrap can hold an arm
+// the server no longer assigns. A page reports only its first exposure of a flag, so showing that arm
+// would count the viewer in it for the whole page. With flags disabled, the app's own flags are final.
+function hasThisPageLoadsValue(flag: FeatureFlagKey): boolean {
+    return (
+        !!posthog.config?.advanced_disable_flags ||
+        posthog.getFeatureFlagResult(flag, { fresh: true, send_event: false }) !== undefined
+    )
+}
+
 export interface MessagingCta {
     placement: MessagingPlacement
     copy: MessagingCtaCopy
@@ -44,7 +55,11 @@ export function useMessagingCta(key: MessagingPlacementKey, viewerId: string): M
     const destinationFlag = DESTINATION_FLAGS[placement.destination]
     const destinationAvailable = !destinationFlag || !!peekFeatureFlag(featureFlags, destinationFlag)
     const eligible =
-        receivedFeatureFlags && destinationAvailable && !isDismissed && !messageAudienceAccessDisabledReason()
+        receivedFeatureFlags &&
+        hasThisPageLoadsValue(flag) &&
+        destinationAvailable &&
+        !isDismissed &&
+        !messageAudienceAccessDisabledReason()
     const state = placementState(key, { value: () => flagValue, payload: () => getFeatureFlagPayload(flag) })
     const showingTo = eligible && state.active ? viewerId : null
     const attemptId = useMemo(() => (showingTo === null ? undefined : uuid()), [showingTo])
