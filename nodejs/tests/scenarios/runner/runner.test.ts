@@ -2576,4 +2576,47 @@ describe('runner through seed, drive and judge', () => {
             await new Promise((resolve) => slowIntake.close(resolve))
         }
     }, 30_000)
+    it('marks every webhook row incomplete when an interrupt drops a trigger cdp-api has not answered yet', async () => {
+        const interrupt = new AbortController()
+        let triggers = 0
+        const intake = http.createServer((request, response) => {
+            triggers += 1
+            request.resume()
+            if (triggers <= 2) {
+                response.writeHead(200).end('{}')
+            } else {
+                interrupt.abort()
+            }
+        })
+        await new Promise<void>((resolve) => intake.listen(0, '127.0.0.1', resolve))
+        try {
+            const result = await createRunner(
+                environmentOf('none', `http://127.0.0.1:${(intake.address() as AddressInfo).port}`),
+                env
+            ).run(
+                shortSmoke([], 'workflow_webhook', {
+                    measures: [
+                        { name: 'webhook_trigger_answer_ms', params: {} },
+                        { name: 'webhook_trigger_outcomes', params: {} },
+                    ],
+                }),
+                interrupt.signal
+            )
+            results.push(result)
+
+            expect(result).toMatchObject({ status: 'invalid', statusReason: 'the run was interrupted' })
+            expect(
+                result.measurements.map(({ name, key, value, incomplete }) => ({ name, key, value, incomplete }))
+            ).toEqual(
+                expect.arrayContaining([
+                    { name: 'webhook_trigger_outcomes', key: 'offered_1x', value: 2, incomplete: true },
+                    { name: 'webhook_trigger_answer_ms', key: 'p99_1x', value: expect.any(Number), incomplete: true },
+                ])
+            )
+            expect(result.measurements.filter(({ incomplete }) => !incomplete)).toEqual([])
+        } finally {
+            intake.closeAllConnections()
+            await new Promise((resolve) => intake.close(resolve))
+        }
+    }, 30_000)
 })
