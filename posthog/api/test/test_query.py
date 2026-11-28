@@ -49,6 +49,7 @@ from posthog.api.query import (
 )
 from posthog.api.services.query import process_query_dict, process_query_model
 from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.client.execute_async import QueryStatusManager, execute_process_query
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import Product, QueryTags
 from posthog.constants import AvailableFeature
@@ -71,6 +72,7 @@ from products.managed_warehouse.backend.facade.query_labels import (
     MANAGED_WAREHOUSE_QUERY_STATUS_LABEL_PREFIX,
 )
 from products.product_analytics.backend.facade.models import InsightVariable
+from products.tasks.backend.facade.api import channel_queryset
 from products.warehouse_sources.backend.facade.models import MANAGED_WAREHOUSE_SOURCE_PREFIX, ExternalDataSource
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 
@@ -96,6 +98,34 @@ class TestQueryTraceCorrelation(SimpleTestCase):
 
 class TestQuery(ClickhouseTestMixin, APIBaseTest):
     ENDPOINT = "query"
+
+    @parameterized.expand(["channel", "grants"])
+    def test_polling_a_completed_file_system_query_rechecks_access(self, change: str):
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": "Access control"}
+        ]
+        self.organization.save()
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        channel = channel_queryset().create(team=self.team, name="Shared")
+
+        query = HogQLQuery(query="SELECT count() FROM system.file_system")
+        manager = QueryStatusManager(f"files-{change}-{self.team.pk}", self.team.pk)
+        self.addCleanup(manager.delete_query_status)
+        manager.store_query_status(QueryStatus(id=manager.query_id, team_id=self.team.pk))
+        execute_process_query(
+            self.team.pk, self.user.pk, manager.query_id, query.model_dump(), LimitContext.QUERY_ASYNC
+        )
+        url = f"/api/environments/{self.team.pk}/query/{manager.query_id}/"
+        response = self.client.get(url)
+        assert response.status_code == 200, response.content
+        assert response.json()["query_status"]["results"]["results"] is not None
+
+        if change == "channel":
+            channel_queryset().filter(team=self.team, pk=channel.pk).update(channel_type="private")
+        else:
+            AccessControl.objects.create(team=self.team, resource="canvas", access_level="none")
+        assert self.client.get(url).status_code == 404
 
     @patch("posthog.api.query.report_user_or_team_action")
     @patch("posthog.api.query.process_query_model")
@@ -1521,6 +1551,18 @@ class TestQueryRetrieve(APIBaseTest):
         response = self.client.get(f"/api/environments/{self.team.id}/query/{self.valid_query_id}/")
         self.assertEqual(response.status_code, 200)
         self.assertTrue(response.json()["query_status"]["complete"])
+
+    @parameterized.expand([("SELECT 1", 200), ("SELECT * FROM postgresql(...)", 404), (None, 404)])
+    def test_legacy_hogql_status_requires_known_non_federated_sql(self, sql, expected):
+        self.redis_client_mock.get.return_value = json.dumps(
+            {
+                "id": self.valid_query_id,
+                "team_id": self.team_id,
+                "complete": True,
+                "results": {"hogql": "SELECT 1", "clickhouse": sql, "results": [[1]]},
+            }
+        ).encode()
+        assert self.client.get(f"/api/environments/{self.team_id}/query/{self.valid_query_id}/").status_code == expected
 
     def test_running_query(self):
         self.redis_client_mock.get.return_value = json.dumps(

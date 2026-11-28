@@ -2,6 +2,7 @@ from collections.abc import Iterable
 from datetime import datetime
 from functools import lru_cache
 from typing import TYPE_CHECKING, Optional
+from uuid import uuid4
 
 from posthog.hogql import ast
 from posthog.hogql.base import Expr
@@ -2135,10 +2136,52 @@ exports: PostgresTable = PostgresTable(
     },
 )
 
+_CANVAS_ROWS_LIMITED_TO_READABLE_CANVASES = parse_expr(
+    "NOT (type = 'canvas' AND ref NOT IN (SELECT toString(id) FROM system.canvases))"
+)
+_CANVAS_ROWS_HIDDEN = parse_expr("type != 'canvas'")
+
+
+def _canvases_readable(context: Optional[HogQLContext]) -> bool:
+    return context is not None and context.database is not None and context.database.has_table(CANVASES_TABLE)
+
+
+class _FileSystemTable(PostgresTable):
+    def to_printed_clickhouse(self, context: HogQLContext) -> str:
+        source = super().to_printed_clickhouse(context)
+        if not _canvases_readable(context) or context.team_id is None:
+            return source
+        if "file_system_canvas_table" not in context.data_to_ingest:
+            from products.canvas.backend.facade.access import public_canvas_ids  # noqa: PLC0415
+
+            name = None
+            if ids := public_canvas_ids(context.team_id):
+                # Send one writer snapshot per query, including self-joins, outside the ClickHouse query text limit.
+                name = f"__ph_public_canvases_{uuid4().hex}"
+                context.external_tables[name] = {
+                    "name": name,
+                    "structure": [("ids", "String")],
+                    "data": [{"ids": ids}],
+                }
+            context.data_to_ingest["file_system_canvas_table"] = name
+        name = context.data_to_ingest["file_system_canvas_table"]
+        team_id = int(context.team_id)
+        if name is None:
+            return f"(SELECT * FROM {source} WHERE team_id = {team_id} AND type != 'canvas')"
+        return (
+            f"(SELECT * FROM {source} WHERE team_id = {team_id} "
+            f"AND (type != 'canvas' OR ref IN (SELECT arrayJoin(splitByChar(',', ids)) FROM {name})))"
+        )
+
+    def get_predicates(self, context: Optional[HogQLContext] = None) -> list[Expr]:
+        canvas_rows = _CANVAS_ROWS_LIMITED_TO_READABLE_CANVASES if _canvases_readable(context) else _CANVAS_ROWS_HIDDEN
+        return [*self.predicates, canvas_rows]
+
+
 # The project's virtual file tree (posthog_filesystem). Channels are folders and
 # tasks/canvases are filed under them by `path`; `surface` separates products
 # (e.g. "web" vs "desktop"). Scoped to a channel via startsWith(path, ...).
-file_system: PostgresTable = PostgresTable(
+file_system: _FileSystemTable = _FileSystemTable(
     name="file_system",
     postgres_table_name="posthog_filesystem",
     # This table cannot check workflow access per row, so it leaves out the types the tree no longer files.
@@ -2178,10 +2221,7 @@ class _ActivityLogsTable(PostgresTable):
     def get_predicates(self, context: Optional[HogQLContext] = None) -> list[Expr]:
         # The Canvas rule reads `system.canvases`, which access control removes from the schema for a
         # caller denied the canvas resource; without the table it drops Canvas rows instead.
-        canvases_readable = (
-            context is not None and context.database is not None and context.database.has_table(CANVASES_TABLE)
-        )
-        return list(activity_visibility_predicates(canvases_readable))
+        return list(activity_visibility_predicates(_canvases_readable(context)))
 
     def retention_start(self, team: Optional["Team"], team_id: Optional[int]) -> Optional[datetime]:
         from posthog.models.activity_logging.retention import activity_log_retention_start_for_team  # noqa: PLC0415

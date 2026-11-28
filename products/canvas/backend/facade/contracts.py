@@ -15,6 +15,12 @@ from uuid import UUID
 from pydantic.dataclasses import dataclass
 
 
+@dataclass(frozen=True, kw_only=True)
+class CanvasResultAccess:
+    revision: str
+    grants_digest: str
+
+
 @dataclass(frozen=True)
 class CanvasSearchRecord:
     """The fields the tasks search index stores for a canvas."""

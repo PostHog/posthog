@@ -68,6 +68,7 @@ _ACCOUNT_COMMUNICATION_LAZY_FIELDS = frozenset({"email_threads", "support_ticket
 # one cache key, and the narrower one is served the wider one's Canvas rows.
 _TRANSITIVE_SYSTEM_TABLE_SCOPES: dict[str, frozenset[str]] = {
     "system.activity_logs": frozenset({"canvas"}),
+    "system.file_system": frozenset({"canvas"}),
     # These predicates resolve scoped parents at execution, after a cache hit would return.
     # Keep row filtering on the parent so its creator exemption also applies to junction rows.
     "system._account_tagged_items": frozenset({"account"}),
@@ -231,6 +232,7 @@ def queried_access_controlled_resources(
     *,
     bypassed_scopes: frozenset[str] = frozenset(),
     modifiers: HogQLQueryModifiers | None = None,
+    referenced_tables: set[str] | None = None,
     _catalog: Optional[_WarehouseCatalog] = None,
 ) -> Optional[set[str]]:
     """The set of access-control scope names a query reads, e.g. "notebook", "warehouse_table".
@@ -300,6 +302,8 @@ def queried_access_controlled_resources(
             return None  # unparseable -> fail closed
 
         table_names = set(get_table_names(select))
+        if referenced_tables is not None:
+            referenced_tables.update(table_names)
         system_scopes = {f"system.{name}": scope for name, scope in access_controlled_system_tables().items()}
         scopes: set[str] = {system_scopes[name] for name in table_names if name in system_scopes}
         scopes_from_system_tables = set(scopes)
@@ -323,7 +327,7 @@ def queried_access_controlled_resources(
             # partition on warehouse access too. Without this, two `data_catalog` users with different
             # source grants share a cache key and the denied one is served the allowed one's certification
             # notes / proposal evidence on a hit. The specific denied object IDs fold into the key via
-            # AnalyticsQueryRunner._get_object_access_restrictions.
+            # QueryAccessFingerprint._get_object_access_restrictions.
             scopes.add("warehouse_table")
             scopes.add("warehouse_view")
 
@@ -332,7 +336,7 @@ def queried_access_controlled_resources(
         # check/run/health row whose subject table or view the caller can't see). Without this, two
         # users with different warehouse grants share a cache key and the denied one is served the
         # allowed one's check configs and run counts on a hit. The specific denied object IDs fold
-        # into the key via AnalyticsQueryRunner._get_object_access_restrictions.
+        # into the key via QueryAccessFingerprint._get_object_access_restrictions.
         if table_names & _DATA_QUALITY_INFORMATION_SCHEMA_TABLES:
             scopes.add("data_catalog")
             scopes.add("warehouse_table")
@@ -351,8 +355,8 @@ def queried_access_controlled_resources(
         # Warehouse tables/views are per-team and dynamic, and the HogQL schema isn't built here (the
         # fingerprint runs before any database), so resolve referenced warehouse objects with a light
         # name lookup. We only add the scope here; the specific denied object IDs are folded into the
-        # cache key by AnalyticsQueryRunner._get_object_access_restrictions.
-        non_system_names = table_names - set(system_scopes)
+        # cache key by QueryAccessFingerprint._get_object_access_restrictions.
+        non_system_names = table_names - set(system_scopes) - {"system.file_system"}
         if non_system_names:
             views = catalog.get_views(non_system_names)
             # Inside a view walk the parent view already added warehouse_table, so skip the table lookup.
@@ -378,6 +382,7 @@ def queried_access_controlled_resources(
                     team,
                     bypassed_scopes=bypassed_scopes,
                     modifiers=modifiers,
+                    referenced_tables=referenced_tables,
                     _catalog=catalog,
                 )
                 if nested is None:

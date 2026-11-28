@@ -8,7 +8,8 @@ from collections.abc import Iterable
 from uuid import UUID
 
 from django.core.exceptions import ValidationError
-from django.db.models import Case, Exists, Max, OuterRef, Q, QuerySet, UUIDField, When
+from django.db import router
+from django.db.models import Case, Exists, Max, OuterRef, Q, QuerySet, StringAgg, TextField, UUIDField, Value, When
 from django.db.models.functions import Cast
 
 from rest_framework.request import Request
@@ -16,7 +17,7 @@ from rest_framework.request import Request
 from posthog.models.user import User
 
 from products.canvas.backend.facade.contracts import CanvasOwnerActivity, CanvasSummary
-from products.canvas.backend.models import Canvas
+from products.canvas.backend.models import Canvas, CanvasVisibilityRevision
 from products.tasks.backend.facade import api as tasks_facade
 
 
@@ -244,6 +245,21 @@ def hidden_canvas_ids_for_org(organization_id: str | UUID, user_id: int | None) 
 def _live_or_owned_q(user_id: int | None) -> Q:
     """A soft-deleted canvas stays in the activity feeds of its owner only."""
     return Q(deleted=False) | Q(created_by_id=user_id) if user_id is not None else Q(deleted=False)
+
+
+def canvas_visibility_revision(team_id: int) -> str:
+    revision = (
+        CanvasVisibilityRevision.objects.for_team(team_id)
+        .using(router.db_for_write(Canvas))
+        .values_list("revision", flat=True)
+        .first()
+    )
+    return str(revision) if revision is not None else "0"
+
+
+def public_canvas_ids(team_id: int) -> str:
+    canvases = _visible_canvases(team_id, None).using(router.db_for_write(Canvas)).filter(channel__team_id=team_id)
+    return canvases.aggregate(ids=StringAgg(Cast("id", TextField()), Value(",")))["ids"] or ""
 
 
 def _visible_canvases(team_id: int, user_id: int | None) -> QuerySet[Canvas]:

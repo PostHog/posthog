@@ -284,6 +284,9 @@ The cache key is derived from `get_cache_payload()`:
   Bump that version when tightening enforcement so a cached result cannot bypass the new masking rules.
 - `AnalyticsQueryRunner.get_cache_payload()` adds `restricted_resources` (denied scopes) and `restricted_objects` (denied object IDs per scope) for levels 1 and 2.
 
+File system queries include the project's canvas visibility revision alongside the caller's canvas grants.
+The same revision retires completed async results after a visibility change.
+
 Two things keep cache hit rates high:
 
 1. **Feature gate:** if the organization doesn't have `AvailableFeature.ACCESS_CONTROL`, no resource/object restrictions exist, so nothing is added and the cache isn't partitioned by user at all.

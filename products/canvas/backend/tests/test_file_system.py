@@ -3,7 +3,7 @@ from uuid import uuid4
 
 from posthog.test.base import APIBaseTest, BaseTest
 
-from django.db import connection
+from django.db import connection, transaction
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
@@ -14,10 +14,12 @@ from posthog.models.file_system.file_system import FileSystem
 from posthog.models.file_system.unfiled_file_saver import save_unfiled_files
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.scoping import team_scope
+from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.temporal.oauth import ARRAY_APP_CLIENT_ID_DEV
 
-from products.canvas.backend.models import Canvas
+from products.canvas.backend.facade.access import canvas_visibility_revision
+from products.canvas.backend.models import Canvas, CanvasVisibilityRevision
 from products.tasks.backend.models import Channel
 
 
@@ -55,6 +57,31 @@ class TestCanvasFileSystem(BaseTest):
         )
         self.assertIsNone(self._entry(canvas))
         self.assertEqual(Canvas.get_file_system_unfiled(self.team).count(), 0)
+
+    def test_visibility_revision_tracks_bulk_moves_and_rolls_back_with_them(self) -> None:
+        private = Channel.objects.create(team=self.team, name="Drafts", channel_type=Channel.ChannelType.PRIVATE)
+        canvas = Canvas.objects.create(team=self.team, channel=self.channel, name="Plan")
+        before = canvas_visibility_revision(self.team.pk)
+        Canvas.objects.filter(pk=canvas.pk).update(name="Plan 2")
+        assert canvas_visibility_revision(self.team.pk) == before
+
+        with transaction.atomic():
+            Canvas.objects.filter(pk=canvas.pk).update(channel=private)
+            assert canvas_visibility_revision(self.team.pk) != before
+            transaction.set_rollback(True)
+        assert canvas_visibility_revision(self.team.pk) == before
+
+        Canvas.objects.filter(pk=canvas.pk).delete()
+        assert canvas_visibility_revision(self.team.pk) != before
+
+    def test_deleting_a_team_removes_its_final_visibility_revision(self) -> None:
+        team = Team.objects.create(organization=self.organization)
+        team_id = team.pk
+        with team_scope(team_id):
+            channel = Channel.objects.create(team=team, name="Shared")
+            Canvas.objects.create(team=team, channel=channel, name="Plan")
+        team.delete()
+        assert not CanvasVisibilityRevision.objects.unscoped().filter(team_id=team_id).exists()
 
     def test_unfiled_saver_files_existing_canvases(self) -> None:
         canvas = Canvas.objects.create(team=self.team, channel=self.channel, name="Older", created_by=self.user)

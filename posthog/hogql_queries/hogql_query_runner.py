@@ -44,7 +44,12 @@ from posthog.caching.utils import ThresholdMode, staleness_threshold_map
 from posthog.clickhouse.query_tagging import get_query_tag_value, is_api_key_access_method, tag_contains_user_hogql
 from posthog.event_usage import AnalyticsProps
 from posthog.hogql_queries.paginators import OFFSET_NEEDS_DEFAULT_ROW_LIMIT_MESSAGE, HogQLHasMorePaginator
-from posthog.hogql_queries.query_runner import CACHE_ENTRY_FRESHNESS_KEY, AnalyticsQueryRunner, ExecutionMode
+from posthog.hogql_queries.query_runner import (
+    CACHE_ENTRY_FRESHNESS_KEY,
+    AnalyticsQueryRunner,
+    ExecutionMode,
+    QueryAccessFingerprint,
+)
 from posthog.hogql_queries.sql_freshness.classifier import (
     SqlFreshness,
     classify,
@@ -56,6 +61,8 @@ from posthog.models import User
 from posthog.models.activity_logging.retention import get_activity_log_lookback_restriction
 from posthog.utils import relative_date_parse
 
+from products.canvas.backend.facade.access import canvas_visibility_revision
+from products.canvas.backend.facade.query_status import FILE_SYSTEM_RESULT_PREFIX, FILE_SYSTEM_UNUSED
 from products.managed_warehouse.backend.facade import query_labels as managed_warehouse_query_labels
 from products.managed_warehouse.backend.facade.query_execution import (
     execute_managed_trino_query,
@@ -66,6 +73,7 @@ from products.warehouse_sources.backend.facade.types import ManagedWarehouseSQLM
 
 _INFORMATION_SCHEMA_PREFIX = "system.information_schema."
 _ACTIVITY_LOGS_TABLE = "system.activity_logs"
+_FILE_SYSTEM_TABLE = "system.file_system"
 API_SQL_WINDOW_CACHE_AGE_FLAG = "api-sql-window-cache-age"
 
 _range_freshness: ContextVar[bool] = ContextVar("hogql_range_freshness", default=False)
@@ -109,6 +117,8 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
         self._managed_warehouse_sql_mode: ManagedWarehouseSQLMode | None = None
         self._raw_query_on_organization_grant = False
         self._trino_canary = False
+        self._file_system_planned = False
+        self._file_system_revision: str | None = None
         # Read at construction: the runner can be planned in one thread and run or read in another.
         self._range_freshness_requested = _range_freshness.get()
         super().__init__(*args, **kwargs)
@@ -275,7 +285,8 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
 
     def get_cache_payload(self) -> dict:
         self._validate_direct_connection()
-        payload = super().get_cache_payload()
+        referenced_tables: set[str] = set()
+        payload = self._get_cache_payload_with_access_control(referenced_tables=referenced_tables)
         if self._managed_warehouse_sql_mode == ManagedWarehouseSQLMode.BUILT_IN:
             payload["managed_warehouse_sql_mode"] = self._managed_warehouse_sql_mode.value
             if self._direct_engine == "trino":
@@ -302,7 +313,20 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
             if floor is not None:
                 payload["activity_log_retention_floor_hour"] = floor.strftime("%Y-%m-%dT%H")
 
+        # A view can change between planning and expansion. A plan without this dependency grants no canvas rows.
+        self._file_system_planned = True
+        self._file_system_revision = None
+        if not self.query.connectionId and _FILE_SYSTEM_TABLE in referenced_tables:
+            self._file_system_revision = canvas_visibility_revision(self.team.pk)
+            payload["file_system_canvas_revision"] = self._file_system_revision
+
         return payload
+
+    def query_result_status_labels(self) -> list[str]:
+        if self._file_system_revision is None:
+            return [FILE_SYSTEM_UNUSED]
+        access = QueryAccessFingerprint(self.team, self.user, self.user_access_control)
+        return [f"{FILE_SYSTEM_RESULT_PREFIX}{self._file_system_revision}:{access.canvas_digest()}"]
 
     def get_cache_key_variant(self) -> str:
         variant = super().get_cache_key_variant()
@@ -335,6 +359,9 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
         analytics_props: Optional[AnalyticsProps] = None,
     ) -> HogQLQueryResponse | CachedHogQLQueryResponse | CacheMissResponse | QueryStatusResponse:
         self._validate_direct_connection(user=user, force=True)
+        if self.planned_cache_key and self._file_system_revision is not None:
+            if canvas_visibility_revision(self.team.pk) != self._file_system_revision:
+                self.planned_cache_key = None
         return super().run(
             execution_mode=execution_mode,
             user=user,
@@ -363,11 +390,7 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
     def _queried_table_names(self) -> set[str]:
         """Tables this query names, or empty when it is unparseable or reads an external connection.
 
-        Names only, so a table reached through a saved view is absent: the resolver inlines the view's
-        definition after the cache lookup. The printed guards still apply on that path, so what a read
-        through a view misses is the cache partitioning, not the enforcement. Following view definitions
-        here would put a saved-query lookup in front of every HogQL query's cache key, and the rest of
-        the fingerprinting in `queried_access_controlled_resources` stops at the same boundary.
+        Access-control cache dependencies also walk saved views in `queried_access_controlled_resources`.
 
         Cached because the freshness check and the cache key both need it, and neither rewrites the query
         text (dashboard filters and variables are applied at `to_query` time).
@@ -513,7 +536,11 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
         if self.query.connectionId is None:
             # With a connection id the executor builds its own connection-scoped database,
             # so the shared one would be built for nothing.
-            context_kwargs["context"] = self.build_hogql_context()
+            context_kwargs["context"] = self.build_hogql_context(
+                data_to_ingest={"file_system_canvas_table": None}
+                if self._file_system_planned and self._file_system_revision is None
+                else {}
+            )
         # Non-direct queries must print with the same effective modifiers that built the shared database.
         execution_modifiers: Optional[HogQLQueryModifiers] = self.modifiers
         if self._direct_engine == "trino":

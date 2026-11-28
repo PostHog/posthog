@@ -8,7 +8,7 @@ import posthoganalytics
 from clickhouse_driver.errors import Error as ClickHouseDriverError
 from prometheus_client import Histogram
 from pydantic import BaseModel
-from rest_framework.exceptions import APIException, NotFound
+from rest_framework.exceptions import APIException
 
 from posthog.schema import ClickhouseQueryProgress, QueryScanSummary, QueryStatus
 
@@ -19,6 +19,7 @@ from posthog import celery, redis
 from posthog.api_queries_budget import get_request_query_cost, reset_request_query_cost
 from posthog.clickhouse.client.async_task_chain import add_task_to_on_commit
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
+from posthog.clickhouse.query_status import QueryNotFoundError, validate_completed_query_result
 from posthog.clickhouse.query_tagging import get_query_tags, tag_queries
 from posthog.constants import AvailableFeature
 from posthog.direct_query_cancellation import build_direct_query_cancellation_token, request_direct_query_cancellation
@@ -46,10 +47,6 @@ QUERY_WAIT_TIME = Histogram(
 QUERY_PROCESS_TIME = Histogram(
     "query_process_time_seconds", "Time from query pick-up to result", labelnames=["team"], buckets=CUSTOM_BUCKETS
 )
-
-
-class QueryNotFoundError(NotFound):
-    pass
 
 
 class QueryRetrievalError(Exception):
@@ -152,6 +149,8 @@ class QueryStatusManager:
         # validation here — QueryStatus forbids extra fields.
         query_status = QueryStatus(**{k: v for k, v in loaded.items() if k in QueryStatus.model_fields})
 
+        if query_status.complete and query_status.results is not None:
+            validate_completed_query_result.send(sender=type(self), query_status=query_status)
         if show_progress and not query_status.complete:
             query_status.query_progress = self.get_clickhouse_progresses()
 

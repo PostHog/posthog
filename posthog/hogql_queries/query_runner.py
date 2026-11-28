@@ -2307,6 +2307,10 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
     def _calculate(self) -> R:
         raise NotImplementedError()
 
+    def query_result_status_labels(self) -> list[str]:
+        """Labels for the worker's completed result. Enqueueing cannot attest to what the worker read."""
+        return []
+
     def query_status_labels(self) -> list[str] | None:
         return None
 
@@ -3929,15 +3933,43 @@ class AnalyticsQueryRunner(QueryRunner, Generic[AR]):
         return WAREHOUSE_ACCESS_SCOPES
 
     def get_cache_payload(self) -> dict:
+        return self._get_cache_payload_with_access_control()
+
+    def _get_cache_payload_with_access_control(self, *, referenced_tables: set[str] | None = None) -> dict:
         payload = super().get_cache_payload()
 
         # Partition only by the access-controlled tables this query reads that the user is restricted
         # from - so queries on events, persons and other non-access-controlled tables share one cache
         # entry (incl. userless cache warming).
         queried_resources = queried_access_controlled_resources(
-            self.query, self.team, bypassed_scopes=self._bypassed_access_scopes, modifiers=self.modifiers
+            self.query,
+            self.team,
+            bypassed_scopes=self._bypassed_access_scopes,
+            modifiers=self.modifiers,
+            referenced_tables=referenced_tables,
         )
 
+        if queried_resources is None and referenced_tables is not None:
+            # Embedded queries can read the file system after the outer query is expanded.
+            referenced_tables.add("system.file_system")
+        if queried_resources != set():
+            payload.update(
+                QueryAccessFingerprint(self.team, self.user, self.user_access_control).fields(queried_resources)
+            )
+        return payload
+
+
+class QueryAccessFingerprint:
+    def __init__(self, team: Team, user: User | None, user_access_control: UserAccessControl | None):
+        self.team = team
+        self.user = user
+        self.user_access_control = user_access_control
+
+    def canvas_digest(self) -> str:
+        return hashlib.sha256(to_json(self.fields({"canvas"}))).hexdigest()
+
+    def fields(self, queried_resources: set[str] | None) -> dict:
+        payload: dict = {}
         if isinstance(self.user, User) and not self.team.organization.is_feature_available(
             AvailableFeature.ACCESS_CONTROL
         ):

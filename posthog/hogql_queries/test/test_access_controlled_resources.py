@@ -77,6 +77,12 @@ class TestQueriedAccessControlledResources(BaseTest):
         [
             ("system_table", "select * from system.notebooks", {"notebook"}),
             ("through_subquery", "select * from (select * from system.notebooks)", {"notebook"}),
+            (
+                "join_condition_subquery",
+                "select a.id from system.notebooks a join system.notebooks b "
+                "on a.id = b.id and a.id in (select id from system.surveys)",
+                {"notebook", "survey"},
+            ),
             ("through_cte_body", "with n as (select 1 from system.notebooks) select * from n", {"notebook"}),
             ("multiple", "select 1 from system.notebooks, system.surveys", {"notebook", "survey"}),
             (
@@ -93,6 +99,7 @@ class TestQueriedAccessControlledResources(BaseTest):
             # Activity-log rows for canvases are limited to the canvases in `system.canvases`, so the
             # rows follow the caller's canvas grants as well as their activity-log access.
             ("activity_logs", "select * from system.activity_logs", {"activity_log", "canvas"}),
+            ("file_system", "select * from system.file_system", {"canvas"}),
             ("account_tagged_items", "select * from system._account_tagged_items", {"account"}),
             ("account_resource_notebooks", "select * from system._account_resource_notebooks", {"account"}),
             ("ticket_tagged_items", "select * from system._ticket_tagged_items", {"ticket"}),

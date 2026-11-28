@@ -30,6 +30,7 @@ class CanvasConfig(AppConfig):
             register_object_visibility_filter,
         )
         from products.canvas.backend import checks, search_sync  # noqa: F401, PLC0415
+        from products.canvas.backend.facade import query_status  # noqa: F401, PLC0415
         from products.canvas.backend.models import Canvas  # noqa: PLC0415
 
         register_mixin_model("canvas", Canvas)
