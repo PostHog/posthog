@@ -94,7 +94,7 @@ describe('messageTemplatesLogic', () => {
         filter()
         await expectLogic(logic).toDispatchActions(['loadTemplatesSuccess'])
 
-        expect(requests.at(-1)?.toString()).toEqual(`limit=${TEMPLATES_PAGE_SIZE}&${query}`)
+        expect(requests.at(-1)?.toString()).toEqual(`limit=${TEMPLATES_PAGE_SIZE}&${query}&type=email`)
         expect(names()).toEqual(['Invoice'])
         expect(logic.values.hasActiveFilters).toBe(true)
     })

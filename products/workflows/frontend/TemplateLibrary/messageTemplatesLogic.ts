@@ -424,6 +424,8 @@ export const messageTemplatesLogic = kea<messageTemplatesLogicType>([
                 created_by: createdByFilter ?? undefined,
                 tags: tagsFilter.length ? tagsFilter : undefined,
                 transactional: transactionalOnly || undefined,
+                // The library edits email templates. A push template has its own page under Transactional.
+                type: 'email',
             }),
         ],
         hasActiveFilters: [

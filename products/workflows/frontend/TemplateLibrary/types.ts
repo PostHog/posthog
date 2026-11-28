@@ -20,4 +20,5 @@ export interface MessageTemplate {
     sensitive?: MessageTemplateApi['sensitive']
     click_tracking_enabled?: MessageTemplateApi['click_tracking_enabled']
     tags?: MessageTemplateApi['tags']
+    type?: MessageTemplateApi['type']
 }

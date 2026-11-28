@@ -887,6 +887,7 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
                     const response = await messagingTemplatesList(String(values.currentTeamIdStrict), {
                         basic: true,
                         limit: 1,
+                        type: 'email',
                     })
                     return response.results
                 },

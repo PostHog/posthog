@@ -1,6 +1,5 @@
-import type { BeforeSendFn } from 'posthog-js'
+import { redactReplayRequests } from './replayRequestRedaction'
 
-const NETWORK_PLUGIN = 'rrweb/network@1'
 const REDACTED = 'redacted'
 const REDACTED_BODY = '[SessionRecording] body redacted as might contain a destination secret'
 // The path of a Slack, Teams, Discord or generic webhook URL is the credential, and a PagerDuty routing key
@@ -70,32 +69,5 @@ function redactRequest(request: unknown): unknown {
     return { ...request, requestBody: redactedRequestBody, responseBody: redactedResponseBody }
 }
 
-function redactSnapshots(snapshots: unknown): unknown {
-    if (!Array.isArray(snapshots)) {
-        return snapshots
-    }
-    let copy: unknown[] | null = null
-    snapshots.forEach((snapshot, index) => {
-        const data = snapshot?.data
-        const requests = data?.plugin === NETWORK_PLUGIN ? data.payload?.requests : undefined
-        if (!Array.isArray(requests)) {
-            return
-        }
-        const redacted = requests.map(redactRequest)
-        if (redacted.every((request, i) => request === requests[i])) {
-            return
-        }
-        copy ??= [...snapshots]
-        copy[index] = { ...snapshot, data: { ...data, payload: { ...data.payload, requests: redacted } } }
-    })
-    return copy ?? snapshots
-}
-
 // A maskCapturedNetworkRequestFn would replace the SDK's body scrubbing, so this runs in before_send after it.
-export const redactDestinationSecretsInReplay: BeforeSendFn = (event) => {
-    const snapshots = event?.properties?.$snapshot_data
-    const redacted = redactSnapshots(snapshots)
-    return redacted === snapshots
-        ? event
-        : event && { ...event, properties: { ...event.properties, $snapshot_data: redacted } }
-}
+export const redactDestinationSecretsInReplay = redactReplayRequests(redactRequest)
