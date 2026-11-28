@@ -19,6 +19,7 @@ function answered(days: number[]): Record<number, string> {
 }
 
 const LEAF_REACH = 26
+const ARROW_CLEARANCE = 10
 
 const STATES = {
     'nothing open': { progress: { opened: [], answers: {} }, today: 1 },
@@ -97,7 +98,7 @@ describe('adventFlowLayout', () => {
     })
 
     it.each(cases)(
-        'routes each edge from tile edge to tile edge, square, through no tile or caption in %s with %s',
+        'routes each edge from tile edge to tile edge, square, through no tile or caption, apart from the other arrows into its tile in %s with %s',
         (orientation, state) => {
             const layout = layoutOf(state, orientation)
             const byId = new Map(layout.nodes.map((node) => [node.id, node]))
@@ -122,7 +123,19 @@ describe('adventFlowLayout', () => {
                 .filter((node) => node.id !== 'trigger' && !layout.edges.some((edge) => edge.target === node.id))
                 .map((node) => node.id)
 
-            expect({ faults, unreached }).toEqual({ faults: [], unreached: [] })
+            const crowded = layout.nodes.flatMap((node) => {
+                const ends = layout.edges
+                    .filter((edge) => edge.target === node.id)
+                    .map((edge) => edge.points[edge.points.length - 1])
+                const touch = ends.some((end, index) =>
+                    ends
+                        .slice(index + 1)
+                        .some((other) => Math.hypot(end.x - other.x, end.y - other.y) < ARROW_CLEARANCE)
+                )
+                return touch ? [node.id] : []
+            })
+
+            expect({ faults, unreached, crowded }).toEqual({ faults: [], unreached: [], crowded: [] })
         }
     )
 

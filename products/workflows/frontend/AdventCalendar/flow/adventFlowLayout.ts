@@ -70,6 +70,7 @@ interface Slot {
 const { width: DOOR_WIDTH, height: DOOR_HEIGHT } = ADVENT_FLOW_DOOR
 const CAPTION = { height: 30, gap: 14 }
 const PORT = 7
+const COLUMN_MERGE_PORT = 10
 const CORNER_RUN = 16
 
 const isLaneDay = (day: number): boolean => adventQuestionBefore(day) !== null
@@ -268,7 +269,7 @@ function columnRoute({ from, to, source, target, isSplit, isMerge }: Route): Poi
             { x: to.x, y: target.y },
         ]
     }
-    const port = isMerge ? (from.x > to.x ? PORT : -PORT) : 0
+    const port = isMerge ? (from.x > to.x ? COLUMN_MERGE_PORT : -COLUMN_MERGE_PORT) : 0
     return [
         { x: from.x, y: out },
         { x: from.x, y: target.y - CORNER_RUN },
