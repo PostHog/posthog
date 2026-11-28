@@ -242,7 +242,8 @@ KILL_SWITCH_MAX_THREADS: dict[KillSwitchLevel, int] = {KillSwitchLevel.LIGHT: 16
 
 # Above this many files, the per-run compaction is worth its full-table rewrite. Below it, skipping
 # keeps an incremental run's cost proportional to the rows it changed rather than the table's size.
-INCREMENTAL_COMPACT_FILE_THRESHOLD = 200
+COMPACT_FILE_THRESHOLD = 200
+FULL_REFRESH_WRITER_PROPERTIES = deltalake.WriterProperties(compression="ZSTD", compression_level=4)
 
 # how often the producer/consumer wake from a blocking queue op to re-check the
 # stop flag
@@ -1099,6 +1100,7 @@ async def _materialize_fully(
                         mode="overwrite",
                         schema_mode="overwrite",
                         storage_options=storage_options,
+                        writer_properties=FULL_REFRESH_WRITER_PROPERTIES,
                     )
                     delta_table = await _open_delta_table(table_uri, storage_options)
                 else:
@@ -1109,6 +1111,7 @@ async def _materialize_fully(
                         mode="append",
                         schema_mode="merge",
                         storage_options=storage_options,
+                        writer_properties=FULL_REFRESH_WRITER_PROPERTIES,
                     )
             # Staged only once the batch is committed: a run that announces rows it then fails to write
             # cannot take the announcement back.
@@ -1129,9 +1132,7 @@ async def _materialize_fully(
     await logger.ainfo(f"Finished writing to delta table. row_count={row_count}")
     files = LiveFiles(uris=[], sizes_by_relative_path={})
     if delta_table is not None:
-        await logger.ainfo("Compacting delta table")
-        progress.enter("compacting the Delta table")
-        await _compact(delta_table)
+        await _compact_when_fragmented(delta_table, logger, progress)
         progress.enter("vacuuming the Delta table")
         await _vacuum(delta_table, logger)
         files = live_files(delta_table)
@@ -1273,17 +1274,24 @@ async def _materialize_incrementally(
     progress.enter("reopening the Delta table")
     delta_table = await _open_delta_table(table_uri, storage_options)
 
-    file_uris = delta_table.file_uris()
-    if len(file_uris) > INCREMENTAL_COMPACT_FILE_THRESHOLD:
-        await logger.ainfo(f"Compacting delta table ({len(file_uris)} files)")
-        progress.enter("compacting the Delta table")
-        await _compact(delta_table)
+    await _compact_when_fragmented(delta_table, logger, progress)
     progress.enter("vacuuming the Delta table")
     await _vacuum(delta_table, logger)
 
     # Re-listed after maintenance: compaction rewrites files, so the pre-compaction list would
     # name parquet the publish can no longer copy.
     return row_count, live_files(delta_table)
+
+
+async def _compact_when_fragmented(
+    delta_table: deltalake.DeltaTable, logger: FilteringBoundLogger, progress: _AttemptProgress
+) -> None:
+    file_count = len(delta_table.file_uris())
+    if file_count <= COMPACT_FILE_THRESHOLD:
+        return
+    await logger.ainfo(f"Compacting delta table ({file_count} files)")
+    progress.enter("compacting the Delta table")
+    await _compact(delta_table)
 
 
 @tracer.start_as_current_span("materialize_view.compact")

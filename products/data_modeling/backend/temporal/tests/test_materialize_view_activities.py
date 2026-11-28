@@ -96,6 +96,8 @@ from products.data_modeling.backend.temporal.activities.materialize_view import 
     InvalidNodeTypeException,
     LiveFiles,
     _adaptive_retry_delay,
+    _AttemptProgress,
+    _compact_when_fragmented,
     _describe_columns,
     _recent_capacity_errors,
     _RecentCapacityErrors,
@@ -1598,6 +1600,21 @@ class TestSucceedMaterializationActivity:
         )
         result = await activity_environment.run(succeed_materialization_activity, inputs)
         assert result.enrichment_needed is True
+
+
+@pytest.mark.parametrize("files_written,expected_files", [(2, 2), (3, 1)])
+async def test_a_table_is_compacted_only_above_the_file_threshold(tmp_path, files_written, expected_files):
+    table_uri = str(tmp_path / "model")
+    for value in range(files_written):
+        deltalake.write_deltalake(table_uri, pa.table({"id": [value]}), mode="append")
+    delta_table = deltalake.DeltaTable(table_uri)
+
+    with unittest.mock.patch(
+        "products.data_modeling.backend.temporal.activities.materialize_view.COMPACT_FILE_THRESHOLD", 2
+    ):
+        await _compact_when_fragmented(delta_table, LOGGER, _AttemptProgress(job_id="job", attempt=1))
+
+    assert len(delta_table.file_uris()) == expected_files
 
 
 @pytest.mark.parametrize(
