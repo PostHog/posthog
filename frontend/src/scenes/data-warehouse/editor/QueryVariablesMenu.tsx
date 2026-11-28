@@ -1,5 +1,3 @@
-import { useActions, useValues } from 'kea'
-import posthog from 'posthog-js'
 import { useState } from 'react'
 
 import { IconBrackets, IconChevronRight, IconExternal, IconGear } from '@posthog/icons'
@@ -14,17 +12,13 @@ import {
 } from '@posthog/lemon-ui'
 
 import { CLICK_OUTSIDE_BLOCK_CLASS } from 'lib/hooks/useOutsideClickHandler'
-import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { urls } from 'scenes/urls'
 
 import { NewVariableModal } from '~/queries/nodes/DataVisualization/Components/Variables/NewVariableModal'
-import { variableModalLogic } from '~/queries/nodes/DataVisualization/Components/Variables/variableModalLogic'
 import { VariableInput } from '~/queries/nodes/DataVisualization/Components/Variables/Variables'
-import { variablesLogic } from '~/queries/nodes/DataVisualization/Components/Variables/variablesLogic'
-import { dataVisualizationLogic } from '~/queries/nodes/DataVisualization/dataVisualizationLogic'
-import { Variable, VariableType } from '~/queries/nodes/DataVisualization/types'
+import { Variable } from '~/queries/nodes/DataVisualization/types'
 
-import { sqlEditorLogic } from './sqlEditorLogic'
+import { NEW_VARIABLE_TYPES, QueryVariablesState, useQueryVariablesState } from './useQueryVariablesState'
 
 interface QueryVariablesMenuProps {
     disabledReason?: string
@@ -65,28 +59,25 @@ const buildVariableMenuLabel = (
 
 const buildVariableMenuItems = (
     variables: Variable[],
-    handleChange: null | ((variable: Variable, value: any, isNull: boolean) => void),
-    insertTextAtCursor: (text: string) => void,
-    openExistingVariableModal: (variable: Variable) => void,
+    state: QueryVariablesState,
     closeMenu: () => void,
-    options?: { showSettingsButton?: boolean; insertOnClick?: boolean; onRemove?: (variableId: string) => void }
+    options?: { showSettingsButton?: boolean; insertOnClick?: boolean; canSetValue?: boolean; canRemove?: boolean }
 ): LemonMenuItem[] => {
     return variables.map((variable): LemonMenuItem => {
-        const variableAsHogQL = `{variables.${variable.code_name}}`
         const showSettingsButton = options?.showSettingsButton ?? false
         const insertOnClick = options?.insertOnClick ?? false
 
         const menuItem: LemonMenuItem = {
             key: variable.id,
             custom: true,
-            label: buildVariableMenuLabel(variable, showSettingsButton, openExistingVariableModal, closeMenu),
+            label: buildVariableMenuLabel(variable, showSettingsButton, state.edit, closeMenu),
         }
 
         if (insertOnClick) {
             return {
                 ...menuItem,
                 onClick: () => {
-                    insertTextAtCursor(variableAsHogQL)
+                    state.insert(variable)
                     closeMenu()
                 },
             }
@@ -96,7 +87,7 @@ const buildVariableMenuItems = (
             ...menuItem,
             sideIcon: <IconChevronRight className="text-muted-alt" />,
             items: [
-                handleChange
+                options?.canSetValue
                     ? {
                           custom: true,
                           label: () => (
@@ -105,7 +96,7 @@ const buildVariableMenuItems = (
                                       variable={variable}
                                       showEditingUI={false}
                                       onChange={(_, value, isNull) => {
-                                          handleChange(variable, value, isNull)
+                                          state.setValue(variable, value, isNull)
                                       }}
                                       closePopover={closeMenu}
                                   />
@@ -116,15 +107,15 @@ const buildVariableMenuItems = (
                 {
                     label: 'Insert into query',
                     onClick: () => {
-                        insertTextAtCursor(variableAsHogQL)
+                        state.insert(variable)
                         closeMenu()
                     },
                 },
-                options?.onRemove
+                options?.canRemove
                     ? {
                           label: 'Remove from this query',
                           onClick: () => {
-                              options.onRemove?.(variable.id)
+                              state.remove(variable)
                               closeMenu()
                           },
                       }
@@ -132,14 +123,14 @@ const buildVariableMenuItems = (
                 {
                     label: 'Copy variable code',
                     onClick: () => {
-                        void copyToClipboard(variableAsHogQL, 'variable SQL')
+                        state.copyCode(variable)
                         closeMenu()
                     },
                 },
                 {
                     label: 'Modify variable',
                     onClick: () => {
-                        openExistingVariableModal(variable)
+                        state.edit(variable)
                         closeMenu()
                     },
                 },
@@ -149,61 +140,27 @@ const buildVariableMenuItems = (
 }
 
 export function QueryVariablesMenu({ disabledReason }: QueryVariablesMenuProps): JSX.Element | null {
-    const { showEditingUI } = useValues(dataVisualizationLogic)
-    const { variablesLoading, variablesUsedInQuery, variablesNotInQuery, searchTerm, internalSelectedVariables } =
-        useValues(variablesLogic)
-    const { setSearchTerm, updateVariableValue, addVariable, removeVariable } = useActions(variablesLogic)
-    const { openNewVariableModal, openExistingVariableModal } = useActions(variableModalLogic)
-    const { insertTextAtCursor } = useActions(sqlEditorLogic)
+    const state = useQueryVariablesState()
     const [isMenuOpen, setIsMenuOpen] = useState(false)
-    const hasVariablesInUse = variablesUsedInQuery.length > 0
+    const hasVariablesInUse = state.usedInQuery.length > 0
 
     const closeMenu = (): void => {
         setIsMenuOpen(false)
     }
 
-    if (!showEditingUI) {
+    if (!state.showEditingUI) {
         return null
     }
 
-    const selectedVariableIds = new Set(internalSelectedVariables.map((variable) => variable.variableId))
-
-    const handleChange = (variable: Variable, value: any, isNull: boolean): void => {
-        if (!selectedVariableIds.has(variable.id)) {
-            addVariable({ variableId: variable.id, code_name: variable.code_name })
-        }
-
-        updateVariableValue(variable.id, value, isNull)
-    }
-
-    const variablesUsedItems = buildVariableMenuItems(
-        variablesUsedInQuery,
-        handleChange,
-        insertTextAtCursor,
-        openExistingVariableModal,
-        closeMenu
-    )
-    const unusedVariablesItems = buildVariableMenuItems(
-        variablesNotInQuery.filter((variable) => selectedVariableIds.has(variable.id)),
-        handleChange,
-        insertTextAtCursor,
-        openExistingVariableModal,
-        closeMenu,
-        {
-            onRemove: (variableId) => {
-                removeVariable(variableId)
-                posthog.capture('sql unused variable removed')
-            },
-        }
-    )
-    const otherVariablesItems = buildVariableMenuItems(
-        variablesNotInQuery.filter((variable) => !selectedVariableIds.has(variable.id)),
-        null,
-        insertTextAtCursor,
-        openExistingVariableModal,
-        closeMenu,
-        { showSettingsButton: true, insertOnClick: true }
-    )
+    const variablesUsedItems = buildVariableMenuItems(state.usedInQuery, state, closeMenu, { canSetValue: true })
+    const unusedVariablesItems = buildVariableMenuItems(state.unusedWithValues, state, closeMenu, {
+        canSetValue: true,
+        canRemove: true,
+    })
+    const otherVariablesItems = buildVariableMenuItems(state.other, state, closeMenu, {
+        showSettingsButton: true,
+        insertOnClick: true,
+    })
 
     const searchItem: LemonMenuItem = {
         custom: true,
@@ -214,8 +171,8 @@ export function QueryVariablesMenu({ disabledReason }: QueryVariablesMenuProps):
                     type="search"
                     fullWidth
                     placeholder="Search variables"
-                    value={searchTerm}
-                    onChange={setSearchTerm}
+                    value={state.searchTerm}
+                    onChange={state.setSearchTerm}
                     onClick={(e) => e.stopPropagation()}
                     autoFocus
                 />
@@ -225,7 +182,7 @@ export function QueryVariablesMenu({ disabledReason }: QueryVariablesMenuProps):
 
     const variableSections: LemonMenuSection[] = []
 
-    if (!variablesLoading) {
+    if (!state.loading) {
         variableSections.push({
             title: '',
             items: [searchItem],
@@ -259,26 +216,25 @@ export function QueryVariablesMenu({ disabledReason }: QueryVariablesMenuProps):
 
     // The menu's visibility is controlled, so clicking a nested item only closes the
     // submenu — close the whole menu explicitly before handing over to the modal.
-    const newVariableTypes: VariableType[] = ['String', 'Number', 'Boolean', 'List', 'Date']
     const newVariableMenuItem: LemonMenuItem = {
         label: 'New variable',
-        items: newVariableTypes.map((variableType) => ({
+        items: NEW_VARIABLE_TYPES.map((variableType) => ({
             label: variableType,
             onClick: () => {
                 closeMenu()
-                openNewVariableModal(variableType)
+                state.create(variableType)
             },
         })),
     }
 
-    const menuItems: LemonMenuItems = variablesLoading
+    const menuItems: LemonMenuItems = state.loading
         ? [
               {
                   label: 'Loading...',
                   onClick: () => {},
               },
           ]
-        : variablesUsedItems.length || variablesNotInQuery.length
+        : variablesUsedItems.length || unusedVariablesItems.length || otherVariablesItems.length
           ? [...variableSections, manageVariablesMenuItem, newVariableMenuItem]
           : [
                 {

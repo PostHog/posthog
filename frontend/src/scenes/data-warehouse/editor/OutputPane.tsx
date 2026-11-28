@@ -42,6 +42,7 @@ import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
 import { Resizer } from 'lib/lemon-ui/Resizer/Resizer'
 import { type ResizerLogicProps, resizerLogic } from 'lib/lemon-ui/Resizer/resizerLogic'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
+import { useQuillSurface } from 'lib/ui/QuillSurface/quillSurfaceContext'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { tryJsonParse } from 'lib/utils/json'
@@ -55,7 +56,6 @@ import { LoadPreviewText } from '~/queries/nodes/DataNode/LoadNext'
 import { QueryExecutionDetails } from '~/queries/nodes/DataNode/QueryExecutionDetails'
 import { WarehouseSyncWarningList } from '~/queries/nodes/DataNode/WarehouseSyncWarningList'
 import { warehouseSyncWarnings } from '~/queries/nodes/DataNode/warehouseSyncWarnings'
-import { DataTableRow } from '~/queries/nodes/DataTable/dataTableLogic'
 import { PartOfWholeChart } from '~/queries/nodes/DataVisualization/Components/Charts/PartOfWholeChart'
 import { SqlBoxPlot } from '~/queries/nodes/DataVisualization/Components/Charts/SqlBoxPlot'
 import { isSqlChartVisualizationType, SqlChart } from '~/queries/nodes/DataVisualization/Components/Charts/SqlChart'
@@ -72,12 +72,7 @@ import { dataVisualizationLogic } from '~/queries/nodes/DataVisualization/dataVi
 import { displayLogic } from '~/queries/nodes/DataVisualization/displayLogic'
 import { renderHogQLX } from '~/queries/nodes/HogQLX/render'
 import { extractValidationError, extractValidationErrorCode } from '~/queries/nodes/InsightViz/utils'
-import {
-    type AccessControlFilterWarning,
-    type DataTableNode,
-    type HogQLQueryResponse,
-    NodeKind,
-} from '~/queries/schema/schema-general'
+import { type AccessControlFilterWarning, type HogQLQueryResponse } from '~/queries/schema/schema-general'
 import {
     AccessControlLevel,
     AccessControlResourceType,
@@ -91,16 +86,14 @@ import { aiChartRecommendationLogic } from 'products/data_warehouse/frontend/sql
 import { HarnessLabel } from 'products/mcp_analytics/frontend/dashboard/HarnessLabel'
 import { HogQLBoldNumber } from 'products/product_analytics/frontend/insights/shared/BoldNumber/BoldNumber'
 
-import {
-    copyTableToCsv,
-    copyTableToExcel,
-    copyTableToJson,
-    copyTableToMarkdown,
-} from '../../../queries/nodes/DataTable/clipboardUtils'
 import { EditorQueryScanBanner } from './components/EditorQueryScanBanner'
 import { FixErrorButton } from './components/FixErrorButton'
 import { QueryIndexUsageBar } from './output-pane-tabs/QueryIndexUsageBar'
+import { RESULTS_COPY_FORMATS, copyResults } from './outputPaneCopy'
 import { OutputTab, outputPaneLogic } from './outputPaneLogic'
+import { OutputErrorViewProps, OutputStateViews } from './outputStateViews'
+import { QUILL_OUTPUT_STATE_VIEWS } from './quillOutputStateViews'
+import { QuillOutputToolbar } from './QuillOutputToolbar'
 import { sqlEditorLogic } from './sqlEditorLogic'
 import TabScroller from './TabScroller'
 
@@ -142,33 +135,6 @@ const CLICKHOUSE_TYPES = [
     'Decimal',
     'FixedString',
 ]
-
-const copyMap = {
-    [ExporterFormat.CSV]: {
-        label: 'CSV',
-        copyFn: copyTableToCsv,
-    },
-    [ExporterFormat.JSON]: {
-        label: 'JSON',
-        copyFn: copyTableToJson,
-    },
-    [ExporterFormat.XLSX]: {
-        label: 'Excel',
-        copyFn: copyTableToExcel,
-    },
-    [ExporterFormat.MARKDOWN]: {
-        label: 'Markdown',
-        copyFn: copyTableToMarkdown,
-    },
-}
-
-const createDataTableQuery = (): DataTableNode => ({
-    kind: NodeKind.DataTableNode,
-    source: {
-        kind: NodeKind.HogQLQuery,
-        query: '',
-    },
-})
 
 interface OutputTabConfig {
     key: OutputTab
@@ -439,23 +405,6 @@ function VisualizationActions({
     )
 }
 
-/**
- * Transforms DataTable format back to DataTableRow format for clipboard operations
- */
-function transformDataTableToDataTableRows(rows: Record<string, any>[], columns: string[]): DataTableRow[] {
-    if (!columns.length || !rows.length) {
-        return []
-    }
-
-    return rows.map((row) => ({
-        result: columns.map((col, index) => {
-            // Handle both direct column access and column_index format
-            const columnKey = `${col}_${index}`
-            return row[columnKey] !== undefined ? row[columnKey] : row[col]
-        }),
-    }))
-}
-
 interface ResultsActionsProps {
     response: HogQLQueryResponse | undefined
     rows: Record<string, any>[]
@@ -484,15 +433,9 @@ function ResultsActions({
     return (
         <>
             <LemonMenu
-                items={Object.values(copyMap).map(({ label, copyFn }) => ({
+                items={Object.entries(RESULTS_COPY_FORMATS).map(([format, { label }]) => ({
                     label,
-                    onClick: () => {
-                        if (response?.columns && rows.length > 0) {
-                            const dataTableRows = transformDataTableToDataTableRows(rows, response.columns)
-                            const query = createDataTableQuery()
-                            copyFn(dataTableRows, response.columns, query)
-                        }
-                    },
+                    onClick: () => copyResults(format as keyof typeof RESULTS_COPY_FORMATS, response, rows),
                 }))}
                 placement="bottom-end"
             >
@@ -629,6 +572,12 @@ export function extractGridCellValue(columnKey: string, row: Record<string, any>
 export function OutputPane({ tabId, showToolbar = true, biMode = false, onShareTab }: OutputPaneProps): JSX.Element {
     const { activeTab } = useValues(outputPaneLogic)
     const { setActiveTab } = useActions(outputPaneLogic)
+    const quillSurface = useQuillSurface()
+    const stateViews = quillSurface ? QUILL_OUTPUT_STATE_VIEWS : LEMON_OUTPUT_STATE_VIEWS
+    // The quill workspace draws one toolbar above the pane, for split view too, in place of the
+    // Lemon pane's per-section toolbars.
+    const showLemonToolbar = showToolbar && !quillSurface
+    const showQuillToolbar = showToolbar && quillSurface && !biMode
 
     const {
         sourceQuery,
@@ -740,16 +689,18 @@ export function OutputPane({ tabId, showToolbar = true, biMode = false, onShareT
                             <span>{col.name}</span>
                             <div className="flex flex-col ml-1">
                                 <span
-                                    className={`text-[7px] leading-none ${
+                                    className={`OutputPane__sort-arrow text-[7px] leading-none ${
                                         sortDirection === 'ASC' ? 'text-black-600' : 'text-gray-400'
                                     }`}
+                                    data-active={sortDirection === 'ASC' || undefined}
                                 >
                                     ▲
                                 </span>
                                 <span
-                                    className={`text-[7px] leading-none ${
+                                    className={`OutputPane__sort-arrow text-[7px] leading-none ${
                                         sortDirection === 'DESC' ? 'text-black-600' : 'text-gray-400'
                                     }`}
+                                    data-active={sortDirection === 'DESC' || undefined}
                                 >
                                     ▼
                                 </span>
@@ -869,6 +820,7 @@ export function OutputPane({ tabId, showToolbar = true, biMode = false, onShareT
         showVisualizationSettings: showToolbar && isChartSettingsPanelOpen,
         showQueryScan: !biMode,
         isEmbeddedMode,
+        stateViews,
     }
     const sharedActionsProps = {
         response,
@@ -906,7 +858,7 @@ export function OutputPane({ tabId, showToolbar = true, biMode = false, onShareT
                 // eslint-disable-next-line react/forbid-dom-props
                 style={{ width: splitPaneWidth, maxWidth: 'calc(100% - 16rem)' }}
             >
-                {showToolbar ? (
+                {showLemonToolbar ? (
                     <div className="flex flex-row justify-between align-center w-full min-h-[41px] overflow-y-auto border-r">
                         <div className="flex min-h-[41px] gap-2 ml-4">
                             {splitToggle}
@@ -925,7 +877,7 @@ export function OutputPane({ tabId, showToolbar = true, biMode = false, onShareT
                 </div>
             </div>
             <div className="flex min-w-0 flex-1 flex-col bg-white dark:bg-black @max-[48rem]/sql-output:min-h-80 @max-[48rem]/sql-output:shrink-0">
-                {showToolbar ? (
+                {showLemonToolbar ? (
                     <div className="flex flex-row justify-between align-center w-full min-h-[41px] overflow-y-auto">
                         <div className="flex min-h-[41px] gap-2 ml-4">
                             <OutputTabLabel tab={outputTabs[1]} active />
@@ -942,7 +894,7 @@ export function OutputPane({ tabId, showToolbar = true, biMode = false, onShareT
         </div>
     ) : (
         <>
-            {showToolbar ? (
+            {showLemonToolbar ? (
                 <div className="flex flex-row justify-between align-center w-full min-h-[41px] overflow-y-auto">
                     <div className="flex min-h-[41px] gap-2 ml-4">
                         {splitToggle}
@@ -967,7 +919,12 @@ export function OutputPane({ tabId, showToolbar = true, biMode = false, onShareT
     )
 
     return (
-        <div className="OutputPane @container/sql-output flex flex-col w-full flex-1 min-h-0 bg-white dark:bg-black">
+        <div
+            className={clsx(
+                'OutputPane @container/sql-output flex flex-col w-full flex-1 min-h-0',
+                quillSurface ? 'OutputPane--quill bg-background' : 'bg-white dark:bg-black'
+            )}
+        >
             <QueryIndexUsageBar
                 predicates={metadata?.index_usage ?? []}
                 refreshing={metadataLoading}
@@ -977,21 +934,18 @@ export function OutputPane({ tabId, showToolbar = true, biMode = false, onShareT
                 fixWithAILoading={fixWithAILoading}
             />
             {choosingChart ? (
-                <div
-                    className="flex flex-1 min-h-0 flex-col items-center justify-center gap-3 p-4 border-t"
-                    data-attr="sql-editor-chart-loading"
-                    aria-busy="true"
-                >
-                    <div className="flex items-center gap-2" role="status">
-                        <Spinner />
-                        <span>Choosing a chart…</span>
-                    </div>
-                    <LemonButton size="small" type="secondary" onClick={skipRecommendation}>
-                        Show results now
-                    </LemonButton>
-                </div>
+                <stateViews.ChoosingChart onSkip={skipRecommendation} />
             ) : (
-                outputContent
+                <>
+                    {showQuillToolbar ? (
+                        <QuillOutputToolbar
+                            activeTab={activeTab}
+                            onActiveTabChange={setActiveTab}
+                            {...sharedActionsProps}
+                        />
+                    ) : null}
+                    {outputContent}
+                </>
             )}
             <div className="flex flex-wrap justify-between gap-x-4 px-2 border-t">
                 <div className="flex min-h-4 flex-wrap items-center gap-x-4">
@@ -1198,20 +1152,14 @@ const QueryWarningsBanner = ({ warnings }: { warnings?: HogQLQueryResponse['warn
     )
 }
 
-const ErrorState = ({
-    responseError,
+function LemonOutputError({
+    error,
+    validationError,
+    validationErrorCode,
+    cancelled,
     sourceQuery,
-    queryCancelled,
-    response,
     showQueryScan,
-}: any): JSX.Element | null => {
-    const { responseErrorObject } = useValues(dataNodeLogic)
-    const validationError = !queryCancelled && extractValidationError(responseErrorObject)
-    const error = queryCancelled
-        ? 'The query was cancelled'
-        : response && 'error' in response && !!response.error
-          ? response.error
-          : responseError
+}: OutputErrorViewProps): JSX.Element {
     const fixWithAI = <FixErrorButton contentOverride="Fix error with AI" type="primary" source="query-error" />
 
     return (
@@ -1221,7 +1169,7 @@ const ErrorState = ({
                     <InsightValidationError
                         query={sourceQuery}
                         detail={validationError}
-                        validationErrorCode={extractValidationErrorCode(responseErrorObject)}
+                        validationErrorCode={validationErrorCode}
                         fixWithAIComponent={fixWithAI}
                     />
                 ) : (
@@ -1233,7 +1181,7 @@ const ErrorState = ({
                                 {error}
                             </pre>
                         }
-                        excludeActions={queryCancelled}
+                        excludeActions={cancelled}
                         fixWithAIComponent={fixWithAI}
                     />
                 )}
@@ -1243,16 +1191,88 @@ const ErrorState = ({
     )
 }
 
-const EmptyResultsState = (): JSX.Element => {
+function LemonAgentHint(): JSX.Element | null {
+    const { showAgentHints } = useValues(sqlEditorLogic)
+    return showAgentHints ? (
+        <WarehouseWizardHint
+            className="max-w-140"
+            fallback={
+                <MCPUseCaseCard
+                    surfaceKey="sql.execute"
+                    expiresAfterMs={ONE_DAY_IN_MILLISECONDS}
+                    className="max-w-140"
+                />
+            }
+        />
+    ) : null
+}
+
+function LemonOutputEmpty({ kind }: { kind: 'results' | 'chart' }): JSX.Element {
+    const { singleStatement } = useValues(sqlEditorLogic)
+    if (kind === 'chart') {
+        return (
+            <div
+                className="flex min-w-0 flex-1 flex-col justify-center items-center border-t gap-4 p-4"
+                data-attr="sql-editor-output-pane-empty-state"
+            >
+                <span className="text-secondary">
+                    Query results will be visualized here. Press <KeyboardShortcut command enter /> to run the query.
+                </span>
+                <LemonAgentHint />
+            </div>
+        )
+    }
     return (
         <div
-            className="flex flex-1 justify-center items-center gap-2 border-t px-4 py-6 text-center"
-            data-attr="sql-editor-output-pane-no-rows-state"
+            className="flex flex-1 flex-col justify-center items-center border-t px-4 py-6 gap-4 text-center"
+            data-attr="sql-editor-output-pane-empty-state"
         >
-            <IconWarning className="text-warning text-lg" />
-            <span className="text-secondary">Query produced no results</span>
+            {singleStatement ? (
+                <span className="text-secondary max-w-xl">
+                    Query results will appear here. Press <KeyboardShortcut command enter /> to run the query.
+                </span>
+            ) : (
+                <span className="text-secondary max-w-xl">
+                    Query results will appear here. Press <KeyboardShortcut command enter /> to run the query at your
+                    cursor. Separate multiple statements with <code>;</code> to run them independently.
+                </span>
+            )}
+            <LemonAgentHint />
         </div>
     )
+}
+
+const LEMON_OUTPUT_STATE_VIEWS: OutputStateViews = {
+    Empty: LemonOutputEmpty,
+    NoRows: function LemonOutputNoRows() {
+        return (
+            <div
+                className="flex flex-1 justify-center items-center gap-2 border-t px-4 py-6 text-center"
+                data-attr="sql-editor-output-pane-no-rows-state"
+            >
+                <IconWarning className="text-warning text-lg" />
+                <span className="text-secondary">Query produced no results</span>
+            </div>
+        )
+    },
+    Error: LemonOutputError,
+    ChoosingChart: function LemonChoosingChart({ onSkip }) {
+        return (
+            <div
+                className="flex flex-1 min-h-0 flex-col items-center justify-center gap-3 p-4 border-t"
+                data-attr="sql-editor-chart-loading"
+                aria-busy="true"
+            >
+                <div className="flex items-center gap-2" role="status">
+                    <Spinner />
+                    <span>Choosing a chart…</span>
+                </div>
+                <LemonButton size="small" type="secondary" onClick={onSkip}>
+                    Show results now
+                </LemonButton>
+            </div>
+        )
+    },
 }
 
 const Content = ({
@@ -1276,8 +1296,10 @@ const Content = ({
     showVisualizationSettings,
     showQueryScan,
     isEmbeddedMode,
+    stateViews,
 }: any): JSX.Element | null => {
-    const { selectedDirectSource, singleStatement, showAgentHints } = useValues(sqlEditorLogic)
+    const { selectedDirectSource } = useValues(sqlEditorLogic)
+    const { responseErrorObject } = useValues(dataNodeLogic)
     // dataNodeLogic's timer resets on every loadData dispatch, so a rerun issued while a
     // query is still in flight restarts the count (a local isLoading-keyed timer wouldn't).
     const { loadingTimeSeconds } = useValues(dataNodeLogic)
@@ -1332,41 +1354,26 @@ const Content = ({
 
     if (hasError) {
         return (
-            <ErrorState
-                responseError={responseError}
+            <stateViews.Error
+                error={
+                    queryCancelled
+                        ? 'The query was cancelled'
+                        : response && 'error' in response && !!response.error
+                          ? response.error
+                          : responseError
+                }
+                validationError={!queryCancelled && extractValidationError(responseErrorObject)}
+                validationErrorCode={extractValidationErrorCode(responseErrorObject)}
+                cancelled={!!queryCancelled}
                 sourceQuery={sourceQuery}
-                queryCancelled={queryCancelled}
-                response={response}
-                showQueryScan={showQueryScan}
+                showQueryScan={!!showQueryScan}
             />
         )
     }
 
     if (activeTab === OutputTab.Visualization) {
         if (!response && !responseLoading && !insightLoading) {
-            return (
-                <div
-                    className="flex min-w-0 flex-1 flex-col justify-center items-center border-t gap-4 p-4"
-                    data-attr="sql-editor-output-pane-empty-state"
-                >
-                    <span className="text-secondary">
-                        Query results will be visualized here. Press <KeyboardShortcut command enter /> to run the
-                        query.
-                    </span>
-                    {showAgentHints ? (
-                        <WarehouseWizardHint
-                            className="max-w-140"
-                            fallback={
-                                <MCPUseCaseCard
-                                    surfaceKey="sql.execute"
-                                    expiresAfterMs={ONE_DAY_IN_MILLISECONDS}
-                                    className="max-w-140"
-                                />
-                            }
-                        />
-                    ) : null}
-                </div>
-            )
+            return <stateViews.Empty kind="chart" />
         }
 
         return (
@@ -1413,39 +1420,7 @@ const Content = ({
     }
 
     if (!response) {
-        const msg =
-            activeTab === OutputTab.Results
-                ? 'Query results will appear here.'
-                : 'Query results will be visualized here.'
-        return (
-            <div
-                className="flex flex-1 flex-col justify-center items-center border-t px-4 py-6 gap-4 text-center"
-                data-attr="sql-editor-output-pane-empty-state"
-            >
-                {singleStatement ? (
-                    <span className="text-secondary max-w-xl">
-                        {msg} Press <KeyboardShortcut command enter /> to run the query.
-                    </span>
-                ) : (
-                    <span className="text-secondary max-w-xl">
-                        {msg} Press <KeyboardShortcut command enter /> to run the query at your cursor. Separate
-                        multiple statements with <code>;</code> to run them independently.
-                    </span>
-                )}
-                {showAgentHints ? (
-                    <WarehouseWizardHint
-                        className="max-w-140"
-                        fallback={
-                            <MCPUseCaseCard
-                                surfaceKey="sql.execute"
-                                expiresAfterMs={ONE_DAY_IN_MILLISECONDS}
-                                className="max-w-140"
-                            />
-                        }
-                    />
-                ) : null}
-            </div>
-        )
+        return <stateViews.Empty kind={activeTab === OutputTab.Results ? 'results' : 'chart'} />
     }
 
     if (activeTab === OutputTab.Results) {
@@ -1454,7 +1429,7 @@ const Content = ({
                 <QueryWarningsBanner warnings={response?.warnings} />
                 {showQueryScan && <EditorQueryScanBanner />}
                 {rows.length === 0 ? (
-                    <EmptyResultsState />
+                    <stateViews.NoRows />
                 ) : (
                     <TabScroller data-attr="sql-editor-output-pane-results">
                         <DataGrid

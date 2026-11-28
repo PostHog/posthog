@@ -106,6 +106,8 @@ class TestDetectTestType:
         [
             "products/ai_observability/frontend/utils.test.ts",
             "products/llm_analytics/frontend/scenes/Trace.test.tsx",
+            "packages/quill/packages/primitives/src/tree.test.tsx",
+            "packages/quill/packages/components/src/credenza.test.tsx",
         ]
     )
     def test_product_frontend_jest_routes_to_frontend(self, file_path: str) -> None:

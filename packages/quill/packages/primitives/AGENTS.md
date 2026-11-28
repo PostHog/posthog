@@ -154,6 +154,8 @@ Don't hand-roll `<p className="text-xs text-muted-foreground">` when `<Text size
 
 **Card vs Item** — see the dedicated section below. Third option: **Table** when data is columnar and comparable across rows (sorting, sticky columns); **ItemGroup** when rows are entities with a title/description/actions shape; **Card** when each entry is a rich standalone tile.
 
+**Is the data hierarchical, and does the user browse it?** Schemas, files, folders, nested resources → **Tree**: one tab stop, arrow-key navigation, lazy children, and virtualization for thousands of rows. A flat list of clickable rows → `CardGroup` (see Card). One or two disclosure rows in a sidebar → `Collapsible variant="folder"`; reach for Tree once the nesting is data-driven or deeper than a level.
+
 ---
 
 ## Component Catalog
@@ -174,6 +176,7 @@ Don't hand-roll `<p className="text-xs text-muted-foreground">` when `<Text size
 | ChatGlobe    | —                                                                                                         | —                                                                 | Sweeping globe for "browsing the web"; sizes from its container. Still globe under reduced motion                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
 | AvatarGroup  | —                                                                                                         | default, sm, xs                                                   | Row of Avatars; `stacked` overlaps + spreads on hover (no reflow), `reverse` spreads left; `size` forwards to children                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
 | IconStack    | —                                                                                                         | —                                                                 | Fanned colored icon tiles (`IconStackItem`, `color` per product, grey default); spreads on hover. The Empty icon, or a trailing set of items after text                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| Tree         | —                                                                                                         | —                                                                 | Hierarchical, browsable data (schemas, files, folders): WAI-ARIA tree with roving focus, arrow/Home/End/`*`/type-ahead keys, controlled `expandedIds`, lazy `onLoadChildren`, `virtualized` fixed-height rows (`rowHeight`, default 28). Compose rows in `renderItem` from `TreeItemIcon`, `TreeItemLabel` (`highlight`), `TreeItemMeta`, `TreeItemActions`; `renderContextMenu` adds a right-click menu                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
 
 ---
 
@@ -626,7 +629,7 @@ Checkbox/radio items:
 
 ### Context Menu (right-click)
 
-Same API as DropdownMenu but with `ContextMenu*` prefix:
+Same API as DropdownMenu but with `ContextMenu*` prefix. `ContextMenuItem` takes `tooltip` and `disabledReason` too, so a right-click menu that repeats a row's dropdown shows the same reasons:
 
 ```tsx
 <ContextMenu>
@@ -698,6 +701,52 @@ Icon-only trigger — only the chevron toggles, so the label can be its own butt
   <CollapsibleContent className="ps-4">{/* rows */}</CollapsibleContent>
 </Collapsible>
 ```
+
+### Tree
+
+`Tree` owns the rows: indentation, the chevron (leaves keep an empty slot so labels line up), selection, focus, and keyboard. You render what sits after the chevron with `renderItem`, from the `TreeItem*` parts. `expandedIds` is controlled; `selectedId` is optional. Clicking a branch toggles it, clicking a leaf or pressing Enter calls `onAction`, and double-clicking a branch calls `onAction` too.
+
+```tsx
+<Tree
+  aria-label="Schema"
+  className="h-80"
+  items={tables}
+  expandedIds={expandedIds}
+  onExpandedIdsChange={setExpandedIds}
+  selectedId={selectedId}
+  onSelectedIdChange={setSelectedId}
+  onAction={(node) => insertIntoQuery(node)}
+  onLoadChildren={(node) => loadColumns(node.id)}
+  renderItem={(node, state) => (
+    <>
+      <TreeItemIcon>{state.hasChildren ? <TableIcon /> : <ColumnsIcon />}</TreeItemIcon>
+      <TreeItemLabel highlight={search}>{node.textValue}</TreeItemLabel>
+      <TreeItemMeta>{node.type}</TreeItemMeta>
+      <TreeItemActions>
+        <DropdownMenu>
+          <DropdownMenuTrigger render={<Button size="icon-xs" aria-label="More actions" />}>
+            <MoreHorizontalIcon />
+          </DropdownMenuTrigger>
+          <DropdownMenuContent>{/* items */}</DropdownMenuContent>
+        </DropdownMenu>
+      </TreeItemActions>
+    </>
+  )}
+  renderContextMenu={(node) => (node.section ? null : <ContextMenuItem>Copy name</ContextMenuItem>)}
+  empty={
+    <Text size="xs" variant="muted">
+      No tables
+    </Text>
+  }
+/>
+```
+
+- A node is a branch when it has `children` or `hasChildren`. `hasChildren` with no `children` means "not loaded yet": expanding it calls `onLoadChildren`, and the row carries `aria-busy` until the children arrive.
+- `section: true` renders a small, muted heading row with no indent guide. It still expands.
+- `disabledReason` keeps the row focusable but muted, blocks select and action, and shows the reason as the row's `title`.
+- `TreeItemActions` shows on row hover or focus and while a popup it opened is open, and stops clicks and keys from reaching the row. Put row menus there, never as a bare child of `renderItem`.
+- `virtualized` renders only the rows in view plus `overscan`; every row is `rowHeight` px tall. The focused row stays mounted when it scrolls away, so keyboard focus survives. Use it from a few hundred rows up.
+- The Tree is its own scroller (`overflow-y-auto scroll-mask-y-4 scroll-py-4`), so give it a height. Use `getItemProps` for `data-attr` and other per-row attributes, and the `ref` (`focusItem`, `scrollToItem`, `focus`) to reveal a row after search or navigation.
 
 ### Popover
 

@@ -3,48 +3,41 @@ import { useActions, useValues } from 'kea'
 import { combineUrl } from 'kea-router'
 import type { editor as importedEditor } from 'monaco-editor'
 import posthog from 'posthog-js'
-import { memo, useCallback, useMemo, useRef } from 'react'
+import { memo } from 'react'
 
 import { IconDatabase, IconGear, IconInfo, IconPlus, IconSidebarClose } from '@posthog/icons'
 import { LemonDivider } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
-import { useDebouncedValue } from 'lib/hooks/useDebouncedValue'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonMenu } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { registerHogQLFormattingProvider } from 'lib/monaco/hogQLFormattingProvider'
 import { cn } from 'lib/utils/css-classes'
-import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { SQLEditorMode } from 'scenes/data-warehouse/editor/sqlEditorModes'
 import { urls } from 'scenes/urls'
 
-import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { SceneTitlePanelButton } from '~/layout/scenes/components/SceneTitlePanelButton'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { VimrcModal } from 'products/data_warehouse/frontend/shared/components/VimrcModal'
 import { sqlEditorVimLogic } from 'products/data_warehouse/frontend/shared/logics/sqlEditorVimLogic'
-import { registerSqlTableHover } from 'products/data_warehouse/frontend/shared/sqlTableHover'
 import { viewEngine } from 'products/data_warehouse/frontend/shared/viewEngine'
-import { useAttachedContext, useMcpToolApplyBack } from 'products/posthog_ai/frontend/api/logics'
 
 import { FixErrorButton } from './components/FixErrorButton'
 import { ConnectionSelector } from './ConnectionSelector'
 import { editorSizingLogic } from './editorSizingLogic'
-import { applyExecuteSqlToolOutput, getExecuteSqlToolContext } from './maxSqlTool'
 import { OutputPane } from './OutputPane'
 import { QueryFiltersMenu } from './QueryFiltersMenu'
 import { QueryPane } from './QueryPane'
 import { QueryPlaceholdersMenu } from './QueryPlaceholdersMenu'
 import { QueryVariablesMenu } from './QueryVariablesMenu'
 import { RunButton } from './RunButton'
-import { sqlEditorLogic, tabModelPath } from './sqlEditorLogic'
-
-const EMBEDDED_MAX_TOOL_CONTEXT_DEBOUNCE_MS = 150
+import { sqlEditorLogic } from './sqlEditorLogic'
+import { useExecuteSqlToolBridge } from './useExecuteSqlToolBridge'
+import { useQueryPaneProps } from './useQueryPaneProps'
 
 interface QueryWindowProps {
     onSetMonacoAndEditor: (monaco: Monaco, editor: importedEditor.IStandaloneCodeEditor) => void
@@ -109,118 +102,24 @@ export function QueryWindow({
     const logic = sqlEditorLogic({ tabId, captureQueryTelemetry })
 
     const {
-        queryInput,
         sourceQuery,
-        originalQueryInput,
-        suggestedQueryInput,
         editingView,
-        activeQueryText,
-        activeQueryOffset,
         selectedConnectionId,
         sendRawQueryEnabled,
         selectedConnectionSupportsHogQL,
-        placeholderValues,
         singleStatementDisabledReason,
     } = useValues(logic)
 
-    const {
-        setQueryInput,
-        runQuery,
-        runSubquery,
-        setError,
-        setMetadata,
-        setMetadataLoading,
-        setSendRawQuery,
-        openMaterializationModal,
-        setSourceQuery,
-    } = useActions(logic)
-
-    const { setSuggestedQueryInput, reportAIQueryPromptOpen, fixIndexUsageWithAI } = useActions(logic)
+    const { setSendRawQuery, openMaterializationModal } = useActions(logic)
     const vimModeFeatureEnabled = useFeatureFlag('SQL_EDITOR_VIM_MODE')
-    const { vimModeEnabled, vimrc, editorSettingsMenuKey } = useValues(sqlEditorVimLogic)
+    const { vimModeEnabled, editorSettingsMenuKey } = useValues(sqlEditorVimLogic)
     const { setVimModeEnabled, openVimrcModal, setEditorSettingsMenuOpen } = useActions(sqlEditorVimLogic)
     const { isDatabaseTreeCollapsed } = useValues(editorSizingLogic)
     // Raw-only connections are forced to raw SQL mode — no toggle to show.
     const canSendRawQuery =
         sourceQuery.source.executionTarget === 'managed_trino' ||
         (!!selectedConnectionId && selectedConnectionSupportsHogQL)
-    const debouncedMaxToolQueryInput = useDebouncedValue(queryInput, EMBEDDED_MAX_TOOL_CONTEXT_DEBOUNCE_MS)
-    const debouncedMaxToolSourceQuery = useDebouncedValue(sourceQuery, EMBEDDED_MAX_TOOL_CONTEXT_DEBOUNCE_MS)
-    const executeSqlToolStateRef = useRef({ queryInput, sourceQuery })
-    executeSqlToolStateRef.current = { queryInput, sourceQuery }
-    const executeSqlToolContext = useMemo(
-        () => getExecuteSqlToolContext(debouncedMaxToolQueryInput, debouncedMaxToolSourceQuery),
-        [debouncedMaxToolQueryInput, debouncedMaxToolSourceQuery]
-    )
-
-    const attachedContextItems = useMemo(
-        () => [
-            { type: 'sql_editor_state' as const, value: JSON.stringify(executeSqlToolContext), label: 'Current query' },
-        ],
-        [executeSqlToolContext]
-    )
-    useAttachedContext(attachedContextItems, { active: showQueryPanel })
-
-    const executeSqlToolContextDescription = useMemo(
-        () => ({
-            text: 'Current query',
-            icon: iconForType('sql_editor'),
-        }),
-        []
-    )
-    const executeSqlToolIntroOverride = useMemo(
-        () => ({
-            headline: 'What data do you want to analyze?',
-            description: 'Let me help you quickly write SQL, and tweak it.',
-        }),
-        []
-    )
-    const executeSqlToolSuggestions = useMemo(() => [], [])
-    const handleExecuteSqlToolOutput = useCallback(
-        (toolOutput: unknown) => {
-            const { queryInput, sourceQuery } = executeSqlToolStateRef.current
-            applyExecuteSqlToolOutput({
-                toolOutput,
-                queryInput,
-                sourceQuery,
-                setSourceQuery,
-                setSuggestedQueryInput,
-            })
-        },
-        [setSourceQuery, setSuggestedQueryInput]
-    )
-    const executeSqlMaxToolProps = useMemo(
-        () => ({
-            identifier: 'execute_sql' as const,
-            context: executeSqlToolContext,
-            contextDescription: executeSqlToolContextDescription,
-            callback: handleExecuteSqlToolOutput,
-            suggestions: executeSqlToolSuggestions,
-            onMaxOpen: reportAIQueryPromptOpen,
-            introOverride: executeSqlToolIntroOverride,
-        }),
-        [
-            executeSqlToolContext,
-            executeSqlToolContextDescription,
-            executeSqlToolIntroOverride,
-            executeSqlToolSuggestions,
-            handleExecuteSqlToolOutput,
-            reportAIQueryPromptOpen,
-        ]
-    )
-    // Sandbox-runtime apply-back for the same tool the legacy MaxTool callback above handles. Reuses
-    // that callback verbatim so the diff-mode gate and filters handling stay shared with legacy.
-    useMcpToolApplyBack({
-        tools: ['execute-sql'],
-        targetKey: `sql:${tabId}`,
-        active: showQueryPanel,
-        onApply: (_event, { innerInput }) => {
-            if (!showQueryPanel || !innerInput) {
-                return
-            }
-            handleExecuteSqlToolOutput(innerInput)
-        },
-    })
+    const executeSqlMaxToolProps = useExecuteSqlToolBridge(tabId, showQueryPanel)
     const sendRawQueryLabel = (
         <span className="inline-flex items-center gap-1">
             <span>Send raw query</span>
@@ -284,6 +183,16 @@ export function QueryWindow({
               ]
             : []),
     ]
+
+    const queryPaneProps = useQueryPaneProps({
+        tabId,
+        codeEditorKey,
+        onSetMonacoAndEditor,
+        onRunQuery,
+        runQueryLoading,
+        autoFocusQueryPane,
+        captureQueryTelemetry,
+    })
 
     return (
         <div className="flex grow flex-col overflow-hidden">
@@ -389,80 +298,7 @@ export function QueryWindow({
                 </div>
             ) : null}
 
-            {showQueryPanel ? (
-                <QueryPane
-                    originalValue={originalQueryInput ?? undefined}
-                    queryInput={(suggestedQueryInput || queryInput) ?? ''}
-                    sourceQuery={sourceQuery.source}
-                    promptError={null}
-                    onRun={runQuery}
-                    editorVimModeEnabled={vimModeFeatureEnabled && vimModeEnabled}
-                    editorVimrc={vimrc}
-                    constrainHeight={showOutputPanel}
-                    codeEditorProps={{
-                        ...(sendRawQueryEnabled ? { language: 'sql' } : {}),
-                        queryKey: codeEditorKey,
-                        autoFocus: autoFocusQueryPane ?? true,
-                        // Bind the editor to the tab's persistent Monaco model and keep it
-                        // alive across the diff <-> editor swap, so undo history survives an
-                        // accepted AI suggestion. Shares the URI with the model createTab makes.
-                        path: tabModelPath(tabId),
-                        keepCurrentModel: true,
-                        metadataQuery: activeQueryText ?? undefined,
-                        metadataQueryOffset: activeQueryOffset,
-                        // Set here rather than only where the tab's Monaco model is created: an editor
-                        // that mounts against an existing model never runs that path, and would then
-                        // ask for metadata without the index report.
-                        indexUsage: true,
-                        // Lets error checking resolve the host's placeholders instead of flagging them
-                        globals: placeholderValues ?? undefined,
-                        captureQueryTelemetry,
-                        onFixWithAI: (prompt) => fixIndexUsageWithAI(prompt),
-                        onChange: (v) => {
-                            setQueryInput(v ?? '')
-                        },
-                        onMount: (editor, monaco) => {
-                            registerHogQLFormattingProvider(monaco)
-                            registerSqlTableHover(monaco, editor, () => {
-                                const schema = databaseTableListLogic.findMounted()
-                                return schema?.values.connectionId === (logic.values.selectedSchemaConnectionId ?? null)
-                                    ? schema.values.allTablesMap
-                                    : {}
-                            })
-                            onSetMonacoAndEditor(monaco, editor)
-                        },
-                        onPressCmdEnter: (value, selectionType) => {
-                            if (onRunQuery) {
-                                if (!runQueryLoading) {
-                                    onRunQuery()
-                                }
-                                return
-                            }
-                            if (value && selectionType === 'selection') {
-                                runQuery(value)
-                            } else {
-                                runQuery()
-                            }
-                        },
-                        onPressCmdShiftEnter: onRunQuery
-                            ? () => {
-                                  if (!runQueryLoading) {
-                                      onRunQuery()
-                                  }
-                              }
-                            : runSubquery,
-                        onError: (error) => {
-                            setError(error)
-                        },
-                        onMetadata: (metadata) => {
-                            setMetadata(metadata)
-                        },
-                        onMetadataLoading: (loading) => {
-                            setMetadataLoading(loading)
-                        },
-                    }}
-                />
-            ) : null}
+            {showQueryPanel ? <QueryPane {...queryPaneProps} constrainHeight={showOutputPanel} /> : null}
 
             {showOutputPanel ? <InternalQueryWindow tabId={tabId} biMode={false} onShareTab={onShareTab} /> : null}
         </div>

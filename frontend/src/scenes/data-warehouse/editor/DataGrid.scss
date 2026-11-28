@@ -35,3 +35,42 @@
         max-width: 0;
     }
 }
+
+// The results grid in the quill editor reads the quill tokens, so it follows the redesign's surfaces
+// and the light and dark themes without its own palette.
+.OutputPane--quill {
+    .rdg {
+        --rdg-background-color: var(--background);
+        --rdg-header-background-color: var(--muted);
+        --rdg-row-hover-background-color: var(--fill-hover);
+        --rdg-row-selected-background-color: var(--fill-selected);
+        --rdg-row-selected-hover-background-color: var(--fill-selected);
+        --rdg-border-color: var(--border);
+        --rdg-summary-border-color: var(--border);
+        --rdg-color: var(--foreground);
+        --rdg-selection-color: var(--ring);
+        --rdg-font-size: var(--text-xs, 0.75rem);
+
+        font-family: var(--font-mono);
+        border: 0;
+    }
+
+    .rdg-header-row {
+        font-family: var(--font-sans);
+        font-weight: 500;
+        color: var(--muted-foreground);
+    }
+
+    .rdg-cell {
+        border-block-end-color: var(--border);
+        border-inline-end-color: var(--border);
+    }
+
+    .OutputPane__sort-arrow {
+        color: var(--subtle-foreground);
+
+        &[data-active] {
+            color: var(--foreground);
+        }
+    }
+}

@@ -5,3 +5,5 @@ rules:
       owners: team-data-stack
     - match: ['/hogqlParser.ts', '/hogqlParser.test.ts']
       owners: team-data-stack
+    - match: ['/quillMonacoTheme.ts', '/quillMonacoTheme.test.ts']
+      owners: team-managed-warehouse

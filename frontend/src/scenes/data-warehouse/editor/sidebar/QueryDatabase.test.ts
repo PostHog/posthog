@@ -1,9 +1,5 @@
-import {
-    getColumnInsertText,
-    getQueryDatabaseTreeData,
-    getSidebarAddJoinSourceTableName,
-    getTooltipDescription,
-} from './QueryDatabase'
+import { getSidebarAddJoinSourceTableName } from './schemaItemActions'
+import { getColumnInsertText, getQueryDatabaseTreeData, getTooltipDescription } from './schemaTreeData'
 
 describe('QueryDatabase', () => {
     describe('getColumnInsertText', () => {

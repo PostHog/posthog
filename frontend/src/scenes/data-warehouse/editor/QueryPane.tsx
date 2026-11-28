@@ -3,11 +3,13 @@ import { useMemo } from 'react'
 
 import { IconCheck, IconX } from '@posthog/icons'
 import { Spinner } from '@posthog/lemon-ui'
+import { Button as QuillButton, Spinner as QuillSpinner, Text } from '@posthog/quill'
 
 import { AutoSizer } from 'lib/components/AutoSizer'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Resizer } from 'lib/lemon-ui/Resizer/Resizer'
 import { CodeEditor, CodeEditorProps } from 'lib/monaco/CodeEditor'
+import { useQuillSurface } from 'lib/ui/QuillSurface/quillSurfaceContext'
 import { cn } from 'lib/utils/css-classes'
 
 import { HogQLQuery } from '~/queries/schema/schema-general'
@@ -32,6 +34,9 @@ export function QueryPane(props: QueryPaneProps): JSX.Element {
     const { onAcceptSuggestedQueryInput, onRejectSuggestedQueryInput } = useActions(sqlEditorLogic)
     const { acceptText, rejectText, diffShowRunButton, insightLoading, suggestionPayload, viewUpdateInProgress } =
         useValues(sqlEditorLogic)
+    // Inside the quill workspace a resizable panel sizes the editor, so the pane fills it and has
+    // no resizer of its own.
+    const quillSurface = useQuillSurface()
     const queryLoading = insightLoading && !props.queryInput
     const readOnly = queryLoading || viewUpdateInProgress || !!suggestionPayload?.readOnly
     const editorOptions = useMemo<CodeEditorProps['options']>(
@@ -56,6 +61,65 @@ export function QueryPane(props: QueryPaneProps): JSX.Element {
     // Without an output pane beneath it the editor owns its column, so it takes whatever height the
     // database tree gives the row rather than leaving dead space next to the schema list.
     const fillsColumn = props.constrainHeight === false
+
+    const editor = (
+        <AutoSizer
+            renderProp={({ height, width }) =>
+                height && width ? (
+                    <CodeEditor
+                        language="hogQL"
+                        value={props.queryInput}
+                        sourceQuery={props.sourceQuery}
+                        height={height}
+                        width={width}
+                        originalValue={props.originalValue}
+                        enableVimMode={props.editorVimModeEnabled}
+                        vimrc={props.editorVimrc}
+                        theme={quillSurface ? 'quill' : 'default'}
+                        {...props.codeEditorProps}
+                        autoFocus={!queryLoading && (props.codeEditorProps.autoFocus ?? true)}
+                        options={editorOptions}
+                    />
+                ) : null
+            }
+        />
+    )
+
+    if (quillSurface) {
+        return (
+            <div className="relative flex h-full min-h-0 w-full min-w-0 flex-col bg-card">
+                <div className="absolute inset-0" data-attr="hogql-query-editor">
+                    {editor}
+                </div>
+                {queryLoading ? (
+                    <div className="absolute inset-0 z-10 flex items-center justify-center gap-2 bg-card" role="status">
+                        <QuillSpinner />
+                        <Text size="xs" className="m-0">
+                            Loading query…
+                        </Text>
+                    </div>
+                ) : null}
+                {props.originalValue !== undefined ? (
+                    <div className="absolute bottom-4 left-1/2 z-10 flex -translate-x-1/2 gap-1 rounded-lg border bg-card p-1 whitespace-nowrap shadow-md">
+                        {diffShowRunButton ? (
+                            <QuillButton variant="outline" onClick={() => onAcceptSuggestedQueryInput(true)}>
+                                <IconCheck />
+                                {acceptText} & run
+                            </QuillButton>
+                        ) : null}
+                        <QuillButton variant="outline" onClick={() => onAcceptSuggestedQueryInput()}>
+                            <IconCheck />
+                            {acceptText}
+                        </QuillButton>
+                        <QuillButton onClick={() => onRejectSuggestedQueryInput()}>
+                            <IconX />
+                            {rejectText}
+                        </QuillButton>
+                    </div>
+                ) : null}
+            </div>
+        )
+    }
 
     return (
         <>
@@ -85,25 +149,7 @@ export function QueryPane(props: QueryPaneProps): JSX.Element {
                         className={cn('flex-1 min-h-0', fillsColumn && 'absolute inset-0')}
                         data-attr="hogql-query-editor"
                     >
-                        <AutoSizer
-                            renderProp={({ height, width }) =>
-                                height && width ? (
-                                    <CodeEditor
-                                        language="hogQL"
-                                        value={props.queryInput}
-                                        sourceQuery={props.sourceQuery}
-                                        height={height}
-                                        width={width}
-                                        originalValue={props.originalValue}
-                                        enableVimMode={props.editorVimModeEnabled}
-                                        vimrc={props.editorVimrc}
-                                        {...props.codeEditorProps}
-                                        autoFocus={!queryLoading && (props.codeEditorProps.autoFocus ?? true)}
-                                        options={editorOptions}
-                                    />
-                                ) : null
-                            }
-                        />
+                        {editor}
                     </div>
                     {queryLoading && (
                         <div

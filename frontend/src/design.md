@@ -93,6 +93,7 @@ Compose from the listed parts only. Part names are shown without their prefix (e
 - Toast: `toast()`, `anchoredToast()`, ToastProvider, ToastCard (no `<Toast>` component)
 - Toggle; ToggleGroup (Item)
 - Tooltip (Trigger, Content), TooltipProvider
+- Tree (ItemIcon, ItemLabel, ItemMeta, ItemActions)
 - Providers/hooks: ThemeProvider, useTheme, DirectionProvider, useDirection
 - Utility: `cn`
 
@@ -220,6 +221,7 @@ Use via Tailwind utilities (`bg-primary text-primary-foreground`, `border-border
     - Add `focus-visible:opacity-100` (or `focus-within:opacity-100` on a wrapper) too, so keyboard users can reach the trigger
     - Precedent: `products/release/frontend/ReleaseMetricTileMenu.tsx`, the Table `group-hover/row` story in `packages/quill/packages/primitives/src/table.stories.tsx`
     - Before handoff, open the menu and move the pointer into it. The trigger must still show
+- Hierarchical data the user browses (schemas, files, folders, nested resources) → `Tree`, with row parts in `renderItem` and row menus in `TreeItemActions`. Flat clickable rows → `CardGroup` (below)
 - A list of clickable rows (tickets, programs, recent items) → `CardGroup` of `Card size="sm"`, each holding one full-width `<button>` or `<a>`. Item has no clickable variant. `Item tone` is for callouts only, such as a warning or an incident notice
 - Switching views: Tabs (sections of one page; `variant="line"` for page-level) | ToggleGroup (2–4 display modes) | Select (many views, low priority)
 - Filtering a list, anywhere (a scene, a sidebar pane, a side panel, a picker inside a menu):

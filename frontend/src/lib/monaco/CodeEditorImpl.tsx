@@ -25,6 +25,7 @@ import { initLiquidLanguage } from 'lib/monaco/languages/liquid'
 import { initPromQLLanguage } from 'lib/monaco/languages/promql'
 import { clearLogicReference, initModel } from 'lib/monaco/modelLogicReference'
 import { registerMountedCodeEditor } from 'lib/monaco/mountedCodeEditors'
+import { defineQuillMonacoTheme } from 'lib/monaco/quillMonacoTheme'
 import 'lib/monaco/monacoEnvironment'
 import { sharedMonacoOverflowRoot } from 'lib/monaco/sharedMonacoOverflowRoot'
 import { retriggerSuggestionsAfterDeletion } from 'lib/monaco/suggestionRetrigger'
@@ -65,8 +66,18 @@ export interface CodeEditorProps extends Omit<EditorProps, 'loading' | 'theme'> 
     enableVimMode?: boolean
     /** Vim commands to run when vim mode starts, one per line */
     vimrc?: string
+    /** 'quill' colors the editor from the quill design tokens. Set it only where the editor renders inside a `[data-quill]` subtree. */
+    theme?: 'default' | 'quill'
 }
 let codeEditorIndex = 0
+
+// Monaco themes are global to the page. Count the mounted quill editors so that the last one to
+// unmount restores the default theme for the other editors on the page.
+let mountedQuillEditorCount = 0
+
+function defaultMonacoThemeName(isDark: boolean): string {
+    return isDark ? 'vs-dark' : 'vs-light'
+}
 
 // Monaco measures glyph dimensions when an editor is created. If a web font is still
 // loading at that moment it can latch onto stale (oversized) metrics and never relayout,
@@ -180,9 +191,12 @@ export function CodeEditor({
     originalValue,
     enableVimMode,
     vimrc,
+    theme = 'default',
     ...editorProps
 }: CodeEditorProps): JSX.Element {
     const isDarkModeOn = useBodyIsDark()
+    const [quillThemeName, setQuillThemeName] = useState<string | null>(null)
+    const monacoThemeName = theme === 'quill' && quillThemeName ? quillThemeName : defaultMonacoThemeName(isDarkModeOn)
     const inTestRunner = inStorybookTestRunner()
     const scrollbarRendering = inTestRunner ? 'hidden' : 'auto'
     const cursorBlinking = inTestRunner ? 'solid' : 'blink'
@@ -447,6 +461,32 @@ export function CodeEditor({
         }
     }, [editor, enableVimMode, vimrc, appendVimCommand])
 
+    useEffect(() => {
+        if (theme !== 'quill' || !monaco) {
+            return
+        }
+        mountedQuillEditorCount++
+        return () => {
+            mountedQuillEditorCount--
+            if (mountedQuillEditorCount === 0) {
+                // The other editors pass their theme as a prop, which does not change, so their
+                // wrapper never calls setTheme again on its own.
+                monaco.editor.setTheme(defaultMonacoThemeName(document.body.getAttribute('theme') === 'dark'))
+            }
+            setQuillThemeName(null)
+        }
+    }, [theme, monaco])
+
+    useEffect(() => {
+        if (theme !== 'quill' || !monaco || !editor) {
+            return
+        }
+        // Redefine on every light/dark switch because the token values change with the mode.
+        const name = defineQuillMonacoTheme(monaco, editor.getContainerDomNode(), isDarkModeOn)
+        monaco.editor.setTheme(name)
+        setQuillThemeName(name)
+    }, [theme, monaco, editor, isDarkModeOn])
+
     // The wrapper calls `editor.updateOptions` whenever this object's identity changes, and
     // Monaco revalidates every option on each call, so only rebuild it when an input changes.
     const editorOptions = useMemo<editor.IStandaloneEditorConstructionOptions>(
@@ -677,7 +717,7 @@ export function CodeEditor({
                 <MonacoDiffEditor
                     key={queryKey}
                     loading={<Spinner />}
-                    theme={isDarkModeOn ? 'vs-dark' : 'vs-light'}
+                    theme={monacoThemeName}
                     original={originalValue}
                     modified={value}
                     options={diffEditorOptions}
@@ -699,7 +739,7 @@ export function CodeEditor({
         <div className="CodeEditor relative h-full w-full" data-editor-ready={monacoAndEditor ? 'true' : 'false'}>
             <MonacoEditor // eslint-disable-line react/forbid-elements
                 key={queryKey}
-                theme={isDarkModeOn ? 'vs-dark' : 'vs-light'}
+                theme={monacoThemeName}
                 loading={<Spinner />}
                 value={normalizedValue}
                 options={editorOptions}
