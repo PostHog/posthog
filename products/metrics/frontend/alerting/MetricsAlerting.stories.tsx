@@ -12,6 +12,7 @@ const FIRING_ALERT: PlatformAlertConfigurationApi = {
     id: '0192a5b0-0000-7000-8000-000000000001',
     name: 'Checkout error rate above 5 per second',
     enabled: true,
+    alert_kind: 'threshold',
     labels: { team: 'checkout', severity: 'critical' },
     annotations: {},
     created_by: null,

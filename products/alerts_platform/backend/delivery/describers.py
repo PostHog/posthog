@@ -11,6 +11,7 @@ import structlog
 from posthog.slack.channels import clip_text
 
 from products.alerts_platform.backend.facade.contracts import (
+    AlertEventKind,
     AnnouncedTransition,
     MessageImage,
     SourceDescriber,
@@ -32,20 +33,25 @@ MAX_DATA_LINK_URL_CHARS: Final = 2000
 MAX_IMAGE_URL_CHARS: Final = 3000
 MAX_IMAGE_ALT_TEXT_CHARS: Final = 2000
 MAX_SLACK_ELEMENTS: Final = 3
+# A headline is the message title, and a source can build it from ingested text such as a pattern.
+MAX_HEADLINE_CHARS: Final = 150
 
 logger = structlog.get_logger(__name__)
 
 _describers: dict[SourceKind, SourceDescriber] = {}
+# A source's appearance alerts describe identities, not counts, so they get a describer of their own.
+_appearance_describers: dict[SourceKind, SourceDescriber] = {}
 _image_resolvers: dict[SourceKind, SourceImageResolver] = {}
 _slack_renderers: dict[SourceKind, SourceSlackRenderer] = {}
 
 
-def register(source: SourceKind, describer: SourceDescriber) -> None:
+def register(source: SourceKind, describer: SourceDescriber, *, appearance: bool = False) -> None:
     # One owner per source. A second registrant would silently reword another product's alerts.
-    registered = _describers.get(source)
+    describers = _appearance_describers if appearance else _describers
+    registered = describers.get(source)
     if registered is not None and registered is not describer:
         raise RuntimeError(f"A different describer is already registered for {source} alerts.")
-    _describers[source] = describer
+    describers[source] = describer
 
 
 def describe(source: SourceKind, *, project_id: int, transition: AnnouncedTransition) -> SourceDescription:
@@ -54,7 +60,8 @@ def describe(source: SourceKind, *, project_id: int, transition: AnnouncedTransi
     Empty when nothing is registered, because the platform's wording is a complete message, so a
     source without a describer still delivers.
     """
-    describer = _describers.get(source)
+    describers = _appearance_describers if transition.kind == AlertEventKind.APPEARED else _describers
+    describer = describers.get(source)
     if describer is None:
         return SourceDescription()
     try:
@@ -87,6 +94,7 @@ def _bounded(source: SourceKind, description: SourceDescription) -> SourceDescri
         data_link=data_link,
         # The buttons share the actions block, which Slack caps at 25 elements.
         slack_elements=description.slack_elements[:MAX_SLACK_ELEMENTS],
+        headline=clip_text(description.headline, MAX_HEADLINE_CHARS) if description.headline else None,
     )
 
 

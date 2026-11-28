@@ -33,7 +33,7 @@ class PlatformAlertConfigurationContext(ActivityContextBase):
 
 
 def _context(instance: PlatformAlertConfiguration) -> PlatformAlertConfigurationContext:
-    spec = source_configs.spec(SourceKind(instance.source_kind))
+    spec = source_configs.spec(SourceKind(instance.source_kind), instance.alert_kind)
     lookup = spec.activity_source if spec is not None else None
     source = lookup(instance.team_id, instance.source_config) if lookup is not None else None
     return PlatformAlertConfigurationContext(

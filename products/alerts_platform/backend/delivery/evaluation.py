@@ -76,7 +76,7 @@ from products.alerts_platform.backend.facade.contracts import (
     MessageLink,
     StoredAlertDestination,
 )
-from products.alerts_platform.backend.facade.enums import PlatformAlertOwner
+from products.alerts_platform.backend.facade.enums import PlatformAlertKind, PlatformAlertOwner
 from products.alerts_platform.backend.logic import delivery_holds, source_configs
 from products.alerts_platform.backend.logic.alert_destinations import (
     INCIDENT_DESTINATION_TYPES,
@@ -163,7 +163,10 @@ class _WebhookTransports:
         return self._transport
 
     def _legacy_body(self) -> Callable[[AlertMessage], dict[str, Any]] | None:
-        if legacy_webhook.body_for(self._request.source) is None:
+        if (
+            legacy_webhook.body_for(self._request.source) is None
+            or self._request.alert_kind != PlatformAlertKind.THRESHOLD
+        ):
             return None
         try:
             keeps_legacy_body = legacy_webhook.keeps_legacy_webhook_body(self._team)
@@ -578,7 +581,7 @@ def _split_by_path(
     paths, so nothing is sent twice. A row that copies a live HogFunction is skipped, so that
     HogFunction alone sends.
     """
-    if delivery_paths.emitter_for(request.source) is None:
+    if request.alert_kind != PlatformAlertKind.THRESHOLD or delivery_paths.emitter_for(request.source) is None:
         return announced, ()
     if platform_destinations.owns_destinations:
         return announced, _emissions(request, announced.transitions)

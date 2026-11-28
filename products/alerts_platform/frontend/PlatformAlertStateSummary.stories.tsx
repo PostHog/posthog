@@ -32,6 +32,7 @@ function configuration(
         state_timeline: [],
         destination_types: [],
         source_kind: 'logs',
+        alert_kind: 'threshold',
         source_config: {},
         check_interval_minutes: 5,
         recurrence_unit: null,

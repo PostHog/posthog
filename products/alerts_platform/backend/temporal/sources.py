@@ -7,6 +7,7 @@ A source absent from this map keeps the noop evaluation path.
 """
 
 import datetime as dt
+from typing import Final
 
 from django.conf import settings
 
@@ -40,6 +41,16 @@ class SourceBinding:
         if self.discovery_limit < 1:
             raise ValueError("A source's discovery limit must be at least 1")
 
+
+APPEARANCE_WORKFLOW_NAME = "alerts-platform-appearance-evaluate"
+# Every source's appearance alerts run here, whatever binding the source has for its threshold alerts.
+# Their checks read Postgres, plus at most one feed read per project.
+APPEARANCE_BINDING: Final = SourceBinding(
+    workflow=APPEARANCE_WORKFLOW_NAME,
+    task_queue=settings.ALERTS_PLATFORM_EVALUATION_TASK_QUEUE,
+    evaluation_timeout=dt.timedelta(seconds=120),
+    discovery_limit=DISCOVERY_LIMIT_PER_SOURCE,
+)
 
 SOURCE_BINDINGS: dict[SourceKind, SourceBinding] = {
     SourceKind.LOGS: SourceBinding(

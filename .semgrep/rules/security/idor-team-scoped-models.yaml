@@ -501,6 +501,8 @@ rules:
                               |PlatformAlertDeliveryHold
                               |PlatformAlertDeliveryPath
                               |PlatformAlertThread
+                              |PlatformOccurrence
+                              |PlatformOccurrenceCursor
                               |AlertDestination
                               |AlertReceiver
                               |AlertRoute
@@ -1056,6 +1058,8 @@ rules:
                         |PlatformAlertDeliveryHold
                         |PlatformAlertDeliveryPath
                         |PlatformAlertThread
+                        |PlatformOccurrence
+                        |PlatformOccurrenceCursor
                         |AlertDestination
                         |AlertReceiver
                         |AlertRoute
