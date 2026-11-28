@@ -42,12 +42,16 @@ env:
     #
     # Chromium shards are sized from the timing manifest, not from a target wall. Each shard
     # pays about a minute of fixed setup (checkout, pnpm restore and install, artifact
-    # download), then divides the story time left over by its shard count and two Jest workers.
+    # download), then divides the story time left over by its shard count and its Jest workers.
     # At 28 shards the median shard spent 5.9 of its 7.8 minutes in the test runner (with slowest
     # shard around 9 minutes); at 40 the same story time spread over 40 shards puts the median
     # shard wall near 6.4 minutes (test runner ~4.2 minutes, slowest shard 8.1 minutes). The shards run
     # on GitHub-hosted runners, which are free for this public repository, so the extra shards
     # cost queue slots rather than money.
+    #
+    # Worker count follows the runner: STORYBOOK_MAX_WORKERS is 3 on the chromium shards, which
+    # get the 4-vCPU public-repo runner, and 2 on the WebKit and Firefox shards, which get a
+    # 2-vCPU Depot runner that two workers already saturate.
     #
     # WEBKIT_SHARDS and FIREFOX_SHARDS stay at 8: those shards run on 2-CPU Depot runners that
     # bill per minute, once a night.
@@ -788,6 +792,9 @@ jobs:
             NODE_OPTIONS: --max-old-space-size=16384
             OPT_OUT_CAPTURE: 1
             JEST_JUNIT_SUITE_NAME: '{filepath}'
+            # Chromium shards get the 4-vCPU GitHub-hosted runner, so a third worker has a core
+            # to run on; the WebKit and Firefox shards keep two on their 2-vCPU Depot runner.
+            STORYBOOK_MAX_WORKERS: ${{ matrix.browser == 'chromium' && '3' || '2' }}
         steps:
             - name: Sparse source checkout
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -1755,10 +1762,12 @@ jobs:
                       FULL_MINUTES=$(( (CURRENT_SHARDS * SHARD_OVERHEAD_MINUTES) + (TOTAL_DUR / 60) ))
                       SELECTIVE_MINUTES=$(( (SHARDS * SHARD_OVERHEAD_MINUTES) + (AFFECTED_DUR / 60) ))
                       SAVED_MINUTES=$((FULL_MINUTES - SELECTIVE_MINUTES))
-                      # A shard runs two workers, so its test wall is its share of the story
-                      # time over two. This is the number a person waits for.
-                      FULL_WALL_MINUTES=$(( TOTAL_DUR / (2 * CURRENT_SHARDS) / 60 ))
-                      SELECTIVE_WALL_MINUTES=$(( AFFECTED_DUR / (2 * SHARDS) / 60 ))
+                      # A chromium shard runs three workers (STORYBOOK_MAX_WORKERS), so its test
+                      # wall is its share of the story time over three. This is the number a
+                      # person waits for.
+                      SHARD_WORKERS=3
+                      FULL_WALL_MINUTES=$(( TOTAL_DUR / (SHARD_WORKERS * CURRENT_SHARDS) / 60 ))
+                      SELECTIVE_WALL_MINUTES=$(( AFFECTED_DUR / (SHARD_WORKERS * SHARDS) / 60 ))
 
                       cat >> "$GITHUB_STEP_SUMMARY" << EOF
                   ## Story selection
