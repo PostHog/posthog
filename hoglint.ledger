@@ -2442,9 +2442,12 @@ no-new-package-cycles	product_analytics	web_analytics	1
 no-new-package-cycles	product_tours	approvals	1
 no-new-package-cycles	product_tours	feature_flags	1
 no-new-package-cycles	product_tours	surveys	1
+no-new-package-cycles	release	early_access_features	1
+no-new-package-cycles	release	experiments	1
 no-new-package-cycles	release	feature_flags	1
 no-new-package-cycles	release	product_analytics	1
 no-new-package-cycles	release	surveys	1
+no-new-package-cycles	release	today	1
 no-new-package-cycles	release	workflows	1
 no-new-package-cycles	replay_vision	actions	1
 no-new-package-cycles	replay_vision	alerts	1
