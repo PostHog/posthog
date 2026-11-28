@@ -2,8 +2,8 @@ import { readdirSync } from 'node:fs'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { ApiClient } from '@/api/client'
-import { GuidanceEngine, triggerMatches, type GuidanceCall } from '@/hono/guidance/engine'
-import type { GuidanceRule } from '@/hono/guidance/rule-schema'
+import { GuidanceEngine, guidanceAnalyticsProperties, triggerMatches, type GuidanceCall } from '@/hono/guidance/engine'
+import { guidanceRuleSchema, type GuidanceRule } from '@/hono/guidance/rule-schema'
 import { GUIDANCE_RULES, MCP_GUIDANCE_SELF_DRIVING_ACTIVATION_FLAG } from '@/hono/guidance/rules'
 import type { ResolvedState } from '@/hono/request-state-resolver'
 import { MCPClientProfile } from '@/lib/client-detection'
@@ -438,6 +438,94 @@ describe('GuidanceEngine', () => {
             replayQuery
         )
         expect(shown?.text).toBe('Used execute-sql.')
+    })
+
+    describe('the cohorts-create messaging experiment', () => {
+        const messagingRule = GUIDANCE_RULES.find((r) => r.id === 'cohorts-create-messaging')!
+        const cohortsCreate: GuidanceCall = { toolName: 'cohorts-create', args: { name: 'Churned' }, isError: false }
+        const messagingState = (
+            flagValue: boolean | string | undefined,
+            overrides: Partial<ResolvedState> = {}
+        ): ResolvedState =>
+            makeToolExecutorState([{ name: 'cohorts-create' }, { name: 'broadcasts-create' }], {
+                toolFeatureFlags: { 'xpm-mcp-placement': flagValue },
+                suppressAnalytics: false,
+                reportFlagExposure: vi.fn(),
+                ...overrides,
+            })
+
+        it.each([
+            ['the treated arm', 'after_cohorts_create', 'shown', true],
+            ['control', 'control', 'flag_off', true],
+            ['the holdout', 'holdout-42', 'holdout', true],
+            ['a flag that is off', false, 'flag_off', false],
+            ['an unevaluated flag', undefined, 'flag_off', false],
+        ])('stamps %s and reports the exposure only for a served variant', async (_label, value, outcome, exposed) => {
+            const state = messagingState(value)
+            const notice = await new GuidanceEngine(makeGuidanceRedis(), [messagingRule]).evaluate(state, cohortsCreate)
+
+            expect(notice).toMatchObject({ ruleId: 'cohorts-create-messaging', outcome })
+            expect(notice?.text === undefined).toBe(outcome !== 'shown')
+            expect(notice?.attemptId === undefined).toBe(outcome !== 'shown')
+            expect(state.reportFlagExposure).toHaveBeenCalledTimes(exposed ? 1 : 0)
+            if (exposed) {
+                expect(state.reportFlagExposure).toHaveBeenCalledWith('xpm-mcp-placement')
+            }
+        })
+
+        it('offers the broadcast with a fresh attempt id in the treated arm', async () => {
+            const notice = await new GuidanceEngine(makeGuidanceRedis(), [messagingRule]).evaluate(
+                messagingState('after_cohorts_create'),
+                cohortsCreate
+            )
+
+            expect(notice?.attemptId).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/)
+            expect(notice?.text).toBe(
+                'You can offer the user an email to the people in the cohort this call returned. ' +
+                    'They review and launch it in the broadcast editor. ' +
+                    'If they want it, call broadcasts-create with a batch trigger on that cohort, ' +
+                    `and pass entry_attempt_id: "${notice?.attemptId}".`
+            )
+            expect(guidanceAnalyticsProperties(notice)).toEqual({
+                mcp_guidance_rule: 'cohorts-create-messaging',
+                mcp_guidance_outcome: 'shown',
+                mcp_guidance_attempt_id: notice?.attemptId,
+            })
+        })
+
+        it('still shows the notice when reporting the exposure throws', async () => {
+            const state = messagingState('after_cohorts_create', {
+                reportFlagExposure: () => {
+                    throw new Error('capture down')
+                },
+            })
+            await expect(
+                new GuidanceEngine(makeGuidanceRedis(), [messagingRule]).evaluate(state, cohortsCreate)
+            ).resolves.toMatchObject({ outcome: 'shown', text: expect.stringContaining('broadcasts-create') })
+        })
+
+        it.each([
+            ['a roster without broadcasts-create', [{ name: 'cohorts-create' }], cohortsCreate],
+            [
+                'a failed cohorts-create',
+                [{ name: 'cohorts-create' }, { name: 'broadcasts-create' }],
+                { ...cohortsCreate, isError: true },
+            ],
+        ])('stays silent and reports no exposure for %s', async (_label, tools, call) => {
+            const state = messagingState('after_cohorts_create', { allTools: tools as ResolvedState['allTools'] })
+            await expect(
+                new GuidanceEngine(makeGuidanceRedis(), [messagingRule]).evaluate(state, call)
+            ).resolves.toBeUndefined()
+            expect(state.reportFlagExposure).not.toHaveBeenCalled()
+        })
+
+        it.each([
+            ['without text or an experiment', { experiment: undefined }],
+            ['with both text and an experiment', { text: 'Both.' }],
+            ['with a flag that is not the placement area flag', { flag: 'mcp-guidance-test' }],
+        ])('rejects a rule %s', (_label, overrides) => {
+            expect(guidanceRuleSchema.safeParse({ ...messagingRule, ...overrides }).success).toBe(false)
+        })
     })
 
     it('shows nothing and logs when Redis fails', async () => {
