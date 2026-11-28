@@ -1051,6 +1051,7 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
         clicked = [("sent", 1, ""), ("delivered", 2, ""), ("clicked", 60, "")]
         message_id = self._send(0, "edge@example.com", clicked, at=cutoff + timedelta(milliseconds=send_offset_ms))
         self._land("edge", "edge-session", message_id, at=cutoff + timedelta(milliseconds=landing_offset_ms))
+        self._land("at-cutoff", "at-cutoff-session", message_id, at=cutoff)
         flush_persons_and_events()
 
         listed = self._impact_sessions(
