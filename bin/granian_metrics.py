@@ -16,6 +16,7 @@ import logging
 import threading
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 
 from prometheus_client import CONTENT_TYPE_LATEST, CollectorRegistry, Gauge, generate_latest, multiprocess
 
@@ -26,6 +27,23 @@ logger = logging.getLogger(__name__)
 # loopback by design. Per-code-path opt-out, never NO_PROXY (see
 # charts docs/claude/egress-proxy.md).
 _LOOPBACK_OPENER = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+
+
+def cleanup_dead_worker_gauges(path: Path) -> None:
+    # Granian has no child-exit hook to remove live gauges from replaced workers.
+    pids = {int(file.stem.rsplit("_", 1)[1]) for file in path.glob("gauge_live*_*.db")}
+    for pid in pids:
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            try:
+                multiprocess.mark_process_dead(pid, path=str(path))
+            except FileNotFoundError:
+                # Another scrape can remove the same file between the library's glob and unlink.
+                pass
+        except OSError:
+            # Permission errors and other unknown states do not prove the worker is dead.
+            continue
 
 
 def create_granian_metrics() -> None:
@@ -113,6 +131,7 @@ def main():
     """Start HTTP server exposing app multiprocess metrics merged with Granian's native metrics."""
     registry = CollectorRegistry()
     multiprocess.MultiProcessCollector(registry)
+    multiprocess_path = Path(os.environ["PROMETHEUS_MULTIPROC_DIR"])
 
     # Create Granian-specific metrics for dashboard compatibility (they reach
     # the scrape via the multiprocess mmap files, not this registry)
@@ -122,6 +141,7 @@ def main():
 
     class MetricsHandler(BaseHTTPRequestHandler):
         def do_GET(self):
+            cleanup_dead_worker_gauges(multiprocess_path)
             body = generate_latest(registry) + fetch_native_metrics()
             self.send_response(200)
             self.send_header("Content-Type", CONTENT_TYPE_LATEST)
