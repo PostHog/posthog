@@ -17,6 +17,7 @@ from parameterized import parameterized
 from pydantic import ValidationError
 from rest_framework import status
 
+from posthog import redis
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import ClickHouseUser, Workload
 from posthog.models import OrganizationMembership, Team, User
@@ -44,7 +45,15 @@ from products.alerts_platform.backend.facade.contracts import (
     SourceBatchEvaluation,
     SourceKind,
 )
-from products.metrics.backend.alerts.evaluation import ABSENT_RESOLVE_AFTER, INFLIGHT_KEY, evaluate_metrics_alert_batch
+from products.alerts_platform.backend.facade.temporal import source_evaluation_timeout
+from products.metrics.backend.alerts.evaluation import (
+    ABSENT_RESOLVE_AFTER,
+    BATCH_SLOT_LEASE_SECONDS,
+    INFLIGHT_KEY,
+    evaluate_held_metrics_batch,
+    evaluate_metrics_alert_batch,
+    take_metrics_batch_slot,
+)
 from products.metrics.backend.alerts.freshness import (
     CHECKPOINT_EVAL_DELAY,
     IngestionReach,
@@ -53,6 +62,11 @@ from products.metrics.backend.alerts.freshness import (
     freshness_workload,
 )
 from products.metrics.backend.alerts.source_config import MetricsPlatformAlertConfig
+from products.metrics.backend.temporal.alert_evaluate import (
+    EVALUATE_SCHEDULE_TO_CLOSE,
+    EVALUATION_BUDGET,
+    TAKE_SLOT_START_TO_CLOSE,
+)
 from products.metrics.backend.tests._seeder import seed_metric, truncate_metrics_tables
 from products.product_analytics.backend.facade.models import Insight
 
@@ -564,6 +578,37 @@ class TestMetricsAlertEvaluation(APIBaseTest):
         assert self._kinds(self._evaluate()) == {"a": AlertEventKind.FIRING}
         assert self._kinds(self._evaluate()) == {"a": AlertEventKind.FIRING}
 
+    @override_settings(ALERTS_PLATFORM_METRICS_MAX_INFLIGHT_BATCHES=1)
+    def test_a_batch_refused_through_its_wait_counts_deferred_once_and_runs_when_admitted(self) -> None:
+        self.addCleanup(redis.get_client().delete, INFLIGHT_KEY)
+        self.snuffle.return_value = _response(200, _vector(({"group": "a"}, "2000")))
+        slot = slot_of(self.due_at, self.cutoff)
+        other = hold_evaluation_slot("other-batch", limit=1, key=INFLIGHT_KEY)
+        assert other is not None
+
+        with (
+            team_scope(self.team.id),
+            patch("products.metrics.backend.alerts.evaluation.increment_checks_deferred") as deferred,
+        ):
+            refused = take_metrics_batch_slot(self.team.id, slot, self.cutoff, member="batch", first=True, final=False)
+            last = take_metrics_batch_slot(self.team.id, slot, self.cutoff, member="batch", first=False, final=True)
+            release_evaluation_slot("other-batch", held_until=other, key=INFLIGHT_KEY)
+            admitted = take_metrics_batch_slot(
+                self.team.id, slot, self.cutoff, member="batch", first=False, final=False
+            )
+            assert admitted.slot is not None
+            evaluation = evaluate_held_metrics_batch(self.team.id, slot, self.cutoff, admitted.slot)
+            after = take_metrics_batch_slot(self.team.id, slot, self.cutoff, member="next", first=True, final=False)
+
+        assert [(refused.due, refused.slot), (last.due, last.slot)] == [(True, None)] * 2
+        # Only the last try counts the batch as deferred.
+        assert [call.args for call in deferred.call_args_list] == [("metrics", 1)]
+        # The refused tries left the check due, so the admitted batch evaluates it.
+        (outcome,) = evaluation.outcomes
+        assert self._kinds(outcome) == {"a": AlertEventKind.FIRING}
+        # The evaluation gave the slot back, or a pool of one would still turn the next batch away.
+        assert after.slot is not None
+
     @parameterized.expand(
         [
             ("rejected_query_counts_toward_broken", _response(400, {"status": "error", "error": "parse error"}), 1),
@@ -640,6 +685,14 @@ class TestMetricsAlertEvaluation(APIBaseTest):
         assert deleted.status_code == status.HTTP_204_NO_CONTENT
         with team_scope(self.team.id):
             assert list_alert_destinations(team_id=self.team.id, configuration_id=self.configuration_id) == ()
+
+
+class TestEvaluationTimeoutLadder(SimpleTestCase):
+    def test_the_evaluation_timeout_ladder_holds(self) -> None:
+        # A timeout that lands between deciding and recording loses a batch that decided to fire.
+        assert source_evaluation_timeout(SourceKind.METRICS) > EVALUATION_BUDGET
+        # See `BATCH_SLOT_LEASE_SECONDS`.
+        assert BATCH_SLOT_LEASE_SECONDS > (TAKE_SLOT_START_TO_CLOSE + EVALUATE_SCHEDULE_TO_CLOSE).total_seconds()
 
 
 class TestMetricsInsightAlertOwnership(APIBaseTest):

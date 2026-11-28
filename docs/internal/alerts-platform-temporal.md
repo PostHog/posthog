@@ -616,7 +616,7 @@ The deployment's values set both for each region. Neither is a Temporal limit, s
 | Insight queries       | `ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_EVALUATIONS`   | 10            | None of its own: a query runs inside a check's slot                               |
 | Insight chart renders | `ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_CHART_RENDERS` | 3             | While the export workflow draws the chart, up to the export's render timeout      |
 | Logs batches          | `ALERTS_PLATFORM_LOGS_MAX_INFLIGHT_BATCHES`          | 5             | While the batch runs. The wait for a pool slot is a workflow timer and holds none |
-| Metrics batches       | `ALERTS_PLATFORM_METRICS_MAX_INFLIGHT_BATCHES`       | 5             | While the batch runs                                                              |
+| Metrics batches       | `ALERTS_PLATFORM_METRICS_MAX_INFLIGHT_BATCHES`       | 5             | While the batch runs. The wait for a pool slot is a workflow timer and holds none |
 | Traces batches        | `ALERTS_PLATFORM_TRACES_MAX_INFLIGHT_BATCHES`        | 5             | While the batch runs                                                              |
 
 Billing and warehouse checks have no pool of their own. Their keys per tick bound them.
@@ -632,7 +632,7 @@ When a source's pool grows, or a new source adds one, add it to this sum for eve
 1. Add pods. Slots grow with the pod count, and the cost is each pod's CPU and memory request. This is the first choice.
 2. Raise `MAX_CONCURRENT_ACTIVITIES`. Activity threads in one process share the GIL, and query parsing is CPU-heavy, so more slots per pod give each check less CPU. A region lowered this value for that reason, so raise it only while watching activity and workflow task latency.
 3. Give a source its own queue and fleet when its checks hold a slot for minutes, as [the dispatcher section](#tick-loop-and-source-dispatchers) describes.
-4. Stop holding a slot while waiting. Wait on a workflow timer, as the logs pool wait does, or run the slow work as its own workflow, so no activity blocks on it.
+4. Stop holding a slot while waiting. Wait on a workflow timer, as the logs and metrics pool waits do, or run the slow work as its own workflow, so no activity blocks on it.
 
 Chart renders are the open case for the fourth option.
 A render activity holds a slot here while the export runs on another queue.
