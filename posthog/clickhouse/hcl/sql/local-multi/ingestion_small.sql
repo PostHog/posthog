@@ -1,5 +1,5 @@
 -- AUTO-GENERATED from the declarative HCL by ops/gen-sql.sh — do not edit.
--- Full CREATE schema for the local-multi/small node. Apply to a fresh ClickHouse to build it.
+-- Full CREATE schema for the local-multi/ingestion_small node. Apply to a fresh ClickHouse to build it.
 
 CREATE TABLE posthog.distributed_person_group_membership_config (
   team_id Int64,
@@ -31,7 +31,7 @@ CREATE TABLE posthog.kafka_billing_usage_records (
   quantity Int64,
   timestamp DateTime64(6, 'UTC'),
   inserted_at DateTime64(6, 'UTC')
-) ENGINE = Kafka(warpstream_ingestion) SETTINGS date_time_input_format = 'best_effort', kafka_format = 'JSONEachRow', kafka_group_name = 'clickhouse_billing_usage_records', kafka_topic_list = 'clickhouse_billing_usage_records';
+) ENGINE = Kafka(warpstream_ingestion) SETTINGS date_time_input_format = 'best_effort', kafka_format = 'JSONEachRow', kafka_group_name = 'clickhouse_billing_usage_records', kafka_num_consumers = 1, kafka_skip_broken_messages = 100, kafka_thread_per_consumer = 1, kafka_topic_list = 'clickhouse_billing_usage_records';
 CREATE TABLE posthog.kafka_duplicate_events (
   team_id Int64,
   distinct_id String,

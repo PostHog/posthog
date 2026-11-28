@@ -1079,12 +1079,8 @@ export interface PipelineRowsStatsResponseApi {
      * @nullable
      */
     billing_period_end: string | null
-    /** Rows synced in the billing period, billed and not yet billed. */
+    /** Billable rows this project synced in the billing period. Other projects in the organization are not counted. */
     total_rows: number
-    /** Rows billing has already counted. */
-    tracked_billing_rows: number
-    /** Rows synced since billing last counted. */
-    pending_billing_rows: number
     /** Rows written by materialized view runs in the billing period. */
     materialized_rows_in_billing_period: number
     /** Rows synced in the billing period, keyed by source id. */
@@ -2898,29 +2894,71 @@ export const UploadedFileFormatEnumApi = {
 } as const
 
 export interface UploadedFileApi {
-    /** Id returned by upload_file for the stored file. */
-    upload_id: string
-    /** Sanitized filename returned by upload_file. */
-    filename: string
+    /**
+     * Notebook short ID and cell ID separated by a slash. On create, associates the new table with that cell. On replace, requires the table to have been created for that cell.
+     * @pattern ^[A-Za-z0-9_-]{1,12}/[^\u0000-\u001f\u007f]{1,128}$
+     */
+    notebook_cell?: string
     /** How the uploaded file is read: 'csv', 'json', or 'parquet'.
      *
      * * `csv` - csv
      * * `json` - json
      * * `parquet` - parquet */
     file_format: UploadedFileFormatEnumApi
+    /** Id returned by upload_file for the stored file. */
+    upload_id: string
+    /** Sanitized filename returned by upload_file. */
+    filename: string
+}
+
+export interface InlineUploadApi {
+    /**
+     * Notebook short ID and cell ID separated by a slash. On create, associates the new table with that cell. On replace, requires the table to have been created for that cell.
+     * @pattern ^[A-Za-z0-9_-]{1,12}/[^\u0000-\u001f\u007f]{1,128}$
+     */
+    notebook_cell?: string
+    /** How the uploaded file is read: 'csv', 'json', or 'parquet'.
+     *
+     * * `csv` - csv
+     * * `json` - json
+     * * `parquet` - parquet */
+    file_format: UploadedFileFormatEnumApi
+    file: Blob
+}
+
+export interface CreateTableFromFileApi {
+    /**
+     * Notebook short ID and cell ID separated by a slash. On create, associates the new table with that cell. On replace, requires the table to have been created for that cell.
+     * @pattern ^[A-Za-z0-9_-]{1,12}/[^\u0000-\u001f\u007f]{1,128}$
+     */
+    notebook_cell?: string
+    /** How the uploaded file is read: 'csv', 'json', or 'parquet'.
+     *
+     * * `csv` - csv
+     * * `json` - json
+     * * `parquet` - parquet */
+    file_format: UploadedFileFormatEnumApi
+    file: Blob
+    /** Name the resulting table is queried by in HogQL. */
+    table_name: string
 }
 
 export interface CreateTableFromUploadApi {
-    /** Id returned by upload_file for the stored file. */
-    upload_id: string
-    /** Sanitized filename returned by upload_file. */
-    filename: string
+    /**
+     * Notebook short ID and cell ID separated by a slash. On create, associates the new table with that cell. On replace, requires the table to have been created for that cell.
+     * @pattern ^[A-Za-z0-9_-]{1,12}/[^\u0000-\u001f\u007f]{1,128}$
+     */
+    notebook_cell?: string
     /** How the uploaded file is read: 'csv', 'json', or 'parquet'.
      *
      * * `csv` - csv
      * * `json` - json
      * * `parquet` - parquet */
     file_format: UploadedFileFormatEnumApi
+    /** Id returned by upload_file for the stored file. */
+    upload_id: string
+    /** Sanitized filename returned by upload_file. */
+    filename: string
     /** Name the resulting table is queried by in HogQL. */
     table_name: string
 }
@@ -3505,7 +3543,7 @@ export type WarehouseSavedQueryDraftsListParams = {
 
 export type WarehouseTablesListParams = {
     /**
-     * Include table columns. Disable for lightweight table existence or name lookups.
+     * Include table columns. Disable for lightweight table lookups.
      */
     include_columns?: boolean
     /**
@@ -3524,6 +3562,13 @@ export type WarehouseTablesListParams = {
      * A search term.
      */
     search?: string
+}
+
+export type WarehouseTablesRetrieveParams = {
+    /**
+     * Include table columns. Disable for lightweight table lookups.
+     */
+    include_columns?: boolean
 }
 
 /**

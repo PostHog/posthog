@@ -23,16 +23,24 @@ Enable a tool for a new route only after the route is deployed, so MCP never ser
 
 Environment (all default empty — the runner is a no-op until configured):
 
-| Variable                                   | Purpose                                                                                                                        |
-| ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------ |
-| `AI_GATEWAY_URL` / `AI_GATEWAY_API_KEY`    | Existing gateway settings; enable the Claude + OpenAI engines.                                                                 |
-| `EXA_API_KEY`                              | Enables the Exa engine.                                                                                                        |
-| `AEO_PERPLEXITY_ENABLED`                   | Default false. Runs Perplexity via the gateway once legal signs off; dry-run steps in [Perplexity engine](#perplexity-engine). |
-| `AEO_CITATION_TEAM_IDS`                    | Comma-separated team ids the scheduled runner covers.                                                                          |
-| `AEO_ANTHROPIC_MODEL` / `AEO_OPENAI_MODEL` | Engine model overrides.                                                                                                        |
-| `AEO_PERPLEXITY_MODEL`                     | Perplexity model on the gateway (default `posthog/perplexity/sonar`, the gateway id for Perplexity's `perplexity/sonar`).      |
+| Variable                                   | Purpose                                                                                                                            |
+| ------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------- |
+| `AI_GATEWAY_URL` / `AI_GATEWAY_API_KEY`    | Existing gateway settings; enable the Claude + OpenAI engines.                                                                     |
+| `EXA_API_KEY`                              | Enables the Exa engine.                                                                                                            |
+| `AEO_PERPLEXITY_ENABLED`                   | Default false. Runs Perplexity via the gateway once legal signs off; dry-run steps in [Perplexity engine](#perplexity-engine).     |
+| `AEO_SETUP_MODEL`                          | Model for setup's site research and prompt writing (default `claude-haiku-5-5`, faster than the engines' model).                   |
+| `AEO_ANTHROPIC_MODEL` / `AEO_OPENAI_MODEL` | Engine model overrides. The OpenAI engine defaults to `gpt-6-luna`, the cheapest OpenAI model that supports the `web_search` tool. |
+| `AEO_PERPLEXITY_MODEL`                     | Perplexity model on the gateway (default `posthog/perplexity/sonar`, the gateway id for Perplexity's `perplexity/sonar`).          |
 
-The scheduled task is additionally gated per team by the `aeo-citation-tracking` feature flag.
+The scheduled tasks cover the teams with active prompts whose organization is active, not pending deletion, and approved AI data processing.
+The API, MCP tools and page are gated per user by the `web-analytics-content-autopilot` flag, which the early-access feature controls, so only those users can add or turn on prompts.
+The `aeo-citation-tracking` feature flag picks which organizations get scheduled runs, evaluated per organization group.
+PostHog pays for every engine call, so each project can keep at most `AEOTeamConfig.max_active_prompts` prompts turned on (100 by default).
+A change that would turn on more is refused with a 400, and setup saves the prompts past the limit paused.
+Prompts already on when the limit was added, or when it was lowered, stay on.
+Staff raise the limit for one project with `python manage.py set_aeo_prompt_limit --team-id <id> --max-active-prompts <n>`.
+Add organizations to the flag by hand and do not roll it out widely.
+Removing an organization from it stops that organization's runs.
 
 Each project decides which domains count as "us" through its own brands: the rows of its brand catalog with kind `own` that nobody ignored.
 Add one before the first run, with `POST /api/projects/<id>/aeo_brands/` (`{"domain": "example.com", "kind": "own"}`) or the `aeo-brands-create` MCP tool.
@@ -54,7 +62,7 @@ python manage.py seed_aeo_prompts --team-id <id> --csv control_prompts.csv --csv
 # 2. Smoke test — 3 prompts, real engine calls, nothing captured:
 python manage.py run_aeo_citation_checks --team-id <id> --limit 3 --dry-run
 
-# 3. Real run (also runs daily via celery beat for allowlisted+flagged teams):
+# 3. Real run (also runs daily via celery beat for enabled teams):
 python manage.py run_aeo_citation_checks --team-id <id>
 
 ```
@@ -72,7 +80,7 @@ The MCP tools for it are `aeo-prompts-suggest` and `aeo-prompts-suggestion-get`.
 
 ### Import over the API
 
-`/api/projects/<id>/aeo_prompts/` lists the prompt set (filter with `?topic=`, `?active=true|false` and `?branded=true|false`; archived prompts are left out unless `?include_archived=true`; each prompt carries `latest_checks`, its newest check per engine, its `current_version` and `version_count`, and `branded`), lists topics with `GET topics/`, sums up the whole set with `GET overview/?date_from=-30d` (prompts tracked, checks, citation and mention rates against the window before, the same per engine and per topic, and the domains the engines cite most), lists the answers across the set that cited a page, cited a site (subdomains included) or ran a search with `GET citations/?url=`, `?domain=` or `?search=` (exactly one, with `date_from`, `date_to`, `branded` and `engine` as filters), returns one prompt's check history with `GET <prompt_id>/checks/` (newest first, filter with `?engine=` and `?version=`) and its per-engine totals and 30-day daily counts with `GET <prompt_id>/stats/`, lists its versions with `GET <prompt_id>/versions/` (newest first), edits a prompt with `PATCH <prompt_id>/`, archives one with `DELETE <prompt_id>/`, and imports prompts with `POST bulk_import/`. It is gated by the `aeo-citation-tracking` flag and accepts personal API keys with `web_analytics:write`:
+`/api/projects/<id>/aeo_prompts/` lists the prompt set (filter with `?topic=`, `?active=true|false` and `?branded=true|false`; archived prompts are left out unless `?include_archived=true`; each prompt carries `latest_checks`, its newest check per engine, its `current_version` and `version_count`, and `branded`), lists topics with `GET topics/`, sums up the whole set with `GET overview/?date_from=-30d` (prompts tracked, checks, citation and mention rates against the window before, the same per engine and per topic, and the domains the engines cite most), lists the answers across the set that cited a page, cited a site (subdomains included) or ran a search with `GET citations/?url=`, `?domain=` or `?search=` (exactly one, with `date_from`, `date_to`, `branded` and `engine` as filters), returns one prompt's check history with `GET <prompt_id>/checks/` (newest first, filter with `?engine=` and `?version=`) and its per-engine totals and 30-day daily counts with `GET <prompt_id>/stats/`, lists its versions with `GET <prompt_id>/versions/` (newest first), edits a prompt with `PATCH <prompt_id>/`, archives one with `DELETE <prompt_id>/`, and imports prompts with `POST bulk_import/`. It is gated by the `web-analytics-content-autopilot` flag and accepts personal API keys with `web_analytics:write`:
 
 ```bash
 curl -X POST "$HOST/api/projects/<id>/aeo_prompts/bulk_import/" \
@@ -81,6 +89,7 @@ curl -X POST "$HOST/api/projects/<id>/aeo_prompts/bulk_import/" \
 ```
 
 - A request takes up to 2,000 prompts. Send larger sets in batches of a few hundred.
+- New prompts are saved turned on. An import that would take the project past its limit on active prompts is refused whole, and nothing is saved.
 - A re-import matches prompts by the normalized text of their current version. It updates the topic, merges the new evidence into the stored evidence (an omitted `external_visibility` keeps its value), and keeps each prompt's on/off state. A new text creates a prompt with version 1.
 - A re-import of an archived prompt's text leaves it archived and counts it as `skipped`.
 - The same operations are PostHog MCP tools (`products/aeo/mcp/tools.yaml`), gated by the same flag: `aeo-prompts-list`, `aeo-prompts-get`, `aeo-prompts-update`, `aeo-prompts-archive`, `aeo-prompts-versions-list`, `aeo-prompts-import`, `aeo-prompts-topics-list`, `aeo-prompts-checks-list`, `aeo-prompts-stats-get`, `aeo-prompts-overview-get` and `aeo-prompts-citations-list`.
@@ -92,7 +101,7 @@ curl -X POST "$HOST/api/projects/<id>/aeo_prompts/bulk_import/" \
 
 ### Weekly dashboard
 
-`POST aeo_prompts/create_dashboard/` (the "Create AI visibility dashboard" button on the Overview, MCP tool `aeo-prompts-create-dashboard`) creates an "AI visibility weekly" dashboard tagged `ai-visibility`.
+`POST aeo_prompts/create_dashboard/` (MCP tool `aeo-prompts-create-dashboard`) creates an "AI visibility weekly" dashboard tagged `ai-visibility`.
 Its SQL insights (`dashboard.py`) read `system.aeo_citation_checks` over non-branded prompts: visibility and citation rate for the last 7 complete days against the 7 before, visibility per topic, the pages to watch per topic, and an 8-week trend.
 Each query reads `system.aeo_brands`, the brand catalog, when it runs. Own and competitor pages come from the `own` and `competitor` kinds, and a prompt is branded when it names the first label of an own domain, so the dashboard follows catalog edits.
 This differs from the branded split above, which reads `AEO_TARGET_DOMAINS`, when the own domain has not been cited yet and so is not in the catalog.
@@ -102,7 +111,7 @@ People get it weekly through a regular dashboard subscription, in Slack or email
 
 A prompt keeps its id, so its checks, stats and detail view stay in one place. Its text lives in numbered versions (`posthog_aeo_prompt_version`), and `current_version` points at the one the runner sends. Version rows never change.
 
-- `PATCH {"active": false}` turns a prompt off, and `PATCH {"topic": "..."}` changes its topic in place. Past checks keep the topic they ran with.
+- `PATCH {"active": false}` turns a prompt off, and `PATCH {"topic": "..."}` changes its topic in place. Past checks keep the topic they ran with. Topics that differ only in letter case are one topic in the overview, `GET topics/`, the `?topic=` filter and the dashboard.
 - `PATCH {"prompt": "...", "version_description": "..."}` adds the next version and makes it current. A change of case or whitespace only adds no version. The edit fails with 409 when another prompt in the set, archived ones included, already has the text.
 - `PATCH {"current_version": 1}` makes an existing version current again, for example to roll back a reword. It fails with 400 when the version does not exist.
 - `DELETE` or `PATCH {"archived": true}` archives a prompt: it is turned off, never runs, and keeps its versions and checks. `PATCH {"archived": false}` restores it, and it stays off unless the same request sends `"active": true`. An archived prompt accepts no other change until it is restored.
@@ -115,7 +124,7 @@ A project with no setting for an engine gets its default, so only the engines so
 
 - The web-search engines (Claude, OpenAI, Perplexity, Exa) default to on and daily. An engine the deployment cannot run (no gateway, no Exa key, or the Perplexity gate off) never runs, whatever its setting says.
 - `claude-no-search` and `openai-no-search` send the same model the prompt without its web search tool, so the answer comes from training data alone. They default to off. They are their own engines, so they get their own column wherever engines are split.
-- A daily engine checks every due prompt. A weekly engine checks a prompt on the run day whose UTC weekday equals a SHA-256 hash of its id modulo 7, so about a seventh of the set runs each day and a prompt keeps its day. A dispatch that resumes a killed run skips the weekly engines a prompt already has a check from that run day.
+- A daily engine checks every due prompt. A weekly engine checks a prompt on the run day whose UTC weekday equals a SHA-256 hash of its id modulo 7, so about a seventh of the set runs each day and a prompt keeps its day. An engine set to every 72 hours does the same over a 3-day period, so about a third of the set runs each day. A dispatch that resumes a killed run skips the weekly engines a prompt already has a check from that run day.
 - A no-search check stores `mode = 'no_search'`, the answer text, and empty citations, retrieved URLs and searches. It is never `cited`, so only the mention rate and sentiment apply.
 - The overview, rankings, gaps, opportunities, the "needs improvement" filter and the prompt page KPIs read web-search checks only. A prompt's per-engine stats, check history and the prompts table show every engine, no-search ones included.
 
@@ -145,6 +154,36 @@ Without `--dry-run` it refuses Perplexity until `AEO_PERPLEXITY_ENABLED` is on.
 ```bash
 python manage.py run_aeo_citation_checks --team-id <id> --engines perplexity --limit 50 --dry-run
 ```
+
+## Local development without a gateway token
+
+A fake gateway answers every call the product makes, so setup, the engines and every tab run on the local stack with no AI gateway token.
+The answers are invented from the request and seeded by it: the same request gets the same answer, different prompts get different ones, and a share of the engine answers fail or leave the site uncited, so each state of the page appears.
+Accuracy is not the point; the data only has to look plausible.
+
+Start it from the repository root, inside the dev environment:
+
+```bash
+hogli start:aeo:fake-gateway   # or: python -m products.aeo.backend.dev.fake_gateway
+```
+
+It listens on `http://localhost:8080/v1`, the dev default for `AI_GATEWAY_URL`, so a stack started without the `ai_gateway` capability and without `AI_GATEWAY_URL` in its environment uses it as is.
+A stack that carries a real `AI_GATEWAY_URL` and `AI_GATEWAY_API_KEY`, from `.env.local` or from the shell that started it, keeps paying for real calls until it is pointed at the fake.
+Put these in `.env.local`, make sure the shell does not override them, then stop the stack and start it again with `hogli start` or `bin/start`.
+Restarting the `backend`, `celery-worker` and `temporal-worker` units is not enough: the launcher reads `.env.local` once and hands that environment to every unit it restarts.
+
+```bash
+AI_GATEWAY_URL=http://localhost:8080/v1
+AI_GATEWAY_API_KEY=phs_fake
+```
+
+`GET http://localhost:8080/` shows the mode and the sites set up so far, which the engine answers cite.
+
+- **Latency.** Each request sleeps 100 ms by default, enough for the wizard's progress states to show and quick enough for an automated check of the flow. `--realistic` (or `FAKE_GATEWAY_DELAY_MS=800-3000`) sleeps a random time in that range instead, which is what a person sees with the real gateway. `FAKE_GATEWAY_DELAY_MS` or `--delay-ms` takes a fixed number of milliseconds or a range.
+- **Failures on demand.** A site whose domain contains `fail` fails its setup calls with a 500; one containing `unreadable` answers without JSON. The engine answers fail on their own for a few prompts.
+- **Record and replay.** `--record` forwards each call to the real gateway with the token in `~/.ai-gateway-token.json` (never printed or logged) and stores the answers under `.posthog/aeo-fake-gateway/`, keyed by the request. Because that spends real credits, record mode listens on the loopback interface only and answers a call only when its bearer token matches `FAKE_GATEWAY_API_KEY`, so set that variable to a secret and put the same value in `AI_GATEWAY_API_KEY`. `--replay` serves the kept answers back and generates an answer for any request that was never recorded.
+- **Browsers are refused.** Every mode answers 403 to a request that carries `Origin` or `Sec-Fetch-Mode`, and 413 to a body over 2 MB, so a web page cannot drive the fake. The stack's server-side calls send neither header.
+- **Tests.** `products/aeo/backend/test/test_fake_gateway.py` runs the builders through the real parsers in `engines.py`, `suggestions.py` and `keyword_suggestions.py`, so a parser change breaks the fake loudly.
 
 ## The table
 
@@ -213,8 +252,10 @@ Web analytics' Content autopilot (`/web/ai-visibility`, flag `web-analytics-cont
 
 ## Cost
 
-Measured in October 2026: about \$0.06 per OpenAI check and \$0.14 per Claude check, provider web-search fees and tokens included (`$ai_web_search_cost_usd` and `$ai_total_cost_usd` on the `$ai_generation` event).
-A daily run of 1,000 prompts on both engines is about \$200.
+Measured in October 2026: about \$0.14 per Claude check, provider web-search fees and tokens included (`$ai_web_search_cost_usd` and `$ai_total_cost_usd` on the `$ai_generation` event).
+An OpenAI check on `gpt-6-luna` is estimated at about \$0.035, from `gpt-5` checks in November 2026 repriced at Luna's token rates. This stays an estimate until capped checks are measured.
+The OpenAI engine caps each check at 3 searches with `max_tool_calls`, the same as Claude's `max_uses`, so the web search fee (\$10 per 1,000 searches) is at most \$0.03 a check. OpenAI does not always enforce the cap, so a response over it logs `aeo_openai_search_cap_exceeded` and is still counted in full.
+A daily run of 1,000 prompts on both engines is about \$175.
 Exa adds \$5 per 1,000 requests (`cost_usd` on the check event).
 No-search checks cost about a quarter (Claude) to two fifths (OpenAI) of a web-search check, since they pay no search fees and read no search results. Set weekly, a set of about 1,300 prompts runs about 190 a day on each no-search engine (an estimate, not measured).
 

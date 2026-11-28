@@ -18,7 +18,7 @@ from products.experiments.backend.models.experiment import (
     ExperimentSavedMetric,
     ExperimentToSavedMetric,
 )
-from products.experiments.backend.recalculation import get_run_results
+from products.experiments.backend.recalculation.payloads import get_run_results
 from products.experiments.backend.timeseries_sync import sync_timeseries_recalculation
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 

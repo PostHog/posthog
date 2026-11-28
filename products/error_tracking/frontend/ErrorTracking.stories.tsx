@@ -17,8 +17,10 @@ import {
     ErrorTrackingRelationalIssue,
     ErrorTrackingReleasesQueryResponse,
     NodeKind,
+    QuickFilterContext,
     TrendsQueryResponse,
 } from '~/queries/schema/schema-general'
+import { PropertyOperator, QuickFilter } from '~/types'
 
 import { errorTrackingQueryResponse, errorTrackingTypeIssue } from './__mocks__/error_tracking_query'
 import { TEST_EVENTS } from './__mocks__/events'
@@ -726,6 +728,33 @@ export const ListPageWithSourceMapsBannerNarrow: Story = {
     parameters: { testOptions: { viewport: { width: 760, height: 1000 } } },
 }
 
+const STORY_QUICK_FILTERS: QuickFilter[] = ['Environment', 'Browser', 'Plan'].map((name, index) => ({
+    id: `story-quick-filter-${index}`,
+    name,
+    property_name: name.toLowerCase(),
+    type: 'manual-options',
+    options: [{ id: `story-quick-filter-option-${index}`, value: 'a', label: 'A', operator: PropertyOperator.Exact }],
+    contexts: [QuickFilterContext.ErrorTrackingIssueFilters],
+    created_at: '2024-07-01T00:00:00Z',
+    updated_at: '2024-07-01T00:00:00Z',
+}))
+
+// On a narrow window the quick filters wrap in the same row as the built-in filters,
+// so the built-in filters do not stack one per line
+export const ListPageWithQuickFiltersNarrow: Story = {
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/quick_filters/': [
+                    200,
+                    { count: STORY_QUICK_FILTERS.length, next: null, results: STORY_QUICK_FILTERS },
+                ],
+            },
+        }),
+    ],
+    parameters: { testOptions: { viewport: { width: 760, height: 1000 }, waitForSelector: 'text=Any plan' } },
+}
+
 // With source maps fine, the alerts banner takes the single banner slot and names
 // only the alert types that are still missing
 export const ListPageWithAlertsBanner: Story = {
@@ -803,6 +832,35 @@ export const ListPageWithRateLimitsBanner: Story = {
                                         { key: 'per_issue', enabled: false },
                                     ],
                                 },
+                            },
+                        ],
+                    },
+                ],
+            },
+        }),
+    ],
+}
+
+// A team with the issue summaries AI feature gets a banner while the setting is off
+export const ListPageWithIssueSummariesBanner: Story = {
+    parameters: { testOptions: { snapshotBrowsers: [] } },
+    decorators: [
+        mswDecorator({
+            get: {
+                'api/projects/:team_id/error_tracking/recommendations': () => [
+                    200,
+                    {
+                        results: [
+                            {
+                                id: 'issue-summaries-recommendation',
+                                type: 'issue_summaries',
+                                completed: false,
+                                status: 'ready',
+                                computed_at: '2024-07-08T00:00:00Z',
+                                dismissed_at: null,
+                                created_at: '2024-07-08T00:00:00Z',
+                                updated_at: '2024-07-08T00:00:00Z',
+                                meta: { enabled: false },
                             },
                         ],
                     },

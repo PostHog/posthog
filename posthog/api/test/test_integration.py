@@ -1,3 +1,4 @@
+import re
 import hmac
 import json
 import time
@@ -37,6 +38,7 @@ from slack_sdk.errors import SlackApiError
 from slack_sdk.http_retry.builtin_handlers import ConnectionErrorRetryHandler
 from structlog.testing import capture_logs
 
+from posthog.accessible_teams import AccessibleTeams
 from posthog.api.github_callback.personal_state import usable_personal_github_token
 from posthog.api.github_callback.state import store_unified_authorize_state
 from posthog.api.github_callback.team_services import (
@@ -100,6 +102,7 @@ from posthog.models.user_integration import (
     UserIntegration,
 )
 from posthog.models.utils import hash_key_value
+from posthog.personal_api_key_minting import mint_personal_api_key
 from posthog.rate_limit import GitHubRepositoryRefreshThrottle
 from posthog.slack.channels import is_shared_channel
 
@@ -1335,11 +1338,76 @@ class TestAWSIntegration:
         )
 
 
+# Matches organization IDs (UUIDT, version nibble 0) but not uuid4.
+ORGANIZATION_SHAPED_EXTERNAL_ID = r"posthog-[0-9a-f]{8}-[0-9a-f]{4}-0[0-9a-f]{3}-[0-9a-f]{4}-[0-9a-f]{12}"
+
+
+class _ProbedSTS:
+    """Stands in for both STS clients: our own role hop, then the probes against the customer's role."""
+
+    CREDENTIALS = {"Credentials": {"AccessKeyId": "a", "SecretAccessKey": "s", "SessionToken": "t"}}
+
+    def __init__(self, random_probe: Exception | str) -> None:
+        # An exception to raise, "allow" for a role that trusts any ID, or a regex the role's trust policy matches.
+        self.random_probe = random_probe
+
+    def assume_role(self, *, RoleArn: str, RoleSessionName: str, **kwargs: Any) -> dict:
+        external_id = kwargs.get("ExternalId")
+        if "Policy" in kwargs or external_id == "posthog-org-1":
+            return self.CREDENTIALS
+        if external_id is not None:
+            if isinstance(self.random_probe, Exception):
+                raise self.random_probe
+            if self.random_probe == "allow" or re.fullmatch(self.random_probe, external_id):
+                return self.CREDENTIALS
+        raise _access_denied()
+
+
+def _access_denied() -> Exception:
+    from botocore.exceptions import ClientError
+
+    return ClientError({"Error": {"Code": "AccessDenied"}}, "AssumeRole")
+
+
+def _read_timeout() -> Exception:
+    from botocore.exceptions import ReadTimeoutError
+
+    return ReadTimeoutError(endpoint_url="https://sts.amazonaws.com")
+
+
+@pytest.mark.parametrize(
+    "random_probe,error",
+    [
+        (_access_denied(), None),
+        ("allow", "allows access without a required external id"),
+        (ORGANIZATION_SHAPED_EXTERNAL_ID, "allows access without a required external id"),
+        (_read_timeout(), "internal error"),
+    ],
+    ids=["denied", "allowed", "organization_shaped_wildcard", "timed_out"],
+)
+def test_validate_aws_role_arn_refuses_a_role_other_organizations_could_assume(
+    random_probe: Exception | str, error: str | None
+) -> None:
+    from posthog.models.integration import IntegrationError
+    from posthog.models.integration.aws import validate_aws_role_arn
+
+    sts = _ProbedSTS(random_probe)
+    session = MagicMock()
+    session.client.return_value = sts
+    with patch("boto3.client", return_value=sts), patch("boto3.Session", return_value=session):
+        if error is None:
+            validate_aws_role_arn("arn:aws:iam::123456789012:role/r", "arn:aws:iam::1:role/ours", "posthog-org-1")
+        else:
+            with pytest.raises(IntegrationError, match=error):
+                validate_aws_role_arn("arn:aws:iam::123456789012:role/r", "arn:aws:iam::1:role/ours", "posthog-org-1")
+
+
 class TestAWSRoleBasedIntegration:
     @pytest.fixture(
         params=[
             (Integration.IntegrationKind.AWS_S3),
             (Integration.IntegrationKind.AWS_REDSHIFT),
+            (Integration.IntegrationKind.AWS_WAREHOUSE_SOURCES),
         ],
         ids=lambda kind: kind.value,
     )
@@ -1347,7 +1415,9 @@ class TestAWSRoleBasedIntegration:
         return request.param
 
     @pytest.fixture(autouse=True)
-    def setup_integration(self, db, aws_integration_kind):
+    def setup_integration(self, db, aws_integration_kind, settings):
+        settings.BATCH_EXPORT_S3_EXTERNAL_ROLE_ARN = "arn:aws:iam::111111111111:role/batch-exports"
+        settings.WAREHOUSE_SOURCES_AWS_ROLE_ARN = "arn:aws:iam::111111111111:role/warehouse-sources"
         self.organization = Organization.objects.create(name="Test Org")
         self.team = Team.objects.create(organization=self.organization, name="Test Team")
         self.user = User.objects.create_and_join(
@@ -1388,6 +1458,16 @@ class TestAWSRoleBasedIntegration:
         assert integration.integration_id == "prod-aws"
         assert integration.config == {"name": "prod-aws", "aws_role_arn": role, **self.extra_config}
         assert integration.sensitive_config == {}
+        our_role = (
+            "warehouse-sources"
+            if self.integration_kind == Integration.IntegrationKind.AWS_WAREHOUSE_SOURCES
+            else "batch-exports"
+        )
+        mock_validate.assert_called_once_with(
+            aws_role_arn=role,
+            our_aws_role_arn=f"arn:aws:iam::111111111111:role/{our_role}",
+            external_id=f"posthog-{self.organization.id}",
+        )
 
     @patch("posthog.models.integration.aws.validate_aws_role_arn")
     def test_create_rejects_invalid_role_arn(self, mock_validate, client: HttpClient):
@@ -1459,6 +1539,31 @@ class TestAWSRoleBasedIntegration:
         assert second.status_code == status.HTTP_400_BAD_REQUEST
         assert "An integration named 'prod-aws' already exists" in second.json()["detail"]
         assert Integration.objects.filter(team=self.team, integration_id="prod-aws").count() == 1
+
+
+@pytest.mark.django_db
+@patch("posthog.models.integration.aws.validate_aws_role_arn")
+def test_aws_warehouse_sources_integration_needs_our_role(mock_validate, client: HttpClient, settings):
+    settings.WAREHOUSE_SOURCES_AWS_ROLE_ARN = ""
+    organization = Organization.objects.create(name="Test Org")
+    team = Team.objects.create(organization=organization, name="Test Team")
+    user = User.objects.create_and_join(
+        organization, "test@posthog.com", "test", level=OrganizationMembership.Level.ADMIN
+    )
+    client.force_login(user)
+
+    response = client.post(
+        f"/api/environments/{team.pk}/integrations",
+        {
+            "kind": Integration.IntegrationKind.AWS_WAREHOUSE_SOURCES,
+            "config": {"name": "prod-aws", "aws_role_arn": "arn:aws:iam::123456789012:role/my-role"},
+        },
+        content_type="application/json",
+    )
+
+    assert response.status_code == status.HTTP_400_BAD_REQUEST
+    assert "not available on this PostHog instance" in response.json()["detail"]
+    mock_validate.assert_not_called()
 
 
 S3_COMPATIBLE_ENDPOINT_IPS = {ipaddress.ip_address("93.184.216.34")}
@@ -6369,6 +6474,22 @@ class TestStripeIntegrationOAuthTokens:
             revoked=timezone.now(),
             scoped_teams=[self.team.pk],
         )
+        other_team = Team.objects.create(organization=self.organization, name="Other Team")
+        partner_key, own_key, other_team_partner_key = (
+            mint_personal_api_key(
+                self.user,
+                label="Key",
+                scopes=["query:read"],
+                teams=AccessibleTeams.for_user(self.user, [team.pk]),
+                organization_ids=[str(self.organization.id)],
+                provisioned_by=provisioned_by,
+            ).key
+            for team, provisioned_by in [
+                (self.team, self.oauth_app),
+                (self.team, None),
+                (other_team, self.oauth_app),
+            ]
+        )
         stripe_int = StripeIntegration(integration)
 
         stripe_int._destroy_posthog_oauth_tokens()
@@ -6376,6 +6497,8 @@ class TestStripeIntegrationOAuthTokens:
         assert not OAuthAccessToken.objects.filter(pk=access_token.pk).exists()
         assert not OAuthRefreshToken.objects.filter(pk=refresh_token.pk).exists()
         assert not OAuthRefreshToken.objects.filter(pk=unlinked_refresh_token.pk).exists()
+        assert set(PersonalAPIKey.objects.values_list("id", flat=True)) == {own_key.id, other_team_partner_key.id}
+        assert not PersonalAPIKey.objects.filter(pk=partner_key.pk).exists()
 
     @pytest.mark.parametrize("other_credential", ["other_team_only", "shared_with_this_team"])
     @patch("posthog.models.integration.stripe.get_or_settings")

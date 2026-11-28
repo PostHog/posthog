@@ -87,6 +87,37 @@ class TestRKICovid:
             {"age_group": "A80+", "casesMale": 3, "casesFemale": 4},
         ]
 
+    @parameterized.expand(
+        [
+            ("states", "states_age_groups", "abbreviation", "SH", "BY"),
+            ("districts", "districts_age_groups", "ags", "01001", "09162"),
+        ]
+    )
+    def test_nested_age_groups_inject_entity_and_age_group_keys(
+        self, _name: str, endpoint: str, key_field: str, first_key: str, second_key: str
+    ) -> None:
+        # Every entity reports the same age bands, so rows only stay unique with both dict keys injected.
+        body = {
+            "data": {
+                first_key: {
+                    "A00-A04": {"casesMale": 1, "hospitalization": {"cases7Days": 0}},
+                    "A80+": {"casesMale": 2},
+                },
+                second_key: {"A00-A04": {"casesMale": 3}, "unexpected": "not a row"},
+                "broken": ["not", "a", "dict"],
+            },
+            "meta": {},
+        }
+        result = _run(endpoint, [_ok(body)], history_days=30)
+        assert result.paths == [RKI_COVID_ENDPOINTS[endpoint].path]
+        assert result.response is not None
+        assert result.response.primary_keys == [key_field, "age_group"]
+        assert result.rows == [
+            {key_field: first_key, "age_group": "A00-A04", "casesMale": 1, "hospitalization": {"cases7Days": 0}},
+            {key_field: first_key, "age_group": "A80+", "casesMale": 2},
+            {key_field: second_key, "age_group": "A00-A04", "casesMale": 3},
+        ]
+
     def test_vaccinations_snapshot_drops_per_state_figures_and_keeps_meta(self) -> None:
         # The per-state figures belong to vaccinations_states; keeping them would nest 17 states into one cell.
         body = {
@@ -124,6 +155,7 @@ class TestRKICovid:
             ("states_incidence", "states_history_incidence", "abbreviation", "SH", "BY", "weekIncidence"),
             ("districts_cases", "districts_history_cases", "ags", "01001", "09162", "cases"),
             ("districts_incidence", "districts_history_incidence", "ags", "01001", "09162", "weekIncidence"),
+            ("states_hospitalization", "states_history_hospitalization", "abbreviation", "SH", "BY", "cases7Days"),
         ]
     )
     def test_keyed_history_endpoints_request_their_path_and_key_rows_by_entity_and_day(
@@ -144,6 +176,48 @@ class TestRKICovid:
         assert result.rows == [
             {key_field: first_key, "name": "first", value_field: 1, "date": "2026-07-19T00:00:00.000Z"},
             {key_field: second_key, "name": "second", value_field: 2, "date": "2026-07-19T00:00:00.000Z"},
+        ]
+
+    @parameterized.expand([("all_null", None, None), ("with_values", 283, 9.74)])
+    def test_states_hospitalization_types_nowcast_columns_independent_of_window(
+        self, _name: str, adjusted_cases: int | None, adjusted_incidence: float | None
+    ) -> None:
+        # A short window returns only null nowcasts; an untyped null column would be stored as text,
+        # and the column type must not depend on whether the first sync saw values.
+        body = {
+            "data": {
+                "SH": {
+                    "name": "Schleswig-Holstein",
+                    "history": [
+                        {
+                            "cases7Days": 4,
+                            "adjustedCases7Days": adjusted_cases,
+                            "adjustedIncidence7Days": adjusted_incidence,
+                            "date": "2026-07-19",
+                        },
+                        {"cases7Days": 5, "adjustedCases7Days": None, "date": "2026-07-20"},
+                    ],
+                },
+            },
+            "meta": {},
+        }
+        result = _run("states_history_hospitalization", [_ok(body)], history_days=3)
+        assert result.response is not None
+        assert result.response.column_hints is not None
+        assert result.response.column_hints["adjustedCases7Days"] == "bigint"
+        assert result.response.column_hints["adjustedIncidence7Days"] == "double"
+        first_row: dict[str, Any] = {
+            "abbreviation": "SH",
+            "name": "Schleswig-Holstein",
+            "cases7Days": 4,
+            "date": "2026-07-19",
+        }
+        if adjusted_cases is not None:
+            first_row["adjustedCases7Days"] = adjusted_cases
+            first_row["adjustedIncidence7Days"] = adjusted_incidence
+        assert result.rows == [
+            first_row,
+            {"abbreviation": "SH", "name": "Schleswig-Holstein", "cases7Days": 5, "date": "2026-07-20"},
         ]
 
     def test_large_responses_are_yielded_in_bounded_batches_without_losing_rows(self) -> None:
@@ -178,9 +252,27 @@ class TestRKICovid:
         }
         assert _run("germany_history_cases", [_ok(body)]).rows == body["data"]
 
-    def test_history_days_adds_a_days_suffix_to_the_request(self) -> None:
-        result = _run("germany_history_cases", [_ok({"data": [], "meta": {}})], history_days=30)
-        assert result.paths == ["/germany/history/cases/30"]
+    @parameterized.expand(
+        [
+            ("cases", "germany_history_cases", "/germany/history/cases/30"),
+            ("r_value", "germany_history_r_value", "/germany/history/rValue/30"),
+        ]
+    )
+    def test_history_days_adds_a_days_suffix_to_the_request(self, _name: str, endpoint: str, path: str) -> None:
+        result = _run(endpoint, [_ok({"data": [], "meta": {}})], history_days=30)
+        assert result.paths == [path]
+
+    def test_r_value_history_keeps_rows_with_only_one_estimate(self) -> None:
+        # The API reports only the 7-day value early on and only the 4-day value at the end of the series.
+        body = {
+            "data": [
+                {"rValue7Days": 1.1, "date": "2021-03-01T00:00:00.000Z"},
+                {"rValue7Days": 0.9, "rValue4Days": 0.8, "date": "2021-03-02T00:00:00.000Z"},
+                {"rValue4Days": 0.7, "date": "2021-03-03T00:00:00.000Z"},
+            ],
+            "meta": {},
+        }
+        assert _run("germany_history_r_value", [_ok(body)]).rows == body["data"]
 
     @parameterized.expand(
         [
@@ -220,6 +312,7 @@ class TestRKICovid:
             ("missing_history", "testing_history", {"data": {}, "meta": {}}),
             ("missing_state_history", "states_history_cases", {"data": {"BY": {"id": 9}}, "meta": {}}),
             ("missing_vaccinations_data", "vaccinations", {"meta": {}}),
+            ("age_groups_data_is_list", "states_age_groups", {"data": [], "meta": {}}),
         ]
     )
     def test_malformed_data_yields_no_rows_instead_of_crashing(self, _name: str, endpoint: str, body: dict) -> None:

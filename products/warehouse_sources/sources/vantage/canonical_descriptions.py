@@ -497,4 +497,43 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "sampled_estimated_cost": "The observed estimated cost when sampling applies.",
         },
     },
+    "cost_alert_events": {
+        "description": "The history of events for Vantage cost alerts.",
+        "docs_url": "https://api.vantage.sh/v2/swagger.json",
+        "columns": {
+            "token": "The event token.",
+            "cost_alert_token": "The token of the parent cost alert.",
+            "triggered_at": "When the cost alert triggered.",
+            "report_token": "The token of the report associated with the event.",
+        },
+    },
+    "forecasted_costs": {
+        "description": "Forecasted cost amounts for Vantage cost reports.",
+        "docs_url": "https://api.vantage.sh/v2/swagger.json",
+        "columns": {
+            "cost_report_token": "The token of the cost report that returned the forecast.",
+            "date": "The date of the forecasted cost.",
+            "amount": "The forecasted cost amount.",
+            "currency": "The currency of the forecasted amount.",
+        },
+    },
+    "recommendation_resources": {
+        "description": "Provider resources that a Vantage cost-saving recommendation targets.",
+        "docs_url": "https://api.vantage.sh/v2/swagger.json",
+        "columns": {
+            "recommendation_token": "The token of the parent recommendation.",
+            "token": "The Vantage token of the provider resource.",
+            "resource_id": "The provider's identifier for the resource.",
+            "recommendation_actions": "The recommended actions for the resource.",
+        },
+    },
+    "virtual_tag_configs": {
+        "description": "Virtual tag definitions and their values for Vantage cost allocation.",
+        "docs_url": "https://api.vantage.sh/v2/swagger.json",
+        "columns": {
+            "token": "The virtual tag configuration token.",
+            "key": "The virtual tag key.",
+            "values": "The values configured for this virtual tag.",
+        },
+    },
 }

@@ -16,7 +16,7 @@ import { urls } from 'scenes/urls'
 
 import { isFunnelsQuery, isInsightVizNode, isTrendsQuery } from '~/queries/schema/node-guards'
 import { AlertCalculationInterval, AlertConditionType, InsightThresholdType } from '~/queries/schema/schema-general'
-import { FunnelVizType, InsightLogicProps, InsightShortId, InsightModel } from '~/types'
+import { ChartDisplayType, FunnelVizType, InsightLogicProps, InsightShortId, InsightModel } from '~/types'
 
 import { AlertAdvancedOptionsSection } from 'products/alerts/frontend/components/AlertAdvancedOptionsSection'
 import { AlertErrorBanner, AlertStateIndicator } from 'products/alerts/frontend/components/AlertDefinition'
@@ -135,6 +135,7 @@ export function EditAlertModal(props: AlertModalProps): JSX.Element {
         isNonTimeSeriesDisplay,
         isBreakdownValid,
         formulaNodes,
+        display,
         interval: trendInterval,
         indexedResults,
         insightDataLoading,
@@ -184,6 +185,9 @@ export function EditAlertModal(props: AlertModalProps): JSX.Element {
         thresholdBoundsFormError,
         hogqlAlertPreview,
         funnelAlertPreview,
+        metricsAlertPreview,
+        metricsPreviewResponseLoading,
+        metricsPreviewFailed,
         hogqlResultColumns,
         hogqlValueColumnOptions,
         hogqlLabelColumnOptions,
@@ -196,6 +200,7 @@ export function EditAlertModal(props: AlertModalProps): JSX.Element {
         clearSimulation,
         setSimulationDateFrom,
         setAlertFormSubmitAttempted,
+        loadMetricsPreviewResponse,
     } = useActions(formLogic)
     const { setAlertFormValue } = useActions(formLogic)
 
@@ -364,6 +369,15 @@ export function EditAlertModal(props: AlertModalProps): JSX.Element {
         }
     }, [alert, alertForm.condition?.type, alertForm.threshold?.configuration?.type, useAlertCheckPreview])
 
+    const metricsPreviewSeries = useMemo(
+        () =>
+            metricsAlertPreview && {
+                ...metricsAlertPreview,
+                labels: metricsAlertPreview.labels.map((label) => formatDate(dayjs(label), 'MMM D, HH:mm')),
+            },
+        [metricsAlertPreview]
+    )
+
     const leadingActions = (
         <AlertLeadingActions
             alertForm={alertForm}
@@ -390,7 +404,12 @@ export function EditAlertModal(props: AlertModalProps): JSX.Element {
             alertMode={alertMode}
             thresholdBoundsFormError={thresholdBoundsFormError}
             isNonTimeSeriesDisplay={isNonTimeSeriesDisplay}
-            trends={{ alertSeries, formulaNodes, isBreakdownValid }}
+            trends={
+                // A calendar heatmap returns one result, for the first series, and ignores formulas.
+                display === ChartDisplayType.CalendarHeatmap
+                    ? { alertSeries: alertSeries.slice(0, 1), formulaNodes: [], isBreakdownValid }
+                    : { alertSeries, formulaNodes, isBreakdownValid }
+            }
             funnel={{
                 stepLabels: funnelStepLabels,
                 preview: funnelAlertPreview,
@@ -489,9 +508,12 @@ export function EditAlertModal(props: AlertModalProps): JSX.Element {
             }
             funnelPreview={funnelAlertPreview}
             hogqlPreview={hogqlAlertPreview}
+            metricsPreview={metricsPreviewSeries}
+            metricsPreviewFailed={metricsPreviewFailed}
+            onRetryMetricsPreview={loadMetricsPreviewResponse}
             checkPreview={checkPreview}
             previewHistoryTooShort={previewHistoryTooShort}
-            loading={!useAlertCheckPreview && (insightLoading || insightDataLoading)}
+            loading={!useAlertCheckPreview && (insightLoading || insightDataLoading || metricsPreviewResponseLoading)}
         />
     )
     const nameError = alertFormSubmitAttempted && !alertForm.name ? 'Enter an alert name.' : undefined

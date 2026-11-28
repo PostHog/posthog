@@ -3,7 +3,8 @@ import type { DrivenStep, StepWindow } from '../generator/generator'
 import type { TruthRecord } from '../provider-edge'
 import { type BarEvidence, type BarResult, type CpuPoint, judgeBars } from './bars'
 import type { Convergence, InvariantResult, JournalEntry } from './judge'
-import { type MetricSample, SCRAPE_GAP_MS } from './measurements'
+import type { MetricSample } from './measurements'
+import { SCRAPE_GAP_MS } from './pickups'
 import { Broke, LiveRamp, Ramp, RampEvidence, RampStop, StepRates, rampOf, stepRatesOf, watchRamp } from './ramp'
 
 const T = Date.UTC(2026, 0, 5, 10, 0, 0)
@@ -79,7 +80,7 @@ function live(overrides: Partial<LiveRamp> = {}): LiveRamp {
         samples: () => [],
         host: () => [],
         queue: () => [],
-        profile: {},
+        admission: {},
         writerCpu: () => Promise.resolve(cpuByMinute([40, 40, 80, 80, 90, 90])),
         ...overrides,
     }
@@ -152,7 +153,7 @@ describe('ramp', () => {
         [
             'ends at a first step whose workers claimed under the profile load, before any bar is read',
             {
-                profile: { load: { targets: { claimsPerSecond: { hogflow: 5 } }, tolerance: 0.2 } },
+                admission: { load: { targets: { claimsPerSecond: { hogflow: 5 } }, tolerance: 0.2, derived: [] } },
                 samples: () => scrapedEvery5s(135, claiming(1)),
                 writerCpu: () => Promise.reject(new Error('read before the admission')),
             },
@@ -189,7 +190,7 @@ describe('ramp', () => {
         [
             'passes a first step whose workers claimed at the profile load',
             {
-                profile: { load: { targets: { claimsPerSecond: { hogflow: 5 } }, tolerance: 0.2 } },
+                admission: { load: { targets: { claimsPerSecond: { hogflow: 5 } }, tolerance: 0.2, derived: [] } },
                 samples: () => scrapedEvery5s(135, claiming(5)),
             },
             0,
@@ -324,7 +325,7 @@ describe('ramp', () => {
         jest.setSystemTime(opener.endedAt)
         const watch = watchRamp(
             live({
-                profile: { load: { targets: { claimsPerSecond: { hogflow: 1 } }, tolerance: 0.2 } },
+                admission: { load: { targets: { claimsPerSecond: { hogflow: 1 } }, tolerance: 0.2, derived: [] } },
                 samples: () => scrapedEvery5s(135, claiming(5)),
             }),
             NEVER

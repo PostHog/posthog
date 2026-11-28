@@ -11,6 +11,8 @@ from django.db.models.fields.json import KT
 from django.db.models.functions import Coalesce
 from django.utils.timezone import now
 
+from pydantic import JsonValue
+
 from posthog.ingress.dispatch.database import bounded_statement_timeout
 
 from products.actions.backend.facade.enums import ACTION_REFERENCE_JSONPATH, ACTIONS_ARRAY_JSONPATH
@@ -350,6 +352,29 @@ def get_or_create_saved_insight(
         insight.deleted = False
         insight.save(update_fields=["deleted"])
     return insight.id, created
+
+
+def create_sample_insight(*, team_id: int, name: str, description: str, query: dict[str, Any]) -> int:
+    return Insight.objects.create(team_id=team_id, name=name, description=description, is_sample=True, query=query).id
+
+
+def create_saved_insight(
+    *, team_id: int, user_id: int, name: str, description: str, query: dict[str, JsonValue]
+) -> int:
+    return Insight.objects.create(
+        team_id=team_id, created_by_id=user_id, name=name, description=description, query=query, saved=True
+    ).id
+
+
+def update_insight_description_and_query(
+    *, team_id: int, insight_id: int, description: str, query: dict[str, Any]
+) -> None:
+    insight = Insight.objects.filter(team_id=team_id, pk=insight_id).first()
+    if insight is None:
+        return
+    insight.description = description
+    insight.query = query
+    insight.save()
 
 
 def create_insight_explanation(

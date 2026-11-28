@@ -32,6 +32,10 @@ def ai_feature_flag_enabled(feature: AIFeature, team_id: int) -> bool:
     return team_flag_enabled(feature.flag, team_id)
 
 
+def ai_feature_setting_on(feature: AIFeature, team_id: int) -> bool:
+    return ErrorTrackingSettings.objects.filter(team_id=team_id, **{feature.settings_field: True}).exists()
+
+
 def ai_feature_blocked(feature: AIFeature, team_id: int) -> AIFeatureBlock | None:
     """The reason the feature may not run now for a team whose flag is on, or None when it may."""
     enabled = (

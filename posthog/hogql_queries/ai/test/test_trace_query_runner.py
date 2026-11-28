@@ -24,6 +24,7 @@ from posthog.schema import (
     PropertyOperator,
     SessionQuery,
     TraceQuery,
+    TraceQueryResponse,
     TracesQuery,
 )
 
@@ -1253,6 +1254,60 @@ class TestTraceQueryRunner(ClickhouseTestMixin, BaseTest):
             .results[0]
         )
         self.assertEqual(len(trace.events), 1)
+
+    @parameterized.expand([("ai_events",), ("events",)])
+    def test_events_limit_keeps_earliest_events_and_whole_trace_totals(self, table: str):
+        trace_id = str(uuid.uuid4())
+        start = datetime(2024, 12, 1, 0, 0, tzinfo=UTC)
+        # Inserted latest first, so a cap that kept insertion order instead of the earliest events fails.
+        events: list[dict[str, Any]] = [
+            {
+                "event": "$ai_generation",
+                "team": self.team,
+                "distinct_id": "person1",
+                "timestamp": start + timedelta(minutes=minute),
+                "properties": {
+                    "$ai_trace_id": trace_id,
+                    "$ai_parent_id": trace_id,
+                    "$ai_latency": 1.0,
+                    "$ai_input_tokens": 10,
+                    "$ai_output_tokens": 5,
+                    "$ai_total_cost_usd": 0.5,
+                },
+            }
+            for minute in (2, 1, 0)
+        ]
+        if table == "ai_events":
+            bulk_create_ai_events(events)
+        else:
+            bulk_create_events(events)
+
+        def run(events_limit: int | None) -> TraceQueryResponse:
+            return TraceQueryRunner(
+                team=self.team,
+                query=TraceQuery(
+                    traceId=trace_id,
+                    dateRange=DateRange(date_from="2024-12-01T00:00:00Z", date_to="2024-12-01T00:10:00Z"),
+                    eventsLimit=events_limit,
+                ),
+            ).calculate()
+
+        capped = run(2)
+        trace = capped.results[0]
+        self.assertTrue(capped.hasMore)
+        self.assertEqual(
+            [event.createdAt for event in trace.events],
+            [(start + timedelta(minutes=minute)).isoformat() for minute in (0, 1)],
+        )
+        self.assertEqual(trace.totalCost, 1.5)
+        self.assertEqual(trace.inputTokens, 30)
+        self.assertEqual(trace.totalLatency, 3.0)
+
+        exact = run(3)
+        self.assertFalse(exact.hasMore)
+        self.assertEqual(len(exact.results[0].events), 3)
+
+        self.assertIsNone(run(None).hasMore)
 
     def test_sums_distinguish_reported_zero_from_no_report(self):
         zero_trace_id = str(uuid.uuid4())

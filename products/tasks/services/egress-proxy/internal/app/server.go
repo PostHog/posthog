@@ -61,7 +61,8 @@ func Run(ctx context.Context, mode, configPath string, reload <-chan os.Signal, 
 		if err != nil {
 			return err
 		}
-		handler, ready = relay, relay.Ready
+		defer relay.Close()
+		handler, ready, reloadConfig = relay, relay.Ready, relay.Reload
 	default:
 		return errors.New("unknown service mode")
 	}
@@ -82,6 +83,14 @@ func serve(ctx context.Context, config ServerConfig, handler http.Handler, tlsCo
 		return errors.New("administration listener unavailable")
 	}
 	defer adminListener.Close()
+	var metricsListener net.Listener
+	if config.MetricsAddress != "" {
+		metricsListener, err = net.Listen("tcp", config.MetricsAddress)
+		if err != nil {
+			return errors.New("metrics listener unavailable")
+		}
+		defer metricsListener.Close()
+	}
 	var draining atomic.Bool
 	admin := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet || r.URL.RawQuery != "" {
@@ -102,7 +111,7 @@ func serve(ctx context.Context, config ServerConfig, handler http.Handler, tlsCo
 			}
 			w.WriteHeader(http.StatusNoContent)
 		case "/metrics":
-			metrics.Handler().ServeHTTP(w, r)
+			metrics.AdminHandler().ServeHTTP(w, r)
 		default:
 			w.WriteHeader(http.StatusNotFound)
 		}
@@ -116,7 +125,18 @@ func serve(ctx context.Context, config ServerConfig, handler http.Handler, tlsCo
 		WriteTimeout: 10 * time.Second, IdleTimeout: 30 * time.Second, MaxHeaderBytes: 16 << 10,
 		ErrorLog: log.New(io.Discard, "", 0),
 	}
-	results := make(chan error, 2)
+	results := make(chan error, 3)
+	var monitoring *http.Server
+	metricsAddress := ""
+	if metricsListener != nil {
+		monitoring = &http.Server{
+			Handler: metrics.Handler(), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 10 * time.Second,
+			WriteTimeout: 10 * time.Second, IdleTimeout: 30 * time.Second, MaxHeaderBytes: 16 << 10,
+			ErrorLog: log.New(io.Discard, "", 0),
+		}
+		metricsAddress = metricsListener.Addr().String()
+		go func() { results <- monitoring.Serve(metricsListener) }()
+	}
 	go func() {
 		if tlsConfig != nil {
 			results <- requests.ServeTLS(listener, "", "")
@@ -125,7 +145,7 @@ func serve(ctx context.Context, config ServerConfig, handler http.Handler, tlsCo
 		}
 	}()
 	go func() { results <- administration.Serve(adminListener) }()
-	logger.Info("service started", "listen_address", listener.Addr().String(), "admin_address", adminListener.Addr().String())
+	logger.Info("service started", "listen_address", listener.Addr().String(), "admin_address", adminListener.Addr().String(), "metrics_address", metricsAddress)
 	var serveErr error
 loop:
 	for {
@@ -143,7 +163,6 @@ loop:
 				continue
 			}
 			if reloadConfig == nil {
-				logger.Warn("relay credential changes require restart")
 				continue
 			}
 			if err := reloadConfig(); err != nil {
@@ -164,6 +183,9 @@ loop:
 	}
 	if administration.Shutdown(shutdown) != nil {
 		administration.Close()
+	}
+	if monitoring != nil && monitoring.Shutdown(shutdown) != nil {
+		monitoring.Close()
 	}
 	logger.Info("service stopped")
 	return serveErr

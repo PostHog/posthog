@@ -1,7 +1,7 @@
 """The only import surface for a vendor directory under `products/warehouse_sources/sources/`.
 
 A vendor imports shared code from this module (or from `products.warehouse_sources.sources.sdk.testing` in tests), and its own
-directory as `products.warehouse_sources.sources.<vendor>`. tach (`products.warehouse_sources.sources.*` in `tach.toml`) forbids every other first-party import.
+directory as `products.warehouse_sources.sources.<vendor>`. hoglint (`sources-vendors-use-sdk` in `tools/hoglint/presets/posthog.toml`) forbids every other first-party import.
 
 This module only re-exports. `gen_sdk.py` in the layer 2 scripts wrote it from the imports the vendors
 had. To add a name, import it here from its origin module and add it to `__all__`. The goal is that
@@ -81,6 +81,18 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.asy
     AsyncJobTimeoutError,
     JobStatus,
     poll_until_done,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.aws_auth import (
+    AWS_AUTH_NON_RETRYABLE_ERRORS,
+    AWS_FLAT_STORED_SELECTS,
+    ROLE_NOT_FOUND_ERROR,
+    AwsAuthError,
+    RoleCredentials,
+    aws_auth_endpoint_reasons,
+    aws_auth_field,
+    aws_redact_values,
+    resolve_aws_credentials,
+    sign_aws_request,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
     MARKETING_ANALYTICS_SUGGESTED_TABLE_TOOLTIP,
@@ -217,6 +229,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.obj
     DiscoveryOptions,
     ObjectStoreConfig,
     ObjectStoreProvider,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.errors import (
+    ObjectStorageError,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.fields import (
     KEYWORDS,
@@ -413,6 +428,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.salesforce
 
 __all__ = [
     "APIKeyAuth",
+    "AWS_AUTH_NON_RETRYABLE_ERRORS",
+    "AWS_FLAT_STORED_SELECTS",
     "AZURE_EXAMPLE_URL",
     "AnsiIdentifierQuoter",
     "ApiKeyAuthConfig",
@@ -420,6 +437,7 @@ __all__ = [
     "AsyncJobTimeoutError",
     "AuthConfig",
     "AuthConfigBase",
+    "AwsAuthError",
     "AzureBlobConfig",
     "BacktickIdentifierQuoter",
     "BaseNextUrlPaginator",
@@ -511,6 +529,7 @@ __all__ = [
     "OAuth2GrantType",
     "OAuthMixin",
     "OauthIntegration",
+    "ObjectStorageError",
     "ObjectStorageSource",
     "ObjectStoreConfig",
     "ObjectStoreProvider",
@@ -531,6 +550,7 @@ __all__ = [
     "RESTClient",
     "RESTClientNonRetryableError",
     "RESTClientRetryableError",
+    "ROLE_NOT_FOUND_ERROR",
     "ReleaseStatus",
     "RequestPacer",
     "Resource",
@@ -539,6 +559,7 @@ __all__ = [
     "ResumableSourceManager",
     "ResumeHook",
     "RetryableHTTPError",
+    "RoleCredentials",
     "RowFilterColumn",
     "S3_EXAMPLE_URL",
     "SCHEMA_RESOURCE_ID_METADATA_KEY",
@@ -601,6 +622,9 @@ __all__ = [
     "_looks_like_json",
     "_safe_url",
     "auth_non_retryable_errors",
+    "aws_auth_endpoint_reasons",
+    "aws_auth_field",
+    "aws_redact_values",
     "build_chained_resource",
     "build_dependent_resource",
     "build_endpoint_schemas",
@@ -675,6 +699,7 @@ __all__ = [
     "rename_parent_fields",
     "request_deadline",
     "required_parents_from_endpoint_configs",
+    "resolve_aws_credentials",
     "resolve_file_format",
     "resolve_incremental_start",
     "resolve_merge_keys",
@@ -692,6 +717,7 @@ __all__ = [
     "scrub_url",
     "secret_field",
     "set_json_param",
+    "sign_aws_request",
     "slack_request",
     "source_caption",
     "source_helpers",

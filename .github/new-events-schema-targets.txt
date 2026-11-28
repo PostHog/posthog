@@ -1,4 +1,5 @@
-# Test paths that Backend CI runs a second time with CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=true,
+# Test paths that Backend CI runs a second time with CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=true
+# and BATCH_EXPORTS_NEW_EVENTS_TABLE_ROLLOUT_PERCENTAGE=100,
 # against the native-JSON events table. The leg runs wherever the legacy tests run. A run of the
 # full legacy matrix (the merge queue, the hourly master run, a PR the selector cannot narrow)
 # takes every path. A narrowed PR run takes the paths its test selection reaches, plus the paths
@@ -34,6 +35,7 @@
 # HogQL, its query runners, and the ClickHouse layer below them
 posthog/hogql
 posthog/hogql_queries
+posthog/query_scan
 posthog/session_recordings/queries
 posthog/clickhouse/test
 posthog/query_scan/test/test_stub_printing.py
@@ -44,6 +46,8 @@ products/ai_observability/backend/tests/logic/evaluations
 products/ai_observability/backend/tests/logic/traces
 products/ai_observability/backend/tests/test_facade_api.py
 products/ai_observability/backend/tests/test_facade_list_traces.py
+products/ai_observability/backend/tests/test_facade_sessions.py
+products/ai_observability/backend/tests/test_facade_trace_metrics.py
 products/ai_observability/backend/tests/presentation/views
 products/cohorts
 products/customer_analytics/backend/hogql_queries
@@ -83,6 +87,7 @@ products/workflows/skills/measuring-email-performance/tests
 
 # Code outside HogQL that builds events SQL itself and branches on the schema
 posthog/dags/tests/test_deletes.py
+posthog/dags/tests/test_hogql_event_deletion_flag_calls.py
 posthog/models/person/test/test_point_in_time_properties_integration.py
 posthog/models/team/test_production_event_activation.py
 posthog/models/test/test_deletion_targets.py
@@ -90,7 +95,6 @@ posthog/tasks/test/test_ai_observability_usage_report.py
 posthog/tasks/test/test_team_event_volume.py
 posthog/tasks/test/test_usage_report.py
 posthog/temporal/tests/test_clickhouse.py
-posthog/temporal/tests/session_replay/copy_recording/test_activities.py
 posthog/temporal/ai_observability/eval_reports/test/test_activities.py
 posthog/temporal/ai_observability/test_run_trace_evaluation.py
 posthog/temporal/ai_observability/trace_summarization/tests/test_fetch_and_format.py
@@ -105,10 +109,12 @@ products/batch_exports/backend/tests/temporal/test_filters.py
 products/batch_exports/backend/tests/temporal/test_record_batch_model.py
 products/batch_exports/backend/tests/test_custom_events_schema.py
 products/batch_exports/backend/tests/test_hogql_source.py
+products/batch_exports/backend/tests/test_nullable_staging.py
 products/feature_flags/backend/test/test_facade_usage.py
 products/feature_flags/backend/test/test_flag_windows_baseline.py
 products/feature_flags/backend/test/test_flag_windows_errors.py
 products/feature_flags/backend/test/test_flag_windows_exposure.py
+products/feature_flags/backend/test/test_flag_windows_last_values.py
 products/feature_flags/backend/test/test_request_usage.py
 products/growth/backend/tests/test_team_sdk_versions.py
 products/growth/dags/tests/test_team_production_event_activation.py
@@ -130,4 +136,5 @@ products/revenue_analytics/backend/views/test/test_mrr_views.py
 products/surveys/backend/api/test/test_survey.py
 products/dashboards/backend/tests/api/test_query_sharing.py
 products/surveys/backend/responses/test_linked.py
+products/web_analytics/backend/test/test_eval_seeders.py
 products/web_analytics/backend/test/test_heatmaps_api.py

@@ -328,10 +328,11 @@ export function SceneMenuBarMenu({
 
 type SceneMenuBarItemProps = ComponentProps<typeof MenubarItem> & {
     /**
-     * Append a trailing ellipsis ("…") to the label — Mac-style affordance signalling that
-     * the action opens additional floating UI (modal, popover, dialog, side panel).
-     * Use for items like "Subscribe…", "Duplicate…", "Manage with Terraform…". Skip for
-     * direct actions ("Delete feature flag") and same-page navigations.
+     * Append a trailing ellipsis ("…") to the label, signalling that the action needs more
+     * input before it can happen (a dialog, popover or side panel the user fills in).
+     * Use for items like "Subscribe…", "Duplicate…", "Rename…". Skip for direct actions,
+     * confirm-only destructive actions ("Delete feature flag") and same-page navigations.
+     * See the icon and ellipsis rule in frontend/src/design.md.
      */
     opensFloatingUi?: boolean
     /** Hover hint, typically the reason a disabled item can't be used. Applied as the native title. */

@@ -22,7 +22,7 @@ from posthog.models import Organization, Team, User
 from posthog.models.integration import GitHubIntegration
 from posthog.models.organization import OrganizationMembership
 
-from products.signals.backend.artefact_schemas import AutostartSkip, SuggestedReviewers, TaskRunArtefact
+from products.signals.backend.artefact_schemas import AutostartSkip, SourceIssue, SuggestedReviewers, TaskRunArtefact
 from products.signals.backend.auto_start import _evaluate_link_gates, maybe_autostart_from_report_artefacts
 from products.signals.backend.models import (
     MAX_SCOUT_CONTENT_REVISIONS,
@@ -33,6 +33,7 @@ from products.signals.backend.models import (
     SignalSourceConfig,
 )
 from products.signals.backend.report_generation.resolve_reviewers import ReviewerIdentitySet
+from products.signals.backend.report_prompts import MAX_SUGGESTED_PROMPT_LENGTH
 from products.signals.backend.scout_harness.serializers import EditReportRequestSerializer, EmitReportRequestSerializer
 from products.signals.backend.scout_harness.tools.emit import remediation_for_skip
 from products.signals.backend.scout_harness.tools.report import (
@@ -57,6 +58,7 @@ from products.signals.backend.scout_harness.tools.report import (
 from products.signals.backend.scout_harness.tools.report_author import USER_REPORT_DAILY_LIMIT, ScoutRunReportAuthor
 from products.signals.backend.scout_report import ScoutReportSignal
 from products.signals.backend.scout_report.judge import SAFETY_REFUSAL_EXPLANATION
+from products.signals.backend.source_issues import append_source_issues
 from products.signals.backend.task_run_artefacts import record_implementation_task
 from products.signals.backend.temporal.llm import LLMRefusalError
 from products.signals.backend.temporal.report_safety_judge import SafetyJudgeResponse
@@ -560,16 +562,20 @@ class TestScoutReportAPI(APIBaseTest):
             emitted = self.client.post(
                 self._emit_url(str(run.id)),
                 data=self._payload(
-                    title="fix(checkout): p99 regressed", summary="## Problem\\n\\nThe \\`/checkout\\` p99 doubled."
+                    title="fix(checkout): p99 regressed",
+                    summary="## Problem\\n\\nThe \\`/checkout\\` p99 doubled.",
+                    suggested_prompts=["Which teams are affected?", "x" * (MAX_SUGGESTED_PROMPT_LENGTH + 1)],
                 ),
                 format="json",
             ).json()
             report = SignalReport.objects.get(id=emitted["report_id"])
             assert report.summary == "## Problem\n\nThe `/checkout` p99 doubled."
+            assert report.suggested_prompts == ["Which teams are affected?"]
             assert [(h["check_id"], h["severity"]) for h in emitted["quality_hints"]] == [
                 ("literal_newline_escapes", "repair"),
                 ("escaped_backticks", "repair"),
                 ("pr_style_title", "hint"),
+                ("suggested_prompt_too_long", "repair"),
             ]
             edited = self.client.post(
                 self._edit_url(str(run.id)),
@@ -588,6 +594,7 @@ class TestScoutReportAPI(APIBaseTest):
             ("emit_report", "literal_newline_escapes", run.skill_name),
             ("emit_report", "escaped_backticks", run.skill_name),
             ("emit_report", "pr_style_title", run.skill_name),
+            ("emit_report", "suggested_prompt_too_long", run.skill_name),
             ("edit_report", "literal_newline_escapes", run.skill_name),
         ]
 
@@ -751,6 +758,57 @@ class TestScoutReportAPI(APIBaseTest):
             "https://github.com/acme/widgets/issues/42",
             "https://github.com/acme/widgets/issues/43",
         ]
+
+    @parameterized.expand(
+        [
+            ("no link", SignalReport.Status.READY, None, False),
+            ("duplicate_of link", SignalReport.Status.READY, "duplicate_of", False),
+            ("follow_up_of link", SignalReport.Status.READY, "follow_up_of", True),
+            ("part_of link", SignalReport.Status.READY, "part_of", True),
+            ("depends_on link", SignalReport.Status.READY, "depends_on", True),
+            ("recurrence_of link", SignalReport.Status.READY, "recurrence_of", True),
+            ("closed report", SignalReport.Status.RESOLVED, None, True),
+        ]
+    )
+    def test_emit_report_for_an_issue_an_open_report_names_returns_that_report(
+        self, _name: str, existing_status: SignalReport.Status, link_kind: str | None, creates: bool
+    ) -> None:
+        run = _make_run(self.team)
+        existing = SignalReport.objects.create(team=self.team, status=existing_status, title="From the GitHub source")
+        with transaction.atomic():
+            append_source_issues(
+                team_id=self.team.id,
+                report_id=str(existing.id),
+                issues=[SourceIssue.github("acme/widgets", 42)],
+                attribution=ArtefactAttribution.system(),
+            )
+        links = [{"kind": link_kind, "report_id": str(existing.id)}] if link_kind else []
+        with _safe_judge() as judge, patch(EMBED_PATH), patch(CAPTURE_PATH) as capture:
+            response = self.client.post(
+                self._emit_url(str(run.id)),
+                data=self._payload(source_issues=[{"url": "https://github.com/Acme/Widgets/issues/42"}], links=links),
+                format="json",
+            )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        body = response.json()
+        event = next(c for c in capture.call_args_list if c.kwargs["event"] == "signals_scout_report_emitted")
+        if creates:
+            assert body["skipped_reason"] is None
+            assert body["report_id"] != str(existing.id)
+            assert SignalReport.objects.filter(team=self.team).count() == 2
+            return
+        assert (body["report_id"], body["report_status"], body["emitted"], body["skipped_reason"]) == (
+            str(existing.id),
+            SignalReport.Status.READY,
+            False,
+            "source_issue_already_reported",
+        )
+        assert str(existing.id) in body["remediation"]
+        assert SignalReport.objects.filter(team=self.team).count() == 1
+        judge.assert_not_awaited()
+        assert event.kwargs["properties"]["outcome"] == "already_reported"
+        assert event.kwargs["properties"]["skipped_reason"] == "source_issue_already_reported"
+        self.capture_internal_mock.assert_not_called()
 
     def test_source_issue_authors_who_are_organization_members_become_reviewers(self) -> None:
         run = _make_run(self.team)
@@ -3005,6 +3063,7 @@ class TestScoutReportAPI(APIBaseTest):
             ("omitted", {}, 1, None),
             ("null", {"suggested_prompts": None}, 1, None),
             ("empty_list", {"suggested_prompts": []}, 0, 0),
+            ("only_too_long", {"suggested_prompts": ["x" * (MAX_SUGGESTED_PROMPT_LENGTH + 1)]}, 1, None),
         ]
     )
     def test_edit_suggested_prompts_distinguishes_untouched_from_cleared(
@@ -3049,6 +3108,17 @@ class TestScoutReportAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK, response.json()
         assert SignalReport.objects.get(id=created["report_id"]).suggested_prompts == []
+
+    def test_an_edit_left_empty_by_the_prompt_repair_names_the_bound(self) -> None:
+        run = _make_run(self.team)
+        response = self.client.post(
+            self._edit_url(str(run.id)),
+            data={"report_id": str(uuid4()), "suggested_prompts": ["x" * (MAX_SUGGESTED_PROMPT_LENGTH + 1)]},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert f"longer than {MAX_SUGGESTED_PROMPT_LENGTH} characters" in str(response.json())
 
     @parameterized.expand(
         [

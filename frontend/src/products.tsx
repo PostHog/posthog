@@ -78,6 +78,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/data-management/actions/new': ['NewAction', 'actionNew'],
     '/data-management/actions/:id': ['Action', 'action'],
     '/data-management/actions/new/': ['NewAction', 'actionNew'],
+    '/agent-transcript': ['AgentTranscript', 'agentTranscript'],
     '/ai-observability/dashboard': ['AIObservability', 'aiObservabilityDashboard'],
     '/ai-observability/self-driving': ['AIObservability', 'aiObservabilitySelfDriving'],
     '/ai-observability/generations': ['AIObservability', 'aiObservabilityGenerations'],
@@ -169,6 +170,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/data-management/warehouse-properties': ['WarehouseProperties', 'warehouseProperties'],
     '/data-management/warehouse-properties/:tab': ['WarehouseProperties', 'warehouseProperties'],
     '/dashboard-v2': ['DashboardV2', 'dashboardV2'],
+    '/dashboard-v2/:uid': ['DashboardV2', 'dashboardV2'],
     '/data-catalog': ['DataCatalog', 'dataCatalog'],
     '/data-catalog/metrics/:name': ['DataCatalogMetric', 'dataCatalogMetric'],
     '/data-catalog/new-metric': ['DataCatalogNewMetric', 'dataCatalogNewMetric'],
@@ -282,6 +284,8 @@ export const productRoutes: Record<string, [string, string]> = {
     '/mcp-analytics/activity': ['MCPAnalytics', 'mcpAnalyticsActivity'],
     '/mcp-analytics/dashboard': ['MCPAnalytics', 'mcpAnalyticsDashboard'],
     '/mcp-analytics/sessions': ['MCPAnalytics', 'mcpAnalyticsSessions'],
+    '/mcp-analytics/users': ['MCPAnalytics', 'mcpAnalyticsUsers'],
+    '/mcp-analytics/users/:distinctId': ['MCPAnalyticsUser', 'mcpAnalyticsUser'],
     '/mcp-analytics/tool-quality': ['MCPAnalytics', 'mcpAnalyticsToolQuality'],
     '/mcp-analytics/tool-quality/:toolName': ['MCPAnalyticsToolDetail', 'mcpAnalyticsTool'],
     '/mcp-analytics/intent-clustering': ['MCPAnalytics', 'mcpAnalyticsIntentClustering'],
@@ -386,6 +390,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/heatmaps/:id': ['Heatmap', 'heatmap'],
     '/wizard/runs': ['WizardRuns', 'wizardRuns'],
     '/workflows': ['Workflows', 'workflows'],
+    '/workflows/advent': ['WorkflowsAdventCalendar', 'workflowsAdventCalendar'],
     '/workflows/:tab': ['Workflows', 'workflows'],
     '/workflows/channels/email/:id': ['WorkflowsEmailDomain', 'workflowsEmailDomain'],
     '/workflows/:id/:tab': ['Workflow', 'workflowTab'],
@@ -646,6 +651,17 @@ export const productRedirects: Record<
     '/web/content-autopilot/prompts/:promptId': ({ promptId }, searchParams) =>
         combineUrl(urls.webAnalyticsContentAutopilotPrompt(promptId ?? ''), searchParams).url,
     '/web/bots': () => urls.webAnalyticsContentAutopilot(),
+    '/messaging': () => urls.workflows(),
+    '/messaging/:tab': ({ tab }) => {
+        if (tab === 'broadcasts') {
+            return urls.broadcasts()
+        }
+        if (tab === 'library' || tab === 'channels' || tab === 'opt-outs') {
+            return urls.workflows(tab)
+        }
+        return urls.workflows()
+    },
+    '/messaging/broadcasts/:id': ({ id }) => urls.broadcast(id ?? ''),
 }
 
 /** This const is auto-generated, as is the whole file */
@@ -660,6 +676,11 @@ export const productConfiguration: Record<string, any> = {
     },
     Action: { name: 'Action', projectBased: true, activityScope: 'Action', iconType: 'action' },
     NewAction: { name: 'New Action', projectBased: true, activityScope: 'Action', iconType: 'action' },
+    AgentTranscript: {
+        name: 'Share your agent transcript',
+        organizationBased: true,
+        description: 'Upload the transcript of the conversation where an AI agent set up PostHog.',
+    },
     AIObservability: {
         projectBased: true,
         name: 'AI observability',
@@ -1140,6 +1161,7 @@ export const productConfiguration: Record<string, any> = {
         layout: 'app-container',
         iconType: 'mcp_analytics',
     },
+    MCPAnalyticsUser: { projectBased: true, name: 'MCP user', layout: 'app-container', iconType: 'mcp_analytics' },
     McpGateway: {
         projectBased: true,
         name: 'MCP servers',
@@ -1408,6 +1430,7 @@ export const productConfiguration: Record<string, any> = {
     TransactionalEmailLogEntry: { name: 'Transactional', iconType: 'transactional', projectBased: true },
     TransactionalCodeEmail: { name: 'Transactional', iconType: 'transactional', projectBased: true },
     WorkflowsEmailDomain: { name: 'Workflows', iconType: 'workflows', projectBased: true },
+    WorkflowsAdventCalendar: { name: 'Advent calendar', iconType: 'workflows', projectBased: true },
 }
 
 /** This const is auto-generated, as is the whole file */
@@ -1419,6 +1442,7 @@ export const productUrls = {
     },
     action: (id: string | number): string => `/data-management/actions/${id}`,
     actions: (): string => '/data-management/actions',
+    agentTranscript: (): string => '/agent-transcript',
     aiObservabilityDashboard: (): string => '/ai-observability/dashboard',
     aiObservabilitySelfDriving: (): string => '/ai-observability/self-driving',
     aiObservabilityGenerations: (): string => '/ai-observability/generations',
@@ -1467,9 +1491,12 @@ export const productUrls = {
             timestamp?: string
         }
     ): string => {
+        const segment = id.replace(/[^A-Za-z0-9\-_~.@()!'|:]/gu, (character) =>
+            character === ' ' ? '%20' : encodeURIComponent(encodeURIComponent(character))
+        )
         const queryParams = new URLSearchParams(params)
         const stringifiedParams = queryParams.toString()
-        return `/ai-observability/sessions/${id}${stringifiedParams ? `?${stringifiedParams}` : ''}`
+        return `/ai-observability/sessions/${segment}${stringifiedParams ? `?${stringifiedParams}` : ''}`
     },
     aiObservabilityPlayground: (): string => '/ai-observability/playground',
     aiObservabilityDatasets: (): string => '/ai-evals/evaluations/offline/experiments?tab=datasets',
@@ -1620,7 +1647,7 @@ export const productUrls = {
     dashboardSubscription: (id: string | number, subscriptionId: string): string =>
         `/dashboard/${id}/subscriptions/${subscriptionId}`,
     sharedDashboard: (shareToken: string): string => `/shared_dashboard/${shareToken}`,
-    dashboardV2: (): string => '/dashboard-v2',
+    dashboardV2: (uid?: string): string => (uid ? `/dashboard-v2/${encodeURIComponent(uid)}` : '/dashboard-v2'),
     dataCatalog: (tab?: string): string => `/data-catalog${tab ? `?tab=${tab}` : ''}`,
     dataCatalogNewMetric: (): string => '/data-catalog/new-metric',
     dataCatalogMetric: (name: string, tab?: 'definition' | 'data-quality' | 'lineage' | 'usage'): string =>
@@ -1892,6 +1919,8 @@ export const productUrls = {
     mcpAnalyticsActivity: (): string => '/mcp-analytics/activity',
     mcpAnalyticsDashboard: (): string => '/mcp-analytics/dashboard',
     mcpAnalyticsSessions: (): string => '/mcp-analytics/sessions',
+    mcpAnalyticsUsers: (): string => '/mcp-analytics/users',
+    mcpAnalyticsUser: (distinctId: string): string => `/mcp-analytics/users/${encodeURIComponent(distinctId)}`,
     mcpAnalyticsToolQuality: (): string => '/mcp-analytics/tool-quality',
     mcpAnalyticsTool: (toolName: string): string => `/mcp-analytics/tool-quality/${encodeURIComponent(toolName)}`,
     mcpAnalyticsIntentClustering: (): string => '/mcp-analytics/intent-clustering',
@@ -2139,6 +2168,7 @@ export const productUrls = {
     workflow: (id: string, tab: string): string => `/workflows/${id}/${tab}`,
     workflowNew: (): string => '/workflows/new/workflow',
     workflowsEmailDomain: (id: string | number): string => `/workflows/channels/email/${id}`,
+    workflowsAdventCalendar: (): string => '/workflows/advent',
     workflowsLibraryMessage: (id: string): string => `/workflows/library/messages/${id}`,
     workflowsLibraryTemplate: (id?: string): string => `/workflows/library/templates/${id}`,
     workflowsLibraryTemplateNew: (): string => '/workflows/library/templates/new',
@@ -2615,6 +2645,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
             'TransactionalEmailLogEntry',
             'TransactionalCodeEmail',
             'WorkflowsEmailDomain',
+            'WorkflowsAdventCalendar',
         ],
     },
     {
@@ -3146,6 +3177,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         searchTabs: [
             { name: 'Activity', href: urls.mcpAnalyticsActivity() },
             { name: 'Sessions', href: urls.mcpAnalyticsSessions() },
+            { name: 'Users', href: urls.mcpAnalyticsUsers() },
             { name: 'Tool quality', href: urls.mcpAnalyticsToolQuality() },
             { name: 'Missing capabilities', href: urls.mcpAnalyticsMissingCapabilities() },
             { name: 'Notifications', href: urls.mcpAnalyticsNotifications() },
@@ -3157,7 +3189,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         ],
         tags: ['beta'],
         sceneKey: 'MCPAnalytics',
-        sceneKeys: ['MCPAnalytics', 'MCPAnalyticsToolDetail'],
+        sceneKeys: ['MCPAnalytics', 'MCPAnalyticsToolDetail', 'MCPAnalyticsUser'],
     },
     {
         path: 'MCP servers',
@@ -3197,10 +3229,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         iconColor: ['var(--color-product-metrics-light)', 'var(--color-product-metrics-dark)'] as FileSystemIconColor,
         href: urls.metrics(),
         searchKeywords: ['time series', 'counters', 'gauges'],
-        searchTabs: [
-            { name: 'Viewer', href: urls.metrics('viewer') },
-            { name: 'SQL', href: urls.metrics('sql') },
-        ],
+        searchTabs: [{ name: 'Viewer', href: urls.metrics('viewer') }],
         tags: ['alpha'],
         sceneKey: 'Metrics',
         sceneKeys: ['Metrics', 'MetricsDashboardReview'],
@@ -3496,6 +3525,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
             'TransactionalEmailLogEntry',
             'TransactionalCodeEmail',
             'WorkflowsEmailDomain',
+            'WorkflowsAdventCalendar',
         ],
     },
     {
@@ -3620,6 +3650,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
             'TransactionalEmailLogEntry',
             'TransactionalCodeEmail',
             'WorkflowsEmailDomain',
+            'WorkflowsAdventCalendar',
         ],
     },
 ]
@@ -3824,6 +3855,16 @@ export const getTreeItemsMetadata = (): FileSystemImport[] => [
         ],
         sceneKey: 'Sources',
         sceneKeys: ['Sources'],
+    },
+    {
+        path: 'Tags',
+        category: 'Schema',
+        iconType: 'tag',
+        href: urls.tagDefinitions(),
+        flag: FEATURE_FLAGS.TAG_MANAGEMENT,
+        requiresOrganizationAdmin: true,
+        searchKeywords: ['labels', 'merge', 'rename'],
+        sceneKeys: [],
     },
     {
         path: `Transformations`,

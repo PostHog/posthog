@@ -90,6 +90,18 @@
                     <port>9000</port>
                 </replica>
             </shard>
+            <shard>
+                <replica>
+                    <host>clickhouse-events</host>
+                    <port>9000</port>
+                </replica>
+            </shard>
+            <shard>
+                <replica>
+                    <host>clickhouse-flags</host>
+                    <port>9000</port>
+                </replica>
+            </shard>
         </posthog_migrations>
 
         <ai_events>
@@ -166,8 +178,8 @@
 
     <macros>
         <shard>01</shard>
-        <replica>events</replica>
+        <replica>ingestion_events</replica>
         <hostClusterType>online</hostClusterType>
-        <hostClusterRole>events</hostClusterRole>
+        <hostClusterRole>ingestion_events</hostClusterRole>
     </macros>
 </clickhouse>

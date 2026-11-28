@@ -91,12 +91,15 @@ class TestShouldStopDesc:
 class TestRunsCursorPagination:
     @parameterized.expand(
         [
-            ("runs", "filter[createdAt][from]"),
-            ("deployments", "from"),
-            ("waitpoint_tokens", "filter[createdAt][from]"),
+            ("runs", "/api/v1/runs", "filter[createdAt][from]", "2026-01-07T00:00:00+00:00"),
+            ("deployments", "/api/v1/deployments", "from", "2026-01-09T00:00:00+00:00"),
+            ("waitpoint_tokens", "/api/v1/waitpoints/tokens", "filter[createdAt][from]", "2026-01-03T00:00:00+00:00"),
+            ("sessions", "/api/v1/sessions", "filter[createdAt][from]", "1767398400000"),
         ]
     )
-    def test_incremental_filters_first_page_then_stops_at_watermark(self, endpoint: str, filter_param: str) -> None:
+    def test_incremental_filters_first_page_then_stops_at_watermark(
+        self, endpoint: str, path: str, filter_param: str, expected_cutoff: str
+    ) -> None:
         # The createdAt filter is only sent on page one; later cursor pages must stop client-side once
         # a page predates the watermark, or every incremental sync re-walks all history.
         responses = [
@@ -125,8 +128,9 @@ class TestRunsCursorPagination:
             db_incremental_field_last_value=datetime(2026, 1, 10, tzinfo=UTC),
         )
         assert [r["id"] for r in result.rows] == ["r3", "r2", "r1"]
-        assert len(result.requests) == 2
-        assert result.requests[0].param(filter_param) is not None
+        assert [request.path for request in result.requests] == [path, path]
+        assert result.requests[0].param(filter_param) == expected_cutoff
+        assert result.requests[1].param("page[after]") == "r2"
         assert filter_param not in result.requests[1].query
 
     def test_errors_send_the_wide_period_on_every_page(self) -> None:
@@ -151,14 +155,18 @@ class TestRunsCursorPagination:
         result = _run("waitpoint_tokens", [_json({"data": [token], "pagination": {}})])
         assert result.rows == [{"id": "waitpoint_1", "status": "WAITING", "createdAt": "2026-01-12T00:00:00Z"}]
 
-    def test_stages_next_page_cursor_before_each_yield(self) -> None:
+    @parameterized.expand([("errors", "/api/v1/errors"), ("bulk_actions", "/api/v1/bulk-actions")])
+    def test_stages_next_page_cursor_before_each_yield(self, endpoint: str, path: str) -> None:
         # A resumed full refresh appends without merging, so the state must point at the first unread
         # page: staging the current cursor would replay a page that was already written.
         responses = [
             _json({"data": [{"id": "r3"}], "pagination": {"next": "r2"}}),
             _json({"data": [{"id": "r1"}], "pagination": {"next": None}}),
         ]
-        result = _run("errors", responses)
+        result = _run(endpoint, responses)
+        assert [row["id"] for row in result.rows] == ["r3", "r1"]
+        assert [request.path for request in result.requests] == [path, path]
+        assert result.requests[1].param("page[after]") == "r2"
         assert [s.after for s in result.saved_states] == ["r2"]
 
 

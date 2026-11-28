@@ -60,7 +60,7 @@ A sending rate limit removes that risk when it is slow enough, so it raises the 
 
 The blast radius preview takes the rate limit as `email_sending_rate_limit` and returns `rate_limited`: the fastest qualifying hourly rate, the day limit, and the cap at that rate.
 The broadcast wizard uses it to suggest a qualifying rate, with a one-click button on the recipients, schedule, and review steps.
-The reputation endpoint returns the largest rate-limited batch as `rate_limited_max_batch_audience`, which the Reputation tab shows under the batch cap.
+The reputation endpoint returns the largest rate-limited batch as `rate_limited_max_batch_audience`, which the Reputation tab shows in the tooltip of the batch cap.
 Batch dispatch reads the rate limit stored on the workflow.
 The worker paces each send with the workflow's live rate limit.
 So while a batch that a rate limit raised still has runs in the worker's queue, the API rejects any change to that rate limit. When the worker cannot report the count, the API rejects the change.
@@ -68,7 +68,7 @@ Dispatch records the cap it sent on the batch job (`max_audience_size`) under th
 
 ## Decision rules the sweep applies
 
-In order: staff suspension or an AWS-paused tenant drops to tier 0; a dirty 7-day window, a workflow auto-pause, or a HIGH tenant reputation impact demotes one tier (at most once per cooldown, anchored on the last rate demotion); a tier above 0 with zero sends for the decay period drops one step per period; promotion needs the dwell served, real use of the tier (at least the use ratio of the daily cap on the minimum number of separate days, counted only after the tier anchor), a clean 30-day window, and a clean tenant reputation.
+In order: staff suspension or an AWS-paused tenant drops to tier 0; a dirty 7-day window, a workflow auto-pause, or a HIGH tenant reputation impact demotes one tier (at most once per cooldown, anchored on the last rate demotion; the window is cut on whole UTC days, so rates and auto-pauses also wait until the day of the last demotion has left it, while a HIGH tenant impact still demotes); a tier above 0 with zero sends for the decay period drops one step per period; promotion needs the dwell served, real use of the tier (at least the use ratio of the daily cap on the minimum number of separate days, counted only after the tier anchor), a clean 30-day window, and a clean tenant reputation.
 A trusted account skips the dwell and the use bar and moves straight to the floor, tier 3.
 It qualifies when its organization has an active subscription and a Billing trust score of at least 7 on any product, which means it paid an invoice in the last 90 days or is on an annual plan. The team's rates inside the 30-day window are clean, AWS has synced its tenant as enabled with no reputation impact, and the team was never demoted, suspended by staff, or paused by AWS.
 For the floor, the bounce and complaint rates count on any number of sends, because the floor skips the volume bar that otherwise backs up a small sample.
@@ -134,6 +134,7 @@ The warning clears once the live steps move to a verified sender.
 - The rate limit lock counts every in-flight run of the workflow, not only the raised batch's runs, so other runs of the same workflow can hold it longer.
 - Test-panel sends bypass the team bucket on purpose, matching the per-workflow rate limit.
 - Rescheduled emails keep their email queue priority while waiting. After a team-cap, workflow-pacing, or SES-throttle retry, the workflow restores its origin queue and priority when it next leaves the email queue. A push notification retried while the workflow is on the email queue behaves the same way and waits at the priority of its own message category.
+- A send with files that could not reach SES is charged again when it retries, against both the team cap and the workflow pacing, so its first attempt counts once more than the email it sends. A retry after a failed download keeps its team cap charge and claims the workflow pacing again, unless an earlier retry after a failed ownership check saved its pacing claim.
 - Transactional sends are charged but never delayed, so a team whose transactional volume alone exceeds its tier can hold its own marketing at zero (see Transactional email below).
 - The bucket is a token bucket: a full idle bucket plus refill allows up to roughly twice the stated cap in the very first period. The bucket TTL exceeds the refill period so this does not recur from idling.
 - A denied send parks until the bucket has refilled enough to cover it, instead of retrying on a fixed few-minute cadence.

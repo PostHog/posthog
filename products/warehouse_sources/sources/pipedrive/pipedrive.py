@@ -16,7 +16,6 @@ from requests.exceptions import HTTPError, RequestException
 
 from products.warehouse_sources.sources.pipedrive.settings import (
     DEAL_IDS_PER_REQUEST,
-    DEAL_PARENT_PATHS,
     MAIL_FOLDERS,
     MAIL_THREADS_PATH,
     PAGE_SIZE,
@@ -366,26 +365,26 @@ def delete_webhook(company_domain: str, api_token: str, webhook_url: str) -> Web
     return WebhookDeletionResult(success=True)
 
 
-def _deal_fan_out_rows(
+def _fan_out_rows(
     client: RESTClient,
     config: PipedriveEndpointConfig,
     resumable_source_manager: ResumableSourceManager[PipedriveResumeConfig],
     initial_state: Optional[dict[str, Any]],
 ) -> Iterator[list[dict[str, Any]]]:
-    """Read a deal child endpoint for every active and archived deal.
+    """Read a child endpoint for every parent in `config.parent_paths` (every deal, or every organization).
 
-    Deals arrive in ascending id order, so the resume state stays small: the parent list and page
-    being read, the last deal id whose rows are all yielded, and the cursor inside the deal group
-    being read. The shared fan-out helper instead records every finished parent, which grows with
-    the account.
+    Parents arrive in ascending id order, so the resume state stays small: the parent list and page
+    being read, the last parent id whose rows are all yielded, and the paginator state inside the
+    parent group being read. The shared fan-out helper instead records every finished parent, which
+    grows with the account.
     """
     state = initial_state or {}
-    group_size = DEAL_IDS_PER_REQUEST if config.deal_fan_out == "batched" else 1
-    # A deal deleted between the deals listing and this fetch has nothing left to read.
+    group_size = DEAL_IDS_PER_REQUEST if config.fan_out == "batched" else 1
+    # A parent deleted between its listing and this fetch has nothing left to read.
     hooks = create_response_hooks([{"status_code": 404, "action": "ignore"}], resource_name=config.name)
     start_parent = state.get("parent_index", 0)
 
-    for parent_index, parent_path in enumerate(DEAL_PARENT_PATHS):
+    for parent_index, parent_path in enumerate(config.parent_paths):
         if parent_index < start_parent:
             continue
         resuming = parent_index == start_parent
@@ -415,13 +414,14 @@ def _deal_fan_out_rows(
         def read_group(
             group: list[int], child_initial: Optional[dict[str, Any]], _progress: dict[str, Any] = progress
         ) -> Iterator[list[dict[str, Any]]]:
-            if config.deal_fan_out == "batched":
+            params: dict[str, Any] = {}
+            if config.parent_id_param is not None:
                 path = config.path
-                params: dict[str, Any] = {"deal_ids": ",".join(str(deal_id) for deal_id in group)}
+                params[config.parent_id_param] = ",".join(str(parent_id) for parent_id in group)
             else:
                 path = config.path.format(id=group[0])
-                params = {}
-            params["limit"] = PAGE_SIZE
+            if config.pagination == "cursor":
+                params["limit"] = PAGE_SIZE
 
             def on_child_page(
                 paginator_state: Optional[dict[str, Any]],
@@ -438,15 +438,15 @@ def _deal_fan_out_rows(
             for rows in client.paginate(
                 path=path,
                 params=params,
-                paginator=_cursor_paginator(),
+                paginator=_build_paginator(config),
                 data_selector="data",
                 hooks=hooks,
                 initial_paginator_state=child_initial,
                 page_state_hook=on_child_page,
             ):
-                if config.deal_fan_out == "per_deal":
+                if config.parent_id_column is not None:
                     for row in rows:
-                        row["deal_id"] = group[0]
+                        row[config.parent_id_column] = group[0]
                 yield rows
 
             # A group with no rows stages nothing. Resuming from the last staged state reads such
@@ -454,12 +454,12 @@ def _deal_fan_out_rows(
             _progress["done_through"] = group[-1]
             resumable_source_manager.safe_point()
 
-        # Finish the saved group with its cursor before regrouping: deals added or deleted since the
+        # Finish the saved group with its cursor before regrouping: parents added or deleted since the
         # crash would change the rebuilt groups, and restarting a half-read batch duplicates rows.
         if resume_group:
             yield from read_group(resume_group, resume_child)
 
-        for deals in client.paginate(
+        for parents in client.paginate(
             path=parent_path,
             params={"limit": PAGE_SIZE, "sort_by": "id", "sort_direction": "asc"},
             paginator=_cursor_paginator(),
@@ -468,9 +468,9 @@ def _deal_fan_out_rows(
             page_state_hook=on_parent_page,
         ):
             done_through = progress["done_through"]
-            deal_ids = [deal["id"] for deal in deals if done_through is None or deal["id"] > done_through]
-            for start in range(0, len(deal_ids), group_size):
-                yield from read_group(deal_ids[start : start + group_size], None)
+            parent_ids = [parent["id"] for parent in parents if done_through is None or parent["id"] > done_through]
+            for start in range(0, len(parent_ids), group_size):
+                yield from read_group(parent_ids[start : start + group_size], None)
 
             progress["parent_page"] = next_parent_page.get("state")
 
@@ -656,7 +656,7 @@ def pipedrive_source(
 
     resource: Any
     column_hints = None
-    if config.deal_fan_out is not None or config.custom_read is not None:
+    if config.fan_out is not None or config.custom_read is not None:
         client = RESTClient(
             base_url=base_url(company_domain),
             headers={"Accept": "application/json"},
@@ -668,7 +668,7 @@ def pipedrive_source(
         elif config.custom_read is not None:
             resource = _mail_rows(client, config, resumable_source_manager, initial_paginator_state)
         else:
-            resource = _deal_fan_out_rows(client, config, resumable_source_manager, initial_paginator_state)
+            resource = _fan_out_rows(client, config, resumable_source_manager, initial_paginator_state)
     else:
         params: dict[str, Any] = {}
         if config.pagination == "cursor":

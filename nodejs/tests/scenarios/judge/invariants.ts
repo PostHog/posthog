@@ -6,6 +6,7 @@ import { RETRIABLE_STATUS_CODES } from '~/cdp/utils/cdp-fetch'
 import type { ResidentBacklog, ResidentRows } from '../backlog/backlog'
 import type { Definition } from '../cards/definitions'
 import type { TruthRecord } from '../provider-edge'
+import { addressesOf } from '../provider-edge/ses'
 import type { FollowUpAnswer, IntakeAnswer, InvariantResult, JournalEntry } from './judge'
 
 export type JudgeEvidence = {
@@ -14,10 +15,19 @@ export type JudgeEvidence = {
     fetchRetries: number
     resident?: ResidentBacklog
     janitorResets: number
+    boundary: RunBoundary
+}
+
+export type RunBoundary = {
+    truthFrom: number
+    horizon?: { seq: number; at: number } | { unread: string }
+    unread?: string
+    unsettled?: string
+    unobserved: readonly string[]
 }
 
 export type InvariantDefinition = Definition & {
-    check(evidence: JudgeEvidence, gate: number | undefined): Omit<InvariantResult, 'name'>
+    check(evidence: JudgeEvidence, gate: number | undefined, params: unknown): Omit<InvariantResult, 'name'>
 }
 
 const EVIDENCE_UNIT_IDS = 5
@@ -48,10 +58,13 @@ export const deliveryKey = (unitId: string, actionId: string): string => `${unit
 
 const ERROR_TYPES_THE_EMAIL_SERVICE_RETRIES = ['TooManyRequestsException', 'ThrottlingException']
 
-const isAccepted = (status: number): boolean => status >= 200 && status < 300
+export const isAccepted = (status: number): boolean => status >= 200 && status < 300
 
-const isNotRetriedByTheEmailService = ({ status, detail }: TruthRecord): boolean =>
-    status >= 400 && status < 500 && !ERROR_TYPES_THE_EMAIL_SERVICE_RETRIES.includes(detail.errorType ?? '')
+export const isThrottled = ({ detail }: TruthRecord): boolean =>
+    ERROR_TYPES_THE_EMAIL_SERVICE_RETRIES.includes(detail.errorType ?? '')
+
+const isNotRetriedByTheEmailService = (record: TruthRecord): boolean =>
+    record.status >= 400 && record.status < 500 && !isThrottled(record)
 
 const isNotRetriedByFetch = (status: number): boolean => !RETRIABLE_STATUS_CODES.includes(status)
 
@@ -310,10 +323,200 @@ export const bouncedSuppressed: InvariantDefinition = {
     },
 }
 
+export const truthGapOf = (truth: readonly TruthRecord[], truthFrom: number): string | undefined => {
+    const gap = truth.findIndex(({ seq }, i) => seq !== truthFrom + i + 1)
+    return gap < 0 ? undefined : `the truth skips from seq ${truth[gap - 1]?.seq ?? truthFrom} to ${truth[gap].seq}`
+}
+
+const runOf = (unitId: string): string => unitId.slice(0, unitId.lastIndexOf('-'))
+
+function unjudgedNoLoss({ journal, truth, boundary }: JudgeEvidence): string | undefined {
+    if (boundary.unread !== undefined) {
+        return `the truth could not be read: ${boundary.unread}`
+    }
+    if (boundary.unsettled !== undefined) {
+        return boundary.unsettled
+    }
+    const gap = truthGapOf(truth, boundary.truthFrom)
+    if (gap !== undefined) {
+        return gap
+    }
+    if (boundary.unobserved.length > 0) {
+        return boundary.unobserved.join('; ')
+    }
+    const journaled = new Set(journal.map(({ unitId }) => unitId))
+    const runs = new Set(journal.map(({ unitId }) => runOf(unitId)))
+    const stray = truth
+        .filter(isDeliveryRecord)
+        .find(({ unitId, status }) => isAccepted(status) && !journaled.has(unitId) && runs.has(runOf(unitId)))
+    return (
+        stray &&
+        `the journal is incomplete: the edge accepted ${stray.unitId} ${stray.actionId}, which the journal never recorded`
+    )
+}
+
+const unjudgedOf = (unjudged: string): Omit<InvariantResult, 'name'> => ({
+    passed: false,
+    observed: 0,
+    unitIds: [],
+    unjudged,
+})
+
+type Bounds = { min: number; max: number }
+
+const NONE: Bounds = { min: 0, max: 0 }
+
+function boundsOf({ answer, followUp, expect }: JournalEntry, actionId: string, horizonAt: number): Bounds {
+    if (!expect.deliveries.includes(actionId) || (expect.dueAt ?? -Infinity) > horizonAt) {
+        return NONE
+    }
+    if (!answer.accepted) {
+        return 'transportError' in answer ? { min: 0, max: 1 } : NONE
+    }
+    const flows = followUp !== undefined && 'accepted' in followUp && followUp.accepted ? 2 : 1
+    return { min: flows, max: flows }
+}
+
+export const owedOf = (journal: readonly JournalEntry[], actionId: string, horizonAt: number): number =>
+    journal.reduce((sum, entry) => sum + boundsOf(entry, actionId, horizonAt).min, 0)
+
+type Effect = { recipient: string; flowId?: string; request: DeliveryRecord }
+
+const effectsOf = (request: DeliveryRecord): Effect[] =>
+    (request.kind === 'webhook'
+        ? [request.detail.request?.host ?? '']
+        : addressesOf([
+              ...(request.detail.message?.to ?? []),
+              ...(request.detail.message?.cc ?? []),
+              ...(request.detail.message?.bcc ?? []),
+          ])
+    ).map((recipient) => ({ recipient, flowId: request.flowId, request }))
+
+const REPEAT = 'a lease reclaim, a retry inside the job, or a new job under the same id'
+
+function resentPathOf(sends: readonly Effect[]): string | undefined {
+    const requests = [...new Set(sends.map(({ request }) => request))]
+    const byJob = Map.groupBy(requests, ({ invocationId }) => invocationId)
+    if (requests.length < 2 || byJob.has(undefined)) {
+        return undefined
+    }
+    const repeated = [...byJob.values()].filter(({ length }) => length > 1).length
+    if (repeated === 0) {
+        return `${byJob.size} invocation ids sent it: a replay before the queue`
+    }
+    if (byJob.size === 1) {
+        return `one invocation id sent it each time: ${REPEAT}`
+    }
+    const repeaters = repeated === 1 ? 'one of them' : `${repeated} of them`
+    return `${byJob.size} invocation ids sent it, ${repeaters} more than once: a replay before the queue, and ${REPEAT}`
+}
+
+const requestsOf = (sends: readonly Effect[]): number => new Set(sends.map(({ request }) => request)).size
+
+type Shortfall = { unitId: string; actionId: string; recipient?: string; flows: number; expected: number }
+
+type Excess = {
+    unitId: string
+    actionId: string
+    recipient: string
+    flowId?: string
+    accepted: number
+    expected: number
+    excess: number
+    path?: string
+}
+
+const shortfallOf = ({ unitId, actionId, recipient, flows, expected }: Shortfall): string =>
+    `${unitId} ${actionId}${recipient === undefined ? '' : ` to ${recipient}`}: accepted ${expected > 1 ? `from ${plural(flows, 'flow')}` : plural(flows, 'time')} by the recovery horizon, expected ${expected}`
+
+const excessOf = ({ unitId, actionId, recipient, flowId, accepted, expected, path }: Excess): string =>
+    `${unitId} ${actionId} to ${recipient}${flowId === undefined ? '' : ` from ${flowId}`}: accepted ${plural(accepted, 'time')}, expected ${expected}${path === undefined ? '' : ` (${path})`}`
+
+export const noLoss: InvariantDefinition = {
+    name: 'no_loss',
+    params: z.object({}).strict(),
+    check: (evidence) => {
+        const { horizon } = evidence.boundary
+        if (horizon === undefined) {
+            return unjudgedOf('the run reached no recovery horizon: convergence was interrupted')
+        }
+        if ('unread' in horizon) {
+            return unjudgedOf(
+                `the run reached no recovery horizon: the last convergence read failed: ${horizon.unread}`
+            )
+        }
+        const unjudged = unjudgedNoLoss(evidence)
+        if (unjudged !== undefined) {
+            return unjudgedOf(unjudged)
+        }
+        const byDelivery = recordsByDelivery(evidence.truth)
+        const actionsByUnit = Map.groupBy(evidence.truth.filter(isDeliveryRecord), ({ unitId }) => unitId)
+        const missing: Shortfall[] = []
+        const extra: Excess[] = []
+        for (const entry of evidence.journal) {
+            const { unitId } = entry
+            const seen = (actionsByUnit.get(unitId) ?? []).map(({ actionId }) => actionId)
+            for (const actionId of new Set([...entry.expect.deliveries, ...seen])) {
+                const records = byDelivery.get(deliveryKey(unitId, actionId)) ?? []
+                const { min, max } = boundsOf(entry, actionId, horizon.at)
+                const accepted = records.filter(({ status }) => isAccepted(status))
+                const byRecipient = Map.groupBy(accepted.flatMap(effectsOf), ({ recipient }) => recipient)
+                const dueByRecipient = Map.groupBy(
+                    accepted.filter(({ seq }) => seq <= horizon.seq).flatMap(effectsOf),
+                    ({ recipient }) => recipient
+                )
+                if (dueByRecipient.size === 0 && min > 0) {
+                    missing.push({ unitId, actionId, flows: 0, expected: min })
+                }
+                for (const [recipient, sends] of dueByRecipient) {
+                    const flows = new Set(sends.map(({ flowId }, i) => flowId ?? i)).size
+                    if (flows < min) {
+                        missing.push({ unitId, actionId, recipient, flows, expected: min })
+                    }
+                }
+                for (const [recipient, sends] of byRecipient) {
+                    const byFlow = [...Map.groupBy(sends, ({ flowId }, i) => flowId ?? i)]
+                    const repeats = byFlow.reduce((sum, [, { length }]) => sum + length - 1, 0)
+                    const excess = repeats + Math.max(0, byFlow.length - max)
+                    const repeating = byFlow.filter(([flowId, { length }]) => typeof flowId === 'string' && length > 1)
+                    const resent = repeating.find(([, flowSends]) => requestsOf(flowSends) > 1) ?? repeating[0]
+                    if (excess > 0) {
+                        extra.push({
+                            unitId,
+                            actionId,
+                            recipient,
+                            excess,
+                            path: resent && resentPathOf(resent[1]),
+                            ...(resent
+                                ? { flowId: String(resent[0]), accepted: resent[1].length, expected: 1 }
+                                : { accepted: sends.length, expected: max }),
+                        })
+                    }
+                }
+            }
+        }
+        const observed =
+            missing.reduce((sum, { flows, expected }) => sum + expected - flows, 0) +
+            extra.reduce((sum, { excess }) => sum + excess, 0)
+        const [lost] = missing
+        const resent = extra.find(({ path }) => path !== undefined) ?? extra[0]
+        const violation = [lost && shortfallOf(lost), resent && excessOf(resent)].filter(Boolean).join('; ')
+        return {
+            passed: observed === 0,
+            observed,
+            violation: violation || undefined,
+            unitIds: firstUnitIds([...missing, ...extra].map(({ unitId }) => unitId)),
+            missing: firstUnitIds(missing.map(({ unitId }) => unitId)),
+            extra: firstUnitIds(extra.map(({ unitId }) => unitId)),
+        }
+    },
+}
+
 export const INVARIANTS: InvariantDefinition[] = [
     atLeastOnce,
     duplicateSends,
     refusedAtIntake,
     bouncedSuppressed,
     residentBacklogIntact,
+    noLoss,
 ]

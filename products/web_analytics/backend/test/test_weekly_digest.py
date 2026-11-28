@@ -220,8 +220,43 @@ class TestGetOverviewForTeam(ClickhouseTestMixin, APIBaseTest):
             "bounce_rate": {"current": 0.0, "previous": None, "change": None},
             "avg_session_duration": {"current": "0s", "previous": "0s", "change": None},
             "date_from": datetime(2025, 1, 22, tzinfo=UTC),
-            "date_to": datetime(2025, 1, 29, 23, 59, 59, tzinfo=UTC),
+            "date_to": datetime(2025, 1, 28, 23, 59, 59, tzinfo=UTC),
         }
+
+    def test_compares_complete_days_only(self):
+        with time_machine.travel("2025-01-29T12:00:00Z", tick=False):
+            _create_person(team_id=self.team.pk, distinct_ids=["user_1"])
+            for day in ["2025-01-14", "2025-01-21", "2025-01-25", "2025-01-29"]:
+                _create_pageview(
+                    self.team, distinct_id="user_1", session_id=str(uuid7(day)), timestamp=f"{day}T10:00:00Z"
+                )
+            flush_persons_and_events()
+
+            result = get_overview_for_team(self.team)
+
+        assert result["date_from"] == datetime(2025, 1, 22, tzinfo=UTC)
+        assert result["date_to"] == datetime(2025, 1, 28, 23, 59, 59, tzinfo=UTC)
+        assert result["pageviews"] == {"current": 1, "previous": 1, "change": None}
+
+    @parameterized.expand([("project_default_off", False, 2), ("project_default_on", True, 1)])
+    def test_follows_the_project_test_account_default(self, _name: str, default_checked: bool, expected: int):
+        self.team.test_account_filters = [
+            {"key": "email", "type": "person", "value": "@example.com", "operator": "icontains"}
+        ]
+        self.team.test_account_filters_default_checked = default_checked
+        self.team.save()
+        with time_machine.travel(QUERY_TIMESTAMP, tick=False):
+            _create_person(team_id=self.team.pk, distinct_ids=["visitor"])
+            _create_person(team_id=self.team.pk, distinct_ids=["tester"], properties={"email": "qa@example.com"})
+            _create_pageview(self.team, distinct_id="visitor", timestamp="2025-01-25")
+            _create_pageview(self.team, distinct_id="tester", timestamp="2025-01-25")
+            flush_persons_and_events()
+
+            result = get_overview_for_team(self.team)
+            metadata = build_team_digest(self.team)["metadata"]
+
+        assert result["pageviews"]["current"] == expected
+        assert metadata["filter_test_accounts"] is default_checked
 
 
 class TestGetTopPages(ClickhouseTestMixin, APIBaseTest):
@@ -510,8 +545,8 @@ class TestBuildTeamDigest(ClickhouseTestMixin, APIBaseTest):
         assert result["top_sources"] == []
         assert result["goals"] == []
         assert result["metadata"]["data_status"] == expected_status
-        assert result["metadata"]["filter_test_accounts"] is True
         assert result["metadata"]["date_from"].date().isoformat() == "2025-01-22"
+        assert result["metadata"]["date_to"].date().isoformat() == "2025-01-28"
 
     def test_metadata_period_matches_a_cached_overview(self) -> None:
         with time_machine.travel("2025-01-28T23:00:00Z", tick=False):
@@ -520,11 +555,12 @@ class TestBuildTeamDigest(ClickhouseTestMixin, APIBaseTest):
             result = build_team_digest(self.team)
 
         assert result["metadata"]["date_from"].date().isoformat() == "2025-01-21"
-        assert result["metadata"]["date_to"].date().isoformat() == "2025-01-28"
+        assert result["metadata"]["date_to"].date().isoformat() == "2025-01-27"
 
     @patch(WAREHOUSE_ACCESS_CONTROL_FLAG, new=Mock(return_value=True))
     def test_scheduled_digest_reads_a_test_account_filter_through_a_warehouse_join(self):
         self.team.test_account_filters = [filter_through_warehouse_join(self.team)]
+        self.team.test_account_filters_default_checked = True
         self.team.save()
 
         with patch("posthog.hogql.query.sync_execute", return_value=([], [])):

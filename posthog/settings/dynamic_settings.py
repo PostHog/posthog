@@ -7,6 +7,9 @@ CONSTANCE_DATABASE_PREFIX = "constance:posthog:"
 # CONSTANCE_CONFIG: https://django-constance.readthedocs.io/en/latest/
 #
 # To edit, visit: ${SITE_URL}/admin/posthog/instancesetting/
+#
+# Do not add keys here. Use an environment variable or a feature flag instead.
+# The no-new-instance-settings semgrep rule blocks new keys; see .agents/architecture.md.
 
 CONSTANCE_CONFIG = {
     "STATIC_COHORT_RECONCILIATION_ENABLED": (
@@ -14,16 +17,15 @@ CONSTANCE_CONFIG = {
         "Copy static cohort members that reached ClickHouse but not Postgres, a few cohorts every 30 minutes.",
         bool,
     ),
-    "CIMD_PROVISIONING_REQUIRES_ORGANIZATION": (
-        False,
-        "Require every provisioning partner that registered itself from a client ID metadata document (CIMD) to be "
-        "linked to a PostHog organization with a CIMD verification token. A partner without that link cannot provision "
-        "while this is on, including a partner that was already accepted.",
-        bool,
-    ),
     "AI_OBSERVABILITY_DATASET_RETENTION_ENABLED": (
         True,
         "Enable expiry and deletion of unused AI observability datasets and historical versions in this region.",
+        bool,
+    ),
+    "EXPERIMENTS_RECALCULATION_ENABLED": (
+        True,
+        "Run experiment metric recalculations, including the hourly scheduled ones. Set to False to stop new and "
+        "pending runs. Runs already in progress finish. A change takes effect within about a minute.",
         bool,
     ),
     "WAREHOUSE_PERSON_PROPERTY_SET_RATE_PER_SEC": (
@@ -493,11 +495,18 @@ CONSTANCE_CONFIG = {
         "address is always in or always out of the sample, so Radar gets every login of a sampled account.",
         int,
     ),
+    "TEAM_DELETE_PERSONS_MAX_CONCURRENT_BATCHES": (
+        get_from_env("TEAM_DELETE_PERSONS_MAX_CONCURRENT_BATCHES", 2, type_cast=int),
+        "Persons batches that project and organization deletions run at once across every worker in the region. "
+        "Each batch adds storage read load on the persons writer, which slows down ingestion. "
+        "0 pauses the persons phase of every deletion. A change takes effect within a minute.",
+        int,
+    ),
 }
 
 SETTINGS_ALLOWING_API_OVERRIDE = (
     "STATIC_COHORT_RECONCILIATION_ENABLED",
-    "CIMD_PROVISIONING_REQUIRES_ORGANIZATION",
+    "EXPERIMENTS_RECALCULATION_ENABLED",
     "GROWTH_SIGNUP_ENRICHMENT_ENABLED",
     "GROWTH_ICP_REENRICH_DAILY_CAP",
     "GROWTH_RESCORE_WEBHOOK_SECRET",
@@ -571,6 +580,7 @@ SETTINGS_ALLOWING_API_OVERRIDE = (
     "REALTIME_COHORT_JOIN_OPEN",
     "WORKOS_RADAR_LOGIN_MODE",
     "WORKOS_RADAR_LOGIN_SAMPLE_PERCENT",
+    "TEAM_DELETE_PERSONS_MAX_CONCURRENT_BATCHES",
 )
 
 # SECRET_SETTINGS can only be updated but will never be exposed through the API (we do store them plain text in the DB)

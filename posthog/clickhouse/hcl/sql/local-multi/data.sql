@@ -70,7 +70,7 @@ CREATE TABLE posthog.ai_events (
   _timestamp DateTime,
   _offset UInt64,
   _partition UInt64
-) ENGINE = Distributed('ai_events', 'posthog', 'sharded_ai_events', cityHash64(concat(toString(team_id), '-', trace_id, '-', toString(toDate(timestamp)))));
+) ENGINE = Distributed('ai_events', 'posthog', 'sharded_ai_events', rand());
 CREATE TABLE posthog.billing_usage_records (
   schema_version UInt8,
   record_id String,
@@ -867,6 +867,16 @@ CREATE TABLE posthog.query_log_archive (
   exception_name String,
   ProfileEvents Map(String, UInt64)
 ) ENGINE = Distributed('ops', 'posthog', 'sharded_query_log_archive_v3');
+CREATE TABLE posthog.series_values_preaggregated (
+  team_id Int64,
+  job_id UUID,
+  time_window_start DateTime64(6, 'UTC'),
+  time_window_end DateTime64(6, 'UTC'),
+  series_key String,
+  value Float64,
+  computed_at DateTime64(6, 'UTC') DEFAULT now(),
+  expires_at DateTime64(6, 'UTC') DEFAULT now() + toIntervalDay(7)
+) ENGINE = Distributed('aux', 'posthog', 'sharded_series_values_preaggregated', sipHash64(job_id));
 CREATE TABLE posthog.sharded_app_metrics (
   team_id Int64,
   timestamp DateTime64(6, 'UTC'),
@@ -1614,12 +1624,14 @@ CREATE TABLE posthog.web_bounces_dimensional_preaggregated (
   mat_metadata_backend Nullable(String),
   mat_metadata_loggedIn Nullable(Bool),
   channel_type LowCardinality(String),
+  session_hosts Array(String),
   persons_uniq_state AggregateFunction(uniq, UUID),
   sessions_uniq_state AggregateFunction(uniq, String),
   pageviews_count_state AggregateFunction(sum, Int64),
   bounces_count_state AggregateFunction(sum, Int64),
   total_session_duration_state AggregateFunction(sum, Int64),
   total_session_count_state AggregateFunction(sum, Int64),
+  bounce_eligible_sessions_state AggregateFunction(sum, Int64),
   computed_at DateTime64(6, 'UTC') DEFAULT now(),
   expires_at DateTime64(6, 'UTC') DEFAULT now() + toIntervalDay(7)
 ) ENGINE = Distributed('aux', 'posthog', 'sharded_web_bounces_dimensional_preaggregated', sipHash64(job_id));

@@ -4,7 +4,7 @@ description: Log in to GHCR, DockerHub, and ECR, then generate standardized Dock
 inputs:
     image-name:
         required: true
-        description: 'Image name without registry prefix (e.g., posthog-node, capture, llm-gateway)'
+        description: 'Image name without registry prefix (e.g., posthog-node, capture, agent-proxy)'
     aws-role-to-assume:
         required: false
         default: ''

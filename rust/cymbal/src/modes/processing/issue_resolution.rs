@@ -890,54 +890,6 @@ mod test {
     }
 
     #[sqlx::test(migrations = "./tests/test_migrations")]
-    async fn a_recorded_change_carries_its_snapshot_and_exception(pool: sqlx::PgPool) {
-        use crate::modes::processing::issue_changes::{
-            record_issue_change, ExceptionRef, IssueChange, IssueSnapshot,
-        };
-
-        let issue =
-            super::Issue::insert_new(1, "TypeError".to_string(), String::new(), None, &pool)
-                .await
-                .unwrap();
-        let exception = ExceptionRef {
-            uuid: Uuid::now_v7(),
-            timestamp: issue.created_at,
-        };
-
-        record_issue_change(
-            &pool,
-            &issue,
-            &IssueChange::StatusChanged {
-                previous: "resolved".to_string(),
-            },
-            &IssueSnapshot::of(&issue, None, issue.created_at),
-            &exception,
-        )
-        .await
-        .unwrap();
-
-        let (kind, data, snapshot, actor_type, event_uuid): (
-            String,
-            serde_json::Value,
-            serde_json::Value,
-            String,
-            Option<Uuid>,
-        ) = sqlx::query_as(
-            "SELECT kind, data, snapshot, actor_type, event_uuid FROM posthog_errortrackingissuechange WHERE issue_id = $1",
-        )
-        .bind(issue.id)
-        .fetch_one(&pool)
-        .await
-        .unwrap();
-        assert_eq!(kind, "status_changed");
-        assert_eq!(data, serde_json::json!({"previous": "resolved"}));
-        assert_eq!(snapshot["status"], "active");
-        assert_eq!(snapshot["name"], "TypeError");
-        assert_eq!(actor_type, "ingestion");
-        assert_eq!(event_uuid, Some(exception.uuid));
-    }
-
-    #[sqlx::test(migrations = "./tests/test_migrations")]
     async fn initial_severity_update_reaches_state_and_notification_payloads(pool: sqlx::PgPool) {
         let mut issue = super::Issue::insert_new(
             1,

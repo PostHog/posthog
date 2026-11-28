@@ -558,6 +558,33 @@ describe('broadcastWizardLogic', () => {
         expect(logic.values.emailSettings).toMatchObject({ utmTagsEnabled: enabled, utmParams: params })
     })
 
+    it.each([
+        { type: 'function_email' as const, stored: {}, connected: true, sensitive: false },
+        {
+            type: 'function_email' as const,
+            stored: { run_link_tag_enabled: false },
+            connected: false,
+            sensitive: false,
+        },
+        { type: 'function_email' as const, stored: { sensitive: true }, connected: true, sensitive: true },
+        { type: 'function_push' as const, stored: { sensitive: true }, connected: true, sensitive: false },
+    ])(
+        'reads $stored from a saved $type step as connecting clicks to sessions: $connected',
+        async ({ type, stored, connected, sensitive }) => {
+            latest = savedBroadcast({ name: 'Spring sale', subject: 'Hi', updatedAt: '2026-09-24T10:00:00Z' })
+            const emailStep = latest.actions[1]
+            latest.actions[1] = { ...emailStep, type, config: { ...emailStep.config, ...stored } }
+            router.actions.push('/broadcasts/broadcast-1')
+            const draftLogic = broadcastWizardLogic({ id: 'broadcast-1' })
+            draftLogic.mount()
+            await expectLogic(draftLogic).toFinishAllListeners()
+
+            expect(draftLogic.values.emailSettings).toMatchObject({ runLinkTagEnabled: connected })
+            expect(draftLogic.values.emailStepSensitive).toBe(sensitive)
+            draftLogic.unmount()
+        }
+    )
+
     it('moves a new broadcast onto its draft URL once the draft is created', async () => {
         router.actions.push('/broadcasts/new')
         await expectLogic(logic, () => {
@@ -1139,6 +1166,84 @@ describe('broadcastWizardLogic', () => {
         }
     )
 
+    it.each([
+        { opens: 'a broadcast', origin_product: 'broadcasts', actions: undefined, recent: true },
+        {
+            opens: 'an unowned workflow shaped like a broadcast',
+            origin_product: null,
+            actions: undefined,
+            recent: true,
+        },
+        { opens: 'a workflow another product owns', origin_product: 'loops', actions: undefined, recent: false },
+        {
+            opens: 'an unowned workflow of another shape',
+            origin_product: null,
+            actions: [{ id: 'trigger_node', name: 'Trigger', type: 'trigger', config: { type: 'event' } }],
+            recent: false,
+        },
+    ])('opening $opens records a recent only when the page shows it', async ({ origin_product, actions, recent }) => {
+        const id = '01a1f39d-0000-7000-8000-000000000002'
+        const base = savedBroadcast({ name: 'Launch email', subject: 'Hi', updatedAt: '2026-09-24T10:00:00Z' })
+        const flow = { ...base, id, origin_product, actions: actions ?? base.actions } as HogFlowApi
+        useMocks({ get: { '/api/projects/:team_id/hog_flows/:id/': () => [200, flow] } })
+        const opened = broadcastWizardLogic({ id })
+        try {
+            await expectLogic(opened, () => {
+                opened.mount()
+            }).toDispatchActions(['loadBroadcastSuccess'])
+            expect(opened.values.todayRecent).toEqual(
+                recent ? { type: 'broadcast', name: 'Launch email', href: `/broadcasts/${id}` } : null
+            )
+        } finally {
+            opened.unmount()
+        }
+    })
+
+    it.each([
+        {
+            answer: 'a broadcast that does not exist',
+            response: [404, { detail: 'Not found.' }],
+            toasts: [],
+            reportedStatuses: [],
+        },
+        {
+            answer: 'a server error',
+            response: [500, { detail: 'Simulated outage' }],
+            toasts: [expect.stringContaining("Couldn't load the broadcast.")],
+            reportedStatuses: [500],
+        },
+    ])(
+        'loading $answer toasts at most once and reports only an unexpected failure',
+        async ({ response, toasts, reportedStatuses }) => {
+            const reportedExceptions: { status?: number }[] = []
+            const captureException = jest.spyOn(posthog, 'captureException').mockImplementation((error) => {
+                reportedExceptions.push(error as { status?: number })
+                return undefined as any
+            })
+            useMocks({ get: { '/api/projects/:team_id/hog_flows/:id/': () => response } })
+            toast.dismiss()
+            render(createElement(ToastContainer))
+            const opened = broadcastWizardLogic({ id: '01a1f39d-0000-7000-8000-000000000001' })
+            try {
+                await expectLogic(opened, () => {
+                    opened.mount()
+                })
+                    .toDispatchActions(['loadBroadcastFailure'])
+                    .toMatchValues({ broadcast: null })
+                await act(async () => {})
+                expect({
+                    toasts: Array.from(document.querySelectorAll('.Toastify__toast'), (t) => t.textContent),
+                    reportedStatuses: [...new Set(reportedExceptions.map((error) => error.status))],
+                }).toEqual({ toasts, reportedStatuses })
+            } finally {
+                opened.unmount()
+                cleanup()
+                toast.dismiss()
+                captureException.mockRestore()
+            }
+        }
+    )
+
     it('drops the rejection of an audience size check that a newer check replaced', async () => {
         await expectLogic(logic).toFinishAllListeners().clearHistory()
         let releaseFirst = (): void => {}
@@ -1473,6 +1578,40 @@ describe('broadcastWizardLogic', () => {
         expect(router.values.searchParams).toEqual({ other: 'kept' })
         draftLogic.unmount()
     })
+
+    it.each([true, undefined])(
+        'previews a saved broadcast with the test account setting it sends with: %s',
+        async (filterTestAccounts) => {
+            const filters = { properties: LOCAL_AUDIENCE, filter_test_accounts: filterTestAccounts }
+            const saved = savedBroadcast({ name: 'Spring sale', subject: 'Hi', updatedAt: '2026-09-24T10:00:00Z' })
+            latest = {
+                ...saved,
+                actions: saved.actions.map((action) =>
+                    action.type === 'trigger' ? { ...action, config: { type: 'batch', filters } } : action
+                ),
+            } as HogFlowApi
+            const previewed: Record<string, unknown>[] = []
+            useMocks({
+                post: {
+                    '/api/projects/:team_id/hog_flows/user_blast_radius/': async ({ request }) => {
+                        previewed.push(((await request.json()) as { filters: Record<string, unknown> }).filters)
+                        return [200, { affected: 9, total: 1000 }]
+                    },
+                },
+            })
+            const draftLogic = broadcastWizardLogic({ id: 'broadcast-1' })
+            await expectLogic(draftLogic, () => {
+                draftLogic.mount()
+            }).toDispatchActions(['hydrateFromBroadcast'])
+
+            draftLogic.actions.setStep('recipients')
+            await expectLogic(draftLogic).toFinishAllListeners()
+
+            expect(previewed.length).toBeGreaterThan(0)
+            expect(previewed.every((sent) => sent.filter_test_accounts === filterTestAccounts)).toBe(true)
+            draftLogic.unmount()
+        }
+    )
 
     it.each([
         { remaining: 6000, limit: { count: 100, period: 'minute' }, expected: '1h' },

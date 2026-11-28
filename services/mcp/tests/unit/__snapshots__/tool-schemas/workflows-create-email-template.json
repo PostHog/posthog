@@ -2,6 +2,17 @@
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "additionalProperties": false,
     "properties": {
+        "click_tracking_enabled": {
+            "anyOf": [
+                {
+                    "type": "boolean"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Whether links in emails sent from this template are rewritten to count clicks. Null uses the default: off when `sensitive` is true, on when `sensitive` is false. Set true to opt a sensitive template into click tracking, or false to turn click tracking off. Changing `sensitive` resets this to null unless `click_tracking_enabled` is sent in the same request."
+        },
         "content": {
             "additionalProperties": false,
             "description": "Template content keyed by channel. Replaced as a whole on update, not merged.",
@@ -204,7 +215,7 @@
             "type": "string"
         },
         "sensitive": {
-            "description": "For emails that carry login codes, reset links or other secrets. PostHog keeps no copy of each sent email's body or filled-in subject, and clicked links keep only the site address. Can change at any time.",
+            "description": "For emails that carry login codes, reset links or other secrets. PostHog keeps no copy of each sent email's body or filled-in subject, turns click tracking off by default, and records only the site address when click tracking is on. Can change at any time.",
             "type": "boolean"
         },
         "tags": {

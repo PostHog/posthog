@@ -148,7 +148,8 @@ class SerpstatSource(ResumableSource[SerpstatSourceConfig, SerpstatResumeConfig]
                 "Syncs use your account's API units when Serpstat applies a charge. "
                 "Serpstat lists the project methods as free of API credit charges. "
                 "The domain and backlink tables use API credits for each returned row, and they need a domain. "
-                "Paginated tables include up to 500 records. Positions cover the last seven days for one project region."
+                "Paginated tables include up to 500 records, or 500 domains for competitor history. "
+                "Positions and competitor history cover the last seven days for one project region."
             ),
             fields=cast(
                 list[FieldType],

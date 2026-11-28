@@ -41,6 +41,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.c
     remove_table_from_publication,
     slot_exists,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.client_deadline import (
+    client_side_deadline,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres import (
     SSLRequiredError,
     _is_dropped_or_connect_timeout,
@@ -55,6 +58,9 @@ if TYPE_CHECKING:
     from products.warehouse_sources.backend.temporal.data_imports.cdc.types import CDCStreamReader
 
 logger = logging.getLogger(__name__)
+
+# Both lag statements read catalog views, so a server that answers at all answers in well under this.
+LAG_CHECK_CLIENT_DEADLINE_SECONDS = 30
 _retry_logger = structlog.get_logger(__name__)
 
 
@@ -200,11 +206,15 @@ class PostgresCDCAdapter:
         drop_slot_and_publication(conn, cdc_config.slot_name, cdc_config.publication_name)
 
     def stream_exists(self, conn: Any, source: ExternalDataSource) -> bool:
-        return slot_exists(conn, self.parse_cdc_config(source).slot_name)
+        with client_side_deadline(conn, LAG_CHECK_CLIENT_DEADLINE_SECONDS):
+            return slot_exists(conn, self.parse_cdc_config(source).slot_name)
 
     def get_lag(self, conn: Any, source: ExternalDataSource) -> CDCLag | None:
-        lag_bytes = get_slot_lag_bytes(conn, self.parse_cdc_config(source).slot_name)
-        retention_cap_mb = get_max_slot_wal_keep_size_mb(conn)
+        # The connect timeout ends at the handshake, and a server that then stops answering would hold
+        # the caller past its activity heartbeat.
+        with client_side_deadline(conn, LAG_CHECK_CLIENT_DEADLINE_SECONDS):
+            lag_bytes = get_slot_lag_bytes(conn, self.parse_cdc_config(source).slot_name)
+            retention_cap_mb = get_max_slot_wal_keep_size_mb(conn)
         if lag_bytes is None:
             return None
         return CDCLag(behind_bytes=lag_bytes, retention_cap_mb=retention_cap_mb)

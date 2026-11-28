@@ -22,7 +22,7 @@ const meta: Meta<typeof BehavioralPropertyFilterRow> = {
         mswDecorator({
             get: {
                 '/api/projects/:team_id/actions/': { count: 1, next: null, previous: null, results: [CHECKOUT_ACTION] },
-                '/api/event/values/': [],
+                '/api/projects/:team_id/events/values/': [],
             },
         }),
     ],

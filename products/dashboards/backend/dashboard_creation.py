@@ -8,9 +8,10 @@ from __future__ import annotations
 import hashlib
 from base64 import urlsafe_b64encode
 from collections.abc import Mapping
-from typing import Any
 
 from django.db import transaction
+
+from pydantic import JsonValue
 
 from posthog.models.activity_logging.model_activity import ActingUserContext
 from posthog.models.team import Team
@@ -170,7 +171,7 @@ def read_dashboard_tiles(*, team_id: int, dashboard_id: int) -> tuple[DashboardT
     )
 
 
-def read_dashboard_metric_variables(*, team_id: int, dashboard_id: int) -> list[dict[str, Any]]:
+def read_dashboard_metric_variables(*, team_id: int, dashboard_id: int) -> list[dict[str, JsonValue]]:
     """The metrics dashboard variables of a dashboard, as MetricsDashboardVariable JSON."""
     filters = (
         Dashboard.objects.filter(team_id=team_id, id=dashboard_id, deleted=False)

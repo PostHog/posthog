@@ -9,7 +9,7 @@ import { IMPACT_DATE_RANGES, emailImpactLogic } from './emailImpactLogic'
 
 export function ConversionEventBar(): JSX.Element {
     const { event, days, impact } = useValues(emailImpactLogic)
-    const { setEvent, setDays } = useActions(emailImpactLogic)
+    const { pickEvent, setDays } = useActions(emailImpactLogic)
 
     return (
         <LemonCard hoverEffect={false} className="flex flex-wrap items-center gap-2 p-3">
@@ -22,7 +22,7 @@ export function ConversionEventBar(): JSX.Element {
                 value={event ?? undefined}
                 placeholder="Pick any event"
                 allowClear
-                onChange={(value) => setEvent(value ? String(value) : null)}
+                onChange={(value) => pickEvent(value ? String(value) : null, 'event-bar')}
                 data-attr="email-impact-event"
             />
             {event && (

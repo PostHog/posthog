@@ -54,7 +54,10 @@ from products.tasks.backend.facade.api import ensure_task_run_session
 from products.tasks.backend.facade.profiles import NetworkAccess, NetworkPolicy
 from products.tasks.backend.feature_flags import own_subscription_cloud_enabled
 from products.tasks.backend.logic.model_access import ModelAccess, resolve_model_access
-from products.tasks.backend.logic.services.agent_egress_enrollment import AgentEgressEnrollmentConfig
+from products.tasks.backend.logic.services.agent_egress_enrollment import (
+    AgentEgressEnrollmentConfig,
+    AgentEgressScoutCohort,
+)
 from products.tasks.backend.logic.services.agent_egress_probe import AgentEgressProbeConfig
 from products.tasks.backend.logic.services.agent_instructions import (
     agent_instructions_state_update,
@@ -72,7 +75,7 @@ from products.tasks.backend.logic.services.network_policy import (
     NetworkPolicyValidationError,
     compile_network_policy,
 )
-from products.tasks.backend.logic.services.sandbox import SandboxTemplate
+from products.tasks.backend.logic.services.sandbox import SandboxTemplate, is_public_sandbox_repo
 from products.tasks.backend.logic.services.sandbox_config import (
     MAX_SANDBOX_CPU_CORES,
     MAX_SANDBOX_MEMORY_GB,
@@ -105,6 +108,8 @@ class GetTaskProcessingContextInput:
     resumed_sandbox_backend: str | None = None
     stream_generation: str | None = None
     launches_agent: bool = False
+    resume_agent_egress_enrollment: bool = False
+    supports_agent_egress_git_reads: bool = False
 
 
 @dataclass(frozen=False)
@@ -168,6 +173,8 @@ class TaskProcessingContext:
     agent_shadow_enabled: bool = False
     agent_egress_observation_config: str | None = None
     agent_egress_enrollment_enabled: bool = False
+    agent_egress_maintain_for_run: bool = False
+    agent_egress_git_reads: bool = False
     agent_proxy_keep_stream_open: bool = True  # Temporal payload compatibility
     # Set only when the run resolved to the VM runtime — custom images layer on the VM base.
     custom_image_name: str | None = None
@@ -959,12 +966,10 @@ def _compile_effective_network_policy(allowed_domains: list[str]) -> EffectiveNe
     )
 
 
-def _agent_egress_eligible(context: TaskProcessingContext, *, resumed: bool) -> bool:
+def _agent_egress_eligible(context: TaskProcessingContext, *, resumed: bool, handoff: bool = False) -> bool:
     return (
-        not resumed
-        and not context.is_snapshot_resume
+        (handoff or (not resumed and not context.is_snapshot_resume))
         and context.environment == "cloud"
-        and context.mode != "interactive"
         and context.sandbox_backend == "modal"
         and context.use_modal_vm_sandbox
         and context.allowed_domains is None
@@ -972,23 +977,62 @@ def _agent_egress_eligible(context: TaskProcessingContext, *, resumed: bool) -> 
     )
 
 
-def _agent_egress_enrollment_selected(
-    context: TaskProcessingContext, *, flags: FlagsAndPayloads, resumed: bool
-) -> bool:
-    if not _agent_egress_eligible(context, resumed=resumed) or not _flag_enabled(
+def _agent_egress_enrollment_config(
+    context: TaskProcessingContext, *, flags: FlagsAndPayloads, input: GetTaskProcessingContextInput
+) -> AgentEgressEnrollmentConfig | None:
+    resumed = input.resumed_sandbox_id is not None
+    handoff = (
+        resumed
+        and input.resume_agent_egress_enrollment
+        and input.resumed_sandbox_id == (context.state or {}).get("sandbox_id")
+        and (context.state or {}).get("sandbox_backend", "modal") == "modal"
+    )
+    if not _agent_egress_eligible(context, resumed=resumed, handoff=handoff) or not _flag_enabled(
         flags, AGENT_EGRESS_ENROLLMENT_FEATURE_FLAG
     ):
-        return False
+        return None
     if not settings.AGENT_EGRESS_ENROLLMENT_CONFIG:
-        return False
+        return None
     try:
-        AgentEgressEnrollmentConfig.load()
+        config = AgentEgressEnrollmentConfig.load()
     except ValueError:
         get_bound_logger(run_id=context.run_id, team_id=context.team_id).warning(
             "agent_egress_enrollment_disabled", reason="invalid_configuration"
         )
-        return False
-    return True
+        return None
+    if (resumed or context.mode == "interactive") and not config.maintain_for_run:
+        return None
+    if config.route_git_reads and (
+        not input.supports_agent_egress_git_reads
+        or context.origin_product != Task.OriginProduct.SIGNALS_SCOUT
+        or context.profile_key != "signals.scout_full_network"
+        or not _agent_egress_git_enabled(context, config, resumed=resumed)
+        or not AgentEgressScoutCohort.selects(
+            _flag_payload(flags, AGENT_EGRESS_ENROLLMENT_FEATURE_FLAG),
+            team_id=context.team_id,
+            skill_name=(context.state or {}).get("ai_agent_name"),
+            repository=context.repositories[0],
+        )
+    ):
+        return None
+    return config
+
+
+def _agent_egress_git_enabled(
+    context: TaskProcessingContext, enrollment: AgentEgressEnrollmentConfig | None, *, resumed: bool
+) -> bool:
+    return bool(
+        enrollment is not None
+        and enrollment.route_git_reads
+        and context.github_read_access
+        and len(context.repositories) == 1
+        and not is_public_sandbox_repo(context.repositories[0])
+        and not context.has_gitlab_credentials
+        and context.mode != "interactive"
+        and not context.custom_image_name
+        and not context.is_snapshot_resume
+        and not resumed
+    )
 
 
 def _agent_egress_observation_config(context: TaskProcessingContext, *, resumed: bool) -> str | None:
@@ -997,6 +1041,7 @@ def _agent_egress_observation_config(context: TaskProcessingContext, *, resumed:
         not path
         or not settings.DEBUG
         or settings.SANDBOX_PROVIDER != "MODAL_DOCKER"
+        or context.mode == "interactive"
         or not _agent_egress_eligible(context, resumed=resumed)
     ):
         return None
@@ -1514,9 +1559,22 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         and _flag_enabled(flags, PERSIST_AGENT_MEMORY_FEATURE_FLAG),
     )
     if input.launches_agent:
-        context.agent_egress_enrollment_enabled = _agent_egress_enrollment_selected(
-            context, flags=flags, resumed=input.resumed_sandbox_id is not None
+        enrollment = _agent_egress_enrollment_config(context, flags=flags, input=input)
+        context.agent_egress_enrollment_enabled = enrollment is not None
+        context.agent_egress_maintain_for_run = enrollment is not None and enrollment.maintain_for_run
+        git_selected = input.supports_agent_egress_git_reads and _agent_egress_git_enabled(
+            context, enrollment, resumed=input.resumed_sandbox_id is not None
         )
+        if state.get("agent_egress_git_reads") and not git_selected:
+            raise TaskRunNotReadyError("This run requires Git egress enrollment", {"run_id": context.run_id})
+        if git_selected:
+            TaskRun.update_state_atomic(context.run_id, updates={"agent_egress_git_reads": True})
+            context.state = {**(context.state or {}), "agent_egress_git_reads": True}
+            context.agent_egress_git_reads = True
+            context.baked_repo_clone_enabled = False
+            context.use_modal_resume_snapshots = False
+            context.sandbox_rotation_enabled = False
+            context.continue_as_new_enabled = False
         context.agent_egress_observation_config = (
             settings.AGENT_EGRESS_ENROLLMENT_CONFIG
             if context.agent_egress_enrollment_enabled

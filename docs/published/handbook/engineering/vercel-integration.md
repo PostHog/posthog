@@ -11,7 +11,7 @@ A reference for understanding how the PostHog + Vercel Marketplace integration w
 Before diving in, a few PostHog data model basics:
 
 - **Organization** contains one or more **Teams** (called "Projects" in the UI)
-- **`OrganizationIntegration`** stores Vercel credentials (access tokens, installation ID) scoped to the org. One per Vercel installation.
+- **`OrganizationIntegration`** stores the Vercel installation ID, scoped to the org. One per Vercel installation. To call the Vercel API, PostHog requests a short-lived token for that installation with the `client_credentials` grant (`POST /v2/oauth/access_token`), and caches it, encrypted, until shortly before it expires. See [Vercel's short-lived access tokens](https://vercel.com/docs/integrations/create-integration/short-lived-access-tokens).
 - **`Integration`** is a per-team/project record for resource-level config (environment variables, product settings). Created when a Vercel resource is provisioned for a specific project.
 - **`BillingManager`** (`ee/billing/billing_manager.py`) is the intermediary PostHog uses to talk to the Billing service. It handles license validation, org syncing, and the actual HTTP calls.
 
@@ -131,7 +131,7 @@ sequenceDiagram
 
 ### C. Transfer to another Vercel team
 
-A Vercel user can move a Marketplace install, with its resources, to another Vercel team ([Vercel docs](https://vercel.com/docs/integrations/install-an-integration/transferring-an-integration)). The installation ID, its access token, the PostHog organization and its billing stay the same. Vercel enables transfers per integration, so ask in [#posthog-vercel](https://posthog.slack.com/archives/C08LYBQ58N5) before relying on them.
+A Vercel user can move a Marketplace install, with its resources, to another Vercel team ([Vercel docs](https://vercel.com/docs/integrations/install-an-integration/transferring-an-integration)). The installation ID, the PostHog organization and its billing stay the same. Vercel enables transfers per integration, so ask in [#posthog-vercel](https://posthog.slack.com/archives/C08LYBQ58N5) before relying on them.
 
 - Vercel calls `GET /v1/installations/{id}/resources/{resourceId}/plans` during the transfer, and the transfer stalls until that call succeeds.
 - Vercel does not call the installation endpoint. The `integration-configuration.transferred` webhook refreshes `config.account` (team name, dashboard URL, contact) from Vercel's account endpoint instead.
@@ -571,19 +571,19 @@ For integration or billing issues that need Vercel's involvement, post in the sh
 
 ### PostHog repo (`posthog/`)
 
-| File                                         | Purpose                                                                  |
-| -------------------------------------------- | ------------------------------------------------------------------------ |
-| `ee/api/vercel/vercel_installation.py`       | Installation CRUD (`PUT /api/vercel/v1/installations/{id}`)              |
-| `ee/api/vercel/vercel_connect.py`            | Connectable account OAuth flow                                           |
-| `ee/api/vercel/vercel_sso.py`                | SSO endpoints (`/login/vercel`)                                          |
-| `ee/api/vercel/webhook_events.py`            | Webhook event handling (`/webhooks/vercel`, served by `posthog/ingress`) |
-| `ee/api/vercel/vercel_resource.py`           | Resource management (Vercel projects)                                    |
-| `ee/api/vercel/vercel_product.py`            | Product plans                                                            |
-| `ee/vercel/client.py`                        | `VercelAPIClient` - HTTP client for Vercel APIs                          |
-| `ee/vercel/integration.py`                   | `VercelIntegration` class - core logic (upsert, delete, sync flags)      |
-| `ee/billing/billing_manager.py`              | `BillingManager` - intermediary for all billing service calls            |
-| `posthog/models/organization_integration.py` | `OrganizationIntegration` model (org-level, stores Vercel credentials)   |
-| `posthog/models/integration/model.py`        | `Integration` model (team/project-level resource record)                 |
+| File                                         | Purpose                                                                              |
+| -------------------------------------------- | ------------------------------------------------------------------------------------ |
+| `ee/api/vercel/vercel_installation.py`       | Installation CRUD (`PUT /api/vercel/v1/installations/{id}`)                          |
+| `ee/api/vercel/vercel_connect.py`            | Connectable account OAuth flow                                                       |
+| `ee/api/vercel/vercel_sso.py`                | SSO endpoints (`/login/vercel`)                                                      |
+| `ee/api/vercel/webhook_events.py`            | Webhook event handling (`/webhooks/vercel`, served by `posthog/ingress`)             |
+| `ee/api/vercel/vercel_resource.py`           | Resource management (Vercel projects)                                                |
+| `ee/api/vercel/vercel_product.py`            | Product plans                                                                        |
+| `ee/vercel/client.py`                        | `VercelAPIClient` - HTTP client for Vercel APIs, and short-lived installation tokens |
+| `ee/vercel/integration.py`                   | `VercelIntegration` class - core logic (upsert, delete, sync flags)                  |
+| `ee/billing/billing_manager.py`              | `BillingManager` - intermediary for all billing service calls                        |
+| `posthog/models/organization_integration.py` | `OrganizationIntegration` model (org-level, stores the Vercel installation)          |
+| `posthog/models/integration/model.py`        | `Integration` model (team/project-level resource record)                             |
 
 ### Billing repo (`billing/`)
 

@@ -43,6 +43,8 @@ class ContactChunkInputs:
     send_events: bool
     created_by_id: int | None = None
     wait_for_people: bool = True
+    provider: str = ""
+    step: str = ""
 
 
 @frozen

@@ -7,20 +7,32 @@ import { z } from 'zod'
 import { parseNumberFromEnv } from '~/common/config'
 import { getDefaultConfig } from '~/common/config/config'
 
+import { durationMs } from '../duration'
 import { EMAIL_ACTION, TRAFFIC } from '../generator/traffic'
-import { roleFreeze, roleKill } from '../valves/valves'
+import { MIN_BASELINE_SECONDS, SAMPLE_INTERVAL_MS, SCRAPE_TIMEOUT_MS } from '../judge/measurements'
+import { roleFreeze, roleKill, roleTerminate } from '../valves/valves'
 import { DEFINITIONS, Definition, Definitions } from './definitions'
-import { Card, Named, Profile, stepsOf } from './schema'
+import { AdmissionTargets, loadTargetsOf } from './load-targets'
+import { AlertsProfile, Card, Load, Named, Profile, SeedOverride, stepsOf } from './schema'
 import { Target, targetProblems } from './target'
 
 export const PROFILES_DIR = path.join(__dirname, '..', 'profiles')
 export const ROLE_RESTART_BACKOFF_MS = 2000
-const PROCESS_ENV_SETTINGS = ['HOG_BYTECODE_CACHE_REQUIRED', 'HOG_BYTECODE_CACHE_REWRITE']
+export const PROCESS_ENV_SETTINGS = ['HOG_BYTECODE_CACHE_REQUIRED', 'HOG_BYTECODE_CACHE_REWRITE']
 export const LOAD_PRODUCER_SETTING_PREFIX = 'KAFKA_PRODUCER_'
 
-export type LoadedCard = { card: Card; profile: Profile; cardHash: string; profileHash: string }
+export type LoadedCard = {
+    card: Card
+    profile: Profile
+    admission: AdmissionTargets
+    alerts?: AlertsProfile
+    cardHash: string
+    profileHash: string
+    seedSource?: 'override'
+}
 
-export type LoadOptions = { profilePath?: string; target?: Target }
+export type LoadOptions = { profilePath?: string; target?: Target; seed?: number }
+export type ReadAlertFile = (file: string) => { path: string; sha256: string }
 
 export class CardError extends Error {
     constructor(
@@ -120,6 +132,29 @@ function checkIntakeVerdict(card: Card): string[] {
     ]
 }
 
+const INTAKE_TOPIC_MOVES =
+    "convergence reads each intake group's whole lag, so an intake topic that changes between cards keeps the old topic's lag"
+const REFUSED_INTAKE_SETTINGS: Record<string, string> = {
+    CDP_INTAKE_DLQ_DRAIN:
+        'the reset never seeks the drain groups and convergence never reads them, so a drain replays the dead-letter topic outside the verdict',
+    CDP_INTAKE_TRANSACTIONAL_EMAIL_TOPIC: INTAKE_TOPIC_MOVES,
+    CDP_INTAKE_WORKFLOW_WEBHOOK_TOPIC: INTAKE_TOPIC_MOVES,
+}
+
+function checkIntakeProfile(profile: Profile): string[] {
+    return [
+        ...Object.keys(profile.settings)
+            .filter((name) => Object.hasOwn(REFUSED_INTAKE_SETTINGS, name))
+            .map((name) => `profile.settings.${name}: ${REFUSED_INTAKE_SETTINGS[name]}`),
+        ...Object.entries(profile.replicas)
+            .filter(([role, replicas]) => role.startsWith('cdp-intake-') && (replicas ?? 1) > 1)
+            .map(
+                ([role]) =>
+                    `profile.replicas.${role}: each intake topic has one partition, so a second replica sits idle; run one`
+            ),
+    ]
+}
+
 function checkProfile(card: Card, profile: Profile, definitions: Definitions, defaults: Record<string, unknown>) {
     const rolesRead = (name: string): boolean => Object.hasOwn(defaults, name) || PROCESS_ENV_SETTINGS.includes(name)
     const loadProducerReads = (name: string): boolean => name.startsWith(LOAD_PRODUCER_SETTING_PREFIX)
@@ -167,7 +202,7 @@ function checkWorkflowRate(card: Card, profile: Profile, defaults: Settings): st
     })
 }
 
-const ROLE_STOPPING_VALVES = [roleKill.name, roleFreeze.name]
+const ROLE_STOPPING_VALVES = [roleKill.name, roleTerminate.name, roleFreeze.name]
 
 function checkIntakeReplicaValves(card: Card, profile: Profile): string[] {
     if ((profile.replicas['cdp-api'] ?? 1) === 1) {
@@ -182,22 +217,127 @@ function checkIntakeReplicaValves(card: Card, profile: Profile): string[] {
     )
 }
 
+const EMAIL_WORKER = 'cdp-cyclotron-worker-email'
+
+const SEND_STRANDING_VALVES = [roleKill.name, roleTerminate.name]
+
+const killsEmailWorker = ({ valve, target }: Card['valves'][number]): boolean =>
+    SEND_STRANDING_VALVES.includes(valve) && target === EMAIL_WORKER
+
+function checkAcceptedBoundary(card: Card): string[] {
+    return card.valves.flatMap((entry, i) =>
+        entry.when?.name === 'edge_accepted' && !killsEmailWorker(entry)
+            ? [
+                  `valves.${i}.when: edge_accepted holds an email worker's send, so it fires only ${SEND_STRANDING_VALVES.join(' or ')} on ${EMAIL_WORKER}`,
+              ]
+            : []
+    )
+}
+
+function checkTerminateTrigger(card: Card): string[] {
+    return card.valves.flatMap(({ valve, when }, i) =>
+        valve === roleTerminate.name && when?.name === 'running_on_queue'
+            ? [
+                  `valves.${i}.when: arm ${valve} on edge_accepted or at, since a worker given SIGTERM drains its jobs before it exits`,
+              ]
+            : []
+    )
+}
+
+function checkTerminationGrace(card: Card, profile: Profile): string[] {
+    return profile.terminationGrace !== undefined
+        ? []
+        : card.valves.flatMap(({ valve, dose }, i) =>
+              valve === roleTerminate.name && dose.grace === undefined
+                  ? [
+                        `valves.${i}.dose.grace: ${valve} needs a grace; give one here or terminationGrace in profile ${profile.name}`,
+                    ]
+                  : []
+          )
+}
+
+function checkAcceptedBoundaryReplicas(card: Card, profile: Profile): string[] {
+    if ((profile.replicas[EMAIL_WORKER] ?? 1) === 1) {
+        return []
+    }
+    return card.valves.flatMap((entry, i) =>
+        entry.when?.name === 'edge_accepted' && killsEmailWorker(entry)
+            ? [
+                  `valves.${i}.target: ${entry.valve} stops ${EMAIL_WORKER} replica 0 only, and edge_accepted can hold another replica's send; run one email worker replica on this card`,
+              ]
+            : []
+    )
+}
+
+const durationTextOf = (ms: number): string => (ms % 1000 === 0 ? `${ms / 1000}s` : `${ms}ms`)
+
+const SCRAPED_FAULT_MS = MIN_BASELINE_SECONDS * 1000 + SAMPLE_INTERVAL_MS + SCRAPE_TIMEOUT_MS
+
+function faultFreeOf(card: Card, profile: Profile): { ms: number; inside: string } | undefined {
+    const warmUpMs = card.drive.warmUp === undefined ? 0 : durationMs(card.drive.warmUp)
+    const warmUp = warmUpMs / 1000
+    if (profile.load === undefined && profile.host === undefined) {
+        return warmUpMs === 0 ? undefined : { ms: warmUpMs, inside: `its ${warmUp}s warm-up` }
+    }
+    const scraped = Object.keys(profile.load?.targets.claimsPerSecond ?? {}).length > 0
+    const after = warmUpMs === 0 ? '' : ' after it'
+    return scraped
+        ? {
+              ms: warmUpMs + SCRAPED_FAULT_MS,
+              inside: `${warmUpMs === 0 ? 'the' : `the ${warmUp}s warm-up, the`} ${MIN_BASELINE_SECONDS}s fault-free baseline${after} and the role scrape that closes it, which load admission's claim rates need`,
+          }
+        : {
+              ms: warmUpMs + MIN_BASELINE_SECONDS * 1000,
+              inside: `${warmUpMs === 0 ? 'the' : `the ${warmUp}s warm-up and the`} ${MIN_BASELINE_SECONDS}s fault-free baseline${after} that load and host admission measure`,
+          }
+}
+
+function checkFaultFreeBaseline(card: Card, profile: Profile): string[] {
+    const faultFree = faultFreeOf(card, profile)
+    if (faultFree === undefined) {
+        return []
+    }
+    const driveMs = stepsOf(card.drive).at(-1)!.toMs
+    const tooShort =
+        durationMs(card.drive.warmUp ?? '0s') > 0 && driveMs < faultFree.ms
+            ? [
+                  `drive.for: the drive ends ${driveMs / 1000}s in, inside ${faultFree.inside}; run it for ${durationTextOf(faultFree.ms)} or longer`,
+              ]
+            : []
+    return [
+        ...tooShort,
+        ...card.valves.flatMap((entry, i) => {
+            const atMs = durationMs(entry.at ?? '0s')
+            if (atMs < faultFree.ms) {
+                return [
+                    `valves.${i}.at: the valve can fire ${atMs / 1000}s into the drive, inside ${faultFree.inside}; set at to ${durationTextOf(faultFree.ms)} or later`,
+                ]
+            }
+            return atMs < driveMs
+                ? []
+                : [
+                      `valves.${i}.at: ${atMs / 1000}s is past the drive's end at ${driveMs / 1000}s, so the valve never fires`,
+                  ]
+        }),
+    ]
+}
+
 const SES_SHARE = 0.5
 
 const withoutFloatNoise = (value: number): number => Number(value.toFixed(6))
 
-function checkSesLimiter(card: Card, profile: Profile, defaults: Settings): string[] {
+function checkSesLimiter(card: Card, profile: Profile, load: Load | undefined, defaults: Settings): string[] {
     const sendsEmail = card.drive.traffic.some(({ name }) =>
         TRAFFIC.find((traffic) => traffic.name === name)?.deliveries.includes(EMAIL_ACTION)
     )
-    if (profile.load === undefined || !sendsEmail) {
+    if (load === undefined || !sendsEmail) {
         return []
     }
     const capacity = settingOf(profile, defaults, 'CDP_SES_RATE_LIMIT_CAPACITY')
     const replicas = profile.replicas['cdp-cyclotron-worker-email'] ?? 1
     const burst = replicas * settingOf(profile, defaults, 'CONSUMER_BATCH_SIZE')
     return [
-        ...checkSesRefill(card, profile, defaults, profile.load.targets.claimsPerSecond.email, profile.load.tolerance),
+        ...checkSesRefill(card, profile, defaults, load.targets.claimsPerSecond.email, load.tolerance),
         ...(capacity >= burst
             ? []
             : [
@@ -236,7 +376,7 @@ function checkTrafficOnce(card: Card): string[] {
         .map(({ name, times }) => `drive.traffic: ${name} is listed ${times} times; list each traffic kind once`)
 }
 
-type ProfileRead = { profile: Profile } | { problems: string[] }
+type ProfileRead = { profile: Profile; unscaledProfile: Profile; dir?: string } | { problems: string[] }
 
 function loadProfile(card: Card, profilePath: string | undefined): ProfileRead {
     const file = profilePath ?? path.join(PROFILES_DIR, `${card.profile}.yaml`)
@@ -246,27 +386,95 @@ function loadProfile(card: Card, profilePath: string | undefined): ProfileRead {
     return readProfile(file)
 }
 
+function scaleProfile(profile: Profile): Profile {
+    const { scale, load } = profile
+    if (scale === undefined || scale === 1) {
+        return profile
+    }
+    const traffic = Object.fromEntries(
+        Object.entries(profile.traffic).map(([name, shape]) => [
+            name,
+            typeof shape === 'object' &&
+            shape !== null &&
+            'ratePerSecond' in shape &&
+            typeof shape.ratePerSecond === 'number'
+                ? { ...shape, ratePerSecond: shape.ratePerSecond * scale }
+                : shape,
+        ])
+    )
+    if (load === undefined) {
+        return { ...profile, traffic }
+    }
+    const { claimsPerSecond, newJobsPerSecond } = load.targets
+    return {
+        ...profile,
+        traffic,
+        load: {
+            ...load,
+            targets: {
+                claimsPerSecond: Object.fromEntries(
+                    Object.entries(claimsPerSecond).map(([queue, rate]) => [queue, rate * scale])
+                ),
+                ...(newJobsPerSecond === undefined ? {} : { newJobsPerSecond: newJobsPerSecond * scale }),
+            },
+        },
+    }
+}
+
 function profileOf(read: Read): ProfileRead {
     if ('problem' in read) {
         return { problems: [read.problem] }
     }
     const profile = Profile.safeParse(read.value)
-    return profile.success ? { profile: profile.data } : { problems: problemsOf(profile.error, 'profile') }
+    if (!profile.success) {
+        return { problems: problemsOf(profile.error, 'profile') }
+    }
+    const scaled = scaleProfile(profile.data)
+    const load = Load.optional().safeParse(scaled.load)
+    return load.success
+        ? { profile: scaled, unscaledProfile: profile.data }
+        : { problems: problemsOf(load.error, 'profile.load') }
 }
 
 export function readProfile(file: string): ProfileRead {
-    return profileOf(readYaml(file, 'profile'))
+    const read = profileOf(readYaml(file, 'profile'))
+    return 'profile' in read ? { ...read, dir: path.dirname(file) } : read
+}
+
+function checkAlerts({ alerts }: Profile, hasFiles: boolean, target: Target): string[] {
+    if (alerts === undefined) {
+        return []
+    }
+    if (target === 'dev') {
+        return ['profile.alerts: the dev target exposes no role metrics to scrape, so only --target local runs alerts']
+    }
+    return !hasFiles
+        ? ['profile.alerts: a profile read from text has no directory to resolve its rules and label map against']
+        : []
+}
+
+function alertFileAt(dir: string): ReadAlertFile {
+    return (file) => {
+        const resolved = path.resolve(dir, file)
+        return { path: resolved, sha256: createHash('sha256').update(readFileSync(resolved)).digest('hex') }
+    }
 }
 
 export function load(cardPath: string, options: LoadOptions = {}): LoadedCard {
-    return check(cardPath, readYaml(cardPath, 'card'), (card) => loadProfile(card, options.profilePath), options.target)
+    return check(cardPath, readYaml(cardPath, 'card'), (card) => loadProfile(card, options.profilePath), options)
 }
 
-export function loadText(label: string, { card, profile }: { card: string; profile: string }): LoadedCard {
+export function loadText(
+    label: string,
+    { card, profile }: { card: string; profile: string },
+    { seed, readAlertFile }: Pick<LoadOptions, 'seed'> & { readAlertFile?: ReadAlertFile } = {}
+): LoadedCard {
     return check(
         label,
         parseYaml(() => card, 'card'),
-        () => profileOf(parseYaml(() => profile, 'profile'))
+        () => profileOf(parseYaml(() => profile, 'profile')),
+        { seed },
+        readAlertFile
     )
 }
 
@@ -274,7 +482,8 @@ function check(
     cardPath: string,
     read: Read,
     profileFor: (card: Card) => ProfileRead,
-    target: Target = 'local'
+    { target = 'local', seed }: LoadOptions,
+    readAlertFile?: ReadAlertFile
 ): LoadedCard {
     if ('problem' in read) {
         throw new CardError(cardPath, [read.problem])
@@ -284,21 +493,43 @@ function check(
         throw new CardError(cardPath, problemsOf(parsed.error, ''))
     }
     const card = parsed.data
+    if (seed !== undefined) {
+        if (!card.seedable) {
+            throw new CardError(cardPath, ['Declare seedable: true to use --seed.'])
+        }
+        const override = SeedOverride.safeParse(seed)
+        if (!override.success) {
+            throw new CardError(cardPath, ['The seed override is outside the supported range.'])
+        }
+        card.seed = override.data
+    }
     const loaded = profileFor(card)
+    if ('dir' in loaded && loaded.dir !== undefined) {
+        readAlertFile ??= alertFileAt(loaded.dir)
+    }
     const defaults = getDefaultConfig() as unknown as Settings
+    const derived = 'profile' in loaded ? loadTargetsOf(card, loaded.profile) : { problems: [] }
 
     const problems = [
         ...checkNames(card, DEFINITIONS),
         ...checkSuppression(card),
         ...checkTrafficOnce(card),
         ...checkIntakeVerdict(card),
+        ...checkAcceptedBoundary(card),
+        ...checkTerminateTrigger(card),
         ...('profile' in loaded
             ? [
                   ...checkProfile(card, loaded.profile, DEFINITIONS, defaults),
                   ...checkWorkflowRate(card, loaded.profile, defaults),
-                  ...checkSesLimiter(card, loaded.profile, defaults),
+                  ...derived.problems,
+                  ...checkSesLimiter(card, loaded.profile, derived.load, defaults),
+                  ...checkFaultFreeBaseline(card, loaded.profile),
                   ...checkIntakeReplicaValves(card, loaded.profile),
+                  ...checkAcceptedBoundaryReplicas(card, loaded.profile),
+                  ...checkTerminationGrace(card, loaded.profile),
+                  ...checkIntakeProfile(loaded.profile),
                   ...targetProblems(card, loaded.profile, target),
+                  ...checkAlerts(loaded.profile, readAlertFile !== undefined, target),
               ]
             : loaded.problems),
     ]
@@ -306,11 +537,38 @@ function check(
         throw new CardError(cardPath, problems)
     }
 
-    const profileHash = sha256(loaded.profile)
+    const { profile, unscaledProfile } = loaded
+    let alerts: AlertsProfile | undefined
+    let profileHash: string
+    if (profile.alerts && readAlertFile) {
+        const files = profile.alerts
+        try {
+            const rules = readAlertFile(files.rules)
+            const labels = readAlertFile(files.labels)
+            alerts = { ...files, rules: rules.path, labels: labels.path }
+            profileHash = sha256({
+                profile: unscaledProfile,
+                alertFiles: { rules: rules.sha256, labels: labels.sha256 },
+            })
+        } catch (error) {
+            throw new CardError(cardPath, [`profile.alerts: ${(error as Error).message}`])
+        }
+    } else {
+        profileHash = sha256(unscaledProfile)
+    }
     return {
         card,
-        profile: loaded.profile,
+        profile,
+        admission: { load: derived.load, host: profile.host },
+        alerts,
         profileHash,
-        cardHash: sha256({ card: { ...card, gates: undefined }, profileHash }),
+        cardHash: cardHashOf(card, profileHash),
+        ...(seed !== undefined && { seedSource: 'override' }),
     }
 }
+
+export const cardHashOf = (card: Card, profileHash: string): string =>
+    sha256({
+        card: { ...card, gates: undefined, pair: undefined, unpaired: undefined, seedable: undefined },
+        profileHash,
+    })

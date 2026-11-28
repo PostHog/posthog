@@ -136,6 +136,7 @@ async def test_reporter_output_is_labeled_and_reserves_pass_for_the_run(
         agent_runtime="codex",
         agent_model="gpt-5",
         max_sandboxes=4,
+        team_setup_concurrency=2,
         trials=1,
         case_timeout_seconds=900,
     )
@@ -185,6 +186,7 @@ async def test_reporter_output_is_labeled_and_reserves_pass_for_the_run(
 
     output = capsys.readouterr().out
 
+    assert "Team setup concurrency: 2" in output
     assert "CASE DONE" in output
     assert "EXPERIMENT DONE" in output
     assert "SUITE DONE" in output
@@ -777,6 +779,39 @@ async def test_case_setup_retries_use_fresh_data_and_report_one_outcome(
 
 
 @pytest.mark.asyncio
+async def test_prepare_next_team_while_sandbox_is_busy(tmp_path, monkeypatch):
+    monkeypatch.setattr(base, "build_case_dir", MagicMock(return_value=tmp_path))
+    ctx = MagicMock(
+        posthog_client=None,
+        case_filter=None,
+        sandbox_slots=asyncio.Semaphore(0),
+        preparation_slots=asyncio.Semaphore(1),
+        per_case_timeout_seconds=30,
+    )
+    case = SandboxedEvalCase(name="case", prompt="Run the task")
+    runner = AsyncMock(return_value=base.EvalCaseResult(artifacts=AgentArtifacts(exit_code=0)))
+    run = base._SandboxedEvalRun("prefetch", [case], [], ctx, case_runner=runner)
+    ready = asyncio.Event()
+    teams: list[int] = []
+
+    async def prepare(*args):
+        teams.append(len(teams) + 1)
+        ready.set()
+        return base._SandboxedCaseSetup(context=CustomPromptSandboxContext(team_id=teams[-1], user_id=1), seed={})
+
+    monkeypatch.setattr(run, "_prepare_case", prepare)
+    monkeypatch.setattr(base, "reclaim_kernels", AsyncMock())
+    async with asyncio.TaskGroup() as group:
+        for _ in range(2):
+            group.create_task(run._run_sandbox_window(case, case))
+        await asyncio.wait_for(ready.wait(), timeout=2)
+        assert teams == [1]
+        runner.assert_not_awaited()
+        ctx.sandbox_slots.release()
+    assert [call.args[1].team_id for call in runner.await_args_list] == [1, 2]
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("agent_error", [None, RuntimeError("agent failed"), asyncio.CancelledError()])
 @pytest.mark.parametrize("reporting_phase", ["agent", "cleanup"])
 @pytest.mark.parametrize("custom_runner", [False, True])
@@ -902,10 +937,11 @@ async def test_sandboxed_trials_keep_separate_logs_and_trace_roots(
         assert json.loads(summary.split("=== scores ===\n")[1]) == {"score": index / 2}
     roots = [
         call.kwargs["properties"]
-        for call in run.posthog_client.capture.call_args_list
+        for call in run.posthog_client.capture_ai.call_args_list
         if call.kwargs.get("event") == "$ai_trace"
     ]
     assert [root["$ai_trace_id"] for root in roots] == ["trace-2", "trace-1", "trace-0"]
+    assert not any(call.kwargs.get("event") == "$ai_trace" for call in run.posthog_client.capture.call_args_list)
 
 
 @pytest.mark.parametrize("verbose", [False, True])

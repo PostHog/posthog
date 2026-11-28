@@ -68,9 +68,9 @@ jobs:
             stamphog: ${{ steps.filter.outputs.stamphog || 'true' }}
             bin_scripts: ${{ steps.filter.outputs.bin_scripts || 'true' }}
             api_ratchet: ${{ steps.filter.outputs.api_ratchet || 'true' }}
-            mypy_cache_key: ${{ steps.filter.outputs.mypy_cache_key || 'false' }}
             schema_python: ${{ steps.filter.outputs.schema_python || 'true' }}
             warehouse_sources: ${{ steps.filter.outputs.warehouse_sources || 'true' }}
+            credentials_digest: ${{ steps.filter.outputs.credentials_digest || 'true' }}
         steps:
             # For pull requests it's not necessary to checkout the code, but we
             # also want this to run on master so we need to checkout
@@ -102,7 +102,7 @@ jobs:
                   list-files: 'escape'
                   reuse-checks: Python code quality checks
                   reuse-proof-checks: |
-                      Python code quality (depot-ubuntu-24.04)
+                      Python code quality (depot-ubuntu-24.04-4)
                       lib/api.ts codegen ratchet
                       Warehouse sources checks and tests
                   reuse-blocking-labels: ci-no-reuse
@@ -114,12 +114,6 @@ jobs:
                           - 'posthog/**/*.py'
                           - 'ee/**/*.py'
                           - 'products/**/*.py'
-                      # The files the mypy cache key hashes. A change to them can leave the
-                      # restored cache stale for most modules, for example a django-stubs bump.
-                      mypy_cache_key:
-                          - 'uv.lock'
-                          - '**/pyproject.toml'
-                          - '**/mypy.ini'
                       schema_python:
                           - 'frontend/src/queries/schema.json'
                           - 'posthog/schema.py'
@@ -143,6 +137,10 @@ jobs:
                         - '*.py' # root-level scripts (e.g. manage.py); '**/' alone may not match root
                         - 'pyproject.toml'
                         - '**/pyproject.toml'
+                        # mypy reads a root mypy.ini or .mypy.ini, and the cache-key filter
+                        # that used to list them is gone, so they belong here.
+                        - '**/mypy.ini'
+                        - '**/.mypy.ini'
                         - '**/ruff.toml'
                         - '**/.ruff.toml'
                         - 'uv.lock'
@@ -179,6 +177,7 @@ jobs:
                         - 'frontend/src/lib/scopeDocs.generated.ts'
                         - 'products/commands/commands.generated.json'
                         - 'products/commands/COMMANDS.generated.md'
+                        - 'hog/release/notices.generated.json'
                         # Formatter inputs can change the generated mobile projection.
                         - 'products/mobile/biome.json'
                         - 'products/mobile/pnpm-lock.yaml'
@@ -198,12 +197,15 @@ jobs:
                         - 'tools/pr-approval-agent/**'
                         - 'products/stamphog/packages/pr-approval-agent/**'
                         - 'tools/query-performance-ai/**'
+                        # Non-Python inputs of the content digest cross-check below
+                        - 'services/credentials-service/src/crypto/canonical.ts'
+                        - 'services/credentials-service/src/integrations/digest.ts'
+                        - 'services/credentials-service/tests/fixtures/content-digest-vectors.json'
                         # Stamphog policy files validated by the pr-approval-agent suite
                         - '.stamphog/**'
                         - '**/AGENT_APPROVALS.md'
                         # Real repo files the hogli suite reads, listed under hogli below
                         - 'devenv/**'
-                        - 'products/model_crossing_uses_baseline.txt'
                         - .github/workflows/ci-security.yaml
                       # Per-tool groups below gate the pytest steps in code-quality, so these
                       # suites skip Python PRs that cannot affect them. A path filter that skips
@@ -227,8 +229,6 @@ jobs:
                         - 'bin/mprocs.yaml'
                         - 'bin/mprocs-e2e.yaml'
                         - 'devenv/**'
-                        - 'products/model_crossing_uses_baseline.txt'
-                        - '.stamphog/policy.yml'
                         - .github/workflows/ci-security.yaml
                         - 'pyproject.toml'
                         - 'uv.lock'
@@ -289,12 +289,30 @@ jobs:
                         - 'uv.lock'
                         - 'pytest.ini'
                         - 'conftest.py'
-                        - 'tach.toml'
+                        - hoglint.toml
+                        - hoglint.ledger
+                        - hoglint.exceptions.toml
+                        - 'tools/hoglint/**'
                         - .github/workflows/ci-python.yml
                         - .github/actions/setup-python-cached/**
                         - .github/actions/setup-uv/**
                         - tools/warehouse_sources_vendor_selection.py
                         - tools/test_warehouse_sources_vendor_selection.py
+                      # The Python content digest must match the TypeScript reference, and both
+                      # suites read one shared vector file. Backend CI's import-graph selection
+                      # runs test_canonical.py for Python edits, but it cannot see the TypeScript
+                      # module or the JSON fixture, so this group covers them.
+                      credentials_digest:
+                        - 'posthog/integrations/mirror/**'
+                        - 'posthog/dataclasses.py'
+                        - 'services/credentials-service/src/crypto/canonical.ts'
+                        - 'services/credentials-service/src/integrations/digest.ts'
+                        - 'services/credentials-service/tests/fixtures/content-digest-vectors.json'
+                        - 'pyproject.toml'
+                        - 'uv.lock'
+                        - 'pytest.ini'
+                        - 'conftest.py'
+                        - .github/workflows/ci-python.yml
 
     code-quality:
         needs: changes
@@ -303,12 +321,18 @@ jobs:
         if: needs.changes.outputs.python == 'true' && github.event_name != 'push'
         timeout-minutes: 30
 
-        name: Python code quality (depot-ubuntu-24.04)
-        # The type check is its own job, so the mypy worker count no longer sizes this runner.
-        # This one keeps the big runner wherever the type check job does, because a cold
-        # dependency set (master, the merge queue, a cache-key change) makes ty, ruff and the
-        # gated pytest suites heavier than a pull request's warm tree.
-        runs-on: ${{ github.event_name == 'pull_request' && !startsWith(github.head_ref, 'trunk-merge/') && needs.changes.outputs.mypy_cache_key != 'true' && 'depot-ubuntu-24.04' || 'depot-ubuntu-24.04-4' }}
+        name: Python code quality (depot-ubuntu-24.04-4)
+        # The CI report sections this job posts (complexity, touched typing) write a PR comment.
+        permissions:
+            contents: read
+            pull-requests: write
+        # 4 vCPU on every event, pull requests included. Every CPU-bound step here at least
+        # halves on the wider machine: over the pull-request runs of 2026-11-23, ty went 55 s
+        # to 27 s, ruff check 28 s to 7 s, ruff format 27 s to 7 s, the projections check 70 s
+        # to 52 s and the `parallel:` group 64 s to 50 s (n=17 on two vCPU against n=14 on
+        # four), and the job wall 161 s to 132 s. The type check beside it is the only other
+        # job the fan-in gate waits on, so these two jobs are the workflow's wall.
+        runs-on: depot-ubuntu-24.04-4
         # Read by shell guards on the pytest steps below. Those steps sit in a
         # `parallel:` block, where step-level `if:` is untested in this repo.
         env:
@@ -317,11 +341,16 @@ jobs:
             RUN_QUERY_PERF: ${{ needs.changes.outputs.query_perf }}
             RUN_STAMPHOG: ${{ needs.changes.outputs.stamphog }}
             RUN_BIN_SCRIPTS: ${{ needs.changes.outputs.bin_scripts }}
+            RUN_CREDENTIALS_DIGEST: ${{ needs.changes.outputs.credentials_digest }}
+            # From this day, an untyped function in a new file fails the job. Before it, the check only warns.
+            TOUCHED_TYPING_BLOCKING_FROM: '2026-12-07'
 
         steps:
+            # Depth 2 brings the merge commit's parents, so the touched-typing check can diff
+            # the merge commit against its first parent, which is master at merge time.
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
-                  fetch-depth: 1
+                  fetch-depth: 2
 
             - name: Mint setup-action GitHub token
               id: setup-gh-token
@@ -417,20 +446,59 @@ jobs:
                       echo "Skipping the complexity report section: script or findings not on this branch"
                   fi
 
+            # Warn-only here. The last step of the job fails it for untyped functions in new files,
+            # so that failure does not skip the checks in between.
+            - name: Check typing of touched functions
+              if: github.event_name == 'pull_request'
+              shell: bash
+              # A crash here must not fail the job. Without a report the new-file step below skips.
+              continue-on-error: true
+              run: |
+                  if [ ! -f .github/scripts/check_touched_typing.py ]; then
+                      echo "check_touched_typing.py not present on this branch yet — skipping (rebase to pick it up)"
+                      exit 0
+                  fi
+                  python3 .github/scripts/check_touched_typing.py --base HEAD^1 --report touched-typing.json --github --blocking-from "$TOUCHED_TYPING_BLOCKING_FROM"
+
+            - name: Post CI report — touched typing
+              if: ${{ !cancelled() && github.event_name == 'pull_request' && !startsWith(github.head_ref, 'trunk-merge/') }}
+              env:
+                  GITHUB_TOKEN: ${{ github.token }}
+              run: |
+                  if [ -f .github/scripts/post-touched-typing-section.mjs ] && [ -f touched-typing.json ]; then
+                      node .github/scripts/post-touched-typing-section.mjs touched-typing.json
+                  else
+                      echo "Skipping the touched typing report section: script or findings not on this branch"
+                  fi
+
             - parallel:
                   # Every projection renderer is Python, so this job needs neither pnpm nor
                   # node_modules. Keep the step after "Install Python dependencies": the taxonomy
                   # and object-tag renderers import posthog/__init__.py, which pulls in Django,
                   # so they need the full synced dependency set, not just stdlib.
                   # Skip on unrebased branches: the build:projections command may not exist yet.
+                  # The CI tier sets Django up and imports every warehouse source, which makes this
+                  # the slowest step of the group. Its only projection reads and writes files under
+                  # the warehouse_sources filter, and the registry and runner sit under the hogli
+                  # one, so a pull request that matches neither checks the preflight tier alone.
+                  # The merge queue, master and the hourly run keep every tier. A new CI-tier
+                  # projection whose inputs sit elsewhere needs its paths added to this condition.
                   - name: Check if the generated projections are up to date
                     shell: bash
+                    env:
+                        ALL_TIERS: ${{ github.event_name != 'pull_request' || startsWith(github.head_ref, 'trunk-merge/') || needs.changes.outputs.warehouse_sources != 'false' || needs.changes.outputs.hogli != 'false' }}
                     run: |
                         if [ ! -f tools/hogli-commands/hogli_commands/projections.py ]; then
                             echo "hogli build:projections not present on this branch yet — skipping (rebase to pick it up)"
                             exit 0
                         fi
-                        ./bin/hogli build:projections --check
+                        if [ "$ALL_TIERS" = "true" ]; then
+                            echo "Checking every projection tier"
+                            ./bin/hogli build:projections --check
+                        else
+                            echo "No warehouse source or hogli change: checking the preflight tier only"
+                            ./bin/hogli build:projections --check --tier preflight
+                        fi
 
                   - name: Check for syntax errors, import sort, and code style violations
                     shell: bash
@@ -536,6 +604,12 @@ jobs:
                         [ "$RUN_BIN_SCRIPTS" = "true" ] || { echo "bin/ unchanged — skipping"; exit 0; }
                         pytest bin/test/test_granian_shared_socket.py bin/test/test_granian_preload.py -v --junitxml=junit-granian-shared-socket.xml
 
+                  - name: Run content digest cross-check tests
+                    shell: bash
+                    run: |
+                        [ "$RUN_CREDENTIALS_DIGEST" = "true" ] || { echo "content digest inputs unchanged — skipping"; exit 0; }
+                        pytest posthog/integrations/mirror/test/test_canonical.py -v --junitxml=junit-content-digest.xml
+
             - name: Upload test results
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
               if: always()
@@ -549,6 +623,7 @@ jobs:
                       junit-owners.xml
                       junit-query-performance-ai.xml
                       junit-pr-approval-agent-*.xml
+                      junit-content-digest.xml
 
             - name: Upload test results for dependency detection
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
@@ -566,24 +641,32 @@ jobs:
                   if-no-files-found: ignore
                   path: junit-granian-shared-socket.xml
 
+            # Not on merge-queue runs: a PR that went green while the check only warned must not be
+            # kicked from the queue by the blocking date passing in between.
+            - name: Fail on untyped functions in new files
+              if: ${{ !cancelled() && github.event_name == 'pull_request' && !startsWith(github.head_ref, 'trunk-merge/') && hashFiles('touched-typing.json') != '' }}
+              shell: bash
+              run: python3 .github/scripts/check_touched_typing.py --enforce touched-typing.json
+
     # The whole-repo type check runs in its own job, beside code-quality instead of
     # inside it. mypy is CPU-bound and saturates both cores of the 2-vCPU runner, so
     # inside code-quality it added its whole 165 s to the job wall and could not be
     # overlapped with the other checks on that runner (see "Run the python static
     # checks in a `parallel:` block" in docs/internal/ci-things-already-tried.md).
     # Two jobs get two runners, so the type check and the rest of the checks run at
-    # the same time and their walls stop adding up. The cost is one extra 2-vCPU job
+    # the same time and their walls stop adding up. The cost is one extra 4-vCPU job
     # on each pull request that touches Python.
     mypy:
         needs: changes
         if: needs.changes.outputs.python == 'true' && github.event_name != 'push'
         timeout-minutes: 20
 
-        name: Python static typing (depot-ubuntu-24.04)
-        # Same rule as code-quality: a pull request checks a cache from master with one
-        # worker, while master, the merge queue and a dependency change run nearly cold
-        # and need the 16 GB runner for a second worker.
-        runs-on: ${{ github.event_name == 'pull_request' && !startsWith(github.head_ref, 'trunk-merge/') && needs.changes.outputs.mypy_cache_key != 'true' && 'depot-ubuntu-24.04' || 'depot-ubuntu-24.04-4' }}
+        name: Python static typing (depot-ubuntu-24.04-4)
+        # 4 vCPU on every event, for the same reason as the job above: mypy is CPU-bound, and
+        # this job is the other half of the wall the fan-in gate waits on. Over the same runs
+        # the type check went 139 s to 102 s and the job wall 166 s to 133 s. The worker count
+        # below follows this label: the 16 GB runner fits two workers.
+        runs-on: depot-ubuntu-24.04-4
 
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -653,10 +736,10 @@ jobs:
             - name: Check static typing
               shell: bash -e {0}
               env:
-                  # Each worker holds its own copy of the build graph, so the worker count follows
-                  # the runner's memory. Keep this condition in sync with the job's runs-on: the
-                  # 8 GB depot-ubuntu-24.04 fits one worker on a cold cache, the 16 GB -4 fits two.
-                  MYPY_NUM_WORKERS: ${{ github.event_name == 'pull_request' && !startsWith(github.head_ref, 'trunk-merge/') && needs.changes.outputs.mypy_cache_key != 'true' && 1 || 2 }}
+                  # Each worker holds its own copy of the build graph, so the worker count
+                  # follows the runner's memory. Keep this in sync with the job's runs-on: the
+                  # 16 GB depot-ubuntu-24.04-4 fits two workers, the 8 GB one fits one.
+                  MYPY_NUM_WORKERS: 2
               run: mypy --version && mypy .
 
             - name: Save mypy cache
@@ -752,7 +835,7 @@ jobs:
               run: python tools/test_warehouse_sources_vendor_selection.py
 
             # A pull request diff that stays inside vendor directories runs only those vendors.
-            # A vendor cannot import another vendor (tach and import-linter enforce that), so the
+            # A vendor cannot import another vendor (hoglint's sources-vendors-* rules enforce that), so the
             # other vendors cannot change. Any other file (the SDK, the conftest.py and other
             # files at the top of the plugin directory, the product, a manifest, this workflow)
             # selects the full run. The hourly run and a manual run have no pull request diff to
@@ -776,33 +859,24 @@ jobs:
                       git diff --name-only HEAD^1 HEAD | python tools/warehouse_sources_vendor_selection.py
                   fi | tee -a "$GITHUB_OUTPUT"
 
-            - name: Check module boundaries (tach)
-              run: ./bin/hogli lint:tach
-
-            # tach leaves test files out of its dependency pass. The import-linter contracts
-            # for the vendors also check the vendor tests, and one of them fails a vendor that
-            # imports a sibling vendor.
-            - name: Check vendor imports (import-linter)
-              run: lint-imports
-
-            # hoglint takes over from the two steps above, and runs in shadow until then. A
-            # vendor-only diff does not start Backend CI, so it runs here too. A finding on a line
-            # the pull request adds or edits becomes a warning annotation, an advisory row on such a
-            # line becomes a notice, and the step summary lists the rest. The step always exits 0.
-            - name: Check boundaries (hoglint, shadow)
-              env:
-                  HOGLINT_SHADOW_UNTIL: Tuesday, Nov 24
+            # A vendor-only diff does not start Backend CI, so the boundary check runs here too. The
+            # vendor rules read every import, tests included, and fail a vendor that imports a sibling
+            # vendor or anything but the SDK. A finding on a line the pull request adds or edits
+            # becomes a warning annotation, an advisory row on such a line becomes a notice, and the
+            # step summary lists the rest. hoglint's exit decides the step.
+            - name: Check boundaries (hoglint)
               run: |
                   output="$RUNNER_TEMP/hoglint.txt"
                   errors="$RUNNER_TEMP/hoglint-stderr.txt"
                   status=0
                   if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
                       timeout --kill-after=10s 5m hoglint compare --base HEAD^1 --all > "$output" 2> "$errors" || status=$?
-                      python .github/scripts/hoglint_shadow.py "$output" --stderr "$errors" --status "$status" --until "$HOGLINT_SHADOW_UNTIL" --base HEAD^1 || true
+                      python .github/scripts/hoglint_shadow.py "$output" --stderr "$errors" --status "$status" --base HEAD^1 || true
                   else
                       timeout --kill-after=10s 5m hoglint check --all > "$output" 2> "$errors" || status=$?
-                      python .github/scripts/hoglint_shadow.py "$output" --stderr "$errors" --status "$status" --until "$HOGLINT_SHADOW_UNTIL" || true
+                      python .github/scripts/hoglint_shadow.py "$output" --stderr "$errors" --status "$status" || true
                   fi
+                  exit "$status"
 
             # The Django matrix runs every repo invariant, but it does not start for a vendor-only
             # diff. So this job runs the ones that walk the vendor tree. The full run takes all
@@ -848,21 +922,15 @@ jobs:
                   VENDORS: ${{ steps.select.outputs.vendors }}
               run: |
                   narrow=()
-                  targets=(products/warehouse_sources/backend/temporal/data_imports/sources/tests)
                   if [ "$MODE" = "vendors" ]; then
                       narrow=("--source-vendors=${VENDORS// /,}")
-                  else
-                      credential_tests=products/warehouse_sources/backend/temporal/data_imports/sources/common/test
-                      targets+=("$credential_tests/test_credential_kind.py" "$credential_tests/test_credential_auth_type.py")
                   fi
-                  pytest -p no:cacheprovider "${targets[@]}" --tb=short "${narrow[@]}"
+                  pytest -p no:cacheprovider products/warehouse_sources/backend/temporal/data_imports/sources/tests --tb=short "${narrow[@]}"
 
             # These suites check that every vendor declares a valid, unique credential kind and an
             # auth type. A vendors run skips Backend CI, so they run in both modes. The check that
             # the committed maps are current is `hogli build:projections --check` in code-quality.
             - name: Run credential map tests
-              # The catalog's vendor filter would deselect credential cases in a shared session.
-              if: steps.select.outputs.mode == 'vendors'
               run: |
                   credential_tests=products/warehouse_sources/backend/temporal/data_imports/sources/common/test
                   pytest -p no:cacheprovider "$credential_tests/test_credential_kind.py" "$credential_tests/test_credential_auth_type.py" --tb=short

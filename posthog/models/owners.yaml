@@ -51,3 +51,6 @@ rules:
           - '/exchange_rate/test/test_*.py'
           - '/person_group_membership/test/test_*.py'
       owners: team-analytics
+    - match:
+          - '/integration/test/test_*.py'
+      owners: team-warehouse-sources

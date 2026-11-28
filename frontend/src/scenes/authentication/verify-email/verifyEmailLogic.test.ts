@@ -3,6 +3,7 @@ import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
@@ -25,16 +26,19 @@ describe('verifyEmailLogic', () => {
         logic.unmount()
     })
 
-    it('reads the deep-link reason the login redirect sent', async () => {
-        router.actions.push('/verify_email/abc-123', { reason: 'stripe_deep_link' })
+    it.each([['stripe_deep_link'], ['partner_deep_link'], ['vercel_sso']])(
+        'reads the reason the login redirect sent: %s',
+        async (reason) => {
+            router.actions.push('/verify_email/abc-123', { reason })
 
-        await expectLogic(logic).toMatchValues({
-            view: 'pending',
-            uuid: 'abc-123',
-            reason: 'stripe_deep_link',
-            verificationEmailSent: true,
-        })
-    })
+            await expectLogic(logic).toMatchValues({
+                view: 'pending',
+                uuid: 'abc-123',
+                reason,
+                verificationEmailSent: true,
+            })
+        }
+    )
 
     it('reports the verify email step once the deep link opens', async () => {
         router.actions.push('/verify_email/abc-123')
@@ -76,5 +80,24 @@ describe('verifyEmailLogic', () => {
 
         expect(router.values.location.pathname).toEqual(urls.login())
         expect(router.values.searchParams).toEqual({ next: '/insights' })
+    })
+
+    it('shows why a resend failed when the email provider refuses the address', async () => {
+        jest.spyOn(lemonToast, 'error')
+        const detail = "We can't send email to this address, so we can't send you a verification code."
+        useMocks({
+            post: {
+                '/api/users/request_email_verification/': () => [
+                    400,
+                    { type: 'validation_error', code: 'email_verification_code_undeliverable', detail },
+                ],
+            },
+        })
+
+        await expectLogic(logic, () => logic.actions.requestVerificationCode('abc-123')).toDispatchActions([
+            'requestVerificationCodeSuccess',
+        ])
+
+        expect(lemonToast.error).toHaveBeenCalledWith(detail)
     })
 })

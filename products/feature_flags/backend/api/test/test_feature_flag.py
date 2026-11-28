@@ -27,7 +27,7 @@ from celery.exceptions import SoftTimeLimitExceeded
 from parameterized import parameterized
 from prometheus_client import REGISTRY
 from rest_framework import status
-from rest_framework.relations import ManyRelatedField
+from rest_framework.exceptions import ValidationError
 from rest_framework.response import Response
 
 from posthog.hogql.database.database import Database
@@ -1360,22 +1360,37 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(instance.key, "feature-with-analytics-dashboards")
         self.assertEqual(instance.analytics_dashboards.all()[0].id, dashboard.pk)
 
+    @parameterized.expand([("another_teams_dashboard",), ("soft_deleted_dashboard",), ("unknown_id",)])
     @patch("products.feature_flags.backend.api.feature_flag.report_user_action")
-    def test_create_feature_flag_rejects_dashboard_from_other_team(self, mock_report_user_action):
-        other_team = Team.objects.create(organization=self.organization, api_token="token_other", name="Other Team")
-        other_dashboard = Dashboard.objects.create(team=other_team, name="other team dashboard", created_by=self.user)
+    def test_create_feature_flag_rejects_dashboard_the_team_cannot_link(self, case: str, mock_report_user_action):
+        if case == "unknown_id":
+            dashboard_id = 9_999_999
+        else:
+            other_team = Team.objects.create(organization=self.organization, api_token="token_other", name="Other Team")
+            dashboard_id = Dashboard.objects.create(
+                team=other_team if case == "another_teams_dashboard" else self.team,
+                name="unusable dashboard",
+                created_by=self.user,
+                deleted=case == "soft_deleted_dashboard",
+            ).pk
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/feature_flags/",
             {
-                "key": "flag-with-other-dashboard",
-                "analytics_dashboards": [other_dashboard.pk],
+                "key": "flag-with-unusable-dashboard",
+                "analytics_dashboards": [dashboard_id],
             },
             format="json",
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response.json()["attr"], "analytics_dashboards")
-        self.assertIn("does not exist", response.json()["detail"])
+        self.assertEqual(
+            {key: response.json()[key] for key in ("attr", "code", "detail")},
+            {
+                "attr": "analytics_dashboards",
+                "code": "does_not_exist",
+                "detail": f'Invalid pk "{dashboard_id}" - object does not exist.',
+            },
+        )
 
     @patch("products.feature_flags.backend.api.feature_flag.report_user_action")
     def test_update_feature_flag_rejects_dashboard_from_other_team(self, mock_report_user_action):
@@ -1402,17 +1417,14 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(response.json()["attr"], "analytics_dashboards")
         self.assertIn("does not exist", response.json()["detail"])
 
-    def test_serializer_without_team_context_returns_empty_dashboard_queryset(self):
-        """When team_id is missing from context, analytics_dashboards should allow nothing (fail safe)."""
-        Dashboard.objects.create(team=self.team, name="test dashboard", created_by=self.user)
+    def test_serializer_without_team_context_rejects_every_dashboard(self):
+        dashboard = Dashboard.objects.create(team=self.team, name="test dashboard", created_by=self.user)
+        analytics_field = FeatureFlagSerializer(context={}).fields["analytics_dashboards"]
 
-        # Instantiate serializer WITHOUT team_id in context
-        serializer = FeatureFlagSerializer(context={})
-        fields = serializer.get_fields()
+        with self.assertRaises(ValidationError) as error:
+            analytics_field.run_validation([dashboard.pk])
 
-        # The queryset should be empty (fail safe to prevent IDOR)
-        analytics_field = cast(ManyRelatedField, fields["analytics_dashboards"])
-        self.assertEqual(analytics_field.child_relation.get_queryset().count(), 0)
+        self.assertEqual(error.exception.get_codes(), ["does_not_exist"])
 
     @patch("products.feature_flags.backend.api.feature_flag.report_user_action")
     def test_create_feature_flag_with_evaluation_runtime(self, mock_report_user_action):
@@ -5894,6 +5906,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 True,
                 status.HTTP_201_CREATED,
                 None,
+                None,
             ),
             (
                 "realtime_not_backfilled_flag_on",
@@ -5901,7 +5914,8 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 False,
                 True,
                 status.HTTP_400_BAD_REQUEST,
-                "isn't ready for feature flags yet",
+                "realtime_cohort_not_ready",
+                "isn't ready for feature flags yet. Preparing a cohort usually takes under 30 minutes.",
             ),
             (
                 "non_realtime_flag_on",
@@ -5909,7 +5923,8 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 False,
                 True,
                 status.HTTP_400_BAD_REQUEST,
-                "has an event-based condition",
+                "behavioral_cohort_found",
+                "isn't a realtime cohort, so feature flags can't target it. Open the cohort's page to see why it isn't realtime.",
             ),
             (
                 "realtime_backfilled_flag_off",
@@ -5917,7 +5932,8 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 True,
                 False,
                 status.HTTP_400_BAD_REQUEST,
-                "has an event-based condition",
+                "behavioral_cohort_found",
+                "has an event-based condition on '$pageview' (performed_event_first_time) and cannot be used in feature flags.",
             ),
             (
                 "realtime_off",
@@ -5925,6 +5941,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 True,
                 True,
                 status.HTTP_400_BAD_REQUEST,
+                "realtime_cohort_not_ready",
                 "Realtime is off for cohort",
             ),
         ]
@@ -5940,6 +5957,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         is_backfilled,
         flag_enabled,
         expected_status,
+        expected_code,
         expected_detail_fragment,
         mock_feature_enabled,
         mock_realtime_gate,
@@ -5993,6 +6011,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(response.status_code, expected_status)
 
         if expected_detail_fragment is not None:
+            self.assertEqual(expected_code, response.json()["code"])
             self.assertIn(expected_detail_fragment, response.json()["detail"])
 
     def test_snapshot_cohort_referencing_behavioral_cohort_is_allowed_in_flag(self):
@@ -7975,6 +7994,30 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         viewable_flag.refresh_from_db()
         assert viewable_flag.active is True
         assert viewable_flag.archived is False
+
+        remote_config_flag = self._create_encrypted_flag(
+            stored_payload=flag_payload_codec().encrypt(b'{"secret": "value"}').decode("utf-8")
+        )
+        AccessControl.objects.create(
+            resource="feature_flag", resource_id=remote_config_flag.id, team=self.team, access_level="none"
+        )
+        for flag_ref in (remote_config_flag.id, remote_config_flag.key):
+            remote_config_response = self.client.get(
+                f"/api/projects/{self.team.pk}/feature_flags/{flag_ref}/remote_config"
+            )
+            assert remote_config_response.status_code == status.HTTP_403_FORBIDDEN, flag_ref
+
+        # A personal API key is the path that decrypts the payload.
+        personal_api_key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="X", user=user2, scopes=["*"], secure_value=hash_key_value(personal_api_key)
+        )
+        self.client.logout()
+        remote_config_response = self.client.get(
+            f"/api/projects/{self.team.pk}/feature_flags/{remote_config_flag.key}/remote_config",
+            headers={"authorization": f"Bearer {personal_api_key}"},
+        )
+        assert remote_config_response.status_code == status.HTTP_403_FORBIDDEN
 
     def test_org_admin_can_list_flag_with_default_none_after_grantee_removed(self) -> None:
         # Regression: a flag with a team-wide "none" default plus a single explicit
@@ -14556,25 +14599,6 @@ class TestFeatureFlagLimits(APIBaseTest):
                         "control": {"transforms": [], "rollout_percentage": 50},
                         "test": {"transforms": [], "rollout_percentage": 50},
                     },
-                },
-                format="json",
-            )
-
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert "Maximum of 2 feature flags allowed per team" in str(response.json())
-
-    def test_product_tour_creation_blocked_when_at_flag_limit(self):
-        """Product tour creation with auto_launch should fail when team is at the flag limit."""
-        self._create_flag("flag-1")
-        self._create_flag("flag-2")
-
-        with self.settings(MAX_FEATURE_FLAGS_PER_TEAM=2):
-            response = self.client.post(
-                f"/api/projects/{self.team.id}/product_tours",
-                {
-                    "name": "Test Product Tour",
-                    "auto_launch": True,
-                    "content": {"steps": []},
                 },
                 format="json",
             )

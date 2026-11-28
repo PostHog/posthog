@@ -41,6 +41,7 @@ from products.tasks.backend.facade.profiles import (
     get_task_profile,
 )
 from products.tasks.backend.models import (
+    ENDED_BY_STALE_SWEEP_STATE_KEY,
     LIVE_RUN_STALE_AFTER,
     MAX_PENDING_FOLLOWUP_CONTENT_CHARS,
     MAX_PENDING_FOLLOWUP_MESSAGES,
@@ -1971,6 +1972,7 @@ class TestTaskRun(TestCase):
                 "pending_user_message": "Review the attachment",
                 "pending_user_artifact_ids": ["artifact-1"],
                 "failure_error_type": "poll_timeout",
+                ENDED_BY_STALE_SWEEP_STATE_KEY: "heartbeat",
                 "cancel_requested_at": requested_at.isoformat(),
                 "startup_requested_at": requested_at.isoformat(),
                 TASK_RUN_FINISH_REPORT_STATE_KEY: True,
@@ -1999,6 +2001,7 @@ class TestTaskRun(TestCase):
         self.assertEqual(run.analytics_properties()["startup_requested_at"], run.queued_at.isoformat())
 
         self.assertNotIn("failure_error_type", run.state)
+        self.assertNotIn(ENDED_BY_STALE_SWEEP_STATE_KEY, run.state)
         self.assertNotIn("cancel_requested_at", run.state)
         self.assertNotIn("sandbox_id", run.state)
         self.assertNotIn("sandbox_url", run.state)
@@ -2332,6 +2335,14 @@ class TestTaskRun(TestCase):
         self.assertEqual(len(log_entries), 1)
         self.assertEqual(log_entries[0]["type"], "info")
         self.assertEqual(log_entries[0]["message"], "First log entry")
+
+    def test_append_log_writes_nothing_once_the_run_is_deleted(self):
+        run = TaskRun.objects.create(task=self.task, team=self.team)
+        TaskRun.objects.filter(pk=run.pk).delete()
+
+        run.append_log([{"type": "info", "message": "written after the run was deleted"}])
+
+        self.assertIsNone(object_storage.read(run.log_url, missing_ok=True))
 
     def _append_memory_read_twice(
         self, *, sent_by_run_sandbox: bool, entry_age: timedelta = timedelta(0)

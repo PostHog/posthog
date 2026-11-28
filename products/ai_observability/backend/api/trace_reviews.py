@@ -1,10 +1,11 @@
 from __future__ import annotations
 
-from typing import Any, cast
+from typing import Any, Literal, cast
 
 from django.conf import settings
 from django.db import IntegrityError, transaction
 from django.db.models import Prefetch, Q, QuerySet
+from django.shortcuts import get_object_or_404
 from django.utils import timezone
 
 import django_filters
@@ -18,10 +19,10 @@ from rest_framework.viewsets import ModelViewSet
 
 from posthog.api.documentation import extend_schema
 from posthog.api.monitoring import monitor
-from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.event_usage import report_user_action
 from posthog.models import Team, User
+from posthog.models.activity_logging.activity_log import Change
 from posthog.permissions import AccessControlPermission
 
 from products.access_control.backend.presentation.access_control import AccessControlViewSetMixin
@@ -29,13 +30,37 @@ from products.ai_observability.backend.api.metrics import llma_track_latency
 from products.ai_observability.backend.models.review_queues import ReviewQueueItem
 from products.ai_observability.backend.models.score_definitions import ScoreDefinition
 from products.ai_observability.backend.models.trace_reviews import TraceReview, TraceReviewScore
+from products.ai_observability.backend.presentation.project_keys import (
+    AIObservabilityProjectKeyMixin,
+    attribution_user,
+    log_project_key_activity,
+    project_key_id,
+)
 from products.ai_observability.backend.score_definition_configs import (
     ScoreDefinitionConfigField,
     normalize_score_definition_key,
 )
 from products.ai_observability.backend.score_validation import validate_score_value
+from products.authorization.backend.facade import api as authorization
+from products.authorization.backend.facade.contracts import CheckRequest, Resource, Subject
+from products.authorization.backend.facade.enums import Action, ResourceType
 
 TRACE_REVIEW_SCORE_VALUE_FIELDS = ("categorical_values", "numeric_value", "boolean_value")
+
+
+def _previous_reviewer_changes(review: TraceReview, action: Literal["changed", "deleted"]) -> list[Change]:
+    if review.reviewed_by_project_key_id is not None:
+        return [
+            Change(
+                type="TraceReview",
+                action=action,
+                field="reviewed_by_project_key_id",
+                before=review.reviewed_by_project_key_id,
+            )
+        ]
+    if review.reviewed_by_id is not None:
+        return [Change(type="TraceReview", action=action, field="reviewed_by", before=review.reviewed_by_id)]
+    return []
 
 
 class TraceReviewScoreSerializer(serializers.ModelSerializer):
@@ -112,8 +137,11 @@ class TraceReviewSerializer(serializers.ModelSerializer):
         allow_null=True,
         help_text="Optional comment or reasoning for the review.",
     )
-    created_by = UserBasicSerializer(read_only=True)
-    reviewed_by = UserBasicSerializer(read_only=True, help_text="User who last saved this review.")
+    created_by = UserBasicSerializer(read_only=True, allow_null=True)
+    reviewed_by = UserBasicSerializer(read_only=True, allow_null=True, help_text="User who last saved this review.")
+    reviewed_by_project_key_id = serializers.CharField(
+        read_only=True, allow_null=True, help_text="Public ID of the project key that last saved this review."
+    )
     scores = TraceReviewScoreSerializer(
         many=True,
         read_only=True,
@@ -135,6 +163,7 @@ class TraceReviewSerializer(serializers.ModelSerializer):
             "updated_at",
             "created_by",
             "reviewed_by",
+            "reviewed_by_project_key_id",
             "scores",
             "team",
         ]
@@ -277,6 +306,34 @@ class BaseTraceReviewWriteSerializer(serializers.Serializer):
             .prefetch_related("versions")
             .distinct()
         }
+        instance = cast(TraceReview | None, self.instance)
+        stored_definition_ids = set(instance.scores.values_list("definition_id", flat=True)) if instance else set()
+        denied_definition_ids: set[str] = set()
+        user = self.context["request"].user
+        if isinstance(user, User):
+            new_definitions = [
+                definition for definition in definition_lookup.values() if definition.id not in stored_definition_ids
+            ]
+            allowed = authorization.check(
+                [
+                    CheckRequest(
+                        resource=Resource(
+                            type=ResourceType.LLM_ANALYTICS,
+                            id=str(definition.id),
+                            project_id=definition.team_id,
+                            created_by_id=definition.created_by_id,
+                        ),
+                        action=Action.VIEW,
+                        subject=Subject(user_id=user.id),
+                    )
+                    for definition in new_definitions
+                ]
+            )
+            denied_definition_ids = {
+                str(definition.id)
+                for definition, is_allowed in zip(new_definitions, allowed, strict=True)
+                if not is_allowed
+            }
         version_lookup = {
             str(version.id): version
             for definition in definition_lookup.values()
@@ -292,6 +349,11 @@ class BaseTraceReviewWriteSerializer(serializers.Serializer):
 
             if definition is None:
                 score_errors[index]["definition_id"] = "Unknown scorer definition."
+                continue
+            if definition_key in denied_definition_ids:
+                score_errors[index]["definition_id"] = (
+                    "You need viewer access to this scorer to use it. Ask for access or remove it from the review."
+                )
                 continue
 
             definition_version_id = score_payload.get("definition_version_id")
@@ -354,26 +416,45 @@ class BaseTraceReviewWriteSerializer(serializers.Serializer):
                     categorical_values=score_payload["categorical_values"],
                     numeric_value=score_payload["numeric_value"],
                     boolean_value=score_payload["boolean_value"],
-                    created_by=cast(User, self.context["request"].user),
+                    created_by=attribution_user(self.context["request"]),
                 )
                 for score_payload in resolved_scores
             ]
         )
 
-    def _clear_pending_queue_item(self, *, team: Team, trace_id: str, queue_id: str | None) -> None:
+    @staticmethod
+    def _scores_match(review: TraceReview, scores: list[dict[str, Any]]) -> bool:
+        stored = {
+            version: (categories, number, boolean)
+            for version, categories, number, boolean in review.scores.values_list(
+                "definition_version", "categorical_values", "numeric_value", "boolean_value"
+            )
+        }
+        return stored == {
+            score["definition_version"].id: (
+                score["categorical_values"],
+                score["numeric_value"],
+                score["boolean_value"],
+            )
+            for score in scores
+        }
+
+    def _clear_pending_queue_item(self, *, team: Team, trace_id: str, queue_id: str | None) -> Change | None:
         pending_items = ReviewQueueItem.objects.select_for_update().filter(team=team, trace_id=trace_id, deleted=False)
         if queue_id:
             pending_items = pending_items.filter(queue_id=queue_id)
 
         pending_item = pending_items.first()
-        if pending_item is not None:
-            pending_item.soft_delete()
+        if pending_item is None:
+            return None
+        pending_item.soft_delete()
+        return Change(type="TraceReview", action="changed", field="pending_queue_item", before=str(pending_item.pk))
 
     @transaction.atomic
     def create(self, validated_data: dict[str, Any]) -> TraceReview:
         request = cast(Request, self.context["request"])
         team = cast(Team, self.context["team"])
-        review_user = cast(User, request.user)
+        review_user = attribution_user(request)
         resolved_scores = cast(list[dict[str, Any]], validated_data.pop("_resolved_scores", []))
         validated_data.pop("scores", None)
         queue_id = str(validated_data.pop("queue_id", "") or "") or None
@@ -388,31 +469,69 @@ class BaseTraceReviewWriteSerializer(serializers.Serializer):
                 comment=validated_data.get("comment"),
                 created_by=review_user,
                 reviewed_by=review_user,
+                reviewed_by_project_key_id=project_key_id(request),
             )
         except IntegrityError as err:
             raise serializers.ValidationError({"trace_id": "An active review already exists for this trace."}) from err
 
-        self._clear_pending_queue_item(team=team, trace_id=review.trace_id, queue_id=queue_id)
+        queue_change = self._clear_pending_queue_item(team=team, trace_id=review.trace_id, queue_id=queue_id)
         self._replace_scores(review, resolved_scores)
+        log_project_key_activity(
+            request,
+            team=team,
+            scope="TraceReview",
+            item_id=review.pk,
+            activity="created",
+            changes=[queue_change] if queue_change else None,
+        )
         return review
 
     @transaction.atomic
     def update(self, instance: TraceReview, validated_data: dict[str, Any]) -> TraceReview:
         request = cast(Request, self.context["request"])
         team = cast(Team, self.context["team"])
-        review_user = cast(User, request.user)
+        review_user = attribution_user(request)
         resolved_scores = cast(list[dict[str, Any]] | None, validated_data.pop("_resolved_scores", None))
         validated_data.pop("scores", None)
         queue_id = str(validated_data.pop("queue_id", "") or "") or None
         validated_data.pop("trace_id", None)
 
+        instance = get_object_or_404(TraceReview.objects.select_for_update(), team=team, pk=instance.pk, deleted=False)
+        queue_change = self._clear_pending_queue_item(team=team, trace_id=instance.trace_id, queue_id=queue_id)
+        key_id = project_key_id(request)
+        previous_key_id = instance.reviewed_by_project_key_id
+        changes: list[Change] = []
+        if review_user is None:
+            if "comment" in validated_data and validated_data["comment"] != instance.comment:
+                changes.append(Change(type="TraceReview", action="changed", field="comment"))
+            if resolved_scores is not None and not self._scores_match(instance, resolved_scores):
+                changes.append(Change(type="TraceReview", action="changed", field="scores"))
+            else:
+                resolved_scores = None
+        save_review = review_user is not None or bool(changes)
+        if save_review and previous_key_id != key_id:
+            changes.extend(_previous_reviewer_changes(instance, "changed"))
+        if queue_change:
+            changes.append(queue_change)
+        if changes:
+            log_project_key_activity(
+                request,
+                team=team,
+                scope="TraceReview",
+                item_id=instance.pk,
+                activity="updated",
+                changes=changes,
+                previous_project_key_id=previous_key_id,
+            )
+        if not save_review:
+            return instance
+
         if "comment" in validated_data:
             instance.comment = validated_data["comment"]
 
         instance.reviewed_by = review_user
-        instance.save(update_fields=["comment", "reviewed_by", "updated_at"])
-
-        self._clear_pending_queue_item(team=team, trace_id=instance.trace_id, queue_id=queue_id)
+        instance.reviewed_by_project_key_id = key_id
+        instance.save(update_fields=["comment", "reviewed_by", "reviewed_by_project_key_id", "updated_at"])
 
         if resolved_scores is not None:
             self._replace_scores(instance, resolved_scores)
@@ -484,8 +603,9 @@ class TraceReviewFilter(django_filters.FilterSet):
         return queryset
 
 
-class TraceReviewViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ModelViewSet):
+class TraceReviewViewSet(AIObservabilityProjectKeyMixin, AccessControlViewSetMixin, ModelViewSet):
     scope_object = "llm_analytics"
+    psak_allowed_actions = ["list", "retrieve", "create", "partial_update", "destroy"]
     permission_classes = [AccessControlPermission]
     serializer_class = TraceReviewSerializer
     queryset = TraceReview.objects.all()
@@ -618,17 +738,29 @@ class TraceReviewViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Mode
     @monitor(feature=None, endpoint="llma_trace_reviews_destroy", method="DELETE")
     def destroy(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         review = self.get_object()
-        if not review.deleted:
+        with transaction.atomic():
+            review = get_object_or_404(
+                TraceReview.objects.select_for_update(), team_id=self.team_id, pk=review.pk, deleted=False
+            )
             review.deleted = True
             review.deleted_at = timezone.now()
             review.save(update_fields=["deleted", "deleted_at", "updated_at"])
-
-            report_user_action(
-                request.user,
-                "llma trace review deleted",
-                self._event_properties(review),
+            log_project_key_activity(
+                request,
                 team=self.team,
-                request=request,
+                scope="TraceReview",
+                item_id=review.pk,
+                activity="deleted",
+                changes=_previous_reviewer_changes(review, "deleted") or None,
+                previous_project_key_id=review.reviewed_by_project_key_id,
             )
+
+        report_user_action(
+            request.user,
+            "llma trace review deleted",
+            self._event_properties(review),
+            team=self.team,
+            request=request,
+        )
 
         return Response(status=status.HTTP_204_NO_CONTENT)

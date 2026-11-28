@@ -107,10 +107,12 @@ _RECOVERY_PROMPTS = {
 _NOT_STARTED_STAGES = ("Waking up the hedgehog", "Stretching the little legs", "Brewing the hedgehog's coffee")
 _QUEUED_STAGES = ("Waiting in line for a sandbox", "Queued behind other hedgehogs", "Saving a spot in the sandbox line")
 _IN_PROGRESS_STAGES = (
-    "Paws on the keyboard",
-    "Nose in the code",
-    "Digging through the code",
-    "Building, one quill at a time",
+    "Working on it",
+    "Making progress",
+    "Continuing",
+    "Still working",
+    "Getting it done",
+    "Taking care of it",
 )
 
 SLACK_DENIAL_STOP_MESSAGE = "Stopped, because you said no. Reply here to try a different way."
@@ -170,9 +172,6 @@ def post_slack_update(input: PostSlackUpdateInput) -> None:
         else:
             if pr_url:
                 _post_pr_opened_notification_once(task_run, handler, pr_url, task_url)
-                # Task is still running (PR opened mid-run) — keep the :eyes: reaction
-                # so the thread reads as in-progress until it genuinely completes.
-                handler.update_reaction("eyes")
                 return
             stage = _get_stage_from_status(task_run.status, task_run.stage, str(task_run.id))
             handler.post_or_update_progress(stage, task_url)

@@ -1,7 +1,9 @@
 import { useValues } from 'kea'
 
 import { LemonBanner } from '@posthog/lemon-ui'
+import { Item, ItemContent, ItemDescription } from '@posthog/quill'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { urls } from 'scenes/urls'
 
 import { ExternalDataSchemaStatus } from '~/types'
@@ -17,6 +19,7 @@ export const MarketingAnalyticsSourceStatusBanner = ({
     hiddenSourceIds?: string[]
 }): JSX.Element | null => {
     const { allAvailableSourcesWithStatus, sourceValidationError } = useValues(marketingAnalyticsLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     const sourcesWithIssues = allAvailableSourcesWithStatus
         .filter((source) => !hiddenSourceIds.includes(source.id))
@@ -36,11 +39,20 @@ export const MarketingAnalyticsSourceStatusBanner = ({
 
     return (
         <div className="mb-2">
-            {sourceValidationError && (
-                <LemonBanner type="warning" className="mt-4">
-                    Could not check source configuration. Reload the dashboard to try again.
-                </LemonBanner>
-            )}
+            {sourceValidationError &&
+                (todayRailNav ? (
+                    <Item tone="warning" size="sm" className="mt-4">
+                        <ItemContent>
+                            <ItemDescription>
+                                Could not check source configuration. Reload the dashboard to try again.
+                            </ItemDescription>
+                        </ItemContent>
+                    </Item>
+                ) : (
+                    <LemonBanner type="warning" className="mt-4">
+                        Could not check source configuration. Reload the dashboard to try again.
+                    </LemonBanner>
+                ))}
             {sourcesWithIssues.length > 0 && (
                 <SourceSetupPanel
                     state="waiting"

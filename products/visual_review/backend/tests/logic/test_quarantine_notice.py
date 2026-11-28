@@ -1,6 +1,9 @@
+from datetime import datetime, timedelta
+
 import pytest
 from unittest.mock import MagicMock, call, patch
 
+from django.db.models import F
 from django.utils import timezone
 
 from posthog.ownership.paths import UNOWNED_TEAM, PathOwnership
@@ -10,12 +13,14 @@ from products.visual_review.backend.db import WRITER_DB
 from products.visual_review.backend.facade.enums import ActorType, RunType
 from products.visual_review.backend.logic import quarantine, quarantine_notice, repos, story_index
 from products.visual_review.backend.models import QuarantinedIdentifier
-from products.visual_review.backend.tasks.tasks import QUARANTINE_NOTICE_EXPIRY_SECONDS
+from products.visual_review.backend.tasks.tasks import QUARANTINE_NOTICE_EXPIRY_SECONDS, QUARANTINE_NOTICE_QUIET_SECONDS
 from products.visual_review.backend.tests.conftest import PRODUCT_DATABASES
 
 _SOURCE_PATH = "frontend/src/scenes/Button`www.example.com`.stories.tsx"
 _IDENTIFIER = "scenes-app-button--primary--light"
-_INDEX = story_index.StoryIndex(path_by_story_id={"scenes-app-button--primary": _SOURCE_PATH})
+_INDEX = story_index.StoryIndex(
+    path_by_story_id={"scenes-app-button--primary": _SOURCE_PATH, "scenes-app-button--secondary": _SOURCE_PATH}
+)
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
@@ -55,6 +60,7 @@ class TestSendQuarantineNotice:
         identifier: str = _IDENTIFIER,
         source: ActorType = ActorType.HUMAN,
         reason: str = "Animation <!channel> timing",
+        expires_at: datetime | None = None,
     ) -> QuarantinedIdentifier:
         return quarantine.quarantine_identifier(
             repo_id=repo.id,
@@ -64,6 +70,13 @@ class TestSendQuarantineNotice:
             user_id=None if source == ActorType.AUTO else user.id,
             team_id=repo.team_id,
             source=source,
+            expires_at=expires_at,
+            notify_owners=True,
+        )
+
+    def _age(self, repo, minutes: float) -> None:
+        QuarantinedIdentifier.objects.using(WRITER_DB).filter(repo=repo).update(
+            created_at=F("created_at") - timedelta(minutes=minutes)
         )
 
     @pytest.mark.parametrize(
@@ -87,11 +100,13 @@ class TestSendQuarantineNotice:
     def test_posts_to_the_owning_team_naming_who_quarantined(self, repo, team, user, post, source, reason, lead):
         entry = self._quarantine(repo, user, source=source, reason=reason)
 
-        assert quarantine_notice.send_quarantine_notice(entry.id, team.id) is True
+        self._age(repo, 4)
+        assert quarantine_notice.send_pending_notices(entry.id, team.id).posts == 1
         second = self._quarantine(
             repo, user, identifier="scenes-app-button--primary--dark", source=source, reason=reason
         )
-        assert quarantine_notice.send_quarantine_notice(second.id, team.id) is True
+        self._age(repo, 4)
+        assert quarantine_notice.send_pending_notices(second.id, team.id).posts == 1
 
         assert post.channel_map.call_count == 1
         _, channel_id, blocks, text = post.call_args.args
@@ -127,9 +142,68 @@ class TestSendQuarantineNotice:
             post.slack.return_value.client.conversations_info.return_value = {"ok": True}
         if case == "lifted":
             QuarantinedIdentifier.objects.using(WRITER_DB).filter(id=entry.id).update(expires_at=timezone.now())
+        self._age(repo, 4)
 
-        assert quarantine_notice.send_quarantine_notice(entry.id, team.id) is False
+        assert quarantine_notice.send_pending_notices(entry.id, team.id).posts == 0
         assert post.call_count == 0
+
+    @pytest.mark.parametrize("trigger", ["first", "last"])
+    def test_a_burst_posts_once_per_team_and_author_after_it_goes_quiet(self, team, repo, user, post, trigger):
+        expires_at = timezone.now() + timedelta(days=10)
+        first = self._quarantine(repo, user, expires_at=expires_at)
+        self._quarantine(
+            repo, user, identifier="scenes-app-button--primary--dark", expires_at=expires_at + timedelta(seconds=1)
+        )
+        self._quarantine(repo, user, source=ActorType.AGENT, identifier="scenes-app-button--secondary--light")
+        last = self._quarantine(repo, user, identifier="scenes-app-button--secondary--dark")
+
+        assert quarantine_notice.send_pending_notices(last.id, team.id) == quarantine_notice.NoticeRun(posts=0)
+        early = quarantine_notice.send_pending_notices(first.id, team.id)
+        assert early.posts == 0
+        assert early.recheck_in_seconds is not None
+        assert 0 < early.recheck_in_seconds <= QUARANTINE_NOTICE_QUIET_SECONDS + 30
+        assert post.call_count == 0
+
+        self._age(repo, 4)
+        trigger_id = first.id if trigger == "first" else last.id
+        assert quarantine_notice.send_pending_notices(trigger_id, team.id).posts == 2
+        assert quarantine_notice.send_pending_notices(trigger_id, team.id).posts == 0
+
+        texts = sorted(c.args[3] for c in post.call_args_list)
+        name = user.first_name or user.email
+        assert texts == [
+            f"*{name} (using an AI agent)* quarantined a story owned by you. Please check. scenes-app-button--secondary",
+            f"*{name}* quarantined 2 stories owned by you. Please check.",
+        ]
+
+    def test_one_failing_post_does_not_cost_the_other_audiences_theirs(self, team, repo, user, post):
+        self._quarantine(repo, user)
+        last = self._quarantine(repo, user, source=ActorType.AGENT, identifier="scenes-app-button--secondary--light")
+        self._age(repo, 4)
+        post.side_effect = [RuntimeError("channel archived"), "1700000000.2"]
+
+        assert quarantine_notice.send_pending_notices(last.id, team.id).posts == 1
+        assert post.call_count == 2
+
+    @pytest.mark.parametrize("oldest_age_minutes,posts", [(1, 0), (11, 1)])
+    def test_a_long_stream_posts_once_the_oldest_notice_waited_too_long(
+        self, team, repo, user, post, oldest_age_minutes, posts
+    ):
+        self._quarantine(repo, user)
+        self._age(repo, oldest_age_minutes)
+        newest = self._quarantine(repo, user, identifier="scenes-app-button--secondary--light")
+
+        assert quarantine_notice.send_pending_notices(newest.id, team.id).posts == posts
+
+    def test_a_stale_pending_row_is_dropped_and_does_not_end_the_next_burst_early(self, team, repo, user, post):
+        self._quarantine(repo, user, identifier="scenes-app-button--secondary--light")
+        self._age(repo, 60)
+        fresh = self._quarantine(repo, user)
+
+        assert quarantine_notice.send_pending_notices(fresh.id, team.id).posts == 0
+        self._age(repo, 4)
+        assert quarantine_notice.send_pending_notices(fresh.id, team.id).posts == 1
+        assert "scenes-app-button--secondary" not in str(post.call_args_list)
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
@@ -194,6 +268,13 @@ class TestQuarantineDispatchesNotice:
                 notify_owners=notify_owners,
             )
 
-        expected = [call(args=(team.id, str(entry.id)), expires=QUARANTINE_NOTICE_EXPIRY_SECONDS)]
+        expected = [
+            call(
+                args=(team.id, str(entry.id)),
+                countdown=QUARANTINE_NOTICE_QUIET_SECONDS,
+                expires=QUARANTINE_NOTICE_QUIET_SECONDS + QUARANTINE_NOTICE_EXPIRY_SECONDS,
+            )
+        ]
         assert apply_async.call_args_list == (expected if notify_owners else [])
-        assert QuarantinedIdentifier.objects.using(WRITER_DB).filter(id=entry.id).exists()
+        stored = QuarantinedIdentifier.objects.using(WRITER_DB).get(id=entry.id)
+        assert stored.owner_notice_pending is notify_owners

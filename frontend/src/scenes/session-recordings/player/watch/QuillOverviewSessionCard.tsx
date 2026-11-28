@@ -32,7 +32,9 @@ export function QuillOverviewSessionCard(): JSX.Element {
                                     <span
                                         className={cn(
                                             'font-semibold tabular-nums truncate max-w-full',
-                                            item.label === 'Errors' && Number(item.value) > 0 && 'text-destructive'
+                                            item.label === 'Errors' &&
+                                                Number(item.value) > 0 &&
+                                                'text-destructive-foreground'
                                         )}
                                     >
                                         {item.value}

@@ -12,6 +12,11 @@ document.addEventListener('submit', (event) => {
     if (!(form instanceof HTMLFormElement)) {
         return
     }
+    if (form.dataset.consoleHandoff) {
+        event.preventDefault()
+        void handOff(form)
+        return
+    }
     // A disabled button posts no value, so the value of the button that submits moves to a hidden field first.
     const submitter = event.submitter
     if (submitter instanceof HTMLButtonElement && submitter.name) {
@@ -214,5 +219,129 @@ if (navScroller instanceof HTMLElement && currentNavLink instanceof HTMLElement)
     const linkBottom = currentNavLink.offsetTop + currentNavLink.offsetHeight
     if (linkBottom > navScroller.clientHeight) {
         navScroller.scrollTop = linkBottom - navScroller.clientHeight / 2
+    }
+}
+
+// Without the script, the button submits whatever is ticked and the operation form says when nothing is.
+const syncSelection = (form) => {
+    const boxes = [...form.querySelectorAll('input[type="checkbox"]:not([data-console-select-all])')]
+    const ticked = boxes.filter((box) => box.checked).length
+    const all = form.querySelector('[data-console-select-all]')
+    if (all) {
+        all.checked = ticked > 0 && ticked === boxes.length
+        all.indeterminate = ticked > 0 && ticked < boxes.length
+    }
+    for (const button of form.querySelectorAll('button[type="submit"]')) {
+        button.disabled = ticked === 0
+    }
+}
+
+document.addEventListener('change', (event) => {
+    const box = event.target
+    const form = box instanceof HTMLInputElement ? box.closest('form[data-console-select]') : null
+    if (!form) {
+        return
+    }
+    if (box.hasAttribute('data-console-select-all')) {
+        for (const row of form.querySelectorAll('input[type="checkbox"]:not([data-console-select-all])')) {
+            row.checked = box.checked
+        }
+    }
+    syncSelection(form)
+})
+
+// pageshow also fires when the back button restores the page with its rows still ticked.
+window.addEventListener('pageshow', () => {
+    for (const form of document.querySelectorAll('form[data-console-select]')) {
+        syncSelection(form)
+    }
+})
+
+const HANDOFF_READY = 'posthog-admin:ready'
+const HANDOFF_MESSAGE = 'posthog-admin:handoff'
+const HANDOFF_VERSION = 1
+const HANDOFF_TIMEOUT_MS = 30000
+
+function handoffFileName(response) {
+    const disposition = response.headers.get('Content-Disposition') ?? ''
+    const match = /filename="([^"]+)"/.exec(disposition)
+    return match ? match[1] : 'file'
+}
+
+function waitForHandoffReady(tab, origin, signal) {
+    return new Promise((resolve, reject) => {
+        const stop = () => {
+            window.removeEventListener('message', onMessage)
+            signal.removeEventListener('abort', onAbort)
+        }
+        const onMessage = (event) => {
+            if (event.source === tab && event.origin === origin && event.data?.type === HANDOFF_READY) {
+                stop()
+                resolve()
+            }
+        }
+        const onAbort = () => {
+            stop()
+            reject(signal.reason)
+        }
+        window.addEventListener('message', onMessage)
+        signal.addEventListener('abort', onAbort)
+    })
+}
+
+async function handOff(form) {
+    const tool = form.dataset.consoleHandoffTool
+    const origin = new URL(form.dataset.consoleHandoff).origin
+    const status = form.closest('li')?.querySelector('[data-console-handoff-status]')
+    const say = (text) => {
+        if (status) {
+            status.textContent = ` ${text}`
+        }
+    }
+    const button = form.querySelector('button[type="submit"]')
+
+    // Open the tab during the click, because browsers block a tab that a script opens after an await.
+    const tab = window.open(form.dataset.consoleHandoff, '_blank')
+    if (!tab) {
+        say(`The browser blocked the new tab. Allow pop-ups for this site and try again.`)
+        return
+    }
+    const deadline = new AbortController()
+    const timer = window.setTimeout(() => deadline.abort(), HANDOFF_TIMEOUT_MS)
+    const ready = waitForHandoffReady(tab, origin, deadline.signal)
+    ready.catch(() => {})
+    button.disabled = true
+    button.setAttribute('aria-busy', 'true')
+    say(`Opening ${tool}\u2026`)
+    try {
+        // A failed operation redirects back to this page with its error message, and a lapsed admin verification
+        // redirects to Google. Following either inside fetch loses the message or breaks the sign-in, so reload.
+        const response = await fetch(form.action, {
+            method: 'POST',
+            body: new FormData(form),
+            credentials: 'same-origin',
+            redirect: 'manual',
+            signal: deadline.signal,
+        })
+        if (response.type === 'opaqueredirect') {
+            tab.close()
+            window.location.reload()
+            return
+        }
+        if (!response.ok) {
+            tab.close()
+            say(`Could not get the file (status ${response.status}). Reload the page and try again.`)
+            return
+        }
+        const file = { name: handoffFileName(response), text: await response.text() }
+        await ready
+        tab.postMessage({ type: HANDOFF_MESSAGE, version: HANDOFF_VERSION, files: [file] }, origin)
+        say(`Sent to ${tool}.`)
+    } catch {
+        say(`${tool} did not get the file in time. Close its tab and try again.`)
+    } finally {
+        window.clearTimeout(timer)
+        button.disabled = false
+        button.removeAttribute('aria-busy')
     }
 }

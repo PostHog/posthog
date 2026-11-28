@@ -15,7 +15,6 @@ from posthog.hogql.printer.events_json_document import event_document_sql
 
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.base import PostHogWorkflow
-from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.logger import get_logger
 
 from products.batch_exports.backend.events_table import batch_exports_read_new_events_table
@@ -34,9 +33,10 @@ from products.batch_exports.backend.temporal.batch_exports import (
     execute_batch_export_insert_activity,
     get_data_interval,
     iter_records,
-    reads_native_events_table,
+    reads_recent_events_table,
     start_batch_export_run,
 )
+from products.batch_exports.backend.temporal.clickhouse import get_batch_exports_client
 from products.batch_exports.backend.temporal.filters import compose_filters_clause
 from products.batch_exports.backend.temporal.metrics import get_bytes_exported_metric, get_rows_exported_metric
 from products.batch_exports.backend.temporal.pipeline.types import BatchExportResult
@@ -212,7 +212,24 @@ async def insert_into_http_activity(inputs: HttpInsertInputs) -> BatchExportResu
         inputs.url,
     )
 
-    async with get_client(team_id=inputs.team_id) as client:
+    use_native_schema = batch_exports_read_new_events_table(
+        inputs.team_id, export_opted_in=inputs.use_new_events_schema
+    )
+    interval_start = await maybe_resume_from_heartbeat(inputs)
+    is_backfill = inputs.get_is_backfill()
+
+    reads_recent_events = reads_recent_events_table(
+        team_id=inputs.team_id,
+        interval_start=interval_start,
+        interval_end=inputs.data_interval_end,
+        use_new_events_schema=use_native_schema,
+        is_backfill=is_backfill,
+        backfill_details=inputs.backfill_details,
+    )
+
+    async with get_batch_exports_client(
+        team_id=inputs.team_id, reads_new_events_table=use_native_schema, reads_recent_events=reads_recent_events
+    ) as client:
         if not await client.is_alive():
             raise ConnectionError("Cannot establish connection to ClickHouse")
 
@@ -222,27 +239,13 @@ async def insert_into_http_activity(inputs: HttpInsertInputs) -> BatchExportResu
         if not isinstance(model, BatchExportEventsModel):
             raise NotImplementedError("HTTP export only supports the events model")
 
-        use_native_schema = batch_exports_read_new_events_table()
-
-        interval_start = await maybe_resume_from_heartbeat(inputs)
-
-        is_backfill = inputs.get_is_backfill()
-
-        native_source = reads_native_events_table(
-            team_id=inputs.team_id,
-            interval_start=interval_start,
-            interval_end=inputs.data_interval_end,
-            use_new_events_schema=use_native_schema,
-            is_backfill=is_backfill,
-            backfill_details=inputs.backfill_details,
-        )
-        fields = http_default_fields(reads_native_events=native_source)
+        fields = http_default_fields(reads_native_events=use_native_schema)
         columns = [field["alias"] for field in fields]
 
         filters = model.filters
         if filters:
             filters_str, extra_query_parameters = await database_sync_to_async(compose_filters_clause)(
-                filters, team_id=inputs.team_id, values=None, use_new_events_schema=native_source
+                filters, team_id=inputs.team_id, values=None, use_new_events_schema=use_native_schema
             )
         else:
             filters_str = ""
@@ -250,6 +253,7 @@ async def insert_into_http_activity(inputs: HttpInsertInputs) -> BatchExportResu
 
         record_iterator = iter_records(
             use_new_events_schema=use_native_schema,
+            reads_typed_columns=use_native_schema,
             client=client,
             team_id=inputs.team_id,
             interval_start=interval_start,
@@ -435,6 +439,7 @@ class HttpBatchExportWorkflow(PostHogWorkflow):
             backfill_details=inputs.backfill_details,
             is_backfill=is_backfill,
             batch_export_model=inputs.batch_export_model,
+            use_new_events_schema=inputs.use_new_events_schema,
         )
 
         await execute_batch_export_insert_activity(

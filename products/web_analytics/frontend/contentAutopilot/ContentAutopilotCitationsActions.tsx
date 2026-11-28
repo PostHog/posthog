@@ -1,4 +1,7 @@
-import { LemonButton } from '@posthog/lemon-ui'
+import { IconExternal } from '@posthog/icons'
+import { Button, Text } from '@posthog/quill'
+
+import { LinkPrimitive } from 'lib/lemon-ui/Link'
 
 import { pageReportPath } from '../pageReports/pageReportsUtils'
 import type { CitationsLookup } from './contentAutopilotCitationsModalLogic'
@@ -19,30 +22,35 @@ export const ContentAutopilotCitationsActions = ({
     if (!externalUrl || !isWebUrl(externalUrl)) {
         return null
     }
+    const openLabel = lookup.kind === 'url' ? 'Open page' : 'Open site'
+    const pageReportTooltip = "See this page's traffic, including visits from AI assistants"
+
     return (
         <div className="flex flex-wrap items-center gap-2">
             {lookup.kind === 'url' ? (
-                <span className="min-w-0 break-all text-sm font-semibold">{lookup.value}</span>
+                <Text size="sm" weight="semibold" render={<span className="m-0 min-w-0 break-all" />}>
+                    {lookup.value}
+                </Text>
             ) : null}
-            <LemonButton
-                size="small"
-                type="secondary"
-                to={externalUrl}
-                targetBlank
+            <Button
+                variant="outline"
+                nativeButton={false}
+                render={<LinkPrimitive to={externalUrl} target="_blank" />}
                 data-attr="content-autopilot-citations-open-site"
             >
-                {lookup.kind === 'url' ? 'Open page' : 'Open site'}
-            </LemonButton>
+                {openLabel}
+                <IconExternal />
+            </Button>
             {isOwnPage ? (
-                <LemonButton
-                    size="small"
-                    type="secondary"
-                    to={pageReportPath(lookup.value)}
-                    tooltip="See this page's traffic, including visits from AI assistants"
+                <Button
+                    variant="outline"
+                    nativeButton={false}
+                    render={<LinkPrimitive to={pageReportPath(lookup.value)} />}
+                    tooltip={pageReportTooltip}
                     data-attr="content-autopilot-citations-page-report"
                 >
                     Page report
-                </LemonButton>
+                </Button>
             ) : null}
         </div>
     )

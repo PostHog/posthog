@@ -131,8 +131,8 @@ export const extractBearerToken = (headers: Record<string, string> | null | unde
     return value.slice(7).trim() || null
 }
 
-const ownsToken = (team: Pick<Team, 'api_token' | 'secret_api_token'>, token: string): boolean => {
-    return token === team.api_token || (team.secret_api_token !== null && token === team.secret_api_token)
+const ownsToken = (team: Pick<Team, 'api_token'>, token: string): boolean => {
+    return token === team.api_token
 }
 
 // True when a fetch targets a PostHog ingestion endpoint authenticating with the
@@ -143,7 +143,7 @@ export const isSelfReferentialIngestFetch = (input: {
     url: string
     body: string | null | undefined
     headers?: Record<string, string> | null
-    team: Pick<Team, 'api_token' | 'secret_api_token'>
+    team: Pick<Team, 'api_token'>
 }): boolean => {
     const path = ingestPath(input.url)
     if (path === null) {

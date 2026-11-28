@@ -51,7 +51,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.per
     PersonPropertyRowSink,
 )
 from products.warehouse_sources.backend.temporal.data_imports.settings import ACTIVITIES, WORKFLOWS
-from products.warehouse_sources.backend.temporal.data_imports.sources import load_all_sources
+from products.warehouse_sources.backend.temporal.data_imports.sources import load_all_sources, load_sources_in_use
 from products.warehouse_sources.backend.temporal.data_imports.table_metadata_settings import (
     ACTIVITIES as METADATA_ACTIVITIES,
     WORKFLOWS as METADATA_WORKFLOWS,
@@ -84,6 +84,7 @@ __all__ = [
     "SavedQueryNotOnV2ScheduleError",
     "WarehouseBindingMissingError",
     "load_all_sources",
+    "load_sources_in_use",
     "prepare_s3_files_for_querying",
     "start_person_property_backfill",
     "trigger_saved_query_materialization",
@@ -133,6 +134,42 @@ TEMPORAL = TemporalRegistration(
         HistogramSpec(
             metric_name="warehouse_import_attempt_duration_seconds",
             buckets=(1.0, 5.0, 15.0, 30.0, 60.0, 120.0, 300.0, 600.0, 1800.0, 3600.0, 7200.0, 21600.0),
+            queue_setting="DATA_WAREHOUSE_TASK_QUEUE",
+        ),
+        HistogramSpec(
+            metric_name="cdc_extraction_duration_seconds",
+            # Resolves the range around the 5-minute extraction tick.
+            buckets=(
+                1.0,
+                2.0,
+                5.0,
+                10.0,
+                20.0,
+                30.0,
+                45.0,
+                60.0,
+                90.0,
+                120.0,
+                180.0,
+                240.0,
+                300.0,
+                450.0,
+                600.0,
+                900.0,
+                1800.0,
+                3600.0,
+                7200.0,
+            ),  # fmt: skip
+            queue_setting="DATA_WAREHOUSE_TASK_QUEUE",
+        ),
+        HistogramSpec(
+            metric_name="cdc_buffer_write_duration_seconds",
+            buckets=(0.05, 0.1, 0.25, 0.5, 1.0, 2.0, 5.0, 10.0, 30.0, 60.0, 120.0),
+            queue_setting="DATA_WAREHOUSE_TASK_QUEUE",
+        ),
+        HistogramSpec(
+            metric_name="cdc_sweeper_duration_seconds",
+            buckets=(10.0, 30.0, 60.0, 120.0, 300.0, 600.0, 900.0, 1200.0, 1500.0, 1800.0, 3600.0),
             queue_setting="DATA_WAREHOUSE_TASK_QUEUE",
         ),
     ),

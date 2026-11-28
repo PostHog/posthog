@@ -68,8 +68,12 @@
     color: #2563eb;
 }
 
-.text-destructive {
+.text-destructive-foreground {
     color: #dc2626;
+}
+
+.text-success-foreground {
+    color: #16a34a;
 }
 
 .text-primary-foreground {
