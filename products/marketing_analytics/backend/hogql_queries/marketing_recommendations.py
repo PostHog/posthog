@@ -148,6 +148,8 @@ HIDDEN_SEARCH_SPEND_MIN_SHARE = 0.2
 HIDDEN_SEARCH_SPEND_CAMPAIGNS_SHOWN = 3
 # From this many non-brand conversions a campaign's own CPA is stable enough to judge its search terms by.
 MIN_CAMPAIGN_BENCHMARK_CONVERSIONS = 15
+MIN_SCALE_CONVERSIONS = 5
+MIN_SCALE_LOST_SHARE = 0.4
 # Below this many Google Ads sessions, a missing utm_term can be a few visits from links shared without it.
 MIN_KEYWORD_TRACKING_SESSIONS = 30
 # Performance Max and Display clicks have no keyword, so even a configured account leaves some sessions without it.
@@ -735,8 +737,12 @@ class _Recommender:
             leak = self.leaks.get(campaign.id)
             if leak:
                 recommendations.append(self._brand_leak(campaign, leak, has_brand_campaign))
-            elif campaign.conversions > 0 and (campaign.lost_to_rank or 0) >= 0.4:
-                recommendations.append(self._performance_max_rank(campaign))
+            elif (
+                (campaign.lost_to_rank or 0) >= MIN_SCALE_LOST_SHARE
+                and (benchmark := self._campaign_benchmark(campaign))
+                and (cpa := self._scalable_cpa(campaign, benchmark))
+            ):
+                recommendations.append(self._performance_max_rank(campaign, cpa, benchmark))
 
         search_leaks: list[tuple[CampaignStats, _BrandSpend]] = []
         for campaign in search_campaigns:
@@ -748,14 +754,20 @@ class _Recommender:
             benchmark = self._campaign_benchmark(campaign)
             if benchmark is None:
                 continue
-            compared = self._compared_spend(campaign, benchmark)
-            cpa = self._compared_cpa(campaign, benchmark)
             lost = (campaign.lost_to_budget or 0) + (campaign.lost_to_rank or 0)
-            if cpa and compared.conversions >= 5 and cpa <= benchmark.cpa and lost >= 0.4:
+            cpa = self._scalable_cpa(campaign, benchmark) if lost >= MIN_SCALE_LOST_SHARE else None
+            if cpa:
                 if not self._holds_spend_advice(campaign, leak):
                     recommendations.append(self._scale(campaign, cpa, benchmark, lost))
             elif self._needs_review(campaign, benchmark):
-                recommendations.append(self._review(campaign, cpa, compared.cost, benchmark))
+                recommendations.append(
+                    self._review(
+                        campaign,
+                        self._compared_cpa(campaign, benchmark),
+                        self._compared_spend(campaign, benchmark).cost,
+                        benchmark,
+                    )
+                )
         recommendations.extend(self._search_brand_leaks(search_leaks, has_brand_campaign))
         return recommendations
 
@@ -964,15 +976,16 @@ class _Recommender:
             cpa=self._cpa(cpa, benchmark),
         )
 
-    def _performance_max_rank(self, campaign: CampaignStats) -> MarketingAnalyticsRecommendation:
-        cpa = campaign.cost / campaign.conversions
+    def _performance_max_rank(
+        self, campaign: CampaignStats, cpa: float, benchmark: _Benchmark
+    ) -> MarketingAnalyticsRecommendation:
         lost = (campaign.lost_to_budget or 0) + (campaign.lost_to_rank or 0)
         extra = campaign.cost * min(lost / max(campaign.impression_share or 0.1, 0.1), 1)
         return self._campaign_recommendation(
             MarketingAnalyticsRecommendationRule.SCALE_CAMPAIGN,
             campaign,
             "Raise the target CPA or improve its asset groups",
-            f"Converts at a CPA of {self._money(cpa)}. "
+            f"Its {benchmark.compared} is at or below {benchmark.label}. "
             f"It loses {campaign.lost_to_rank or 0:.0%} of eligible search impressions to ad rank "
             f"and {campaign.lost_to_budget or 0:.0%} to budget, so most missed searches go to better-ranked ads.",
             extra * self.per_month,
@@ -989,7 +1002,9 @@ class _Recommender:
                     url=ADS_ASSET_GROUPS_URL,
                     linkText="Asset groups",
                 ),
+                self._check_cpa_step(benchmark),
             ),
+            cpa=self._cpa(cpa, benchmark),
         )
 
     def _review(
@@ -2011,6 +2026,13 @@ class _Recommender:
     def _compared_cpa(self, campaign: CampaignStats, benchmark: _Benchmark | None) -> float | None:
         spend = self._compared_spend(campaign, benchmark)
         return spend.cost / spend.conversions if spend.conversions else None
+
+    def _scalable_cpa(self, campaign: CampaignStats, benchmark: _Benchmark) -> float | None:
+        spend = self._compared_spend(campaign, benchmark)
+        if spend.conversions < MIN_SCALE_CONVERSIONS:
+            return None
+        cpa = spend.cost / spend.conversions
+        return cpa if 0 < cpa <= benchmark.cpa else None
 
     def _account_nonbrand_cpa(self) -> float | None:
         # An account without Search campaigns, such as one that only runs Performance Max, still needs a benchmark.
