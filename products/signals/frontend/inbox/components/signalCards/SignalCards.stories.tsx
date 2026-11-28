@@ -183,6 +183,11 @@ const scoutFinding = makeSignal({
         evidence: [
             { source_product: 'error_tracking', entity_id: 'issue-1', summary: '413 errors up 6x since the release.' },
             { source_product: 'session_replay', entity_id: 'sess-1', summary: 'Users retry the upload and leave.' },
+            {
+                source_product: 'logs',
+                summary:
+                    'The [upload service logs](https://example.com/logs?service=upload&level=error&from=2026-06-09T00:00:00Z) show 413s, also at https://example.com/uploads/v2/chunked/sessions/a1b2c3d4e5f6a7b8c9d0/parts/0001',
+            },
         ],
         tags: ['uploads', 'regression'],
         time_range: { date_from: '2026-06-09T00:00:00Z', date_to: '2026-06-10T00:00:00Z' },

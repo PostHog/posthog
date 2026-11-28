@@ -44,7 +44,9 @@ function EvidenceRow({ entry }: { entry: SignalsScoutEvidenceEntryApi }): JSX.El
                 <div className="text-xs font-medium text-tertiary">
                     {meta?.label ?? identifierToHuman(entry.source_product)}
                 </div>
-                <div className="text-sm text-primary">{entry.summary}</div>
+                <LemonMarkdown className="text-sm text-primary" disableImages>
+                    {entry.summary}
+                </LemonMarkdown>
             </div>
             {url && (
                 <Link to={url} className="flex items-center gap-1 text-xs font-medium shrink-0">
