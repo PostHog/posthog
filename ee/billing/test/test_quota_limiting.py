@@ -33,7 +33,9 @@ from products.ai_observability.backend.models.offline_evaluations import Offline
 
 from ee.billing.quota_limiting import (
     INFORMATIONAL_USAGE_RESOURCES,
+    MOBILE_RECORDINGS_QUOTA_FLAG,
     QUOTA_LIMIT_DATA_RETENTION_FLAG,
+    REPLAY_QUOTA_RESOURCES,
     YESTERDAY_FINISHED_KEY_PREFIX,
     OrganizationUsageInfo,
     QuotaLimitingCaches,
@@ -75,6 +77,7 @@ class TestQuotaLimiting(BaseTest):
         self.redis_client.delete(f"@posthog/quota-limits/events")
         self.redis_client.delete(f"@posthog/quota-limits/exceptions")
         self.redis_client.delete(f"@posthog/quota-limits/recordings")
+        self.redis_client.delete(f"@posthog/quota-limits/mobile_recordings")
         self.redis_client.delete(f"@posthog/quota-limits/rows_synced")
         self.redis_client.delete(f"@posthog/quota-limits/api_queries_read_bytes")
         self.redis_client.delete(f"@posthog/quota-limits/survey_responses")
@@ -87,6 +90,7 @@ class TestQuotaLimiting(BaseTest):
         self.redis_client.delete(f"@posthog/quota-limiting-suspended/events")
         self.redis_client.delete(f"@posthog/quota-limiting-suspended/exceptions")
         self.redis_client.delete(f"@posthog/quota-limiting-suspended/recordings")
+        self.redis_client.delete(f"@posthog/quota-limiting-suspended/mobile_recordings")
         self.redis_client.delete(f"@posthog/quota-limiting-suspended/rows_synced")
         self.redis_client.delete(f"@posthog/quota-limiting-suspended/api_queries_read_bytes")
         self.redis_client.delete(f"@posthog/quota-limiting-suspended/survey_responses")
@@ -577,6 +581,7 @@ class TestQuotaLimiting(BaseTest):
                 "quota_limited_events": 1612137599,
                 "quota_limited_exceptions": None,
                 "quota_limited_recordings": None,
+                "quota_limited_mobile_recordings": None,
                 "quota_limited_api_queries": None,
                 "quota_limited_rows_synced": None,
                 "quota_limited_feature_flags": None,
@@ -2556,11 +2561,12 @@ class TestQuotaLimiting(BaseTest):
     ) -> None:
         if prepopulate_zset_score_offset is not None:
             score = int(timezone.now().timestamp()) + prepopulate_zset_score_offset
-            replace_limited_team_tokens(
-                QuotaResource.RECORDINGS,
-                {self.team.api_token: score},
-                QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY,
-            )
+            for resource in REPLAY_QUOTA_RESOURCES:
+                replace_limited_team_tokens(
+                    resource,
+                    {self.team.api_token: score},
+                    QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY,
+                )
 
         self.organization.usage = {
             **usage_overrides,
@@ -2578,6 +2584,31 @@ class TestQuotaLimiting(BaseTest):
                 kwargs={"bypass_recordings_quota_cache": True},
                 countdown=35,
             )
+
+    @parameterized.expand([("own_mobile_meter", True, []), ("no_mobile_meter", False, ["token"])])
+    @time_machine.travel("2021-01-25T00:00:00Z", tick=False)
+    def test_web_recordings_limit_limits_mobile_only_without_its_own_meter(
+        self, _name, flag_enabled, expected_mobile_tokens
+    ) -> None:
+        self.organization.usage = {
+            "recordings": {"usage": 6_100, "limit": 5_000},
+            "mobile_recordings": {"usage": 10, "limit": 5_000},
+            "period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"],
+        }
+        self.organization.customer_trust_scores = zero_trust_scores()
+        self.organization.save()
+
+        with patch(
+            "posthoganalytics.feature_enabled",
+            side_effect=lambda key, *_args, **_kwargs: flag_enabled and key == MOBILE_RECORDINGS_QUOTA_FLAG,
+        ):
+            update_org_billing_quotas(self.organization)
+
+        token = self.team.api_token.encode("UTF-8")
+        assert self.redis_client.zrange("@posthog/quota-limits/recordings", 0, -1) == [token]
+        assert self.redis_client.zrange("@posthog/quota-limits/mobile_recordings", 0, -1) == [
+            token for _ in expected_mobile_tokens
+        ]
 
     @time_machine.travel("2021-01-25T00:00:00Z", tick=False)
     @patch("posthog.tasks.remote_config.update_team_remote_config")
@@ -2625,11 +2656,12 @@ class TestQuotaLimiting(BaseTest):
 
         if prepopulate_zset_score_offset is not None:
             score = int(timezone.now().timestamp()) + prepopulate_zset_score_offset
-            replace_limited_team_tokens(
-                QuotaResource.RECORDINGS,
-                {self.team.api_token: score},
-                QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY,
-            )
+            for resource in REPLAY_QUOTA_RESOURCES:
+                replace_limited_team_tokens(
+                    resource,
+                    {self.team.api_token: score},
+                    QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY,
+                )
 
         with self.settings(USE_TZ=False):
             self.organization.usage = {
@@ -2697,11 +2729,12 @@ class TestQuotaLimiting(BaseTest):
     ) -> None:
         recordings_zset_key = "@posthog/quota-limits/recordings"
         score = int(timezone.now().timestamp()) + 10_000
-        replace_limited_team_tokens(
-            QuotaResource.RECORDINGS,
-            {self.team.api_token: score},
-            QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY,
-        )
+        for resource in REPLAY_QUOTA_RESOURCES:
+            replace_limited_team_tokens(
+                resource,
+                {self.team.api_token: score},
+                QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY,
+            )
 
         self.organization.usage = {
             "events": {"usage": 0, "limit": 100, "todays_usage": 0},
@@ -2789,6 +2822,7 @@ def _full_usage_counters(**overrides: int) -> UsageCounters:
         events=0,
         exceptions=0,
         recordings=0,
+        mobile_recordings=0,
         rows_synced=0,
         feature_flag_requests=0,
         api_queries_read_bytes=0,

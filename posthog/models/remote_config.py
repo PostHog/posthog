@@ -313,16 +313,26 @@ class RemoteConfig(UUIDTModel):
 
         # MARK: Quota limiting
         if settings.EE_AVAILABLE:
-            from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, list_limited_team_attributes
-
-            limited_tokens_recordings = list_limited_team_attributes(
-                QuotaResource.RECORDINGS,
-                QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY,
-                use_cache=not bypass_recordings_quota_cache,
+            from ee.billing.quota_limiting import (
+                REPLAY_QUOTA_RESOURCES,
+                QuotaLimitingCaches,
+                list_limited_team_attributes,
             )
 
-            if team.api_token in limited_tokens_recordings:
-                config["quotaLimited"] = ["recordings"]
+            # Web and mobile SDKs share `sessionRecording`, so a limit on one platform only adds its
+            # resource here. The config servers turn recording off for clients of the limited platform.
+            replay_limits = {
+                resource: team.api_token
+                in list_limited_team_attributes(
+                    resource,
+                    QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY,
+                    use_cache=not bypass_recordings_quota_cache,
+                )
+                for resource in REPLAY_QUOTA_RESOURCES
+            }
+            if any(replay_limits.values()):
+                config["quotaLimited"] = [resource.value for resource, limited in replay_limits.items() if limited]
+            if all(replay_limits.values()):
                 config["sessionRecording"] = False
 
         config["heatmaps"] = build_heatmaps_config(team) if team.heatmaps_opt_in else False
