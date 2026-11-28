@@ -180,6 +180,34 @@ def relative_date(grafana_from: Any) -> str | None:
     return None
 
 
+def _queries_one_instant(panel: dict[str, Any]) -> bool:
+    visible = [target for target in _list(panel.get("targets")) if isinstance(target, dict) and not target.get("hide")]
+    return bool(visible) and all(target.get("instant") is True and not target.get("range") for target in visible)
+
+
+def _dropped_settings(panel: dict[str, Any], kind: PanelKind) -> list[str]:
+    """Notes for the Grafana settings that change what the panel shows and that the import leaves out."""
+    field_config = _dict(panel.get("fieldConfig"))
+    defaults = _dict(field_config.get("defaults"))
+    options = _dict(panel.get("options"))
+    notes: list[str] = []
+    if _list(field_config.get("overrides")) or _list(panel.get("seriesOverrides")):
+        notes.append("Settings for single series, such as colors, units or a right axis, are not imported.")
+    if _list(defaults.get("mappings")) or _list(panel.get("valueMaps")) or _list(panel.get("rangeMaps")):
+        notes.append("Value mappings are not imported, so the panel shows raw values.")
+    if isinstance(panel.get("timeFrom"), str) and panel["timeFrom"].strip():
+        notes.append("The panel's own time range is not imported, so it uses the dashboard time range.")
+    if isinstance(panel.get("timeShift"), str) and panel["timeShift"].strip():
+        notes.append("The panel's time shift is not imported, so it shows the dashboard time range.")
+    legend = _dict(options.get("legend"))
+    if kind == "timeseries" and _list(legend.get("calcs")) and legend.get("showLegend") is not False:
+        notes.append("Legend values, such as the mean or max, are not imported.")
+    calculations = _list(_dict(options.get("reduceOptions")).get("calcs"))
+    if kind in _REDUCED_KINDS and len(calculations) > 1 and not _queries_one_instant(panel):
+        notes.append(f"The panel shows only the first of its {len(calculations)} calculations.")
+    return notes
+
+
 class GrafanaDashboardParser:
     def __init__(self, raw: Any) -> None:
         unwrapped = self._unwrap(raw)
@@ -364,6 +392,7 @@ class GrafanaDashboardParser:
             notes.append("Grafana repeats this panel for each variable value. The import keeps one panel.")
         if panel.get("transformations"):
             notes.append("Grafana transformations are not imported.")
+        notes.extend(_dropped_settings(panel, kind))
         display = self._display(panel, kind, grafana_type, notes)
         targets = self._targets(panel, notes)
         return PanelSpec(
@@ -426,6 +455,9 @@ class GrafanaDashboardParser:
             calculation = next(iter(_list(_dict(options.get("reduceOptions")).get("calcs"))), None)
             if grafana_type == "singlestat":
                 calculation = panel.get("valueName") or "avg"
+            # Grafana reduces an instant query's single point, so every calculation gives its last value.
+            if _queries_one_instant(panel):
+                calculation = "lastNotNull"
             reduce, reducer_note = map_reducer(calculation or "lastNotNull")
             if reducer_note:
                 notes.append(reducer_note)

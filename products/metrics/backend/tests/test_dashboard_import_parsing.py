@@ -223,6 +223,68 @@ def test_maps_the_stat_graph_mode(panel: dict[str, Any], shows_graph: bool) -> N
 
 
 @pytest.mark.parametrize(
+    "panel, note",
+    [
+        pytest.param(
+            {"fieldConfig": {"overrides": [{"matcher": {"id": "byName", "options": "p99"}, "properties": []}]}},
+            "Settings for single series, such as colors, units or a right axis, are not imported.",
+            id="field_overrides",
+        ),
+        pytest.param(
+            {"type": "graph", "seriesOverrides": [{"alias": "p99", "yaxis": 2}]},
+            "Settings for single series, such as colors, units or a right axis, are not imported.",
+            id="legacy_series_overrides",
+        ),
+        pytest.param(
+            {"type": "stat", "fieldConfig": {"defaults": {"mappings": [{"type": "value", "options": {}}]}}},
+            "Value mappings are not imported, so the panel shows raw values.",
+            id="value_mappings",
+        ),
+        pytest.param(
+            {"timeFrom": "1h"},
+            "The panel's own time range is not imported, so it uses the dashboard time range.",
+            id="panel_time_range",
+        ),
+        pytest.param(
+            {"timeShift": "1d"},
+            "The panel's time shift is not imported, so it shows the dashboard time range.",
+            id="time_shift",
+        ),
+        pytest.param(
+            {"options": {"legend": {"calcs": ["mean", "max"], "showLegend": True}}},
+            "Legend values, such as the mean or max, are not imported.",
+            id="legend_values",
+        ),
+        pytest.param(
+            {"type": "stat", "options": {"reduceOptions": {"calcs": ["mean", "max"]}}},
+            "The panel shows only the first of its 2 calculations.",
+            id="several_calculations",
+        ),
+    ],
+)
+def test_notes_the_settings_that_the_import_leaves_out(panel: dict[str, Any], note: str) -> None:
+    raw = {"type": "timeseries", **panel, "id": 1, "targets": [{"expr": "up"}]}
+
+    assert GrafanaDashboardParser({"panels": [raw]}).parse().panels[0].notes == [note]
+
+
+@pytest.mark.parametrize(
+    "target, reduce",
+    [
+        ({"expr": "up", "instant": True}, "last"),
+        ({"expr": "up", "instant": True, "range": True}, "mean"),
+        ({"expr": "up"}, "mean"),
+    ],
+)
+def test_an_instant_query_shows_its_last_value(target: dict[str, Any], reduce: str) -> None:
+    raw = {"id": 1, "type": "stat", "options": {"reduceOptions": {"calcs": ["mean", "max"]}}, "targets": [target]}
+
+    (panel,) = GrafanaDashboardParser({"panels": [raw]}).parse().panels
+
+    assert panel.display.reduce == reduce
+
+
+@pytest.mark.parametrize(
     "raw, expected_title",
     [
         ({"dashboard": {"title": "Wrapped", "panels": [{"type": "text", "options": {"content": "x"}}]}}, "Wrapped"),
