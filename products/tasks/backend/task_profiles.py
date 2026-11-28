@@ -90,7 +90,23 @@ USER = replace(
     agent_policy=AgentPolicy(pr_thread_link=True),
 )
 
-MCP_ANALYTICS = replace(_PUBLIC, key="mcp_analytics", origin_product="mcp_analytics")
+TRUSTED_NETWORK = NetworkPolicy(levels=(NetworkAccess.TRUSTED,))
+
+WIZARD_ALLOWED_DOMAINS = (
+    "repo.maven.apache.org",
+    "dl.google.com",
+    "maven.google.com",
+    "plugins.gradle.org",
+    "plugins-artifacts.gradle.org",
+    "downloads.gradle.org",
+    "index.crates.io",
+    "repo.hex.pm",
+    "builds.hex.pm",
+    "mcp.svelte.dev",
+    "release-assets.githubusercontent.com",
+)
+
+MCP_ANALYTICS = replace(_PUBLIC, key="mcp_analytics", origin_product="mcp_analytics", network=TRUSTED_NETWORK)
 LOOP = replace(_BASE, key="loop", origin_product="loop", mcp_scopes="read_only")
 
 HOGDESK = replace(
@@ -105,12 +121,16 @@ WIZARD = replace(
     drive=DrivePolicy.AUDIENCE,
     mcp_scopes="read_only",
     billing_product="onboarding",
+    network=NetworkPolicy(
+        levels=(NetworkAccess.CUSTOM,), allowed_domains=WIZARD_ALLOWED_DOMAINS, include_default_domains=True
+    ),
 )
 
 SPACE_SETUP = replace(
     _BASE,
     key="space_setup",
     origin_product="space_setup",
+    network=TRUSTED_NETWORK,
     idle_minutes=60,
     max_wake_minutes=None,
     bills_compute=True,
@@ -120,6 +140,7 @@ IMAGE_BUILDER = replace(
     _BASE,
     key="image_builder",
     origin_product="image_builder",
+    network=NetworkPolicy(levels=(NetworkAccess.FULL,)),
     github_resolution=GithubResolution.ALWAYS,
     idle_minutes=60,
     max_wake_minutes=None,
@@ -129,6 +150,7 @@ TASK_ANALYSIS = replace(
     _BASE,
     key="task_analysis",
     origin_product="task_analysis",
+    network=TRUSTED_NETWORK,
     listed=False,
     inherit_user_defaults=False,
     personal_mcp=False,

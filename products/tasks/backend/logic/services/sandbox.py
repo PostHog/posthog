@@ -433,7 +433,7 @@ SENSITIVE_AGENT_RUNTIME_ARGUMENT_PATTERN = re.compile(
     rf"(?P<name>--mcpServers)\s+(?P<value>{SHELL_ARGUMENT_VALUE_PATTERN})"
 )
 SENSITIVE_FILE_HEREDOC_PATTERN = re.compile(
-    r"(?P<prefix><<'POSTHOG_FILE_EOF'\n).*?(?P<suffix>\nPOSTHOG_FILE_EOF)", re.DOTALL
+    r"(?P<prefix><<'(?P<marker>POSTHOG_FILE_EOF|EOF_SANDBOX_WRITE)'[^\n]*\n).*?(?P<suffix>\n(?P=marker))", re.DOTALL
 )
 GITHUB_CLONE_TOKEN_PATTERN = re.compile(r"(?P<prefix>https://x-access-token:)[^@\s]+(?P<suffix>@github\.com/)")
 GITLAB_CLONE_TOKEN_PATTERN = re.compile(r"(?P<prefix>https://oauth2:)[^@\s]+(?P<suffix>@gitlab\.com/)")

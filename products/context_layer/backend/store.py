@@ -48,6 +48,7 @@ BUNDLE_MAX_OBJECTS = 500_000
 # sum across commits rather than the size of any one of them. A prose wiki lands
 # far below this; a bundle that exceeds it has to be split.
 BUNDLE_MAX_CUMULATIVE_TREE_BYTES = 1_000_000_000
+BUNDLE_MAX_MOUNT_BYTES = 100_000_000
 DREAM_BRANCH_RE = re.compile(r"dream/\d{4}-\d{2}-\d{2}")
 LOCK_TTL_MS = 60_000
 LOCK_RENEW_INTERVAL_SECONDS = 20.0
@@ -120,6 +121,12 @@ class BundleExport:
     """A presigned download URL for a bundle and the head sha it points at."""
 
     url: str
+    head_sha: str
+
+
+@frozen
+class BundleContent:
+    content: bytes
     head_sha: str
 
 
@@ -828,3 +835,22 @@ def get_bundle_export(organization_id: uuid.UUID | str, *, expiration_seconds: i
     if url is None:
         raise ContextLayerStoreError(f"could not presign the bundle for organization {organization_id}")
     return BundleExport(url=url, head_sha=config.head_sha)
+
+
+def read_bundle(organization_id: uuid.UUID | str) -> BundleContent:
+    config = get_config(organization_id)
+    key = bundle_key(organization_id, config.head_sha)
+    try:
+        head = object_storage.head_object_strict(key)
+        if head is None:
+            raise ContextLayerStoreError(f"no bundle for organization {organization_id} at {config.head_sha}")
+        if head["ContentLength"] > BUNDLE_MAX_MOUNT_BYTES:
+            raise ContextLayerStoreError(
+                f"bundle for organization {organization_id} is past the {BUNDLE_MAX_MOUNT_BYTES // 1_000_000} MB mount limit"
+            )
+        content = object_storage.read_bytes(key, missing_ok=True)
+    except object_storage.ObjectStorageError as error:
+        raise ContextLayerStoreError(f"could not read the bundle for organization {organization_id}") from error
+    if content is None:
+        raise ContextLayerStoreError(f"no bundle for organization {organization_id} at {config.head_sha}")
+    return BundleContent(content=content, head_sha=config.head_sha)

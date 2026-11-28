@@ -220,9 +220,15 @@ class TestDockerSandboxUnit:
 
         assert redacted == "agent-server --mcpServers <redacted> --port 8080"
 
-    def test_redact_sandbox_command_hides_file_heredoc(self):
-        command = "base64 -d > /tmp/value <<'POSTHOG_FILE_EOF'\nc2VjcmV0\nPOSTHOG_FILE_EOF"
-
+    @pytest.mark.parametrize(
+        "command",
+        [
+            "base64 -d > /tmp/value <<'POSTHOG_FILE_EOF'\nc2VjcmV0\nPOSTHOG_FILE_EOF",
+            "base64 -d >> /tmp/value.tmp <<'POSTHOG_FILE_EOF' && mv /tmp/value.tmp /tmp/value\nc2VjcmV0\nPOSTHOG_FILE_EOF",
+            "python3 - <<'EOF_SANDBOX_WRITE' && mv /tmp/value.tmp /tmp/value\npayload = base64.b64decode('c2VjcmV0')\nEOF_SANDBOX_WRITE",
+        ],
+    )
+    def test_redact_sandbox_command_hides_file_heredoc(self, command: str) -> None:
         redacted = redact_sandbox_command(command)
 
         assert "c2VjcmV0" not in redacted

@@ -928,6 +928,8 @@ def _resolve_sandbox_backend(
     requested_template = (state or {}).get("sandbox_template")
     if requested_template not in (None, SandboxTemplate.DEFAULT_BASE.value):
         return "modal"
+    if (state or {}).get("wizard_config") is not None:
+        return "modal"
     if has_user_custom_image or task_runtime == Task.Runtime.PI:
         return "modal"
 
@@ -1157,6 +1159,14 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
                     )
             if profile is not None and sandbox_environment.internal:
                 allowed_domains = _profile_allowed_domains(profile.network)
+            elif profile is not None and NetworkAccess.FULL not in profile.network.levels:
+                raise TaskInvalidStateError(
+                    f"Task profile {profile.key} does not accept sandbox environment {sandbox_environment_id}",
+                    {"sandbox_environment_id": sandbox_environment_id, "profile": profile.key},
+                    cause=RuntimeError(
+                        f"Task profile {profile.key} limits network access, so its runs cannot use a picked environment"
+                    ),
+                )
             elif sandbox_environment.network_access_level == SandboxEnvironment.NetworkAccessLevel.FULL:
                 allowed_domains = None
             else:
