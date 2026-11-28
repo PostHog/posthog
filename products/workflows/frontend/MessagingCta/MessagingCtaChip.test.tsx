@@ -1,5 +1,7 @@
 import { MOCK_DEFAULT_USER } from 'lib/api.mock'
 
+import userEvent from '@testing-library/user-event'
+
 import { FEATURE_FLAGS } from 'lib/constants'
 
 import { AccessControlLevel, AccessControlResourceType, AppContext } from '~/types'
@@ -11,7 +13,9 @@ interface Page {
     renderChip: (disabledReason?: string) => void
     chip: () => HTMLElement | null
     click: (element: HTMLElement, init?: MouseEventInit) => void
-    middleClick: (element: HTMLElement) => void
+    auxClick: (element: HTMLElement, button: number) => void
+    tab: () => Promise<void>
+    findText: (text: string) => Promise<HTMLElement>
     captured: (event: string) => Record<string, unknown>[]
     switchViewer: (uuid: string) => void
     close: () => void
@@ -50,7 +54,10 @@ function openFreshPageLoad(replayArm: string | boolean | undefined, sendsFromCod
             },
             chip,
             click: (element, init) => rtl.fireEvent.click(element, init),
-            middleClick: (element) => rtl.fireEvent(element, new MouseEvent('auxclick', { bubbles: true, button: 1 })),
+            auxClick: (element, button) =>
+                rtl.fireEvent(element, new MouseEvent('auxclick', { bubbles: true, button })),
+            tab: () => userEvent.tab(),
+            findText: (text) => rtl.screen.findByText(text),
             captured: (event) =>
                 capture.mock.calls.filter(([name]) => name === event).map(([, properties]) => properties ?? {}),
             switchViewer: (uuid) => rtl.act(() => userLogic.actions.loadUserSuccess({ ...MOCK_DEFAULT_USER, uuid })),
@@ -111,7 +118,7 @@ describe('MessagingCtaChip', () => {
     )
 
     it('reports its arm once, and links to email setup with clicks that each carry a new attempt', () => {
-        const { renderChip, chip, click, middleClick, captured } = open('player_chip')
+        const { renderChip, chip, click, auxClick, captured } = open('player_chip')
         renderChip()
         renderChip()
 
@@ -122,10 +129,17 @@ describe('MessagingCtaChip', () => {
 
         const link = chip()!.querySelector('a')!
         expect(link.getAttribute('href')).toMatch(/\/transactional\/new$/)
-        click(link)
-        click(link, { ctrlKey: true })
-        click(link, { metaKey: true })
-        middleClick(link)
+        const clicksAfter = (gesture: () => void): number => {
+            gesture()
+            return captured('message audience clicked').length
+        }
+        expect([
+            clicksAfter(() => click(link)),
+            clicksAfter(() => click(link, { ctrlKey: true })),
+            clicksAfter(() => click(link, { metaKey: true })),
+            clicksAfter(() => auxClick(link, 1)),
+            clicksAfter(() => auxClick(link, 2)),
+        ]).toEqual([1, 2, 3, 4, 4])
         const clicks = captured('message audience clicked')
         expect(clicks).toEqual(
             Array(4).fill({
@@ -137,12 +151,14 @@ describe('MessagingCtaChip', () => {
         expect(new Set(clicks.map((properties) => properties.attempt_id)).size).toBe(4)
     })
 
-    it('shows its copy without a link when the host gives a reason it is disabled', () => {
-        const { renderChip, chip } = open('player_chip')
+    it('shows its copy without a link when the host gives a reason it is disabled, and the reason on focus', async () => {
+        const { renderChip, chip, tab, findText } = open('player_chip')
         renderChip('Not available here')
 
         expect(chip()?.textContent).toContain('From an email?')
         expect(chip()!.querySelector('a')).toBeNull()
+        await tab()
+        expect(await findText('Not available here')).toBeTruthy()
     })
 
     it('stays hidden and silent for 90 days after its × is clicked, for that viewer only', () => {
