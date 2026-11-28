@@ -97,8 +97,22 @@ describe('MessagingCtaChip', () => {
         { name: 'a false flag', arm: false, access: AccessControlLevel.Editor, exposed: false },
         { name: 'a viewer without edit access', arm: 'player_chip', access: AccessControlLevel.Viewer, exposed: false },
         {
-            name: 'a team that cannot send email from code',
+            name: 'a team that cannot send email from code, in the chip arm',
             arm: 'player_chip',
+            access: AccessControlLevel.Editor,
+            exposed: false,
+            sendsFromCode: false,
+        },
+        {
+            name: 'a team that cannot send email from code, in the control arm',
+            arm: 'control',
+            access: AccessControlLevel.Editor,
+            exposed: false,
+            sendsFromCode: false,
+        },
+        {
+            name: 'a team that cannot send email from code, in the holdout',
+            arm: 'holdout-1',
             access: AccessControlLevel.Editor,
             exposed: false,
             sendsFromCode: false,
