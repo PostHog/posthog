@@ -1,7 +1,6 @@
 import { withPostgres } from '../environment/stack'
 
 export type VacuumSample = {
-    at: number
     liveTuples: number
     deadTuples: number
     autovacuums: number
@@ -39,7 +38,6 @@ export function createVacuumProbe(cyclotronUrl: string): VacuumProbe {
             withPostgres(async (client) => {
                 const { rows } = await client.query<SampleRow>(
                     `SELECT
-                         extract(epoch FROM statement_timestamp()) * 1000 AS at,
                          s.n_live_tup AS "liveTuples",
                          s.n_dead_tup AS "deadTuples",
                          s.autovacuum_count AS autovacuums,
@@ -58,7 +56,6 @@ export function createVacuumProbe(cyclotronUrl: string): VacuumProbe {
                 )
                 const [row] = rows
                 return {
-                    at: Number(row.at),
                     liveTuples: Number(row.liveTuples),
                     deadTuples: Number(row.deadTuples),
                     autovacuums: Number(row.autovacuums),
