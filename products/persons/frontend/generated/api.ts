@@ -17,6 +17,7 @@ import type {
     PersonBulkDeleteResponseApi,
     PersonCohortsResponseApi,
     PersonDeletePropertyRequestApi,
+    PersonEmailApi,
     PersonPropertiesAtTimeResponseApi,
     PersonRecordApi,
     PersonSplitRequestApi,
@@ -290,8 +291,8 @@ export const personsEmailsList = async (
     id: number,
     params?: PersonsEmailsListParams,
     options?: RequestInit
-): Promise<MessageAssetApi[]> => {
-    return apiMutator<MessageAssetApi[]>(getPersonsEmailsListUrl(projectId, id, params), {
+): Promise<PersonEmailApi[]> => {
+    return apiMutator<PersonEmailApi[]>(getPersonsEmailsListUrl(projectId, id, params), {
         ...options,
         method: 'GET',
     })

@@ -5,6 +5,7 @@ The send API writes `queued`, or `scheduled` for a send that waits for its time,
 """
 
 import json
+from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 from typing import cast
 from uuid import UUID, uuid5
@@ -42,16 +43,15 @@ GROUP BY message_id
 
 
 # A keyed send's ID holds no time, so its own rows say when it was queued. email_status's sort key starts with the
-# team and the message, so this reads one message's rows in each partition the retention keeps. A refused send claims
+# team and the message, so this reads the messages' rows in each partition the retention keeps. A refused send claims
 # no key, so a later retry under the same key is a newer attempt with the same ID, and the newest one is the send.
 _KEYED_CREATED_AT_QUERY = """
-SELECT created_at
+SELECT message_id, max(created_at)
 FROM {table}
 WHERE team_id = %(team_id)s
-  AND message_id = %(message_id)s
+  AND message_id IN %(message_ids)s
   AND created_at >= %(start)s
-ORDER BY created_at DESC
-LIMIT 1
+GROUP BY message_id
 """
 
 
@@ -79,31 +79,47 @@ def message_created_at(
     A keyed ID is looked up in email_status. A reader that reads another table can name it as `lag_fallback_table`,
     so a recent send the email_status consumer has not reached yet is still found there.
     """
-    if not is_keyed_message_id(message_id):
-        return queued_at(message_id)
+    return messages_created_at(team_id, [message_id], workload, lag_fallback_table).get(message_id)
+
+
+@events_route_scope(HogQLQueryModifiers(useNewEventsSchema=False))
+def messages_created_at(
+    team_id: int, message_ids: Sequence[UUID], workload: Workload, lag_fallback_table: str | None = None
+) -> dict[UUID, datetime]:
+    """When each of the sends was queued, found as `message_created_at` finds one. A send no table keeps is left out."""
+    found: dict[UUID, datetime] = {}
+    keyed: list[UUID] = []
+    for message_id in message_ids:
+        if is_keyed_message_id(message_id):
+            keyed.append(message_id)
+        elif (queued := queued_at(message_id)) is not None:
+            found[message_id] = queued
+    if not keyed:
+        return found
     now = datetime.now(UTC)
-    found = _keyed_created_at(team_id, message_id, workload, EMAIL_STATUS_TABLE, since=now - _RETENTION)
-    if found is None and lag_fallback_table is not None:
+    found |= _keyed_created_at(team_id, keyed, workload, EMAIL_STATUS_TABLE, since=now - _RETENTION)
+    missing = [message_id for message_id in keyed if message_id not in found]
+    if missing and lag_fallback_table is not None:
         # The fallback table's sort key leads with created_at, so a miss scans every row it reads. Consumer lag is
         # minutes, so a short window keeps a missing ID cheap.
-        found = _keyed_created_at(team_id, message_id, workload, lag_fallback_table, since=now - _CONSUMER_LAG)
+        found |= _keyed_created_at(team_id, missing, workload, lag_fallback_table, since=now - _CONSUMER_LAG)
     return found
 
 
 def _keyed_created_at(
-    team_id: int, message_id: UUID, workload: Workload, table: str, since: datetime
-) -> datetime | None:
+    team_id: int, message_ids: Sequence[UUID], workload: Workload, table: str, since: datetime
+) -> dict[UUID, datetime]:
     tag_queries(product=Product.MESSAGING, feature=Feature.QUERY)
     rows = cast(
         list,
         sync_execute(
             _KEYED_CREATED_AT_QUERY.format(table=table),
-            {"team_id": team_id, "message_id": str(message_id), "start": since},
+            {"team_id": team_id, "message_ids": [str(message_id) for message_id in message_ids], "start": since},
             workload=workload,
             team_id=team_id,
         ),
     )
-    return rows[0][0].replace(tzinfo=UTC) if rows else None
+    return {UUID(str(message_id)): created_at.replace(tzinfo=UTC) for message_id, created_at in rows}
 
 
 def queued_at(message_id: UUID) -> datetime | None:

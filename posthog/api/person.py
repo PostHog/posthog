@@ -3,7 +3,7 @@ import json
 import uuid
 import builtins
 import dataclasses
-from collections.abc import Collection, Mapping
+from collections.abc import Collection, Mapping, Sequence
 from datetime import UTC, datetime
 from typing import Any, Optional, Union, cast  # noqa: UP035
 
@@ -46,6 +46,7 @@ from posthog.api.property_value_metrics import PROPERTY_VALUES_DURATION
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action, paging_params, parse_actor_property_filters
 from posthog.auth import PersonalAPIKeyAuthentication, ProjectSecretAPIKeyAuthentication
+from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.errors import ExposedCHQueryError, QueryErrorCategory, classify_query_error
 from posthog.event_usage import get_request_analytics_properties
@@ -75,7 +76,7 @@ from posthog.models.person.util import (
     get_persons_by_uuids,
     get_persons_mapped_by_distinct_id,
 )
-from posthog.permissions import is_authenticated_via_project_secret_api_key
+from posthog.permissions import is_authenticated_via_project_secret_api_key, request_subject, scopes_caller_lacks
 from posthog.personhog_client.caller_tag import personhog_caller_tag
 from posthog.rate_limit import (
     ClickHouseBurstRateThrottle,
@@ -96,15 +97,26 @@ from posthog.utils import (
     relative_date_parse_with_delta_mapping,
     str_to_bool,
 )
+from posthog.uuidt import UUIDT
 
 from products.access_control.backend.facade.api import property_key_overlaps_restriction, redact_restricted_properties
 from products.ai_training.backend.facade.api import queue_person_training_deletion
+from products.authorization.backend.facade import api as authorization
+from products.authorization.backend.facade.contracts import Resource
+from products.authorization.backend.facade.enums import Action, ResourceType
 from products.cohorts.backend.models.cohort import Cohort
 from products.cohorts.backend.models.util import get_all_cohort_ids_by_person_uuid
-from products.workflows.backend.facade.api import get_workflow_names
+from products.messaging.backend.facade.transactional_email_log import (
+    hold_query_slots,
+    transactional_email_log_enabled,
+    transactional_emails_in_log,
+)
+from products.workflows.backend.facade.api import get_workflow_names, get_workflow_view_access
+from products.workflows.backend.facade.contracts import TRANSACTIONAL_EMAIL_ACTION_ID, MessageAsset
 from products.workflows.backend.facade.message_assets import fetch_message_assets_for_person
 from products.workflows.backend.presentation.views.message_assets import (
     MessageAssetSerializer,
+    PersonEmailSerializer,
     PersonMessageAssetsRequestSerializer,
 )
 
@@ -1814,7 +1826,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     @extend_schema(
         parameters=[PersonMessageAssetsRequestSerializer],
-        responses=MessageAssetSerializer(many=True),
+        responses=PersonEmailSerializer(many=True),
     )
     @action(
         methods=["GET"],
@@ -1892,7 +1904,52 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # back keyed by the string id.
         name_by_id = get_workflow_names(team_id=self.team_id, workflow_ids={row.function_id for row in data})
         enriched = [dataclasses.replace(row, function_name=name_by_id.get(row.function_id, "")) for row in data]
-        return response.Response(MessageAssetSerializer(enriched, many=True).data)
+        if kind != "email":
+            return response.Response(MessageAssetSerializer(enriched, many=True).data)
+        return response.Response(PersonEmailSerializer(self._with_transactional_log(enriched), many=True).data)
+
+    def _reads_workflows(self) -> bool:
+        # The log's endpoints admit a reader of workflows as a whole, or of at least one workflow by a grant on it.
+        workflows = Resource(type=ResourceType.HOG_FLOW, project_id=self.team_id)
+        subject = request_subject(self.request)
+        if authorization.check(resource=workflows, action=Action.VIEW, subject=subject):
+            return True
+        granted = authorization.list_objects(resource=workflows, action=Action.VIEW, subject=subject)
+        return granted.complete and not granted.excluded and bool(granted.ids)
+
+    def _with_transactional_log(self, rows: Sequence[MessageAsset]) -> Sequence[MessageAsset]:
+        sends = {
+            row.invocation_id: row.function_id
+            for row in rows
+            if row.action_id == TRANSACTIONAL_EMAIL_ACTION_ID and UUIDT.is_valid_uuid(row.invocation_id)
+        }
+        # The log's own endpoints need hog_flow:read, so a token without it learns nothing of what the log keeps.
+        if not sends or scopes_caller_lacks(self.request, ["hog_flow:read"]):
+            return rows
+        try:
+            if not transactional_email_log_enabled(self.team) or not self._reads_workflows():
+                return rows
+            access = get_workflow_view_access(
+                team_id=self.team_id, user_access_control=self.user_access_control, workflow_ids=set(sends.values())
+            )
+            with hold_query_slots(self.team):
+                kept = transactional_emails_in_log(
+                    self.team_id,
+                    [(uuid.UUID(message_id), workflow_id) for message_id, workflow_id in sends.items()],
+                    access=access,
+                )
+        except ConcurrencyLimitExceeded:
+            # The log answers 429 while its slots are full, so the rows leave the field unset rather than report it.
+            return rows
+        except Exception as error:
+            capture_exception(error)
+            return rows
+        return [
+            dataclasses.replace(row, in_transactional_email_log=uuid.UUID(row.invocation_id) in kept)
+            if row.action_id == TRANSACTIONAL_EMAIL_ACTION_ID and row.invocation_id in sends
+            else row
+            for row in rows
+        ]
 
     @extend_schema(
         exclude=True,  # NOTE: We exclude as we want to push people to use the more powerful bulk_delete endpoint

@@ -33,14 +33,13 @@ function EmptyEmails(): JSX.Element {
 
 export function PersonEmailsTab({ teamId, personId }: PersonEmailsTabProps): JSX.Element {
     const logic = personEmailsLogic({ teamId, personId })
-    const { emails, emailsLoading, previewedEmail: selected, openingEmail } = useValues(logic)
+    const { emails, emailsLoading, previewedEmail: selected } = useValues(logic)
     const { openEmail, previewEmail } = useActions(logic)
 
     return (
         <>
             <LemonTable
-                loading={emailsLoading || openingEmail}
-                disableTableWhileLoading={!openingEmail}
+                loading={emailsLoading}
                 dataSource={emails}
                 onRow={(asset: MessageAsset) => ({
                     onClick: () => openEmail(asset),

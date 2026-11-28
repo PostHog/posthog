@@ -746,6 +746,7 @@ class MessageAsset:
     # Human-readable workflow name; enriched by the endpoint before serialization.
     # Left blank when the workflow no longer exists so the frontend falls back to function_id.
     function_name: str = ""
+    in_transactional_email_log: bool | None = None
 
 
 @frozen
