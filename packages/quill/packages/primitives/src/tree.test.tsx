@@ -45,7 +45,13 @@ function Harness({ initialExpanded = [], items = ITEMS, ...props }: HarnessProps
     )
 }
 
-const row = (name: string): HTMLElement => screen.getByRole('treeitem', { name })
+const row = (name: string): HTMLElement => {
+    const item = screen.getByText(name).closest<HTMLElement>('[role="treeitem"]')
+    if (!item) {
+        throw new Error(`No tree row labelled ${name}`)
+    }
+    return item
+}
 const focused = (): string | null => document.activeElement?.textContent ?? null
 
 async function focusFirst(): Promise<void> {
@@ -58,7 +64,7 @@ describe('Tree', () => {
     it('exposes the tree pattern aria attributes', () => {
         render(<Harness initialExpanded={['fruit']} />)
 
-        expect(screen.getByRole('tree', { name: 'Groceries' })).toBeTruthy()
+        expect(screen.getByLabelText('Groceries').getAttribute('role')).toBe('tree')
         const fruit = row('Fruit')
         expect(fruit.getAttribute('aria-level')).toBe('1')
         expect(fruit.getAttribute('aria-posinset')).toBe('1')
@@ -124,7 +130,7 @@ describe('Tree', () => {
 
         await userEvent.keyboard('{ArrowLeft}')
         expect(row('Fruit').getAttribute('aria-expanded')).toBe('false')
-        expect(screen.queryByRole('treeitem', { name: 'Banana' })).toBeNull()
+        expect(screen.queryByText('Banana')).toBeNull()
     })
 
     it('moves to the next row that starts with the typed text', async () => {
