@@ -423,7 +423,7 @@ export const scoutSuggestionsLogic = kea<scoutSuggestionsLogicType>([
                 suggestionCreated: () => null,
             },
         ],
-        // Null until someone touches the chevron, so the strip opens collapsed until they have an
+        // Null until someone shows or hides the picks, so the strip opens collapsed until they have an
         // opinion. Scoped to the user and project, so opening it here does not open it elsewhere.
         collapsedOverride: [
             null as boolean | null,
