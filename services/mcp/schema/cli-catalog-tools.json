@@ -5080,7 +5080,9 @@
         },
         "input": {
             "aliases": {},
-            "casts": {},
+            "casts": {
+                "dateRange": "castObjectToJsonString"
+            },
             "validators": []
         }
     },
@@ -5157,7 +5159,9 @@
         },
         "input": {
             "aliases": {},
-            "casts": {},
+            "casts": {
+                "dateRange": "castObjectToJsonString"
+            },
             "validators": []
         }
     },
