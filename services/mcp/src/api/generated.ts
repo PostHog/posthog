@@ -154785,7 +154785,7 @@ export namespace Schemas {
      */
     max_age_days?: number;
     /**
-     * How many of each scout's most recent runs to return (default 25, hard cap 100). The count is per scout, so a scout's history depth does not depend on how often the rest of the fleet runs.
+     * How many of each scout's most recent runs to return (default 100, hard cap 100). The count is per scout, so a scout's history depth does not depend on how often the rest of the fleet runs.
      * @minimum 1
      * @maximum 100
      */
