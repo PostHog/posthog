@@ -257,25 +257,43 @@ describe('adventCalendarLogic', () => {
             'reload' | 'close' | 'another tab',
             Parameters<typeof calendarApi>[0],
             number,
+            number[],
         ]
     >([
-        ['the reply confirms the open, and the server refuses opens after the reload', {}, 'reload', { open: 403 }, 1],
-        ['the reply puts the first open on another day', LATE, 'reload', {}, 0],
-        ['the server refuses the open', { open: 403 }, 'reload', {}, 0],
+        [
+            'the reply confirms the open, and the server refuses opens after the reload',
+            {},
+            'reload',
+            { open: 403 },
+            1,
+            [],
+        ],
+        ['the reply puts the first open on another day', LATE, 'reload', {}, 0, []],
+        ['the server refuses the open', { open: 403 }, 'reload', {}, 0, []],
         [
             'the reply is lost on the network, and the server confirms it after the reload',
             { open: 'network error' },
             'reload',
             {},
             1,
+            [3],
         ],
-        ['the server fails, and puts the first open on another day after the reload', { open: 500 }, 'reload', LATE, 0],
+        ['the server throttles the open, and confirms it after the reload', { open: 429 }, 'reload', {}, 1, [3]],
+        [
+            'the server fails, and puts the first open on another day after the reload',
+            { open: 500 },
+            'reload',
+            LATE,
+            0,
+            [3],
+        ],
         [
             'the page reloads before the reply, and the server confirms it after the reload',
             { openHeld: new Promise(() => {}) },
             'reload',
             {},
             1,
+            [3],
         ],
         [
             'the page reloads before the reply, and the server has it on another day',
@@ -283,16 +301,18 @@ describe('adventCalendarLogic', () => {
             'reload',
             LATE,
             0,
+            [3],
         ],
-        ['the calendar closes before the reply comes back', {}, 'close', {}, 1],
+        ['the calendar closes before the reply comes back', {}, 'close', {}, 1, [3]],
         [
             'another tab saves its tickets without this one, and the server refuses opens after the reload',
             {},
             'another tab',
             { open: 403 },
             1,
+            [],
         ],
-    ])('shows the right tickets after a reload when %s', async (_, first, between, afterReload, tickets) => {
+    ])('shows the right tickets after a reload when %s', async (_, first, between, afterReload, tickets, resent) => {
         let reply: () => void = () => {}
         const held = between === 'close' ? new Promise<void>((resolve) => (reply = resolve)) : first?.openHeld
         const firstApi = calendarApi({ ...first, openHeld: held })
@@ -314,12 +334,16 @@ describe('adventCalendarLogic', () => {
             reply()
             await jest.advanceTimersByTimeAsync(100)
         }
-        useMocks(calendarApi(afterReload).mocks)
+        const afterApi = calendarApi(afterReload)
+        useMocks(afterApi.mocks)
         logic = adventCalendarLogic()
         logic.mount()
         await jest.advanceTimersByTimeAsync(100)
 
-        expect(logic.values.tickets).toBe(tickets)
+        expect({ tickets: logic.values.tickets, resent: afterApi.opens.map((open) => open.day) }).toEqual({
+            tickets,
+            resent,
+        })
     })
 
     it('counts no ticket from a stored format no release wrote', () => {

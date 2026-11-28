@@ -73,7 +73,7 @@ describe('AdventStage', () => {
         logic.unmount()
     })
 
-    it('lays out a locked door card the same in the top and bottom rows, with the weekday and date on single lines, and keeps the date and a translatable ticket count on the present', () => {
+    it('lays out a locked door card the same in the top and bottom rows, with the weekday and date on single lines, and keeps the date and the ticket count on the present', () => {
         const logic = adventCalendarLogic()
         logic.mount()
         const noop = (): void => {}
