@@ -12,23 +12,26 @@ function focusIsLost(root: HTMLElement): boolean {
 
 const doorOfNode = (nodeId: string): string => `button[aria-describedby="advent-flow-caption-${nodeId}"]`
 
-const isScrollStop = (body: HTMLElement | null | undefined): body is HTMLElement =>
-    !!body && body.scrollHeight > body.clientHeight && !body.querySelector('button, a[href]')
+const isScrollStop = (body: HTMLElement): boolean =>
+    body.scrollHeight > body.clientHeight && !body.querySelector('button, a[href]')
 
 function lastStopOf(card: Element | null): HTMLElement | null {
     const stops = Array.from(card?.querySelectorAll<HTMLElement>('button, a[href]') ?? []).filter(
         (stop) => stop.tabIndex >= 0
     )
     const body = card?.querySelector<HTMLElement>('.AdventCard__body')
-    return isScrollStop(body) ? body : (stops[stops.length - 1] ?? null)
+    return body && isScrollStop(body) ? body : (stops[stops.length - 1] ?? null)
 }
 
 function markScrollStop(card: Element | null): void {
     const body = card?.querySelector<HTMLElement>('.AdventCard__body')
+    if (!body) {
+        return
+    }
     if (isScrollStop(body)) {
         body.tabIndex = 0
     } else {
-        body?.removeAttribute('tabindex')
+        body.removeAttribute('tabindex')
     }
 }
 
