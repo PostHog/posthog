@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
 
 
-@dataclass
+@dataclass(frozen=True)
 class BigMailerEndpointConfig:
     name: str
     # Path under the v1 base URL. Brand-scoped endpoints carry a `{brand_id}` placeholder that the
@@ -16,6 +16,7 @@ class BigMailerEndpointConfig:
     primary_keys: list[str] = field(default_factory=lambda: ["id"])
     # Whether the table is selected for sync by default in the connection wizard.
     should_sync_default: bool = True
+    bounded_pagination: bool = False
 
 
 # BigMailer is brand-scoped: an account holds many brands and most resources hang off a brand. The
@@ -77,6 +78,29 @@ BIGMAILER_ENDPOINTS: dict[str, BigMailerEndpointConfig] = {
         path="/brands/{brand_id}/rss-campaigns",
         brand_scoped=True,
         primary_keys=_BRAND_COMPOSITE_KEY,
+    ),
+    "rss_update_campaigns": BigMailerEndpointConfig(
+        name="rss_update_campaigns",
+        path="/brands/{brand_id}/rss-campaigns/{parent_id}/updates",
+        brand_scoped=True,
+        primary_keys=["brand_id", "rss_campaign_id", "id"],
+        should_sync_default=False,
+    ),
+    "brand_properties": BigMailerEndpointConfig(
+        name="brand_properties",
+        path="/brands/{brand_id}/properties",
+        brand_scoped=True,
+        primary_keys=_BRAND_COMPOSITE_KEY,
+        should_sync_default=False,
+        bounded_pagination=True,
+    ),
+    "test_campaigns": BigMailerEndpointConfig(
+        name="test_campaigns",
+        path="/brands/{brand_id}/test-campaigns",
+        brand_scoped=True,
+        primary_keys=_BRAND_COMPOSITE_KEY,
+        should_sync_default=False,
+        bounded_pagination=True,
     ),
     "message_types": BigMailerEndpointConfig(
         name="message_types",

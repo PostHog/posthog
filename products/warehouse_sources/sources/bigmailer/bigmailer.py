@@ -1,17 +1,21 @@
 import dataclasses
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from functools import partial
-from typing import Any, Optional
+from typing import Any, Optional, TypedDict
+from urllib.parse import quote, urlsplit
 
+import structlog
 from requests import Response
 from requests.exceptions import HTTPError
 
 from products.warehouse_sources.sources.bigmailer.settings import BIGMAILER_ENDPOINTS, BigMailerEndpointConfig
 from products.warehouse_sources.sources.sdk import (
+    APIKeyAuth,
     ClientConfig,
     JSONResponseCursorPaginator,
     Resource,
     RESTAPIConfig,
+    RESTClient,
     ResumableSourceManager,
     SourceResponse,
     make_tracked_session,
@@ -24,6 +28,9 @@ BIGMAILER_BASE_URL = "https://api.bigmailer.io/v1"
 # The API caps list responses at 100 objects per page; request the max to minimise round trips
 # against the 10 req/s account rate limit.
 PAGE_SIZE = 100
+MAX_PAGES_PER_PARENT = 1_000
+
+logger = structlog.get_logger(__name__)
 
 # Stable substring matched by BigMailerSource.get_non_retryable_errors to permanently fail the sync
 # on a credential problem instead of retrying. Kept identical to the raised exception text.
@@ -38,6 +45,13 @@ class BigMailerAuthError(Exception):
     """
 
 
+class BigMailerRssFanoutState(TypedDict):
+    brand_cursor: str | None
+    completed_brands: list[str]
+    active_brand: str | None
+    campaign_state: dict[str, Any] | None
+
+
 @dataclasses.dataclass(frozen=False)
 class BigMailerResumeConfig:
     # Cursor for the next page to fetch on a top-level (account-wide) endpoint. None starts a list
@@ -49,6 +63,7 @@ class BigMailerResumeConfig:
     # Framework fan-out resume state for brand-scoped endpoints:
     # {"completed": [child_path, ...], "current": child_path | None, "child_state": {...} | None}.
     fanout_state: dict | None = None
+    rss_fanout_state: BigMailerRssFanoutState | None = None
 
 
 class BigMailerCursorPaginator(JSONResponseCursorPaginator):
@@ -69,6 +84,40 @@ class BigMailerCursorPaginator(JSONResponseCursorPaginator):
             self._has_next_page = True
         else:
             self._has_next_page = False
+
+
+class BigMailerPaginationError(Exception):
+    pass
+
+
+class BigMailerBoundedCursorPaginator(BigMailerCursorPaginator):
+    def __init__(self, resource: str) -> None:
+        super().__init__()
+        self._resource = resource
+        self._page_count = 0
+
+    def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
+        previous_cursor = self._cursor_value
+        super().update_state(response, data)
+        self._page_count += 1
+        if not self.has_next_page:
+            return
+        if self._cursor_value == previous_cursor:
+            reason = "returned a repeated cursor"
+        elif self._page_count >= MAX_PAGES_PER_PARENT:
+            reason = "exceeded the page limit"
+        else:
+            return
+
+        parent_path = urlsplit(response.url).path.rpartition("/")[0]
+        logger.warning(
+            "bigmailer_pagination_stopped",
+            resource=self._resource,
+            parent_path=parent_path,
+            reason=reason,
+            max_pages=MAX_PAGES_PER_PARENT,
+        )
+        raise BigMailerPaginationError(f"BigMailer {self._resource} {reason} for {parent_path}")
 
 
 def _client_config(api_key: str) -> ClientConfig:
@@ -153,6 +202,37 @@ def _inject_brand_id(row: dict[str, Any]) -> dict[str, Any]:
     return row
 
 
+def _fanout_resource(
+    rest_config: RESTAPIConfig,
+    name: str,
+    team_id: int,
+    job_id: str,
+    manager: ResumableSourceManager[BigMailerResumeConfig],
+) -> Resource:
+    initial_paginator_state: Optional[dict[str, Any]] = None
+    if manager.can_resume():
+        resume = manager.load_state()
+        # Only framework-shaped fan-out state is resumable. A pre-migration bookmark (cursor/brand_id)
+        # can't be translated into the completed/current path map, so such a sync restarts fresh —
+        # safe, because the merge dedupes re-pulled rows on the primary key.
+        if resume is not None and resume.fanout_state is not None:
+            initial_paginator_state = resume.fanout_state
+
+    def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+        if state:
+            manager.save_state(BigMailerResumeConfig(fanout_state=state))
+
+    resources = rest_api_resources(
+        rest_config,
+        team_id,
+        job_id,
+        None,
+        resume_hook=save_checkpoint,
+        initial_paginator_state=initial_paginator_state,
+    )
+    return next(resource for resource in resources if resource.name == name)
+
+
 def _brand_scoped_resource(
     api_key: str,
     config: BigMailerEndpointConfig,
@@ -182,35 +262,133 @@ def _brand_scoped_resource(
                         "brand_id": {"type": "resolve", "resource": "brands", "field": "id"},
                     },
                     "data_selector": "data",
+                    "paginator": BigMailerBoundedCursorPaginator(config.name) if config.bounded_pagination else None,
                 },
                 "include_from_parent": ["id"],
                 "data_map": _inject_brand_id,
             },
         ],
     }
+    return _fanout_resource(rest_config, config.name, team_id, job_id, manager)
 
-    initial_paginator_state: Optional[dict[str, Any]] = None
-    if manager.can_resume():
-        resume = manager.load_state()
-        # Only framework-shaped fan-out state is resumable. A pre-migration bookmark (cursor/brand_id)
-        # can't be translated into the completed/current path map, so such a sync restarts fresh —
-        # safe, because the merge dedupes re-pulled rows on the primary key.
-        if resume is not None and resume.fanout_state is not None:
-            initial_paginator_state = resume.fanout_state
 
-    def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
-        if state:
-            manager.save_state(BigMailerResumeConfig(fanout_state=state))
+def _inject_rss_campaign_ids(brand_id: str, row: dict[str, Any]) -> dict[str, Any]:
+    row["brand_id"] = brand_id
+    row["rss_campaign_id"] = row.pop("_rss_campaigns_id")
+    return row
 
+
+def _brand_rss_updates_resource(
+    api_key: str,
+    config: BigMailerEndpointConfig,
+    brand_id: str,
+    team_id: int,
+    job_id: str,
+    initial_state: dict[str, Any] | None,
+    save_checkpoint: Callable[[dict[str, Any] | None], None],
+) -> Resource:
+    parent = BIGMAILER_ENDPOINTS["rss_campaigns"]
+    brand_path_id = quote(brand_id, safe="")
+    rest_config: RESTAPIConfig = {
+        "client": _client_config(api_key),
+        "resources": [
+            {
+                "name": parent.name,
+                "endpoint": {
+                    "path": parent.path,
+                    "params": {"limit": PAGE_SIZE, "brand_id": brand_path_id},
+                    "data_selector": "data",
+                    "paginator": BigMailerBoundedCursorPaginator(parent.name),
+                },
+            },
+            {
+                "name": config.name,
+                "endpoint": {
+                    "path": config.path,
+                    "params": {
+                        "limit": PAGE_SIZE,
+                        "brand_id": brand_path_id,
+                        "parent_id": {"type": "resolve", "resource": parent.name, "field": "id"},
+                    },
+                    "data_selector": "data",
+                    "paginator": BigMailerBoundedCursorPaginator(config.name),
+                },
+                "include_from_parent": ["id"],
+                "data_map": partial(_inject_rss_campaign_ids, brand_id),
+                "resume_parent_pagination": True,
+            },
+        ],
+    }
     resources = rest_api_resources(
-        rest_config,
-        team_id,
-        job_id,
-        None,
-        resume_hook=save_checkpoint,
-        initial_paginator_state=initial_paginator_state,
+        rest_config, team_id, job_id, None, resume_hook=save_checkpoint, initial_paginator_state=initial_state
     )
-    return next(r for r in resources if r.name == config.name)
+    return next(resource for resource in resources if resource.name == config.name)
+
+
+def _rss_updates_pages(
+    api_key: str,
+    config: BigMailerEndpointConfig,
+    team_id: int,
+    job_id: str,
+    manager: ResumableSourceManager[BigMailerResumeConfig],
+) -> Iterator[list[dict[str, Any]]]:
+    resume = manager.load_state() if manager.can_resume() else None
+    saved = resume.rss_fanout_state if resume is not None else None
+    brand_cursor = saved["brand_cursor"] if saved else None
+    completed_brands = set(saved["completed_brands"]) if saved else set()
+    next_brand_cursor: str | None = None
+
+    def capture_brand_cursor(state: dict[str, Any] | None, _has_next_page: bool) -> None:
+        nonlocal next_brand_cursor
+        next_brand_cursor = state["cursor"] if state else None
+
+    def save_checkpoint(campaign_state: dict[str, Any] | None = None, *, active_brand: str | None = None) -> None:
+        manager.save_state(
+            BigMailerResumeConfig(
+                rss_fanout_state={
+                    "brand_cursor": brand_cursor,
+                    "completed_brands": sorted(completed_brands),
+                    "active_brand": active_brand,
+                    "campaign_state": campaign_state,
+                }
+            )
+        )
+
+    client = RESTClient(
+        base_url=BIGMAILER_BASE_URL,
+        headers={"Accept": "application/json"},
+        auth=APIKeyAuth(api_key=api_key, name="X-API-Key"),
+        paginator=BigMailerCursorPaginator(),
+    )
+    for brands in client.paginate(
+        path=BIGMAILER_ENDPOINTS["brands"].path,
+        params={"limit": PAGE_SIZE},
+        data_selector="data",
+        initial_paginator_state={"cursor": brand_cursor} if brand_cursor else None,
+        page_state_hook=capture_brand_cursor,
+    ):
+        completed_brands.intersection_update(brand["id"] for brand in brands)
+        for brand in brands:
+            brand_id = brand["id"]
+            if brand_id in completed_brands:
+                continue
+            initial_state = saved["campaign_state"] if saved and saved["active_brand"] == brand_id else None
+            save_checkpoint(initial_state, active_brand=brand_id)
+            manager.safe_point()
+            yield from _brand_rss_updates_resource(
+                api_key,
+                config,
+                brand_id,
+                team_id,
+                job_id,
+                initial_state,
+                partial(save_checkpoint, active_brand=brand_id),
+            )
+            completed_brands.add(brand_id)
+
+        saved = None
+        brand_cursor = next_brand_cursor
+        completed_brands.clear()
 
 
 def bigmailer_source(
@@ -222,7 +400,13 @@ def bigmailer_source(
 ) -> SourceResponse:
     config = BIGMAILER_ENDPOINTS[endpoint]
 
-    if config.brand_scoped:
+    if endpoint == "rss_update_campaigns":
+        resource = Resource(
+            partial(_rss_updates_pages, api_key, config, team_id, job_id, resumable_source_manager),
+            name=endpoint,
+            hints={},
+        )
+    elif config.brand_scoped:
         resource = _brand_scoped_resource(api_key, config, team_id, job_id, resumable_source_manager)
     else:
         resource = _top_level_resource(api_key, config, team_id, job_id, resumable_source_manager)

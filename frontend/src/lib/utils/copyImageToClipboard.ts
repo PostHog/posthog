@@ -37,6 +37,16 @@ export async function captureElementAsImage(
     })
 }
 
+/**
+ * Safari only accepts a clipboard write that starts in the same task as the click, so call this before any await and
+ * pass the image while it is still pending. The no-op handler is there because the write never observes the promise
+ * if the ClipboardItem constructor throws.
+ */
+export async function writePendingImageToClipboard(image: Promise<Blob>): Promise<void> {
+    image.catch(() => {})
+    await navigator.clipboard.write([new ClipboardItem({ [CLIPBOARD_IMAGE_TYPE]: image })])
+}
+
 export async function copyElementImageToClipboard(
     element: HTMLElement,
     excludeSelector?: string
@@ -45,14 +55,10 @@ export async function copyElementImageToClipboard(
         return { outcome: 'unsupported', blob: null }
     }
 
-    // Safari only accepts a clipboard write that starts in the same task as the click, so the pending
-    // capture goes onto the ClipboardItem rather than being awaited first. Attach a no-op handler as
-    // well, because the write never observes the promise if the ClipboardItem constructor throws.
     const capture = captureElementAsImage(element, excludeSelector)
-    capture.catch(() => {})
 
     try {
-        await navigator.clipboard.write([new ClipboardItem({ [CLIPBOARD_IMAGE_TYPE]: capture })])
+        await writePendingImageToClipboard(capture)
         return { outcome: 'copied', blob: await capture }
     } catch {
         return { outcome: 'failed', blob: null }

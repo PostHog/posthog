@@ -5,6 +5,7 @@ import { MOCK_DEFAULT_ORGANIZATION, MOCK_DEFAULT_TEAM, MOCK_DEFAULT_USER } from 
 
 import { FEATURE_FLAGS } from 'lib/constants'
 
+import { ProductItemCategory } from '~/queries/schema/schema-general'
 import { AppContext, PreflightStatus, Realm, UserType } from '~/types'
 
 jest.unmock('posthog-js')
@@ -66,15 +67,11 @@ describe('adventCalendarAccessLogic with posthog-js', () => {
         delete window.POSTHOG_FEATURE_FLAGS_LOADED
     })
 
-    async function openCalendar(
-        page: PageDecision,
-        replies: Reply[],
-        opened: Opened
-    ): Promise<(boolean | undefined)[]> {
+    async function openThePage(page: PageDecision, firstReply: Reply): Promise<(next: Reply) => void> {
         jest.resetModules()
         delete window.POSTHOG_GLOBAL_ERRORS
         delete window.POSTHOG_FEATURE_FLAGS_LOADED
-        let reply = replies[0]
+        let reply = firstReply
         global.fetch = jest.fn(async (url: RequestInfo | URL) => {
             if (String(url).includes('/flags/')) {
                 return flagsResponse(reply)
@@ -90,15 +87,26 @@ describe('adventCalendarAccessLogic with posthog-js', () => {
             featureFlags: page === 'left out' ? { 'other-flag': true } : { 'other-flag': true, [FLAG]: page === 'on' },
         }
 
-        const posthog = (await import('posthog-js')).default
         const { loadPostHogJS } = await import('~/loadPostHogJS')
         const { initKea } = await import('~/initKea')
-        const { adventCalendarAccessLogic } = await import('./adventCalendarAccessLogic')
 
         loadPostHogJS()
         initKea()
         ;(window as any)._POSTHOG_REMOTE_CONFIG = { [PROJECT_TOKEN]: { config: {} } }
         document.querySelector<HTMLScriptElement>('script[src*="/config.js"]')?.onload?.(new Event('load'))
+        return (next) => {
+            reply = next
+        }
+    }
+
+    async function openCalendar(
+        page: PageDecision,
+        replies: Reply[],
+        opened: Opened
+    ): Promise<(boolean | undefined)[]> {
+        const replyNext = await openThePage(page, replies[0])
+        const posthog = (await import('posthog-js')).default
+        const { adventCalendarAccessLogic } = await import('./adventCalendarAccessLogic')
 
         const logic = adventCalendarAccessLogic()
         if (opened === 'before the first reply') {
@@ -110,12 +118,37 @@ describe('adventCalendarAccessLogic with posthog-js', () => {
         }
         const seen = [logic.values.calendarOn]
         for (const next of replies.slice(1)) {
-            reply = next
+            replyNext(next)
             posthog.reloadFeatureFlags()
             await jest.advanceTimersByTimeAsync(1000)
             seen.push(logic.values.calendarOn)
         }
         logic.unmount()
+        return seen
+    }
+
+    async function seeTheEntryPoints(page: PageDecision, failure: Reply): Promise<{ card: boolean; tree: boolean }> {
+        await openThePage(page, failure)
+        const { createElement } = await import('react')
+        const { act, cleanup, render } = await import('@testing-library/react/pure')
+        const { CustomCategorySuffix } = await import('~/layout/panel-layout/ProjectTree/CustomCategorySuffix')
+        const { AdventEntry } = await import('./entry/AdventEntry')
+
+        await jest.advanceTimersByTimeAsync(1000)
+        const { container } = render(
+            createElement(
+                'div',
+                null,
+                createElement(AdventEntry),
+                createElement(CustomCategorySuffix, { category: ProductItemCategory.MESSAGING, nav: 'classic' })
+            )
+        )
+        await act(() => jest.advanceTimersByTimeAsync(1000))
+        const seen = {
+            card: container.querySelector('[data-attr="advent-entry-card"]') !== null,
+            tree: container.querySelector('[data-attr="advent-entry-nav-tree"]') !== null,
+        }
+        cleanup()
         return seen
     }
 
@@ -173,4 +206,13 @@ describe('adventCalendarAccessLogic with posthog-js', () => {
             }
         }
     )
+
+    it.each<[string, Reply, PageDecision, boolean]>([
+        ['a returning visitor stored without the flag sees both entry points on', 'flag off', 'on', true],
+        ['a returning visitor stored with the flag on sees no entry point off', 'flag on', 'off', false],
+    ])('%s when the next page is blocked', async (_name, earlierReply, page, shown) => {
+        await openCalendar('on', [earlierReply], 'after the first reply')
+
+        expect(await seeTheEntryPoints(page, 'blocked')).toEqual({ card: shown, tree: shown })
+    })
 })

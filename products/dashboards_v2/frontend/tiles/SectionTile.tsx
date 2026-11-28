@@ -4,10 +4,25 @@ import clsx from 'clsx'
 import { type ReactNode, useCallback, useMemo, useState } from 'react'
 
 import { IconChevronRight } from '@posthog/icons'
-import { Button, Card, CardContent, CardHeader, CardTitle, Input } from '@posthog/quill'
+import {
+    AlertDialog,
+    AlertDialogClose,
+    AlertDialogContent,
+    AlertDialogDescription,
+    AlertDialogFooter,
+    AlertDialogHeader,
+    AlertDialogTitle,
+    Button,
+    Card,
+    CardContent,
+    CardHeader,
+    CardTitle,
+    Input,
+} from '@posthog/quill'
 
 import { useDashboard } from '../dashboard/core/dashboardContext'
-import { GRID, type SectionPanel, type Tile, spanPx } from '../dashboard/document/dashboardTypes'
+import { GRID, type SectionPanel, type Tile, isSection, spanPx } from '../dashboard/document/dashboardTypes'
+import { everyTile } from '../dashboard/document/tileTree'
 import type { OnSectionRows } from '../grid/TileGrid'
 import { TileActions } from './core/TileActions'
 import { showsBorder } from './core/tileAppearance'
@@ -45,7 +60,8 @@ export function SectionTile({
     const collapsed = !!panel.collapsed
     const [draft, setDraft] = useState<string | null>(null)
     const ownActions = useSectionActions(id, panel, () => setDraft(panel.title))
-    const placementActions = useSectionPlacementActions(id, panel)
+    const [confirmingRemove, setConfirmingRemove] = useState(false)
+    const placementActions = useSectionPlacementActions(id, panel, () => setConfirmingRemove(true))
     const actions = useMemo(() => [...ownActions, ...placementActions], [ownActions, placementActions])
     const hasMenu = hasTileMenu(actions)
     const showAdd = can('addTile')
@@ -64,41 +80,68 @@ export function SectionTile({
     const emptyLabel = editable ? 'Drag tiles here' : 'No tiles'
 
     return (
-        <TileContextMenu actions={actions}>
-            <Section border={showsBorder(panel)}>
-                <SectionHeader
-                    actions={
-                        (showAdd || hasMenu) && (
-                            <TileActions menu={hasMenu}>{showAdd && <AddTileMenu gridId={id} />}</TileActions>
-                        )
-                    }
-                >
-                    <SectionTitle
-                        title={panel.title}
-                        collapsed={collapsed}
-                        canEdit={can('updateSection')}
-                        onToggle={() => onSectionFoldedChange(id, !collapsed)}
-                        onRename={(title) => onEdit({ edit: 'updateSection', id, patch: { title } })}
-                        draft={draft}
-                        onDraftChange={setDraft}
-                    />
-                    <SectionCount count={panel.tiles.length} />
-                </SectionHeader>
-                {!collapsed && (
-                    <SectionBody emptyLabel={panel.tiles.length === 0 ? emptyLabel : null}>
-                        {renderGrid({
-                            gridId: id,
-                            tiles: panel.tiles,
-                            cols: layout.columns,
-                            width: spanPx(layout.columns, layout.columnPx) - 2 * GRID.sectionInsetPx,
-                            editable,
-                            onLiveRows,
-                        })}
-                    </SectionBody>
-                )}
-            </Section>
-        </TileContextMenu>
+        <>
+            {/* Outside the menu's trigger, so a right-click in the dialog does not open the section's menu. */}
+            <AlertDialog open={confirmingRemove} onOpenChange={setConfirmingRemove}>
+                <AlertDialogContent data-attr="dashboard-v2-section-remove-confirm">
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>Remove this section and its tiles?</AlertDialogTitle>
+                        <AlertDialogDescription>{removeWarning(panel)}</AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <AlertDialogClose render={<Button variant="outline" />}>Cancel</AlertDialogClose>
+                        <AlertDialogClose
+                            render={<Button variant="destructive-outline" />}
+                            data-attr="dashboard-v2-section-remove-confirm-button"
+                            onClick={() => onEdit({ edit: 'removeTile', id })}
+                        >
+                            Remove section
+                        </AlertDialogClose>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
+            <TileContextMenu actions={actions}>
+                <Section border={showsBorder(panel)}>
+                    <SectionHeader
+                        actions={
+                            (showAdd || hasMenu) && (
+                                <TileActions menu={hasMenu}>{showAdd && <AddTileMenu gridId={id} />}</TileActions>
+                            )
+                        }
+                    >
+                        <SectionTitle
+                            title={panel.title}
+                            collapsed={collapsed}
+                            canEdit={can('updateSection')}
+                            onToggle={() => onSectionFoldedChange(id, !collapsed)}
+                            onRename={(title) => onEdit({ edit: 'updateSection', id, patch: { title } })}
+                            draft={draft}
+                            onDraftChange={setDraft}
+                        />
+                        <SectionCount count={panel.tiles.length} />
+                    </SectionHeader>
+                    {!collapsed && (
+                        <SectionBody emptyLabel={panel.tiles.length === 0 ? emptyLabel : null}>
+                            {renderGrid({
+                                gridId: id,
+                                tiles: panel.tiles,
+                                cols: layout.columns,
+                                width: spanPx(layout.columns, layout.columnPx) - 2 * GRID.sectionInsetPx,
+                                editable,
+                                onLiveRows,
+                            })}
+                        </SectionBody>
+                    )}
+                </Section>
+            </TileContextMenu>
+        </>
     )
+}
+
+function removeWarning(panel: SectionPanel): string {
+    const count = everyTile(panel.tiles).filter((tile) => !isSection(tile)).length
+    const tiles = count === 1 ? 'the 1 tile' : `the ${count} tiles`
+    return `This removes "${panel.title}" and ${tiles} in it from the dashboard.`
 }
 
 /** A section is a quill card, so it reads like a tile that holds tiles. */

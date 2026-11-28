@@ -57,6 +57,7 @@ import { edgeTruth } from '../judge/truth'
 import { CounterProbe, clickhouseOf, createCounterProbe } from '../probe/counter-probe'
 import { CyclotronProbe, Queue, createCyclotronProbe } from '../probe/cyclotron-probe'
 import { Sampling, sampleEvery } from '../probe/every'
+import { VacuumRead, createVacuumProbe } from '../probe/vacuum-probe'
 import { WriterProbe, WriterSample, createWriterProbe } from '../probe/writer-probe'
 import { WEBHOOK_HOST } from '../provider-edge'
 import { Provenance, provenanceOf } from '../scorecard/provenance'
@@ -167,6 +168,7 @@ const TOPOLOGY_WITHIN_MS = 30_000
 const TOPOLOGY_EVERY_MS = 1000
 const WRITER_PROBE_EVERY_MS = 1000
 const QUEUE_PROBE_EVERY_MS = 5000
+const VACUUM_PROBE_EVERY_MS = 10_000
 const PROBED_QUEUES: Queue[] = ['hogflow', 'email']
 
 type Outcome = Pick<
@@ -203,6 +205,16 @@ async function startProbes(
             (error: unknown) => ({ at, error: messageOf(error) })
         )
     })
+    const vacuumProbe = createVacuumProbe(cyclotronUrl)
+    const vacuumSettings = await vacuumProbe.settings().catch((error: unknown) => ({ error: messageOf(error) }))
+    const readVacuum = async (): Promise<VacuumRead> => {
+        const at = Date.now()
+        return vacuumProbe.sample().then(
+            (sample) => ({ at, ...sample }),
+            (error: unknown) => ({ at, error: messageOf(error) })
+        )
+    }
+    const vacuum: Sampling<VacuumRead> = sampleEvery(VACUUM_PROBE_EVERY_MS, readVacuum)
     const activity: Sampling<ActivitySample> = sampleEvery(QUEUE_PROBE_EVERY_MS, () =>
         readActivity(() => probe.activity())
     )
@@ -212,13 +224,20 @@ async function startProbes(
         queue: () => queue.taken(),
         stop: () =>
             (stopping ??= (async () => {
-                const [writerSamples, queueSamples, activitySamples] = await Promise.all([
+                const [writerSamples, queueSamples, activitySamples, vacuumSamples] = await Promise.all([
                     writer.stop(),
                     queue.stop(),
                     activity.stop(),
+                    vacuum.stop().then(async (taken) => [...taken, await readVacuum()]),
                 ])
                 await writerProbe.end()
-                return { writer: writerSamples, queue: queueSamples, activity: activitySamples }
+                return {
+                    writer: writerSamples,
+                    queue: queueSamples,
+                    activity: activitySamples,
+                    vacuum: vacuumSamples,
+                    vacuumSettings,
+                }
             })()),
     }
 }

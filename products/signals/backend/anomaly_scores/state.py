@@ -6,11 +6,15 @@ one blob. A score step fetches only the newest buckets and scores them with the 
 """
 
 import datetime
+import operator
 import dataclasses
-from collections.abc import Collection
+from collections.abc import Collection, Mapping
 from enum import StrEnum
+from functools import reduce
 from typing import Any
 from zoneinfo import ZoneInfo
+
+from django.db.models import Q, QuerySet
 
 import structlog
 
@@ -277,6 +281,43 @@ def score_ready_by_insight(
                 trained_at=trained_at,
             )
     return ready
+
+
+def score_ready_rows(
+    max_model_age: Mapping[IntervalType, int], now: datetime.datetime
+) -> QuerySet[AnomalyScoringState]:
+    """The state rows that a score step can probably read, for a subquery of the due list read. One query.
+
+    Close to `score_ready_by_insight`, which still decides. It does not check the share of missing series, and it
+    does not match the profile of a model on older detector settings.
+    """
+    rows = AnomalyScoringState.all_teams.filter(scored_through__isnull=False).exclude(artifact_key="")
+    # A version is a hash of its settings, and the settings change rarely, so this reads few distinct pairs.
+    fit_versions = {
+        version
+        for version, stored in rows.exclude(scoring__isnull=True)
+        .order_by()
+        .values_list("detector_version", "scoring")
+        .distinct()
+        if fit_by_current_version(version, _scoring_from_row(stored))
+    }
+    readable = reduce(
+        operator.or_,
+        (
+            Q(profile=model_profile, interval=interval, detector_version=version)
+            for (model_profile, interval), version in _current_detector_versions().items()
+        ),
+        Q(detector_version__in=fit_versions),
+    )
+    young = reduce(
+        operator.or_,
+        (
+            Q(interval=interval.value, trained_at__gt=now - interval_spec(interval).period * buckets)
+            for interval, buckets in max_model_age.items()
+        ),
+        Q(pk__in=[]),
+    )
+    return rows.exclude(series_keys=[]).filter(readable, young)
 
 
 # nosemgrep: tuple-return-prefer-dataclass -- the (model profile, interval) tuples are dict keys here

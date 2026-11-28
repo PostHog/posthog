@@ -3,6 +3,15 @@ from typing import Literal
 
 from products.warehouse_sources.sources.sdk import DependentEndpointConfig, IncrementalField, frozen, incremental_field
 
+INBOX_THREAD_ATTENTION_STATES = (
+    "needs_reply",
+    "waiting_on_them",
+    "done",
+    "follow_up_due",
+    "delivery_failed",
+    "no_action",
+)
+
 
 @frozen
 class ShipmailEndpointConfig:
@@ -16,6 +25,7 @@ class ShipmailEndpointConfig:
     page_size: int = 100
     default_incremental_field: str | None = None
     fanout: DependentEndpointConfig | None = None
+    drop_repeated_rows_per: str | None = None
 
 
 SHIPMAIL_ENDPOINTS: dict[str, ShipmailEndpointConfig] = {
@@ -94,16 +104,37 @@ SHIPMAIL_ENDPOINTS: dict[str, ShipmailEndpointConfig] = {
         required_scopes=("members:read",),
         partition_key="created_at",
     ),
-}
-
-SHIPMAIL_PARENT_ENDPOINTS = {
     "audiences": ShipmailEndpointConfig(
         name="audiences",
         path="/audiences",
         primary_keys=["id"],
         required_scopes=("audiences:read",),
         partition_key="created_at",
-    )
+    ),
+    "inbox_threads": ShipmailEndpointConfig(
+        name="inbox_threads",
+        # Without attention_state the API returns only needs_reply threads. The comma-separated
+        # states and the sort values follow the OpenAPI spec; they are not checked against a live account.
+        path=(
+            "/mailboxes/{mailbox_id}/inbox/threads"
+            f"?attention_state={','.join(INBOX_THREAD_ATTENTION_STATES)}&sort_by=last_message_at&order=asc"
+        ),
+        primary_keys=["mailbox_id", "id"],
+        required_scopes=("messages:read", "mailboxes:read"),
+        partition_key="first_message_at",
+        # The API sorts only by attention_since or last_message_at, and both change during a walk.
+        # A thread that gets a new message during the walk moves to a later page. The repeat is
+        # dropped, so the row keeps the state from the first page; the next sync refreshes it. A
+        # resumed attempt starts with no record of earlier rows and can still write a repeat.
+        drop_repeated_rows_per="mailbox_id",
+        fanout=DependentEndpointConfig(
+            parent_name="mailboxes",
+            resolve_param="mailbox_id",
+            resolve_field="id",
+            include_from_parent=["id"],
+            parent_field_renames={"id": "mailbox_id"},
+        ),
+    ),
 }
 
 ENDPOINTS = tuple(SHIPMAIL_ENDPOINTS.keys())
