@@ -109,8 +109,11 @@ HTTP logs rather than JS pageviews.
 ## Building product-analytics queries that mirror the Live tab
 
 When the user wants a longer window, a saved insight, a dashboard tile, or to share a
-view of what's on the Live tab, build a Trends insight. The "Open as new insight"
-buttons in the UI use exactly these recipes:
+view of what's on the Live tab, build a Trends insight. These recipes match the "Open as
+new insight" buttons in the UI, written in the shape `query-trends` accepts. Put each
+breakdown in the `breakdownFilter.breakdowns` array: `query-trends` rejects the legacy
+`breakdown` / `breakdown_type` keys. Run `schema query-trends breakdownFilter` before you
+build a breakdown that is not shown here.
 
 ### Bot traffic breakdown (matches the bot tile header)
 
@@ -139,8 +142,7 @@ A single chart of all bots over time, broken down by name. This is the canonical
   ],
   "properties": [{ "key": "$virt_is_bot", "value": ["true"], "operator": "exact", "type": "event" }],
   "breakdownFilter": {
-    "breakdown": "$virt_bot_name",
-    "breakdown_type": "event",
+    "breakdowns": [{ "property": "$virt_bot_name", "type": "event" }],
     "breakdown_limit": 25
   },
   "trendsFilter": { "display": "ActionsBarValue" }
@@ -173,12 +175,20 @@ bot+category combo (`Lighthouse · headless_browser` is a different signal from
 ### Bot category breakdown (matches the bot events chart tile)
 
 Use breakdown by `$virt_traffic_category` instead of `$virt_bot_name` when the user
-wants "AI crawlers vs SEO crawlers vs everything else" rather than per-bot rows.
+wants "AI crawlers vs SEO crawlers vs everything else" rather than per-bot rows. Keep the
+"Bot traffic breakdown" query above and replace its `breakdownFilter` with:
+
+```json
+{
+  "breakdowns": [{ "property": "$virt_traffic_category", "type": "event" }],
+  "breakdown_limit": 25
+}
+```
 
 ### Top pages / referrers / devices / browsers / countries
 
-For non-bot tiles, use `$pageview` with `math: unique_users`, breakdown by the
-underlying property:
+For non-bot tiles, use `$pageview` with `math: unique_users`, and break down by the
+underlying property with `"breakdownFilter": { "breakdowns": [{ "property": "<property>", "type": "event" }] }`:
 
 | Tile          | breakdown property    | display           |
 | ------------- | --------------------- | ----------------- |

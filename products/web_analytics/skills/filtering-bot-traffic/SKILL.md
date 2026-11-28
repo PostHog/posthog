@@ -95,14 +95,17 @@ on `$virt_traffic_type` or `$virt_traffic_category` with `operator: is_not` inst
 
 ### What share of traffic is automated
 
-Break a pageview trend down by `$virt_traffic_type`:
+Break a pageview trend down by `$virt_traffic_type`. Put each breakdown in the
+`breakdownFilter.breakdowns` array: `query-trends` rejects the legacy `breakdown` /
+`breakdown_type` keys. Run `schema query-trends breakdownFilter` before you build a
+breakdown that is not shown here.
 
 ```json
 {
   "kind": "TrendsQuery",
   "dateRange": { "date_from": "-30d" },
   "series": [{ "kind": "EventsNode", "event": "$pageview", "math": "total" }],
-  "breakdownFilter": { "breakdown": "$virt_traffic_type", "breakdown_type": "event" },
+  "breakdownFilter": { "breakdowns": [{ "property": "$virt_traffic_type", "type": "event" }] },
   "trendsFilter": { "display": "ActionsBarValue" }
 }
 ```
@@ -117,7 +120,7 @@ Filter to bots and break down by name (or `$virt_bot_operator` for company-level
   "dateRange": { "date_from": "-30d" },
   "series": [{ "kind": "EventsNode", "event": "$pageview", "math": "total" }],
   "properties": [{ "key": "$virt_is_bot", "value": ["true"], "operator": "exact", "type": "event" }],
-  "breakdownFilter": { "breakdown": "$virt_bot_name", "breakdown_type": "event", "breakdown_limit": 25 },
+  "breakdownFilter": { "breakdowns": [{ "property": "$virt_bot_name", "type": "event" }], "breakdown_limit": 25 },
   "trendsFilter": { "display": "ActionsBarValue" }
 }
 ```
@@ -125,7 +128,20 @@ Filter to bots and break down by name (or `$virt_bot_operator` for company-level
 ### Measure AI-agent traffic specifically
 
 Filter `$virt_traffic_type` `exact` `AI Agent`, break down by `$virt_bot_operator` to see
-which tools (OpenAI, Anthropic, Perplexity, …) read your site and which pages they hit.
+which tools (OpenAI, Anthropic, Perplexity, …) read your site and which pages they hit:
+
+```json
+{
+  "kind": "TrendsQuery",
+  "dateRange": { "date_from": "-30d" },
+  "series": [{ "kind": "EventsNode", "event": "$pageview", "math": "total" }],
+  "properties": [{ "key": "$virt_traffic_type", "value": ["AI Agent"], "operator": "exact", "type": "event" }],
+  "breakdownFilter": { "breakdowns": [{ "property": "$virt_bot_operator", "type": "event" }] },
+  "trendsFilter": { "display": "ActionsBarValue" }
+}
+```
+
+To see the pages they hit, add a second entry to `breakdowns` for `$pathname`.
 
 ### Raw SQL equivalents
 
