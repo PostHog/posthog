@@ -152,11 +152,6 @@ SHOPIFY_GRAPHQL_PII_PLAN_RESTRICTED_ERROR = (
 # `ShopifySource.get_non_retryable_errors` matches on the stable status text (not the
 # per-store URL) to fail the job fast.
 SHOPIFY_PAYMENT_REQUIRED_ERROR_MATCH = "402 Client Error: Payment Required"
-SHOPIFY_PAYMENT_REQUIRED_ERROR_MESSAGE = (
-    "Shopify returned 402 Payment Required — your Shopify store appears to be frozen due to "
-    "an unpaid bill. Settle your outstanding balance in Shopify to unfreeze the store, then "
-    "the import will resume."
-)
 
 # 404 from the Admin API GraphQL endpoint itself (as opposed to the OAuth token endpoint above) —
 # Shopify serves no Admin API at a subdomain with no live store behind it, so the store closed or
@@ -172,9 +167,12 @@ SHOPIFY_GRAPHQL_NOT_FOUND_ERROR_MATCH = "404 Client Error: Not Found"
 # per-store URL) to fail the job fast.
 SHOPIFY_GRAPHQL_UNAUTHORIZED_ERROR_MATCH = "401 Client Error: Unauthorized"
 SHOPIFY_GRAPHQL_UNAUTHORIZED_ERROR_MESSAGE = (
-    "Shopify rejected the request with 401 Unauthorized — your Shopify access token is no "
-    "longer valid, likely because the app was uninstalled or access was revoked. Please "
-    "reconnect your Shopify integration."
+    "Shopify no longer accepts your access token, often because the app was uninstalled or its "
+    "access was revoked. Reinstall the app on your store, then reconnect."
+)
+SHOPIFY_GRAPHQL_ACCESS_DENIED_ERROR_MESSAGE = (
+    "Your Shopify access token can't read this table. Grant the table's read access scope to your "
+    "Shopify app, then reconnect."
 )
 
 # The wizard shows these when the token check in `validate_credentials` fails. A supplied Admin API

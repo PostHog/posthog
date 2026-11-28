@@ -43,13 +43,14 @@ from products.warehouse_sources.sources.shopify.shopify import (
     SHOPIFY_ACCESS_TOKEN_SHOP_NOT_PERMITTED_ERROR,
     SHOPIFY_ACCESS_TOKEN_UNSUPPORTED_GRANT_ERROR,
     SHOPIFY_GRAPHQL_ACCESS_DENIED_ERROR,
+    SHOPIFY_GRAPHQL_ACCESS_DENIED_ERROR_MESSAGE,
     SHOPIFY_GRAPHQL_NOT_FOUND_ERROR_MATCH,
     SHOPIFY_GRAPHQL_PII_PLAN_RESTRICTED_ERROR,
     SHOPIFY_GRAPHQL_UNAUTHORIZED_ERROR_MATCH,
     SHOPIFY_GRAPHQL_UNAUTHORIZED_ERROR_MESSAGE,
     SHOPIFY_MISSING_CREDENTIALS_ERROR,
     SHOPIFY_PAYMENT_REQUIRED_ERROR_MATCH,
-    SHOPIFY_PAYMENT_REQUIRED_ERROR_MESSAGE,
+    SHOPIFY_STORE_FROZEN_ERROR,
     SHOPIFY_STORE_NOT_FOUND_ERROR,
     ShopifyPermissionError,
     ShopifyResumeConfig,
@@ -238,10 +239,7 @@ class ShopifySource(ResumableSource[ShopifySourceConfig, ShopifyResumeConfig]):
             # GraphQL "Access denied for <field> field" — the access token is missing the
             # scope required to read this resource. The scope can't change on retry, so fail
             # fast and tell the user to reconnect with the required permissions.
-            SHOPIFY_GRAPHQL_ACCESS_DENIED_ERROR: (
-                "Your Shopify access token is missing the permissions required to read some of your data. "
-                "Please reconnect your Shopify integration and grant the requested access scopes."
-            ),
+            SHOPIFY_GRAPHQL_ACCESS_DENIED_ERROR: SHOPIFY_GRAPHQL_ACCESS_DENIED_ERROR_MESSAGE,
             # GraphQL "This app is not approved to access the <object> object" — the store's
             # Shopify plan doesn't grant apps access to customer PII. No scope or reconnect can
             # fix this; the merchant must upgrade their plan or stop syncing tables with PII.
@@ -252,7 +250,7 @@ class ShopifySource(ResumableSource[ShopifySourceConfig, ShopifyResumeConfig]):
             ),
             # 402 Payment Required from the Admin API — the store is frozen for an unpaid
             # bill. Retrying cannot recover; the shop owner must settle their Shopify balance.
-            SHOPIFY_PAYMENT_REQUIRED_ERROR_MATCH: SHOPIFY_PAYMENT_REQUIRED_ERROR_MESSAGE,
+            SHOPIFY_PAYMENT_REQUIRED_ERROR_MATCH: SHOPIFY_STORE_FROZEN_ERROR,
             # 401 from the Admin API GraphQL endpoint itself — the token was valid at mint
             # time but Shopify now rejects it. Retrying cannot recover; the user must
             # reconnect their integration.
