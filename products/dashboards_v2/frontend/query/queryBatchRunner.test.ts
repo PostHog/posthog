@@ -327,6 +327,16 @@ describe('createQueryBatchRunner', () => {
         }
     })
 
+    it('splits more repeats of one query than a batch holds into batches the server accepts', async () => {
+        const runQuery = createQueryBatchRunner(7)
+        for (let copy = 0; copy < 1100; copy++) {
+            void runQuery(SQL).catch(() => {})
+        }
+        await flush()
+
+        expect(streams.map((stream) => stream.body.queries.length)).toEqual([500, 500, 100])
+    })
+
     it('sends two charts as one stream', async () => {
         const runQuery = createQueryBatchRunner(7)
         void runQuery(SQL).catch(() => {})

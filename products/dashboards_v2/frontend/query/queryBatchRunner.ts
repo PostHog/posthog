@@ -231,9 +231,10 @@ function answersEarly(request: QueryRequest): boolean {
 }
 
 /**
- * Takes the queued queries for up to `free` streams. Repeats of a query stay in one stream, so the server runs them
- * once. Queries that answer early are dealt out first, so each stream draws some charts soon, then the rest go to the
- * stream holding fewest. Each stream keeps the board's order. What doesn't fit is left for the caller to keep queued.
+ * Takes the queued queries for up to `free` streams. Repeats of a query stay in one stream, up to a batch of them, so
+ * the server runs them once. Queries that answer early are dealt out first, so each stream draws some charts soon, then
+ * the rest go to the stream holding fewest. Each stream keeps the board's order. What doesn't fit is left for the
+ * caller to keep queued.
  */
 function splitIntoStreams<T extends { request: QueryRequest }>(
     queued: T[],
@@ -244,8 +245,14 @@ function splitIntoStreams<T extends { request: QueryRequest }>(
         const key = dedupKey(pending.request)
         groups.set(key, [...(groups.get(key) ?? []), index])
     })
-    const count = Math.max(1, Math.min(free, groups.size, Math.floor(queued.length / MIN_QUERIES_PER_STREAM)))
-    const ordered = [...groups.values()].sort(
+    // A group bigger than a batch goes out in batch-sized parts, since the server refuses a larger batch.
+    const parts = [...groups.values()].flatMap((group) =>
+        Array.from({ length: Math.ceil(group.length / MAX_QUERIES_PER_BATCH) }, (_, part) =>
+            group.slice(part * MAX_QUERIES_PER_BATCH, (part + 1) * MAX_QUERIES_PER_BATCH)
+        )
+    )
+    const count = Math.max(1, Math.min(free, parts.length, Math.floor(queued.length / MIN_QUERIES_PER_STREAM)))
+    const ordered = parts.sort(
         (a, b) =>
             Number(answersEarly(queued[b[0]].request)) - Number(answersEarly(queued[a[0]].request)) ||
             b.length - a.length ||
@@ -258,10 +265,6 @@ function splitIntoStreams<T extends { request: QueryRequest }>(
             if (stream.length + group.length <= MAX_QUERIES_PER_BATCH && (!target || stream.length < target.length)) {
                 target = stream
             }
-        }
-        // A group bigger than a whole batch still goes, alone, rather than wait forever.
-        if (!target && streams[0].length === 0) {
-            target = streams[0]
         }
         target?.push(...group)
     }
