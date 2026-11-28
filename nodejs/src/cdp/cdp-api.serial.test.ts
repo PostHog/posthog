@@ -2742,22 +2742,24 @@ describe('CDP API', () => {
             status: HogFlow['status'],
             category: 'transactional' | 'marketing' = 'transactional',
             inputs: Record<string, CyclotronInputType> = {}
-        ): HogFlow =>
-            new FixtureHogFlowBuilder()
+        ): HogFlow => {
+            const emailId = category === 'transactional' ? 'transactional_email' : 'email'
+            return new FixtureHogFlowBuilder()
                 .withTeamId(team.id)
                 .withStatus(status)
                 .withExitCondition('exit_only_at_end')
                 .withWorkflow({
                     actions: {
                         trigger: { type: 'trigger', config: { type: trigger } },
-                        email: {
+                        [emailId]: {
                             type: 'function_email',
                             config: { template_id: 'template-email', inputs, message_category_type: category },
                         },
                     },
-                    edges: [{ from: 'trigger', to: 'email', type: 'continue' }],
+                    edges: [{ from: 'trigger', to: emailId, type: 'continue' }],
                 })
                 .build()
+        }
 
         // The alerts on this endpoint key on these outcome labels.
         const outcomeCount = async (outcome: string): Promise<number> =>

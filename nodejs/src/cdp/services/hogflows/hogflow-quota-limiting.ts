@@ -1,6 +1,6 @@
 import { Counter } from 'prom-client'
 
-import { HogFlow, HogFlowAction } from '~/cdp/schema/hogflow'
+import { HogFlow, getInternalEventFilterEventIds } from '~/cdp/schema/hogflow'
 
 import { QuotaLimiting } from '../../../common/services/quota-limiting.service'
 import { CyclotronJobInvocationHogFlow } from '../../types'
@@ -19,13 +19,56 @@ export interface HogFlowQuotaLimitResult {
     isLimited: boolean
 }
 
+// The step id of the email in a workflow the transactional send API made. The API refuses it in any other workflow, so
+// the usage report and this check can tell a transactional send from a workflow email by it.
+export const TRANSACTIONAL_EMAIL_ACTION_ID = 'transactional_email'
+
+// Support replies and ticket updates must reach the customer, so the API lets these workflows keep transactional email.
+// Keep in step with SUPPORT_EVENTS in products/workflows/backend/services/transactional_steps.py.
+const SUPPORT_EVENTS = new Set([
+    '$conversation_ticket_created',
+    '$conversation_ticket_status_changed',
+    '$conversation_ticket_priority_changed',
+    '$conversation_ticket_assigned',
+    '$conversation_ticket_tag_added',
+    '$conversation_message_sent',
+    '$conversation_private_message_sent',
+    '$conversation_message_received',
+])
+
+function triggersOnlyOnSupportEvents(hogFlow: HogFlow): boolean {
+    const trigger = hogFlow.trigger
+    if (!trigger) {
+        return false
+    }
+    if (trigger.type === 'internal-event') {
+        const eventIds = getInternalEventFilterEventIds(trigger.filters)
+        return !!eventIds && eventIds.every((eventId) => SUPPORT_EVENTS.has(eventId))
+    }
+    if (trigger.type !== 'event') {
+        return false
+    }
+    const events = trigger.filters?.events ?? []
+    // The filter compiler checks the event name only on entries of type `events`, so an untyped entry can match events
+    // with any name.
+    return (
+        events.length > 0 &&
+        !trigger.filters?.actions?.length &&
+        events.every((event) => event?.type === 'events' && SUPPORT_EVENTS.has(event?.id))
+    )
+}
+
 // Transactional emails bypass the email quota. Each send still reports billable usage, so the team pays for it.
 function sendsOnlyTransactionalEmail(hogFlow: HogFlow): boolean {
-    const emailActions = hogFlow.actions.filter(
-        (action): action is Extract<HogFlowAction, { type: 'function_email' }> => action.type === 'function_email'
-    )
+    const emailActions = hogFlow.actions.filter((action) => action.type === 'function_email')
+    if (emailActions.length === 0) {
+        return false
+    }
+    if (emailActions.every((action) => action.id === TRANSACTIONAL_EMAIL_ACTION_ID)) {
+        return true
+    }
     return (
-        emailActions.length > 0 &&
+        triggersOnlyOnSupportEvents(hogFlow) &&
         emailActions.every((action) => action.config?.message_category_type === 'transactional')
     )
 }

@@ -87,7 +87,8 @@ Trusted floor raises, decay, suspension drops, admin recomputes, and the backfil
 
 An email step categorized as transactional is never delayed by the send-time bucket, in any mode.
 A password reset or a receipt that arrives two hours late has already failed the person waiting for it, so pacing it achieves nothing that dropping it would not.
-This matches the billing quota, which transactional email already bypasses.
+The billing quota is narrower: it exempts only the email step the transactional send API makes, and support workflows that trigger on the support product's own events and whose email steps are all transactional.
+A workflow email in a transactional category still counts against the email quota.
 
 The send still drains the bucket by what it costs, so transactional volume displaces the project's marketing while tokens remain.
 A project that spends its whole allowance on transactional email has nothing left for marketing, which is the intended trade.
@@ -101,7 +102,8 @@ What is left is suspension, and the daily sweep demoting the project on its comp
 Making the cap itself bound the case needs overdraw in the shared token bucket, which is a change to `RateLimiterService` and is not done here.
 
 The category is self-declared in the email step, same as everywhere else it is read.
-That is not a new trust boundary: the same field already exempts a send from recipient opt-outs and from the billing quota, both larger levers than pacing.
+That is not a new trust boundary: the same field already exempts a send from recipient opt-outs, a larger lever than pacing.
+The workflows API refuses a new transactional email step outside support workflows, so the field is set by the transactional send API, by support workflows, or by steps saved before that rule.
 
 `cdp_team_email_cap_delayed_total{mode="transactional"}` counts transactional sends that a cap would have delayed.
 They are kept out of `mode="shadow"` so the shadow counts stay a true forecast of what enforce would delay.
