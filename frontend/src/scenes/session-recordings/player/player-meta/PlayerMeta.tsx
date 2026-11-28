@@ -27,6 +27,8 @@ import { urls } from 'scenes/urls'
 
 import { getCurrentExporterData } from '~/exporter/exporterViewLogic'
 
+import { MessagingCtaChip } from 'products/workflows/frontend/MessagingCta/MessagingCtaChip'
+
 import { PlayerInspectorButton } from './PlayerInspectorButton'
 import { PlayerMetaExperimentTags } from './PlayerMetaExperimentTags'
 import { playerMetaLogic } from './playerMetaLogic'
@@ -130,9 +132,8 @@ function PlayerMetaControls({ size }: { size: PlayerMetaBreakpoints }): JSX.Elem
 export function PlayerMeta(): JSX.Element {
     const { logicProps, isFullScreen } = useValues(sessionRecordingPlayerLogic)
 
-    const { windowIds, trackedWindow, lastPageviewEvent, currentURL, currentWindowIndex, loading } = useValues(
-        playerMetaLogic(logicProps)
-    )
+    const { windowIds, trackedWindow, lastPageviewEvent, currentURL, currentWindowIndex, loading, startedFromEmail } =
+        useValues(playerMetaLogic(logicProps))
 
     const { setTrackedWindow } = useActions(playerMetaLogic(logicProps))
 
@@ -219,6 +220,11 @@ export function PlayerMeta(): JSX.Element {
                         )}
                     </div>
                     <PlayerMetaExperimentTags />
+                    {startedFromEmail && (
+                        <span className="flex min-w-0 max-w-max grow basis-0 overflow-hidden empty:hidden">
+                            <MessagingCtaChip placement="replay.player_chip" />
+                        </span>
+                    )}
                     <PlayerMetaControls size={size} />
                 </div>
             </div>

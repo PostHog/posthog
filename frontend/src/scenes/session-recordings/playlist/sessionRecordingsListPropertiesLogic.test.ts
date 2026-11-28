@@ -18,6 +18,7 @@ const EXPECTED_RECORDING_PROPERTIES = [
             $os: 'Windows',
             $os_name: 'Windows 10',
             $entry_referring_domain: 'google.com',
+            $entry_utm_medium: 'Email',
             $ip: '192.0.2.1',
         },
     },
@@ -42,6 +43,7 @@ const EXPECTED_RECORDING_PROPERTIES_BY_ID = {
         $os: 'Windows',
         $os_name: 'Windows 10',
         $entry_referring_domain: 'google.com',
+        $entry_utm_medium: 'Email',
         $ip: '192.0.2.1',
     },
     s2: {
@@ -94,12 +96,13 @@ const S1_BASE_ROW = [
     'Windows',
     'Windows 10',
     'google.com',
+    'Email',
     null,
     null,
     null,
     '192.0.2.1',
 ]
-const S2_BASE_ROW = ['s2', 'GB', 'Safari', 'Mobile', 'iOS', 'iOS 14', 'google.com', null, null, null, null]
+const S2_BASE_ROW = ['s2', 'GB', 'Safari', 'Mobile', 'iOS', 'iOS 14', 'google.com', null, null, null, null, null]
 
 // mock the query endpoint with a per-request handler that receives the HogQL query string
 const useQueryMocks = (handler: (query: string) => unknown): void => {
@@ -214,7 +217,7 @@ describe('sessionRecordingsListPropertiesLogic', () => {
         sessionRecordingPinnedPropertiesLogic.actions.setPinnedProperties([
             'Start',
             'email',
-            '$entry_utm_medium',
+            '$entry_utm_source',
             '$channel_type',
         ])
 
@@ -227,7 +230,7 @@ describe('sessionRecordingsListPropertiesLogic', () => {
         // at the select list. Searching the whole query trips over an unrelated event that shares the
         // pin's name as a substring.
         const selectList = issuedQueries[0].split('FROM events')[0]
-        expect(selectList).toContain('any(session.$entry_utm_medium) as $entry_utm_medium')
+        expect(selectList).toContain('any(session.$entry_utm_source) as $entry_utm_source')
         expect(selectList).toContain('any(session.$channel_type) as $channel_type')
         // non-session pins must not leak into the query
         expect(selectList).not.toContain('email')
@@ -235,7 +238,7 @@ describe('sessionRecordingsListPropertiesLogic', () => {
 
         expect(logic.values.recordingPropertiesById['s1']).toMatchObject({
             $browser: 'Chrome',
-            $entry_utm_medium: 'paid',
+            $entry_utm_source: 'paid',
             $channel_type: 'Paid Search',
         })
     })
@@ -246,13 +249,13 @@ describe('sessionRecordingsListPropertiesLogic', () => {
         }).toDispatchActions(['loadPropertiesForSessionsSuccess'])
 
         useQueryMocks(() => ({ results: [[...S1_BASE_ROW, 'paid']] }))
-        sessionRecordingPinnedPropertiesLogic.actions.setPinnedProperties(['$entry_utm_medium'])
+        sessionRecordingPinnedPropertiesLogic.actions.setPinnedProperties(['$entry_utm_source'])
 
         await expectLogic(logic, () => {
             logic.actions.maybeLoadPropertiesForSessions([mockSessons[0]])
         }).toDispatchActions(['loadPropertiesForSessionsSuccess'])
 
-        expect(logic.values.recordingPropertiesById['s1']).toMatchObject({ $entry_utm_medium: 'paid' })
+        expect(logic.values.recordingPropertiesById['s1']).toMatchObject({ $entry_utm_source: 'paid' })
 
         await expectLogic(logic, () => {
             logic.actions.maybeLoadPropertiesForSessions([mockSessons[0]])
@@ -263,7 +266,7 @@ describe('sessionRecordingsListPropertiesLogic', () => {
         const issuedQueries: string[] = []
         useQueryMocks((query) => {
             issuedQueries.push(query)
-            if (query.includes('$entry_utm_medium')) {
+            if (query.includes('$entry_utm_source')) {
                 return [400, { detail: 'unknown field' }]
             }
             return {
@@ -279,7 +282,7 @@ describe('sessionRecordingsListPropertiesLogic', () => {
         expect(logic.values.recordingPropertiesById['s1']).toMatchObject({ $channel_type: 'Paid Search' })
 
         // adding an unqueryable pin fails the wide query and falls back to the base one
-        sessionRecordingPinnedPropertiesLogic.actions.setPinnedProperties(['$channel_type', '$entry_utm_medium'])
+        sessionRecordingPinnedPropertiesLogic.actions.setPinnedProperties(['$channel_type', '$entry_utm_source'])
         await expectLogic(logic, () => {
             logic.actions.maybeLoadPropertiesForSessions([mockSessons[0]])
         }).toDispatchActions(['loadPropertiesForSessionsSuccess'])
@@ -288,7 +291,7 @@ describe('sessionRecordingsListPropertiesLogic', () => {
         expect(logic.values.recordingPropertiesById['s1']).toMatchObject({
             $browser: 'Chrome',
             $channel_type: 'Paid Search',
-            $entry_utm_medium: null,
+            $entry_utm_source: null,
         })
         await expectLogic(logic, () => {
             logic.actions.maybeLoadPropertiesForSessions([mockSessons[0]])
@@ -300,7 +303,7 @@ describe('sessionRecordingsListPropertiesLogic', () => {
             logic.actions.maybeLoadPropertiesForSessions([mockSessons[1]])
         }).toDispatchActions(['loadPropertiesForSessionsSuccess'])
         expect(issuedQueries).toHaveLength(queriesSoFar + 1)
-        expect(issuedQueries[issuedQueries.length - 1]).not.toContain('$entry_utm_medium')
+        expect(issuedQueries[issuedQueries.length - 1]).not.toContain('$entry_utm_source')
     })
 
     it('retries the extended query after a transient failure', async () => {
@@ -308,7 +311,7 @@ describe('sessionRecordingsListPropertiesLogic', () => {
         let failWideQuery = true
         useQueryMocks((query) => {
             issuedQueries.push(query)
-            if (query.includes('$entry_utm_medium')) {
+            if (query.includes('$entry_utm_source')) {
                 if (failWideQuery) {
                     return [500, { detail: 'timeout' }]
                 }
@@ -316,7 +319,7 @@ describe('sessionRecordingsListPropertiesLogic', () => {
             }
             return { results: [S1_BASE_ROW] }
         })
-        sessionRecordingPinnedPropertiesLogic.actions.setPinnedProperties(['$entry_utm_medium'])
+        sessionRecordingPinnedPropertiesLogic.actions.setPinnedProperties(['$entry_utm_source'])
 
         await expectLogic(logic, () => {
             logic.actions.loadPropertiesForSessions([mockSessons[0]])
@@ -328,8 +331,8 @@ describe('sessionRecordingsListPropertiesLogic', () => {
             logic.actions.maybeLoadPropertiesForSessions([mockSessons[1]])
         }).toDispatchActions(['loadPropertiesForSessionsSuccess'])
 
-        expect(issuedQueries[issuedQueries.length - 1]).toContain('$entry_utm_medium')
-        expect(logic.values.recordingPropertiesById['s2']).toMatchObject({ $entry_utm_medium: 'paid' })
+        expect(issuedQueries[issuedQueries.length - 1]).toContain('$entry_utm_source')
+        expect(logic.values.recordingPropertiesById['s2']).toMatchObject({ $entry_utm_source: 'paid' })
     })
 
     it('resolves instead of throwing when the base query fails with no pins to fall back on', async () => {
@@ -346,7 +349,7 @@ describe('sessionRecordingsListPropertiesLogic', () => {
 
     it('resolves instead of throwing when both the wide and fallback queries fail', async () => {
         useQueryMocks(() => [500, { detail: 'ClickHouse is unavailable' }])
-        sessionRecordingPinnedPropertiesLogic.actions.setPinnedProperties(['$entry_utm_medium'])
+        sessionRecordingPinnedPropertiesLogic.actions.setPinnedProperties(['$entry_utm_source'])
 
         await expectLogic(logic, () => {
             logic.actions.loadPropertiesForSessions(mockSessons)

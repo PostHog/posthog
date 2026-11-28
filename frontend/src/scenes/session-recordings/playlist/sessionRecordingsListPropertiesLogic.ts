@@ -23,6 +23,7 @@ const BASE_QUERY_PROPERTIES: [string, string][] = [
     ['properties', '$os'],
     ['properties', '$os_name'],
     ['session', '$entry_referring_domain'],
+    ['session', '$entry_utm_medium'],
     ['properties', '$geoip_subdivision_1_name'],
     ['properties', '$geoip_city_name'],
     ['session', '$entry_current_url'],
