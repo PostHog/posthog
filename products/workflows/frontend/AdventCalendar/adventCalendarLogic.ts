@@ -684,6 +684,7 @@ export const adventCalendarLogic = kea<adventCalendarLogicType>([
             }
             const hoggy = values.graph.doors.find((door) => door.day === day && door.status === 'open')?.reward
             if (!hoggy) {
+                settle(false)
                 return
             }
             const utcOffsetMinutes = -new Date().getTimezoneOffset()
@@ -811,15 +812,11 @@ export const adventCalendarLogic = kea<adventCalendarLogicType>([
             window.addEventListener('storage', onStorage)
             return () => window.removeEventListener('storage', onStorage)
         }, 'tickets')
-        cache.disposables.add(
-            () => {
-                const onOnline = (): void => actions.resumePendingTickets()
-                window.addEventListener('online', onOnline)
-                return () => window.removeEventListener('online', onOnline)
-            },
-            'online',
-            { pauseOnPageHidden: false }
-        )
+        cache.disposables.add(() => {
+            const onOnline = (): void => actions.resumePendingTickets()
+            window.addEventListener('online', onOnline)
+            return () => window.removeEventListener('online', onOnline)
+        }, 'online')
         actions.resumePendingTickets()
     }),
 ])

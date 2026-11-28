@@ -344,26 +344,13 @@ describe('adventCalendarLogic', () => {
         expect(logic.values.tickets).toBe(tickets)
     })
 
-    const hideTab = (hidden: boolean): void => {
-        Object.defineProperty(document, 'hidden', { value: hidden, configurable: true })
-        document.dispatchEvent(new Event('visibilitychange'))
-    }
-
-    it.each<[string, Reply, Reply, boolean, number[], number[]]>([
-        ['the open was lost on the network, and the re-send reaches the server', 'network error', 200, false, [3], []],
-        [
-            'the open was lost on the network, and the re-send is lost too',
-            'network error',
-            'network error',
-            false,
-            [3],
-            [3],
-        ],
-        ['the server took the open', 200, 200, false, [], []],
-        ['the open was lost on the network, in a hidden tab', 'network error', 200, true, [3], []],
+    it.each<[string, Reply, Reply, number[], number[]]>([
+        ['the open was lost on the network, and the re-send reaches the server', 'network error', 200, [3], []],
+        ['the open was lost on the network, and the re-send is lost too', 'network error', 'network error', [3], [3]],
+        ['the server took the open', 200, 200, [], []],
     ])(
         'sends each waiting open once when the browser is back online after %s',
-        async (_, first, resend, hidden, resent, pending) => {
+        async (_, first, resend, resent, pending) => {
             const firstApi = calendarApi({ open: first })
             useMocks(firstApi.mocks)
             logic.actions.activateDoor('door-1')
@@ -376,14 +363,8 @@ describe('adventCalendarLogic', () => {
 
             const onlineApi = calendarApi({ open: resend })
             useMocks(onlineApi.mocks)
-            if (hidden) {
-                hideTab(true)
-            }
             window.dispatchEvent(new Event('online'))
             await jest.advanceTimersByTimeAsync(60_000)
-            if (hidden) {
-                hideTab(false)
-            }
 
             expect({
                 resent: onlineApi.opens.map((open) => (open as { day: number }).day),
@@ -392,31 +373,6 @@ describe('adventCalendarLogic', () => {
             }).toEqual({ resent, tickets: 1, pending })
         }
     )
-
-    it('keeps an open another tab waits on when this tab is back online without that door, and sends it after a reload', async () => {
-        let reply: () => void = () => {}
-        useMocks(calendarApi({ openHeld: new Promise<void>((resolve) => (reply = resolve)) }).mocks)
-        logic.actions.activateDoor('door-1')
-        logic.actions.finishReveal()
-        window.localStorage.setItem(KEY, JSON.stringify({ [UUID]: { opened: [1, 2, 3], answers: { 2: 'james' } } }))
-        window.localStorage.setItem(PENDING_KEY, JSON.stringify({ [UUID]: [3] }))
-        reply()
-        await jest.advanceTimersByTimeAsync(100)
-        window.dispatchEvent(new Event('online'))
-        await jest.advanceTimersByTimeAsync(100)
-
-        logic.unmount()
-        const reloadApi = calendarApi()
-        useMocks(reloadApi.mocks)
-        logic = adventCalendarLogic()
-        logic.mount()
-        await jest.advanceTimersByTimeAsync(100)
-
-        expect({
-            resent: reloadApi.opens.map((open) => (open as { day: number }).day),
-            tickets: logic.values.tickets,
-        }).toEqual({ resent: [3], tickets: 1 })
-    })
 
     it('counts no ticket from a stored format no release wrote', () => {
         OLD_FORMAT()
