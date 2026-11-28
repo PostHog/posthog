@@ -153,12 +153,43 @@ def _inject_brand_id(row: dict[str, Any]) -> dict[str, Any]:
     return row
 
 
+def _fanout_resource(
+    rest_config: RESTAPIConfig,
+    name: str,
+    team_id: int,
+    job_id: str,
+    manager: ResumableSourceManager[BigMailerResumeConfig] | None,
+) -> Resource:
+    initial_paginator_state: Optional[dict[str, Any]] = None
+    if manager is not None and manager.can_resume():
+        resume = manager.load_state()
+        # Only framework-shaped fan-out state is resumable. A pre-migration bookmark (cursor/brand_id)
+        # can't be translated into the completed/current path map, so such a sync restarts fresh —
+        # safe, because the merge dedupes re-pulled rows on the primary key.
+        if resume is not None and resume.fanout_state is not None:
+            initial_paginator_state = resume.fanout_state
+
+    def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+        if state and manager is not None:
+            manager.save_state(BigMailerResumeConfig(fanout_state=state))
+
+    resources = rest_api_resources(
+        rest_config,
+        team_id,
+        job_id,
+        None,
+        resume_hook=save_checkpoint if manager is not None else None,
+        initial_paginator_state=initial_paginator_state,
+    )
+    return next(resource for resource in resources if resource.name == name)
+
+
 def _brand_scoped_resource(
     api_key: str,
     config: BigMailerEndpointConfig,
     team_id: int,
     job_id: str,
-    manager: ResumableSourceManager[BigMailerResumeConfig],
+    manager: ResumableSourceManager[BigMailerResumeConfig] | None,
 ) -> Resource:
     """Fan out a brand-scoped endpoint over every brand via a dependent resource: the framework
     lists /brands and pages each brand's child list, injecting `brand_id` into every row."""
@@ -188,29 +219,46 @@ def _brand_scoped_resource(
             },
         ],
     }
+    return _fanout_resource(rest_config, config.name, team_id, job_id, manager)
 
-    initial_paginator_state: Optional[dict[str, Any]] = None
-    if manager.can_resume():
-        resume = manager.load_state()
-        # Only framework-shaped fan-out state is resumable. A pre-migration bookmark (cursor/brand_id)
-        # can't be translated into the completed/current path map, so such a sync restarts fresh —
-        # safe, because the merge dedupes re-pulled rows on the primary key.
-        if resume is not None and resume.fanout_state is not None:
-            initial_paginator_state = resume.fanout_state
 
-    def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
-        if state:
-            manager.save_state(BigMailerResumeConfig(fanout_state=state))
+def _inject_rss_campaign_ids(row: dict[str, Any]) -> dict[str, Any]:
+    row["brand_id"] = row.pop("_rss_campaigns_brand_id")
+    row["rss_campaign_id"] = row.pop("_rss_campaigns_id")
+    return row
 
-    resources = rest_api_resources(
-        rest_config,
-        team_id,
-        job_id,
-        None,
-        resume_hook=save_checkpoint,
-        initial_paginator_state=initial_paginator_state,
-    )
-    return next(r for r in resources if r.name == config.name)
+
+def _rss_updates_resource(
+    api_key: str,
+    config: BigMailerEndpointConfig,
+    team_id: int,
+    job_id: str,
+    manager: ResumableSourceManager[BigMailerResumeConfig],
+) -> Resource:
+    """Stream the parent campaigns separately so only the updates own the resume state."""
+    parent = BIGMAILER_ENDPOINTS["rss_campaigns"]
+    campaigns = _brand_scoped_resource(api_key, parent, team_id, job_id, None)
+    rest_config: RESTAPIConfig = {
+        "client": _client_config(api_key),
+        "resources": [
+            {"name": parent.name, "data_iterator": lambda: iter(campaigns)},
+            {
+                "name": config.name,
+                "endpoint": {
+                    "path": config.path,
+                    "params": {
+                        "limit": PAGE_SIZE,
+                        "brand_id": {"type": "resolve", "resource": parent.name, "field": "brand_id"},
+                        "parent_id": {"type": "resolve", "resource": parent.name, "field": "id"},
+                    },
+                    "data_selector": "data",
+                },
+                "include_from_parent": ["brand_id", "id"],
+                "data_map": _inject_rss_campaign_ids,
+            },
+        ],
+    }
+    return _fanout_resource(rest_config, config.name, team_id, job_id, manager)
 
 
 def bigmailer_source(
@@ -222,7 +270,9 @@ def bigmailer_source(
 ) -> SourceResponse:
     config = BIGMAILER_ENDPOINTS[endpoint]
 
-    if config.brand_scoped:
+    if endpoint == "rss_update_campaigns":
+        resource = _rss_updates_resource(api_key, config, team_id, job_id, resumable_source_manager)
+    elif config.brand_scoped:
         resource = _brand_scoped_resource(api_key, config, team_id, job_id, resumable_source_manager)
     else:
         resource = _top_level_resource(api_key, config, team_id, job_id, resumable_source_manager)

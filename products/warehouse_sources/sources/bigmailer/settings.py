@@ -78,6 +78,27 @@ BIGMAILER_ENDPOINTS: dict[str, BigMailerEndpointConfig] = {
         brand_scoped=True,
         primary_keys=_BRAND_COMPOSITE_KEY,
     ),
+    "rss_update_campaigns": BigMailerEndpointConfig(
+        name="rss_update_campaigns",
+        path="/brands/{brand_id}/rss-campaigns/{parent_id}/updates",
+        brand_scoped=True,
+        primary_keys=["brand_id", "rss_campaign_id", "id"],
+        should_sync_default=False,
+    ),
+    "brand_properties": BigMailerEndpointConfig(
+        name="brand_properties",
+        path="/brands/{brand_id}/properties",
+        brand_scoped=True,
+        primary_keys=_BRAND_COMPOSITE_KEY,
+        should_sync_default=False,
+    ),
+    "test_campaigns": BigMailerEndpointConfig(
+        name="test_campaigns",
+        path="/brands/{brand_id}/test-campaigns",
+        brand_scoped=True,
+        primary_keys=_BRAND_COMPOSITE_KEY,
+        should_sync_default=False,
+    ),
     "message_types": BigMailerEndpointConfig(
         name="message_types",
         path="/brands/{brand_id}/message-types",

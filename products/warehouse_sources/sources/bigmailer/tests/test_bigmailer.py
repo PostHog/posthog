@@ -65,13 +65,16 @@ class TestTopLevelPagination:
 
 
 class TestBrandFanOut:
-    def test_iterates_every_brand_and_injects_brand_id(self) -> None:
+    @parameterized.expand(
+        [("contacts", "contacts"), ("brand_properties", "properties"), ("test_campaigns", "test-campaigns")]
+    )
+    def test_iterates_every_brand_and_injects_brand_id(self, table: str, endpoint: str) -> None:
         result = _driver().run(
-            "contacts",
+            table,
             [
-                _page([{"id": "b1"}, {"id": "b2"}]),  # /brands
-                _page([{"id": "c1", "created": 1}]),  # b1 contacts
-                _page([{"id": "c2", "created": 2}]),  # b2 contacts
+                _page([{"id": "b1"}, {"id": "b2"}]),
+                _page([{"id": "c1", "created": 1}]),
+                _page([{"id": "c2", "created": 2}]),
             ],
         )
 
@@ -79,7 +82,54 @@ class TestBrandFanOut:
         assert [(row["id"], row["brand_id"]) for row in result.rows] == [("c1", "b1"), ("c2", "b2")]
         # the injected brand id must be the plain `brand_id` column, not the prefixed parent key
         assert result.rows[0] == {"id": "c1", "created": 1, "brand_id": "b1"}
-        assert result.paths == ["/v1/brands", "/v1/brands/b1/contacts", "/v1/brands/b2/contacts"]
+        assert result.paths == ["/v1/brands", f"/v1/brands/b1/{endpoint}", f"/v1/brands/b2/{endpoint}"]
+
+    def test_rss_updates_keep_parent_ids_and_resume_from_child_cursor(self) -> None:
+        brands = _page([{"id": "b1"}, {"id": "b2"}])
+        campaigns = _page([{"id": "rss1"}, {"id": "rss2"}])
+        first = _driver().run(
+            "rss_update_campaigns",
+            [
+                brands,
+                campaigns,
+                _page([{"id": "update1"}]),
+                _page([{"id": "update2"}], has_more=True, cursor="updates-next"),
+                ScriptedResponse(status=404, json={"message": "Not found"}),
+            ],
+        )
+
+        assert isinstance(first.raised, requests.HTTPError)
+        assert first.rows == [
+            {"id": "update1", "brand_id": "b1", "rss_campaign_id": "rss1"},
+            {"id": "update2", "brand_id": "b1", "rss_campaign_id": "rss2"},
+        ]
+        assert first.final_state is not None
+
+        resumed = _driver().run(
+            "rss_update_campaigns",
+            [
+                brands,
+                campaigns,
+                _page([{"id": "update3"}]),
+                _page([{"id": "rss1"}]),
+                _page([{"id": "update1"}]),
+            ],
+            resume_state=first.final_state,
+        )
+
+        assert resumed.raised is None
+        assert resumed.paths == [
+            "/v1/brands",
+            "/v1/brands/b1/rss-campaigns",
+            "/v1/brands/b1/rss-campaigns/rss2/updates",
+            "/v1/brands/b2/rss-campaigns",
+            "/v1/brands/b2/rss-campaigns/rss1/updates",
+        ]
+        assert resumed.params("cursor") == [None, None, "updates-next", None, None]
+        assert resumed.rows == [
+            {"id": "update3", "brand_id": "b1", "rss_campaign_id": "rss2"},
+            {"id": "update1", "brand_id": "b2", "rss_campaign_id": "rss1"},
+        ]
 
     def test_resume_skips_completed_brands_and_resumes_cursor(self) -> None:
         # Resuming mid-fan-out must not re-request brands completed before the crash, and must start
