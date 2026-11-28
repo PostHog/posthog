@@ -6,6 +6,7 @@ from unittest.mock import MagicMock, patch
 
 from django.db import connections
 
+import requests
 from parameterized import parameterized
 
 from posthog.models import Team
@@ -91,7 +92,7 @@ class TestSentBroadcastLock(_BroadcastFixtures, APIBaseTest):
     def setUp(self):
         super().setUp()
         dispatch = patch(_DISPATCH)
-        dispatch.start()
+        self.dispatch = dispatch.start()
         self.addCleanup(dispatch.stop)
 
     def _assert_locked(self, response, flow_id: str) -> None:
@@ -219,6 +220,29 @@ class TestSentBroadcastLock(_BroadcastFixtures, APIBaseTest):
         )
         if expected_status == 400:
             assert response.json()["code"] == "broadcast_locked", response.json()
+
+    @parameterized.expand(
+        [
+            ("never_connected", requests.ConnectTimeout("connect timed out"), 200),
+            ("no_response", requests.ReadTimeout("read timed out"), 400),
+            (
+                "gateway_error_after_cdp_may_have_queued",
+                MagicMock(
+                    **{"raise_for_status.side_effect": requests.HTTPError("502", response=MagicMock(status_code=502))}
+                ),
+                400,
+            ),
+        ]
+    )
+    def test_only_a_send_whose_dispatch_never_connected_can_be_retried(self, _name, first_dispatch, retry_status):
+        flow_id = self._create_broadcast()
+        self.dispatch.side_effect = [first_dispatch, MagicMock(status_code=200)]
+
+        failed = self.client.post(self._url(flow_id, "/batch_jobs"), {}, format="json")
+        retried = self.client.post(self._url(flow_id, "/batch_jobs"), {}, format="json")
+
+        assert failed.status_code == 500
+        assert retried.status_code == retry_status, retried.json()
 
 
 class TestBroadcastDispatchCommitsFirst(_BroadcastFixtures, NonAtomicAPIBaseTest):

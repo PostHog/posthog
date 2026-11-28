@@ -7,6 +7,7 @@ from django.db import transaction
 from django.db.models import Exists, OuterRef, Q, QuerySet, Subquery
 from django.utils import timezone
 
+import requests
 import structlog
 from prometheus_client import Counter
 
@@ -71,7 +72,15 @@ def create_batch_job(
         )
         job.dispatch_on_save = False
         job.save()
-    dispatch_new_batch_job(job)
+    try:
+        dispatch_new_batch_job(job)
+    except Exception as error:
+        # A dispatch that never connected sent no request, so no resolver can run. Its row would lock the
+        # broadcast as sent, and the sender could not retry it. An error response is not proof: the CDP API can
+        # queue the resolver and still answer with a gateway error. Other workflows keep the failed run.
+        if hog_flow.origin_product == HogFlow.OriginProduct.BROADCASTS and isinstance(error, requests.ConnectTimeout):
+            HogFlowBatchJob.objects.filter(pk=job.pk).delete()
+        raise
     return to_batch_job(job)
 
 
