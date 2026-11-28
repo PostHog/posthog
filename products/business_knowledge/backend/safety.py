@@ -27,18 +27,16 @@ import secrets
 from dataclasses import dataclass
 from uuid import UUID
 
-from django.conf import settings
-
 import structlog
 import posthoganalytics
 from google.genai import types
-from posthoganalytics.ai.gemini import AsyncClient, genai
+from google.genai.client import AsyncClient
 
 from posthog.dataclasses import frozen
-from posthog.llm.gateway_client import team_distinct_id
+from posthog.llm.gateway_client import ai_gateway_headers, build_gemini_client, team_distinct_id
 
 from .constants import CLASSIFY_MAX_TOTAL_CHARS, CLASSIFY_WINDOW_CHARS, CLASSIFY_WINDOW_OVERLAP_CHARS
-from .llm_telemetry import INGEST_SAFETY_FEATURE, ingest_properties
+from .llm_telemetry import BK_AI_PRODUCT, INGEST_SAFETY_FEATURE, ingest_properties
 from .logic import PendingDocument
 from .models import SafetyVerdict
 
@@ -157,17 +155,18 @@ async def _classify_window(
     """
     nonce = secrets.token_hex(16)
     marker = f"===BK::{nonce}==="
-    user_content = f"{marker}\n{window}\n{marker}"
-    properties = {
-        **ingest_properties(
+    user_content: list[types.PartUnion] = [f"{marker}\n{window}\n{marker}"]
+    labels = {
+        key: str(value)
+        for key, value in ingest_properties(
             team_id=doc.team_id,
             document_id=doc.document_id,
             source_id=doc.source_id,
             source_type=doc.source_type,
             feature=INGEST_SAFETY_FEATURE,
-        ),
-        "window_index": window_index,
+        ).items()
     }
+    labels["window_index"] = str(window_index)
     for attempt in range(LLM_MAX_ATTEMPTS):
         if attempt > 0:
             await asyncio.sleep(LLM_RETRY_INITIAL_DELAY_SECONDS * (LLM_RETRY_BACKOFF_COEFFICIENT ** (attempt - 1)))
@@ -175,18 +174,26 @@ async def _classify_window(
             response = await asyncio.wait_for(
                 client.models.generate_content(
                     model=GEMINI_MODEL,
-                    contents=[user_content],
+                    contents=user_content,
                     config=types.GenerateContentConfig(
                         system_instruction=_SAFETY_SYSTEM_INSTRUCTION,
                         max_output_tokens=256,
                         # thinking_budget=0 is a 400 on this model. MINIMAL is the floor it accepts.
                         thinking_config=types.ThinkingConfig(thinking_level=types.ThinkingLevel.MINIMAL),
+                        http_options=types.HttpOptions(
+                            headers={
+                                **(
+                                    ai_gateway_headers(
+                                        trace_id=str(doc.document_id),
+                                        distinct_id=team_distinct_id(doc.team_id),
+                                        properties={**labels, "attempt": str(attempt + 1)},
+                                    )
+                                    or {}
+                                ),
+                                "X-PostHog-Billable": "false",
+                            }
+                        ),
                     ),
-                    posthog_distinct_id=team_distinct_id(doc.team_id),
-                    posthog_trace_id=str(doc.document_id),
-                    posthog_properties={**properties, "attempt": attempt + 1},
-                    # The window is customer content, so only token counts reach analytics.
-                    posthog_privacy_mode=True,
                 ),
                 timeout=LLM_CALL_TIMEOUT_SECONDS,
             )
@@ -315,18 +322,24 @@ async def _classify_one(client: AsyncClient, doc: PendingDocument, semaphore: as
 
 async def classify_documents(docs: list[PendingDocument]) -> list[SafetyResult]:
     """Classify a batch of pending documents with bounded LLM concurrency."""
-    api_key = getattr(settings, "GEMINI_API_KEY", "")
-    if not docs or not api_key:
-        # No key (e.g. self-hosted without Gemini) → return nothing. The docs
-        # stay `unknown` and therefore excluded from search (fail closed). No
-        # LLM call is made, so re-listing them on later passes is cheap.
+    if not docs:
         return []
-    client = genai.AsyncClient(api_key=api_key)
+    # The window is customer content, so only token counts reach analytics.
+    client = build_gemini_client(ai_product=BK_AI_PRODUCT, privacy_mode=True)
+    if client is None:
+        # No gateway (e.g. self-hosted) → return nothing. The docs stay
+        # `unknown` and therefore excluded from search (fail closed). No LLM
+        # call is made, so re-listing them on later passes is cheap.
+        return []
     semaphore = asyncio.Semaphore(LLM_CONCURRENCY_LIMIT)
 
     async def _bounded(doc: PendingDocument) -> SafetyResult:
-        return await _classify_one(client, doc, semaphore)
+        return await _classify_one(client.aio, doc, semaphore)
 
-    async with asyncio.TaskGroup() as tg:
-        tasks = [tg.create_task(_bounded(doc)) for doc in docs]
+    try:
+        async with asyncio.TaskGroup() as tg:
+            tasks = [tg.create_task(_bounded(doc)) for doc in docs]
+    finally:
+        client.close()
+        await client.aio.aclose()
     return [task.result() for task in tasks]
