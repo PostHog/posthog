@@ -7,6 +7,7 @@ from django.db import transaction
 from django.db.models import Exists, OuterRef, Q, QuerySet, Subquery
 from django.utils import timezone
 
+import requests
 import structlog
 from prometheus_client import Counter
 
@@ -14,12 +15,13 @@ from posthog.exceptions_capture import capture_exception
 from posthog.plugins.plugin_server_api import get_hog_flow_in_flight_count, resume_hog_flow_batch_job
 
 from products.cohorts.backend.models.cohort import Cohort
-from products.workflows.backend.facade.contracts import WorkflowBatchJob, WorkflowBatchJobNotFound
+from products.workflows.backend.facade.contracts import BroadcastLocked, WorkflowBatchJob, WorkflowBatchJobNotFound
 from products.workflows.backend.facade.enums import HogFlowBatchJobState, HogFlowScheduleStatus
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 from products.workflows.backend.models.hog_flow_batch_job import HogFlowBatchJob
 from products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job import (
     batch_job_audience_filters,
+    dispatch_new_batch_job,
     dispatch_queued_no_resolver,
 )
 from products.workflows.backend.models.hog_flow_schedule import HogFlowSchedule
@@ -52,17 +54,56 @@ def create_batch_job(
     filters: dict[str, Any],
     status: HogFlowBatchJobState | None = None,
 ) -> WorkflowBatchJob:
-    """Save the job row. Its post_save receiver dispatches the run to the plugin server."""
-    job = HogFlowBatchJob.objects.create(
-        id=batch_job_id,
-        team_id=team_id,
-        hog_flow_id=hog_flow_id,
-        created_by_id=created_by_id,
-        variables=variables,
-        filters=filters,
-        **({} if status is None else {"status": status}),
-    )
+    """Save the job row, then dispatch the run to the plugin server. Raises BroadcastLocked for a broadcast
+    that already started sending."""
+    # The workflow's row lock orders this check against another dispatch and against edits, which take it too.
+    with transaction.atomic():
+        hog_flow = HogFlow.objects.select_for_update().get(pk=hog_flow_id, team_id=team_id)
+        if broadcast_is_locked(hog_flow):
+            raise BroadcastLocked()
+        job = HogFlowBatchJob(
+            id=batch_job_id,
+            team_id=team_id,
+            hog_flow_id=hog_flow_id,
+            created_by_id=created_by_id,
+            variables=variables,
+            filters=filters,
+            **({} if status is None else {"status": status}),
+        )
+        job.dispatch_on_save = False
+        job.save()
+    try:
+        dispatch_new_batch_job(job)
+    except Exception as error:
+        # A dispatch that never connected sent no request, so no resolver can run. Its row would lock the
+        # broadcast as sent, and the sender could not retry it. An error response is not proof: the CDP API can
+        # queue the resolver and still answer with a gateway error. Other workflows keep the failed run.
+        if hog_flow.origin_product == HogFlow.OriginProduct.BROADCASTS and isinstance(error, requests.ConnectTimeout):
+            HogFlowBatchJob.objects.filter(pk=job.pk).delete()
+        raise
     return to_batch_job(job)
+
+
+SENDING_BATCH_JOB_STATES = (HogFlowBatchJobState.WAITING, HogFlowBatchJobState.QUEUED, HogFlowBatchJobState.ACTIVE)
+
+
+def broadcast_is_locked(hog_flow: HogFlow) -> bool:
+    """Whether a broadcast is the fixed record of what it sent: a run is sending, or a run started and no
+    schedule has a send still to come. A failed run counts, as the resolver can fail after it enqueued part of
+    the audience. A recurring broadcast between runs stays editable, as the broadcasts
+    UI lets it go back to draft. A paused schedule still counts as to come, since editing a draft's audience
+    pauses it."""
+    if hog_flow.origin_product != HogFlow.OriginProduct.BROADCASTS:
+        return False
+    runs = HogFlowBatchJob.objects.filter(team_id=hog_flow.team_id, hog_flow_id=hog_flow.pk)
+    if runs.filter(status__in=SENDING_BATCH_JOB_STATES).exists():
+        return True
+    has_send_to_come = (
+        HogFlowSchedule.objects.filter(team_id=hog_flow.team_id, hog_flow_id=hog_flow.pk)
+        .exclude(status=HogFlowScheduleStatus.COMPLETED)
+        .exists()
+    )
+    return not has_send_to_come and runs.exists()
 
 
 def batch_run_may_send_after_failed_dispatch(

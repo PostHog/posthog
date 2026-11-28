@@ -193,6 +193,42 @@ export function canMoveToDraft(
     )
 }
 
+/**
+ * Mirrors the server's lock: a broadcast is the fixed record of what it sent once a run is sending, or a run
+ * started and no schedule has a send still to come. Null batch jobs means they haven't loaded.
+ */
+export function isSentBroadcast(
+    broadcast: { origin_product?: string | null; schedules?: readonly Pick<HogFlowScheduleApi, 'status'>[] },
+    batchJobs: Pick<HogFlowBatchJobApi, 'status'>[] | null
+): boolean | null {
+    if (broadcast.origin_product !== 'broadcasts') {
+        return false
+    }
+    if (batchJobs === null) {
+        return null
+    }
+    if (batchJobs.some((job) => ['waiting', 'queued', 'active'].includes(job.status ?? ''))) {
+        return true
+    }
+    return batchJobs.length > 0 && !(broadcast.schedules ?? []).some((schedule) => schedule.status !== 'completed')
+}
+
+/** Send now deletes the schedule before it dispatches, and the server refuses a dispatch once a run exists. */
+export function sendNowDisabledReason(
+    originProduct: string | null | undefined,
+    batchJobs: Pick<HogFlowBatchJobApi, 'status'>[] | null
+): string | undefined {
+    if (originProduct !== 'broadcasts') {
+        return undefined
+    }
+    if (batchJobs === null) {
+        return "Checking this broadcast's past sends."
+    }
+    return batchJobs.length > 0
+        ? 'This broadcast already started sending. To send it now, send it again as a new broadcast.'
+        : undefined
+}
+
 const RUN_STATUS: Record<string, BroadcastRunStatus> = {
     waiting: 'sending',
     queued: 'sending',

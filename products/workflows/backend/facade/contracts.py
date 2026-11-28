@@ -785,6 +785,10 @@ class WorkflowHasNoDraft(Exception):
     """Publish found no staged draft."""
 
 
+class BroadcastLocked(Exception):
+    """The broadcast already sent and has no send still to come, so its content and dispatch are frozen."""
+
+
 @frozen
 class Workflow:
     """A workflow as the API reads it.

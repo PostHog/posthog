@@ -9,6 +9,7 @@ from products.workflows.backend.facade.contracts import ImportNote, PreviousImpo
 from products.workflows.backend.facade.enums import HogFlowState, WorkflowImportSource
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 from products.workflows.backend.models.workflow_import import WorkflowImport
+from products.workflows.backend.services.batch_jobs import broadcast_is_locked
 
 
 def previous_import(
@@ -16,14 +17,19 @@ def previous_import(
 ) -> PreviousImport:
     record = WorkflowImport.objects.for_team(team.id).filter(source=source.value, source_id=source_id).first()
     flow = (
-        HogFlow.objects.filter(team_id=team.id, pk=record.hog_flow_id).only("id", "status", "created_by_id").first()
+        HogFlow.objects.filter(team_id=team.id, pk=record.hog_flow_id)
+        .only("id", "team_id", "status", "origin_product", "created_by_id")
+        .first()
         if record is not None and record.hog_flow_id
         else None
     )
     return PreviousImport(
         record_id=record.id if record else None,
         hog_flow_id=flow.id if flow else None,
-        hog_flow_is_draft=flow is not None and flow.status == HogFlowState.DRAFT.value,
+        # A broadcast that started sending stays the record of that send, even back in draft.
+        hog_flow_is_draft=flow is not None
+        and flow.status == HogFlowState.DRAFT.value
+        and not broadcast_is_locked(flow),
         hog_flow_created_by_id=flow.created_by_id if flow else None,
     )
 
