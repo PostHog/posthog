@@ -165,6 +165,7 @@ def test_the_server_answers_over_http() -> None:
         )
         oversized = _post_declaring(server.server_address[1], str(MAX_BODY_BYTES + 1))
         unbounded = _post_declaring(server.server_address[1], "-1")
+        endless = _post_declaring(server.server_address[1], "9" * 5000)
     finally:
         server.shutdown()
         server.server_close()
@@ -174,6 +175,7 @@ def test_the_server_answers_over_http() -> None:
     assert from_a_page.status_code == 403
     assert oversized.startswith(b"HTTP/1.1 413")
     assert unbounded.startswith(b"HTTP/1.1 400")
+    assert endless.startswith(b"HTTP/1.1 413")
     assert answered.headers["X-Fake-Gateway"] == "generated"
     if answered.status_code == 200:
         assert parse_anthropic_citations(answered.json()).answer_text
@@ -206,6 +208,7 @@ def _post_declaring(port: int, content_length: str) -> bytes:
         ({"Content-Length": "+10"}, None, 400),
         ({"Content-Length": "1e3"}, None, 400),
         ({"Content-Length": "lots"}, None, 400),
+        ({"Content-Length": "9" * 5000}, None, 413),
         ({}, None, 400),
     ],
 )

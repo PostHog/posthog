@@ -862,7 +862,15 @@ def content_length(headers: Mapping[str, str]) -> int | None:
     non-numeric value would otherwise turn into an unbounded read."""
     lowered = {key.lower(): value for key, value in headers.items()}
     declared = lowered.get("content-length", "").strip()
-    return int(declared) if declared.isdigit() else None
+    if not declared.isdigit():
+        return None
+    if len(declared) > len(str(MAX_BODY_BYTES)):
+        # Longer than the bound can ever be, and past a few thousand digits `int` refuses the string outright.
+        return MAX_BODY_BYTES + 1
+    try:
+        return int(declared)
+    except ValueError:
+        return None
 
 
 def refuse(headers: Mapping[str, str], record_key: str | None) -> GatewayResponse | None:
