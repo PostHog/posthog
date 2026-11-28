@@ -123,6 +123,7 @@ class TestSlackBlocks(SimpleTestCase):
                 MessageDetail(label="wiki_url", value="https://x.example.com/ see wiki"),
                 MessageDetail(label="runbook_url", value="https://x.example.com/|https://good.example.com"),
                 MessageDetail(label="status_url", value="https://x.example.com/<!channel>"),
+                MessageDetail(label="docs", value="https://docs.example.com/alerts"),
                 MessageDetail(label="team", value="payments"),
             ),
         )
@@ -133,9 +134,18 @@ class TestSlackBlocks(SimpleTestCase):
         assert links["text"]["verbatim"] is True
         assert text["text"]["verbatim"] is True
         assert "*Service:* https://evil.example.com/login" in text["text"]["text"]
+        assert "*docs:* https://docs.example.com/alerts" in text["text"]["text"]
         assert "*team:* payments" in text["text"]["text"]
         assert "&lt;!channel&gt;" in text["text"]["text"]
         assert "<!" not in text["text"]["text"] + links["text"]["text"]
+
+    def test_a_source_detail_under_a_url_label_stays_plain_text(self) -> None:
+        message = alert_message(details=(MessageDetail(label="source_url", value="https://evil.example.com/login"),))
+
+        blocks = blocks_for(message)
+
+        assert [block["type"] for block in blocks] == ["header", "section", "actions"]
+        assert blocks[1]["text"]["text"] == "*source_url:* https://evil.example.com/login"
 
     def test_a_card_with_only_links_carries_no_empty_text_section(self) -> None:
         message = alert_message(rule_details=(MessageDetail(label="runbook_url", value="https://x.example.com/r"),))
