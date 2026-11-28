@@ -446,29 +446,44 @@ class TestAssetCheckExecutions:
         catalog: tuple[str, ...],
         remaining: list[tuple[str, str | None, str]],
     ) -> None:
-        driver = _driver()
-        first = driver.run(
-            "asset_check_executions",
+        source = DagsterCloudSource()
+        inputs = source_inputs("asset_check_executions")
+        config = DagsterCloudSourceConfig(organization="org", deployment="prod", api_token="tok")
+
+        def consume_attempt(rows: list[dict[str, Any]]) -> None:
+            manager = source.get_resumable_source_manager(inputs)
+            items = source.source_for_pipeline(config, manager, inputs).items()
+            assert isinstance(items, Iterable)
+            for page in items:
+                rows.extend(page)
+                manager.confirm()
+                manager.commit()
+
+        with scripted_network(
             [
                 _asset_check_parents("unique", "not_empty"),
                 _asset_check_executions(*first_page),
                 ScriptedResponse(status=400),
-            ],
-        )
+                _asset_check_parents(*catalog),
+                *(_asset_check_executions(row_id) for _, _, row_id in remaining),
+            ]
+        ) as network:
+            first: list[dict[str, Any]] = []
+            with pytest.raises(Exception, match="400 Client Error:"):
+                consume_attempt(first)
+            assert [(row["checkName"], row["id"]) for row in first] == [("unique", row_id) for row_id in first_page]
+            assert source.get_resumable_source_manager(inputs).can_resume()
 
-        assert first.raised is not None and str(first.raised).startswith("400 Client Error:")
-        assert [(row["checkName"], row["id"]) for row in first.rows] == [("unique", row_id) for row_id in first_page]
-        assert first.final_state is not None
-        assert first.committed_states == [first.final_state]
+            resume_request_start = len(network.requests_log)
+            resumed: list[dict[str, Any]] = []
+            consume_attempt(resumed)
+            requests = network.requests_log[resume_request_start:]
 
-        resumed = driver.run(
-            "asset_check_executions",
-            [_asset_check_parents(*catalog), *(_asset_check_executions(row_id) for _, _, row_id in remaining)],
-            resume_state=first.final_state,
-        )
-
-        assert resumed.raised is None
-        assert _variables(resumed, "AssetCheckExecutions") == [
+        assert [
+            request.json()["variables"]
+            for request in requests
+            if "query AssetCheckExecutions" in request.json()["query"]
+        ] == [
             {
                 "assetKey": {"path": ["sales", "orders"]},
                 "checkName": name,
@@ -477,9 +492,7 @@ class TestAssetCheckExecutions:
             }
             for name, cursor, _ in remaining
         ]
-        assert [(row["checkName"], row["id"]) for row in resumed.rows] == [
-            (name, row_id) for name, _, row_id in remaining
-        ]
+        assert [(row["checkName"], row["id"]) for row in resumed] == [(name, row_id) for name, _, row_id in remaining]
 
     @patch(f"{MODULE}.DAGSTER_CLOUD_PAGE_SIZE", 1)
     def test_shutdown_interrupts_pages_without_checks(self) -> None:
@@ -535,7 +548,7 @@ class TestAssetCheckExecutions:
             ("orders", "not_empty", "39"),
         ]
         assert all(row["timestamp"] == ISO_2024 and row["evaluation"] is None for row in result.rows)
-        assert len(result.committed_states) == 3
+        assert len(result.committed_states) == 1
 
     def test_check_discovery_error_does_not_look_like_an_empty_catalog(self) -> None:
         parents = _assets_container(["orders"], None)
@@ -548,6 +561,37 @@ class TestAssetCheckExecutions:
 
 
 class TestBatchedFanOut:
+    @patch.dict(DAGSTER_CLOUD_ENDPOINTS, {"asset_slas": _with_batch_size("asset_slas", 2)})
+    def test_sla_retry_starts_after_last_written_batch(self) -> None:
+        driver = _driver()
+        parents = _assets_page(["first", "second", "third", "fourth", "fifth"], cursor=None)
+
+        def slas(*asset_names: str) -> ScriptedResponse:
+            return ScriptedResponse(
+                json={
+                    "data": {
+                        "slasForAssets": [
+                            {"assetKey": {"path": [name]}, "state": "PASSING", "since": EPOCH_2024}
+                            for name in asset_names
+                        ]
+                    }
+                }
+            )
+
+        first = driver.run(
+            "asset_slas",
+            [parents, slas("first", "second"), slas("third", "fourth"), ScriptedResponse(status=400)],
+        )
+        assert first.raised is not None and str(first.raised).startswith("400 Client Error:")
+        assert [row["assetKey"]["path"] for row in first.rows] == [["first"], ["second"], ["third"], ["fourth"]]
+        assert first.final_state == DagsterCloudResumeConfig(parents_done=4)
+
+        resumed = driver.run("asset_slas", [parents, slas("fifth")], resume_state=first.final_state)
+        assert resumed.raised is None
+        assert _variables(resumed, "AssetSlas") == [{"assetKeys": [{"path": ["fifth"]}]}]
+        assert [row["assetKey"]["path"] for row in resumed.rows] == [["fifth"]]
+        assert resumed.committed_states == [DagsterCloudResumeConfig(parents_done=5)]
+
     @patch(f"{MODULE}.DAGSTER_CLOUD_PAGE_SIZE", 2)
     @patch.dict(DAGSTER_CLOUD_ENDPOINTS, {"asset_nodes": _with_batch_size("asset_nodes", 2)})
     def test_asset_nodes_batches_keys_and_reads_a_bare_root_list(self) -> None:

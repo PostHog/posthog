@@ -1,9 +1,10 @@
 import re
 import json
+import hashlib
 from collections.abc import Iterator
-from dataclasses import field
 from datetime import UTC, date, datetime
 from typing import Any, Optional
+from uuid import uuid4
 
 import requests
 from structlog.types import FilteringBoundLogger
@@ -56,7 +57,7 @@ class DagsterCloudResumeConfig:
     # resume — parent lists are small and cheap next to the child pages they drive.
     parents_done: int = 0
     window_cursor: str = ""
-    asset_check_cursors: dict[str, str | None] = field(default_factory=dict)
+    asset_check_scope: str = ""
 
 
 def build_graphql_url(organization: str, deployment: str) -> str:
@@ -605,6 +606,8 @@ def _fetch_parent_batch(
     url: str,
     endpoint_config: DagsterCloudEndpointConfig,
     batch: list[dict[str, Any]],
+    resumable_source_manager: ResumableSourceManager[DagsterCloudResumeConfig],
+    parents_done: int,
 ) -> Iterator[list[dict[str, Any]]]:
     fan_out = endpoint_config.fan_out
     assert fan_out is not None and fan_out.batch_variable is not None and fan_out.batch_field is not None
@@ -612,10 +615,9 @@ def _fetch_parent_batch(
     variables = {fan_out.batch_variable: [parent.get(fan_out.batch_field) for parent in batch]}
     payload = _execute_query(sess, url, endpoint_config.query, variables)
     extracted = _extract_rows(payload, endpoint_config)
-    if extracted is None:
-        return
-    _, rows = extracted
-    yield [_normalize_row(row, endpoint_config) for row in rows]
+    page = [] if extracted is None else [_normalize_row(row, endpoint_config) for row in extracted[1]]
+    resumable_source_manager.save_state(DagsterCloudResumeConfig(parents_done=parents_done))
+    yield page
 
 
 def _iter_fanout_rows(
@@ -647,8 +649,7 @@ def _iter_fanout_rows(
         if fan_out.batch_variable is not None:
             batch.append(parent)
             if len(batch) >= fan_out.batch_size:
-                yield from _fetch_parent_batch(sess, url, endpoint_config, batch)
-                resumable_source_manager.save_state(DagsterCloudResumeConfig(parents_done=index + 1))
+                yield from _fetch_parent_batch(sess, url, endpoint_config, batch, resumable_source_manager, index + 1)
                 batch = []
             continue
 
@@ -665,8 +666,7 @@ def _iter_fanout_rows(
         resumable_source_manager.save_state(DagsterCloudResumeConfig(parents_done=index + 1))
 
     if batch:
-        yield from _fetch_parent_batch(sess, url, endpoint_config, batch)
-        resumable_source_manager.save_state(DagsterCloudResumeConfig(parents_done=index + 1))
+        yield from _fetch_parent_batch(sess, url, endpoint_config, batch, resumable_source_manager, index + 1)
 
 
 def _iter_asset_check_rows(
@@ -676,16 +676,27 @@ def _iter_asset_check_rows(
     resumable_source_manager: ResumableSourceManager[DagsterCloudResumeConfig],
     resume_config: DagsterCloudResumeConfig | None,
 ) -> Iterator[list[dict[str, Any]]]:
-    check_cursors = resume_config.asset_check_cursors.copy() if resume_config else {}
+    saved_scope = resume_config.asset_check_scope if resume_config else ""
+    scope_state = DagsterCloudResumeConfig(asset_check_scope=saved_scope or uuid4().hex)
+    seen_checks: set[str] = set()
     for parent in _iter_asset_check_parents(sess, url):
-        check_id = json.dumps([parent["assetKeyInput"]["path"], parent["checkName"]], separators=(",", ":"))
-        cursor = check_cursors.get(check_id, "")
-        if cursor is None:
+        check_key = json.dumps([parent["assetKeyInput"]["path"], parent["checkName"]], separators=(",", ":"))
+        check_id = hashlib.sha256(check_key.encode()).hexdigest()
+        if check_id in seen_checks:
+            continue
+        seen_checks.add(check_id)
+
+        check_manager = resumable_source_manager.with_namespace(
+            f"asset-check:{scope_state.asset_check_scope}:{check_id}"
+        )
+        check_state = check_manager.load_state() if saved_scope else None
+        if check_state is not None and not check_state.cursor:
             continue
 
+        cursor = check_state.cursor if check_state else ""
         for page, next_cursor in _iter_child_pages(sess, url, endpoint_config, parent, None, cursor):
-            check_cursors[check_id] = next_cursor
-            resumable_source_manager.save_state(DagsterCloudResumeConfig(asset_check_cursors=check_cursors.copy()))
+            resumable_source_manager.save_state(scope_state)
+            check_manager.save_state(DagsterCloudResumeConfig(cursor=next_cursor or ""))
             yield page
 
 
