@@ -88,14 +88,22 @@ def parse_padding(raw: str) -> dt.timedelta:
 def normalize_trace_id(raw: str) -> str:
     value = raw.strip()
     if re.fullmatch(r"[0-9a-fA-F]{32}", value):
-        return value.lower()
-    try:
-        decoded = base64.b64decode(value, validate=True)
-    except ValueError:
-        decoded = b""
-    if len(decoded) != 16:
-        raise ValueError("traceId must be 32 hex characters or the base64 form of 16 bytes")
-    return decoded.hex()
+        hex_trace_id = value.lower()
+    else:
+        try:
+            decoded = base64.b64decode(value, validate=True)
+        except ValueError:
+            decoded = b""
+        if len(decoded) != 16:
+            raise ValueError("traceId must be 32 hex characters or the base64 form of 16 bytes")
+        hex_trace_id = decoded.hex()
+    if _is_unset_trace_id(hex_trace_id):
+        raise ValueError("traceId is all zeros, which OpenTelemetry uses for a log without a trace")
+    return hex_trace_id
+
+
+def _is_unset_trace_id(hex_trace_id: str) -> bool:
+    return not hex_trace_id.strip("0")
 
 
 def is_id_like_key(key: str) -> bool:
@@ -325,7 +333,15 @@ class LogsContextRunner:
             f"{_ROW_SQL} {suffix} LIMIT {{limit}}", {"where": ast.And(exprs=where), "limit": ast.Constant(value=limit)}
         )
         keys = ("uuid", "timestamp", "service", "severity", "body", "attributes", "trace_id")
-        return [{**dict(zip(keys, row)), "timestamp": _utc(row[1]), "attributes": dict(row[5])} for row in results]
+        return [
+            {
+                **dict(zip(keys, row)),
+                "timestamp": _utc(row[1]),
+                "attributes": dict(row[5]),
+                "trace_id": None if _is_unset_trace_id(row[6]) else row[6],
+            }
+            for row in results
+        ]
 
     def _lookup_log(self, timestamp: dt.datetime) -> dict:
         uuid = parse_expr("uuid = {uuid}", placeholders={"uuid": ast.Constant(value=self.params.log_uuid)})
