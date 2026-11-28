@@ -359,7 +359,9 @@ tools:
             service.name, k8s.pod.name), you MUST explicitly pass attribute_type: "resource". Accepts optional
             serviceNames, dateRange, and filterGroup to narrow which logs are scanned. Pass the dateRange of the window
             you are investigating, because the default is the last hour. To match part of a value, pass it in `value`.
-            The tool ignores other keys, such as `search`.
+            The tool ignores other keys, such as `search`. Counts come from 10-minute rollups and cover every 10-minute
+            bucket that overlaps dateRange, so for a short window they can include logs from outside it. Use logs-count
+            for an exact count of a window.
         hooks: logs/redactCredentialsHooks
         response:
             include:
