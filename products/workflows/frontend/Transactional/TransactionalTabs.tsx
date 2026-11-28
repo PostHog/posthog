@@ -10,7 +10,7 @@ import { ComingSoonInterestTag } from './comingSoon/ComingSoonInterestTag'
 import { SmtpInterestModal } from './comingSoon/SmtpInterestModal'
 import { SMTP_INTEREST_SURVEY } from './comingSoon/smtpInterestSurvey'
 import { useComingSoonInterestSurvey } from './comingSoon/useComingSoonInterestSurvey'
-import { TransactionalEmailLog } from './log/TransactionalEmailLog'
+import { EmailLogViews } from './log/EmailLogViews'
 import { TransactionalEmailMetrics } from './metrics/TransactionalEmailMetrics'
 import { TransactionalEmailsTable } from './TransactionalEmailsTable'
 import { TransactionalRoute, TransactionalTab } from './transactionalRoute'
@@ -26,15 +26,18 @@ export function TransactionalTabs({
     const smtpInterestLogic = comingSoonInterestLogic(useComingSoonInterestSurvey(SMTP_INTEREST_SURVEY))
     const { hasRecordedInterest } = useValues(smtpInterestLogic)
     const { registerInterest } = useActions(smtpInterestLogic)
-    const isTransactionalTab = currentTab === 'transactional' || currentTab === 'log' || currentTab === 'metrics'
+    const isTransactionalTab =
+        currentTab === 'transactional' || currentTab === 'log' || currentTab === 'received' || currentTab === 'metrics'
 
     return (
         <>
             <LemonTabs<TransactionalTab | 'library' | 'webhooks' | 'messaging-setup' | 'smtp'>
                 activeKey={
-                    isTransactionalTab || currentTab === 'library' || currentTab === 'webhooks'
-                        ? currentTab
-                        : 'messaging-setup'
+                    currentTab === 'received'
+                        ? 'log'
+                        : isTransactionalTab || currentTab === 'library' || currentTab === 'webhooks'
+                          ? currentTab
+                          : 'messaging-setup'
                 }
                 onChange={(key) => {
                     // No SMTP page exists yet, so this tab asks for interest and the current tab stays selected.
@@ -53,7 +56,7 @@ export function TransactionalTabs({
                         label: 'Log',
                         key: 'log',
                         link: urls.transactionalLog(),
-                        content: <TransactionalEmailLog />,
+                        content: <EmailLogViews view={currentTab === 'received' ? 'received' : 'sent'} />,
                     },
                     {
                         label: 'Metrics',

@@ -69,7 +69,7 @@ function TransactionalSceneActions({ tab }: { tab: Exclude<TransactionalRoute, '
     if (tab === 'webhooks') {
         return null
     }
-    if (tab !== 'transactional' && tab !== 'log' && tab !== 'metrics') {
+    if (tab !== 'transactional' && tab !== 'log' && tab !== 'received' && tab !== 'metrics') {
         return <MessagingTabActions tab={tab} channelsUrl={urls.transactional('channels')} />
     }
     return (
