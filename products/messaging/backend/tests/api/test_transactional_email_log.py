@@ -1,3 +1,4 @@
+from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 from uuid import NAMESPACE_URL, UUID, uuid5
 from zoneinfo import ZoneInfo
@@ -54,6 +55,8 @@ RANK = {
     "clicked": 9,
 }
 NOW = datetime(2026, 6, 15, 12, 0, 0, tzinfo=UTC)
+THIS_SEND = "this send"
+ANOTHER_SEND = "another send"
 SLOW_SEND_MINUTES_AGO = 12 * 24 * 60
 DELAYED_SEND_MINUTES_AGO = 15 * 24 * 60
 IMPACT_COUNTS = {
@@ -94,7 +97,7 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
         self,
         minutes_ago: int,
         recipient: str,
-        statuses: list[tuple[str, int, str]],
+        statuses: Sequence[tuple[str, float, str]],
         *,
         team: Team | None = None,
         workflow_id: str | None = None,
@@ -585,6 +588,94 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
         body = self.client.get(self._url(f"{message_id}/activity/")).json()
 
         assert [e["event"] for e in body["after"]] == ["$pageview"]
+
+    @parameterized.expand(
+        [
+            (
+                "every click with its link",
+                "UTC",
+                "jane",
+                NOW - timedelta(days=3),
+                [1200, 1500, 1800.57],
+                [
+                    (THIS_SEND, "jane", 1200, None),
+                    (THIS_SEND, "jane", 1200, "https://example.com/billing"),
+                    (THIS_SEND, "jane", 1200, "https://example.com/billing"),
+                    (ANOTHER_SEND, "jane", 1500, "https://example.com/other-send"),
+                    (THIS_SEND, "someone-else", 1500, "https://example.com/someone-else"),
+                    (THIS_SEND, "jane", 1500.0005, "https://example.com/another-instant"),
+                    (THIS_SEND, "jane", 1800.57, "https://example.com/docs"),
+                ],
+                [(1200, "https://example.com/billing"), (1500, None), (1800.57, "https://example.com/docs")],
+                False,
+            ),
+            (
+                "the newest 200 clicks",
+                "UTC",
+                "jane",
+                NOW - timedelta(days=3),
+                [1000 + i for i in range(201)],
+                [],
+                [(1001 + i, None) for i in range(200)],
+                True,
+            ),
+            (
+                "a click in the repeated hour of a fall-back night",
+                "America/New_York",
+                "jane",
+                datetime(2026, 11, 1, 6, 0, tzinfo=UTC),
+                [1800],
+                [(THIS_SEND, "jane", 1800, "https://example.com/billing")],
+                [(1800, "https://example.com/billing")],
+                False,
+            ),
+            (
+                "every click of a send that named no distinct ID",
+                "UTC",
+                "",
+                NOW - timedelta(days=3),
+                [1200, 1500],
+                [(THIS_SEND, "jane", 1200, "https://example.com/billing")],
+                [(1200, None), (1500, None)],
+                False,
+            ),
+        ]
+    )
+    def test_lists_the_newest_clicks_with_their_links(
+        self, _flag, _name, timezone, distinct_id, queued_at, click_seconds, events, expected_clicks, expected_has_more
+    ):
+        self.team.timezone = timezone
+        self.team.save()
+        message_id = self._send(
+            int((NOW - queued_at).total_seconds() // 60),
+            "jane@example.com",
+            [("sent", 1, ""), *[("clicked", seconds, "") for seconds in click_seconds]],
+        )
+        if distinct_id:
+            self._record_distinct_id(message_id, distinct_id, "jane@example.com", queued_at + timedelta(seconds=1))
+        for send, event_distinct_id, seconds, link_url in events:
+            _create_event(
+                team=self.team,
+                event="$workflows_email_link_clicked",
+                distinct_id=event_distinct_id,
+                timestamp=queued_at + timedelta(seconds=seconds),
+                properties={
+                    "$workflow_invocation_id": message_id if send == THIS_SEND else str(UUIDT()),
+                    **({"$link_url": link_url} if link_url else {}),
+                },
+            )
+        flush_persons_and_events()
+
+        with time_machine.travel(max(NOW, queued_at + timedelta(days=2)), tick=False):
+            self.client.force_login(self.user)
+            response = self.client.get(self._url(f"{message_id}/activity/"))
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        body = response.json()
+        assert [(datetime.fromisoformat(c["at"]), c["link_url"]) for c in body["clicks"]] == [
+            (queued_at + timedelta(seconds=seconds), link_url) for seconds, link_url in expected_clicks
+        ]
+        assert body["has_more_clicks"] is expected_has_more
 
     def test_counts_sends_per_template_and_per_sending_domain(self, _flag):
         self._send(30, "a@example.com", [("sent", 1, ""), ("delivered", 2, ""), ("opened", 60, ""), ("opened", 90, "")])

@@ -18,6 +18,9 @@ from products.messaging.backend.facade.contracts import (
     TransactionalEmailActivity,
     TransactionalEmailActivityEvent,
     TransactionalEmailActivitySession,
+    TransactionalEmailClick,
+    TransactionalEmailLogDetail,
+    TransactionalEmailSendActivity,
 )
 from products.messaging.backend.services.transactional_email_log import get_transactional_email
 from products.workflows.backend.facade.contracts import WorkflowViewAccess
@@ -26,6 +29,8 @@ ACTIVITY_WINDOW_DAYS = 7
 ACTIVITY_BEFORE_LIMIT = 50
 ACTIVITY_AFTER_LIMIT = 100
 MAX_DISTINCT_IDS = 100
+MAX_CLICKS = 200
+CLICK_EVENT = "$workflows_email_link_clicked"
 
 # Events that describe the SDK rather than something the person did.
 HIDDEN_EVENTS = (
@@ -60,15 +65,21 @@ def get_transactional_email_activity(
     message_id: UUID,
     *,
     access: WorkflowViewAccess | None = None,
-) -> TransactionalEmailActivity | None:
-    """The recipient's events in the week before and after one send, or None when the reader can't see the send."""
+) -> TransactionalEmailSendActivity | None:
+    """The recipient's events in the week before and after one send, and the newest clicks on the email's links, or
+    None when the reader can't see the send."""
     detail = get_transactional_email(team.id, message_id, access=access)
     if detail is None:
         return None
     sent_at = next(
         (event.at for event in detail.timeline if event.kind == EmailLogEventKind.SENT), detail.entry.created_at
     )
-    return get_email_activity(team, user, detail.distinct_id, sent_at)
+    click_times = [event.at for event in detail.timeline if event.kind == EmailLogEventKind.CLICKED]
+    return TransactionalEmailSendActivity(
+        recipient=get_email_activity(team, user, detail.distinct_id, sent_at),
+        clicks=_clicks(team, user, detail, click_times[-MAX_CLICKS:]),
+        has_more_clicks=len(click_times) > MAX_CLICKS,
+    )
 
 
 def get_email_activity(
@@ -231,3 +242,56 @@ def _sessions(
         )
         for session_id, events in events_by_session.items()
     ]
+
+
+def _clicks(
+    team: Team, user: User | None, detail: TransactionalEmailLogDetail, click_times: list[datetime]
+) -> list[TransactionalEmailClick]:
+    links = _links_by_click_time(team, user, detail, click_times)
+    return [TransactionalEmailClick(at=at, link_url=links.get(at.astimezone(UTC))) for at in click_times]
+
+
+def _links_by_click_time(
+    team: Team, user: User | None, detail: TransactionalEmailLogDetail, click_times: list[datetime]
+) -> dict[datetime, str]:
+    if not click_times or not detail.distinct_id:
+        return {}
+    tag_queries(product=Product.MESSAGING, feature=Feature.QUERY)
+    response = execute_hogql_query(
+        """
+        SELECT timestamp, max(properties.$link_url)
+        FROM events
+        WHERE event = {event}
+          AND distinct_id = {distinct_id}
+          AND properties.$workflow_invocation_id = {message_id}
+          AND timestamp >= {start} AND timestamp <= {end}
+          AND timestamp IN {click_times}
+        GROUP BY timestamp
+        LIMIT {limit}
+        """,
+        team=team,
+        user=user,
+        placeholders={
+            "event": ast.Constant(value=CLICK_EVENT),
+            "distinct_id": ast.Constant(value=detail.distinct_id),
+            "message_id": ast.Constant(value=detail.entry.message_id),
+            "start": _utc_instant(click_times[0]),
+            "end": _utc_instant(click_times[-1]),
+            "click_times": ast.Tuple(exprs=[_utc_instant(at) for at in sorted(set(click_times))]),
+            "limit": ast.Constant(value=len(click_times)),
+        },
+        query_type="transactional_email_activity_clicks",
+        workload=Workload.ONLINE,
+    )
+    return {timestamp.astimezone(UTC): link_url for timestamp, link_url in response.results or [] if link_url}
+
+
+def _utc_instant(at: datetime) -> ast.Call:
+    return ast.Call(
+        name="toDateTime64",
+        args=[
+            ast.Constant(value=at.astimezone(UTC).strftime("%Y-%m-%d %H:%M:%S.%f")),
+            ast.Constant(value=6),
+            ast.Constant(value="UTC"),
+        ],
+    )

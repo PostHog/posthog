@@ -27,6 +27,7 @@ from products.messaging.backend.facade.contracts import (
 from products.messaging.backend.facade.transactional_email_log import (
     ACTIVITY_WINDOW_DAYS,
     EMAIL_STATUS_RETENTION_DAYS,
+    MAX_CLICKS,
     MAX_CONVERSION_WINDOW_DAYS,
     get_transactional_email,
     get_transactional_email_activity,
@@ -388,6 +389,23 @@ class TransactionalEmailActivitySerializer(serializers.Serializer):
     )
 
 
+class TransactionalEmailClickSerializer(serializers.Serializer):
+    at = serializers.DateTimeField(help_text="When the recipient clicked.")
+    link_url = serializers.CharField(
+        allow_null=True,
+        help_text="The link that was clicked, with no path for an email marked sensitive. Null when no engagement "
+        "event of the click carries a link: the project or the send turned engagement events off, the send named no "
+        "distinct ID, or the link could not be read.",
+    )
+
+
+class TransactionalEmailSendActivitySerializer(TransactionalEmailActivitySerializer):
+    clicks = TransactionalEmailClickSerializer(
+        many=True, help_text=f"The newest {MAX_CLICKS} clicks on the email's links, oldest first."
+    )
+    has_more_clicks = serializers.BooleanField(help_text="True when older clicks were left out.")
+
+
 class _PageSchema(AutoSchema):
     # The list returns one page object with `has_more`, so drf-spectacular must not wrap it in an array.
     def _is_list_view(self, serializer: object = None) -> bool:
@@ -505,13 +523,13 @@ class TransactionalEmailLogViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             )
         ],
         responses={
-            200: TransactionalEmailActivitySerializer,
+            200: TransactionalEmailSendActivitySerializer,
             403: OpenApiResponse(description="The user has no access to persons or to querying events."),
             404: OpenApiResponse(description="No send of this project has this ID, or it is older than the log keeps."),
         },
         summary="Get what a transactional email's recipient did around the send",
         description=f"The recipient's events in the {ACTIVITY_WINDOW_DAYS} days before and after one send, with the "
-        "sessions they belong to.",
+        f"sessions they belong to, and the newest {MAX_CLICKS} clicks on the email's links.",
     )
     @action(detail=True, methods=["GET"])
     def activity(self, request: Request, *args: Any, pk: str | None = None, **kwargs: Any) -> Response:
@@ -529,7 +547,8 @@ class TransactionalEmailLogViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             )
         if activity is None:
             raise NotFound()
-        return Response(TransactionalEmailActivitySerializer(asdict(activity)).data)
+        data = asdict(activity)
+        return Response(TransactionalEmailSendActivitySerializer({**data.pop("recipient"), **data}).data)
 
     @validated_request(
         query_serializer=TransactionalEmailStatsQuerySerializer,

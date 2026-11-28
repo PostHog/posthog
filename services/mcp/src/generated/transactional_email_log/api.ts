@@ -83,7 +83,7 @@ export const TransactionalEmailLogRetrieveParams = () => zod.object({
 })
 
 /**
- * The recipient's events in the 7 days before and after one send, with the sessions they belong to.
+ * The recipient's events in the 7 days before and after one send, with the sessions they belong to, and the newest 200 clicks on the email's links.
  * @summary Get what a transactional email's recipient did around the send
  */
 export const TransactionalEmailLogActivityRetrieveParams = () => zod.object({

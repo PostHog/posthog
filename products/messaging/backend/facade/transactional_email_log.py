@@ -3,6 +3,7 @@
 from products.messaging.backend.models.email_status_sql import EMAIL_STATUS_RETENTION_DAYS
 from products.messaging.backend.services.transactional_email_activity import (
     ACTIVITY_WINDOW_DAYS,
+    MAX_CLICKS,
     get_transactional_email_activity,
 )
 from products.messaging.backend.services.transactional_email_log import (
@@ -19,6 +20,7 @@ from products.messaging.backend.services.transactional_email_log import (
 __all__ = [
     "ACTIVITY_WINDOW_DAYS",
     "EMAIL_STATUS_RETENTION_DAYS",
+    "MAX_CLICKS",
     "MAX_CONVERSION_WINDOW_DAYS",
     "get_transactional_email",
     "get_transactional_email_activity",
