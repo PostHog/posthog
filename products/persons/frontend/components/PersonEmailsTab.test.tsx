@@ -1,5 +1,3 @@
-import '@testing-library/jest-dom'
-
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { Provider } from 'kea'
 
@@ -65,6 +63,6 @@ describe('PersonEmailsTab', () => {
         fireEvent.click(await screen.findByText('Your receipt'))
         fireEvent.click(screen.getByText('Welcome to the team'))
 
-        expect(await screen.findByText('Sent to grace@example.com')).toBeInTheDocument()
+        expect(await screen.findByText('Sent to grace@example.com')).toBeTruthy()
     })
 })
