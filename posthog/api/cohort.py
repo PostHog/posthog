@@ -8,6 +8,7 @@ import hashlib
 import collections
 from collections import defaultdict
 from collections.abc import Callable, Iterable, Iterator, Sequence
+from functools import partial
 from typing import Annotated, Any, ClassVar, Literal, NoReturn, Optional, Union, cast
 
 from django.conf import settings
@@ -1747,7 +1748,13 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
             cohort.enqueue_calculation(initiating_user=request.user)
 
         if realtime_enabled and _realtime_targeting_enabled(self.context):
-            _turn_realtime_on_after_save(turn_realtime_on, cohort, request, self._user_access_control(), "create")
+            _turn_realtime_on_after_save(
+                partial(turn_realtime_on, notify_user_id=request.user.id),
+                cohort,
+                request,
+                self._user_access_control(),
+                "create",
+            )
 
         report_user_action(
             request.user,
@@ -3384,7 +3391,12 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
         if enabled:
             was_on = cohort.realtime_enabled
             try:
-                turn_realtime_on(cohort.team_id, cohort.pk, can_edit=_can_edit(self.user_access_control))
+                turn_realtime_on(
+                    cohort.team_id,
+                    cohort.pk,
+                    can_edit=_can_edit(self.user_access_control),
+                    notify_user_id=request.user.id,
+                )
                 if was_on:
                     retried = bool(prepare_again(cohort.team_id, cohort.pk))
             except RealtimeLimitReached as error:

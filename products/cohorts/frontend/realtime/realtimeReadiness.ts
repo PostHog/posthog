@@ -11,6 +11,8 @@ export const REALTIME_POLL_INTERVAL_MS = 15_000
 // a cohort nothing is preparing is not polled for as long as its page stays open.
 export const READINESS_GRACE_POLLS = 12
 
+export const READY_NOTIFICATION_PROMISE = "We'll notify you when it's ready."
+
 export const isBuildingHistory = (cohort: { realtime?: CohortRealtimeReadinessApi | null } | undefined): boolean =>
     cohort?.realtime?.state === 'building' || cohort?.realtime?.state === 'rebuilding'
 

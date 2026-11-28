@@ -85,6 +85,7 @@ import type {
 import type { CohortRealtimeSwitchAction } from 'products/cohorts/frontend/realtime/CohortRealtimeStatus'
 import {
     READINESS_GRACE_POLLS,
+    READY_NOTIFICATION_PROMISE,
     REALTIME_POLL_INTERVAL_MS,
     canTurnOnRealtime,
     isBuildingHistory,
@@ -1481,8 +1482,18 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                 return
             }
             const realtimeEnabled = realtimeSwitch.realtime_enabled ?? false
+            const turnedOn = realtimeEnabled && !values.cohort.realtime_enabled
             // Only the switch merges back, so criteria the user is part-way through editing survive.
             actions.setRealtimeSwitch(realtimeEnabled, realtimeSwitch.realtime)
+            if (
+                turnedOn &&
+                realtimeSwitch.realtime?.state === 'building' &&
+                values.featureFlags[FEATURE_FLAGS.REAL_TIME_NOTIFICATIONS]
+            ) {
+                lemonToast.success(
+                    `Realtime is on, and PostHog is preparing this cohort. ${READY_NOTIFICATION_PROMISE}`
+                )
+            }
             const saved = cohortsModel.values.cohortsById[realtimeSwitch.id]
             if (saved) {
                 cohortsModel.actions.updateCohort({

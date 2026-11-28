@@ -2,7 +2,9 @@ import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
@@ -52,6 +54,8 @@ const MOCK_COHORTS = {
     ],
 }
 const REFUSAL_DETAIL = "Realtime can't be turned on for cohort 'Realtime off', because it is a static cohort."
+const TURNED_ON = "Realtime is on for 'Realtime off'. PostHog is preparing it, so feature flags can't target it yet."
+const PREPARING = { realtime: { state: 'building' } }
 const blankScene = (): any => ({ scene: { component: () => null, logic: null } })
 const scenes: any = { [Scene.Dashboards]: blankScene }
 
@@ -197,12 +201,20 @@ describe('cohortsSceneLogic', () => {
                 expect(listCohorts).toHaveBeenCalledTimes(extraRequests)
             })
 
-            it.each<[string, [number, Record<string, any>], string | null]>([
-                ['the server turns realtime on', [200, {}], null],
-                ['the server refuses', [400, { detail: REFUSAL_DETAIL }], REFUSAL_DETAIL],
+            it.each<[string, [number, Record<string, any>], boolean, string | null, string | null]>([
+                [
+                    'the server starts preparing it',
+                    [200, PREPARING],
+                    true,
+                    `${TURNED_ON} We'll notify you when it's ready.`,
+                    null,
+                ],
+                ['the server starts preparing it, with notifications off', [200, PREPARING], false, TURNED_ON, null],
+                ['the server turns realtime on', [200, {}], true, TURNED_ON, null],
+                ['the server refuses', [400, { detail: REFUSAL_DETAIL }], true, null, REFUSAL_DETAIL],
             ])(
-                'after a turn-on from a row where %s, clears its pending state and reloads the list and the team once',
-                async (_, [status, body], shownError) => {
+                'after a turn-on from a row where %s, tells the user and reloads the list and the team once',
+                async (_, [status, body], notifications, shownSuccess, shownError) => {
                     let requestBody: unknown = null
                     useMocks({
                         post: {
@@ -213,6 +225,10 @@ describe('cohortsSceneLogic', () => {
                         },
                     })
                     const toastError = jest.spyOn(lemonToast, 'error')
+                    const toastSuccess = jest.spyOn(lemonToast, 'success')
+                    featureFlagLogic.actions.setFeatureFlags([], {
+                        [FEATURE_FLAGS.REAL_TIME_NOTIFICATIONS]: notifications,
+                    })
                     router.actions.push(urls.cohorts())
                     logic = cohortsSceneLogic()
                     logic.mount()
@@ -231,10 +247,12 @@ describe('cohortsSceneLogic', () => {
                     } else {
                         expect(toastError).not.toHaveBeenCalled()
                     }
+                    expect(toastSuccess.mock.calls).toEqual(shownSuccess ? [[shownSuccess]] : [])
                     expect(logic.values.cohortIdsTurningOnRealtime).toEqual([])
                     expect(listCohorts).toHaveBeenCalledTimes(1)
                     await expectLogic(teamLogic).toDispatchActions(['refreshCurrentTeam'])
                     toastError.mockRestore()
+                    toastSuccess.mockRestore()
                 }
             )
         })

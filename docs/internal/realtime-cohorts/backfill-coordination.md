@@ -140,7 +140,10 @@ The processor does not load it, and the shuffler forwards no event for a team wh
   The team's advisory lock covers the count and the save, and the cohort API's edit check takes it too, so two turn-ons, or a turn-on and an edit, cannot both take the last slot.
   For each cohort it turns on, it fills the shape hashes, clears the stamps, and queues one `cohort_created` build per kind through the debounce above.
   The seeder parses trigger kinds, so a new kind would need a seeder deploy first.
-- **Off.** It clears the stamps and, on commit, supersedes the cohort's active runs of both kinds.
+  When the cohort API turns a cohort on, from the `realtime` action or a create with realtime on, it records the requesting user in `realtime_ready_notify_user_id` on the requested cohort, unless flags can target that cohort already.
+  The finalizer notifies that user once flags can target the cohort ([completion and readiness](completion-and-readiness.md)).
+  The cohorts it includes, and a turn-on after an edit, record nobody.
+- **Off.** It clears the stamps and the recorded user and, on commit, supersedes the cohort's active runs of both kinds.
   It leaves the cohorts it includes on.
   The cohort API refuses it while a flag that is not deleted or archived reaches the cohort and the cohort has event criteria, while an active workflow relies on the cohort, or while a realtime cohort that is on and not static includes it.
 

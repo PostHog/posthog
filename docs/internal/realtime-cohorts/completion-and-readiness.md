@@ -233,6 +233,23 @@ A team enablement, an edit and a repair leave `realtime_enabled_at` where it was
 The event is not a count of every cohort that becomes usable: a cohort stamped while its team is below `serving` reports nothing then, and nothing reports it when the team is promoted.
 An edit that clears a stamp makes the cohort report again once it is rebuilt, and an event that fails to send after the commit is lost.
 
+In the same pass, the finalizer sends an in-app notification, of type `cohort_realtime_ready`, to the user who turned realtime on for a cohort.
+The turn-on records that user in `realtime_ready_notify_user_id` (see [turning realtime on and off](backfill-coordination.md#turning-realtime-on-and-off)).
+For each team with a cohort that became ready in the pass, the finalizer reads the cohorts of the team that still have a recipient.
+It notifies for a cohort only when the flag API's readiness check passes for it: the cohort and every cohort it includes that has event criteria are flag-compatible.
+It does not check the realtime cohorts gate described below, which the request that turned the cohort on had passed.
+So the notification can come in a later pass than the cohort's own `cohort realtime ready` event, when a cohort it includes becomes ready after it.
+After the notification, the finalizer clears the recipient with a conditional update, so a turn-off or a new turn-on that committed in between stays as it is.
+A notification that `create_notification` drops also clears it, and the finalizer logs `cohort_backfill_finalizer_ready_notice_dropped`.
+It drops one when the user has muted the type or has no access to the project, and also when the evaluation of the `real-time-notifications` flag fails, so a flags service error means the person is not told.
+A notification that raises leaves the recipient in place, and the next pass that makes a cohort of the team ready tries again.
+The idempotency key holds the cohort and the turn-on time, so one turn-on sends at most one notification.
+A recipient stays set, and nothing sends until another cohort of the team becomes ready, in these cases:
+
+- The process stops between the stamp's commit and this step.
+- The cohort's stamps land while its team is at `processing`, so they do not count, and the team is promoted to `serving` later.
+- The cohort is deleted. A delete leaves the recipient in place, so a restored cohort can still send the notification.
+
 The realtime cohorts gate (`is_realtime_cohort_flag_targeting_enabled`) is open for a team whose access row is `serving`, and for a team on `REALTIME_COHORT_TEAM_ALLOWLIST` when the realtime targeting rollout flag is on for the user.
 That list also holds load-test teams, which is why the flag still decides there.
 The flag API accepts a cohort with event-based criteria, or one that depends on such a cohort, only when the gate is open and every such cohort is flag-compatible.

@@ -17,7 +17,7 @@ import { canTurnOnRealtime, dailyReasonSentence, unpreparableReasonSentence } fr
 /** One cohort a condition set targets that feature flags can't target yet: why, and what to do about it. */
 export function CohortFlagTargetingNoticeRow({ cohortId }: { cohortId: number }): JSX.Element | null {
     const logic = cohortRealtimeReadinessLogic({ cohortId })
-    const { cohort, realtimeSwitchLoading } = useValues(logic)
+    const { cohort, readyNotificationPromise, realtimeSwitchLoading } = useValues(logic)
     const { turnOnRealtime } = useActions(logic)
     const quillSurface = useQuillSurface()
     const realtime = cohort?.realtime
@@ -120,7 +120,7 @@ export function CohortFlagTargetingNoticeRow({ cohortId }: { cohortId: number })
                     ) : (
                         <span>
                             PostHog is preparing {name} from past events. You can save once it's ready, which usually
-                            takes under 30 minutes.
+                            takes under 30 minutes. {readyNotificationPromise}
                         </span>
                     )}
                 </div>
