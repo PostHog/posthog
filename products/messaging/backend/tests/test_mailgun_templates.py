@@ -212,10 +212,87 @@ class TestMailgunTemplateConversion(SimpleTestCase):
                 "isn't valid Handlebars, so it appears as plain text",
             ),
             ("go", {"template": "{{.x}}", "engine": "go"}, "maps may print their keys in a different order"),
+            (
+                "unknown_variable",
+                {"template": "<p>{{name}} %tag_name%</p>"},
+                "can't convert %tag_name%, so the email shows it as written",
+            ),
+            (
+                "unknown_variable_joined_to_text",
+                {"template": '<a href="https://example.com/?id=ref%tracking_ref%">x</a>'},
+                "can't convert %tracking_ref%, so the email shows it as written",
+            ),
+            (
+                "browser_link_text_with_entities",
+                {"template": '<a href="https://example.com/m">View&nbsp;in&nbsp;your&nbsp;browser</a>'},
+                "no view in browser link, so the link to https://example.com/m isn't a PostHog page",
+            ),
+            (
+                "unknown_variable_right_after_a_known_one",
+                {"template": "<p>%recipient.a%%tag_name%</p>"},
+                "can't convert %tag_name%, so the email shows it as written",
+            ),
+            (
+                "unknown_variable_in_a_go_subject",
+                {"template": "{{.x}}", "engine": "go", "headers": {"Subject": "Hi %first%"}},
+                "can't convert %first%, so the email shows it as written",
+            ),
+            (
+                "browser_link_by_text",
+                {"template": '<a href="https://example.com/e/{{id}}"><b>View this email in your browser</b></a>'},
+                "no view in browser link, so the link to https://example.com/e/{{id}} isn't a PostHog page",
+            ),
+            (
+                "browser_link_opened_in_a_browser",
+                {"template": '<p>Trouble reading? <a href="https://example.com/m/1">Open it in your browser</a></p>'},
+                "no view in browser link, so the link to https://example.com/m/1 isn't a PostHog page",
+            ),
+            (
+                "browser_link_by_variable",
+                {"template": "<a href=%recipient.web_version_url%>Here</a>", "engine": "go"},
+                "no view in browser link, so the link to %recipient.web_version_url% isn't a PostHog page",
+            ),
         ]
     )
     def test_notes_name_what_to_review(self, _name: str, version: dict, expected: str) -> None:
         assert any(expected in note for note in convert_version(version).notes)
+
+    @parameterized.expand(
+        [
+            ("encoded_characters_in_a_link", "handlebars", '<a href="https://example.com/caf%C3%A9%20bar">x</a>'),
+            ("percent_signs_in_text", "handlebars", "100% of 50%off% today"),
+            ("link_to_a_website", "handlebars", '<a href="https://example.com">See our website</a>'),
+            ("link_to_something_online", "handlebars", '<a href="https://example.com/o/1">View your order online</a>'),
+            (
+                "link_to_continue_in_a_browser",
+                "handlebars",
+                '<a href="https://example.com/m">Continue in your browser</a>',
+            ),
+            (
+                "address_with_view_inside_a_word",
+                "handlebars",
+                '<a href="https://example.com/preview-online">x</a>',
+            ),
+            ("printf_verbs_in_a_go_template", "go", '{{printf "%s%d" .x}}'),
+            (
+                "commented_out_browser_link",
+                "handlebars",
+                '<!-- <a href="https://example.com/m">View in browser</a> -->',
+            ),
+        ]
+    )
+    def test_text_that_only_looks_like_a_tag_or_browser_link_gets_no_note(
+        self, _name: str, engine: str, template: str
+    ) -> None:
+        notes = convert_version({"template": template, "engine": engine, "headers": {"Subject": "Hi"}}).notes
+
+        assert [note for note in notes if "Go templates" not in note and "whole template" not in note] == []
+
+    def test_a_browser_link_with_a_nul_byte_leaves_it_out_of_the_note(self) -> None:
+        notes = convert_version({"template": '<a href="https://example.com/\x00m">View in browser</a>'}).notes
+
+        assert any("the link to https://example.com/m isn't a PostHog page" in note for note in notes)
+        assert not any("\x00" in note for note in notes)
 
     def test_a_go_value_prints_lists_and_maps_the_go_way(self) -> None:
         converted = convert_text("<p>{{.x}}</p>", engine="go").text

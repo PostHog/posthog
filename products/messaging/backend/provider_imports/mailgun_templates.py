@@ -37,6 +37,22 @@ _LIQUID_PROPERTIES = frozenset({"size", "first", "last"})
 _UNSUBSCRIBE_URLS = frozenset({"unsubscribe_url", "tag_unsubscribe_url", "mailing_list_unsubscribe_url"})
 _MAILGUN_VARIABLE = re.compile(f"{_FIXED_VARIABLE.pattern}|{_RECIPIENT_VARIABLE.pattern}")
 _FIXED_UNSUBSCRIBE = re.compile(r"%(?:unsubscribe_url|tag_unsubscribe_url|mailing_list_unsubscribe_url)%")
+# Looks like a Mailgun variable, but Mailgun fills nothing for it. Two hex digits are an encoded character in a link,
+# and a percent right after a number, as in 50%off%, is text.
+_PERCENT_TAG = re.compile(r"(?<![0-9])%(?![0-9A-Fa-f]{2}%)[A-Za-z_][\w.-]{0,127}%")
+# Stopping at the next `<` keeps the scan linear on markup that never closes a tag.
+_ANCHOR = re.compile(r"<a\b[^<>]{0,4000}+>", re.IGNORECASE)
+_ANCHOR_END = re.compile(r"</a\s*>", re.IGNORECASE)
+_HREF = re.compile(r"(?<![\w-])href\s*=\s*(?:\"([^\"]*+)\"|'([^']*+)'|([^\s\"'>]++))", re.IGNORECASE)
+_BROWSER_LINK_TEXT = re.compile(
+    r"\b(?:view|read|see|open)\b[^<>]{0,40}?\bin\s+(?:(?:your|a|the|my)\s+)?(?:web\s+)?browser\b|\b(?:web|online|browser)\s+version\b"
+    r"|\b(?:email|newsletter|message)\s+(?:online|on\s+the\s+web)\b|^(?:view|read)\s+(?:it\s+|this\s+)?online$",
+    re.IGNORECASE,
+)
+_BROWSER_LINK_NAME = re.compile(
+    r"(?<![a-z])view[-_]?(?:in[-_]?browser|online)|web[-_]?version|browser[-_]?(?:link|url)", re.IGNORECASE
+)
+_MARKUP = re.compile(r"<[^<>]{0,4000}+>")
 # Syntax Handlebars can't parse, for a version whose engine field is blank.
 _GO_ONLY = re.compile(r"\{\{-?\s*(?:\.[A-Za-z_]|end\b|range\b|\$)")
 
@@ -86,6 +102,38 @@ def convert_text(text: str | None, *, engine: Engine = "handlebars", is_html: bo
     if engine == "go":
         return _convert_go(text, is_html)
     return _convert_handlebars(text, is_html)
+
+
+def _unknown_variables(text: str) -> list[str]:
+    # A `%` inside a tag is the engine's, such as a verb in Go's printf.
+    found = (match.group(0) for match in _PERCENT_TAG.finditer(_TAG.sub(" ", text)))
+    return [tag for tag in found if not _MAILGUN_VARIABLE.fullmatch(tag)]
+
+
+def _browser_links(html_body: str) -> list[str]:
+    """Each "view in browser" link, named by its address as written in the source."""
+    found: list[str] = []
+    html_body = _without_comments(html_body)
+    for anchor in _ANCHOR.finditer(html_body):
+        end = _ANCHOR_END.search(html_body, anchor.end(), anchor.end() + 500)
+        label = html.unescape(_MARKUP.sub(" ", html_body[anchor.end() : end.start()])) if end else ""
+        text = " ".join(label.split())
+        href = _HREF.search(anchor.group(0))
+        address = next((group for group in href.groups() if group is not None), "").strip() if href else ""
+        if _BROWSER_LINK_NAME.search(address) or _BROWSER_LINK_TEXT.search(text):
+            found.append(address[:100] or f'"{text[:100]}"')
+    return found
+
+
+def _without_comments(html_body: str) -> str:
+    kept: list[str] = []
+    position = 0
+    while (start := html_body.find("<!--", position)) >= 0:
+        kept.append(html_body[position:start])
+        end = html_body.find("-->", start + 4)
+        position = len(html_body) if end < 0 else end + 3
+    kept.append(html_body[position:])
+    return "".join(kept)
 
 
 def _too_many_values(text: str) -> bool:
@@ -154,7 +202,7 @@ def convert_version(version: Mapping[str, Any]) -> ConvertedVersion:
     engine = detect_engine(version)
     raw_headers = version.get("headers")
     headers: Mapping[str, Any] = raw_headers if isinstance(raw_headers, dict) else {}
-    subject_source = str(_header(headers, "Subject") or "")
+    subject_source = str(_header(headers, "Subject") or "").replace("\x00", "")
     subject = convert_text(subject_source, engine=engine, is_html=False)
     body_source = version.get("template")
     body = convert_text(body_source if isinstance(body_source, str) else "", engine=engine)
@@ -163,19 +211,26 @@ def convert_version(version: Mapping[str, Any]) -> ConvertedVersion:
     send_notes: list[str] = []
     named_engine = str(version.get("engine") or "").strip().lower()
 
-    if unsupported := list(dict.fromkeys(tag for part in parts for tag in part.unsupported)):
-        shown = ", ".join(unsupported[:_MAX_NOTED_TAGS])
-        more = f" and {len(unsupported) - _MAX_NOTED_TAGS} more" if len(unsupported) > _MAX_NOTED_TAGS else ""
-        if engine == "go":
-            notes.append(
-                f"PostHog can't convert {shown}{more}, so the email shows this whole template as plain text. Rewrite it "
-                "in Liquid."
-            )
-        else:
-            them = "it" if len(unsupported) == 1 else "them"
-            notes.append(
-                f"PostHog can't convert {shown}{more}, so the email shows {them} as written. Rewrite {them} in Liquid."
-            )
+    body_text = body_source.replace("\x00", "") if isinstance(body_source, str) else ""
+    unsupported = list(dict.fromkeys(tag for part in parts for tag in part.unsupported))
+    unknown = list(dict.fromkeys(_unknown_variables(subject_source) + _unknown_variables(body_text)))
+    as_written = unknown if engine == "go" else unsupported + unknown
+    if engine == "go" and unsupported:
+        notes.append(
+            f"PostHog can't convert {_shown(unsupported)}, so the email shows this whole template as plain text. "
+            "Rewrite it in Liquid."
+        )
+    if as_written:
+        them = "it" if len(as_written) == 1 else "them"
+        notes.append(
+            f"PostHog can't convert {_shown(as_written)}, so the email shows {them} as written. Rewrite {them} in "
+            "Liquid."
+        )
+    if links := list(dict.fromkeys(_browser_links(body_text))):
+        notes.append(
+            f"PostHog has no view in browser link, so the link to {_shown(links)} isn't a PostHog page. Remove it or "
+            "point it at a page you host."
+        )
     if any(part.malformed for part in parts):
         notes.append("This template isn't valid Handlebars, so it appears as plain text. Rewrite it in Liquid.")
     if any(part.too_large for part in parts):
@@ -217,6 +272,11 @@ def convert_version(version: Mapping[str, Any]) -> ConvertedVersion:
         send_notes=tuple(send_notes),
         has_content=bool(body.text),
     )
+
+
+def _shown(items: list[str]) -> str:
+    shown = ", ".join(items[:_MAX_NOTED_TAGS])
+    return f"{shown} and {len(items) - _MAX_NOTED_TAGS} more" if len(items) > _MAX_NOTED_TAGS else shown
 
 
 def _header(headers: Mapping[str, Any], name: str) -> Any:
