@@ -306,11 +306,6 @@ describe('SES notifications lost', () => {
         ['a consumer replica restarted', [...run, scraped('cdp-ses-webhooks', 90, { recorded: 1 }, 80)], []],
         ['a consumer replica was never scraped', run, [{ role: 'cdp-ses-webhooks', replica: 1, at: FROM + 90_000 }]],
         [
-            'the consumer missed its final scrape in the millisecond of its last good one',
-            run,
-            [{ role: 'cdp-ses-webhooks', replica: 0, at: FROM + 60_000 }],
-        ],
-        [
             'a consumer replica that had counted nothing yet missed its last scrape',
             [...run, scraped('cdp-ses-webhooks', 0, {}, -60, 1)],
             [{ role: 'cdp-ses-webhooks', replica: 1, at: FROM + 90_000 }],

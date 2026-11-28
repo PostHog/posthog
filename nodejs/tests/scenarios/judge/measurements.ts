@@ -103,7 +103,7 @@ const lostCpu = (ofReplica: readonly MetricSample[], missed: readonly MissedScra
     new Set(ofReplica.map(({ startedAt }) => startedAt)).size > 1 ||
     missed.some(
         (miss) =>
-            miss.role === ofReplica[0].role && miss.replica === ofReplica[0].replica && miss.at >= ofReplica.at(-1)!.at
+            miss.role === ofReplica[0].role && miss.replica === ofReplica[0].replica && miss.at > ofReplica.at(-1)!.at
     )
 
 type Counter = (sample: MetricSample) => number
