@@ -794,19 +794,7 @@ def _refresh_locked(request: BroadcastRequest, *, decided_head_sha: str, using: 
     except BroadcastRequestSlackError as e:
         logger.warning("stamphog_broadcast_request_update_refused", broadcast_request_id=str(request.id), error=str(e))
         return
-    # A merged or closed request keeps the reactions it had, so a merge after an approval does not remove the ✅.
-    if state.status not in (BroadcastRequestStatus.MERGED, BroadcastRequestStatus.CLOSED):
-        set_reactions(
-            card,
-            delivery.channel_id,
-            delivery.message_ts,
-            looking=bool(lookers),
-            approved=state.status in _APPROVED_STATUSES,
-        )
-    if delivery.thread_ts:
-        # The channel shows the post that asked and not its thread, so the post carries the reactions of all its cards.
-        looking, approved = _link_post_reactions(team_id, delivery, using=using)
-        set_reactions(card, delivery.channel_id, delivery.thread_ts, looking=looking, approved=approved)
+    _set_reactions(card, delivery, using=using)
     if head_sha == request.pinged_head_sha:
         return
     # Recorded before the reply, so a failed reply is not sent again.
@@ -821,6 +809,17 @@ def _refresh_locked(request: BroadcastRequest, *, decided_head_sha: str, using: 
             delivery.thread_ts or delivery.message_ts,
             reviewing=state.status == BroadcastRequestStatus.PENDING,
         )
+
+
+def _set_reactions(card: BroadcastRequestCard, delivery: BroadcastRequestDelivery, *, using: str) -> None:
+    # A merged or closed request keeps the reactions it had, so a merge after an approval does not remove the ✅.
+    if card.status not in (BroadcastRequestStatus.MERGED, BroadcastRequestStatus.CLOSED):
+        approved = card.status in _APPROVED_STATUSES
+        set_reactions(card, delivery.channel_id, delivery.message_ts, looking=bool(card.lookers), approved=approved)
+    if delivery.thread_ts:
+        # The channel shows the post that asked and not its thread, so the post carries the reactions of all its cards.
+        looking, approved = _link_post_reactions(card.team_id, delivery, using=using)
+        set_reactions(card, delivery.channel_id, delivery.thread_ts, looking=looking, approved=approved)
 
 
 def _link_post_reactions(team_id: int, delivery: BroadcastRequestDelivery, *, using: str) -> tuple[bool, bool]:
