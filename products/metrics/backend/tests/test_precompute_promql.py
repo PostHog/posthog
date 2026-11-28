@@ -27,9 +27,16 @@ from products.metrics.backend.precompute.fill import fill_precomputed_metrics
 from products.metrics.backend.precompute.promql_plan import (
     DELTA_HISTOGRAM_BUCKET,
     Matcher,
+    PromQLBinary,
+    PromQLExpressionPlan,
+    PromQLLeafQuery,
+    PromQLNumber,
     _is_delta_histogram,
     histogram_quantile,
     parse_promql,
+    parse_promql_expression,
+    plan_promql,
+    read_promql_entries,
 )
 from products.metrics.backend.precompute.shadow import SHADOW_EVENT
 from products.metrics.backend.promql import run_promql_range
@@ -107,6 +114,40 @@ class TestParsePromQL(SimpleTestCase):
     )
     def test_other_shapes_run_raw(self, _name, text):
         assert isinstance(parse_promql(text), str)
+
+    def test_arithmetic_over_planned_sums_keeps_prometheus_precedence(self):
+        def shape(node):
+            if isinstance(node, PromQLLeafQuery):
+                return node.metric_name
+            if isinstance(node, PromQLNumber):
+                return node.value
+            assert isinstance(node, PromQLBinary)
+            return (node.op, shape(node.left), shape(node.right))
+
+        tree = parse_promql_expression(
+            "sum(sum_over_time(a[1h])) - sum(sum_over_time(b[1h])) * 2 / (sum(sum_over_time(c[1h])) or sum(sum_over_time(d[1h])))"
+        )
+
+        assert shape(tree) == ("-", "a", ("/", ("*", "b", 2.0), ("or", "c", "d")))
+
+    @parameterized.expand(
+        [
+            ("grouped_operand", "sum(sum_over_time(m[1h])) / sum by (a) (sum_over_time(m[1h]))"),
+            ("ranked_operand", "topk(1, sum by (a) (sum_over_time(m[1h]))) / sum(sum_over_time(m[1h]))"),
+            ("only_numbers", "1 + 2"),
+            ("or_with_a_number", "sum(sum_over_time(m[1h])) or 0"),
+            ("comparison", "sum(sum_over_time(m[1h])) > 1"),
+            ("vector_matching", "sum(sum_over_time(m[1h])) / on () sum(sum_over_time(m[1h]))"),
+            ("unary_minus", "-sum(sum_over_time(m[1h])) / sum(sum_over_time(m[1h]))"),
+            ("too_many_operands", " + ".join(f"sum(sum_over_time(m{i}[1h]))" for i in range(5))),
+            ("too_deeply_nested", "(" * 9 + "sum(sum_over_time(m[1h])) / 1" + ")" * 9),
+            ("a_single_operand", "sum(sum_over_time(m[1h]))"),
+            ("operand_with_a_series_per_bucket", "sum by (le) (sum_over_time(m[1h])) / 2"),
+            ("operator_chain_past_the_node_budget", "sum(sum_over_time(m[1h]))" + " + 1" * 1100),
+        ]
+    )
+    def test_other_arithmetic_runs_raw(self, _name, text):
+        assert parse_promql_expression(text) is None
 
     @parameterized.expand(
         [
@@ -415,6 +456,63 @@ class TestPrecomputedPromQL(APIBaseTest):
 
         assert result.provenance.reasons == ("too much stored data to load",)
         assert result.series == self._raw(promql, 7, "hour")
+
+    @parameterized.expand(
+        [
+            # The numerator's series is sparse, so many hours have a total but no errors, which `or 0 *` turns into 0.
+            (
+                "error_rate_with_a_zero_default",
+                '100 * (sum(sum_over_time(llm_cost_usd{model="slow"}[$__interval])) or 0 * sum(sum_over_time(llm_cost_usd[$__interval]))) / sum(sum_over_time(llm_cost_usd[$__interval]))',
+                2,
+                "hour",
+            ),
+            (
+                "share_of_one_provider_without_the_default",
+                'sum(sum_over_time(llm_cost_usd{model="slow"}[$__interval])) / sum(sum_over_time(llm_cost_usd[$__interval]))',
+                2,
+                "hour",
+            ),
+            (
+                "scalar_on_the_left_over_the_range",
+                '1 - sum(sum_over_time(llm_cost_usd{provider="openai"}[$__range])) / sum(sum_over_time(llm_cost_usd[$__range]))',
+                7,
+                "hour_6",
+            ),
+            # x / (x - x) divides by zero, which is an infinity, and an infinity is a gap.
+            (
+                "division_by_zero",
+                "sum(sum_over_time(llm_cost_usd[$__interval])) / (sum(sum_over_time(llm_cost_usd[$__interval])) - sum(sum_over_time(llm_cost_usd[$__interval])))",
+                2,
+                "hour",
+            ),
+            ("arithmetic_over_numbers_alone", "sum(sum_over_time(llm_cost_usd[$__interval])) * (1 + 2)", 2, "hour"),
+        ]
+    )
+    def test_arithmetic_over_planned_sums_matches_raw(self, _name: str, promql: str, days: int, interval: str):
+        self._precompute(promql, days, interval)
+
+        result = self._run(promql, days, interval)
+
+        assert result.provenance.mode == MetricQueryProvenanceMode.MIXED, result.provenance
+        assert _max_relative_difference(result.series, self._raw(promql, days, interval)) == pytest.approx(
+            0.0, abs=EXACT
+        )
+
+    def test_operands_of_one_stored_metric_share_one_read_and_one_budget(self):
+        promql = 'sum(sum_over_time(llm_cost_usd{model="slow"}[$__interval])) / sum(sum_over_time(llm_cost_usd[$__interval]))'
+        self._precompute(promql, 2, "hour")
+        plan = plan_promql(self.team, promql, NOW - dt.timedelta(days=2), NOW, "hour", record_use=False)
+        assert isinstance(plan, PromQLExpressionPlan)
+        stored = read_promql_entries(next(iter(plan.plans.values())))
+        queried_before = len(self.snuffle.queries)
+
+        # One operand's stored points fit the budget, two operands' would not.
+        budget = sum(len(entry.points) for entry in stored.values()) + 1
+        with patch("products.metrics.backend.precompute.promql_plan.MAX_STORED_POINTS", budget):
+            result = self._run(promql, 2, "hour")
+
+        assert result.provenance.mode == MetricQueryProvenanceMode.MIXED, result.provenance
+        assert len(self.snuffle.queries) - queried_before == 1, self.snuffle.queries[queried_before:]
 
     def test_a_sampled_tile_queues_a_shadow_check_that_measures_how_far_apart_the_answers_are(self):
         promql = "sum by (model) (sum_over_time(llm_cost_usd[$__interval]))"

@@ -11,6 +11,10 @@ Two shapes are planned, and every other query runs raw, exactly as without the p
   read (see DERIVED_METRICS.md). Over a cumulative histogram, a window wider than one bucket sums per-bucket
   increases, which skip the step between buckets that Prometheus' extrapolation adds back, so it can read low.
 
+A tile that combines such queries with `+`, `-`, `*`, `/`, `or`, parentheses and numbers, like the error rate
+`100 * (errors or 0 * total) / total`, is planned as one precomputed query for each operand. An operand is a single
+series, so the arithmetic needs no label matching, and each step combines the operands' values at that step.
+
 Fills and the raw tail both go through Snuffle with the same bucket query, so stored buckets are what a raw query
 would read. The buckets after the stored ones are read raw, and every step sums its window from both, so a 7-day
 window reads at most the newest few hours raw. `w`, the step and the first step must all fall on bucket boundaries.
@@ -19,9 +23,10 @@ window reads at most the newest few hours raw. `w`, the step and the first step 
 import re
 import math
 import datetime as dt
-from collections.abc import Iterator, Sequence
+from collections.abc import Callable, Iterator, Sequence
 from functools import lru_cache
 from typing import Any
+from uuid import UUID
 
 from django.utils import timezone
 
@@ -61,6 +66,7 @@ from products.metrics.backend.precompute.store import (
     EntryKey,
     TooManyStoredPointsError,
     bucket_width,
+    merge_entries,
     read_entries,
 )
 from products.metrics.backend.promql import fill_range_variables
@@ -96,6 +102,9 @@ _SORTS = frozenset({"sort", "sort_desc"})
 _RANKS = frozenset({"topk", "bottomk"})
 # A planned shape nests at most a sort around one rank, so deeper wrappers only cost parser recursion.
 _MAX_WRAPPERS = 2
+_MAX_EXPRESSION_LEAVES = 4
+_MAX_EXPRESSION_NODES = 32
+_MAX_PARENTHESES = 8
 # Every stored label set is checked against every matcher, so a long matcher list costs work per entry.
 _MAX_MATCHERS = 20
 
@@ -139,6 +148,21 @@ class PromQLLeafQuery:
         return tuple(sorted({m.label for m in self.matchers} | set(self.group_by)))
 
 
+@frozen
+class PromQLNumber:
+    value: float
+
+
+@frozen
+class PromQLBinary:
+    op: str
+    left: "PromQLNode"
+    right: "PromQLNode"
+
+
+PromQLNode = PromQLLeafQuery | PromQLNumber | PromQLBinary
+
+
 class _Unsupported(Exception):
     pass
 
@@ -147,6 +171,7 @@ class _Parser:
     def __init__(self, text: str) -> None:
         self.tokens: list[Token] = [token for token in tokenize(text) if token.kind != "space"]
         self.index = 0
+        self.operators = 0
 
     def peek(self) -> Token | None:
         return self.tokens[self.index] if self.index < len(self.tokens) else None
@@ -355,11 +380,105 @@ def parse_promql(text: str) -> PromQLLeafQuery | str:
             raise _Unsupported
     except _Unsupported:
         return "the PromQL query is not a shape that precomputed metrics answer"
+    return _leaf_problem(query) or query
+
+
+def _leaf_problem(query: PromQLLeafQuery) -> str | None:
     if len([label for label in query.kept_labels if label != "le"]) > MAX_KEPT_LABELS:
         return f"the query filters or groups by more than {MAX_KEPT_LABELS} labels"
     if len(query.metric_name) > MAX_METRIC_NAME_LENGTH:
         return "the metric name is too long to precompute"
-    return query
+    return None
+
+
+def _operand(parser: _Parser, parentheses: int) -> PromQLNode:
+    token = parser.peek()
+    if token is None:
+        raise _Unsupported
+    if token.text == "(":
+        if parentheses >= _MAX_PARENTHESES:
+            raise _Unsupported
+        parser.take("(")
+        node = _or(parser, parentheses + 1)
+        parser.take(")")
+        return node
+    if token.kind == "number":
+        parser.take()
+        try:
+            return PromQLNumber(value=float(token.text))
+        except ValueError:
+            raise _Unsupported
+    leaf = _histogram_quantile(parser) if token.text == "histogram_quantile" else _sum_over_time(parser)
+    # An operand is one series, so the arithmetic combines values by step and never matches labels.
+    # Only a quantile folds `le` away; `sum by (le)` alone is one series per bucket.
+    foldable = ("le",) if leaf.quantile is not None else ()
+    if leaf.rank is not None or any(label not in foldable for label in leaf.group_by):
+        raise _Unsupported
+    return leaf
+
+
+def _binary(
+    parser: _Parser, parentheses: int, operators: tuple[str, ...], operand: Callable[[_Parser, int], PromQLNode]
+) -> PromQLNode:
+    node = operand(parser, parentheses)
+    while (token := parser.peek()) is not None and token.text in operators:
+        parser.take()
+        # The tree walks after parsing recurse once per level, so bound the tree while it is built.
+        parser.operators += 1
+        if parser.operators > _MAX_EXPRESSION_NODES:
+            raise _Unsupported
+        node = PromQLBinary(op=token.text, left=node, right=operand(parser, parentheses))
+    return node
+
+
+def _product(parser: _Parser, parentheses: int) -> PromQLNode:
+    return _binary(parser, parentheses, ("*", "/"), _operand)
+
+
+def _sum_or_difference(parser: _Parser, parentheses: int) -> PromQLNode:
+    return _binary(parser, parentheses, ("+", "-"), _product)
+
+
+def _or(parser: _Parser, parentheses: int) -> PromQLNode:
+    return _binary(parser, parentheses, ("or",), _sum_or_difference)
+
+
+def _is_vector(node: PromQLNode) -> bool:
+    if isinstance(node, PromQLNumber):
+        return False
+    if isinstance(node, PromQLLeafQuery):
+        return True
+    left, right = _is_vector(node.left), _is_vector(node.right)
+    if node.op == "or" and not (left and right):
+        raise _Unsupported
+    return left or right
+
+
+def _nodes(node: PromQLNode) -> Iterator[PromQLNode]:
+    yield node
+    if isinstance(node, PromQLBinary):
+        yield from _nodes(node.left)
+        yield from _nodes(node.right)
+
+
+def expression_leaves(node: PromQLNode) -> tuple[PromQLLeafQuery, ...]:
+    return tuple(dict.fromkeys(n for n in _nodes(node) if isinstance(n, PromQLLeafQuery)))
+
+
+def parse_promql_expression(text: str) -> PromQLBinary | None:
+    """A query that combines planned operands with arithmetic, or None for any other query."""
+    if len(text) > MAX_PROMQL_LENGTH:
+        return None
+    parser = _Parser(text)
+    try:
+        node = _or(parser, 0)
+        if not parser.done() or not isinstance(node, PromQLBinary) or not _is_vector(node):
+            return None
+    except _Unsupported:
+        return None
+    if sum(1 for _ in _nodes(node)) > _MAX_EXPRESSION_NODES or len(expression_leaves(node)) > _MAX_EXPRESSION_LEAVES:
+        return None
+    return node
 
 
 def leaf_for_promql(query: PromQLLeafQuery, bucket: dt.timedelta) -> Leaf:
@@ -423,7 +542,7 @@ def plan_promql(
     interval: str | None,
     *,
     record_use: bool = True,
-) -> PromQLPlan | str:
+) -> "PromQLPlan | PromQLExpressionPlan | str":
     """Plan a PromQL tile, or return why it runs raw. The first long-range tile that needs a metric creates it.
 
     Without `record_use`, as for a shared-link viewer, the plan only reads: it creates no metric and doesn't keep
@@ -432,8 +551,24 @@ def plan_promql(
         return "precomputing is not available in a child environment"
     expr = fill_range_variables(text, date_from, date_to)
     query = parse_promql(expr)
-    if isinstance(query, str):
+    if not isinstance(query, str):
+        return _plan_leaf(team, query, expr, date_from, date_to, interval, record_use=record_use)
+    tree = parse_promql_expression(expr)
+    if tree is None:
         return query
+    return _plan_expression(team, tree, expr, date_from, date_to, interval, record_use=record_use)
+
+
+def _plan_leaf(
+    team: Team,
+    query: PromQLLeafQuery,
+    expr: str,
+    date_from: dt.datetime,
+    date_to: dt.datetime,
+    interval: str | None,
+    *,
+    record_use: bool,
+) -> PromQLPlan | str:
     resolved = _resolve_interval(date_from, date_to, interval)
     step = _interval_step(resolved)
     first_step = _align_to_interval(date_from, resolved, tzinfo=team.timezone_info)
@@ -473,6 +608,53 @@ def plan_promql(
     )
 
 
+@frozen
+class PromQLExpressionPlan:
+    """A tile that combines planned operands. Every operand shares the steps, and the cut is the oldest operand's."""
+
+    tree: PromQLBinary
+    plans: dict[PromQLLeafQuery, PromQLPlan]
+    expr: str
+    first_step: dt.datetime
+    cut: dt.datetime
+    last_step: dt.datetime
+
+
+def _plan_expression(
+    team: Team,
+    tree: PromQLBinary,
+    expr: str,
+    date_from: dt.datetime,
+    date_to: dt.datetime,
+    interval: str | None,
+    *,
+    record_use: bool,
+) -> PromQLExpressionPlan | str:
+    plans: dict[PromQLLeafQuery, PromQLPlan] = {}
+    reason: str | None = None
+    for leaf in expression_leaves(tree):
+        problem = _leaf_problem(leaf)
+        if problem is not None:
+            return problem
+        # Every operand is planned even after one can't be, so each missing metric starts filling on this load.
+        planned = _plan_leaf(team, leaf, expr, date_from, date_to, interval, record_use=record_use)
+        if isinstance(planned, str):
+            reason = reason or planned
+        else:
+            plans[leaf] = planned
+    if reason is not None:
+        return reason
+    first = next(iter(plans.values()))
+    return PromQLExpressionPlan(
+        tree=tree,
+        plans=plans,
+        expr=expr,
+        first_step=first.first_step,
+        cut=min(plan.cut for plan in plans.values()),
+        last_step=first.last_step,
+    )
+
+
 def _touch(precomputed_metric: MetricPrecomputedMetric) -> None:
     now = timezone.now()
     if precomputed_metric.last_used_at < now - _LAST_USED_RESOLUTION:
@@ -481,9 +663,9 @@ def _touch(precomputed_metric: MetricPrecomputedMetric) -> None:
         )
 
 
-def read_promql_entries(plan: PromQLPlan) -> dict[EntryKey, Entry]:
-    """The stored buckets that the planned steps read. Raises `TooManyStoredPointsError` past `MAX_STORED_POINTS`."""
-    return read_entries(plan.precomputed_metric, plan.first_step - plan.window, plan.cut, max_points=MAX_STORED_POINTS)
+def read_promql_entries(plan: PromQLPlan, max_points: int = MAX_STORED_POINTS) -> dict[EntryKey, Entry]:
+    """The stored buckets that the planned steps read. Raises `TooManyStoredPointsError` past `max_points`."""
+    return read_entries(plan.precomputed_metric, plan.first_step - plan.window, plan.cut, max_points=max_points)
 
 
 def read_raw_tail_entries(team: Team, plan: PromQLPlan) -> dict[EntryKey, Entry]:
@@ -606,6 +788,81 @@ def evaluate_stored(plan: PromQLPlan, entries: dict[EntryKey, Entry]) -> list[di
         for group, points in by_group.items()
         if points
     ]
+
+
+def evaluate_plan(team: Team, plan: "PromQLPlan | PromQLExpressionPlan") -> list[dict[str, Any]]:
+    """The planned steps from stored buckets and the raw tail, shaped like Snuffle's `matrix` results.
+    Raises `TooManyStoredPointsError` past the stored data budget."""
+    if isinstance(plan, PromQLPlan):
+        return _evaluate_leaf(team, plan)
+    entries_by_read: dict[tuple[UUID, dt.datetime, dt.datetime, dt.datetime], dict[EntryKey, Entry]] = {}
+    stored = 0
+    series: dict[PromQLLeafQuery, dict[float, float]] = {}
+    for leaf, leaf_plan in plan.plans.items():
+        read = (
+            leaf_plan.precomputed_metric.pk,
+            leaf_plan.first_step - leaf_plan.window,
+            leaf_plan.cut,
+            leaf_plan.last_step,
+        )
+        if read not in entries_by_read:
+            entries = read_promql_entries(leaf_plan, max_points=MAX_STORED_POINTS - stored)
+            stored += sum(len(entry.points) for entry in entries.values())
+            merge_entries(entries, read_raw_tail_entries(team, leaf_plan))
+            entries_by_read[read] = entries
+        series[leaf] = {
+            float(timestamp): float(value)
+            for result in evaluate_stored(leaf_plan, entries_by_read[read])
+            for timestamp, value in result["values"]
+        }
+    combined = _combine(plan.tree, series)
+    assert isinstance(combined, dict)
+    return [{"metric": {}, "values": [[step, value] for step, value in sorted(combined.items())]}] if combined else []
+
+
+def _evaluate_leaf(team: Team, plan: PromQLPlan) -> list[dict[str, Any]]:
+    entries = read_promql_entries(plan)
+    merge_entries(entries, read_raw_tail_entries(team, plan))
+    return evaluate_stored(plan, entries)
+
+
+def _divide(numerator: float, denominator: float) -> float:
+    """IEEE division, as Prometheus does it: a zero denominator gives an infinity, or NaN for 0/0."""
+    if denominator != 0:
+        return numerator / denominator
+    if numerator == 0 or math.isnan(numerator):
+        return math.nan
+    return math.copysign(math.inf, numerator) * math.copysign(1.0, denominator)
+
+
+_ARITHMETIC: dict[str, Callable[[float, float], float]] = {
+    "+": lambda a, b: a + b,
+    "-": lambda a, b: a - b,
+    "*": lambda a, b: a * b,
+    "/": _divide,
+}
+
+
+def _combine(node: PromQLNode, series: dict[PromQLLeafQuery, dict[float, float]]) -> dict[float, float] | float:
+    """A step has a value when the operands it needs have one. `or` takes the left operand's value, else the right's."""
+    if isinstance(node, PromQLNumber):
+        return node.value
+    if isinstance(node, PromQLLeafQuery):
+        return series[node]
+    left, right = _combine(node.left, series), _combine(node.right, series)
+    if node.op == "or":
+        assert isinstance(left, dict) and isinstance(right, dict)
+        return {**right, **left}
+    apply = _ARITHMETIC[node.op]
+    if not isinstance(left, dict) and not isinstance(right, dict):
+        return apply(left, right)
+    if isinstance(left, dict) and isinstance(right, dict):
+        return {step: apply(left[step], right[step]) for step in left.keys() & right.keys()}
+    if isinstance(left, dict):
+        assert not isinstance(right, dict)
+        return {step: apply(value, right) for step, value in left.items()}
+    assert isinstance(right, dict)
+    return {step: apply(left, value) for step, value in right.items()}
 
 
 def _rank(by_group: dict[tuple[str, ...], dict[dt.datetime, float]], rank: str, k: int) -> dict:

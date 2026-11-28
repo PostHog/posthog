@@ -2,7 +2,7 @@
 
 It knows the shapes the precompute planner and its fills send: `sum by (G) (sum_over_time(m{M}[w]))` with
 `topk`, `bottomk`, `sort` and `sort_desc`, `sum by (le, G) (increase(m_bucket{M}[w]))`, and `histogram_quantile`
-over the latter. `increase` over a cumulative series extrapolates to the window's edges as Prometheus does, so a test
+over the latter, combined with `+ - * /`, `or`, parentheses and numbers. `increase` over a cumulative series extrapolates to the window's edges as Prometheus does, so a test
 that compares a planned tile with this raw answer sees the same gap a real one would. Over a delta series it sums the
 points in the window, as Snuffle does.
 """
@@ -17,10 +17,19 @@ from typing import Any
 
 from unittest.mock import patch
 
+import numpy
+
 from posthog.dataclasses import frozen
 
 from products.metrics.backend.facade.enums import PrecomputedMetricKind
-from products.metrics.backend.precompute.promql_plan import PromQLLeafQuery, parse_promql
+from products.metrics.backend.precompute.promql_plan import (
+    PromQLBinary,
+    PromQLLeafQuery,
+    PromQLNode,
+    PromQLNumber,
+    parse_promql,
+    parse_promql_expression,
+)
 
 _TOP_LEVEL_QUANTILE = 0.5
 
@@ -128,9 +137,51 @@ class FakeSnuffle:
 
     def evaluate(self, expr: str, start: float, end: float, step: float) -> list[dict[str, Any]]:
         self.queries.append(expr)
+        tree = parse_promql_expression(expr)
+        if tree is not None:
+            values = self._tree(tree, start, end, step)
+            assert isinstance(values, dict)
+            return (
+                [{"metric": {}, "values": [[time, str(value)] for time, value in sorted(values.items())]}]
+                if values
+                else []
+            )
         bare_increase = expr.startswith("sum") and "increase(" in expr
         parsed = parse_promql(f"histogram_quantile({_TOP_LEVEL_QUANTILE}, {expr})" if bare_increase else expr)
         assert not isinstance(parsed, str), (expr, parsed)
+        return self._leaf(parsed, bare_increase, start, end, step)
+
+    def _tree(self, node: PromQLNode, start: float, end: float, step: float) -> dict[float, float] | float:
+        """A step holds a value where Prometheus' one-to-one matching of single series gives one."""
+        if isinstance(node, PromQLNumber):
+            return node.value
+        if isinstance(node, PromQLLeafQuery):
+            results = self._leaf(node, False, start, end, step)
+            return {time: float(value) for result in results for time, value in result["values"]}
+        assert isinstance(node, PromQLBinary)
+        left, right = self._tree(node.left, start, end, step), self._tree(node.right, start, end, step)
+        if node.op == "or":
+            assert isinstance(left, dict) and isinstance(right, dict)
+            return {time: left[time] if time in left else right[time] for time in left.keys() | right.keys()}
+        operations = {"+": numpy.add, "-": numpy.subtract, "*": numpy.multiply, "/": numpy.divide}
+        vectors = [operand for operand in (left, right) if isinstance(operand, dict)]
+        if not isinstance(left, dict) and not isinstance(right, dict):
+            with numpy.errstate(all="ignore"):
+                return float(operations[node.op](numpy.float64(left), numpy.float64(right)))
+        times = set.intersection(*(set(vector) for vector in vectors))
+
+        def at(operand: dict[float, float] | float, time: float) -> float:
+            return operand[time] if isinstance(operand, dict) else operand
+
+        with numpy.errstate(all="ignore"):
+            return {
+                time: float(operations[node.op](numpy.float64(at(left, time)), numpy.float64(at(right, time))))
+                for time in times
+            }
+
+    def _leaf(
+        self, parsed: PromQLLeafQuery, bare_increase: bool, start: float, end: float, step: float
+    ) -> list[dict[str, Any]]:
         window = parsed.window.total_seconds() if parsed.window is not None else step
         histogram = parsed.kind == PrecomputedMetricKind.BUCKET_INCREASE
         group_by = list(parsed.group_by)
