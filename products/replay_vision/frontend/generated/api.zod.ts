@@ -1230,6 +1230,9 @@ export const visionScannersScoutsCreateBodyConfigOneReportActionsMax = 2
 export const visionScannersScoutsCreateBodyConfigOneMaxReportActionsPerDayMin = 0
 export const visionScannersScoutsCreateBodyConfigOneMaxReportActionsPerDayMax = 20
 
+export const visionScannersScoutsCreateBodyConfigOneMaxMessagesPerDayMin = 0
+export const visionScannersScoutsCreateBodyConfigOneMaxMessagesPerDayMax = 32767
+
 export const visionScannersScoutsCreateBodyConfigOnePrecheckQueryMax = 10000
 
 export const visionScannersScoutsCreateBodyConfigOneRunIntervalMinutesMin = 30
@@ -1337,6 +1340,14 @@ export const VisionScannersScoutsCreateBody = /* @__PURE__ */ zod
                     .optional()
                     .describe(
                         "Report actions this scout may start per rolling 24 hours, across all its runs. Defaults to 3. Only the person the scout's runs act as can raise it. A project admin can lower it."
+                    ),
+                max_messages_per_day: zod
+                    .number()
+                    .min(visionScannersScoutsCreateBodyConfigOneMaxMessagesPerDayMin)
+                    .max(visionScannersScoutsCreateBodyConfigOneMaxMessagesPerDayMax)
+                    .nullish()
+                    .describe(
+                        'Messages this scout may send in any 24 hours. Null uses the project default, 0 stops sending. At most the project ceiling. Changing it needs skill editor access.'
                     ),
                 lifecycle_locked: zod
                     .boolean()

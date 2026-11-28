@@ -9,8 +9,9 @@ prompt, the tool and the end-of-run send all agree on one parse.
 from __future__ import annotations
 
 import logging
+from collections.abc import Mapping, Sequence
 from datetime import timedelta
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, TypeGuard
 
 from django.db import connection
 
@@ -37,7 +38,14 @@ SLACK_CHANNEL_TARGET_RE = r"^[CG][A-Z0-9]{4,}\s*(\|.*)?$"
 MAX_MESSAGE_TITLE_LENGTH = 80
 MAX_MESSAGE_BODY_LENGTH = 500
 
-MAX_MESSAGES_PER_SCOUT_PER_WINDOW = 5
+# How many messages a scout may send in any `MESSAGE_CAP_WINDOW`, resolved by `resolve_scout_message_cap`
+# from the config's `max_messages_per_day` and the `signals-scout` flag payload. These two are the code
+# fallbacks when neither payload layer sets `TEAM_CONFIG_DEFAULT_SCOUT_MESSAGES_PER_DAY` or
+# `TEAM_CONFIG_MAX_SCOUT_MESSAGES_PER_DAY`. The ceiling allows one message per run of an hourly scout.
+DEFAULT_SCOUT_MESSAGES_PER_DAY = 5
+MAX_SCOUT_MESSAGES_PER_DAY = 24
+TEAM_CONFIG_DEFAULT_SCOUT_MESSAGES_PER_DAY = "default_scout_messages_per_day"
+TEAM_CONFIG_MAX_SCOUT_MESSAGES_PER_DAY = "max_scout_messages_per_day"
 MESSAGE_CAP_WINDOW = timedelta(hours=24)
 DEDUPE_WINDOW = timedelta(days=30)
 # How long a message a failed send left behind is still worth sending. Recovery runs at the scout's next
@@ -63,6 +71,40 @@ class MessageRoute:
     key: str
     when: str
     targets: tuple[MessageTarget, ...]
+
+
+@frozen
+class ScoutMessageCap:
+    # The cap a run applies: the scout's own setting or the default, clamped to the ceiling.
+    limit: int
+    default: int
+    ceiling: int
+
+
+def resolve_scout_message_cap(stored: object, config_layers: Sequence[Mapping[str, object]]) -> ScoutMessageCap:
+    """The message cap for one scout, from its stored `max_messages_per_day` and the project's flag layers.
+
+    `config_layers` are the project's `team_configs` entry, then the fleet `default_team_config`. Each key
+    resolves from the first layer holding a non-negative int, else the code fallback, so a malformed value
+    at one layer falls through to the next. A stored value above the ceiling is clamped rather than
+    honored, so lowering the ceiling in the payload applies to scouts that already store more.
+    """
+    ceiling = _first_count(config_layers, TEAM_CONFIG_MAX_SCOUT_MESSAGES_PER_DAY, MAX_SCOUT_MESSAGES_PER_DAY)
+    default = _first_count(config_layers, TEAM_CONFIG_DEFAULT_SCOUT_MESSAGES_PER_DAY, DEFAULT_SCOUT_MESSAGES_PER_DAY)
+    requested = stored if _is_count(stored) else default
+    return ScoutMessageCap(limit=min(requested, ceiling), default=default, ceiling=ceiling)
+
+
+def _first_count(config_layers: Sequence[Mapping[str, object]], key: str, fallback: int) -> int:
+    for layer in config_layers:
+        value = layer.get(key)
+        if _is_count(value):
+            return value
+    return fallback
+
+
+def _is_count(value: object) -> TypeGuard[int]:
+    return isinstance(value, int) and not isinstance(value, bool) and value >= 0
 
 
 def get_message_routes(output_destinations: object) -> tuple[MessageRoute, ...]:

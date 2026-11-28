@@ -70,6 +70,7 @@ from products.signals.backend.scout_harness.limits import (
 from products.signals.backend.scout_harness.message_routes import (
     MessageRoute,
     get_message_routes,
+    resolve_scout_message_cap,
     scout_send_message_enabled,
 )
 from products.signals.backend.scout_harness.model_selection import RUNTIME_ADAPTER_CODEX, resolve_scout_model
@@ -93,6 +94,7 @@ from products.signals.backend.scout_harness.team_limits import (
     BackgroundBackoff,
     github_read_access_for_team,
     resolve_background_backoff,
+    team_config_layers_for_team,
     withheld_skills_for_team,
 )
 from products.signals.backend.scout_harness.tool_catalogue import scout_held_mcp_tools, scout_tool_access_enabled
@@ -1089,6 +1091,12 @@ def _message_routes_for_run(
     return routes
 
 
+def _message_cap_for_run(team: Team, config: SignalScoutConfig) -> int:
+    """The message cap the prompt states, resolved as `send_message_sync` resolves it."""
+    layers = team_config_layers_for_team(team.parent_team_id or team.id)
+    return resolve_scout_message_cap(config.max_messages_per_day, layers).limit
+
+
 def _report_tags_in_use(team: Team, *, report_channel: bool) -> list[str]:
     """The team's report tags for the prompt, or none for a signal-channel scout.
 
@@ -1359,6 +1367,11 @@ async def _spawn_and_run(
     message_routes = await database_sync_to_async(_message_routes_for_run, thread_sensitive=False)(
         team, config, is_private_trial=trial is not None
     )
+    message_cap = (
+        await database_sync_to_async(_message_cap_for_run, thread_sensitive=False)(team, config)
+        if message_routes
+        else 0
+    )
     prompt = build_run_prompt(
         skill,
         run_id=str(run_id),
@@ -1380,10 +1393,11 @@ async def _spawn_and_run(
         # when the config carries a schema AND emit is on — records land solely as project
         # events, so a dry-run scout must not be steered at a tool that fails closed.
         structured_output_schema=(config.structured_output_schema if config.emit else None),
-        # Renders the messages section (route keys and conditions) only when the scout may send:
-        # the flag is on, the config has routes, and the run is not a private trial.
+        # Renders the messages section (route keys, conditions and the cap) only when the scout may
+        # send: the flag is on, the config has routes, the cap is above 0, and the run is not a private trial.
         message_routes=message_routes,
         messages_dry_run=not config.emit,
+        message_cap=message_cap,
         # Names the objects this scout may change, so it acts on them and reports what it changed.
         # Resolved through the same allowlist the token is, so the prompt can never promise write
         # access the token does not carry.

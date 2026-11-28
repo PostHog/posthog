@@ -34,14 +34,17 @@ from products.signals.backend.models import (
 )
 from products.signals.backend.scout_harness.message_routes import (
     DEDUPE_WINDOW,
+    MESSAGE_CAP_WINDOW,
     MESSAGE_RECOVERY_WINDOW,
     MESSAGE_TARGET_SLACK_DM,
     UNSENDABLE_REPORT_STATUSES,
     MessageRoute,
     find_message_route,
     lock_scout_message_lane,
+    resolve_scout_message_cap,
     scout_send_message_enabled,
 )
+from products.signals.backend.scout_harness.team_limits import team_config_layers_for_team
 from products.signals.backend.tasks import enqueue_scout_slack_delivery
 from products.tasks.backend.facade import api as tasks_facade
 
@@ -90,6 +93,10 @@ def _send_run_messages(run: SignalScoutRun) -> int:
     config = run.scout_config
     enabled = scout_send_message_enabled(team)
     integration_id = _integration_id(config)
+    # The queue-time check can go stale: the cap can drop mid-run and overlapping runs share the lane.
+    message_cap = resolve_scout_message_cap(
+        config.max_messages_per_day if config else None, team_config_layers_for_team(team.parent_team_id or team.id)
+    ).limit
     sent = 0
     for message_id in message_ids:
         try:
@@ -99,6 +106,7 @@ def _send_run_messages(run: SignalScoutRun) -> int:
                 message_id=message_id,
                 config=config,
                 enabled=enabled,
+                message_cap=message_cap,
                 integration_id=integration_id,
             ):
                 sent += 1
@@ -203,6 +211,7 @@ def _send_one(
     message_id: Any,
     config: SignalScoutConfig | None,
     enabled: bool,
+    message_cap: int,
     integration_id: int | None,
 ) -> bool:
     with transaction.atomic():
@@ -223,6 +232,8 @@ def _send_one(
         )
         if drop_reason is None and _sent_recently(message):
             drop_reason = SignalScoutMessage.DropReason.DUPLICATE
+        if drop_reason is None and _sent_in_cap_window(message) >= message_cap:
+            drop_reason = SignalScoutMessage.DropReason.OVER_CAP
         if drop_reason is not None or route is None or integration_id is None:
             message.status = SignalScoutMessage.Status.DROPPED
             message.drop_reason = drop_reason or SignalScoutMessage.DropReason.ROUTE_REMOVED
@@ -278,6 +289,15 @@ def _drop_reason(
     if message.report.status in UNSENDABLE_REPORT_STATUSES:
         return SignalScoutMessage.DropReason.REPORT_HIDDEN
     return None
+
+
+def _sent_in_cap_window(message: SignalScoutMessage) -> int:
+    return SignalScoutMessage.all_teams.filter(
+        team_id=message.team_id,
+        skill_name=message.skill_name,
+        status=SignalScoutMessage.Status.SENT,
+        sent_at__gte=timezone.now() - MESSAGE_CAP_WINDOW,
+    ).count()
 
 
 def _sent_recently(message: SignalScoutMessage) -> bool:

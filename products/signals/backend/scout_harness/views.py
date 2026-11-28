@@ -1622,8 +1622,8 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             "(`output_destinations.messages`). Name the route `key`, never a recipient. Outside a dry run the "
             "message must point at a report this run wrote or edited. Nothing is posted during the run: the "
             "message is queued and sent when the run ends, and a second call with the same route and "
-            "`dedupe_key` replaces it. A scout sends at most 5 messages in any 24 hours, and a route and key "
-            "sent in the last 30 days is refused as a duplicate."
+            "`dedupe_key` replaces it. Each scout has its own limit on messages in any 24 hours, set on its "
+            "config, and a route and key sent in the last 30 days is refused as a duplicate."
         ),
         operation_id="signals_scout_send_message",
     )
@@ -3610,7 +3610,30 @@ def _resolve_scout_config_grants(
                 field="custom_image_id",
             )
     _assert_can_change_scout_report_actions(request=request, team=team, skill_name=skill_name, config=config, data=data)
+    _assert_can_change_scout_message_cap(request=request, team=team, config=config, data=data)
     return resolved
+
+
+def _assert_can_change_scout_message_cap(
+    *, request: Request, team: Team, config: SignalScoutConfig | None, data: Mapping[str, Any]
+) -> None:
+    """Gate on changing how many messages a scout may send a day.
+
+    The same bar as setting message routes, since a higher cap lets the scout interrupt people more
+    often: the `llm_skill:write` scope and editor access to skills. Only a change is gated, so a whole-config
+    resend that echoes the stored value passes. A sandbox token is refused, so a scout cannot raise its own cap.
+    """
+    if "max_messages_per_day" not in data:
+        return
+    if data["max_messages_per_day"] == (config.max_messages_per_day if config else None):
+        return
+    if _sandbox_bound_task_id(request) is not None:
+        raise exceptions.PermissionDenied("Sandbox tokens cannot change a scout's message limit.")
+    _assert_token_carries_scopes(request, {"llm_skill:write"})
+    if not has_skill_editor_access(cast(User, request.user), team):
+        raise exceptions.PermissionDenied(
+            "Changing a scout's message limit requires editor access to skills, like setting its message routes."
+        )
 
 
 def _assert_can_change_scout_report_actions(

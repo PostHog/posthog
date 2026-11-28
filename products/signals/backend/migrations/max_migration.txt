@@ -1,1 +1,1 @@
-0266_anomalyscoringstate_scoring
+0267_signalscoutconfig_max_messages_per_day

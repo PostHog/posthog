@@ -673,11 +673,19 @@ def max_enabled_scouts_for_team(canonical_team_id: int) -> int:
     child-environment override still resolves, and an explicit parent-keyed entry wins over one
     keyed on a child. A missing or unreadable payload yields `MAX_ENABLED_SCOUTS_PER_TEAM`.
     """
+    return _resolve_enabled_scout_limit(canonical_team_id, team_config_layers_for_team(canonical_team_id))
+
+
+def team_config_layers_for_team(canonical_team_id: int) -> list[dict]:
+    """One flag-payload read → this project's config layers, most specific first: its `team_configs`
+    entry, then the fleet `default_team_config`. A missing or unreadable payload yields `[{}, {}]`.
+
+    For request-context resolvers that read a key the coordinator does not, such as the message cap
+    (`message_routes.resolve_scout_message_cap`). `canonical_team_id` must be the parent/project id.
+    """
     payload = _read_flag_payload()
     team_configs = _canonicalize_team_config_keys(_team_configs(payload))
-    return _resolve_enabled_scout_limit(
-        canonical_team_id, [team_configs.get(canonical_team_id) or {}, _default_team_config(payload)]
-    )
+    return [team_configs.get(canonical_team_id) or {}, _default_team_config(payload)]
 
 
 # Flag payload key overriding the GLOBAL per-tick dispatch ceiling (the coordinator's

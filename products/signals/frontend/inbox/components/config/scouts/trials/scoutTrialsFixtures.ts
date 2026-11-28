@@ -48,6 +48,8 @@ export const trialFixtureConfig: SignalScoutConfigApi = {
     write_scopes: [],
     report_actions: [],
     max_report_actions_per_day: 3,
+    max_messages_per_day: null,
+    message_cap: 5,
     allowed_mcp_tools: null,
     tool_preset: null,
     lifecycle_locked: false,
