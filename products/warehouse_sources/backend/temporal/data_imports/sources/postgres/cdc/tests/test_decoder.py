@@ -140,12 +140,13 @@ class TestPgOutputDecoder:
         relation_id: int = 1,
         table: str = "users",
         columns: list[tuple[str, int, int]] | None = None,
+        key_columns: set[str] | None = None,
     ) -> PgOutputDecoder:
         if columns is None:
             columns = [("id", _OID_INT4, -1), ("name", _OID_TEXT, -1), ("email", _OID_TEXT, -1)]
 
         decoder = PgOutputDecoder()
-        relation_msg = _make_relation(relation_id, "public", table, columns)
+        relation_msg = _make_relation(relation_id, "public", table, columns, key_columns=key_columns)
         decoder.decode_message(relation_msg, "0/100")
         return decoder
 
@@ -523,16 +524,38 @@ class TestPgOutputDecoder:
             ("int8", _OID_INT8, "9999999999", 9999999999),
             ("float8", _OID_FLOAT8, "3.14", 3.14),
             ("jsonb", _OID_JSONB, '{"key": "value"}', '{"key": "value"}'),
+            # Binary and arrays come out as the snapshot writes them: hex, and a compact JSON list.
+            ("bytea", 17, "\\x0a0b0c", "0a0b0c"),
+            ("text_array", 1009, '{c,a,"b c",NULL,"q\\"x",ü}', '["c","a","b c",null,"q\\"x","ü"]'),
+            ("int_array_2d", 1007, "{{1,2},{3,4}}", "[[1,2],[3,4]]"),
+            ("bool_array", 1000, "{t,f}", "[true,false]"),
+            # orjson, which the snapshot uses, writes non-finite floats as null.
+            ("float_array", 1022, "{1e-07,NaN,Infinity}", "[1e-7,null,null]"),
+            ("text_array_escaped_backslash", 1009, '{"a\\\\b"}', '["a\\\\b"]'),
+            ("empty_array", 1009, "{}", "[]"),
+            ("array_with_lower_bound", 1007, "[0:1]={5,6}", "[5,6]"),
         ]
     )
     def test_type_casting(self, _name, type_oid, text_value, expected):
-        decoder = self._setup_decoder_with_relation(columns=[("val", type_oid, -1)])
+        decoder = self._setup_decoder_with_relation(
+            columns=[("id", _OID_INT4, -1), ("val", type_oid, -1)], key_columns={"id"}
+        )
+
+        decoder.decode_message(_make_begin(), "0/100")
+        decoder.decode_message(_make_insert(1, [("t", "1"), ("t", text_value)]), "0/110")
+        events = list(decoder.decode_message(_make_commit(), "0/200"))
+
+        assert events[0].columns["val"] == expected
+
+    @parameterized.expand([("bytea", 17, "\\x0a0b0c"), ("text_array", 1009, "{c,a}")])
+    def test_a_key_column_keeps_the_format_its_stored_keys_were_written_in(self, _name, type_oid, text_value):
+        decoder = self._setup_decoder_with_relation(columns=[("id", type_oid, -1)], key_columns={"id"})
 
         decoder.decode_message(_make_begin(), "0/100")
         decoder.decode_message(_make_insert(1, [("t", text_value)]), "0/110")
         events = list(decoder.decode_message(_make_commit(), "0/200"))
 
-        assert events[0].columns["val"] == expected
+        assert events[0].columns["id"] == text_value
 
     def test_unknown_relation_id_skipped(self):
         decoder = PgOutputDecoder()
