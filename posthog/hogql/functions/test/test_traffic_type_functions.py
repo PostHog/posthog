@@ -435,15 +435,15 @@ class TestBotIPClassification:
         fallback = result.args[1]
         assert isinstance(fallback, ast.ArrayAccess)
         assert isinstance(fallback.array, ast.Array)
-        ip_default = fallback.array.exprs[0]
+        ip_default = fallback.array.exprs[-1]
         assert isinstance(ip_default, ast.Constant)
         assert ip_default.value == expected_default
-        # IP definition index is a multiIf over the per-definition range matches
+        assert len(fallback.array.exprs) == len(BOT_IP_DEFINITIONS) + 1
+        # IP definition index is the least of the per-prefix-length network lookups
         ip_index = fallback.property
-        assert isinstance(ip_index, ast.ArithmeticOperation)
-        assert isinstance(ip_index.left, ast.Call)
-        assert ip_index.left.name == "multiIf"
-        assert len(ip_index.left.args) == 2 * len(BOT_IP_DEFINITIONS) + 1
+        assert isinstance(ip_index, ast.Call)
+        assert ip_index.name == "least"
+        assert all(isinstance(lookup, ast.Call) and lookup.name == "transform" for lookup in ip_index.args)
 
 
 class TestBotIPDefinitionsDataStructure:

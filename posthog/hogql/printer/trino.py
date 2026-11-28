@@ -247,6 +247,17 @@ _SCALAR_ARRAY_ITEM_TYPES = (
 )
 
 _POSIX_CLASS_PATTERN = re.compile(r"\[:\^?[a-z]+:\]")
+_TRANSFORM_SEARCH = "__hogql_transform_search"
+
+
+def _is_literal(expr: ast.Expr) -> bool:
+    if isinstance(expr, ast.Array):
+        return all(isinstance(item, ast.Constant) for item in expr.exprs)
+    return isinstance(expr, ast.Constant)
+
+
+def _maps_to_literals(transform: ast.Call) -> bool:
+    return len(transform.args) in {3, 4} and all(_is_literal(arg) for arg in transform.args[2:])
 
 
 def _is_null_constant(expr: ast.Expr) -> bool:
@@ -991,6 +1002,8 @@ class TrinoPrinter(PostgresPrinter):
             return self._visit_any_heavy(node)
         if name == "multimatchanyindex":
             return self._visit_multi_match_any_index(node)
+        if name == "transform" and _maps_to_literals(node):
+            return self._visit_literal_transform(node)
         if name in {"avgweighted", "avgweightedif"}:
             return self._visit_weighted_average(node)
         if name == "tonullablestring":
@@ -2809,6 +2822,17 @@ class TrinoPrinter(PostgresPrinter):
             return most_frequent
         default = "''" if isinstance(value_type, ast.StringType) else "BIGINT '0'"
         return f"coalesce({most_frequent}, {default})"
+
+    def _visit_literal_transform(self, node: ast.Call) -> str:
+        value, source, target = (self.visit(arg) for arg in node.args[:3])
+        bound_value = f"{_TRANSFORM_SEARCH}[1]"
+        bound_source = f"{_TRANSFORM_SEARCH}[2]"
+        fallback = self.visit(node.args[3]) if len(node.args) == 4 else bound_value
+        return (
+            f"element_at(transform(ARRAY[ROW({value}, {source})], {_TRANSFORM_SEARCH} -> "
+            f"CASE WHEN contains({bound_source}, {bound_value}) "
+            f"THEN element_at({target}, array_position({bound_source}, {bound_value})) ELSE {fallback} END), 1)"
+        )
 
     def _visit_multi_match_any_index(self, node: ast.Call) -> str:
         if len(node.args) != 2:

@@ -23,6 +23,8 @@ ahead of the built-ins rather than merged into the built-in pattern array. A pro
 wins when both match.
 """
 
+from collections.abc import Iterable
+from functools import cache
 from typing import TYPE_CHECKING, Optional
 
 from posthog.hogql import ast
@@ -253,23 +255,28 @@ def _safe_ip_expr(ip_expr: ast.Expr) -> ast.Expr:
     )
 
 
-def _ip_group_match(safe_ip: ast.Expr, prefixlen: int, addresses: tuple[str, ...]) -> ast.Expr:
-    """Match one prefix-length group: zero the host bits, then a hash-set membership check.
-
-    IPv6CIDRToRange(ip, N).1 is the network address of the ip's /N, so equality against the
-    group's network addresses replaces per-CIDR range comparisons with a single IN lookup.
-    """
-    network_address = ast.Call(
+def _ip_network_address(safe_ip: ast.Expr, prefixlen: int) -> ast.Expr:
+    return ast.Call(
         name="tupleElement",
         args=[
             ast.Call(name="IPv6CIDRToRange", args=[safe_ip, ast.Constant(value=prefixlen)]),
             ast.Constant(value=1),
         ],
     )
+
+
+def _ipv6_array(addresses: Iterable[str]) -> ast.Array:
+    return ast.Array(exprs=[ast.Call(name="toIPv6", args=[ast.Constant(value=address)]) for address in addresses])
+
+
+def _ip_group_match(safe_ip: ast.Expr, prefixlen: int, addresses: tuple[str, ...]) -> ast.Expr:
+    """Match one prefix-length group: zero the host bits, then a hash-set membership check.
+
+    IPv6CIDRToRange(ip, N).1 is the network address of the ip's /N, so equality against the
+    group's network addresses replaces per-CIDR range comparisons with a single IN lookup.
+    """
     return ast.CompareOperation(
-        op=ast.CompareOperationOp.In,
-        left=network_address,
-        right=ast.Array(exprs=[ast.Call(name="toIPv6", args=[ast.Constant(value=a)]) for a in addresses]),
+        op=ast.CompareOperationOp.In, left=_ip_network_address(safe_ip, prefixlen), right=_ipv6_array(addresses)
     )
 
 
@@ -281,30 +288,36 @@ def _build_ip_match_expr(ip_expr: ast.Expr) -> ast.Expr:
     )
 
 
-def _build_ip_definition_index_expr(ip_expr: ast.Expr) -> ast.Expr:
-    """1-based index of the matching BOT_IP_DEFINITIONS entry, 0 when no range matches."""
-    safe_ip = _safe_ip_expr(ip_expr)
-    multi_if_args: list[ast.Expr] = []
+@cache
+def _first_ip_definition_by_network() -> tuple[tuple[int, dict[str, int]], ...]:
+    first_definitions: dict[int, dict[str, int]] = {}
     for index, (_key, groups) in enumerate(bot_ip_prefix_groups_by_definition(), start=1):
-        multi_if_args.append(ast.Or(exprs=[_ip_group_match(safe_ip, prefixlen, nets) for prefixlen, nets in groups]))
-        multi_if_args.append(ast.Constant(value=index))
-    multi_if_args.append(ast.Constant(value=0))
-    return ast.Call(name="multiIf", args=multi_if_args)
+        for prefixlen, networks in groups:
+            for network in networks:
+                first_definitions.setdefault(prefixlen, {}).setdefault(network, index)
+    return tuple(sorted(first_definitions.items()))
 
 
 def _ip_label_lookup(ip_expr: ast.Expr, attr: str, default: str) -> ast.Expr:
-    labels_after_default = ast.Array(
-        exprs=[
-            ast.Constant(value=default),
-            *(ast.Constant(value=getattr(ip_def, attr)) for ip_def in BOT_IP_DEFINITIONS.values()),
-        ]
+    safe_ip = _safe_ip_expr(ip_expr)
+    no_match = len(BOT_IP_DEFINITIONS) + 1
+    definition_indexes: list[ast.Expr] = [
+        ast.Call(
+            name="transform",
+            args=[
+                _ip_network_address(safe_ip, prefixlen),
+                _ipv6_array(definition_by_network.keys()),
+                ast.Array(exprs=[ast.Constant(value=index) for index in definition_by_network.values()]),
+                ast.Constant(value=no_match),
+            ],
+        )
+        for prefixlen, definition_by_network in _first_ip_definition_by_network()
+    ]
+    first_definition = (
+        definition_indexes[0] if len(definition_indexes) == 1 else ast.Call(name="least", args=definition_indexes)
     )
-    index_after_default = ast.ArithmeticOperation(
-        op=ast.ArithmeticOperationOp.Add,
-        left=_build_ip_definition_index_expr(ip_expr),
-        right=ast.Constant(value=1),
-    )
-    return ast.ArrayAccess(array=labels_after_default, property=index_after_default, nullish=False)
+    labels = _string_array([*(getattr(ip_def, attr) for ip_def in BOT_IP_DEFINITIONS.values()), default])
+    return ast.ArrayAccess(array=labels, property=first_definition, nullish=False)
 
 
 def _build_bot_array_lookup(

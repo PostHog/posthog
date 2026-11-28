@@ -3185,6 +3185,16 @@ def test_prints_the_bot_ip_lookup_once(custom_rules: list[CustomBotRule]) -> Non
     assert sql.count(last_built_in_network) == 1
 
 
+def test_masks_the_client_ip_once_per_bot_ip_prefix_length() -> None:
+    sql, _ = prepare_and_print_ast(
+        parse_select("SELECT getTrafficType(properties.$raw_user_agent, properties.$ip) FROM users"),
+        _context_with_trino_table(),
+        "trino",
+    )
+    masked_prefix_lengths = re.findall(r"least\(CAST\((\d+) AS BIGINT\), 128\)", sql)
+    assert len(masked_prefix_lengths) == len(set(masked_prefix_lengths))
+
+
 def test_preserves_legacy_clickhouse_array_reverse_sort_mapping() -> None:
     context = _context_with_trino_table()
     context.team_id = 1
@@ -3352,8 +3362,10 @@ def test_prints_all_median_aggregate_combinators(name: str, window: str) -> None
         ("map('key', 1)", "map(ARRAY['key'], ARRAY[1])"),
         (
             "transform(user_id, ['a'], ['A'], 'other')",
-            "CASE WHEN contains(ARRAY['a'], \"users\".\"user_id\") THEN element_at(ARRAY['A'], array_position(",
+            'element_at(transform(ARRAY[ROW("users"."user_id", ARRAY[\'a\'])], __hogql_transform_search -> CASE',
         ),
+        ("transform(0, [1], [2], sum(id))", "CASE WHEN contains(ARRAY[1], 0) THEN"),
+        ("transform(0, [1], [2], (SELECT 3))", "CASE WHEN contains(ARRAY[1], 0) THEN"),
         ("first_value(user_id)", 'arbitrary("users"."user_id")'),
         (
             "toStartOfDay(created_at, 'America/Toronto')",
