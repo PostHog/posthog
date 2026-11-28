@@ -65,10 +65,9 @@ def test_dispatch_runs_teams_with_active_prompts_that_pass_the_gate(
     elif state == "org_deactivated":
         Organization.objects.filter(id=team.organization_id).update(is_active=False)
 
-    billable = frozenset({"ai_visibility"}) if state == "out_of_credits_once_billed" else frozenset()
     with (
         ai_credits_used_up(team) if state.startswith("out_of_credits") else nullcontext(),
-        patch.object(credits, "BILLABLE_AI_PRODUCTS", billable),
+        patch.object(credits, "feature_enabled_or_false", return_value=state == "out_of_credits_once_billed"),
         patch.object(tasks, "feature_enabled_or_false", return_value=kill_switch_on),
         patch.object(tasks.run_aeo_citation_checks_for_team_task, "delay") as dispatch,
         patch.object(tasks, "run_citation_checks", return_value=(Mock(run_id=None), [])) as run,

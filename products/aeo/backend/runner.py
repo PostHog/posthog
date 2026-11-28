@@ -36,6 +36,7 @@ from posthog.models.team import Team
 from products.aeo.backend import prompt_limit
 from products.aeo.backend.catalog import own_domains
 from products.aeo.backend.check_brands import BrandMatcher, catalog_identities, write_check_brands
+from products.aeo.backend.credits import ai_visibility_billable
 from products.aeo.backend.engine_settings import engine_schedule
 from products.aeo.backend.engines import AICreditsExhausted, CitationEngine, build_check_fields
 from products.aeo.backend.facade.contracts import CitationRunSummary
@@ -120,9 +121,13 @@ def run_citation_checks(
 
     # Engine calls are network-bound and run in worker threads. Database writes stay on
     # this thread, so the workers never open their own Django connections.
+    billable = ai_visibility_billable(team)
+    logger.info("aeo_citation_run_billing", team_id=team.id, run_id=run_id, billable=billable)
     pool = ThreadPoolExecutor(max_workers=max(1, settings.AEO_RUN_CONCURRENCY))
     futures = {
-        pool.submit(_check_prompt, team, run_id, engines_per_prompt[prompt.id], target_domains, prompt): prompt
+        pool.submit(
+            _check_prompt, team, run_id, engines_per_prompt[prompt.id], target_domains, prompt, billable=billable
+        ): prompt
         for prompt in prompts
     }
     stopped = False
@@ -230,7 +235,13 @@ class PromptCheckResult:
 
 
 def _check_prompt(
-    team: Team, run_id: str, engines: list[CitationEngine], target_domains: list[str], prompt: AEOPrompt
+    team: Team,
+    run_id: str,
+    engines: list[CitationEngine],
+    target_domains: list[str],
+    prompt: AEOPrompt,
+    *,
+    billable: bool,
 ) -> PromptCheckResult:
     """Run one prompt on every engine. Runs in a worker thread, so it must not touch the database."""
     fields_per_engine: list[dict[str, Any]] = []
@@ -251,6 +262,7 @@ def _check_prompt(
                     # event, which lets usage attribute spend back to the checked team.
                     "team_id": str(team.id),
                 },
+                billable=billable,
             )
         except AICreditsExhausted:
             out_of_credits = True

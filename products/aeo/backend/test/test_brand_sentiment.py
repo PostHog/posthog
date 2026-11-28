@@ -380,7 +380,7 @@ class _StubEngine:
     model = "stub"
     mode = CheckMode.WEB_SEARCH
 
-    def run(self, prompt: str, *, trace_id: str, custom_properties: dict[str, str]) -> CitationCheck:
+    def run(self, prompt: str, *, trace_id: str, custom_properties: dict[str, str], billable: bool) -> CitationCheck:
         return CitationCheck(engine=self.name, model=self.model, answer_text="Example is fine.")
 
 

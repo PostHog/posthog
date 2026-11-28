@@ -33,6 +33,7 @@ from posthog.models import Team
 from posthog.redis import get_client
 
 from products.aeo.backend import catalog, engine_settings, keyword_suggestions, prompt_limit, run_stop, suggestions
+from products.aeo.backend.credits import ai_visibility_billable_for_team
 from products.aeo.backend.facade.contracts import (
     MAX_SETUP_WEBSITES,
     SETUP_ENOUGH_KEYWORDS,
@@ -468,7 +469,14 @@ def _start_keywords(
     context = keyword_suggestions.read_context(team_id)
     count = keyword_suggestions.suggestion_count(keyword_request.count, len(context.existing_keywords))
     future = (
-        pool.submit(keyword_suggestions.generate_keyword_suggestions, team_id, keyword_request, context, count=count)
+        pool.submit(
+            keyword_suggestions.generate_keyword_suggestions,
+            team_id,
+            keyword_request,
+            context,
+            count=count,
+            billable=ai_visibility_billable_for_team(team_id),
+        )
         if count
         else None
     )

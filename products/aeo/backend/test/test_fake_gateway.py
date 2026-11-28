@@ -65,10 +65,13 @@ def test_setup_answers_read_through_the_real_setup_parsers() -> None:
     with (
         patch("products.aeo.backend.suggestions.resolve_ai_gateway_config", return_value=GATEWAY),
         patch("products.aeo.backend.keyword_suggestions.resolve_ai_gateway_config", return_value=GATEWAY),
+        patch("products.aeo.backend.suggestions.ai_visibility_billable_for_team", return_value=True),
         patch("products.aeo.backend.llm.requests.Session.post", _route_to(gateway)),
     ):
         research = research_site(1, request)
-        found = generate_suggestions(1, request, context_prompts=[], existing_keys=set(), research=research)
+        found = generate_suggestions(
+            1, request, context_prompts=[], existing_keys=set(), billable=True, research=research
+        )
         keywords = generate_keyword_suggestions(
             1,
             KeywordSuggestionRequest(domain="quillnest.com", description=research.description, count=20),
@@ -81,6 +84,7 @@ def test_setup_answers_read_through_the_real_setup_parsers() -> None:
                 existing_keywords=frozenset(),
             ),
             count=20,
+            billable=True,
         )
 
     assert research.brand == "Quillnest"
@@ -100,6 +104,7 @@ def test_a_domain_that_asks_to_fail_fails_setup() -> None:
     with (
         patch("products.aeo.backend.suggestions.resolve_ai_gateway_config", return_value=GATEWAY),
         patch("products.aeo.backend.suggestions.TRANSIENT_RETRY_SECONDS", 0),
+        patch("products.aeo.backend.suggestions.ai_visibility_billable_for_team", return_value=True),
         patch("products.aeo.backend.llm.requests.Session.post", _route_to(FakeGateway())),
         pytest.raises(PromptSuggestionError, match="Reading your site failed"),
     ):
@@ -116,7 +121,7 @@ def test_engine_answers_cover_every_check_state_and_read_through_the_engines(eng
         patch("products.aeo.backend.engines.requests.Session.post", _route_to(gateway)),
     ):
         engine = engine_class()
-        checks = [engine.run(prompt, trace_id="t", custom_properties={}) for prompt in PROMPTS[:60]]
+        checks = [engine.run(prompt, trace_id="t", custom_properties={}, billable=True) for prompt in PROMPTS[:60]]
 
     states = set()
     for check in checks:

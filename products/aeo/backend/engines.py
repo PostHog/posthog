@@ -116,7 +116,9 @@ class CitationEngine(Protocol):
     model: str
     mode: CheckMode
 
-    def run(self, prompt: str, *, trace_id: str, custom_properties: dict[str, str]) -> CitationCheck: ...
+    def run(
+        self, prompt: str, *, trace_id: str, custom_properties: dict[str, str], billable: bool
+    ) -> CitationCheck: ...
 
 
 class _ThreadSessions:
@@ -190,12 +192,14 @@ class AICreditsExhausted(Exception):
 
 
 def gateway_request_headers(
-    gateway: AIGatewayConfig, *, trace_id: str, properties: dict[str, str], anthropic: bool = False
+    gateway: AIGatewayConfig, *, trace_id: str, properties: dict[str, str], billable: bool, anthropic: bool = False
 ) -> dict[str, str]:
     headers = {
         "Authorization": f"Bearer {gateway.api_key}",
         **(ai_gateway_headers(ai_product=AI_VISIBILITY_AI_PRODUCT, trace_id=trace_id, properties=properties) or {}),
     }
+    if not billable:
+        headers["X-PostHog-Billable"] = "false"
     if anthropic:
         headers["anthropic-version"] = "2023-06-01"
     return headers
@@ -578,7 +582,7 @@ class ClaudeWebSearchEngine:
         self._gateway = gateway
         self._sessions = _gateway_sessions()
 
-    def run(self, prompt: str, *, trace_id: str, custom_properties: dict[str, str]) -> CitationCheck:
+    def run(self, prompt: str, *, trace_id: str, custom_properties: dict[str, str], billable: bool) -> CitationCheck:
         payload: dict[str, Any] = {
             "model": self.model,
             "max_tokens": MAX_ANSWER_TOKENS,
@@ -598,7 +602,7 @@ class ClaudeWebSearchEngine:
                 }
             ]
         headers = gateway_request_headers(
-            self._gateway, trace_id=trace_id, properties=custom_properties, anthropic=True
+            self._gateway, trace_id=trace_id, properties=custom_properties, billable=billable, anthropic=True
         )
         try:
             body = gateway_post_json(
@@ -622,8 +626,9 @@ def _post_gateway_responses(
     *,
     trace_id: str,
     custom_properties: dict[str, str],
+    billable: bool,
 ) -> dict[str, Any]:
-    headers = gateway_request_headers(gateway, trace_id=trace_id, properties=custom_properties)
+    headers = gateway_request_headers(gateway, trace_id=trace_id, properties=custom_properties, billable=billable)
     return gateway_post_json(sessions.get(), gateway.url.rstrip("/") + "/responses", headers, payload)
 
 
@@ -642,7 +647,7 @@ class OpenAIWebSearchEngine:
         self._gateway = gateway
         self._sessions = _gateway_sessions()
 
-    def run(self, prompt: str, *, trace_id: str, custom_properties: dict[str, str]) -> CitationCheck:
+    def run(self, prompt: str, *, trace_id: str, custom_properties: dict[str, str], billable: bool) -> CitationCheck:
         payload: dict[str, Any] = {
             "model": self.model,
             "input": prompt,
@@ -654,7 +659,12 @@ class OpenAIWebSearchEngine:
             payload["max_tool_calls"] = MAX_WEB_SEARCHES_PER_PROMPT
         try:
             body = _post_gateway_responses(
-                self._gateway, self._sessions, payload, trace_id=trace_id, custom_properties=custom_properties
+                self._gateway,
+                self._sessions,
+                payload,
+                trace_id=trace_id,
+                custom_properties=custom_properties,
+                billable=billable,
             )
         except requests.RequestException as e:
             return self._check(trace_id, error=_request_error(e))
@@ -713,7 +723,7 @@ class ExaAnswerEngine:
     def __init__(self) -> None:
         self._sessions = _ThreadSessions(trust_env=True)
 
-    def run(self, prompt: str, *, trace_id: str, custom_properties: dict[str, str]) -> CitationCheck:
+    def run(self, prompt: str, *, trace_id: str, custom_properties: dict[str, str], billable: bool) -> CitationCheck:
         headers = {"x-api-key": settings.EXA_API_KEY}
         try:
             body = gateway_post_json(
@@ -758,7 +768,7 @@ class PerplexityWebSearchEngine:
         self._gateway = gateway
         self._sessions = _gateway_sessions()
 
-    def run(self, prompt: str, *, trace_id: str, custom_properties: dict[str, str]) -> CitationCheck:
+    def run(self, prompt: str, *, trace_id: str, custom_properties: dict[str, str], billable: bool) -> CitationCheck:
         payload = {
             "model": self.model,
             "input": prompt,
@@ -771,7 +781,12 @@ class PerplexityWebSearchEngine:
         }
         try:
             body = _post_gateway_responses(
-                self._gateway, self._sessions, payload, trace_id=trace_id, custom_properties=custom_properties
+                self._gateway,
+                self._sessions,
+                payload,
+                trace_id=trace_id,
+                custom_properties=custom_properties,
+                billable=billable,
             )
         except requests.RequestException as e:
             return CitationCheck(engine=self.name, model=self.model, trace_id=trace_id, error=_request_error(e))

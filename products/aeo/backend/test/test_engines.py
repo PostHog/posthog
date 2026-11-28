@@ -269,7 +269,9 @@ def test_openai_engine_run_wires_response_error(_name: str, body: dict, expected
         patch("products.aeo.backend.engines.ai_gateway_headers", return_value={}),
         patch("products.aeo.backend.engines.gateway_post_json", side_effect=fake_post),
     ):
-        check = OpenAIWebSearchEngine().run("best web analytics tool", trace_id="t1", custom_properties={})
+        check = OpenAIWebSearchEngine().run(
+            "best web analytics tool", trace_id="t1", custom_properties={}, billable=True
+        )
 
     assert check.error == expected_error
     assert captured["payload"]["max_output_tokens"] == OPENAI_MAX_OUTPUT_TOKENS
@@ -301,7 +303,9 @@ def test_openai_engine_warns_when_a_response_searches_past_the_cap(_name: str, s
         patch("products.aeo.backend.engines.gateway_post_json", return_value=body),
         structlog.testing.capture_logs() as logs,
     ):
-        check = OpenAIWebSearchEngine(model="gpt-6-luna").run("best flags tool", trace_id="t1", custom_properties={})
+        check = OpenAIWebSearchEngine(model="gpt-6-luna").run(
+            "best flags tool", trace_id="t1", custom_properties={}, billable=True
+        )
 
     assert check.error is None
     warnings = [log for log in logs if log["event"] == "aeo_openai_search_cap_exceeded"]
@@ -393,7 +397,7 @@ def test_gateway_engines_send_the_search_tool_only_with_search(
         patch("products.aeo.backend.engines.gateway_post_json", side_effect=fake_post),
     ):
         engine = engine_class(search=search)
-        check = engine.run("best session replay tool", trace_id="t1", custom_properties={})
+        check = engine.run("best session replay tool", trace_id="t1", custom_properties={}, billable=True)
         web_search_model = engine_class().model
 
     fields = build_check_fields(
@@ -837,12 +841,18 @@ def _gateway_answers(**post_mock: Any) -> Iterator[MagicMock]:
         yield post
 
 
+@parameterized.expand([("billable", True, None), ("not_billable", False, "false")])
 @override_settings(AEO_PERPLEXITY_MODEL="perplexity/sonar-pro")
-def test_perplexity_engine_sends_the_configured_model_with_web_search_to_the_gateway() -> None:
+def test_perplexity_engine_sends_the_configured_model_with_web_search_to_the_gateway(
+    _name: str, billable: bool, billable_header: str | None
+) -> None:
     body = _perplexity_body("PostHog does this.[2]", PERPLEXITY_SEARCH_ITEM)
     with _gateway_answers(return_value=body) as post:
         check = PerplexityWebSearchEngine().run(
-            "best product analytics tool", trace_id="t1", custom_properties={"aeo_prompt_id": "p1", "aeo_run_id": "r1"}
+            "best product analytics tool",
+            trace_id="t1",
+            custom_properties={"aeo_prompt_id": "p1", "aeo_run_id": "r1"},
+            billable=billable,
         )
 
     _session, url, headers, payload = post.call_args.args
@@ -850,6 +860,7 @@ def test_perplexity_engine_sends_the_configured_model_with_web_search_to_the_gat
     assert headers["Authorization"] == "Bearer k"
     assert headers["X-PostHog-Trace-Id"] == "t1"
     assert headers["X-PostHog-Product"] == "ai_visibility"
+    assert headers.get("X-PostHog-Billable") == billable_header
     assert json.loads(headers["X-PostHog-Properties"]) == {
         "aeo_prompt_id": "p1",
         "aeo_run_id": "r1",
@@ -874,7 +885,9 @@ def test_perplexity_engine_records_a_failed_check_instead_of_an_uncited_answer(
     _name: str, post_mock: dict[str, Any], error_prefix: str
 ) -> None:
     with _gateway_answers(**post_mock):
-        check = PerplexityWebSearchEngine().run("best product analytics tool", trace_id="t1", custom_properties={})
+        check = PerplexityWebSearchEngine().run(
+            "best product analytics tool", trace_id="t1", custom_properties={}, billable=True
+        )
 
     assert check.error is not None and check.error.startswith(error_prefix)
     assert check.cited_urls == []

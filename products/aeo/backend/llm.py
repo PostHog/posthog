@@ -49,6 +49,7 @@ def ask_with_web_search(
     team_id: int,
     trace_id: str,
     aeo_feature: str,
+    billable: bool,
     max_tokens: int,
     max_searches: int,
     deadline: float | None = None,
@@ -63,6 +64,7 @@ def ask_with_web_search(
         gateway,
         trace_id=trace_id,
         properties={"team_id": str(team_id), "aeo_feature": aeo_feature},
+        billable=billable,
         anthropic=True,
     )
     if deadline is None:

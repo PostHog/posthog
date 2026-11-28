@@ -179,6 +179,7 @@ def test_answer_reads_as_an_object_or_an_array_even_when_cut_off(_name: str, tex
             team_id=1,
             trace_id="trace",
             aeo_feature="prompt_suggestions",
+            billable=True,
             max_tokens=100,
             max_searches=1,
         )
@@ -221,6 +222,15 @@ class TestSuggestPrompts(BaseTest):
         ):
             found = suggest_prompts(self.team.id, PromptSuggestionRequest(domain="hedgebox.net", count=1))
         return found, post
+
+    @parameterized.expand([("organization_on_the_flag", True, None), ("organization_off_the_flag", False, "false")])
+    def test_only_an_organization_on_the_billing_flag_is_billed(
+        self, _name: str, flag_on: bool, billable_header: str | None
+    ) -> None:
+        with patch("products.aeo.backend.credits.feature_enabled_or_false", return_value=flag_on):
+            _, post = self._suggest([json.dumps({"competitors": [], "prompts": [_item("A?")]})], count=1)
+
+        assert [call.kwargs["headers"].get("X-PostHog-Billable") for call in post.call_args_list] == [billable_header]
 
     def test_a_rate_limited_call_is_asked_again_once(self) -> None:
         found, post = self._suggest_with(

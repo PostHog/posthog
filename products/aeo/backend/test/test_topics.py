@@ -88,7 +88,7 @@ class _RenamingEngine:
     def __init__(self, team_id: int) -> None:
         self.team_id = team_id
 
-    def run(self, prompt: str, *, trace_id: str, custom_properties: dict[str, str]) -> CitationCheck:
+    def run(self, prompt: str, *, trace_id: str, custom_properties: dict[str, str], billable: bool) -> CitationCheck:
         with team_scope(self.team_id):
             topics.rename_topic(self.team_id, "Pricing", "Cost")
         return CitationCheck(engine=self.name, model=self.model, cited_urls=["https://docs.example.com/guide"])

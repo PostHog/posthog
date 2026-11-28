@@ -105,7 +105,7 @@ class _StubEngine:
     def __init__(self) -> None:
         self.calls = 0
 
-    def run(self, prompt: str, *, trace_id: str, custom_properties: dict[str, str]) -> CitationCheck:
+    def run(self, prompt: str, *, trace_id: str, custom_properties: dict[str, str], billable: bool) -> CitationCheck:
         self.calls += 1
         return CitationCheck(engine=self.name, model=self.model, cited_urls=["https://docs.example.com/guide"])
 
@@ -147,6 +147,27 @@ def test_run_records_checks_and_rotates_without_a_team_scope(
     assert set(cited) == {(c.id, c.created_at) for c in checks}
 
 
+class _BillingRecordingEngine(_StubEngine):
+    def __init__(self) -> None:
+        super().__init__()
+        self.billable: list[bool] = []
+
+    def run(self, prompt: str, *, trace_id: str, custom_properties: dict[str, str], billable: bool) -> CitationCheck:
+        self.billable.append(billable)
+        return super().run(prompt, trace_id=trace_id, custom_properties=custom_properties, billable=billable)
+
+
+@pytest.mark.parametrize("flag_on", [True, False], ids=["organization_on_the_flag", "organization_off_the_flag"])
+def test_a_run_bills_only_an_organization_on_the_billing_flag(team: Team, flag_on: bool) -> None:
+    upsert_prompts(team, [PromptCandidate(text=f"q{i}?", source="imported") for i in range(2)])
+    engine = _BillingRecordingEngine()
+
+    with patch("products.aeo.backend.credits.feature_enabled_or_false", return_value=flag_on):
+        run_citation_checks(team, engines=[engine])
+
+    assert engine.billable == [flag_on, flag_on]
+
+
 @pytest.mark.parametrize("own_brand_status", [None, BrandStatus.IGNORED], ids=["no_own_brand", "own_brand_ignored"])
 def test_a_team_without_an_own_brand_is_skipped_before_any_engine_call(
     team: Team, own_brand_status: BrandStatus | None
@@ -183,10 +204,10 @@ def test_a_run_checks_no_more_prompts_than_the_project_may_track(team: Team, req
 
 
 class _CrashingEngine(_StubEngine):
-    def run(self, prompt: str, *, trace_id: str, custom_properties: dict[str, str]) -> CitationCheck:
+    def run(self, prompt: str, *, trace_id: str, custom_properties: dict[str, str], billable: bool) -> CitationCheck:
         if prompt == "q1?":
             raise RuntimeError("unexpected engine bug")
-        return super().run(prompt, trace_id=trace_id, custom_properties=custom_properties)
+        return super().run(prompt, trace_id=trace_id, custom_properties=custom_properties, billable=billable)
 
 
 def test_one_prompt_crashing_does_not_end_the_run(team: Team, settings) -> None:
@@ -201,10 +222,10 @@ def test_one_prompt_crashing_does_not_end_the_run(team: Team, settings) -> None:
 
 
 class _FailingEngine(_StubEngine):
-    def run(self, prompt: str, *, trace_id: str, custom_properties: dict[str, str]) -> CitationCheck:
+    def run(self, prompt: str, *, trace_id: str, custom_properties: dict[str, str], billable: bool) -> CitationCheck:
         if prompt == "q1?":
             return CitationCheck(engine=self.name, model=self.model, error="HTTPError: status=429")
-        return super().run(prompt, trace_id=trace_id, custom_properties=custom_properties)
+        return super().run(prompt, trace_id=trace_id, custom_properties=custom_properties, billable=billable)
 
 
 def test_a_prompt_every_engine_failed_on_stays_unchecked(team: Team, settings) -> None:
@@ -229,18 +250,18 @@ class _BlockingEngine(_StubEngine):
         self.all_workers_busy = threading.Barrier(workers + 1)
         self.release = threading.Event()
 
-    def run(self, prompt: str, *, trace_id: str, custom_properties: dict[str, str]) -> CitationCheck:
+    def run(self, prompt: str, *, trace_id: str, custom_properties: dict[str, str], billable: bool) -> CitationCheck:
         self.prompts.append(prompt)
         self.threads.add(threading.current_thread())
         # Only the first wave meets at the barrier; a prompt picked up after the release runs through.
         if not self.release.is_set():
             self.all_workers_busy.wait(timeout=5)
             self.release.wait(timeout=5)
-        return super().run(prompt, trace_id=trace_id, custom_properties=custom_properties)
+        return super().run(prompt, trace_id=trace_id, custom_properties=custom_properties, billable=billable)
 
 
 class _DownEngine(_StubEngine):
-    def run(self, prompt: str, *, trace_id: str, custom_properties: dict[str, str]) -> CitationCheck:
+    def run(self, prompt: str, *, trace_id: str, custom_properties: dict[str, str], billable: bool) -> CitationCheck:
         self.calls += 1
         raise RuntimeError("engine down")
 
@@ -268,10 +289,10 @@ def test_a_stopped_run_records_what_it_paid_for_and_reports_the_stop(
 class _OutOfCreditsAfterFirstEngine(_StubEngine):
     name = "credits-engine"
 
-    def run(self, prompt: str, *, trace_id: str, custom_properties: dict[str, str]) -> CitationCheck:
+    def run(self, prompt: str, *, trace_id: str, custom_properties: dict[str, str], billable: bool) -> CitationCheck:
         if prompt != "q0?":
             raise AICreditsExhausted("credit_bucket_exhausted:ai_credits")
-        return super().run(prompt, trace_id=trace_id, custom_properties=custom_properties)
+        return super().run(prompt, trace_id=trace_id, custom_properties=custom_properties, billable=billable)
 
 
 def test_running_out_of_credits_stops_the_run_and_keeps_the_answers_already_paid_for(team: Team, settings) -> None:
@@ -400,26 +421,26 @@ class _NoSearchEngine(_StubEngine):
     name = "stub-no-search"
     mode = CheckMode.NO_SEARCH
 
-    def run(self, prompt: str, *, trace_id: str, custom_properties: dict[str, str]) -> CitationCheck:
+    def run(self, prompt: str, *, trace_id: str, custom_properties: dict[str, str], billable: bool) -> CitationCheck:
         self.calls += 1
         return CitationCheck(engine=self.name, model=self.model, mode=self.mode, answer_text="PostHog, from memory.")
 
 
 class _FailsFirstOnQ0(_StubEngine):
-    def run(self, prompt: str, *, trace_id: str, custom_properties: dict[str, str]) -> CitationCheck:
+    def run(self, prompt: str, *, trace_id: str, custom_properties: dict[str, str], billable: bool) -> CitationCheck:
         if prompt == "q0?" and not getattr(self, "failed_once", False):
             self.failed_once = True
             return CitationCheck(engine=self.name, model=self.model, error="HTTPError: status=503")
-        return super().run(prompt, trace_id=trace_id, custom_properties=custom_properties)
+        return super().run(prompt, trace_id=trace_id, custom_properties=custom_properties, billable=billable)
 
 
 class _NoSearchFailsFirstOnQ0(_NoSearchEngine):
-    def run(self, prompt: str, *, trace_id: str, custom_properties: dict[str, str]) -> CitationCheck:
+    def run(self, prompt: str, *, trace_id: str, custom_properties: dict[str, str], billable: bool) -> CitationCheck:
         if prompt == "q0?" and not getattr(self, "failed_once", False):
             self.failed_once = True
             self.calls += 1
             return CitationCheck(engine=self.name, model=self.model, mode=self.mode, error="HTTPError: status=503")
-        return super().run(prompt, trace_id=trace_id, custom_properties=custom_properties)
+        return super().run(prompt, trace_id=trace_id, custom_properties=custom_properties, billable=billable)
 
 
 @pytest.mark.parametrize(
