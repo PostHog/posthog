@@ -76,7 +76,6 @@ describe('MetricsViewer', () => {
         jest.mocked(insightsApi.create).mockResolvedValue(SAVED_INSIGHT as InsightModel)
         logic = metricsViewerLogic()
         logic.mount()
-        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.METRICS_DASHBOARD_PANELS]: true })
         // Load the picker list so metric switches latch the OTel type (drives heatmap eligibility).
         metricNamePickerLogic.actions.loadItemsSuccess([
             { name: 'queue_depth', metric_type: 'gauge' },
@@ -194,10 +193,7 @@ describe('MetricsViewer', () => {
         ['shows', true],
         ['hides', false],
     ])('%s the facet rail toggle when the metrics flag is %s', (_, metricsEnabled) => {
-        featureFlagLogic.actions.setFeatureFlags([], {
-            [FEATURE_FLAGS.METRICS_DASHBOARD_PANELS]: true,
-            ...(metricsEnabled ? { [FEATURE_FLAGS.METRICS]: true } : {}),
-        })
+        featureFlagLogic.actions.setFeatureFlags([], metricsEnabled ? { [FEATURE_FLAGS.METRICS]: true } : {})
 
         render(
             <Provider>
