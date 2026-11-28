@@ -15,6 +15,7 @@ SELECT
   any(instrumentation_scope) AS instrumentation_scope,
   anyLast(histogram_bounds) AS histogram_bounds,
   any(_topic) AS _topic,
+  count() AS points_received,
   groupArray(10000)(timestamp) AS timestamp_arr,
   groupArray(10000)(value) AS value_arr,
   groupArray(10000)(count) AS count_arr,

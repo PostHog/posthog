@@ -2497,6 +2497,9 @@ SQL
     column "_topic" {
       type = "SimpleAggregateFunction(any, LowCardinality(String))"
     }
+    column "points_received" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
     column "timestamp_arr" {
       type  = "SimpleAggregateFunction(groupArrayArray(10000), Array(DateTime64(6)))"
       codec = "Delta(8), Default"
