@@ -2,9 +2,9 @@ from dataclasses import replace
 from datetime import timedelta
 from types import SimpleNamespace
 from typing import Any
-from uuid import uuid4
+from uuid import UUID, uuid4
 
-from posthog.test.base import BaseTest
+from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 from unittest.mock import patch
 
 from django.test import SimpleTestCase
@@ -48,7 +48,7 @@ from products.warehouse_suggestions.backend.logic.candidates.unmaterialize impor
     UnmaterializeCandidate,
 )
 from products.warehouse_suggestions.backend.logic.reads import RefreshRun, SubjectRefreshes
-from products.warehouse_suggestions.backend.logic.rules import RULES, Surface
+from products.warehouse_suggestions.backend.logic.rules import RULES, Rules, Surface
 from products.warehouse_suggestions.backend.logic.view_costs import UnfinishedMeasurement
 from products.warehouse_suggestions.backend.tests.factories import (
     busy_reads,
@@ -69,6 +69,17 @@ DAILY_COUNT_COLUMNS = {
     "day": {"hogql": "DateTimeDatabaseField", "clickhouse": "DateTime64(6, 'UTC')"},
     "c": {"hogql": "IntegerDatabaseField", "clickhouse": "UInt64"},
 }
+EVENT_ROWS = "SELECT uuid, timestamp, event FROM events"
+EVENT_ROW_COLUMNS = {
+    "uuid": {"hogql": "UUIDDatabaseField", "clickhouse": "UUID"},
+    "timestamp": {"hogql": "DateTimeDatabaseField", "clickhouse": "DateTime64(6, 'UTC')"},
+    "event": {"hogql": "StringDatabaseField", "clickhouse": "String"},
+}
+ROW_BUDGET = "products.data_modeling.backend.logic.unique_key_budget.MAX_ROW_LEVEL_INCREMENTAL_ROWS"
+
+
+def _with_row_counts(per_team: int) -> Rules:
+    return replace(RULES, materialize=replace(RULES.materialize, incremental_row_counts_per_team=per_team))
 
 
 class TestCertifyCandidate(SimpleTestCase):
@@ -293,7 +304,7 @@ class TestMaterializeRules(SimpleTestCase):
         assert basis == expected
 
 
-class TestMaterializeRefreshMode(BaseTest):
+class TestMaterializeRefreshMode(ClickhouseTestMixin, BaseTest):
     @parameterized.expand(
         [
             ("grouped_by_day", DAILY_COUNTS, WarehouseSuggestionRefreshMode.INCREMENTAL, "day", ("day",)),
@@ -327,36 +338,92 @@ class TestMaterializeRefreshMode(BaseTest):
             query={"kind": "HogQLQuery", "query": "SELECT timestamp FROM events WHERE rand() % 10 = 0"},
             columns={"timestamp": {"hogql": "DateTimeDatabaseField", "clickhouse": "DateTime64(6, 'UTC')"}},
         )
+
+        payload = self._materialize_payload(hogql, DAILY_COUNT_COLUMNS)
+
+        expected_lookback = RULES.materialize.incremental_lookback_seconds if incremental_key else 0
+        assert (
+            payload.refresh_mode,
+            payload.incremental_key,
+            payload.unique_key,
+            payload.lookback_seconds,
+        ) == (refresh_mode, incremental_key, unique_key, expected_lookback)
+
+    @parameterized.expand(
+        [
+            ("under_the_row_budget", 2, 1, WarehouseSuggestionRefreshMode.INCREMENTAL, "timestamp", ("uuid",)),
+            ("over_the_row_budget", 1, 1, WarehouseSuggestionRefreshMode.FULL, None, ()),
+            ("no_row_count_left_in_this_run", 2, 0, WarehouseSuggestionRefreshMode.FULL, None, ()),
+        ]
+    )
+    def test_a_plain_event_projection_is_incremental_only_under_the_row_budget(
+        self,
+        _name: str,
+        row_budget: int,
+        row_counts_per_team: int,
+        refresh_mode: WarehouseSuggestionRefreshMode,
+        incremental_key: str | None,
+        unique_key: tuple[str, ...],
+    ) -> None:
+        self._two_pageviews()
+
+        with patch(ROW_BUDGET, row_budget):
+            payload = self._evaluate(
+                self._saved_view(EVENT_ROWS, EVENT_ROW_COLUMNS), EVENT_ROWS, _with_row_counts(row_counts_per_team)
+            )
+
+        assert (payload.refresh_mode, payload.incremental_key, payload.unique_key) == (
+            refresh_mode,
+            incremental_key,
+            unique_key,
+        )
+
+    def test_a_finished_row_count_carries_over_to_a_run_with_no_count_left(self) -> None:
+        self._two_pageviews()
+        saved_query_id = self._saved_view(EVENT_ROWS, EVENT_ROW_COLUMNS)
+
+        self._evaluate(saved_query_id, EVENT_ROWS, _with_row_counts(1))
+        later = self._evaluate(saved_query_id, EVENT_ROWS, _with_row_counts(0))
+
+        assert later.refresh_mode == WarehouseSuggestionRefreshMode.INCREMENTAL
+
+    def _two_pageviews(self) -> None:
+        for _ in range(2):
+            _create_event(team=self.team, event="$pageview", distinct_id="d1")
+        flush_persons_and_events()
+
+    def _materialize_payload(self, hogql: str, columns: dict[str, dict[str, str]]) -> MaterializePayload:
+        return self._evaluate(self._saved_view(hogql, columns), hogql)
+
+    def _saved_view(self, hogql: str, columns: dict[str, dict[str, str]]) -> UUID:
         saved_query = DataWarehouseSavedQuery.objects.create(
             team=self.team,
             name="daily_counts",
             query={"kind": "HogQLQuery", "query": hogql},
-            columns=DAILY_COUNT_COLUMNS,
+            columns=columns,
         )
         dag = DAG.objects.create(team=self.team, name="Default")
         Node.objects.create(team=self.team, dag=dag, name="daily_counts", saved_query=saved_query, type=NodeType.VIEW)
+        return saved_query.id
+
+    def _evaluate(self, saved_query_id: UUID, hogql: str, rules: Rules = RULES) -> MaterializePayload:
         candidate_context = context(
             team_reads(
                 {
-                    view_subject(saved_query.id): busy_reads(
+                    view_subject(saved_query_id): busy_reads(
                         human_duration_ms=200 * 30_000, alone_duration_ms_median=30_000.0
                     )
                 }
             ),
-            views=[view(saved_query.id, name="daily_counts", hogql=hogql)],
+            views=[view(saved_query_id, name="daily_counts", hogql=hogql)],
             team_id=self.team.pk,
+            rules=rules,
         )
 
         [draft] = MaterializeCandidate().evaluate(candidate_context).drafts
 
         assert isinstance(draft.payload, MaterializePayload)
-        expected_lookback = RULES.materialize.incremental_lookback_seconds if incremental_key else 0
-        assert (
-            draft.payload.refresh_mode,
-            draft.payload.incremental_key,
-            draft.payload.unique_key,
-            draft.payload.lookback_seconds,
-        ) == (refresh_mode, incremental_key, unique_key, expected_lookback)
+        return draft.payload
 
 
 class TestDeprecateCandidate(BaseTest):

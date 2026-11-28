@@ -1,8 +1,11 @@
+import hashlib
 from collections.abc import Iterable, Mapping
 from dataclasses import replace
 from datetime import datetime, timedelta
 from functools import cached_property
 from uuid import UUID
+
+from django.core.cache import cache
 
 from posthog.hogql.database.database import Database
 
@@ -17,6 +20,8 @@ from products.data_modeling.backend.facade.api import (
     dependent_saved_query_ids,
     get_saved_query_columns,
     propose_incremental_config,
+    repeated_keys_are_event_duplicates,
+    row_count_fits_the_unique_key_budget,
     saved_query_target_bounds,
     upstream_table_refs,
 )
@@ -56,6 +61,7 @@ READ_SECONDS_PER_MONTH = "read_seconds_per_month"
 READ_BYTES_PER_MONTH = "read_bytes_per_month"
 HUMAN_READS_PER_MONTH = "human_reads_per_month"
 UNMEASURED_REJECTION = "its cost has not been measured yet"
+ROW_COUNT_KEY_PREFIX = "warehouse_suggestions:incremental_row_count"
 NOT_RECOMPUTED_ENOUGH_REJECTION = "it is not computed often enough for a stored copy to save half of it"
 
 
@@ -137,8 +143,10 @@ class _Consumers:
 class _IncrementalProposer:
     """Proposes incremental keys for one team run, building the team database at most once."""
 
-    def __init__(self, team_id: int) -> None:
+    def __init__(self, team_id: int, rules: MaterializeRules) -> None:
         self._team_id = team_id
+        self._rules = rules
+        self._row_counts_left = rules.incremental_row_counts_per_team
 
     @cached_property
     def _database(self) -> Database | None:
@@ -152,7 +160,30 @@ class _IncrementalProposer:
         if self._database is None:
             return None
         column_types = get_saved_query_columns(self._team_id, saved_query.id)
-        return propose_incremental_config(saved_query.hogql, column_types, database=self._database)
+        config = propose_incremental_config(saved_query.hogql, column_types, database=self._database)
+        if config is None or not repeated_keys_are_event_duplicates(saved_query.hogql, config.unique_key):
+            return config
+        return config if self._fits_the_unique_key_budget(saved_query) else None
+
+    def _fits_the_unique_key_budget(self, saved_query: SavedQueryDefinition) -> bool:
+        key = _row_count_key(self._team_id, saved_query)
+        remembered = cache.get(key)
+        if remembered is not None:
+            return remembered
+        if self._row_counts_left <= 0:
+            return False
+        self._row_counts_left -= 1
+        fits = row_count_fits_the_unique_key_budget(
+            self._team_id, saved_query.hogql, max_seconds=self._rules.incremental_row_count_seconds
+        )
+        remember_for = timedelta(days=self._rules.incremental_row_count_remember_days)
+        cache.set(key, fits, timeout=int(remember_for.total_seconds()))
+        return fits
+
+
+def _row_count_key(team_id: int, saved_query: SavedQueryDefinition) -> str:
+    query_hash = hashlib.sha256(saved_query.hogql.encode()).hexdigest()
+    return f"{ROW_COUNT_KEY_PREFIX}:{team_id}:{saved_query.id}:{query_hash}"
 
 
 class MaterializeCandidate(Candidate):
@@ -162,7 +193,7 @@ class MaterializeCandidate(Candidate):
         drafts = []
         rejections = []
         unmeasured: list[tuple[Subject, Recomputations]] = []
-        incremental = _IncrementalProposer(context.team_id)
+        incremental = _IncrementalProposer(context.team_id, context.rules.materialize)
         consumers = _Consumers(context)
         for saved_query in context.inventory.saved_queries.values():
             subject = Subject(kind=WarehouseSuggestionSubjectKind.SAVED_QUERY, id=saved_query.id)
