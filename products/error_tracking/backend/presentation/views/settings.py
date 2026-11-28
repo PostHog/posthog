@@ -53,6 +53,22 @@ class ErrorTrackingSettingsSerializer(serializers.Serializer):
         ),
     )
 
+    auto_resolve_after_days = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        min_value=1,
+        max_value=365,
+        help_text=(
+            "Days without a new exception before an active issue resolves automatically. "
+            "Exceptions before you turn on auto-resolve count. Null turns it off."
+        ),
+    )
+
+    def validate_auto_resolve_after_days(self, value: int | None) -> int | None:
+        if value is not None and not error_tracking_api.auto_resolve_available(self.context["get_team"]().id):
+            raise serializers.ValidationError("Auto-resolve is not available for this project.")
+        return value
+
     def validate_ai_issue_summaries_enabled(self, value: bool) -> bool:
         if value and not self.context["get_organization"]().is_ai_data_processing_approved:
             raise serializers.ValidationError(

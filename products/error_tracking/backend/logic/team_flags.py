@@ -9,6 +9,8 @@ from posthog.ph_client import feature_enabled_or_false
 
 logger = structlog.get_logger(__name__)
 
+AUTO_RESOLVE_FLAG = "error-tracking-auto-resolve"
+
 
 def _project_flag_options(team_id: int, *, only_evaluate_locally: bool = False) -> dict[str, Any]:
     return {

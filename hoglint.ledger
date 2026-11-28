@@ -846,7 +846,6 @@ facade-no-state	django.db.transaction.atomic	products.conversations.backend.faca
 facade-no-state	django.db.transaction.atomic	products.customer_analytics.backend.facade.api	reference	14
 facade-no-state	django.db.transaction.atomic	products.customer_analytics.backend.facade.email_matching	reference	1
 facade-no-state	django.db.transaction.atomic	products.customer_analytics.backend.facade.workflow_customer_tasks	reference	1
-facade-no-state	django.db.transaction.atomic	products.error_tracking.backend.facade.api	reference	1
 facade-no-state	django.db.transaction.atomic	products.legal_documents.backend.facade.api	reference	1
 facade-no-state	django.db.transaction.atomic	products.mcp_analytics.backend.facade.api	reference	1
 facade-no-state	django.db.transaction.atomic	products.mcp_store.backend.facade.api	reference	1

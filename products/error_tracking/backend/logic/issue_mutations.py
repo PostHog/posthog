@@ -170,9 +170,9 @@ def update_issue(
         description_updated = "description" in fields and fields["description"] != description_before
         state_updated = _has_clickhouse_visible_state_change(issue, fields)
 
-        for key in ("status", "severity", "name", "description"):
-            if key in fields:
-                setattr(issue, key, fields[key])
+        update_fields = [key for key in ("status", "severity", "name", "description") if key in fields]
+        for key in update_fields:
+            setattr(issue, key, fields[key])
 
         issue_changes: list[IssueChange] = []
         if status_updated:
@@ -217,7 +217,8 @@ def update_issue(
 
         if state_updated:
             issue.state_updated_at = timezone.now()
-        issue.save()
+            update_fields.append("state_updated_at")
+        issue.save(update_fields=update_fields)
         record_issue_changes(operation, issue_changes)
 
         if changes:

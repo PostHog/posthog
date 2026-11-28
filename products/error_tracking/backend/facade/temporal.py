@@ -9,6 +9,7 @@ objects, not data, so they live in their own facade submodule — keeping the
 from posthog.temporal.common.registration import QueueBinding, TemporalRegistration
 
 from products.error_tracking.backend.temporal import ACTIVITIES, LIFECYCLE_ACTIVITIES, LIFECYCLE_WORKFLOWS, WORKFLOWS
+from products.error_tracking.backend.temporal.auto_resolve.schedule import create_error_tracking_auto_resolve_schedules
 from products.error_tracking.backend.temporal.built_in_filters_refresh.schedule import (
     create_error_tracking_built_in_filters_refresh_schedule,
 )
@@ -53,6 +54,7 @@ TEMPORAL = TemporalRegistration(
         ),
     ),
     schedules=(
+        create_error_tracking_auto_resolve_schedules,
         create_error_tracking_symbol_set_cleanup_schedule,
         create_error_tracking_spike_event_cleanup_schedule,
         create_error_tracking_issue_change_cleanup_schedule,

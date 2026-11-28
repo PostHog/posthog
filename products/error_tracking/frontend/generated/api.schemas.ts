@@ -2609,6 +2609,13 @@ export interface ErrorTrackingSettingsApi {
     ingestion_enabled?: boolean
     /** Whether PostHog writes an AI summary of each new issue in this project. Each summary uses the organization's AI credits. Setting it to true fails until the organization approves AI data processing. Setting it to false always succeeds. */
     ai_issue_summaries_enabled?: boolean
+    /**
+     * Days without a new exception before an active issue resolves automatically. Exceptions before you turn on auto-resolve count. Null turns it off.
+     * @minimum 1
+     * @maximum 365
+     * @nullable
+     */
+    auto_resolve_after_days?: number | null
 }
 
 export interface PatchedErrorTrackingSettingsApi {
@@ -2642,6 +2649,13 @@ export interface PatchedErrorTrackingSettingsApi {
     ingestion_enabled?: boolean
     /** Whether PostHog writes an AI summary of each new issue in this project. Each summary uses the organization's AI credits. Setting it to true fails until the organization approves AI data processing. Setting it to false always succeeds. */
     ai_issue_summaries_enabled?: boolean
+    /**
+     * Days without a new exception before an active issue resolves automatically. Exceptions before you turn on auto-resolve count. Null turns it off.
+     * @minimum 1
+     * @maximum 365
+     * @nullable
+     */
+    auto_resolve_after_days?: number | null
 }
 
 /**

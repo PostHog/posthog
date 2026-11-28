@@ -565,6 +565,9 @@ const errorTrackingSettingsUpdate = (): ToolBase<
         if (params.ai_issue_summaries_enabled !== undefined) {
             body['ai_issue_summaries_enabled'] = params.ai_issue_summaries_enabled
         }
+        if (params.auto_resolve_after_days !== undefined) {
+            body['auto_resolve_after_days'] = params.auto_resolve_after_days
+        }
         const result = await context.api.request<Schemas.ErrorTrackingSettings>({
             method: 'PATCH',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/error_tracking/settings/update_settings/`,

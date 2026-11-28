@@ -3,7 +3,7 @@ from urllib.parse import quote
 from uuid import UUID
 
 from django.conf import settings
-from django.db import DEFAULT_DB_ALIAS
+from django.db import DEFAULT_DB_ALIAS, transaction
 from django.db.models import Count, Q, QuerySet
 
 from posthog.models.event_filter_config import EventFilterPipelineOverride
@@ -44,6 +44,7 @@ SETTINGS_FIELDS = (
     "per_issue_rate_limit_value",
     "per_issue_rate_limit_bucket_size_minutes",
     "ai_issue_summaries_enabled",
+    "auto_resolve_after_days",
 )
 
 SPIKE_DETECTION_CONFIG_FIELDS = (
@@ -246,13 +247,17 @@ def get_or_create_settings(team_id: int) -> ErrorTrackingSettings:
 
 
 def update_settings(team_id: int, fields: dict[str, int | bool | None]) -> ErrorTrackingSettings:
-    settings = get_or_create_settings(team_id)
     updates = {key: value for key, value in fields.items() if key in SETTINGS_FIELDS}
-    for key, value in updates.items():
-        setattr(settings, key, value)
-    if updates:
-        settings.save(update_fields=list(updates))
-    return settings
+    with transaction.atomic():
+        settings, _ = ErrorTrackingSettings.objects.select_for_update().get_or_create(team_id=team_id)
+        ingestion_enabled = fields.get("ingestion_enabled")
+        if isinstance(ingestion_enabled, bool):
+            set_exception_ingestion_enabled(team_id, ingestion_enabled)
+        for key, value in updates.items():
+            setattr(settings, key, value)
+        if updates:
+            settings.save(update_fields=list(updates))
+        return settings
 
 
 def is_exception_ingestion_enabled(team_id: int) -> bool:

@@ -19091,6 +19091,10 @@
                 {
                     "param": "ai_issue_summaries_enabled",
                     "key": "ai_issue_summaries_enabled"
+                },
+                {
+                    "param": "auto_resolve_after_days",
+                    "key": "auto_resolve_after_days"
                 }
             ],
             "injectBody": {},
