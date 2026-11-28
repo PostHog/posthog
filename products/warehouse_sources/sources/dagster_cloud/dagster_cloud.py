@@ -27,6 +27,7 @@ from products.warehouse_sources.sources.sdk import (
     SourceResponse,
     frozen,
     make_tracked_session,
+    reach_safe_point,
     retry_with_deadline,
 )
 
@@ -384,6 +385,7 @@ def _iter_asset_check_parents(sess: requests.Session, url: str) -> Iterator[dict
                 raise ValueError(f"Dagster Cloud could not list asset checks: {checks['__typename']}")
             for check in checks["checks"]:
                 yield {"assetId": row["id"], "assetKeyInput": row["key"], "checkName": check["name"]}
+        reach_safe_point()
 
 
 def _iter_run_parents(

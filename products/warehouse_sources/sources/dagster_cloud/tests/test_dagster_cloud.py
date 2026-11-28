@@ -1,5 +1,5 @@
 import re
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from dataclasses import replace
 from datetime import UTC, date, datetime
 from typing import Any
@@ -32,7 +32,9 @@ from products.warehouse_sources.sources.sdk.testing import (
     RecordedRequest,
     ScriptedResponse,
     SourceDriver,
+    activate_safe_point,
     scripted_network,
+    source_inputs,
 )
 
 # 2024-01-01T00:00:00Z
@@ -402,6 +404,34 @@ class TestAssetEventFanOut:
 
 
 class TestAssetCheckExecutions:
+    @patch(f"{MODULE}.DAGSTER_CLOUD_PAGE_SIZE", 1)
+    def test_shutdown_interrupts_pages_without_checks(self) -> None:
+        first = _assets_container(["retired"], "page-two")
+        first["nodes"][0]["definition"] = None
+        second = _assets_container(["unchecked"], "page-three")
+        second["nodes"][0]["definition"] = {"assetChecksOrError": {"__typename": "AssetChecks", "checks": []}}
+        last = _assets_container([], None)
+
+        source = DagsterCloudSource()
+        inputs = source_inputs("asset_check_executions")
+        manager = source.get_resumable_source_manager(inputs)
+        config = DagsterCloudSourceConfig(organization="org", deployment="prod", api_token="tok")
+        response = source.source_for_pipeline(config, manager, inputs)
+
+        with scripted_network([_gql_response("assetsOrError", page) for page in (first, second, last)]) as network:
+
+            def hand_over() -> None:
+                if len(network.requests_log) == 2:
+                    raise InterruptedError("worker shutdown")
+
+            with activate_safe_point(hand_over, covers_framework_checkpoints=False):
+                items = response.items()
+                assert isinstance(items, Iterable)
+                with pytest.raises(InterruptedError, match="worker shutdown"):
+                    next(iter(items))
+            assert len(network.requests_log) == 2
+            assert manager.load_state() is None
+
     @parameterized.expand([("first_sync", None), ("resume", "50")])
     @patch(f"{MODULE}.DAGSTER_CLOUD_PAGE_SIZE", 2)
     def test_paginates_each_check(self, _name: str, saved_cursor: str | None) -> None:
