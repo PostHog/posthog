@@ -1,3 +1,5 @@
+from datetime import UTC, datetime
+
 import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest import mock
@@ -8,6 +10,7 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.api.test.test_log_entries import create_log_entry
+from posthog.kafka_client.topics import KAFKA_LOG_ENTRIES
 from posthog.models import Team
 
 from products.endpoints.backend.logs import (
@@ -82,10 +85,10 @@ class TestBuildExecutionMessage(SimpleTestCase):
     def test_build_execution_message(self, _name, kwargs, expected):
         self.assertEqual(build_execution_message(**kwargs), expected)
 
-    def test_produce_failure_is_swallowed(self):
-        with mock.patch(
-            "products.endpoints.backend.logs.get_producer",
-            side_effect=Exception("kafka down"),
+    def test_kafka_failure_is_swallowed(self):
+        with (
+            mock.patch("products.endpoints.backend.logs.get_producer", side_effect=Exception("kafka down")),
+            mock.patch("products.endpoints.backend.logs.send_internal_log", autospec=True) as send_internal_log,
         ):
             # Must not raise — emitting a log line is best-effort.
             log_endpoint_execution(
@@ -95,6 +98,62 @@ class TestBuildExecutionMessage(SimpleTestCase):
                 level="INFO",
                 message="Endpoint executed",
             )
+
+        send_internal_log.assert_called_once()
+
+    def test_logs_product_failure_keeps_the_kafka_row(self):
+        with (
+            mock.patch("products.endpoints.backend.logs.get_producer", autospec=True) as get_producer,
+            mock.patch(
+                "products.endpoints.backend.logs.send_internal_log", autospec=True, side_effect=Exception("down")
+            ),
+        ):
+            log_endpoint_execution(
+                team_id=1,
+                endpoint_id="abc",
+                instance_id="exec-1",
+                level="INFO",
+                message="Endpoint executed",
+            )
+
+        get_producer.return_value.produce.assert_called_once()
+        self.assertEqual(get_producer.return_value.produce.call_args.kwargs["data"]["message"], "Endpoint executed")
+
+    @time_machine.travel("2026-01-02 12:00:00", tick=False)
+    def test_logs_product_gets_the_same_entry_as_kafka(self):
+        with (
+            mock.patch("products.endpoints.backend.logs.get_producer", autospec=True) as get_producer,
+            mock.patch("products.endpoints.backend.logs.send_internal_log", autospec=True) as send_internal_log,
+        ):
+            log_endpoint_execution(
+                team_id=1,
+                endpoint_id="abc",
+                instance_id="exec-1",
+                level="ERROR",
+                message="Endpoint execution failed",
+            )
+
+        get_producer.return_value.produce.assert_called_once_with(
+            topic=KAFKA_LOG_ENTRIES,
+            data={
+                "team_id": 1,
+                "log_source": ENDPOINTS_LOG_SOURCE,
+                "log_source_id": "abc",
+                "instance_id": "exec-1",
+                "timestamp": "2026-01-02 12:00:00.000000",
+                "level": "ERROR",
+                "message": "Endpoint execution failed",
+            },
+        )
+        send_internal_log.assert_called_once_with(
+            ENDPOINTS_LOG_SOURCE,
+            team_id=1,
+            log_source_id="abc",
+            instance_id="exec-1",
+            timestamp=datetime(2026, 1, 2, 12, 0, tzinfo=UTC),
+            level="ERROR",
+            message="Endpoint execution failed",
+        )
 
 
 class TestEndpointExecutionLogs(ClickhouseTestMixin, APIBaseTest):
