@@ -50,7 +50,6 @@ function toSchemaTreeNodes(items: TreeDataItem[], depth = 0): SchemaTreeNode[] {
         }))
 }
 
-/** The schema tab of the editor's side panel: the connection, a search, and the tables to query. */
 export function QuillSchemaPanel({ tabId }: { tabId: string }): JSX.Element {
     const {
         searchTerm,

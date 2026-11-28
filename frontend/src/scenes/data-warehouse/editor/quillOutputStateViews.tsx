@@ -16,7 +16,6 @@ import { QuillOutputEmptyState } from './QuillOutputEmptyState'
 import { QuillOutputErrorState } from './QuillOutputErrorState'
 import { sqlEditorLogic } from './sqlEditorLogic'
 
-/** The results pane's empty, no-rows, error and chart-loading states in the quill workspace. */
 export const QUILL_OUTPUT_STATE_VIEWS: OutputStateViews = {
     Empty: function QuillEmpty({ kind }) {
         const { singleStatement } = useValues(sqlEditorLogic)

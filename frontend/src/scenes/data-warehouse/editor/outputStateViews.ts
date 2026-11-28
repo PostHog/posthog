@@ -3,7 +3,6 @@ import type { ComponentType } from 'react'
 import type { HogQLQuery, DataVisualizationNode } from '~/queries/schema/schema-general'
 
 export interface OutputErrorViewProps {
-    /** The message as the database or HogQL reported it. */
     error: string | null | undefined
     /** A HogQL validation message, which reads better than the raw error when there is one. */
     validationError: string | false | null | undefined

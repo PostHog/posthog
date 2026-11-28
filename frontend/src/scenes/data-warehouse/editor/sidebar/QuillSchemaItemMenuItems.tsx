@@ -37,10 +37,6 @@ function navigate(event: MouseEvent, href: string, newTab: boolean): void {
     }
 }
 
-/**
- * The quill rendering of a schema tree item's menu (see getSchemaItemActions). Groups are split by
- * separators, so a destructive group placed last sits below one.
- */
 export function QuillSchemaItemMenuItems({
     groups,
     type,

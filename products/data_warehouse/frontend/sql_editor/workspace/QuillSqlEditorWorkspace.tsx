@@ -47,11 +47,6 @@ export interface QuillSqlEditorWorkspaceProps {
     onShareTab?: () => void
 }
 
-/**
- * The SQL editor scene in the quill redesign: the query and its results, with a side panel for
- * the schema, variables and history. Where each region goes is read from the person's layout,
- * so the arrangement can change without this component changing.
- */
 export function QuillSqlEditorWorkspace({
     tabId,
     onSetMonacoAndEditor,

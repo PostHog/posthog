@@ -37,10 +37,6 @@ export interface SchemaTreeBehavior {
     addSource: () => void
 }
 
-/**
- * What the SQL editor's schema tree does, shared by the LemonTree sidebar and the quill Tree in the
- * redesigned editor. Only how each tree draws its rows differs.
- */
 export function useSchemaTreeBehavior(extraTreeSections?: TreeDataItem[]): SchemaTreeBehavior {
     const { searchText, joinsByFieldName, visibleTreeData, connectionId, featureFlags } = useValues(queryDatabaseLogic)
     const {

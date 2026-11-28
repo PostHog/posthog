@@ -23,7 +23,6 @@ import {
 import { dataVisualizationLogic } from '~/queries/nodes/DataVisualization/dataVisualizationLogic'
 import { ChartDisplayType } from '~/types'
 
-/** Picks how the results are drawn. The same options as the Lemon TableDisplay select, as a quill menu. */
 export function QuillChartTypeMenu({ disabledReason }: { disabledReason?: string }): JSX.Element {
     const { setVisualizationType } = useActions(dataVisualizationLogic)
     const { autoVisualizationType, columns, numericalColumns, visualizationType } = useValues(dataVisualizationLogic)

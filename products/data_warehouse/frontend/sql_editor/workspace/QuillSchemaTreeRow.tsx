@@ -31,7 +31,6 @@ const formatRowCount = (count: number | undefined): string | null =>
         ? new Intl.NumberFormat('en', { notation: 'compact', compactDisplay: 'short' }).format(count).toLowerCase()
         : null
 
-/** One row of the schema tree: what follows the Tree's own chevron, plus the row's actions. */
 export function QuillSchemaTreeRow({
     item,
     section,

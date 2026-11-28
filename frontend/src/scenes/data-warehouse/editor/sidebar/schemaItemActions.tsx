@@ -46,7 +46,6 @@ export type SchemaItemAction =
           kind: 'link'
           href: string
           newTab?: boolean
-          /** A side effect that runs before the navigation, such as an analytics capture. */
           onSelect?: () => void
       })
     | (SchemaItemActionBase & {

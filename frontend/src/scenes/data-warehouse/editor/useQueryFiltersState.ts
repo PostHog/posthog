@@ -52,7 +52,6 @@ export interface QueryFiltersState {
     insertPlaceholder: () => void
 }
 
-/** The SQL editor's filters and what changing them does, shared by the Lemon menu and the quill popover. */
 export function useQueryFiltersState(): QueryFiltersState | null {
     const { sourceQuery, hasFiltersPlaceholder, filtersPlaceholderBindings } = useValues(sqlEditorLogic)
     const { setSourceQuery, runQuery, insertTextAtCursor } = useActions(sqlEditorLogic)

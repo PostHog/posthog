@@ -4,7 +4,6 @@ import { QuillFixErrorButton } from 'products/data_warehouse/frontend/sql_editor
 
 import { EditorQueryScanBanner } from './components/EditorQueryScanBanner'
 
-/** A failed or cancelled run, with the error as the database reported it and a way to fix it. */
 export function QuillOutputErrorState({
     error,
     cancelled,

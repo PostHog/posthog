@@ -13,7 +13,6 @@ export interface TreeNode {
     children?: TreeNode[]
     /** True when the node has children that are not loaded yet; expanding it calls onLoadChildren. */
     hasChildren?: boolean
-    /** Renders the row as a section heading (small, muted, semibold, no indent guide); still expandable. */
     section?: boolean
     disabledReason?: string
 }
@@ -46,14 +45,10 @@ export interface TreeProps<T extends TreeNode> extends Omit<
     onAction?: (node: T) => void
     onLoadChildren?: (node: T) => void
     renderItem: (node: T, state: TreeItemState) => React.ReactNode
-    /** Items for this row's right-click menu (ContextMenuItem etc). Return null for no menu. */
     renderContextMenu?: (node: T) => React.ReactNode
     getItemProps?: (node: T) => React.HTMLAttributes<HTMLDivElement> & { 'data-attr'?: string }
-    /** Render only the rows in view (plus `overscan`). Rows have a fixed `rowHeight`. */
     virtualized?: boolean
-    /** Row height in px, used for every row and for virtualization. Defaults to 28, the default menu row. */
     rowHeight?: number
-    /** Rows rendered past each edge of the viewport when virtualized. Defaults to 12. */
     overscan?: number
     empty?: React.ReactNode
     'aria-label': string

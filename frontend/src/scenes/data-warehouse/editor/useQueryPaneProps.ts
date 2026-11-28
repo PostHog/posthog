@@ -23,11 +23,6 @@ export interface QueryPaneHostOptions {
     captureQueryTelemetry?: boolean
 }
 
-/**
- * Everything the query pane's code editor is wired to: the tab's Monaco model, error checking,
- * metadata, the run shortcuts and the hover and formatting providers. Shared by the Lemon query
- * window and the quill workspace, which only lay the pane out differently.
- */
 export function useQueryPaneProps({
     tabId,
     codeEditorKey,

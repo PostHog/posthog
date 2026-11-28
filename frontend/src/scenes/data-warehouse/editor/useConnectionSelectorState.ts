@@ -29,7 +29,6 @@ export interface ConnectionSelectorState {
     select: (value: string | null) => void
 }
 
-/** The connection picker's options and what picking one does, shared by the Lemon and quill pickers. */
 export function useConnectionSelectorState(tabId: string): ConnectionSelectorState {
     const logic = sqlEditorLogic({ tabId })
     const { sourceQuery, selectedConnectionId } = useValues(logic)

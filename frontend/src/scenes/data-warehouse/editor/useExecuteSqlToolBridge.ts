@@ -13,11 +13,6 @@ import { sqlEditorLogic } from './sqlEditorLogic'
 
 const EMBEDDED_MAX_TOOL_CONTEXT_DEBOUNCE_MS = 150
 
-/**
- * Connects the editor to PostHog AI's execute-sql tool: it attaches the current query as context,
- * applies the tool's answers back into the editor, and returns the props for a button that opens
- * the tool. Shared by the Lemon query window and the quill workspace.
- */
 export function useExecuteSqlToolBridge(tabId: string, active: boolean): Omit<UseMaxToolOptions, 'active'> {
     const { queryInput, sourceQuery } = useValues(sqlEditorLogic)
     const { setSourceQuery, setSuggestedQueryInput, reportAIQueryPromptOpen } = useActions(sqlEditorLogic)

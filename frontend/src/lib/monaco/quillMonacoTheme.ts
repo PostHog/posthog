@@ -58,7 +58,6 @@ export function rgbaToHex({ r, g, b, a }: Rgba): string {
     return a >= 255 ? rgb : `${rgb}${toHexByte(a)}`
 }
 
-/** Flattens a translucent color onto an opaque background and returns `#rrggbb`. */
 export function compositeOver(foreground: string, background: string): string | null {
     const fg = parseHexColor(foreground)
     const bg = parseHexColor(background)
@@ -87,7 +86,6 @@ export function buildQuillMonacoTheme(
         const color = resolve(quillToken)
         const opaque = color ? compositeOver(color, background) : null
         if (opaque) {
-            // Monaco reads rule colors without the leading '#'.
             rules.push({ token, foreground: opaque.slice(1), ...(fontStyle ? { fontStyle } : {}) })
         }
     }
@@ -143,7 +141,6 @@ export function buildQuillMonacoTheme(
     return { base: isDark ? 'vs-dark' : 'vs', inherit: true, rules, colors }
 }
 
-/** Converts any CSS color the browser can paint (oklch, color-mix, ...) to hex by reading one canvas pixel. */
 export function cssColorToHex(cssColor: string, context: CanvasRenderingContext2D): string | null {
     // An invalid value leaves fillStyle unchanged, so a sentinel shows whether the browser accepted it.
     const sentinel = '#010203'

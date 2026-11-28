@@ -12,7 +12,6 @@ import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-genera
 
 import { SourceIcon } from 'products/data_warehouse/frontend/shared/components/SourceIcon'
 
-/** The quiet prompt to connect a first source, in place of the Lemon sidebar's banner. */
 export function QuillConnectSourcesRow(): JSX.Element | null {
     const { hasNonPosthogSources, syncMoreNoticeDismissed, databaseLoading } = useValues(queryDatabaseLogic)
     const { setSyncMoreNoticeDismissed } = useActions(queryDatabaseLogic)

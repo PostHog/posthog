@@ -57,11 +57,6 @@ export type sqlEditorLayoutLogicType = MakeLogicType<
     sqlEditorLayoutLogicMeta
 >
 
-/**
- * The quill SQL editor's layout: where the inspector sits, which tabs it shows, where results go,
- * and how big each region is. One per person, shared by every editor tab, like the old schema
- * panel's collapsed state.
- */
 export const sqlEditorLayoutLogic = kea<sqlEditorLayoutLogicType>([
     // pinned: the path is the localStorage key prefix for the persisted reducers below; renaming it
     // resets everyone's layout
@@ -144,7 +139,6 @@ export const sqlEditorLayoutLogic = kea<sqlEditorLayoutLogicType>([
         layout: [(s) => [s.storedLayout], (storedLayout): SqlEditorLayout => normalizeSqlEditorLayout(storedLayout)],
         isCustomized: [
             (s) => [s.layout],
-            // Opening the inspector or switching its tab is everyday use, not a customization.
             (layout): boolean =>
                 layout.inspector.side !== DEFAULT_SQL_EDITOR_LAYOUT.inspector.side ||
                 layout.results.placement !== DEFAULT_SQL_EDITOR_LAYOUT.results.placement ||

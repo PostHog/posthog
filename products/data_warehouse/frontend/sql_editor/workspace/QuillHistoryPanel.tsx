@@ -123,7 +123,6 @@ function ViewHistory({ viewId, currentQuery }: { viewId: string; currentQuery: s
     )
 }
 
-/** Earlier versions of the view or insight being edited, each one restorable into the editor. */
 export function QuillHistoryPanel(): JSX.Element {
     const { editingView, editingInsight, insightLoading } = useValues(sqlEditorLogic)
 

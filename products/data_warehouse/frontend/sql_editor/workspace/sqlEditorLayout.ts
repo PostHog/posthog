@@ -42,10 +42,6 @@ function isInspectorTab(value: unknown): value is SqlEditorInspectorTab {
     return typeof value === 'string' && (SQL_EDITOR_INSPECTOR_TABS as readonly string[]).includes(value)
 }
 
-/**
- * Reads a layout from storage, or anywhere else it may have been written by an older version.
- * Anything it doesn't recognize falls back to the default, so a bad value never breaks the scene.
- */
 export function normalizeSqlEditorLayout(raw: unknown): SqlEditorLayout {
     if (!raw || typeof raw !== 'object') {
         return DEFAULT_SQL_EDITOR_LAYOUT
@@ -116,7 +112,6 @@ export function moveInspectorTab(
     return { ...layout, inspector: { ...layout.inspector, tabs } }
 }
 
-/** Opens the inspector on a tab, showing that tab first if it was hidden. */
 export function openInspectorTab(layout: SqlEditorLayout, tab: SqlEditorInspectorTab): SqlEditorLayout {
     const withTab = layout.inspector.tabs.includes(tab) ? layout : setInspectorTabVisible(layout, tab, true)
     return { ...withTab, inspector: { ...withTab.inspector, open: true, activeTab: tab } }

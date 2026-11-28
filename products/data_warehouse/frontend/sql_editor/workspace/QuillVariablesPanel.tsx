@@ -92,7 +92,6 @@ function VariableRowMenu({
     )
 }
 
-/** A variable the query uses, or used. Pressing it opens its value for editing. */
 function VariableValueRow({
     variable,
     state,
@@ -139,7 +138,6 @@ function VariableValueRow({
     )
 }
 
-/** Every variable in the query, with its value, plus the project's other variables to insert. */
 export function QuillVariablesPanel({ disabledReason }: { disabledReason?: string }): JSX.Element {
     const state = useQueryVariablesState()
 

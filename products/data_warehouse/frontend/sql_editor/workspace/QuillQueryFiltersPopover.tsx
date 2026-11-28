@@ -27,7 +27,6 @@ function keepOpenForNestedPopovers(open: boolean, details: PopoverChangeDetails)
 
 const FILTERS_DOCS_URL = 'https://posthog.com/docs/data-warehouse/sql/variables#applying-dashboard-filters'
 
-/** The query's time range, property filters and test account toggle, applied through {filters}. */
 export function QuillQueryFiltersPopover(): JSX.Element | null {
     const filtersState = useQueryFiltersState()
 

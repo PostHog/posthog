@@ -14,20 +14,16 @@ export interface RunButtonHostProps {
 }
 
 export interface RunButtonState {
-    /** The button reads Cancel and stops the running query. */
     showCancel: boolean
-    /** Whether the query text differs from the query that last ran. */
     hasChangesToRun: boolean
     tooltip: string
     loading: boolean
-    /** Whether "Run at cursor" and "Run innermost subquery" are offered next to the button. */
     showRunOptions: boolean
     onClick: () => void
     runAtCursor: () => void
     runInnermostSubquery: () => void
 }
 
-/** What the run button shows and does, shared by the Lemon and quill buttons. */
 export function useRunButtonState(
     {
         onRunQuery,

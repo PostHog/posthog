@@ -34,7 +34,6 @@ export interface QueryVariablesState {
     create: (type: VariableType) => void
 }
 
-/** The SQL editor's variables and what each variable action does, shared by the Lemon menu and the quill panel. */
 export function useQueryVariablesState(): QueryVariablesState {
     const { showEditingUI } = useValues(dataVisualizationLogic)
     const { variablesLoading, variablesUsedInQuery, variablesNotInQuery, searchTerm, internalSelectedVariables } =

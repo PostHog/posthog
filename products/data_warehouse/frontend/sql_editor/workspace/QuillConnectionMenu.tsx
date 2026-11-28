@@ -50,10 +50,6 @@ function findOption(options: ConnectionSelectOption[], value: string | null): Co
     return undefined
 }
 
-/**
- * Picks the connection the query runs against: PostHog, PostHog (Trino) or a direct connection.
- * The connections are radio rows; adding a connection and managing sources are actions after them.
- */
 export function QuillConnectionMenu({ tabId, className }: { tabId: string; className?: string }): JSX.Element {
     const { value, groups, showManagedTrino, managedTrinoDisabledReason, select } = useConnectionSelectorState(tabId)
 

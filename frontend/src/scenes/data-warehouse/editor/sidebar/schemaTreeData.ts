@@ -60,7 +60,6 @@ export const getQueryDatabaseTreeData = (
     return [...filterTreeSections(extraTreeSections, searchText), ...displayedTreeData]
 }
 
-/** A joined column's path, such as `person.properties.email`, or null when it has none. */
 export const formatTraversalChain = (chain?: (string | number)[]): string | null => {
     if (!chain || chain.length === 0) {
         return null
@@ -68,7 +67,6 @@ export const formatTraversalChain = (chain?: (string | number)[]): string | null
     return chain.map((segment) => String(segment)).join('.')
 }
 
-/** A row's hover text: its name, plus a description or a join path the row itself doesn't show. */
 export function getSchemaItemTooltip(item: TreeDataItem): { title: string; description?: string } | undefined {
     const tooltipTypes = ['table', 'view', 'managed-view', 'draft', 'metric', 'column', 'unsaved-query', 'folder']
     if (item.record?.type === 'endpoint') {

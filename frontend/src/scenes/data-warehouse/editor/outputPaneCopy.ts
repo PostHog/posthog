@@ -8,7 +8,6 @@ import { DataTableRow } from '~/queries/nodes/DataTable/dataTableLogic'
 import { type DataTableNode, type HogQLQueryResponse, NodeKind } from '~/queries/schema/schema-general'
 import { ExporterFormat } from '~/types'
 
-/** The formats the results can be copied as, in the order the copy menus list them. */
 export const RESULTS_COPY_FORMATS = {
     [ExporterFormat.CSV]: { label: 'CSV', copyFn: copyTableToCsv },
     [ExporterFormat.JSON]: { label: 'JSON', copyFn: copyTableToJson },
@@ -41,7 +40,6 @@ function transformDataTableToDataTableRows(rows: Record<string, any>[], columns:
     }))
 }
 
-/** Copies the grid's rows to the clipboard in one of RESULTS_COPY_FORMATS. Does nothing without rows. */
 export function copyResults(
     format: keyof typeof RESULTS_COPY_FORMATS,
     response: HogQLQueryResponse | undefined,

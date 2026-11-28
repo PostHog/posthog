@@ -16,7 +16,6 @@ import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
 import { RunButtonHostProps, useRunButtonState } from 'scenes/data-warehouse/editor/useRunButtonState'
 import { Scene } from 'scenes/sceneTypes'
 
-/** The SQL editor's run button, and the scene's only primary action. */
 export function QuillRunButton({ runQueryDisabledReason, ...hostProps }: RunButtonHostProps): JSX.Element {
     const { showCancel, tooltip, loading, showRunOptions, onClick, runAtCursor, runInnermostSubquery } =
         useRunButtonState(hostProps)

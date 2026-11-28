@@ -18,7 +18,6 @@ export interface FixErrorButtonState {
     fix: () => void
 }
 
-/** What the "Fix errors with AI" button shows and does, shared by the Lemon and quill buttons. */
 export function useFixErrorButtonState(source: FixErrorButtonSource, labelOverride?: string): FixErrorButtonState {
     const { queryInput, fixErrorsError, metadata, selectedConnectionId, fixErrorsLoading } = useValues(sqlEditorLogic)
     const { fixErrors } = useActions(sqlEditorLogic)
