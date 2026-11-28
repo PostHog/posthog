@@ -1,3 +1,5 @@
+from datetime import UTC, datetime
+
 import pytest
 from unittest.mock import patch
 
@@ -10,13 +12,19 @@ from posthog.llm.gateway_internal_client import (
     USAGE_REPORT_TIMEOUT_SECONDS,
     AIGatewayInternalError,
     AIGatewayNotConfigured,
+    AIGatewayRouteNotFound,
+    BillingUsageRow,
     add_credit,
+    get_billing_usage,
     get_usage_report,
     get_usage_report_rows,
     get_wallet,
 )
 
 ORG_ID = "0190b3a1-1111-7000-8000-000000000001"
+OTHER_ORG_ID = "0190b3a1-2222-7000-8000-000000000002"
+DAY_START = datetime(2026, 11, 4, tzinfo=UTC)
+DAY_END = datetime(2026, 11, 5, tzinfo=UTC)
 
 
 def _response(status: int, payload: dict | None = None) -> httpx.Response:
@@ -221,6 +229,118 @@ class TestGetUsageReport:
         with patch("posthog.llm.gateway_internal_client.httpx.get", return_value=_response(200, {"rows": []})):
             with pytest.raises(AIGatewayInternalError, match="no truncated flag"):
                 get_usage_report({"group_by": "obo"})
+
+
+def _usage_row(org_id: str = ORG_ID, product: str = "posthog_ai", **amounts: object) -> dict:
+    return {
+        "org_id": org_id,
+        "product": product,
+        "interval_start": "2026-11-04T00:00:00Z",
+        "credit_paid_micros": 12_000_000,
+        "overage_micros": 0,
+        "free_micros": 500,
+        **amounts,
+    }
+
+
+def _usage_page(rows: list[dict], final_through: str = "2026-11-05T00:10:00Z", next_cursor: str | None = None) -> dict:
+    return {
+        "interval": "day",
+        "from": "2026-11-04T00:00:00Z",
+        "to": "2026-11-05T00:00:00Z",
+        "final_through": final_through,
+        "usage": rows,
+        "next_cursor": next_cursor,
+    }
+
+
+class TestGetBillingUsage:
+    @patch("posthog.llm.gateway_internal_client.settings")
+    def test_follows_the_cursor_and_returns_every_row_with_final_through(self, mock_settings):
+        _configured(mock_settings)
+        first = _response(200, _usage_page([_usage_row()], next_cursor="c1"))
+        second = _response(200, _usage_page([_usage_row(OTHER_ORG_ID, "replay_vision", overage_micros=7)]))
+        with patch("posthog.llm.gateway_internal_client.httpx.get", side_effect=[first, second]) as mock_get:
+            usage = get_billing_usage(
+                interval="day", start=DAY_START, end=DAY_END, org_ids=[ORG_ID, OTHER_ORG_ID], limit=1
+            )
+
+        assert usage.final_through == datetime(2026, 11, 5, 0, 10, tzinfo=UTC)
+        assert usage.rows == [
+            BillingUsageRow(
+                org_id=ORG_ID,
+                product="posthog_ai",
+                interval_start=DAY_START,
+                credit_paid_micros=12_000_000,
+                overage_micros=0,
+                free_micros=500,
+            ),
+            BillingUsageRow(
+                org_id=OTHER_ORG_ID,
+                product="replay_vision",
+                interval_start=DAY_START,
+                credit_paid_micros=12_000_000,
+                overage_micros=7,
+                free_micros=500,
+            ),
+        ]
+        assert mock_get.call_args_list[0].args[0] == "http://gw/internal/billing/v1/usage"
+        assert mock_get.call_args_list[0].kwargs["headers"]["Authorization"] == "Bearer tok"
+        expected_params = {
+            "interval": "day",
+            "from": "2026-11-04T00:00:00Z",
+            "to": "2026-11-05T00:00:00Z",
+            "org_id": [ORG_ID, OTHER_ORG_ID],
+            "limit": "1",
+        }
+        assert mock_get.call_args_list[0].kwargs["params"] == expected_params
+        assert mock_get.call_args_list[1].kwargs["params"] == {**expected_params, "cursor": "c1"}
+
+    @pytest.mark.parametrize(
+        "responses,error,match",
+        [
+            (
+                [
+                    _response(200, _usage_page([_usage_row()], next_cursor="c1")),
+                    _response(200, _usage_page([], final_through="2026-11-05T00:20:00Z")),
+                ],
+                AIGatewayInternalError,
+                "different final_through",
+            ),
+            (
+                [
+                    _response(200, _usage_page([], next_cursor="c1")),
+                    _response(200, _usage_page([], next_cursor="c1")),
+                ],
+                AIGatewayInternalError,
+                "repeated cursor",
+            ),
+            ([_response(404, {"error": "not found"})], AIGatewayRouteNotFound, "HTTP 404"),
+            ([_response(503, {"error": "ledger unavailable"})], AIGatewayInternalError, "ledger unavailable"),
+            ([httpx.ReadTimeout("timed out")], AIGatewayInternalError, "ReadTimeout"),
+            ([_response(200, _usage_page([_usage_row(free_micros=None)]))], AIGatewayInternalError, "free_micros"),
+            ([_response(200, _usage_page([_usage_row(overage_micros=-1)]))], AIGatewayInternalError, "overage_micros"),
+            ([_response(200, _usage_page([_usage_row(org_id="team-2")]))], AIGatewayInternalError, "org_id"),
+            ([_response(200, {"usage": [], "next_cursor": None})], AIGatewayInternalError, "final_through"),
+        ],
+        ids=[
+            "final_through_changes_between_pages",
+            "repeated_cursor",
+            "route_not_found",
+            "server_error",
+            "timeout",
+            "missing_amount",
+            "negative_amount",
+            "org_id_not_a_uuid",
+            "no_final_through",
+        ],
+    )
+    @patch("posthog.llm.gateway_internal_client.settings")
+    def test_fails_the_whole_read(self, mock_settings, responses, error, match):
+        _configured(mock_settings)
+        with patch("posthog.llm.gateway_internal_client.httpx.get", side_effect=responses):
+            with pytest.raises(error, match=match):
+                get_billing_usage(interval="day", start=DAY_START, end=DAY_END)
 
 
 class TestNotConfigured:

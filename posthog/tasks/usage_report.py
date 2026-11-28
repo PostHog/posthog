@@ -35,6 +35,12 @@ from posthog.constants import AI_EVENT_NAME_PREFIX, MCP_EVENT_NAME_PREFIX, FlagR
 from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.llm.billing import AI_COST_MARKUP_PERCENT, POSTHOG_AI_PRODUCTS, POSTHOG_CODE_AI_PRODUCTS
+from posthog.llm.gateway_internal_client import (
+    AIGatewayNotConfigured,
+    AIGatewayRouteNotFound,
+    BillingUsageRow,
+    get_billing_usage,
+)
 from posthog.logging.timing import timed_log
 from posthog.models import OrganizationMembership, User
 from posthog.models.ai_events.sql import TABLE_BASE_NAME as AI_EVENTS_TABLE
@@ -116,6 +122,22 @@ logger = structlog.get_logger(__name__)
 logging.getLogger(__name__).setLevel(logging.INFO)
 
 BILLING_ORGANIZATION_BATCH_SIZE = 1_000
+
+AI_PREPAID_CREDITS_FLAG = "ai-prepaid-credits"
+AI_GATEWAY_BILLING_PRODUCTS = ("posthog_ai", "inbox_usage", "replay_vision")
+AI_GATEWAY_USAGE_TYPES = ("credit_paid", "overage", "free")
+
+
+def _ai_gateway_usage_key(product: str, usage_type: str) -> str:
+    return f"{product}_{usage_type}_micros_in_period"
+
+
+# Billing reads these keys by name, so they must match billing's usage keys.
+AI_GATEWAY_USAGE_KEYS = tuple(
+    _ai_gateway_usage_key(product, usage_type)
+    for product in AI_GATEWAY_BILLING_PRODUCTS
+    for usage_type in AI_GATEWAY_USAGE_TYPES
+)
 
 GATEWAY_SPONSORED_TRACE_EVENTS_PER_TRACE = 20
 GATEWAY_SPONSORED_EVALUATIONS_PER_TRACE = 20
@@ -541,6 +563,17 @@ class OrgReport(UsageReportCounters):
     teams: dict[str, UsageReportCounters]
     usage_sources: dict[str, UsageCounterMode] | None = dataclasses.field(default=None, kw_only=True)
     counter_comparisons: dict[str, UsageCounterComparison] | None = dataclasses.field(default=None, kw_only=True)
+    # The AI gateway's usage for the day in integer micro-dollars, from `add_ai_gateway_usage`.
+    # A None key stays out of the report.
+    posthog_ai_credit_paid_micros_in_period: int | None = dataclasses.field(default=None, kw_only=True)
+    posthog_ai_overage_micros_in_period: int | None = dataclasses.field(default=None, kw_only=True)
+    posthog_ai_free_micros_in_period: int | None = dataclasses.field(default=None, kw_only=True)
+    inbox_usage_credit_paid_micros_in_period: int | None = dataclasses.field(default=None, kw_only=True)
+    inbox_usage_overage_micros_in_period: int | None = dataclasses.field(default=None, kw_only=True)
+    inbox_usage_free_micros_in_period: int | None = dataclasses.field(default=None, kw_only=True)
+    replay_vision_credit_paid_micros_in_period: int | None = dataclasses.field(default=None, kw_only=True)
+    replay_vision_overage_micros_in_period: int | None = dataclasses.field(default=None, kw_only=True)
+    replay_vision_free_micros_in_period: int | None = dataclasses.field(default=None, kw_only=True)
 
 
 @dataclasses.dataclass
@@ -3290,6 +3323,7 @@ def has_non_zero_usage(report: UsageReportCounters) -> bool:
         or report.workflow_sms_sent_in_period > 0
         or report.workflow_billable_invocations_in_period > 0
         or report.replay_vision_credits_used_in_period > 0
+        or (isinstance(report, OrgReport) and any(getattr(report, key) for key in AI_GATEWAY_USAGE_KEYS))
     )
 
 
@@ -4020,6 +4054,84 @@ def iter_reports_with_offline_evaluation_usage(
         )
 
 
+def _ai_prepaid_credits_enabled(organization_id: str) -> bool:
+    # Fails closed. Billing gates the same keys on the same flag. The flag stays off before an organization's
+    # start day, while the old AI counters still bill every call.
+    try:
+        enabled = posthoganalytics.feature_enabled(
+            AI_PREPAID_CREDITS_FLAG,
+            organization_id,
+            groups={"organization": organization_id},
+            group_properties={"organization": {"id": organization_id}},
+            send_feature_flag_events=False,
+        )
+    except Exception:
+        logger.warning("ai_prepaid_credits_flag_check_failed", organization_id=organization_id, exc_info=True)
+        return False
+    return enabled is True
+
+
+def _ai_gateway_usage_by_org(rows: Iterable[BillingUsageRow]) -> dict[str, dict[str, int]]:
+    by_org: dict[str, dict[str, int]] = {}
+    skipped: Counter[str] = Counter()
+    for row in rows:
+        if row.product not in AI_GATEWAY_BILLING_PRODUCTS:
+            skipped[row.product] += 1
+            continue
+        usage = by_org.setdefault(row.org_id, dict.fromkeys(AI_GATEWAY_USAGE_KEYS, 0))
+        usage[_ai_gateway_usage_key(row.product, "credit_paid")] += row.credit_paid_micros
+        usage[_ai_gateway_usage_key(row.product, "overage")] += row.overage_micros
+        usage[_ai_gateway_usage_key(row.product, "free")] += row.free_micros
+    if skipped:
+        logger.warning("ai_gateway_usage_unknown_products_skipped", rows_by_product=dict(skipped))
+    return by_org
+
+
+def _read_ai_gateway_usage(period: DayRange, organization_ids: Sequence[str] | None) -> dict[str, dict[str, int]]:
+    day = period.start.date().isoformat()
+    day_end = period.start + timedelta(days=1)
+    try:
+        usage = get_billing_usage(interval="day", start=period.start, end=day_end, org_ids=organization_ids or ())
+        if usage.final_through < day_end:
+            logger.warning(
+                "ai_gateway_usage_skipped",
+                day=day,
+                reason=f"the day is not final: final_through is {usage.final_through.isoformat()}",
+            )
+            return {}
+        return _ai_gateway_usage_by_org(usage.rows)
+    except Exception as err:
+        logger.warning("ai_gateway_usage_skipped", day=day, reason=str(err))
+        # A deployment without the gateway and a gateway without the route are normal states, so they send no
+        # error event.
+        if not isinstance(err, AIGatewayNotConfigured | AIGatewayRouteNotFound):
+            capture_exception(err)
+        return {}
+
+
+def add_ai_gateway_usage(
+    org_reports: dict[str, OrgReport], period: DayRange, *, organization_ids: Sequence[str] | None = None
+) -> None:
+    """Set the AI gateway's usage keys for the day on the reports of organizations with the ai-prepaid-credits flag.
+
+    The keys stay off every report when the read fails or the gateway's day is not final. The rest of each report
+    does not change.
+    """
+    without_report = 0
+    for organization_id, usage in _read_ai_gateway_usage(period, organization_ids).items():
+        report = org_reports.get(organization_id)
+        if report is None:
+            without_report += 1
+            continue
+        # Check the flag only for organizations with gateway rows, not for every organization in the run.
+        if not _ai_prepaid_credits_enabled(organization_id):
+            continue
+        for key, micros in usage.items():
+            setattr(report, key, micros)
+    if without_report:
+        logger.warning("ai_gateway_usage_organizations_without_report", count=without_report)
+
+
 def _get_all_org_reports(*, period: DayRange) -> dict[str, OrgReport]:
     logger.info("Querying all org reports", period_start=period.start, period_end=period.end)
 
@@ -4056,7 +4168,7 @@ def _get_full_org_usage_report_as_dict(full_report: FullUsageReport) -> dict[str
         **dataclasses.asdict(full_report),
         "has_non_zero_usage": has_non_zero_usage(full_report),
     }
-    for field in ("usage_sources", "counter_comparisons"):
+    for field in ("usage_sources", "counter_comparisons", *AI_GATEWAY_USAGE_KEYS):
         if report[field] is None:
             del report[field]
     return report
@@ -4260,6 +4372,8 @@ def send_all_org_usage_reports(
             found_org_count=filtered_count,
             missing_orgs=missing_orgs or None,
         )
+
+    add_ai_gateway_usage(org_reports, period, organization_ids=organization_ids)
 
     filtering_properties: dict[str, Any] = {"filtered": organization_ids is not None}
     if organization_ids:
