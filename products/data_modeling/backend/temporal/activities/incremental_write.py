@@ -34,6 +34,7 @@ from django.conf import settings
 
 import pyarrow as pa
 import pyarrow.compute as pc
+from pyarrow.lib import concat_batches
 
 from posthog.temporal.common.errors import NonReportableError
 
@@ -53,6 +54,9 @@ _SPILL_FILE = "keys.sqlite3"
 # A materialization batch is about 100 MB, so a narrow key-only table sends ~12M rows at once, and the
 # group-by hash table for that many rows dwarfs the stored keys. Checking in slices keeps that bounded.
 UNIQUE_KEY_CHECK_SLICE_ROWS = 1_000_000
+
+_ROW_NUMBER = "__ph_row_number"
+_FIRST_ROW_NUMBER = f"{_ROW_NUMBER}_min"
 
 
 class IncrementalWriteError(Exception):
@@ -152,9 +156,16 @@ class UniqueKeyTracker:
     in the batch's small table, which is much cheaper than regrouping everything seen so far.
     """
 
-    def __init__(self, unique_key: tuple[str, ...], max_bytes: int = MAX_UNIQUE_KEY_CHECK_BYTES) -> None:
+    def __init__(
+        self,
+        unique_key: tuple[str, ...],
+        max_bytes: int = MAX_UNIQUE_KEY_CHECK_BYTES,
+        *,
+        drop_repeated_keys: bool = False,
+    ) -> None:
         self._columns = list(unique_key)
         self._max_bytes = max_bytes
+        self._drop_repeated_keys = drop_repeated_keys
         self._seen_chunks: list[pa.Table] = []
         self._seen_bytes = 0
         self._spill: sqlite3.Connection | None = None
@@ -239,7 +250,7 @@ class UniqueKeyTracker:
             self._store(chunk)
         self._seen_chunks = []
 
-    def check(self, batch: pa.RecordBatch) -> None:
+    def check(self, batch: pa.RecordBatch) -> pa.RecordBatch:
         """Fail if ``batch`` has a missing, null, or duplicate key — including a key already seen
         in an earlier batch of this run. Meant to run before the batch is written, so a violating
         batch never lands."""
@@ -250,20 +261,26 @@ class UniqueKeyTracker:
                 f"Update the incremental configuration to match the query's columns."
             )
         assert_no_null_keys(batch, tuple(self._columns))
+        kept_slices: list[pa.RecordBatch] = []
         try:
             with self._running:
                 for offset in range(0, max(batch.num_rows, 1), UNIQUE_KEY_CHECK_SLICE_ROWS):
                     self._raise_if_closed()
-                    self._check_slice(batch.slice(offset, UNIQUE_KEY_CHECK_SLICE_ROWS))
+                    kept_slices.append(self._check_slice(batch.slice(offset, UNIQUE_KEY_CHECK_SLICE_ROWS)))
         finally:
             if self._closed.is_set():
                 self.close()
+        if not self._drop_repeated_keys or sum(kept.num_rows for kept in kept_slices) == batch.num_rows:
+            return batch
+        return kept_slices[0] if len(kept_slices) == 1 else concat_batches(kept_slices)
 
-    def _check_slice(self, batch: pa.RecordBatch) -> None:
+    def _check_slice(self, batch: pa.RecordBatch) -> pa.RecordBatch:
+        if self._drop_repeated_keys:
+            return self._first_unseen_rows(batch)
         keys = pa.Table.from_batches([batch]).select(self._columns)
         if self._spill is not None:
             self._check_disk(keys)
-            return
+            return batch
         grouped = keys.group_by(self._columns).aggregate([([], "count_all")])
         worst = pc.max(grouped.column("count_all")).as_py() if grouped.num_rows != keys.num_rows else 1
         if self._seen_chunks:
@@ -276,11 +293,42 @@ class UniqueKeyTracker:
         if worst > 1:
             raise self._duplicate_key_error(worst)
 
-        distinct = grouped.select(self._columns).combine_chunks()
+        self._remember(grouped.select(self._columns))
+        return batch
+
+    def _remember(self, distinct_keys: pa.Table) -> None:
+        if self._spill is not None:
+            self._store(distinct_keys)
+            return
+        distinct = distinct_keys.combine_chunks()
         self._seen_chunks.append(distinct)
         self._seen_bytes += distinct.nbytes
         if self._seen_bytes > self._max_bytes:
             self._start_spill()
+
+    def _first_unseen_rows(self, batch: pa.RecordBatch) -> pa.RecordBatch:
+        row_numbers = pa.array(range(batch.num_rows), type=pa.int64())
+        keys = pa.Table.from_batches([batch]).select(self._columns).append_column(_ROW_NUMBER, row_numbers)
+        first_rows = keys.group_by(self._columns).aggregate([(_ROW_NUMBER, "min")])
+        unseen = self._unseen_on_disk(first_rows) if self._spill is not None else self._unseen_in_memory(first_rows)
+        self._remember(unseen.select(self._columns))
+        if unseen.num_rows == batch.num_rows:
+            return batch
+        return batch.filter(pc.is_in(row_numbers, value_set=unseen.column(_FIRST_ROW_NUMBER).combine_chunks()))
+
+    def _unseen_in_memory(self, first_rows: pa.Table) -> pa.Table:
+        if not self._seen_chunks:
+            return first_rows
+        return pa.concat_tables(self._seen_chunks).join(first_rows, keys=self._columns, join_type="right anti")
+
+    def _unseen_on_disk(self, first_rows: pa.Table) -> pa.Table:
+        assert self._spill is not None
+        lookup = "SELECT 1 FROM unique_keys WHERE key = ?"
+        unseen = [
+            self._spill.execute(lookup, key).fetchone() is None
+            for key in self._spill_keys(first_rows.select(self._columns))
+        ]
+        return first_rows.filter(pa.array(unseen, type=pa.bool_()))
 
 
 def max_of(batch: pa.RecordBatch, column: str, running: Any = None) -> Any:

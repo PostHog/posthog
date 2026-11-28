@@ -11,6 +11,7 @@ from products.data_modeling.backend.facade.contracts import IncrementalConfig
 from products.data_modeling.backend.logic.incremental_eligibility import (
     check_incremental_eligibility,
     propose_incremental_config,
+    repeated_keys_are_event_duplicates,
 )
 
 DAY_KEY = IncrementalConfig(incremental_key="day", unique_key=("day",))
@@ -745,3 +746,75 @@ class TestProposeIncrementalConfig(SimpleTestCase):
         )
 
         assert proposed is None
+
+
+class TestRepeatedKeysAreEventDuplicates(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("plain_projection_keyed_on_uuid", "SELECT uuid, timestamp, event FROM events", ("uuid",), True),
+            (
+                "filtered_and_qualified",
+                "SELECT e.uuid AS event_id, e.timestamp FROM events AS e WHERE e.event = '$pageview'",
+                ("event_id", "timestamp"),
+                True,
+            ),
+            ("key_without_the_event_uuid", "SELECT uuid, timestamp, event FROM events", ("event",), False),
+            ("a_property_named_uuid", "SELECT properties.uuid AS uuid, timestamp FROM events", ("uuid",), False),
+            ("not_the_events_table", "SELECT id AS uuid, created_at FROM persons", ("uuid",), False),
+            ("array_join_fans_out_an_event", "SELECT uuid, tag FROM events ARRAY JOIN [1, 2] AS tag", ("uuid",), False),
+            (
+                "join_fans_out_an_event",
+                "SELECT e.uuid FROM events AS e JOIN persons AS p ON e.person_id = p.id",
+                ("uuid",),
+                False,
+            ),
+            ("grouped", "SELECT uuid, max(timestamp) AS ts FROM events GROUP BY uuid", ("uuid",), False),
+            ("aggregates_without_grouping", "SELECT any(uuid) AS uuid FROM events", ("uuid",), False),
+            ("unparseable", "SELECT FROM", ("uuid",), False),
+            ("star", "SELECT * FROM events", ("uuid",), True),
+            ("qualified_star", "SELECT e.* FROM events AS e", ("uuid",), True),
+            ("second_name_for_the_uuid", "SELECT uuid, uuid AS event_id, timestamp FROM events", ("event_id",), True),
+            ("star_with_a_column_renamed_to_uuid", "SELECT *, event AS uuid FROM events", ("uuid",), False),
+            (
+                "array_join_function_fans_out_an_event",
+                "SELECT uuid, timestamp, arrayJoin([1, 2]) AS tag FROM events",
+                ("uuid",),
+                False,
+            ),
+            (
+                "array_join_function_in_a_filter",
+                "SELECT uuid, timestamp FROM events WHERE arrayJoin([1, 2]) > 0",
+                ("uuid",),
+                False,
+            ),
+            (
+                "cte_named_events",
+                "WITH events AS (SELECT event AS uuid, timestamp FROM posthog.events) SELECT uuid, timestamp FROM events",
+                ("uuid",),
+                False,
+            ),
+            ("events_in_another_namespace", "SELECT uuid, timestamp FROM system.events", ("uuid",), False),
+            (
+                "linked_warehouse_field",
+                "SELECT uuid, timestamp, events.orders.order_id AS order_id FROM events",
+                ("uuid",),
+                False,
+            ),
+            (
+                "unqualified_linked_field",
+                "SELECT uuid, timestamp, orders.order_id AS order_id FROM events",
+                ("uuid",),
+                False,
+            ),
+            (
+                "event_properties_are_columns_of_the_event",
+                "SELECT e.uuid, e.properties.$browser AS browser FROM events AS e WHERE properties.plan = 'pro'",
+                ("uuid",),
+                True,
+            ),
+        ]
+    )
+    def test_only_a_stored_event_row_keyed_on_its_uuid_counts(
+        self, _name: str, query: str, unique_key: tuple[str, ...], expected: bool
+    ) -> None:
+        assert repeated_keys_are_event_duplicates(query, unique_key) is expected

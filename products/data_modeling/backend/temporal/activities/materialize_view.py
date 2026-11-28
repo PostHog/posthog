@@ -61,6 +61,7 @@ from products.data_modeling.backend.facade.api import (
     DESCRIBE_QUERY_SETTINGS,
     THERE_IS_NO_COLUMN_ERROR_CODE,
     DescribedColumn,
+    IncrementalConfig,
     IncrementalFilterError,
     WritePlan,
     clear_incremental_state,
@@ -73,6 +74,7 @@ from products.data_modeling.backend.facade.api import (
     print_describe_variant,
     record_incremental_history,
     rename_described_columns,
+    repeated_keys_are_event_duplicates,
     resolve_write_plan,
     set_incremental_state,
     wrap_with_incremental_guard,
@@ -1004,6 +1006,13 @@ async def _start_query(progress: _AttemptProgress | None, logger: FilteringBound
     return query_id
 
 
+def _unique_key_tracker(hogql_query: str, config: IncrementalConfig) -> UniqueKeyTracker:
+    return UniqueKeyTracker(
+        config.unique_key,
+        drop_repeated_keys=repeated_keys_are_event_duplicates(hogql_query, config.unique_key),
+    )
+
+
 async def _open_delta_table(table_uri: str, storage_options: dict[str, str]) -> deltalake.DeltaTable:
     return await asyncio.to_thread(deltalake.DeltaTable, table_uri, storage_options=storage_options)
 
@@ -1047,7 +1056,7 @@ async def _materialize_fully(
     watermark: typing.Any = None
     # The declared unique key is enforced while seeding too: a table born with null or duplicate
     # keys would break every later upsert's contract, silently.
-    tracker = UniqueKeyTracker(plan.config.unique_key) if plan.config is not None else None
+    tracker = _unique_key_tracker(hogql_query, plan.config) if plan.config is not None else None
     person_property_complete_table_read = person_property_sink is not None and person_property_staging_cleared
 
     # write each batch as its own delta commit, imitating the data_imports pipeline
@@ -1069,7 +1078,7 @@ async def _materialize_fully(
             batch = arrow_batch_transforms._transform_unsigned_integers(batch)
             batch = arrow_batch_transforms._force_nullable(batch)
             if tracker is not None:
-                await asyncio.to_thread(tracker.check, batch)
+                batch = await asyncio.to_thread(tracker.check, batch)
             progress.enter("staging person properties")
             staged = await _stage_person_property_batch(person_property_sink, batch_index, batch, fatal=False)
             person_property_complete_table_read = person_property_complete_table_read and staged
@@ -1178,7 +1187,7 @@ async def _materialize_incrementally(
 
     row_count = 0
     watermark: typing.Any = None
-    tracker = UniqueKeyTracker(config.unique_key)
+    tracker = _unique_key_tracker(hogql_query, config)
     # Staged per attempt, never cleared: a retry resumes past the watermark the failed attempt
     # already saved, so its staged rows are that window's only record (see PersonPropertyRowSink).
     batch_index = 0
@@ -1202,7 +1211,10 @@ async def _materialize_incrementally(
             assert_schema_matches(batch, target_schema)
             # Checked before the upsert so a duplicate split across batches fails the run instead
             # of the later batch silently replacing the earlier one.
-            await asyncio.to_thread(tracker.check, batch)
+            batch = await asyncio.to_thread(tracker.check, batch)
+            if batch.num_rows == 0:
+                progress.enter("reading from ClickHouse")
+                continue
             progress.enter("staging person properties")
             await _stage_person_property_batch(person_property_sink, batch_index, batch, fatal=True)
             batch_index += 1
