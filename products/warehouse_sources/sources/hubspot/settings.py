@@ -290,6 +290,12 @@ class HubspotEndpointConfig:
     # sync near-empty rows, and listing those names by hand risks requesting properties a portal
     # doesn't have. The property list is still truncated by the URL-length / search caps.
     discover_all_properties: bool = False
+    # Whether HubSpot's CRM Objects Search API (POST .../search) accepts this object type. An
+    # endpoint with False always syncs through the GET path (get_rows), which ignores the
+    # incremental watermark, so it is not offered append mode (see `HubspotSource.get_schemas`).
+    # Every endpoint is searchable today: engagement objects (emails, calls, meetings, notes, tasks,
+    # communications) all return 200 from search in production.
+    supports_search: bool = True
 
 
 HUBSPOT_ENDPOINTS: dict[str, HubspotEndpointConfig] = {

@@ -329,11 +329,15 @@ class HubspotSource(ResumableSource[HubspotSourceConfig | HubspotSourceOldConfig
 
             endpoint_config = HUBSPOT_ENDPOINT_CONFIGS[endpoint]
             supports_incremental = bool(endpoint_config.cursor_filter_property_field)
+            # Without search, every run goes through the GET path, which returns the whole table
+            # regardless of the watermark. Merge mode dedupes that on id; append mode would add a
+            # full copy of the table on every sync, so it is not offered.
+            supports_append = supports_incremental and endpoint_config.supports_search
             schemas.append(
                 SourceSchema(
                     name=endpoint,
                     supports_incremental=supports_incremental,
-                    supports_append=supports_incremental,
+                    supports_append=supports_append,
                     incremental_fields=endpoint_config.incremental_fields,
                     should_sync_default=endpoint_config.should_sync_default,
                 )
@@ -456,6 +460,8 @@ class HubspotSource(ResumableSource[HubspotSourceConfig | HubspotSourceOldConfig
         """Route to the search-based incremental path only when:
         - the schema is configured for incremental sync,
         - the endpoint supports incremental (has a cursor filter property),
+        - the endpoint's object type is searchable via HubSpot's CRM Objects Search API
+          (see `HubspotEndpointConfig.supports_search`),
         - the initial full sync has completed (so we have a meaningful watermark and the
           delta is small enough that per-page association backfills are cheap),
         - the pipeline isn't being reset.
@@ -470,6 +476,8 @@ class HubspotSource(ResumableSource[HubspotSourceConfig | HubspotSourceOldConfig
             return False
         endpoint_config = HUBSPOT_ENDPOINT_CONFIGS.get(inputs.schema_name)
         if endpoint_config is None or not endpoint_config.cursor_filter_property_field:
+            return False
+        if not endpoint_config.supports_search:
             return False
         from products.warehouse_sources.sources.sdk import ExternalDataSchema
 

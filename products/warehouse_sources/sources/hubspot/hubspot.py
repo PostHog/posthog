@@ -938,6 +938,9 @@ def hubspot_source(
     if use_search_path and not endpoint_config.cursor_filter_property_field:
         raise ValueError(f"Search path requested for {endpoint} but endpoint has no cursor_filter_property_field")
 
+    if use_search_path and not endpoint_config.supports_search:
+        raise ValueError(f"Search path requested for {endpoint} but its object type is not searchable")
+
     if use_search_path:
         items = lambda: get_rows_via_search(
             api_key=api_key,
