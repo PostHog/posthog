@@ -109,18 +109,24 @@ export function InboxScopeFilter(): JSX.Element {
                 <LemonButton
                     size="small"
                     type="secondary"
+                    // The label can truncate, so the tooltip names the full scope above the help text.
                     tooltip={
-                        needsYouScopeAvailable
-                            ? "See the reports suggested to you, the reports waiting on your input or claimed by you, every report in the project, or a teammate's"
-                            : "See the reports suggested to you, the reports you claimed, every report in the project, or a teammate's"
+                        <>
+                            <div className="font-semibold">{triggerLabel}</div>
+                            <div>
+                                {needsYouScopeAvailable
+                                    ? "See the reports suggested to you, the reports waiting on your input or claimed by you, every report in the project, or a teammate's"
+                                    : "See the reports suggested to you, the reports you claimed, every report in the project, or a teammate's"}
+                            </div>
+                        </>
                     }
-                    // Name the active scope for assistive tech. Without this, LemonButton copies the
-                    // string tooltip into aria-label, so a screen reader hears the help text and never
-                    // the current scope.
+                    // Name the active scope for assistive tech. Without this, a screen reader hears the
+                    // help text in the tooltip and never the current scope.
                     aria-label={`Report scope: ${triggerLabel}`}
+                    truncate
                     data-attr="inbox-scope-filter"
                 >
-                    <span className="max-w-[160px] truncate">{triggerLabel}</span>
+                    <span className="block max-w-[160px] truncate">{triggerLabel}</span>
                 </LemonButton>
             )}
         </MemberSelect>

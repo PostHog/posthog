@@ -176,6 +176,8 @@ export function InboxSourceFilter(): JSX.Element {
                 size="small"
                 type="secondary"
                 aria-label={`Source: ${label}`}
+                tooltip={`Source: ${label}`}
+                truncate
                 sideAction={
                     hasSelection
                         ? {
@@ -189,7 +191,7 @@ export function InboxSourceFilter(): JSX.Element {
                 }
                 data-attr="inbox-filter-source"
             >
-                <span className="max-w-[200px] truncate">{label}</span>
+                <span className="block max-w-[200px] truncate">{label}</span>
             </LemonButton>
         </LemonDropdown>
     )

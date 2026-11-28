@@ -414,10 +414,10 @@ export function ReportsTab(): JSX.Element {
 
     return (
         <div className="mx-auto flex w-full max-w-4xl flex-col gap-4 px-6 py-3">
-            {/* When the row runs out of room it wraps at the divider: filters on one line, sort and
-                scope on the next. The divider sits in the gap left of the sort group, so on a wrapped
-                line it falls outside the clipped edge instead of leading the line. The sort group
-                grows so scope always ends the row. */}
+            {/* The wide row stays on one line. When it runs out of room, the sort shows only its icon,
+                and the source and scope labels truncate. Those two are siblings in one flex line, so
+                they share the shrink in proportion to their own widths. The divider sits in the gap
+                left of the sort. */}
             <div className="@container -mx-1 overflow-x-clip px-1">
                 <div className="flex items-center gap-2 @2xl:hidden">
                     <InboxFiltersPanel />
@@ -426,14 +426,14 @@ export function ReportsTab(): JSX.Element {
                         <InboxScopeFilter />
                     </div>
                 </div>
-                <div className="hidden flex-wrap items-center gap-2 @2xl:flex">
+                <div className="hidden items-center gap-2 @2xl:flex">
                     <InboxReportFilters />
-                    <div className="relative flex flex-1 items-center gap-2">
+                    <div className="relative flex shrink-0">
                         <LemonDivider vertical className="absolute inset-y-1 -left-[5px] m-0" />
                         <InboxSortSelect />
-                        <div className="ml-auto shrink-0">
-                            <InboxScopeFilter />
-                        </div>
+                    </div>
+                    <div className="ml-auto flex min-w-0">
+                        <InboxScopeFilter />
                     </div>
                 </div>
             </div>
