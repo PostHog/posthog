@@ -74,10 +74,10 @@ describe('adventCalendarAccessLogic with posthog-js', () => {
         jest.resetModules()
         delete window.POSTHOG_GLOBAL_ERRORS
         delete window.POSTHOG_FEATURE_FLAGS_LOADED
-        const pending = [...replies]
+        let reply = replies[0]
         global.fetch = jest.fn(async (url: RequestInfo | URL) => {
             if (String(url).includes('/flags/')) {
-                return flagsResponse(pending.shift() ?? 'blocked')
+                return flagsResponse(reply)
             }
             return new Response('{}', { status: 200 })
         }) as typeof fetch
@@ -109,7 +109,8 @@ describe('adventCalendarAccessLogic with posthog-js', () => {
             logic.mount()
         }
         const seen = [logic.values.calendarOn]
-        for (let reload = 1; reload < replies.length; reload++) {
+        for (const next of replies.slice(1)) {
+            reply = next
             posthog.reloadFeatureFlags()
             await jest.advanceTimersByTimeAsync(1000)
             seen.push(logic.values.calendarOn)
@@ -147,12 +148,27 @@ describe('adventCalendarAccessLogic with posthog-js', () => {
         }
     })
 
-    it.each<[string, Reply, PageDecision, boolean]>([
-        ['a returning visitor stored without the flag sees the page decision on', 'flag off', 'on', true],
-        ['a returning visitor stored with the flag on sees the switch-off', 'flag on', 'left out', false],
-    ])('%s when the next page is blocked', async (_name, earlierReply, page, expected) => {
-        await openCalendar('on', [earlierReply], 'after the first reply')
+    it.each<[string, Reply, PageDecision, Reply, boolean]>([
+        ['a returning visitor stored without the flag sees the page decision on', 'flag off', 'on', 'blocked', true],
+        [
+            'a returning visitor stored without the flag sees the page decision on',
+            'flag off',
+            'on',
+            'bad gateway',
+            true,
+        ],
+        ['a returning visitor stored with the flag on sees the switch-off', 'flag on', 'left out', 'blocked', false],
+    ])(
+        '%s (earlier reply %s, page %s) when the next page gets %s',
+        async (_name, earlierReply, page, failure, expected) => {
+            await openCalendar('on', [earlierReply], 'after the first reply')
 
-        expect(await openCalendar(page, ['blocked'], 'after the first reply')).toEqual([expected])
-    })
+            for (const opened of ['before the first reply', 'after the first reply'] as const) {
+                expect({ opened, seen: await openCalendar(page, [failure], opened) }).toEqual({
+                    opened,
+                    seen: [expected],
+                })
+            }
+        }
+    )
 })
