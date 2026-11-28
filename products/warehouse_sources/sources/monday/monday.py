@@ -7,7 +7,12 @@ from structlog.types import FilteringBoundLogger
 from tenacity import retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
 from products.warehouse_sources.sources.monday.settings import MONDAY_ENDPOINTS
-from products.warehouse_sources.sources.sdk import SourceResponse, make_tracked_session, retry_with_deadline
+from products.warehouse_sources.sources.sdk import (
+    SourceResponse,
+    make_tracked_session,
+    reach_safe_point,
+    retry_with_deadline,
+)
 
 MONDAY_API_URL = "https://api.monday.com/v2"
 # Framework version labels. monday releases a dated version every quarter and selects it with the
@@ -35,6 +40,8 @@ UPDATES_PAGE_SIZE = 100
 BOARD_SUBSCRIBERS_PAGE_SIZE = 25
 # team_owners/team_subscribers page with their own limit; 25 is monday's default for both.
 BOARD_TEAMS_PAGE_SIZE = 25
+# Stops a board whose team list never ends a page short from looping; 1,000 teams per board is far past real use.
+BOARD_TEAMS_MAX_PAGES = 40
 # activity_logs accepts up to 10,000 per request; a smaller page keeps each query's complexity low.
 ACTIVITY_LOGS_PAGE_SIZE = 1000
 REQUEST_TIMEOUT_SECONDS = 120
@@ -148,6 +155,7 @@ query ($limit: Int!, $page: Int!) {
     created_at
     updated_at
     edited_at
+    replies { id kind creator_id body text_body created_at updated_at edited_at }
   }
 }
 """
@@ -469,6 +477,16 @@ def get_rows(
         page = 1
         last_page_size = len(first_page)
         while last_page_size >= BOARD_TEAMS_PAGE_SIZE:
+            if page >= BOARD_TEAMS_MAX_PAGES:
+                logger.warning(
+                    "monday.com board team list hit the page cap",
+                    endpoint=endpoint,
+                    board_id=board_id,
+                    team_field=team_field,
+                    max_pages=BOARD_TEAMS_MAX_PAGES,
+                )
+                break
+            reach_safe_point()
             page += 1
             data = execute(
                 _board_team_page_query(team_field),
@@ -507,7 +525,15 @@ def get_rows(
         return
 
     if endpoint == "updates":
-        yield from iterate_paged(_UPDATES_QUERY, "updates", page_size=UPDATES_PAGE_SIZE)
+        # Updates come newest first, so a comment posted mid-walk pushes the previous page's last rows onto
+        # the next page. Deletions mid-walk can still skip a row until the next refresh.
+        previous_page_ids: set[str] = set()
+        for updates in iterate_paged(_UPDATES_QUERY, "updates", page_size=UPDATES_PAGE_SIZE):
+            page_ids = {update["id"] for update in updates}
+            fresh_updates = [update for update in updates if update["id"] not in previous_page_ids]
+            previous_page_ids = page_ids
+            if fresh_updates:
+                yield fresh_updates
         return
 
     if endpoint == "teams":
@@ -533,6 +559,8 @@ def get_rows(
             board_tags = new_tags([tag for board in boards for tag in (board.get("tags") or [])])
             if board_tags:
                 yield board_tags
+            else:
+                reach_safe_point()
         return
 
     if endpoint == "board_subscribers":
@@ -542,10 +570,9 @@ def get_rows(
             {"teamLimit": BOARD_TEAMS_PAGE_SIZE},
             page_size=BOARD_SUBSCRIBERS_PAGE_SIZE,
         ):
-            rows = [
-                row
-                for board in boards
-                for row in _board_subscriber_rows(
+            yielded = False
+            for board in boards:
+                rows = _board_subscriber_rows(
                     board["id"],
                     owner_ids=_ids(board.get("owners")),
                     subscriber_ids=_ids(board.get("subscribers")),
@@ -554,9 +581,11 @@ def get_rows(
                         board["id"], "team_subscribers", _ids(board.get("team_subscribers"))
                     ),
                 )
-            ]
-            if rows:
-                yield rows
+                if rows:
+                    yielded = True
+                    yield rows
+            if not yielded:
+                reach_safe_point()
         return
 
     if endpoint == "board_columns":

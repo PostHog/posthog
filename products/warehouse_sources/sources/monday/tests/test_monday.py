@@ -8,6 +8,7 @@ from products.warehouse_sources.sources.monday._config import MondaySourceConfig
 from products.warehouse_sources.sources.monday.monday import (
     ACTIVITY_LOGS_PAGE_SIZE,
     BOARD_SUBSCRIBERS_PAGE_SIZE,
+    BOARD_TEAMS_MAX_PAGES,
     BOARD_TEAMS_PAGE_SIZE,
     ITEMS_PAGE_SIZE,
     MONDAY_VERSION_2026_07,
@@ -22,7 +23,14 @@ from products.warehouse_sources.sources.monday.monday import (
 )
 from products.warehouse_sources.sources.monday.source import MondaySource
 from products.warehouse_sources.sources.sdk import IncrementalFieldType
-from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
+from products.warehouse_sources.sources.sdk.testing import (
+    RecordedRequest,
+    ScriptedResponse,
+    SourceDriver,
+    activate_safe_point,
+    always,
+    scripted_network,
+)
 
 API_VERSION = MONDAY_VERSION_2026_07
 
@@ -67,6 +75,18 @@ class TestGetRowsPaged:
         assert len(result.rows) == page_size + 1
         assert result.requests[0].json()["variables"] == {"limit": page_size, "page": 1}
         assert result.requests[1].json()["variables"] == {"limit": page_size, "page": 2}
+
+    def test_updates_drop_rows_a_new_comment_pushed_onto_the_next_page(self) -> None:
+        first_page = [{"id": str(i)} for i in range(UPDATES_PAGE_SIZE)]
+        shifted_page = [{"id": str(UPDATES_PAGE_SIZE - 1)}, {"id": "older"}]
+        result = _driver().run(
+            "updates",
+            [_response({"updates": first_page}), _response({"updates": shifted_page})],
+            api_version=API_VERSION,
+        )
+
+        assert result.raised is None
+        assert [row["id"] for row in result.rows] == [*(str(i) for i in range(UPDATES_PAGE_SIZE)), "older"]
 
     def test_graphql_error_raises(self) -> None:
         result = _driver().run(
@@ -385,3 +405,71 @@ class TestGetRowsBoardSubscribers:
         overflow_request = result.requests[1].json()
         assert "team_subscribers (limit: $limit, page: $page)" in overflow_request["query"]
         assert overflow_request["variables"] == {"boardId": ["b1"], "limit": BOARD_TEAMS_PAGE_SIZE, "page": 2}
+
+    def test_stops_paging_a_team_list_at_the_page_cap(self):
+        full_team_page = [{"id": "t"} for _ in range(BOARD_TEAMS_PAGE_SIZE)]
+
+        def respond(request: RecordedRequest) -> ScriptedResponse:
+            if "team_subscribers (limit: $limit, page: $page)" in request.json()["query"]:
+                return ScriptedResponse(json={"data": {"boards": [{"team_subscribers": full_team_page}]}})
+            board = {"id": "b1", "owners": [], "subscribers": [], "team_owners": [], "team_subscribers": full_team_page}
+            return ScriptedResponse(json={"data": {"boards": [board]}})
+
+        result = _driver().run("board_subscribers", respond)
+
+        assert result.raised is None
+        assert len(result.requests) == BOARD_TEAMS_MAX_PAGES
+        assert result.requests[-1].json()["variables"]["page"] == BOARD_TEAMS_MAX_PAGES
+
+
+class TestSafePoints:
+    @pytest.mark.parametrize(
+        "endpoint, script, expected_safe_points",
+        [
+            (
+                "tags",
+                [
+                    ScriptedResponse(json={"data": {"tags": []}}),
+                    ScriptedResponse(
+                        json={"data": {"boards": [{"id": f"b{i}", "tags": []} for i in range(PAGE_SIZE)]}}
+                    ),
+                    ScriptedResponse(json={"data": {"boards": [{"id": "last", "tags": None}]}}),
+                ],
+                2,
+            ),
+            (
+                "board_subscribers",
+                [
+                    ScriptedResponse(
+                        json={
+                            "data": {
+                                "boards": [
+                                    {
+                                        "id": f"b{i}",
+                                        "owners": [],
+                                        "subscribers": [],
+                                        "team_owners": [],
+                                        "team_subscribers": [],
+                                    }
+                                    for i in range(BOARD_SUBSCRIBERS_PAGE_SIZE)
+                                ]
+                            }
+                        }
+                    ),
+                    ScriptedResponse(json={"data": {"boards": []}}),
+                ],
+                1,
+            ),
+        ],
+    )
+    def test_board_pages_with_no_rows_reach_a_safe_point(self, endpoint, script, expected_safe_points):
+        safe_points: list[None] = []
+
+        with (
+            scripted_network(script),
+            activate_safe_point(lambda: safe_points.append(None), covers_framework_checkpoints=False),
+        ):
+            rows = list(get_rows("token", endpoint, mock.MagicMock(), API_VERSION))
+
+        assert rows == []
+        assert len(safe_points) == expected_safe_points

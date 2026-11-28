@@ -124,7 +124,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
         },
     },
     "updates": {
-        "description": "An update on a monday.com item — a comment posted in the item's updates section.",
+        "description": "An update on a monday.com item: a comment posted in the item's updates section, with its replies.",
         "docs_url": "https://developer.monday.com/api-reference/reference/updates",
         "columns": {
             "id": "Unique identifier for the update.",
@@ -135,6 +135,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "created_at": "Time at which the update was created.",
             "updated_at": "Time at which the update was last updated.",
             "edited_at": "Time at which the update's body was last edited.",
+            "replies": "The replies posted to the update, each with its id, author, body and timestamps.",
         },
     },
     "teams": {
