@@ -18,7 +18,7 @@ from posthog.schema import HogQLQueryResponse
 from posthog.hogql import ast
 from posthog.hogql.database.models import DANGEROUS_NoTeamIdCheckTable, DatabaseField, TableNode
 from posthog.hogql.errors import QueryError, ServerConfigurationQueryError, TransientQueryError
-from posthog.hogql.escape_sql import escape_clickhouse_identifier
+from posthog.hogql.escape_sql import backquote_clickhouse_identifier, escape_clickhouse_identifier
 from posthog.hogql.functions.prompt_jev import PromptJevCall, PromptJevFinder, is_decision_call
 from posthog.hogql.type_system import constant_type_from_runtime_type, parse_clickhouse_type
 from posthog.hogql.visitor import CloningVisitor, TraversingVisitor, clone_expr
@@ -62,8 +62,19 @@ class _ResultField(DatabaseField):
 
 class _ResultTable(DANGEROUS_NoTeamIdCheckTable):
     # These rows have already passed the source query's tenant and resource access checks.
+    # clickhouse_driver cannot send a Tuple column of an external table that has no rows, so an
+    # empty result reads from a null() table with the same structure instead.
+    empty_structure: str | None = None
+
     def to_printed_clickhouse(self, context: "HogQLContext") -> str:
         return escape_clickhouse_identifier(self.name or "")
+
+    def to_printed_clickhouse_table_ref(self, context: "HogQLContext", use_logical_alias: bool = True) -> str:
+        name = self.to_printed_clickhouse(context)
+        if self.empty_structure is None:
+            return name
+        table = f"null({context.add_value(self.empty_structure)})"
+        return f"{table} AS {name}" if use_logical_alias else table
 
     def to_printed_hogql(self) -> str:
         return self.name or ""
@@ -93,16 +104,23 @@ class PromptJevTable:
     def register(self, context: "HogQLContext") -> None:
         assert context.database is not None
         names = [column.name for column in self.columns]
-        context.external_tables[self.name] = {
-            "name": self.name,
-            "structure": [(column.name, column.clickhouse_type) for column in self.columns],
-            "data": [dict(zip(names, row)) for row in self.rows],
-        }
+        empty_structure: str | None = None
+        if self.rows:
+            context.external_tables[self.name] = {
+                "name": self.name,
+                "structure": [(column.name, column.clickhouse_type) for column in self.columns],
+                "data": [dict(zip(names, row)) for row in self.rows],
+            }
+        else:
+            empty_structure = ", ".join(
+                f"{backquote_clickhouse_identifier(column.name)} {column.clickhouse_type}" for column in self.columns
+            )
         context.database.tables.add_child(
             TableNode(
                 name=self.name,
                 table=_ResultTable(
                     name=self.name,
+                    empty_structure=empty_structure,
                     fields={
                         column.name: _ResultField(
                             name=column.name,

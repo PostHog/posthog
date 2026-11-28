@@ -959,7 +959,19 @@ class TestSavedQuery(APIBaseTest):
         response_json = response.json()
         assert "Invalid query" in response_json["detail"]
 
-    def test_create_with_jev_saves_without_model_call(self):
+    @parameterized.expand(
+        [
+            ("yes_no", "jev(s.text, 'Is this a refund request?') AS verdict", ["id", "verdict"]),
+            ("choice", "jev(s.text, 'Which kind?', choice := ['pageview', 'other']) AS verdict", ["id", "verdict"]),
+            (
+                "choice_and_yes_no",
+                "jev(s.text, 'Which kind?', choice := ['pageview', 'other']) AS verdict, "
+                "decide(s.text, 'Is this a refund request?') AS refund",
+                ["id", "verdict", "refund"],
+            ),
+        ]
+    )
+    def test_create_with_jev_saves_without_model_call(self, _name: str, jev_columns: str, expected_columns: list[str]):
         with (
             patch("httpx.AsyncClient.post") as post,
             patch.object(
@@ -973,15 +985,15 @@ class TestSavedQuery(APIBaseTest):
                     "query": {
                         "kind": "HogQLQuery",
                         "query": (
-                            "SELECT s.id AS id, jev(s.text, 'Is this a refund request?') AS verdict "
-                            "FROM (SELECT toString(uuid) AS id, toString(event) AS text FROM events LIMIT 100) AS s"
+                            f"SELECT s.id AS id, {jev_columns} "
+                            "FROM (SELECT toString(uuid) AS id, toString(event) AS text FROM events LIMIT 100) AS s LIMIT 100"
                         ),
                     },
                 },
             )
 
         assert response.status_code == 201, response.content
-        assert [column["name"] for column in response.json()["columns"]] == ["id", "verdict"]
+        assert [column["name"] for column in response.json()["columns"]] == expected_columns
         post.assert_not_called()
         # Each plan runs the jev source query on ClickHouse, so validation and the column read share one.
         assert plan.call_count == 1
