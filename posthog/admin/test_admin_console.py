@@ -90,6 +90,8 @@ from posthog.admin.console.tools import (
     Table,
     TableSelect,
     ToolOperation,
+    paginate,
+    paginate_facade,
 )
 from posthog.admin.console.urls import moved_url_patterns
 from posthog.admin.console.user_panels import is_acting_as
@@ -111,6 +113,10 @@ from posthog.models.team.team import Team
 from posthog.models.tophog.queries import TopHogFilterOptions
 from posthog.models.user import User, UserType
 from posthog.models.utils import generate_random_token_personal, hash_key_value, mask_key_value
+from posthog.paging import (
+    Page as FacadePage,
+    PageRequest,
+)
 from posthog.session.models import Session
 from posthog.session_recordings.models.session_recording_event import SessionRecordingViewed
 from posthog.test.api_keys import create_project_secret_api_key
@@ -775,6 +781,49 @@ class TestAdminConsoleLongFacts(SimpleTestCase):
 
         assert ("Show all" in html) == collapsed
         assert fact.value in html
+
+
+class TestAdminConsolePaging(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("first_page", "", [0, 1], 1, None, "?status=open&status=draft&page=2"),
+            ("past_the_end", "&page=99", [4], 3, "?status=open&status=draft&page=2", None),
+            ("not_a_number", "&page=x", [0, 1], 1, None, "?status=open&status=draft&page=2"),
+        ]
+    )
+    def test_a_page_keeps_its_filters_and_never_shows_rows_of_another_page(
+        self, _name: str, page_query: str, rows: list[int], number: int, previous_url: str | None, next_url: str | None
+    ) -> None:
+        request = RequestFactory().get(f"/admin/console/tools/report/?status=open&status=draft{page_query}")
+
+        paged = paginate(request, range(5), noun="team", per_page=2)
+
+        assert paged.rows == rows
+        assert paged.paging == Paging(
+            number=number, num_pages=3, summary="5 teams", previous_url=previous_url, next_url=next_url
+        )
+
+    @parameterized.expand(
+        [
+            ("first_page", "", [0, 1], 1),
+            ("past_the_end", "?page=99", [4], 3),
+            ("past_any_offset", "?page=99999999999999999999", [4], 3),
+        ]
+    )
+    def test_a_facade_page_past_the_end_shows_the_last_page(
+        self, _name: str, query: str, rows: list[int], number: int
+    ) -> None:
+        def fetch(page: PageRequest) -> FacadePage[int]:
+            assert page.offset < 2**63, "the offset would overflow a Postgres bigint"
+            return FacadePage(results=list(range(5))[page.offset : page.offset + page.limit], count=5)
+
+        paged = paginate_facade(RequestFactory().get(f"/{query}"), fetch, noun="team", per_page=2)
+
+        assert paged.rows == rows
+        assert paged.paging is not None and paged.paging.number == number
+
+    def test_an_empty_list_has_no_pager(self) -> None:
+        assert paginate(RequestFactory().get("/"), [], noun="team").paging is None
 
 
 class TestAdminConsoleFormField(SimpleTestCase):

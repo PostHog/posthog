@@ -5,7 +5,6 @@ from typing import Any
 
 from django import forms
 from django.contrib import messages
-from django.core.paginator import Paginator
 from django.db.models import Count, Q, QuerySet
 from django.http import HttpRequest, HttpResponse
 from django.urls import reverse
@@ -29,13 +28,13 @@ from posthog.admin.console.tools import (
     Filters,
     Notice,
     Page,
-    Paging,
     Row,
     Stat,
     Stats,
     Table,
     TableSelect,
     ToolOperation,
+    paginate,
 )
 from posthog.models.data_deletion_request import DataDeletionRequest, ExecutionMode, RequestStatus, RequestType
 from posthog.models.team.team import Team
@@ -346,16 +345,11 @@ class DeletionRequestsTool(ConsoleTool):
 
     def page(self, request: HttpRequest) -> Page:
         form = DeletionRequestFilterForm(request.GET or None)
-        page = Paginator(_filtered_requests(form), REQUESTS_PER_PAGE).get_page(request.GET.get("page"))
-        requests = list(page.object_list)
+        paged = paginate(request, _filtered_requests(form), noun="request", per_page=REQUESTS_PER_PAGE)
+        requests = paged.rows
         team_names = dict(Team.objects.filter(pk__in={obj.team_id for obj in requests}).values_list("id", "name"))
         can_approve = Gate.owner().resolve(self.owner).allows(request)
-        query = request.GET.copy()
         rows = tuple(_request_row(obj, team_names, can_approve) for obj in requests)
-
-        def page_url(number: int) -> str:
-            query["page"] = str(number)
-            return f"?{query.urlencode()}"
 
         return Page(
             blocks=(
@@ -393,19 +387,7 @@ class DeletionRequestsTool(ConsoleTool):
                         else None
                     ),
                 ),
-                *(
-                    (
-                        Paging(
-                            number=page.number,
-                            num_pages=page.paginator.num_pages,
-                            summary=f"{page.paginator.count:,} requests",
-                            previous_url=page_url(page.previous_page_number()) if page.has_previous() else None,
-                            next_url=page_url(page.next_page_number()) if page.has_next() else None,
-                        ),
-                    )
-                    if page.paginator.count
-                    else ()
-                ),
+                *((paged.paging,) if paged.paging else ()),
                 _clickhouse_team_members(),
             )
         )

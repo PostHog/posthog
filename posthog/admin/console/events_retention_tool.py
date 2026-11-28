@@ -1,13 +1,12 @@
 from datetime import UTC, datetime
 from itertools import groupby
 
-from django.core.paginator import Paginator
 from django.http import HttpRequest
 from django.urls import reverse
 
 from posthog.admin.console.deletion_request_panels import CLICKHOUSE
 from posthog.admin.console.registry import console
-from posthog.admin.console.tools import Cell, ConsoleTool, GroupRow, Notice, Page, Paging, Row, Table
+from posthog.admin.console.tools import Cell, ConsoleTool, GroupRow, Notice, Page, Row, Table, paginate
 from posthog.models.events_retention_config import (
     ConfiguredEventsRetention,
     configured_events_retention,
@@ -72,8 +71,10 @@ class EventsRetentionTool(ConsoleTool):
 
     def page(self, request: HttpRequest) -> Page:
         # The paginator only works out the page bounds, so the query reads the rows of one page.
-        page = Paginator(range(count_configured_events_retention()), TEAMS_PER_PAGE).get_page(request.GET.get("page"))
-        retention = configured_events_retention(offset=max(page.start_index() - 1, 0), limit=len(page.object_list))
+        positions = paginate(request, range(count_configured_events_retention()), noun="team", per_page=TEAMS_PER_PAGE)
+        retention = configured_events_retention(
+            offset=positions.rows[0] if positions.rows else 0, limit=len(positions.rows)
+        )
         now = datetime.now(UTC)
 
         rows: list[Row | GroupRow] = []
@@ -82,13 +83,6 @@ class EventsRetentionTool(ConsoleTool):
             rows.append(_organization_row(team_list[0]))
             rows.extend(_team_row(item, now) for item in team_list)
 
-        paging = Paging(
-            number=page.number,
-            num_pages=page.paginator.num_pages,
-            summary=f"{page.paginator.count} teams",
-            previous_url=f"?page={page.previous_page_number()}" if page.has_previous() else None,
-            next_url=f"?page={page.next_page_number()}" if page.has_next() else None,
-        )
         return Page(
             blocks=(
                 Notice(
@@ -104,7 +98,7 @@ class EventsRetentionTool(ConsoleTool):
                     rows=tuple(rows),
                     empty_text="No team has a deletion retention yet. Set one on the organization or team page.",
                 ),
-                *((paging,) if page.paginator.count else ()),
+                *((positions.paging,) if positions.paging else ()),
             )
         )
 
