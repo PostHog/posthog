@@ -52,6 +52,8 @@ type Judged = Pick<MeasureEvidence, 'counters' | 'unread' | 'horizonAt' | 'conve
 const evidence = (journal: JournalEntry[], truth: TruthRecord[], judged: Judged): MeasureEvidence => ({
     journal,
     truth,
+    truthFrom: 0,
+    unobserved: [],
     fetchRetries: 3,
     samples: [],
     missed: [],
