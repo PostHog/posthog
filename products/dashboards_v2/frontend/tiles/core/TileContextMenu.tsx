@@ -1,4 +1,4 @@
-import type { MouseEvent, ReactNode } from 'react'
+import { type MouseEvent, type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
 
 import { IconEllipsis } from '@posthog/icons'
 import {
@@ -45,20 +45,62 @@ export function hasTileMenu(actions: MenuAction[]): boolean {
     return actions.some(isUsable)
 }
 
+function whileLoading(action: MenuAction): MenuAction {
+    if (!action.needsLoaded) {
+        return action
+    }
+    return { ...action, disabledReason: action.disabledReason ?? 'Still loading', loading: true }
+}
+
+/** Marks a tile that is not mounted yet. Its menu and an image capture tell it apart from a tile that is loading. */
+export const TILE_PLACEHOLDER_CLASS = 'DashboardTileGrid__placeholder'
+
+/**
+ * The tile does not know what its panel is doing, so it reads the busy mark that every loading state sets. An off-screen
+ * tile's placeholder is busy too, but an image capture mounts it, so it does not count.
+ */
+function isLoading(root: HTMLElement): boolean {
+    return Array.from(root.querySelectorAll('[aria-busy="true"]')).some(
+        (element) => !element.closest(`.${TILE_PLACEHOLDER_CLASS}`)
+    )
+}
+
 /**
  * Opens the tile's actions on right-click. When the person may use none of them, it renders the children alone so the
  * browser's own menu still shows.
  */
 export function TileContextMenu({ actions, children }: { actions: MenuAction[]; children: ReactNode }): JSX.Element {
+    const trigger = useRef<HTMLDivElement>(null)
+    const [open, setOpen] = useState(false)
+    const [loading, setLoading] = useState(false)
+    const shown = useMemo(() => (loading ? actions.map(whileLoading) : actions), [actions, loading])
+    // The tile can finish loading while its menu is open, so the menu watches for that until it closes.
+    useEffect(() => {
+        const root = trigger.current
+        if (!open || !root) {
+            return
+        }
+        const observer = new MutationObserver(() => setLoading(isLoading(root)))
+        observer.observe(root, { subtree: true, childList: true, attributes: true, attributeFilter: ['aria-busy'] })
+        return () => observer.disconnect()
+    }, [open])
     if (!hasTileMenu(actions)) {
         return <>{children}</>
     }
     return (
-        <ContextMenu>
+        <ContextMenu
+            onOpenChange={(next) => {
+                setOpen(next)
+                if (next && trigger.current) {
+                    setLoading(isLoading(trigger.current))
+                }
+            }}
+        >
             <ContextMenuTrigger
                 render={
                     // A tile inside a section has its own menu, so its right-click must not also open the section's.
                     <div
+                        ref={trigger}
                         className="TileContextMenu__trigger contents"
                         onContextMenu={(event) => event.stopPropagation()}
                     />
@@ -68,7 +110,7 @@ export function TileContextMenu({ actions, children }: { actions: MenuAction[]; 
             </ContextMenuTrigger>
             {/* Returning focus to the trigger would blur a rename input the menu just opened. */}
             <ContextMenuContent finalFocus={false}>
-                <MenuActionList actions={actions} parts={CONTEXT_MENU_PARTS} />
+                <MenuActionList actions={shown} parts={CONTEXT_MENU_PARTS} />
             </ContextMenuContent>
         </ContextMenu>
     )

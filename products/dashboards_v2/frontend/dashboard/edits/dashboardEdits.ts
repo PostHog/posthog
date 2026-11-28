@@ -28,6 +28,12 @@ export type LayoutEdit =
     | { edit: 'removeTile'; id: string }
     /** Shows the tile's panel on another grid too. Both tiles then share its content, such as a chart's query. */
     | { edit: 'addToGrid'; id: string; grid: string }
+    /**
+     * Puts a copy under the tile, in the same grid. The copy has its own content, so a change to one leaves the other.
+     * A section is copied with every tile in it, except the ones in `without`, such as tiles whose panel type does not
+     * allow a copy.
+     */
+    | { edit: 'duplicateTile'; id: string; without?: string[] }
     | { edit: 'autoLayout'; grid: string; columns: number }
     | { edit: 'updateSection'; id: string; patch: Partial<Pick<SectionPanel, 'title'>> }
     /** With `href`, the new tab is a link elsewhere and holds no tiles. */
@@ -103,13 +109,21 @@ function changeGrid(dashboard: Dashboard, gridId: string, change: (tiles: Tile[]
     )
 }
 
-function newId(dashboard: Dashboard, prefix: string): string {
+/** Gives ids the dashboard does not use yet. Each one it gives is taken too, so one edit can add several tiles. */
+function newIds(dashboard: Dashboard): (prefix: string) => string {
     const taken = new Set([...dashboard.tabs.map((tab) => tab.id), ...allTiles(dashboard).map((tile) => tile.id)])
-    let n = taken.size + 1
-    while (taken.has(`${prefix}${n}`)) {
-        n++
+    return (prefix) => {
+        let n = taken.size + 1
+        while (taken.has(`${prefix}${n}`)) {
+            n++
+        }
+        taken.add(`${prefix}${n}`)
+        return `${prefix}${n}`
     }
-    return `${prefix}${n}`
+}
+
+function newId(dashboard: Dashboard, prefix: string): string {
+    return newIds(dashboard)(prefix)
 }
 
 function moveTile(
@@ -200,6 +214,41 @@ function addToGrid(dashboard: Dashboard, edit: Extract<DashboardEdit, { edit: 'a
     return changeGrid(shared, edit.grid, (tiles) => [...tiles, copy])
 }
 
+function gridIdOf(dashboard: Dashboard, id: string): string | null {
+    const holds = (tiles: Tile[]): boolean => tiles.some((tile) => tile.id === id)
+    const tab = gridTabs(dashboard).find((candidate) => holds(candidate.tiles))
+    const section = allTiles(dashboard).find((tile) => isSection(tile) && holds(tile.panel.tiles))
+    return tab?.id ?? section?.id ?? null
+}
+
+function copyOf(tile: Tile, nextId: (prefix: string) => string, without: string[]): Tile {
+    if (isSectionPanel(tile.panel)) {
+        const tiles = tile.panel.tiles
+            .filter((inner) => !without.includes(inner.id))
+            .map((inner) => copyOf(inner, nextId, without))
+        return { ...tile, id: nextId('section'), panel: { ...tile.panel, tiles } }
+    }
+    const { ref: _shared, ...panel } = tile.panel
+    return { ...tile, id: nextId('tile'), panel }
+}
+
+function duplicateTile(dashboard: Dashboard, edit: Extract<DashboardEdit, { edit: 'duplicateTile' }>): Dashboard {
+    const tile = findTile(dashboard, edit.id)
+    const grid = gridIdOf(dashboard, edit.id)
+    if (!tile || !grid) {
+        return dashboard
+    }
+    const y = tile.place.y + tile.place.h
+    const copy = { ...copyOf(tile, newIds(dashboard), edit.without ?? []), place: { ...tile.place, y } }
+    // Everything from the copy's row down moves by its height, and settling brings back up what it did not need to push.
+    return changeGrid(dashboard, grid, (tiles) => [
+        ...tiles.map((other) =>
+            other.place.y >= y ? { ...other, place: { ...other.place, y: other.place.y + copy.place.h } } : other
+        ),
+        copy,
+    ])
+}
+
 function applyOnce(dashboard: Dashboard, edit: DashboardEdit, view: View, sizeOf: SizeOf): Dashboard {
     switch (edit.edit) {
         case 'placeTiles': {
@@ -232,6 +281,8 @@ function applyOnce(dashboard: Dashboard, edit: DashboardEdit, view: View, sizeOf
             return changeTileEverywhere(dashboard, edit.id, () => null)
         case 'addToGrid':
             return addToGrid(dashboard, edit)
+        case 'duplicateTile':
+            return duplicateTile(dashboard, edit)
         case 'autoLayout': {
             const grid = findGrid(dashboard, edit.grid)
             return grid

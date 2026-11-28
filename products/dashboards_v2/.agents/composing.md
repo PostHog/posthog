@@ -183,7 +183,7 @@ const panels = [createChartPanel({ runQuery }), createCustomPanel({ packages: [w
 - Documents save the full name, so renaming a namespace or a content breaks saved dashboards.
 - Two packages with one namespace throw when the panel type is made.
 - Load each `Component` with `React.lazy`, so code that only checks documents never loads it.
-- By default a content has no menu entries and cannot be dragged, resized, moved or removed. Set `movable` or `menuActions` to opt in. Neither is a permission: anyone who can edit the dashboard's JSON can still move or remove the tile.
+- By default a content has no menu entries and cannot be dragged, resized, moved or removed. Set `movable`, `duplicable` or `menuActions` to opt in. `duplicable` adds Duplicate to the menu, which every other panel type has unless its spec's `duplicable` returns false. A duplicated section leaves out the tiles that cannot be duplicated, and says which. None is a permission: anyone who can edit the dashboard's JSON can still move, copy or remove the tile.
 - Set `showOnInteractiveOnly` to leave the tile out of images and printed pages.
 - Set `keepMounted` when the component holds state a person would lose when the tile scrolls out of view.
 - A content that differs between tiles takes props. Wrap it in `defineContent({ propsSchema, Component })`, and a tile saves the values as `config: { content: 'apm/slow-spans', props: { service: 'checkout' } }`. The props are checked against the schema before the component gets them.
