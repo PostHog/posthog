@@ -522,9 +522,9 @@ export function DefinitionView(rawProps: DefinitionLogicProps): JSX.Element {
                     <SceneDivider />
                     {showUsageSection ? (
                         <DefinitionUsageSection
-                            queryCount={metrics?.query_usage_30_day ?? null}
-                            queryCountLoading={metricsLoading}
-                            queryCountFailed={metricsFailed}
+                            queryUsage={metrics}
+                            queryUsageLoading={metricsLoading}
+                            queryUsageFailed={metricsFailed}
                             insightsLogicProps={{ definitionType: 'event', name: definition.name }}
                         />
                     ) : (

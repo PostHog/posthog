@@ -1,10 +1,10 @@
 import dataclasses
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any, Optional, cast
 from uuid import uuid4
 
 import time_machine
-from posthog.test.base import APIBaseTest
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin, run_clickhouse_statement_in_parallel
 from unittest.mock import ANY, patch
 
 from django.core.cache import cache
@@ -22,9 +22,12 @@ from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
 from posthog.api.test.test_user import create_user
 from posthog.constants import EventDefinitionType
+from posthog.hogql_queries.utils.event_usage import EVENT_USAGE_APP_SOURCE, PROPERTY_USAGE_APP_SOURCE
 from posthog.models import ActivityLog, Organization, Tag, Team
+from posthog.models.app_metrics2.sql import TRUNCATE_APP_METRICS2_TABLE_SQL
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.taxonomy import definition_search
+from posthog.test.fixtures import create_app_metric2
 
 from products.actions.backend.facade.testing import create_action
 from products.event_definitions.backend.models import EventDefinition
@@ -1005,6 +1008,36 @@ class TestEventDefinitionAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK, response.json()
         assert not ActivityLog.objects.filter(scope="EventDefinition", item_id=str(ed.id)).exists()
+
+
+class TestEventDefinitionMetricsAPI(ClickhouseTestMixin, APIBaseTest):
+    @time_machine.travel(datetime(2026, 3, 20, 12, tzinfo=UTC), tick=False)
+    def test_counts_only_usage_of_this_event(self) -> None:
+        cache.clear()
+        run_clickhouse_statement_in_parallel([TRUNCATE_APP_METRICS2_TABLE_SQL])
+        definition = EventDefinition.objects.create(team=self.team, name="$pageview")
+        for app_source, instance_id, count in (
+            (EVENT_USAGE_APP_SOURCE, "event:$pageview", 3),
+            (EVENT_USAGE_APP_SOURCE, "event:$pageleave", 20),
+            (PROPERTY_USAGE_APP_SOURCE, "event:$pageview", 40),
+        ):
+            create_app_metric2(
+                team_id=self.team.pk,
+                app_source=app_source,
+                instance_id=instance_id,
+                metric_kind="success",
+                metric_name="viewed",
+                timestamp=datetime(2026, 3, 20, 9, tzinfo=UTC),
+                count=count,
+            )
+
+        response = self.client.get(f"/api/projects/{self.team.pk}/event_definitions/{definition.id}/metrics/")
+
+        assert response.status_code == status.HTTP_200_OK
+        body = response.json()
+        assert body["query_usage_30_day"] == 3
+        assert body["query_usage_previous_30_day"] is None
+        assert body["query_usage_daily"][-1] == {"date": "2026-03-20", "count": 3}
 
 
 class TestScoutEventDefinitionWrites(APIBaseTest):

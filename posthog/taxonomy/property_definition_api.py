@@ -1,11 +1,9 @@
 import json
 import uuid
-import hashlib
 import functools
 import dataclasses
 from typing import Any, Optional, Self, Union, cast
 
-from django.core.cache import cache
 from django.db import connections
 from django.db.models import Field, Manager, QuerySet, TextChoices
 from django.http import Http404
@@ -24,7 +22,6 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.statement_timeout import statement_timeout
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
 from posthog.api.utils import action
-from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.constants import GROUP_TYPES_LIMIT
 from posthog.dataclasses import frozen
@@ -32,7 +29,7 @@ from posthog.event_usage import report_user_action
 from posthog.filters import TermSearchFilterBackend, term_search_filter_sql
 from posthog.helpers.impersonation import is_impersonated
 from posthog.hogql_queries.utils.event_usage import PROPERTY_USAGE_APP_SOURCE, property_usage_instance_id
-from posthog.models import Team, User
+from posthog.models import User
 from posthog.models.activity_logging.activity_log import Detail, log_activity
 from posthog.models.utils import UUIDT
 from posthog.settings import EE_AVAILABLE
@@ -42,13 +39,13 @@ from posthog.taxonomy.definition_listing import (
     definition_read_db_alias,
 )
 from posthog.taxonomy.definition_search import search_plan
+from posthog.taxonomy.query_usage import QueryUsageSerializer, fetch_query_usage
 from posthog.taxonomy.taxonomy import (
     CORE_FILTER_DEFINITIONS_BY_GROUP,
     PROPERTY_NAME_ALIASES,
     PROPERTY_NAME_ALIASES_BY_TYPE,
     QUERY_DEPRECATED_EVENT_PROPERTIES,
 )
-from posthog.utils import relative_date_parse
 
 from products.event_definitions.backend.models import EventProperty, PropertyDefinition
 from products.event_definitions.backend.models.property_definition import effective_project_id_expr
@@ -119,7 +116,6 @@ class PropertyDefinitionTypeSerializerMixin(serializers.Serializer):
 
 
 MAX_USAGE_METRICS_PROPERTIES = 100
-USAGE_METRICS_CACHE_TTL_SECONDS = 24 * 60 * 60
 
 
 @frozen
@@ -131,43 +127,6 @@ class _PropertyUsageKey:
     @property
     def instance_id(self) -> str:
         return property_usage_instance_id(self.type, self.name, self.group_type_index)
-
-
-def _usage_metrics_cache_key(team_id: int, key: _PropertyUsageKey) -> str:
-    # Property names can contain characters that are invalid in cache keys; hash them.
-    digest = hashlib.sha256(key.instance_id.encode()).hexdigest()[:32]
-    return f"property_definition:usage_30d:{team_id}:{digest}"
-
-
-def _fetch_property_usage(team: Team, keys: list[_PropertyUsageKey]) -> dict[_PropertyUsageKey, int]:
-    tag_queries(product=Product.PRODUCT_ANALYTICS, feature=Feature.PROPERTY_DEFINITION_SCENE)
-    instance_ids = {key.instance_id: key for key in keys}
-    rows = sync_execute(
-        """
-        SELECT instance_id, sum(count)
-        FROM app_metrics2
-        WHERE team_id = %(team_id)s
-          AND app_source = %(app_source)s
-          AND metric_name = %(metric_name)s
-          AND timestamp >= toDateTime64(%(after)s, 6)
-          AND instance_id IN %(instance_ids)s
-        GROUP BY instance_id
-        """,
-        {
-            "team_id": team.pk,
-            "app_source": PROPERTY_USAGE_APP_SOURCE,
-            "metric_name": "viewed",
-            "after": relative_date_parse("30d", team.timezone_info).strftime("%Y-%m-%dT%H:%M:%S"),
-            "instance_ids": list(instance_ids),
-        },
-        team_id=team.pk,
-    )
-    counts = dict.fromkeys(keys, 0)
-    for instance_id, total in rows or []:
-        key = instance_ids.get(instance_id)
-        if key is not None:
-            counts[key] = int(total)
-    return counts
 
 
 class PropertyUsageEntrySerializer(serializers.Serializer):
@@ -214,7 +173,7 @@ class PropertyUsageMetricsRequestSerializer(serializers.Serializer):
         return value
 
 
-class PropertyUsageMetricsItemSerializer(serializers.Serializer):
+class PropertyUsageMetricsItemSerializer(QueryUsageSerializer):
     type = serializers.ChoiceField(
         choices=PropertyDefinitionTypeName.choices,
         help_text="Property definition type the name belongs to.",
@@ -223,12 +182,6 @@ class PropertyUsageMetricsItemSerializer(serializers.Serializer):
     group_type_index = serializers.IntegerField(
         allow_null=True,
         help_text="Group type index of a group property, null for other types.",
-    )
-    query_usage_30_day = serializers.IntegerField(
-        help_text=(
-            "Number of query executions in the last 30 days that referenced this property, "
-            "including cached insight views."
-        ),
     )
 
 
@@ -1122,8 +1075,8 @@ class PropertyDefinitionViewSet(
         summary="30-day query usage for a set of properties",
         description=(
             "Returns how many query executions referenced each property in the last 30 days, "
-            "including cached insight views. Batched: send up to "
-            f"{MAX_USAGE_METRICS_PROPERTIES} properties at once. Counts are cached for 24 hours."
+            "including cached insight views, with a daily breakdown and the total for the 30 days before. "
+            f"Batched: send up to {MAX_USAGE_METRICS_PROPERTIES} properties at once. Counts are cached for 24 hours."
         ),
     )
     @action(methods=["POST"], detail=False, required_scopes=["property_definition:read"], url_path="usage_metrics")
@@ -1132,30 +1085,15 @@ class PropertyDefinitionViewSet(
             _PropertyUsageKey(type=entry["type"], name=entry["name"], group_type_index=entry.get("group_type_index"))
             for entry in request.validated_data["properties"]
         ]
-
-        cache_keys = {key: _usage_metrics_cache_key(self.team_id, key) for key in set(keys)}
-        cached = cache.get_many(list(cache_keys.values()))
-        counts: dict[_PropertyUsageKey, int] = {}
-        missing: list[_PropertyUsageKey] = []
-        for key, cache_key in cache_keys.items():
-            if cache_key in cached:
-                counts[key] = cached[cache_key]
-            else:
-                missing.append(key)
-
-        if missing:
-            counts.update(_fetch_property_usage(self.team, missing))
-            cache.set_many(
-                {cache_keys[key]: counts[key] for key in missing},
-                timeout=USAGE_METRICS_CACHE_TTL_SECONDS,
-            )
+        tag_queries(product=Product.PRODUCT_ANALYTICS, feature=Feature.PROPERTY_DEFINITION_SCENE)
+        usage = fetch_query_usage(self.team, PROPERTY_USAGE_APP_SOURCE, [key.instance_id for key in keys])
 
         results = [
             {
                 "type": key.type,
                 "name": key.name,
                 "group_type_index": key.group_type_index,
-                "query_usage_30_day": counts.get(key, 0),
+                "usage": usage[key.instance_id],
             }
             for key in keys
         ]
