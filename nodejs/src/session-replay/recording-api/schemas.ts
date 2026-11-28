@@ -14,7 +14,7 @@ const nonNegativeIntString = (fieldName: string) =>
         .string({ error: `Missing ${fieldName} query parameter` })
         .regex(/^\d+$/, `Invalid ${fieldName} query parameter`)
         .transform(Number)
-        .pipe(z.number().nonnegative())
+        .pipe(z.number().int().nonnegative().lte(Number.MAX_SAFE_INTEGER))
 
 // Shared schema for recording path params
 export const RecordingParamsSchema = z.object({

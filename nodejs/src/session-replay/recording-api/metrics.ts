@@ -1,4 +1,4 @@
-import { Counter, Histogram } from 'prom-client'
+import { Counter, Gauge, Histogram } from 'prom-client'
 
 export type ClickHousePasswordFallbackReason = 'unreadable' | 'empty' | 'expired'
 
@@ -110,6 +110,24 @@ export class RecordingApiMetrics {
             | 'error'
     ): void {
         this.replayBlockRequests.labels({ result }).inc()
+    }
+
+    private static readonly internalBlockRejections = new Counter({
+        name: 'recording_api_internal_block_busy_total',
+        help: 'Internal block route requests refused because the process held its byte budget',
+    })
+
+    public static incrementInternalBlockBusy(): void {
+        this.internalBlockRejections.inc()
+    }
+
+    private static readonly internalBlockBytesInFlight = new Gauge({
+        name: 'recording_api_internal_block_bytes_in_flight',
+        help: 'Bytes of internal-route blocks this process holds',
+    })
+
+    public static setInternalBlockBytesInFlight(bytes: number): void {
+        this.internalBlockBytesInFlight.set(bytes)
     }
 
     private static readonly jwtVerificationFailures = new Counter({

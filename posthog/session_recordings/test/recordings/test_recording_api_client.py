@@ -12,7 +12,11 @@ from posthog.session_recordings.recordings.errors import (
     RecordingApiConfigurationError,
     RecordingDeletedError,
 )
-from posthog.session_recordings.recordings.recording_api_client import RecordingApiClient, recording_api_client
+from posthog.session_recordings.recordings.recording_api_client import (
+    BUSY_RETRIES,
+    RecordingApiClient,
+    recording_api_client,
+)
 from posthog.session_recordings.recordings.recording_api_jwt import recording_api_auth_headers
 
 AUTH_HEADERS = {"Authorization": "Bearer test-token"}
@@ -488,3 +492,33 @@ class TestConnectionRecycling:
                         await client.fetch_block("key", 0, 1, "session-1", 1)
 
         assert len(peers) == connections
+
+
+class TestBusyRetry:
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("busy_responses,expected", [(2, b"block"), (4, BlockFetchError)])
+    async def test_busy_recording_api_is_retried(self, busy_responses, expected):
+        attempts = 0
+
+        async def block(request: web.Request) -> web.Response:
+            nonlocal attempts
+            attempts += 1
+            if attempts <= busy_responses:
+                return web.json_response({"error": "Busy"}, status=503, headers={"Retry-After": "1"})
+            return web.Response(body=b"block")
+
+        app = web.Application()
+        app.router.add_get("/api/projects/{team}/recordings/{session}/block", block)
+        async with TestServer(app) as server:
+            with (
+                override_settings(RECORDING_API_JWT_SECRET="dev-secret"),
+                patch("posthog.session_recordings.recordings.recording_api_client.BUSY_RETRY_BASE_DELAY_SECONDS", 0),
+            ):
+                async with recording_api_client(1, base_url=str(server.make_url(""))) as client:
+                    if expected is BlockFetchError:
+                        with pytest.raises(BlockFetchError):
+                            await client.fetch_block("key", 0, 1, "session-1", 1)
+                    else:
+                        assert await client.fetch_block("key", 0, 1, "session-1", 1) == expected
+
+        assert attempts == min(busy_responses + 1, BUSY_RETRIES + 1)

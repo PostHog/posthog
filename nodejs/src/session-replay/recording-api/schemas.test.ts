@@ -67,6 +67,10 @@ describe('GetBlockQuerySchema', () => {
         { query: { key: 'k', start_byte: 'abc', end_byte: '100' }, desc: 'non-numeric start_byte' },
         { query: { key: 'k', start_byte: '0', end_byte: 'abc' }, desc: 'non-numeric end_byte' },
         { query: { key: 'k', start_byte: '1.5', end_byte: '100' }, desc: 'float start_byte' },
+        {
+            query: { key: 'k', start_byte: '0', end_byte: '1' + '0'.repeat(308) },
+            desc: 'end_byte past the safe integers',
+        },
         { query: { key: '', start_byte: '0', end_byte: '100' }, desc: 'empty key' },
     ])('rejects $desc', ({ query }) => {
         const result = GetBlockQuerySchema.safeParse(query)

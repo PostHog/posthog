@@ -95,6 +95,9 @@ export type RecordingApiBlocksConfig = {
     RECORDING_API_PUBLIC_BLOCK_BYTES_IN_FLIGHT: number
     // Deadline for one browser-route S3 read, body included. It sits under the Envoy route timeout.
     RECORDING_API_PUBLIC_BLOCK_READ_TIMEOUT_MS: number
+    // Bytes of internal-route blocks one process holds at once, counted at their served size. A request over it gets
+    // a 503, except when nothing else is in flight, so a block larger than the budget still serves on its own.
+    RECORDING_API_INTERNAL_BLOCK_BYTES_IN_FLIGHT: number
 }
 
 export function getDefaultRecordingApiBlocksConfig(): RecordingApiBlocksConfig {
@@ -115,6 +118,7 @@ export function getDefaultRecordingApiBlocksConfig(): RecordingApiBlocksConfig {
         RECORDING_API_MAX_PUBLIC_BLOCK_BYTES: 32 * 1024 * 1024,
         RECORDING_API_PUBLIC_BLOCK_BYTES_IN_FLIGHT: 256 * 1024 * 1024,
         RECORDING_API_PUBLIC_BLOCK_READ_TIMEOUT_MS: 10000,
+        RECORDING_API_INTERNAL_BLOCK_BYTES_IN_FLIGHT: 768 * 1024 * 1024,
     }
 }
 
@@ -212,21 +216,27 @@ export interface PublicBlockLimits {
     readTimeoutMs: number
 }
 
+type BlockLimitName =
+    | 'RECORDING_API_MAX_PUBLIC_BLOCK_BYTES'
+    | 'RECORDING_API_PUBLIC_BLOCK_BYTES_IN_FLIGHT'
+    | 'RECORDING_API_PUBLIC_BLOCK_READ_TIMEOUT_MS'
+    | 'RECORDING_API_INTERNAL_BLOCK_BYTES_IN_FLIGHT'
+
 // An empty or mistyped env value parses to NaN, which every comparison treats as no limit, so it must stop startup.
-export function parsePublicBlockLimits(config: Partial<RecordingApiBlocksConfig>): PublicBlockLimits {
-    const defaults = getDefaultRecordingApiBlocksConfig()
-    const read = (
-        name:
-            | 'RECORDING_API_MAX_PUBLIC_BLOCK_BYTES'
-            | 'RECORDING_API_PUBLIC_BLOCK_BYTES_IN_FLIGHT'
-            | 'RECORDING_API_PUBLIC_BLOCK_READ_TIMEOUT_MS'
-    ): number => {
-        const value = config[name] ?? defaults[name]
-        if (!Number.isFinite(value) || value <= 0) {
-            throw new Error(`${name} must be a positive number`)
-        }
-        return value
+function readPositiveLimit(config: Partial<RecordingApiBlocksConfig>, name: BlockLimitName): number {
+    const value = config[name] ?? getDefaultRecordingApiBlocksConfig()[name]
+    if (!Number.isFinite(value) || value <= 0) {
+        throw new Error(`${name} must be a positive number`)
     }
+    return value
+}
+
+export function parseInternalBlockBytesInFlight(config: Partial<RecordingApiBlocksConfig>): number {
+    return readPositiveLimit(config, 'RECORDING_API_INTERNAL_BLOCK_BYTES_IN_FLIGHT')
+}
+
+export function parsePublicBlockLimits(config: Partial<RecordingApiBlocksConfig>): PublicBlockLimits {
+    const read = (name: BlockLimitName): number => readPositiveLimit(config, name)
     return {
         maxBlockBytes: read('RECORDING_API_MAX_PUBLIC_BLOCK_BYTES'),
         bytesInFlight: read('RECORDING_API_PUBLIC_BLOCK_BYTES_IN_FLIGHT'),

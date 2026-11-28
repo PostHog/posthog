@@ -43,6 +43,7 @@ import {
     ReplayBlockBucket,
     ReplayBlockTier,
     getDefaultRecordingApiBlocksConfig,
+    parseInternalBlockBytesInFlight,
     parsePublicBlockLimits,
     parseRecordingApiRole,
     parseReplayBlockRateLimits,
@@ -54,11 +55,19 @@ import {
 const REPLAY_BLOCK_CACHE_CONTROL = 'private, max-age=14400, immutable'
 const PUBLIC_BLOCK_HOLD_CAP_MS = 30_000
 
+// Recording blocks compress several-fold with snappy, so a decompressed read is charged at this multiple until its size is known.
+const DECOMPRESSED_SIZE_ESTIMATE = 8
 const KEY_LOOKUP_TIMEOUT_MS = 1000
 // Each Redis, DynamoDB and KMS call gives up after this, so a lookup the listing abandoned does not pile up.
 
 function sendRecordingDeleted(res: express.Response, deletion: RecordingDeletedResult): void {
     res.status(410).json({ error: 'recording_deleted', deleted_at: deletion.deletedAt, deleted_by: deletion.deletedBy })
+}
+
+// The Python recording-api client retries exactly this reply, so both block routes send it the same way.
+function sendBusy(res: express.Response): void {
+    res.set('Retry-After', '1')
+    res.status(503).json({ error: 'Busy' })
 }
 
 export class RecordingApi {
@@ -75,6 +84,8 @@ export class RecordingApi {
     private readonly replayBlockBuckets: Record<ReplayBlockTier, ReplayBlockBucket> | null
     private publicBlockBytesInFlight = 0
     private readonly publicBlockLimits: PublicBlockLimits | null
+    private internalBlockBytesInFlight = 0
+    private readonly internalBlockBytesLimit: number
 
     // Postgres and the outputs are only used by internal routes, so a public process passes neither.
     constructor(
@@ -93,6 +104,7 @@ export class RecordingApi {
         // Staff tokens read blocks by ref on internal pods, so those pods cap block bytes in memory too.
         this.publicBlockLimits =
             this.servesPublicRoutes || this.servesStaffReads ? parsePublicBlockLimits(config) : null
+        this.internalBlockBytesLimit = parseInternalBlockBytesInFlight(config)
     }
 
     // Staff tokens are the only caller of the block-by-ref route, so a pod without the staff secret does not serve it.
@@ -360,7 +372,15 @@ export class RecordingApi {
             return
         }
 
-        // Call service
+        // Callers fan out many block reads at once, and each is held whole in memory, so a burst could exceed the pod limit.
+        const requestedBytes = (endByte - startByte + 1) * (decompress ? DECOMPRESSED_SIZE_ESTIMATE : 1)
+        if (!this.admitInternalBlock(requestedBytes)) {
+            RecordingApiMetrics.incrementInternalBlockBusy()
+            sendBusy(res)
+            return
+        }
+        let heldBytes = requestedBytes
+
         try {
             const result = await this.recordingService.getBlock({
                 sessionId,
@@ -369,6 +389,8 @@ export class RecordingApi {
                 startByte,
                 endByte,
                 decompress,
+                // A stalled S3 read would otherwise hold its share of the budget after the caller gave up.
+                timeoutMs: PUBLIC_BLOCK_HOLD_CAP_MS,
             })
 
             // Serialize response
@@ -381,11 +403,17 @@ export class RecordingApi {
                 return
             }
 
+            // A decompressed block is several times its stored size, so the budget holds what the response holds.
+            const sentBytes = Buffer.byteLength(result.data)
+            this.chargeInternalBlock(sentBytes - heldBytes)
+            heldBytes = 0
+            this.releaseWhenWritten(res, () => this.chargeInternalBlock(-sentBytes))
             const contentType = decompress ? 'application/jsonl' : 'application/octet-stream'
             res.set('Content-Type', contentType)
-            res.set('Content-Length', String(Buffer.byteLength(result.data)))
+            res.set('Content-Length', String(sentBytes))
             res.set('Cache-Control', 'public, max-age=2592000, immutable')
-            res.send(result.data)
+            res.write(result.data)
+            res.end()
         } catch (error) {
             logger.error('[RecordingApi] Error fetching block from S3', {
                 error: serializeError(error),
@@ -397,6 +425,8 @@ export class RecordingApi {
             })
             captureException(error)
             res.status(500).json({ error: 'Failed to fetch block from S3' })
+        } finally {
+            this.chargeInternalBlock(-heldBytes)
         }
     }
 
@@ -506,9 +536,34 @@ export class RecordingApi {
         return 'ok'
     }
 
+    // A block larger than the whole budget is admitted only when nothing else is held, so it still serves on its own.
+    private admitInternalBlock(bytes: number): boolean {
+        if (
+            this.internalBlockBytesInFlight > 0 &&
+            this.internalBlockBytesInFlight + bytes > this.internalBlockBytesLimit
+        ) {
+            return false
+        }
+        this.chargeInternalBlock(bytes)
+        return true
+    }
+
+    private chargeInternalBlock(delta: number): void {
+        if (delta === 0) {
+            return
+        }
+        this.internalBlockBytesInFlight += delta
+        RecordingApiMetrics.setInternalBlockBytesInFlight(this.internalBlockBytesInFlight)
+    }
+
     // The socket closes once the response is fully written or the client aborts. The timer covers anything that
     // emits neither, and outlasts the Envoy route timeout, which resets a stalled upstream response.
-    private releaseWhenWritten(res: express.Response, bytes: number): void {
+    private releaseWhenWritten(res: express.Response, onRelease: () => void): void {
+        // A caller that hung up during the read already emitted close, so nothing else would release its bytes.
+        if (res.writableFinished) {
+            onRelease()
+            return
+        }
         let released = false
         let finishEmitted = false
         res.once('finish', () => (finishEmitted = true))
@@ -516,7 +571,7 @@ export class RecordingApi {
             if (!released) {
                 released = true
                 clearTimeout(timer)
-                this.publicBlockBytesInFlight -= bytes
+                onRelease()
             }
         }
         const timer = setTimeout(release, PUBLIC_BLOCK_HOLD_CAP_MS)
@@ -607,8 +662,7 @@ export class RecordingApi {
                     return
                 }
                 if (result.error === 'busy') {
-                    res.set('Retry-After', '1')
-                    res.status(503).json({ error: 'Busy' })
+                    sendBusy(res)
                     return
                 }
                 res.status(404).json({ error: 'Block not found' })
@@ -634,8 +688,11 @@ export class RecordingApi {
                 return
             }
             // send() hands the whole buffer to uWS at once, so a slow reader would hold it after the budget frees it.
-            // A write with Content-Length set goes out under backpressure and closes the socket once fully written.
-            this.releaseWhenWritten(res, admittedBytes)
+            // A write with Content-Length set goes out under backpressure and emits socket close once fully written.
+            const writtenBytes = admittedBytes
+            this.releaseWhenWritten(res, () => {
+                this.publicBlockBytesInFlight -= writtenBytes
+            })
             admittedBytes = 0
             res.write(result.data)
             res.end()

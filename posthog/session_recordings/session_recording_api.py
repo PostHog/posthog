@@ -84,6 +84,7 @@ from posthog.models.activity_logging.activity_log import Detail, log_activity
 from posthog.models.comment import Comment
 from posthog.models.person.util import get_persons_mapped_by_distinct_id
 from posthog.models.utils import hash_key_value
+from posthog.oauth_provenance import get_oauth_access_token
 from posthog.otel_metrics import OtelInstrumentFactory
 from posthog.personhog_client.caller_tag import personhog_caller_tag
 from posthog.rate_limit import (
@@ -138,6 +139,7 @@ from .queries.sub_queries.events_subquery import ReplayFiltersEventsSubQuery
 MAX_RECORDINGS_PER_BULK_ACTION = 20
 # Matches recording-api's MAX_DELETE_SESSION_IDS — one downstream call per delete batch.
 MAX_RECORDINGS_PER_BULK_DELETE = 100
+SNAPSHOT_BLOCK_FETCH_CONCURRENCY = 10
 
 SNAPSHOTS_BY_PERSONAL_API_KEY_COUNTER = Counter(
     "snapshots_personal_api_key_counter",
@@ -224,6 +226,22 @@ _PLAYER_AUTHENTICATION_CLASSES = (
     SharingPasswordProtectedAuthentication,
     ExportRendererAuthentication,
 )
+
+
+# Every blob key in a range becomes a block that recording-api decompresses and holds in memory to serve.
+SNAPSHOT_MAX_BLOB_KEYS_PLAYER = 100
+SNAPSHOT_MAX_BLOB_KEYS_SCRIPTED = 20
+
+
+def _max_snapshot_blob_keys(request: Request) -> int:
+    authenticator = getattr(request, "successful_authenticator", None)
+    if isinstance(authenticator, (*_PLAYER_AUTHENTICATION_CLASSES, JwtAuthentication)):
+        return SNAPSHOT_MAX_BLOB_KEYS_PLAYER
+    application = getattr(get_oauth_access_token(request), "application", None)
+    # Only staff can mark an application first-party, so a client cannot opt itself into the player limit.
+    if application is not None and application.is_first_party:
+        return SNAPSHOT_MAX_BLOB_KEYS_PLAYER
+    return SNAPSHOT_MAX_BLOB_KEYS_SCRIPTED
 
 
 def _replay_proxy_token_for_player(request, team_id: int) -> str | None:
@@ -560,12 +578,10 @@ class SessionRecordingSnapshotsRequestSerializer(serializers.Serializer):
     def get_if_none_match(self) -> str | None:
         return self.context.get("if_none_match")
 
-    def validate(self, data):
+    def validate(self, data: dict[str, Any]) -> dict[str, Any]:
         source = data.get("source")
         start_blob_key = data.get("start_blob_key")
         end_blob_key = data.get("end_blob_key")
-        is_personal_api_key = self.context.get("is_personal_api_key")
-
         if source not in ["blob_v2", None]:
             raise exceptions.ValidationError("Invalid source must be one of [blob_v2, None]")
 
@@ -580,7 +596,7 @@ class SessionRecordingSnapshotsRequestSerializer(serializers.Serializer):
             except (ValueError, TypeError):
                 raise serializers.ValidationError("Blob keys must be integers")
 
-            max_blobs_allowed = 20 if is_personal_api_key else 100
+            max_blobs_allowed = self.context["max_blob_keys"]
             if int(end_blob_key) - int(start_blob_key) > max_blobs_allowed:
                 raise serializers.ValidationError(f"Cannot request more than {max_blobs_allowed} blob keys at once")
 
@@ -1632,7 +1648,7 @@ class SessionRecordingViewSet(
             SnapshotsSustainedRateThrottle,
         ],
     )
-    def snapshots(self, request: request.Request, **kwargs):
+    def snapshots(self, request: request.Request, **kwargs: Any) -> HttpResponse:
         """
         Clients need to call this API twice.
         First without a source parameter to get a list of sources supported by the given session.
@@ -1652,7 +1668,10 @@ class SessionRecordingViewSet(
         is_personal_api_key = auth_type == "personal_api_key"
         serializer = SessionRecordingSnapshotsRequestSerializer(
             data=request.GET.dict(),
-            context={"is_personal_api_key": is_personal_api_key, "if_none_match": request.headers.get("If-None-Match")},
+            context={
+                "max_blob_keys": _max_snapshot_blob_keys(request),
+                "if_none_match": request.headers.get("If-None-Match"),
+            },
         )
         serializer.is_valid(raise_exception=True)
         validated_data = serializer.validated_data
@@ -1908,17 +1927,21 @@ class SessionRecordingViewSet(
         api_client: RecordingApiClient,
         decompress: bool,
     ) -> BlockList:
+        # One request can name 100 blocks, and recording-api holds each in memory while it serves it.
+        concurrency = asyncio.Semaphore(SNAPSHOT_BLOCK_FETCH_CONCURRENCY)
+
         async def fetch_single_block(block_index: int) -> tuple[int, bytes | None]:
             try:
                 block = blocks[block_index]
-                content = await api_client.fetch_block(
-                    block.key,
-                    block.start_byte,
-                    block.end_byte,
-                    recording.session_id,
-                    self.team.id,
-                    decompress=decompress,
-                )
+                async with concurrency:
+                    content = await api_client.fetch_block(
+                        block.key,
+                        block.start_byte,
+                        block.end_byte,
+                        recording.session_id,
+                        self.team.id,
+                        decompress=decompress,
+                    )
                 return block_index, content
             except RecordingDeletedError:
                 # Let this propagate up to return a 410 response
