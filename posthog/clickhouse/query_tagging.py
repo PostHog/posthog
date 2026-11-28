@@ -545,6 +545,7 @@ class QueryTags(BaseModel):
     replay_event_filter_count: Optional[int] = None
     replay_event_query_property_filter_count: Optional[int] = None
     replay_combined_event_query_eligible: Optional[bool] = None
+    replay_unsessioned_event_filter_count: Optional[int] = None
     replay_event_query_operand: Optional[Literal["AND", "OR"]] = None
     replay_event_query_range_days: Optional[float] = None
     # The sessions table version a recordings-list read used, to compare v2 and v3 in the query log.
