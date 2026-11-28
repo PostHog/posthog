@@ -289,6 +289,12 @@ describe('SesWebhookHandler', () => {
             expect(perLink).not.toContain(signature)
         })
 
+        it('keeps a click on the preferences page in the per-link bucket it had before', async () => {
+            expect((await clickedLink(preferencesUrl)).perLink).toEqual(
+                expect.stringMatching(/https:\/\/app\.posthog\.com\/messaging-preferences\/\*$/)
+            )
+        })
+
         it.each([
             { case: 'a customer page under the same path', link: 'https://example.com/messaging-preferences/settings' },
             { case: 'a token for another purpose', link: `https://example.com/opt-out/${otherAudienceToken}` },

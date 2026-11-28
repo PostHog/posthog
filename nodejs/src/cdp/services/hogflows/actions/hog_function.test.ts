@@ -1541,6 +1541,7 @@ describe('HogFunctionHandler', () => {
                 )
                 await deliver()
                 const trackedLink = new URL(unsubscribeLinks(fakeSes.deliveries[0].html)[0])
+                expect(trackedLink.origin).toEqual(new URL(sesEndpoint).origin)
                 await supertest(trackedLink.origin)
                     .get(`${trackedLink.pathname}${trackedLink.search}`)
                     .expect(302)
