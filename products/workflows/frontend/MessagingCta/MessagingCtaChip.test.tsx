@@ -101,7 +101,7 @@ function openFreshPageLoad(replayArm: string | boolean | undefined, sendsFromCod
             click: (element, init) => rtl.fireEvent.click(element, init),
             auxClick: (element, button) =>
                 rtl.fireEvent(element, new MouseEvent('auxclick', { bubbles: true, button })),
-            tab: () => userEvent.setup({ advanceTimers: jest.advanceTimersByTime }).tab(),
+            tab: () => rtl.act(() => userEvent.setup({ advanceTimers: jest.advanceTimersByTime }).tab()),
             text: (text) => rtl.screen.queryByText(text),
             sent: async (event) => {
                 const flushId = String(++flushes)
@@ -209,6 +209,7 @@ describe('MessagingCtaChip', () => {
         ])
 
         const link = chip()!.querySelector('a')!
+        link.addEventListener('click', (event) => event.preventDefault())
         expect(link.getAttribute('href')).toMatch(/\/transactional\/new$/)
         const clicksAfter = async (gesture: () => void): Promise<number> => {
             gesture()
