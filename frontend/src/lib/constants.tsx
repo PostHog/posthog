@@ -377,6 +377,7 @@ export const FEATURE_FLAGS = {
     HOGQL_QUERY_SHARING: 'hogql-query-sharing',
     HOGQL_WAREHOUSE_ACCESS_CONTROL: 'hogql-warehouse-access-control', // owner: @a-lider #team-platform-features, gates per-object access control for warehouse tables and views
     IDENTITY_MATCHING: 'identity-matching', // owner: @fercgomes #team-growth, gates new identity matching scene on marketing analytics
+    IN_APP_ONBOARDING: 'in-app-onboarding', // owner: #team-platform-ux, shows the in-app onboarding flows that teach the app by having people do each step, starting with search
     INBOX_CARDS_LINK_RELATED_REPORTS: 'inbox-cards-link-related-reports', // owner: #team-self-driving, gates the link strip on inbox report cards, the collapse of plan layers into one card, and the list's link_summary field (also checked server-side)
     INBOX_GET_IT_MERGED: 'inbox-get-it-merged', // owner: #team-self-driving, gates the Get it merged action in the report Ask AI menu
     INBOX_INTERVIEW_INVITE: 'inbox-interview-invite', // owner: #team-self-driving, gates the interview invite after report feedback
@@ -682,9 +683,10 @@ export const FEATURE_FLAGS = {
 export type FeatureFlagLookupKey = keyof typeof FEATURE_FLAGS
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
 
-// The Today rail swaps out the whole navigation, so stories that render the app opt in to it explicitly.
+// The Today rail swaps out the whole navigation, and the in-app onboarding card floats over every scene, so
+// stories that render the app opt in to them explicitly.
 export const STORYBOOK_FEATURE_FLAGS = Object.values(FEATURE_FLAGS).filter(
-    (flag) => flag !== FEATURE_FLAGS.TODAY_RAIL_NAV
+    (flag) => flag !== FEATURE_FLAGS.TODAY_RAIL_NAV && flag !== FEATURE_FLAGS.IN_APP_ONBOARDING
 )
 
 export const INSIGHT_VISUAL_ORDER = {

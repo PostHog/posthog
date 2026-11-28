@@ -14,6 +14,7 @@ import { router } from 'kea-router'
 
 import api from 'lib/api'
 import { commandLogic } from 'lib/components/Command/commandLogic'
+import { recordInAppOnboardingSignal } from 'lib/components/InAppOnboarding/inAppOnboardingLogic'
 import { SearchItem, fileSystemEntryToSearchItem } from 'lib/components/Search/searchItems'
 import { searchListsLogic } from 'lib/components/Search/searchListsLogic'
 import { canOpenInNewTab } from 'lib/components/Search/utils'
@@ -921,6 +922,7 @@ export const commandKSearchLogic = kea<commandKSearchLogicType>([
                 return
             }
             actions.markResultOpened()
+            recordInAppOnboardingSignal('command-result-opened')
             posthog.capture('command k result opened', {
                 section: row.kind === 'item' ? row.section : 'ask-ai',
                 ranked_section: row.key.split('/')[0],
