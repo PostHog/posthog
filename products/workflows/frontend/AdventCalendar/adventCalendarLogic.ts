@@ -806,11 +806,6 @@ export const adventCalendarLogic = kea<adventCalendarLogicType>([
             window.addEventListener('storage', onStorage)
             return () => window.removeEventListener('storage', onStorage)
         }, 'tickets')
-        cache.disposables.add(() => {
-            const onOnline = (): void => actions.resumePendingTickets()
-            window.addEventListener('online', onOnline)
-            return () => window.removeEventListener('online', onOnline)
-        }, 'online')
         actions.resumePendingTickets()
     }),
 ])
