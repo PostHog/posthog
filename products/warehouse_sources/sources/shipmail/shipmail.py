@@ -1,10 +1,11 @@
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from datetime import datetime
 from typing import Any, Optional
 
 from products.warehouse_sources.sources.sdk import (
     ClientConfig,
     JSONResponseCursorPaginator,
+    Resource,
     RESTAPIConfig,
     ResumableSourceManager,
     SourceResponse,
@@ -29,6 +30,19 @@ def _incremental_value(value: Any) -> str:
     if isinstance(value, datetime):
         return value.isoformat()
     return str(value)
+
+
+def _drop_repeated_rows(primary_keys: list[str]) -> Callable[[dict[str, Any]], dict[str, Any] | list[dict[str, Any]]]:
+    seen: set[tuple[Any, ...]] = set()
+
+    def drop(row: dict[str, Any]) -> dict[str, Any] | list[dict[str, Any]]:
+        key = tuple(row.get(field) for field in primary_keys)
+        if key in seen:
+            return []
+        seen.add(key)
+        return row
+
+    return drop
 
 
 def _initial_paginator_state(
@@ -121,6 +135,8 @@ def shipmail_source(
             initial_paginator_state=resume.fanout_state if resume else None,
             resume_parent_pagination=True,
         )
+        if endpoint_config.drop_repeated_rows and isinstance(resource, Resource):
+            resource.add_map(_drop_repeated_rows(endpoint_config.primary_keys))
     else:
         resource = rest_api_resource(
             rest_config,

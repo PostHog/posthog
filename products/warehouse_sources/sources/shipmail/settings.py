@@ -25,6 +25,7 @@ class ShipmailEndpointConfig:
     page_size: int = 100
     default_incremental_field: str | None = None
     fanout: DependentEndpointConfig | None = None
+    drop_repeated_rows: bool = False
 
 
 SHIPMAIL_ENDPOINTS: dict[str, ShipmailEndpointConfig] = {
@@ -112,7 +113,8 @@ SHIPMAIL_ENDPOINTS: dict[str, ShipmailEndpointConfig] = {
     ),
     "inbox_threads": ShipmailEndpointConfig(
         name="inbox_threads",
-        # Without attention_state the API returns only needs_reply threads.
+        # Without attention_state the API returns only needs_reply threads. The comma-separated
+        # states and the sort values follow the OpenAPI spec; they are not checked against a live account.
         path=(
             "/mailboxes/{mailbox_id}/inbox/threads"
             f"?attention_state={','.join(INBOX_THREAD_ATTENTION_STATES)}&sort_by=last_message_at&order=asc"
@@ -120,6 +122,8 @@ SHIPMAIL_ENDPOINTS: dict[str, ShipmailEndpointConfig] = {
         primary_keys=["mailbox_id", "id"],
         required_scopes=("messages:read", "mailboxes:read"),
         partition_key="first_message_at",
+        # A thread that gets a new message during the walk moves to a later page.
+        drop_repeated_rows=True,
         fanout=DependentEndpointConfig(
             parent_name="mailboxes",
             resolve_param="mailbox_id",

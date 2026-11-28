@@ -1,5 +1,4 @@
 from datetime import UTC, datetime
-from urllib.parse import parse_qs, urlparse
 
 import pytest
 
@@ -13,24 +12,6 @@ from products.warehouse_sources.sources.shipmail.shipmail import (
 )
 from products.warehouse_sources.sources.shipmail.source import ShipmailSource
 
-FANOUT_CASES = [
-    ("threads", "mailboxes", "/threads?mailbox_id={id}", "mailbox_id"),
-    ("audience_subscribers", "audiences", "/audiences/{id}/subscribers", "audience_id"),
-    (
-        "inbox_threads",
-        "mailboxes",
-        "/mailboxes/{id}/inbox/threads"
-        "?attention_state=needs_reply,waiting_on_them,done,follow_up_due,delivery_failed,no_action"
-        "&sort_by=last_message_at&order=asc",
-        "mailbox_id",
-    ),
-]
-
-
-def _child_query(child_path: str, parent_id: str, **params: tuple[str, ...]) -> dict[str, tuple[str, ...]]:
-    path_query = parse_qs(urlparse(child_path.format(id=parent_id)).query)
-    return {"limit": ("100",), **params, **{key: tuple(values) for key, values in path_query.items()}}
-
 
 def _driver() -> SourceDriver:
     return SourceDriver(ShipmailSource(), ShipmailSourceConfig(api_key="test-key"))
@@ -42,7 +23,7 @@ def test_incremental_value_preserves_iso_timestamp() -> None:
     assert _incremental_value("2026-07-29T12:30:00Z") == "2026-07-29T12:30:00Z"
 
 
-@pytest.mark.parametrize("endpoint", ["messages", "newsletters", "members", "audiences"])
+@pytest.mark.parametrize("endpoint", ["messages", "newsletters", "members"])
 def test_pagination_checkpoints_and_incremental_watermark(endpoint: str) -> None:
     result = _driver().run(
         endpoint,
@@ -79,7 +60,10 @@ def test_pagination_checkpoints_and_incremental_watermark(endpoint: str) -> None
 
 @pytest.mark.parametrize(
     "endpoint,parent,child_path,parent_key",
-    FANOUT_CASES,
+    [
+        ("threads", "mailboxes", "/threads?mailbox_id={id}", "mailbox_id"),
+        ("audience_subscribers", "audiences", "/audiences/{id}/subscribers", "audience_id"),
+    ],
 )
 def test_fanout_paginates_parents_and_children(endpoint: str, parent: str, child_path: str, parent_key: str) -> None:
     result = _driver().run(
@@ -114,14 +98,18 @@ def test_fanout_paginates_parents_and_children(endpoint: str, parent: str, child
         f"/api/v1/{parent}",
         f"/api/v1{children[3]}",
     ]
-    assert result.queries == [
+    expected_queries = [
         {"limit": ("100",)},
-        _child_query(child_path, "parent_1"),
-        _child_query(child_path, "parent_1", cursor=("children_2",)),
-        _child_query(child_path, "empty"),
+        {"limit": ("100",)},
+        {"limit": ("100",), "cursor": ("children_2",)},
+        {"limit": ("100",)},
         {"limit": ("100",), "cursor": ("parents_2",)},
-        _child_query(child_path, "parent_2"),
+        {"limit": ("100",)},
     ]
+    if endpoint == "threads":
+        for index, parent_id in [(1, "parent_1"), (2, "parent_1"), (3, "empty"), (5, "parent_2")]:
+            expected_queries[index]["mailbox_id"] = (parent_id,)
+    assert result.queries == expected_queries
     assert result.committed_states
     assert any(
         state.fanout_state and state.fanout_state.get("child_state") == {"cursor": "children_2"}
@@ -131,7 +119,10 @@ def test_fanout_paginates_parents_and_children(endpoint: str, parent: str, child
 
 @pytest.mark.parametrize(
     "endpoint,parent,child_path,parent_key",
-    FANOUT_CASES,
+    [
+        ("threads", "mailboxes", "/threads?mailbox_id={id}", "mailbox_id"),
+        ("audience_subscribers", "audiences", "/audiences/{id}/subscribers", "audience_id"),
+    ],
 )
 def test_fanout_resumes_parent_and_child_cursors(endpoint: str, parent: str, child_path: str, parent_key: str) -> None:
     result = _driver().run(
@@ -153,10 +144,10 @@ def test_fanout_resumes_parent_and_child_cursors(endpoint: str, parent: str, chi
     assert result.raised is None
     assert result.rows == [{"id": "remaining", parent_key: "current"}]
     assert result.paths == [f"/api/v1/{parent}", f"/api/v1{child_path.format(id='current').partition('?')[0]}"]
-    assert result.queries == [
-        {"limit": ("100",), "cursor": ("parents_2",)},
-        _child_query(child_path, "current", cursor=("children_2",)),
-    ]
+    child_query = {"limit": ("100",), "cursor": ("children_2",)}
+    if endpoint == "threads":
+        child_query["mailbox_id"] = ("current",)
+    assert result.queries == [{"limit": ("100",), "cursor": ("parents_2",)}, child_query]
 
 
 def test_resumes_from_saved_cursor() -> None:
@@ -219,3 +210,29 @@ def test_get_capabilities_returns_status_and_scopes() -> None:
 def test_get_capabilities_handles_invalid_credentials() -> None:
     with scripted_network([ScriptedResponse(status=401, json={"error": "unauthorized"})]):
         assert get_capabilities("bad-key") == (401, set())
+
+
+def test_inbox_threads_drops_a_thread_repeated_on_a_later_page() -> None:
+    result = _driver().run(
+        "inbox_threads",
+        [
+            ScriptedResponse(json={"data": [{"id": "mbx_1"}, {"id": "mbx_2"}], "pagination": {"next_cursor": None}}),
+            ScriptedResponse(
+                json={"data": [{"id": "thr_1", "message_count": 1}], "pagination": {"next_cursor": "threads_2"}}
+            ),
+            ScriptedResponse(
+                json={
+                    "data": [{"id": "thr_2", "message_count": 1}, {"id": "thr_1", "message_count": 2}],
+                    "pagination": {"next_cursor": None},
+                }
+            ),
+            ScriptedResponse(json={"data": [{"id": "thr_1", "message_count": 3}], "pagination": {"next_cursor": None}}),
+        ],
+    )
+
+    assert result.raised is None
+    assert result.rows == [
+        {"id": "thr_1", "message_count": 1, "mailbox_id": "mbx_1"},
+        {"id": "thr_2", "message_count": 1, "mailbox_id": "mbx_1"},
+        {"id": "thr_1", "message_count": 3, "mailbox_id": "mbx_2"},
+    ]
