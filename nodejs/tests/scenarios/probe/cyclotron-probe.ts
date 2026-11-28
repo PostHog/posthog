@@ -8,11 +8,13 @@ export type QueueCounts = { due: number; running: number; oldestDueSeconds: numb
 
 export type WriterBackends = { state: string; wait: string; count: number }[]
 
+export type WriterActivity = { at: number; backends: WriterBackends }
+
 export interface CyclotronProbe {
     unfinishedJobs(query: JobQuery): Promise<number>
     runningJobs(query: JobQuery): Promise<number>
     counts(query: JobQuery): Promise<QueueCounts>
-    activity(): Promise<WriterBackends>
+    activity(): Promise<WriterActivity>
 }
 
 export function createCyclotronProbe(
@@ -69,7 +71,7 @@ export function createCyclotronProbe(
                      GROUP BY 1, 2
                      ORDER BY 1, 2`
                       )
-                      return rows
+                      return { at: Date.now(), backends: rows }
                   }, writerUrl),
     }
 }
