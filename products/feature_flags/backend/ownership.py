@@ -186,10 +186,17 @@ def owner_kind_counts(flags: "QuerySet[FeatureFlag]") -> dict[Optional[str], int
     the populations worth counting are too large to classify row by row. A flag no product owns
     counts under None, exactly as that function reports it.
     """
-    whens = [When(condition, then=Value(kind)) for kind, condition in _owning_conditions(flags.model)]
-    rows = (
-        flags.annotate(owner_kind=Case(*whens, default=Value(None, output_field=CharField())))
-        .values("owner_kind")
-        .annotate(total=Count("id"))
-    )
+    rows = flags.annotate(owner_kind=_owner_kind(flags.model)).values("owner_kind").annotate(total=Count("id"))
     return {row["owner_kind"]: row["total"] for row in rows}
+
+
+def owned_flag_ids(flags: "QuerySet[FeatureFlag]") -> frozenset[int]:
+    """The ids of the flags in a queryset that a product owns, with the classification of `flag_owner_kind`, as one
+    query."""
+    owned = flags.annotate(owner_kind=_owner_kind(flags.model)).filter(owner_kind__isnull=False)
+    return frozenset(owned.values_list("id", flat=True))
+
+
+def _owner_kind(model: type[Model]) -> Case:
+    whens = [When(condition, then=Value(kind)) for kind, condition in _owning_conditions(model)]
+    return Case(*whens, default=Value(None, output_field=CharField()))

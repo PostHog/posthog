@@ -453,6 +453,33 @@ class TestExposureByBucket(ClickhouseTestMixin, BaseTest):
             },
         )
 
+    def test_a_flag_call_counts_for_the_events_of_its_bucket_and_of_later_buckets(self) -> None:
+        self._send(
+            [("person-1", 2, {"$feature/new-checkout": True})],
+            errors=[("person-1", 3, {"$feature/new-checkout": True})],
+        )
+        _create_event(
+            team=self.team,
+            event="$feature_flag_called",
+            distinct_id="person-1",
+            timestamp=START + timedelta(minutes=15),
+            properties={
+                "$feature_flag": "new-checkout",
+                "$feature_flag_reason": "Matched condition set 2",
+                "$feature/new-checkout": True,
+            },
+        )
+        flush_persons_and_events()
+
+        exposure = exposure_by_bucket(
+            self.team, [dataclasses.replace(BOOLEAN, conditions=(PRO_PLAN,))], START, START + 2 * BUCKET, BUCKET
+        )
+
+        self.assertEqual(
+            [(bucket.start, bucket.since_edit.in_condition[ConditionMatch.REASON]) for bucket in exposure["boolean"]],
+            [(START, split(0, 0)), (START + BUCKET, split(1, 0))],
+        )
+
     def test_a_relative_date_in_a_condition_counts_back_from_the_range_end(self) -> None:
         self.team.timezone = "Asia/Tokyo"
         self.team.save()
