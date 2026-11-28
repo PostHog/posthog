@@ -60,6 +60,7 @@ from products.warehouse_sources.backend.temporal.data_imports.incremental_histor
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.load import (
     PostLoadResult,
+    finalize_sync_bookkeeping,
     run_post_load_operations,
     supports_partial_data_loading,
 )
@@ -782,7 +783,8 @@ def _refuse_unloaded_continued_jobs(export_signal: ExportSignalMessage) -> None:
     raise IncompleteRunError()
 
 
-def _mark_job_completed(export_signal: ExportSignalMessage) -> None:
+def _mark_job_completed(export_signal: ExportSignalMessage, after_completion: Callable[[], None] | None = None) -> None:
+    """Complete the run's job. ``after_completion`` runs only when the Completed write landed."""
     _refuse_incomplete_run(export_signal)
 
     # Reconnect stale connections before the transaction; close_old_connections must never
@@ -818,6 +820,9 @@ def _mark_job_completed(export_signal: ExportSignalMessage) -> None:
                 )
 
     if job_completed:
+        if after_completion is not None:
+            # Before the lock release below, so the next run starts with what this writes.
+            after_completion()
         async_to_sync(finish_row_tracking)(export_signal.team_id, export_signal.schema_id)
         if (model.schema_snapshot or {}).get("sync_type") == ExternalDataSchema.SyncType.WEBHOOK:
             _delete_consumed_webhook_files(export_signal)
@@ -1502,6 +1507,8 @@ def process_messages(
 
 def _process_external_destinations_only(
     export_signal: "ExportSignalMessage",
+    job: ExternalDataJob,
+    schema: ExternalDataSchema,
     verify_ownership: Callable[[], None] | None,
 ) -> None:
     """Deliver a batch for a run that writes to external destinations only.
@@ -1525,7 +1532,13 @@ def _process_external_destinations_only(
         verify_ownership()
 
     report_phase("finalize")
-    _mark_job_completed(export_signal)
+    # Sources read initial_sync_complete to switch from a full read to an incremental one, so
+    # without it every run extracts the whole table again. The flag also moves a CDC table to
+    # streaming, so only a run whose completion landed may set it.
+    _mark_job_completed(
+        export_signal,
+        after_completion=lambda: async_to_sync(finalize_sync_bookkeeping)(job, schema, None, None, logger),
+    )
 
 
 def _read_constituents(constituents: list[ExportSignalMessage]) -> pa.Table:
@@ -1612,7 +1625,7 @@ def _process_message_reported(
         if not warehouse_is_a_destination(export_signal):
             # The customer asked for their data elsewhere and not here, so there is no delta
             # write, no table to register and no post-import to run.
-            _process_external_destinations_only(export_signal, verify_ownership)
+            _process_external_destinations_only(export_signal, job, schema, verify_ownership)
             return
 
         append_runs = (
