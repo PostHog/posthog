@@ -3,6 +3,15 @@ from typing import Literal
 
 from products.warehouse_sources.sources.sdk import DependentEndpointConfig, IncrementalField, frozen, incremental_field
 
+INBOX_THREAD_ATTENTION_STATES = (
+    "needs_reply",
+    "waiting_on_them",
+    "done",
+    "follow_up_due",
+    "delivery_failed",
+    "no_action",
+)
+
 
 @frozen
 class ShipmailEndpointConfig:
@@ -94,16 +103,31 @@ SHIPMAIL_ENDPOINTS: dict[str, ShipmailEndpointConfig] = {
         required_scopes=("members:read",),
         partition_key="created_at",
     ),
-}
-
-SHIPMAIL_PARENT_ENDPOINTS = {
     "audiences": ShipmailEndpointConfig(
         name="audiences",
         path="/audiences",
         primary_keys=["id"],
         required_scopes=("audiences:read",),
         partition_key="created_at",
-    )
+    ),
+    "inbox_threads": ShipmailEndpointConfig(
+        name="inbox_threads",
+        # Without attention_state the API returns only needs_reply threads.
+        path=(
+            "/mailboxes/{mailbox_id}/inbox/threads"
+            f"?attention_state={','.join(INBOX_THREAD_ATTENTION_STATES)}&sort_by=last_message_at&order=asc"
+        ),
+        primary_keys=["mailbox_id", "id"],
+        required_scopes=("messages:read", "mailboxes:read"),
+        partition_key="first_message_at",
+        fanout=DependentEndpointConfig(
+            parent_name="mailboxes",
+            resolve_param="mailbox_id",
+            resolve_field="id",
+            include_from_parent=["id"],
+            parent_field_renames={"id": "mailbox_id"},
+        ),
+    ),
 }
 
 ENDPOINTS = tuple(SHIPMAIL_ENDPOINTS.keys())

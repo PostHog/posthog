@@ -13,7 +13,7 @@ from products.warehouse_sources.sources.sdk import (
     make_tracked_session,
     rest_api_resource,
 )
-from products.warehouse_sources.sources.shipmail.settings import SHIPMAIL_ENDPOINTS, SHIPMAIL_PARENT_ENDPOINTS
+from products.warehouse_sources.sources.shipmail.settings import SHIPMAIL_ENDPOINTS
 
 SHIPMAIL_BASE_URL = "https://shipmail.to/api/v1"
 REQUEST_TIMEOUT_SECONDS = 30.0
@@ -103,7 +103,7 @@ def shipmail_source(
                 resumable_source_manager.save_state(ShipmailResumeConfig(fanout_state=state))
 
         resource = build_dependent_resource(
-            endpoint_configs=SHIPMAIL_ENDPOINTS | SHIPMAIL_PARENT_ENDPOINTS,
+            endpoint_configs=SHIPMAIL_ENDPOINTS,
             child_endpoint=endpoint,
             fanout=endpoint_config.fanout,
             client_config=client_config,

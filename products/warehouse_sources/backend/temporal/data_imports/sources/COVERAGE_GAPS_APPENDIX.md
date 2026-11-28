@@ -13376,11 +13376,11 @@ Diffed against: <https://shipmail.to/openapi.json>
 
 - [x] `Threads (GET /api/v1/threads)` — resolve message thread_id values and compare conversation volumes, message counts, and recent activity (high)
 - [x] `Newsletters (GET /api/v1/newsletters)` — measure newsletter deliveries, opens, clicks, bounces, and complaints, which the current message projection does not expose (high)
-- [ ] `Audiences (GET /api/v1/audiences)` — analyze audience growth, subscription counts, and consent sources (medium)
+- [x] `Audiences (GET /api/v1/audiences)` — analyze audience growth, subscription counts, and consent sources (medium)
 - [x] `Audience subscribers (GET /api/v1/audiences/{id}/subscribers)` — analyze audience membership and subscriber status alongside newsletter results (medium)
-- [ ] `Mailbox inbox thread attention states (GET /api/v1/mailboxes/{id}/inbox/threads)` — measure unanswered conversations, follow-up dates, assignments, and completed threads (medium)
+- [x] `Mailbox inbox thread attention states (GET /api/v1/mailboxes/{id}/inbox/threads)` — measure unanswered conversations, follow-up dates, assignments, and completed threads (medium)
 - [x] `Members (GET /api/v1/members)` — analyze person roles and mailbox access alongside team email activity (medium)
-- [ ] `Calendar events (GET /api/v1/calendar/events)` — connect meeting activity and recurring appointments to mailbox communication (medium)
+- [ ] `Calendar events (GET /api/v1/calendar/events)` — connect meeting activity and recurring appointments to mailbox communication (medium) Skipped: needs a required from/to window per mailbox, returns 422 for ranges with too many events, and recurring events repeat across windows, so it cannot be a stable list table.
 
 Note: Parsed all GET paths and relevant response schemas in the official OpenAPI JSON. The messages table uses /messages/analytics, whose projection omits newsletter engagement counters and thread attention states. Threads, subscriber lists, inbox states, and calendars need mailbox or audience inputs; attention states can change during pagination. Excluded credentials, DNS configuration, routing rules, webhooks, uploads, and message-body field differences.
 
