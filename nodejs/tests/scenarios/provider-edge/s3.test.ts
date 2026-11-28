@@ -159,6 +159,32 @@ describe('the edge in front of the attachment store', () => {
         })
     })
 
+    test('passes an upload whose server error was released before its body ended', async () => {
+        const uploaded = file()
+        const status = fault({ name: 's3.status', params: { code: 503 }, match: { op: 'put' }, dose: { share: 1 } })
+        const [slot] = await store.prepareUploads(TEAM, [{ sha256: uploaded.sha256, size: uploaded.sizeBytes }])
+        if (slot.status !== 'upload') {
+            throw new Error(`expected an upload slot, got ${slot.status}`)
+        }
+        const upload = http.request(slot.url, {
+            method: slot.method,
+            headers: { ...slot.headers, expect: '100-continue' },
+        })
+        const answered = once(upload, 'response') as Promise<[http.IncomingMessage]>
+        upload.flushHeaders()
+        await once(upload, 'continue')
+        upload.write(uploaded.bytes.subarray(0, FILE_BYTES / 2))
+        edge.removeFault(status)
+        upload.end(uploaded.bytes.subarray(FILE_BYTES / 2))
+        const [answer] = await answered
+        answer.resume()
+
+        expect({ status: answer.statusCode, answered: edge.firstAppliedAt(status) }).toEqual({
+            status: 200,
+            answered: undefined,
+        })
+    })
+
     test('drops its call to the store when the caller hangs up first, and passes the next call', async () => {
         const held: http.IncomingMessage[] = []
         const slowStore = http.createServer((req, res) => {
@@ -225,7 +251,7 @@ describe('the edge in front of the attachment store', () => {
         })
     })
 
-    test.each(['https://store.example.com', 'http://localhost:19000/s3'])(
+    test.each(['https://store.example.com', 'http://localhost:19000/s3', 'http://[::1]:19000'])(
         'refuses to stand in front of %s, which it cannot reach as the client would',
         async (upstream) => {
             await expect(edge.s3ProxyOf(upstream)).rejects.toThrow(
