@@ -1,13 +1,20 @@
-from posthog.test.base import BaseTest
+from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
 
 from posthog.schema import DashboardFilter, EventsNode, IntervalType, LifecycleQuery
 
+from posthog.models import Team
+
 from products.product_analytics.backend.hogql_queries.lifecycle.lifecycle_query_runner import LifecycleQueryRunner
 
 
-class TestLifecycleDashboardFilters(BaseTest):
+@override_settings(PERSON_ON_EVENTS_V2_OVERRIDE=True, CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
+class TestLifecycleDashboardFilters(SimpleTestCase):
+    def setUp(self) -> None:
+        super().setUp()
+        self.team = Team(id=1, timezone="UTC")
+
     def _runner(self) -> LifecycleQueryRunner:
         return LifecycleQueryRunner(
             query=LifecycleQuery(series=[EventsNode(event="$pageview")], interval=IntervalType.DAY),

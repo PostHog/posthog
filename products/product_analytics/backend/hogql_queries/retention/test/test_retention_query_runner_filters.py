@@ -1,16 +1,24 @@
 from datetime import datetime
 
 import time_machine
-from posthog.test.base import BaseTest
+
+from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
 
 from posthog.schema import DashboardFilter, DateRange, IntervalType, RetentionFilter, RetentionQuery
 
+from posthog.models import Team
+
 from products.product_analytics.backend.hogql_queries.retention.retention_query_runner import RetentionQueryRunner
 
 
-class TestRetentionDashboardFilters(BaseTest):
+@override_settings(PERSON_ON_EVENTS_V2_OVERRIDE=True, CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
+class TestRetentionDashboardFilters(SimpleTestCase):
+    def setUp(self) -> None:
+        super().setUp()
+        self.team = Team(id=1, timezone="UTC")
+
     def _runner(self) -> RetentionQueryRunner:
         return RetentionQueryRunner(query=RetentionQuery(retentionFilter=RetentionFilter()), team=self.team)
 
@@ -40,7 +48,12 @@ class TestRetentionDashboardFilters(BaseTest):
         assert runner.query.filterTestAccounts is expected
 
 
-class TestRetentionExcludeIncompletePeriods(BaseTest):
+@override_settings(PERSON_ON_EVENTS_V2_OVERRIDE=True, CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
+class TestRetentionExcludeIncompletePeriods(SimpleTestCase):
+    def setUp(self) -> None:
+        super().setUp()
+        self.team = Team(id=1, timezone="UTC")
+
     @parameterized.expand(
         [
             ("calendar_dates_clip_the_current_day", "strict_calendar_dates", True),

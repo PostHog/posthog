@@ -1,5 +1,6 @@
-from posthog.test.base import BaseTest
 from unittest.mock import MagicMock
+
+from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
 from rest_framework.exceptions import ValidationError
@@ -14,6 +15,7 @@ from posthog.schema import (
 )
 
 from posthog.hogql_queries.validation.validation import QueryValidationContext
+from posthog.models import Team
 
 from products.product_analytics.backend.hogql_queries.funnels.funnel_validation_rules import (
     MAX_FUNNEL_STEPS,
@@ -25,7 +27,12 @@ from products.product_analytics.backend.hogql_queries.funnels.funnel_validation_
 from products.product_analytics.backend.hogql_queries.funnels.funnels_query_runner import FunnelsQueryRunner
 
 
-class TestFunnelValidationRules(BaseTest):
+@override_settings(PERSON_ON_EVENTS_V2_OVERRIDE=True, CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
+class TestFunnelValidationRules(SimpleTestCase):
+    def setUp(self) -> None:
+        super().setUp()
+        self.team = Team(id=1, timezone="UTC")
+
     def _context(self, query: FunnelsQuery) -> QueryValidationContext:
         runner = MagicMock(query=query, team=self.team, user=None)
         return QueryValidationContext(query=query, team=self.team, user=None, runner=runner)
