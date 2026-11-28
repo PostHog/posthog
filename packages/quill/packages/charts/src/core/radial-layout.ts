@@ -71,23 +71,24 @@ export function sliceAt<Meta>(
     const halfPad = layout.padAngle / 2
     for (let i = 0; i < layout.slices.length; i++) {
         const s = layout.slices[i]
-        let start = s.startAngle + halfPad
-        let end = s.endAngle - halfPad
+        const start = s.startAngle + halfPad
+        const end = s.endAngle - halfPad
         if (start >= end) {
             continue
         }
-        if (start < 0 || end > 2 * Math.PI) {
-            // Wraparound — slice crosses 12 o'clock. Split into the [start, 2π) ∪ [0, end mod 2π) check.
-            const sNorm = ((start % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI)
-            const eNorm = ((end % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI)
-            if (a >= sNorm || a < eNorm) {
-                return i
-            }
-            continue
+        if (end - start >= 2 * Math.PI) {
+            return i
         }
-        if (a >= start && a < end) {
+        // A rotated pie's angles leave [0, 2π). After normalizing, end < start means the slice crosses 12 o'clock.
+        const sNorm = normalizeAngle(start)
+        const eNorm = normalizeAngle(end)
+        if (sNorm < eNorm ? a >= sNorm && a < eNorm : a >= sNorm || a < eNorm) {
             return i
         }
     }
     return -1
+}
+
+function normalizeAngle(angle: number): number {
+    return ((angle % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI)
 }

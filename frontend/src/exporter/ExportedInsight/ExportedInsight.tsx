@@ -4,6 +4,7 @@ import clsx from 'clsx'
 import { BindLogic, useMountedLogic } from 'kea'
 
 import { Logo } from 'lib/brand'
+import { exportedLegendPosition } from 'lib/charts/legendPosition'
 import { TopHeading } from 'lib/components/Cards/InsightCard/TopHeading'
 import { InsightLegend } from 'lib/components/InsightLegend/InsightLegend'
 import {
@@ -83,7 +84,10 @@ export function ExportedInsight({
             insight.query.source.trendsFilter = {
                 ...insight.query.source.trendsFilter,
                 showLegend: !!showLegend,
-                legendPosition: 'bottom',
+                legendPosition: exportedLegendPosition(
+                    insight.query.source.trendsFilter?.legendPosition,
+                    insight.query.source.trendsFilter?.display
+                ),
             }
         } else if (insight.query.source.trendsFilter?.showLegend) {
             // legend is rendered separately below so don't show it alongside the insight too

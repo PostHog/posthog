@@ -231,6 +231,24 @@ describe('sliceAt', () => {
         }
     )
 
+    it.each<[number]>([[0], [100], [200], [300]])(
+        'finds every slice of a pie rotated to start at %sdeg',
+        (startDeg) => {
+            const rotated = computePieLayout({
+                series: [s('a', [10]), s('b', [20]), s('c', [30]), s('d', [40])],
+                dimensions: PLOT,
+                startAngle: (startDeg * Math.PI) / 180,
+            })
+            const midR = rotated.outerRadius / 2
+            rotated.slices.forEach((slice, i) => {
+                const a = slice.centroidAngle
+                expect(sliceAt(rotated, { x: rotated.cx + Math.sin(a) * midR, y: rotated.cy - Math.cos(a) * midR })).toBe(
+                    i
+                )
+            })
+        }
+    )
+
     it('returns -1 when there are no slices', () => {
         const empty = computePieLayout({ series: [], dimensions: PLOT })
         expect(sliceAt(empty, { x: empty.cx, y: empty.cy })).toBe(-1)

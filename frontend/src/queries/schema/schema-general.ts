@@ -1644,6 +1644,9 @@ export interface YAxisSettings {
     showTicks?: boolean
 }
 
+/** Where a chart's legend sits. `surrounding` applies to pie and donut charts only: each slice is labeled beside the chart, with a line pointing to its slice. Other charts treat it as unset. */
+export type LegendPosition = 'top' | 'bottom' | 'left' | 'right' | 'surrounding'
+
 export interface ChartSettings {
     xAxis?: ChartAxis
     xAxisLabel?: string
@@ -1669,8 +1672,8 @@ export interface ChartSettings {
     showAnnotations?: boolean
     /** Shows only the annotations saved at this level. Unset shows every level. */
     annotationsScope?: AnnotationScope
-    /** Where the legend sits relative to the chart. Unset falls back per chart type: right for pie and donut, bottom for proportion bar, top for the rest. */
-    legendPosition?: 'top' | 'bottom' | 'left' | 'right'
+    /** Where the legend sits relative to the chart. Unset falls back per chart type: right for pie and donut, bottom for proportion bar, top for the rest. `surrounding` applies to pie and donut only. */
+    legendPosition?: LegendPosition
     showValuesOnSeries?: boolean
     valueLabelPosition?: 'end' | 'center'
     valueLabelBackground?: boolean
@@ -1921,7 +1924,7 @@ export type TrendsFilter = {
     showLegend?: boolean
     /** Where the in-chart legend sits relative to the plot. Only applies to the in-chart legend.
      * @default bottom */
-    legendPosition?: 'top' | 'bottom' | 'left' | 'right'
+    legendPosition?: LegendPosition
     /** @default false */
     showAlertThresholdLines?: boolean
     breakdown_histogram_bin_count?: number // TODO: fully move into BreakdownFilter
@@ -2279,7 +2282,7 @@ export type FunnelsFilter = {
     showLegend?: boolean
     /** Where the in-chart legend sits relative to the plot. Only applies to the in-chart legend.
      * @default bottom */
-    legendPosition?: 'top' | 'bottom' | 'left' | 'right'
+    legendPosition?: LegendPosition
     /** @default false */
     showValuesOnSeries?: boolean
     /** Breakdown table sorting. Format: 'column_key' or '-column_key' (descending) */
@@ -2682,7 +2685,7 @@ export type StickinessFilter = {
     showLegend?: boolean
     /** Where the in-chart legend sits relative to the plot. Only applies to the in-chart legend.
      * @default bottom */
-    legendPosition?: 'top' | 'bottom' | 'left' | 'right'
+    legendPosition?: LegendPosition
     showValuesOnSeries?: boolean
     showMultipleYAxes?: boolean
     hiddenLegendIndexes?: integer[]
@@ -2765,7 +2768,7 @@ export type LifecycleFilter = {
     showLegend?: boolean
     /** Where the in-chart legend sits relative to the plot. Only applies to the in-chart legend.
      * @default bottom */
-    legendPosition?: 'top' | 'bottom' | 'left' | 'right'
+    legendPosition?: LegendPosition
     /** @default true */
     stacked?: boolean
 }

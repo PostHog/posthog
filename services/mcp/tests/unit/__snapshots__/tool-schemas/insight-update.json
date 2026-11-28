@@ -275,8 +275,8 @@
                                     "type": "object"
                                 },
                                 "legendPosition": {
-                                    "description": "Where the legend sits. Defaults to right for pie and donut, top for other charts.",
-                                    "enum": ["top", "bottom", "left", "right"],
+                                    "description": "Where the legend sits. Defaults to right for pie and donut, top for other charts. `surrounding` labels each pie or donut slice beside the chart, and applies to those charts only.",
+                                    "enum": ["top", "bottom", "left", "right", "surrounding"],
                                     "type": "string"
                                 },
                                 "metric": {

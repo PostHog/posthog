@@ -201,6 +201,7 @@ export const DISPLAY_OPTIONS = [
             { value: 'bottom', label: 'Bottom' },
             { value: 'left', label: 'Left' },
             { value: 'right', label: 'Right' },
+            { value: 'surrounding', label: 'Surrounding' },
         ],
     },
     {
@@ -458,4 +459,11 @@ export interface DisplayOptionTab {
     label: string
     sections: DisplayOptionSection[]
     count: number
+}
+
+export function legendPositionChoices(isPie: boolean): ChartOptionChoice<DisplayOptionValue<'legendPosition'>>[] {
+    const choices = DISPLAY_OPTIONS.find((option) => option.name === 'legendPosition')?.options ?? []
+    return choices.filter((choice) => isPie || choice.value !== 'surrounding') as ChartOptionChoice<
+        DisplayOptionValue<'legendPosition'>
+    >[]
 }

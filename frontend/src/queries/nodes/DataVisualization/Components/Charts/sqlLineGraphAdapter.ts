@@ -19,6 +19,7 @@ import {
 } from '@posthog/quill-charts'
 
 import { chartStyleCurve } from 'lib/charts/chartStyleAdapter'
+import { legendBoxPosition } from 'lib/charts/legendPosition'
 import type { DataColorTheme } from 'lib/colors'
 import { dayjs } from 'lib/dayjs'
 import { getColorFromToken } from 'scenes/dataThemeLogic'
@@ -497,7 +498,7 @@ function buildLegendConfig(
     // isolating a series works without SQL charts having to persist anything.
     return {
         show: chartSettings.showLegend ?? false,
-        position: chartSettings.legendPosition ?? 'top',
+        position: legendBoxPosition(chartSettings.legendPosition) ?? 'top',
         interactive: true,
         renderItem,
     }

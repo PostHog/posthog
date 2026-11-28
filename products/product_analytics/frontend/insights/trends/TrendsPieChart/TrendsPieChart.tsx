@@ -4,7 +4,7 @@ import posthog from 'posthog-js'
 import { useMemo, type ErrorInfo } from 'react'
 
 import { PieChart } from '@posthog/quill-charts'
-import type { PieChartConfig } from '@posthog/quill-charts'
+import type { PieChartConfig, PieChartLegendConfig } from '@posthog/quill-charts'
 
 import { DonutCenterLabel } from 'lib/charts/DonutCenterLabel'
 import { InsightEmptyState } from 'scenes/insights/EmptyStates'
@@ -48,7 +48,14 @@ export function TrendsPieChart(props: TrendsPartOfWholeChartProps): JSX.Element 
         showPercentStackView,
         supportsPercentStackView,
         pieChartVizOptions,
+        legendPosition,
     } = useValues(trendsDataLogic(insightProps))
+
+    // The shared legend config only knows box positions, so the pie-only `surrounding` is put back here.
+    const pieLegend: PieChartLegendConfig = useMemo(
+        () => (legendPosition === 'surrounding' ? { ...legendConfig, position: 'surrounding' } : legendConfig),
+        [legendConfig, legendPosition]
+    )
 
     const isPercentStackView = !!showPercentStackView && !!supportsPercentStackView
     const isDonut = display === ChartDisplayType.ActionsDonut
@@ -66,7 +73,7 @@ export function TrendsPieChart(props: TrendsPartOfWholeChartProps): JSX.Element 
             isPercent: isPercentStackView,
             disableHoverOffset: !!pieChartVizOptions?.disableHoverOffset,
             innerRadiusRatio: isDonut ? DONUT_INNER_RADIUS_RATIO : undefined,
-            legend: legendConfig,
+            legend: pieLegend,
         }),
         [
             showValue,
@@ -75,7 +82,7 @@ export function TrendsPieChart(props: TrendsPartOfWholeChartProps): JSX.Element 
             isPercentStackView,
             pieChartVizOptions?.disableHoverOffset,
             isDonut,
-            legendConfig,
+            pieLegend,
         ]
     )
 

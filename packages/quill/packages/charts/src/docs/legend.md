@@ -48,6 +48,7 @@ On time-series charts the legend lists the user's series only, and hiding a seri
 
 ## Layout
 
+- `PieChart` also takes `position: 'surrounding'`, which draws no legend box: each slice is labeled beside the pie with a leader line, and the labels click like legend rows. See [chart-types.md](./chart-types.md#piechart).
 - The legend slot in `ChartLegendLayout` is bounded and scrolls. A top or bottom legend caps at about 40% of the chart height; a left or right legend stretches to full chart height and caps at 45% width but never more than 240px. A many-series legend scrolls instead of squeezing the plot.
 - The top and bottom cap is a percentage, so it only resolves when the chart container has an explicit `height`. A flex-derived size (`flex: 1` with only `min-height`) does not count and the cap silently no-ops. Pin a real `height` on the container.
 - A left or right legend uses `align-self: stretch`, which resolves against the container's used height, so it works without an explicit `height`.

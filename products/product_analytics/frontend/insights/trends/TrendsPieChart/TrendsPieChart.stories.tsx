@@ -7,6 +7,7 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { mswDecorator } from '~/mocks/browser'
 import trendsPieFixture from '~/mocks/fixtures/api/projects/team_id/insights/trendsPie.json'
 import trendsPieBreakdownFixture from '~/mocks/fixtures/api/projects/team_id/insights/trendsPieBreakdown.json'
+import trendsPieSurroundingFixture from '~/mocks/fixtures/api/projects/team_id/insights/trendsPieSurroundingLegend.json'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import type { DataNodeLogicProps } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
@@ -136,5 +137,28 @@ export const BreakdownWithValueAndPercentage: Story = {
             showLabelsOnSeries: true,
             showValuesOnSeries: true,
             showPercentStackView: true,
+        }),
+}
+
+export const SurroundingLegend: Story = {
+    render: () => renderTrendsPieChart(trendsPieSurroundingFixture),
+}
+
+export const SurroundingLegendDonut: Story = {
+    render: () =>
+        renderTrendsPieChart({
+            ...trendsPieSurroundingFixture,
+            query: {
+                ...trendsPieSurroundingFixture.query,
+                source: {
+                    ...trendsPieSurroundingFixture.query.source,
+                    trendsFilter: {
+                        ...trendsPieSurroundingFixture.query.source.trendsFilter,
+                        display: ChartDisplayType.ActionsDonut,
+                        showPercentStackView: false,
+                        showValuesOnSeries: true,
+                    },
+                },
+            },
         }),
 }

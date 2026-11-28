@@ -7,6 +7,7 @@ import { ChartDisplayType } from '~/types'
 import {
     convertDataTableNodeToDataVisualizationNode,
     dataWarehouseSourcesFromResponse,
+    getLegendPosition,
     getShowLegend,
     isMetricInsightQuery,
     supportsBarValueStacking,
@@ -108,6 +109,23 @@ describe('getShowLegend', () => {
         ['a line chart', trends(ChartDisplayType.ActionsLineGraph), 5, undefined],
     ])('%s', (_name, query, partCount, expected) => {
         expect(getShowLegend(query, partCount)).toBe(expected)
+    })
+})
+
+describe('getLegendPosition', () => {
+    const trends = (display: ChartDisplayType): InsightQueryNode => ({
+        kind: NodeKind.TrendsQuery,
+        series: [],
+        trendsFilter: { display, legendPosition: 'surrounding' },
+    })
+
+    it.each([
+        ['a pie keeps surrounding', ChartDisplayType.ActionsPie, 'surrounding'],
+        ['a donut keeps surrounding', ChartDisplayType.ActionsDonut, 'surrounding'],
+        ['a proportion bar falls back to its bottom default', ChartDisplayType.ActionsProportionBar, 'bottom'],
+        ['a line chart falls back to unset', ChartDisplayType.ActionsLineGraph, undefined],
+    ])('%s', (_name, display, expected) => {
+        expect(getLegendPosition(trends(display))).toBe(expected)
     })
 })
 

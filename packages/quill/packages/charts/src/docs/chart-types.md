@@ -62,6 +62,7 @@ Part of whole, one value per series (`data[0]`).
 - On-slice labels via `showLabelOnSlice` and `showValueOnSlice`, positioned with `labelRadiusRatio` (0 is the center, 1 the rim) and gated by `minSlicePercentForLabel`.
 - `sliceValueDisplay` picks what the numeric line holds: `'value'`, `'percent'`, or `'both'` for `352 (18.4%)`. Defaults to `'percent'` when `isPercent` is set, else `'value'`.
 - `config.legend` renders the built-in legend; a toggled-off slice is removed and the rest rescale to the full circle.
+- `config.legend.position: 'surrounding'` (pie only) labels each slice beside the pie instead of in a legend box: a column on each side, a leader line in the slice's color from the rim to the label. Crowded labels are pushed apart along the column; when a side has more slices than rows fit, its smallest slices go unlabeled. The pie shrinks to leave the columns room (each capped at 30% of the width or 220px, names truncate past that), the on-slice labels give way, and the value line moves into the label. A label click isolates or toggles its slice like a legend row.
 - `theme.backgroundColor` is required for the hover pop-out mask; without it the pop-out is skipped. `disableHoverOffset` turns the pop-out off.
 - Children read `useRadialLayout()` for `layout.slices`, `innerRadius`, `outerRadius`, `cx`, `cy`, and `centroidAngle`.
 

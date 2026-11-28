@@ -2093,6 +2093,7 @@ export const LegendPositionApi = {
     Bottom: 'bottom',
     Left: 'left',
     Right: 'right',
+    Surrounding: 'surrounding',
 } as const
 
 export type MetricSummaryApi = (typeof MetricSummaryApi)[keyof typeof MetricSummaryApi]

@@ -27,6 +27,10 @@ export interface ComputePieLayoutOptions<Meta = unknown> {
     /** Outer-radius scale factor — pulls the outer edge in to leave room for hover pop-out
      *  and labels. Defaults to 0.92. */
     radiusPadding?: number
+    /** Pixels kept free between the pie and each side of the plot, for outside labels. Defaults to 0. */
+    horizontalInset?: number
+    /** Radians, clockwise from 12 o'clock, where the first slice starts. Defaults to 0. */
+    startAngle?: number
 }
 
 export function defaultSliceValue<Meta>(s: ResolvedSeries<Meta>): number {
@@ -52,12 +56,17 @@ export function computePieLayout<Meta = unknown>(opts: ComputePieLayoutOptions<M
         padAngle = 0,
         sort = null,
         radiusPadding = 0.92,
+        horizontalInset = 0,
+        startAngle = 0,
     } = opts
 
     const cx = dimensions.plotLeft + dimensions.plotWidth / 2
     const cy = dimensions.plotTop + dimensions.plotHeight / 2
     const shorterSide = Math.min(dimensions.plotWidth, dimensions.plotHeight)
-    const outerRadius = Math.max(0, (shorterSide / 2) * radiusPadding)
+    const outerRadius = Math.max(
+        0,
+        Math.min((shorterSide / 2) * radiusPadding, dimensions.plotWidth / 2 - Math.max(0, horizontalInset))
+    )
     const clampedInnerRatio = Math.max(0, Math.min(innerRadiusRatio, 0.95))
     const innerRadius = clampedInnerRatio * outerRadius
 
@@ -86,6 +95,8 @@ export function computePieLayout<Meta = unknown>(opts: ComputePieLayoutOptions<M
     const pieGenerator = pie<Indexed>()
         .value((d) => d.value)
         .padAngle(padAngle)
+        .startAngle(startAngle)
+        .endAngle(startAngle + 2 * Math.PI)
     if (sort === null) {
         pieGenerator.sort(null)
     } else {

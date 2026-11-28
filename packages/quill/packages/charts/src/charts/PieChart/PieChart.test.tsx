@@ -253,6 +253,42 @@ describe('PieChart', () => {
         })
     })
 
+    describe('surrounding legend', () => {
+        const SURROUNDING = { legend: { show: true, position: 'surrounding' as const } }
+
+        it('labels slices beside the pie instead of in a legend box or on the slices', () => {
+            const { chart } = renderChart(
+                <PieChart series={SERIES} theme={THEME} config={{ ...SURROUNDING, isPercent: true }} />
+            )
+
+            expect(chart.legend()).toBeNull()
+            expect(chart.pie.sliceLabels()).toEqual([])
+            expect(chart.pie.surroundingLabels()).toEqual([
+                { name: 'Firefox', value: '50%', side: 'left' },
+                { name: 'Chrome', value: '50%', side: 'right' },
+            ])
+        })
+
+        it('isolates a slice when its label is clicked, as a legend row does', () => {
+            const { chart, container } = renderChart(<PieChart series={SERIES} theme={THEME} config={SURROUNDING} />)
+            const chromeLabel = (): HTMLElement =>
+                Array.from(
+                    container.querySelectorAll<HTMLElement>('[data-attr="hog-chart-pie-surrounding-label"]')
+                ).find((el) => el.textContent?.startsWith('Chrome'))!
+
+            fireEvent.click(chromeLabel())
+            expect(container.querySelector('canvas[aria-label]')?.getAttribute('aria-label')).toBe(
+                'Pie chart with 1 slices'
+            )
+            expect(chart.pie.surroundingLabels().map((l) => l.name)).toEqual(['Chrome'])
+
+            fireEvent.click(chromeLabel())
+            expect(container.querySelector('canvas[aria-label]')?.getAttribute('aria-label')).toBe(
+                'Pie chart with 2 slices'
+            )
+        })
+    })
+
     describe('error boundary', () => {
         it('reports render errors through onError', async () => {
             const onError = jest.fn()

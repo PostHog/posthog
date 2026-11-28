@@ -81,6 +81,12 @@ interface PieSliceLabelSummary {
     lines: string[]
 }
 
+interface PieSurroundingLabelSummary {
+    name: string
+    value: string | null
+    side: 'left' | 'right'
+}
+
 interface LegendItemSummary {
     label: string
     /** The row's secondary text (a slope chart's change, a proportion bar's `share · value`), or null
@@ -132,6 +138,8 @@ export interface ChartAccessor<Meta = unknown> {
     pie: {
         /** On-slice labels, in slice order. */
         sliceLabels(): PieSliceLabelSummary[]
+        /** Labels beside the pie under `legend.position: 'surrounding'`. */
+        surroundingLabels(): PieSurroundingLabelSummary[]
     }
     gauge: {
         /** The text a `Gauge` shows, or null for other charts. `label`, `min` and `max` are null when
@@ -360,6 +368,17 @@ export function getChart<Meta = unknown>(
                         text: el.textContent ?? '',
                         lines: Array.from(el.querySelectorAll('div')).map((line) => line.textContent ?? ''),
                     })
+                ),
+            surroundingLabels: () =>
+                Array.from(wrapper.querySelectorAll<HTMLElement>('[data-attr="hog-chart-pie-surrounding-label"]')).map(
+                    (el) => {
+                        const [name, value] = Array.from(el.querySelectorAll(':scope > span'))
+                        return {
+                            name: name?.textContent ?? '',
+                            value: value?.textContent ?? null,
+                            side: el.dataset.side === 'left' ? 'left' : 'right',
+                        }
+                    }
                 ),
         },
         gauge: {
