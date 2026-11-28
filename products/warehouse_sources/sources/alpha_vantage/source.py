@@ -173,7 +173,7 @@ Note: the free tier is limited to roughly 25 requests per day, and each selected
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,
                         placeholder="2024Q1",
-                        caption="Set a fiscal quarter to sync earnings call transcripts. Leave blank if you do not use that table.",
+                        caption="Set a fiscal quarter to sync earnings call transcripts. If you change the quarter, the next sync replaces the old quarter's rows. Leave this field blank if you do not use that table.",
                         secret=False,
                     ),
                 ],

@@ -222,6 +222,7 @@ ALPHA_VANTAGE_ENDPOINTS: dict[str, AlphaVantageEndpointConfig] = {
         function="EARNINGS_CALENDAR",
         kind="calendar",
         primary_keys=["symbol", "reportDate", "fiscalDateEnding"],
+        # The widest horizon takes the same single request as the three-month default.
         extra_params={"horizon": "12month"},
         description="Company earnings scheduled over the next 12 months, with the consensus EPS estimate. Covers the whole market rather than the configured symbols. Full refresh.",
     ),
@@ -233,12 +234,12 @@ ALPHA_VANTAGE_ENDPOINTS: dict[str, AlphaVantageEndpointConfig] = {
         description="Market-wide IPOs expected in the next three months. Full refresh.",
         should_sync_default=False,
     ),
-    "historical_options": AlphaVantageEndpointConfig(
-        name="historical_options",
+    "previous_session_options": AlphaVantageEndpointConfig(
+        name="previous_session_options",
         function="HISTORICAL_OPTIONS",
         kind="options",
         primary_keys=["symbol", "date", "contract_id"],
-        description="Options chains from the previous trading session for the configured symbols. Requires a paid Alpha Vantage plan. Full refresh.",
+        description="Options chains from the previous trading session for the configured symbols. Each sync replaces all rows. Requires a paid Alpha Vantage plan.",
         should_sync_default=False,
         sort_mode=None,
     ),
@@ -247,7 +248,7 @@ ALPHA_VANTAGE_ENDPOINTS: dict[str, AlphaVantageEndpointConfig] = {
         function="EARNINGS_CALL_TRANSCRIPT",
         kind="transcript",
         primary_keys=["symbol", "quarter", "turn_index"],
-        description="Earnings call transcripts with one row per speaker turn. Set the earnings call quarter in the source settings. Full refresh.",
+        description="Earnings call transcripts for one fiscal quarter, with one row per speaker turn. If you change the quarter, the next sync replaces the old quarter's rows.",
         should_sync_default=False,
     ),
     "shares_outstanding": AlphaVantageEndpointConfig(

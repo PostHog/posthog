@@ -361,27 +361,57 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
     "inflation": {
         "description": "Annual US consumer price inflation.",
         "docs_url": "https://www.alphavantage.co/documentation/#inflation",
-        "columns": {"date": "Start of the observation year.", "value": "Annual inflation rate, in percent."},
+        "columns": {
+            "date": "Start of the observation year.",
+            "value": "Annual inflation rate, in percent.",
+            "name": "Full name of the series.",
+            "interval": "Sampling interval of the series.",
+            "unit": "Unit of `value`.",
+        },
     },
     "nonfarm_payroll": {
         "description": "Monthly US nonfarm employment.",
         "docs_url": "https://www.alphavantage.co/documentation/#nonfarm-payroll",
-        "columns": {"date": "Start of the observation month.", "value": "Number of employees, in thousands."},
+        "columns": {
+            "date": "Start of the observation month.",
+            "value": "Number of employees, in thousands.",
+            "name": "Full name of the series.",
+            "interval": "Sampling interval of the series.",
+            "unit": "Unit of `value`.",
+        },
     },
     "retail_sales": {
         "description": "Monthly advance estimates of US retail trade sales.",
         "docs_url": "https://www.alphavantage.co/documentation/#retail-sales",
-        "columns": {"date": "Start of the observation month.", "value": "Sales, in millions of dollars."},
+        "columns": {
+            "date": "Start of the observation month.",
+            "value": "Sales, in millions of dollars.",
+            "name": "Full name of the series.",
+            "interval": "Sampling interval of the series.",
+            "unit": "Unit of `value`.",
+        },
     },
     "durables": {
         "description": "Monthly US manufacturers' new orders for durable goods.",
         "docs_url": "https://www.alphavantage.co/documentation/#durable-goods",
-        "columns": {"date": "Start of the observation month.", "value": "New orders, in millions of dollars."},
+        "columns": {
+            "date": "Start of the observation month.",
+            "value": "New orders, in millions of dollars.",
+            "name": "Full name of the series.",
+            "interval": "Sampling interval of the series.",
+            "unit": "Unit of `value`.",
+        },
     },
     "real_gdp_per_capita": {
         "description": "Quarterly US real gross domestic product per person.",
         "docs_url": "https://www.alphavantage.co/documentation/#real-gdp-per-capita",
-        "columns": {"date": "Start of the observation quarter.", "value": "Real GDP per person, in chained dollars."},
+        "columns": {
+            "date": "Start of the observation quarter.",
+            "value": "Real GDP per person, in chained dollars.",
+            "name": "Full name of the series.",
+            "interval": "Sampling interval of the series.",
+            "unit": "Unit of `value`.",
+        },
     },
     "ipo_calendar": {
         "description": "Market-wide IPOs expected in the next three months.",
@@ -394,8 +424,8 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "priceRangeHigh": "High end of the expected IPO price range.",
         },
     },
-    "historical_options": {
-        "description": "Options chains from the previous trading session. Requires a paid Alpha Vantage plan.",
+    "previous_session_options": {
+        "description": "Options chains from the previous trading session. Each sync replaces all rows. Requires a paid Alpha Vantage plan.",
         "docs_url": "https://www.alphavantage.co/documentation/#historical-options",
         "columns": {
             "symbol": "Ticker symbol of the underlying security.",
@@ -406,7 +436,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
         },
     },
     "earnings_call_transcript": {
-        "description": "Earnings call transcripts for the fiscal quarter in the source settings.",
+        "description": "Earnings call transcripts for the fiscal quarter in the source settings. If you change the quarter, the next sync replaces the old quarter's rows.",
         "docs_url": "https://www.alphavantage.co/documentation/#transcript",
         "columns": {
             "symbol": "Ticker symbol of the company.",

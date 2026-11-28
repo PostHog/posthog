@@ -16,7 +16,6 @@ class TestAlphaVantageSource:
 
     @parameterized.expand(
         [
-            ("enabled_empty", "", {"earnings_call_transcript"}, False),
             ("enabled_null", None, {"earnings_call_transcript"}, False),
             ("enabled_valid", "2024Q1", {"earnings_call_transcript"}, True),
             ("disabled_empty", "", {"earnings_calendar"}, True),

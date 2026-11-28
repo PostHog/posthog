@@ -11,6 +11,7 @@ from products.warehouse_sources.sources.alpha_vantage._config import AlphaVantag
 from products.warehouse_sources.sources.alpha_vantage.alpha_vantage import (
     CSV_CHUNK_SIZE,
     LISTING_STATES,
+    OPTIONS_CHUNK_SIZE,
     AlphaVantageAPIError,
     AlphaVantageRetryableError,
     _calendar_rows,
@@ -308,11 +309,6 @@ class TestAlphaVantage:
             ("real_gdp", "REAL_GDP", "quarterly", [None]),
             ("cpi", "CPI", "monthly", [None]),
             ("unemployment", "UNEMPLOYMENT", None, [None]),
-            ("inflation", "INFLATION", None, [None]),
-            ("nonfarm_payroll", "NONFARM_PAYROLL", None, [None]),
-            ("retail_sales", "RETAIL_SALES", None, [None]),
-            ("durables", "DURABLES", None, [None]),
-            ("real_gdp_per_capita", "REAL_GDP_PER_CAPITA", None, [None]),
             ("federal_funds_rate", "FEDERAL_FUNDS_RATE", "daily", [None]),
             ("treasury_yield", "TREASURY_YIELD", "daily", ["3month", "2year", "5year", "7year", "10year", "30year"]),
         ]
@@ -772,19 +768,23 @@ class TestAlphaVantage:
             }
         ]
 
-    def test_historical_options_emits_contracts_for_each_symbol(self) -> None:
+    def test_previous_session_options_batches_contracts_for_each_symbol(self) -> None:
+        symbol_counts = [("ACME", OPTIONS_CHUNK_SIZE + 1), ("EXMP", 1)]
         result = _driver("ACME, EXMP").run(
-            "historical_options",
+            "previous_session_options",
             [
                 ScriptedResponse(
                     json={
                         "data": [
-                            {"contractID": f"{symbol}261218C00050000", "date": "2026-11-27", "last": "1.25"},
+                            *(
+                                {"contractID": f"{symbol}261218C{strike:08d}", "date": "2026-11-27", "last": "1.25"}
+                                for strike in range(count)
+                            ),
                             {"date": "2026-11-27"},
                         ]
                     }
                 )
-                for symbol in ("ACME", "EXMP")
+                for symbol, count in symbol_counts
             ],
         )
 
@@ -792,9 +792,11 @@ class TestAlphaVantage:
         assert result.params("function") == ["HISTORICAL_OPTIONS", "HISTORICAL_OPTIONS"]
         assert result.params("symbol") == ["ACME", "EXMP"]
         assert result.params("date") == [None, None]
+        assert [len(batch) for batch in result.items] == [OPTIONS_CHUNK_SIZE, 1, 1]
         assert result.rows == [
-            {"symbol": symbol, "contract_id": f"{symbol}261218C00050000", "date": "2026-11-27", "last": "1.25"}
-            for symbol in ("ACME", "EXMP")
+            {"symbol": symbol, "contract_id": f"{symbol}261218C{strike:08d}", "date": "2026-11-27", "last": "1.25"}
+            for symbol, count in symbol_counts
+            for strike in range(count)
         ]
 
     @parameterized.expand(

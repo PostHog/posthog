@@ -3,6 +3,7 @@ import re
 import csv
 import json
 from collections.abc import Iterator
+from itertools import batched
 from typing import Any
 
 import requests
@@ -38,6 +39,7 @@ LISTING_STATES = ("active", "delisted")
 
 # The CSV functions return tens of thousands of rows in one body, so yield in chunks.
 CSV_CHUNK_SIZE = 5000
+OPTIONS_CHUNK_SIZE = 5000
 
 # NEWS_SENTIMENT has no cursor pagination; `limit` caps one response at 1000 articles. The page cap
 # bounds the time-window walk in `_news_rows` over a symbol with a very deep archive.
@@ -621,8 +623,6 @@ def get_rows(
 
     parser = _PARSERS[config.kind]
 
-    # One request per symbol (no pagination); yield each symbol's rows as a list and let the pipeline
-    # batch. A symbol's full time series is bounded (~20 years), so it comfortably fits in memory.
     for symbol in symbols:
         # A permanent quota/premium error (AlphaVantageAPIError) or transport failure (HTTPError)
         # affects every symbol equally, so let it propagate and fail the whole sync rather than
@@ -638,7 +638,13 @@ def get_rows(
             logger.warning(f"Alpha Vantage: skipping symbol {symbol} for {endpoint}: {body['Error Message']}")
             continue
 
-        rows = list(parser(body, symbol))
+        parsed_rows = parser(body, symbol)
+        if config.kind == "options":
+            for batch in batched(parsed_rows, OPTIONS_CHUNK_SIZE, strict=False):
+                yield list(batch)
+            continue
+
+        rows = list(parsed_rows)
         if rows:
             yield rows
 
