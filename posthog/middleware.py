@@ -78,7 +78,7 @@ from posthog.models.event.new_events_schema import (
     NEW_EVENTS_SCHEMA_HEADER,
     new_events_schema_for_request,
 )
-from posthog.request_log_signal_handlers import CREDENTIAL_QUERY_PARAMS
+from posthog.request_log_signal_handlers import CREDENTIAL_QUERY_PARAMS, REQUEST_CREDENTIAL_RESOLVER_ATTR
 from posthog.session.activity import session_activity_credential
 from posthog.settings import PROJECT_SWITCHING_TOKEN_ALLOWLIST, SITE_URL
 from posthog.utils import get_ip_address, get_trusted_client_ip
@@ -704,10 +704,13 @@ class CHQueries:
         start = time.perf_counter()
         # Stays "error" if get_response raises — observed in the finally below.
         status_class = "error"
+        drf_request: object | None = None
 
         try:
             response: HttpResponse = self.get_response(request)
             status_class = f"{response.status_code // 100}xx"
+            # A DRF response keeps the view's request, which knows the authenticator and the parsed body.
+            drf_request = (getattr(response, "renderer_context", None) or {}).get("request")
             if get_query_tag_value("is_scout_experiment") is True:
                 response["X-PostHog-Suppress-Analytics"] = "true"
             # Lets the frontend put the id on its failure analytics, which then join to this request's logs.
@@ -739,7 +742,7 @@ class CHQueries:
                     access_method=get_query_tag_value("access_method") or "",
                     status_class=status_class,
                 ).observe(time.perf_counter() - start)
-                record_scope_usage(request, route=api_route, status_class=status_class)
+                record_scope_usage(request, route=api_route, status_class=status_class, drf_request=drf_request)
             reset_query_tags()
 
     def process_view(
@@ -1619,6 +1622,10 @@ def _session_credential(request: HttpRequest, session_user_pk: object) -> Activi
     return session_activity_credential(request, get_original_user_id_from_session(request))
 
 
+def _session_key(request: HttpRequest) -> str | None:
+    return getattr(getattr(request, "session", None), "session_key", None)
+
+
 # Credentials a person holds. A server-minted sandbox token is OAuth too, but it binds a task.
 _MCP_INTENT_CREDENTIAL_TYPES = frozenset({"oauth", "personal_api_key"})
 
@@ -1685,7 +1692,7 @@ class ActivityLoggingMiddleware:
     def __init__(self, get_response):
         self.get_response = get_response
 
-    def __call__(self, request: HttpRequest):
+    def __call__(self, request: HttpRequest) -> HttpResponse:
         # Lets bearer-auth code (which runs later, inside the view) attribute activity safely,
         # knowing the finally block below will clean up.
         activity_storage.mark_request_scoped()
@@ -1704,10 +1711,27 @@ class ActivityLoggingMiddleware:
 
         activity_storage.set_ip_address(pop_mcp_client_ip(request) or get_ip_address(request) or None)
 
+        session_key = _session_key(request)
+        entry_resolver = activity_storage.get_credential_resolver()
+        entry_credential = activity_storage.get_credential()
+
+        def request_credential() -> ActivityCredential | None:
+            # The session resolver reads the session key when it is called. Logout and a password change replace
+            # the key but keep the resolver, so return the credential read at entry, which names the session that
+            # authenticated the request. A login or a bearer authentication class sets a new resolver.
+            if activity_storage.get_credential_resolver() is entry_resolver and _session_key(request) != session_key:
+                return entry_credential
+            return activity_storage.get_credential()
+
+        setattr(request, REQUEST_CREDENTIAL_RESOLVER_ATTR, request_credential)
         try:
             response = self.get_response(request)
             _buffer_mcp_intent(request, response)
         finally:
+            # django-structlog's RequestMiddleware wraps this one, so it logs request_finished after clear_all()
+            # below. request_failed fires inside the view, so it calls the live resolver set above instead.
+            credential = request_credential()
+            setattr(request, REQUEST_CREDENTIAL_RESOLVER_ATTR, lambda: credential)
             # Clean up activity storage after request
             activity_storage.clear_all()
 

@@ -65,10 +65,11 @@ class WebAnalyticsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         operation_id="web_analytics_weekly_digest",
         summary="Summarize web analytics",
         description=(
-            "Summarizes a project's web analytics over a lookback window (default 7 days): unique "
-            "visitors, pageviews, sessions, bounce rate, and average session duration with "
-            "period-over-period comparisons, plus the top 5 pages, top 5 traffic sources, and "
-            "goal conversions."
+            "Summarizes a project's web analytics over the last `days` complete days, ending yesterday "
+            "(default 7): unique visitors, pageviews, sessions, bounce rate, and average session duration "
+            "compared with the equal-length period before, plus the top 5 pages, top 5 traffic sources, and "
+            "goal conversions. Test accounts are excluded when the project's default says so; see "
+            "`metadata.filter_test_accounts`."
         ),
         parameters=[
             OpenApiParameter(
@@ -77,7 +78,10 @@ class WebAnalyticsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 location=OpenApiParameter.QUERY,
                 required=False,
                 default=DEFAULT_DAYS,
-                description=f"Lookback window in days ({MIN_DAYS}–{MAX_DAYS}). Defaults to {DEFAULT_DAYS}.",
+                description=(
+                    f"Number of complete days to summarize ({MIN_DAYS}–{MAX_DAYS}), ending yesterday in the "
+                    f"project timezone. Defaults to {DEFAULT_DAYS}."
+                ),
             ),
             OpenApiParameter(
                 name="compare",
@@ -87,7 +91,7 @@ class WebAnalyticsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 default=True,
                 description=(
                     "When true (default), include period-over-period change for each metric "
-                    "comparing against the prior equal-length period. Set to false to skip the "
+                    "comparing against the `days` complete days before the window. Set to false to skip the "
                     "comparison query (faster)."
                 ),
             ),

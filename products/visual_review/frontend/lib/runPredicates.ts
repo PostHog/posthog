@@ -8,6 +8,13 @@ export function isReportingOnlyRun(run: RunApi | null): boolean {
     return !!run && (run.purpose === 'observe' || run.pr_number == null)
 }
 
+// Decisions count across the pull request's runs only in ledger mode, and only ledger-mode runs get a
+// `commit_status` gate. The gate is fixed when the run is created, so a repo switched since keeps the
+// UI its runs were made with, and the API refuses what no longer applies.
+export function decidesByPullRequest(run: RunApi | null): boolean {
+    return !!run && !isReportingOnlyRun(run) && run.gate === 'commit_status'
+}
+
 // A merge-queue run's `pr_number` is Trunk's shadow PR, whose body lists every PR it tests.
 // The branch names only the first of them. Keep the pattern in sync with `_MERGE_QUEUE_BRANCH_RE` in the backend.
 export function mergeQueueBatchLeaderPrNumber(branch: string): number | null {

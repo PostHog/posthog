@@ -4296,6 +4296,7 @@ export namespace Schemas {
     export type ExperimentWarehouseNativeRowsLeftOut = Partial<{
         empty_id: number | null;
         exposed_without_rows: Record<string, number> | null;
+        unknown_variant_rows: number | null;
         unknown_variants: Record<string, number> | null;
     }>;
     export type ExperimentQueryResponse = Partial<{
@@ -7323,6 +7324,7 @@ export namespace Schemas {
             | undefined;
     };
     export type WebVitalsPathBreakdownResultItem = {
+        count?: (number | null) | undefined;
         path: string;
         value: number;
     };
@@ -7554,6 +7556,7 @@ export namespace Schemas {
         | "apple-ads"
         | "postgresql"
         | "aws-s3"
+        | "aws-warehouse-sources"
         | "aws-redshift"
         | "s3-compatible"
         | "snowflake"
@@ -8542,6 +8545,7 @@ export namespace Schemas {
         interval?: (IntervalType | null) | undefined;
         kind?: string | undefined;
         metric: WebVitalsMetric;
+        minSamples?: (number | null) | undefined;
         modifiers?: (HogQLQueryModifiers | null) | undefined;
         orderBy?:
             | (Array<
@@ -10540,6 +10544,7 @@ export namespace Schemas {
      * * `result_ready` - Result Ready
      * * `flag_shared` - Flag Shared
      * * `stale_experiment` - Stale Experiment
+     * * `exposure_rows_left_out` - Exposure Rows Left Out
      */
     export type ExperimentHealthFindingCodeEnum =
         | "flag_off_while_running"
@@ -10572,7 +10577,8 @@ export namespace Schemas {
         | "metrics_not_matured"
         | "result_ready"
         | "flag_shared"
-        | "stale_experiment";
+        | "stale_experiment"
+        | "exposure_rows_left_out";
     /**
      * * `critical` - Critical severity
      * * `warning` - Warning severity
@@ -10637,6 +10643,7 @@ export namespace Schemas {
      * * `multiple_variants_share` - Multiple Variants Share
      * * `events_billing_limit` - Events Billing Limit
      * * `feature_flags_billing_limit` - Feature Flags Billing Limit
+     * * `exposure_rows_left_out` - Exposure Rows Left Out
      */
     export type ExperimentHealthCheckKeyEnum =
         | "flag_state"
@@ -10667,7 +10674,8 @@ export namespace Schemas {
         | "bias_risk_multiple_excluded"
         | "multiple_variants_share"
         | "events_billing_limit"
-        | "feature_flags_billing_limit";
+        | "feature_flags_billing_limit"
+        | "exposure_rows_left_out";
     export type ExperimentHealthFinding = {
         /**
          * Stable identifier of the problem. Each code has one meaning across every surface that reports it.
@@ -10703,6 +10711,7 @@ export namespace Schemas {
          * * `result_ready` - Result Ready
          * * `flag_shared` - Flag Shared
          * * `stale_experiment` - Stale Experiment
+         * * `exposure_rows_left_out` - Exposure Rows Left Out
          */
         code: ExperimentHealthFindingCodeEnum;
         /**
@@ -10773,6 +10782,7 @@ export namespace Schemas {
          * * `multiple_variants_share` - Multiple Variants Share
          * * `events_billing_limit` - Events Billing Limit
          * * `feature_flags_billing_limit` - Feature Flags Billing Limit
+         * * `exposure_rows_left_out` - Exposure Rows Left Out
          */
         check: ExperimentHealthCheckKeyEnum;
     };
@@ -10858,6 +10868,9 @@ export namespace Schemas {
      * * `assigned_outside_count` - Users or groups who got a variant from a call that the flag service didn't evaluate and that is no local evaluation, such as a bootstrapped value. Read only while a running experiment's feature flag has a 0% rollout
      * * `other_draft_experiment_count` - Other draft experiments on the same feature flag that are not archived
      * * `filters_test_accounts` - Whether the counts leave out internal and test users, because the experiment applies the test account filters
+     * * `left_out_row_count` - Rows of the warehouse-native exposure query that the exposures leave out, for any reason
+     * * `unknown_variant_row_count` - Rows of the warehouse-native exposure query whose variant is none of the experiment's variants
+     * * `empty_id_row_count` - Rows of the warehouse-native exposure query whose entity_id is empty
      */
     export type ExperimentHealthValueKeyEnum =
         | "exposed_count"
@@ -10929,7 +10942,10 @@ export namespace Schemas {
         | "other_running_experiment_count"
         | "assigned_outside_count"
         | "other_draft_experiment_count"
-        | "filters_test_accounts";
+        | "filters_test_accounts"
+        | "left_out_row_count"
+        | "unknown_variant_row_count"
+        | "empty_id_row_count";
     /**
      * * `above` - Finding above the threshold
      * * `below` - Finding below the threshold
@@ -11013,6 +11029,9 @@ export namespace Schemas {
          * * `assigned_outside_count` - Users or groups who got a variant from a call that the flag service didn't evaluate and that is no local evaluation, such as a bootstrapped value. Read only while a running experiment's feature flag has a 0% rollout
          * * `other_draft_experiment_count` - Other draft experiments on the same feature flag that are not archived
          * * `filters_test_accounts` - Whether the counts leave out internal and test users, because the experiment applies the test account filters
+         * * `left_out_row_count` - Rows of the warehouse-native exposure query that the exposures leave out, for any reason
+         * * `unknown_variant_row_count` - Rows of the warehouse-native exposure query whose variant is none of the experiment's variants
+         * * `empty_id_row_count` - Rows of the warehouse-native exposure query whose entity_id is empty
          */
         value: ExperimentHealthValueKeyEnum;
         /**
@@ -11094,6 +11113,9 @@ export namespace Schemas {
          * * `assigned_outside_count` - Users or groups who got a variant from a call that the flag service didn't evaluate and that is no local evaluation, such as a bootstrapped value. Read only while a running experiment's feature flag has a 0% rollout
          * * `other_draft_experiment_count` - Other draft experiments on the same feature flag that are not archived
          * * `filters_test_accounts` - Whether the counts leave out internal and test users, because the experiment applies the test account filters
+         * * `left_out_row_count` - Rows of the warehouse-native exposure query that the exposures leave out, for any reason
+         * * `unknown_variant_row_count` - Rows of the warehouse-native exposure query whose variant is none of the experiment's variants
+         * * `empty_id_row_count` - Rows of the warehouse-native exposure query whose entity_id is empty
          */
         value: ExperimentHealthValueKeyEnum;
         /**
@@ -11151,6 +11173,7 @@ export namespace Schemas {
          * * `multiple_variants_share` - Multiple Variants Share
          * * `events_billing_limit` - Events Billing Limit
          * * `feature_flags_billing_limit` - Feature Flags Billing Limit
+         * * `exposure_rows_left_out` - Exposure Rows Left Out
          */
         key: ExperimentHealthCheckKeyEnum;
         /**
@@ -11716,7 +11739,8 @@ export namespace Schemas {
         | "test_account_filter_removes_exposures"
         | "unserved_variant_exposures"
         | "events_billing_limit"
-        | "feature_flags_billing_limit";
+        | "feature_flags_billing_limit"
+        | "exposure_rows_left_out";
     export type ExperimentExposureHealthValueKey =
         | "exposed_count"
         | "compared_count"
@@ -11728,7 +11752,10 @@ export namespace Schemas {
         | "exposed_without_test_account_filter_count"
         | "kept_by_test_account_filter_percentage"
         | "unserved_exposed_count"
-        | "unserved_exposed_percentage";
+        | "unserved_exposed_percentage"
+        | "left_out_row_count"
+        | "unknown_variant_row_count"
+        | "empty_id_row_count";
     export type ExperimentExposureHealthRuleMinimum = {
         /**
          * The value that the key must reach. Below it, the check reports no finding.
@@ -11804,7 +11831,8 @@ export namespace Schemas {
         | "test_account_filter_removes_exposures"
         | "unserved_variant_exposures"
         | "events_billing_limit"
-        | "feature_flags_billing_limit";
+        | "feature_flags_billing_limit"
+        | "exposure_rows_left_out";
     export type ExperimentExposureHealthFindingSeverity =
         | "critical"
         | "warning"

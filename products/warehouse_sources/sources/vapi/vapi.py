@@ -7,13 +7,13 @@ from urllib.parse import urlencode
 import pyarrow as pa
 import requests
 from structlog.types import FilteringBoundLogger
-from tenacity import retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
 from products.warehouse_sources.sources.sdk import (
     ResumableSourceManager,
     SourceResponse,
     make_tracked_session,
-    retry_with_deadline,
+    raise_for_retryable_status,
+    vendor_retry,
 )
 from products.warehouse_sources.sources.sdk.internals import Batcher
 from products.warehouse_sources.sources.vapi.settings import (
@@ -41,16 +41,19 @@ def _is_sensitive_key(key: str) -> bool:
     return lowered in _SENSITIVE_EXACT_KEYS or any(part in lowered for part in _SENSITIVE_KEY_SUBSTRINGS)
 
 
-def _scrub_sensitive_values(value: Any) -> Any:
+def _scrub_sensitive_values(value: Any, *, preserve_schema: bool = False) -> Any:
     if isinstance(value, dict):
-        return {k: REDACTED_VALUE if _is_sensitive_key(k) else _scrub_sensitive_values(v) for k, v in value.items()}
+        return {
+            k: v
+            if preserve_schema and k == "schema"
+            else REDACTED_VALUE
+            if _is_sensitive_key(k)
+            else _scrub_sensitive_values(v)
+            for k, v in value.items()
+        }
     if isinstance(value, list):
-        return [_scrub_sensitive_values(item) for item in value]
+        return [_scrub_sensitive_values(item, preserve_schema=preserve_schema) for item in value]
     return value
-
-
-class VapiRetryableError(Exception):
-    pass
 
 
 @dataclasses.dataclass(frozen=False)
@@ -84,24 +87,20 @@ def _make_session(api_key: str) -> requests.Session:
     )
 
 
-@retry_with_deadline(
-    retry=retry_if_exception_type(
-        (
-            VapiRetryableError,
-            requests.ReadTimeout,
-            requests.ConnectionError,
-            requests.exceptions.ChunkedEncodingError,
-        )
-    ),
-    stop=stop_after_attempt(5),
-    wait=wait_exponential_jitter(initial=1, max=30),
-    reraise=True,
-)
-def _fetch(session: requests.Session, url: str, logger: FilteringBoundLogger) -> Any:
-    response = session.get(url, timeout=REQUEST_TIMEOUT_SECONDS)
+@vendor_retry()
+def _fetch(
+    session: requests.Session,
+    url: str,
+    logger: FilteringBoundLogger,
+    json_body: dict[str, Any] | None = None,
+) -> Any:
+    response = (
+        session.post(url, json=json_body, timeout=REQUEST_TIMEOUT_SECONDS)
+        if json_body is not None
+        else session.get(url, timeout=REQUEST_TIMEOUT_SECONDS)
+    )
 
-    if response.status_code == 429 or response.status_code >= 500:
-        raise VapiRetryableError(f"Vapi API error (retryable): status={response.status_code}, url={url}")
+    raise_for_retryable_status(response, vendor="Vapi", url=url)
 
     if not response.ok:
         logger.error(f"Vapi API error: status={response.status_code}, body={response.text[:500]}, url={url}")
@@ -229,6 +228,34 @@ def get_rows(
     session = _make_session(api_key)
     batcher = Batcher(logger=logger, chunk_size=2000, chunk_size_bytes=100 * 1024 * 1024)
 
+    if endpoint == "analytics":
+        data = _fetch(
+            session,
+            f"{VAPI_BASE_URL}{config.path}",
+            logger,
+            json_body={
+                "queries": [
+                    {
+                        "name": "daily_calls",
+                        "table": "call",
+                        # The API defaults to seven days, so request all available history explicitly.
+                        "timeRange": {"start": "1970-01-01T00:00:00.000Z", "step": "day", "timezone": "UTC"},
+                        "operations": [
+                            {"operation": "count", "column": "id", "alias": "callCount"},
+                            {"operation": "sum", "column": "cost", "alias": "totalCost"},
+                            {"operation": "sum", "column": "duration", "alias": "totalDuration"},
+                            {"operation": "sum", "column": "minutesUsed", "alias": "totalMinutesUsed"},
+                        ],
+                    }
+                ]
+            },
+        )
+        for query in data:
+            batcher.batch(query["result"])
+            yield from _drain(batcher, resumable_source_manager, save_resume_state=False)
+        yield from _drain(batcher, resumable_source_manager, save_resume_state=False, include_incomplete_chunk=True)
+        return
+
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
     resume_cursor = resume.created_at_cursor if resume is not None else None
 
@@ -289,7 +316,7 @@ def get_rows(
         base_params["createdAtGt"] = effective_gt
 
     for rows in _fetch_ascending_pages(session, config, logger, base_params):
-        batcher.batch(_scrub_sensitive_values(rows))
+        batcher.batch(_scrub_sensitive_values(rows, preserve_schema=endpoint == "structured_outputs"))
         yield from _drain(batcher, resumable_source_manager, save_resume_state=True)
     yield from _drain(batcher, resumable_source_manager, save_resume_state=True, include_incomplete_chunk=True)
 
@@ -323,7 +350,7 @@ def vapi_source(
         primary_keys=config.primary_keys,
         # created_at_cursor endpoints return newest-first, so the pipeline must track the
         # earliest/latest watermarks the Stripe way; page endpoints are requested ascending.
-        sort_mode="desc" if config.pagination == "created_at_cursor" else "asc",
+        sort_mode=None if endpoint == "analytics" else "desc" if config.pagination == "created_at_cursor" else "asc",
         partition_count=1,
         partition_size=1,
         partition_mode="datetime" if config.partition_key else None,

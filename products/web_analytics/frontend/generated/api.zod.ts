@@ -261,6 +261,28 @@ export const AeoPromptsBulkImportBody = /* @__PURE__ */ zod.object({
 })
 
 /**
+ * Sets one topic on the chosen prompts, or removes their topic. Their past checks keep the topic they ran with, as when one prompt's topic changes. Prompt versions don't change. Nothing is saved when a prompt is missing or archived.
+ * @summary Set the topic of several AEO prompts
+ */
+export const aeoPromptsBulkSetTopicBodyPromptIdsMax = 500
+
+export const aeoPromptsBulkSetTopicBodyTopicMax = 200
+
+export const AeoPromptsBulkSetTopicBody = /* @__PURE__ */ zod.object({
+    prompt_ids: zod
+        .array(zod.uuid())
+        .min(1)
+        .max(aeoPromptsBulkSetTopicBodyPromptIdsMax)
+        .describe('Ids of the prompts to change, from GET aeo_prompts\/. At most 500. Archived prompts are refused.'),
+    topic: zod
+        .string()
+        .max(aeoPromptsBulkSetTopicBodyTopicMax)
+        .describe(
+            "The topic to set. A name that matches an existing topic in another letter case takes that topic's spelling. An empty string removes the topic."
+        ),
+})
+
+/**
  * Suggests prompts to track for a site. Requires AI data processing approved for the organization. PostHog reads the site with web search and writes questions a buyer would ask an AI assistant, each labeled with a topic, a circle, a funnel stage and whether it names the brand. Nothing is saved: import the prompts you keep with bulk_import. Prompts the project already tracks are left out. Returns a pending job right away; poll GET aeo_prompts/suggest/<id>/ until it completes, which takes up to a few minutes.
  * @summary Suggest AEO prompts
  */
@@ -312,6 +334,61 @@ export const AeoPromptsSuggestBody = /* @__PURE__ */ zod.object({
         .max(aeoPromptsSuggestBodyCountMax)
         .default(aeoPromptsSuggestBodyCountDefault)
         .describe('How many prompts to suggest, at most 50.'),
+})
+
+/**
+ * Moves every prompt of one topic, archived prompts included, to another topic, along with the past checks that ran with it. The first topic is gone afterwards. Prompt versions don't change.
+ * @summary Merge two AEO prompt topics
+ */
+export const aeoPromptsTopicsMergeBodyTopicMax = 200
+
+export const aeoPromptsTopicsMergeBodyIntoTopicMax = 200
+
+export const AeoPromptsTopicsMergeBody = /* @__PURE__ */ zod.object({
+    topic: zod
+        .string()
+        .max(aeoPromptsTopicsMergeBodyTopicMax)
+        .describe("The topic to merge away. Its prompts move to 'into_topic'. Letter case is ignored."),
+    into_topic: zod
+        .string()
+        .max(aeoPromptsTopicsMergeBodyIntoTopicMax)
+        .describe(
+            'The topic to keep, as listed by GET aeo_prompts\/topics\/. It keeps its current spelling. Letter case is ignored.'
+        ),
+})
+
+/**
+ * Removes a topic from every prompt that has it, archived prompts included, and from the past checks that ran with it. The prompts are kept and have no topic afterwards. Prompt versions don't change.
+ * @summary Remove an AEO prompt topic
+ */
+export const aeoPromptsTopicsRemoveBodyTopicMax = 200
+
+export const AeoPromptsTopicsRemoveBody = /* @__PURE__ */ zod.object({
+    topic: zod
+        .string()
+        .max(aeoPromptsTopicsRemoveBodyTopicMax)
+        .describe('The topic to remove. Its prompts are kept and are left with no topic. Letter case is ignored.'),
+})
+
+/**
+ * Renames a topic on every prompt that has it, archived prompts included, and on the past checks that ran with it, so the reports show its history under the new name. Prompt versions don't change.
+ * @summary Rename an AEO prompt topic
+ */
+export const aeoPromptsTopicsRenameBodyTopicMax = 200
+
+export const aeoPromptsTopicsRenameBodyNewTopicMax = 200
+
+export const AeoPromptsTopicsRenameBody = /* @__PURE__ */ zod.object({
+    topic: zod
+        .string()
+        .max(aeoPromptsTopicsRenameBodyTopicMax)
+        .describe('The topic to rename, as listed by GET aeo_prompts\/topics\/. Letter case is ignored.'),
+    new_topic: zod
+        .string()
+        .max(aeoPromptsTopicsRenameBodyNewTopicMax)
+        .describe(
+            'The new name. It may differ from the old one only in letter case, to fix its spelling. Fails with 409 when another topic already has the name: merge the two instead.'
+        ),
 })
 
 /**

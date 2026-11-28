@@ -19,6 +19,9 @@ from pydantic.dataclasses import dataclass
 from posthog.dataclasses import frozen
 
 from .enums import (
+    BroadcastRequestDeliveryKind,
+    BroadcastRequestSource,
+    BroadcastRequestStatus,
     ChannelResolutionSource,
     DigestRunStatus,
     LlmSkipReason,
@@ -52,6 +55,9 @@ class RepoConfigDTO:
     routing_mode: str = ""
     routing_fork_labels: dict[str, str] = Field(default_factory=dict)
     review_on_clean_external_review: bool = False
+    broadcast_enabled: bool = False
+    broadcast_slack_channel_id: str = ""
+    broadcast_slack_channel_name: str = ""
     created_at: datetime | None = None
     updated_at: datetime | None = None
 
@@ -95,6 +101,33 @@ class PullRequestRoutingDTO:
 
 
 @dataclass(frozen=True)
+class BroadcastRequestDeliveryDTO:
+    """Where a broadcast request was posted."""
+
+    kind: BroadcastRequestDeliveryKind
+    url: str | None
+
+
+@dataclass(frozen=True)
+class BroadcastRequestDTO:
+    """A request for a person to review a pull request when stamphog does not approve it."""
+
+    id: UUID
+    status: BroadcastRequestStatus
+    head_sha: str
+    requested_via: BroadcastRequestSource
+    note: str = ""
+    # Display names of the people who said they will look, in the order they said it.
+    looking: list[str] = Field(default_factory=list)
+    approved_by_login: str = ""
+    deliveries: list[BroadcastRequestDeliveryDTO] = Field(default_factory=list)
+    # How many cards the requester caused in the 7 days up to this request's card, that card included.
+    requester_card_count: int | None = None
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+
+
+@dataclass(frozen=True)
 class PullRequestDTO:
     """A pull request stamphog knows about, including merge state once it merges."""
 
@@ -116,6 +149,8 @@ class PullRequestDTO:
     posted_comment_id: int | None = None
     routing_mode: RoutingMode = RoutingMode.OFF
     routing: PullRequestRoutingDTO | None = None
+    # The newest Broadcast request of the pull request, None when nobody asked or the read did not load it.
+    broadcast_request: BroadcastRequestDTO | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
 
@@ -171,6 +206,7 @@ class ReviewRunDTO:
     posted_review_id: int | None = None
     verdict_posted_at: datetime | None = None
     approval_dismissed_at: datetime | None = None
+    broadcast_request: BroadcastRequestDTO | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
     completed_at: datetime | None = None
@@ -270,6 +306,17 @@ class ReviewRequestResultDTO:
     run: ReviewRunDTO
     # False when a live or delivered run already covered the PR's current head.
     created: bool
+    # Set only when the request asked for people to review. It can be a request that already existed.
+    broadcast_request: BroadcastRequestDTO | None = None
+    # The Slack channel name the repository sends Broadcast requests to, without the '#'. Blank when unknown.
+    broadcast_request_channel_name: str = ""
+    broadcast_request_created: bool = False
+    # True when the request is open with no posted card and the card cannot go out: the team has no Slack
+    # integration, or Slack refused the post.
+    broadcast_request_card_blocked: bool = False
+    # The requester's weekly card count that the card on its way will show. Set only when this request created
+    # ``broadcast_request`` and the card is on its way, so it is always the count of the person who asked.
+    broadcast_request_card_count: int | None = None
 
 
 @dataclass(frozen=True)

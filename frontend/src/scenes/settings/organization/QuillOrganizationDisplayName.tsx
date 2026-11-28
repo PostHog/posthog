@@ -2,9 +2,11 @@ import { MouseEvent, useId } from 'react'
 
 import { IconUpload, IconX } from '@posthog/icons'
 import { LemonFileInput } from '@posthog/lemon-ui'
-import { Button, Field, FieldLabel, Input } from '@posthog/quill'
+import { Button, Field, FieldDescription, FieldLabel, Input } from '@posthog/quill'
 
+import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { UploadedLogo } from 'lib/lemon-ui/UploadedLogo/UploadedLogo'
+import { urls } from 'scenes/urls'
 
 import type { OrganizationType } from '~/types'
 
@@ -12,6 +14,8 @@ export function QuillOrganizationDisplayName({
     organization,
     name,
     onNameChange,
+    showBillingNameNote,
+    canAccessBilling,
     logoMediaId,
     onResetLogo,
     filesToUpload,
@@ -25,6 +29,8 @@ export function QuillOrganizationDisplayName({
     organization: OrganizationType | null
     name: string
     onNameChange: (name: string) => void
+    showBillingNameNote: boolean
+    canAccessBilling: boolean
     logoMediaId: string | null
     onResetLogo: (event: MouseEvent) => void
     filesToUpload: File[]
@@ -87,6 +93,27 @@ export function QuillOrganizationDisplayName({
                         data-attr="organization-name-input-settings"
                         placeholder="Organization name"
                     />
+                    {showBillingNameNote && (
+                        <FieldDescription>
+                            This doesn't change the company name on your invoices.{' '}
+                            {canAccessBilling ? (
+                                <>
+                                    To change that, update your billing details from the{' '}
+                                    <Button
+                                        variant="link"
+                                        size="inline"
+                                        nativeButton={false}
+                                        render={<LinkPrimitive to={urls.organizationBilling()} />}
+                                    >
+                                        billing page
+                                    </Button>
+                                    .
+                                </>
+                            ) : (
+                                'To change that, ask an organization owner to update the billing details.'
+                            )}
+                        </FieldDescription>
+                    )}
                 </Field>
                 <Button variant="primary" onClick={onSave} disabledReason={saveDisabledReason} loading={saving}>
                     Save

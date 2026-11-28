@@ -66,6 +66,10 @@ class NonDayAlignedRange(LazyPrecomputeIneligible):
     pass
 
 
+class SampleFloorRequested(LazyPrecomputeIneligible):
+    pass
+
+
 # `date_to` from the query date range arrives as either midnight (exclusive next
 # day) or end-of-day (inclusive last day) — both are day-aligned and the bucket
 # math still works. Anything else (10:00, 12:00, …) is a sub-day filter we can't
@@ -86,6 +90,9 @@ def _check_vitals_eligible(runner: LazyPrecomputeRunner) -> None:
     miss the surrounding day bucket and silently return empty results, while
     the raw query computes the same range correctly from event timestamps.
     """
+    if getattr(runner.query, "minSamples", None):
+        # The precomputed buckets hold quantile states only, so a sample floor can only be applied by the raw scan.
+        raise SampleFloorRequested()
     date_from = runner.query_date_range.date_from()  # type: ignore[attr-defined]
     date_to = runner.query_date_range.date_to()  # type: ignore[attr-defined]
     if date_from is None or date_to is None:
@@ -228,9 +235,10 @@ def ensure_web_vitals_paths_precomputed(
 # query: an all-NULL or empty reservoir comes back as NULL/<0 here, and the
 # raw path drops those rows the same way.
 #
-# `LIMIT 20 BY band` matches the raw query: at most 20 rows per band sorted by
-# ascending value. The runner-side response builder then re-partitions the rows
-# into the `good`/`needs_improvements`/`poor` arrays.
+# `LIMIT 20 BY band` matches the raw query: at most 20 rows per band, worst
+# value first. The runner-side response builder then re-partitions the rows
+# into the `good`/`needs_improvements`/`poor` arrays. Sample counts are not
+# stored here, so the items come back without `count`.
 #
 # The metric-specific state column is substituted as a `Field` placeholder, so
 # only one of `inp_quantiles_state` / `lcp_quantiles_state` / ... is read.
@@ -258,7 +266,7 @@ FROM (
     GROUP BY path
     HAVING value >= 0
 )
-ORDER BY value ASC, path ASC
+ORDER BY value DESC, path ASC
 LIMIT 20 BY band
 """
 

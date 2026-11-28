@@ -1,32 +1,13 @@
-import { useActions, useValues } from 'kea'
-
-import { IconPiggyBank } from '@posthog/icons'
 import { LemonSwitch, Link } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
-import { teamLogic } from 'scenes/teamLogic'
 
 import { DataWarehouseManagedViewsetKind } from '~/queries/schema/schema-general'
 
 import { AccessControlLevel, AccessControlResourceType } from '../../../types'
-import {
-    DataWarehouseManagedViewsetsLogicProps,
-    dataWarehouseManagedViewsetsLogic,
-} from './dataWarehouseManagedViewsetsLogic'
-
-const VIEWSET_DESCRIPTIONS: Record<
-    DataWarehouseManagedViewsetKind,
-    { title: string; description: string; docsUrl: string; configUrl: string; icon: JSX.Element }
-> = {
-    revenue_analytics: {
-        title: 'Revenue Analytics',
-        description:
-            'Track and analyze revenue data from your payment providers and custom events. Automatically creates optimized views for revenue metrics, trends, and customer lifetime value.',
-        docsUrl: 'https://posthog.com/docs/revenue-analytics',
-        configUrl: '/data-management/revenue',
-        icon: <IconPiggyBank className="text-xl" />,
-    },
-}
+import { DataWarehouseManagedViewsetsLogicProps } from './dataWarehouseManagedViewsetsLogic'
+import { VIEWSET_DESCRIPTIONS, VIEWSET_TOGGLING_REASON, viewsetToggleLabel } from './managedViewsetCardContent'
+import { useManagedViewsetCard } from './useManagedViewsetCard'
 
 export interface DataWarehouseManagedViewsetCardProps {
     type: DataWarehouseManagedViewsetsLogicProps['type']
@@ -43,9 +24,7 @@ export function DataWarehouseManagedViewsetCard({
     displayDocsLink = true,
     displayConfigLink = true,
 }: DataWarehouseManagedViewsetCardProps): JSX.Element | null {
-    const { currentTeam } = useValues(teamLogic)
-    const { toggleViewset } = useActions(dataWarehouseManagedViewsetsLogic({ type }))
-    const { togglingViewset, toggleResultLoading } = useValues(dataWarehouseManagedViewsetsLogic({ type }))
+    const { isEnabled, isToggling, toggleViewset } = useManagedViewsetCard(type, kind)
 
     const viewsetInfo = VIEWSET_DESCRIPTIONS[kind]
 
@@ -54,8 +33,6 @@ export function DataWarehouseManagedViewsetCard({
     }
 
     const { title, description, docsUrl, configUrl, icon } = viewsetInfo
-    const isEnabled = !!currentTeam?.managed_viewsets?.[kind]
-    const isToggling = togglingViewset === kind && toggleResultLoading
 
     return (
         <div className="border rounded p-4">
@@ -87,18 +64,8 @@ export function DataWarehouseManagedViewsetCard({
                             <LemonSwitch
                                 checked={isEnabled}
                                 onChange={(enabled) => toggleViewset(kind, enabled)}
-                                disabledReason={
-                                    isToggling ? 'Saving, this might take a few seconds...' : disabledReason
-                                }
-                                label={
-                                    isToggling
-                                        ? isEnabled
-                                            ? 'Disabling, please wait a moment...'
-                                            : 'Enabling, please wait a moment...'
-                                        : isEnabled
-                                          ? 'Enabled'
-                                          : 'Disabled'
-                                }
+                                disabledReason={isToggling ? VIEWSET_TOGGLING_REASON : disabledReason}
+                                label={viewsetToggleLabel(isToggling, isEnabled)}
                                 bordered
                                 data-attr="managed-viewset-toggle"
                             />

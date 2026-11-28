@@ -76,6 +76,7 @@ from products.data_warehouse.backend.presentation.pipeline_stats import (
     RunningActivityQuerySerializer,
 )
 from products.managed_warehouse.backend.presentation import views as managed_warehouse
+from products.warehouse_sources.backend.facade.billing import get_rows_synced_for_team
 from products.warehouse_sources.backend.facade.hogql import get_view_or_table_by_name
 from products.warehouse_sources.backend.facade.models import ExternalDataJob, ExternalDataSchema, ExternalDataSource
 from products.warehouse_sources.backend.facade.types import (
@@ -493,14 +494,16 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     @action(methods=["GET"], detail=False)
     def total_rows_stats(self, request: Request, **kwargs) -> Response:
         """
-        Returns aggregated statistics for the data warehouse total rows processed within the current billing period.
+        Returns this team's data warehouse rows processed within the organization's current billing period.
         Used by the frontend data warehouse scene to display usage information.
         """
         # breakdown_of_rows_by_source depends on the caller's readable sources, so it can never be
         # part of the cached payload: a value cached for a broadly-permissioned caller would leak
         # source ids and row counts to a teammate whose access is narrower. Everything else in the
         # payload is team-wide and permission-independent, so only that part is cached.
-        cache_key = _pipeline_stats_cache_key("total_rows_stats", self.team_id)
+        # The version part retires payloads cached before the total became project-scoped, which
+        # still carry the organization's usage.
+        cache_key = _pipeline_stats_cache_key("total_rows_stats", self.team_id, "v2")
         cached = cache.get(cache_key)
         if cached is not None:
             payload = dict(cached)
@@ -512,9 +515,7 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         billing_interval = ""
         billing_period_start = None
         billing_period_end = None
-        billing_tracked_rows = 0
         materialized_rows = 0
-        pending_billing_rows = 0
         rows_synced = 0
         billing_available = False
         breakdown_of_rows_by_source: dict[str, int] = {}
@@ -528,22 +529,11 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 billing_period_start = parser.parse(billing_period["current_period_start"])
                 billing_period_end = parser.parse(billing_period["current_period_end"])
                 billing_interval = billing_period.get("interval", "month")
-
-                usage_summary = org_billing.get("usage_summary", {})
-                billing_tracked_rows = usage_summary.get("rows_synced", {}).get("usage", 0)
                 billing_available = True
 
-                all_external_jobs = ExternalDataJob.objects.filter(
-                    team_id=self.team_id,
-                    created_at__gte=billing_period_start,
-                    created_at__lt=billing_period_end,
-                    billable=True,
-                )
-                total_db_rows = all_external_jobs.aggregate(total=Sum("rows_synced"))["total"] or 0
-
-                pending_billing_rows = max(0, total_db_rows - billing_tracked_rows)
-
-                rows_synced = billing_tracked_rows + pending_billing_rows
+                # Billing's usage summary counts the whole organization. Any project member can
+                # read this endpoint, and org-wide usage belongs on the billing page.
+                rows_synced = get_rows_synced_for_team(self.team_id, billing_period_start, billing_period_end)
 
                 data_modeling_jobs = DataModelingJob.objects.filter(
                     team_id=self.team_id,
@@ -574,8 +564,6 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             "breakdown_of_rows_by_source": breakdown_of_rows_by_source,
             "materialized_rows_in_billing_period": materialized_rows,
             "total_rows": rows_synced,
-            "tracked_billing_rows": billing_tracked_rows,
-            "pending_billing_rows": pending_billing_rows,
         }
 
         # Only a complete answer is worth reusing: caching a response assembled while billing was

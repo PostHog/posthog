@@ -29,6 +29,7 @@ from temporalio.testing import ActivityEnvironment
 
 from posthog.models import Integration, Organization, OrganizationMembership, Team, User
 from posthog.models.github_integration_base import GitHubIntegrationBase
+from posthog.temporal.common.posthog_client import is_expected_activity_failure
 
 from products.tasks.backend.logic.services.agent_egress import AGENT_EGRESS_LEASE_DURATION
 from products.tasks.backend.logic.services.agent_egress_enrollment import (
@@ -410,8 +411,14 @@ class TestAgentEgressLifecycle(TestCase):
             execution_id=str(self.execution_id),
             provisioning_deadline=timezone.now().timestamp() + 180,
         )
-        with self.assertRaisesRegex(GitGrantUnavailable, "not ready"):
-            unwrap(await_agent_egress_git)(probe)
+
+        def assert_not_ready() -> None:
+            with self.assertRaisesRegex(ApplicationError, "not ready") as raised:
+                unwrap(await_agent_egress_git)(probe)
+            self.assertEqual(raised.exception.type, "GitGrantUnavailable")
+            self.assertTrue(is_expected_activity_failure(raised.exception))
+
+        assert_not_ready()
         response = MagicMock(status_code=201)
         response.json.return_value = {
             "token": "synthetic-enrollment-token",
@@ -424,14 +431,12 @@ class TestAgentEgressLifecycle(TestCase):
             info.return_value.workflow_run_id = "workflow-a"
 
             def attaching(**kwargs):
-                with self.assertRaisesRegex(GitGrantUnavailable, "not ready"):
-                    unwrap(await_agent_egress_git)(probe)
+                assert_not_ready()
                 return self.attach_probe(**kwargs)
 
             with patch.object(ModalEgressProbe, "attach", side_effect=attaching):
                 unwrap(_prepare)(input)
-            with self.assertRaisesRegex(GitGrantUnavailable, "not ready"):
-                unwrap(await_agent_egress_git)(probe)
+            assert_not_ready()
             unwrap(initialize_agent_egress_git_grant)(input)
             unwrap(await_agent_egress_git)(probe)
         relay = next(iter(self.attached_relays.values()))

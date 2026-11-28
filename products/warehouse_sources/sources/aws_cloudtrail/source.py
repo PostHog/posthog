@@ -8,6 +8,7 @@ from products.warehouse_sources.sources.aws_cloudtrail.aws_cloudtrail import (
 )
 from products.warehouse_sources.sources.aws_cloudtrail.settings import (
     ACCESS_DENIED_CODES,
+    AWS_SESSION_ACTIONS,
     CLOUDTRAIL_API_VERSION,
     CREDENTIAL_ERRORS,
     ENDPOINT_DESCRIPTIONS,
@@ -15,6 +16,9 @@ from products.warehouse_sources.sources.aws_cloudtrail.settings import (
     INCREMENTAL_FIELDS,
 )
 from products.warehouse_sources.sources.sdk import (
+    AWS_AUTH_NON_RETRYABLE_ERRORS,
+    AWS_FLAT_STORED_SELECTS,
+    AwsAuthError,
     CanonicalDescriptions,
     DataWarehouseSourceCategory,
     ExternalDataSourceType,
@@ -29,8 +33,10 @@ from products.warehouse_sources.sources.sdk import (
     SourceRegistry,
     SourceResponse,
     SourceSchema,
+    aws_auth_field,
     build_endpoint_schemas,
     detect,
+    resolve_aws_credentials,
 )
 
 
@@ -56,13 +62,18 @@ class AwsCloudTrailSource(ResumableSource[AwsCloudTrailSourceConfig, AwsCloudTra
     default_version = CLOUDTRAIL_API_VERSION
     api_docs_url = "https://docs.aws.amazon.com/awscloudtrail/latest/APIReference/Welcome.html"
 
+    flat_stored_selects = AWS_FLAT_STORED_SELECTS
+    aws_session_actions = AWS_SESSION_ACTIONS
+    credential_kind = "aws-cloud-trail"
+
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.AWSCLOUDTRAIL
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         errors: dict[str, str | None] = {
-            f"AWS CloudTrail request failed: {code}": message for code, message in CREDENTIAL_ERRORS.items()
+            **AWS_AUTH_NON_RETRYABLE_ERRORS,
+            **{f"AWS CloudTrail request failed: {code}": message for code, message in CREDENTIAL_ERRORS.items()},
         }
         errors.update(
             {
@@ -95,10 +106,12 @@ class AwsCloudTrailSource(ResumableSource[AwsCloudTrailSourceConfig, AwsCloudTra
         schema_name: str | None = None,
         api_version: str | None = None,
     ) -> tuple[bool, str | None]:
+        try:
+            credentials = resolve_aws_credentials(config.aws_auth, team_id, AWS_SESSION_ACTIONS)
+        except AwsAuthError as error:
+            return False, str(error)
         return validate_credentials(
-            config.aws_access_key_id,
-            config.aws_secret_access_key,
-            config.aws_session_token,
+            credentials,
             config.region,
             self.resolve_api_version(api_version),
             schema_name,
@@ -114,9 +127,7 @@ class AwsCloudTrailSource(ResumableSource[AwsCloudTrailSourceConfig, AwsCloudTra
         inputs: SourceInputs,
     ) -> SourceResponse:
         return aws_cloudtrail_source(
-            access_key_id=config.aws_access_key_id,
-            secret_access_key=config.aws_secret_access_key,
-            session_token=config.aws_session_token,
+            credentials=resolve_aws_credentials(config.aws_auth, inputs.team_id, AWS_SESSION_ACTIONS),
             region=config.region,
             api_version=self.resolve_api_version(inputs.api_version),
             endpoint_name=inputs.schema_name,
@@ -135,7 +146,7 @@ class AwsCloudTrailSource(ResumableSource[AwsCloudTrailSourceConfig, AwsCloudTra
 Grant `cloudtrail:LookupEvents`, `cloudtrail:DescribeTrails`, and `cloudtrail:ListEventDataStores` for the tables you select.
 Insights tables also need `cloudtrail:ListInsightsData`.
 The Lake queries table also needs `cloudtrail:ListQueries` and `cloudtrail:DescribeQuery`.
-Enter an access key ID and secret access key. Add a session token for temporary credentials.
+Connect with an IAM role, or enter an access key ID and secret access key. Add a session token for temporary credentials.
 
 Event imports cover the past 90 days. They include management events and trail Insights events, but exclude data events.
 Insights must be enabled on a trail to return Insights events.
@@ -149,31 +160,7 @@ CloudTrail Lake is available only to existing customers after May 31, 2026.""",
             fields=cast(
                 list[FieldType],
                 [
-                    SourceFieldInputConfig(
-                        name="aws_access_key_id",
-                        label="AWS access key ID",
-                        type=SourceFieldInputConfigType.TEXT,
-                        required=True,
-                        placeholder="AKIA...",
-                        secret=False,
-                    ),
-                    SourceFieldInputConfig(
-                        name="aws_secret_access_key",
-                        label="AWS secret access key",
-                        type=SourceFieldInputConfigType.PASSWORD,
-                        required=True,
-                        placeholder="",
-                        secret=True,
-                    ),
-                    SourceFieldInputConfig(
-                        name="aws_session_token",
-                        label="AWS session token",
-                        type=SourceFieldInputConfigType.PASSWORD,
-                        required=False,
-                        placeholder="Only needed for temporary credentials",
-                        secret=True,
-                        caption="Temporary credentials expire. Update them before scheduled imports run.",
-                    ),
+                    aws_auth_field(),
                     SourceFieldInputConfig(
                         name="region",
                         label="AWS region",

@@ -33,6 +33,7 @@ from social_django.models import UserSocialAuth
 
 from posthog.api.email_verification import email_verification_code_verifier
 from posthog.api.oauth.toolbar_service import ToolbarOAuthState, build_toolbar_oauth_state, new_state_nonce
+from posthog.api.test.test_code_based_verification import workflows_refuses_the_recipient
 from posthog.api.user import MAX_PRODUCT_INTROS_SEEN, UserSerializer
 from posthog.auth import SessionAuthentication
 from posthog.constants import AvailableFeature
@@ -52,6 +53,7 @@ from posthog.models.team.team_provisioning_config import TeamProvisioningConfig
 from posthog.models.user import UserType
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.models.webauthn_credential import WebauthnCredential
+from posthog.session.activity import session_public_id
 from posthog.temporal.tests.delete_teams.inline import execute_deletion_workflows_inline
 from posthog.test.authentication_checks import covers_authentication
 
@@ -1320,8 +1322,17 @@ class TestUserAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK, response.content
         mock_report.assert_not_called()
 
-    @patch("posthog.api.user.report_user_identity_change_refused")
-    def test_refusing_a_token_identity_change_reports_the_reason(self, mock_report):
+    @staticmethod
+    def _identity_change_refused_properties(mock_capture) -> dict:
+        [properties] = [
+            call.kwargs["properties"]
+            for call in mock_capture.call_args_list
+            if call.kwargs.get("event") == "user identity change refused"
+        ]
+        return properties
+
+    @patch("posthoganalytics.capture")
+    def test_refusing_a_token_identity_change_reports_the_reason(self, mock_capture):
         self.user.email = "alpha@example.com"
         self.user.save()
         key = self.create_personal_api_key_with_scopes(["user:write"])
@@ -1335,10 +1346,15 @@ class TestUserAPI(APIBaseTest):
         )
 
         assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
-        mock_report.assert_called_once_with(self.user, field="email", reason="token_auth")
+        assert self._identity_change_refused_properties(mock_capture) == {
+            "field": "email",
+            "reason": "token_auth",
+            "$set": ANY,
+            "$ip": "127.0.0.1",
+        }
 
-    @patch("posthog.api.user.report_user_identity_change_refused")
-    def test_refusing_a_stale_session_email_change_reports_the_reason(self, mock_report):
+    @patch("posthoganalytics.capture")
+    def test_refusing_a_stale_session_email_change_reports_the_reason(self, mock_capture):
         self.user.email = "alpha@example.com"
         self.user.save()
         self.client.force_login(self.user)
@@ -1349,7 +1365,15 @@ class TestUserAPI(APIBaseTest):
         response = self.client.patch("/api/users/@me/", {"email": "beta@example.com"})
 
         assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
-        mock_report.assert_called_once_with(self.user, field="email", reason="stale_reauth")
+        session_key = session.session_key
+        assert session_key
+        assert self._identity_change_refused_properties(mock_capture) == {
+            "field": "email",
+            "reason": "stale_reauth",
+            "$set": ANY,
+            "$ip": "127.0.0.1",
+            "session_public_id": str(session_public_id(session_key)),
+        }
 
     @parameterized.expand(
         [
@@ -1416,6 +1440,13 @@ class TestUserAPI(APIBaseTest):
         self.user.refresh_from_db()
         assert self.user.pending_email == "beta.gamma@example.com"
         assert mock_send_code.call_args[0][2] == "beta.gamma@example.com"
+
+    def test_email_change_to_a_refused_address_reports_it(self):
+        with workflows_refuses_the_recipient():
+            response = self.client.patch("/api/users/@me/", {"email": "refused@example.com"})
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert response.json()["code"] == "email_verification_code_undeliverable"
 
     @patch("posthog.api.user.is_email_available", return_value=False)
     def test_email_change_without_email_configured_writes_the_normalized_address(self, _mock_is_email_available):
@@ -3654,6 +3685,15 @@ class TestEmailVerificationAPI(APIBaseTest):
 
     # Email verification request
 
+    @patch("posthog.tasks.email.ph_scoped_capture")
+    def test_request_reports_an_address_workflows_refuses(self, mock_scoped_capture):
+        with workflows_refuses_the_recipient():
+            response = self.client.post("/api/users/request_email_verification/", {"uuid": self.other_user.uuid})
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["code"], "email_verification_code_undeliverable")
+        mock_scoped_capture.assert_not_called()
+
     @patch("posthoganalytics.capture")
     def test_user_can_request_verification_email(self, mock_capture):
         set_instance_setting("EMAIL_HOST", "localhost")
@@ -3678,10 +3718,16 @@ class TestEmailVerificationAPI(APIBaseTest):
         self.assertTrue(self.user.is_email_verified)
 
         # assert events were captured
+        session_key = self.client.session.session_key
+        assert session_key
         mock_capture.assert_any_call(
             event="user logged in",
             distinct_id=self.user.distinct_id,
-            properties={"social_provider": ""},
+            properties={
+                "social_provider": "",
+                "$ip": "127.0.0.1",
+                "session_public_id": str(session_public_id(session_key)),
+            },
             groups={
                 "instance": ANY,
                 "organization": str(self.team.organization_id),

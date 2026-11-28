@@ -1287,6 +1287,7 @@ class UserViewSet(
             if changes_email or "password" in data:
                 report_user_identity_change_refused(
                     cast(User, request.user),
+                    request=request,
                     field="email" if changes_email else "password",
                     reason="token_auth",
                 )
@@ -1299,7 +1300,9 @@ class UserViewSet(
         # TimeSensitiveActionPermission is hours wide. The account holder re-authenticates first, which
         # for an account without a password means a passkey or an SSO round trip.
         if changes_email and not reauth_is_fresh(request.session):
-            report_user_identity_change_refused(cast(User, request.user), field="email", reason="stale_reauth")
+            report_user_identity_change_refused(
+                cast(User, request.user), request=request, field="email", reason="stale_reauth"
+            )
             raise exceptions.PermissionDenied(
                 "Confirm it's you before changing your email.",
                 code="sensitive_action_required_reauth",
@@ -1459,7 +1462,7 @@ class UserViewSet(
 
         login(self.request, user, backend="django.contrib.auth.backends.ModelBackend")
         set_two_factor_verified_in_session(self.request)
-        report_user_logged_in(user)
+        report_user_logged_in(user, request=self.request)
         return Response({"success": True})
 
     @action(

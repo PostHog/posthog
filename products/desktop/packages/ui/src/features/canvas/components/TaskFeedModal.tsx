@@ -192,7 +192,7 @@ export function TaskFeedModal({
                 preview.error || issue
                   ? issue?.kind === "unsupported" && !preview.error
                     ? "text-(--amber-11)"
-                    : "text-destructive"
+                    : "text-destructive-foreground"
                   : unfinished
                     ? "text-(--amber-11)"
                     : "text-muted-foreground",

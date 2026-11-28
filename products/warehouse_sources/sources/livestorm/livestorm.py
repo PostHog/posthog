@@ -152,9 +152,10 @@ def livestorm_source(
     return _source_response(config, resource, is_incremental)
 
 
-def probe_credentials(api_token: str) -> tuple[bool, int | None]:
+def probe_credentials(api_token: str, endpoint: str | None) -> tuple[bool, int | None]:
+    path = "/ping" if endpoint is None else f"{LIVESTORM_ENDPOINTS[endpoint].path}?page[size]=1"
     return validate_via_probe(
         lambda: make_tracked_session(redact_values=(api_token,)),
-        f"{LIVESTORM_BASE_URL}/events?page[size]=1",
+        f"{LIVESTORM_BASE_URL}{path}",
         headers={"Authorization": api_token, "Accept": "application/vnd.api+json"},
     )

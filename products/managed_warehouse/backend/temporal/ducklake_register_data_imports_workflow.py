@@ -26,7 +26,6 @@ from temporalio.exceptions import ApplicationError
 from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
-from posthog.ph_client import feature_enabled_or_false
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat_sync import HeartbeaterSync
@@ -62,7 +61,6 @@ from products.managed_warehouse.backend.facade.contracts import (
     ManagedWarehouseSourceJobUpdate,
     ManagedWarehouseSourceJobWorkflow,
 )
-from products.managed_warehouse.backend.facade.feature_flags import MANAGED_WAREHOUSE_ACCESS_FLAGS
 from products.managed_warehouse.backend.models import ManagedWarehouseSourceJob
 from products.managed_warehouse.backend.storage import connect_to_duckgres, setup_duckgres_session
 from products.managed_warehouse.backend.temporal.ducklake_declared_columns import (
@@ -321,35 +319,9 @@ async def ducklake_register_data_imports_gate_activity(inputs: DuckLakeRegisterD
         return False
 
     organization_id = str(team.organization_id)
-    flag_enabled = False
-    # Each flag is evaluated on its own, so an error on one flag cannot hide access the other grants.
-    for flag in MANAGED_WAREHOUSE_ACCESS_FLAGS:
-        try:
-            flag_enabled = feature_enabled_or_false(
-                flag,
-                organization_id,
-                groups={"organization": organization_id},
-                group_properties={"organization": {"id": organization_id}},
-                only_evaluate_locally=True,
-                send_feature_flag_events=False,
-            )
-        except Exception as error:
-            await logger.awarning(
-                "Failed to evaluate DuckLake data imports registration feature flag", flag=flag, error=str(error)
-            )
-            capture_exception(error)
-            continue
-        if flag_enabled:
-            break
+    from products.managed_warehouse.backend.facade.access import data_imports_registration_allowed  # noqa: PLC0415
 
-    from products.managed_warehouse.backend.facade.access import (  # noqa: PLC0415
-        background_loading_configured,
-        internal_loading_enabled,
-    )
-
-    if await database_sync_to_async(background_loading_configured)(organization_id):
-        flag_enabled = await database_sync_to_async(internal_loading_enabled)(organization_id)
-    if not flag_enabled:
+    if not await database_sync_to_async(data_imports_registration_allowed)(organization_id):
         return False
 
     if await asyncio.to_thread(_registers_in_gigahog, organization_id):

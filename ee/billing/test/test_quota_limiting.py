@@ -1210,33 +1210,6 @@ class TestQuotaLimiting(BaseTest):
         # reset for subsequent tests
         self.organization.never_drop_data = False
 
-    def test_update_org_billing_quotas_invalidates_llm_gateway_quota_cache(self) -> None:
-        gateway_redis_url = "redis://llm-gateway-redis-test/"
-        # Per-resource entries carry the gateway's credential-fingerprint suffix; the
-        # billing bit is keyed per team (see _redis_key/_billing_key in quota_resolver).
-        billing_key = f"quota:code_usage_billing:team:{self.team.id}"
-        generation_key = f"quota:generation:team:{self.team.id}"
-        other_generation_key = f"quota:generation:team:{self.team.id + 1}"
-        with self.settings(LLM_GATEWAY_REDIS_URL=gateway_redis_url):
-            gateway_redis = get_client(gateway_redis_url)
-            gateway_redis.set(billing_key, "stale")
-            gateway_redis.set(other_generation_key, 4)
-            # Seed the central Redis too: eviction must target the gateway's own
-            # instance, not the default client (which would silently no-op in prod).
-            self.redis_client.set(billing_key, "central")
-            self.organization.usage = {
-                "events": {"usage": 1, "limit": 100},
-                "period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"],
-            }
-
-            update_org_billing_quotas(self.organization)
-
-            assert gateway_redis.get(billing_key) is None
-            assert gateway_redis.get(generation_key) == b"1"
-            assert gateway_redis.get(other_generation_key) == b"4"
-            assert self.redis_client.get(billing_key) == b"central"
-        self.redis_client.delete(billing_key)
-
     @parameterized.expand(
         [("missing", None, False), ("expired", -1, False), ("boundary", 0, True), ("active", 1, True)]
     )

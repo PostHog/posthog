@@ -46,7 +46,7 @@ from products.experiments.backend.health.skips import (
     fewer_than_two_in_split,
     not_applicable,
 )
-from products.experiments.backend.health.split_changes import format_change_time
+from products.experiments.backend.health.split_changes import format_change_time, format_day
 from products.experiments.backend.hogql_queries.experiment_exposure_query_builder import ExposureSegmentDimension
 from products.feature_flags.backend.facade.edits import SplitChange
 
@@ -62,6 +62,8 @@ UNIFORM_SEGMENT_MINIMUM_SIZE = 1000
 SEGMENT_LABEL_MAX_LENGTH = 60
 # The detail names the located segments furthest from the split, up to this many.
 NAMED_SEGMENTS = 2
+# Lenient, so a short stretch of few people also passes. `_mismatch_start` therefore also needs the groups to differ.
+MATCHED_SPLIT_P_VALUE = 0.05
 # One variant fills a segment when the other variants have less than this share of their expected count in it. The
 # expected count comes from the split, so on a 90/10 split a segment at 95% control doesn't count as filled by control.
 BARELY_EXPOSED_SHARE = 0.1
@@ -545,6 +547,11 @@ def _mismatch(
         if split_change_ruled_out
         else []
     )
+    start = _mismatch_start(exposures)
+    if start is not None:
+        explanation = [*_started_on(start, unit), *cause.sentences]
+    else:
+        explanation = list(cause.sentences or ("This may indicate issues with randomization or data collection.",))
     return ExperimentHealthFinding(
         code=ExperimentHealthFindingCode.SRM,
         subcode=None,
@@ -557,18 +564,123 @@ def _mismatch(
                 f"(p < {SAMPLE_RATIO_MISMATCH_P_VALUE}).",
                 *_small_mismatch(share_off_split, unit),
                 *ruled_out,
-                *(cause.sentences or ("This may indicate issues with randomization or data collection.",)),
+                *explanation,
             ]
         ),
         evidence={
             "p_value": p_value,
             "share_off_split": round(share_off_split, 4),
             **({"split_change_ruled_out": True} if split_change_ruled_out else {}),
+            # pinned: the health panel's daily share chart marks this day.
+            **({"mismatch_started_on": start.day.isoformat()} if start is not None else {}),
             **cause.evidence,
         },
         actions=(),
         diagnostic_ref="A2",
     )
+
+
+@frozen
+class _MismatchStart:
+    day: date
+    # Below its planned share, because a variant usually falls short when its code sends fewer exposures.
+    variant: str
+    share: float
+    planned_share: float
+
+
+def _mismatch_start(exposures: ExposureTotals) -> _MismatchStart | None:
+    """The day a mismatch starts, when the persons or groups first exposed before it match the split, those first
+    exposed from it on don't, and the two groups differ. Those first exposed before each earlier day must not show a
+    material mismatch either, because two stretches on opposite sides of the split can add up to a match. Of the days
+    that qualify, the one where the two groups differ most. None when no day qualifies, such as when the mismatch was
+    there from the first day."""
+    weights = exposures.sample_ratio_expected
+    daily = {variant: exposures.daily_exposures.get(variant, {}) for variant in weights}
+    days = sorted({day for counts in daily.values() for day, count in counts.items() if count > 0})
+    exposed_before = [dict.fromkeys(weights, 0)]
+    for day in days:
+        exposed_before.append(
+            {variant: exposed_before[-1][variant] + daily[variant].get(day, 0) for variant in weights}
+        )
+    totals = exposed_before[-1]
+    first_off = next(
+        (index for index, before in enumerate(exposed_before) if _materially_off(before, weights)), len(days)
+    )
+    best: tuple[float, date, dict[str, int]] | None = None
+    for index, day in enumerate(days[:first_off]):
+        before = exposed_before[index]
+        after = {variant: totals[variant] - before[variant] for variant in weights}
+        before_test = sample_ratio_test(before, weights)
+        after_test = sample_ratio_test(after, weights)
+        if (
+            before_test is None
+            or after_test is None
+            or before_test.p_value < MATCHED_SPLIT_P_VALUE
+            or after_test.p_value >= SAMPLE_RATIO_MISMATCH_P_VALUE
+        ):
+            continue
+        difference = _difference(before, after)
+        # The statistic ranks the days, because at large counts the p-values of several days round to 0.
+        if difference.significant and (best is None or difference.statistic > best[0]):
+            best = (difference.statistic, day, after)
+    if best is None:
+        return None
+    _, day, after = best
+    after_total = sum(after.values())
+    total_weight = sum(weights.values())
+    variant = min(weights, key=lambda key: after[key] / after_total - weights[key] / total_weight)
+    return _MismatchStart(
+        day=day,
+        variant=variant,
+        share=after[variant] / after_total,
+        planned_share=weights[variant] / total_weight,
+    )
+
+
+def _materially_off(exposed: Mapping[str, int], weights: Mapping[str, float]) -> bool:
+    test = sample_ratio_test(exposed, weights)
+    return (
+        test is not None
+        and test.p_value < SAMPLE_RATIO_MISMATCH_P_VALUE
+        and _share_off_split(exposed, weights) >= MATERIAL_SHARE_OFF_SPLIT
+    )
+
+
+@frozen
+class _Difference:
+    """The chi-squared homogeneity test of two groups of persons or groups across the variants."""
+
+    statistic: float
+    p_value: float
+
+    @property
+    def significant(self) -> bool:
+        return self.p_value < SAMPLE_RATIO_MISMATCH_P_VALUE
+
+
+def _difference(first: Mapping[str, int], second: Mapping[str, int]) -> _Difference:
+    # A variant without exposures in either group has an expected count of 0, which the test can't take.
+    variants = [variant for variant in first if first[variant] or second[variant]]
+    if len(variants) < 2:
+        return _Difference(statistic=0.0, p_value=1.0)
+    result = chi2_contingency([[first[v] for v in variants], [second[v] for v in variants]])
+    return _Difference(statistic=float(result.statistic), p_value=float(result.pvalue))
+
+
+def _started_on(start: _MismatchStart, unit: str) -> list[str]:
+    day = format_day(start.day)
+    return [
+        f"The {unit}s first exposed before {day} match the split. From that day on, "
+        f'"{start.variant}" has {_percentage(start.share)} of the {unit}s first exposed, against '
+        f"{_percentage(start.planned_share)} planned.",
+        "A mismatch that starts on one day often follows a release, so check what changed in the code or tracking of "
+        f'"{start.variant}" on that day.',
+    ]
+
+
+def _percentage(share: float) -> str:
+    return f"{round(share * 100, 1):g}%"
 
 
 @frozen

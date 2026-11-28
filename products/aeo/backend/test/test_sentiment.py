@@ -6,9 +6,11 @@ from products.aeo.backend.sentiment import (
     MAX_SENTENCE_CHARS,
     AnswerSentiment,
     BrandSentence,
+    MentionSpan,
     SentenceSentiment,
     aggregate_sentiment,
     brand_sentences,
+    mention_sentences,
     sentence_sentiment,
 )
 
@@ -94,3 +96,28 @@ def test_sentence_sentiment_keeps_the_span_and_labels_with_the_neutral_margin(
 ):
     sentence = BrandSentence(start=4, end=20, text="Example is fine.")
     assert sentence_sentiment(sentence, scores) == SentenceSentiment(start=4, end=20, label=label, score=score)
+
+
+def _spans(answer: str, *surfaces: str) -> list[MentionSpan]:
+    return [MentionSpan(start=answer.index(surface), end=answer.index(surface) + len(surface)) for surface in surfaces]
+
+
+@pytest.mark.parametrize(
+    "answer, surfaces, expected",
+    [
+        # Punctuation inside or at the end of a name is not a sentence break.
+        (
+            "For boots, Dr. Martens is the classic pick. Rival is cheaper.",
+            ["Dr. Martens"],
+            ["For boots, Dr. Martens is the classic pick."],
+        ),
+        ("Yahoo! is excellent for news. Rival is not.", ["Yahoo!"], ["Yahoo! is excellent for news."]),
+        ("Use U.S. Bank. Or J. Crew? Neither.", ["U.S. Bank", "J. Crew"], ["Use U.S. Bank.", "Or J. Crew?"]),
+        ("Rival leads.\nAcme follows. Acme is cheap.", ["Acme"], ["Acme follows."]),
+        ("No mention here.", [], []),
+    ],
+)
+def test_mention_sentences_keep_each_stored_mention_in_its_sentence(
+    answer: str, surfaces: list[str], expected: list[str]
+):
+    assert [sentence.text for sentence in mention_sentences(answer, _spans(answer, *surfaces))] == expected
