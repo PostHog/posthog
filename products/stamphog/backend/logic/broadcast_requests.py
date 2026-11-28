@@ -818,14 +818,13 @@ def _set_reactions(card: BroadcastRequestCard, delivery: BroadcastRequestDeliver
         set_reactions(card, delivery.channel_id, delivery.message_ts, looking=bool(card.lookers), approved=approved)
     if delivery.thread_ts:
         # The channel shows the post that asked and not its thread, so the post carries the reactions of all its cards.
-        looking, approved = _link_post_reactions(card.team_id, delivery, using=using)
-        set_reactions(card, delivery.channel_id, delivery.thread_ts, looking=looking, approved=approved)
+        _set_link_post_reactions(card, delivery, using=using)
 
 
-def _link_post_reactions(team_id: int, delivery: BroadcastRequestDelivery, *, using: str) -> tuple[bool, bool]:
+def _set_link_post_reactions(card: BroadcastRequestCard, delivery: BroadcastRequestDelivery, *, using: str) -> None:
     """👀 while anybody looks at one of the post's pull requests, and ✅ only when every one is approved or merged."""
     requests = (
-        BroadcastRequest.objects.for_team(team_id)
+        BroadcastRequest.objects.for_team(card.team_id)
         .using(using)
         .filter(
             deliveries__kind=BroadcastRequestDeliveryKind.SLACK_MESSAGE,
@@ -835,12 +834,13 @@ def _link_post_reactions(team_id: int, delivery: BroadcastRequestDelivery, *, us
     )
     statuses = set(requests.values_list("status", flat=True))
     looking = (
-        BroadcastRequestParticipant.objects.for_team(team_id)
+        BroadcastRequestParticipant.objects.for_team(card.team_id)
         .using(using)
         .filter(broadcast_request__in=requests, looking=True)
         .exists()
     )
-    return looking, statuses <= _LINK_POST_DONE_STATUSES
+    approved = statuses <= _LINK_POST_DONE_STATUSES
+    set_reactions(card, delivery.channel_id, delivery.thread_ts, looking=looking, approved=approved)
 
 
 def record_look(click: LookClick) -> bool:
