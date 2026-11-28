@@ -1,6 +1,10 @@
+import json
+import time
+from datetime import UTC, datetime, timedelta
 from html.parser import HTMLParser
-from urllib.parse import parse_qs, urlsplit
+from urllib.parse import parse_qs, quote, urlsplit
 
+import time_machine
 from posthog.test.base import APIBaseTest, override_settings
 from unittest.mock import MagicMock
 
@@ -10,7 +14,16 @@ from django.test import RequestFactory, SimpleTestCase
 
 from parameterized import parameterized
 
-from posthog.csp_middleware import CSPMiddleware, app_csp_header_name, narrowed_app_policy, object_storage_upload_source
+from posthog.csp_middleware import (
+    CSPMiddleware,
+    PosthogJsSession,
+    app_csp_header_name,
+    narrowed_app_policy,
+    object_storage_upload_source,
+    parse_posthog_js_session,
+    posthog_js_session_id,
+)
+from posthog.ph_client import PH_US_API_KEY
 
 
 def _parse_policies(header: str) -> list[dict[str, list[str]]]:
@@ -57,6 +70,17 @@ def _admits(sources: list[str], url: str) -> bool:
     if not parts.netloc:
         return "'self'" in sources
     return f"{parts.scheme}://{parts.netloc}" in sources
+
+
+SESSION_ID = "0193f3a2-7b1c-7cde-9f00-1234567890ab"
+
+
+def _posthog_js_cookie(now: datetime, last_activity_ago: timedelta, session_id: str, started_ago: timedelta) -> str:
+    def to_ms(moment: datetime) -> int:
+        return int(moment.timestamp() * 1000)
+
+    sesid = [to_ms(now - last_activity_ago), session_id, to_ms(now - started_ago)]
+    return quote(json.dumps({"distinct_id": "someone", "$sesid": sesid}))
 
 
 # Tests run as a self-hosted install, which never enforces. LOCAL enforces without turning on DEBUG.
@@ -242,6 +266,11 @@ class TestCSPMiddleware(APIBaseTest):
 
     @override_settings(CLOUD_DEPLOYMENT="US")  # As PostHog Cloud
     def test_html_response_declares_default_reporting_endpoint_with_distinct_id(self):
+        now = datetime.fromtimestamp(time.time(), tz=UTC)
+        self.client.cookies[f"ph_{PH_US_API_KEY}_posthog"] = _posthog_js_cookie(
+            now, timedelta(minutes=1), SESSION_ID, timedelta(hours=1)
+        )
+
         response = self.client.get("/")
         policy = response["Content-Security-Policy"]
         # A `report-to` directive makes browsers ignore `report-uri` and report through the
@@ -250,6 +279,8 @@ class TestCSPMiddleware(APIBaseTest):
         _, report_endpoint = next(part for part in policy.split("; ") if part.startswith("report-uri ")).split()
         assert report_endpoint.startswith("https://us.i.posthog.com/report/")
         assert f"distinct_id={self.user.distinct_id}" in report_endpoint
+        # Without the session, a violation never shows up in the recording of the page it broke.
+        assert f"session_id={SESSION_ID}" in report_endpoint
         # An enforced violation is a page that broke for someone, so dropping reports hides breakages.
         assert "sample_rate" not in report_endpoint
         # Browsers only deliver crash reports to the endpoint named `default`, so dropping or
@@ -699,6 +730,81 @@ class TestObjectStorageUploadSource(SimpleTestCase):
             DEBUG=False,
         ):
             assert object_storage_upload_source() == "https://storage.example.com/posthog"
+
+
+NOW = datetime(2026, 6, 1, 12, tzinfo=UTC)
+NOW_MS = NOW.timestamp() * 1000
+REPORT_ENDPOINT = "https://us.i.posthog.com/report/?token=phc_reports&v=2"
+
+
+def _sesid_cookie(sesid: object) -> str:
+    return quote(json.dumps({"distinct_id": "someone", "$sesid": sesid}))
+
+
+class TestPosthogJsSession(SimpleTestCase):
+    @parameterized.expand(
+        [
+            (
+                "session",
+                _sesid_cookie([NOW_MS, SESSION_ID, NOW_MS - 1000]),
+                PosthogJsSession(id=SESSION_ID, last_activity_ms=NOW_MS, started_ms=NOW_MS - 1000),
+            ),
+            # posthog-js writes [null, null, null] when it resets, for example on logout.
+            ("reset_session", _sesid_cookie([None, None, None]), None),
+            # The browser controls the cookie and the id ends up in the policy header.
+            ("id_that_adds_a_directive", _sesid_cookie([NOW_MS, "x; script-src *", NOW_MS]), None),
+            ("timestamp_that_is_not_a_number", _sesid_cookie(["soon", SESSION_ID, NOW_MS]), None),
+            ("too_few_items", _sesid_cookie([NOW_MS, SESSION_ID]), None),
+            ("no_session_yet", quote(json.dumps({"distinct_id": "someone"})), None),
+            ("json_that_is_not_an_object", quote(json.dumps([NOW_MS, SESSION_ID, NOW_MS])), None),
+            ("not_json", "not-json", None),
+        ]
+    )
+    def test_parses_the_session_from_the_cookie(
+        self, _name: str, cookie: str, expected: PosthogJsSession | None
+    ) -> None:
+        assert parse_posthog_js_session(cookie) == expected
+
+    @parameterized.expand(
+        [
+            (
+                "active_session",
+                "ph_phc_reports_posthog",
+                _posthog_js_cookie(NOW, timedelta(minutes=5), SESSION_ID, timedelta(hours=2)),
+                SESSION_ID,
+            ),
+            # posthog-js replaces these sessions as the page loads, so the report would join the old recording.
+            (
+                "idle_past_the_timeout",
+                "ph_phc_reports_posthog",
+                _posthog_js_cookie(NOW, timedelta(minutes=31), SESSION_ID, timedelta(hours=2)),
+                None,
+            ),
+            (
+                "older_than_a_day",
+                "ph_phc_reports_posthog",
+                _posthog_js_cookie(NOW, timedelta(minutes=1), SESSION_ID, timedelta(hours=25)),
+                None,
+            ),
+            # A session from another project names no recording in the project the reports land in.
+            (
+                "another_projects_cookie",
+                "ph_phc_other_posthog",
+                _posthog_js_cookie(NOW, timedelta(minutes=1), SESSION_ID, timedelta(hours=2)),
+                None,
+            ),
+        ]
+    )
+    def test_reads_only_a_live_session_of_the_reporting_project(
+        self, _name: str, cookie_name: str, cookie_value: str, expected: str | None
+    ) -> None:
+        request = RequestFactory().get("/")
+        request.COOKIES[cookie_name] = cookie_value
+
+        with time_machine.travel(NOW, tick=False):
+            session_id = posthog_js_session_id(request, REPORT_ENDPOINT)
+
+        assert session_id == expected
 
 
 class TestViewManagedCsp(SimpleTestCase):
