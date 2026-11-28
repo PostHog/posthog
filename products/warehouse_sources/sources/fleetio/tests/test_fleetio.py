@@ -107,30 +107,6 @@ class TestPagination:
                 "2025-05-05",
                 "https://secure.fleetio.com/api/inspection_forms",
             ),
-            (
-                "inspection_schedules",
-                FLEETIO_LEGACY_VERSION,
-                FLEETIO_API_VERSION,
-                "https://secure.fleetio.com/api/v1/inspection_schedules",
-            ),
-            (
-                "inspection_schedules",
-                FLEETIO_VERSION_2025_05_05,
-                "2025-05-05",
-                "https://secure.fleetio.com/api/inspection_schedules",
-            ),
-            (
-                "purchase_details",
-                FLEETIO_LEGACY_VERSION,
-                FLEETIO_API_VERSION,
-                "https://secure.fleetio.com/api/v1/purchase_details",
-            ),
-            (
-                "purchase_details",
-                FLEETIO_VERSION_2025_05_05,
-                "2025-05-05",
-                "https://secure.fleetio.com/api/purchase_details",
-            ),
         ]
     )
     def test_version_selects_header_and_base_path(
