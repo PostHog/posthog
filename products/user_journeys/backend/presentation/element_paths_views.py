@@ -15,7 +15,7 @@ from .element_paths_serializers import (
     ElementPathsResultSerializer,
     element_paths_query_from,
 )
-from .views import UserJourneysFlagGateMixin
+from .views import UserJourneysViewSetMixin
 
 
 class _SingleResultSchema(PostHogAutoSchema):
@@ -25,7 +25,7 @@ class _SingleResultSchema(PostHogAutoSchema):
         return False
 
 
-class ElementPathsViewSet(UserJourneysFlagGateMixin, viewsets.GenericViewSet):
+class ElementPathsViewSet(UserJourneysViewSetMixin, viewsets.GenericViewSet):
     """Most common user paths through clicks on one element."""
 
     # The toolbar calls this with an OAuth token that holds `query:read`. The journeys viewset is

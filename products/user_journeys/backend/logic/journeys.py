@@ -17,6 +17,10 @@ def steps_to_json(steps: list[JourneyStep]) -> list[dict[str, Any]]:
     return _STEPS_ADAPTER.dump_python(steps, mode="json")
 
 
+def parse_steps(raw_steps: Any) -> list[JourneyStep]:
+    return _STEPS_ADAPTER.validate_python(raw_steps)
+
+
 def get_journey(team_id: int, journey_id: UUID) -> Journey:
     try:
         return Journey.objects.for_team(team_id).get(id=journey_id)
@@ -37,6 +41,7 @@ def create_journey(team_id: int, created_by_id: int | None, data: CreateJourneyI
         steps=steps_to_json(data.steps),
         conversion_window_minutes=data.conversion_window_minutes,
         source=data.source,
+        start_url=data.start_url or None,
     )
 
 
@@ -45,6 +50,8 @@ def update_journey(team_id: int, journey_id: UUID, data: UpdateJourneyInput) -> 
     changes = {f.name: getattr(data, f.name) for f in fields(data) if getattr(data, f.name) is not None}
     if "steps" in changes:
         changes["steps"] = steps_to_json(changes["steps"])
+    if "start_url" in changes:
+        changes["start_url"] = changes["start_url"] or None
     for field, value in changes.items():
         setattr(journey, field, value)
     if changes:

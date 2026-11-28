@@ -1,7 +1,7 @@
 """A saved, ordered user flow that the product measures as a funnel.
 
-The row holds the definition only. Conversion results and replay runs belong to whatever computes
-them, so those can change without a migration here.
+The row holds the definition only. Conversion results are computed on read, and replay runs live in
+`JourneyRun`, so either can change without touching this table.
 """
 
 from django.core.validators import MaxValueValidator, MinValueValidator
@@ -13,6 +13,7 @@ from posthog.models.utils import UUIDModel
 from products.user_journeys.backend.facade.contracts import (
     DEFAULT_CONVERSION_WINDOW_MINUTES,
     MAX_CONVERSION_WINDOW_MINUTES,
+    MAX_URL_LENGTH,
     MIN_CONVERSION_WINDOW_MINUTES,
 )
 from products.user_journeys.backend.facade.enums import JourneySource
@@ -43,3 +44,5 @@ class Journey(TeamScopedRootMixin, UUIDModel):
     source = models.CharField(
         max_length=16, choices=Source.choices, default=Source.MANUAL.value, db_default=Source.MANUAL.value
     )
+    # Where a replay of the journey opens the browser. Null means the first step's exact pageview URL.
+    start_url = models.CharField(max_length=MAX_URL_LENGTH, null=True, blank=True)

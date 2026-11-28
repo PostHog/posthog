@@ -91,6 +91,48 @@ export interface ElementClickStepApi {
 export type JourneyStepApi = PageviewStepApi | ElementClickStepApi
 
 /**
+ * * `pending` - Pending
+ * * `running` - Running
+ * * `passed` - Passed
+ * * `failed` - Failed
+ * * `errored` - Errored
+ */
+export type JourneyRunStatusEnumApi = (typeof JourneyRunStatusEnumApi)[keyof typeof JourneyRunStatusEnumApi]
+
+export const JourneyRunStatusEnumApi = {
+    Pending: 'pending',
+    Running: 'running',
+    Passed: 'passed',
+    Failed: 'failed',
+    Errored: 'errored',
+} as const
+
+export interface JourneyLatestRunApi {
+    /** Unique identifier of the run. */
+    readonly id: string
+    /** Status of the run: `pending`, `running`, `passed`, `failed` or `errored`.
+     *
+     * * `pending` - Pending
+     * * `running` - Running
+     * * `passed` - Passed
+     * * `failed` - Failed
+     * * `errored` - Errored */
+    status: JourneyRunStatusEnumApi
+    /** When the run was created. */
+    created_at: string
+    /**
+     * When the run ended. Null while it is pending or running.
+     * @nullable
+     */
+    finished_at: string | null
+    /**
+     * Position of the first failed step, from 0. Null unless a step of the run failed.
+     * @nullable
+     */
+    failed_step_index: number | null
+}
+
+/**
  * * `toolbar` - Toolbar
  * * `manual` - Manual
  */
@@ -104,6 +146,8 @@ export const JourneySourceEnumApi = {
 export interface JourneyApi {
     /** Ordered steps a session must complete, from 2 to 20. Each step is a pageview or a click on an element. */
     steps: JourneyStepApi[]
+    /** The journey's newest run, so a list can show whether the journey still works. Null if it never ran. */
+    readonly latest_run: JourneyLatestRunApi | null
     /** Unique identifier of the journey. */
     id: string
     /** Project the journey belongs to. */
@@ -128,6 +172,11 @@ export interface JourneyApi {
     created_at: string
     /** When the journey was last changed. */
     updated_at: string
+    /**
+     * Full http or https URL where a journey run opens the browser. Leave it null to start at the first step, which then must be an exact pageview of a full URL. Its host must be one of the project's authorized URLs when a run starts.
+     * @nullable
+     */
+    start_url?: string | null
 }
 
 export interface PaginatedJourneyListApi {
@@ -164,6 +213,362 @@ export interface CreateJourneyInputApi {
      * * `toolbar` - Toolbar
      * * `manual` - Manual */
     source?: JourneySourceEnumApi
+    /**
+     * Full http or https URL where a journey run opens the browser. Leave it null to start at the first step, which then must be an exact pageview of a full URL. Its host must be one of the project's authorized URLs when a run starts.
+     * @maxLength 2048
+     * @nullable
+     */
+    start_url?: string | null
+}
+
+/**
+ * * `manual` - Manual
+ * * `deploy` - Deploy
+ */
+export type JourneyRunTriggerEnumApi = (typeof JourneyRunTriggerEnumApi)[keyof typeof JourneyRunTriggerEnumApi]
+
+export const JourneyRunTriggerEnumApi = {
+    Manual: 'manual',
+    Deploy: 'deploy',
+} as const
+
+/**
+ * * `element_not_found` - Element not found
+ * * `element_not_visible` - Element not visible
+ * * `element_obscured` - Element covered by another element
+ * * `element_outside_viewport_unreachable` - Element outside the viewport and can't be scrolled to
+ * * `navigation_mismatch` - Page URL doesn't match
+ * * `navigation_failed` - Page failed to load
+ * * `navigation_blocked` - Navigation to a URL that isn't allowed
+ * * `timeout` - Timed out
+ */
+export type JourneyStepFailureReasonEnumApi =
+    (typeof JourneyStepFailureReasonEnumApi)[keyof typeof JourneyStepFailureReasonEnumApi]
+
+export const JourneyStepFailureReasonEnumApi = {
+    ElementNotFound: 'element_not_found',
+    ElementNotVisible: 'element_not_visible',
+    ElementObscured: 'element_obscured',
+    ElementOutsideViewportUnreachable: 'element_outside_viewport_unreachable',
+    NavigationMismatch: 'navigation_mismatch',
+    NavigationFailed: 'navigation_failed',
+    NavigationBlocked: 'navigation_blocked',
+    Timeout: 'timeout',
+} as const
+
+export interface JourneyRunApi {
+    /** Unique identifier of the run. */
+    id: string
+    /** Project the run belongs to. */
+    team_id: number
+    /** Journey the run replayed. */
+    journey_id: string
+    /** What started the run: `manual` for a person, `deploy` for a deployment.
+     *
+     * * `manual` - Manual
+     * * `deploy` - Deploy */
+    trigger: JourneyRunTriggerEnumApi
+    /** `pending` until a worker picks the run up, then `running`. It ends as `passed` when every step passed, `failed` when a step failed, or `errored` when the run couldn't finish, for example because no browser was available.
+     *
+     * * `pending` - Pending
+     * * `running` - Running
+     * * `passed` - Passed
+     * * `failed` - Failed
+     * * `errored` - Errored */
+    status: JourneyRunStatusEnumApi
+    /**
+     * URL the browser opened first, after `base_url` replaced its origin. Null until the run starts.
+     * @nullable
+     */
+    start_url: string | null
+    /**
+     * Origin that replaced the journey's recorded origin, so the same paths ran against another deployment, for example a preview. Null when the run used the recorded origin.
+     * @nullable
+     */
+    base_url: string | null
+    /**
+     * Commit of the deployment the run checked, when the trigger sent one.
+     * @nullable
+     */
+    commit_sha: string | null
+    /**
+     * Branch of the deployment the run checked, when the trigger sent one.
+     * @nullable
+     */
+    branch: string | null
+    /** Browser viewport width in CSS pixels. */
+    viewport_width: number
+    /** Browser viewport height in CSS pixels. */
+    viewport_height: number
+    /**
+     * Why an `errored` run couldn't finish. Null for every other status.
+     * @nullable
+     */
+    error: string | null
+    /**
+     * The run this run's screenshots were compared with: the newest earlier passed run of the same journey at the same viewport. Null when there was none.
+     * @nullable
+     */
+    baseline_run_id: string | null
+    /**
+     * ID of the user who started the run, if a user did.
+     * @nullable
+     */
+    created_by_id: number | null
+    /** When the run was created. */
+    created_at: string
+    /**
+     * When a worker started the run.
+     * @nullable
+     */
+    started_at: string | null
+    /**
+     * When the run ended.
+     * @nullable
+     */
+    finished_at: string | null
+    /**
+     * The deploy that started the run. Null for a run a person started.
+     * @nullable
+     */
+    deploy_id: string | null
+    /**
+     * Position of the first failed step, from 0. Null unless a step failed.
+     * @nullable
+     */
+    failed_step_index: number | null
+    /** Why the first failed step failed. Null unless a step failed.
+     *
+     * * `element_not_found` - Element not found
+     * * `element_not_visible` - Element not visible
+     * * `element_obscured` - Element covered by another element
+     * * `element_outside_viewport_unreachable` - Element outside the viewport and can't be scrolled to
+     * * `navigation_mismatch` - Page URL doesn't match
+     * * `navigation_failed` - Page failed to load
+     * * `navigation_blocked` - Navigation to a URL that isn't allowed
+     * * `timeout` - Timed out */
+    failure_reason: JourneyStepFailureReasonEnumApi | null
+}
+
+export interface PaginatedJourneyRunListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: JourneyRunApi[]
+}
+
+export interface CreateJourneyRunApi {
+    /**
+     * Run against another deployment of the same site, for example a preview. Only the origin (scheme, host and port) is used: it replaces the origin of every URL the journey opens and checks. Its host must be one of the project's authorized URLs.
+     * @maxLength 2048
+     * @nullable
+     */
+    base_url?: string | null
+    /**
+     * Commit of the deployment under test, kept on the run for reference.
+     * @maxLength 64
+     * @nullable
+     */
+    commit_sha?: string | null
+    /**
+     * Branch of the deployment under test, kept on the run for reference.
+     * @maxLength 255
+     * @nullable
+     */
+    branch?: string | null
+    /**
+     * Browser viewport width in CSS pixels, from 320 to 1920.
+     * @minimum 320
+     * @maximum 1920
+     */
+    viewport_width?: number
+    /**
+     * Browser viewport height in CSS pixels, from 320 to 1200.
+     * @minimum 320
+     * @maximum 1200
+     */
+    viewport_height?: number
+}
+
+/**
+ * * `passed` - Passed
+ * * `failed` - Failed
+ * * `skipped` - Skipped
+ */
+export type JourneyRunStepStatusEnumApi = (typeof JourneyRunStepStatusEnumApi)[keyof typeof JourneyRunStepStatusEnumApi]
+
+export const JourneyRunStepStatusEnumApi = {
+    Passed: 'passed',
+    Failed: 'failed',
+    Skipped: 'skipped',
+} as const
+
+/**
+ * * `unchanged` - Unchanged
+ * * `changed` - Changed
+ * * `new` - New
+ */
+export type JourneyVisualChangeEnumApi = (typeof JourneyVisualChangeEnumApi)[keyof typeof JourneyVisualChangeEnumApi]
+
+export const JourneyVisualChangeEnumApi = {
+    Unchanged: 'unchanged',
+    Changed: 'changed',
+    New: 'new',
+} as const
+
+export interface JourneyRunStepApi {
+    /** The step as it was defined when the run started. */
+    step: JourneyStepApi
+    /** Position of the step in the journey, from 0. */
+    index: number
+    /** `passed` or `failed`, or `skipped` when an earlier step failed, because later steps can't run from the wrong page.
+     *
+     * * `passed` - Passed
+     * * `failed` - Failed
+     * * `skipped` - Skipped */
+    status: JourneyRunStepStatusEnumApi
+    /** Why a `failed` step failed. Null for other statuses.
+     *
+     * * `element_not_found` - Element not found
+     * * `element_not_visible` - Element not visible
+     * * `element_obscured` - Element covered by another element
+     * * `element_outside_viewport_unreachable` - Element outside the viewport and can't be scrolled to
+     * * `navigation_mismatch` - Page URL doesn't match
+     * * `navigation_failed` - Page failed to load
+     * * `navigation_blocked` - Navigation to a URL that isn't allowed
+     * * `timeout` - Timed out */
+    failure_reason: JourneyStepFailureReasonEnumApi | null
+    /** What happened at the step, in words. Empty for a step that passed without notes. */
+    message: string
+    /**
+     * Short-lived URL of the viewport screenshot. A click step is captured before the click, and a failed step is captured as the run found the page.
+     * @nullable
+     */
+    screenshot_url: string | null
+    /**
+     * Short-lived URL of the same step's screenshot in the baseline run, if compared.
+     * @nullable
+     */
+    baseline_screenshot_url: string | null
+    /**
+     * Short-lived URL of an image that marks the pixels that changed from the baseline.
+     * @nullable
+     */
+    diff_screenshot_url: string | null
+    /**
+     * Percentage of pixels that changed from the baseline screenshot, from 0 to 100.
+     * @nullable
+     */
+    diff_percentage: number | null
+    /** `unchanged` or `changed` compared with the baseline, or `new` when the baseline has no screenshot of the same step. A visual change never fails a run.
+     *
+     * * `unchanged` - Unchanged
+     * * `changed` - Changed
+     * * `new` - New */
+    visual_change: JourneyVisualChangeEnumApi | null
+    /**
+     * Milliseconds the step took. Null for a skipped step.
+     * @nullable
+     */
+    duration_ms: number | null
+}
+
+export interface JourneyRunDetailApi {
+    /** Every step of the run, in order. Empty until it ends. */
+    steps: JourneyRunStepApi[]
+    /** Unique identifier of the run. */
+    id: string
+    /** Project the run belongs to. */
+    team_id: number
+    /** Journey the run replayed. */
+    journey_id: string
+    /** What started the run: `manual` for a person, `deploy` for a deployment.
+     *
+     * * `manual` - Manual
+     * * `deploy` - Deploy */
+    trigger: JourneyRunTriggerEnumApi
+    /** `pending` until a worker picks the run up, then `running`. It ends as `passed` when every step passed, `failed` when a step failed, or `errored` when the run couldn't finish, for example because no browser was available.
+     *
+     * * `pending` - Pending
+     * * `running` - Running
+     * * `passed` - Passed
+     * * `failed` - Failed
+     * * `errored` - Errored */
+    status: JourneyRunStatusEnumApi
+    /**
+     * URL the browser opened first, after `base_url` replaced its origin. Null until the run starts.
+     * @nullable
+     */
+    start_url: string | null
+    /**
+     * Origin that replaced the journey's recorded origin, so the same paths ran against another deployment, for example a preview. Null when the run used the recorded origin.
+     * @nullable
+     */
+    base_url: string | null
+    /**
+     * Commit of the deployment the run checked, when the trigger sent one.
+     * @nullable
+     */
+    commit_sha: string | null
+    /**
+     * Branch of the deployment the run checked, when the trigger sent one.
+     * @nullable
+     */
+    branch: string | null
+    /** Browser viewport width in CSS pixels. */
+    viewport_width: number
+    /** Browser viewport height in CSS pixels. */
+    viewport_height: number
+    /**
+     * Why an `errored` run couldn't finish. Null for every other status.
+     * @nullable
+     */
+    error: string | null
+    /**
+     * The run this run's screenshots were compared with: the newest earlier passed run of the same journey at the same viewport. Null when there was none.
+     * @nullable
+     */
+    baseline_run_id: string | null
+    /**
+     * ID of the user who started the run, if a user did.
+     * @nullable
+     */
+    created_by_id: number | null
+    /** When the run was created. */
+    created_at: string
+    /**
+     * When a worker started the run.
+     * @nullable
+     */
+    started_at: string | null
+    /**
+     * When the run ended.
+     * @nullable
+     */
+    finished_at: string | null
+    /**
+     * The deploy that started the run. Null for a run a person started.
+     * @nullable
+     */
+    deploy_id: string | null
+    /**
+     * Position of the first failed step, from 0. Null unless a step failed.
+     * @nullable
+     */
+    failed_step_index: number | null
+    /** Why the first failed step failed. Null unless a step failed.
+     *
+     * * `element_not_found` - Element not found
+     * * `element_not_visible` - Element not visible
+     * * `element_obscured` - Element covered by another element
+     * * `element_outside_viewport_unreachable` - Element outside the viewport and can't be scrolled to
+     * * `navigation_mismatch` - Page URL doesn't match
+     * * `navigation_failed` - Page failed to load
+     * * `navigation_blocked` - Navigation to a URL that isn't allowed
+     * * `timeout` - Timed out */
+    failure_reason: JourneyStepFailureReasonEnumApi | null
 }
 
 export interface PatchedUpdateJourneyInputApi {
@@ -191,6 +596,11 @@ export interface PatchedUpdateJourneyInputApi {
      * * `toolbar` - Toolbar
      * * `manual` - Manual */
     source?: JourneySourceEnumApi
+    /**
+     * Full http or https URL where a journey run opens the browser. Leave it null to start at the first step, which then must be an exact pageview of a full URL. Its host must be one of the project's authorized URLs when a run starts. Send an empty string to remove the stored start URL.
+     * @maxLength 2048
+     */
+    start_url?: string
 }
 
 export type BreakdownTypeApi = (typeof BreakdownTypeApi)[keyof typeof BreakdownTypeApi]
@@ -2308,6 +2718,258 @@ export interface JourneyFunnelQueryApi {
     readonly query: FunnelsQueryApi
 }
 
+/**
+ * * `pending` - Pending
+ * * `running` - Running
+ * * `passed` - Passed
+ * * `failed` - Failed
+ * * `errored` - Errored
+ * * `no_runs` - No runs
+ */
+export type JourneyDeployStatusEnumApi = (typeof JourneyDeployStatusEnumApi)[keyof typeof JourneyDeployStatusEnumApi]
+
+export const JourneyDeployStatusEnumApi = {
+    Pending: 'pending',
+    Running: 'running',
+    Passed: 'passed',
+    Failed: 'failed',
+    Errored: 'errored',
+    NoRuns: 'no_runs',
+} as const
+
+export interface JourneyDeployApi {
+    /** Unique identifier of the deploy. */
+    id: string
+    /** Project the deploy belongs to. */
+    team_id: number
+    /** Commit that was deployed. */
+    commit_sha: string
+    /**
+     * Branch that was deployed, when CI sent one.
+     * @nullable
+     */
+    branch: string | null
+    /**
+     * Origin of the build the runs opened, for example a preview deployment. Null when each journey opened its own start URL.
+     * @nullable
+     */
+    base_url: string | null
+    /**
+     * Short name for the deploy, when CI sent one.
+     * @nullable
+     */
+    label: string | null
+    /**
+     * Link to the commit or the CI run, when CI sent one.
+     * @nullable
+     */
+    url: string | null
+    /** When the build was deployed. Defaults to when PostHog recorded the deploy. */
+    deployed_at: string
+    /** When PostHog recorded the deploy. */
+    created_at: string
+    /**
+     * ID of the user whose key recorded the deploy. Null for a project secret API key.
+     * @nullable
+     */
+    created_by_id: number | null
+    /** Verdict on the deploy's runs. `pending` while no run has started and `running` while any run is unfinished. `failed` as soon as any run fails, even while others are unfinished. Otherwise, once every run has ended, `errored` when any run couldn't finish and `passed` when every run passed. `no_runs` when the deploy started no run. Every status except `pending` and `running` is final.
+     *
+     * * `pending` - Pending
+     * * `running` - Running
+     * * `passed` - Passed
+     * * `failed` - Failed
+     * * `errored` - Errored
+     * * `no_runs` - No runs */
+    status: JourneyDeployStatusEnumApi
+    /** Number of runs the deploy started. */
+    run_count: number
+    /** Journeys that didn't run because the project has more than 50. The oldest journeys run first. */
+    journeys_over_limit: number
+}
+
+export interface PaginatedJourneyDeployListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: JourneyDeployApi[]
+}
+
+export interface CreateJourneyDeployApi {
+    /**
+     * Commit that was deployed.
+     * @maxLength 64
+     */
+    commit_sha: string
+    /**
+     * Branch that was deployed.
+     * @maxLength 255
+     * @nullable
+     */
+    branch?: string | null
+    /**
+     * Run against this deployment, for example a preview. Only the origin (scheme, host and port) is used: it replaces the origin of every URL each journey opens and checks. Its host must be one of the project's authorized URLs. Leave it out to run each journey against its own start URL.
+     * @maxLength 2048
+     * @nullable
+     */
+    base_url?: string | null
+    /**
+     * When the build was deployed, in ISO 8601. Defaults to now.
+     * @nullable
+     */
+    deployed_at?: string | null
+    /**
+     * Short name for the deploy, for example a release tag.
+     * @maxLength 255
+     * @nullable
+     */
+    label?: string | null
+    /**
+     * Link to the commit or the CI run, starting with http:// or https://.
+     * @maxLength 2048
+     * @nullable
+     */
+    url?: string | null
+    /**
+     * Journeys to run, at most 50. Leave it out to run every journey of the project, the oldest 50 first. Send an empty list to record the deploy without running any journey. A retry with the same `commit_sha` and `base_url` within 10 minutes returns the first deploy and starts no runs.
+     * @maxItems 50
+     * @nullable
+     */
+    journey_ids?: string[] | null
+}
+
+export interface JourneyDeployRunApi {
+    /** Journey the run replayed. */
+    journey_id: string
+    /** Name of the journey. */
+    journey_name: string
+    /** The run. Get it from the journey's runs to see each step and its screenshots. */
+    run_id: string
+    /** Status of the run: `pending`, `running`, `passed`, `failed` or `errored`.
+     *
+     * * `pending` - Pending
+     * * `running` - Running
+     * * `passed` - Passed
+     * * `failed` - Failed
+     * * `errored` - Errored */
+    status: JourneyRunStatusEnumApi
+    /**
+     * When the run ended. Null while it is unfinished.
+     * @nullable
+     */
+    finished_at: string | null
+    /**
+     * Position of the first failed step, from 0. Null unless a step failed.
+     * @nullable
+     */
+    failed_step_index: number | null
+    /** Why the first failed step failed. Null unless a step failed.
+     *
+     * * `element_not_found` - Element not found
+     * * `element_not_visible` - Element not visible
+     * * `element_obscured` - Element covered by another element
+     * * `element_outside_viewport_unreachable` - Element outside the viewport and can't be scrolled to
+     * * `navigation_mismatch` - Page URL doesn't match
+     * * `navigation_failed` - Page failed to load
+     * * `navigation_blocked` - Navigation to a URL that isn't allowed
+     * * `timeout` - Timed out */
+    failure_reason: JourneyStepFailureReasonEnumApi | null
+    /** What went wrong: the failed step's message, or why an errored run couldn't finish. */
+    message: string
+}
+
+/**
+ * * `journey_not_found` - Journey not found
+ * * `not_runnable` - Journey can't run
+ * * `target_not_allowed` - Start page isn't allowed
+ * * `run_in_progress` - Run already in progress
+ */
+export type JourneyDeploySkipReasonEnumApi =
+    (typeof JourneyDeploySkipReasonEnumApi)[keyof typeof JourneyDeploySkipReasonEnumApi]
+
+export const JourneyDeploySkipReasonEnumApi = {
+    JourneyNotFound: 'journey_not_found',
+    NotRunnable: 'not_runnable',
+    TargetNotAllowed: 'target_not_allowed',
+    RunInProgress: 'run_in_progress',
+} as const
+
+export interface JourneyDeploySkipApi {
+    /** Journey that didn't run. */
+    journey_id: string
+    /**
+     * Name of the journey. Null when the project has no journey with this ID.
+     * @nullable
+     */
+    journey_name: string | null
+    /** Why the journey didn't run: `journey_not_found`, `not_runnable` when it has no page to start from, `target_not_allowed` when its start page isn't one of the project's authorized URLs, or `run_in_progress` when an earlier run of it hasn't finished.
+     *
+     * * `journey_not_found` - Journey not found
+     * * `not_runnable` - Journey can't run
+     * * `target_not_allowed` - Start page isn't allowed
+     * * `run_in_progress` - Run already in progress */
+    reason: JourneyDeploySkipReasonEnumApi
+    /** What to change so that the journey runs next time. */
+    message: string
+}
+
+export interface JourneyDeployDetailApi {
+    /** One summary for each run the deploy started. */
+    runs: JourneyDeployRunApi[]
+    /** Each selected journey that didn't run, and why. */
+    skipped: JourneyDeploySkipApi[]
+    /** Unique identifier of the deploy. */
+    id: string
+    /** Project the deploy belongs to. */
+    team_id: number
+    /** Commit that was deployed. */
+    commit_sha: string
+    /**
+     * Branch that was deployed, when CI sent one.
+     * @nullable
+     */
+    branch: string | null
+    /**
+     * Origin of the build the runs opened, for example a preview deployment. Null when each journey opened its own start URL.
+     * @nullable
+     */
+    base_url: string | null
+    /**
+     * Short name for the deploy, when CI sent one.
+     * @nullable
+     */
+    label: string | null
+    /**
+     * Link to the commit or the CI run, when CI sent one.
+     * @nullable
+     */
+    url: string | null
+    /** When the build was deployed. Defaults to when PostHog recorded the deploy. */
+    deployed_at: string
+    /** When PostHog recorded the deploy. */
+    created_at: string
+    /**
+     * ID of the user whose key recorded the deploy. Null for a project secret API key.
+     * @nullable
+     */
+    created_by_id: number | null
+    /** Verdict on the deploy's runs. `pending` while no run has started and `running` while any run is unfinished. `failed` as soon as any run fails, even while others are unfinished. Otherwise, once every run has ended, `errored` when any run couldn't finish and `passed` when every run passed. `no_runs` when the deploy started no run. Every status except `pending` and `running` is final.
+     *
+     * * `pending` - Pending
+     * * `running` - Running
+     * * `passed` - Passed
+     * * `failed` - Failed
+     * * `errored` - Errored
+     * * `no_runs` - No runs */
+    status: JourneyDeployStatusEnumApi
+    /** Number of runs the deploy started. */
+    run_count: number
+    /** Journeys that didn't run because the project has more than 50. The oldest journeys run first. */
+    journeys_over_limit: number
+}
+
 export interface ElementPathNodeApi {
     /** The journey step this node stands for, in the shape that journey `steps` accept. Send it as is to save the path as a journey. */
     step: JourneyStepApi
@@ -2346,6 +3008,30 @@ export interface ElementPathsResultApi {
 }
 
 export type UserJourneysListParams = {
+    /**
+     * Number of results to return per page.
+     * @maximum 1000
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type UserJourneysRunsListParams = {
+    /**
+     * Number of results to return per page.
+     * @maximum 1000
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type UserJourneysDeploysListParams = {
     /**
      * Number of results to return per page.
      * @maximum 1000

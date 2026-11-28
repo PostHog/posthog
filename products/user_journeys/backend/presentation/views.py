@@ -4,16 +4,26 @@ from uuid import UUID
 from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import NotFound
+from rest_framework.exceptions import NotFound, ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.mixins import TypedRequest, validated_request
 from posthog.api.pagination import FacadeLimitOffsetPagination, facade_page_response
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.exceptions import Conflict
 
 from ..facade import api
-from ..facade.contracts import CreateJourneyInput, JourneyNotFoundError, UpdateJourneyInput
+from ..facade.contracts import (
+    CreateJourneyInput,
+    JourneyDeployNotFoundError,
+    JourneyNotFoundError,
+    JourneyNotRunnableError,
+    JourneyRunInProgressError,
+    JourneyRunNotFoundError,
+    JourneyRunTargetNotAllowedError,
+    UpdateJourneyInput,
+)
 from .serializers import (
     CreateJourneyInputSerializer,
     JourneyFunnelQuerySerializer,
@@ -21,17 +31,29 @@ from .serializers import (
     UpdateJourneyInputSerializer,
 )
 
+_NOT_FOUND_ERRORS = (JourneyNotFoundError, JourneyRunNotFoundError, JourneyDeployNotFoundError)
+_INVALID_REQUEST_ERRORS = (JourneyNotRunnableError, JourneyRunTargetNotAllowedError)
 
-class UserJourneysFlagGateMixin(TeamAndOrgViewSetMixin):
-    """Answers 404 for every request while the product is off for the team."""
+
+class UserJourneysViewSetMixin(TeamAndOrgViewSetMixin):
+    """Answers 404 while the product is off for the team, and maps facade errors to HTTP statuses."""
 
     def initial(self, request: Request, *args: Any, **kwargs: Any) -> None:
         super().initial(request, *args, **kwargs)
         if not api.is_enabled(self.team_id):
             raise NotFound()
 
+    def handle_exception(self, exc: Exception) -> Response:
+        if isinstance(exc, _NOT_FOUND_ERRORS):
+            exc = NotFound()
+        elif isinstance(exc, _INVALID_REQUEST_ERRORS):
+            exc = ValidationError({"detail": str(exc)})
+        elif isinstance(exc, JourneyRunInProgressError):
+            exc = Conflict(str(exc))
+        return super().handle_exception(exc)
 
-class JourneyViewSet(UserJourneysFlagGateMixin, viewsets.GenericViewSet):
+
+class JourneyViewSet(UserJourneysViewSetMixin, viewsets.GenericViewSet):
     """Saved user flows that PostHog measures as funnels."""
 
     # Session access only until the product is released and has its own API scope.
@@ -39,12 +61,9 @@ class JourneyViewSet(UserJourneysFlagGateMixin, viewsets.GenericViewSet):
     path_parameters = {"pk": UUID}
     pagination_class = FacadeLimitOffsetPagination
 
-    def handle_exception(self, exc: Exception) -> Response:
-        return super().handle_exception(NotFound() if isinstance(exc, JourneyNotFoundError) else exc)
-
     @extend_schema(responses={200: JourneySerializer(many=True)})
     def list(self, request: Request, **kwargs: Any) -> Response:
-        """List the project's journeys, newest first."""
+        """List the project's journeys, newest first, each with its latest run."""
         return facade_page_response(
             self, lambda page: api.list_journeys(self.team_id, page), serializer_class=JourneySerializer
         )

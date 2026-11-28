@@ -8,6 +8,7 @@ from rest_framework_dataclasses.serializers import DataclassSerializer
 
 from posthog.schema import FunnelsQuery
 
+from ..facade import api
 from ..facade.contracts import (
     MAX_CONVERSION_WINDOW_MINUTES,
     MAX_SELECTOR_LENGTH,
@@ -18,8 +19,9 @@ from ..facade.contracts import (
     MIN_STEPS,
     CreateJourneyInput,
     ElementClickStep,
-    Journey,
+    JourneyLatestRun,
     JourneyStep,
+    JourneyWithLatestRun,
     PageviewStep,
     UpdateJourneyInput,
 )
@@ -154,6 +156,11 @@ _FIELD_HELP = {
         f"to {MAX_CONVERSION_WINDOW_MINUTES}."
     ),
     "source": "Where the journey was defined: `toolbar` for the toolbar, `manual` for the app or the API.",
+    "start_url": (
+        "Full http or https URL where a journey run opens the browser. Leave it null to start at the first "
+        "step, which then must be an exact pageview of a full URL. Its host must be one of the project's "
+        "authorized URLs when a run starts."
+    ),
 }
 
 CREATE_NULL_MESSAGE = "Can't be null. Send a value for this field."
@@ -184,14 +191,40 @@ def _input_kwargs(null_message: str) -> dict[str, dict]:
             **not_null,
         },
         "source": {"help_text": _FIELD_HELP["source"], **not_null},
+        "start_url": {"help_text": _FIELD_HELP["start_url"], "max_length": MAX_URL_LENGTH, "allow_blank": True},
     }
+
+
+class JourneyLatestRunSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = JourneyLatestRun
+        fields = ["id", "status", "created_at", "finished_at", "failed_step_index"]
+        extra_kwargs = {
+            "status": {
+                "help_text": "Status of the run: `pending`, `running`, `passed`, `failed` or `errored`.",
+            },
+            "created_at": {"help_text": "When the run was created."},
+            "finished_at": {"help_text": "When the run ended. Null while it is pending or running."},
+            "failed_step_index": {
+                "help_text": "Position of the first failed step, from 0. Null unless a step of the run failed."
+            },
+        }
+
+    id = serializers.UUIDField(source="run_id", read_only=True, help_text="Unique identifier of the run.")
 
 
 class JourneySerializer(DataclassSerializer):
     steps = serializers.ListField(child=JourneyStepField(), help_text=_FIELD_HELP["steps"])
+    latest_run = JourneyLatestRunSerializer(
+        allow_null=True,
+        read_only=True,
+        help_text="The journey's newest run, so a list can show whether the journey still works. Null if it never ran.",
+    )
 
     class Meta:
-        dataclass = Journey
+        dataclass = JourneyWithLatestRun
+        # Keeps the schema component, and so the generated `JourneyApi` type, named after the journey.
+        ref_name = "Journey"
         extra_kwargs = {
             **{field: {"help_text": help_text} for field, help_text in _FIELD_HELP.items() if field != "steps"},
             "id": {"help_text": "Unique identifier of the journey."},
@@ -217,8 +250,20 @@ class JourneyFunnelQuerySerializer(serializers.Serializer):
     )
 
 
+def validate_run_url(value: str | None) -> str | None:
+    """Reject a URL whose text alone rules it out as a page a run opens. Empty values pass unchanged."""
+    if value:
+        error = api.run_url_error(value)
+        if error is not None:
+            raise serializers.ValidationError(error)
+    return value
+
+
 class CreateJourneyInputSerializer(DataclassSerializer):
     steps = _steps_field(required=True, null_message=CREATE_NULL_MESSAGE)
+
+    def validate_start_url(self, value: str | None) -> str | None:
+        return validate_run_url(value)
 
     class Meta:
         dataclass = CreateJourneyInput
@@ -228,6 +273,18 @@ class CreateJourneyInputSerializer(DataclassSerializer):
 class UpdateJourneyInputSerializer(DataclassSerializer):
     steps = _steps_field(required=False, null_message=UPDATE_NULL_MESSAGE)
 
+    def validate_start_url(self, value: str | None) -> str | None:
+        return validate_run_url(value)
+
     class Meta:
         dataclass = UpdateJourneyInput
-        extra_kwargs = _input_kwargs(UPDATE_NULL_MESSAGE)
+        extra_kwargs = {
+            **_input_kwargs(UPDATE_NULL_MESSAGE),
+            "start_url": {
+                "help_text": f"{_FIELD_HELP['start_url']} Send an empty string to remove the stored start URL.",
+                "max_length": MAX_URL_LENGTH,
+                "allow_blank": True,
+                "allow_null": False,
+                "error_messages": {"null": UPDATE_NULL_MESSAGE},
+            },
+        }

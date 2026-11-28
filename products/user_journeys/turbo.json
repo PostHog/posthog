@@ -8,6 +8,7 @@
                 "backend/routes.py",
                 "backend/webhook_consumers.py",
                 "backend/tasks/**",
+                "backend/temporal/**",
                 "backend/models/**",
                 "backend/migrations/**",
                 "backend/apps.py"
