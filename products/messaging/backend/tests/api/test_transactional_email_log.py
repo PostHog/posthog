@@ -1,13 +1,20 @@
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterator, Mapping, Sequence
+from contextlib import ExitStack, contextmanager
 from datetime import UTC, datetime, timedelta
 from uuid import NAMESPACE_URL, UUID, uuid5
 from zoneinfo import ZoneInfo
 
 import time_machine
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
+from posthog.test.base import (
+    APIBaseTest,
+    ClickhouseTestMixin,
+    NonAtomicAPIBaseTest,
+    _create_event,
+    flush_persons_and_events,
+)
 from unittest.mock import patch
 
-from django.db import DatabaseError
+from django.db import connection
 from django.test import SimpleTestCase, override_settings
 
 from clickhouse_driver.errors import ServerException
@@ -17,10 +24,10 @@ from rest_framework import status
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client.execute import sync_execute
-from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
+from posthog.clickhouse.client.limit import DEFAULT_APP_ORG_CONCURRENT_QUERIES, app_org_concurrency_slot
 from posthog.constants import AvailableFeature
 from posthog.errors import wrap_clickhouse_query_error
-from posthog.models import Element, OrganizationMembership, Team
+from posthog.models import Element, Organization, OrganizationMembership, Team
 from posthog.models.instance_setting import override_instance_config
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
@@ -38,6 +45,7 @@ from products.messaging.backend.models.email_status_sql import EMAIL_STATUS_DATA
 from products.messaging.backend.models.message_template import MessageTemplate
 from products.messaging.backend.models.transactional_email_key import TransactionalEmailKey
 from products.messaging.backend.services.transactional_email_log import _bucket_starts
+from products.workflows.backend.facade.api import get_workflow_names
 from products.workflows.backend.facade.team_extension import TeamWorkflowsConfig
 from products.workflows.backend.facade.testing import create_workflow_for_test
 from products.workflows.backend.facade.transactional_emails import create_code_email_workflow
@@ -84,18 +92,11 @@ def _action_of(name: str) -> str:
     return "email-step" if name.startswith("workflow email") else "transactional_email"
 
 
-@time_machine.travel(NOW, tick=False)
-@patch(
-    "products.messaging.backend.presentation.views.message_templates.posthoganalytics.feature_enabled",
-    return_value=True,
-)
-class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
-    def setUp(self):
-        super().setUp()
-        self.workflow_id = create_workflow_for_test(team_id=self.team.id, name="Password reset").id
-        self.template = MessageTemplate.objects.create(
-            team=self.team, name="Password reset", transactional_hog_flow_id=self.workflow_id
-        )
+class TransactionalEmailLogHelpers:
+    team: Team
+    organization: Organization
+    organization_membership: OrganizationMembership
+    workflow_id: str
 
     def _send(
         self,
@@ -215,6 +216,58 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
     def _url(self, suffix: str = "") -> str:
         return f"/api/projects/{self.team.id}/transactional_email_log/{suffix}"
 
+    def _record_person_emails(self, sends: Mapping[str, tuple[int, str, str | None]]) -> str:
+        person = create_person(team=self.team, distinct_ids=["jane"])
+        for name, (minutes_ago, message_id, workflow_id) in sends.items():
+            self._record_distinct_id(
+                message_id,
+                "jane",
+                "jane@example.com",
+                NOW - timedelta(minutes=minutes_ago, seconds=-1),
+                person_id=str(person.uuid),
+                action_id=_action_of(name),
+                workflow_id=workflow_id,
+            )
+        return f"/api/projects/{self.team.id}/persons/{person.uuid}/emails/"
+
+    def _deny_member(self, resource: str, resource_id: str | None = None) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+            {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
+        ]
+        self.organization.save()
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        create_access_control(
+            team_id=self.team.id,
+            resource=resource,
+            resource_id=resource_id,
+            access_level="none",
+            organization_member_id=self.organization_membership.id,
+        )
+
+    @contextmanager
+    def _org_query_slots_full(self) -> Iterator[None]:
+        # Tests run with the limiter off, so it is switched on to hold the organization's real slots.
+        with patch("posthog.clickhouse.client.limit.TEST", False), ExitStack() as slots:
+            for _ in range(DEFAULT_APP_ORG_CONCURRENT_QUERIES):
+                slots.enter_context(app_org_concurrency_slot(self.team))
+            yield
+
+
+@time_machine.travel(NOW, tick=False)
+@patch(
+    "products.messaging.backend.presentation.views.message_templates.posthoganalytics.feature_enabled",
+    return_value=True,
+)
+class TestTransactionalEmailLog(TransactionalEmailLogHelpers, ClickhouseTestMixin, APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.workflow_id = create_workflow_for_test(team_id=self.team.id, name="Password reset").id
+        self.template = MessageTemplate.objects.create(
+            team=self.team, name="Password reset", transactional_hog_flow_id=self.workflow_id
+        )
+
     def test_lists_sends_newest_first_and_an_open_never_hides_a_bounce(self, _flag):
         oldest = self._send(30, "a@example.com", [("sent", 1, ""), ("delivered", 2, ""), ("opened", 60, "")])
         bounced = self._send(20, "b@example.com", [("sent", 1, ""), ("bounced", 2, "hard"), ("opened", 90, "")])
@@ -306,10 +359,7 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
         ]
     )
     def test_a_full_query_slot_answers_429(self, _flag, _name, path):
-        with patch(
-            "products.messaging.backend.services.query_concurrency.app_org_concurrency_slot",
-            side_effect=ConcurrencyLimitExceeded("Exceeded maximum concurrency limit"),
-        ):
+        with self._org_query_slots_full():
             response = self.client.get(self._url(path.format(workflow_id=self.workflow_id)))
 
         assert response.status_code == status.HTTP_429_TOO_MANY_REQUESTS, response.json()
@@ -336,20 +386,6 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
             ("queued", None),
             ("failed", "provider_error"),
         ]
-
-    def _record_person_emails(self, sends: Mapping[str, tuple[int, str, str | None]]) -> str:
-        person = create_person(team=self.team, distinct_ids=["jane"])
-        for name, (minutes_ago, message_id, workflow_id) in sends.items():
-            self._record_distinct_id(
-                message_id,
-                "jane",
-                "jane@example.com",
-                NOW - timedelta(minutes=minutes_ago, seconds=-1),
-                person_id=str(person.uuid),
-                action_id=_action_of(name),
-                workflow_id=workflow_id,
-            )
-        return f"/api/projects/{self.team.id}/persons/{person.uuid}/emails/"
 
     @override_settings(CLICKHOUSE_EVENTS_ONLINE_HOST="events-cluster.invalid")
     def test_a_persons_emails_say_which_sends_their_send_page_opens(self, _flag):
@@ -470,27 +506,11 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
         assert [row["in_transactional_email_log"] for row in response.json()] == [expected]
         assert (detail.status_code == status.HTTP_200_OK) == (expected is True), detail.json()
 
-    def test_a_persons_emails_load_without_the_field_when_the_access_lookup_fails(self, _flag):
-        message_id = self._send(10, "jane@example.com", [("sent", 1, "")])
-        url = self._record_person_emails({"a send": (10, message_id, self.workflow_id)})
-        self._deny_member("hog_flow")
-
-        with patch(
-            "products.authorization.backend.facade.api.list_objects", side_effect=DatabaseError("lookup failed")
-        ):
-            response = self.client.get(url)
-
-        assert response.status_code == status.HTTP_200_OK, response.json()
-        assert [row["in_transactional_email_log"] for row in response.json()] == [None]
-
     def test_a_persons_emails_load_without_the_field_while_the_logs_query_slots_are_full(self, _flag):
         message_id = self._send(10, "jane@example.com", [("sent", 1, "")])
         url = self._record_person_emails({"a send": (10, message_id, self.workflow_id)})
 
-        with patch(
-            "products.messaging.backend.services.query_concurrency.app_org_concurrency_slot",
-            side_effect=ConcurrencyLimitExceeded("Exceeded maximum concurrency limit"),
-        ):
+        with self._org_query_slots_full():
             response = self.client.get(url)
 
         assert response.status_code == status.HTTP_200_OK, response.json()
@@ -1349,22 +1369,6 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
         assert self.client.get(self._url(f"{deleted_id}/")).json()["recipient"] == "old@example.com"
         assert self.client.get(self._url(f"{denied_then_deleted_id}/")).status_code == status.HTTP_404_NOT_FOUND
 
-    def _deny_member(self, resource: str, resource_id: str | None = None) -> None:
-        self.organization.available_product_features = [
-            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
-            {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
-        ]
-        self.organization.save()
-        self.organization_membership.level = OrganizationMembership.Level.MEMBER
-        self.organization_membership.save()
-        create_access_control(
-            team_id=self.team.id,
-            resource=resource,
-            resource_id=resource_id,
-            access_level="none",
-            organization_member_id=self.organization_membership.id,
-        )
-
     @parameterized.expand([("person",), ("query",)])
     def test_activity_needs_access_to_persons_and_queries(self, _flag, resource):
         message_id = self._send(10, "jane@example.com", [("sent", 1, "")])
@@ -1475,6 +1479,47 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
         assert listed.status_code == status.HTTP_200_OK, listed.json()
         assert [r["message_id"] for r in listed.json()["results"]] == [granted_id]
         assert self.client.get(self._url(f"{deleted_id}/")).status_code == status.HTTP_404_NOT_FOUND
+
+
+@time_machine.travel(NOW, tick=False)
+@patch(
+    "products.messaging.backend.presentation.views.message_templates.posthoganalytics.feature_enabled",
+    return_value=True,
+)
+class TestPersonEmailsWhenTheWorkflowLookupFails(
+    TransactionalEmailLogHelpers, ClickhouseTestMixin, NonAtomicAPIBaseTest
+):
+    # The emails list reads the workflow table just before the lookup does. Inside a test transaction that read keeps
+    # its lock to the end, so no second connection could lock the table between the two reads.
+    def setUp(self):
+        super().setUp()
+        self.workflow_id = create_workflow_for_test(team_id=self.team.id, name="Password reset").id
+
+    def test_a_persons_emails_load_without_the_field(self, _flag):
+        message_id = self._send(10, "jane@example.com", [("sent", 1, "")])
+        url = self._record_person_emails({"a send": (10, message_id, self.workflow_id)})
+        holder = connection.get_new_connection(connection.get_connection_params())
+
+        def lock_the_workflows_after_naming_them(**kwargs):
+            names = get_workflow_names(**kwargs)
+            with holder.cursor() as cursor:
+                # A row lock never blocks a plain read, so only a table lock makes the lookup's read fail.
+                cursor.execute("LOCK TABLE posthog_hogflow IN ACCESS EXCLUSIVE MODE")
+            return names
+
+        try:
+            with connection.cursor() as cursor:
+                cursor.execute("SET lock_timeout = '100ms'")
+            with patch("posthog.api.person.get_workflow_names", side_effect=lock_the_workflows_after_naming_them):
+                response = self.client.get(url)
+        finally:
+            holder.rollback()
+            holder.close()
+            with connection.cursor() as cursor:
+                cursor.execute("RESET lock_timeout")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert [row["in_transactional_email_log"] for row in response.json()] == [None]
 
 
 class TestStatsBuckets(SimpleTestCase):
