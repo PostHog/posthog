@@ -1,5 +1,5 @@
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Any, Optional
 
 import time_machine
 from posthog.test.base import (
@@ -12,6 +12,8 @@ from posthog.test.base import (
     snapshot_clickhouse_queries,
 )
 from unittest import mock
+
+from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
@@ -44,6 +46,7 @@ from products.data_tools.backend.models.expression import DataWarehouseExpressio
 from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
 from products.feature_flags.backend.models.organization_feature_flags_config import OrganizationFeatureFlagsConfig
 from products.web_analytics.backend.hogql_queries.stats_table import WebStatsTableQueryRunner
+from products.web_analytics.backend.hogql_queries.web_analytics_query_runner import session_restriction_pays
 from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import compute_shape_key
 from products.web_analytics.backend.hogql_queries.web_overview import WebOverviewQueryRunner
 from products.web_analytics.backend.hogql_queries.web_page_directory import WebPageDirectoryQueryRunner
@@ -521,3 +524,19 @@ class TestWebAnalyticsQueryExecutedEvent(ClickhouseTestMixin, APIBaseTest):
         history = shape_read_hours(team_id=self.team.pk, now=datetime.now(UTC))
         assert response is not None
         assert (compute_shape_key(query, self.team.timezone, []) in history) is recorded
+
+
+class TestSessionRestrictionPays(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("sessions_mostly_without_web_events", 5_000_000, 77_000_000, True),
+            ("selective_filter", 100_000, 4_000_000, True),
+            ("events_match_most_sessions", 1_000_000, 1_600_000, False),
+            ("too_few_sessions_to_save_work", 50_000, 1_500_000, False),
+            ("id_set_too_large_to_ship", 12_000_000, 100_000_000, False),
+            ("empty_range", 0, 0, False),
+            ("failed_count", None, 10_000_000, False),
+        ]
+    )
+    def test_decision(self, _name: str, matching: Optional[int], in_range: Optional[int], expected: bool) -> None:
+        assert session_restriction_pays(matching, in_range) is expected

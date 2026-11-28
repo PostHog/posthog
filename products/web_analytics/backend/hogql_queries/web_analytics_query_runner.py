@@ -35,6 +35,12 @@ from posthog.schema import (
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
+from posthog.hogql.database.schema.util.where_clause_extractor import (
+    SESSION_BUFFER_DAYS,
+    SessionMinTimestampWhereClauseExtractorV2,
+    SessionMinTimestampWhereClauseExtractorV3,
+    flatten_ors,
+)
 from posthog.hogql.errors import QueryError
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.property import (
@@ -46,6 +52,7 @@ from posthog.hogql.property import (
 )
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.transforms.flag_calls_from_flag_evaluations import names_flag_called_event
+from posthog.hogql.visitor import TraversingVisitor, clone_expr
 
 from posthog.caching.insights_api import BASE_MINIMUM_INSIGHT_REFRESH_INTERVAL, REDUCED_MINIMUM_INSIGHT_REFRESH_INTERVAL
 from posthog.clickhouse.query_tagging import Feature, Product, get_query_tag_value, tag_queries
@@ -59,6 +66,7 @@ from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.hogql_queries.utils.query_previous_period_date_range import QueryPreviousPeriodDateRange
 from posthog.models import User
 from posthog.models.instance_setting import get_instance_setting
+from posthog.schema_enums import SessionTableVersion
 
 from products.access_control.backend.facade.api import team_has_property_access_rules
 from products.access_control.backend.facade.user_access_control import UserAccessControl
@@ -108,6 +116,14 @@ SESSION_ID_SET_MAX_MATCHING_SESSIONS = 10_000_000
 # kill switch live in the flag UI. The allowlist stays as the flag-independent base.
 SESSION_ID_SET_FEATURE_FLAG_KEY = "web-analytics-session-id-set"
 
+# Rolls out restricting the sessions side of live queries to the sessions the events side matched.
+SESSION_RESTRICTION_FEATURE_FLAG_KEY = "web-analytics-session-restriction"
+# The restriction costs one more scan of the matching events, and it saves the aggregation of every session it
+# drops. It pays only when the range holds enough sessions for that saving to exceed the extra scan, and when most
+# of those sessions have no matching event, as for a team whose sessions also come from server-side or AI events.
+SESSION_RESTRICTION_MIN_SESSIONS_IN_RANGE = 2_000_000
+SESSION_RESTRICTION_MAX_MATCHING_SHARE = 0.5
+
 # Property filter types that resolve only to PostHog's built-in tables: events, sessions, persons,
 # elements and the cohort membership tables. A person property joined in from the warehouse has its
 # own type, `data_warehouse_person_property`, so a plain person filter never reads the warehouse.
@@ -127,6 +143,31 @@ WebQueryNode = Union[
 ]
 
 WAR = typing.TypeVar("WAR", bound=AnalyticsQueryResponseProtocol)
+
+
+def _expr_reads_session_field(expr: ast.Expr) -> bool:
+    found = False
+
+    class Visitor(TraversingVisitor):
+        def visit_field(self, node: ast.Field) -> None:
+            nonlocal found
+            # The events table reaches sessions only through its `session` lazy join. A match elsewhere in a chain
+            # only declines the restriction, which is safe.
+            if "session" in node.chain:
+                found = True
+
+    Visitor().visit(expr)
+    return found
+
+
+def session_restriction_pays(matching_sessions: Optional[int], sessions_in_range: Optional[int]) -> bool:
+    if matching_sessions is None or not sessions_in_range:
+        return False
+    return (
+        sessions_in_range >= SESSION_RESTRICTION_MIN_SESSIONS_IN_RANGE
+        and matching_sessions <= SESSION_ID_SET_MAX_MATCHING_SESSIONS
+        and matching_sessions <= SESSION_RESTRICTION_MAX_MATCHING_SHARE * sessions_in_range
+    )
 
 
 class WebAnalyticsQueryRunner(AnalyticsQueryRunner[WAR], ABC):
@@ -405,6 +446,155 @@ WHERE and(
         except Exception as e:
             logger.exception("web_analytics_session_id_set_preflight_failed", error=e, query_type=query_type)
             return False
+
+    @cached_property
+    def _session_restriction_flag_enabled(self) -> bool:
+        return evaluate_team_rollout_flag(
+            self.team, SESSION_RESTRICTION_FEATURE_FLAG_KEY, "web_analytics_session_restriction_flag_evaluation_failed"
+        )
+
+    @cached_property
+    def restricts_sessions_to_event_sessions(self) -> bool:
+        """Whether the live query reads only the sessions that the events side matched.
+
+        Each sessions subquery this restricts is read only for the sessions of the matching events, so the
+        restriction cannot change a result. It only changes cost, so a preflight decides from the session counts.
+        """
+        if self.modifiers.sessionTableVersion == SessionTableVersion.V1:
+            return False
+        if not self._session_restriction_flag_enabled:
+            return False
+        # A conversion goal can read person or session fields that the pushdown drops, so its sessions would
+        # differ from the preflight's count, or lose their pageviews (see `_where_has_or_mixing_session_branches`).
+        if getattr(self.query, "conversionGoal", None) or self._where_has_or_mixing_session_branches():
+            tag_queries(web_analytics_sessions_restricted=False)
+            return False
+        started = perf_counter()
+        restricted = self._run_session_restriction_preflight()
+        # Tagged both ways, so query_log tells declined reads (False) apart from reads with the flag off (no tag).
+        # The preflight's time goes on the main read, so query_log can add it to that read's own duration.
+        tag_queries(
+            web_analytics_sessions_restricted=restricted,
+            web_analytics_session_restriction_preflight_ms=round((perf_counter() - started) * 1000),
+        )
+        return restricted
+
+    def _where_has_or_mixing_session_branches(self) -> bool:
+        """Whether an OR in the query's filters has branches that read session fields and branches that do not.
+
+        The lazy join's pushdown keeps only the OR branches that read the session, because it assumes the other
+        rows never read session columns. A web analytics query reads session columns for every row, so the rows of
+        the dropped branches would lose their sessions.
+        """
+        mixed = False
+
+        class Visitor(TraversingVisitor):
+            def _visit_disjuncts(self, exprs: list[ast.Expr]) -> None:
+                nonlocal mixed
+                reads_session = [_expr_reads_session_field(expr) for expr in flatten_ors(exprs)]
+                if any(reads_session) and not all(reads_session):
+                    mixed = True
+                for expr in exprs:
+                    self.visit(expr)
+
+            def visit_or(self, node: ast.Or) -> None:
+                self._visit_disjuncts(node.exprs)
+
+            def visit_call(self, node: ast.Call) -> None:
+                if node.name == "or":
+                    self._visit_disjuncts(node.args)
+                else:
+                    super().visit_call(node)
+
+        Visitor().visit(self.all_properties())
+        return mixed
+
+    def events_evaluable_filters(self) -> ast.Expr:
+        """The user and test-account filters on event properties, which the lazy join's pushdown keeps.
+
+        The pushdown drops person, session, cohort and group filters, so the preflight leaves them out too. The
+        events these filters match are a superset of the events the full filters match.
+        """
+        filters = [
+            p
+            for p in [*self.effective_query_properties, *self._test_account_filters]
+            if get_property_type(p) == "event"
+        ]
+        return property_to_expr(filters, team=self.team)
+
+    def _run_session_restriction_preflight(self) -> bool:
+        v3 = self.modifiers.sessionTableVersion == SessionTableVersion.V3
+        raw_table = "raw_sessions_v3" if v3 else "raw_sessions"
+        extractor = SessionMinTimestampWhereClauseExtractorV3 if v3 else SessionMinTimestampWhereClauseExtractorV2
+        # The sessions subquery reads each period with a buffer, and not the gap between a period and its comparison.
+        periods = [self.query_date_range]
+        if self.query_compare_to_date_range is not None:
+            periods.append(self.query_compare_to_date_range)
+        sessions_in_periods = ast.Or(
+            exprs=[
+                parse_expr(
+                    "and({start} >= {date_from} - toIntervalDay({buffer_days}), {start_copy} <= {date_to} + toIntervalDay({buffer_days}))",
+                    placeholders={
+                        "start": clone_expr(extractor.timestamp_field),
+                        "start_copy": clone_expr(extractor.timestamp_field),
+                        "date_from": period.date_from_as_hogql(),
+                        "date_to": period.date_to_as_hogql(),
+                        "buffer_days": ast.Constant(value=SESSION_BUFFER_DAYS),
+                    },
+                )
+                for period in periods
+            ]
+        )
+        count_query = parse_select(
+            """
+SELECT
+    (
+        SELECT uniq(events.$session_id_uuid)
+        FROM events
+        WHERE and(
+            events.$session_id_uuid IS NOT NULL,
+            {event_type_expr},
+            {inside_timestamp_period},
+            {filters},
+        )
+    ) AS matching_sessions,
+    (
+        SELECT uniq(session_id_v7)
+        FROM {raw_table}
+        WHERE {sessions_in_periods}
+    ) AS sessions_in_range
+            """,
+            placeholders={
+                "raw_table": ast.Field(chain=[raw_table]),
+                "event_type_expr": self.event_type_expr,
+                "inside_timestamp_period": self._periods_expression("timestamp"),
+                "filters": self.events_evaluable_filters(),
+                "sessions_in_periods": sessions_in_periods,
+            },
+        )
+        try:
+            response = execute_hogql_query(
+                query_type="web_analytics_session_restriction_preflight",
+                query=count_query,
+                team=self.team,
+                user=self.user,
+                bypass_warehouse_access_control=self.bypass_warehouse_access_control,
+                timings=self.timings,
+                modifiers=self.modifiers,
+                limit_context=self.limit_context,
+                **self._hogql_context_kwargs(),
+            )
+        except Exception as e:
+            logger.exception("web_analytics_session_restriction_preflight_failed", error=e)
+            return False
+        if not response.results:
+            return False
+        matching, in_range = response.results[0]
+        tag_queries(
+            web_analytics_session_restriction_matching_sessions=matching,
+            web_analytics_session_restriction_sessions_in_range=in_range,
+        )
+        return session_restriction_pays(matching, in_range)
 
     @cached_property
     def filters_eligibility_hash(self) -> Optional[str]:

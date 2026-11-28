@@ -533,6 +533,15 @@ WHERE and(
             # is gated on the sessionIdPushdown modifier.
             execution_modifiers = self.modifiers.model_copy() if self.modifiers else HogQLQueryModifiers()
             execution_modifiers.sessionIdPushdown = True
+        elif (
+            not self.should_skip_session_join
+            and not pre_aggregated_response
+            and self.restricts_sessions_to_event_sessions
+        ):
+            # The join query reads each session only for its matching events, so the lazy join may read only those
+            # sessions. The join pushes the session id set below the sessions GROUP BY only with this modifier on.
+            execution_modifiers = self.modifiers.model_copy() if self.modifiers else HogQLQueryModifiers()
+            execution_modifiers.sessionIdPushdown = True
 
         response = (
             execute_hogql_query(

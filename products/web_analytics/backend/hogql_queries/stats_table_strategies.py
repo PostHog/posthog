@@ -304,12 +304,38 @@ class ChannelTypeTwoPhaseStrategy(ChannelTypeStrategy):
         compare = self.runner.query_compare_to_date_range
         if compare is not None:
             date_from = min(date_from, compare.date_from())
-        return parse_expr(
+        start_range = parse_expr(
             "and(sessions.$start_timestamp >= {date_from} - toIntervalDay(3), sessions.$start_timestamp <= {date_to})",
             placeholders={
                 "date_from": ast.Constant(value=date_from),
                 "date_to": ast.Constant(value=self.runner.query_date_range.date_to()),
             },
+        )
+        if not self.runner.restrict_sessions:
+            return start_range
+        # The LEFT JOIN keeps only the sessions of the events side, so reading only those sessions keeps the result.
+        # `build_direct_session_id_in_pushdown` moves this filter below the sessions GROUP BY.
+        event_session_ids = parse_select(
+            """
+SELECT DISTINCT events.$session_id_uuid
+FROM events
+WHERE and(events.$session_id_uuid IS NOT NULL, {inside_periods}, {event_where}, {filters})
+            """,
+            placeholders={
+                "inside_periods": self.runner._periods_expression(),
+                "event_where": self.runner.event_type_expr,
+                "filters": self.runner.events_evaluable_filters(),
+            },
+        )
+        return ast.And(
+            exprs=[
+                start_range,
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.In,
+                    left=ast.Field(chain=["sessions", "session_id_v7"]),
+                    right=event_session_ids,
+                ),
+            ]
         )
 
 

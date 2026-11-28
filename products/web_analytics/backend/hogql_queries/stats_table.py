@@ -113,6 +113,23 @@ class ResolvedStatsTableStrategy:
     uses_preaggregated_tables: bool = False
 
 
+# Strategies whose sessions side is read only for the sessions of matching events: the lazy events-to-sessions
+# join, and the two-phase channel query's LEFT JOIN. The no-join strategies read no sessions, or count sessions
+# on their own, so restricting them would change results.
+SESSION_RESTRICTABLE_STRATEGIES = frozenset(
+    {
+        "stats_table_channel_type",
+        "stats_table_channel_type_two_phase",
+        "stats_table_entry_bounce",
+        "stats_table_first_pageview_attribution",
+        "stats_table_frustration_metrics",
+        "stats_table_path_bounce",
+        "stats_table_path_bounce_and_avg_time",
+        "stats_table_simple_breakdown",
+    }
+)
+
+
 class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryResponse]):
     query: WebStatsTableQuery
     cached_response: CachedWebStatsTableQueryResponse
@@ -128,6 +145,8 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
         self.used_preaggregated_tables = False
         # None = not yet checked (e.g. EXPLAIN paths); set by `_calculate` before execution.
         self._session_id_set_selectivity_ok: Optional[bool] = None
+        # Set by `_calculate_from_query` before the query is built, so EXPLAIN paths keep the unrestricted shape.
+        self.restrict_sessions = False
 
         limit = self.query.limit if self.query.limit else None
         offset = self.query.offset if self.query.offset else None
@@ -877,6 +896,9 @@ WHERE and(
         ):
             self._session_id_set_selectivity_ok = self._check_session_id_set_selectivity()
 
+        if self.query_strategy() in SESSION_RESTRICTABLE_STRATEGIES and self.dimensional_query_builder is None:
+            self.restrict_sessions = self.restricts_sessions_to_event_sessions
+
         query = self.to_query()
 
         # Pre-aggregated tables store data in UTC **buckets**, so we need to disable timezone conversion
@@ -889,6 +911,11 @@ WHERE and(
             # The id-set shape relies on `build_direct_session_id_in_pushdown`
             # rewriting the bounce side's id filter below the sessions GROUP BY;
             # that rewrite is gated on the sessionIdPushdown modifier.
+            modifiers = self.modifiers.model_copy() if self.modifiers else HogQLQueryModifiers()
+            modifiers.sessionIdPushdown = True
+        elif self.restrict_sessions:
+            # The lazy events-to-sessions join and the two-phase channel query push the session id set below the
+            # sessions GROUP BY only with this modifier on.
             modifiers = self.modifiers.model_copy() if self.modifiers else HogQLQueryModifiers()
             modifiers.sessionIdPushdown = True
 
