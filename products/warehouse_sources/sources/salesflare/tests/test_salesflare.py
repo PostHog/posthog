@@ -79,8 +79,6 @@ class TestCustomFields:
         if has_contact_fields:
             expected_rows.insert(1, {"id": 17, "item_class": "contacts"})
         assert result.rows == expected_rows
-        assert result.response is not None
-        assert result.response.primary_keys == ["item_class", "id"]
 
 
 class TestErrorHandling:

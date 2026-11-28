@@ -113,6 +113,7 @@ def salesflare_source(
         for resource in resources:
             for page in resource:
                 yield [{**row, "item_class": resource.name} for row in page]
+                resumable_source_manager.safe_point()
 
     resource = Resource(custom_field_items, name=endpoint, hints={}) if endpoint == "custom_fields" else resources[0]
     return SourceResponse(
