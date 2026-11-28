@@ -209,10 +209,25 @@ describe('logsSceneLogic', () => {
             expect(logic.values.filters.filterGroup).toEqual(filterGroup)
         })
 
-        it('ignores a malformed filterGroup in the URL', async () => {
+        it('wraps a flat array filterGroup from the URL into the standard group', async () => {
+            const flatFilters = [{ key: 'operation', type: 'log_attribute', operator: 'exact', value: ['checkout'] }]
+            await expectLogic(logic, () => {
+                router.actions.push('/logs', { filterGroup: JSON.stringify(flatFilters) })
+            }).toFinishAllListeners()
+
+            expect(logic.values.filters.filterGroup).toEqual({
+                type: FilterLogicalOperator.And,
+                values: [{ type: FilterLogicalOperator.And, values: flatFilters }],
+            })
+        })
+
+        it.each([
+            ['malformed JSON', '{not valid json'],
+            ['a group whose values is not an array', JSON.stringify({ type: 'AND', values: 'oops' })],
+        ])('ignores a filterGroup in the URL with %s', async (_, urlValue) => {
             const before = logic.values.filters.filterGroup
             await expectLogic(logic, () => {
-                router.actions.push('/logs', { filterGroup: '{not valid json' })
+                router.actions.push('/logs', { filterGroup: urlValue })
             }).toFinishAllListeners()
 
             expect(logic.values.filters.filterGroup).toEqual(before)
