@@ -251,8 +251,7 @@ QUEUE_POLL_SECONDS = 1.0
 # Limits concurrent ClickHouse queries per worker. Each worker pod runs a single
 # process with a single event loop — all async activities share it, so this
 # module-level semaphore gates every activity on the same worker.
-MAX_CONCURRENT_CLICKHOUSE_QUERIES = 10
-_clickhouse_query_semaphore = asyncio.Semaphore(MAX_CONCURRENT_CLICKHOUSE_QUERIES)
+_clickhouse_query_semaphore = asyncio.Semaphore(settings.DATA_MODELING_MAX_CONCURRENT_CLICKHOUSE_QUERIES)
 
 
 class EmptyHogQLResponseColumnsError(Exception):
