@@ -29,7 +29,7 @@ import { groupsModel } from '~/models/groupsModel'
 import { NodeKind } from '~/queries/schema/schema-general'
 import { CORE_FILTER_DEFINITIONS_BY_GROUP } from '~/taxonomy/taxonomy'
 import { initKeaTests } from '~/test/init'
-import { mockEventDefinitions, mockSessionPropertyDefinitions } from '~/test/mocks'
+import { mockEventDefinitions, mockEventPropertyDefinition, mockSessionPropertyDefinitions } from '~/test/mocks'
 import { AppContext, EventDefinition, PropertyDefinition, PropertyFilterType } from '~/types'
 
 import { infiniteListLogic } from './infiniteListLogic'
@@ -432,8 +432,7 @@ describe('taxonomicFilterLogic', () => {
             await expectLogic(quickLogic, () => {
                 quickLogic.actions.setSearchQuery(query)
             })
-                .toDispatchActions(['setSearchQuery', 'appendTopMatches'])
-                .delay(1)
+                .toFinishAllListeners()
                 .toMatchValues({
                     activeTab: TaxonomicFilterGroupType.SuggestedFilters,
                     topMatchItems: [
@@ -449,8 +448,7 @@ describe('taxonomicFilterLogic', () => {
             await expectLogic(quickLogic, () => {
                 quickLogic.actions.setSearchQuery('event')
             })
-                .toDispatchActions(['setSearchQuery', 'appendTopMatches'])
-                .delay(1)
+                .toFinishAllListeners()
                 .toMatchValues({
                     activeTab: TaxonomicFilterGroupType.SuggestedFilters,
                     topMatchItems: [
@@ -466,12 +464,26 @@ describe('taxonomicFilterLogic', () => {
                 })
         })
 
+        it('includes matching actions that load after the search settles', async () => {
+            const suggested = infiniteListLogic({
+                ...quickLogic.props,
+                listGroupType: TaxonomicFilterGroupType.SuggestedFilters,
+            })
+            await expectLogic(quickLogic, () => quickLogic.actions.setSearchQuery('sample')).toFinishAllListeners()
+            expect(suggested.values.showEmptyState).toBe(true)
+
+            actionsModel.actions.loadActionsSuccess([{ id: 123, name: 'sample action' } as any])
+
+            expect(suggested.values.results).toEqual(
+                expect.arrayContaining([expect.objectContaining({ id: 123, name: 'sample action' })])
+            )
+            expect(suggested.values.showEmptyState).toBe(false)
+        })
+
         it('clears top match items on new search', async () => {
             await expectLogic(quickLogic, () => {
                 quickLogic.actions.setSearchQuery('$pageview')
-            })
-                .toDispatchActions(['setSearchQuery', 'appendTopMatches'])
-                .delay(1)
+            }).toFinishAllListeners()
 
             expect(quickLogic.values.topMatchItems).toHaveLength(1)
 
@@ -480,24 +492,6 @@ describe('taxonomicFilterLogic', () => {
             }).toMatchValues({
                 topMatchItems: [],
             })
-        })
-
-        it.each([
-            { description: 'undefined first entry', payload: [undefined as any] },
-            { description: 'null first entry', payload: [null as any] },
-            { description: 'entry missing group', payload: [{ name: 'anything' } as any] },
-        ])('appendTopMatches is a no-op when $description', async ({ payload }) => {
-            await expectLogic(quickLogic, () => {
-                quickLogic.actions.setSearchQuery('$pageview')
-            })
-                .toDispatchActions(['setSearchQuery', 'appendTopMatches'])
-                .delay(1)
-
-            const before = quickLogic.values.topMatchItems
-            expect(before).toHaveLength(1)
-
-            expect(() => quickLogic.actions.appendTopMatches(payload)).not.toThrow()
-            expect(quickLogic.values.topMatchItems).toEqual(before)
         })
 
         it('promotes top match from groups without getValue', async () => {
@@ -522,8 +516,7 @@ describe('taxonomicFilterLogic', () => {
             await expectLogic(noGetValueLogic, () => {
                 noGetValueLogic.actions.setSearchQuery('activity')
             })
-                .toDispatchActions(['setSearchQuery', 'infiniteListResultsReceived'])
-                .delay(1)
+                .toFinishAllListeners()
                 .clearHistory()
                 .toMatchValues({
                     activeTab: TaxonomicFilterGroupType.SuggestedFilters,
@@ -541,9 +534,7 @@ describe('taxonomicFilterLogic', () => {
         it('selecting a top match dispatches selectItem with the correct group', async () => {
             await expectLogic(quickLogic, () => {
                 quickLogic.actions.setSearchQuery('$pageview')
-            })
-                .toDispatchActions(['setSearchQuery', 'appendTopMatches'])
-                .delay(1)
+            }).toFinishAllListeners()
 
             expect(quickLogic.values.topMatchItems).toHaveLength(1)
 
@@ -628,19 +619,24 @@ describe('taxonomicFilterLogic', () => {
 
             await expectLogic(demotedLogic, () => {
                 demotedLogic.actions.setSearchQuery('host')
-                demotedLogic.actions.appendTopMatches([
-                    {
-                        name: 'https://posthog.com/a/very/long/url',
-                        group: TaxonomicFilterGroupType.PageviewUrls,
-                    } as any,
-                    { name: '$host', group: TaxonomicFilterGroupType.EventProperties } as any,
-                ])
+                for (const [listGroupType, name] of [
+                    [TaxonomicFilterGroupType.PageviewUrls, 'https://example.com/host'],
+                    [TaxonomicFilterGroupType.EventProperties, '$host'],
+                ] as const) {
+                    const list = infiniteListLogic({ ...logicProps, listGroupType })
+                    list.mount()
+                    list.actions.loadRemoteItemsSuccess({
+                        results: [{ ...mockEventPropertyDefinition, name }],
+                        count: 1,
+                        searchQuery: 'host',
+                    })
+                }
                 demotedLogic.actions.openRevealBarrier()
             }).toMatchValues({
                 topMatchItemsWithSkeletons: [
                     expect.objectContaining({ name: '$host', group: TaxonomicFilterGroupType.EventProperties }),
                     expect.objectContaining({
-                        name: 'https://posthog.com/a/very/long/url',
+                        name: 'https://example.com/host',
                         group: TaxonomicFilterGroupType.PageviewUrls,
                     }),
                 ],
@@ -836,7 +832,7 @@ describe('taxonomicFilterLogic', () => {
             await expectLogic(dedupeLogic, () => {
                 dedupeLogic.actions.setSearchQuery('event1')
             })
-                .toDispatchActions(['setSearchQuery', 'appendTopMatches', 'openRevealBarrier'])
+                .toDispatchActions(['setSearchQuery', 'infiniteListResultsReceived', 'openRevealBarrier'])
                 .delay(1)
 
             const suggestedListLogic = infiniteListLogic({
@@ -887,9 +883,7 @@ describe('taxonomicFilterLogic', () => {
             // events in the mocked event_definitions endpoint. WorkflowVariables must come first.
             await expectLogic(workflowLogicTest, () => {
                 workflowLogicTest.actions.setSearchQuery('event')
-            })
-                .toDispatchActions(['setSearchQuery', 'appendTopMatches'])
-                .delay(1)
+            }).toFinishAllListeners()
 
             const redistributed = workflowLogicTest.values.redistributedTopMatchItems
             const groupOrder = redistributed.map((item) => item.group)

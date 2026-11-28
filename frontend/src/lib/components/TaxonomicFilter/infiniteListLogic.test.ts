@@ -1188,6 +1188,23 @@ describe('infiniteListLogic', () => {
             return { suggested: suggested!, tfl }
         }
 
+        it.each([
+            ['browser', '$browser'],
+            ['purchase', 'purchase_value'],
+        ])('keeps matching results when extending and repeating %s', async (prefix, fullName) => {
+            const { suggested, tfl } = mountAggregate()
+            await expectLogic(suggested).toFinishAllListeners()
+
+            for (const query of [prefix, fullName, prefix, prefix, fullName]) {
+                await expectLogic(tfl, () => tfl.actions.setSearchQuery(query)).toFinishAllListeners()
+                expect(tfl.values.anyGroupStale).toBe(false)
+                expect(suggested.values.results).toEqual(
+                    expect.arrayContaining([expect.objectContaining({ name: fullName })])
+                )
+                expect(suggested.values.showEmptyState).toBe(false)
+            }
+        })
+
         it('never shows "No results" while a sibling group is stale for a query that has matches', async () => {
             const { suggested, tfl } = mountAggregate()
             // Let the initial empty-query loads settle so every sibling starts fresh.

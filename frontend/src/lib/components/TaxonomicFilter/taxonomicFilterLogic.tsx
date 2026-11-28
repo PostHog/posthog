@@ -597,9 +597,7 @@ export interface taxonomicFilterLogicValues {
     taxonomicFilterLogicKey: string
     taxonomicGroupTypes: TaxonomicFilterGroupType[]
     taxonomicGroups: TaxonomicFilterGroup[]
-    topMatchItems: (TaxonomicDefinitionTypes & {
-        group: TaxonomicFilterGroupType
-    })[]
+    topMatchItems: TopMatchItem[]
     topMatchItemsWithSkeletons: (SkeletonItem | TopMatchItem)[]
     value: any
 }
@@ -609,15 +607,6 @@ export interface taxonomicFilterLogicActions {
     ensureLoadedForEvents: (eventNames: string[]) => {
         eventNames: string[]
     } // primaryEventPropertiesModel
-    appendTopMatches: (
-        items: (TaxonomicDefinitionTypes & {
-            group: TaxonomicFilterGroupType
-        })[]
-    ) => {
-        items: (TaxonomicDefinitionTypes & {
-            group: TaxonomicFilterGroupType
-        })[]
-    }
     enableMouseInteractions: () => {
         value: true
     }
@@ -798,17 +787,18 @@ export interface taxonomicFilterLogicMeta {
         groupAnalyticsTaxonomicGroupNames: (
             groupTypes: Map<GroupTypeIndex, GroupType>,
             currentTeamId: number | null,
-            aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun // groupsModel
+            aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun
         ) => TaxonomicFilterGroup[]
         groupAnalyticsTaxonomicGroups: (
             groupTypes: Map<GroupTypeIndex, GroupType>,
             currentProjectId: number | null,
-            aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun // groupsModel
+            aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun
         ) => TaxonomicFilterGroup[]
         infiniteListLogics: (
             taxonomicGroupTypes: TaxonomicFilterGroupType[],
             arg: any
         ) => Record<string, BuiltLogic<infiniteListLogicType>>
+        topMatchItems: (arg: TopMatchItem[]) => TopMatchItem[]
         anyGroupLoading: (arg: boolean) => boolean
         anyGroupStale: (arg: boolean) => boolean
         loadingGroupTypes: (arg: string) => TaxonomicFilterGroupType[]
@@ -837,9 +827,7 @@ export interface taxonomicFilterLogicMeta {
             intentPromotedGroupType: TaxonomicFilterGroupType | null
         ) => TaxonomicFilterGroupType[]
         redistributedTopMatchItems: (
-            topMatchItems: (TaxonomicDefinitionTypes & {
-                group: TaxonomicFilterGroupType
-            })[],
+            topMatchItems: TopMatchItem[],
             suggestedFilterGroupOrder: TaxonomicFilterGroupType[]
         ) => TopMatchItem[]
         topMatchItemsWithSkeletons: (
@@ -917,9 +905,6 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
             groupType,
             results,
         }),
-        appendTopMatches: (items: (TaxonomicDefinitionTypes & { group: TaxonomicFilterGroupType })[]) => ({
-            items,
-        }),
         openRevealBarrier: true,
         setIncludeStaleEvents: (includeStaleEvents: boolean) => ({ includeStaleEvents }),
         setIntentPromotedGroupType: (groupType: TaxonomicFilterGroupType | null) => ({ groupType }),
@@ -965,22 +950,6 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 setActiveTab: () => true,
                 selectItem: () => true,
                 markUserInteraction: () => true,
-            },
-        ],
-        topMatchItems: [
-            [] as (TaxonomicDefinitionTypes & { group: TaxonomicFilterGroupType })[],
-            {
-                setSearchQuery: () => [],
-                appendTopMatches: (
-                    state: (TaxonomicDefinitionTypes & { group: TaxonomicFilterGroupType })[],
-                    { items }: { items: (TaxonomicDefinitionTypes & { group: TaxonomicFilterGroupType })[] }
-                ) => {
-                    const incomingGroup = items[0]?.group
-                    if (!incomingGroup) {
-                        return state
-                    }
-                    return [...state.filter((i) => i.group !== incomingGroup), ...items]
-                },
             },
         ],
         revealBarrierOpen: [
@@ -2442,6 +2411,24 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                     ])
                 ),
         ],
+        topMatchItems: [
+            (s) => [
+                (state, props): TopMatchItem[] => {
+                    const logics = s.infiniteListLogics(state, props)
+                    const meta = s.metaGroupTypes(state, props)
+                    return Object.entries(logics).flatMap(([groupType, logic]) =>
+                        !meta.has(groupType) && logic.isMounted()
+                            ? logic.selectors
+                                  .topMatchesForQuery(state, logic.props)
+                                  .filter(Boolean)
+                                  .map((item) => ({ ...item, group: groupType as TaxonomicFilterGroupType }))
+                            : []
+                    )
+                },
+            ],
+            (items: TopMatchItem[]): TopMatchItem[] => items,
+            { resultEqualityCheck: objectsEqual },
+        ],
         anyGroupLoading: [
             (s) => [
                 (state, props) => {
@@ -2955,18 +2942,6 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                     time_to_see_data_ms: results.loadDurationMs,
                     resultCount: results.count,
                 })
-            }
-
-            if (groupType && !values.metaGroupTypes.has(groupType)) {
-                const subLogic = values.infiniteListLogics[groupType]
-                if (subLogic?.isMounted()) {
-                    const matches = subLogic.values.topMatchesForQuery
-                        .filter(Boolean)
-                        .map((m) => ({ ...m, group: groupType }))
-                    if (matches.length > 0) {
-                        actions.appendTopMatches(matches)
-                    }
-                }
             }
 
             // Update app-wide cached property metadata

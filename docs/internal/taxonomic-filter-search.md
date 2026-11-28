@@ -8,6 +8,10 @@ The rail starts undocked. `taxonomic filter category rail toggled` records wheth
 
 With `taxonomic-filter-value-search-gating` enabled, email value searches require `@` or domain-like text, such as `example.com`. Pageview URL and pageview event value searches require URL-like text: a path, an HTTP prefix, a `www.` prefix, or a domain. Existing minimum query lengths still apply. These rules affect remote value searches; property-name searches, cached recents, and pins remain available. A rejected query sends no request and clears earlier remote results.
 
+The classic All tab derives its matches from the current category results.
+Category data that arrives after a search appears in All without another keystroke.
+Matches from an earlier query do not remain in All while the next search loads.
+
 A category shows results for the current query only. It clears its earlier rows when the current query cannot fetch, such as a query below the category minimum length or a request that failed.
 A failed search with no usable matches shows an error in the classic picker and the rebuilt menu.
 The rebuilt menu offers "Try again" to retry the failed result source.
