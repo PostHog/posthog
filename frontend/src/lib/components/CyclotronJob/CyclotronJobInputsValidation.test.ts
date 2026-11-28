@@ -368,8 +368,100 @@ describe('CyclotronJobInputsValidation', () => {
 
                 expect(result.valid).toBe(false)
                 expect(result.errors).toEqual({
-                    config: 'Liquid template error: tag "invalid" not found, line:1, col:1',
+                    config: 'Liquid template error at "key1": tag "invalid" not found, line:1, col:1',
                 })
+            })
+
+            // The runtime renders every string leaf it finds, so validation has to reach
+            // the same leaves: nested objects and arrays, not only immediate values.
+            it.each([
+                ['a nested dictionary value', { nested: { name: '{% invalid %}' } }, 'nested.name'],
+                ['an array item', { list: ['valid', '{% invalid %}'] }, 'list[1]'],
+                ['a dictionary inside an array item', { list: [{ name: '{% invalid %}' }] }, 'list[0].name'],
+            ])('should validate templating in %s', (_desc, value, path) => {
+                const inputs = { config: { templating: 'liquid' as const, value } }
+                const schema: CyclotronJobInputSchemaType[] = [{ key: 'config', type: 'dictionary', label: 'Config' }]
+
+                const result = CyclotronJobInputsValidation.validate(inputs, schema)
+
+                expect(result.valid).toBe(false)
+                expect(result.errors.config).toBe(
+                    `Liquid template error at "${path}": tag "invalid" not found, line:1, col:1`
+                )
+            })
+
+            it.each([
+                ['an object value', { nested: { name: '{% invalid %}' } }, 'nested.name'],
+                ['an array value', ['valid', '{% invalid %}'], '[1]'],
+            ])('should validate templating in a json %s', (_desc, value, path) => {
+                const inputs = { config: { templating: 'liquid' as const, value } }
+                const schema: CyclotronJobInputSchemaType[] = [{ key: 'config', type: 'json', label: 'Config' }]
+
+                const result = CyclotronJobInputsValidation.validate(inputs, schema)
+
+                expect(result.valid).toBe(false)
+                expect(result.errors.config).toBe(
+                    `Liquid template error at "${path}": tag "invalid" not found, line:1, col:1`
+                )
+            })
+
+            it('should pass when nested liquid templates are valid', () => {
+                const inputs = {
+                    config: {
+                        templating: 'liquid' as const,
+                        value: {
+                            nested: { name: '{{ event.properties.name }}' },
+                            list: ['{{ event.properties.id }}', 'plain'],
+                        },
+                    },
+                }
+                const schema: CyclotronJobInputSchemaType[] = [{ key: 'config', type: 'dictionary', label: 'Config' }]
+
+                const result = CyclotronJobInputsValidation.validate(inputs, schema)
+
+                expect(result.valid).toBe(true)
+                expect(result.errors).toEqual({})
+            })
+
+            it('should warn on a templating mismatch nested inside a dictionary value', () => {
+                const inputs = {
+                    config: {
+                        templating: 'liquid' as const,
+                        value: { nested: { name: '{event.properties.name}' } },
+                    },
+                }
+                const schema: CyclotronJobInputSchemaType[] = [{ key: 'config', type: 'dictionary', label: 'Config' }]
+
+                const result = CyclotronJobInputsValidation.validate(inputs, schema)
+
+                expect(result.valid).toBe(true)
+                expect(result.warnings.config).toBe(TEMPLATING_MISMATCH_WARNINGS.hogSyntaxInLiquidField)
+            })
+
+            it('should handle deeply nested json values without overflowing the call stack', () => {
+                let value: unknown = '{% invalid %}'
+                for (let i = 0; i < 15000; i++) {
+                    value = [value]
+                }
+                const inputs = { config: { templating: 'liquid' as const, value } }
+                const schema: CyclotronJobInputSchemaType[] = [{ key: 'config', type: 'json', label: 'Config' }]
+
+                const result = CyclotronJobInputsValidation.validate(inputs, schema)
+
+                expect(result.valid).toBe(false)
+                expect(result.errors.config).toContain('tag "invalid" not found')
+            })
+
+            it('should handle cyclic dictionary values without looping infinitely', () => {
+                const cyclic: Record<string, unknown> = { ok: '{{ event.properties.name }}' }
+                cyclic.self = cyclic
+                const inputs = { config: { templating: 'liquid' as const, value: cyclic } }
+                const schema: CyclotronJobInputSchemaType[] = [{ key: 'config', type: 'dictionary', label: 'Config' }]
+
+                const result = CyclotronJobInputsValidation.validate(inputs, schema)
+
+                expect(result.valid).toBe(true)
+                expect(result.errors).toEqual({})
             })
         })
 
