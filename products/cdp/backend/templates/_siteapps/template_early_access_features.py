@@ -247,7 +247,9 @@ export function onLoad({ inputs, posthog }) {
         posthog.getEarlyAccessFeatures((previewItemData) => {
             const betaListContainer = shadow.getElementById('list-container')
             if (betaListContainer) {
-                const previewItems = listItemComponents(previewItemData)
+                const previewItems = listItemComponents(previewItemData, (flagKey) =>
+                    posthog.isFeatureEnabled(flagKey)
+                )
                 const previewList = previewItems
                     ? `
                     <div class="list">
@@ -354,56 +356,51 @@ export function onLoad({ inputs, posthog }) {
         }
         window.addEventListener('click', clickListener)
     }
+}
 
-    const escapeHTML = (str) => {
-        const div = document.createElement('div')
-        div.appendChild(document.createTextNode(str || ''))
-        // innerHTML only encodes &, <, > — not single quotes, which would allow
-        // attribute breakout in single-quoted contexts like data-name='${...}'
-        return div.innerHTML.replace(/'/g, '&#39;')
-    }
+function escapeHTML(str?: string): string {
+    const entities = { '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }
+    return String(str || '').replace(/[&<>'"]/g, (char) => entities[char])
+}
 
-    const safeUrl = (url) => {
-        try {
-            const parsed = new URL(url)
-            return parsed.protocol === 'https:' || parsed.protocol === 'http:'
-                ? encodeURI(url)
-                : ''
-        } catch {
-            return ''
-        }
-    }
-
-    const listItemComponents = (items?: PreviewItem[]) => {
-        if (items) {
-            return items
-                .map((item, index) => {
-                    const checked = posthog.isFeatureEnabled(item.flagKey)
-
-                    const documentationLink = item.documentationUrl
-                        ? `<div class='list-item-documentation-link'>
-                        <a class='label' href='${safeUrl(item.documentationUrl)}' target='_blank'>Documentation</a>
-                    </div>
-                    `
-                        : ''
-                    return `
-                        <div class='list-item' data-name='${escapeHTML(item.name)}'>
-                            <div class='list-content'>
-                                <b class='list-item-name'>${escapeHTML(item.name)}</b>
-                                <div class='list-item-description'>${escapeHTML(item.description)}</div>
-                                ${documentationLink}
-                            </div>
-                            <label class="switch">
-                                <input class='checkbox-${index}' type="checkbox" ${checked ? 'checked' : ''}>
-                                <span class="slider round"></span>
-                            </label>
-                        </div>
-                    `
-                })
-                .join('')
-        }
+function safeUrl(url: string): string {
+    try {
+        const parsed = new URL(url)
+        return parsed.protocol === 'https:' || parsed.protocol === 'http:' ? escapeHTML(parsed.href) : ''
+    } catch {
         return ''
     }
+}
+
+function listItemComponents(items: PreviewItem[] | undefined, isEnabled: (flagKey: string) => boolean): string {
+    if (items) {
+        return items
+            .map((item, index) => {
+                const checked = isEnabled(item.flagKey)
+
+                const documentationLink = item.documentationUrl
+                    ? `<div class='list-item-documentation-link'>
+                    <a class='label' href='${safeUrl(item.documentationUrl)}' target='_blank'>Documentation</a>
+                </div>
+                `
+                    : ''
+                return `
+                    <div class='list-item' data-name='${escapeHTML(item.name)}'>
+                        <div class='list-content'>
+                            <b class='list-item-name'>${escapeHTML(item.name)}</b>
+                            <div class='list-item-description'>${escapeHTML(item.description)}</div>
+                            ${documentationLink}
+                        </div>
+                        <label class="switch">
+                            <input class='checkbox-${index}' type="checkbox" ${checked ? 'checked' : ''}>
+                            <span class="slider round"></span>
+                        </label>
+                    </div>
+                `
+            })
+            .join('')
+    }
+    return ''
 }
 
 function createShadow(style?: string): ShadowRoot {

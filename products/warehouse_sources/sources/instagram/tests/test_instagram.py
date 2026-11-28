@@ -352,28 +352,95 @@ class TestInstagramEdges:
         assert result.rows[0]["timestamp"] == "2024-03-01T18:10:00+00:00"
         assert result.params("after") == [None, "CUR"]
 
-    @pytest.mark.parametrize("second_post_code,fails", [(9005, False), (100, True)])
-    def test_a_media_page_meta_refuses_for_one_video_is_read_again_without_the_refusable_fields(
-        self, second_post_code: int, fails: bool
-    ) -> None:
-        video_not_found = ScriptedResponse(status=400, json={"error": {"code": 9005, "message": "not found"}})
-        result = _drive(
-            "media",
-            [
-                video_not_found,
-                ScriptedResponse(json=_page([{"id": "1"}, {"id": "2"}])),
-                ScriptedResponse(json={"id": "1", "owner": {"id": "o1"}}),
-                ScriptedResponse(status=400, json={"error": {"code": second_post_code, "message": "no"}}),
-            ],
-        )
+    @staticmethod
+    def _refused_page_script(second_post_answer: ScriptedResponse) -> Script:
+        def respond(request: RecordedRequest) -> ScriptedResponse:
+            if request.path == f"/v23.0/{ACCOUNT_ID}/media":
+                if request.param("fields") == MEDIA_PAGE_SAFE_FIELDS:
+                    return ScriptedResponse(json=_page([{"id": "1"}, {"id": "2"}, {"id": "3"}]))
+                return ScriptedResponse(status=400, json={"error": {"code": 9005, "message": "not found"}})
+            if request.path == "/v23.0/2":
+                return second_post_answer
+            return ScriptedResponse(json={"id": request.path.rsplit("/", 1)[1], "owner": {"id": "owner"}})
 
+        return respond
+
+    @pytest.mark.parametrize(
+        "second_post_answer",
+        [
+            ScriptedResponse(status=400, json={"error": {"code": 9005, "message": "not found"}}),
+            ScriptedResponse(
+                status=400, json={"error": {"code": 2, "message": "(#2) Service temporarily unavailable"}}
+            ),
+            ScriptedResponse(status=500, json={"error": {"code": 1, "message": "Invalid parameter"}}),
+            ScriptedResponse(status=500, body=b"upstream error"),
+            ScriptedResponse(status=400, json={"error": {"code": 100, "message": "no"}}),
+        ],
+        ids=["video_not_found", "transient_code_2", "http_500", "http_500_not_json", "other_bad_request"],
+    )
+    def test_a_media_page_meta_refuses_is_read_again_and_skips_the_post_meta_cannot_serve(
+        self, second_post_answer: ScriptedResponse
+    ) -> None:
+        result = _drive("media", self._refused_page_script(second_post_answer))
+
+        assert result.raised is None
         assert result.params("fields")[1] == MEDIA_PAGE_SAFE_FIELDS
-        assert result.paths[2:] == ["/v23.0/1", "/v23.0/2"]
-        if fails:
-            assert isinstance(result.raised, InstagramBadRequestError)
+        assert result.rows == [
+            {"id": "1", "owner": {"id": "owner"}},
+            {"id": "2"},
+            {"id": "3", "owner": {"id": "owner"}},
+        ]
+
+    @pytest.mark.parametrize(
+        "second_post_answer,error_type",
+        [
+            (ScriptedResponse(status=400, json={"error": {"code": 190, "message": "expired"}}), InstagramAuthError),
+            (ScriptedResponse(status=401, json={"error": {"message": "expired"}}), InstagramAuthError),
+            (ScriptedResponse(status=400, json={"error": {"code": 10, "message": "denied"}}), InstagramPermissionError),
+            (ScriptedResponse(status=403, json={"error": {"message": "denied"}}), InstagramPermissionError),
+        ],
+        ids=["auth_code", "http_401", "permission_code", "http_403"],
+    )
+    def test_a_media_page_meta_refuses_still_fails_the_sync_on_an_auth_or_permission_error(
+        self, second_post_answer: ScriptedResponse, error_type: type[Exception]
+    ) -> None:
+        result = _drive("media", self._refused_page_script(second_post_answer))
+
+        assert isinstance(result.raised, error_type)
+        assert "/v23.0/3" not in result.paths
+
+    @pytest.mark.parametrize(
+        "failing_ids,raises",
+        [
+            ({"1", "3", "5"}, False),
+            ({"1", "2"}, False),
+            ({"2", "3", "4"}, True),
+            ({"1", "2", "3", "4", "5"}, True),
+        ],
+        ids=["scattered", "two_in_a_row", "three_in_a_row", "every_post"],
+    )
+    def test_a_media_page_meta_refuses_fails_the_sync_when_posts_keep_failing_with_a_retryable_error(
+        self, failing_ids: set[str], raises: bool
+    ) -> None:
+        def respond(request: RecordedRequest) -> ScriptedResponse:
+            if request.path == f"/v23.0/{ACCOUNT_ID}/media":
+                if request.param("fields") == MEDIA_PAGE_SAFE_FIELDS:
+                    return ScriptedResponse(json=_page([{"id": str(n)} for n in range(1, 6)]))
+                return ScriptedResponse(status=400, json={"error": {"code": 9005, "message": "not found"}})
+            media_id = request.path.rsplit("/", 1)[1]
+            if media_id in failing_ids:
+                return ScriptedResponse(status=429, json={"error": {"code": 4, "message": "throttled"}})
+            return ScriptedResponse(json={"id": media_id, "owner": {"id": "owner"}})
+
+        result = _drive("media", respond)
+
+        if raises:
+            assert isinstance(result.raised, InstagramRetryableError)
+            assert result.rows == []
         else:
             assert result.raised is None
-            assert result.rows == [{"id": "1", "owner": {"id": "o1"}}, {"id": "2"}]
+            assert [row["id"] for row in result.rows] == ["1", "2", "3", "4", "5"]
+            assert {row["id"] for row in result.rows if "owner" not in row} == failing_ids
 
     def test_media_stops_when_the_cursor_is_missing_even_though_next_is_present(self) -> None:
         result = _drive("media", [ScriptedResponse(json={"data": [{"id": "1"}], "paging": {"next": "https://x/next"}})])

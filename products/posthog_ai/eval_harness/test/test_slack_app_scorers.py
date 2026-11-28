@@ -3,15 +3,21 @@ from __future__ import annotations
 from parameterized import parameterized
 
 from products.slack_app.evals.scorers import (
+    DAILY_FOCUS_AGENT_KEY,
     DAILY_SUMMARY_WRITE_KEY,
     FOLLOWUP_KEY,
     MESSAGE_SENTIMENT_KEY,
     MODEL_OVERRIDE_KEY,
     WORK_FOCUS_KEEP_KEY,
+    AgentCovers,
+    AgentOfferRecall,
+    AgentOmitsKnown,
+    AgentSections,
     FollowupRoutingMatch,
     MessageSentimentMatch,
     ModelOverrideMatch,
     NoHandedOffOffer,
+    NoReactedOffer,
     NoUnaskedGif,
     NoUnaskedOverride,
     NoUnaskedReaction,
@@ -305,3 +311,45 @@ class TestDailySummaryScorers:
     )
     def test_summary_not_clipped(self, _name, output, want):
         assert SummaryNotClipped().eval(output=output, expected=_write_spec()).score == want
+
+
+def _agent_dm(items=(), offers=(), error: str | None = None) -> dict:
+    return {
+        "items": [{"source": source, "section": section, "text": "x"} for source, section in items],
+        "offers": [{"source": source, "offer": "Want me to look?"} for source in offers],
+        **({"error": error} if error else {}),
+    }
+
+
+AGENT_SPEC = {
+    DAILY_FOCUS_AGENT_KEY: {
+        "must_cover": {"ask": "for_you", "launch": "news"},
+        "must_omit": ["own"],
+        "offers": ["ask"],
+        "no_offer": ["handed_off"],
+    }
+}
+
+
+class TestDailyFocusAgentScorers:
+    @parameterized.expand(
+        [
+            ("covers_both", AgentCovers(), _agent_dm([("ask", "for_you"), ("launch", "news")]), 1.0),
+            ("misses_one", AgentCovers(), _agent_dm([("ask", "for_you")]), 0.5),
+            ("cover_error", AgentCovers(), _agent_dm(error="boom"), 0.0),
+            ("right_sections", AgentSections(), _agent_dm([("ask", "for_you"), ("own", "news")]), 1.0),
+            ("news_for_you", AgentSections(), _agent_dm([("ask", "for_you"), ("launch", "for_you")]), 0.0),
+            ("nothing_to_place", AgentSections(), _agent_dm([("own", "news")]), None),
+            ("left_out", AgentOmitsKnown(), _agent_dm([("ask", "for_you")]), 1.0),
+            ("kept_own", AgentOmitsKnown(), _agent_dm([("own", "for_you")]), 0.0),
+            # A failed run shows and offers nothing, which would pass, so it must not count.
+            ("omit_error", AgentOmitsKnown(), _agent_dm(error="boom"), None),
+            ("offered", AgentOfferRecall(), _agent_dm(offers=["ask"]), 1.0),
+            ("not_offered", AgentOfferRecall(), _agent_dm(offers=["launch"]), 0.0),
+            ("leaves_handoff", NoReactedOffer(), _agent_dm(offers=["ask"]), 1.0),
+            ("offers_handoff", NoReactedOffer(), _agent_dm(offers=["handed_off"]), 0.0),
+            ("offer_error", NoReactedOffer(), _agent_dm(error="boom"), None),
+        ]
+    )
+    def test_scores(self, _name, scorer, output, want):
+        assert scorer.eval(output=output, expected=AGENT_SPEC).score == want

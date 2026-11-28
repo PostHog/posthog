@@ -106,6 +106,24 @@ export function reconcileInboxSetupDraft(
         : draft
 }
 
+/** A guided draft follows the GitHub connection, so one saved before the connection stops activating without it. */
+export function withGuidedSetupActivationMode(
+    draft: InboxOnboardingDraftApi,
+    githubIsOptional: boolean,
+    implementationToggleShown: boolean
+): InboxOnboardingDraftApi {
+    // Automatic implementation needs GitHub. Without the toggle, the stored value is not the person's choice.
+    const withoutGithub = githubIsOptional && !(implementationToggleShown && draft.automatic_implementation)
+    if ((draft.activation_mode === 'github_optional') === withoutGithub) {
+        return draft
+    }
+    const { activation_mode: _, ...rest } = draft
+    // A draft saved before drafts carried a setup mode has none, and the server would read it as quick setup.
+    return withoutGithub
+        ? { ...rest, setup_mode: draft.setup_mode ?? 'guided', activation_mode: 'github_optional' }
+        : rest
+}
+
 export function selectedSourceCount(draft: InboxOnboardingDraftApi): number {
     return new Set([
         ...draft.sources.filter((source) => source.enabled).map((source) => source.source_product),

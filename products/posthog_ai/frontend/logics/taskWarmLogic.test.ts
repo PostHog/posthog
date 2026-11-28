@@ -1,4 +1,5 @@
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -69,6 +70,19 @@ describe('taskWarmLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
         expect(warmCalls).toBe(1)
         expect(logic.values.warmLease).toMatchObject({ taskId: 'warm-task-1', runId: 'warm-run-1' })
+    })
+
+    it.each([
+        ['a usage-limit 429', 0, 429, { type: 'rate_limited', code: 'usage_limit_exceeded', error: 'Limit reached.' }],
+        ['a 500', 1, 500, { detail: 'Server error.' }],
+    ])('captures a warm that failed with %s %i times', async (_, expectedReports, status, body) => {
+        useMocks({ post: { '/api/projects/:team/tasks/warm/': () => [status, body] } })
+
+        logic.actions.prewarm(WARM_REQUEST)
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(posthog.captureException).toHaveBeenCalledTimes(expectedReports)
+        expect(logic.values.warmLease).toBeNull()
     })
 
     it.each(['warm-run-1', 'cold-run'])(

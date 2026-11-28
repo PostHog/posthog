@@ -1,7 +1,9 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonBanner, LemonCard } from '@posthog/lemon-ui'
+import { Text } from '@posthog/quill'
 
+import { AiVisibilityBanner } from './AiVisibilityBanner'
+import { AiVisibilityCard } from './AiVisibilityCard'
 import { ContentAutopilotKeywordAddForm } from './ContentAutopilotKeywordAddForm'
 import { ContentAutopilotKeywordModifiers } from './ContentAutopilotKeywordModifiers'
 import { ContentAutopilotKeywordReportTable } from './ContentAutopilotKeywordReportTable'
@@ -21,12 +23,12 @@ export const ContentAutopilotKeywords = (): JSX.Element => {
     }
     if (keywordsError === 'failed') {
         return (
-            <LemonBanner
+            <AiVisibilityBanner
                 type="error"
                 action={{ children: 'Try again', onClick: loadKeywords, loading: keywordsLoading }}
             >
                 Couldn't load your keywords. Try again, and if it keeps happening contact support.
-            </LemonBanner>
+            </AiVisibilityBanner>
         )
     }
     if (!keywords) {
@@ -34,18 +36,21 @@ export const ContentAutopilotKeywords = (): JSX.Element => {
     }
     if (keywords.length === 0) {
         return (
-            <LemonCard hoverEffect={false} className="p-4 max-w-3xl" data-attr="content-autopilot-keywords-empty">
-                <h4 className="m-0">No keywords yet</h4>
-                <p className="m-0 mt-1 mb-3 text-muted">
-                    Keywords are the words and phrases you want to be known for, like a product category or a feature.
-                    Add your first keywords, or ask PostHog to suggest some.
-                </p>
-                <div className="mb-3">
-                    <ContentAutopilotKeywordSuggestButton type="primary" />
-                </div>
-                <ContentAutopilotKeywordAddForm />
-                <ContentAutopilotKeywordSuggestModal />
-            </LemonCard>
+            <div className="max-w-3xl" data-attr="content-autopilot-keywords-empty">
+                <AiVisibilityCard title="No keywords yet">
+                    <div className="flex flex-col gap-3">
+                        <Text size="xs" variant="muted" render={<p className="m-0" />}>
+                            Keywords are the words and phrases you want to be known for, like a product category or a
+                            feature. Add your first keywords, or ask PostHog to suggest some.
+                        </Text>
+                        <div>
+                            <ContentAutopilotKeywordSuggestButton />
+                        </div>
+                        <ContentAutopilotKeywordAddForm />
+                    </div>
+                    <ContentAutopilotKeywordSuggestModal />
+                </AiVisibilityCard>
+            </div>
         )
     }
 

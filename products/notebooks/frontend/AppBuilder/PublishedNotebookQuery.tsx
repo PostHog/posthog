@@ -96,7 +96,7 @@ export function PublishedNotebookQuery({
     const key = sessionId + '-' + cell.id + '-' + (current?.generation ?? 'published')
     const height = publishedQueryHeight(viz.display, attributes.height)
     return (
-        <div className="min-w-0">
+        <div className="NotebookAppBuilder__published-query min-w-0">
             <div className="flex min-h-0 flex-col overflow-auto" style={{ height }}>
                 <Query
                     key={key}

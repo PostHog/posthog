@@ -215,6 +215,15 @@ export interface roleAccessControlLogicActions {
             name: string
         }>
     }
+    setMemberRoles: (
+        userUuid: string,
+        roleIds: string[],
+        newRoleNames: string[]
+    ) => {
+        newRoleNames: string[]
+        roleIds: string[]
+        userUuid: string
+    }
     submitEditingRole: () => {
         value: boolean
     }
@@ -272,6 +281,12 @@ export const roleAccessControlLogic = kea<roleAccessControlLogicType>([
         removeMemberFromRole: (role: RoleType, roleMemberId: string) => ({ role, roleMemberId }),
         addMembersToRole: (role: RoleType, members: string[]) => ({ role, members }),
         createRoleWithMember: (name: string, userUuid: string) => ({ name, userUuid }),
+        /** Makes the member's roles exactly `roleIds`, plus a new role for each of `newRoleNames`. */
+        setMemberRoles: (userUuid: string, roleIds: string[], newRoleNames: string[]) => ({
+            userUuid,
+            roleIds,
+            newRoleNames,
+        }),
         /** Fired whenever a member is added to or removed from a role, so other logics can refresh. */
         roleMembershipsChanged: true,
         setEditingRoleId: (roleId: string | null) => ({ roleId }),
@@ -402,6 +417,21 @@ export const roleAccessControlLogic = kea<roleAccessControlLogicType>([
             if (cache.rolesLoadSkipped) {
                 cache.rolesLoadSkipped = false
                 actions.loadRoles()
+            }
+        },
+        setMemberRoles: ({ userUuid, roleIds, newRoleNames }) => {
+            const wanted = new Set(roleIds)
+            for (const role of values.sortedRoles) {
+                // `user_uuid` on role members is write-only in the API, so the readable id is `member.user.uuid`
+                const roleMember = role.members.find((member) => member.user.uuid === userUuid)
+                if (wanted.has(role.id) && !roleMember) {
+                    actions.addMembersToRole(role, [userUuid])
+                } else if (!wanted.has(role.id) && roleMember) {
+                    actions.removeMemberFromRole(role, roleMember.id)
+                }
+            }
+            for (const name of newRoleNames) {
+                actions.createRoleWithMember(name, userUuid)
             }
         },
         createRoleWithMember: async ({ name, userUuid }) => {

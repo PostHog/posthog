@@ -38,7 +38,8 @@ from posthog.redis import get_client
 from posthog.temporal.common.schedule import create_schedule, describe_schedule
 
 from products.cdp.backend.facade.models import HogFunction
-from products.data_modeling.backend.facade.models import Edge, Node
+from products.data_modeling.backend.facade.api import set_declared_target
+from products.data_modeling.backend.facade.models import DAG, DataWarehouseSavedQuery, Edge, Node, NodeType
 from products.data_warehouse.backend.facade.api import (
     DIRECT_POSTGRES_URL_PATTERN,
     DIRECT_SNOWFLAKE_URL_PATTERN,
@@ -57,7 +58,10 @@ from products.warehouse_sources.backend.facade.models import (
 )
 from products.warehouse_sources.backend.facade.source_management import CDC_RESET_PENDING_KEY
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
-from products.warehouse_sources.backend.models.external_data_schema import SCHEMA_PINNED_METADATA_KEY
+from products.warehouse_sources.backend.models.external_data_schema import (
+    MANUAL_RUN_REQUESTED_AT_KEY,
+    SCHEMA_PINNED_METADATA_KEY,
+)
 from products.warehouse_sources.backend.presentation.views.external_data_schema import (
     UNREADABLE_SOURCE_CONFIG_ERROR,
     ExternalDataSchemaSerializer,
@@ -221,7 +225,8 @@ class TestExternalDataSchema(APIBaseTest):
 
         assert response.status_code == 200, response.content
         schema.refresh_from_db()
-        assert schema.sync_type_config == expected
+        assert {k: v for k, v in schema.sync_type_config.items() if k != MANUAL_RUN_REQUESTED_AT_KEY} == expected
+        assert schema.manual_sync_pending is True
 
     @parameterized.expand(
         [("flag_off", False, True, False), ("flag_on", True, True, True), ("unsupported", True, False, False)]
@@ -1854,8 +1859,16 @@ class TestExternalDataSchema(APIBaseTest):
         schema.refresh_from_db()
         assert schema.sync_type == ExternalDataSchema.SyncType.FULL_REFRESH
 
-    def test_update_schema_to_xmin_rejected_when_table_not_capable(self):
-        # A plain view / partitioned parent reports supports_xmin=False — reject even with a PK.
+    @parameterized.expand(
+        [
+            # A plain view / partitioned parent reports supports_xmin=False — reject even with a PK.
+            ("table_not_capable", None, "xmin replication is not available"),
+            ("discovery_failed", ConnectionError("could not connect to server"), "couldn't check whether"),
+        ]
+    )
+    def test_update_schema_to_xmin_rejected_when_table_not_capable(
+        self, _name: str, discovery_error: Exception | None, expected_message: str
+    ):
         source = self._xmin_postgres_source()
         schema = ExternalDataSchema.objects.create(
             name="public.orders",
@@ -1866,14 +1879,15 @@ class TestExternalDataSchema(APIBaseTest):
             sync_type_config={"primary_key_columns": ["id"]},
         )
 
-        with self._xmin_discovery_patch(supports_xmin=False):
+        with self._xmin_discovery_patch(supports_xmin=False) as get_schemas:
+            get_schemas.side_effect = discovery_error
             response = self.client.patch(
                 f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}",
                 data={"sync_type": "xmin", "primary_key_columns": ["id"]},
             )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert "not available" in str(response.json()).lower()
+        assert expected_message in str(response.json()).lower()
         schema.refresh_from_db()
         assert schema.sync_type == ExternalDataSchema.SyncType.FULL_REFRESH
 
@@ -2317,6 +2331,81 @@ class TestExternalDataSchema(APIBaseTest):
         assert triggered == ([str(schema.id)] if expect_trigger else [])
         # A run in failure backoff creates no job, so only the job-creation activity sets Running.
         assert schema.status == schema_fields.get("status", ExternalDataSchema.Status.COMPLETED)
+
+    @parameterized.expand(
+        [
+            (
+                "view_follows_the_faster_source",
+                {"sync_frequency": "15min"},
+                timedelta(minutes=15),
+                [timedelta(minutes=15)],
+            ),
+            ("view_held_by_its_own_target", {"sync_frequency": "15min"}, timedelta(hours=24), []),
+            ("paused_source_frees_the_view", {"should_sync": False}, timedelta(minutes=15), [timedelta(minutes=15)]),
+        ]
+    )
+    def test_update_schema_sync_settings_reschedule_only_views_whose_cadence_moves(
+        self, _name, payload, view_target, expected_tier_intervals
+    ):
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_type=ExternalDataSourceType.POSTGRES,
+            job_inputs={"host": "h", "port": 5432, "database": "d", "user": "u", "password": "p", "schema": "public"},
+        )
+        table = DataWarehouseTable.objects.create(name="postgres_orders", team=self.team)
+        schema = ExternalDataSchema.objects.create(
+            name="public.orders",
+            team=self.team,
+            source=source,
+            table=table,
+            sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
+            sync_frequency_interval=timedelta(hours=24),
+            should_sync=True,
+            status=ExternalDataSchema.Status.COMPLETED,
+        )
+        dag = DAG.get_or_create_default(self.team)
+        source_node = Node.objects.create(
+            team=self.team,
+            dag=dag,
+            name="orders",
+            type=NodeType.TABLE,
+            properties={"origin": "warehouse", "warehouse_table_id": str(table.id)},
+        )
+        view = DataWarehouseSavedQuery.objects.create(
+            name="orders_view", team=self.team, query={"query": "SELECT 1", "kind": "HogQLQuery"}
+        )
+        view_node = Node.objects.create(team=self.team, dag=dag, saved_query=view, type=NodeType.MAT_VIEW)
+        Edge.objects.create(team=self.team, dag=dag, source=source_node, target=view_node)
+        set_declared_target(view_node, view_target)
+
+        async def no_existing_schedules(*_args, **_kwargs):
+            async def empty():
+                return
+                yield
+
+            return empty()
+
+        data_modeling_temporal = mock.Mock(list_schedules=no_existing_schedules)
+        service = "products.data_warehouse.backend.logic.data_load.service"
+        reconcile = "products.data_modeling.backend.logic.schedule_reconcile"
+        with (
+            mock.patch(f"{service}.sync_connect"),
+            mock.patch(f"{service}.schedule_exists", return_value=True),
+            mock.patch(f"{service}.update_schedule"),
+            mock.patch(f"{service}.pause_schedule"),
+            mock.patch(f"{service}.trigger_schedule"),
+            mock.patch(f"{reconcile}.async_connect", new=mock.AsyncMock(return_value=data_modeling_temporal)),
+            mock.patch(f"{reconcile}.a_create_schedule", new=mock.AsyncMock()) as create_tier_schedule,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            response = self.client.patch(
+                f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}",
+                data=payload,
+            )
+
+        assert response.status_code == 200, response.content
+        created_tier_ids = [call.kwargs["id"] for call in create_tier_schedule.call_args_list]
+        assert created_tier_ids == [f"{dag.id}:{int(interval.total_seconds())}" for interval in expected_tier_intervals]
 
     @parameterized.expand(
         [
@@ -3001,6 +3090,89 @@ class TestExternalDataSchema(APIBaseTest):
         # Existing webhook: reconcile events, never re-create.
         mock_sync_events.assert_called_once()
         mock_create_webhook.assert_not_called()
+
+    @parameterized.expand([("single", True, False), ("bulk", True, True), ("no_webhook", False, False)])
+    def test_enabling_a_webhook_table_routes_it_on_the_existing_webhook(
+        self, _name: str, has_webhook: bool, bulk: bool
+    ) -> None:
+        source = ExternalDataSource.objects.create(
+            team=self.team, source_type=ExternalDataSourceType.STRIPE, job_inputs={"stripe_secret_key": "test_key"}
+        )
+        schemas = [
+            ExternalDataSchema.objects.create(
+                name=name,
+                team=self.team,
+                source=source,
+                should_sync=False,
+                status=ExternalDataSchema.Status.COMPLETED,
+                sync_type=ExternalDataSchema.SyncType.WEBHOOK,
+            )
+            for name in (("Charge", "Invoice") if bulk else ("Charge",))
+        ]
+        # Already syncs by webhook; some providers replace their subscription with the names they get.
+        ExternalDataSchema.objects.create(
+            name="Subscription",
+            team=self.team,
+            source=source,
+            should_sync=True,
+            sync_type=ExternalDataSchema.SyncType.WEBHOOK,
+        )
+        function = None
+        if has_webhook:
+            function = HogFunction.objects.create(
+                team=self.team,
+                type="warehouse_source_webhook",
+                hog="return event",
+                enabled=True,
+                inputs_schema=[
+                    {"key": "source_id", "type": "string"},
+                    {"key": "schema_mapping", "type": "json"},
+                    {"key": "http_auth_user", "type": "string"},
+                ],
+                inputs={
+                    "source_id": {"value": str(source.pk)},
+                    "schema_mapping": {"value": {}},
+                    "http_auth_user": {"value": "posthog"},
+                },
+            )
+
+        with (
+            mock.patch(
+                "products.warehouse_sources.backend.presentation.views.external_data_schema.external_data_workflow_exists",
+                return_value=False,
+            ),
+            mock.patch.object(
+                StripeSource, "sync_webhook_events", return_value=WebhookSyncResult(success=True)
+            ) as sync_events,
+        ):
+            if bulk:
+                response = self.client.patch(
+                    f"/api/environments/{self.team.pk}/external_data_sources/{source.id}/bulk_update_schemas",
+                    data={"schemas": [{"id": str(schema.id), "should_sync": True} for schema in schemas]},
+                    format="json",
+                )
+            else:
+                response = self.client.patch(
+                    f"/api/environments/{self.team.pk}/external_data_schemas/{schemas[0].id}",
+                    data={"should_sync": True},
+                )
+
+        assert response.status_code == 200, response.content
+        if function is None:
+            # Without a webhook the table reports `not_registered`; enabling it must not register one.
+            assert not HogFunction.objects.filter(team=self.team, type="warehouse_source_webhook").exists()
+            sync_events.assert_not_called()
+            return
+        function.refresh_from_db()
+        inputs = function.inputs or {}
+        assert inputs["schema_mapping"]["value"] == {
+            StripeSource().webhook_mapping_key(schema.name): str(schema.id) for schema in schemas
+        }
+        # The webhook's other inputs stay as set, or its template drops every delivery.
+        assert inputs["http_auth_user"] == {"value": "posthog"}
+        # One provider reconciliation per source, with every enabled webhook table of the source.
+        assert sync_events.call_count == 1
+        assert sync_events.call_args.args[3] == sorted([*(schema.name for schema in schemas), "Subscription"])
 
     def test_update_schema_to_webhook_existing_function_reconcile_failure_does_not_block(self):
         source = ExternalDataSource.objects.create(
@@ -6068,8 +6240,14 @@ class TestExternalDataSchemaRetrieveSource(APIBaseTest):
 
         assert {row["id"]: row["table_id"] for row in rows} == expected
 
-    def _webhook_source(self, *, with_webhook: bool) -> tuple[ExternalDataSource, list[ExternalDataSchema]]:
-        source, _ = self._create()
+    def _webhook_source(
+        self,
+        *,
+        with_webhook: bool,
+        function_inputs: dict | None = None,
+        source_type: ExternalDataSourceType = ExternalDataSourceType.STRIPE,
+    ) -> tuple[ExternalDataSource, list[ExternalDataSchema]]:
+        source, _ = self._create(source_type)
         ExternalDataSchema.objects.filter(source=source).delete()
         schemas = [
             ExternalDataSchema.objects.create(
@@ -6083,10 +6261,27 @@ class TestExternalDataSchemaRetrieveSource(APIBaseTest):
                 type="warehouse_source_webhook",
                 hog="return event",
                 enabled=True,
-                inputs_schema=[{"key": "source_id", "type": "string"}],
-                inputs={"source_id": {"value": str(source.pk)}},
+                inputs_schema=[
+                    {"key": "source_id", "type": "string"},
+                    {"key": "schema_mapping", "type": "json"},
+                    {"key": "signing_secret", "type": "string", "secret": True},
+                    {"key": "signing_secrets_complete", "type": "boolean"},
+                    {"key": "bypass_signature_check", "type": "boolean"},
+                ],
+                inputs={"source_id": {"value": str(source.pk)}, **self._resolve_routes(function_inputs, schemas)},
             )
         return source, schemas
+
+    @staticmethod
+    def _resolve_routes(function_inputs: dict | None, schemas: list[ExternalDataSchema]) -> dict:
+        # Fixtures name the route target "self" to mean the first table's own id.
+        inputs = dict(function_inputs or {})
+        if "schema_mapping" in inputs:
+            routes = inputs["schema_mapping"]["value"]
+            inputs["schema_mapping"] = {
+                "value": {key: str(schemas[0].id) if value == "self" else value for key, value in routes.items()}
+            }
+        return inputs
 
     @parameterized.expand([("no_webhook", False, True), ("enabled_webhook", True, False)])
     def test_retrieve_webhook_not_registered(self, _name: str, with_webhook: bool, expected: bool) -> None:
@@ -6096,18 +6291,77 @@ class TestExternalDataSchemaRetrieveSource(APIBaseTest):
 
         assert detail["webhook_not_registered"] is expected
 
+    @parameterized.expand(
+        [
+            ("no_webhook", False, {}, "not_registered"),
+            # The webhook answers 200 and drops every delivery while the signing secret is unset.
+            ("no_signing_secret", True, {"schema_mapping": {"value": {"customer": "self"}}}, "missing_inputs"),
+            # With the signature check bypassed, a missing secret drops nothing.
+            (
+                "bypassed_signature_check",
+                True,
+                {"bypass_signature_check": {"value": True}, "schema_mapping": {"value": {"customer": "self"}}},
+                None,
+            ),
+            # A table enabled after the webhook was set up has no route, so its events are dropped.
+            (
+                "table_not_routed",
+                True,
+                {"signing_secret": {"value": "whsec_1"}, "schema_mapping": {"value": {}}},
+                "not_routed",
+            ),
+            # A route left by a deleted table of the same name points at a dead schema.
+            (
+                "routed_to_another_table",
+                True,
+                {"signing_secret": {"value": "whsec_1"}, "schema_mapping": {"value": {"customer": "old-id"}}},
+                "not_routed",
+            ),
+            (
+                "routed",
+                True,
+                {"signing_secret": {"value": "whsec_1"}, "schema_mapping": {"value": {"customer": "self"}}},
+                None,
+            ),
+            # A function saves an unset input as None; Webflow's input check must not crash on it.
+            ("unset_input_webflow", True, {}, "missing_inputs", ExternalDataSourceType.WEBFLOW),
+        ]
+    )
+    def test_retrieve_webhook_issue(
+        self,
+        _name: str,
+        with_webhook: bool,
+        function_inputs: dict,
+        expected: str | None,
+        source_type: ExternalDataSourceType = ExternalDataSourceType.STRIPE,
+    ) -> None:
+        _, schemas = self._webhook_source(
+            with_webhook=with_webhook, function_inputs=function_inputs, source_type=source_type
+        )
+
+        detail = self.client.get(f"/api/environments/{self.team.pk}/external_data_schemas/{schemas[0].id}/").json()
+
+        assert detail["webhook_issue"] == expected
+
     def test_list_serializer_looks_up_webhooks_once_for_all_sources(self) -> None:
         _, with_webhook = self._webhook_source(with_webhook=True)
         _, without_webhook = self._webhook_source(with_webhook=False)
         view = ExternalDataSchemaViewset()
         view.team_id = self.team.pk
 
-        with self.assertNumQueries(1):
+        # One lookup for the enabled functions and one for the source types, whatever the number of sources.
+        with self.assertNumQueries(2):
             rows = view.get_serializer(
                 [*with_webhook, *without_webhook], many=True, context={"include_columns": False}
             ).data
 
         assert [row["webhook_not_registered"] for row in rows] == [False, False, True, True]
+        assert [row["webhook_issue"] for row in rows] == [
+            "missing_inputs",
+            "missing_inputs",
+            "not_registered",
+            "not_registered",
+        ]
 
     @parameterized.expand(
         [

@@ -23,5 +23,8 @@ describe("createAutoPublishExtension", () => {
     expect(result.systemPrompt).toContain("gh_stack");
     expect(result.systemPrompt).toContain("Default to a single pull request");
     expect(result.systemPrompt).toContain("Do not use the `gh stack` CLI");
+    expect(result.systemPrompt).toContain(
+      "Security fixes are the exception to publishing without asking.",
+    );
   });
 });

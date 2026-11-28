@@ -29,12 +29,14 @@ import { workflowLogic } from '../../workflowLogic'
 import { HogFlowPropertyFilters } from '../filters/HogFlowFilters'
 import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
 import { RunLinkTagHint } from '../steps/components/RunLinkTagHint'
+import { RUN_LINK_TAG_INFO, RunLinkTagSwitch } from '../steps/components/RunLinkTagSwitch'
 import { utmKeysFromDefaultAfterEdit } from '../steps/components/utmDefaults'
 import { UtmTagFields } from '../steps/components/UtmTagFields'
 import { UtmTeamDefaultControls } from '../steps/components/UtmTeamDefaultControls'
 import { useHogFlowStep } from '../steps/HogFlowSteps'
 import { isEmailAction, isOptOutEligibleAction, isPushAction } from '../steps/types'
 import type { HogFlowAction } from '../types'
+import { AiTaskReturns } from './AiTaskReturns'
 import {
     WORKFLOW_VARIABLE_TYPE_OPTIONS,
     hogFlowOutputMappingLogic,
@@ -181,11 +183,28 @@ export function HogFlowEditorPanelBuildDetail(): JSX.Element | null {
                                     data-attr="workflow-email-tracking-toggle"
                                 />
                             </div>
-                            {action.config.tracking_enabled !== false && (
-                                <div className="px-2 pb-1">
-                                    <RunLinkTagHint />
-                                </div>
-                            )}
+                            {action.config.tracking_enabled !== false &&
+                                action.config.sensitive !== true &&
+                                action.config.click_tracking_enabled !== false && (
+                                    <>
+                                        <div className="flex gap-2 justify-between items-center px-2 py-1">
+                                            <LemonLabel info={RUN_LINK_TAG_INFO}>Connect clicks to sessions</LemonLabel>
+                                            <RunLinkTagSwitch
+                                                checked={action.config.run_link_tag_enabled !== false}
+                                                onChange={(checked) => {
+                                                    setWorkflowAction(action.id, {
+                                                        ...action,
+                                                        config: { ...action.config, run_link_tag_enabled: checked },
+                                                    })
+                                                }}
+                                                data-attr="workflow-email-run-link-tag-toggle"
+                                            />
+                                        </div>
+                                        <div className="px-2 empty:hidden">
+                                            <RunLinkTagHint />
+                                        </div>
+                                    </>
+                                )}
                             <div className="flex gap-2 justify-between items-center px-2 py-1">
                                 <LemonLabel info="Adds UTM tags to each link, so visits from this email show up as their own campaign in web analytics. Tags already on a link are kept. Links to PostHog, such as the unsubscribe link, are not changed. Add data-ph-no-utm to a link to leave it as is.">
                                     Add UTM tags to links
@@ -282,14 +301,18 @@ export function HogFlowEditorPanelBuildDetail(): JSX.Element | null {
                                         key: 'outputs',
                                         header: (
                                             <>
-                                                <span className="flex-1">Output variables</span>
+                                                <span className="flex-1">
+                                                    {isAiTaskAction ? 'Agent returns' : 'Output variables'}
+                                                </span>
                                                 <LemonBadge.Number
                                                     count={mappings.filter((m) => m.key).length}
                                                     showZero={false}
                                                 />
                                             </>
                                         ),
-                                        content: (
+                                        content: isAiTaskAction ? (
+                                            <AiTaskReturns />
+                                        ) : (
                                             <div className="flex flex-col items-start gap-2 max-h-96 overflow-y-auto">
                                                 {mappings.map((mapping, index) => (
                                                     <div

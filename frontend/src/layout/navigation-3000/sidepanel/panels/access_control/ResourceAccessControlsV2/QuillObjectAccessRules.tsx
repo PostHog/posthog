@@ -146,11 +146,12 @@ export function QuillObjectAccessRules({
             ) : (
                 <ObjectRuleRowEditingContext.Provider value={rowEditing}>
                     <DataTable
+                        className="rounded-md border border-border"
                         columns={COLUMNS}
                         data={objects}
                         getRowId={(rule) => `${rule.resource}:${rule.resource_id}`}
                         fullWidth
-                        pageSize={objects.length > RULES_PER_PAGE ? RULES_PER_PAGE : undefined}
+                        pageSize={RULES_PER_PAGE}
                         empty={
                             <Text size="xs" variant="muted" render={<p className="m-0" />}>
                                 {`No one-off access overrides for this ${subjectNoun}.`}

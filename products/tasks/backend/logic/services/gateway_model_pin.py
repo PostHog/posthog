@@ -13,11 +13,13 @@ SDK_IMPLICIT_MODELS: tuple[str, ...] = ("claude-haiku-4-5", "claude-sonnet-4-5")
 
 _GATEWAY_RESTRICTED_MODEL_PRODUCTS: dict[str, frozenset[str]] = {
     "deepseek-ai/deepseek-v4-flash-0731": frozenset({"posthog_code", "review_hog"}),
+    "deepseek-ai/deepseek-v4.1-flash-1017": frozenset({"posthog_code", "review_hog"}),
     "deepseek-ai/deepseek-v4.1-flash-1017-fast": frozenset({"posthog_code", "review_hog", "signals_scout"}),
     # Excluded from every first-party pin; posthog_code admits it through DESKTOP_AGENT_MODELS.
     "zai-org/glm-5.2": frozenset({"posthog_code"}),
     "zai-org/glm-5.3": frozenset({"posthog_code", "review_hog"}),
-    "zai-org/glm-5.3-flash": frozenset({"posthog_code", "review_hog"}),
+    # The Slack app's daily focus agent runs on it.
+    "zai-org/glm-5.3-flash": frozenset({"posthog_code", "review_hog", "slack_app"}),
     # Only ReviewHog's arm-set trial and the first-report model experiment call it.
     "gpt-6.1-terra": frozenset({"review_hog", "signals_scout"}),
 }
@@ -32,8 +34,15 @@ def _first_party_pin(product: str) -> list[str]:
     return list(dict.fromkeys([*SDK_IMPLICIT_MODELS, *(model_id for model_id in routed if _admits(product, model_id))]))
 
 
-# Ids the legacy gateway serves to PostHog Desktop that the catalog lacks; older app builds call them.
-_DESKTOP_LEGACY_MODELS: tuple[str, ...] = ("gpt-5.4", "gpt-5.3-codex", "gpt-5-mini")
+# Ids older PostHog Desktop builds call that the catalog lacks.
+_DESKTOP_LEGACY_MODEL_ADAPTERS: dict[str, str] = {"gpt-5.4": "codex", "gpt-5.3-codex": "codex", "gpt-5-mini": "codex"}
+_DESKTOP_LEGACY_MODELS: tuple[str, ...] = tuple(_DESKTOP_LEGACY_MODEL_ADAPTERS)
+
+
+def uncataloged_runtime_adapter(model_id: str) -> str | None:
+    if model_id in SDK_IMPLICIT_MODELS:
+        return "claude"
+    return _DESKTOP_LEGACY_MODEL_ADAPTERS.get(model_id)
 
 
 def gateway_pin(models: list[str]) -> list[str]:
@@ -57,11 +66,12 @@ assert len(gateway_pin(DESKTOP_AGENT_MODELS)) <= MAX_GATEWAY_PIN_LENGTH, (
     "the desktop model pin outgrew the gateway limit"
 )
 
-# The legacy gateway's free tier. GLM-5.2 is listed twice: older clients send `@cf/`, Go serves the bare id.
+# Models a free-plan PostHog Desktop run may call. GLM-5.2 is listed twice: older clients send `@cf/`, Go serves the bare id.
 FREE_TIER_MODELS: list[str] = [
     "@cf/zai-org/glm-5.2",
     "zai-org/glm-5.2",
     "deepseek-ai/deepseek-v4-flash-0731",
+    "deepseek-ai/deepseek-v4.1-flash-1017",
     "moonshotai/kimi-k3",
     "moonshotai/kimi-k3.1-pro",
     "zai-org/glm-5.3-flash",

@@ -3,6 +3,7 @@ import { memo } from 'react'
 import { useFeedbackPrompt } from '../hooks/useFeedbackPrompt'
 import { FeedbackPromptLogicProps } from '../logics/feedbackPromptLogic'
 import { MessageTemplate } from '../messages/MessageTemplate'
+import type { RunRef } from '../utils/feedbackEvents'
 import { FeedbackSessionKind } from '../utils/ticketMetadata'
 import { FeedbackPromptDetails } from './FeedbackPromptDetails'
 import { FeedbackPromptRating } from './FeedbackPromptRating'
@@ -12,7 +13,8 @@ export const FeedbackPromptTrailer = memo(function FeedbackPromptTrailer({
     sessionId,
     sessionKind,
     streamKey,
-}: FeedbackPromptLogicProps & { sessionKind: FeedbackSessionKind }): JSX.Element | null {
+    run,
+}: FeedbackPromptLogicProps & { sessionKind: FeedbackSessionKind; run: RunRef }): JSX.Element | null {
     const { isPromptVisible, isDetailedFeedbackVisible, isThankYouVisible, streamingActive } = useFeedbackPrompt(
         sessionId,
         streamKey
@@ -31,7 +33,7 @@ export const FeedbackPromptTrailer = memo(function FeedbackPromptTrailer({
         )
     }
     if (isDetailedFeedbackVisible) {
-        return <FeedbackPromptDetails sessionId={sessionId} sessionKind={sessionKind} streamKey={streamKey} />
+        return <FeedbackPromptDetails sessionId={sessionId} sessionKind={sessionKind} streamKey={streamKey} run={run} />
     }
     if (isThankYouVisible) {
         return (

@@ -46,7 +46,7 @@ Each rule is tagged with what catches a violation.
 
 ## Configuration and secrets
 
-- **A key in `posthog/settings/dynamic_settings.py` exists only because operators must change its value live, without a deploy.** `[review]` These instance settings are Postgres rows that staff edit at runtime, and a stored row overrides the environment variable. Kill switches and tuning knobs for incidents qualify. Secrets and static config are environment variables read in `posthog/settings/`, with values from the deployment secret store and charts. Never store a secret as an instance setting, because the database keeps it as plain text. A per-team rollout or a team allowlist is a feature flag.
+- **Do not add keys to `posthog/settings/dynamic_settings.py`.** `[lint: no-new-instance-settings]` These instance settings are Postgres rows that staff edit at runtime, and a stored row overrides the environment variable. The database keeps each value as plain text, so a secret stored there leaks to anyone who can read the table. Secrets and static config are environment variables read in `posthog/settings/`, with values from the deployment secret store and charts. A kill switch, a per-team rollout or a team allowlist is a feature flag. The existing keys are grandfathered and are moving to environment variables.
 
 ## Django admin
 
@@ -67,14 +67,6 @@ Each rule is tagged with what catches a violation.
   Read that repo when the change is the gateway itself.
   This monorepo only calls the gateway.
 - **A monorepo caller builds its client with a helper in `posthog/llm/gateway_client.py`.** `[review]`
-  Use `build_openai_client`, `build_async_openai_client`, `build_anthropic_client`, `build_async_anthropic_client`, `build_gemini_client`, `build_ai_gateway_openai_client`, or `build_ai_gateway_anthropic_client`.
-  Those helpers read `AI_GATEWAY_URL` and `AI_GATEWAY_API_KEY`.
-  Read [`products/tasks/backend/logic/services/title_generator.py`](../products/tasks/backend/logic/services/title_generator.py) for a real call.
-- **`services/llm-gateway` is under an unofficial code freeze.** `[review]`
-  If a task asks you to change it, tell the user about the freeze in your reply.
-  A change needs a documented parity blocker for an active caller and stays limited to that caller.
-  Read [`services/llm-gateway/PARITY.md`](../services/llm-gateway/PARITY.md) before the change.
-  Read `/auditing-llm-gateway-parity` when the gateway contract changes.
-  Its Postgres role reads only allowlisted tables.
-  A new table read needs the SELECT grant in posthog-cloud-infra for every environment first, then a declaration in `required_tables.py`.
-  The readiness probe checks every declared grant on every probe, so a missing grant holds a rollout instead of serving 500s.
+  `build_ai_gateway_openai_client` sends the caller's own bearer; every other builder authenticates with `AI_GATEWAY_API_KEY`.
+  Each raises `GatewayNotConfiguredError` when the gateway is not configured, except `build_gemini_client`, which returns `None`.
+  Read [`products/tasks/backend/logic/services/title_generator.py`](../products/tasks/backend/logic/services/title_generator.py) for a real call, and `/calling-the-ai-gateway` before you add a caller.

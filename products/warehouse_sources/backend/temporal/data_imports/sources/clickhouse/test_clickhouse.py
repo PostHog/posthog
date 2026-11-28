@@ -23,6 +23,10 @@ from sshtunnel import BaseSSHTunnelForwarderError
 
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.models.ssh_tunnel import (
+    SSH_GATEWAY_CLOSED_BEFORE_BANNER_SETUP_MESSAGE,
+    SSHGatewayClosedBeforeBannerError,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.clickhouse import clickhouse as ch_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.clickhouse.clickhouse import (
     _MAX_CONNECT_ATTEMPTS,
@@ -493,6 +497,17 @@ class TestClickHouseSourceRetryableErrors:
                 "cloudflare_tunnel_down",
                 "HTTP driver received HTTP status 530, server response: error code: 1033 (for url https://host:8443)",
             ),
+            (
+                # QUOTA_EXCEEDED (code 201): a server-side quota on the connecting user was
+                # exceeded. The quota clears on its own once its interval ends, so this must stay
+                # retryable rather than disable the schema (which would leave it off long after
+                # the quota had already cleared).
+                "quota_exceeded",
+                "Received ClickHouse exception, code: 201, server response: Code: 201. DB::Exception: Quota for "
+                "user `play` for 3600s has been exceeded: execution_time = 601.308620926/600. Interval will end "
+                "at 2026-11-26 04:30:52. Name of quota template: `explorer`. (QUOTA_EXCEEDED) "
+                "(version 26.12.1.396 (official build)) (for url https://play.clickhouse.com:443)",
+            ),
         ],
     )
     def test_bare_gateway_status_is_classified_as_retryable(self, source, _name, error_msg):
@@ -500,6 +515,17 @@ class TestClickHouseSourceRetryableErrors:
         # exception noise on every occurrence instead of silently retried.
         retryable = source.get_retryable_errors()
         assert any(pattern in error_msg for pattern in retryable)
+
+    def test_quota_exceeded_does_not_disable_the_schema(self, source):
+        # A quota-exceeded error must not also appear in get_non_retryable_errors, or
+        # `_handle_import_error` (which consults that dict first) would disable the schema
+        # even though the quota clears on its own.
+        error_msg = (
+            "Received ClickHouse exception, code: 201, server response: Code: 201. DB::Exception: Quota for "
+            "user `play` for 3600s has been exceeded: execution_time = 601.308620926/600. (QUOTA_EXCEEDED)"
+        )
+        non_retryable = source.get_non_retryable_errors()
+        assert not any(pattern in error_msg for pattern in non_retryable)
 
     def test_arrow_stream_flatbuffer_error_is_classified_as_retryable(self, source):
         # pyarrow raises `OSError("Invalid flatbuffers message.")` from its own IPC framing when
@@ -833,20 +859,28 @@ class TestSourceClassValidateCredentials:
         assert msg == GENERIC_CONNECTION_ERROR
 
     @pytest.mark.parametrize(
-        "raw_error,expected",
+        "ssh_error,expected",
         [
-            ("Could not establish session to SSH gateway", "Could not connect to your SSH tunnel"),
             (
-                "Could not establish session to SSH gateway: the SSH server did not accept a connection within 15 seconds",
+                BaseSSHTunnelForwarderError("Could not establish session to SSH gateway"),
                 "Could not connect to your SSH tunnel",
             ),
             (
-                "Problem setting SSH Forwarder up: Couldn't open tunnel 127.0.0.1:0 <> bastion.example.com:9000",
+                BaseSSHTunnelForwarderError(
+                    "Could not establish session to SSH gateway: the SSH server did not accept a connection within 15 seconds"
+                ),
+                "Could not connect to your SSH tunnel",
+            ),
+            (
+                BaseSSHTunnelForwarderError(
+                    "Problem setting SSH Forwarder up: Couldn't open tunnel 127.0.0.1:0 <> bastion.example.com:9000"
+                ),
                 "SSH tunnel settings",
             ),
+            (SSHGatewayClosedBeforeBannerError(), SSH_GATEWAY_CLOSED_BEFORE_BANNER_SETUP_MESSAGE),
         ],
     )
-    def test_ssh_tunnel_errors_return_user_facing_message(self, raw_error, expected):
+    def test_ssh_tunnel_errors_return_user_facing_message(self, ssh_error, expected):
         from products.warehouse_sources.backend.temporal.data_imports.sources.clickhouse import source as source_module
 
         source = source_module.ClickHouseSource()
@@ -857,7 +891,7 @@ class TestSourceClassValidateCredentials:
 
         with patch.object(source, "ssh_tunnel_is_valid", return_value=(True, None)):
             with patch.object(source, "is_database_host_valid", return_value=(True, None)):
-                with patch.object(source, "get_schemas", side_effect=BaseSSHTunnelForwarderError(raw_error)):
+                with patch.object(source, "get_schemas", side_effect=ssh_error):
                     with patch.object(source_module, "capture_exception"):
                         valid, msg = source.validate_credentials(config, team_id=1)
 
@@ -1209,6 +1243,30 @@ class TestGetRowsBatching:
         assert sum(t.num_rows for t in yielded) == 150_000
         # First yield must have crossed the row target.
         assert yielded[0].num_rows >= YIELD_TARGET_ROWS
+
+    @parameterized.expand(
+        [
+            ("uint8", pa.uint8(), 200, pa.int16()),
+            ("uint16", pa.uint16(), 40_000, pa.int32()),
+            ("uint32", pa.uint32(), 3_000_000_000, pa.int64()),
+            ("uint64_has_no_wider_signed_type", pa.uint64(), 2**63 + 5, pa.uint64()),
+        ]
+    )
+    def test_widens_unsigned_integers_so_delta_can_store_later_values(self, _name, source_type, big, expected_type):
+        blocks = [
+            pa.RecordBatch.from_arrays(
+                [pa.array([1, 2], type=pa.int64()), pa.array([1, None], type=source_type)], names=["id", "n"]
+            ),
+            pa.RecordBatch.from_arrays(
+                [pa.array([3], type=pa.int64()), pa.array([big], type=source_type)], names=["id", "n"]
+            ),
+        ]
+
+        with patch.object(ch_module, "YIELD_TARGET_ROWS", 2):
+            yielded = self._run_get_rows(blocks)
+
+        assert [table.schema.field("n").type for table in yielded] == [expected_type, expected_type]
+        assert [table.column("n").to_pylist() for table in yielded] == [[1, None], [big]]
 
     def test_skips_empty_blocks(self):
         blocks = [self._block(0), self._block(50), self._block(0)]

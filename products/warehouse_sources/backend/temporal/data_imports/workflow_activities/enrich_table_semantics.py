@@ -22,6 +22,8 @@ import dataclasses
 from datetime import timedelta
 from typing import Any
 
+import openai
+import anthropic
 import posthoganalytics
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
@@ -268,7 +270,7 @@ _get_business_context = get_team_business_context
 _MAX_COLUMN_NAME_LENGTH: int = WarehouseColumnAnnotation._meta.get_field("column_name").max_length or 400
 
 
-def _columns_for_enrichment(table: DataWarehouseTable, log: Any = logger) -> list[dict[str, Any]]:
+def _columns_for_enrichment(table: DataWarehouseTable, log: Any | None = logger) -> list[dict[str, Any]]:
     """User-facing columns to enrich (see `DataWarehouseTable.get_user_facing_columns`), minus any
     whose name exceeds the annotation key length — those can't be stored as a `WarehouseColumnAnnotation`.
     """
@@ -280,15 +282,32 @@ def _columns_for_enrichment(table: DataWarehouseTable, log: Any = logger) -> lis
         if len(name) > _MAX_COLUMN_NAME_LENGTH:
             # Surface the drop — otherwise the column silently vanishes from enrichment with no trace,
             # the same opacity that made the original DataError crash hard to diagnose.
-            log.warning(
-                "warehouse_enrichment.column_name_too_long",
-                column_name_prefix=name[:64],
-                column_name_length=len(name),
-                max_column_name_length=_MAX_COLUMN_NAME_LENGTH,
-            )
+            if log is not None:
+                log.warning(
+                    "warehouse_enrichment.column_name_too_long",
+                    column_name_prefix=name[:64],
+                    column_name_length=len(name),
+                    max_column_name_length=_MAX_COLUMN_NAME_LENGTH,
+                )
             continue
         result.append(column)
     return result
+
+
+def enrichable_column_names(table: DataWarehouseTable) -> set[str]:
+    """The column names `enrich_table_semantics_sync` enriches, for gates that predict whether it has work."""
+    return {column["name"] for column in _columns_for_enrichment(table, log=None)[:MAX_COLUMNS_PER_TABLE]}
+
+
+def _is_gateway_credit_refusal(error: Exception) -> bool:
+    # The gateway marks its own refusals, such as a deactivated organization, with X-PostHog-Denial. A 402
+    # without that header is the provider refusing the gateway's account, which affects every team, so it
+    # must still reach error tracking.
+    return (
+        isinstance(error, (anthropic.APIStatusError, openai.APIStatusError))
+        and error.status_code == 402
+        and bool(error.response.headers.get("X-PostHog-Denial"))
+    )
 
 
 def enrich_table_semantics_sync(team_id: int, schema_id: uuid.UUID) -> dict[str, Any]:
@@ -305,7 +324,13 @@ def enrich_table_semantics_sync(team_id: int, schema_id: uuid.UUID) -> dict[str,
         team = retry_internal_db_operation(
             lambda: (
                 Team.objects.select_related("organization")
-                .only("id", "uuid", "organization_id", "organization__is_ai_data_processing_approved")
+                .only(
+                    "id",
+                    "uuid",
+                    "organization_id",
+                    "organization__is_active",
+                    "organization__is_ai_data_processing_approved",
+                )
                 .get(id=team_id)
             )
         )
@@ -318,6 +343,13 @@ def enrich_table_semantics_sync(team_id: int, schema_id: uuid.UUID) -> dict[str,
 
     def emit_completed(status: str, **props: Any) -> None:
         capture_enrichment_event(team, EVENT_COMPLETED, {"status": status, **event_props, **props})
+
+    # The gateway refuses every call for a deactivated organization with a 402, and no retry changes
+    # that until the organization is reactivated. A sync after reactivation enriches the table.
+    if not team.organization.is_active:
+        log.info("warehouse_enrichment.skipped", reason="organization_inactive")
+        emit_completed("skipped", reason="organization_inactive")
+        return {"status": "skipped", "reason": "organization_inactive"}
 
     # Respect the org's AI data-processing opt-out: this path ships table/column metadata and core
     # memory to the LLM gateway.
@@ -477,6 +509,24 @@ def enrich_table_semantics_sync(team_id: int, schema_id: uuid.UUID) -> dict[str,
             "error": "llm_gateway_not_configured",
         }
     except Exception as e:
+        if _is_gateway_credit_refusal(e):
+            # The gateway refused the call for billing, for example because the organization was
+            # deactivated after the check above. No retry and no exception report can change that,
+            # so it goes into the completion event and not into error tracking.
+            log.warning("warehouse_enrichment.llm_payment_required", error=str(e), canonical=canonical_count)
+            emit_completed(
+                "partial",
+                canonical_annotations=canonical_count,
+                ai_annotations=0,
+                llm_called=True,
+                reason="llm_payment_required",
+            )
+            return {
+                "status": "partial",
+                "canonical_annotations": canonical_count,
+                "ai_annotations": 0,
+                "error": "llm_payment_required",
+            }
         capture_exception(e)
         log.error(
             "warehouse_enrichment.llm_failed",

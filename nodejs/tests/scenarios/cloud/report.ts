@@ -5,6 +5,7 @@ import { parseJSON } from '~/common/utils/json-parse'
 
 import { CAPACITY_MINUTES } from '../environment/failover'
 import { seriesOf } from '../environment/metric-data'
+import { CapacityMinute, CapacityRule, capacityMinutesOf, capacityProblems } from '../environment/reader-capacity'
 import { EXIT_CODE, Status } from '../runner/status'
 import { ADAPTERS, SCHEMA_VERSION, ScorecardProperties } from '../scorecard/scorecard'
 import { publish } from '../scorecard/write'
@@ -14,11 +15,11 @@ import { Aws } from './aws'
 import { FAILOVER_VALVE } from './card'
 import { Manifest, evidenceOf, keyOf } from './lease'
 import { CloudProfile, RunInputs } from './profile'
-import { receiptsOf } from './teardown'
+import { leftBehind, receiptsOf } from './teardown'
 
 export type RunEnd = { exitCode: number; reasons: string[]; teardownClean: boolean }
 
-type Minute = { at: number; max?: number; avg?: number }
+type Minute = CapacityMinute
 
 type Capacity = { minutes: Minute[]; gaps: number[] }
 
@@ -48,15 +49,38 @@ const minuteOf = (at: number): number => at - (at % MINUTE_MS)
 
 const iso = (at: number): string => new Date(at).toISOString()
 
-async function hostScorecardOf(
-    evidence: ReturnType<typeof evidenceOf>,
-    runId: string
-): Promise<z.infer<typeof HostScorecard>> {
+type HostScorecard = z.infer<typeof HostScorecard>
+
+type HostRun = { host: HostScorecard; statuses: Status[]; window: number[] }
+
+async function hostScorecardOf(evidence: ReturnType<typeof evidenceOf>, manifest: Manifest): Promise<HostRun> {
+    const { runId, controlRunId } = manifest
+    const paired = manifest.pair === true
     const keys = (await evidence.keys(keyOf(runId, 'evidence/run/'))).filter((key) => key.endsWith('/scorecard.json'))
-    if (keys.length !== 1) {
-        throw new Error(`the host uploaded ${keys.length} runner scorecards, not one`)
+    const read = async (key: string): Promise<HostScorecard> => HostScorecard.parse(parseJSON(await evidence.get(key)))
+    if (keys.length !== (paired ? 2 : 1)) {
+        const reason = keys.length === 1 ? (await read(keys[0])).event.pair_reason : undefined
+        throw new Error(
+            `the host uploaded ${keys.length} runner scorecards, not ${paired ? 'two' : 'one'}${typeof reason === 'string' ? `: ${reason}` : ''}`
+        )
     }
-    return HostScorecard.parse(parseJSON(await evidence.get(keys[0])))
+    const saved = await Promise.all(keys.map(read))
+    const ranAs = (role: string, id: string | undefined): HostScorecard | undefined =>
+        saved.find(({ event }) => event.pair_role === role && event.run_id === id)
+    const host = paired ? ranAs('faulted', runId) : saved[0]
+    if (host === undefined || (paired && ranAs('control', controlRunId) === undefined)) {
+        throw new Error(
+            `the host uploaded runner scorecards that are not one control and one faulted run of run ${runId}`
+        )
+    }
+    return {
+        host,
+        statuses: saved.map(({ event }) => event.status),
+        window: [
+            Math.min(...saved.map(({ event }) => Date.parse(event.started_at))),
+            Math.max(...saved.map(({ event }) => Date.parse(event.ended_at))),
+        ],
+    }
 }
 
 async function capacityOf(aws: Aws, readerId: string, from: number, to: number, expected: number[]): Promise<Capacity> {
@@ -96,14 +120,9 @@ async function capacityOf(aws: Aws, readerId: string, from: number, to: number, 
             subject: (id) => `CloudWatch's ${id} series`,
         }
     )
-    const byMinute = new Map<number, Minute>()
-    for (const [id, points] of Object.entries(series)) {
-        for (const { at, value } of points) {
-            byMinute.set(at, { ...byMinute.get(at), at, [id]: value })
-        }
-    }
-    const minutes = [...byMinute.values()].sort((a, b) => a.at - b.at)
-    const ends = [...minutes.map(({ at }) => at), ...expected.map(minuteOf)]
+    const minutes = capacityMinutesOf({ max: series.max, avg: series.avg })
+    const ends = [...minutes.map(({ at }) => at), ...expected.map((at) => minuteOf(Math.min(Math.max(at, from), to)))]
+    const byMinute = new Map(minutes.map((minute) => [minute.at, minute]))
     const gaps: number[] = []
     for (let at = Math.min(...ends); at <= Math.max(...ends); at += MINUTE_MS) {
         const minute = byMinute.get(at)
@@ -114,13 +133,46 @@ async function capacityOf(aws: Aws, readerId: string, from: number, to: number, 
     return { minutes, gaps }
 }
 
-type Judged = { scalars: Record<string, number | string[] | null>; readerAtT0: number | null; reason?: string }
+const minuteMaximaFrom = (
+    t0Minute: number,
+    lastMinute: number,
+    after: { at: number; max: number }[]
+): (number | null)[] =>
+    Array.from(
+        { length: (lastMinute - t0Minute) / MINUTE_MS + 1 },
+        (_, i) => after.find(({ at }) => at === t0Minute + i * MINUTE_MS)?.max ?? null
+    )
 
-function judgeCapacity({ minutes }: Capacity, t0: number, { min, idleMax }: CloudProfile['readerAcu']): Judged {
+const CAPACITY_KEYS = [
+    'acu_pre_t0_max',
+    'acu_t0_minute_max',
+    'acu_peak',
+    'acu_seconds_to_peak',
+    'acu_after_t0_max',
+    'acu_pre_t0_above_idle',
+    'acu_pre_t0_avg',
+    'reader_at_t0',
+] as const
+
+const UNJUDGED = Object.fromEntries(CAPACITY_KEYS.map((key) => [key, null]))
+
+type Judged = {
+    scalars: Record<(typeof CAPACITY_KEYS)[number], number | string | string[] | (number | null)[] | null>
+    readerAtT0: number | null
+    reason?: string
+}
+
+function judgeCapacity(
+    { minutes }: Capacity,
+    t0: number,
+    { min, max, idleMax }: CloudProfile['readerAcu'],
+    warmReader: boolean
+): Judged {
     const t0Minute = minuteOf(t0)
     const maxima = minutes.flatMap(({ at, max }) => (max === undefined ? [] : [{ at, max }]))
     const before = maxima.filter(({ at }) => at < t0Minute)
     const after = maxima.filter(({ at }) => at >= t0Minute)
+    const measuredAfter = minutes.filter(({ at }) => at >= t0Minute)
     const peak = after.reduce<{ at: number; max: number } | undefined>(
         (top, minute) => (top && top.max >= minute.max ? top : minute),
         undefined
@@ -130,6 +182,7 @@ function judgeCapacity({ minutes }: Capacity, t0: number, { min, idleMax }: Clou
         acu_t0_minute_max: maxima.find(({ at }) => at === t0Minute)?.max ?? null,
         acu_peak: peak?.max ?? null,
         acu_seconds_to_peak: peak ? (peak.at - t0Minute) / 1000 : null,
+        acu_after_t0_max: measuredAfter.length === 0 ? [] : minuteMaximaFrom(t0Minute, measuredAfter.at(-1)!.at, after),
         acu_pre_t0_above_idle: minutes
             .filter(
                 ({ at, max, avg }) =>
@@ -138,38 +191,50 @@ function judgeCapacity({ minutes }: Capacity, t0: number, { min, idleMax }: Clou
             .map(({ at }) => iso(at)),
     }
     const readerAtT0 = before.find(({ at }) => at === t0Minute - MINUTE_MS)?.max ?? null
+    const pre = minutes.filter(({ at }) => at < t0Minute && at >= t0Minute - CAPACITY_MINUTES * MINUTE_MS)
+    const watched = Array.from({ length: CAPACITY_MINUTES }, (_, i) => t0Minute - (CAPACITY_MINUTES - i) * MINUTE_MS)
+    const lastAvg = pre.find(({ at }) => at === t0Minute - MINUTE_MS)?.avg
+    const scored = {
+        ...scalars,
+        acu_pre_t0_avg: watched.map((at) => pre.find((minute) => minute.at === at)?.avg ?? null),
+        reader_at_t0: lastAvg === undefined || idleMax === undefined ? 'unknown' : lastAvg > idleMax ? 'warm' : 'cold',
+    }
     if (before.length === 0) {
-        return { scalars, readerAtT0, reason: 'no reader capacity before T0' }
+        return { scalars: scored, readerAtT0, reason: 'no reader capacity before T0' }
     }
     if (after.length === 0) {
-        return { scalars, readerAtT0, reason: 'no measured reader maximum from T0 on' }
+        return { scalars: scored, readerAtT0, reason: 'no measured reader maximum from T0 on' }
     }
     if (idleMax === undefined) {
         return {
-            scalars,
+            scalars: scored,
             readerAtT0,
             reason: 'the cloud profile sets no readerAcu.idleMax, so the reader was not judged',
         }
     }
-    const pre = minutes.filter(({ at }) => at < t0Minute && at >= t0Minute - CAPACITY_MINUTES * MINUTE_MS)
-    const above = pre.filter(({ avg }) => avg !== undefined && avg > idleMax)
-    const under = pre.filter(({ max, avg }) => [max, avg].some((reading) => reading !== undefined && reading < min))
-    const inverted = pre.filter(({ max, avg }) => max !== undefined && avg !== undefined && avg > max)
-    const unshown = pre.filter(({ max, avg }) => avg === undefined && max !== undefined && max > idleMax)
-    const watched = Array.from({ length: CAPACITY_MINUTES }, (_, i) => t0Minute - (CAPACITY_MINUTES - i) * MINUTE_MS)
     const missing = watched.filter((at) => !pre.some((minute) => minute.at === at))
     const listed = (found: Minute[]): string => found.map(({ at }) => iso(at)).join(', ')
+    const phrased: Record<CapacityRule, string> = {
+        unread: 'reader capacity before T0 is missing a reading',
+        over: `reader above its ${max} ACU maximum before T0`,
+        idle: `reader above its ${idleMax} ACU idle limit before T0`,
+        under: `reader capacity under its ${min} ACU minimum before T0`,
+        inverted: 'reader average above its maximum before T0',
+        unshown: `no reader average before T0 to show the reader under its ${idleMax} ACU idle limit`,
+    }
     const reasons = [
-        above.length > 0 && `reader above its ${idleMax} ACU idle limit before T0 (${listed(above)})`,
-        under.length > 0 && `reader capacity under its ${min} ACU minimum before T0 (${listed(under)})`,
-        inverted.length > 0 && `reader average above its maximum before T0 (${listed(inverted)})`,
-        unshown.length > 0 &&
-            `no reader average before T0 to show the reader under its ${idleMax} ACU idle limit (${listed(unshown)})`,
+        ...capacityProblems(
+            pre,
+            { min, max, idleMax },
+            { idleSince: warmReader ? undefined : -Infinity, bothReadings: false }
+        ).map(({ rule, minutes: found }) => `${phrased[rule]} (${listed(found)})`),
         missing.length > 0 &&
             `no reader capacity in the ${CAPACITY_MINUTES} minutes before T0 for ${missing.map(iso).join(', ')}`,
         readerAtT0 === null && `no reader maximum for the minute before T0 (${iso(t0Minute - MINUTE_MS)})`,
     ].filter((reason): reason is string => typeof reason === 'string')
-    return reasons.length === 0 ? { scalars, readerAtT0 } : { scalars, readerAtT0, reason: reasons.join('; ') }
+    return reasons.length === 0
+        ? { scalars: scored, readerAtT0 }
+        : { scalars: scored, readerAtT0, reason: reasons.join('; ') }
 }
 
 function costOf(profile: CloudProfile, hours: number, capacity: Capacity | undefined): [string, number][] {
@@ -191,6 +256,16 @@ function costOf(profile: CloudProfile, hours: number, capacity: Capacity | undef
 
 function environmentOf(profile: CloudProfile, card: RunInputs['card'], manifest: Manifest, runnerFingerprint: unknown) {
     const { idleMax } = profile.readerAcu
+    const runnerProfile = manifest.inputs['runner-profile.yaml']
+    const alertFiles = Object.entries(manifest.inputs)
+        .filter(([name]) => name.startsWith('alerts/'))
+        .sort(([a], [b]) => a.localeCompare(b))
+    const runnerProfileHash =
+        alertFiles.length === 0
+            ? runnerProfile
+            : createHash('sha256')
+                  .update(JSON.stringify([runnerProfile, alertFiles]))
+                  .digest('hex')
     const environment = {
         environment_kind: ENVIRONMENT_KIND,
         writer_class: profile.writerClass,
@@ -201,7 +276,7 @@ function environmentOf(profile: CloudProfile, card: RunInputs['card'], manifest:
         host_class: profile.host.class,
         engine_version: profile.engineVersion,
         pooler_replicas: profile.pooler.replicas,
-        runner_profile_hash: manifest.inputs['runner-profile.yaml'],
+        runner_profile_hash: runnerProfileHash,
         deviations: DEVIATIONS,
     }
     const fingerprint = createHash('sha256')
@@ -230,25 +305,34 @@ export async function report(
     const from = Date.parse(manifest.createdAt)
     const to = controller.now().getTime()
     const reasons = [...end.reasons]
-    const host = await attempt(reasons, 'could not read the runner scorecard', () => hostScorecardOf(evidence, runId))
-    const exitsOfSaved: number[] = host ? [EXIT_CODE[host.event.status], EXIT_CODE.writeFailed] : []
-    if (host && !exitsOfSaved.includes(end.exitCode)) {
-        reasons.push(`the runner exited ${end.exitCode} after it saved a ${host.event.status} scorecard`)
+    const saved = await attempt(reasons, 'could not read the runner scorecard', () =>
+        hostScorecardOf(evidence, manifest)
+    )
+    const host = saved?.host
+    const worst = saved && Math.max(...saved.statuses.map((status) => EXIT_CODE[status]))
+    if (saved && worst !== end.exitCode && end.exitCode !== EXIT_CODE.writeFailed) {
+        const statuses =
+            saved.statuses.length === 1
+                ? `a ${saved.statuses[0]} scorecard`
+                : `${saved.statuses.join(' and ')} scorecards`
+        reasons.push(`the runner exited ${end.exitCode} after it saved ${statuses}`)
     }
     const t0 = host?.timeline.find(({ valve }) => valve === FAILOVER_VALVE)?.intentAt
     if (card.failsOver && host?.event.status === 'passed' && !t0) {
         reasons.push(`the runner recorded no ${FAILOVER_VALVE} request (intentAt), so the reader was not judged`)
     }
     const capacity = await attempt(reasons, 'could not read the reader capacity', () =>
-        capacityOf(
-            controller.aws,
-            `scn-${runId}-reader`,
-            from,
-            to,
-            host ? [Date.parse(host.event.started_at), Date.parse(host.event.ended_at)] : []
-        )
+        capacityOf(controller.aws, `scn-${runId}-reader`, from, to, saved?.window ?? [])
     )
-    const judged = capacity && t0 ? judgeCapacity(capacity, Date.parse(t0), profile.readerAcu) : undefined
+    const t0At = t0 === undefined ? Number.NaN : Date.parse(t0)
+    const t0InRun = t0At >= from && t0At <= to
+    if (t0 !== undefined && !t0InRun) {
+        reasons.push(
+            `the runner's ${FAILOVER_VALVE} request (${t0}) falls outside the run (${iso(from)} to ${iso(to)})`
+        )
+    }
+    const judged =
+        capacity && t0InRun ? judgeCapacity(capacity, t0At, profile.readerAcu, card.warmReader === true) : undefined
     if (judged?.reason) {
         reasons.push(judged.reason)
     }
@@ -258,9 +342,7 @@ export async function report(
             const last = receipts.at(-1)
             return last
                 ? [
-                      ...last.resources
-                          .filter(({ state }) => state !== 'gone')
-                          .map(({ type, id, state }) => `${type} ${id}: ${state}`),
+                      ...last.resources.filter(leftBehind).map(({ type, id, state }) => `${type} ${id}: ${state}`),
                       ...last.unlisted.map((source) => `unknown: could not list ${source}`),
                   ]
                 : ['unknown: teardown saved no receipt']
@@ -281,6 +363,11 @@ export async function report(
         card_id: card.id,
         adapters: ADAPTERS,
         ...host?.event,
+        ...(manifest.pair &&
+            reasons.length > 0 && {
+                pair_attribution: 'unjudged',
+                pair_reason: 'the cloud run is invalid, so the pair is not judged',
+            }),
         ...environment,
         reader_acu_at_t0: readerAtT0,
         run_id: runId,
@@ -294,6 +381,7 @@ export async function report(
         duration_s: (to - from) / 1000,
         evidence_dir: `s3://${evidence.name}/${keyOf(runId, 'evidence/')}`,
         t0_at: t0 ?? null,
+        ...UNJUDGED,
         ...judged?.scalars,
         acu_gaps: capacity?.gaps.map(iso) ?? [],
         teardown_clean: end.teardownClean,
@@ -307,9 +395,11 @@ export async function report(
         controller.print(
             readerAtT0 !== null
                 ? `The reader sat at ${readerAtT0} ACU in the minute before T0 (${t0}).`
-                : capacity
-                  ? `CloudWatch has no reader maximum for the minute before T0 (${t0}).`
-                  : `Could not read the reader capacity, so its ACU in the minute before T0 (${t0}) is unknown.`
+                : !t0InRun
+                  ? `The runner's ${FAILOVER_VALVE} request (${t0}) falls outside the run, so the reader was not judged.`
+                  : capacity
+                    ? `CloudWatch has no reader maximum for the minute before T0 (${t0}).`
+                    : `Could not read the reader capacity, so its ACU in the minute before T0 (${t0}) is unknown.`
         )
     }
     controller.print(`Cost estimate, excluding ${EXCLUDED.join(', ')}:`)
@@ -324,13 +414,18 @@ export async function report(
             return false
         }
     )
+    const verdict = status === 'invalid' ? EXIT_CODE.invalid : end.exitCode
+    if (controller.env.SCENARIO_PUBLISH_IN_WORKFLOW === '1') {
+        return kept ? verdict : EXIT_CODE.writeFailed
+    }
+
     const written = await publish(properties, controller.env, new AbortController().signal)
     if (written.recorded) {
         controller.print('Published the scorecard to Scenario runs.')
     } else if (written.problem) {
         controller.warn(`Could not publish the scorecard to Scenario runs: ${written.problem}`)
     } else {
-        controller.print('Scenario runs credentials are not set, so the scorecard is not published.')
+        controller.warn('Scenario runs credentials are not set, so the scorecard was not published.')
     }
     const reported = await reportToStore({ scorecard: properties }, controller.env)
     if (reported.stored) {
@@ -338,8 +433,5 @@ export async function report(
     } else if (reported.problem) {
         controller.warn(`Could not report the run to the run store: ${reported.problem}`)
     }
-    if (written.problem || (!kept && !written.recorded)) {
-        return EXIT_CODE.writeFailed
-    }
-    return status === 'invalid' ? EXIT_CODE.invalid : end.exitCode
+    return written.recorded ? verdict : EXIT_CODE.writeFailed
 }

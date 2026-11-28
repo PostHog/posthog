@@ -1,5 +1,6 @@
 ---
 name: signals-scout-pr-follow-up
+disable-model-invocation: true
 scout-display-name: PR follow-up
 description: >
   Follow-up Signals scout for recently merged pull requests.
@@ -201,6 +202,9 @@ A team that wants a positive digest can flip that in their own copy of this scou
   You always own the PR's other claims and its side-effect sweep, which the report never described.
 - **The specialists** (error tracking, logs, APM, web vitals, feature flags, experiments) own movement nobody has attributed to a change.
   You file only what you can pin to a named PR; when a specialist has already filed the anomaly, append the PR to that report as evidence (see Decide) instead of filing a second report.
+- **`signals-scout-missing-analytics`** owns a merged PR that ships a user action or outcome with no capture call at all, or with an event that lacks the property to separate it.
+  Here that claim is **unverifiable** as usual; you never file the missing event or property yourself.
+  You keep whether a capture call a PR did add actually arrives.
 - **The harness `followup:` queue** is each scout's own re-check list for its own findings; you never read or write those keys.
 
 ### Close out

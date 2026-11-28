@@ -194,6 +194,7 @@ from posthog.exceptions import APIQueriesBudgetExceeded, QueryRanConcurrently
 from posthog.exceptions_capture import capture_exception
 from posthog.git import get_git_commit_short
 from posthog.hogql_queries.access_controlled_resources import queried_access_controlled_resources
+from posthog.hogql_queries.dashboard_v2_batch_scope import DASHBOARD_V2_BATCH_ONLY_KINDS, in_dashboard_v2_batch
 from posthog.hogql_queries.phase_times import compute_phase_times
 from posthog.hogql_queries.query_failure_handling import (
     budget_for_limit_context,
@@ -300,7 +301,6 @@ SURVEY_QUERY_EXECUTION_DURATION = Histogram(
 )
 
 API_QUERIES_BUDGET_ENFORCEMENT_FLAG = "api-queries-budget-enforcement"
-DASHBOARD_V2_FLAG = "dashboard-v2"
 
 API_QUERIES_BUDGET_LIMITED_COUNTER = Counter(
     "posthog_api_queries_budget_limited_total",
@@ -771,6 +771,22 @@ def get_query_runner(
             modifiers=modifiers,
             user=user,
         )
+
+    # Checked here rather than in validate_query_runner_access, which run() skips for share links and userless runs.
+    if kind in DASHBOARD_V2_BATCH_ONLY_KINDS and not in_dashboard_v2_batch():
+        error = UserAccessControlError("tracing", "viewer")
+        if user is not None and not user.is_anonymous:
+            posthoganalytics.capture(
+                distinct_id=user.distinct_id,
+                event="query access control error",
+                properties={
+                    "query_type": kind,
+                    "resource": error.resource,
+                    "required_level": error.required_level,
+                    "resource_id": error.resource_id,
+                },
+            )
+        raise error
 
     if kind == "InboxUsageQuery":
         from products.signals.backend.facade.spend import InboxUsageQueryRunner
@@ -1931,11 +1947,26 @@ def get_query_runner(
     if kind == "TraceSpansQuery":
         from posthog.schema import TraceSpansQuery
 
-        from products.tracing.backend.logic import TraceSpansQueryRunner
+        from products.tracing.backend.logic import span_list_query_runner
 
-        return TraceSpansQueryRunner(
-            query=cast(TraceSpansQuery, query),
+        return span_list_query_runner(
+            cast(TraceSpansQuery | dict[str, Any], query),
             team=team,
+            timings=timings,
+            modifiers=modifiers,
+            limit_context=limit_context,
+            user=user,
+        )
+
+    if kind == "TraceSpansAggregationQuery":
+        from posthog.schema import TraceSpansAggregationQuery
+
+        from products.tracing.backend.logic import DEFAULT_AGGREGATION_ROW_LIMIT, aggregation_query_runner
+
+        return aggregation_query_runner(
+            cast(TraceSpansAggregationQuery | dict[str, Any], query),
+            team=team,
+            limit=DEFAULT_AGGREGATION_ROW_LIMIT,
             timings=timings,
             modifiers=modifiers,
             limit_context=limit_context,
@@ -2554,12 +2585,15 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
 
     def _dashboard_queue_wait(self, dashboard_id: Optional[int], *, is_api_key_access: bool) -> Optional[QueueWait]:
         """On `dashboard-v2`, a dashboard tile that finds the analytics slots full waits briefly for one instead of failing."""
+        # Imported here so that loading query runners doesn't load the DRF permission stack.
+        from posthog.permissions import dashboard_v2_enabled
+
         # Shared-link viewers are anonymous, so they fail fast rather than hold a web worker while they wait.
         if (
             dashboard_id is None
             or is_api_key_access
             or get_query_tag_value("access_method") == AccessMethod.SHARING_TOKEN
-            or not self._team_flag_enabled_locally(DASHBOARD_V2_FLAG)
+            or not dashboard_v2_enabled(self.team, self.user)
         ):
             return None
         return QueueWait()
@@ -3901,7 +3935,7 @@ class AnalyticsQueryRunner(QueryRunner, Generic[AR]):
         # from - so queries on events, persons and other non-access-controlled tables share one cache
         # entry (incl. userless cache warming).
         queried_resources = queried_access_controlled_resources(
-            self.query, self.team, bypassed_scopes=self._bypassed_access_scopes
+            self.query, self.team, bypassed_scopes=self._bypassed_access_scopes, modifiers=self.modifiers
         )
 
         if isinstance(self.user, User) and not self.team.organization.is_feature_available(
@@ -3978,7 +4012,7 @@ class AnalyticsQueryRunner(QueryRunner, Generic[AR]):
         # cached result. `queried_resources` already leaves out the scopes they bypass.
         if not isinstance(user, User):
             if queried_resources is None:
-                return ["*"]
+                queried_resources = set(API_SCOPE_OBJECTS)
             restricted = queried_resources - user.readable_system_table_access_scopes()
             return sorted(restricted) or None
 
@@ -3986,7 +4020,7 @@ class AnalyticsQueryRunner(QueryRunner, Generic[AR]):
         if user_access_control is None:
             return None
         if queried_resources is None:
-            return user_access_control.blocked_resources or None
+            queried_resources = set(API_SCOPE_OBJECTS)
         # has_resource_access resolves RESOURCE_INHERITANCE_MAP (same predicate the schema filter uses),
         # so a deny on a parent (e.g. customer_analytics) still partitions a child-scoped table (account).
         # Intersecting the raw blocked_resources list would miss inherited denies and leak the cache.

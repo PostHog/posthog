@@ -98,9 +98,6 @@ MAX_DISTINCT_SCAN_WINDOWS = 50
 # the recording at all is decided per request in the view, so neither kind of revocation waits
 # for expiry. That keeps invalidation out of a path whose only job is to cut latency.
 SESSION_CONTEXT_CACHE_TTL = 10 * 60
-# Hard cap on the batch endpoint's id list. A playlist page holds 20 recordings, and every
-# extra session widens the grouped scans; anything larger should arrive as separate batches.
-MAX_SESSION_CONTEXT_BATCH = 20
 # Each distinct recording day in a batch runs its own set of scans, so ids scattered across
 # many days would fan one throttled HTTP request out into dozens of ClickHouse queries. The
 # most recent days win (recordings lists sort by recency); sessions beyond the budget are
@@ -826,8 +823,8 @@ def _resolve_exposure(flag_key: str, exposure_criteria: Optional[dict]) -> _Reso
     except pydantic.ValidationError:
         criteria = None
     exposure_config = criteria.exposure_config if criteria else None
-    # This surface deliberately stays on the legacy default rather than resolving the
-    # $experiment_exposure rollout per experiment. Its reads of $feature_flag_called also match the
+    # This surface deliberately stays on the legacy default rather than resolving the default
+    # exposure event per experiment. Its reads of $feature_flag_called also match the
     # $experiment_exposure copy, which lands on the same session with the same properties, so they
     # find an exposure whichever of the two events reaches the events table.
     event, variant_property = get_exposure_event_and_property(

@@ -60,9 +60,36 @@ REPORT_FANOUT = DependentEndpointConfig(
     child_params={"pageSize": PAGE_SIZE},
 )
 
+TEAM_FANOUT = DependentEndpointConfig(
+    parent_name="Teams",
+    resolve_param="teamId",
+    resolve_field="teamId",
+    include_from_parent=["teamId"],
+    parent_field_renames={"teamId": "teamId"},
+)
+
+DATA_MODEL_FANOUT = DependentEndpointConfig(
+    parent_name="DataModels",
+    resolve_param="dataModelId",
+    resolve_field="dataModelId",
+    include_from_parent=["dataModelId"],
+    parent_field_renames={"dataModelId": "dataModelId"},
+)
+
+# Workbook sources is an unpaginated bare list, so it takes no page size and the parent's
+# `limit` is passed explicitly.
+WORKBOOK_SOURCES_FANOUT = DependentEndpointConfig(
+    parent_name="Workbooks",
+    resolve_param="workbookId",
+    resolve_field="workbookId",
+    include_from_parent=["workbookId"],
+    parent_field_renames={"workbookId": "workbookId"},
+    parent_params={"limit": PAGE_SIZE},
+)
+
 # "page" is `page`/`limit` in, `nextPage` out; "page_token" is `pageToken`/`pageSize` in,
-# `nextPageToken` out.
-Pagination = Literal["page", "page_token"]
+# `nextPageToken` out; "none" is a single unpaginated response.
+Pagination = Literal["page", "page_token", "none"]
 
 
 @frozen
@@ -80,6 +107,7 @@ class SigmaComputingEndpointConfig:
     default_incremental_field: str | None = None
     fanout: DependentEndpointConfig | None = None
     pagination: Pagination = "page"
+    data_selector: str = "entries"
 
 
 SIGMA_ENDPOINTS: dict[str, SigmaComputingEndpointConfig] = {
@@ -121,6 +149,15 @@ SIGMA_ENDPOINTS: dict[str, SigmaComputingEndpointConfig] = {
         path="/v2/reports",
         primary_key="reportId",
     ),
+    # Listing account types needs API credentials owned by an Admin; a 403 for other clients maps to
+    # the non-retryable permission error.
+    "AccountTypes": SigmaComputingEndpointConfig(
+        name="AccountTypes",
+        path="/v2/accountTypes",
+        primary_key="accountTypeId",
+        partition_key=None,
+        pagination="page_token",
+    ),
     "WorkbookElements": SigmaComputingEndpointConfig(
         name="WorkbookElements",
         path="/v2/workbooks/{workbookId}/elements",
@@ -143,6 +180,17 @@ SIGMA_ENDPOINTS: dict[str, SigmaComputingEndpointConfig] = {
         primary_key=["workbookId", "elementId"],
         partition_key=None,
         fanout=WORKBOOK_FANOUT,
+    ),
+    "WorkbookSources": SigmaComputingEndpointConfig(
+        name="WorkbookSources",
+        path="/v2/workbooks/{workbookId}/sources",
+        # Entries are a union of data model, table, dataset and custom SQL sources with no shared
+        # id field; `sourceId` is derived from whichever id the entry's type carries.
+        primary_key=["workbookId", "type", "sourceId"],
+        partition_key=None,
+        fanout=WORKBOOK_SOURCES_FANOUT,
+        pagination="none",
+        data_selector="$",
     ),
     "ReportElements": SigmaComputingEndpointConfig(
         name="ReportElements",
@@ -169,6 +217,22 @@ SIGMA_ENDPOINTS: dict[str, SigmaComputingEndpointConfig] = {
         partition_key=None,
         fanout=REPORT_FANOUT,
         pagination="page_token",
+    ),
+    "TeamMembers": SigmaComputingEndpointConfig(
+        name="TeamMembers",
+        path="/v2/teams/{teamId}/members",
+        # userId is the member id; a member appears once per team.
+        primary_key=["teamId", "userId"],
+        partition_key=None,
+        fanout=TEAM_FANOUT,
+    ),
+    "DataModelElements": SigmaComputingEndpointConfig(
+        name="DataModelElements",
+        path="/v2/dataModels/{dataModelId}/elements",
+        # elementId is only documented unique within its data model.
+        primary_key=["dataModelId", "elementId"],
+        partition_key=None,
+        fanout=DATA_MODEL_FANOUT,
     ),
 }
 

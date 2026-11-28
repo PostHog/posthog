@@ -4,16 +4,15 @@ from enum import StrEnum
 from typing import Any, Optional
 
 import structlog
-import posthoganalytics
 
 from posthog.hogql.type_system import parse_clickhouse_type
 
 from posthog.dataclasses import frozen
 from posthog.models import Team, User
-from posthog.ph_client import feature_enabled_or_false
 from posthog.sync import database_sync_to_async
 
 from products.exports.backend.facade.api import RENDER_TIMEOUT, render_png_export
+from products.subscriptions.backend.logic.subscription_utils import organization_flag_enabled
 from products.subscriptions.backend.temporal.ai_subscription.schemas import (
     ALLOWED_CHART_DISPLAYS,
     CONTINUOUS_CHART_DISPLAYS,
@@ -86,15 +85,7 @@ class ChartRenderFailure:
 def charts_enabled(team: Team, user: User) -> bool:
     if not getattr(user, "distinct_id", None):
         return False
-    org_id = str(team.organization_id)
-    with posthoganalytics.new_context(capture_exceptions=False):
-        posthoganalytics.tag("$update_person_last_seen_at", False)
-        return feature_enabled_or_false(
-            AI_REPORT_CHARTS_FEATURE_FLAG_KEY,
-            str(user.distinct_id),
-            groups={"organization": org_id},
-            group_properties={"organization": {"id": org_id}},
-        )
+    return organization_flag_enabled(AI_REPORT_CHARTS_FEATURE_FLAG_KEY, team.organization_id, str(user.distinct_id))
 
 
 def validate_chart(

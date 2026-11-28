@@ -141,11 +141,12 @@ export function QuillPropertyAccessRules({
             ) : (
                 <PropertyRuleRowEditingContext.Provider value={rowEditing}>
                     <DataTable
+                        className="rounded-md border border-border"
                         columns={COLUMNS}
                         data={properties}
                         getRowId={(rule) => rule.property_definition_id}
                         fullWidth
-                        pageSize={properties.length > RULES_PER_PAGE ? RULES_PER_PAGE : undefined}
+                        pageSize={RULES_PER_PAGE}
                         empty={
                             <Text size="xs" variant="muted" render={<p className="m-0" />}>
                                 {`No property rules for this ${subjectNoun}.`}

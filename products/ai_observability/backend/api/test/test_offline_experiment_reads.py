@@ -26,7 +26,7 @@ from products.ai_observability.backend.models.offline_evaluations import (
     OfflineExperimentItem,
     OfflineExperimentItemPayload,
 )
-from products.ai_observability.backend.models.score_definitions import ScoreDefinition
+from products.ai_observability.backend.models.score_definitions import ExperimentScoreSuiteDefault, ScoreDefinition
 from products.ai_observability.backend.resource_tags import ResourceTags
 
 
@@ -85,11 +85,116 @@ class TestOfflineExperimentReads(APIBaseTest):
     def _endpoint(self, suffix: str = "", team_id: int | None = None) -> str:
         return f"/api/projects/{team_id or self.team.id}/ai_observability/offline_experiments/{suffix}"
 
+    def test_experiment_score_preview_is_read_only_and_requires_both_read_scopes(self) -> None:
+        endpoint = self._endpoint(f"{self.experiment.id}/score_previews/")
+        body = {
+            "kind": "boolean",
+            "config": {"true_label": "Flagged", "true_is_failure": True},
+            "composition": {
+                "expression": "correct >= 0.9",
+                "inputs": [{"alias": "correct", "scorer_version_id": str(self.version.id), "statistic": "pass_rate"}],
+            },
+        }
+        self._authenticate("personal_key", ["evaluation:read", "llm_analytics:read"])
+        preview = self.client.post(endpoint, body, format="json")
+        self.assertEqual(preview.status_code, 200, preview.data)
+        self.assertIs(preview.data["value"], True)
+        self.assertIs(preview.data["passed"], False)
+        self.assertEqual(preview.data["config"], body["config"])
+        self.assertEqual(preview.data["kind"], "boolean")
+        self.assertEqual(preview.data["inputs"][0]["sources"][0]["successful_items"], 1)
+        self.experiment.refresh_from_db()
+        self.assertIsNone(self.experiment.experiment_scorer_version_id)
+        self._authenticate("personal_key", ["evaluation:read"])
+        self.assertEqual(self.client.post(endpoint, body, format="json").status_code, 403)
+
+    def test_historical_run_can_show_a_visible_future_default_without_pinning_it(self) -> None:
+        definition = ScoreDefinition.objects.create(
+            team=self.team, name="Release", scope="experiment", kind="numeric", calculation="composite"
+        )
+        version = definition.create_new_version(
+            config={},
+            composition={
+                "expression": "correct",
+                "inputs": [{"alias": "correct", "statistic": "pass_rate", "scorer_version_id": str(self.version.id)}],
+            },
+            created_by=self.user,
+        )
+        self.experiment.suite_key = "support"
+        self.experiment.save(update_fields=["suite_key"])
+        ExperimentScoreSuiteDefault.objects.for_team(self.team.id).create(
+            team=self.team, suite_key="support", scorer_version=version
+        )
+        endpoint = self._endpoint(f"{self.experiment.id}/")
+        self._authenticate("personal_key", ["evaluation:read", "llm_analytics:read"])
+        detail = self.client.get(endpoint)
+        self.assertEqual(detail.status_code, 200, detail.data)
+        self.assertIs(detail.data["suite_has_score"], True)
+        self.assertIsNone(detail.data["experiment_score"])
+        self._authenticate("personal_key", ["evaluation:read"])
+        self.assertIsNone(self.client.get(endpoint).data["suite_has_score"])
+
     def _history(self, definition_id: str | None = None, team_id: int | None = None) -> str:
         return (
             f"/api/projects/{team_id or self.team.id}/ai_observability/"
             f"offline_scorers/{definition_id or self.definition.id}/history/"
         )
+
+    def test_experiment_scorer_history_uses_pinned_versions_including_runs_without_a_value(self) -> None:
+        definition = ScoreDefinition.objects.create(
+            team=self.team, name="Release score", kind="numeric", scope="experiment", calculation="composite"
+        )
+        composition = {
+            "expression": "100 * correct",
+            "inputs": [{"alias": "correct", "scorer_version_id": str(self.version.id), "statistic": "pass_rate"}],
+        }
+        original = definition.create_new_version(config={}, composition=composition, created_by=None)
+        current = definition.create_new_version(config={"max": 100}, composition=composition, created_by=None)
+        self.experiment.experiment_scorer_version = original
+        self.experiment.save(update_fields=["experiment_scorer_version"])
+        newer = OfflineExperiment.objects.for_team(self.team.id).create(
+            id=uuid4(),
+            team=self.team,
+            name="No item scores",
+            started_at=self.experiment.started_at + timedelta(minutes=1),
+            finished_at=self.experiment.started_at + timedelta(minutes=2),
+            status="completed",
+            submission_fingerprint="d" * 64,
+            experiment_scorer_version=current,
+            suite_key="support",
+        )
+        url = self._history(str(definition.id))
+        self._authenticate("personal_key", ["evaluation:read", "llm_analytics:read"])
+        query = {"breakdown": "suite_key", "limit": "1"}
+        first = self.client.get(url, query)
+        self.assertEqual(first.status_code, 200, first.data)
+        self.assertEqual(first.data["count"], 2)
+        point = first.data["results"][0]
+        self.assertIsNone(point["summary"])
+        self.assertEqual(point["experiment"]["id"], str(newer.id))
+        self.assertEqual(point["experiment"]["experiment_score"]["status"], "missing_input")
+        self.assertEqual(point["breakdown_value"], "support")
+        second = self.client.get(url, {**query, "cursor": first.data["next_cursor"]})
+        self.assertEqual(second.data["results"][0]["experiment"]["experiment_score"]["value"], 100)
+        selected = self.client.get(url, {"scorer_version_ids": str(original.id)})
+        self.assertEqual([row["experiment"]["id"] for row in selected.data["results"]], [str(self.experiment.id)])
+        selected_runs = self.client.get(self._endpoint(), {"scorer_version_ids": str(original.id)})
+        self.assertEqual([run["id"] for run in selected_runs.data["results"]], [str(self.experiment.id)])
+        membership = self._member()
+        AccessControl.objects.create(
+            team=self.team, resource="llm_analytics", access_level="viewer", organization_member=membership
+        )
+        AccessControl.objects.create(
+            team=self.team,
+            resource="llm_analytics",
+            resource_id=str(self.definition.id),
+            access_level="none",
+            organization_member=membership,
+        )
+        self._authenticate("personal_key", ["evaluation:read", "llm_analytics:read"], user=membership.user)
+        restricted = self.client.get(url)
+        self.assertEqual(restricted.status_code, 200, restricted.data)
+        self.assertEqual(restricted.data["count"], 0)
 
     @parameterized.expand(
         [
@@ -304,7 +409,7 @@ class TestOfflineExperimentReads(APIBaseTest):
             ("personal_uploader", "personal_key", ["offline_evaluation_ingestion:write"], status.HTTP_403_FORBIDDEN),
             ("scorer_only", "personal_key", ["llm_analytics:read"], status.HTTP_403_FORBIDDEN),
             ("project_uploader", "project_key", ["offline_evaluation_ingestion:write"], status.HTTP_403_FORBIDDEN),
-            ("project_reader", "project_key", ["evaluation:read", "llm_analytics:read"], status.HTTP_403_FORBIDDEN),
+            ("project_reader", "project_key", ["evaluation:read", "llm_analytics:read"], status.HTTP_200_OK),
         ]
     )
     def test_read_routes_enforce_credential_scopes(
@@ -329,7 +434,7 @@ class TestOfflineExperimentReads(APIBaseTest):
                 "editor",
                 status.HTTP_403_FORBIDDEN,
             ),
-            ("project_key", "project_key", ["evaluation:write"], "editor", status.HTTP_403_FORBIDDEN),
+            ("project_key", "project_key", ["evaluation:write"], "none", status.HTTP_200_OK),
         ]
     )
     def test_tag_updates_require_evaluation_editor_access(
@@ -341,8 +446,9 @@ class TestOfflineExperimentReads(APIBaseTest):
         assert response.status_code == expected_status, response.data
         assert self.experiment.tagged_items.count() == (1 if expected_status == 200 else 0)
 
-    def test_evaluation_only_key_reads_items_but_cannot_select_or_filter_scorers(self) -> None:
-        self._authenticate("personal_key", ["evaluation:read"])
+    @parameterized.expand(["personal_key", "project_key"])
+    def test_evaluation_only_key_reads_items_but_cannot_select_or_filter_scorers(self, auth_kind: str) -> None:
+        self._authenticate(auth_kind, ["evaluation:read"])
         for path in self._metadata_paths():
             with self.subTest(path=path):
                 response = self.client.get(path)

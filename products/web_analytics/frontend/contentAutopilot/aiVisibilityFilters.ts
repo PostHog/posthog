@@ -129,14 +129,14 @@ export const filtersToSearchParams = (filters: AiVisibilityFilters): Record<stri
     branded: filters.branded,
 })
 
-/** `searchParams` with the AI visibility params replaced by the filters' own. */
+// The open tab is an AI visibility param too, but no filter owns it, so a filter change keeps it.
+const FILTER_URL_PARAMS: readonly string[] = AI_VISIBILITY_URL_PARAMS.filter((key) => key !== 'tab')
+
 export const withFilterSearchParams = (
     searchParams: Record<string, unknown>,
     filters: AiVisibilityFilters
 ): Record<string, unknown> => {
-    const others = Object.fromEntries(
-        Object.entries(searchParams).filter(([key]) => !(AI_VISIBILITY_URL_PARAMS as readonly string[]).includes(key))
-    )
+    const others = Object.fromEntries(Object.entries(searchParams).filter(([key]) => !FILTER_URL_PARAMS.includes(key)))
     return { ...others, ...filtersToSearchParams(filters) }
 }
 

@@ -1,5 +1,6 @@
 import asyncio
 import logging
+from dataclasses import replace
 from datetime import timedelta
 from typing import Literal
 from uuid import uuid4
@@ -7,7 +8,7 @@ from uuid import uuid4
 import pytest
 
 from temporalio import activity
-from temporalio.client import WorkflowFailureError
+from temporalio.client import WorkflowExecutionStatus, WorkflowFailureError
 from temporalio.exceptions import (
     ActivityError,
     ApplicationError,
@@ -137,6 +138,103 @@ class EgressActivities:
             await self.release_cleanup.wait()
         if self.cleanup_fails:
             raise OSError("Provider cleanup unavailable")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "outcome",
+    ["completed", "cancelled", "renewal_failed", "publication_failed", "publication_conflict", "authority_lost"],
+)
+async def test_delayed_git_publication_keeps_lease_live_and_obeys_termination(outcome: str) -> None:
+    activities = EgressActivities("completed", cleanup_fails=False)
+    publishing = asyncio.Event()
+    lease_expires_at = 0.0
+    first_lease_expires_at = 0.0
+    published = False
+    publication_attempts = 0
+
+    @activity.defn(name="prepare_agent_egress")
+    async def prepare(input: AgentEgressExecutionInput) -> AgentEgressPrepared:
+        nonlocal lease_expires_at, first_lease_expires_at
+        lease_expires_at = (await environment.get_current_time() + AGENT_EGRESS_LEASE_DURATION).timestamp()
+        first_lease_expires_at = lease_expires_at
+        return replace(await activities.prepare(input), publish_git_read_grant=True)
+
+    @activity.defn(name="renew_agent_egress")
+    async def renew(input: AgentEgressExecutionInput) -> None:
+        nonlocal lease_expires_at
+        now = (await environment.get_current_time()).timestamp()
+        assert now < lease_expires_at
+        await activities.renew(input)
+        lease_expires_at = now + AGENT_EGRESS_LEASE_DURATION.total_seconds()
+
+    @activity.defn(name="initialize_agent_egress_git_grant")
+    async def publish(input: AgentEgressExecutionInput) -> None:
+        nonlocal published, publication_attempts
+        assert input == activities.execution
+        publication_attempts += 1
+        publishing.set()
+        if outcome == "publication_conflict":
+            raise ApplicationError("Grant already replaced", type="GitGrantConflict", non_retryable=True)
+        if outcome == "authority_lost":
+            raise ValueError("Execution registration is not active")
+        if outcome == "publication_failed":
+            raise ApplicationError(
+                "Git credential mint unavailable", type="GitGrantUnavailable", next_retry_delay=timedelta(seconds=35)
+            )
+        if activity.info().attempt == 1:
+            raise ApplicationError("GitHub temporarily unavailable", next_retry_delay=timedelta(seconds=35))
+        assert first_lease_expires_at < (await environment.get_current_time()).timestamp() < lease_expires_at
+        published = True
+
+    queue = f"agent-egress-publication-test-{uuid4()}"
+    async with await WorkflowEnvironment.start_time_skipping() as environment:
+        input = AgentEgressProbeInput(
+            config_path="",
+            team_id=1,
+            run_id=str(uuid4()),
+            sandbox_id="sb-egress-test",
+            enrollment=True,
+            sandbox_expires_at=(await environment.get_current_time() + timedelta(seconds=120)).timestamp(),
+        )
+        async with Worker(
+            environment.client,
+            task_queue=queue,
+            workflows=[AgentEgressProbeWorkflow],
+            activities=[prepare, renew, publish, activities.probe, activities.close],
+            workflow_runner=UnsandboxedWorkflowRunner(),
+        ):
+            handle = await environment.client.start_workflow(
+                AgentEgressProbeWorkflow.run, input, id=queue, task_queue=queue
+            )
+            await asyncio.wait_for(publishing.wait(), timeout=15)
+            assert not activities.probing.is_set()
+            if outcome in ("completed", "publication_failed", "publication_conflict"):
+                assert await asyncio.wait_for(handle.result(), timeout=15) == {204: 3}
+                assert activities.renewal_attempts >= 3
+                assert published is (outcome == "completed")
+                assert (
+                    publication_attempts
+                    == {"completed": 2, "publication_failed": 3, "publication_conflict": 1}[outcome]
+                )
+            else:
+                if outcome == "cancelled":
+                    await handle.cancel()
+                elif outcome == "renewal_failed":
+                    activities.outcome = "renewal_failed"
+                with pytest.raises(WorkflowFailureError):
+                    await asyncio.wait_for(handle.result(), timeout=15)
+                assert not published
+            assert activities.cleanup is not None
+            expected_reason = (
+                "failed"
+                if outcome in ("renewal_failed", "authority_lost")
+                else "cancelled"
+                if outcome == "cancelled"
+                else "completed"
+            )
+            assert activities.cleanup.reason == expected_reason
+            assert activities.cleanup_attempts == 1
 
 
 @pytest.mark.asyncio
@@ -355,13 +453,20 @@ async def test_enrollment_outlives_diagnostics(
             activities.outcome = outcome
             if outcome == "cancelled":
                 await handle.cancel()
-            if outcome in ("cancelled", "run_cancelled", "renewal_failed"):
+            if outcome in ("cancelled", "renewal_failed"):
                 with pytest.raises(WorkflowFailureError) as failure:
                     await asyncio.wait_for(handle.result(), timeout=15)
                 expected = ActivityError if outcome == "renewal_failed" else CancelledError
                 assert isinstance(failure.value.cause, expected)
             else:
                 assert await asyncio.wait_for(handle.result(), timeout=15) == ({} if probe_fails else {204: 3})
+            assert (await handle.describe()).status == (
+                WorkflowExecutionStatus.CANCELED
+                if outcome == "cancelled"
+                else WorkflowExecutionStatus.FAILED
+                if outcome == "renewal_failed"
+                else WorkflowExecutionStatus.COMPLETED
+            )
             if outcome == "completed":
                 assert (await environment.get_current_time()).timestamp() >= expires_at
                 assert activities.renewal_attempts >= 3
@@ -428,7 +533,9 @@ async def test_workflow_cleans_up_its_execution(
                     await handle.cancel()
                 elif outcome in ("renewal_failed", "renewal_retry", "run_cancelled", "run_completed", "run_failed"):
                     await environment.sleep(11)
-                if outcome in ("run_completed", "run_failed") and (not cleanup_fails or outcome == "run_failed"):
+                if outcome in ("run_completed", "run_failed", "run_cancelled") and (
+                    not cleanup_fails or outcome != "run_completed"
+                ):
                     assert await asyncio.wait_for(handle.result(), timeout=15) == {}
                 elif (
                     outcome in ("completed", "renewal_retry", "prepare_retry", "prepare_timeout") and not cleanup_fails
@@ -437,9 +544,9 @@ async def test_workflow_cleans_up_its_execution(
                 else:
                     with pytest.raises(WorkflowFailureError) as failure:
                         await asyncio.wait_for(handle.result(), timeout=15)
-                    expected = CancelledError if outcome in ("cancelled", "run_cancelled") else ActivityError
+                    expected = CancelledError if outcome == "cancelled" else ActivityError
                     assert isinstance(failure.value.cause, expected)
-                    if outcome not in ("cancelled", "run_cancelled"):
+                    if outcome != "cancelled":
                         assert isinstance(failure.value.cause, ActivityError)
                         assert isinstance(failure.value.cause.cause, ApplicationError)
                         expected_message = {
@@ -448,6 +555,17 @@ async def test_workflow_cleans_up_its_execution(
                             "prepare_failed": "Provider write failed",
                         }.get(outcome, "Provider cleanup unavailable")
                         assert failure.value.cause.cause.message == expected_message
+                assert (await handle.describe()).status == (
+                    WorkflowExecutionStatus.CANCELED
+                    if outcome == "cancelled"
+                    else WorkflowExecutionStatus.COMPLETED
+                    if outcome in ("run_cancelled", "run_failed")
+                    or (
+                        outcome in ("completed", "renewal_retry", "prepare_retry", "prepare_timeout", "run_completed")
+                        and not cleanup_fails
+                    )
+                    else WorkflowExecutionStatus.FAILED
+                )
                 if outcome == "probe_rejected":
                     assert activities.probe_attempts == 1
                 assert activities.prepare_attempts == (2 if outcome in ("prepare_retry", "prepare_timeout") else 1)

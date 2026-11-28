@@ -28,9 +28,13 @@ from products.warehouse_sources.sources.sdk import (
 THROTTLE_USER_ERROR = "ERROR!!! ThrottleUser"
 THROTTLE_IP_ERROR = "ERROR!!! ThrottleIP"
 THROTTLE_ERRORS = (THROTTLE_USER_ERROR, THROTTLE_IP_ERROR)
+# Every table of a source shares the key's quota, and the per-page tables send by far the most
+# requests, so the copy names them.
 THROTTLE_RETRY_ERROR = (
-    "Bing Webmaster Tools' API rate limit ran out before this sync finished. "
-    "The next sync runs on schedule; if this keeps happening, sync fewer tables."
+    "Bing Webmaster Tools' API rate limit for this API key ran out before this sync finished. "
+    "The page_query_stats and link_counts tables use the most requests: page_query_stats sends one for "
+    "each of a site's top 100 pages, and link_counts one for each page of link results. "
+    "If this keeps happening, turn those tables off or set a longer sync frequency."
 )
 # The IP limit counts every customer that shares PostHog's egress address, so syncing fewer
 # tables does not help.

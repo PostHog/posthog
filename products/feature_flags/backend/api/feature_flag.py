@@ -46,7 +46,6 @@ from posthog.api.documentation import FeatureFlagFiltersSchemaSerializer, extend
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.services.flags_service import RETRYABLE_FLAGS_SERVICE_EXCEPTIONS, get_flags_from_service
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import (
@@ -118,7 +117,7 @@ from products.approvals.backend.policies import lock_approval_policies
 from products.approvals.backend.presentation.mixins import ApprovalHandlingMixin
 from products.cohorts.backend.models.cohort import Cohort, CohortType
 from products.cohorts.backend.models.util import get_all_cohort_dependencies
-from products.dashboards.backend.models.dashboard import Dashboard
+from products.dashboards.backend.facade import api as dashboards_api
 from products.experiments.backend.facade.contracts import LinkedExperiment
 from products.feature_flags.backend.api.code_analysis import FeatureFlagCodeAnalysisMixin
 from products.feature_flags.backend.api.filters_schema import (
@@ -337,6 +336,7 @@ def _carry_loaded_state(source: FeatureFlag, target: FeatureFlag) -> None:
 
 
 BEHAVIOURAL_COHORT_FOUND_ERROR_CODE = "behavioral_cohort_found"
+REALTIME_COHORT_NOT_READY_ERROR_CODE = "realtime_cohort_not_ready"
 
 # Gates enforcement of `feature_flag:write` on cross-resource flag mutations
 # (Survey / Early Access Feature endpoints). Kept off during the migration grace
@@ -558,17 +558,17 @@ def _validate_behavioral_cohort_for_feature_flag(
             return
         if cohort.cohort_type != CohortType.REALTIME:
             raise serializers.ValidationError(
-                detail=f"Cohort '{cohort.name}' has an event-based condition{condition_clause} and cannot be used in feature flags.",
+                detail=f"Cohort '{cohort.name}' has an event-based condition{condition_clause} and isn't a realtime cohort, so feature flags can't target it. Open the cohort's page to see why it isn't realtime.",
                 code=BEHAVIOURAL_COHORT_FOUND_ERROR_CODE,
             )
         if not cohort.realtime_enabled:
             raise serializers.ValidationError(
-                detail=f"Realtime is off for cohort '{cohort.name}'. Turn it on from the cohort's page, and feature flags can target the cohort once it's ready.",
-                code=BEHAVIOURAL_COHORT_FOUND_ERROR_CODE,
+                detail=f"Realtime is off for cohort '{cohort.name}', so feature flags can't target it. Open the cohort's page to turn realtime on, or to see why it can't be turned on.",
+                code=REALTIME_COHORT_NOT_READY_ERROR_CODE,
             )
         raise serializers.ValidationError(
-            detail=f"Cohort '{cohort.name}' isn't ready for feature flags yet. Open the cohort to see whether PostHog is still preparing it, and try again once it shows as realtime.",
-            code=BEHAVIOURAL_COHORT_FOUND_ERROR_CODE,
+            detail=f"Cohort '{cohort.name}' isn't ready for feature flags yet. Preparing a cohort usually takes under 30 minutes. Open the cohort to see whether PostHog is still preparing it, and try again once it shows as realtime.",
+            code=REALTIME_COHORT_NOT_READY_ERROR_CODE,
         )
 
     raise serializers.ValidationError(
@@ -1623,6 +1623,31 @@ class FeatureFlagListSerializer(serializers.ListSerializer):
             self.child.context.pop(CONDITION_COHORTS_CONTEXT_KEY, None)
 
 
+class _TeamDashboardIdField(serializers.PrimaryKeyRelatedField):
+    """The id of a live dashboard of the serializer's team, checked through the dashboards facade.
+
+    The validated value is the id, not a dashboard row. Without a `team_id` in the context, every id
+    is rejected. Errors keep the codes and messages of `PrimaryKeyRelatedField`, because API clients
+    read them: an id that is not a live dashboard of the team fails with `does_not_exist`.
+    """
+
+    def get_queryset(self) -> QuerySet[Any]:
+        # DRF refuses a writable related field that has neither a queryset nor its own get_queryset.
+        return super().get_queryset()
+
+    def to_internal_value(self, data: object) -> int:
+        if isinstance(data, bool) or not isinstance(data, int | float | str):
+            self.fail("incorrect_type", data_type=type(data).__name__)
+        try:
+            dashboard_id = int(data)
+        except ValueError:
+            self.fail("incorrect_type", data_type=type(data).__name__)
+        team_id = self.context.get("team_id")
+        if not team_id or dashboards_api.unknown_dashboard_ids([dashboard_id], team_id=team_id):
+            self.fail("does_not_exist", pk_value=data)
+        return dashboard_id
+
+
 class FeatureFlagSerializer(
     TaggedItemSerializerMixin,
     EvaluationContextSerializerMixin,
@@ -1663,11 +1688,7 @@ class FeatureFlagSerializer(
             "Usage charts are on the flag's Usage tab. The API does not create these dashboards."
         ),
     )
-    analytics_dashboards = TeamScopedPrimaryKeyRelatedField(
-        many=True,
-        required=False,
-        queryset=Dashboard.objects.all(),
-    )
+    analytics_dashboards = _TeamDashboardIdField(many=True, required=False)
     is_used_in_replay_settings = serializers.SerializerMethodField()
     is_eligible_for_experiment = serializers.BooleanField(
         read_only=True,
@@ -2868,9 +2889,9 @@ class FeatureFlagSerializer(
         self._attempt_set_evaluation_contexts(evaluation_contexts, instance)
 
         if analytics_dashboards is not None:
-            for dashboard in analytics_dashboards:
-                # nosemgrep: idor-lookup-without-team -- dashboard objects validated via get_fields() queryset restriction
-                FeatureFlagDashboards.objects.get_or_create(dashboard=dashboard, feature_flag=instance)
+            for dashboard_id in analytics_dashboards:
+                # nosemgrep: idor-lookup-without-team -- the analytics_dashboards field accepts only dashboard ids of this team
+                FeatureFlagDashboards.objects.get_or_create(dashboard_id=dashboard_id, feature_flag=instance)
 
         analytics_metadata = instance.get_analytics_metadata()
         analytics_metadata["creation_context"] = creation_context
@@ -3076,9 +3097,9 @@ class FeatureFlagSerializer(
         analytics_dashboards = validated_data.pop("analytics_dashboards", None)
 
         if analytics_dashboards is not None:
-            for dashboard in analytics_dashboards:
-                # nosemgrep: idor-lookup-without-team -- dashboard objects validated via get_fields() queryset restriction
-                FeatureFlagDashboards.objects.get_or_create(dashboard=dashboard, feature_flag=instance)
+            for dashboard_id in analytics_dashboards:
+                # nosemgrep: idor-lookup-without-team -- the analytics_dashboards field accepts only dashboard ids of this team
+                FeatureFlagDashboards.objects.get_or_create(dashboard_id=dashboard_id, feature_flag=instance)
 
         # The linked feature flag is the source of truth for variants and aggregation group type;
         # experiment reads derive these from the flag (see ExperimentBaseSerializer).
@@ -6625,6 +6646,9 @@ class FeatureFlagViewSet(
         except FeatureFlag.DoesNotExist:
             return Response(status=status.HTTP_404_NOT_FOUND)
 
+        # The direct lookup skips get_object(), so the per-flag access check has to run here.
+        self.check_object_permissions(request, feature_flag)
+
         if not feature_flag.is_remote_configuration:
             return Response(status=status.HTTP_404_NOT_FOUND)
 
@@ -6643,9 +6667,9 @@ class FeatureFlagViewSet(
                 return _JSONNullResponse()
             return Response(feature_flag.filters.get("payloads", {}).get("true") or None)
 
-        # Note: This decryption step is protected by the feature_flag:read scope, so we can assume the
-        # user has access to the flag. However get_decrypted_flag_payloads_protected will also check the authentication
-        # method used to make the request as it is used in non-protected endpoints.
+        # The object permission check above makes sure the caller can read this flag.
+        # get_decrypted_flag_payloads_protected also checks the authentication method,
+        # because endpoints without that check use it too.
         try:
             decrypted_flag_payloads = get_decrypted_flag_payloads_protected(
                 request, feature_flag.filters.get("payloads", {})

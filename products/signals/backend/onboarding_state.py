@@ -8,13 +8,15 @@ from products.signals.backend.models import InboxOnboardingSetupMode
 
 def setup_mode(state: dict[str, Any]) -> str | None:
     draft = state.get("draft") or {}
-    if draft.get("activation_mode") == GITHUB_OPTIONAL_ACTIVATION:
-        return InboxOnboardingSetupMode.QUICK
     if not draft:
         # Exposure is reported before a draft exists, so there is no mode to report yet.
         return None
-    # Drafts saved before setup_mode existed came from the guided steps.
-    return draft.get("setup_mode") or InboxOnboardingSetupMode.GUIDED
+    if draft.get("setup_mode"):
+        return draft["setup_mode"]
+    # A draft without setup_mode came from quick setup when it is a pilot draft, and from the guided steps otherwise.
+    if draft.get("activation_mode") == GITHUB_OPTIONAL_ACTIVATION:
+        return InboxOnboardingSetupMode.QUICK
+    return InboxOnboardingSetupMode.GUIDED
 
 
 def is_quick_setup(state: dict[str, Any]) -> bool:

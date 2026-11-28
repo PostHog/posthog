@@ -21,6 +21,7 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType, Breadcrumb } from '~/types'
 
+import { AdventEntry } from './AdventCalendar/entry/AdventEntry'
 import { EmailSuspensionBanner } from './EmailSuspensionBanner'
 import { workflowsEmptyState } from './emptyState/workflowsEmptyState'
 import { EngagementEventsBanner } from './EngagementEventsBanner'
@@ -157,6 +158,9 @@ export const workflowsSceneLogic = kea<workflowsSceneLogicType>([
                 }
             },
             [urls.workflows(':tab' as WorkflowsSceneTab)]: ({ tab }) => {
+                if (urls.workflows(tab as WorkflowsSceneTab) === urls.workflowsAdventCalendar()) {
+                    return
+                }
                 // A shared link often drops the tab segment, so `/workflows/<id>` lands here with the id as the tab.
                 if (tab && isUUIDLike(tab)) {
                     router.actions.replace(urls.workflow(tab, 'workflow'), router.values.searchParams)
@@ -193,6 +197,10 @@ function topTabFor(tab: WorkflowsSceneTab): WorkflowsTopTab {
     return isMessagingSetupTab(tab) ? 'messaging-setup' : 'workflows'
 }
 
+function isWorkflowListTab(tab: WorkflowsSceneTab): tab is 'workflows' | 'templates' | 'calendar' {
+    return tab === 'workflows' || tab === 'templates' || tab === 'calendar'
+}
+
 export function WorkflowsScene(props: WorkflowsSceneProps = {}): JSX.Element {
     const { currentTab } = useValues(workflowsSceneLogic(props))
     const { startNewWorkflow } = useActions(newWorkflowLogic)
@@ -206,7 +214,7 @@ export function WorkflowsScene(props: WorkflowsSceneProps = {}): JSX.Element {
         content: <WorkflowsTable />,
         link: urls.workflows(),
     }
-    const showsNewWorkflowButton = currentTab === 'workflows' || currentTab === 'templates' || currentTab === 'calendar'
+    const showsNewWorkflowButton = isWorkflowListTab(currentTab)
     const onNewWorkflow = (): void => {
         void addProductIntent({
             product_type: ProductKey.WORKFLOWS,
@@ -264,13 +272,14 @@ export function WorkflowsScene(props: WorkflowsSceneProps = {}): JSX.Element {
                                 )}
                             </AccessControlAction>
                         )}
-                        {currentTab !== 'workflows' && currentTab !== 'templates' && currentTab !== 'calendar' && (
+                        {!showsNewWorkflowButton && (
                             <MessagingTabActions tab={currentTab} channelsUrl={urls.workflows('channels')} />
                         )}
                     </>
                 }
             />
             <ProviderImportModal />
+            <AdventEntry />
             <EmailSuspensionBanner />
             <EngagementEventsBanner />
             <LemonTabs<WorkflowsTopTab>

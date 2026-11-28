@@ -314,6 +314,10 @@ export const ExperimentHoldoutsCreateBody = () => zod
                         .number()
                         .nullish()
                         .describe('Group type index for this condition set. None means person-level aggregation.'),
+                    description: zod
+                        .string()
+                        .nullish()
+                        .describe('Display-only name for this release condition group. It does not affect evaluation.'),
                 })
             )
             .optional()
@@ -627,6 +631,10 @@ export const ExperimentHoldoutsPartialUpdateBody = () => zod
                         .number()
                         .nullish()
                         .describe('Group type index for this condition set. None means person-level aggregation.'),
+                    description: zod
+                        .string()
+                        .nullish()
+                        .describe('Display-only name for this release condition group. It does not affect evaluation.'),
                 })
             )
             .optional()
@@ -659,6 +667,12 @@ export const ExperimentSavedMetricsListParams = () => zod.object({
 export const experimentSavedMetricsListQueryLimitMax = 1000
 
 export const ExperimentSavedMetricsListQueryParams = () => zod.object({
+    created_by_id: zod
+        .string()
+        .optional()
+        .describe(
+            'Filter to shared metrics created by the given user(s). Accepts a single user ID, or a JSON-encoded \/ comma-separated list of user IDs to match any of them.'
+        ),
     event: zod
         .string()
         .optional()
@@ -670,8 +684,20 @@ export const ExperimentSavedMetricsListQueryParams = () => zod.object({
         .max(experimentSavedMetricsListQueryLimitMax)
         .optional()
         .describe('Number of results to return per page.'),
+    metric_type: zod
+        .enum(['funnel', 'mean', 'quantile', 'ratio', 'retention', 'trend'])
+        .optional()
+        .describe(
+            "Filter by metric type. 'funnel' also matches legacy funnel metrics, and 'trend' matches legacy trend metrics."
+        ),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     search: zod.string().optional().describe('A search term.'),
+    tags: zod
+        .string()
+        .optional()
+        .describe(
+            'JSON-encoded list of tag names. Returns shared metrics carrying at least one of the given tags, e.g. `[\"growth\", \"checkout\"]`.'
+        ),
 })
 
 export const ExperimentSavedMetricsCreateParams = () => zod.object({
@@ -19808,7 +19834,8 @@ export const ExperimentsLaunchCreateParams = () => zod.object({
  * already pending or in progress for this experiment. An experiment that started too long ago gets 201 with
  * a run that is already failed: every metric carries the `recalculation_window_too_long` error in
  * `metric_errors`, no workflow starts, and a retry gets the same answer. A manual trigger within five
- * minutes after the latest completed run finished returns 429 with a Retry-After header. The response payload intentionally does not
+ * minutes after the latest completed run finished returns 429 with a Retry-After header. While recalculations are
+ * paused for the instance, a request with no active run returns 503 with a Retry-After header. The response payload intentionally does not
  * include the `results` array — at POST time the workflow has just been queued and no per-metric
  * results exist yet. Clients should poll `GET metrics_recalculation/{id}/` for results as the workflow
  * progresses.

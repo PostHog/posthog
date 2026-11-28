@@ -16,8 +16,10 @@ the report's own content when it doesn't, scoped to the authoring run except for
 first-report scout's project key. This covers the
 retry a scout sends after a proxy timeout, not cross-run dedup: telling one run's finding from a
 previous run's is still the vanilla inbox tools (`inbox-reports-list` / `inbox-reports-retrieve`) plus
-a `report:<domain>:<entity>` scratchpad key the scout maintains. `edit_report` remains NOT idempotent
-— a retried edit appends a second note.
+a `report:<domain>:<entity>` scratchpad key the scout maintains. The one cross-run check the server
+makes is on `source_issues`: `emit_report` refuses a report for a GitHub issue that an open report
+already names, and returns that report (`source_issue_already_reported`). `edit_report` remains NOT
+idempotent — a retried edit appends a second note.
 """
 
 from __future__ import annotations
@@ -118,7 +120,12 @@ from products.signals.backend.scout_harness.tools.emit import (
 )
 from products.signals.backend.scout_harness.tools.notes import MAX_NOTE_CONTENT_LENGTH
 from products.signals.backend.scout_harness.tools.report_author import USER_REPORT_DAILY_LIMIT_REASON, ReportAuthor
-from products.signals.backend.scout_harness.tools.report_quality import QualityHint, apply_report_quality_checks
+from products.signals.backend.scout_harness.tools.report_quality import (
+    QualityHint,
+    ReportQualityHintField,
+    apply_report_quality_checks,
+    repair_suggested_prompts,
+)
 from products.signals.backend.scout_harness.trial_gateway import create_trial_gateway_token, revoke_trial_gateway_token
 from products.signals.backend.scout_report import (
     INFERRED_REPOSITORY_REASON,
@@ -128,6 +135,7 @@ from products.signals.backend.scout_report import (
     ReviewerClearNeedsReason,
     ScoutReportAlreadyEmittedError,
     ScoutReportSignal,
+    SourceIssueAlreadyReportedError,
     add_scout_report_reviewers,
     append_report_evidence,
     append_report_links,
@@ -174,6 +182,7 @@ from products.signals.backend.scout_report.judge import (
 from products.signals.backend.slack_formatting import strip_chart_references
 from products.signals.backend.source_issues import (
     parse_source_issue_url,
+    reported_source_issue,
     source_issue_author_reviewers,
     source_issues_by_report,
 )
@@ -285,13 +294,16 @@ class EmitReportResult:
     The report is always persisted when not gate-skipped (so the agent can edit/dedup against
     `report_id` even when it was suppressed). `emitted` means it actually surfaced in the inbox
     (status READY or PENDING_INPUT); a safety-suppressed or not-actionable report has emitted=False.
-    `skipped_reason` is set only when a preflight gate stopped the call before any report was created.
+    `skipped_reason` is set only when the call created no report: a preflight gate stopped it, or an open
+    report already names one of its `source_issues` (`source_issue_already_reported`). For that refusal
+    `report_id` and `status` describe the open report, so the scout can edit it.
     `remediation` carries a one-line, scout-actionable next step for that skip (see
     `EMIT_SKIP_REMEDIATION`) so a gate-skipped report isn't a dead end — the scout learns why its
     report was dropped and how to unblock it rather than losing a full run to a silent skip.
     `idempotent_replay` means this call authored nothing because its emit key already had a report:
     the fields above describe that first report, so the caller reads its own emission back.
-    `quality_hints` lists the quality checks the title or summary matched (see `report_quality.py`).
+    `quality_hints` lists the quality checks the title, summary, or suggested prompts matched (see
+    `report_quality.py`).
     """
 
     report_id: str | None
@@ -523,23 +535,44 @@ def _capture_quality_hints(*, team: Team, author: ReportAuthor, tool: str, hints
             )
 
 
-def _repair_report_text(kwargs: dict[str, Any]) -> tuple[QualityHint, ...]:
+def _repair_report_inputs(kwargs: dict[str, Any]) -> tuple[QualityHint, ...]:
     result = apply_report_quality_checks(title=kwargs.get("title"), summary=kwargs.get("summary"))
     kwargs["title"], kwargs["summary"] = result.title, result.summary
-    return result.hints
+    prompts = repair_suggested_prompts(kwargs.get("suggested_prompts"))
+    kwargs["suggested_prompts"] = prompts.prompts
+    return result.hints + prompts.hints
+
+
+def _error_naming_left_out_prompts(
+    error: InvalidScoutReportError, hints: Sequence[QualityHint]
+) -> InvalidScoutReportError | None:
+    """The error to raise in place of `error` when the repair left out a suggested prompt, else None.
+
+    A refused call returns no `quality_hints`, so the scout learns about the left-out prompts only from
+    the error. This matters most for an edit whose only field was a prompt past a bound: after the
+    repair it has nothing to write, and the "needs at least one of" error alone names no bound."""
+    prompt_messages = [hint.message for hint in hints if hint.field == ReportQualityHintField.SUGGESTED_PROMPTS]
+    if not prompt_messages:
+        return None
+    return InvalidScoutReportError(" ".join([str(error), *prompt_messages]))
 
 
 def _report_quality_checks(
     tool: str,
 ) -> Callable[[Callable[_Parameters, _ReportResult]], Callable[_Parameters, _ReportResult]]:
-    """Repair the `title` / `summary` kwargs before the tool runs, and return the matched checks on its
-    result as `quality_hints`."""
+    """Repair the `title` / `summary` / `suggested_prompts` kwargs before the tool runs, and return the
+    matched checks on its result as `quality_hints`."""
 
     def decorator(function: Callable[_Parameters, _ReportResult]) -> Callable[_Parameters, _ReportResult]:
         @wraps(function)
         def wrapped(*args: _Parameters.args, **kwargs: _Parameters.kwargs) -> _ReportResult:
-            hints = _repair_report_text(cast(dict[str, Any], kwargs))
-            result = function(*args, **kwargs)
+            hints = _repair_report_inputs(cast(dict[str, Any], kwargs))
+            try:
+                result = function(*args, **kwargs)
+            except InvalidScoutReportError as error:
+                if (prompt_error := _error_naming_left_out_prompts(error, hints)) is None:
+                    raise
+                raise prompt_error from error
             _capture_quality_hints(
                 team=cast(Team, kwargs["team"]), author=cast(ReportAuthor, kwargs["author"]), tool=tool, hints=hints
             )
@@ -558,8 +591,13 @@ def _report_quality_checks_async(
     ) -> Callable[_Parameters, Awaitable[_ReportResult]]:
         @wraps(function)
         async def wrapped(*args: _Parameters.args, **kwargs: _Parameters.kwargs) -> _ReportResult:
-            hints = _repair_report_text(cast(dict[str, Any], kwargs))
-            result = await function(*args, **kwargs)
+            hints = _repair_report_inputs(cast(dict[str, Any], kwargs))
+            try:
+                result = await function(*args, **kwargs)
+            except InvalidScoutReportError as error:
+                if (prompt_error := _error_naming_left_out_prompts(error, hints)) is None:
+                    raise
+                raise prompt_error from error
             if hints:
                 await database_sync_to_async(_capture_quality_hints, thread_sensitive=False)(
                     team=cast(Team, kwargs["team"]), author=cast(ReportAuthor, kwargs["author"]), tool=tool, hints=hints
@@ -1263,6 +1301,8 @@ def _build_suggested_prompts(suggested_prompts: list[str] | None) -> list[str]:
 
     Runs before the safety judge, like `_build_charts`, so a set past its bounds fails the call
     outright instead of paying for the judge and then rolling back mid-persist.
+    The report tools leave out a prompt past a bound before this runs (`repair_suggested_prompts`),
+    so this refuses only a caller that does not go through them.
     """
     if not suggested_prompts:
         return []
@@ -1314,6 +1354,47 @@ def _normalize_repository(repository: str | None) -> str | None:
     if normalized is None:
         raise InvalidScoutReportError("repository must be in 'owner/repo' format (or the NO_REPO sentinel)")
     return normalized
+
+
+SOURCE_ISSUE_ALREADY_REPORTED_REASON = "source_issue_already_reported"
+
+
+def _source_issue_already_reported_result(issue: SourceIssue, existing: ExistingScoutReport) -> EmitReportResult:
+    """What a filing for an issue that an open report already names returns: that report, and no new one."""
+    logger.info(
+        "signals_scout.emit_report: source issue already reported",
+        extra={"skipped_reason": SOURCE_ISSUE_ALREADY_REPORTED_REASON, "report_id": existing.report_id},
+    )
+    return EmitReportResult(
+        report_id=existing.report_id,
+        status=existing.status,
+        emitted=False,
+        skipped_reason=SOURCE_ISSUE_ALREADY_REPORTED_REASON,
+        safety_explanation=None,
+        remediation=(
+            f"Report {existing.report_id} already covers {issue.url}. Add your findings to that report with "
+            "edit_report. File a separate report only for separate work, with a follow_up_of, part_of, "
+            "depends_on or recurrence_of link to that report."
+        ),
+    )
+
+
+def _source_issue_refusal(
+    team_id: int, source_issues: Sequence[SourceIssue], links: Sequence[ReportLink]
+) -> EmitReportResult | None:
+    """Refuse a filing whose issue an open report already names, before the judge is paid for.
+
+    This read takes no lock. `create_scout_report` checks again under a lock, which is what stops two
+    concurrent filings for one issue."""
+    if not source_issues:
+        return None
+    reported = reported_source_issue(team_id=team_id, issues=source_issues, links=links)
+    if reported is None:
+        return None
+    issue, report = reported
+    return _source_issue_already_reported_result(
+        issue, ExistingScoutReport(report_id=str(report.id), status=SignalReport.Status(report.status))
+    )
 
 
 def _gate_skip_result(preflight: str) -> EmitReportResult:
@@ -1825,10 +1906,18 @@ _REPORT_EVENT_SOURCE = "signals_scout_report"
 # from a deleted/nulled `SignalScoutConfig`). See `_preflight_emit_gates`. An inactive scout must produce
 # no side effects, so its attempt is still recorded on the internal stream but is NOT fanned out as a
 # customer-facing, automation-driving event. A member's capped create (`user_daily_report_limit`) is
-# refused the same way, since nothing was filed. Other gate-skips that represent a real, customer-controlled
-# condition (e.g. `ai_processing_not_approved`) still forward the raw event.
+# refused the same way, since nothing was filed, and so is a filing for an issue an open report already
+# names (`source_issue_already_reported`), whose `report_id` is that other report. Other gate-skips that
+# represent a real, customer-controlled condition (e.g. `ai_processing_not_approved`) still forward the
+# raw event.
 _INACTIVE_SKIP_REASONS = frozenset(
-    {"scout_emit_disabled", "source_disabled", "scout_config_missing", USER_REPORT_DAILY_LIMIT_REASON}
+    {
+        "scout_emit_disabled",
+        "source_disabled",
+        "scout_config_missing",
+        USER_REPORT_DAILY_LIMIT_REASON,
+        SOURCE_ISSUE_ALREADY_REPORTED_REASON,
+    }
 )
 
 
@@ -1984,7 +2073,9 @@ def _capture_report_emitted(
     stopped the call before any report existed), `suppressed` (authored but the judge / actionability kept
     it out of the inbox), `surfaced` (landed in the inbox as READY / PENDING_INPUT), or
     `idempotent_replay` (the emit key already had a report, so this call authored nothing — its own
-    bucket, so a retry never counts as a second report, and so the retry rate stays measurable).
+    bucket, so a retry never counts as a second report, and so the retry rate stays measurable), or
+    `already_reported` (an open report already names one of the `source_issues`, so this call authored
+    nothing; `report_id` is that report, and `skipped_reason` is `source_issue_already_reported`).
     The event also carries the report's content (`title` / `summary` / `actionability` / `priority` / `repository` /
     `safety_explanation`) — parity with the signal channel's `signal_emitted`, so internal consumers
     (dashboards, alerts, CDP forwards) can act on a report's substance, not just its ids. Content rides
@@ -1999,6 +2090,8 @@ def _capture_report_emitted(
     not fire an automation-driving event into the team's own project."""
     if result.idempotent_replay:
         outcome = "idempotent_replay"
+    elif result.skipped_reason == SOURCE_ISSUE_ALREADY_REPORTED_REASON:
+        outcome = "already_reported"
     elif result.skipped_reason is not None:
         outcome = "gate_skipped"
     elif result.emitted:
@@ -2290,7 +2383,10 @@ async def emit_report(
 
     `source_issues` are the GitHub issue URLs the report is about. They are written with the report,
     so the issue's own signal groups into it, and a READY report comments a link on each issue when
-    the team opted into the GitHub writeback.
+    the team opted into the GitHub writeback. When an open report already names one of the issues, no
+    report is created: the result carries `source_issue_already_reported` and that report's id, so the
+    scout edits it instead. A `follow_up_of`, `part_of`, `depends_on` or `recurrence_of` link to that
+    report files a separate report anyway.
 
     `tags` are the report's slug tags. A private trial does not keep them.
 
@@ -2380,6 +2476,12 @@ async def emit_report(
         return await finish(_gate_skip_result(preflight))
 
     await database_sync_to_async(_assert_emit_link_targets_live, thread_sensitive=False)(team, built_links)
+
+    refusal = await database_sync_to_async(_source_issue_refusal, thread_sensitive=False)(
+        team.id, built_source_issues, built_links
+    )
+    if refusal is not None:
+        return await finish(refusal)
 
     async with funded_report(
         team=team, run_id=run.task_run_id if run else None, emission_key=emit_key
@@ -2480,6 +2582,11 @@ async def emit_report(
             # The retry arrived while this call was still judging, so both reached the insert. The winner's
             # report is the answer, and the Slack delivery and autostart below are its business, not ours.
             return await finish(_replay_result(already_emitted.existing))
+        except SourceIssueAlreadyReportedError as already_reported:
+            # Another filing for the same issue committed while this call was judging.
+            return await finish(
+                _source_issue_already_reported_result(already_reported.issue, already_reported.existing)
+            )
         if surfaced:
             if author.scout_run is not None:
                 await database_sync_to_async(queue_configured_scout_slack_delivery, thread_sensitive=False)(
@@ -2596,6 +2703,10 @@ def emit_report_sync(
 
     _assert_emit_link_targets_live(team, built_links)
 
+    refusal = _source_issue_refusal(team.id, built_source_issues, built_links)
+    if refusal is not None:
+        return finish(refusal)
+
     with funded_report_sync(
         team=team, run_id=run.task_run_id if run else None, emission_key=emit_key
     ) as funded_report_id:
@@ -2689,6 +2800,8 @@ def emit_report_sync(
         except ScoutReportAlreadyEmittedError as already_emitted:
             # As in `emit_report`: a concurrent retry won the insert, so hand back its report.
             return finish(_replay_result(already_emitted.existing))
+        except SourceIssueAlreadyReportedError as already_reported:
+            return finish(_source_issue_already_reported_result(already_reported.issue, already_reported.existing))
         if surfaced:
             if author.scout_run is not None:
                 queue_configured_scout_slack_delivery(

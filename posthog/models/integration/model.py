@@ -196,6 +196,7 @@ class Integration(models.Model):
         APPLE_PUSH = "apns"
         AWS_REDSHIFT = "aws-redshift"
         AWS_S3 = "aws-s3"
+        AWS_WAREHOUSE_SOURCES = "aws-warehouse-sources"
         AZURE_BLOB = "azure-blob"
         BING_ADS = "bing-ads"
         CLICKUP = "clickup"
@@ -276,6 +277,10 @@ class Integration(models.Model):
     created_by = models.ForeignKey("User", on_delete=models.SET_NULL, null=True, blank=True)
     created_by_id: int | None
 
+    # A BEFORE UPDATE trigger (migration 1456) sets this from the old row. It goes up by 1 when a
+    # content column changes, so writes that skip save() count too. A value set in Python is ignored.
+    row_version = models.BigIntegerField(default=0, db_default=0, editable=False)
+
     # Django's default manager, because it is declared first. Admin widgets, DRF relation fields,
     # `validate_constraints` and `get_object_or_404` read through it, so it must see every row. After
     # the class, `Integration.objects` points to `_implicit_default_auth_objects` instead. The Django
@@ -331,6 +336,8 @@ class Integration(models.Model):
             return common.dot_get(self.config, "account.name", self.integration_id)
         if self.kind == "databricks":
             return self.integration_id or "unknown ID"
+        if self.kind == Integration.IntegrationKind.AWS_WAREHOUSE_SOURCES:
+            return f"{self.integration_id or 'unknown ID'} (AWS role '{self.config.get('aws_role_arn')}')"
         if self.kind == Integration.IntegrationKind.AWS_S3:
             name = self.integration_id or "unknown ID"
 

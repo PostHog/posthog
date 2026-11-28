@@ -22,7 +22,7 @@ from posthog.llm.gateway_internal_client import (
 )
 from posthog.models.project_secret_api_key import find_project_secret_api_key
 
-from products.tasks.backend.logic.services.compute_quota import is_billable_sandbox_session
+from products.tasks.backend.logic.services.compute_quota import bills_compute_to_ai_credits, is_billable_sandbox_session
 from products.tasks.backend.logic.services.run_actor import get_actor_distinct_id, get_task_run_credential_user
 from products.tasks.backend.logic.services.sandbox_pricing import (
     COMPUTE_RATE_CARDS,
@@ -210,7 +210,7 @@ def build_settlement_body(session: SandboxSession, run: TaskRun, cost: SandboxCo
         {
             "obo": str(session.team_id),
             "run": str(session.task_run_id),
-            "billable": is_billable_sandbox_session(session)
+            "billable": (is_billable_sandbox_session(session) or bills_compute_to_ai_credits(session.origin_product))
             and (billable_since is None or session.user_attributed_at >= billable_since),
             "detail": detail,
             "reason": "sandbox compute",

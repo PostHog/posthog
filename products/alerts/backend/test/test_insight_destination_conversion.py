@@ -12,9 +12,13 @@ from django.utils import timezone
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.constants import AvailableFeature
+from posthog.models import OrganizationMembership
 from posthog.models.integration import Integration
 from posthog.models.scoping import team_scope
 
+from products.access_control.backend.models.access_control import AccessControl
+from products.alerts.backend.models.alert import AlertConfiguration
 from products.alerts.backend.test.insight_alerts import create_insight_alert, move_to_platform
 from products.alerts_platform.backend.facade import testing as platform_testing
 from products.alerts_platform.backend.facade.api import (
@@ -279,3 +283,37 @@ class TestConvertInsightAlertDestinations(ClickhouseTestMixin, APIBaseTest):
         HogFunction.objects.filter(id=duplicate.pk).update(enabled=True)
 
         assert "outcome=partly_copied" in self._run("--apply")
+
+    @parameterized.expand(
+        [
+            ("member_who_can_view_the_insight", False, status.HTTP_200_OK),
+            ("member_who_cannot_view_the_insight", True, status.HTTP_403_FORBIDDEN),
+        ]
+    )
+    def test_a_pagerduty_destination_edit_through_hog_functions_passes_the_alert_apis_gates(
+        self, _name: str, insight_hidden: bool, expected_status: int
+    ) -> None:
+        (alert_id,) = self._alerts(1)
+        hog_function_id, *_ = self._add_stock_destination(alert_id, "pagerduty/", PAGERDUTY)
+        if insight_hidden:
+            insight = AlertConfiguration.objects.get(id=alert_id).insight
+            self.organization.available_product_features = [
+                {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+            ]
+            self.organization.save()
+            self.organization_membership.level = OrganizationMembership.Level.MEMBER
+            self.organization_membership.save()
+            AccessControl.objects.create(
+                resource="insight", resource_id=str(insight.id), team=self.team, access_level="none"
+            )
+
+        edited = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_functions/{hog_function_id}/",
+            {"name": "Paging on-call"},
+            format="json",
+        )
+
+        assert edited.status_code == expected_status, edited.json()
+        assert (HogFunction.objects.get(id=hog_function_id).name == "Paging on-call") == (
+            expected_status == status.HTTP_200_OK
+        )

@@ -20,6 +20,7 @@ type gcsMeta = LegacyDestinationPluginMeta & {
 }
 
 interface GCSCredentials {
+    type?: string
     project_id?: string
     client_email?: string
     private_key?: string
@@ -80,10 +81,16 @@ export const setupPlugin = async ({ attachments, global, config }: gcsMeta): Pro
     } catch {
         throw new Error('Credentials JSON file has invalid JSON!')
     }
+    if (credentials.type !== 'service_account') {
+        throw new Error('Credentials JSON file must be for a service account!')
+    }
 
     const storage = new Storage({
         projectId: credentials['project_id'],
-        credentials,
+        credentials: {
+            client_email: credentials.client_email,
+            private_key: credentials.private_key,
+        },
         autoRetry: false,
     })
     global.bucket = storage.bucket(config.bucketName)

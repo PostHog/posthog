@@ -43,7 +43,12 @@ from posthog.models.user import User
 from posthog.scopes.catalog import API_SCOPE_OBJECTS, APIScopeObject
 from posthog.scopes.exposure import INTERNAL_API_SCOPE_OBJECTS
 
-from products.access_control.backend.activity_logging import get_access_control_log_entry
+from products.access_control.backend.activity_logging import (
+    AccessRuleObject,
+    access_rule_names_for_batch,
+    get_access_control_log_entry,
+    resolve_access_rule_names,
+)
 from products.access_control.backend.models.role import Role, RoleMembership
 from products.event_definitions.backend.models import PropertyDefinition, effective_project_id_expr
 
@@ -53,6 +58,7 @@ from ..models.team_access_control_config import TeamAccessControlConfig
 from ..property_access_control import (
     get_non_writable_property_names as _get_non_writable_property_names,
     get_restricted_properties_with_group_type_index_for_team as _get_restricted_properties_with_group_type_index_for_team,
+    has_restricted_properties_in_organization as _has_restricted_properties_in_organization,
     is_property_access_control_enabled,
 )
 from . import contracts
@@ -148,6 +154,10 @@ def get_restricted_properties_with_group_type_index_for_team(
 ) -> set[RestrictedProperty]:
     """Return property restrictions for a user and team."""
     return _get_restricted_properties_with_group_type_index_for_team(user=user, team_id=team_id)
+
+
+def has_restricted_properties_in_organization(*, user: User | None, organization_id: UUID) -> bool:
+    return _has_restricted_properties_in_organization(user=user, organization_id=organization_id)
 
 
 def get_restricted_properties_for_group_type(
@@ -436,10 +446,8 @@ def every_member_has_resource_access(
     restriction on one member, so it asks whether any restriction exists at all and leaves the
     data out when one does.
 
-    Deliberately conservative, and for that reason the same answer under both resolution orders:
-    one restricting rule makes this False, including where highest-wins resolution would let a
-    permissive default outrank it. Erring toward withholding keeps the answer stable when an
-    organization moves to most-specific resolution.
+    Deliberately conservative: one restricting rule makes this False, even when a more specific
+    rule restores access for some members.
     """
     team = Team.objects.select_related("organization").filter(id=team_id).first()
     if team is None:
@@ -481,8 +489,7 @@ def object_ids_restricted_from_any_member(
     withholds from any of them.
 
     Conservative in the same way. One restricting rule on an object is enough to name it, even
-    where resolution would let a permissive rule outrank that one, so the answer does not change
-    when an organization moves to most-specific resolution.
+    where resolution would let a permissive rule outrank that one.
     """
     team = Team.objects.select_related("organization").filter(id=team_id).first()
     if team is None or not team.organization.is_feature_available(AvailableFeature.ACCESS_CONTROL):
@@ -626,25 +633,33 @@ def replace_object_access_rules(
         raise InvalidObjectAccessControlError("role does not belong to this team's organization.")
 
     with transaction.atomic():
-        kept: set[tuple[UUID | None, UUID | None]] = set()
-        for existing in AccessControl.objects.select_for_update().filter(
-            team_id=team_id, resource=resource, resource_id=resource_id
+        existing_rules = list(
+            AccessControl.objects.select_for_update().filter(
+                team_id=team_id, resource=resource, resource_id=resource_id
+            )
+        )
+        with access_rule_names_for_batch(
+            team=team,
+            objects=[AccessRuleObject(resource=resource, resource_id=resource_id)],
+            role_ids=[*role_ids, *(rule.role_id for rule in existing_rules if rule.role_id)],
         ):
-            key = (existing.organization_member_id, existing.role_id)
-            if key not in kept and wanted.get(key) == existing.access_level:
-                kept.add(key)
-            else:
-                existing.delete()
-        for (member_id, role_id), access_level in wanted.items():
-            if (member_id, role_id) not in kept:
-                AccessControl.objects.create(
-                    team_id=team_id,
-                    resource=resource,
-                    resource_id=resource_id,
-                    access_level=access_level,
-                    organization_member_id=member_id,
-                    role_id=role_id,
-                )
+            kept: set[tuple[UUID | None, UUID | None]] = set()
+            for existing in existing_rules:
+                key = (existing.organization_member_id, existing.role_id)
+                if key not in kept and wanted.get(key) == existing.access_level:
+                    kept.add(key)
+                else:
+                    existing.delete()
+            for (member_id, role_id), access_level in wanted.items():
+                if (member_id, role_id) not in kept:
+                    AccessControl.objects.create(
+                        team_id=team_id,
+                        resource=resource,
+                        resource_id=resource_id,
+                        access_level=access_level,
+                        organization_member_id=member_id,
+                        role_id=role_id,
+                    )
 
 
 def object_has_access_rules(*, team_id: int, resource: str, resource_id: str) -> bool:
@@ -930,6 +945,33 @@ def _validate_object_access_control(
 
 
 @frozen
+class _RuleChange:
+    before: AccessControl | None
+    after: AccessControl | None
+    activity: str
+
+
+def _log_entries_for_rule_changes(*, team: Team, rule_changes: list[_RuleChange]) -> list[LogActivityEntry]:
+    # Resolve names for the whole batch at once, so the log entries add no query per rule
+    names = resolve_access_rule_names(
+        team=team, rules=[rule for change in rule_changes if (rule := change.after or change.before)]
+    )
+    entries: list[LogActivityEntry] = []
+    for change in rule_changes:
+        entry = get_access_control_log_entry(
+            before_update=change.before,
+            after_update=change.after,
+            activity=change.activity,
+            user=get_current_user(),
+            was_impersonated=get_was_impersonated(),
+            names=names,
+        )
+        if entry is not None:
+            entries.append(entry)
+    return entries
+
+
+@frozen
 class _ObjectAccessControlKey:
     resource: str
     resource_id: str | None
@@ -987,7 +1029,7 @@ def bulk_set_object_access_controls(*, team_id: int, inputs: list[contracts.SetO
         created: list[AccessControl] = []
         updated: list[AccessControl] = []
         deleted_ids: list[UUID] = []
-        entries: list[LogActivityEntry] = []
+        rule_changes: list[_RuleChange] = []
         now = timezone.now()
         for key, input in requested.items():
             matching_rules: list[AccessControl | None] = [*existing.get(key, [])] or [None]
@@ -1021,15 +1063,8 @@ def bulk_set_object_access_controls(*, team_id: int, inputs: list[contracts.SetO
                     rule.updated_at = now
                     updated.append(rule)
                     activity = "updated"
-                entry = get_access_control_log_entry(
-                    before_update=before,
-                    after_update=rule,
-                    activity=activity,
-                    user=get_current_user(),
-                    was_impersonated=get_was_impersonated(),
-                )
-                if entry is not None:
-                    entries.append(entry)
+                rule_changes.append(_RuleChange(before=before, after=rule, activity=activity))
+        entries = _log_entries_for_rule_changes(team=team, rule_changes=rule_changes)
         AccessControl.objects.bulk_create(created)
         AccessControl.objects.bulk_update(updated, ["access_level", "updated_at"])
         AccessControl.objects.filter(team_id=team_id, id__in=deleted_ids).delete()

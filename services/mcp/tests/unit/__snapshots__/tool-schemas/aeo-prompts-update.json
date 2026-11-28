@@ -10,7 +10,7 @@
                     "type": "null"
                 }
             ],
-            "description": "Turn the prompt on or off for future runs."
+            "description": "Turn the prompt on or off for future runs. Turning one on fails with 400 when the project already tracks its max_active_prompts, shown by GET aeo_setup/context/."
         },
         "archived": {
             "anyOf": [

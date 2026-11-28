@@ -8,7 +8,7 @@ from django.utils import timezone
 from ..db import WRITER_DB
 from ..facade.enums import INTENTIONAL_TOLERATE_REASONS, ReviewState, RunPurpose, SnapshotResult
 from ..models import QuarantinedIdentifier, Run, RunSnapshot
-from . import baselines, ci_status, comment_markdown, comments, quarantine
+from . import baselines, ci_status, comment_markdown, comments, quarantine, review_decisions
 
 
 def _stamp_quarantine(run: Run) -> None:
@@ -51,9 +51,15 @@ def count_unresolved(run: Run, using: str | None = None) -> int:
     costs seconds on a large run. Observe runs are never approvable, so nothing in them is
     unresolved. The predicate must stay identical to `_is_unresolved`; a test pins the two
     together. `using` defaults to the normal routing, so a caller that must read its own writes passes the writer.
+
+    In ledger mode a pull request run counts by the pull request's decisions instead: a snapshot
+    nobody accepted, and every rejected one, also a quarantined or tolerated one.
     """
     if run.purpose == RunPurpose.OBSERVE:
         return 0
+    if review_decisions.decides_by_pull_request(run):
+        review = review_decisions.review_run(run)
+        return review.needs_review_count + review.rejected_count
     return (
         RunSnapshot.objects.using(using)
         .filter(run_id=run.id)
@@ -72,6 +78,8 @@ def count_awaiting_finalize(run: Run, using: str | None = None) -> int:
     """
     if run.approved or run.purpose == RunPurpose.OBSERVE:
         return 0
+    if review_decisions.decides_by_pull_request(run):
+        return review_decisions.review_run(run).awaiting_finalize_count
     return (
         RunSnapshot.objects.using(using)
         .filter(
@@ -179,7 +187,11 @@ def _post_status(run: Run, snapshots: list[RunSnapshot]) -> int:
     """
     from . import commit_status  # noqa: PLC0415 — avoids the gating/commit_status circular import
 
-    unresolved = sum(1 for s in snapshots if _is_unresolved(s))
+    decided_by_pull_request = review_decisions.decides_by_pull_request(run)
+    if decided_by_pull_request:
+        unresolved = count_unresolved(run, WRITER_DB)
+    else:
+        unresolved = sum(1 for s in snapshots if _is_unresolved(s))
     if commit_status.publishes_by_commit(run.repo):
         if not run.error_message and run.purpose != RunPurpose.OBSERVE and unresolved > 0:
             comments._post_review_prompt_comment(run, run.repo)
@@ -189,7 +201,10 @@ def _post_status(run: Run, snapshots: list[RunSnapshot]) -> int:
     # Approved-but-uncommitted changes still block the gate: the baseline on the PR branch
     # doesn't reflect them yet, so re-running CI would re-detect them. Only finalize commits
     # the baseline (and posts success directly), so until then the gate must stay red.
-    pending_commit = 0 if run.approved else len(baselines._approved_baseline_updates(snapshots))
+    if decided_by_pull_request:
+        pending_commit = count_awaiting_finalize(run, WRITER_DB)
+    else:
+        pending_commit = 0 if run.approved else len(baselines._approved_baseline_updates(snapshots))
 
     repo = run.repo
     if run.error_message:

@@ -382,6 +382,35 @@ ENDPOINT_CONFIGS: dict[str, SimproEndpointConfig] = {
             columns=("ID", "Name", "IncomeAccountNo", "ExpenseAccountNo", "Type", "Archived", "IsMembershipCostCenter"),
             archivable=True,
         ),
+        SimproEndpointConfig(
+            name="project_status_codes",
+            path="setup/statusCodes/projects/",
+            columns=("ID", "Name", "Color", "Priority"),
+        ),
+        SimproEndpointConfig(
+            name="payment_methods",
+            path="setup/accounts/paymentMethods/",
+            columns=("ID", "Name", "AccountNo", "Type", "FinanceCharge"),
+        ),
+        SimproEndpointConfig(
+            name="customer_assets",
+            path="customerAssets/",
+            columns=(
+                "ID",
+                "AssetType",
+                "DisplayOrder",
+                "CustomerContract",
+                "StartDate",
+                "LastTest",
+                "Archived",
+                "CustomFields",
+                "ParentID",
+                "Site",
+                "DateModified",
+            ),
+            archivable=True,
+            # A new test result changes an asset's LastTest without moving its DateModified.
+        ),
     )
 }
 

@@ -37,7 +37,7 @@ class _EventsTableFinder(TraversingVisitor):
         self.found = self.found or isinstance(node.table, EventsTable)
 
 
-def _reads_events_table(prepared_ast: ast.AST | None) -> bool:
+def reads_events_table(prepared_ast: ast.AST | None) -> bool:
     if prepared_ast is None:
         return False
     finder = _EventsTableFinder()
@@ -48,7 +48,7 @@ def _reads_events_table(prepared_ast: ast.AST | None) -> bool:
 def should_check_team_first_in_prewhere(team: Team, prepared_ast: ast.AST | None) -> bool:
     try:
         # The volume gate counts events, so it says nothing about how selective `team_id` is on other tables.
-        if not _reads_events_table(prepared_ast):
+        if not reads_events_table(prepared_ast):
             return False
         events_last_year = _recent_events_last_year(team.pk)
     except Exception as e:

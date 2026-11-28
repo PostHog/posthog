@@ -295,6 +295,10 @@ export function linearTeamIdsFromConfig(config: Record<string, any> | null | und
     return Array.isArray(raw) ? raw.filter((id): id is string => typeof id === 'string' && id.length > 0) : []
 }
 
+export function sourceReadsLinearTeams(config: SignalSourceConfig): boolean {
+    return config.source_product === SignalSourceProduct.Linear && config.source_type === SignalSourceType.Issue
+}
+
 /** Product analytics source only: which firing insight alerts become signals. */
 export const SOURCE_ALERT_SCOPE_KEY = 'alert_scope'
 

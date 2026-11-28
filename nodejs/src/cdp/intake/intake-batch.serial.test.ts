@@ -23,7 +23,7 @@ import {
     HogInvocationResultsService,
     HogInvocationResultsServiceOutput,
 } from '../services/monitoring/hog-invocation-results.service'
-import { CyclotronJobInvocation } from '../types'
+import { CYCLOTRON_QUEUE_ROLES, CyclotronJobInvocation } from '../types'
 import { EncryptedFields } from '../utils/encryption-utils'
 import { IntakeBatchServices, SHADOW_COPY_MAX_AGE_MS, insertIntakeBatch } from './intake-batch'
 import { IntakeOutput, IntakeProducer } from './intake-producer'
@@ -135,7 +135,12 @@ describe('insertIntakeBatch', () => {
 
     beforeAll(() => {
         pool = new Pool({ connectionString: DB_URL })
-        manager = new CyclotronV2Manager({ pool: { dbUrl: DB_URL }, depthLimit: 1_000_000, depthCheckIntervalMs: 0 })
+        manager = new CyclotronV2Manager({
+            pool: { dbUrl: DB_URL },
+            depthLimit: 1_000_000,
+            depthCheckIntervalMs: 0,
+            ...CYCLOTRON_QUEUE_ROLES,
+        })
     })
 
     afterAll(async () => {
@@ -202,7 +207,6 @@ describe('insertIntakeBatch', () => {
         const code = 'fake-login-code-482913'
         const sealing = createInvocationSanitizer({
             CDP_CYCLOTRON_STRIP_PERSON_FROM_STATE_TEAMS: '',
-            CDP_SEAL_TRANSACTIONAL_EMAIL_STATE: true,
             CDP_SEALED_STATE_KEYS,
             ENCRYPTION_SALT_KEYS,
         })
@@ -233,10 +237,11 @@ describe('insertIntakeBatch', () => {
             },
         } as CyclotronJobInvocation
 
-        await new IntakeProducer(topic as IngestionOutputs<IntakeOutput>, undefined, sealing.seal).produce(
-            { kind: 'transactional-email', invocation: run, fingerprint: 'fingerprint-a' },
-            'async'
-        )
+        await new IntakeProducer(topic as IngestionOutputs<IntakeOutput>, undefined, sealing.seal).produce({
+            kind: 'transactional-email',
+            invocation: run,
+            fingerprint: 'fingerprint-a',
+        })
         await insertIntakeBatch([kafkaMessage(produced!)], services, OPTIONS)
 
         expect(produced!.toString()).not.toContain(code)

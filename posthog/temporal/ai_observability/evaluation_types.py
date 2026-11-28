@@ -11,6 +11,8 @@ EVALUATION_WORKFLOW_PREFIXES = {
 
 GENERATION_NOT_FOUND = "generation_not_found"
 
+STOPPED_EVALUATION_ERROR_TYPES = frozenset({"evaluation_disabled", "evaluation_deleted"})
+
 
 class EvaluationActivityResult(TypedDict, total=False):
     """Result produced by evaluation execution activities.
@@ -31,6 +33,8 @@ class EvaluationActivityResult(TypedDict, total=False):
     - `sentiment_*` fields are set for successful sentiment evaluations (the skip path
       omits them) and deliberately omit `verdict` so report and pass/fail metrics do
       not treat sentiment as N/A.
+    - `input_truncated` is set only by the trace judge, and only when the transcript did not fit
+      its budget and the judge saw shortened content.
     """
 
     result_type: Required[Literal["boolean", "sentiment", "numeric", "categorical"]]
@@ -60,6 +64,7 @@ class EvaluationActivityResult(TypedDict, total=False):
     sentiment_scores: NotRequired[dict[str, float]]
     sentiment_messages: NotRequired[dict[str, dict[str, Any]]]
     sentiment_message_count: NotRequired[int]
+    input_truncated: NotRequired[bool]
 
 
 def build_skipped_evaluation_result(

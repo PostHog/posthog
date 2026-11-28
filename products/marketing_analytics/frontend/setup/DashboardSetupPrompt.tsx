@@ -3,7 +3,9 @@ import type { ReactNode } from 'react'
 
 import { IconX } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
+import { Button } from '@posthog/quill'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 import { marketingAnalyticsLogic } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/marketingAnalyticsLogic'
@@ -26,6 +28,7 @@ export function DashboardSetupPrompt({
     const logic = dashboardSetupPromptsLogic({ projectId: currentTeamId ?? -1, userId: user?.uuid })
     const { dismissed } = useValues(logic)
     const { dismiss } = useActions(logic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     if (!currentTeamId || (canDismiss && dismissed[kind])) {
         return null
@@ -34,7 +37,19 @@ export function DashboardSetupPrompt({
     return (
         <div data-attr={`marketing-dashboard-${kind}-prompt`}>
             {children(
-                canDismiss ? (
+                !canDismiss ? null : todayRailNav ? (
+                    <Button
+                        size="icon"
+                        aria-label={
+                            kind === 'sources' ? 'Dismiss source suggestions' : 'Dismiss conversion recommendations'
+                        }
+                        tooltip="Dismiss"
+                        onClick={() => dismiss(kind)}
+                        data-attr={`marketing-dashboard-dismiss-${kind}`}
+                    >
+                        <IconX />
+                    </Button>
+                ) : (
                     <LemonButton
                         type="tertiary"
                         size="small"
@@ -46,7 +61,7 @@ export function DashboardSetupPrompt({
                         onClick={() => dismiss(kind)}
                         data-attr={`marketing-dashboard-dismiss-${kind}`}
                     />
-                ) : null
+                )
             )}
         </div>
     )

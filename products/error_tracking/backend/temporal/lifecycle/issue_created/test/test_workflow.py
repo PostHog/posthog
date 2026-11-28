@@ -26,6 +26,7 @@ from products.error_tracking.backend.temporal.fingerprint_embedding_result.types
     FingerprintEmbeddingMergeResult,
     FingerprintEmbeddingResultInputs,
 )
+from products.error_tracking.backend.temporal.lifecycle.change_log import CHANGE_LOG_PATCH, LifecycleChangeInputs
 from products.error_tracking.backend.temporal.lifecycle.event_properties import (
     error_tracking_event_properties_key,
     fetch_event_properties,
@@ -446,6 +447,7 @@ async def test_only_notifies_for_an_issue_that_was_not_merged() -> None:
     reopened_summaries: list[IssueReopenedWorkflowInputs] = []
     reopened_alerted = asyncio.Event()
     merge_target_tagged: list[IssueCreatedWorkflowInputs] = []
+    changes: list[LifecycleChangeInputs] = []
     reopened_target = AutoMergeReopenedTarget(
         notification_id=str(uuid.uuid4()),
         issue_id=str(uuid.uuid4()),
@@ -457,7 +459,12 @@ async def test_only_notifies_for_an_issue_that_was_not_merged() -> None:
             severity="high",
         ),
         assignee='{"type":"user","id":7}',
+        previous_status="resolved",
     )
+
+    @activity.defn(name="record_lifecycle_change_activity")
+    async def record_change(inputs: LifecycleChangeInputs) -> None:
+        changes.append(inputs)
 
     @activity.defn(name="generate_issue_created_embedding_activity")
     async def generate(inputs: IssueCreatedWorkflowInputs) -> IssueEmbeddingPreparationResult:
@@ -565,6 +572,7 @@ async def test_only_notifies_for_an_issue_that_was_not_merged() -> None:
                 emit_reopened_event,
                 emit_reopened_signal,
                 generate_reopened_summary,
+                record_change,
             ],
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):
@@ -693,11 +701,22 @@ async def test_only_notifies_for_an_issue_that_was_not_merged() -> None:
         event_uuid=reopened_inputs.event_uuid,
         event_timestamp=reopened_inputs.event_timestamp,
         assignee=reopened_target.assignee,
+        previous_status="resolved",
     )
     assert reopened_alerts == [expected_reopened]
     assert reopened_events == [expected_reopened]
     assert reopened_signals == [expected_reopened]
     assert reopened_summaries == [expected_reopened]
+
+    # Only an issue that was not merged gets a created row; the dormant target gets the reopen row instead.
+    assert [(change.kind, change.issue_id) for change in changes if change.kind == "created"] == [
+        ("created", issue_id) for issue_id in notified_issue_ids
+    ]
+    assert [
+        (change.issue_id, change.notification_id, change.previous_status)
+        for change in changes
+        if change.kind == "status_changed"
+    ] == [(reopened_target.issue_id, reopened_target.notification_id, "resolved")]
 
 
 @pytest.mark.parametrize(
@@ -720,6 +739,12 @@ async def test_only_notifies_for_an_issue_that_was_not_merged() -> None:
             "tag_issue_created_merge_target_activity",
             "merged",
             IssueCreatedWorkflowResult(merged=True),
+        ),
+        (
+            CHANGE_LOG_PATCH,
+            "record_lifecycle_change_activity",
+            "unmerged",
+            IssueCreatedWorkflowResult(notified=True),
         ),
     ],
 )
@@ -763,6 +788,10 @@ async def test_replays_a_history_recorded_before_a_patched_activity(
     async def tag_merge_target(_: IssueCreatedWorkflowInputs) -> None:
         return None
 
+    @activity.defn(name="record_lifecycle_change_activity")
+    async def record_change(_: LifecycleChangeInputs) -> None:
+        return None
+
     original_patched = issue_created_workflow.workflow.patched
 
     def before_patch(requested: str) -> bool:
@@ -784,6 +813,7 @@ async def test_replays_a_history_recorded_before_a_patched_activity(
                 generate_summary,
                 tag_issue,
                 tag_merge_target,
+                record_change,
             ],
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):

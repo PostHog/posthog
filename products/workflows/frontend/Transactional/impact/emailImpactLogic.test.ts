@@ -24,7 +24,10 @@ const IMPACT: TransactionalEmailImpactApi = {
     clicked: 2,
     not_clicked: 7,
     untracked: 0,
+    clicks_untracked: 0,
     window_days: 7,
+    sessions: null,
+    link_tagging_enabled: true,
     after_click: { sends: 1, converted: 0 },
     without_click: { sends: 7, converted: 1 },
 }
@@ -78,14 +81,32 @@ describe('emailImpactLogic', () => {
         expect(logic.values.impact).toEqual(WITHOUT_EVENT)
         expect(logic.values.followedNote).toBeNull()
 
-        answer = [200, IMPACT]
+        answer = [200, { ...IMPACT, clicks_untracked: 3 }]
         logic.actions.setEvent('plan upgraded')
         await expectLogic(logic).toFinishAllListeners()
 
         expect(logic.values.followedNote).toMatch(/^Counted over 1 of 2 clicked sends:/)
         expect(capture.mock.calls.filter(([name]) => name === 'transactional email impact loaded')).toEqual([
-            ['transactional email impact loaded', { has_event: false, days: 30, has_untracked_sends: false }],
-            ['transactional email impact loaded', { has_event: true, days: 30, has_untracked_sends: false }],
+            [
+                'transactional email impact loaded',
+                {
+                    has_event: false,
+                    days: 30,
+                    has_untracked_sends: false,
+                    has_clicks_untracked_sends: false,
+                    shows_link_tracking_prompt: false,
+                },
+            ],
+            [
+                'transactional email impact loaded',
+                {
+                    has_event: true,
+                    days: 30,
+                    has_untracked_sends: false,
+                    has_clicks_untracked_sends: true,
+                    shows_link_tracking_prompt: false,
+                },
+            ],
         ])
     })
 

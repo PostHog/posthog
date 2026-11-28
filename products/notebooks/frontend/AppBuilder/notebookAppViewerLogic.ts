@@ -5,6 +5,7 @@ import posthog from 'posthog-js'
 import api from 'lib/api'
 import { ConcurrencyController } from 'lib/utils/concurrencyController'
 import { uuid } from 'lib/utils/dom'
+import { objectsEqual } from 'lib/utils/objects'
 import {
     coerceNotebookVariableValue,
     parseNotebookVariables,
@@ -13,16 +14,18 @@ import {
 } from 'scenes/notebooks/Notebook/notebookVariables'
 
 import { performQuery } from '~/queries/query'
-import { HogQLQuery, HogQLQueryResponse, NodeKind } from '~/queries/schema/schema-general'
+import { HogQLQuery, HogQLQueryResponse, NodeKind, ProductKey } from '~/queries/schema/schema-general'
 
 import { notebooksAppQueriesCreate, notebooksAppReleaseRetrieve } from '../generated/api'
 import type { NotebookAppReleaseApi, NotebookAppViewerQueryApi } from '../generated/api.schemas'
 import { type PublishedRunResult, restorePublishedResults } from './notebookAppPublishedResults'
+import { restoreAppInputs } from './notebookAppViewLink'
 
 export interface ViewerProps {
     shortId: string
     project: string
     sessionId: string
+    initialInputs?: unknown
 }
 export interface ViewerOutput {
     query: string
@@ -56,7 +59,7 @@ async function executeViewerQuery(
     controller.signal.addEventListener('abort', cancel, { once: true })
     try {
         return await performQuery<HogQLQuery>(
-            { kind: NodeKind.HogQLQuery, query },
+            { kind: NodeKind.HogQLQuery, query, tags: { productKey: ProductKey.NOTEBOOKS } },
             { signal: controller.signal, queryTelemetry: 'metadata' },
             force ? 'force_blocking' : 'blocking',
             queryId
@@ -263,8 +266,11 @@ export const notebookAppViewerLogic = kea<notebookAppViewerLogicType>([
                             posthog.capture('notebook app viewer results updated', {
                                 short_id: props.shortId,
                                 revision: release.revision,
-                                filtered: variables.some(
-                                    (variable, index) => variable.value !== defaults[index]?.value
+                                filtered: !objectsEqual(variables, defaults),
+                                filtered_by_list: variables.some(
+                                    (variable, index) =>
+                                        variable.type === 'list' &&
+                                        !objectsEqual(variable.value, defaults[index]?.value)
                                 ),
                             })
                         }
@@ -282,11 +288,12 @@ export const notebookAppViewerLogic = kea<notebookAppViewerLogicType>([
             },
         ],
     })),
-    reducers({
+    reducers(({ props }) => ({
         variables: [
             [] as NotebookVariable[],
             {
-                loadReleaseSuccess: (_, { release }) => exposedVariables(release),
+                loadReleaseSuccess: (_, { release }) =>
+                    restoreAppInputs(exposedVariables(release), props.initialInputs, release.layout.blocks),
                 changeInput: (variables, { name, value }) =>
                     variables.map((v) =>
                         v.name === name ? { ...v, value: coerceNotebookVariableValue(v.type, value) } : v
@@ -296,7 +303,7 @@ export const notebookAppViewerLogic = kea<notebookAppViewerLogicType>([
         auto: [true, { setAuto: (_, { auto }) => auto }],
         releaseFailed: [false, { loadRelease: () => false, loadReleaseFailure: () => true }],
         refreshFailed: [false, { refresh: () => false, refreshFailure: () => true }],
-    }),
+    })),
     selectors({
         dirty: [
             (s) => [s.variables, s.results, s.release],
@@ -306,13 +313,16 @@ export const notebookAppViewerLogic = kea<notebookAppViewerLogicType>([
                 release: NotebookAppReleaseApi | null
             ): boolean => {
                 const applied = results?.variables ?? (release ? exposedVariables(release) : [])
-                return variables.some((v, index) => v.value !== applied[index]?.value)
+                return !objectsEqual(variables, applied)
             },
         ],
     }),
     listeners(({ actions, props, values }) => ({
         loadReleaseSuccess: ({ release }) => {
             actions.restore(release)
+            if (values.dirty) {
+                actions.refresh()
+            }
             posthog.capture('notebook app viewed', { short_id: props.shortId, revision: release.revision })
         },
         changeInput: () => {

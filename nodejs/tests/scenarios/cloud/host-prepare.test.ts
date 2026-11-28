@@ -1,5 +1,6 @@
 import { spawnSync } from 'child_process'
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'fs'
+import { createHash } from 'crypto'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'fs'
 import os from 'os'
 import path from 'path'
 import { Client } from 'pg'
@@ -68,6 +69,44 @@ async function onPostgres<T>(url: string, work: (client: Client) => Promise<T>):
     }
 }
 
+it('refuses an alert bundle when its shipped rules do not match the manifest, and leaves the card no writer', () => {
+    const root = mkdtempSync(path.join(os.tmpdir(), 'scenario-alert-prepare-'))
+    try {
+        const input = path.join(root, 'input')
+        const bin = path.join(root, 'bin')
+        const digest = (text: string): string => createHash('sha256').update(text).digest('hex')
+        mkdirSync(bin)
+        mkdirSync(path.join(input, 'alerts'), { recursive: true })
+        writeFileSync(path.join(bin, 'aws'), '#!/bin/sh\n[ "$1 $2" = "s3 cp" ]\n', { mode: 0o755 })
+        mkdirSync(path.join(root, 'writer'))
+        writeFileSync(path.join(root, 'writer', 'url'), 'postgres://a@earlier.example.com:5432/cyclotron_node\n')
+        writeFileSync(path.join(input, 'alerts/rules.yaml'), 'groups: []\n')
+        writeFileSync(path.join(input, 'alerts/labels.yaml'), 'labels: {}\n')
+        writeFileSync(
+            path.join(input, 'manifest.json'),
+            JSON.stringify({
+                inputs: { 'alerts/rules.yaml': digest('groups: []'), 'alerts/labels.yaml': digest('labels: {}\n') },
+            })
+        )
+
+        const result = spawnSync('bash', [SCRIPT], {
+            env: {
+                ...process.env,
+                PATH: `${bin}:${process.env.PATH}`,
+                SCENARIO_HOST_ROOT: root,
+                SCENARIO_RUN_ID: RUN_ID,
+                SCENARIO_EVIDENCE_BUCKET: BUCKET,
+            },
+        })
+
+        expect(result.status).toBe(1)
+        expect(readFileSync(path.join(root, 'prepare.log'), 'utf8')).toContain('alerts/rules.yaml: FAILED')
+        expect(existsSync(path.join(root, 'writer', 'url'))).toBe(false)
+    } finally {
+        rmSync(root, { recursive: true, force: true })
+    }
+})
+
 describe('host-prepare.sh', () => {
     let dir: string
     let database: string
@@ -130,8 +169,25 @@ describe('host-prepare.sh', () => {
         await onPostgres(ADMIN_URL, (client) => client.query(`DROP DATABASE IF EXISTS ${database} WITH (FORCE)`))
     })
 
-    it('migrates and seeds the run cluster with its encoded credentials, recording the backlog where the card reads it', async () => {
+    it('migrates and seeds the run cluster with its encoded credentials, recording the backlog where the card reads it and the writer where only the host can read it', async () => {
         expect(prepareHost({})).toBe(0)
+
+        const writer = path.join(dir, 'host', 'writer', 'url')
+        const url = new URL(readFileSync(writer, 'utf8').trim())
+        expect({
+            user: decodeURIComponent(url.username),
+            password: decodeURIComponent(url.password),
+            at: `@${url.host}${url.pathname}`,
+            sslmode: url.searchParams.get('sslmode'),
+            sslrootcert: url.searchParams.get('sslrootcert'),
+        }).toEqual({
+            user: CLUSTER_USER,
+            password: CLUSTER_PASSWORD,
+            at: CLUSTER_DATABASE,
+            sslmode: 'verify-full',
+            sslrootcert: path.join(dir, 'host', 'rds-ca.pem'),
+        })
+        expect([statSync(writer).mode & 0o777, statSync(path.dirname(writer)).mode & 0o777]).toEqual([0o600, 0o700])
 
         const cardStateDir = defaultStateDir({ XDG_CACHE_HOME: path.join(dir, 'host', 'cache') })
         const resident = await residentBacklogOf(
@@ -141,8 +197,16 @@ describe('host-prepare.sh', () => {
         )
         expect(
             residentBacklogIntact.check(
-                { journal: [], truth: [], fetchRetries: 0, resident, janitorResets: 0 },
-                undefined
+                {
+                    journal: [],
+                    truth: [],
+                    fetchRetries: 0,
+                    resident,
+                    janitorResets: 0,
+                    boundary: { truthFrom: 0, horizon: { seq: 0, at: 0 }, unobserved: [] },
+                },
+                undefined,
+                {}
             )
         ).toMatchObject({ passed: true })
 
@@ -175,13 +239,20 @@ describe('host-prepare.sh', () => {
         ],
         ['the seed fails', {}, null, 'has no backlog to seed'],
     ])(
-        'fails and uploads its log when %s',
+        'fails, uploads its log and leaves the card no writer when %s',
         (_, env, backlog, output) => {
+            mkdirSync(path.join(dir, 'host', 'writer'), { recursive: true })
+            writeFileSync(
+                path.join(dir, 'host', 'writer', 'url'),
+                'postgres://a@earlier.example.com:5432/cyclotron_node\n'
+            )
+
             expect(prepareHost(env, backlog)).not.toBe(0)
 
             expect(readFileSync(path.join(dir, 's3', BUCKET, 'runs', RUN_ID, 'host', 'prepare.log'), 'utf8')).toContain(
                 output
             )
+            expect(existsSync(path.join(dir, 'host', 'writer', 'url'))).toBe(false)
         },
         120_000
     )

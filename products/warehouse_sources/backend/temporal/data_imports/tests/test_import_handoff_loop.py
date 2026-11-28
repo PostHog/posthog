@@ -71,6 +71,7 @@ class _WorkflowRun:
     finished_labels: list[tuple[str, str]]
     history: WorkflowHistory
     failed: bool
+    stand_downs: dict[str, int]
 
 
 def _activities(
@@ -82,14 +83,12 @@ def _activities(
     updates: list[UpdateExternalDataJobStatusInputs],
     buffer_one: list[str],
     failed_runs_in_a_row: int = 0,
-    deferred: bool = False,
+    lock_result: AcquireV3LockActivityOutputs | None = None,
     import_started: asyncio.Event | None = None,
 ) -> list:
     @activity.defn(name="acquire_v3_pipeline_lock_activity")
     async def acquire_lock(inputs: AcquireV3LockActivityInputs) -> AcquireV3LockActivityOutputs:
-        if deferred:
-            return AcquireV3LockActivityOutputs(acquired=False, token="token", deferred=True)
-        return AcquireV3LockActivityOutputs(acquired=True, token="token")
+        return lock_result or AcquireV3LockActivityOutputs(acquired=True, token="token")
 
     @activity.defn(name="create_external_data_job_model_activity")
     async def create_job(inputs: CreateExternalDataJobModelActivityInputs) -> CreateExternalDataJobModelActivityOutputs:
@@ -156,7 +155,7 @@ async def _run_workflow(
     *,
     handoffs_are_free: bool = True,
     failed_runs_in_a_row: int = 0,
-    deferred: bool = False,
+    lock_result: AcquireV3LockActivityOutputs | None = None,
 ) -> _WorkflowRun:
     import_started = asyncio.Event()
     import_inputs: list[ImportDataActivityInputs] = []
@@ -170,7 +169,11 @@ async def _run_workflow(
         mock.patch.object(workflow_module, "get_data_import_finished_metric") as finished_metric,
         mock.patch.object(workflow_module, "get_import_handoffs_per_run_metric") as handoffs_metric,
         mock.patch.object(workflow_module, "get_retry_budget_reduced_metric"),
-        mock.patch.object(workflow_module, "get_run_deferred_metric"),
+        mock.patch.object(workflow_module, "get_run_deferred_metric") as deferred_metric,
+        mock.patch.object(
+            workflow_module, "get_organization_deactivated_skipped_metric"
+        ) as organization_deactivated_metric,
+        mock.patch.object(workflow_module, "get_v3_lock_skipped_metric") as lock_skipped_metric,
     ):
         async with await WorkflowEnvironment.start_time_skipping() as env:
             async with Worker(
@@ -185,7 +188,7 @@ async def _run_workflow(
                     updates=updates,
                     buffer_one=buffer_one,
                     failed_runs_in_a_row=failed_runs_in_a_row,
-                    deferred=deferred,
+                    lock_result=lock_result,
                     import_started=import_started,
                 ),
                 workflow_runner=UnsandboxedWorkflowRunner(),
@@ -216,6 +219,11 @@ async def _run_workflow(
 
         handoffs_recorded = [call.args[0] for call in handoffs_metric.return_value.record.call_args_list]
         assert all(call.args == ("Postgres",) for call in handoffs_metric.call_args_list)
+        stand_downs = {
+            "deferred": deferred_metric.return_value.add.call_count,
+            "organization_deactivated": organization_deactivated_metric.return_value.add.call_count,
+            "lock_skipped": lock_skipped_metric.return_value.add.call_count,
+        }
 
     return _WorkflowRun(
         import_inputs=import_inputs,
@@ -226,6 +234,7 @@ async def _run_workflow(
         finished_labels=[(call.kwargs["status"], call.kwargs["streak"]) for call in finished_metric.call_args_list],
         history=history,
         failed=failed,
+        stand_downs=stand_downs,
     )
 
 
@@ -339,14 +348,24 @@ async def test_a_failing_schema_gets_fewer_attempts_than_a_healthy_one():
 
 
 @pytest.mark.asyncio
-async def test_a_deferred_run_imports_nothing_and_writes_no_status():
+@pytest.mark.parametrize(
+    "lock_result",
+    [
+        AcquireV3LockActivityOutputs(acquired=False, token="token", deferred=True),
+        AcquireV3LockActivityOutputs(acquired=False, token="token", organization_deactivated=True),
+    ],
+    ids=["deferred", "organization_deactivated"],
+)
+async def test_a_stood_down_run_imports_nothing_and_writes_no_status(lock_result: AcquireV3LockActivityOutputs):
     # A terminal status here would repaint the schema and overwrite the error the customer reads.
-    run = await _run_workflow([SUCCEED], deferred=True)
+    run = await _run_workflow([SUCCEED], lock_result=lock_result)
 
     assert not run.failed
     assert run.import_inputs == []
     assert run.updates == []
     assert run.buffer_one_triggers == 0
+    reason = "deferred" if lock_result.deferred else "organization_deactivated"
+    assert run.stand_downs == {"deferred": 0, "organization_deactivated": 0, "lock_skipped": 0, reason: 1}
 
 
 @pytest.mark.asyncio

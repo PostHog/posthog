@@ -2,17 +2,16 @@ import { Tooltip as BaseTooltip } from '@base-ui/react/tooltip'
 import { BindLogic, useMountedLogic, useValues } from 'kea'
 import posthog from 'posthog-js'
 import React, { Suspense, useContext, useEffect, useLayoutEffect, useState } from 'react'
-import { Slide, ToastContainer } from 'react-toastify'
 
 import { PostHogProvider } from '@posthog/react'
 
 import { MOCK_NODE_PROCESS } from 'lib/constants'
 import { useCancelAnimationsOnUnmount } from 'lib/hooks/useCancelAnimationsOnUnmount'
-import { ToastCloseButton } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { autofillReleaseLogic } from 'lib/memory/autofillReleaseLogic'
 import { OAuthCallback } from 'lib/oauth/OAuthCallback'
 import { oauthLogic } from 'lib/oauth/oauthLogic'
+import { uiSoundsLogic } from 'lib/uiSounds/uiSoundsLogic'
 import { createSceneRenderedMark, markBootPhase } from 'lib/utils/bootTiming'
 import { lazyWithRetry, retryImport } from 'lib/utils/retryImport'
 import { appLogic } from 'scenes/appLogic'
@@ -22,9 +21,9 @@ import { userLogic } from 'scenes/userLogic'
 
 import { AppLoadError } from '~/layout/AppLoadError'
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
-import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { useThemedHtml } from '~/layout/useThemedHtml'
 
+import { AppToaster } from './AppToaster'
 import { AuthenticatedShellFallback } from './AuthenticatedShellFallback'
 import { ChunkLoadErrorBoundary } from './ChunkLoadErrorBoundary'
 import { mountSupportRouter } from './mountSupportRouter'
@@ -96,6 +95,7 @@ export function App(): JSX.Element | null {
 
     useMountedLogic(sceneLogic({ scenes: appScenes }))
     useMountedLogic(autofillReleaseLogic)
+    useMountedLogic(uiSoundsLogic)
 
     // Unconditional so /oauth/callback's urlToAction is registered before routing. Inert in prod
     // (OAuth UI gated on preflight.is_debug); no timers/listeners, so cheap to always mount.
@@ -147,7 +147,6 @@ function AppScene(): JSX.Element | null {
     const { activeSceneId, activeExportedScene, activeSceneComponentParams, activeSceneLogicProps, sceneConfig } =
         useValues(sceneLogic)
     const { showingDelayedSpinner } = useValues(appLogic)
-    const { isDarkModeOn } = useValues(themeLogic)
     useSceneContentReady(!!activeExportedScene?.component)
 
     // App mounts this component on the first commit where appLogic's `showApp` is true.
@@ -173,16 +172,6 @@ function AppScene(): JSX.Element | null {
             })
         })
     }, [user])
-
-    const unauthToastContainer = (
-        <ToastContainer
-            autoClose={6000}
-            transition={Slide}
-            closeButton={<ToastCloseButton />}
-            position="bottom-right"
-            theme={isDarkModeOn ? 'dark' : 'light'}
-        />
-    )
 
     let sceneElement: JSX.Element
     if (activeExportedScene?.component) {
@@ -231,7 +220,7 @@ function AppScene(): JSX.Element | null {
         return sceneConfig?.onlyUnauthenticated || sceneConfig?.allowUnauthenticated ? (
             <>
                 {wrappedSceneElement}
-                {unauthToastContainer}
+                <AppToaster />
             </>
         ) : null
     }

@@ -8,6 +8,7 @@ import { LemonBanner, LemonTabs, Spinner } from '@posthog/lemon-ui'
 
 import { ApiConfig } from 'lib/api'
 import { cn } from 'lib/utils/css-classes'
+import { objectsEqual } from 'lib/utils/objects'
 import { urls } from 'scenes/urls'
 
 import type { NotebookAppReleaseApi } from '../generated/api.schemas'
@@ -17,10 +18,18 @@ import { notebookAppViewerLogic, type ViewerProps } from './notebookAppViewerLog
 import { PublishedNotebookAppControls } from './PublishedNotebookAppControls'
 import { PublishedNotebookQuery } from './PublishedNotebookQuery'
 
-export default function PublishedNotebookApp({ shortId }: { shortId: string }): JSX.Element {
+export default function PublishedNotebookApp({
+    shortId,
+    initialInputs,
+    initialTab,
+}: {
+    shortId: string
+    initialInputs?: unknown
+    initialTab?: unknown
+}): JSX.Element {
     const project = String(ApiConfig.getCurrentTeamId())
     const sessionId = useId()
-    const viewer = { project, shortId, sessionId }
+    const viewer = { project, shortId, sessionId, initialInputs }
     const logic = notebookAppViewerLogic(viewer)
     const { release, releaseFailed: failed } = useValues(logic)
     const { loadRelease } = useActions(logic)
@@ -31,23 +40,37 @@ export default function PublishedNotebookApp({ shortId }: { shortId: string }): 
             </LemonBanner>
         )
     }
-    return release ? <AppSession key={release.revision} viewer={viewer} release={release} /> : <Spinner />
+    return release ? (
+        <AppSession key={release.revision} viewer={viewer} release={release} initialTab={initialTab} />
+    ) : (
+        <Spinner />
+    )
 }
 
-function AppSession({ viewer, release }: { viewer: ViewerProps; release: NotebookAppReleaseApi }): JSX.Element {
+function AppSession({
+    viewer,
+    release,
+    initialTab,
+}: {
+    viewer: ViewerProps
+    release: NotebookAppReleaseApi
+    initialTab?: unknown
+}): JSX.Element {
     const { shortId, sessionId } = viewer
     const { layout } = release
     const logic = notebookAppViewerLogic(viewer)
     const { variables, results, publishedResults, refreshFailed: error } = useValues(logic)
     const { changeInput } = useActions(logic)
     const cells = useMemo(() => appSourceCells(release.markdown), [release.markdown])
-    const [activeTab, setActiveTab] = useState(layout.tabs[0]?.id || '')
+    const [activeTab, setActiveTab] = useState(
+        layout.tabs.find((tab) => tab.id === initialTab)?.id ?? layout.tabs[0]?.id ?? ''
+    )
     const chartInputFilters = Object.fromEntries(
         variables.map((v) => [
             v.name,
             (value: unknown) => {
                 if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
-                    changeInput(v.name, value)
+                    changeInput(v.name, v.type === 'list' ? [String(value)] : value)
                 }
             },
         ])
@@ -60,9 +83,10 @@ function AppSession({ viewer, release }: { viewer: ViewerProps; release: Noteboo
         >
             <h1>{layout.title || release.title || 'Untitled app'}</h1>
             {layout.description && <p>{layout.description}</p>}
-            <PublishedNotebookAppControls viewer={viewer} release={release} cells={cells} />
+            <PublishedNotebookAppControls viewer={viewer} release={release} cells={cells} activeTab={activeTab} />
             {results?.variables.some(
-                (variable) => variable.value !== release.variables.find((v) => v.name === variable.name)?.value
+                (variable) =>
+                    !objectsEqual(variable.value, release.variables.find((v) => v.name === variable.name)?.value)
             ) &&
                 layout.blocks.some(
                     (block) =>

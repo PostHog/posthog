@@ -14,6 +14,8 @@ export type TruthRecord = {
     kind: 'ses.send' | 'ses.feedback' | 'webhook'
     unitId?: string
     actionId?: string
+    flowId?: string
+    invocationId?: string
     status: number
     fault?: string
     detail: {

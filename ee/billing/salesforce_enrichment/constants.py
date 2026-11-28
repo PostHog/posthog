@@ -130,12 +130,13 @@ HARMONIC_ACCOUNT_ENRICHMENT_QUERY = (
     + _HARMONIC_ENRICHMENT_QUERY_TAIL
 )
 
-# Canonical Account fields that the Harmonic enrichment writes only when they hold no value. The job reads their
-# current values immediately before it writes.
+# Canonical Account fields that the Harmonic enrichment writes only when they hold no value, or for Description the
+# job's own unedited copy. The job reads their current values immediately before it writes.
 ACCOUNT_FILL_FIELDS: tuple[str, ...] = (
     "Industry",
     "NumberOfEmployees",
     "Company_LinkedIn__c",
+    "Description",
     "LinkedIn_Engineer_Count__c",
     "LinkedIn_Rolecount__c",
 )

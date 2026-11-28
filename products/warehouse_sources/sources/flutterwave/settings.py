@@ -29,6 +29,8 @@ class FlutterwaveEndpointConfig:
     data_selector: str = "data"
     # None marks an endpoint that returns its whole list in one response.
     total_pages_path: Optional[str] = "meta.page_info.total_pages"
+    # Query parameter that carries `data.cursor.next` back, for the endpoints that page by cursor.
+    cursor_param: Optional[str] = None
     params: dict[str, Any] = field(default_factory=dict)
     # The endpoint is queried once per combination of values of these parameters, and each row carries them.
     fan_out_params: tuple[str, ...] = ()
@@ -89,6 +91,38 @@ FLUTTERWAVE_ENDPOINTS: dict[str, FlutterwaveEndpointConfig] = {
         partition_key="transaction_date",
         requires_date_window=True,
         fan_out_params=("status",),
+    ),
+    # Customer wallets (payout subaccounts), not the split-payment subaccounts above. The reference
+    # shows the rows directly in `data`, and the payout subaccount guide shows them under
+    # `data.payout_subaccounts` next to a `data.cursor`, so the selector takes every object under
+    # `data` that has an `account_reference`. A union with a filter is not used: jsonpath_ng binds
+    # the filter to the whole union, and a filter on a dict rewrites the response body.
+    "payout_subaccounts": FlutterwaveEndpointConfig(
+        name="payout_subaccounts",
+        path="/payout-subaccounts",
+        data_selector="data..account_reference.`parent`",
+        total_pages_path=None,
+        cursor_param="next_cursor",
+    ),
+    # Credits and debits on each customer wallet. `from` and `to` are required. Like the merchant
+    # wallet statement, a line has no id.
+    "payout_subaccount_transactions": FlutterwaveEndpointConfig(
+        name="payout_subaccount_transactions",
+        path="/payout-subaccounts/{account_reference}/transactions",
+        primary_keys=["account_reference", "reference", "type", "date"],
+        partition_key="date",
+        requires_date_window=True,
+        data_selector="data.transactions",
+        total_pages_path="data.page_info.total_pages",
+        fan_out_params=("account_reference",),
+    ),
+    # Current available and ledger balance of each wallet currency. The list carries no timestamp.
+    "balances": FlutterwaveEndpointConfig(
+        name="balances",
+        path="/balances",
+        primary_keys=["currency"],
+        partition_key=None,
+        total_pages_path=None,
     ),
 }
 

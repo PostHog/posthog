@@ -473,4 +473,12 @@ class AcceptWarehouseSuggestionSerializer(DataclassSerializer):
                 "it feeds person properties, account properties, a destination or a workflow. Refused with a 400 when any "
                 "day in the read window has no read data, because a view read only on those days would look unread.",
             },
+            "mark_deprecated": {
+                "allow_null": False,
+                "help_text": "Deprecate only: false to stop a materialized view's refreshes and delete its stored table "
+                "without marking it deprecated in the data catalog. If the view is still unread 30 days later, the "
+                "deprecate suggestion is shown again. Refused with a 400 when the view is not materialized, or with "
+                "keep_materialized or delete_view. Refused with a 409 when another view, a sync, a destination or a "
+                "workflow reads it, or when it reads a direct-connection source.",
+            },
         }

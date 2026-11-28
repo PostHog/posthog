@@ -1,4 +1,5 @@
 import io
+from datetime import datetime
 
 from unittest.mock import MagicMock
 
@@ -158,6 +159,15 @@ class FakeGit:
             state="open", merged=False, merge_commit_sha=None, base_ref=DEFAULT_BRANCH, head_sha=head_sha
         )
 
+    def close_pull_request(self, number: int) -> None:
+        self.pull_requests[number] = github_api.PullRequestState(
+            state="closed",
+            merged=False,
+            merge_commit_sha=None,
+            base_ref=DEFAULT_BRANCH,
+            head_sha=self.pull_requests[number].head_sha,
+        )
+
     def merge(self, number: int, sha: str, *, squash: bool = False, shown_as_merged: bool = True) -> str:
         head_sha = self.pull_requests[number].head_sha
         assert head_sha is not None
@@ -211,6 +221,32 @@ class FakeGit:
         )
 
 
+class FakeActions:
+    def __init__(self, mocker) -> None:
+        self.check_runs: dict[tuple[str, str], list[github_api.CheckRun]] = {}
+        self.base_changes: dict[int, list[datetime]] = {}
+        mocker.patch.object(github_api, "actions_check_runs", side_effect=self._latest_check_runs)
+        mocker.patch.object(
+            github_api,
+            "pull_request_base_changes",
+            side_effect=lambda repo, number, priority=CRITICAL: list(self.base_changes.get(number, [])),
+        )
+
+    # GitHub lists only the newest attempt of a job unless it is asked for all of them.
+    def _latest_check_runs(
+        self, repo, sha: str, check_name: str, priority: Priority = CRITICAL
+    ) -> list[github_api.CheckRun]:
+        return self.check_runs.get((sha, check_name), [])[-1:]
+
+    def finish(self, sha: str, check_name: str, conclusion: str, at: datetime) -> None:
+        self.check_runs.setdefault((sha, check_name), []).append(
+            github_api.CheckRun(conclusion=conclusion, completed_at=at)
+        )
+
+    def retarget(self, number: int, at: datetime) -> None:
+        self.base_changes.setdefault(number, []).append(at)
+
+
 def solid_png(color: tuple[int, int, int, int]) -> bytes:
     image = Image.new("RGBA", (10, 10), color)
     buffer = io.BytesIO()
@@ -252,6 +288,7 @@ class LedgerFlow:
         branch: str,
         pr_number: int | None = None,
         purpose: RunPurpose = RunPurpose.REVIEW,
+        is_partial: bool = False,
     ) -> Run:
         run, _uploads = runs.create_run(
             CreateRunInput(
@@ -266,6 +303,7 @@ class LedgerFlow:
                     for identifier, content_hash in renders.items()
                 ],
                 metadata={"github_check_run_id": "42", "github_run_id": "777"},
+                is_partial=is_partial,
             ),
             team_id=self.repo.team_id,
         )

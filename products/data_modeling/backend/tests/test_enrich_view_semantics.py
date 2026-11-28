@@ -282,7 +282,7 @@ class TestEnrichViewSemanticsSync:
             patch.object(enrich, "_gather_lineage", return_value=[]),
             patch.object(enrich, "_get_row_sample", return_value=[]),
             patch.object(enrich, "capture_exception") as mock_capture,
-            override_settings(LLM_GATEWAY_URL="", LLM_GATEWAY_API_KEY="", AI_GATEWAY_URL="", AI_GATEWAY_API_KEY=""),
+            override_settings(AI_GATEWAY_URL="", AI_GATEWAY_API_KEY=""),
         ):
             result = enrich_view_semantics_sync(team.pk, str(sq.id))
 

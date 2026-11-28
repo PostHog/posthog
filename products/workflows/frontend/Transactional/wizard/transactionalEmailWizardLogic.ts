@@ -30,6 +30,7 @@ export interface TransactionalEmailDraft {
     name: string
     description: string
     sensitive: boolean
+    clickTrackingEnabled: boolean
     email: EmailTemplate
 }
 
@@ -37,6 +38,7 @@ const EMPTY_DRAFT: TransactionalEmailDraft = {
     name: '',
     description: '',
     sensitive: false,
+    clickTrackingEnabled: false,
     // The editor's starter design, with no subject, so nothing sends as "Hello from PostHog" by accident.
     email: { ...NEW_TEMPLATE.content.email, subject: '' },
 }
@@ -175,7 +177,11 @@ export const transactionalEmailWizardLogic = kea<transactionalEmailWizardLogicTy
         draft: [
             EMPTY_DRAFT,
             {
-                updateDraft: (state, { patch }) => ({ ...state, ...patch }),
+                updateDraft: (state, { patch }) => ({
+                    ...state,
+                    ...patch,
+                    ...(patch.sensitive === false ? { clickTrackingEnabled: false } : {}),
+                }),
                 updateEmail: (state, { patch }) => ({ ...state, email: { ...state.email, ...patch } }),
                 resetWizard: () => EMPTY_DRAFT,
             },
@@ -257,7 +263,7 @@ export const transactionalEmailWizardLogic = kea<transactionalEmailWizardLogicTy
                 actions.createTransactionalEmailFinished(false)
                 return
             }
-            const { name, description, sensitive, email } = values.draft
+            const { name, description, sensitive, clickTrackingEnabled, email } = values.draft
             const teamId = String(values.currentTeamIdStrict)
             let templateId: string
             try {
@@ -265,6 +271,7 @@ export const transactionalEmailWizardLogic = kea<transactionalEmailWizardLogicTy
                     name: name.trim(),
                     description,
                     sensitive,
+                    ...(sensitive && clickTrackingEnabled ? { click_tracking_enabled: true } : {}),
                     content: {
                         templating: 'liquid',
                         email: omitNullDesign(email),
@@ -278,7 +285,11 @@ export const transactionalEmailWizardLogic = kea<transactionalEmailWizardLogicTy
             }
             try {
                 await messagingTemplatesMakeTransactionalCreate(teamId, templateId, {})
-                posthog.capture('transactional email created', { variable_count: values.variables.length, sensitive })
+                posthog.capture('transactional email created', {
+                    variable_count: values.variables.length,
+                    sensitive,
+                    ...(sensitive ? { click_tracking_enabled: clickTrackingEnabled } : {}),
+                })
                 lemonToast.success('Transactional email created')
             } catch (error: any) {
                 // The template exists either way. Its API tab offers "Make transactional" to try again.

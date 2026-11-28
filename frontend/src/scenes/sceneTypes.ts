@@ -12,6 +12,7 @@ export enum Scene {
     Action = 'Action',
     Actions = 'Actions',
     AdvancedActivityLogs = 'AdvancedActivityLogs',
+    AgentTranscript = 'AgentTranscript',
     AgenticAccountMismatch = 'AgenticAccountMismatch',
     AgenticAuthorize = 'AgenticAuthorize',
     Alerts = 'Alerts',
@@ -104,6 +105,7 @@ export enum Scene {
     StripeConfirmInstall = 'StripeConfirmInstall',
     IngestionWarnings = 'IngestionWarnings',
     IdentityProviderConfig = 'IdentityProviderConfig',
+    OAuthApplication = 'OAuthApplication',
     InviteSignup = 'InviteSignup',
     BusinessKnowledge = 'BusinessKnowledge',
     BusinessKnowledgeLibraries = 'BusinessKnowledgeLibraries',
@@ -261,6 +263,7 @@ export enum Scene {
     Logs = 'Logs',
     MCPAnalytics = 'MCPAnalytics',
     MCPAnalyticsToolDetail = 'MCPAnalyticsToolDetail',
+    MCPAnalyticsUser = 'MCPAnalyticsUser',
     LogsAlertDetail = 'LogsAlertDetail',
     LogsAlertNotificationDetail = 'LogsAlertNotificationDetail',
     LogsSamplingNew = 'LogsSamplingNew',
@@ -522,6 +525,7 @@ export const sceneToAccessControlResourceType: Partial<
     // MCP analytics
     [Scene.MCPAnalytics]: AccessControlResourceType.McpAnalytics,
     [Scene.MCPAnalyticsToolDetail]: AccessControlResourceType.McpAnalytics,
+    [Scene.MCPAnalyticsUser]: AccessControlResourceType.McpAnalytics,
 
     // Skills
     [Scene.Skill]: AccessControlResourceType.LlmSkill,
