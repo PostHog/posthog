@@ -1,6 +1,7 @@
-import type { PanelQuery } from '../dashboard/document/dashboardSchema'
-import type { Dashboard, GridTab, TimeRange, Tile } from '../dashboard/document/dashboardTypes'
+import type { Dashboard, GridTab, Tile } from '../dashboard/document/dashboardTypes'
+import type { TimeRange } from '../filters/time/timeRangeSchema'
 import type { ChartConfig } from '../panels/chart/chartSpec'
+import type { PanelQuery } from '../query/querySchema'
 import {
     type ImportResult,
     type TileStatus,
@@ -23,7 +24,7 @@ import { type NrqlTranslation, own, translateNrql } from './nrql'
 type Json = any // eslint-disable-line @typescript-eslint/no-explicit-any
 
 const VIZ: Record<string, { viz: ChartConfig['viz']; lossy?: string }> = {
-    'viz.billboard': { viz: { type: 'stat' } },
+    'viz.billboard': { viz: { type: 'metric' } },
     'viz.line': { viz: { type: 'line' } },
     'viz.area': { viz: { type: 'line' }, lossy: 'There is no area chart yet, so it shows as lines.' },
     'viz.bar': { viz: { type: 'bar' } },
@@ -107,7 +108,7 @@ export function importNewRelic(input: unknown): ImportResult {
                 .filter(Boolean)
             const translations = queries.map((nrql) => ({ nrql, result: translateNrql(nrql) }))
             const viz = own(VIZ, vizId)
-            const overTime = viz !== undefined && viz.viz.type !== 'stat'
+            const overTime = viz !== undefined && viz.viz.type !== 'metric'
             const targets: { refId: string; query: PanelQuery }[] = []
             const failed: string[] = []
             let time: TimeRange | undefined

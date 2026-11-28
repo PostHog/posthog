@@ -270,7 +270,7 @@ describe('importDashboard', () => {
                 language: 'hogql',
                 query: "select count() as count from events where event = 'OrderPlaced' and {filters}",
             },
-            viz: { type: 'stat' },
+            viz: { type: 'metric' },
         })
         expect(tiles['Orders by plan'].panel.config.viz).toEqual({ type: 'bar', options: { stack: true } })
         expect(tiles['Last half hour'].panel.config.time).toEqual({ from: 'now-30m', to: 'now' })

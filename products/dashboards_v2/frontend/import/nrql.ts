@@ -1,4 +1,4 @@
-import type { TimeRange } from '../dashboard/document/dashboardTypes'
+import type { TimeRange } from '../filters/time/timeRangeSchema'
 
 /**
  * A rule-based NRQL → HogQL translator for the common shapes of a New Relic dashboard query:
