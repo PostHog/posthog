@@ -506,9 +506,12 @@ describe('scenario environment', () => {
                 { budgetBytes: 1024 * MIB },
             ],
             [
-                'the heap that NODE_OPTIONS gives the worker, not the heap of the runner',
-                { CDP_EMAIL_ATTACHMENTS_S3_BUCKET: 'scenario-files', NODE_OPTIONS: '--max-old-space-size=64' },
-                { refusal: `the heap limit of ${64 * MIB} bytes cannot hold one message at the size limit` },
+                'no budget when NODE_OPTIONS sizes the worker heap, which the runner does not read from the worker',
+                { CDP_EMAIL_ATTACHMENTS_S3_BUCKET: 'scenario-files', NODE_OPTIONS: '--max-old-space-size 64' },
+                {
+                    unmeasured:
+                        'not measured: NODE_OPTIONS sizes the worker heap, and reading it from the worker is a follow-up',
+                },
             ],
         ])('computes the email worker budget as the worker does, from %s', (_story, settings, budget) => {
             const machine = { constrainedBytes: 0, totalBytes: 4608 * MIB, heapLimitBytes: 4096 * MIB }

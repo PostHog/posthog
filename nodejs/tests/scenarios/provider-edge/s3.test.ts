@@ -188,17 +188,20 @@ describe('the edge in front of the attachment store', () => {
         }
     })
 
-    test('holds one download for edge_accepted, says the store took it, and passes uploads and the next download', async () => {
+    test('holds the first download too large to pass whole for edge_accepted, and passes uploads, a short download and the next one', async () => {
+        const short = file()
         const uploaded = file(256 * 1024)
         const hold = edge.hold(heldAnswerRule({ channel: 's3' }))
+        await upload(short)
         await upload(uploaded)
 
+        const passed = await load(short)
         const abort = new AbortController()
         const held = load(uploaded, abort.signal).catch((error: unknown) => error)
         const accepted = await hold.accepted!(AbortSignal.timeout(10_000))
         abort.abort()
 
-        expect(accepted).toBe(true)
+        expect({ passed, accepted }).toEqual({ passed: short.bytes, accepted: true })
         expect(await held).toBeInstanceOf(AttachmentStoreUnavailableError)
         expect(await load(uploaded)).toEqual(uploaded.bytes)
         await hold.release()

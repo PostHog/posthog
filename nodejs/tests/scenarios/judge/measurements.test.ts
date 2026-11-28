@@ -254,6 +254,20 @@ describe('measurements', () => {
                 unmeasured: 'the worker admits no sends with files: no attachment store is set',
             })),
         ],
+        [
+            'a replica whose heap the runner could not read',
+            [
+                { role: ROLE, replica: 0, budgetBytes: 100_000_000 },
+                { role: ROLE, replica: 1, unmeasured: 'the heap is unread' },
+            ],
+            ['attachment_budget_bytes', 'attachment_reserved_share_max'].map((name) => ({
+                name,
+                key: ROLE,
+                value: null,
+                censored: true as const,
+                unmeasured: 'the heap is unread',
+            })),
+        ],
     ])(
         'states the email worker budget and how close reserved bytes came to it, for %s',
         (_story, attachmentBudgets, measured) => {
@@ -630,6 +644,22 @@ describe('measurements', () => {
             censored: true,
             unmeasured: 'the first step delivered no plain send to compare the later steps with',
         })
+        const restarted = samples.map((at, i) => (i < 2 ? at : { ...at, startedAt: FROM / 1000 + 5 }))
+        const hidden = {
+            name: 'ramp_onset_scale',
+            value: null,
+            censored: true,
+            unmeasured: 'not measured: a restart or missed scrape up to the first rise can hide deferrals, a follow-up',
+        }
+        expect(
+            read({ ...ramp(journal, truth), samples: restarted }).filter(
+                (row) => 'name' in row && row.name === 'ramp_onset_scale'
+            )
+        ).toEqual([
+            { ...hidden, key: 'at_cap' },
+            { ...hidden, key: 'over_budget' },
+            { name: 'ramp_onset_scale', key: 'plain_p95_doubled', value: 4 },
+        ])
     })
 
     it('samples the process metrics a role serves at start and at stop', async () => {

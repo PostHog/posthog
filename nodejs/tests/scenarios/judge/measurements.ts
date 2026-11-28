@@ -191,16 +191,19 @@ export const attachmentReservedBytesMax = peakPerRole(
 const unbudgeted = (role: string, budgets: readonly AttachmentBudget[] | undefined): Measured | undefined => {
     const ofRole = (budgets ?? []).filter((budget) => budget.role === role)
     const refused = ofRole.find((budget) => 'refusal' in budget)
+    const unread = ofRole.find((budget) => 'unmeasured' in budget)
     return ofRole.length === 0
         ? { key: role, value: null, censored: true, unmeasured: 'the run target computes no budget for this role' }
-        : refused && 'refusal' in refused
-          ? {
-                key: role,
-                value: null,
-                censored: true,
-                unmeasured: `the worker admits no sends with files: ${refused.refusal}`,
-            }
-          : undefined
+        : unread && 'unmeasured' in unread
+          ? { key: role, ...unmeasured(unread.unmeasured) }
+          : refused && 'refusal' in refused
+            ? {
+                  key: role,
+                  value: null,
+                  censored: true,
+                  unmeasured: `the worker admits no sends with files: ${refused.refusal}`,
+              }
+            : undefined
 }
 
 const budgetOf = (budgets: readonly AttachmentBudget[], { role, replica }: { role: string; replica: number }): number =>
@@ -433,7 +436,18 @@ const onsetOf = (key: string, scales: readonly number[]): Measured =>
 
 // A token counted only in the scrape interval that crosses the step's end may have been spent in the next step.
 function deferralOnsetOf(reason: string, deferrals: ReturnType<typeof stepDeferrals>): Measured {
-    const first = deferrals.find((deferral) => deferral.reason === reason && deferral.increase.value > 0)
+    const ofReason = deferrals.filter((deferral) => deferral.reason === reason)
+    const firstAt = ofReason.findIndex((deferral) => deferral.increase.value > 0)
+    const first = ofReason[firstAt]
+    const readBeforeRise = firstAt === -1 ? ofReason : ofReason.slice(0, firstAt + 1)
+    if (readBeforeRise.some(({ increase }) => increase.incomplete)) {
+        return {
+            key: reason,
+            ...unmeasured(
+                'not measured: a restart or missed scrape up to the first rise can hide deferrals, a follow-up'
+            ),
+        }
+    }
     return first === undefined
         ? { key: reason, value: null, censored: true }
         : { key: reason, value: first.scale, ...(first.increase.risesBeforeEnd ? {} : { incomplete: true }) }

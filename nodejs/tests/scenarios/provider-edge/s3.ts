@@ -141,15 +141,23 @@ export async function startS3Proxy(upstream: string, faults: S3Faults): Promise<
             })
         } else if (answer?.kind === 's3-stall') {
             req.resume().once('end', answered)
+        } else if (taken && answer?.kind === 's3-slow') {
+            let delayed = false
+            res.once('close', () => {
+                if (!delayed) {
+                    faults.s3Abandoned(taken.id)
+                }
+            })
+            forward(target, req, res, {
+                bytesPerSecond: answer.bytesPerSecond,
+                onDelay: () => {
+                    delayed = true
+                    answered()
+                },
+                freeBytes: answer.freeBytes,
+            })
         } else {
-            forward(
-                target,
-                req,
-                res,
-                answer?.kind === 's3-slow'
-                    ? { bytesPerSecond: answer.bytesPerSecond, onDelay: answered, freeBytes: answer.freeBytes }
-                    : undefined
-            )
+            forward(target, req, res, undefined)
         }
     })
     await new Promise<void>((resolve, reject) => {

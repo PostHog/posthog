@@ -211,7 +211,7 @@ export function roleSpecs(
     })
 }
 
-export type AttachmentBudget = RoleId & ({ budgetBytes: number } | { refusal: string })
+export type AttachmentBudget = RoleId & ({ budgetBytes: number } | { refusal: string } | { unmeasured: string })
 
 const NODE_ENV_KEYS = ['NODE_ENV', 'DEBUG'] as const
 
@@ -232,8 +232,7 @@ function defaultsUnder(env: NodeJS.ProcessEnv): ReturnType<typeof getDefaultCdpC
     }
 }
 
-const MAX_OLD_SPACE_MIB = /--max-old-space-size=(\d+)/
-const MIB = 1024 * 1024
+const SIZES_HEAP = /--max-old-space-size/
 
 const runnerMemory = (): MachineMemory => ({
     constrainedBytes: process.constrainedMemory(),
@@ -241,15 +240,18 @@ const runnerMemory = (): MachineMemory => ({
     heapLimitBytes: getHeapStatistics().heap_size_limit,
 })
 
-function workerMemory(env: NodeJS.ProcessEnv, machine: MachineMemory): MachineMemory {
-    const oldSpaceMib = MAX_OLD_SPACE_MIB.exec(env.NODE_OPTIONS ?? '')?.[1]
-    return oldSpaceMib === undefined ? machine : { ...machine, heapLimitBytes: Number(oldSpaceMib) * MIB }
-}
-
 export function attachmentBudgetsOf(specs: RoleSpec[], machine: MachineMemory = runnerMemory()): AttachmentBudget[] {
     return specs
         .filter(({ role }) => role === 'cdp-cyclotron-worker-email')
-        .map(({ role, replica, env }) => {
+        .map(({ role, replica, env }): AttachmentBudget => {
+            if (SIZES_HEAP.test(env.NODE_OPTIONS ?? '')) {
+                return {
+                    role,
+                    replica,
+                    unmeasured:
+                        'not measured: NODE_OPTIONS sizes the worker heap, and reading it from the worker is a follow-up',
+                }
+            }
             const config = overrideConfigWithEnv(defaultsUnder(env), env)
             const admission = inFlightLimitsFor(
                 {
@@ -258,7 +260,7 @@ export function attachmentBudgetsOf(specs: RoleSpec[], machine: MachineMemory = 
                     heartbeatIntervalMs: config.CDP_CYCLOTRON_HEARTBEAT_INTERVAL_MS,
                     attachmentStoreBucket: config.CDP_EMAIL_ATTACHMENTS_S3_BUCKET,
                 },
-                workerMemory(env, machine)
+                machine
             )
             return 'refusal' in admission
                 ? { role, replica, refusal: admission.refusal }
