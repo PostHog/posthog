@@ -5,11 +5,9 @@ from typing import cast
 from django import forms
 from django.contrib import messages
 from django.contrib.admin.models import CHANGE, LogEntry
-from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.db.models import Model, QuerySet
 from django.http import HttpRequest, HttpResponse, QueryDict
-from django.urls import reverse
 from django.utils import timezone
 
 from kombu.exceptions import OperationalError
@@ -18,7 +16,7 @@ from posthog.admin.console.moved import MovedRecord
 from posthog.admin.console.panels import MAX_FACTS_PER_PANEL, Fact, Operation, Panel
 from posthog.admin.console.records import RECORD_TYPES
 from posthog.admin.console.registry import console
-from posthog.admin.console.tools import Cell, ConsoleTool, Notice, Page, Row, Table
+from posthog.admin.console.tools import Cell, ConsoleTool, Notice, Page, Paging, Row, Table, paginate
 from posthog.api.personal_api_key import PersonalAPIKeySerializer
 from posthog.api.project_secret_api_key import revoke_exposed_project_secret_api_key
 from posthog.exceptions_capture import capture_exception
@@ -237,13 +235,10 @@ class OrganizationPersonalApiKeys:
             qualifying = qualifying.exclude(last_rolled_at__gte=rolled_before)
         return key if key is not None and qualifying.exists() else None
 
-    def blocks(self) -> list[Notice | Table]:
-        keys = self.keys(KEYS_LIST_LIMIT + 1)
-        shown = keys[:KEYS_LIST_LIMIT]
-        blocks: list[Notice | Table] = [self.table(shown)]
-        if len(keys) > len(shown):
-            blocks.append(Notice(text=f"{self.count() - len(shown)} more keys are not listed."))
-        return blocks
+    def blocks(self, request: HttpRequest) -> list[Table | Paging]:
+        # Keys of one owner can share a creation time, so the ID keeps every key on exactly one page.
+        paged = paginate(request, self._reachable.order_by("user__email", "-created_at", "id"), noun="key")
+        return [self.table(paged.rows), *((paged.paging,) if paged.paging else ())]
 
     def table(self, keys: list[PersonalAPIKey]) -> Table:
         reaching = self.reaching_other_organizations(keys)
@@ -274,11 +269,6 @@ class OrganizationPersonalApiKeys:
             ),
             empty_text="No personal API key can reach this organization.",
         )
-
-
-def organization_keys_tool_url(organization: Organization) -> str:
-    tool_url = reverse("admin_console_tool", kwargs={"tool_key": ORGANIZATION_KEYS_TOOL_KEY})
-    return f"{tool_url}?organization={organization.pk}"
 
 
 class OrganizationKeysForm(forms.Form):
@@ -425,7 +415,7 @@ class OrganizationPersonalApiKeysPanel(Panel):
             Fact(
                 label="Keys",
                 value=f"{pluralize(count, 'key')} of members can reach this organization",
-                href=organization_keys_tool_url(obj),
+                href=OrganizationPersonalApiKeysTool.url_for(obj),
             )
         ]
 
@@ -471,13 +461,11 @@ class OrganizationPersonalApiKeysTool(ConsoleTool):
     group = "Access"
     description = "Lists the personal API keys that can reach one organization."
 
+    subject = "organization"
+
     def page(self, request: HttpRequest) -> Page:
-        organization_id = request.GET.get("organization", "")
-        try:
-            organization = Organization.objects.filter(pk=organization_id).first() if organization_id else None
-        except ValidationError:
-            organization = None
-        if organization is None:
+        organization = self.subject_of(request)
+        if not isinstance(organization, Organization):
             return Page(
                 blocks=(Notice(text="Open an organization's keys from the Personal API keys panel on its page."),)
             )
@@ -488,7 +476,7 @@ class OrganizationPersonalApiKeysTool(ConsoleTool):
                     link_text="Back to the organization",
                     href=RECORD_TYPES["organization"].url(organization) + "#panel-personal-api-keys",
                 ),
-                *OrganizationPersonalApiKeys(organization).blocks(),
+                *OrganizationPersonalApiKeys(organization).blocks(request),
             )
         )
 
