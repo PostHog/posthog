@@ -30,6 +30,7 @@ export const ContentAutopilotBrandCitedSites = ({
     branded,
     engine,
     topic,
+    brandId,
 }: {
     sites: AEOBrandCitedSiteApi[]
     dateFrom: string
@@ -38,6 +39,8 @@ export const ContentAutopilotBrandCitedSites = ({
     /** The engine and topic filters of the page, so a site or page opens the same answers it counted. */
     engine: string | null
     topic: string | null
+    /** The brand, so a site or page opens only the answers that name or cite it. */
+    brandId: string
 }): JSX.Element => (
     <AiVisibilityCard title="Sites cited next to the brand">
         <AiVisibilityTable<AEOBrandCitedSiteApi>
@@ -65,6 +68,7 @@ export const ContentAutopilotBrandCitedSites = ({
                                             branded,
                                             engine,
                                             topic,
+                                            brandId,
                                         }}
                                         source="brand-cited-pages"
                                         title={page.url}
@@ -104,6 +108,7 @@ export const ContentAutopilotBrandCitedSites = ({
                                     branded,
                                     engine,
                                     topic,
+                                    brandId,
                                 }}
                                 source="brand-cited-sites"
                             >

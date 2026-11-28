@@ -92,7 +92,7 @@ export type contentAutopilotFiltersLogicType = MakeLogicType<
     contentAutopilotFiltersLogicMeta
 >
 
-const AI_VISIBILITY_PATH = '/web/content-autopilot'
+const AI_VISIBILITY_PATH = '/web/ai-visibility'
 
 /** The filters the Overview, Rankings, Prompts and Keywords tabs share, kept in the URL so a link keeps them. */
 export const contentAutopilotFiltersLogic = kea<contentAutopilotFiltersLogicType>([
@@ -238,6 +238,7 @@ export const contentAutopilotFiltersLogic = kea<contentAutopilotFiltersLogicType
         return {
             [AI_VISIBILITY_PATH]: fromUrl,
             [`${AI_VISIBILITY_PATH}/prompts/:promptId`]: fromUrl,
+            [`${AI_VISIBILITY_PATH}/brands/:brandId`]: fromUrl,
         }
     }),
 ])

@@ -52,7 +52,10 @@ describe('contentAutopilotCitationsModalLogic', () => {
     it('loads the answers for the lookup in its filters, appends the next page and knows an own page', async () => {
         mockCitations.mockImplementation((_, params) => page(params?.offset ?? 0, 2))
 
-        logic.actions.openCitations({ ...OWN_PAGE, engine: 'openai-web-search', topic: null }, 'rankings-pages')
+        logic.actions.openCitations(
+            { ...OWN_PAGE, engine: 'openai-web-search', topic: null, brandId: 'brand-1' },
+            'rankings-pages'
+        )
         await expectLogic(logic).toFinishAllListeners().toMatchValues({ hasMoreCitations: true, isOwnPage: true })
         expect(mockCitations).toHaveBeenCalledWith(String(MOCK_DEFAULT_TEAM.id), {
             url: OWN_PAGE.value,
@@ -60,6 +63,7 @@ describe('contentAutopilotCitationsModalLogic', () => {
             date_to: '2026-10-30',
             branded: 'non_branded',
             engine: 'openai-web-search',
+            brand: 'brand-1',
             include_answer_text: true,
             limit: 10,
             offset: 0,

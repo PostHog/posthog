@@ -32,7 +32,7 @@ describe('contentAutopilotFilterBarLogic', () => {
         ['another letter case', 'session REPLAY', 'Session replay', []],
         ['a topic no prompt has now', 'Retired', 'Retired', [{ value: 'Retired', label: 'Retired' }]],
     ])('selects a topic from a link with %s', async (_, linkTopic, expectedValue, extraOptions) => {
-        router.actions.push(`/web/content-autopilot?topic=${encodeURIComponent(linkTopic)}`)
+        router.actions.push(`/web/ai-visibility?topic=${encodeURIComponent(linkTopic)}`)
         logic = contentAutopilotFilterBarLogic()
         logic.mount()
 

@@ -8,11 +8,13 @@ import { urls } from 'scenes/urls'
 
 import { initKeaTests } from '~/test/init'
 
-import { aeoBrandsDetail, aeoBrandsList } from '../generated/api'
-import type { AEOBrandDetailApi } from '../generated/api.schemas'
+import { aeoBrandsDetail, aeoBrandsList, aeoPromptsRetrieve } from '../generated/api'
+import type { AEOBrandApi, AEOBrandDetailApi } from '../generated/api.schemas'
 import { contentAutopilotBrandDetailLogic } from './contentAutopilotBrandDetailLogic'
 import { contentAutopilotFiltersLogic } from './contentAutopilotFiltersLogic'
 import { contentAutopilotLogic } from './contentAutopilotLogic'
+import { contentAutopilotPromptDetailLogic } from './contentAutopilotPromptDetailLogic'
+import { EXAMPLE_PROMPTS } from './contentAutopilotStoryFixtures'
 
 jest.mock('../generated/api')
 
@@ -89,6 +91,42 @@ describe('contentAutopilotBrandDetailLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
         expect(logic.values.brandId).toBeNull()
         expect(router.values.location.pathname).not.toContain('/brands/')
+    })
+
+    it('closes a prompt left open when the history goes back to its brand', async () => {
+        jest.mocked(aeoPromptsRetrieve).mockResolvedValue(EXAMPLE_PROMPTS[0])
+        router.actions.push(urls.webAnalyticsContentAutopilotBrand(BRAND_ID))
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.openBrandPrompt(EXAMPLE_PROMPTS[0].id)
+        await expectLogic(logic).toFinishAllListeners()
+
+        router.actions.push(urls.webAnalyticsContentAutopilotBrand(BRAND_ID))
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(contentAutopilotPromptDetailLogic.values.promptId).toBeNull()
+        expect(logic.values.brandId).toBe(BRAND_ID)
+    })
+
+    it('offers the brands of every page of the catalog in the picker', async () => {
+        const competitor = (index: number): AEOBrandApi => ({
+            ...detailFor(null).brand,
+            id: `competitor-${index}`,
+            name: `Competitor ${index}`,
+        })
+        mockList.mockImplementation((_, params) =>
+            Promise.resolve(
+                params?.kind !== 'competitor'
+                    ? { count: 0, next: null, results: [] }
+                    : params.offset
+                      ? { count: 2, next: null, results: [competitor(2)] }
+                      : { count: 2, next: 'next-page', results: [competitor(1)] }
+            )
+        )
+
+        logic.actions.openBrandDetail(BRAND_ID)
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.pickerBrands?.map((brand) => brand.id)).toEqual(['competitor-1', 'competitor-2'])
     })
 
     it('says a brand of another project is not found', async () => {

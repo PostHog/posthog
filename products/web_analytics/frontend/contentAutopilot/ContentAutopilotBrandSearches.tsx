@@ -17,6 +17,7 @@ export const ContentAutopilotBrandSearches = ({
     branded,
     engine,
     topic,
+    brandId,
     onOpenPrompt,
 }: {
     searches: AEOBrandSearchApi[]
@@ -25,6 +26,8 @@ export const ContentAutopilotBrandSearches = ({
     branded: BrandedSegmentEnumApi
     engine: string | null
     topic: string | null
+    /** The brand, so a search opens only the answers that name or cite it. */
+    brandId: string
     onOpenPrompt: (promptId: string) => void
 }): JSX.Element => (
     <AiVisibilityCard title="Searches behind the answers">
@@ -57,7 +60,16 @@ export const ContentAutopilotBrandSearches = ({
                     className: 'w-full max-w-0',
                     render: (_, search) => (
                         <ContentAutopilotCitationsLink
-                            lookup={{ kind: 'search', value: search.query, dateFrom, dateTo, branded, engine, topic }}
+                            lookup={{
+                                kind: 'search',
+                                value: search.query,
+                                dateFrom,
+                                dateTo,
+                                branded,
+                                engine,
+                                topic,
+                                brandId,
+                            }}
                             source="brand-searches"
                             title={search.query}
                         >

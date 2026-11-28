@@ -199,7 +199,7 @@ OverviewTab.parameters = { testOptions: { snapshotBrowsers: [] } }
 export const OverviewTabFiltered: StoryFn<typeof ContentAutopilot> = () => <WorkspaceTabStory tab="overview" />
 OverviewTabFiltered.decorators = OverviewTab.decorators
 OverviewTabFiltered.parameters = {
-    pageUrl: '/web/content-autopilot?date_from=-7d&engine=claude-web-search&topic=Product%20analytics',
+    pageUrl: '/web/ai-visibility?date_from=-7d&engine=claude-web-search&topic=Product%20analytics',
     testOptions: { snapshotBrowsers: [] },
 }
 

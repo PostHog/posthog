@@ -50,7 +50,7 @@ const KPIS: {
     },
     {
         key: 'average_position',
-        label: 'Average position',
+        label: 'Citation position',
         description:
             'Where the brand’s link sits among the sources of the answers that cite it, on average. #1 is first. Lower is better.',
         emptyMessage: 'Not cited',

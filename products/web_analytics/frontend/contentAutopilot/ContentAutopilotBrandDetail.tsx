@@ -137,6 +137,7 @@ export const ContentAutopilotBrandDetail = (): JSX.Element | null => {
                                 branded={detail.branded}
                                 engine={detail.engine}
                                 topic={detail.topic}
+                                brandId={detail.brand.id}
                             />
                         </TabsContent>
                         <TabsContent value="sentiment">
@@ -153,6 +154,7 @@ export const ContentAutopilotBrandDetail = (): JSX.Element | null => {
                                 branded={detail.branded}
                                 engine={detail.engine}
                                 topic={detail.topic}
+                                brandId={detail.brand.id}
                                 onOpenPrompt={openBrandPrompt}
                             />
                         </TabsContent>
