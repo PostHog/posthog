@@ -236,10 +236,7 @@ function answersEarly(request: QueryRequest): boolean {
  * the rest go to the stream holding fewest. Each stream keeps the board's order. What doesn't fit is left for the
  * caller to keep queued.
  */
-function splitIntoStreams<T extends { request: QueryRequest }>(
-    queued: T[],
-    free: number
-): T[][] {
+function splitIntoStreams<T extends { request: QueryRequest }>(queued: T[], free: number): T[][] {
     const groups = new Map<string, number[]>()
     queued.forEach((pending, index) => {
         const key = dedupKey(pending.request)
@@ -327,9 +324,11 @@ export function createQueryBatchRunner(teamId: number, options: QueryBatchRunner
             // The endpoint belongs to one project and checks this person's access to it, so a stream carries one
             // project's queries.
             const project = projectOf(queued[0])
+            // Each other queued project keeps a stream for itself, so its charts don't wait behind this one's.
+            const otherProjects = new Set(queued.map(projectOf)).size - 1
             const batches = splitIntoStreams(
                 queued.filter((pending) => projectOf(pending) === project),
-                MAX_STREAMS - streams
+                Math.max(1, MAX_STREAMS - streams - otherProjects)
             )
             const sent = new Set(batches.flat())
             queued = queued.filter((pending) => !sent.has(pending))

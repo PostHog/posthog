@@ -309,6 +309,21 @@ describe('createQueryBatchRunner', () => {
         await expect(Promise.all(results)).resolves.toEqual(totals.map(totalOf))
     })
 
+    it("leaves a stream for another project's chart when its own project could fill every stream", async () => {
+        const runQuery = createQueryBatchRunner(7, { allowsProject: (project) => project === 9 })
+        for (let total = 0; total < 6; total++) {
+            void runQuery(sqlTotal(total)).catch(() => {})
+        }
+        void runQuery({ ...SQL, project: 9 }).catch(() => {})
+        await flush()
+
+        expect(streams.map((stream) => [stream.url, stream.body.queries.length])).toEqual([
+            ['/api/projects/7/dashboard_v2/query_batch/', 3],
+            ['/api/projects/7/dashboard_v2/query_batch/', 3],
+            ['/api/projects/9/dashboard_v2/query_batch/', 1],
+        ])
+    })
+
     it('keeps repeats of a query in one stream, whatever their legends', async () => {
         const runQuery = createQueryBatchRunner(7)
         for (let total = 0; total < 6; total++) {
