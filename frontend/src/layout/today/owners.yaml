@@ -16,3 +16,6 @@ rules:
           - '/todayRailLayout.test.ts'
           - '/todaySeenLogic.test.ts'
       owners: platform-ux
+    - match:
+          - '/workThread/'
+      owners: platform-ux
