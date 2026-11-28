@@ -90,12 +90,8 @@ USER = replace(
     agent_policy=AgentPolicy(pr_thread_link=True),
 )
 
-ERROR_TRACKING = replace(_PUBLIC, key="error_tracking", origin_product="error_tracking")
-EVAL_CLUSTERS = replace(_PUBLIC, key="eval_clusters", origin_product="eval_clusters")
-SUPPORT_QUEUE = replace(_PUBLIC, key="support_queue", origin_product="support_queue")
-SESSION_SUMMARIES = replace(_PUBLIC, key="session_summaries", origin_product="session_summaries")
 MCP_ANALYTICS = replace(_PUBLIC, key="mcp_analytics", origin_product="mcp_analytics")
-LOOP = replace(_PUBLIC, key="loop", origin_product="loop", mcp_scopes="read_only")
+LOOP = replace(_BASE, key="loop", origin_product="loop", mcp_scopes="read_only")
 
 HOGDESK = replace(
     _PUBLIC, key="hogdesk", origin_product="hogdesk", read_without_channel=Read.TEAM, drive=DrivePolicy.AUDIENCE
@@ -155,10 +151,6 @@ WORKFLOW = replace(
 
 PROFILES = (
     USER,
-    ERROR_TRACKING,
-    EVAL_CLUSTERS,
-    SUPPORT_QUEUE,
-    SESSION_SUMMARIES,
     MCP_ANALYTICS,
     LOOP,
     HOGDESK,
