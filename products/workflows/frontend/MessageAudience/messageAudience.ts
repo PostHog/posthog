@@ -17,7 +17,7 @@ import type { EmailDraftRequestApi } from '../generated/api.schemas'
 import { type WorkflowTriggerConfig, urlForNewWorkflowWithTrigger } from '../Workflows/workflowTriggerPrefill'
 import { MessageDraft } from './messageDrafts'
 
-export type MessageAudienceDestination = 'broadcast' | 'workflow'
+export type MessageAudienceDestination = Exclude<MessagingCtaDestination, 'send_from_code'>
 
 export interface MessageAudience {
     properties: AnyPropertyFilter[]
