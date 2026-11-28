@@ -24,6 +24,8 @@ rules:
       owners: team-growth
     - match: '/person/'
       owners: team-ingestion
+    - match: ['/organization_admission.py', '/test/test_organization_admission.py']
+      owners: team-platform-features
     - match: '/proxy_record.py'
       owners: team-platform-features
     - match: '/raw_sessions/'

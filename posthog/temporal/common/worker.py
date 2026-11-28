@@ -40,6 +40,7 @@ from posthog.temporal.common.combined_metrics_server import CombinedMetricsServe
 from posthog.temporal.common.interceptor import is_task_queue_supported
 from posthog.temporal.common.liveness_tracker import LivenessInterceptor
 from posthog.temporal.common.logger import get_write_only_logger
+from posthog.temporal.common.organization_admission import OrganizationAdmissionInterceptor
 from posthog.temporal.common.posthog_client import PostHogClientInterceptor
 from posthog.temporal.common.registration import combined_registration
 from posthog.temporal.common.shutdown import DEFAULT_GRACEFUL_SHUTDOWN_TIMEOUT
@@ -142,6 +143,7 @@ SUMMARIZATION_LATENCY_HISTOGRAM_BUCKETS = [
 ALL_INTERCEPTOR_CLASSES = [
     LivenessInterceptor,
     PostHogClientInterceptor,
+    OrganizationAdmissionInterceptor,
     SloInterceptor,
     DeleteRecordingsMetricsInterceptor,
     EvalsMetricsInterceptor,
