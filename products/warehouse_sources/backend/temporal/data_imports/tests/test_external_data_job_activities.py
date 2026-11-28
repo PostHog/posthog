@@ -140,6 +140,58 @@ class TestCustomerFacingError(SimpleTestCase):
         assert "timeout" not in result
 
 
+@pytest.mark.django_db(transaction=True)
+class TestTimeoutFinalization:
+    @parameterized.expand(
+        [
+            ("stalled", TimeoutType.HEARTBEAT, 1),
+            ("over_budget", TimeoutType.START_TO_CLOSE, 2),
+        ]
+    )
+    def test_only_import_budget_timeouts_count_as_source_failures(
+        self, _name: str, timeout_type: TimeoutType, expected_failed_runs: int
+    ) -> None:
+        org = Organization.objects.create(name="org")
+        team = Team.objects.create(organization=org, name="team")
+        source = ExternalDataSource.objects.create(team=team, source_type=ExternalDataSourceType.POSTGRES.value)
+        schema = ExternalDataSchema.objects.create(
+            team=team, source=source, name="table", status=ExternalDataSchema.Status.RUNNING
+        )
+        schema.note_failed_run(dt.datetime.now(dt.UTC))
+        schema.save(update_fields=["sync_type_config"])
+        job = ExternalDataJob.objects.create(
+            team=team, pipeline=source, schema=schema, status=ExternalDataJob.Status.RUNNING, rows_synced=0
+        )
+
+        cause = TimeoutError("activity timed out", type=timeout_type, last_heartbeat_details=[])
+        inputs = UpdateExternalDataJobStatusInputs(
+            team_id=team.id,
+            job_id=str(job.id),
+            schema_id=str(schema.id),
+            source_id=str(source.id),
+            status=ExternalDataJob.Status.FAILED,
+            internal_error=str(cause),
+            latest_error=_customer_facing_error(cause, IMPORT_ACTIVITY_TYPE),
+        )
+        module = "products.warehouse_sources.backend.temporal.data_imports.external_data_job"
+        jobs_module = "products.data_warehouse.backend.logic.external_data_source.jobs"
+
+        with (
+            mock.patch(f"{module}.get_rows", return_value=0),
+            mock.patch(f"{module}.finish_row_tracking"),
+            mock.patch("posthoganalytics.capture"),
+            mock.patch(f"{jobs_module}.emit_data_import_app_metrics"),
+            mock.patch(f"{jobs_module}.schedule_external_data_failure_digest"),
+        ):
+            asyncio.run(ActivityEnvironment().run(update_external_data_job_model, inputs))
+
+        job.refresh_from_db()
+        schema.refresh_from_db()
+        assert job.status == ExternalDataJob.Status.FAILED
+        assert schema.status == ExternalDataSchema.Status.FAILED
+        assert schema.failed_runs_in_a_row == expected_failed_runs
+
+
 class TestIsAppDbFailure(SimpleTestCase):
     @parameterized.expand(
         [
