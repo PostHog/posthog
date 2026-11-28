@@ -39,7 +39,7 @@
         "class-variance-authority": "^0.7.1",
         "clsx": "^2.1.1",
         "lucide-react": "^0.577.0",
-        "react-resizable-panels": "^4.7.1",
+        "react-resizable-panels": "^4.16.1",
         "tailwind-merge": "^2.2.2"
     },
     "devDependencies": {
