@@ -1,13 +1,14 @@
 import { Button, Tooltip, TooltipContent, TooltipTrigger } from '@posthog/quill'
 
 import type { LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
-import { humanFriendlyNumber, percentage } from 'lib/utils/numbers'
+import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { pluralize } from 'lib/utils/strings'
 
 import { AiVisibilityCard } from './AiVisibilityCard'
 import { AiVisibilityTable } from './AiVisibilityTable'
 import { ContentAutopilotEngineLabel } from './ContentAutopilotEngineLabel'
 import type { EngineTopicCell, EngineTopicGrid, EngineTopicRow } from './promptsOverview'
+import { formatShare } from './shares'
 import { sameTopic } from './utils'
 
 // How much of the strong success color each heat step mixes over the card, lowest rate first, so the text on it keeps
@@ -36,7 +37,7 @@ const HeatCell = ({ cell }: { cell: EngineTopicCell }): JSX.Element =>
                     />
                 }
             >
-                <span className="font-semibold">{percentage(cell.rate, 0)}</span>
+                <span className="font-semibold">{formatShare(cell.rate)}</span>
             </TooltipTrigger>
             <TooltipContent>
                 Visible in {humanFriendlyNumber(cell.mentioned)} of {pluralize(cell.answers, 'answer')}

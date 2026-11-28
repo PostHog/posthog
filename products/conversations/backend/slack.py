@@ -892,8 +892,7 @@ def _is_trivial_message(text: str, files: list[dict] | None) -> bool:
 
 # Cheap/fast model for the nudge classifier: the same tier the AI-reply pipeline picked for
 # utility calls (UTILITY_MODEL in temporal/ai_reply/constants.py; not imported here because that
-# package's __init__ pulls in the whole Temporal workflow surface). Must stay in the gateway's
-# `conversations` product allowlist (services/llm-gateway/src/llm_gateway/products/config.py).
+# package's __init__ pulls in the whole Temporal workflow surface).
 NUDGE_CLASSIFIER_MODEL = "claude-haiku-4-5"
 # Both the feature tag and the $ai_span_name on captured generations — they must stay equal.
 NUDGE_CLASSIFIER_FEATURE = "slack_nudge_classifier"

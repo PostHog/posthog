@@ -13,6 +13,7 @@ import { RunKind, decodeIntakeMessage } from '../intake/message'
 import { CDP_INTAKE_DLQ_OUTPUT } from '../outputs/outputs'
 import { CyclotronV2Manager } from '../services/cyclotron-v2'
 import { CdpDeadLetterService } from '../services/dead-letter/cdp-dead-letter.service'
+import { CYCLOTRON_QUEUE_ROLES } from '../types'
 import { EncryptedFields } from '../utils/encryption-utils'
 import { CdpConsumerBase, CdpConsumerBaseDeps } from './cdp-base.consumer'
 
@@ -91,6 +92,7 @@ export class CdpIntakeConsumer extends CdpConsumerBase {
                 connectionTimeoutMs: ATTEMPT_TIMEOUT_MS,
             },
             depthLimit: config.CYCLOTRON_SHARD_DEPTH_LIMIT,
+            ...CYCLOTRON_QUEUE_ROLES,
         })
         this.deadLetters = new CdpDeadLetterService(config, {
             outputs: this.outputs,

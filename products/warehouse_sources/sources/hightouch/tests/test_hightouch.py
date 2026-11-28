@@ -15,6 +15,7 @@ from products.warehouse_sources.sources.hightouch.hightouch import (
     get_resource,
     validate_credentials,
 )
+from products.warehouse_sources.sources.hightouch.settings import HIGHTOUCH_ENDPOINTS
 from products.warehouse_sources.sources.hightouch.source import HightouchSource
 from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
@@ -126,6 +127,96 @@ class TestHightouchTransport:
         # A terminal (None) checkpoint is not persisted — the Redis TTL handles cleanup.
         assert result.saved_states == [HightouchResumeConfig(paginator_state={"offset": 100})]
         assert result.committed_states == [HightouchResumeConfig(paginator_state={"offset": 100})]
+
+    def test_decision_engine_flows_exclude_config(self) -> None:
+        result = _driver().run(
+            "decision_engine_flows",
+            [ScriptedResponse(json={"data": [{"id": "flow-a", "config": {"token": "fake-token"}}], "hasMore": False})],
+        )
+
+        assert result.raised is None
+        assert result.paths == ["/api/v1/decision-engine/flows"]
+        assert result.rows == [{"id": "flow-a"}]
+
+    def test_decision_engine_messages_keep_flow_ids_and_exclude_config(self) -> None:
+        result = _driver().run(
+            "decision_engine_messages",
+            [
+                ScriptedResponse(json={"data": [{"id": "flow-a"}, {"id": "flow-b"}], "hasMore": False}),
+                ScriptedResponse(
+                    json={
+                        "data": [{"id": "message-a", "config": {"token": "fake-token"}, "name": "Welcome"}],
+                        "hasMore": False,
+                    }
+                ),
+                ScriptedResponse(
+                    json={"data": [{"id": "message-a", "config": {}, "name": "Reminder"}], "hasMore": False}
+                ),
+            ],
+        )
+
+        assert result.raised is None
+        assert result.paths == [
+            "/api/v1/decision-engine/flows",
+            "/api/v1/decision-engine/flow/flow-a/messages",
+            "/api/v1/decision-engine/flow/flow-b/messages",
+        ]
+        assert result.params("orderBy") == ["id", None, None]
+        assert result.rows == [
+            {"id": "message-a", "name": "Welcome", "flow_id": "flow-a"},
+            {"id": "message-a", "name": "Reminder", "flow_id": "flow-b"},
+        ]
+
+    def test_decision_engine_messages_resume_near_the_interrupted_flow(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(HIGHTOUCH_ENDPOINTS["decision_engine_flows"], "page_size", 1)
+        flow_pages = [
+            ScriptedResponse(json={"data": [{"id": f"flow-{index}"}], "hasMore": index < 4}) for index in range(1, 5)
+        ]
+        message = ScriptedResponse(json={"data": [{"id": "message-a"}], "hasMore": False})
+        driver = _driver()
+        interrupted = driver.run(
+            "decision_engine_messages",
+            [
+                flow_pages[0],
+                message,
+                flow_pages[1],
+                message,
+                flow_pages[2],
+                message,
+                flow_pages[3],
+                ScriptedResponse(status=401),
+            ],
+        )
+
+        assert interrupted.raised is not None
+        assert [row["flow_id"] for row in interrupted.rows] == ["flow-1", "flow-2", "flow-3"]
+
+        resumed = driver.run(
+            "decision_engine_messages",
+            [*flow_pages[1:], message],
+            resume_state=interrupted.final_state,
+        )
+
+        assert resumed.raised is None
+        assert resumed.params("offset") == ["1", "2", "3", "0"]
+        assert resumed.paths == ["/api/v1/decision-engine/flows"] * 3 + ["/api/v1/decision-engine/flow/flow-4/messages"]
+        assert resumed.rows == [{"id": "message-a", "flow_id": "flow-4"}]
+
+    def test_event_contracts_read_past_a_full_page_without_has_more(self) -> None:
+        first_page = [{"id": str(index)} for index in range(100)]
+        last_page = [{"id": "100", "events": [{"type": "track", "schema": {"type": "object"}}]}]
+        result = _driver().run(
+            "event_contracts",
+            [
+                ScriptedResponse(json={"data": first_page}),
+                ScriptedResponse(json={"data": last_page}),
+            ],
+        )
+
+        assert result.raised is None
+        assert result.paths == ["/api/v1/events/contracts", "/api/v1/events/contracts"]
+        assert result.params("offset") == ["0", "100"]
+        assert result.rows == first_page + last_page
 
     @parameterized.expand(
         [

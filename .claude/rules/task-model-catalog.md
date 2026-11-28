@@ -18,6 +18,5 @@ Never hand-edit `products/tasks/frontend/modelCatalog.generated.ts` or `packages
 Adding a model means one row in `MODELS`. Two things do not follow from that row and are worth checking:
 
 - A model gated behind a feature flag carries the flag in its `access_flag`, which every picker and the server's entitlement check read.
-  The legacy Python gateway's copy in `MODEL_ACCESS_FLAGS` (`services/llm-gateway/src/llm_gateway/products/config.py`) takes no new entries, because that service is being removed.
   Clear the flag when the rollout reaches everyone: the gate fails closed, so a flag left behind hides the model from anyone the flag service cannot answer for.
 - The catalog names the harness that drives a model. The gateway's `/v1/models` reports `owned_by`, which names whoever serves it (`cloudflare` and `baseten` for the vendor-served models), so routing a model by its owner puts it on the wrong adapter or drops it entirely.

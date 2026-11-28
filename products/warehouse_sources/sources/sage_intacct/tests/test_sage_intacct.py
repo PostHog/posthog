@@ -37,6 +37,9 @@ def record(key: str) -> ScriptedResponse:
         ("Bills", "accounts-payable/bill"),
         ("GLAccounts", "general-ledger/account"),
         ("JournalEntries", "general-ledger/journal-entry"),
+        ("Locations", "company-config/location"),
+        ("Departments", "company-config/department"),
+        ("GLBudgets", "general-ledger/budget"),
     ],
 )
 def test_query_pages_hydrate_records_and_commit_checkpoint(schema: str, object_name: str) -> None:
@@ -63,6 +66,88 @@ def test_query_pages_hydrate_records_and_commit_checkpoint(schema: str, object_n
         "username": ["user@example"],
     }
     assert all(request.headers["authorization"] == "Bearer example-access-token" for request in result.requests[1:])
+
+
+def model() -> ScriptedResponse:
+    return ScriptedResponse(
+        json={
+            "ia::result": {
+                "fields": {"key": {"type": "string"}, "amount": {"type": "string"}, "secret": {"writeOnly": True}},
+                "groups": {
+                    "audit": {"fields": {"modifiedDateTime": {"type": "string"}}},
+                    "dimensions": {"refs": {"location": {"fields": {"id": {"type": "string"}}}}},
+                },
+                "refs": {"glAccount": {"fields": {"key": {}, "id": {}}}},
+                "lists": {"taxEntries": {"fields": {"key": {}}}},
+            }
+        }
+    )
+
+
+def query_page(rows: list[dict[str, Any]], next_start: int | None) -> ScriptedResponse:
+    return ScriptedResponse(json={"ia::result": rows, "ia::meta": {"next": next_start}})
+
+
+@pytest.mark.parametrize(
+    ("schema", "object_name"),
+    [
+        ("JournalEntryLines", "general-ledger/journal-entry-line"),
+        ("InvoiceLines", "accounts-receivable/invoice-line"),
+        ("BillLines", "accounts-payable/bill-line"),
+        ("ARPayments", "accounts-receivable/payment"),
+        ("APPayments", "accounts-payable/payment"),
+    ],
+)
+def test_high_volume_tables_read_model_fields_from_query_without_detail_requests(schema: str, object_name: str) -> None:
+    result = SourceDriver(SageIntacctSource(), config()).run(
+        schema,
+        [
+            token(),
+            model(),
+            query_page([{"key": "7", "amount": "1.00", "audit.modifiedDateTime": "t", "glAccount.id": "4000"}], 1001),
+            query_page([{"key": "1001", "dimensions.location.id": None}], None),
+        ],
+    )
+    assert result.raised is None
+    assert len(result.requests) == 4
+    assert result.paths[1] == "/ia/api/v1/services/core/model"
+    assert parse_qs(result.requests[1].url.split("?", 1)[1]) == {"name": [object_name]}
+    assert result.requests[2].json() == {
+        "object": object_name,
+        "fields": [
+            "key",
+            "amount",
+            "audit.modifiedDateTime",
+            "dimensions.location.id",
+            "glAccount.key",
+            "glAccount.id",
+        ],
+        "orderBy": [{"key": "asc"}],
+        "size": 1000,
+        "start": 1,
+    }
+    assert result.requests[3].json()["start"] == 1001
+    assert result.rows == [
+        {"key": "7", "amount": "1.00", "audit": {"modifiedDateTime": "t"}, "glAccount": {"id": "4000"}},
+        {"key": "1001", "dimensions": {"location": {"id": None}}},
+    ]
+    assert result.saved_states == result.committed_states == [SageIntacctResumeConfig(next_start=1001)]
+
+
+@pytest.mark.parametrize(
+    ("body", "message"),
+    [
+        ({"ia::result": {"fields": {"amount": {}}}}, "without a key field"),
+        ({"ia::result": []}, "invalid object model"),
+    ],
+)
+def test_invalid_object_model_fails_before_query(body: dict[str, Any], message: str) -> None:
+    result = SourceDriver(SageIntacctSource(), config()).run(
+        "JournalEntryLines", [token(), ScriptedResponse(json=body)]
+    )
+    assert isinstance(result.raised, ValueError)
+    assert message in str(result.raised)
+    assert len(result.requests) == 2
 
 
 def test_resume_starts_at_saved_page_and_ignores_reference_href() -> None:

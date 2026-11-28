@@ -632,6 +632,7 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
         if (
             self.table is not None
             and self.table.team_id == self.team_id
+            and self.table.columns
             and self.is_materialized
             and modifiers is not None
             and modifiers.useMaterializedViews

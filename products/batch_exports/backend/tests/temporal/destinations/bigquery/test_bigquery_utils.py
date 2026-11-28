@@ -3,6 +3,7 @@
 import os
 import uuid
 import datetime as dt
+from collections.abc import AsyncIterator
 
 import pytest
 from unittest.mock import DEFAULT, AsyncMock, MagicMock, patch
@@ -10,6 +11,7 @@ from unittest.mock import DEFAULT, AsyncMock, MagicMock, patch
 from django.test import override_settings
 
 import pyarrow as pa
+import pyarrow.parquet as pq
 from google.api_core.exceptions import DeadlineExceeded, ServiceUnavailable
 from google.auth.exceptions import RefreshError
 from google.cloud import bigquery, iam_admin_v1
@@ -20,9 +22,11 @@ from products.batch_exports.backend.temporal.destinations.bigquery_batch_export 
     BigQueryField,
     BigQueryInsertInputs,
     BigQueryIntegrationNotFoundError,
+    BigQueryTable,
     Boto3CredentialsSupplier,
     GoogleCloudCredentialsError,
     ServiceAccountOwnershipError,
+    _make_parquet_pipeline_transformer,
     ensure_our_google_cloud_credentials_are_valid,
     get_our_google_cloud_credentials,
     get_service_account_description,
@@ -78,6 +82,36 @@ def test_field_resolves_to_bigquery_schema_field(pyrecords, expected_schema):
         schema.append(field.to_destination_field())
 
     assert schema == expected_schema
+
+
+@pytest.mark.parametrize(
+    "model_name,expected",
+    [
+        (
+            "persons",
+            pa.array(
+                [dt.datetime(2025, 1, 1, tzinfo=dt.UTC), dt.datetime(2106, 2, 7, 6, 28, 15, tzinfo=dt.UTC), None],
+                type=pa.timestamp("us", tz="UTC"),
+            ),
+        ),
+        ("hogql", pa.array([1_735_689_600, 2**32 - 1, None], type=pa.uint32())),
+    ],
+)
+async def test_bigquery_parquet_coerces_epoch_seconds_only_for_persons(model_name: str, expected: pa.Array) -> None:
+    table = BigQueryTable.from_bigquery_table(
+        bigquery.Table("project.dataset.destination", schema=[bigquery.SchemaField("created_at", "TIMESTAMP")])
+    )
+    transformer = _make_parquet_pipeline_transformer(table, max_file_size_bytes=0, model_name=model_name)
+
+    async def batches() -> AsyncIterator[pa.RecordBatch]:
+        yield pa.record_batch({"created_at": pa.array([1_735_689_600, 2**32 - 1, None], type=pa.uint32())})
+
+    parquet_data = b"".join([chunk.data async for chunk in transformer.iter(batches())])
+    parquet_file = pq.ParquetFile(pa.BufferReader(parquet_data))
+    assert parquet_file.schema.column(0).converted_type == (
+        "TIMESTAMP_MICROS" if model_name == "persons" else "UINT_32"
+    )
+    assert parquet_file.read()["created_at"].combine_chunks() == expected
 
 
 async def test_boto3_credentials_supplier_get_aws_region():

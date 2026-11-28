@@ -151,6 +151,24 @@ def rename_library(team_id: int, library_id: UUID, name: str) -> KnowledgeLibrar
 
 
 @with_team_scope()
+def set_receives_learned_sources(team_id: int, library_id: UUID, enabled: bool) -> KnowledgeLibrary:
+    """Choose whether new learned sources join this library. At least one library must keep receiving them."""
+    team_id = resolve_effective_team_id(team_id)
+    with transaction.atomic():
+        _lock_libraries(team_id)
+        library = get_library(team_id, library_id)
+        if library.is_default == enabled:
+            return library
+        others = KnowledgeLibrary.objects.filter(team_id=team_id, is_default=True).exclude(id=library.id)
+        # With no receiving library, the next learned source creates or re-marks one, which undoes this change.
+        if not enabled and not others.exists():
+            raise LibraryRejected({"is_default": "At least one library must receive learned sources."})
+        library.is_default = enabled
+        library.save(update_fields=["is_default", "updated_at"])
+    return library
+
+
+@with_team_scope()
 def delete_library(team_id: int, library_id: UUID) -> None:
     team_id = resolve_effective_team_id(team_id)
     library = get_library(team_id, library_id)
@@ -336,40 +354,53 @@ def replace_source_libraries(
         )
 
 
+def _learned_libraries(team_id: int) -> list[KnowledgeLibrary]:
+    return list(KnowledgeLibrary.objects.filter(team_id=team_id, is_default=True).order_by("name", "id"))
+
+
 @with_team_scope()
-def ensure_default_library(team_id: int) -> KnowledgeLibrary | None:
-    """The library new learned sources join. None when the project is already at the library cap and has no default."""
+def ensure_learned_libraries(team_id: int) -> list[KnowledgeLibrary]:
+    """The libraries new learned sources join. Empty when the project is at the library cap and none is chosen."""
     team_id = resolve_effective_team_id(team_id)
-    existing = KnowledgeLibrary.objects.filter(team_id=team_id, is_default=True).first()
-    if existing is not None:
+    existing = _learned_libraries(team_id)
+    if existing:
         return existing
     with transaction.atomic():
         _lock_libraries(team_id)
-        existing = KnowledgeLibrary.objects.filter(team_id=team_id, is_default=True).first()
-        if existing is not None:
+        existing = _learned_libraries(team_id)
+        if existing:
             return existing
         named = KnowledgeLibrary.objects.filter(team_id=team_id, name__iexact=DEFAULT_LIBRARY_NAME).first()
         if named is not None:
             named.is_default = True
             named.save(update_fields=["is_default", "updated_at"])
-            return named
+            return [named]
         if KnowledgeLibrary.objects.filter(team_id=team_id).count() >= MAX_LIBRARIES_PER_TEAM:
             # A learned document must still land. It stays unfiled until a library is removed.
             logger.warning("business_knowledge.default_library_skipped_at_cap", team_id=team_id)
-            return None
-        return KnowledgeLibrary.objects.create(team_id=team_id, name=DEFAULT_LIBRARY_NAME, is_default=True)
+            return []
+        return [KnowledgeLibrary.objects.create(team_id=team_id, name=DEFAULT_LIBRARY_NAME, is_default=True)]
 
 
 @with_team_scope()
 def file_new_learned_source(*, team_id: int, source_id: UUID) -> None:
     """Link a learned source the first time it is inserted. A later call is not made, so removing the link sticks."""
     team_id = resolve_effective_team_id(team_id)
-    library = ensure_default_library(team_id)
-    if library is None:
+    libraries = ensure_learned_libraries(team_id)
+    if not libraries:
         return
-    if KnowledgeLibrarySource.objects.filter(team_id=team_id, library=library, source_id=source_id).exists():
-        return
-    KnowledgeLibrarySource.objects.create(team_id=team_id, library=library, source_id=source_id)
+    linked = set(
+        KnowledgeLibrarySource.objects.filter(team_id=team_id, library__in=libraries, source_id=source_id).values_list(
+            "library_id", flat=True
+        )
+    )
+    KnowledgeLibrarySource.objects.bulk_create(
+        [
+            KnowledgeLibrarySource(team_id=team_id, library=library, source_id=source_id)
+            for library in libraries
+            if library.id not in linked
+        ]
+    )
 
 
 @with_team_scope()

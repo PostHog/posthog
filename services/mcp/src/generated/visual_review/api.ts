@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 23 enabled ops
+ * PostHog API - MCP 25 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -344,12 +344,13 @@ export const VisualReviewRunsRetrieveParams = () => zod.object({
 })
 
 /**
- * Mark snapshots reviewed (DB only).
+ * Accept snapshots (DB only).
  *
- * Records the per-snapshot "Accept change" decision. Does not commit the baseline
- * or change the GitHub gate — call finalize to ship the run. Works on a quarantined
- * snapshot too: a quarantined snapshot approved here is committed by finalize, which
- * updates a quarantined story's baseline entry without lifting the quarantine.
+ * Records the per-snapshot "Accept change" decision. Does not change the baseline or pass
+ * the gate; call finalize on the pull request's newest run for that. In ledger mode the run
+ * can be an older run of the pull request: the accept counts on every run that renders the
+ * same pictures. Works on a quarantined snapshot too: finalize records or commits it, and the
+ * quarantine stays.
  */
 export const VisualReviewRunsApproveCreateParams = () => zod.object({
     id: zod.string(),
@@ -360,32 +361,91 @@ export const VisualReviewRunsApproveCreateParams = () => zod.object({
         ),
 })
 
+export const visualReviewRunsApproveCreateBodySnapshotsItemIdentifierMax = 512
+
+export const visualReviewRunsApproveCreateBodySnapshotsItemNewHashMax = 128
+
+export const visualReviewRunsApproveCreateBodySnapshotsItemOldHashMax = 128
+
+export const visualReviewRunsApproveCreateBodyExpectedSeqMin = 0
+
 export const VisualReviewRunsApproveCreateBody = () => zod.object({
     snapshots: zod
         .array(
             zod.object({
                 identifier: zod
                     .string()
-                    .describe('The snapshot identifier to approve (e.g. Storybook story id plus theme).'),
+                    .max(visualReviewRunsApproveCreateBodySnapshotsItemIdentifierMax)
+                    .describe('The snapshot identifier, such as a Storybook story id plus theme.'),
                 new_hash: zod
                     .string()
-                    .describe('The content hash of the new baseline image to record for this identifier.'),
+                    .max(visualReviewRunsApproveCreateBodySnapshotsItemNewHashMax)
+                    .nullish()
+                    .describe(
+                        "The snapshot's `current_artifact.content_hash` on the run you pass as `id`. Null only for a `removed` snapshot, and only in a ledger-mode repo: elsewhere finalize accepts removals by itself."
+                    ),
+                old_hash: zod
+                    .string()
+                    .max(visualReviewRunsApproveCreateBodySnapshotsItemOldHashMax)
+                    .nullish()
+                    .describe(
+                        "Optional: the snapshot's `baseline_artifact.content_hash` on that run, or an empty string for a `new` snapshot. When given, the call is refused if the run compares against another baseline, so the decision lands only on the pair of pictures you looked at."
+                    ),
             })
         )
         .describe(
-            'Snapshots to mark reviewed, each with `identifier` and `new_hash`. This only records the review in the database (the per-snapshot \"Accept change\" action) — it does not change the baseline or the GitHub gate. Commit the baseline and green the gate with the finalize endpoint.'
+            'Snapshots to accept, each with `identifier` and `new_hash`. This only records the decision (the per-snapshot \"Accept change\" action). It does not change the baseline or pass the gate: the finalize endpoint does that.'
+        ),
+    expected_seq: zod
+        .number()
+        .min(visualReviewRunsApproveCreateBodyExpectedSeqMin)
+        .nullish()
+        .describe(
+            'Optional: the highest decision `seq` you read on these snapshots, or 0 when you read none. The call is refused with 409 `decided_since` when someone decided on one of them after that.'
         ),
 })
 
 /**
- * Finalize a fully-reviewed run: commit the approved baseline and green the gate.
+ * Undo the accept or reject of snapshots, in ledger mode, so they need review again.
+ */
+export const VisualReviewRunsClearCreateParams = () => zod.object({
+    id: zod.string(),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const visualReviewRunsClearCreateBodyIdentifiersItemMax = 512
+
+export const visualReviewRunsClearCreateBodyIdentifiersMax = 500
+
+export const visualReviewRunsClearCreateBodyExpectedSeqMin = 0
+
+export const VisualReviewRunsClearCreateBody = () => zod.object({
+    identifiers: zod
+        .array(zod.string().max(visualReviewRunsClearCreateBodyIdentifiersItemMax))
+        .max(visualReviewRunsClearCreateBodyIdentifiersMax)
+        .describe('Identifiers of the snapshots whose accept or reject to undo, on the run you pass as `id`.'),
+    expected_seq: zod
+        .number()
+        .min(visualReviewRunsClearCreateBodyExpectedSeqMin)
+        .nullish()
+        .describe(
+            'Optional: the highest decision `seq` you read on these snapshots, or 0 when you read none. The call is refused with 409 `decided_since` when someone decided on one of them after that.'
+        ),
+})
+
+/**
+ * Finalize a fully-reviewed run: record or commit the accepted baseline and pass the gate.
  *
- * Commits exactly the snapshots approved in the DB (tolerated ones keep their baseline)
- * and only succeeds once every changed/new snapshot is resolved. With approve_all=true,
- * any still-pending changed/new snapshot is approved first; quarantined snapshots are
- * skipped, but a quarantined snapshot approved by identifier is still committed.
- * With commit_to_github=false the server returns the signed baseline YAML instead of
- * committing it.
+ * Succeeds only once every changed, new and removed snapshot is accepted, tolerated or
+ * quarantined, and none is rejected. In ledger mode an accept made on an earlier run of the
+ * pull request counts while the pictures are the same, and removals nobody rejected are
+ * accepted. With approve_all=true every change nobody decided on is accepted first; a
+ * rejected snapshot is never accepted. With commit_to_github=false the server returns the
+ * signed baseline YAML instead of committing it.
  */
 export const VisualReviewRunsFinalizeCreateParams = () => zod.object({
     id: zod.string(),
@@ -405,7 +465,7 @@ export const VisualReviewRunsFinalizeCreateBody = () => zod.object({
         .boolean()
         .default(visualReviewRunsFinalizeCreateBodyApproveAllDefault)
         .describe(
-            "Approve every still-pending changed and new snapshot before finalizing (tolerated snapshots are left untouched). Leave false to finalize a run you've already reviewed — finalizing fails if any changed\/new snapshot is still unreviewed."
+            'Accept every changed and new snapshot that nobody decided on before finalizing. Tolerated and quarantined snapshots are left alone, and a rejected snapshot is never accepted, so it still blocks. Leave false to finalize a run you already reviewed: finalizing fails if any change still needs review.'
         ),
     commit_to_github: zod
         .boolean()
@@ -482,6 +542,72 @@ export const VisualReviewRunsRecomputeCreateParams = () => zod.object({
 })
 
 /**
+ * Reject snapshots of a pull request run with a reason, in ledger mode.
+ *
+ * A rejected snapshot blocks finalize until the pull request renders a different picture or
+ * the rejection is undone.
+ */
+export const VisualReviewRunsRejectCreateParams = () => zod.object({
+    id: zod.string(),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const visualReviewRunsRejectCreateBodySnapshotsItemIdentifierMax = 512
+
+export const visualReviewRunsRejectCreateBodySnapshotsItemNewHashMax = 128
+
+export const visualReviewRunsRejectCreateBodySnapshotsItemOldHashMax = 128
+
+export const visualReviewRunsRejectCreateBodySnapshotsItemReasonMax = 500
+
+export const visualReviewRunsRejectCreateBodyExpectedSeqMin = 0
+
+export const VisualReviewRunsRejectCreateBody = () => zod.object({
+    snapshots: zod
+        .array(
+            zod.object({
+                identifier: zod
+                    .string()
+                    .max(visualReviewRunsRejectCreateBodySnapshotsItemIdentifierMax)
+                    .describe('The snapshot identifier, such as a Storybook story id plus theme.'),
+                new_hash: zod
+                    .string()
+                    .max(visualReviewRunsRejectCreateBodySnapshotsItemNewHashMax)
+                    .nullish()
+                    .describe(
+                        "The snapshot's `current_artifact.content_hash` on the run you pass as `id`. Null only for a `removed` snapshot, and only in a ledger-mode repo: elsewhere finalize accepts removals by itself."
+                    ),
+                old_hash: zod
+                    .string()
+                    .max(visualReviewRunsRejectCreateBodySnapshotsItemOldHashMax)
+                    .nullish()
+                    .describe(
+                        "Optional: the snapshot's `baseline_artifact.content_hash` on that run, or an empty string for a `new` snapshot. When given, the call is refused if the run compares against another baseline, so the decision lands only on the pair of pictures you looked at."
+                    ),
+                reason: zod
+                    .string()
+                    .min(1)
+                    .max(visualReviewRunsRejectCreateBodySnapshotsItemReasonMax)
+                    .describe(
+                        'What is wrong with the new picture, so the author can fix it. Shown on the pull request.'
+                    ),
+            })
+        )
+        .describe('Snapshots to reject, each with `identifier`, `new_hash` and `reason`.'),
+    expected_seq: zod
+        .number()
+        .min(visualReviewRunsRejectCreateBodyExpectedSeqMin)
+        .nullish()
+        .describe(
+            'Optional: the highest decision `seq` you read on these snapshots, or 0 when you read none. The call is refused with 409 `decided_since` when someone decided on one of them after that.'
+        ),
+})
+
+/**
  * Recent change history for a snapshot identifier across runs.
  */
 export const VisualReviewRunsSnapshotHistoryListParams = () => zod.object({
@@ -514,7 +640,7 @@ export const VisualReviewRunsSnapshotHistoryListQueryParams = () => zod.object({
 })
 
 /**
- * Get a run's snapshots with diff results, excluding quarantined ones by default.
+ * Get a run's snapshots with diff results and review decisions, excluding quarantined ones by default.
  */
 export const VisualReviewRunsSnapshotsListParams = () => zod.object({
     id: zod.string(),
@@ -555,6 +681,12 @@ export const VisualReviewRunsSnapshotsListQueryParams = () => zod.object({
         .default(visualReviewRunsSnapshotsListQueryQuarantinedOnlyDefault)
         .describe(
             "Whether to list only the snapshots whose identifier is currently quarantined. Defaults to false. When true, `include_quarantined` is ignored and quarantined snapshots are returned. Combine with `exclude_unchanged=false` to find a quarantined story that rendered `unchanged`, which is the snapshot to request a lift on merge for. This uses the quarantines active now, not each snapshot's `is_quarantined` flag, so on an older run it misses stories whose quarantine has ended since."
+        ),
+    review_state: zod
+        .enum(['pending', 'approved', 'tolerated', 'rejected'])
+        .optional()
+        .describe(
+            'Only snapshots in this review state on the run, after decisions made on other runs of the pull request. `pending` with `exclude_unchanged=true` lists what still needs a decision.\n\n\* `pending` - pending\n\* `approved` - approved\n\* `tolerated` - tolerated\n\* `rejected` - rejected'
         ),
     snapshot_id: zod
         .string()

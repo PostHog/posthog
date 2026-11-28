@@ -1,3 +1,4 @@
+import json
 from contextlib import nullcontext
 from pathlib import Path
 from typing import Any
@@ -210,6 +211,21 @@ def test_egress_observation_requires_an_explicit_eligible_development_run(case: 
         "handoff_flag_off",
         "handoff_restricted",
         "handoff_backend_changed",
+        "git_selected",
+        "git_missing_payload",
+        "git_malformed_payload",
+        "git_empty_cohort",
+        "git_unknown_field",
+        "git_wrong_team",
+        "git_wrong_scout",
+        "git_wrong_repository",
+        "git_wrong_profile",
+        "git_wrong_origin",
+        "git_legacy_workflow",
+        "git_missing_scout",
+        "git_string_team",
+        "git_resumed",
+        "git_write",
         "git_without_grant",
         "git_without_maintenance",
     ],
@@ -222,7 +238,10 @@ def test_enrollment_requires_a_selected_compatible_run_and_regional_config(case:
         team_uuid=str(uuid4()),
         organization_id=str(uuid4()),
         github_integration_id=None,
-        repository=None,
+        repository="example/private",
+        origin_product="signals_scout",
+        profile_key="signals.scout_full_network",
+        state={"github_read_access": True, "ai_agent_name": "example-scout"},
         distinct_id="enrollment",
         environment="cloud",
         use_modal_vm_sandbox=True,
@@ -238,10 +257,10 @@ def test_enrollment_requires_a_selected_compatible_run_and_regional_config(case:
             client_ca_key_file=tmp_path / "client-key.pem",
             maintain_for_run=(case.startswith("handoff") and case != "handoff_bounded")
             or case.startswith("interactive_maintained")
-            or case == "git_without_grant",
+            or (case.startswith("git_") and case != "git_without_maintenance"),
             renew_relay_certificate=True,
             route_git_reads=case.startswith("git_"),
-            publish_git_read_grant=case == "git_without_maintenance",
+            publish_git_read_grant=case.startswith("git_") and case != "git_without_grant",
         ).model_dump_json()
     )
     if case == "missing":
@@ -270,6 +289,31 @@ def test_enrollment_requires_a_selected_compatible_run_and_regional_config(case:
             context.allowed_domains = []
         elif case == "handoff_backend_changed":
             context.state["sandbox_backend"] = "hogland"
+    target_overrides: dict[str, dict[str, int | str]] = {
+        "git_wrong_team": {"team_id": 2},
+        "git_wrong_scout": {"skill_name": "another-scout"},
+        "git_wrong_repository": {"repository": "example/other"},
+        "git_string_team": {"team_id": "1"},
+    }
+    target = {"team_id": 1, "skill_name": "example-scout", "repository": "example/private"} | target_overrides.get(
+        case, {}
+    )
+    payload: object = {
+        "git_missing_payload": None,
+        "git_malformed_payload": "{",
+        "git_empty_cohort": {"scouts": []},
+        "git_unknown_field": {"scouts": [target], "teams": [1]},
+        "git_selected": json.dumps({"scouts": [target]}),
+    }.get(case, {"scouts": [target]})
+    context.profile_key = {"git_wrong_profile": "signals.first_report_scout_full_network"}.get(
+        case, context.profile_key
+    )
+    context.origin_product = {"git_wrong_origin": "user_created"}.get(case, context.origin_product)
+    state_overrides: dict[str, dict[str, bool | str]] = {
+        "git_missing_scout": {"github_read_access": True},
+        "git_write": {"github_read_access": False, "ai_agent_name": "example-scout"},
+    }
+    context.state = state_overrides.get(case, context.state)
     with override_settings(
         DEBUG=False,
         CLOUD_DEPLOYMENT="DEV",
@@ -285,10 +329,16 @@ def test_enrollment_requires_a_selected_compatible_run_and_regional_config(case:
     ):
         config = _agent_egress_enrollment_config(
             context,
-            flags=_flags({AGENT_EGRESS_ENROLLMENT_FEATURE_FLAG: not case.endswith("flag_off")}),
+            flags=_flags(
+                {AGENT_EGRESS_ENROLLMENT_FEATURE_FLAG: not case.endswith("flag_off")},
+                {AGENT_EGRESS_ENROLLMENT_FEATURE_FLAG: payload},
+            ),
             input=GetTaskProcessingContextInput(
                 run_id=context.run_id,
-                resumed_sandbox_id="sb-current" if case == "resumed" or case.startswith("handoff") else None,
+                resumed_sandbox_id="sb-current"
+                if case in {"resumed", "git_resumed"} or case.startswith("handoff")
+                else None,
+                supports_agent_egress_git_reads=case != "git_legacy_workflow",
                 resume_agent_egress_enrollment=case.startswith("handoff"),
             ),
         )
@@ -296,6 +346,7 @@ def test_enrollment_requires_a_selected_compatible_run_and_regional_config(case:
             case
             in {
                 "enabled",
+                "git_selected",
                 "implicit_provider",
                 "empty_provider",
                 "interactive_maintained",
@@ -1073,6 +1124,10 @@ class TestGetTaskProcessingContextActivity:
             network_access_level=SandboxEnvironment.NetworkAccessLevel.FULL,
             allowed_domains=[],
         )
+        if configuration.startswith("enrollment_git"):
+            test_task.origin_product = Task.OriginProduct.SIGNALS_SCOUT
+            test_task.profile = "signals.scout_full_network"
+            test_task.save(update_fields=["origin_product", "profile"])
         task_run = test_task.create_run(extra_state={"sandbox_environment_id": str(sandbox_environment.id)})
 
         directory = tmp_path / "approved"
@@ -1092,7 +1147,12 @@ class TestGetTaskProcessingContextActivity:
         if enrollment:
             if configuration.startswith("enrollment_git"):
                 TaskRun.update_state_atomic(
-                    task_run.id, updates={"github_read_access": True, "repositories": ["example/private"]}
+                    task_run.id,
+                    updates={
+                        "github_read_access": True,
+                        "repositories": ["example/private"],
+                        "ai_agent_name": "example-scout",
+                    },
                 )
             Path(path).write_text(
                 AgentEgressEnrollmentConfig(
@@ -1124,9 +1184,16 @@ class TestGetTaskProcessingContextActivity:
             return _flags(
                 flags={key: enrollment for key in flag_keys_to_evaluate if key == AGENT_EGRESS_ENROLLMENT_FEATURE_FLAG},
                 payloads={
-                    key: '{"default_base_origin_products": ["user_created"]}'
-                    for key in flag_keys_to_evaluate
-                    if key == MODAL_VM_SANDBOX_FEATURE_FLAG
+                    MODAL_VM_SANDBOX_FEATURE_FLAG: '{"default_base_origin_products": ["user_created", "signals_scout"]}',
+                    AGENT_EGRESS_ENROLLMENT_FEATURE_FLAG: {
+                        "scouts": [
+                            {
+                                "team_id": task_run.team_id,
+                                "skill_name": "example-scout",
+                                "repository": "example/private",
+                            }
+                        ]
+                    },
                 },
             )
 
@@ -1145,6 +1212,7 @@ class TestGetTaskProcessingContextActivity:
         ):
             result = async_to_sync(activity_environment.run)(get_task_processing_context, input_data)
 
+        enrollment = enrollment and configuration != "enrollment_git_legacy"
         assert result.sandbox_environment_id == str(sandbox_environment.id)
         assert result.allowed_domains is None
         assert result.agent_egress_observation_config == (path if configuration == "valid" or enrollment else None)
@@ -1158,7 +1226,7 @@ class TestGetTaskProcessingContextActivity:
             assert not result.use_modal_resume_snapshots
             assert not result.sandbox_rotation_enabled
             assert not result.continue_as_new_enabled
-        invalid = configuration not in {"disabled", "valid"} and not enrollment
+        invalid = configuration not in {"disabled", "valid", "enrollment_git_legacy"} and not enrollment
         warnings = [record for record in logs if record["event"] == "agent_egress_observation_disabled"]
         assert len(warnings) == int(invalid)
         assert marker not in str(logs)

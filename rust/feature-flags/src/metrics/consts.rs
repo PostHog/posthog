@@ -370,6 +370,10 @@ pub const REMOTE_CONFIG_REQUESTS_COUNTER: &str = "flags_remote_config_requests_t
 // split decides redact-vs-decrypt, so the mix is worth watching during the phase 2/3 cutover.
 pub const REMOTE_CONFIG_AUTH_COUNTER: &str = "flags_remote_config_auth_total";
 
+// Remote config access control denials for personal-key callers
+// Labels: check (flags = the project or feature flags in general, flag = the requested flag)
+pub const REMOTE_CONFIG_ACCESS_DENIED_COUNTER: &str = "flags_remote_config_access_denied_total";
+
 // Remote config ETag metrics
 // Labels: result (hit = 304, miss = 200 with stale etag, none = request sent no
 // If-None-Match; the 200 still carries an etag since it is computed per request). Unlike flag

@@ -480,6 +480,9 @@ class TeamWorkflowsConfigSerializer(serializers.ModelSerializer, UserAccessContr
 REQUEST_ALLOWLIST_FEATURE_FLAG = "feature-flag-request-allowlist"
 
 
+FEATURE_FLAG_POLICY_CONFIG_HELP_TEXT = "A list sent replaces the saved one. Omitted fields are kept."
+
+
 class TeamFeatureFlagPolicyConfigSerializer(serializers.ModelSerializer, UserAccessControlSerializerMixin):
     require_tags = serializers.BooleanField(
         required=False,
@@ -499,7 +502,7 @@ class TeamFeatureFlagPolicyConfigSerializer(serializers.ModelSerializer, UserAcc
         required=False,
         help_text=(
             f"Domains to block from /flags requests, up to {MAX_LISTED_HOSTS}. A domain also covers its subdomains. "
-            "It is compared with the Origin header, or with Referer when Origin is missing or names no domain."
+            "It is compared with Origin, or with Referer when Origin names no domain."
         ),
     )
     blocked_ips = serializers.ListField(
@@ -517,9 +520,9 @@ class TeamFeatureFlagPolicyConfigSerializer(serializers.ModelSerializer, UserAcc
         required=False,
         help_text=(
             f"Domains allowed to make /flags requests, up to {MAX_LISTED_HOSTS}. When not empty, pages whose domain "
-            "is not listed or is hidden get no flags. Requests with no Origin and no Referer, such as those from "
-            "server-side and mobile SDKs, are not checked. Same rules as blocked_hosts, but shared hosting domains "
-            "such as vercel.app are rejected. A blocked domain wins."
+            "is not listed or is hidden get no flags. Requests without Origin or Referer, such as from server-side "
+            "and mobile SDKs, are not checked. Same rules as blocked_hosts, but shared hosts such as vercel.app are "
+            "rejected. A blocked domain wins."
         ),
     )
     allowed_ips = serializers.ListField(
@@ -528,9 +531,9 @@ class TeamFeatureFlagPolicyConfigSerializer(serializers.ModelSerializer, UserAcc
         required=False,
         help_text=(
             f"IP addresses or CIDR ranges allowed to make /flags requests, up to {MAX_LISTED_IPS}. When not empty, "
-            "every other caller gets no flags, including servers and browsers on allowed domains. Behind a reverse "
-            "proxy, the proxy's address is checked, so requests through the managed reverse proxy get no flags. "
-            "Entries follow the same rules as blocked_ips. A blocked address wins."
+            "all other callers get no flags, even browsers on allowed domains. Add IPv6 addresses too, as callers "
+            "may connect over IPv6. Behind a proxy, such as the managed reverse proxy, the proxy's address is "
+            "checked. Same entry rules as blocked_ips. A blocked address wins."
         ),
     )
 

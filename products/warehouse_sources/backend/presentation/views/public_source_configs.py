@@ -101,6 +101,7 @@ def _build_source_configs_from_registry(*, include_tables: bool) -> dict[str, di
             config["defaultVersion"] = source.default_version
             config["apiDocsUrl"] = source.api_docs_url
             config["cdcEngine"] = cdc_engine(source_type)
+            config["supportsXmin"] = bool(source.supports_xmin)
             config["deprecatedVersions"] = [
                 {"version": d.version, "sunsetAt": d.sunset_at.isoformat() if d.sunset_at else None}
                 for d in source.deprecated_versions

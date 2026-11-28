@@ -1145,6 +1145,22 @@
         },
         "feature_flag": "web-analytics-content-autopilot"
     },
+    "aeo-prompts-set-topic": {
+        "description": "Set one `topic` on up to 500 AI citation tracking prompts at once, by their `prompt_ids` from `aeo-prompts-list`. An empty string removes their topic. A name that matches an existing topic in another letter case takes that topic's spelling, so check `aeo-prompts-topics-list` and reuse an existing topic rather than adding a near-duplicate. Past checks keep the topic they ran with, and no prompt version is added. Archived prompts are refused (400) and unknown ids return 404; either way nothing is saved. Returns how many prompts changed.",
+        "category": "AI citation tracking",
+        "feature": "aeo",
+        "summary": "Set the topic of several tracked AI prompts",
+        "title": "Set the topic of several tracked AI prompts",
+        "required_scopes": ["web_analytics:write"],
+        "api_operations": ["POST /api/projects/{project_id}/aeo_prompts/bulk_set_topic/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "web-analytics-content-autopilot"
+    },
     "aeo-prompts-stats-get": {
         "description": "Get citation stats for one AI citation tracking prompt. `engines` has one row per answer engine over the prompt's whole history: `checks`, `cited`, `mentioned` (answers that name the brand), `failed`, `citation_rate` and `mention_rate` (shares of answered checks, 0-1, failed checks left out), and the first and last check times. `daily` has counts per day and engine for the last 30 days (`daily_from` to `daily_to`, in the project's timezone); days without a check are left out. Over the same 30 days, `consensus` says how many of each engine's answers cited each of the ten most cited domains, `sentiment` counts positive, neutral and negative answers toward the brand per engine (`unscored` answers name the brand but are not scored yet), and `top_words` lists the most used words of the web searches the engines ran. `brand_names` are the words an answer must contain to count as a mention; use them to filter `answer_text` in a HogQL query over `system.aeo_citation_checks`. Use it to compare engines, to see whether a prompt's citations are trending up or down, and to find which sources the engines agree on.",
         "category": "AI citation tracking",
@@ -1196,7 +1212,7 @@
         "feature_flag": "web-analytics-content-autopilot"
     },
     "aeo-prompts-topics-list": {
-        "description": "List the topics in the project's AI citation tracking prompt set, with the number of prompts in each. An empty topic groups the prompts that have no topic. Use the values as the `topic` filter of `aeo-prompts-list`.",
+        "description": "List the topics in the project's AI citation tracking prompt set, with the number of prompts in each. An empty topic groups the prompts that have no topic. Archived prompts are not counted. Use the values as the `topic` filter of `aeo-prompts-list`, and to rename, merge or remove a topic.",
         "category": "AI citation tracking",
         "feature": "aeo",
         "summary": "List tracked AI prompt topics",
@@ -1208,6 +1224,54 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
+        },
+        "feature_flag": "web-analytics-content-autopilot"
+    },
+    "aeo-prompts-topics-merge": {
+        "description": "Move every AI citation tracking prompt of `topic`, archived ones included, to `into_topic`, which keeps its current spelling. Past checks that ran with `topic` move too, so the reports show one history under `into_topic`, and `topic` is gone afterwards. This can't be undone by a split, so confirm with the user first. Letter case is ignored in both names; take them from `aeo-prompts-topics-list`. No prompt version is added. Fails with 404 when a topic is missing and 400 when both name the same topic. Returns how many prompts and past checks changed.",
+        "category": "AI citation tracking",
+        "feature": "aeo",
+        "summary": "Merge two tracked AI prompt topics",
+        "title": "Merge two tracked AI prompt topics",
+        "required_scopes": ["web_analytics:write"],
+        "api_operations": ["POST /api/projects/{project_id}/aeo_prompts/topics/merge/"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "web-analytics-content-autopilot"
+    },
+    "aeo-prompts-topics-remove": {
+        "description": "Remove `topic` from every AI citation tracking prompt that has it, archived ones included, and from the past checks that ran with it. The prompts are kept and have no topic afterwards. Confirm with the user first. Letter case is ignored. No prompt version is added. Fails with 404 when no prompt has the topic. Returns how many prompts and past checks changed.",
+        "category": "AI citation tracking",
+        "feature": "aeo",
+        "summary": "Remove a tracked AI prompt topic",
+        "title": "Remove a tracked AI prompt topic",
+        "required_scopes": ["web_analytics:write"],
+        "api_operations": ["POST /api/projects/{project_id}/aeo_prompts/topics/remove/"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "web-analytics-content-autopilot"
+    },
+    "aeo-prompts-topics-rename": {
+        "description": "Rename `topic` to `new_topic` on every AI citation tracking prompt that has it, archived ones included, and on the past checks that ran with it, so the reports show its history under the new name. Letter case is ignored when matching `topic`, and `new_topic` may differ from it only in letter case to fix the spelling. Fails with 409 when another topic already has `new_topic`: use `aeo-prompts-topics-merge` instead. No prompt version is added. Returns how many prompts and past checks changed.",
+        "category": "AI citation tracking",
+        "feature": "aeo",
+        "summary": "Rename a tracked AI prompt topic",
+        "title": "Rename a tracked AI prompt topic",
+        "required_scopes": ["web_analytics:write"],
+        "api_operations": ["POST /api/projects/{project_id}/aeo_prompts/topics/rename/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
         },
         "feature_flag": "web-analytics-content-autopilot"
     },
@@ -3690,7 +3754,7 @@
         "feature_flag": "stamphog"
     },
     "code-review-approvals-repositories-update": {
-        "description": "Change the settings of one repo config by id. Send only the fields to change. Turning reviews on (`enabled: true`) and `digest_enabled` need the Editor level on code review auto-approval. Turning reviews off (`enabled: false`), `review_mode`, `trigger_label`, `routing_mode`, `routing_fork_labels` and `review_on_clean_external_review` need the Manager level, and a request without it is refused. `review_on_clean_external_review` works only with `review_mode: label`: the API refuses it with `all`, and setting `review_mode` to `all` turns it off. Turn it on only in a repository where PostHog Review runs automatic reviews when a pull request opens or is marked ready. To have reviewers requested only when auto-approval does not approve, turn `review_on_clean_external_review` on first, then set `routing_mode` to `fallback`. `routing_fork_labels` replaces the whole map. `provider` and `repository` cannot change on an existing config.",
+        "description": "Change the settings of one repo config by id. Send only the fields to change. Turning reviews on (`enabled: true`) and `digest_enabled` need the Editor level on code review auto-approval. Turning reviews off (`enabled: false`), `review_mode`, `trigger_label`, `routing_mode`, `routing_fork_labels`, `review_on_clean_external_review`, `broadcast_enabled`, `broadcast_slack_channel_id` and `broadcast_slack_channel_name` need the Manager level, and a request without it is refused. Turning `broadcast_enabled` on needs `broadcast_slack_channel_id`, in the same request or set earlier. `review_on_clean_external_review` works only with `review_mode: label`: the API refuses it with `all`, and setting `review_mode` to `all` turns it off. Turn it on only in a repository where PostHog Review runs automatic reviews when a pull request opens or is marked ready. To have reviewers requested only when auto-approval does not approve, turn `review_on_clean_external_review` on first, then set `routing_mode` to `fallback`. `routing_fork_labels` replaces the whole map. `provider` and `repository` cannot change on an existing config.",
         "category": "PostHog Review",
         "feature": "code_review",
         "summary": "Update an auto-approval repository",
@@ -3738,7 +3802,7 @@
         "feature_flag": "stamphog"
     },
     "code-review-approvals-runs-create": {
-        "description": "Ask auto-approval to review one pull request now, by `repository` (owner/name) and `pr_number`. The repository must be connected through the Stamphog GitHub app and enabled for auto-approval. The request replaces the trigger label, so it works in label mode too, but every other rule still applies: auto-approval refuses drafts, closed PRs, bot-authored PRs, PRs from outside the repository, and PRs whose author lacks write access, and the error message says why. Auto-approval decides the verdict itself: a passing review posts a real GitHub approval, anything else posts a comment. The review runs in the background, so this returns the run right away (status `queued`). Poll `code-review-approvals-runs-get` with its id for the verdict and reasoning. When a run already covers the PR's current head, that run is returned with `created: false` instead of starting another. The one exception is a head that auto-approval refused: it reviews it again when people changed what the reviewer reads since then (the title or description, a trusted person's comment or review, or a review thread resolved or reopened), at most three times per head. Bot comments do not count, and returning to evidence a review already saw starts nothing. After the third, push a change to get another review.",
+        "description": "Ask auto-approval to review one pull request now, by `repository` (owner/name) and `pr_number`. The repository must be connected through the Stamphog GitHub app and enabled for auto-approval. The request replaces the trigger label, so it works in label mode too, but every other rule still applies: auto-approval refuses drafts, closed PRs, bot-authored PRs, PRs from outside the repository, and PRs whose author lacks write access, and the error message says why. Auto-approval decides the verdict itself: a passing review posts a real GitHub approval, anything else posts a comment. The review runs in the background, so this returns the run right away (status `queued`). Poll `code-review-approvals-runs-get` with its id for the verdict and reasoning. When a run already covers the PR's current head, that run is returned with `created: false` instead of starting another. The one exception is a head that auto-approval refused: it reviews it again when people changed what the reviewer reads since then (the title or description, a trusted person's comment or review, or a review thread resolved or reopened), at most three times per head. Bot comments do not count, and returning to evidence a review already saw starts nothing. After the third, push a change to get another review. Set `allow_broadcast: true` to also ask people: when auto-approval does not approve, the PR is posted to the repository's Slack channel for someone to review, and `broadcast_request` in the response tracks it. The repository must have broadcasting turned on. Asking again returns the active request rather than posting again. `note` (up to 200 characters, needs `allow_broadcast`) is shown in Slack only. Only set `allow_broadcast` when the user explicitly asks for people to review.",
         "category": "PostHog Review",
         "feature": "code_review",
         "summary": "Request an auto-approval review",
@@ -14238,7 +14302,7 @@
         "system_prompt_hint": "List persons behind a trends data point"
     },
     "query-web-overview": {
-        "description": "Run a web analytics overview query — high-level KPIs over a period: visitors, pageviews, sessions, average session duration, and bounce rate. Returns a small list of metric tuples with optional period-over-period comparison. Mirrors the in-product **Web analytics** scene.\n\n# When to use this vs `query-trends`\n\nPick this tool only when the answer needs **session-level math**. Session aggregation is more expensive than per-event queries — only pay for it when needed.\n\nUse `query-web-overview` when the question references just the aggregate values across the period instead of time series for those session-level values: bounce rate, session duration, sessions as a count, or entry/initial values (entry page, initial channel, initial UTM).\n\nUse `query-trends` instead for per-event counts — pageviews, sign-ups, button clicks. Faster.\n\n# Inputs\n\n- `dateRange` — defaults to last 7 days when omitted. Keep ranges short — there is no enforced upper bound and large windows on the slow path can be expensive.\n- `compareFilter: { compare: true }` — return prior-period values for change %. **Roughly doubles query cost** because it runs the same aggregation over the previous period — leave it off unless the user explicitly asks for a comparison.\n- `properties` — event/person/session/cohort filters. Same operator semantics as `query-trends` — see that prompt. Defaults to `[]`.\n- `filterTestAccounts` — exclude internal/test users.\n- `doPathCleaning` — apply team's path-cleaning rules.\n- `conversionGoal` — pass an `actionId` (must belong to the current project) or a `customEventName`. Only set when the user asks about a conversion.\n\nUse `read-data-schema` to validate property names/values when needed.\n\n# Example\n\n```json\n{\n  \"kind\": \"WebOverviewQuery\",\n  \"dateRange\": { \"date_from\": \"-7d\" }\n}\n```\n\n# Out of scope\n\n`conversionGoal` is supported as an input on this tool. Goal-funnel breakdowns (`WebGoalsQuery`), web vitals, and external clicks aren't exposed as separate query modes — fall back to `execute-sql` for those.",
+        "description": "Run a web analytics overview query — high-level KPIs over a period: visitors, pageviews, sessions, average session duration, and bounce rate. Returns a small list of metric tuples with optional period-over-period comparison. Mirrors the in-product **Web analytics** scene.\n\n# When to use this vs `query-trends`\n\nPick this tool only when the answer needs **session-level math**. Session aggregation is more expensive than per-event queries — only pay for it when needed.\n\nUse `query-web-overview` when the question references just the aggregate values across the period instead of time series for those session-level values: bounce rate, session duration, sessions as a count, or entry/initial values (entry page, initial channel, initial UTM).\n\nUse `query-trends` instead for per-event counts — pageviews, sign-ups, button clicks. Faster.\n\n# Inputs\n\n- `dateRange` — defaults to last 7 days when omitted. Keep ranges short — there is no enforced upper bound and large windows on the slow path can be expensive.\n- `compareFilter: { compare: true }` — return prior-period values for change %. **Roughly doubles query cost** because it runs the same aggregation over the previous period — leave it off unless the user explicitly asks for a comparison. With a relative `dateRange` and no `date_to`, the comparison runs over **complete days** (today's partial day is dropped, e.g. `-7d` becomes the last 7 whole days against the 7 before them), so the two periods carry the same weekday mix. Tell the user the window ends yesterday; pass an explicit `date_to` to include today.\n- `properties` — event/person/session/cohort filters. Same operator semantics as `query-trends` — see that prompt. Defaults to `[]`.\n- `filterTestAccounts` — exclude internal/test users.\n- `doPathCleaning` — apply team's path-cleaning rules.\n- `conversionGoal` — pass an `actionId` (must belong to the current project) or a `customEventName`. Only set when the user asks about a conversion.\n\nUse `read-data-schema` to validate property names/values when needed.\n\n# Example\n\n```json\n{\n  \"kind\": \"WebOverviewQuery\",\n  \"dateRange\": { \"date_from\": \"-7d\" }\n}\n```\n\n# Out of scope\n\n`conversionGoal` is supported as an input on this tool. Goal-funnel breakdowns (`WebGoalsQuery`), web vitals, and external clicks aren't exposed as separate query modes — fall back to `execute-sql` for those.",
         "category": "Web analytics",
         "feature": "web_analytics",
         "summary": "Run a web analytics overview query",
@@ -14254,7 +14318,7 @@
         "system_prompt_hint": "Web analytics KPIs — visitors, sessions, bounce rate, session duration"
     },
     "query-web-stats": {
-        "description": "Run a web analytics breakdown table query — top pages, UTMs, devices, browsers, countries, etc. — with visitors and pageviews per row, plus optional bounce rate / average time on page. Mirrors the in-product **Web analytics** scene's table tiles.\n\n# When to use this vs `query-trends` / `query-paths`\n\nPick this tool only when the answer needs **session-level math**. Session aggregation is more expensive than per-event queries — only pay for it when needed.\n\nUse `query-web-stats` when the breakdown or metric is session-derived:\n\n- `includeBounceRate=true` or `includeAvgTimeOnPage=true` (per-session metrics)\n- Initial / first-touch breakdowns: `InitialPage`, `InitialChannelType`, `InitialReferringDomain`, `InitialUTMSource`/`Medium`/`Campaign`/`Term`/`Content`\n- `ExitPage` (last event in a session)\n\nUse `query-trends` (with a breakdown) for per-event counts by an event property — no session boundaries needed. Faster.\n\nUse `query-paths` for navigation between arbitrary events when you don't need bounce rate or session-level metrics.\n\n# `breakdownBy` cheat-sheet\n\n- **Path-style** (pair with `includeBounceRate`/`includeAvgTimeOnPage`): `Page`, `InitialPage`, `ExitPage`, `PreviousPage`\n- **Marketing**: `InitialChannelType`, `InitialReferringDomain`, `InitialReferringURL`, `InitialUTMSource`, `InitialUTMMedium`, `InitialUTMCampaign`, `InitialUTMTerm`, `InitialUTMContent`, `InitialUTMSourceMediumCampaign`\n- **Audience / device**: `Browser`, `OS`, `Viewport`, `DeviceType`, `Country`, `Region`, `City`, `Timezone`, `Language`\n- **Other**: `ScreenName`, `ExitClick`, `FrustrationMetrics` (these don't combine with `includeBounceRate` / `includeAvgTimeOnPage`)\n\n# Inputs\n\nSame filter set as `query-web-overview` (`dateRange`, `compareFilter`, `properties`, `filterTestAccounts`, `doPathCleaning`, `conversionGoal`). Plus `breakdownBy` (required), `includeBounceRate`, `includeAvgTimeOnPage`, `includeHost`, `limit`, `offset`. Default `dateRange` is last 7 days.\n\nPerformance hints:\n\n- Leave `compareFilter` off unless the user asks for period-over-period — enabling it roughly doubles query cost.\n- `limit` is capped at 200 by the wrapper. Prefer 10–25 unless the user explicitly asks for more.\n\nUse `read-data-schema` to validate property names/values when needed.\n\n# Reading the results\n\nEach row in `results` is a positional array. The `columns` array in the response names each position, so read the cells by column name, not by a fixed index. The optional bounce rate and average time columns shift the positions after them.\n\n- `context.columns.breakdown_value`: the breakdown value, such as the page path.\n- `context.columns.visitors`, `context.columns.views`, `context.columns.avg_time_on_page`, `context.columns.bounce_rate`: each cell is a `[current, previous]` pair. When `compareFilter` is off, ignore `previous`: the backend can return `null` or `0` there, and neither value is a measured comparison. `bounce_rate` is a fraction from 0 to 1. `avg_time_on_page` is in seconds.\n- `context.columns.ui_fill_fraction`: the share of the total for the row bar in the UI. Ignore it for analysis.\n- `context.columns.cross_sell`: an empty placeholder for the UI. Ignore it.\n\n# Example\n\nTop 20 pages by bounce rate, last 7 days:\n\n```json\n{\n  \"kind\": \"WebStatsTableQuery\",\n  \"breakdownBy\": \"Page\",\n  \"includeBounceRate\": true,\n  \"limit\": 20,\n  \"dateRange\": { \"date_from\": \"-7d\" }\n}\n```\n\n# Out of scope\n\n`conversionGoal` is supported as an input on this tool. Goal-funnel breakdowns (`WebGoalsQuery`), web vitals, and external clicks aren't exposed as separate query modes — fall back to `execute-sql` for those.",
+        "description": "Run a web analytics breakdown table query — top pages, UTMs, devices, browsers, countries, etc. — with visitors and pageviews per row, plus optional bounce rate / average time on page. Mirrors the in-product **Web analytics** scene's table tiles.\n\n# When to use this vs `query-trends` / `query-paths`\n\nPick this tool only when the answer needs **session-level math**. Session aggregation is more expensive than per-event queries — only pay for it when needed.\n\nUse `query-web-stats` when the breakdown or metric is session-derived:\n\n- `includeBounceRate=true` or `includeAvgTimeOnPage=true` (per-session metrics)\n- Initial / first-touch breakdowns: `InitialPage`, `InitialChannelType`, `InitialReferringDomain`, `InitialUTMSource`/`Medium`/`Campaign`/`Term`/`Content`\n- `ExitPage` (last event in a session)\n\nUse `query-trends` (with a breakdown) for per-event counts by an event property — no session boundaries needed. Faster.\n\nUse `query-paths` for navigation between arbitrary events when you don't need bounce rate or session-level metrics.\n\n# `breakdownBy` cheat-sheet\n\n- **Path-style** (pair with `includeBounceRate`/`includeAvgTimeOnPage`): `Page`, `InitialPage`, `ExitPage`, `PreviousPage`\n- **Marketing**: `InitialChannelType`, `InitialReferringDomain`, `InitialReferringURL`, `InitialUTMSource`, `InitialUTMMedium`, `InitialUTMCampaign`, `InitialUTMTerm`, `InitialUTMContent`, `InitialUTMSourceMediumCampaign`\n- **Audience / device**: `Browser`, `OS`, `Viewport`, `DeviceType`, `Country`, `Region`, `City`, `Timezone`, `Language`\n- **Other**: `ScreenName`, `ExitClick`, `FrustrationMetrics` (these don't combine with `includeBounceRate` / `includeAvgTimeOnPage`)\n\n# Inputs\n\nSame filter set as `query-web-overview` (`dateRange`, `compareFilter`, `properties`, `filterTestAccounts`, `doPathCleaning`, `conversionGoal`). Plus `breakdownBy` (required), `includeBounceRate`, `includeAvgTimeOnPage`, `includeHost`, `limit`, `offset`. Default `dateRange` is last 7 days.\n\nPerformance hints:\n\n- Leave `compareFilter` off unless the user asks for period-over-period — enabling it roughly doubles query cost. With compare on and no `date_to`, the window is clipped to complete days (today is left out) so both periods hold the same whole days; say so when you report the change.\n- `limit` is capped at 200 by the wrapper. Prefer 10–25 unless the user explicitly asks for more.\n\nUse `read-data-schema` to validate property names/values when needed.\n\n# Reading the results\n\nEach row in `results` is a positional array. The `columns` array in the response names each position, so read the cells by column name, not by a fixed index. The optional bounce rate and average time columns shift the positions after them.\n\n- `context.columns.breakdown_value`: the breakdown value, such as the page path.\n- `context.columns.visitors`, `context.columns.views`, `context.columns.avg_time_on_page`, `context.columns.bounce_rate`: each cell is a `[current, previous]` pair. When `compareFilter` is off, ignore `previous`: the backend can return `null` or `0` there, and neither value is a measured comparison. `bounce_rate` is a fraction from 0 to 1. `avg_time_on_page` is in seconds.\n- `context.columns.ui_fill_fraction`: the share of the total for the row bar in the UI. Ignore it for analysis.\n- `context.columns.cross_sell`: an empty placeholder for the UI. Ignore it.\n\n# Example\n\nTop 20 pages by bounce rate, last 7 days:\n\n```json\n{\n  \"kind\": \"WebStatsTableQuery\",\n  \"breakdownBy\": \"Page\",\n  \"includeBounceRate\": true,\n  \"limit\": 20,\n  \"dateRange\": { \"date_from\": \"-7d\" }\n}\n```\n\n# Out of scope\n\n`conversionGoal` is supported as an input on this tool. Goal-funnel breakdowns (`WebGoalsQuery`), web vitals, and external clicks aren't exposed as separate query modes — fall back to `execute-sql` for those.",
         "category": "Web analytics",
         "feature": "web_analytics",
         "summary": "Run a web analytics breakdown table query",
@@ -14270,7 +14334,7 @@
         "system_prompt_hint": "Web analytics breakdowns — top pages, UTMs, devices, countries, with bounce rate"
     },
     "query-web-vitals": {
-        "description": "Per-page Core Web Vitals breakdown — one metric at one percentile, with pages bucketed into `good` / `needs_improvements` / `poor` bands. Mirrors the in-product **Web analytics → Web vitals** tab.\n\n# When to use this vs `query-trends` / `execute-sql`\n\nUse `query-web-vitals` for **page-level** vitals questions: \"which pages are slow?\", \"where is LCP bad?\", \"audit our Core Web Vitals\". One call replaces a hand-written percentile query over `$web_vitals` and classifies each page against the band thresholds for you.\n\nUse `query-trends` on the `$web_vitals` event (property math on `$web_vitals_LCP_value` etc.) for a **site-wide trend over time** — this tool has no time axis; it aggregates the whole window.\n\nReach for `execute-sql` only for shapes neither covers (e.g. per-page sample counts, device splits per page, or custom baselines).\n\nRequires the project to capture the `$web_vitals` event (`capture_performance` in posthog-js). If results come back empty, check capture with `read-data-schema` before concluding pages are fine.\n\n# Inputs\n\n- `metric` (required): `LCP` (load, ms), `INP` (interactivity, ms), `CLS` (layout stability, unitless), or `FCP` (first paint, ms). One metric per call — run up to four calls for a full audit.\n- `percentile` (required): use `p75` unless the user asks otherwise — the Google bands are defined at p75. `p90`/`p99` show the slow tail.\n- `thresholds` (required): `[good, poor]` boundaries for the chosen metric. Standard Google values:\n\n| Metric | thresholds     |\n| ------ | -------------- |\n| LCP    | `[2500, 4000]` |\n| INP    | `[200, 500]`   |\n| CLS    | `[0.1, 0.25]`  |\n| FCP    | `[1800, 3000]` |\n\n- `dateRange`: defaults to the last 7 days — a good window for a stable percentile; shorter windows get noisy on low-traffic pages.\n- `properties`: event and person filters only (the runner ignores session and cohort filters) — e.g. an event filter on `$host` to scope one domain of a multi-domain project, or on `$device_type` (`Mobile`/`Desktop`) to isolate a population.\n- `filterTestAccounts`, `doPathCleaning`: same semantics as the other web analytics tools.\n\n# Reading the result\n\nEach band lists `{path, value}` pairs. A page in `poor` at p75 on a high-traffic route is a real, citable problem even if it never changed. Percentiles on low-traffic pages wobble — corroborate a surprising result with a sample count via `execute-sql` before making strong claims. Mobile values run 2–3× desktop, so a pooled percentile can hide a mobile-only problem: when a page looks borderline, re-run with a `$device_type` filter.\n\n# Example\n\nWorst LCP pages at p75, last 7 days, marketing site only:\n\n```json\n{\n  \"metric\": \"LCP\",\n  \"percentile\": \"p75\",\n  \"thresholds\": [2500, 4000],\n  \"properties\": [{ \"type\": \"event\", \"key\": \"$host\", \"operator\": \"exact\", \"value\": [\"example.com\"] }]\n}\n```",
+        "description": "Per-page Core Web Vitals breakdown — one metric at one percentile, with pages bucketed into `good` / `needs_improvements` / `poor` bands. Mirrors the in-product **Web analytics → Web vitals** tab.\n\n# When to use this vs `query-trends` / `execute-sql`\n\nUse `query-web-vitals` for **page-level** vitals questions: \"which pages are slowest?\", \"where is LCP bad?\", \"audit our Core Web Vitals\". One call replaces a hand-written percentile query over `$web_vitals`, classifies each page against the band thresholds, and lists each band worst page first with its sample count.\n\nUse `query-trends` on the `$web_vitals` event (property math on `$web_vitals_LCP_value` etc.) for a **site-wide trend over time** — this tool has no time axis; it aggregates the whole window.\n\nReach for `execute-sql` only for shapes neither covers (e.g. device splits per page, or custom baselines).\n\nRequires the project to capture the `$web_vitals` event (`capture_performance` in posthog-js). If results come back empty, check capture with `read-data-schema` before concluding pages are fine.\n\n# Inputs\n\n- `metric` (required): `LCP` (load, ms), `INP` (interactivity, ms), `CLS` (layout stability, unitless), or `FCP` (first paint, ms). One metric per call — run up to four calls for a full audit.\n- `percentile` (required): use `p75` unless the user asks otherwise — the Google bands are defined at p75. `p90`/`p99` show the slow tail.\n- `thresholds` (required): `[good, poor]` boundaries for the chosen metric. Standard Google values:\n\n| Metric | thresholds     |\n| ------ | -------------- |\n| LCP    | `[2500, 4000]` |\n| INP    | `[200, 500]`   |\n| CLS    | `[0.1, 0.25]`  |\n| FCP    | `[1800, 3000]` |\n\n- `dateRange`: defaults to the last 7 days — a good window for a stable percentile; shorter windows get noisy on low-traffic pages.\n- `properties`: event and person filters only (the runner ignores session and cohort filters) — e.g. an event filter on `$host` to scope one domain of a multi-domain project, or on `$device_type` (`Mobile`/`Desktop`) to isolate a population.\n- `minSamples`: drop pages with fewer samples than this. On a busy site set it (50–100) so one-off slow loads on rarely visited pages do not fill the `poor` band ahead of real problems; leave it unset on a small site.\n- `filterTestAccounts`: same semantics as the other web analytics tools.\n- `doPathCleaning`: on by default, so the team's path-cleaning rules roll `/project/123/...` style paths into one row. Set `false` to see raw paths.\n\n# Reading the result\n\nEach band lists `{path, value, count}` rows, **worst value first**, capped at 20 per band — so \"the slowest pages\" are the first rows of `poor`, then `needs_improvements`. `count` is the number of samples behind the percentile; quote it, and treat a page with a handful of samples as noise rather than a finding. A response served from precomputed aggregates (`preComputeStrategy` other than `live`) carries no `count`: pass `minSamples: 1` to force a live scan when the counts matter. A page in `poor` at p75 on a high-traffic route is a real, citable problem even if it never changed. Mobile values run 2–3× desktop, so a pooled percentile can hide a mobile-only problem: when a page looks borderline, re-run with a `$device_type` filter.\n\n# Example\n\nWorst LCP pages at p75, last 7 days, marketing site only, ignoring pages with under 50 samples:\n\n```json\n{\n  \"metric\": \"LCP\",\n  \"percentile\": \"p75\",\n  \"thresholds\": [2500, 4000],\n  \"minSamples\": 50,\n  \"properties\": [{ \"type\": \"event\", \"key\": \"$host\", \"operator\": \"exact\", \"value\": [\"example.com\"] }]\n}\n```",
         "category": "Web analytics",
         "feature": "web_analytics",
         "summary": "Run a web vitals path breakdown query",
@@ -15241,6 +15305,23 @@
             "openWorldHint": true,
             "readOnlyHint": true
         }
+    },
+    "scout-send-message": {
+        "description": "Ask to message a person or channel through one of this scout's owner-set routes. Pass the `run_id`, the route `key` listed in your run prompt, the `report_id` of a report this run wrote or edited (leave it out on a dry run), a short plain-text `title`, a markdown `body`, and a `dedupe_key` that names the subject, for example `pr-12345`. You never name a recipient: the route decides who receives the message. Nothing is posted during the run; the message is sent when the run ends, and a second call with the same route and key replaces it. The result `outcome` is `queued`, `replaced`, `duplicate` (the route and key were sent in the last 30 days; `recent_dedupe_keys` shows the keys in use), `over_cap` (the scout reached its safety cap for the last 24 hours; do not retry), or `dry_run`. Most runs send nothing: send only what the reader would want to be interrupted for, and keep the title and body to a few sentences.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "Send a message through a scout route",
+        "title": "Send a message through a scout route",
+        "required_scopes": ["signal_scout_internal:write"],
+        "api_operations": ["POST /api/projects/{project_id}/signals/scout/runs/{run_id}/send_message/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "scout-send-message",
+        "feature_flag_behavior": "enable"
     },
     "scout-trial-archive": {
         "description": "Set archived=true to hide a finished trial from history, or false to restore it. Results are retained and no scouts or judges are started. Use the source scout config id and the trial's comparison_id.",
@@ -18298,11 +18379,11 @@
         "feature_flag": "visual-review"
     },
     "visual-review-runs-approve-create": {
-        "description": "Record snapshots as approved in a run, in the database only. Pass `snapshots: [{identifier, new_hash}]`, where `new_hash` is the snapshot's `current_artifact.content_hash`. It does not commit the baseline or change the gate; `visual-review-runs-finalize-create` ships it. An approved quarantined `new` snapshot gets its baseline entry at finalize while the quarantine stays.",
+        "description": "Accept changed, new or removed snapshots of a pull request run (stored as `review_state: approved`). Pass the run's UUID as `id` and `snapshots: [{identifier, new_hash}]`, where `new_hash` is the snapshot's `current_artifact.content_hash` on that run. In ledger mode `new_hash` is null for a `removed` snapshot; elsewhere finalize accepts removals by itself. In ledger mode the run can be the newest run of the pull request or an older one: an accept counts on every later run that renders the same before and after pictures. It does not pass the gate: `visual-review-runs-finalize-create` does that, and it needs a person's yes. An agent cannot change a decision a person made, and never accepts over a rejection, its own or anyone else's (`rejected_by_other`). An accept of a snapshot that is already accepted changes nothing and keeps the first approver (listed in `already_decided`). The response has `head_run` and its `progress`. All or nothing: on an error nothing is written, and `snapshots` names every refused snapshot with its `code`.",
         "category": "Visual review",
         "feature": "visual_review",
-        "summary": "Mark visual review snapshots reviewed",
-        "title": "Mark visual review snapshots reviewed",
+        "summary": "Accept visual review changes",
+        "title": "Accept visual review changes",
         "required_scopes": ["visual_review:write"],
         "api_operations": ["POST /api/projects/{project_id}/visual_review/runs/{id}/approve/"],
         "annotations": {
@@ -18312,6 +18393,21 @@
             "readOnlyHint": false
         },
         "feature_flag": "visual-review"
+    },
+    "visual-review-runs-clear-create": {
+        "description": "Undo the accept or reject of snapshots in ledger mode, so they need review again. Pass the run's UUID as `id` and the snapshot `identifiers`. Works on any run of the pull request until its newest run is finalized. An agent can undo only decisions made through MCP, never a person's, and never a rejection another user's agent made (`rejected_by_other`). The response has `head_run` and its `progress`.",
+        "category": "Visual review",
+        "feature": "visual_review",
+        "summary": "Undo visual review decisions",
+        "title": "Undo visual review decisions",
+        "required_scopes": ["visual_review:write"],
+        "api_operations": ["POST /api/projects/{project_id}/visual_review/runs/{id}/clear/"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
     },
     "visual-review-runs-counts-retrieve": {
         "description": "Review state counts (`needs_review`, `clean`, `processing`, `stale`) across every run in the project.",
@@ -18330,7 +18426,7 @@
         "feature_flag": "visual-review"
     },
     "visual-review-runs-finalize-create": {
-        "description": "Ship a fully reviewed run: commit the approved snapshots to the pull request's baseline file and pass the gate. All or nothing: it returns the unresolved list until every changed or new snapshot is approved, tolerated or quarantined. `approve_all: true` approves the pending ones first, but not quarantined ones. With nothing to commit, it posts a green status, and the required check follows when its job re-runs. For a run whose `gate` is `commit_status`, it records the approval, commits nothing, and turns the required status green at once; nothing in CI re-runs. On `409 stale_run`, finalize the newest run; on `409 sha_mismatch`, re-run CI and finalize the new run. STOP: never finalize without an explicit human yes for this run.",
+        "description": "Finalize the newest run of a pull request once every changed, new and removed snapshot is accepted, tolerated or quarantined, and none is rejected. In ledger mode accepts made on earlier runs of the pull request count while the pictures are the same, and the run's `gate` is `commit_status`: finalize records the accepts, commits nothing, and turns the required status green at once. In yaml mode it commits the accepted snapshots to the pull request's baseline file. `approve_all: true` accepts every change nobody decided on first, and skips rejected and quarantined ones. On `409 not_fully_resolved` the response lists `rejected` and `needs_review` separately: a rejected snapshot clears with a new picture, the rejecter's undo, or a person's explicit override, never by an agent. On `409 stale_run`, finalize `head_run_id` instead; on `409 sha_mismatch`, re-run CI and finalize the new run. The response names the `approvers`. STOP: never finalize without an explicit human yes for this run. A yes covers one run: after a push, ask again.",
         "category": "Visual review",
         "feature": "visual_review",
         "summary": "Finalize a visual review run",
@@ -18346,7 +18442,7 @@
         "feature_flag": "visual-review"
     },
     "visual-review-runs-lift-on-merge-create": {
-        "description": "Ask to lift a quarantined snapshot's quarantine once this run's pull request merges, for a pull request that fixes the flaky story. Pass the run's UUID as `id` and the quarantined snapshot's `identifier` (the story ID). The identifier works for an `unchanged` snapshot, which a listing with `exclude_unchanged` leaves out, so no snapshot UUID is needed. Requesting a lift never approves a picture: a changed or new snapshot must first be approved by identifier with `visual-review-runs-approve-create`, or the call returns 400. The lift happens only after the pull request merges and a default-branch run that contains the merge renders the expected picture, with a baseline entry that holds the same picture. Until then the quarantine stays. A repeat call from the same pull request replaces the pending request.",
+        "description": "Ask to lift a quarantined snapshot's quarantine once this run's pull request merges, for a pull request that fixes the flaky story. Pass the run's UUID as `id` and the quarantined snapshot's `identifier` (the story ID). The identifier works for an `unchanged` snapshot, which a listing with `exclude_unchanged` leaves out, so no snapshot UUID is needed. Requesting a lift never approves a picture: a changed or new snapshot must first be approved by identifier with `visual-review-runs-approve-create`, or the call returns 400. The lift happens only after the pull request merges and a default-branch run that contains the merge renders the expected picture, with a baseline entry that holds the same picture. Until then the quarantine stays. An accept made on an earlier run of the pull request counts when the pictures are the same. A repeat call from the same pull request replaces the pending request.",
         "category": "Visual review",
         "feature": "visual_review",
         "summary": "Lift a visual review quarantine when the pull request merges",
@@ -18427,8 +18523,23 @@
         },
         "feature_flag": "visual-review"
     },
+    "visual-review-runs-reject-create": {
+        "description": "Reject changed, new or removed snapshots of a pull request run in ledger mode, each with a `reason` the author can act on. Pass the run's UUID as `id` and `snapshots: [{identifier, new_hash, reason}]`, with `new_hash` null for a `removed` snapshot. A rejected snapshot blocks finalize, also when it is tolerated or quarantined, until the pull request renders a different picture or the rejecter undoes it. Reject only when the user asked you to review someone else's change, never your own: fix your code instead. For a picture that is wrong on the default branch, use `visual-review-repos-quarantine-create`, not a reject. The response has `head_run` and its `progress`.",
+        "category": "Visual review",
+        "feature": "visual_review",
+        "summary": "Reject visual review changes",
+        "title": "Reject visual review changes",
+        "required_scopes": ["visual_review:write"],
+        "api_operations": ["POST /api/projects/{project_id}/visual_review/runs/{id}/reject/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "visual-review-runs-retrieve": {
-        "description": "Get one run: status, review decision, commit, branch, PR, change summary, `gate` (what blocks the merge: `ci_job` or `commit_status`), `stale_approval_count` (approvals whose baseline another merge changed, which keep a `commit_status` run red until the branch is updated), and the newer run that supersedes it, if any. Per-snapshot results come from `visual-review-runs-snapshots-list`.",
+        "description": "Get one run: status, review decision, commit, branch, PR, change summary, `gate` (what blocks the merge: `ci_job` or `commit_status`), `stale_approval_count` (approvals whose baseline another merge changed, which keep a `commit_status` run red until the branch is updated), and the newer run that supersedes it, if any. `progress` counts the run's changes by where they stand (`approved`, `approved_on_earlier_commits`, `approved_via_mcp`, `rejected`, `needs_review`, `tolerated`), `head_run` is the newest run of the pull request, which finalize needs, and `can_finalize` says whether finalize without `approve_all` would pass now. `needs_review` also counts removed snapshots nobody decided on, which finalize accepts by itself. Per-snapshot results come from `visual-review-runs-snapshots-list`.",
         "category": "Visual review",
         "feature": "visual_review",
         "summary": "Get visual review run",
@@ -18460,7 +18571,7 @@
         "feature_flag": "visual-review"
     },
     "visual-review-runs-snapshots-list": {
-        "description": "Snapshots in a run with their diff results: `identifier`, `result` (`unchanged`, `changed`, `new`, `removed`), `classification_reason`, diff percentage and pixels, `review_state`, and signed baseline and current image URLs. Quarantined snapshots are left out and counted in `quarantined_count`; pass `include_quarantined=true` to get them. Pass `exclude_unchanged=true` to list only the changed, new and removed snapshots; a large run holds thousands of unchanged ones. Pass `snapshot_id` to fetch one snapshot by its `id`. Pass a `limit`, such as 50. Renders a diff viewer.",
+        "description": "Snapshots in a run with their diff results: `identifier`, `result` (`unchanged`, `changed`, `new`, `removed`), `classification_reason`, diff percentage and pixels, `review_state`, and signed baseline and current image URLs. `review_state` is the effective state on this run (`pending`, `approved`, `rejected`, `tolerated`), including accepts and rejections made on earlier runs of the pull request while the pictures are the same. `decision` says who decided, how (`via`), on which commit, and why for a rejection. `earlier_decision` names a decision on another picture of the story, with `changed` (`before`, `after`, `both`) saying which picture changed since. Pass `review_state: pending` with `exclude_unchanged=true` to list what still needs a decision. Quarantined snapshots are left out and counted in `quarantined_count`, except rejected ones; pass `include_quarantined=true` to get them all. Pass `snapshot_id` to fetch one snapshot by its `id`. Pass a `limit`, such as 50. Renders a diff viewer.",
         "category": "Visual review",
         "feature": "visual_review",
         "summary": "List run snapshots",
@@ -18476,7 +18587,7 @@
         "feature_flag": "visual-review"
     },
     "visual-review-runs-tolerate-create": {
-        "description": "Accept one changed snapshot's current rendering as an alternative to its baseline, in every future run. Only for named render noise over the threshold (anti-aliasing, font hinting, a cursor) at the same size, with `change_kind: pixel`, so check the images first. It cannot be undone through the API. Never use it to pass a gate: a story that renders differently from run to run gets `visual-review-repos-quarantine-create`, and an intended change gets approved and finalized. Pass the snapshot's UUID as `snapshot_id`, then call `visual-review-runs-recompute-create`, unless the run's `gate` is `commit_status`: its status updates by itself.",
+        "description": "Accept one changed snapshot's current rendering as an alternative to its baseline, in every future run. Only for named render noise over the threshold (anti-aliasing, font hinting, a cursor) at the same size, with `change_kind: pixel`, so check the images first. It cannot be undone through the API. Never use it to pass a gate: a story that renders differently from run to run gets `visual-review-repos-quarantine-create`, and an intended change gets accepted and finalized. A rejected snapshot cannot be tolerated (409 `rejected`). Pass the snapshot's UUID as `snapshot_id`, then call `visual-review-runs-recompute-create`, unless the run's `gate` is `commit_status`: its status updates by itself.",
         "category": "Visual review",
         "feature": "visual_review",
         "summary": "Tolerate visual review snapshot",
@@ -18981,7 +19092,7 @@
         "feature_flag": "web-analytics-path-cleaning-suggestions"
     },
     "web-analytics-weekly-digest": {
-        "description": "Summarizes a project's web analytics over a lookback window (default 7 days): unique visitors, pageviews, sessions, bounce rate, and average session duration with period-over-period comparisons, plus the top 5 pages, top 5 traffic sources, and goal conversions. Accepts optional `days` (1–90, default 7) and `compare` (bool, default true) query params — pass `days=30` to summarize the last month, or `compare=false` to skip the period-over-period comparison for a faster response. Use this to answer questions like \"how are my web analytics?\", \"how did the site do last week?\", or \"what's my traffic looking like this month?\".",
+        "description": "Summarizes a project's web analytics over the last `days` complete days (default 7, ending yesterday): unique visitors, pageviews, sessions, bounce rate, and average session duration compared with the `days` complete days before, plus the top 5 pages, top 5 traffic sources, and goal conversions. Accepts optional `days` (1–90, default 7) and `compare` (bool, default true) query params — pass `days=30` to summarize the last month, or `compare=false` to skip the period-over-period comparison for a faster response. Test accounts are excluded when the project's \"Filter out internal and test users\" default is on, the same rule the `query-web-*` tools follow; `metadata.filter_test_accounts` says which applied, and `metadata.date_from` / `date_to` give the exact window. Use this to answer questions like \"how are my web analytics?\", \"how did the site do last week?\", or \"what's my traffic looking like this month?\".",
         "category": "Web analytics",
         "feature": "web_analytics",
         "summary": "Summarize web analytics",

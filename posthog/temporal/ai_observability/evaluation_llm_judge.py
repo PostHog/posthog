@@ -494,8 +494,14 @@ def call_llm_judge(
     allows_na: bool,
     backfill: bool = False,
     attachment_prompt: AttachmentPrompt | None = None,
+    retry_without_attachments_on_overflow: bool = True,
 ) -> EvaluationActivityResult:
     """Resolve the judge model/key for `evaluation` and run a single judge completion.
+
+    A provider can reject a prompt with attachments as over its context window. With
+    `retry_without_attachments_on_overflow`, that rejection is retried without the attachments like any other
+    attachment rejection. Without it, the run skips with `context_window_exceeded`, so a caller that has a
+    shorter transcript can retry with the attachments kept.
 
     Shared by the single-event and trace-level judge activities — everything from provider
     resolution through error mapping and result shaping is identical between them; only how the
@@ -723,7 +729,12 @@ def call_llm_judge(
             try:
                 response = client.complete(request)
             except Exception as e:
-                status = _attachment_rejection_status(e) if sent_attachments else None
+                overflow = isinstance(e, ContextWindowExceededError)
+                status = (
+                    _attachment_rejection_status(e)
+                    if sent_attachments and (retry_without_attachments_on_overflow or not overflow)
+                    else None
+                )
                 if status is None:
                     raise
             # Handle the rejection outside the except: the provider's error can quote a presigned link, and

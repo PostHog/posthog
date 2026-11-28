@@ -235,6 +235,7 @@ export class ToolDomainExtractor {
         'freeze',
         'import',
         'launch',
+        'merge',
         'migrate',
         'move',
         'patch',

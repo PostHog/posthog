@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { useMemo } from 'react'
 
 import { IconExternal } from '@posthog/icons'
-import { Button, cn, Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyTitle, Text } from '@posthog/quill'
+import { Button, cn, Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyTitle } from '@posthog/quill'
 import { TimeSeriesLineChart } from '@posthog/quill-charts'
 import type { Series, TimeSeriesLineChartConfig } from '@posthog/quill-charts'
 
@@ -21,6 +21,7 @@ import { pageReportPath } from '../pageReports/pageReportsUtils'
 import { AiVisibilityBanner } from './AiVisibilityBanner'
 import { AiVisibilityCard } from './AiVisibilityCard'
 import { AiVisibilityTable } from './AiVisibilityTable'
+import { REPORT_TABLE_PAGE_SIZE } from './aiVisibilityTablePaging'
 import { ContentAutopilotCitationsLink } from './ContentAutopilotCitationsLink'
 import { ContentAutopilotKpiDelta } from './ContentAutopilotKpiDelta'
 import { contentAutopilotLogic } from './contentAutopilotLogic'
@@ -29,14 +30,15 @@ import { contentAutopilotRankingsLogic } from './contentAutopilotRankingsLogic'
 import { ContentAutopilotRankingsSkeleton } from './ContentAutopilotRankingsSkeleton'
 import { ContentAutopilotRateBar } from './ContentAutopilotRateBar'
 import { ContentAutopilotSiteLabel } from './ContentAutopilotSiteLabel'
-import { visibilityChange } from './rankingsReport'
+import { formatShare, shareChange } from './shares'
 import { segmentPrompts, windowRange } from './utils'
-import { MIN_TREND_DAYS } from './visibilityChart'
+import { DAY_POINTS } from './visibilityChart'
 
 const CHART_CONFIG: TimeSeriesLineChartConfig = {
     // The labels are calendar days, so UTC keeps each tick and tooltip date on its own day.
     xAxis: { interval: 'day', timezone: 'UTC' },
     yAxis: { format: 'percentage_scaled', showGrid: true },
+    tooltip: { valueFormatter: (value: number) => (Number.isFinite(value) ? formatShare(value) : '-') },
     legend: { show: true },
     showCrosshair: true,
     // Straight segments, because a curve invents values between days.
@@ -49,7 +51,7 @@ const FROM_XL = 'hidden @xl/ai-visibility-table:table-cell'
 const FILL = 'w-full max-w-0'
 
 const VisibilityChart = (): JSX.Element | null => {
-    const { rankings, chart, rankingsLoading } = useValues(contentAutopilotRankingsLogic)
+    const { chart, rankingsLoading } = useValues(contentAutopilotRankingsLogic)
     const theme = useChartTheme()
     const series = useMemo<Series[]>(
         () =>
@@ -58,29 +60,18 @@ const VisibilityChart = (): JSX.Element | null => {
                 label,
                 color: theme.colors[colorIndex % theme.colors.length],
                 data,
+                points: DAY_POINTS,
             })),
         [chart, theme]
     )
     if (!chart) {
         return null
     }
-    const daysOfData = new Set((rankings?.daily ?? []).filter(({ answers }) => answers > 0).map(({ date }) => date))
-        .size
     return (
         <div
             className={cn('flex min-h-64 min-w-0 flex-1 flex-col', rankingsLoading && 'opacity-50')}
             aria-busy={rankingsLoading}
         >
-            {daysOfData < MIN_TREND_DAYS ? (
-                <Text
-                    size="xs"
-                    variant="muted"
-                    render={<p className="m-0 pb-1" />}
-                    data-attr="content-autopilot-rankings-waiting"
-                >
-                    Waiting for more days of data. {pluralize(daysOfData, 'day')} of {MIN_TREND_DAYS} so far.
-                </Text>
-            ) : null}
             <TimeSeriesLineChart series={series} labels={chart.labels} theme={theme} config={CHART_CONFIG} />
         </div>
     )
@@ -171,6 +162,7 @@ export const ContentAutopilotRankings = (): JSX.Element => {
                         embedded
                         loading={rankingsLoading}
                         data-attr="content-autopilot-rankings-brands"
+                        pagination={{ pageSize: REPORT_TABLE_PAGE_SIZE }}
                         emptyState="No brand was named in these answers."
                         dataSource={rankings.brands}
                         rowKey="domain"
@@ -235,7 +227,7 @@ export const ContentAutopilotRankings = (): JSX.Element => {
                                 className: FROM_MD,
                                 tooltip: `Compared with the ${rankings.days} days before, in percentage points. Left blank when those days have under a quarter of this range's answers.`,
                                 render: (_, brand) => {
-                                    const change = visibilityChange(brand.visibility, brand.previous_visibility)
+                                    const change = shareChange(brand.visibility, brand.previous_visibility)
                                     if (change === null) {
                                         return <span className="text-muted-foreground">-</span>
                                     }
@@ -259,7 +251,7 @@ export const ContentAutopilotRankings = (): JSX.Element => {
                                 align: 'right',
                                 className: FROM_XL,
                                 tooltip:
-                                    'Share of answers about your brand with a positive tone. Scored for your brand only.',
+                                    'Share of the answers naming the brand that speak about it positively. Blank until those answers are scored.',
                                 render: (_, brand) => <ContentAutopilotRateBar rate={brand.positive_share} />,
                             },
                         ]}
@@ -273,6 +265,7 @@ export const ContentAutopilotRankings = (): JSX.Element => {
                         embedded
                         loading={rankingsLoading}
                         data-attr="content-autopilot-rankings-domains"
+                        pagination={{ pageSize: REPORT_TABLE_PAGE_SIZE }}
                         emptyState="No answer cited a site in this window."
                         dataSource={rankings.top_domains}
                         rowKey="domain"
@@ -326,6 +319,7 @@ export const ContentAutopilotRankings = (): JSX.Element => {
                         embedded
                         loading={rankingsLoading}
                         data-attr="content-autopilot-rankings-pages"
+                        pagination={{ pageSize: REPORT_TABLE_PAGE_SIZE }}
                         emptyState="No answer cited a page in this window."
                         dataSource={rankings.top_pages}
                         rowKey="url"
@@ -346,6 +340,7 @@ export const ContentAutopilotRankings = (): JSX.Element => {
                                                 dateFrom: rankings.window_from,
                                                 dateTo: rankings.window_to,
                                                 branded: rankings.branded,
+                                                isOwnPage: page.is_target,
                                             }}
                                             source="rankings-pages"
                                             title={page.url}

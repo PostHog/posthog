@@ -4,6 +4,7 @@ import { buildIntegerMatcher } from '~/common/config/matchers'
 import { logger } from '~/common/utils/logger'
 
 import { CyclotronV2Manager } from '../services/cyclotron-v2'
+import { CYCLOTRON_QUEUE_ROLES } from '../types'
 import {
     RERUN_MAX_WINDOW_DAYS,
     RERUN_QUEUE_NAME,
@@ -46,6 +47,7 @@ export class RerunJobManager {
             },
             depthLimit: config.depthLimit,
             backgroundDepthCheck: config.backgroundDepthCheck,
+            ...CYCLOTRON_QUEUE_ROLES,
         })
     }
 

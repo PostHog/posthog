@@ -21,7 +21,7 @@ from posthog.api.oauth.client_assertion import UnknownSigningKeyError
 from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.egress.limiter.policies import Priority
 
-from products.stamphog.backend.facade.enums import AudienceReason, ReviewMode, ReviewTrigger
+from products.stamphog.backend.facade.enums import AudienceReason, BroadcastRequestStatus, ReviewMode, ReviewTrigger
 from products.stamphog.backend.logic.approval_retention import approved_diff_unchanged, base_merge_is_clean
 from products.stamphog.backend.logic.attestation_checks import all_reported, attestation_check
 from products.stamphog.backend.logic.attestation_pins import check_runs_with_pins
@@ -31,6 +31,13 @@ from products.stamphog.backend.logic.attestation_policy import (
     workflow_publishers,
 )
 from products.stamphog.backend.logic.audiences import resolve_audiences
+from products.stamphog.backend.logic.broadcast_request_slack import (
+    BroadcastRequestCard,
+    CardLooker,
+    card_blocks,
+    card_text,
+)
+from products.stamphog.backend.logic.broadcast_requests import human_approver
 from products.stamphog.backend.logic.decision_fingerprint import decision_fingerprint
 from products.stamphog.backend.logic.digest import DigestPRSummary, DigestSummary, _build_selection_prompt
 from products.stamphog.backend.logic.digest_config import RepoDigestConfig, load_repo_digest_config
@@ -583,6 +590,129 @@ class SlackDigestEscapingTests(SimpleTestCase):
             pr_section = next(b for b in sections if "pull/7" in b["text"]["text"])
             assert pr_section["text"]["text"].startswith("<https://github.com/o/r/pull/7|")
             assert pr_section["text"]["text"].endswith(">")
+
+
+def _review(login: str, state: str, commit_id: str, *, bot: bool = False, association: str = "MEMBER") -> dict:
+    return {
+        "user": {"login": login, "type": "Bot" if bot else "User"},
+        "state": state,
+        "commit_id": commit_id,
+        "author_association": association,
+    }
+
+
+class HumanApproverTests(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("person_at_head", [_review("maintainer", "APPROVED", "head2")], "maintainer"),
+            ("approval_of_an_older_head", [_review("maintainer", "APPROVED", "head1")], ""),
+            ("the_author", [_review("author", "APPROVED", "head2")], ""),
+            ("a_bot", [_review("stamphog[bot]", "APPROVED", "head2", bot=True)], ""),
+            ("an_outside_contributor", [_review("drive-by", "APPROVED", "head2", association="NONE")], ""),
+            (
+                "withdrawn_by_a_later_request_for_changes",
+                [_review("maintainer", "APPROVED", "head2"), _review("maintainer", "CHANGES_REQUESTED", "head2")],
+                "",
+            ),
+            (
+                "kept_through_a_later_comment",
+                [_review("maintainer", "APPROVED", "head2"), _review("maintainer", "COMMENTED", "head2")],
+                "maintainer",
+            ),
+        ]
+    )
+    def test_only_a_standing_approval_of_the_head_by_a_person_counts(
+        self, _name: str, reviews: list[dict], expected: str
+    ) -> None:
+        assert human_approver(reviews, "head2", "Author") == expected
+
+
+class BroadcastRequestCardTests(SimpleTestCase):
+    def _card(self, **overrides: Any) -> BroadcastRequestCard:
+        fields: dict[str, Any] = {
+            "request_id": "req-1",
+            "team_id": 3,
+            "integration_id": 42,
+            "status": BroadcastRequestStatus.OPEN,
+            "repository": "o/r",
+            "pr_number": 7,
+            "pr_url": "https://github.com/o/r/pull/7",
+            "title": "<!channel> ship it @here",
+            "additions": 12,
+            "deletions": 3,
+            "changed_files": 2,
+            "requested_on_github": ("<!here>",),
+            "findings": ("<@U999> approved this <https://evil.example|here>",),
+            "stamphog_failed": False,
+            "note": "<!everyone> please look @channel",
+            "requester_slack_user_id": "U0ASKER",
+            "requester_name": "",
+            "lookers": (CardLooker(slack_user_id="not-an-id", display_name="<!channel>"),),
+            "approved_by_login": "",
+        }
+        return BroadcastRequestCard(**(fields | overrides))
+
+    def test_pull_request_text_cannot_mention_anyone(self) -> None:
+        # The title, requested reviewers, findings, note and display names come from the pull request or from
+        # people, so a raw `<!channel>` or `<@U…>` in any of them would ping the channel the card is posted in.
+        card = self._card()
+        blocks = card_blocks(card)
+        rendered = json.dumps(blocks) + card_text(card)
+        for token in ("<!channel>", "<!here>", "<!everyone>", "<@U999>", "<https://evil.example"):
+            assert token not in rendered
+        assert "<https://github.com/o/r/pull/7|o/r#7>" in rendered
+        assert "<@U0ASKER>" in rendered
+        # Escaping leaves a bare `@here` or `@channel`, which Slack broadcasts unless the text is verbatim.
+        mrkdwn = [
+            text
+            for block in blocks
+            for text in [block.get("text"), *block.get("fields", []), *block.get("elements", [])]
+            if isinstance(text, dict) and text.get("type") == "mrkdwn"
+        ]
+        assert mrkdwn and all(text.get("verbatim") is True for text in mrkdwn)
+        assert "@" not in card_text(card)
+
+    @parameterized.expand(
+        [
+            (BroadcastRequestStatus.OPEN, True),
+            (BroadcastRequestStatus.PENDING, True),
+            (BroadcastRequestStatus.APPROVED, False),
+            (BroadcastRequestStatus.STAMPHOG_APPROVED, False),
+            (BroadcastRequestStatus.MERGED, False),
+        ]
+    )
+    def test_buttons_route_back_to_the_request_only_while_it_waits_for_a_person(
+        self, status: BroadcastRequestStatus, has_buttons: bool
+    ) -> None:
+        actions = [block for block in card_blocks(self._card(status=status)) if block["type"] == "actions"]
+        assert bool(actions) is has_buttons
+        if has_buttons:
+            (look, stop) = actions[0]["elements"]
+            assert (look["action_id"], stop["action_id"]) == (
+                "stamphog_broadcast.look",
+                "stamphog_broadcast.stop_looking",
+            )
+            value = json.loads(look["value"])
+            assert (value["request_id"], value["integration_id"], value["team_id"]) == ("req-1", 42, 3)
+
+    @parameterized.expand(
+        [
+            ("not_counted_yet", None, ""),
+            ("first_this_week", 1, ""),
+            ("second", 2, " · 2nd this week"),
+            ("third", 3, " · 3rd this week"),
+            ("fifth", 5, " · 5th this week"),
+            ("eleventh", 11, " · 11th this week"),
+            ("twelfth", 12, " · 12th this week"),
+            ("thirteenth", 13, " · 13th this week"),
+            ("twenty_first", 21, " · 21st this week"),
+            ("twenty_second", 22, " · 22nd this week"),
+            ("hundred_and_twelfth", 112, " · 112th this week"),
+        ]
+    )
+    def test_the_asked_by_line_counts_only_a_repeat_requester(self, _name: str, count: int | None, suffix: str) -> None:
+        rendered = json.dumps(card_blocks(self._card(requester_card_count=count)), ensure_ascii=False)
+        assert f'"Asked by <@U0ASKER>{suffix}"' in rendered
 
 
 class DigestConfigFetchTests(SimpleTestCase):

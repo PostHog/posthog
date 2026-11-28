@@ -1,7 +1,9 @@
+import { Client } from 'pg'
+
 import { defaultConfig } from '~/common/config/config'
 import { waitForExpect } from '~/tests/helpers/expectations'
 
-import { scratchSchema, withPostgres } from '../environment/stack'
+import { scratchSchema, withPostgres, writerUrlOf } from '../environment/stack'
 import { Queue, QueueCounts, createCyclotronProbe } from './cyclotron-probe'
 
 const SCHEMA = scratchSchema(defaultConfig.CYCLOTRON_NODE_DATABASE_URL!, `scenario_probe_${process.pid}`, [
@@ -160,5 +162,72 @@ describe('cyclotron probe', () => {
         await withPostgres((client) => client.query("DELETE FROM cyclotron_jobs WHERE status = 'completed'"), PROBE_URL)
 
         await waitForExpect(async () => expect((await probe.counts(QUEUES)).inserted - before).toBe(3))
+    })
+
+    it("refuses to read a cloud run's writer activity from the run's own or the profile's database when the host named no writer", async () => {
+        const writerUrl = writerUrlOf(
+            { SCENARIO_RUN_MANIFEST: '/opt/scenario/input/manifest.json', CYCLOTRON_NODE_DATABASE_URL: PROBE_URL },
+            { CYCLOTRON_NODE_DATABASE_URL: PROBE_URL }
+        )
+
+        await expect(createCyclotronProbe(PROBE_URL, undefined, writerUrl).activity()).rejects.toThrow(
+            'no direct writer URL in a cloud run'
+        )
+    })
+
+    it("counts the other client backends of the writer's own database by state and by what an active one waits on", async () => {
+        const LOCK = 9999103
+        const database = `scenario_activity_${process.pid}`
+        const adminUrl = defaultConfig.CYCLOTRON_NODE_DATABASE_URL!
+        const isolated = new URL(adminUrl)
+        isolated.pathname = `/${database}`
+        await withPostgres((client) => client.query(`CREATE DATABASE ${database}`), adminUrl)
+        const [holder, waiter, idle] = [0, 1, 2].map(() => new Client({ connectionString: isolated.toString() }))
+        const elsewhere = new Client({ connectionString: PROBE_URL })
+        const clients = [holder, waiter, idle, elsewhere]
+        try {
+            await Promise.all(clients.map((client) => client.connect()))
+            const {
+                rows: [{ pid }],
+            } = await waiter.query<{ pid: number }>('SELECT pg_backend_pid() AS pid')
+            await holder.query('SELECT pg_advisory_lock($1)', [LOCK])
+            const waited = waiter.query('SELECT pg_advisory_lock($1)', [LOCK])
+            let settled: unknown
+            waited.then(
+                () => {
+                    settled = new Error('The waiter took the lock without waiting for it')
+                },
+                (error: unknown) => {
+                    settled = error
+                }
+            )
+            await Promise.all([idle.query('BEGIN'), elsewhere.query('BEGIN')])
+            let blocked = false
+            for (const deadline = Date.now() + 10_000; !blocked; ) {
+                if (settled !== undefined) {
+                    throw settled
+                }
+                if (Date.now() > deadline) {
+                    throw new Error('Postgres never reported the waiter blocked')
+                }
+                const { rows } = await holder.query<{ blocked: boolean }>(
+                    'SELECT cardinality(pg_blocking_pids($1)) > 0 AS blocked',
+                    [pid]
+                )
+                blocked = rows[0].blocked
+            }
+            const probe = createCyclotronProbe(PROBE_URL, undefined, isolated.toString())
+
+            expect(await probe.activity()).toEqual([
+                { state: 'active', wait: 'lock', count: 1 },
+                { state: 'idle', wait: 'client', count: 1 },
+                { state: 'idle in transaction', wait: 'client', count: 1 },
+            ])
+            await holder.query('SELECT pg_advisory_unlock($1)', [LOCK])
+            await waited
+        } finally {
+            await Promise.all(clients.map((client) => client.end().catch(() => undefined)))
+            await withPostgres((client) => client.query(`DROP DATABASE IF EXISTS ${database} WITH (FORCE)`), adminUrl)
+        }
     })
 })

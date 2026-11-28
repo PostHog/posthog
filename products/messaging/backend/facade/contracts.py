@@ -561,6 +561,19 @@ class TransactionalEmailImpact:
     link_tagging_enabled: bool
 
 
+@frozen
+class TransactionalEmailImpactSession:
+    session_id: str
+    message_id: str
+    first_pageview_at: datetime
+
+
+@frozen
+class TransactionalEmailImpactSessions:
+    sessions: tuple[TransactionalEmailImpactSession, ...]
+    has_more: bool
+
+
 class CodeEmailSourceOrigin(LabeledStrEnum):
     MANUAL = "manual", "Manual"
     DETECTED = "detected", "Detected from GitHub"

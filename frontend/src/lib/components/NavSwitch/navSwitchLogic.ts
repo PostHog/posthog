@@ -6,15 +6,11 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import { EnrichedEarlyAccessFeature, featurePreviewsLogic } from 'lib/components/FeaturePreviews/featurePreviewsLogic'
 import { helpMenuLogic } from 'lib/components/HelpMenu/helpMenuLogic'
-import { navPanelAdvertisementLogic } from 'lib/components/NavPanelAdvertisement/NavPanelAdvertisementLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 /** When the old navigation goes away, as a phrase that reads after "in" or "until". */
 export const OLD_NAV_SUNSET = 'early 2027'
-
-// pinned: storage key for the sunset card's dismissal. Renaming it shows the card again to everyone who closed it.
-export const NAV_SWITCH_CARD_LOGIC_PROPS = { dismissKey: 'old-nav-sunset' }
 
 export type NavSwitchSurface = 'navbar' | 'navbar_more_menu' | 'account_menu' | 'today_more_menu'
 
@@ -51,7 +47,6 @@ export interface navSwitchLogicActions {
     toggleHelpMenu: () => {
         value: true
     } // helpMenuLogic
-    showAdvertisement: () => boolean // navPanelAdvertisementLogic
     dismissNewNavDialog: () => {
         value: true
     }
@@ -108,8 +103,6 @@ export const navSwitchLogic = kea<navSwitchLogicType>([
             ['loadEarlyAccessFeatures', 'updateEarlyAccessFeatureEnrollment'],
             helpMenuLogic,
             ['setHelpMenuOpen', 'toggleHelpMenu'],
-            navPanelAdvertisementLogic(NAV_SWITCH_CARD_LOGIC_PROPS),
-            ['showAdvertisement'],
         ],
     })),
     actions({
@@ -195,8 +188,6 @@ export const navSwitchLogic = kea<navSwitchLogicType>([
                 values.todayNavFeature?.stage
             )
             if (!turningOn) {
-                // Someone who comes back gets the sunset card again, even if they dismissed it before they left.
-                actions.showAdvertisement()
                 lemonToast.success('You are back on the old navigation. Switch to the new navigation any time.')
             }
         },

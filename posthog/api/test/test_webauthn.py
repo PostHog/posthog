@@ -13,6 +13,7 @@ from rest_framework import status
 from rest_framework.exceptions import AuthenticationFailed
 from webauthn.helpers import bytes_to_base64url
 
+from posthog.api.test.test_code_based_verification import workflows_refuses_the_recipient
 from posthog.api.webauthn import (
     PASSKEY_NOT_REGISTERED_ERROR,
     PASSKEY_NOT_VERIFIED_ERROR,
@@ -325,6 +326,34 @@ class TestWebAuthnLogin(APIBaseTest):
         # The view's catch-all would turn the refusal into a generic 400 and hide its code.
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED, response.content)
         self.assertEqual(response.json()["code"], "access_blocked")
+        self.assertEqual(self.client.get("/api/users/@me/").status_code, status.HTTP_401_UNAUTHORIZED)
+
+    @patch("posthog.auth.verify_passkey_authentication_response")
+    def test_login_reports_a_refused_verification_code_email(self, mock_verify):
+        self.user.is_email_verified = False
+        self.user.save()
+        self.client.post("/api/webauthn/login/begin/")
+        mock_verify.return_value = MagicMock(new_sign_count=1)
+
+        with workflows_refuses_the_recipient():
+            response = self.client.post(
+                "/api/webauthn/login/complete/",
+                {
+                    "id": bytes_to_base64url(self.credential.credential_id),
+                    "rawId": bytes_to_base64url(self.credential.credential_id),
+                    "type": "public-key",
+                    "response": {
+                        "authenticatorData": "data",
+                        "clientDataJSON": "data",
+                        "signature": "sig",
+                        "userHandle": bytes_to_base64url(user_uuid_to_handle(self.user.uuid)),
+                    },
+                },
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.content)
+        self.assertEqual(response.json()["code"], "email_verification_code_undeliverable")
         self.assertEqual(self.client.get("/api/users/@me/").status_code, status.HTTP_401_UNAUTHORIZED)
 
     @patch("posthog.api.authentication.is_email_available", return_value=True)

@@ -163,6 +163,58 @@ class TestComputeSettlement(BaseTest):
         assert post.call_args.kwargs["json"]["billable"] is expected
         assert self._reload(session).compute_settled_at is not None
 
+    @parameterized.expand(
+        [
+            (
+                "posthog_ai_listed",
+                Task.OriginProduct.POSTHOG_AI,
+                TaskClientProvenance.POSTHOG_DESKTOP,
+                ["posthog_ai", "slack"],
+                None,
+                True,
+            ),
+            ("slack_listed_without_provenance", Task.OriginProduct.SLACK, None, ["posthog_ai", "slack"], None, True),
+            (
+                "posthog_ai_setting_empty",
+                Task.OriginProduct.POSTHOG_AI,
+                TaskClientProvenance.POSTHOG_DESKTOP,
+                [],
+                None,
+                False,
+            ),
+            ("slack_setting_empty", Task.OriginProduct.SLACK, None, [], None, False),
+            ("unlisted_origin", Task.OriginProduct.SIGNAL_REPORT, None, ["posthog_ai", "slack"], None, False),
+            (
+                "listed_before_billable_since",
+                Task.OriginProduct.SLACK,
+                None,
+                ["posthog_ai", "slack"],
+                timedelta(hours=-1),
+                False,
+            ),
+        ]
+    )
+    def test_billable_covers_ai_credits_origins(
+        self,
+        _name: str,
+        origin: str,
+        provenance: str | None,
+        origins: list[str],
+        since_offset: timedelta | None,
+        expected: bool,
+    ) -> None:
+        self._session(origin_product=origin, client_provenance=provenance)
+        since = "" if since_offset is None else (self.now + since_offset).isoformat()
+
+        with (
+            override_settings(AI_CREDITS_COMPUTE_BILLED_ORIGINS=origins, GATEWAY_COMPUTE_BILLABLE_SINCE=since),
+            patch(HTTPX_POST, return_value=_ok()) as post,
+            patch("posthog.metrics.push_registry"),
+        ):
+            assert settle_overdue_sandbox_compute(self.now) == [SettlementOutcome.SETTLED]
+
+        assert post.call_args.kwargs["json"]["billable"] is expected
+
     def test_body_pins_the_acting_user(self) -> None:
         session = self._session()
         with patch(HTTPX_POST, return_value=_ok()) as post:
