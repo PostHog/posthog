@@ -817,15 +817,13 @@ def _set_reactions(card: BroadcastRequestCard, delivery: BroadcastRequestDeliver
         approved = card.status in _APPROVED_STATUSES
         set_reactions(card, delivery.channel_id, delivery.message_ts, looking=bool(card.lookers), approved=approved)
     if delivery.thread_ts:
-        # The channel shows the post that asked and not its thread, so the post carries the reactions of all its cards.
-        # It reads them after the commit, so two cards approved at the same time each see the other's new status.
+        # After the commit, so two cards of one post approved at the same time each see the other's new status.
         transaction.on_commit(lambda: _set_link_post_reactions(card, delivery, using=using), using=using)
 
 
 def _set_link_post_reactions(card: BroadcastRequestCard, delivery: BroadcastRequestDelivery, *, using: str) -> None:
     """👀 while anybody looks at one of the post's pull requests, and ✅ only when every one is approved or merged."""
-    # A post can link repositories of several projects that share the channel. Their cards are all in this thread,
-    # so reading every project's cards here shows nothing that the thread does not show.
+    # Every project's cards, because a post can link repositories of several projects and the thread shows all of them.
     requests = (
         BroadcastRequest.objects.unscoped()
         .using(using)
