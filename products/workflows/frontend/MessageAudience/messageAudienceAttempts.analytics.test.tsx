@@ -178,10 +178,12 @@ describe('message audience attempts', () => {
         senders,
         sandbox,
         suspended = false,
+        matching = false,
     }: {
         senders: object[]
         sandbox?: object
         suspended?: boolean
+        matching?: boolean
     }): void => {
         useMocks({
             get: {
@@ -193,7 +195,9 @@ describe('message audience attempts', () => {
                 '/api/projects/:team_id/integrations/': { count: senders.length, results: senders, next: null },
                 '/api/projects/:team_id/cohorts/': { count: 0, results: [], next: null },
                 '/api/projects/:team_id/cohorts/:id/': ({ params }) =>
-                    String(params.id) === '42' ? { ...flagCohort, is_calculating: false } : readyList,
+                    String(params.id) === '42'
+                        ? { ...flagCohort, is_calculating: false }
+                        : { ...readyList, is_calculating: matching },
                 [`/api/projects/:team_id/feature_flags/1/`]: { ...app.NEW_FLAG, id: 1, key: 'test-flag' },
                 [`/api/projects/:team_id/surveys/${SURVEY_ID}/`]: survey,
                 [`/api/projects/:team_id/surveys/${SURVEY_ID}/archived-response-uuids/`]: [],
@@ -284,6 +288,7 @@ describe('message audience attempts', () => {
         kinds?: string[]
         senders?: object[]
         suspended?: boolean
+        matching?: boolean
     }>([
         { destination: 'workflow', label: 'Build a custom workflow', how: 'directly' },
         { destination: 'broadcast', label: 'Send a one-time email', how: 'directly' },
@@ -317,15 +322,41 @@ describe('message audience attempts', () => {
             kinds: ['email_sending_suspended', 'no_sender'],
             suspended: true,
         },
+        {
+            destination: 'broadcast',
+            label: 'Send a one-time email',
+            how: 'through Continue past a cohort still matching people',
+            warning: '"Signups" is still matching people. You can launch when it finishes.',
+            kinds: ['cohort_cannot_launch'],
+            senders: [verified],
+            matching: true,
+        },
     ])(
         'saves the attempt of the sent click event in the $destination opened $how',
-        async ({ destination, label, warning, kinds, senders, suspended }) => {
-            useSendMocks(warning ? { senders: senders ?? [], sandbox: testSender, suspended } : { senders: [verified] })
+        async ({ destination, label, warning, kinds, senders, suspended, matching }) => {
+            useSendMocks(
+                warning ? { senders: senders ?? [], sandbox: testSender, suspended, matching } : { senders: [verified] }
+            )
+            const source = matching ? 'cohort' : 'early_access'
             app.router.actions.push('/project/997/early_access_features/1')
             const { fireEvent, render, screen, waitFor } = app.rtl
             render(
                 <app.MessageAudienceButton
-                    audience={app.enrolledPeopleAudience(earlyAccessFeature, 'early_access')}
+                    audience={
+                        matching
+                            ? {
+                                  properties: [
+                                      {
+                                          key: 'id',
+                                          type: PropertyFilterType.Cohort,
+                                          value: readyList.id,
+                                          operator: PropertyOperator.In,
+                                      },
+                                  ],
+                                  source,
+                              }
+                            : app.enrolledPeopleAudience(earlyAccessFeature, 'early_access')
+                    }
                     label="Email opted-in users"
                 />
             )
@@ -346,13 +377,13 @@ describe('message audience attempts', () => {
             expect(attempt).toMatch(UUID)
             if (warning) {
                 expect(await screen.findByText(warning)).toBeInTheDocument()
-                await waitFor(() => expect(warningsShown()).toEqual([['early_access', destination, attempt, kinds]]))
+                await waitFor(() => expect(warningsShown()).toEqual([[source, destination, attempt, kinds]]))
                 fireEvent.click(screen.getByText('Continue'))
                 await waitFor(() => expect(screen.queryByText('Before you send')).not.toBeInTheDocument())
             }
             await opened(destination === 'workflow' ? app.urls.workflowNew() : app.urls.broadcastNew())
 
-            expect(warningsShown()).toEqual(kinds ? [['early_access', destination, attempt, kinds]] : [])
+            expect(warningsShown()).toEqual(kinds ? [[source, destination, attempt, kinds]] : [])
             expect(await savedAttempt[destination]()).toEqual(attempt)
         }
     )
