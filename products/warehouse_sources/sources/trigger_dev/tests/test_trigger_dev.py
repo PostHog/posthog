@@ -91,14 +91,14 @@ class TestShouldStopDesc:
 class TestRunsCursorPagination:
     @parameterized.expand(
         [
-            ("runs", "/api/v1/runs", "filter[createdAt][from]"),
-            ("deployments", "/api/v1/deployments", "from"),
-            ("waitpoint_tokens", "/api/v1/waitpoints/tokens", "filter[createdAt][from]"),
-            ("sessions", "/api/v1/sessions", "filter[createdAt][from]"),
+            ("runs", "/api/v1/runs", "filter[createdAt][from]", "2026-01-07T00:00:00+00:00"),
+            ("deployments", "/api/v1/deployments", "from", "2026-01-09T00:00:00+00:00"),
+            ("waitpoint_tokens", "/api/v1/waitpoints/tokens", "filter[createdAt][from]", "2026-01-03T00:00:00+00:00"),
+            ("sessions", "/api/v1/sessions", "filter[createdAt][from]", "1767398400000"),
         ]
     )
     def test_incremental_filters_first_page_then_stops_at_watermark(
-        self, endpoint: str, path: str, filter_param: str
+        self, endpoint: str, path: str, filter_param: str, expected_cutoff: str
     ) -> None:
         # The createdAt filter is only sent on page one; later cursor pages must stop client-side once
         # a page predates the watermark, or every incremental sync re-walks all history.
@@ -129,7 +129,7 @@ class TestRunsCursorPagination:
         )
         assert [r["id"] for r in result.rows] == ["r3", "r2", "r1"]
         assert [request.path for request in result.requests] == [path, path]
-        assert result.requests[0].param(filter_param) is not None
+        assert result.requests[0].param(filter_param) == expected_cutoff
         assert result.requests[1].param("page[after]") == "r2"
         assert filter_param not in result.requests[1].query
 

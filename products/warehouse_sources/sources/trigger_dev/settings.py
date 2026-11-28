@@ -29,6 +29,7 @@ class TriggerDevEndpointConfig:
     incremental_lookback: Optional[timedelta] = None
     # Query param that takes the created-at lower bound on the first cursor page.
     created_from_param: Optional[str] = None
+    created_from_epoch_ms: bool = False
     extra_params: dict[str, str] = field(default_factory=dict)
     # Fields dropped from every row before it is yielded.
     excluded_fields: tuple[str, ...] = ()
@@ -140,6 +141,7 @@ TRIGGER_DEV_ENDPOINTS: dict[str, TriggerDevEndpointConfig] = {
         should_sync_default=False,
         incremental_lookback=timedelta(days=7),
         created_from_param="filter[createdAt][from]",
+        created_from_epoch_ms=True,
         incremental_fields=[
             {
                 "label": "createdAt",
