@@ -297,29 +297,29 @@ describe('message audience attempts', () => {
                 />
             )
 
+            const warningsShown = (): unknown[][] =>
+                sentEvents
+                    .filter(({ event }) => event === 'message audience warnings shown')
+                    .map(({ properties }) => [
+                        properties.source,
+                        properties.destination,
+                        properties.attempt_id,
+                        properties.warnings,
+                    ])
+
             fireEvent.click(screen.getByText('Email opted-in users'))
             fireEvent.click(await screen.findByText(label))
+            const [attempt] = await sentAttempts(1)
+            expect(attempt).toMatch(UUID)
             if (warning) {
                 expect(await screen.findByText(warning)).toBeInTheDocument()
+                await waitFor(() => expect(warningsShown()).toEqual([['early_access', destination, attempt, [kind]]]))
                 fireEvent.click(screen.getByText('Continue'))
                 await waitFor(() => expect(screen.queryByText('Before you send')).not.toBeInTheDocument())
             }
             await opened(destination === 'workflow' ? app.urls.workflowNew() : app.urls.broadcastNew())
 
-            const [attempt] = await sentAttempts(1)
-            expect(attempt).toMatch(UUID)
-            await waitFor(() =>
-                expect(
-                    sentEvents
-                        .filter(({ event }) => event === 'message audience warnings shown')
-                        .map(({ properties }) => [
-                            properties.source,
-                            properties.destination,
-                            properties.attempt_id,
-                            properties.warnings,
-                        ])
-                ).toEqual(kind ? [['early_access', destination, attempt, [kind]]] : [])
-            )
+            expect(warningsShown()).toEqual(kind ? [['early_access', destination, attempt, [kind]]] : [])
             expect(await savedAttempt[destination]()).toEqual(attempt)
         }
     )
