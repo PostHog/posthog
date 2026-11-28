@@ -2576,4 +2576,95 @@ describe('runner through seed, drive and judge', () => {
             await new Promise((resolve) => slowIntake.close(resolve))
         }
     }, 30_000)
+    it('marks every webhook row incomplete when an interrupt drops a trigger cdp-api has not answered yet', async () => {
+        const interrupt = new AbortController()
+        let triggers = 0
+        const intake = http.createServer((request, response) => {
+            triggers += 1
+            request.resume()
+            if (triggers <= 2) {
+                response.writeHead(200).end('{}')
+            } else {
+                interrupt.abort()
+            }
+        })
+        await new Promise<void>((resolve) => intake.listen(0, '127.0.0.1', resolve))
+        try {
+            const result = await createRunner(
+                environmentOf('none', `http://127.0.0.1:${(intake.address() as AddressInfo).port}`),
+                env
+            ).run(
+                shortSmoke([], 'workflow_webhook', {
+                    measures: [
+                        { name: 'webhook_trigger_answer_ms', params: {} },
+                        { name: 'webhook_trigger_outcomes', params: {} },
+                    ],
+                }),
+                interrupt.signal
+            )
+            results.push(result)
+
+            expect(result).toMatchObject({ status: 'invalid', statusReason: 'the run was interrupted' })
+            expect(result.measurements.map(({ name, key, incomplete }) => ({ name, key, incomplete }))).toEqual(
+                expect.arrayContaining([
+                    { name: 'webhook_trigger_outcomes', key: 'offered_1x', incomplete: true },
+                    { name: 'webhook_trigger_answer_ms', key: 'p99_1x', incomplete: true },
+                ])
+            )
+            expect(result.measurements.filter(({ incomplete }) => !incomplete)).toEqual([])
+        } finally {
+            intake.closeAllConnections()
+            await new Promise((resolve) => intake.close(resolve))
+        }
+    }, 30_000)
+    it('keeps the webhook intake counts exact and censors the lost count when an interrupt comes during convergence', async () => {
+        const interrupt = new AbortController()
+        let triggers = 0
+        const intake = http.createServer((request, response) => {
+            triggers += 1
+            request.resume()
+            response.writeHead(200).end('{}')
+        })
+        await new Promise<void>((resolve) => intake.listen(0, '127.0.0.1', resolve))
+        const actual = jest.requireActual<{ internalFetch: typeof internalFetch }>('~/common/utils/request')
+        jest.mocked(internalFetch).mockImplementation((url, options) => {
+            if (url.includes('/_truth?after=') && !url.includes('limit=')) {
+                interrupt.abort()
+            }
+            return actual.internalFetch(url, options)
+        })
+        try {
+            const result = await createRunner(
+                environmentOf('none', `http://127.0.0.1:${(intake.address() as AddressInfo).port}`),
+                env
+            ).run(
+                shortSmoke([], 'workflow_webhook', {
+                    measures: [{ name: 'webhook_trigger_outcomes', params: {} }],
+                }),
+                interrupt.signal
+            )
+            results.push(result)
+
+            expect(result).toMatchObject({ status: 'invalid', statusReason: 'the run was interrupted' })
+            expect(triggers).toBeGreaterThan(0)
+            expect(
+                result.measurements.map(({ key, value, censored, incomplete }) => ({
+                    key,
+                    value,
+                    censored,
+                    incomplete,
+                }))
+            ).toEqual([
+                { key: 'offered_1x', value: triggers, censored: undefined, incomplete: undefined },
+                { key: 'accepted_1x', value: triggers, censored: undefined, incomplete: undefined },
+                { key: 'rejected_1x', value: 0, censored: undefined, incomplete: undefined },
+                { key: 'errors_1x', value: 0, censored: undefined, incomplete: undefined },
+                { key: 'lost_1x', value: null, censored: true, incomplete: undefined },
+            ])
+        } finally {
+            jest.mocked(internalFetch).mockImplementation(actual.internalFetch)
+            intake.closeAllConnections()
+            await new Promise((resolve) => intake.close(resolve))
+        }
+    }, 30_000)
 })

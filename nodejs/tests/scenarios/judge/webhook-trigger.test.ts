@@ -6,7 +6,7 @@ import { MeasureEvidence, measure } from './measurements'
 
 const FROM = Date.parse('2026-01-05T10:00:00.000Z')
 const MINUTE = 60_000
-const HORIZON_SEQ = 200
+const HORIZON_SEQ = 100
 
 const triggered = (unitId: string, step: number, offeredAtMs: number, answer: IntakeAnswer): JournalEntry => ({
     unitId,
@@ -56,10 +56,12 @@ const evidence = (judged: Partial<MeasureEvidence> = {}): MeasureEvidence => ({
         delivered(1, 'run-1'),
         delivered(2, 'run-2'),
         delivered(3, 'run-4'),
-        ...fastTriggers.map(({ unitId }, i) => delivered(10 + i, unitId)),
+        ...fastTriggers.map(({ unitId }, i) => delivered(4 + i, unitId)),
         delivered(HORIZON_SEQ + 1, 'run-3'),
     ],
     horizonSeq: HORIZON_SEQ,
+    truthFrom: 0,
+    unobserved: [],
     fetchRetries: 3,
     samples: [],
     missed: [],
@@ -138,9 +140,53 @@ describe('workflow webhook triggers per ramp step', () => {
         ])
     })
 
-    it.each([
+    it('marks every webhook row of an interrupted run incomplete', () => {
+        const rows = measure(
+            [
+                { name: 'webhook_trigger_answer_ms', params: {} },
+                { name: 'webhook_trigger_outcomes', params: {} },
+            ],
+            evidence({ interrupted: true })
+        )
+
+        expect(rows.map(({ name, key, incomplete }) => `${name}.${key}: ${incomplete}`)).toEqual([
+            'webhook_trigger_answer_ms.p50_1x: true',
+            'webhook_trigger_answer_ms.p99_1x: true',
+            'webhook_trigger_answer_ms.p50_5x: true',
+            'webhook_trigger_answer_ms.p99_5x: true',
+            ...['offered', 'accepted', 'rejected', 'errors', 'lost'].map(
+                (key) => `webhook_trigger_outcomes.${key}_1x: true`
+            ),
+            ...['offered', 'accepted', 'rejected', 'errors', 'lost'].map(
+                (key) => `webhook_trigger_outcomes.${key}_5x: true`
+            ),
+        ])
+    })
+
+    it.each<[string, Partial<MeasureEvidence>, string]>([
         ['the truth could not be read', { unread: 'edge unreachable' }, 'edge unreachable'],
         ['the run reached no recovery horizon', { horizonSeq: undefined }, 'no recovery horizon'],
+        [
+            'the run reached no recovery horizon and its last truth read failed',
+            { horizonSeq: undefined, unread: 'the run was stopped' },
+            'no recovery horizon',
+        ],
+        [
+            'the truth skips a seq',
+            { truth: evidence().truth.filter(({ seq }) => seq !== 5) },
+            'the truth skips from seq 4 to 6',
+        ],
+        ['the truth never settled', { unsettled: 'the edge kept accepting sends' }, 'the edge kept accepting sends'],
+        [
+            'a valve went unobserved',
+            { unobserved: ['role.kill on cdp-intake-workflow-webhook was not observed'] },
+            'role.kill on cdp-intake-workflow-webhook was not observed',
+        ],
+        [
+            'the edge accepted a delivery the journal never recorded',
+            { truth: [...evidence().truth, delivered(HORIZON_SEQ + 2, 'run-99')] },
+            'the journal is incomplete',
+        ],
     ])('leaves the lost count unmeasured when %s', (_, judged, reason) => {
         const rows = measure([{ name: 'webhook_trigger_outcomes', params: {} }], evidence(judged))
 
