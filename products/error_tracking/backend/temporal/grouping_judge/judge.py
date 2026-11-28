@@ -7,7 +7,7 @@ from posthog.dataclasses import frozen
 
 from products.error_tracking.backend.temporal.grouping_judge.types import JudgeOutcome
 
-JUDGE_MODEL = "claude-haiku-4-5"
+JUDGE_MODEL = "claude-haiku-5-5"
 # Room for the reasoning, which comes before the verdict.
 MAX_TOKENS = 768
 # Pins the call to Bedrock in the caller's region, so EU documents never leave EU Bedrock.
