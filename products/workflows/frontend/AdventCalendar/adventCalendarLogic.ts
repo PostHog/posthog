@@ -640,7 +640,7 @@ export const adventCalendarLogic = kea<adventCalendarLogicType>([
                                 const timer = window.setTimeout(
                                     () => {
                                         mount.dispose(`open-${day}`)
-                                        if (isOnTime(day)) {
+                                        if (adventOpenedOnItsDay(day, new Date(), utcOffsetMinutes)) {
                                             sendOpen(day, utcOffsetMinutes, userUuid, retry + 1)
                                         } else {
                                             actions.dropOpen(day)
@@ -656,6 +656,10 @@ export const adventCalendarLogic = kea<adventCalendarLogicType>([
                     }
                 )
         }
+        const isOnTime = (day: number): boolean => {
+            const now = new Date()
+            return adventOpenedOnItsDay(day, now, -now.getTimezoneOffset())
+        }
         const recoverToday = (): void => {
             const day = values.today
             const ticketDays = values.serverTicketDays
@@ -663,13 +667,14 @@ export const adventCalendarLogic = kea<adventCalendarLogicType>([
                 return
             }
             cache.checkedToday = true
-            if (values.progress.opened.includes(day) && !ticketDays.includes(day) && values.sendingTicketDay !== day) {
+            if (
+                values.progress.opened.includes(day) &&
+                !ticketDays.includes(day) &&
+                values.sendingTicketDay !== day &&
+                isOnTime(day)
+            ) {
                 sendOpen(day, -new Date().getTimezoneOffset(), values.user.uuid)
             }
-        }
-        const isOnTime = (day: number): boolean => {
-            const now = new Date()
-            return !values.isLive || adventOpenedOnItsDay(day, now, -now.getTimezoneOffset())
         }
         return {
             loadPollResults: () => receive(api.workflowAdventCalendarResults(String(values.currentProjectId))),
