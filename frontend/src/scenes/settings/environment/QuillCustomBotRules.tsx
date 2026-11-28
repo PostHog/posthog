@@ -3,6 +3,7 @@ import {
     Badge,
     Button,
     Field,
+    FieldDescription,
     FieldError,
     FieldLabel,
     Input,
@@ -15,6 +16,7 @@ import {
     SelectTrigger,
     SelectValue,
     Text,
+    Textarea,
     Tooltip,
     TooltipContent,
     TooltipTrigger,
@@ -23,7 +25,7 @@ import {
 import { VerticalNestedDND } from 'lib/components/VerticalNestedDND/VerticalNestedDND'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 
-import { CustomBotCondition, CustomBotField, CustomBotRule } from '~/queries/schema/schema-general'
+import { CustomBotCondition, CustomBotField, CustomBotMatcher, CustomBotRule } from '~/queries/schema/schema-general'
 import { FilterLogicalOperator } from '~/types'
 
 import {
@@ -32,6 +34,7 @@ import {
     CUSTOM_BOT_FIELD_OPTIONS,
     categoryLabel,
     combinerOptions,
+    conditionRanges,
     fieldLabel,
     matcherLabel,
     matcherOptionsFor,
@@ -41,7 +44,10 @@ import {
     validateCustomBotCondition,
     validateCustomBotRule,
     withConditionKey,
+    withMatcher,
 } from './customBotRulesUtils'
+
+const READ_ONLY_RANGES_SHOWN = 3
 
 function OptionSelect<T extends string>({
     value,
@@ -81,6 +87,26 @@ function OptionSelect<T extends string>({
     )
 }
 
+function QuillReadOnlyIpRanges({ ranges }: { ranges: string[] }): JSX.Element {
+    const hidden = ranges.length - READ_ONLY_RANGES_SHOWN
+    return (
+        <>
+            {ranges.slice(0, READ_ONLY_RANGES_SHOWN).map((range, index) => (
+                <span key={`${range}-${index}`}>
+                    {index > 0 ? ', ' : null}
+                    <code>{range}</code>
+                </span>
+            ))}
+            {hidden > 0 ? (
+                <Text size="xs" variant="muted" render={<span />}>
+                    {' '}
+                    and {hidden} more
+                </Text>
+            ) : null}
+        </>
+    )
+}
+
 function QuillReadOnlyBotRules({ rules }: { rules: CustomBotRule[] }): JSX.Element {
     return (
         <div className="flex flex-col gap-2">
@@ -102,7 +128,11 @@ function QuillReadOnlyBotRules({ rules }: { rules: CustomBotRule[] }): JSX.Eleme
                         {rule.items.map((condition) => (
                             <Text key={condition.id} size="xs" render={<span className="m-0" />}>
                                 {fieldLabel(condition.key)} {matcherLabel(condition.matcher)}{' '}
-                                <code>{condition.pattern}</code>
+                                {condition.matcher === CustomBotMatcher.Cidr ? (
+                                    <QuillReadOnlyIpRanges ranges={conditionRanges(condition)} />
+                                ) : (
+                                    <code>{condition.pattern}</code>
+                                )}
                             </Text>
                         ))}
                     </ItemContent>
@@ -160,7 +190,8 @@ export function QuillCustomBotRules({
             <Text size="xs" render={<p className="m-0" />}>
                 Match the user agent to catch a crawler that names itself, the IP address to catch one that sends a
                 browser user agent from a range you know, or combine conditions to catch one that only stands out
-                through a combination, like an 800x600 screen.{' '}
+                through a combination, like an 800x600 screen. An IP address condition can hold a list of ranges, one
+                per line or separated by commas, such as the ranges a cloud provider publishes for a region.{' '}
                 <Button
                     variant="link"
                     size="inline"
@@ -251,9 +282,11 @@ export function QuillCustomBotRules({
                     }}
                     renderChildItem={(condition, { updateChildItem }) => {
                         const error = validateCustomBotCondition(condition)
+                        const rangeCount =
+                            condition.matcher === CustomBotMatcher.Cidr ? conditionRanges(condition).length : 0
                         return (
                             <Field className="w-full" data-invalid={error ? true : undefined}>
-                                <div className="flex flex-wrap items-center gap-2">
+                                <div className="flex flex-wrap items-start gap-2">
                                     <OptionSelect
                                         value={condition.key}
                                         options={CUSTOM_BOT_FIELD_OPTIONS}
@@ -264,22 +297,46 @@ export function QuillCustomBotRules({
                                     <OptionSelect
                                         value={condition.matcher}
                                         options={matcherOptionsFor(condition.key)}
-                                        onChange={(matcher) => updateChildItem({ ...condition, matcher })}
+                                        onChange={(matcher) =>
+                                            updateChildItem(withMatcher(condition, condition.key, matcher))
+                                        }
                                         disabledReason={restrictedReason}
                                         ariaLabel="Operator"
                                     />
-                                    <Input
-                                        className="min-w-40 flex-1 font-mono"
-                                        aria-label="Pattern"
-                                        aria-invalid={error ? true : undefined}
-                                        value={condition.pattern}
-                                        onChange={(event) =>
-                                            updateChildItem({ ...condition, pattern: event.target.value })
-                                        }
-                                        placeholder={patternPlaceholderFor(condition.key, condition.matcher)}
-                                    />
+                                    {condition.matcher === CustomBotMatcher.Cidr ? (
+                                        <Textarea
+                                            className="min-h-0 max-h-40 min-w-60 flex-1 font-mono"
+                                            aria-label="IP ranges"
+                                            aria-invalid={error ? true : undefined}
+                                            value={(condition.patterns ?? []).join('\n')}
+                                            onChange={(event) =>
+                                                updateChildItem({
+                                                    ...condition,
+                                                    patterns: event.target.value.split('\n'),
+                                                })
+                                            }
+                                            placeholder={patternPlaceholderFor(condition.key, condition.matcher)}
+                                            rows={1}
+                                            data-attr="custom-bot-rules-ip-ranges"
+                                        />
+                                    ) : (
+                                        <Input
+                                            className="min-w-40 flex-1 font-mono"
+                                            aria-label="Pattern"
+                                            aria-invalid={error ? true : undefined}
+                                            value={condition.pattern ?? ''}
+                                            onChange={(event) =>
+                                                updateChildItem({ ...condition, pattern: event.target.value })
+                                            }
+                                            placeholder={patternPlaceholderFor(condition.key, condition.matcher)}
+                                        />
+                                    )}
                                 </div>
-                                {error ? <FieldError>{error}</FieldError> : null}
+                                {error ? (
+                                    <FieldError>{error}</FieldError>
+                                ) : rangeCount > 1 ? (
+                                    <FieldDescription>{rangeCount} ranges</FieldDescription>
+                                ) : null}
                             </Field>
                         )
                     }}
