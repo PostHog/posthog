@@ -14,13 +14,17 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use envconfig::Envconfig;
-use rdkafka::producer::{FutureProducer, Producer};
-use rdkafka::util::Timeout;
+use metrics::gauge;
+use rdkafka::producer::FutureProducer;
 use rdkafka::ClientConfig;
-use tracing::log::{debug, info};
+use tracing::log::{debug, info, warn};
 
 use crate::sinks::kafka::KafkaContext;
 use crate::sinks::producer::{KafkaProducer, RdKafkaProducer};
+
+pub const PRODUCER_HEALTHY: &str = "capture_kafka_producer_healthy";
+
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ProducerName {
@@ -189,6 +193,8 @@ pub struct ProducerConfig {
     pub socket_send_buffer_bytes: u32,
     #[envconfig(default = "0")]
     pub socket_receive_buffer_bytes: u32,
+    #[envconfig(default = "true")]
+    pub allow_auto_create_topics: bool,
 }
 
 impl ProducerConfig {
@@ -257,6 +263,10 @@ impl ProducerConfig {
             .set(
                 "socket.receive.buffer.bytes",
                 self.socket_receive_buffer_bytes.to_string(),
+            )
+            .set(
+                "allow.auto.create.topics",
+                self.allow_auto_create_topics.to_string(),
             );
 
         for (key, value) in [
@@ -345,24 +355,30 @@ fn create_producer(
     );
 
     let producer: FutureProducer<KafkaContext> =
-        client_config.create_with_context(KafkaContext::new(liveness.clone()))?;
+        client_config.create_with_context(KafkaContext::new(name, liveness.clone()))?;
+    let producer = Arc::new(RdKafkaProducer::new(producer));
 
-    // A failed ping is not an error, because other sinks may still report healthy.
-    if producer
-        .client()
-        .fetch_metadata(
-            Some("__consumer_offsets"),
-            Timeout::After(Duration::new(10, 0)),
-        )
-        .is_ok()
-    {
-        if let Some(liveness) = &liveness {
-            liveness.report_healthy();
+    // A failed ping is not an error: the outputs decide what a dead producer means.
+    let connected = producer.check_connection(CONNECT_TIMEOUT);
+    match &connected {
+        Ok(()) => {
+            if let Some(liveness) = &liveness {
+                liveness.report_healthy();
+            }
+            info!("producer {} connected to Kafka brokers", name.as_str());
         }
-        info!("connected to Kafka brokers");
-    };
+        Err(e) => warn!(
+            "producer {} could not reach its brokers: {e:#}",
+            name.as_str()
+        ),
+    }
+    gauge!(PRODUCER_HEALTHY, "producer" => name.as_str()).set(if connected.is_ok() {
+        1.0
+    } else {
+        0.0
+    });
 
-    Ok(Arc::new(RdKafkaProducer::new(producer)))
+    Ok(producer)
 }
 
 #[cfg(test)]
@@ -435,6 +451,7 @@ mod tests {
             ("retry.backoff.max.ms", "1000"),
             ("socket.send.buffer.bytes", "0"),
             ("socket.receive.buffer.bytes", "0"),
+            ("allow.auto.create.topics", "true"),
         ];
         for (key, value) in expected {
             assert_eq!(client_config.get(key), Some(value), "{key}");
@@ -478,6 +495,68 @@ mod tests {
         .unwrap_err();
 
         assert!(err.to_string().contains("INGESTION"), "{err}");
+    }
+
+    fn mock_cluster_producer(
+        cluster: &rdkafka::mocking::MockCluster<'static, rdkafka::producer::DefaultProducerContext>,
+    ) -> ProducerHandle {
+        let configs = load_all(&env(&[
+            (
+                "KAFKA_INGESTION_PRODUCER_METADATA_BROKER_LIST",
+                cluster.bootstrap_servers().as_str(),
+            ),
+            ("KAFKA_INGESTION_PRODUCER_ALLOW_AUTO_CREATE_TOPICS", "false"),
+        ]))
+        .unwrap();
+        ProducerRegistry::build(&configs, HashMap::new())
+            .unwrap()
+            .get(ProducerName::Ingestion)
+    }
+
+    #[test]
+    fn check_topic_exists_reports_a_missing_topic_without_creating_it() {
+        let cluster = rdkafka::mocking::MockCluster::new(1).unwrap();
+        cluster.create_topic("present", 1, 1).unwrap();
+        let producer = mock_cluster_producer(&cluster);
+        let timeout = Duration::from_secs(5);
+
+        producer.check_topic_exists("present", timeout).unwrap();
+        for _ in 0..2 {
+            assert!(producer.check_topic_exists("absent", timeout).is_err());
+        }
+    }
+
+    #[test]
+    fn check_connection_fails_on_an_unreachable_cluster() {
+        let configs = load_all(&env(&[
+            (
+                "KAFKA_INGESTION_PRODUCER_METADATA_BROKER_LIST",
+                "127.0.0.1:1",
+            ),
+            ("KAFKA_INGESTION_PRODUCER_SOCKET_TIMEOUT_MS", "1000"),
+        ]))
+        .unwrap();
+        let producer = ProducerRegistry::build(&configs, HashMap::new())
+            .unwrap()
+            .get(ProducerName::Ingestion);
+
+        assert!(producer
+            .check_connection(Duration::from_millis(500))
+            .is_err());
+    }
+
+    #[test]
+    fn auto_topic_creation_is_a_per_slot_setting() {
+        let config = ProducerConfig::load(
+            ProducerName::Ingestion,
+            &env(&[("KAFKA_INGESTION_PRODUCER_ALLOW_AUTO_CREATE_TOPICS", "false")]),
+        )
+        .unwrap();
+
+        assert_eq!(
+            config.client_config().get("allow.auto.create.topics"),
+            Some("false")
+        );
     }
 
     #[test]
