@@ -859,7 +859,7 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
                 if existing_group.get(key) and not incoming_group.get(key):
                     merged_group[key] = existing_group[key]
             # Drop the other spelling so parsing can't see two competing groups.
-            for key in helpers._name_variants(group_key):
+            for key in helpers.field_name_variants(group_key):
                 new_job_inputs.pop(key, None)
             new_job_inputs[incoming_key] = merged_group
 

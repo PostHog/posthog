@@ -15,6 +15,7 @@ from products.access_control.backend.facade.user_access_control import AccessCon
 from products.access_control.backend.models.access_control import AccessControl
 from products.data_warehouse.backend.facade.models import ExternalDataSourceRevenueAnalyticsConfig
 from products.warehouse_sources.backend.facade import api, contracts, hogql, hooks, sources, temporal
+from products.warehouse_sources.backend.facade.source_inputs import SourceInputsStore
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
@@ -81,14 +82,29 @@ class TestWarehouseSourcesFacade(BaseTest):
         ExternalDataJob.objects.create(team_id=self.team.pk, pipeline=self.source, status="Completed")
         newest = ExternalDataJob.objects.create(team_id=self.team.pk, pipeline=self.source, status="Completed")
         ExternalDataJob.objects.create(team_id=self.team.pk, pipeline=self.source, status="Running")
-        self.schema.latest_error = "permission denied for table users"
+        SourceInputsStore.assign(self.source, {"host": "db.example.com", "user": "app", "password": "fake-password"})
+        self.source.save()
+        self.schema.latest_error = "permission denied for table users (password fake-password)"
         self.schema.save()
+        unreadable = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            status="Completed",
+            source_type="Stripe",
+            job_inputs="not json",
+        )
+        ExternalDataSchema.objects.create(
+            team_id=self.team.pk, source=unreadable, name="charges", latest_error="request failed: api_key=sk_test_1234"
+        )
 
         results = api.list_source_health(self.team.pk)
 
-        assert [r.source_type for r in results] == ["Postgres"]
+        assert [(r.source_type, r.latest_error) for r in results] == [
+            ("Postgres", "permission denied for table users (password ***)"),
+            ("Stripe", api.UNMASKABLE_SOURCE_ERROR),
+        ]
         assert results[0].last_run_at == newest.created_at
-        assert results[0].latest_error == "permission denied for table users"
 
     @parameterized.expand(
         [

@@ -313,6 +313,9 @@ def list_sources(
     return [_to_source(s) for s in qs]
 
 
+UNMASKABLE_SOURCE_ERROR = "Sync failed. The error is hidden because the source's credentials could not be read."
+
+
 def list_source_health(team_id: int) -> list[contracts.ExternalDataSourceHealth]:
     """Live sources with their effective status, newest completed run and newest schema error.
 
@@ -321,6 +324,11 @@ def list_source_health(team_id: int) -> list[contracts.ExternalDataSourceHealth]
     One correlated probe per source for each of the two lookups, so the cost tracks the number
     of sources rather than the length of the team's job history.
     """
+    from products.warehouse_sources.backend.logic.source_secrets import (  # noqa: PLC0415
+        redact_error_message,
+        source_secret_values_by_source,
+    )
+
     # Newest schema-level error across the source's non-deleted schemas. Ordered by most
     # recently updated so a consumer sees the freshest failure.
     latest_error = Subquery(
@@ -344,6 +352,11 @@ def list_source_health(team_id: int) -> list[contracts.ExternalDataSourceHealth]
         .only("source_id", "status", "should_sync")
     ):
         active_schemas_by_source[schema.source_id].append(schema)
+    source_rows = list(rows)
+    failing_source_ids = {row["id"] for row in source_rows if row["latest_error"]}
+    secrets = source_secret_values_by_source(
+        _ExternalDataSource.objects.filter(team_id=team_id, id__in=failing_source_ids)
+    )
     return [
         contracts.ExternalDataSourceHealth(
             source_type=row["source_type"],
@@ -351,9 +364,13 @@ def list_source_health(team_id: int) -> list[contracts.ExternalDataSourceHealth]
             prefix=row["prefix"],
             created_at=row["created_at"],
             last_run_at=row["last_run_at"],
-            latest_error=row["latest_error"],
+            latest_error=(
+                redact_error_message(row["latest_error"], secrets[row["id"]])
+                if row["id"] in secrets
+                else row["latest_error"] and UNMASKABLE_SOURCE_ERROR
+            ),
         )
-        for row in rows
+        for row in source_rows
     ]
 
 
