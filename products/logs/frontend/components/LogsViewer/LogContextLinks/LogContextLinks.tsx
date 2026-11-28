@@ -6,8 +6,6 @@ import ViewRecordingButton, { RecordingPlayerType } from 'lib/components/ViewRec
 import type { TraceDialogEntryPoint } from 'lib/components/ViewTraceButton/traceDialogOpenLogic'
 import { usableId } from 'lib/components/ViewTraceButton/usableId'
 import { ViewTraceButton } from 'lib/components/ViewTraceButton/ViewTraceButton'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { userHasAccess } from 'lib/utils/accessControlUtils'
 
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
@@ -46,12 +44,7 @@ export interface LogContextLinksProps {
     onLeave?: () => void
 }
 
-export function LogContextLinks({
-    log,
-    surface,
-    onOpenRelatedErrors,
-    onLeave,
-}: LogContextLinksProps): JSX.Element | null {
+export function LogContextLinks({ log, surface, onOpenRelatedErrors, onLeave }: LogContextLinksProps): JSX.Element {
     const { configuredSessionIdKeys, configuredDistinctIdKeys } = useValues(logsConfigLogic)
 
     const traceId = usableId(log.trace_id)
@@ -59,19 +52,10 @@ export function LogContextLinks({
     const sessionId = getSessionIdFromLogAttributes(log.attributes, log.resource_attributes, configuredSessionIdKeys)
     const distinctId = getDistinctIdWithKey(log.attributes, log.resource_attributes, configuredDistinctIdKeys)?.value
 
-    const { featureFlags } = useValues(featureFlagLogic)
-
     const canViewErrors = userHasAccess(AccessControlResourceType.ErrorTracking, AccessControlLevel.Viewer)
-    const investigateEnabled = !!featureFlags[FEATURE_FLAGS.LOGS_MISSING_LINK_INVESTIGATE]
-    const missing: MissingLink[] = investigateEnabled
-        ? [!traceId && 'trace', !sessionId && 'session', !distinctId && 'person'].filter(
-              (link): link is MissingLink => !!link
-          )
-        : []
-
-    if (!investigateEnabled && !traceId && !sessionId && !distinctId) {
-        return null
-    }
+    const missing: MissingLink[] = [!traceId && 'trace', !sessionId && 'session', !distinctId && 'person'].filter(
+        (link): link is MissingLink => !!link
+    )
 
     return (
         <div className="flex items-center gap-1 flex-wrap min-w-0">
