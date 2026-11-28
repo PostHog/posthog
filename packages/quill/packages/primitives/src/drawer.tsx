@@ -1,9 +1,10 @@
+import './drawer.css'
+
 import { Drawer as DrawerPrimitive } from '@base-ui/react/drawer'
 import { mergeProps } from '@base-ui/react/merge-props'
 import { useRender } from '@base-ui/react/use-render'
 import * as React from 'react'
 
-import './drawer.css'
 import { cn } from './lib/utils'
 import { ScrollArea } from './scroll-area'
 
@@ -46,35 +47,39 @@ const DrawerBackdrop = React.forwardRef<
     )
 })
 
-const DrawerContent = React.forwardRef<React.ComponentRef<typeof DrawerPrimitive.Popup>, DrawerPrimitive.Popup.Props>(
-    function DrawerContent({ className, children, ...props }, ref) {
-        return (
-            <DrawerPortal>
-                <DrawerBackdrop />
-                <DrawerPrimitive.Viewport
-                    data-quill
-                    data-quill-portal="drawer-viewport"
-                    data-slot="drawer-viewport"
-                    className="quill-drawer__viewport"
-                >
-                    <DrawerPrimitive.Popup
-                        ref={ref}
-                        data-quill
-                        data-slot="drawer-content"
-                        className={cn('quill-drawer__content group/drawer-content flex h-auto flex-col', className)}
-                        {...props}
-                    >
-                        <DrawerHandle />
-                        {/* The 32rem cap centers a sheet's content. A side drawer sets its own width, so its content fills it. */}
-                        <div className="mx-auto flex min-h-0 w-full max-w-[32rem] flex-col group-data-[swipe-direction=left]/drawer-content:max-w-none group-data-[swipe-direction=left]/drawer-content:flex-1 group-data-[swipe-direction=right]/drawer-content:max-w-none group-data-[swipe-direction=right]/drawer-content:flex-1">
-                            {children}
-                        </div>
-                    </DrawerPrimitive.Popup>
-                </DrawerPrimitive.Viewport>
-            </DrawerPortal>
-        )
+const DrawerContent = React.forwardRef<
+    React.ComponentRef<typeof DrawerPrimitive.Popup>,
+    DrawerPrimitive.Popup.Props & {
+        /** Set false for a drawer that sits beside the page, so the page stays visible and sharp behind it. */
+        backdrop?: boolean
     }
-)
+>(function DrawerContent({ className, children, backdrop = true, ...props }, ref) {
+    return (
+        <DrawerPortal>
+            {backdrop && <DrawerBackdrop />}
+            <DrawerPrimitive.Viewport
+                data-quill
+                data-quill-portal="drawer-viewport"
+                data-slot="drawer-viewport"
+                className="quill-drawer__viewport"
+            >
+                <DrawerPrimitive.Popup
+                    ref={ref}
+                    data-quill
+                    data-slot="drawer-content"
+                    className={cn('quill-drawer__content group/drawer-content flex h-auto flex-col', className)}
+                    {...props}
+                >
+                    <DrawerHandle />
+                    {/* The 32rem cap centers a sheet's content. A side drawer sets its own width, so its content fills it. */}
+                    <div className="mx-auto flex min-h-0 w-full max-w-[32rem] flex-col group-data-[swipe-direction=left]/drawer-content:max-w-none group-data-[swipe-direction=left]/drawer-content:flex-1 group-data-[swipe-direction=right]/drawer-content:max-w-none group-data-[swipe-direction=right]/drawer-content:flex-1">
+                        {children}
+                    </div>
+                </DrawerPrimitive.Popup>
+            </DrawerPrimitive.Viewport>
+        </DrawerPortal>
+    )
+})
 
 const DrawerHandle = React.forwardRef<HTMLDivElement, React.ComponentProps<'div'>>(function DrawerHandle(
     { className, ...props },

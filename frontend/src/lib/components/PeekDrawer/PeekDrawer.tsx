@@ -42,6 +42,7 @@ export function PeekDrawer({
             }}
         >
             <DrawerContent
+                backdrop={false}
                 // The quill default of 24rem is a menu's width; an item page needs half the window, as the logs drawer had.
                 className="w-[max(50vw,min(36rem,100vw))] max-w-full"
                 data-attr={dataAttr}
@@ -59,9 +60,12 @@ export function PeekDrawer({
                             </DrawerClose>
                         </div>
                     </div>
-                    {subheader}
+                    {subheader && <div data-not-quill>{subheader}</div>}
                 </DrawerHeader>
-                <DrawerBody className="py-4">{children}</DrawerBody>
+                {/* The quill bridge maps Lemon color tokens to quill's palette inside the portal, which turns Lemon surfaces brand-colored. */}
+                <DrawerBody className="py-4">
+                    <div data-not-quill>{children}</div>
+                </DrawerBody>
             </DrawerContent>
         </Drawer>
     )
