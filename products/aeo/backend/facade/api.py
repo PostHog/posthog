@@ -43,6 +43,7 @@ from posthog.redis import get_client
 
 from products.aeo.backend import (
     auto_setup,
+    brand_details,
     catalog,
     dashboard,
     engine_settings,
@@ -74,6 +75,7 @@ from products.aeo.backend.facade.contracts import (
     Brand,
     BrandCreate,
     BrandCreateError,
+    BrandDetail,
     BrandedSegment,
     BrandKind,
     BrandNotFoundError,
@@ -417,10 +419,12 @@ def list_prompt_set_citations(
     topic: str | None = None,
     branded: BrandedSegment = BrandedSegment.ALL,
     include_answer_text: bool = False,
+    brand_id: str | None = None,
 ) -> tuple[list[PromptCitation], int]:
     """One page, newest first, of the answered web-search checks from `date_from` to `date_to` that cited
     `url`, cited a host on `domain` or one of its subdomains, or ran `search`, and the total count. Exactly one
-    of the three must be set. Raises InvalidDateRangeError."""
+    of the three must be set. `brand_id` keeps only the answers that name or cite that catalog brand, as its brand
+    detail counts them. Raises InvalidDateRangeError, and BrandNotFoundError for a brand of another team."""
     if sum(value is not None for value in (url, domain, search)) != 1:
         raise ValueError("Pass exactly one of url, domain or search.")
     window = _window(timezone_name, date_from, date_to)
@@ -447,6 +451,8 @@ def list_prompt_set_citations(
             # nosemgrep: python.django.security.audit.raw-query.avoid-raw-sql -- constant SQL, the search is a bound parameter
             RawSQL(_RAN_SEARCH_SQL, [_normalize_search(search)], output_field=BooleanField())
         )
+    if brand_id is not None:
+        checks = checks.filter(brand_details.visible_filter(_get_brand_row(team_id, brand_id)))
     fields = _CHECK_FIELDS if include_answer_text else tuple(f for f in _CHECK_FIELDS if f != "answer_text")
     page = (
         checks.annotate(
@@ -919,7 +925,9 @@ def get_prompt_set_rankings(
     window = _window(timezone_name, date_from, date_to)
     return stored_result(
         team_id,
-        "rankings",
+        # The name changes with the fields of `PromptSetRankings`, because its rows load their fields by position, so a
+        # result stored by a release with other fields would load shifted ones.
+        "rankings_v2",
         _window_key(timezone_name, window, branded, engine, topic, current_prompts),
         lambda: rankings.get_rankings(
             team_id,
@@ -959,6 +967,40 @@ def get_prompt_set_search_detail(
         refresh=refresh,
     )
     return dataclasses.replace(detail, keywords=search_details.matching_keywords(team_id, query))
+
+
+def get_brand_detail(
+    team_id: int,
+    brand_id: str,
+    *,
+    timezone_name: str,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    branded: BrandedSegment = BrandedSegment.ALL,
+    engine: str | None = None,
+    topic: str | None = None,
+    refresh: bool = False,
+) -> BrandDetail:
+    """What the answers from `date_from` to `date_to` in the team's timezone say about one brand of the team's
+    catalog, against the window of the same length before. An own brand counts with every own brand, as on the
+    rankings. Raises BrandNotFoundError for a brand of another team, and InvalidDateRangeError."""
+    window = _window(timezone_name, date_from, date_to)
+    row = _get_brand_row(team_id, brand_id)
+    brand = _to_brand(row)
+    return stored_result(
+        team_id,
+        "brand_detail",
+        (*_window_key(timezone_name, window, branded, engine, topic), brand.id),
+        lambda: brand_details.get_brand_detail(
+            team_id,
+            row,
+            brand=brand,
+            timezone_name=timezone_name,
+            window=window,
+            scope=CheckScope(segment=branded, engine=engine, topic=topic),
+        ),
+        refresh=refresh,
+    )
 
 
 def get_prompt_set_movers(

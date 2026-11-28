@@ -23,6 +23,7 @@ export const manifest: ProductManifest = {
         webAnalyticsLive: (): string => `/web/live`,
         webAnalyticsContentAutopilot: (): string => `/web/ai-visibility`,
         webAnalyticsContentAutopilotPrompt: (id: string): string => `/web/ai-visibility/prompts/${id}`,
+        webAnalyticsContentAutopilotBrand: (id: string): string => `/web/ai-visibility/brands/${id}`,
         heatmaps: (params?: string): string =>
             `/heatmaps${params ? `?${params.startsWith('?') ? params.slice(1) : params}` : ''}`,
         heatmapNew: (params?: string): string =>
@@ -62,6 +63,7 @@ export const manifest: ProductManifest = {
     routes: {
         '/web/ai-visibility': ['WebAnalytics', 'webAnalyticsContentAutopilot'],
         '/web/ai-visibility/prompts/:promptId': ['WebAnalytics', 'webAnalyticsContentAutopilotPrompt'],
+        '/web/ai-visibility/brands/:brandId': ['WebAnalytics', 'webAnalyticsContentAutopilotBrand'],
         '/heatmaps': ['Heatmaps', 'heatmaps'],
         '/heatmaps/new': ['HeatmapNew', 'heatmapNew'],
         '/heatmaps/recording': ['HeatmapRecording', 'heatmapRecording'],

@@ -394,6 +394,128 @@ class PromptSetSearchDetail:
     top_prompts: tuple[PromptSetSearchPrompt, ...]
 
 
+# The length of each list in a brand detail.
+MAX_BRAND_PROMPTS = 100
+MAX_BRAND_SITES = 20
+MAX_BRAND_SITE_PAGES = 10
+MAX_BRAND_SEARCHES = 20
+# Example sentences per sentiment label.
+MAX_BRAND_SENTIMENT_EXAMPLES = 2
+
+
+class CitedSiteRelation(LabeledStrEnum):
+    """Whose site a domain cited next to a brand is, from the brand's side."""
+
+    OWNED = "owned", "Owned"
+    COMPETITOR = "competitor", "Competitor"
+    OTHER = "other", "Other"
+
+
+@frozen
+class BrandRates:
+    """How the answers in one stretch of days treated a brand. A rate is None when it has no base."""
+
+    answers: int
+    answers_mentioning: int
+    visibility: float | None
+    citation_rate: float | None
+    # Mean of the brand's best place among the sources of the answers that cite it, from 1.
+    average_position: float | None
+    positive_share: float | None
+
+
+@frozen
+class BrandPrompt:
+    """A prompt whose answers name or cite the brand."""
+
+    id: str
+    text: str
+    topic: str | None
+    answers: int
+    answers_mentioning: int
+    mention_rate: float
+    engines: tuple[str, ...]
+
+
+@frozen
+class BrandCitedPage:
+    """A page the answers naming a brand cited, without its tracking parameters."""
+
+    url: str
+    answers: int
+    share_of_answers: float
+
+
+@frozen
+class BrandCitedSite:
+    """A registrable domain the answers naming a brand cited, with its pages cited most."""
+
+    domain: str
+    answers: int
+    share_of_answers: float
+    relation: CitedSiteRelation
+    pages: tuple[BrandCitedPage, ...]
+
+
+@frozen
+class BrandSentimentExample:
+    """One sentence of an answer that names the brand, with the sentiment it was scored."""
+
+    sentence: str
+    sentiment: str
+    engine: str
+    prompt_id: str
+
+
+@frozen
+class BrandSentiment:
+    """How the scored answers naming a brand speak about it. Shares are None while no answer is scored."""
+
+    scored: int
+    positive_share: float | None
+    neutral_share: float | None
+    negative_share: float | None
+    examples: tuple[BrandSentimentExample, ...]
+
+
+@frozen
+class BrandSearch:
+    """A web search the engines ran in answers that name the brand."""
+
+    query: str
+    answers: int
+    share_of_answers: float
+    prompts: int
+    engines: tuple[str, ...]
+
+
+@frozen
+class BrandDetail:
+    """What the answers from `window_from` to `window_to` say about one brand of the catalog.
+
+    The project's own brands count as one, as on the rankings, so `domains` lists every own domain."""
+
+    brand: Brand
+    domains: tuple[str, ...]
+    window_from: dt.date
+    window_to: dt.date
+    days: int
+    branded: BrandedSegment
+    engine: str | None
+    topic: str | None
+    current: BrandRates
+    # The `days` days before, or None when they have too few answers to compare with.
+    previous: BrandRates | None
+    # The last day of the window with answers, and its rates.
+    latest_date: dt.date | None
+    latest: BrandRates | None
+    days_with_answers: int
+    prompts: tuple[BrandPrompt, ...]
+    cited_sites: tuple[BrandCitedSite, ...]
+    sentiment: BrandSentiment
+    searches: tuple[BrandSearch, ...]
+
+
 @frozen
 class PromptSetOverview:
     """How the whole prompt set did from `window_from` to `window_to`, against the `days` days before."""
@@ -741,6 +863,8 @@ class RankedBrand:
     domain: str
     name: str
     is_target: bool
+    # The catalog brand the row stands for: for the target, the first own brand. Opens its brand detail.
+    brand_id: str | None
     answers_mentioning: int
     visibility: float | None
     previous_visibility: float | None

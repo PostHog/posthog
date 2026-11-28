@@ -9,6 +9,7 @@ import type { Series, TimeSeriesLineChartConfig } from '@posthog/quill-charts'
 import { useChartTheme } from 'lib/charts/hooks'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { pluralize } from 'lib/utils/strings'
+import { urls } from 'scenes/urls'
 import { parseWebAnalyticsURL } from 'scenes/web-analytics/common'
 
 import type {
@@ -22,6 +23,7 @@ import { AiVisibilityBanner } from './AiVisibilityBanner'
 import { AiVisibilityCard } from './AiVisibilityCard'
 import { AiVisibilityTable } from './AiVisibilityTable'
 import { REPORT_TABLE_PAGE_SIZE } from './aiVisibilityTablePaging'
+import { contentAutopilotBrandDetailLogic } from './contentAutopilotBrandDetailLogic'
 import { ContentAutopilotCitationsLink } from './ContentAutopilotCitationsLink'
 import { ContentAutopilotKpiDelta } from './ContentAutopilotKpiDelta'
 import { contentAutopilotLogic } from './contentAutopilotLogic'
@@ -81,6 +83,7 @@ export const ContentAutopilotRankings = (): JSX.Element => {
     const { rankings, rankingsLoading, rankingsError } = useValues(contentAutopilotRankingsLogic)
     const { loadRankings } = useActions(contentAutopilotRankingsLogic)
     const { setWorkspaceTab } = useActions(contentAutopilotLogic)
+    const { openBrandDetail } = useActions(contentAutopilotBrandDetailLogic)
 
     if (rankingsError === 'forbidden') {
         return <ContentAutopilotPromptsDisabled />
@@ -184,26 +187,45 @@ export const ContentAutopilotRankings = (): JSX.Element => {
                                 className: FILL,
                                 render: (_, brand) => {
                                     const named = rankings.competitors_confirmed && !brand.is_target
+                                    const label = named ? brand.name : brand.domain
+                                    const brandId = brand.brand_id
                                     return (
                                         <ContentAutopilotSiteLabel
                                             domain={brand.domain}
                                             isTarget={brand.is_target}
                                             subtitle={named ? brand.domain : undefined}
                                         >
-                                            <ContentAutopilotCitationsLink
-                                                lookup={{
-                                                    kind: 'domain',
-                                                    value: brand.domain,
-                                                    dateFrom: rankings.window_from,
-                                                    dateTo: rankings.window_to,
-                                                    branded: rankings.branded,
-                                                }}
-                                                source="rankings-brands"
-                                                // Without padding, every name starts where the domain under it does.
-                                                className="px-0"
-                                            >
-                                                {named ? brand.name : brand.domain}
-                                            </ContentAutopilotCitationsLink>
+                                            {brandId ? (
+                                                <Button
+                                                    variant="link-foreground"
+                                                    size="sm"
+                                                    left
+                                                    nativeButton={false}
+                                                    render={
+                                                        <LinkPrimitive
+                                                            to={urls.webAnalyticsContentAutopilotBrand(brandId)}
+                                                            onClick={(event) => {
+                                                                if (
+                                                                    !event.metaKey &&
+                                                                    !event.ctrlKey &&
+                                                                    !event.shiftKey
+                                                                ) {
+                                                                    event.preventDefault()
+                                                                    openBrandDetail(brandId)
+                                                                }
+                                                            }}
+                                                        />
+                                                    }
+                                                    // Without padding, every name starts where the domain under it does.
+                                                    className="max-w-full min-w-0 shrink px-0"
+                                                    title={label}
+                                                    data-attr="content-autopilot-rankings-brand-open"
+                                                >
+                                                    <span className="truncate">{label}</span>
+                                                </Button>
+                                            ) : (
+                                                <span className="truncate">{label}</span>
+                                            )}
                                         </ContentAutopilotSiteLabel>
                                     )
                                 },

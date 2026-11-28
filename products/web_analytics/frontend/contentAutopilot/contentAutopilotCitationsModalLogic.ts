@@ -36,6 +36,8 @@ export interface CitationsLookup {
     /** Whether a `url` lookup is a page on your site, from a report that knows. A report lists a page without its
      *  tracking parameters, and the answers' target URLs keep them, so the answers alone can miss it. */
     isOwnPage?: boolean
+    /** A catalog brand id, so the list keeps only the answers that name or cite that brand, as its page counts them. */
+    brandId?: string
 }
 
 export interface CitationsPage {
@@ -184,6 +186,7 @@ export const contentAutopilotCitationsModalLogic = kea<contentAutopilotCitations
                 branded: lookup.branded,
                 ...(lookup.engine != null ? { engine: lookup.engine } : {}),
                 ...(lookup.topic != null ? { topic: lookup.topic } : {}),
+                ...(lookup.brandId ? { brand: lookup.brandId } : {}),
                 include_answer_text: true,
                 limit: CITATIONS_PAGE_SIZE,
                 offset,

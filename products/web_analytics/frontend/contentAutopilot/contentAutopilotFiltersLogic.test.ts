@@ -26,7 +26,7 @@ describe('contentAutopilotFiltersLogic', () => {
     it.each([
         [
             'every filter',
-            '/web/content-autopilot?date_from=2026-10-01&date_to=2026-10-07&engine=claude-web-search&topic=Pricing&branded=all',
+            '/web/ai-visibility?date_from=2026-10-01&date_to=2026-10-07&engine=claude-web-search&topic=Pricing&branded=all',
             {
                 dateFrom: '2026-10-01',
                 dateTo: '2026-10-07',
@@ -37,23 +37,28 @@ describe('contentAutopilotFiltersLogic', () => {
         ],
         [
             'an empty topic',
-            '/web/content-autopilot?topic=',
+            '/web/ai-visibility?topic=',
             { dateFrom: '-30d', dateTo: null, engine: null, topic: '', branded: 'non_branded' },
         ],
         [
             'values it does not know',
-            '/web/content-autopilot?date_from=-24h&days=soon&branded=maybe',
+            '/web/ai-visibility?date_from=-24h&days=soon&branded=maybe',
             { dateFrom: '-30d', dateTo: null, engine: null, topic: null, branded: 'non_branded' },
         ],
         [
             'the days of a link from before the date range',
-            '/web/content-autopilot?days=7',
+            '/web/ai-visibility?days=7',
             { dateFrom: '-7d', dateTo: null, engine: null, topic: null, branded: 'non_branded' },
         ],
         [
             'a prompt page',
-            '/web/content-autopilot/prompts/abc?date_from=-90d&engine=exa-answer',
+            '/web/ai-visibility/prompts/abc?date_from=-90d&engine=exa-answer',
             { dateFrom: '-90d', dateTo: null, engine: 'exa-answer', topic: null, branded: 'non_branded' },
+        ],
+        [
+            'a brand page',
+            '/web/ai-visibility/brands/abc?date_from=-7d&topic=Pricing&branded=all',
+            { dateFrom: '-7d', dateTo: null, engine: null, topic: 'Pricing', branded: 'all' },
         ],
     ])('reads %s from the URL', async (_, url, expected) => {
         router.actions.push(url)
@@ -64,7 +69,7 @@ describe('contentAutopilotFiltersLogic', () => {
     })
 
     it('writes the filters to the URL and keeps the other params, the open tab included', async () => {
-        router.actions.push('/web/content-autopilot', { other: 'kept', tab: 'rankings', days: 7 })
+        router.actions.push('/web/ai-visibility', { other: 'kept', tab: 'rankings', days: 7 })
         logic = contentAutopilotFiltersLogic()
         logic.mount()
 
@@ -74,7 +79,7 @@ describe('contentAutopilotFiltersLogic', () => {
         logic.actions.setBrandedSegment('branded', 'overview')
         await expectLogic(logic).toFinishAllListeners()
 
-        expect(router.values.location.pathname).toMatch(/\/web\/content-autopilot$/)
+        expect(router.values.location.pathname).toMatch(/\/web\/ai-visibility$/)
         expect(router.values.searchParams).toEqual({
             other: 'kept',
             tab: 'rankings',
@@ -97,7 +102,7 @@ describe('contentAutopilotFiltersLogic', () => {
         ['longer than the API serves, as two dates', '2026-01-01', '2026-06-01'],
         ['in hours', '-24h', null],
     ])('keeps the current range and says why when the picked one is %s', async (_, dateFrom, dateTo) => {
-        router.actions.push('/web/content-autopilot')
+        router.actions.push('/web/ai-visibility')
         logic = contentAutopilotFiltersLogic()
         logic.mount()
 

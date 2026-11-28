@@ -9,6 +9,7 @@ const brand = (domain: string, mentioning: number, isTarget = false): AEOPromptS
     domain,
     name: domain.split('.')[0],
     is_target: isTarget,
+    brand_id: null,
     answers_mentioning: mentioning,
     visibility: 0.99,
     previous_visibility: null,

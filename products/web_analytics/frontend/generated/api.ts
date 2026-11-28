@@ -11,6 +11,7 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 import type {
     AEOBrandApi,
     AEOBrandCreateRequestApi,
+    AEOBrandDetailApi,
     AEOCompetitorCandidateApi,
     AEOEngineSettingApi,
     AEOKeywordApi,
@@ -45,6 +46,7 @@ import type {
     AcknowledgeCelebrationRequestApi,
     AcknowledgeCelebrationResponseApi,
     AeoBrandsCompetitorCandidatesParams,
+    AeoBrandsDetailParams,
     AeoBrandsListParams,
     AeoKeywordsModifiersParams,
     AeoKeywordsReportParams,
@@ -228,6 +230,38 @@ export const aeoBrandsPartialUpdate = async (
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(patchedAEOBrandUpdateRequestApi),
+    })
+}
+
+export const getAeoBrandsDetailUrl = (projectId: string, id: string, params?: AeoBrandsDetailParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/aeo_brands/${id}/detail/?${stringifiedParams}`
+        : `/api/projects/${projectId}/aeo_brands/${id}/detail/`
+}
+
+/**
+ * Gets one catalog brand as AI answers treated it from 'date_from' to 'date_to' (default the last 30 days) in the project's timezone, against the window of the same length before: its visibility, citation rate, average citation position and positive share, the prompts whose answers name or cite it, the sites and pages those answers cite, how they speak about it with example sentences, and the web searches they ran. An own brand counts with every own brand, as on the rankings. Pass the 'branded', 'engine' and 'topic' values of the rankings so the counts match them. Returns 404 for a brand outside the project's catalog.
+ * @summary Get what AI answers say about an AEO brand
+ */
+export const aeoBrandsDetail = async (
+    projectId: string,
+    id: string,
+    params?: AeoBrandsDetailParams,
+    options?: RequestInit
+): Promise<AEOBrandDetailApi> => {
+    return apiMutator<AEOBrandDetailApi>(getAeoBrandsDetailUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
     })
 }
 

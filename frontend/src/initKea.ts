@@ -148,6 +148,9 @@ const ERROR_FILTER_ALLOW_LIST_BY_LOGIC_PATH: Record<string, string> = {
     loadAeoPromptStats: 'products.webAnalytics.contentAutopilot.contentAutopilotPromptDetailLogic',
     loadAeoPromptLatestChecks: 'products.webAnalytics.contentAutopilot.contentAutopilotPromptDetailLogic',
     loadAeoPromptChecks: 'products.webAnalytics.contentAutopilot.contentAutopilotPromptDetailLogic',
+    // The brand page shows its own not-found and error states, and leaves out the picker when the brands don't load
+    loadDetail: 'products.webAnalytics.contentAutopilot.contentAutopilotBrandDetailLogic',
+    loadPickerBrands: 'products.webAnalytics.contentAutopilot.contentAutopilotBrandDetailLogic',
     // llmProviderKeysLogic toasts each of these failures itself, or shows a rejected field under its input
     loadProviderKeys: 'products.ai_observability.settings.llmProviderKeysLogic',
     loadEvaluationConfig: 'products.ai_observability.settings.llmProviderKeysLogic',
@@ -226,6 +229,8 @@ const NOT_FOUND_SELF_HANDLED_BY_LOGIC_PATH: Record<string, string> = {
     loadWorkflow: 'products.workflows.frontend.Workflows.workflowLogic',
     loadBroadcast: 'products.workflows.frontend.Broadcasts.broadcastWizardLogic',
     loadMetric: 'products.data_catalog.frontend.dataCatalogMetricSceneLogic',
+    // The AI visibility brand page says the brand isn't in the catalog
+    loadDetail: 'products.webAnalytics.contentAutopilot.contentAutopilotBrandDetailLogic',
 }
 
 function isNotFoundSelfHandled(error: any, actionKey: string, logicPath: string): boolean {
