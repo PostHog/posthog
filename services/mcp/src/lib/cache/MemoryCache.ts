@@ -5,8 +5,11 @@ const _cacheStore = new Map<string, any>()
 export class MemoryCache<T extends Record<string, any>> extends ScopedCache<T> {
     private cache: Map<string, any> = new Map()
 
-    constructor(scope: string) {
+    constructor(scope: string, shared = true) {
         super(scope)
+        if (!shared) {
+            return
+        }
         this.cache = _cacheStore.get(scope) || new Map()
         _cacheStore.set(scope, this.cache)
     }

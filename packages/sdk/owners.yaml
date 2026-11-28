@@ -1,0 +1,10 @@
+version: 1
+owners:
+    - team-context-and-mcp
+rules:
+    - match:
+          - '/src/generated/**'
+          - '/api-index.tsv'
+          - '/domains.tsv'
+          - '/coverage.json'
+      status: generated

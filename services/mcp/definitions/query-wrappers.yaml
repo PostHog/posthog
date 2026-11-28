@@ -9,6 +9,7 @@ category: Query wrappers
 feature: insights
 wrappers:
     query-trends:
+        sdk: { namespace: queries, method: trends }
         schema_ref: AssistantTrendsQuery
         enabled: true
         scopes:
@@ -28,6 +29,7 @@ wrappers:
             - samplingFactor
 
     query-funnel:
+        sdk: { namespace: queries, method: funnel }
         schema_ref: AssistantFunnelsQuery
         enabled: true
         scopes:
@@ -47,6 +49,7 @@ wrappers:
             - samplingFactor
 
     query-retention:
+        sdk: { namespace: queries, method: retention }
         schema_ref: AssistantRetentionQuery
         enabled: true
         scopes:
@@ -66,6 +69,7 @@ wrappers:
             - samplingFactor
 
     query-stickiness:
+        sdk: { namespace: queries, method: stickiness }
         schema_ref: AssistantStickinessQuery
         enabled: true
         scopes:
@@ -85,6 +89,7 @@ wrappers:
             - samplingFactor
 
     query-paths:
+        sdk: { namespace: queries, method: paths }
         schema_ref: AssistantPathsQuery
         enabled: true
         scopes:
@@ -104,6 +109,7 @@ wrappers:
             - samplingFactor
 
     query-lifecycle:
+        sdk: { namespace: queries, method: lifecycle }
         schema_ref: AssistantLifecycleQuery
         enabled: true
         scopes:

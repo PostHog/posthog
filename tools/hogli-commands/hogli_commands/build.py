@@ -30,6 +30,13 @@ TRIGGERS: dict[str, tuple[str, ...]] = {
         "products/*/mcp/*.yaml",
         "products/*/mcp/prompts/*",
         "services/mcp/definitions/*",
+        "packages/sdk/src/generated/*",
+        "packages/sdk/*.tsv",
+        "packages/sdk/coverage.json",
+        "services/mcp/scripts/generate-sdk.mjs",
+        "services/mcp/scripts/lib/sdk-*",
+        "services/mcp/scripts/lib/agent-operations.mjs",
+        "services/mcp/src/tools/*",
         "services/mcp/schema/tool-definitions.json",
         "services/mcp/src/templates/sections/*",
         # The generator formats its output, so lint/format scope decides the bytes

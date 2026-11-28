@@ -191,6 +191,7 @@ export interface QueryEndpointResponse {
 }
 
 export interface ApiConfig {
+    fetch?: typeof globalThis.fetch | undefined
     apiToken: string
     baseUrl: string
     /**
@@ -354,7 +355,7 @@ export class ApiClient {
         }
         let response: Response
         try {
-            response = await fetch(url, {
+            response = await (this.config.fetch ?? globalThis.fetch)(url, {
                 ...options,
                 headers: {
                     ...defaultHeaders,

@@ -1,6 +1,9 @@
 // The tool catalog and tool calls, for CLIs that embed them in-process. `scripts/build-cli-library.ts`
 // bundles this file. Calls run through the exec tool, so validation, destructive confirmation,
 // output formatting and analytics match `posthog-cli api call`.
+import { AsyncLocalStorage } from 'node:async_hooks'
+import { randomBytes } from 'node:crypto'
+
 import { hasScope } from '@/lib/api'
 import {
     ExecCommandError,
@@ -13,7 +16,9 @@ import {
     serverDetailOf,
     ToolInputValidationError,
 } from '@/lib/errors'
+import { PayloadStash, SignedStateCodec } from '@/lib/signed-state'
 import { TOOL_MAP } from '@/tools'
+import { type ConfirmedActionRuntime, embeddedConfirmations } from '@/tools/confirmed-action-registry'
 import { createExecTool, formatInputValidationError, repairArgumentNesting } from '@/tools/exec'
 import { GENERATED_TOOL_MAP } from '@/tools/generated'
 import { getToolDefinition, type ToolDefinition } from '@/tools/toolDefinitions'
@@ -21,6 +26,7 @@ import type { Context, Tool, ZodObjectAny } from '@/tools/types'
 
 import { catalogTool } from './catalog/executor'
 import { loadCatalog } from './catalog/load'
+import { ConfirmationStore } from './confirmation-store'
 import { buildCliContext, flushAnalytics } from './context'
 import type {
     ApiCatalogStatus,
@@ -35,7 +41,7 @@ import type {
     ApiToolValidation,
 } from './library-types'
 import { trackCliToolCall } from './tool-call-properties'
-import { type CatalogTools, getCliTools } from './tools'
+import { type CatalogTools, createCliToolRegistry } from './tools'
 
 const COMMAND_REFERENCE = 'CLI-style command string: search, schema or call.'
 
@@ -152,19 +158,26 @@ async function attempt<T>(work: () => Promise<T>): Promise<ApiToolResult<T>> {
     }
 }
 
-function buildContext(connection: ApiConnection): Promise<Context> {
+function buildContext(connection: ApiConnection, transport: typeof globalThis.fetch): Promise<Context> {
     return buildCliContext(
         {
             apiKey: connection.apiKey,
             host: connection.host,
             version: 2,
+            ...(connection.initialProjectId ? { initialProjectId: connection.initialProjectId } : {}),
             ...(connection.projectId ? { projectId: connection.projectId } : {}),
             ...(connection.organizationId ? { organizationId: connection.organizationId } : {}),
         },
         {
             clientName: connection.clientName,
             userAgent: `${connection.clientName}/${connection.clientVersion}`,
-            source: `${connection.clientName}_cli`,
+            source: connection.clientName === 'sdk' ? 'sdk' : `${connection.clientName}_cli`,
+            version: connection.clientVersion,
+        },
+        {
+            fetch: transport,
+            publicBaseUrl: connection.publicBaseUrl,
+            taskId: connection.taskId,
         }
     )
 }
@@ -209,36 +222,66 @@ function catalogFrom(catalog: unknown): { status: ApiCatalogStatus; tools: Catal
 export function createApiToolLibrary(options: ApiToolLibraryOptions = {}): ApiToolLibrary {
     const { status, tools: catalog } = catalogFrom(options.catalog)
     const definitionOf = (name: string): ToolDefinition => catalog?.definitions[name] ?? getToolDefinition(name)
-    const tools = getCliTools({ aiConsentGiven: true, ...(catalog ? { catalog } : {}) })
-    const toolsWithoutAiConsent = tools.filter((tool) => definitionOf(tool.name).requires_ai_consent !== true)
-    const byName = new Map(tools.map((tool) => [tool.name, tool]))
-    const exec = staticExec(tools)
+    const registry = createCliToolRegistry({ aiConsentGiven: true, ...(catalog ? { catalog } : {}) })
+    let listing: Tool<ZodObjectAny> | undefined
+    const listingExec = (): Tool<ZodObjectAny> => (listing ??= staticExec(registry.all()))
     const find = (name: string): Tool<ZodObjectAny> => {
-        const tool = byName.get(name)
+        const tool = registry.get(name)
         if (!tool) {
             throw new Error(`Unknown tool: "${name}".`)
         }
         return tool
     }
     // Each context registers a cache that lives as long as the process.
+    const signals = new AsyncLocalStorage<AbortSignal | undefined>()
+    const confirmations = new WeakMap<Context, ConfirmedActionRuntime>()
     const contexts = new Map<string, Promise<Context>>()
     const contextFor = (connection: ApiConnection): Promise<Context> => {
         const key = JSON.stringify(connection)
         let context = contexts.get(key)
         if (!context) {
-            context = buildContext(connection)
+            const fetchWithSignal: typeof globalThis.fetch = (url, init = {}) => {
+                const signal = signals.getStore()
+                const combined =
+                    signal && init.signal ? AbortSignal.any([signal, init.signal]) : (signal ?? init.signal)
+                combined?.throwIfAborted()
+                if (connection.authMode) {
+                    const target = new URL(String(url))
+                    const base = new URL(connection.host)
+                    if (
+                        target.origin !== base.origin ||
+                        !target.pathname.startsWith(base.pathname.replace(/\/$/, '') + '/')
+                    ) {
+                        throw new Error('The request is outside the configured PostHog API.')
+                    }
+                    const headers = new Headers(init.headers)
+                    if (connection.authMode === 'proxy') {
+                        headers.delete('Authorization')
+                    }
+                    init = { ...init, headers, redirect: 'error' }
+                }
+                return (options.fetch ?? globalThis.fetch)(url, { ...init, ...(combined ? { signal: combined } : {}) })
+            }
+            context = buildContext(connection, fetchWithSignal)
             contexts.set(key, context)
         }
         return context
     }
 
     return {
-        tools: () => tools.map((tool) => summarize(tool, definitionOf)),
+        tools: () => registry.all().map((tool) => summarize(tool, definitionOf)),
 
-        catalog: () => status,
+        catalog: () => {
+            // `dropped` lists each downloaded entry that this build cannot read. Only an attempt
+            // to build an entry finds that, so the status of a downloaded catalog needs every tool.
+            if (catalog) {
+                registry.all()
+            }
+            return status
+        },
 
         async search(query: string): Promise<ApiSearchResult> {
-            const result = await runExec(exec, undefined, `search ${query}`)
+            const result = await runExec(listingExec(), undefined, `search ${query}`)
             if (Array.isArray(result)) {
                 return { names: result as string[], truncated: false }
             }
@@ -248,7 +291,7 @@ export function createApiToolLibrary(options: ApiToolLibraryOptions = {}): ApiTo
 
         async schema(tool: string, fieldPath?: string): Promise<unknown> {
             find(tool)
-            return runExec(exec, undefined, `schema ${tool}${fieldPath ? ` ${fieldPath}` : ''}`)
+            return runExec(listingExec(), undefined, `schema ${tool}${fieldPath ? ` ${fieldPath}` : ''}`)
         },
 
         // The same rewrap and messages as `posthog-cli api call --dry-run`.
@@ -281,33 +324,51 @@ export function createApiToolLibrary(options: ApiToolLibraryOptions = {}): ApiTo
                 }
             }),
 
-        call: (name, input, connection, confirm): Promise<ApiToolResult<unknown>> =>
-            attempt(async () => {
-                find(name)
-                const context = await contextFor(connection)
-                const aiConsentGiven = await context.stateManager.getAiConsentGiven()
-                if (definitionOf(name).requires_ai_consent && !aiConsentGiven) {
-                    failure({
-                        code: 'ai_consent_required',
-                        message: `${name} sends data to an AI provider, and the organization has not allowed that.`,
-                    })
-                }
-                const callExec = createExecTool(
-                    aiConsentGiven ? tools : toolsWithoutAiConsent,
-                    context,
-                    'PostHog tools',
-                    COMMAND_REFERENCE,
-                    connection.clientName,
-                    (toolName, properties) => trackCliToolCall(context, toolName, properties),
-                    [],
-                    { requireDestructiveConfirmation: true }
-                )
-                return runExec(
-                    callExec,
-                    context,
-                    `call --json ${confirm ? '--confirm ' : ''}${name} ${JSON.stringify(input)}`
-                )
-            }),
+        call: (name, input, connection, confirm, callOptions): Promise<ApiToolResult<unknown>> =>
+            signals.run(callOptions?.signal, () =>
+                attempt(async () => {
+                    callOptions?.signal?.throwIfAborted()
+                    const tool = find(name)
+                    const context = await contextFor(connection)
+                    const aiConsentGiven = await context.stateManager.getAiConsentGiven()
+                    if (definitionOf(name).requires_ai_consent && !aiConsentGiven) {
+                        failure({
+                            code: 'ai_consent_required',
+                            message: `${name} sends data to an AI provider, and the organization has not allowed that.`,
+                        })
+                    }
+                    const callExec = createExecTool(
+                        [tool],
+                        context,
+                        'PostHog tools',
+                        COMMAND_REFERENCE,
+                        connection.clientName,
+                        (toolName, properties) => trackCliToolCall(context, toolName, properties),
+                        [],
+                        { requireDestructiveConfirmation: true }
+                    )
+                    let runtime = confirmations.get(context)
+                    if (!runtime) {
+                        runtime = {
+                            codec: new SignedStateCodec(randomBytes(32)),
+                            stash: new PayloadStash(new ConfirmationStore()),
+                        }
+                        confirmations.set(context, runtime)
+                    }
+                    const result = await embeddedConfirmations.run(runtime, () =>
+                        runExec(
+                            callExec,
+                            context,
+                            `call --json ${confirm ? '--confirm ' : ''}${name} ${JSON.stringify(input)}`
+                        )
+                    )
+                    const selection = context.stateManager.pinnedContext
+                    if (connection.initialProjectId && selection?.projectId) {
+                        options.onProjectSelected?.(selection.projectId, selection.orgId)
+                    }
+                    return result
+                })
+            ),
 
         flush: () => flushAnalytics(),
     }

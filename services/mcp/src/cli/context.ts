@@ -44,6 +44,7 @@ export interface CliIdentity {
     clientName: string
     userAgent: string
     source: string
+    version?: string
 }
 
 const POSTHOG_CLI_IDENTITY: CliIdentity = {
@@ -54,31 +55,33 @@ const POSTHOG_CLI_IDENTITY: CliIdentity = {
 
 export async function buildCliContext(
     config: CliConfig,
-    identity: CliIdentity = POSTHOG_CLI_IDENTITY
+    identity: CliIdentity = POSTHOG_CLI_IDENTITY,
+    transport?: Pick<ConstructorParameters<typeof ApiClient>[0], 'fetch' | 'publicBaseUrl' | 'taskId'>
 ): Promise<Context> {
     const identityKey = cliIdentityKey(config.apiKey)
     const fallbackDistinctId = `${identity.clientName}:${identityKey}`
     // Set by the Rust wrapper; joins these events to its telemetry for the same run.
     const cliInvocationId = process.env.POSTHOG_CLI_INVOCATION_ID
     const sessionId = randomUUID()
-    const cache = new MemoryCache<State>(`cli:${identityKey}:${config.host}:${sessionId}`)
+    const cache = new MemoryCache<State>(`cli:${identityKey}:${config.host}:${sessionId}`, false)
     const pinned: PinnedActiveContext | undefined =
-        config.organizationId || config.projectId
+        config.organizationId || config.projectId || config.initialProjectId
             ? {
                   pin: { organizationId: config.organizationId, projectId: config.projectId },
                   sessionScoped: false,
                   orgId: config.organizationId,
-                  projectId: config.projectId,
+                  projectId: config.projectId ?? config.initialProjectId,
               }
             : undefined
 
     let privateResponse = false
     const api = new ApiClient({
+        ...transport,
         apiToken: config.apiKey ?? '',
         baseUrl: config.host.replace(/\/+$/, ''),
         clientUserAgent: identity.userAgent,
         mcpClientName: identity.clientName,
-        mcpClientVersion: sanitizeHeaderValue(process.env.POSTHOG_CLI_VERSION),
+        mcpClientVersion: sanitizeHeaderValue(identity.version ?? process.env.POSTHOG_CLI_VERSION),
         mcpConsumer: identity.clientName,
         onPrivateResponse: () => {
             privateResponse = true

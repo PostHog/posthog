@@ -12,6 +12,7 @@ REPO_ROOT = Path(__file__).resolve().parents[3]
 # schema codegen, and the MCP tool and UI-app pipelines. `*` spans `/` in fnmatch.
 PIPELINE_ROOTS = (
     "frontend/src/generated/*",
+    "packages/sdk/src/generated/*",
     "products/*/frontend/generated/*",
     "nodejs/src/common/generated/*",
     "posthog/usage_ingestion/generated/*",
