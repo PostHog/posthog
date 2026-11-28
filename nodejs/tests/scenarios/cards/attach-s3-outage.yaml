@@ -69,7 +69,6 @@ measure:
     - name: role_heap_max_bytes
     - name: role_restarts
     - name: delivery_latency_ms
-    - name: sends_per_message_max
     - name: attachment_deferrals
     - name: attachment_sends_in_flight_max
     - name: attachment_reserved_bytes_max

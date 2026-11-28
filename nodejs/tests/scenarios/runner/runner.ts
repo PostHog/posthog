@@ -802,6 +802,7 @@ export function createRunner(
                             )
                           : { unread: `the ${runTarget.name} target has no counter read` })
                     : undefined
+                const writerCpu = await readWriterCpu(driveWindow, signal)
                 const evidence = {
                     ...judge.evidence(),
                     counters,
@@ -824,7 +825,7 @@ export function createRunner(
                 const barEvidence = {
                     ...evidence,
                     hostCpuCeiling: profile.host?.cpuCeiling,
-                    writerCpu: await readWriterCpu(driveWindow, signal),
+                    writerCpu,
                     settled: watch?.settled(),
                 }
                 const bars = judgeBars(card.bars, barEvidence)
@@ -859,8 +860,8 @@ export function createRunner(
                     down: dependencies,
                     convergence,
                     invariants,
-                    timeline: valves.timeline(),
-                    exits: environment.exits().slice(exitsBefore),
+                    timeline: evidence.timeline,
+                    exits: evidence.exits,
                     writer: probed.writer,
                     drive: driveWindow,
                     bars,

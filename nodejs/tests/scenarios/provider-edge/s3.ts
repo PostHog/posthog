@@ -92,7 +92,13 @@ function serverError(res: http.ServerResponse, status: number, method: string | 
     )
 }
 
-function forward(upstream: URL, req: http.IncomingMessage, res: http.ServerResponse, pace: Pace | undefined): void {
+function forward(
+    upstream: URL,
+    req: http.IncomingMessage,
+    body: Buffer[],
+    res: http.ServerResponse,
+    pace: Pace | undefined
+): void {
     const outbound = http.request(
         { hostname: upstream.hostname, port: upstream.port, method: req.method, path: req.url, headers: req.headers },
         (answer) => {
@@ -106,59 +112,49 @@ function forward(upstream: URL, req: http.IncomingMessage, res: http.ServerRespo
             outbound.destroy()
         }
     })
-    carry(req, outbound, pace)
+    carry(Readable.from(body), outbound, pace)
 }
 
 export async function startS3Proxy(upstream: string, faults: S3Faults): Promise<S3Proxy> {
     const target = new URL(upstream)
     // The proxy forwards each signed request as it came, Host and path included, so it reaches only a plain HTTP store
     // that serves buckets from its root, as the dev stack's does.
-    if (target.protocol !== 'http:' || target.pathname !== '/') {
+    if (target.protocol !== 'http:' || target.pathname !== '/' || target.hostname.startsWith('[')) {
         throw new Error(
             `the S3 edge forwards only to a plain HTTP store at its root, not to ${target.origin}${target.pathname}`
         )
     }
     const server = http.createServer((req, res) => {
-        const op = opOf(req)
-        const taken = op && faults.takeS3(op, { pickKey: (req.url ?? '/').split('?')[0] })
-        const answered = (): void => {
-            if (taken) {
+        const body: Buffer[] = []
+        req.on('data', (chunk: Buffer) => body.push(chunk))
+        req.once('end', () => {
+            const op = opOf(req)
+            const taken = op && faults.takeS3(op, { pickKey: (req.url ?? '/').split('?')[0] })
+            const answer = taken?.answer
+            if (taken && answer?.kind === 's3-status') {
                 faults.s3Answered(taken.id)
-            }
-        }
-        const answer = taken?.answer
-        if (taken && (answer?.kind === 's3-status' || answer?.kind === 's3-stall')) {
-            req.once('close', () => {
-                if (!req.complete) {
-                    faults.s3Abandoned(taken.id)
-                }
-            })
-        }
-        if (answer?.kind === 's3-status') {
-            req.resume().once('end', () => {
-                answered()
                 serverError(res, answer.status, req.method)
-            })
-        } else if (answer?.kind === 's3-stall') {
-            req.resume().once('end', answered)
-        } else if (taken && answer?.kind === 's3-slow') {
-            let delayed = false
-            res.once('close', () => {
-                if (!delayed) {
-                    faults.s3Abandoned(taken.id)
-                }
-            })
-            forward(target, req, res, {
-                bytesPerSecond: answer.bytesPerSecond,
-                onDelay: () => {
-                    delayed = true
-                    answered()
-                },
-                freeBytes: answer.freeBytes,
-            })
-        } else {
-            forward(target, req, res, undefined)
-        }
+            } else if (taken && answer?.kind === 's3-stall') {
+                faults.s3Answered(taken.id)
+            } else if (taken && answer?.kind === 's3-slow') {
+                let delayed = false
+                res.once('close', () => {
+                    if (!delayed) {
+                        faults.s3Abandoned(taken.id)
+                    }
+                })
+                forward(target, req, body, res, {
+                    bytesPerSecond: answer.bytesPerSecond,
+                    onDelay: () => {
+                        delayed = true
+                        faults.s3Answered(taken.id)
+                    },
+                    freeBytes: answer.freeBytes,
+                })
+            } else {
+                forward(target, req, body, res, undefined)
+            }
+        })
     })
     await new Promise<void>((resolve, reject) => {
         server.once('error', reject)

@@ -366,8 +366,7 @@ export class FaultList {
         return rule && isWebhookAnswer(rule.answer) ? { name: rule.name, answer: rule.answer } : undefined
     }
 
-    // The proxy reports when the fault really answers, through s3Answered: a paced request may carry no body to slow,
-    // and a client may hang up before its upload ends and the injected status goes out.
+    // The proxy reports when the fault really answers, through s3Answered: a paced request may carry no body to slow.
     takeS3(op: S3Op, hit: Hit): { id: string; name: string; answer: S3Answer } | undefined {
         const fault = this.take({ channel: 's3', op }, hit, { appliesNow: false })
         return fault && isS3Answer(fault.rule.answer)

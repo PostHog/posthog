@@ -22,21 +22,21 @@ pnpm --dir nodejs exec tsx tests/scenarios/main.ts run smoke
 - `--seed <n>` replaces the seed for the workload sample and seeded fault targets. Each card must declare `seedable: true`. Use a decimal integer from 0 to 4294967295. A pair uses the same seed for its control and faulted run.
 - A profile's `alerts` block names an alert rules file, a label map and the rules to leave out, with paths relative to the profile. The runner evaluates them with vmalert and VictoriaMetrics on the local stack and on cloud run hosts. It records each transition with its value and its time since the drive and each valve, and reports each rule as evaluated, unevaluable with the selectors that matched no series, or excluded. It reports a gap for each failed read and each stretch where vmalert missed evaluations. A transition seen only after a gap also carries the latest time it can have happened, and a firing that may have come after the judge started does not count as fired. The profile hash includes both files' contents. Supply your own rules and label map.
 - `--pair` runs each card twice on one stack: first a control, the same card, seed, profile and offered load with its valves removed and without the checks that need a fault, such as `bounced_suppressed`, then the card itself. The control's `card_hash` is the hash of the card it ran. `--pair` takes only cards that apply valves and judge `no_loss`, on the local target or on a run host whose run manifest asks for the pair. Locally it refuses a card with `pg.failover`, which runs only on a run host. Both scorecards carry the `pair_` properties of the scorecard schema, so a fault that lost a message reads apart from a load this setup did not pass. The attribution reads:
-  - `fault` when the control passed and the faulted run failed `no_loss`.
-  - `open` when the control failed, so the faulted run's result is not put down to the fault. A failed control reads `open` before any of the faulted run's checks below.
-  - `unjudged` when the control or the faulted run did not judge `no_loss` or is `invalid`, its evidence or its saved scorecard could not be written, the faulted run did not run, applied no valve, or a valve was not observed, or the control did not offer every unit it targeted, since equal totals can hide a different traffic mix.
-  - `none` when the control passed and the faulted run held `no_loss` with its faults observed.
-  - A scorecard that cannot be saved turns its run `invalid`. The runner then reads the pair again, rewrites the other run's saved scorecard once, and publishes that reading on both scorecards. When that rewrite fails too, the other run turns `invalid` and its saved file keeps the first reading.
-  - A message the control accepted and lost still fails the control's own `no_loss`. The pair records what each run offered and drained, and never states a capacity: that comes only from a separate fault-free sweep with an explicit pass criterion.
+    - `fault` when the control passed and the faulted run failed `no_loss`.
+    - `open` when the control failed, so the faulted run's result is not put down to the fault. A failed control reads `open` before any of the faulted run's checks below.
+    - `unjudged` when the control or the faulted run did not judge `no_loss` or is `invalid`, its evidence or its saved scorecard could not be written, the faulted run did not run, applied no valve, or a valve was not observed, or the control did not offer every unit it targeted, since equal totals can hide a different traffic mix.
+    - `none` when the control passed and the faulted run held `no_loss` with its faults observed.
+    - A scorecard that cannot be saved turns its run `invalid`. The runner then reads the pair again, rewrites the other run's saved scorecard once, and publishes that reading on both scorecards. When that rewrite fails too, the other run turns `invalid` and its saved file keeps the first reading.
+    - A message the control accepted and lost still fails the control's own `no_loss`. The pair records what each run offered and drained, and never states a capacity: that comes only from a separate fault-free sweep with an explicit pass criterion.
 - `--target dev` runs a card from `cards/dev/` against the dev deployment at `https://app.dev.posthog.dev`, the only host its offers and dev reads go to. Offers go to capture v1 there, one event per request, and the runner reads the receipts back through the query API. It needs `DEV_TARGET_OFFERS_TEAM_ID`, `DEV_TARGET_OFFERS_TOKEN`, `DEV_TARGET_WORKFLOW_ID`, `DEV_TARGET_RECEIPTS_TEAM_ID`, `DEV_TARGET_MONTHLY_RUNS`, the workflow runs the offers organization may use in a month, and `DEV_TARGET_KEY_FILE`, a file only its owner can read that holds a personal API key. A dev card runs only `capture_webhook` traffic, at most 10 units a second, 2,000 units, and a 10-minute drive, with no parked flows, and allows at least 5 minutes to converge, because receipts take minutes to become queryable. The loader refuses anything else before the first send.
-  - The workflow triggers on `scenario_offer` events in the offers project. Its webhook captures one `scenario_receipt` event per offer into the receipts project, carrying the offer's `run_id` and `unit_id` properties.
-  - The key reads the offers project, its workflow and the workflow's metrics, and runs queries in the receipts project. Before the first offer, the runner checks that the workflow exists and that `DEV_TARGET_OFFERS_TOKEN` is the offers project's token, so offers cannot land in another project.
-  - Before the first offer, the runner reads the workflow's runs this month. It calls the run `invalid` when dev quota limited any of them, or when 2,000 more runs could pass `DEV_TARGET_MONTHLY_RUNS`. It counts this workflow only, so the offers organization runs no other workflow.
-  - The offers project is on UTC, and the workflow has one exit action, no action with `on_error: abort`, and `exit_only_at_end`, so every run it triggers ends at that exit. A run counts as unfinished until then. The runner refuses to start while runs from the past hour are unfinished.
-  - The runner stops offering at 2,000 units, whatever the card asks for. Capture's answer for each event is the intake's answer: a `drop` or a refused request counts against `refused_at_intake`.
-  - `cards/dev/` holds `dev-smoke`, eleven offers at one per second, and `dev-ramp`, which ramps through 1, 2, 4 and 8 offers a second for 2 minutes each with `stopOnBreak`. Dev numbers say how this run went on dev; they are no measure of what production can take.
-  - On a `stopOnBreak` dev card, the live judge of each step but the last also halts the drive when dev quota limited a run of the workflow, or when more runs are unfinished than the step offers in a minute. `ramp_broke_by` is then `target`. The halt keeps load off dev and is no bar: the last step is not checked, since the drive ends with it. The unfinished count is approximate, because the trigger and exit counts are read separately and a run can cross the window's start or be canceled; the 2,000-unit budget and the 10 units a second cap bound what it misses.
-  - A dev scorecard has no `topology_hash`, since the runner reads no processes there.
+    - The workflow triggers on `scenario_offer` events in the offers project. Its webhook captures one `scenario_receipt` event per offer into the receipts project, carrying the offer's `run_id` and `unit_id` properties.
+    - The key reads the offers project, its workflow and the workflow's metrics, and runs queries in the receipts project. Before the first offer, the runner checks that the workflow exists and that `DEV_TARGET_OFFERS_TOKEN` is the offers project's token, so offers cannot land in another project.
+    - Before the first offer, the runner reads the workflow's runs this month. It calls the run `invalid` when dev quota limited any of them, or when 2,000 more runs could pass `DEV_TARGET_MONTHLY_RUNS`. It counts this workflow only, so the offers organization runs no other workflow.
+    - The offers project is on UTC, and the workflow has one exit action, no action with `on_error: abort`, and `exit_only_at_end`, so every run it triggers ends at that exit. A run counts as unfinished until then. The runner refuses to start while runs from the past hour are unfinished.
+    - The runner stops offering at 2,000 units, whatever the card asks for. Capture's answer for each event is the intake's answer: a `drop` or a refused request counts against `refused_at_intake`.
+    - `cards/dev/` holds `dev-smoke`, eleven offers at one per second, and `dev-ramp`, which ramps through 1, 2, 4 and 8 offers a second for 2 minutes each with `stopOnBreak`. Dev numbers say how this run went on dev; they are no measure of what production can take.
+    - On a `stopOnBreak` dev card, the live judge of each step but the last also halts the drive when dev quota limited a run of the workflow, or when more runs are unfinished than the step offers in a minute. `ramp_broke_by` is then `target`. The halt keeps load off dev and is no bar: the last step is not checked, since the drive ends with it. The unfinished count is approximate, because the trigger and exit counts are read separately and a run can cross the window's start or be canceled; the 2,000-unit budget and the 10 units a second cap bound what it misses.
+    - A dev scorecard has no `topology_hash`, since the runner reads no processes there.
 
 For each card the runner prints its status and reason, its evidence directory, and whether the scorecard was recorded.
 
@@ -107,9 +107,9 @@ pnpm --dir nodejs exec tsx tests/scenarios/cloud/main.ts cleanup <cloud profile>
 - **Order of the first runs:** EU `current` first, as calibration: a run whose load is not admitted reports the baseline rates to tune the profile. Then US `current`, then both `historical-stress` profiles.
 - **Each run:** one profile, one lease, one cap.
 - **Pair:** a card with `pair: true` runs as a pair, the control and then the card under one lease, on one stack. The lease writes `pair: true` and a fresh `controlRunId` into the run manifest, and the host runs the card with `--pair`: the faulted run takes the manifest's `runId`, and the control its `controlRunId`. A runner refuses a manifest that asks for a pair without a `controlRunId` of its own.
-  - The controller refuses the card before it leases anything when `--pair` would refuse it, or when the pair does not fit the lease less its teardown allowance. The pair counts the dev stack's first start once, at its 60-minute limit, and for each run its drive, its `convergeWithin`, and a fixed 15 minutes to reset, seed and upload, a reserve set by hand rather than from measured runs. It checks again before it starts the card, against the time the setup left, and calls the run `invalid` without starting it when the pair no longer fits. The cost estimate already prices the whole lease.
-  - The controller expects exactly one control scorecard and one faulted scorecard, under those run ids, and calls the run `invalid` otherwise. When only the control's arrived, the status reason carries its pair reason, such as a restart its reset needs. It publishes the faulted scorecard, with the pair's attribution, and exits as the runner did, with the worse of the two runs, so an `invalid` control still exits 2. When a check of the controller's own finds the run `invalid`, the attribution reads `unjudged`; a runner's own attribution stays as it was. The reader capacity spans both runs, within the run's own window.
-  - `pair` and `unpaired` stay out of the card hash, so a card that gains either keeps its history, and locally `pair` changes nothing without `--pair`.
+    - The controller refuses the card before it leases anything when `--pair` would refuse it, or when the pair does not fit the lease less its teardown allowance. The pair counts the dev stack's first start once, at its 60-minute limit, and for each run its drive, its `convergeWithin`, and a fixed 15 minutes to reset, seed and upload, a reserve set by hand rather than from measured runs. It checks again before it starts the card, against the time the setup left, and calls the run `invalid` without starting it when the pair no longer fits. The cost estimate already prices the whole lease.
+    - The controller expects exactly one control scorecard and one faulted scorecard, under those run ids, and calls the run `invalid` otherwise. When only the control's arrived, the status reason carries its pair reason, such as a restart its reset needs. It publishes the faulted scorecard, with the pair's attribution, and exits as the runner did, with the worse of the two runs, so an `invalid` control still exits 2. When a check of the controller's own finds the run `invalid`, the attribution reads `unjudged`; a runner's own attribution stays as it was. The reader capacity spans both runs, within the run's own window.
+    - `pair` and `unpaired` stay out of the card hash, so a card that gains either keeps its history, and locally `pair` changes nothing without `--pair`.
 - **Evidence:** the host uploads its evidence with a checksum manifest to the run's prefix in the evidence bucket.
 - **Reader idle limit:** `readerAcu.idleMax` in the cloud profile is the highest ACU at which the reader still counts as idle. The controller refuses to run under a value below `readerAcu.min`, because no reader could pass it, and refuses a failover card under a value at or above `readerAcu.max`, because every reader would pass it. It still cleans up with that profile. The field is optional, so a profile without it still loads and runs other cards, but the controller refuses a failover card before it leases anything. The lease copies it into the run manifest as `readerIdleMaxAcu`, and `readerAcu.min` as `readerMinAcu`, and the host's `pg.failover` valve reads both from there.
 - **Live log:** while the card runs, the host copies the run's `live.jsonl` to `live.jsonl` under the run's prefix, whole lines only, waiting 5 seconds between copies, and once more when the card ends. For a pair, the faulted run's log lands there, and the control's at `control/live.jsonl`. That last copy can land after the run is marked done, and teardown can cut it short, so the run's evidence is the complete log. A failed copy never fails the run, and each copy has a time limit. `SCENARIO_LIVE_COPY=off` in the host's environment turns the copy off, and the run behaves as it did before the copy existed.
@@ -304,14 +304,13 @@ The budget is a share of the host's memory, so `attachments-ramp-budget` holds a
 On a host under about 22 GB its budget cannot hold one send at the size limit, so the worker refuses every send with files, `at_least_once` fails and `attachment_budget_bytes` reports the refusal.
 `refused` does not depend on load, so no ramp reaches it.
 
-The scorecard answers five questions, each from one reading and one bar:
+The scorecard answers four questions, each from one reading and one bar:
 
 | Question                                                                                         | Cards                                                      | Reading                                                                                                                  | Bar                                                                                                                                                                              |
 | ------------------------------------------------------------------------------------------------ | ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| How long does a plain send wait while sends with files defer?                                    | `attach-worker-overloaded`                                 | `delivery_latency_ms` `plain_p95`                                                                                        | At most twice the `plain_p95` of `attach-s3-slow-upload`, where the worker holds no file pressure                                                                                |
-| Is any email sent twice under an S3 fault, an SES 5xx, a lost SES answer or throttling?          | every `attach-*` card                                      | `duplicate_sends`, `sends_per_message_max`, `attachments_intact`                                                         | `duplicate_sends` within its gate, `sends_per_message_max` 1 on the fault cards, `attachments_intact` passes                                                                     |
+| Is any email sent twice under an S3 fault, an SES 5xx, a lost SES answer or throttling?          | every `attach-*` card                                      | `duplicate_sends`, `attachments_intact`                                                                                  | `duplicate_sends` within its gate, `attachments_intact` passes                                                                                                                   |
 | Does memory stay inside the budget, with no container kill?                                      | `attach-worker-overloaded`, `attach-files-ramp`            | `attachment_budget_bytes`, `attachment_reserved_share_max`, `role_restarts`, `role_rss_max_bytes`, `role_heap_max_bytes` | `attachment_reserved_share_max` at most 1 against the stated budget, and as a second bar no email worker restart and its `role_rss_max_bytes` below its container's memory limit |
-| What does a worker stop mid-download or mid-SES-call do to the email?                            | `attach-killed-mid-download`, `attach-killed-mid-ses-call` | `at_least_once`, `no_loss`, `duplicate_sends`, `sends_per_message_max`                                                   | The email arrives once: `at_least_once` and `no_loss` pass, and `duplicate_sends` stays within the janitor's resets                                                              |
+| What does a worker stop mid-download or mid-SES-call do to the email?                            | `attach-killed-mid-download`, `attach-killed-mid-ses-call` | `at_least_once`, `no_loss`, `duplicate_sends`                                                                            | The email arrives once: `at_least_once` and `no_loss` pass, and `duplicate_sends` stays within the janitor's resets                                                              |
 | At what load of sends with files does each reason start to defer, and when does plain mail slow? | `attach-files-ramp` on its three profiles                  | `ramp_onset_scale`, `step_attachment_deferrals_per_second`, `step_delivery_latency_ms`                                   | The scale each reason starts at, and the deferral rate at the step where `plain_p95_doubled` lands, which is no earlier than the step after the first deferral                   |
 
 `chaos-under-load` runs event email, event webhooks and transactional email at steady profile rates against the provider edge. It gives ambiguous provider responses, refused enqueues, lost commit replies and an email worker kill separate windows. Each run judges `no_loss` from the edge's delivery records and measures `counter_drift`. The pair compares the whole-run verdicts. The `faults.json` evidence shows which valves fired and the targets observed in each window. To run the pair locally, use `pnpm --dir nodejs exec tsx tests/scenarios/main.ts run chaos-under-load --pair`.
@@ -606,34 +605,34 @@ clock: real
 profile: synthetic
 seed: 2
 setup:
-  teams: 1
+    teams: 1
 drive:
-  for: 30s
-  traffic:
-    - name: event_email
-    - name: transactional_email
+    for: 30s
+    traffic:
+        - name: event_email
+        - name: transactional_email
 valves:
-  - valve: role.kill
-    target: cdp-cyclotron-worker-email
-    dose: {}
-    when:
-      name: running_on_queue
-      params:
-        queue: email
-        atLeast: 1
-    for: 1s
+    - valve: role.kill
+      target: cdp-cyclotron-worker-email
+      dose: {}
+      when:
+          name: running_on_queue
+          params:
+              queue: email
+              atLeast: 1
+      for: 1s
 convergeWithin: 2m
 invariants:
-  - name: at_least_once
-  - name: duplicate_sends
-  - name: refused_at_intake
+    - name: at_least_once
+    - name: duplicate_sends
+    - name: refused_at_intake
 gates:
-  duplicate_sends: 0
-  refused_at_intake: 0
+    duplicate_sends: 0
+    refused_at_intake: 0
 measure:
-  - name: role_cpu_seconds
-  - name: role_rss_max_bytes
-  - name: delivery_latency_ms
+    - name: role_cpu_seconds
+    - name: role_rss_max_bytes
+    - name: delivery_latency_ms
 ```
 
 A valve entry names a valve, its target (a role, `postgres`, `ses` or `hooks.example.com`), its dose, `at` (an offset from the start of the drive), `when`, or both, and `for`.
@@ -679,10 +678,10 @@ A scorecard records the profile's name and hash, never its numbers.
 ```ts
 // nodejs/tests/scenarios/runner/runner.ts
 export interface Runner {
-  up(signal: AbortSignal): Promise<void>
-  run(loaded: LoadedCard, signal: AbortSignal): Promise<RunResult>
-  runPair(loaded: LoadedCard, signal: AbortSignal): Promise<RunResult[]> // the control, then the faulted run
-  down(): Promise<void>
+    up(signal: AbortSignal): Promise<void>;
+    run(loaded: LoadedCard, signal: AbortSignal): Promise<RunResult>;
+    runPair(loaded: LoadedCard, signal: AbortSignal): Promise<RunResult[]>; // the control, then the faulted run
+    down(): Promise<void>;
 }
 ```
 
@@ -694,14 +693,14 @@ export interface Runner {
 - **A failed reset stops the environment.** Later cards of the same invocation are skipped; run the command again.
 - **Seeding is bounded.** `seed` runs on its own Postgres pool with a 5-second statement timeout and must finish within 60 seconds. When the bound passes or the run is interrupted, the runner destroys the pool's connections and requires a restart, as a write already sent may still land in the next card.
 - **Status rules.**
-  - `invalid` when a dependency the card did not break went away (Postgres, Kafka, Redis, the SES rate limiter's Valkey, PersonHog, the edge), the runner's event loop was too busy to hear one, a harness limit named at its step, the Cyclotron writer was interrupted without a valve, a valve was never observed, a valve was applied and never released or did not fail back, fewer than `minOffered` of the target units counted as offered, a traffic kind could not offer a unit it requires, the run was interrupted, or the evidence could not be written. The run could not judge, so each of these outranks a failed invariant, except a valve that was never observed. A refused failover request outranks each of them except an interrupted run, because it ends the drive early.
-  - `failed` when the stack did not converge, any invariant failed, or a Node role exited without a valve causing it, even if every delivery later arrives.
-    A role that exits with a code, not a signal, while a valve with `roleExitGraceMs` holds, or up to that grace after its release, counts as caused by it. A valve that names the roles it can restart counts only their exits. `pg.drop_connections` sets 5 seconds: a consumer that loses its connection mid-write exits on purpose, restarts and replays. `pg.failover` sets 5 seconds after the fail-back finished, for every role that writes to Cyclotron. `pg.commit_reply_lost` sets 5 seconds, since the role loses its connection mid-write too. `pg.enqueue_refused` sets none: Postgres answers a refused enqueue on a working connection, so a role that exits on one fails the run. The scorecard's `role_restarts` lists each exit a valve caused this way, with when the supervisor relaunched the role. A signal, or an exit code of 128 or more that reports one, such as a SIGKILL or an out-of-memory kill, still fails the run, and so does any exit after a valve that failed to apply.
-    An unexplained exit, a failed invariant or a stack that did not converge outranks a valve that was never observed: the run fails, and the reason also lists every unobserved valve.
-    An exit no valve's grace covers, while another database valve, such as `pg.failover` on `cyclotron`, was applied, still fails the run, and its reason names that valve.
-  - **Cyclotron interrupted without a valve.** The writer probe failing 5 times in a row, or once with a SQLSTATE of class `08` or `57P01`, in a write that ended before the first valve's intent or began after the drive and every release ended. When no valve applied, every write counts. A failure inside a valve's phases belongs to the valve and is measured, not judged. An isolated timeout is not an interruption.
-  - **A failed read after the drive.** A truth read, or a poll of the unfinished jobs, that fails in `converge` or `check` does not stop the run, and the reason names it. When the last read of `converge` failed, `unfinished_jobs` is `null` and the missing deliveries are unknown, so neither fails the run, `at_least_once` and `bounced_suppressed` stay out of `invariants_failed`, and a run that fails on nothing else is `invalid`. A read that fails later leaves both as `converge` read them. The final read in `check` reads up to the head it takes first, tries each page up to three times with a 30-second bound, and stops when the run is stopped. It then reads again to a later head until a read adds none of this run's records, its pages show none past its head, and its last page is not a full page that ends at its head, at most three reads in all, so a resend the edge accepts during the read still counts. When the third read still adds some, `no_loss` is unjudged and names it. When it cannot finish, the reason names a harness limit at the record it reached. Within the 30 seconds between receipt queries on dev, every truth read of the judge fails again with the last query's error until a fresh query succeeds. The live log keeps showing the last records it read.
-  - `passed` otherwise.
+    - `invalid` when a dependency the card did not break went away (Postgres, Kafka, Redis, the SES rate limiter's Valkey, PersonHog, the edge), the runner's event loop was too busy to hear one, a harness limit named at its step, the Cyclotron writer was interrupted without a valve, a valve was never observed, a valve was applied and never released or did not fail back, fewer than `minOffered` of the target units counted as offered, a traffic kind could not offer a unit it requires, the run was interrupted, or the evidence could not be written. The run could not judge, so each of these outranks a failed invariant, except a valve that was never observed. A refused failover request outranks each of them except an interrupted run, because it ends the drive early.
+    - `failed` when the stack did not converge, any invariant failed, or a Node role exited without a valve causing it, even if every delivery later arrives.
+      A role that exits with a code, not a signal, while a valve with `roleExitGraceMs` holds, or up to that grace after its release, counts as caused by it. A valve that names the roles it can restart counts only their exits. `pg.drop_connections` sets 5 seconds: a consumer that loses its connection mid-write exits on purpose, restarts and replays. `pg.failover` sets 5 seconds after the fail-back finished, for every role that writes to Cyclotron. `pg.commit_reply_lost` sets 5 seconds, since the role loses its connection mid-write too. `pg.enqueue_refused` sets none: Postgres answers a refused enqueue on a working connection, so a role that exits on one fails the run. The scorecard's `role_restarts` lists each exit a valve caused this way, with when the supervisor relaunched the role. A signal, or an exit code of 128 or more that reports one, such as a SIGKILL or an out-of-memory kill, still fails the run, and so does any exit after a valve that failed to apply.
+      An unexplained exit, a failed invariant or a stack that did not converge outranks a valve that was never observed: the run fails, and the reason also lists every unobserved valve.
+      An exit no valve's grace covers, while another database valve, such as `pg.failover` on `cyclotron`, was applied, still fails the run, and its reason names that valve.
+    - **Cyclotron interrupted without a valve.** The writer probe failing 5 times in a row, or once with a SQLSTATE of class `08` or `57P01`, in a write that ended before the first valve's intent or began after the drive and every release ended. When no valve applied, every write counts. A failure inside a valve's phases belongs to the valve and is measured, not judged. An isolated timeout is not an interruption.
+    - **A failed read after the drive.** A truth read, or a poll of the unfinished jobs, that fails in `converge` or `check` does not stop the run, and the reason names it. When the last read of `converge` failed, `unfinished_jobs` is `null` and the missing deliveries are unknown, so neither fails the run, `at_least_once` and `bounced_suppressed` stay out of `invariants_failed`, and a run that fails on nothing else is `invalid`. A read that fails later leaves both as `converge` read them. The final read in `check` reads up to the head it takes first, tries each page up to three times with a 30-second bound, and stops when the run is stopped. It then reads again to a later head until a read adds none of this run's records, its pages show none past its head, and its last page is not a full page that ends at its head, at most three reads in all, so a resend the edge accepts during the read still counts. When the third read still adds some, `no_loss` is unjudged and names it. When it cannot finish, the reason names a harness limit at the record it reached. Within the 30 seconds between receipt queries on dev, every truth read of the judge fails again with the last query's error until a fresh query succeeds. The live log keeps showing the last records it read.
+    - `passed` otherwise.
 - **Exit code.** The status's code, or 3 when the scorecard variables are set and the scorecard was not read back. A run interrupted after the capture keeps the status's code. Evidence files that could not be written make the run `invalid`, exit 2.
 
 ### Environment
@@ -709,100 +708,96 @@ export interface Runner {
 ```ts
 // nodejs/tests/scenarios/environment/environment.ts
 export interface Environment {
-  up(signal: AbortSignal): Promise<void>
-  reset(settings: Profile['settings']): Promise<void>
-  edgeUrl(): string
-  role(name: Role): RoleHandle
-  actuate(action: Action): Promise<Actuation>
-  dependencyHealth(): Promise<{ healthy: boolean; down: { name: string; reason: string; unanswered: boolean }[] }>
-  exits(): RoleExit[]
-  groupLag(group: string): Promise<number>
-  down(): Promise<void>
+    up(signal: AbortSignal): Promise<void>;
+    reset(settings: Profile["settings"]): Promise<void>;
+    edgeUrl(): string;
+    role(name: Role): RoleHandle;
+    actuate(action: Action): Promise<Actuation>;
+    dependencyHealth(): Promise<{ healthy: boolean; down: { name: string; reason: string; unanswered: boolean }[] }>;
+    exits(): RoleExit[];
+    groupLag(group: string): Promise<number>;
+    down(): Promise<void>;
 }
 
-export type Action =
-  | { kind: 'kill'; role: Role }
-  | { kind: 'freeze'; role: Role }
-  | { kind: 'pg.terminate'; share: number }
-  | { kind: 'edge.fault'; rule: FaultRule }
+export type Action = { kind: "kill"; role: Role } | { kind: "freeze"; role: Role } | { kind: "pg.terminate"; share: number } | { kind: "edge.fault"; rule: FaultRule };
 
-export type RoleHandle = { name: Role; url: string; metricsUrl: string }
+export type RoleHandle = { name: Role; url: string; metricsUrl: string };
 ```
 
 - **Role handles.** `role(name)` returns the role's base `url` and its `/_metrics` URL, which the runner's sampler scrapes.
 - **`up` owns the stack.**
-  - It takes a lock on its state directory, so one runner uses it at a time.
-  - It stops the leftovers of a crashed invocation: processes whose marker names its state directory.
-  - It refuses to start, exit 2, and names the command that stops each one, when a stranger runs: a CDP process without its marker, or another runner's roles. It also refuses while a port it needs is held, and while the events consumer group keeps a member it did not start.
-  - When the dev stack is not up, it saves the stack's units in its state directory, the `workflows` intent and the units it leaves out, and generates a dev config from them with a bare `hogli dev:generate`, so no unit name reaches a command line. It changes the config's compose call to `up --pull always --no-recreate -d`, and refuses to start with a `StackNotReadyError` when hogli's compose proc differs in any other way from the one it generates today: one `up` and then its logs, and no key but the ones hogli writes, so no `cmd` or merge key. So it never recreates a service another worktree runs. It starts the stack with `hogli up -d --custom <config>`, which leaves the box's saved settings alone, and gives the first start an hour to become ready, because a fresh host builds the Rust services first. It always waits with `hogli wait`, and a cancelled run stops that wait.
-    - The `nodejs` unit is left out because, with no capability group set, it runs every CDP consumer, which would share the events consumer group and the job rows.
-    - The frontend, the `ingestion` unit and the tunnel unit are left out because no card uses them. The cards produce their events straight to the CDP events topic, and `ingestion` would race the migrations of a fresh database.
-  - It waits until Postgres has the migrated tables the roles read, as **Several worktrees share one dev stack** says.
-  - It starts the edge and cdp-api, waits until the email and webhook templates exist in Postgres, syncing them with `hogli dev:sync-hog-templates` when they are missing, and then starts the other roles. Roles cache a missing template, so they must not start first.
+    - It takes a lock on its state directory, so one runner uses it at a time.
+    - It stops the leftovers of a crashed invocation: processes whose marker names its state directory.
+    - It refuses to start, exit 2, and names the command that stops each one, when a stranger runs: a CDP process without its marker, or another runner's roles. It also refuses while a port it needs is held, and while the events consumer group keeps a member it did not start.
+    - When the dev stack is not up, it saves the stack's units in its state directory, the `workflows` intent and the units it leaves out, and generates a dev config from them with a bare `hogli dev:generate`, so no unit name reaches a command line. It changes the config's compose call to `up --pull always --no-recreate -d`, and refuses to start with a `StackNotReadyError` when hogli's compose proc differs in any other way from the one it generates today: one `up` and then its logs, and no key but the ones hogli writes, so no `cmd` or merge key. So it never recreates a service another worktree runs. It starts the stack with `hogli up -d --custom <config>`, which leaves the box's saved settings alone, and gives the first start an hour to become ready, because a fresh host builds the Rust services first. It always waits with `hogli wait`, and a cancelled run stops that wait.
+        - The `nodejs` unit is left out because, with no capability group set, it runs every CDP consumer, which would share the events consumer group and the job rows.
+        - The frontend, the `ingestion` unit and the tunnel unit are left out because no card uses them. The cards produce their events straight to the CDP events topic, and `ingestion` would race the migrations of a fresh database.
+    - It waits until Postgres has the migrated tables the roles read, as **Several worktrees share one dev stack** says.
+    - It starts the edge and cdp-api, waits until the email and webhook templates exist in Postgres, syncing them with `hogli dev:sync-hog-templates` when they are missing, and then starts the other roles. Roles cache a missing template, so they must not start first.
 - **`reset` is complete.** It runs before every card, so a failed or crashed run never poisons the next. In order:
-  1. Stop every role: `SIGCONT` then `SIGTERM` to each process group, `SIGKILL` to what is left after 10 seconds. A role still running 2 seconds after `SIGKILL` fails the stop, naming its pid.
-  2. Wait, for up to 45 seconds, until the roles' consumer groups have no members. A killed consumer stays a member until its session times out.
-  3. Clear the edge's faults.
-  4. Delete unfinished jobs from `cyclotron_jobs`.
-  5. Clear the SES rate limiter's bucket.
-  6. Move the roles' consumer groups, the events consumer's and the SES webhook consumer's, to the end of their topics with `rpk group seek <group> --to end --topics <topics> --allow-new-topics`. Without the topic list, a group that never committed is not moved.
-  7. Start the roles with the profile's settings and wait for each role's `/_health`.
+    1. Stop every role: `SIGCONT` then `SIGTERM` to each process group, `SIGKILL` to what is left after 10 seconds. A role still running 2 seconds after `SIGKILL` fails the stop, naming its pid.
+    2. Wait, for up to 45 seconds, until the roles' consumer groups have no members. A killed consumer stays a member until its session times out.
+    3. Clear the edge's faults.
+    4. Delete unfinished jobs from `cyclotron_jobs`.
+    5. Clear the SES rate limiter's bucket.
+    6. Move the roles' consumer groups, the events consumer's and the SES webhook consumer's, to the end of their topics with `rpk group seek <group> --to end --topics <topics> --allow-new-topics`. Without the topic list, a group that never committed is not moved.
+    7. Start the roles with the profile's settings and wait for each role's `/_health`.
 
-  Stopping first means no in-flight batch from an earlier run can recreate jobs after the clear.
+    Stopping first means no in-flight batch from an earlier run can recreate jobs after the clear.
 
 - **Killed roles come back.** After any exit the Environment restarts the role after 2 seconds, as Kubernetes would, and records the exit, marked as caused by a valve or not.
 - **Actuation.** Each action is observed within 10 seconds or not at all.
-  - `kill` sends `SIGKILL` to the role's process group and is observed when the old process is gone.
-  - `freeze` sends `SIGSTOP` and is observed when `/proc/<pid>/stat` shows state `T`.
-  - `pg.terminate` runs `pg_terminate_backend` on the `share` of role backends, rounded up, on every Postgres server the role settings name with a `postgres://` or `postgresql://` URL, such as a read replica. Loopback names and the default port count as one server. It sweeps again every 100 milliseconds until release, so `for` is the length of the outage and few writes finish between sweeps. It is observed when a sweep terminated at least one backend. A sweep that fails after the first ends the outage, and the release reports the failure.
-  - `edge.fault` holds a fault rule on the edge process with `EdgeProcess.hold` and lifts it on release. It is observed when the edge first answered a request with it inside the 10-second window and before the hold ended, and stops waiting when the hold ends. A hold that ended before the observation began is not observed.
+    - `kill` sends `SIGKILL` to the role's process group and is observed when the old process is gone.
+    - `freeze` sends `SIGSTOP` and is observed when `/proc/<pid>/stat` shows state `T`.
+    - `pg.terminate` runs `pg_terminate_backend` on the `share` of role backends, rounded up, on every Postgres server the role settings name with a `postgres://` or `postgresql://` URL, such as a read replica. Loopback names and the default port count as one server. It sweeps again every 100 milliseconds until release, so `for` is the length of the outage and few writes finish between sweeps. It is observed when a sweep terminated at least one backend. A sweep that fails after the first ends the outage, and the release reports the failure.
+    - `edge.fault` holds a fault rule on the edge process with `EdgeProcess.hold` and lifts it on release. It is observed when the edge first answered a request with it inside the 10-second window and before the hold ended, and stops waiting when the hold ends. A hold that ended before the observation began is not observed.
 - **Consumer lag.** `groupLag(group)` reads a consumer group's total lag with `rpk group describe`.
 - **Connection drops spare the runner.** Every role starts with `PGAPPNAME=scenario-<role>`, which node-postgres uses for pools that set no `application_name`, Cyclotron's pools included. `pg.terminate` only terminates backends whose `application_name` is a role's mode or starts with `scenario-`; the runner's own connections use another name.
 - **Dependency health.** `dependencyHealth` checks Postgres, Kafka, Redis, the SES rate limiter's Valkey and PersonHog, asks the edge's `GET /_health` for a 200, and returns each failed check with its error and whether it ran out its timeout without a typed answer.
 - **The roles' environment.** Every role starts from `src/index.ts` under Node with the `tsx` loader (`node --import tsx`) in development mode, as its own process group, with:
-  - `PLUGIN_SERVER_MODE`, its own `HTTP_SERVER_PORT`, `PGAPPNAME`, and the marker;
-  - `SES_ENDPOINT` at the edge, `SES_REGION`, and placeholder `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` with `AWS_PROFILE` unset, because the SES client takes its credentials from the SDK's default chain;
-  - `HTTPS_PROXY` at the edge, `NODE_EXTRA_CA_CERTS` at the edge's certificate authority, and `EXTERNAL_REQUEST_PROXY_TEAMS` unset;
-  - `CDP_EMAIL_ATTACHMENTS_S3_ENDPOINT` and `CDP_EMAIL_ATTACHMENTS_S3_PUBLIC_ENDPOINT` at the edge's S3 proxy for the object store the profile names, the dev stack's by default, so upload URLs and downloads both pass the S3 faults; `CDP_EMAIL_ATTACHMENTS_TEAMS` is `*` unless the profile sets it;
-  - `PERSONHOG_ENABLED=true` and `PERSONHOG_ADDR`, without which no CDP role boots;
-  - `ENCRYPTION_SALT_KEYS`, which the email worker needs to sign tracking codes, and `WORKFLOWS_TRANSACTIONAL_EMAIL_JWT_SECRET`, both shared with the runner;
-  - the profile's settings.
+    - `PLUGIN_SERVER_MODE`, its own `HTTP_SERVER_PORT`, `PGAPPNAME`, and the marker;
+    - `SES_ENDPOINT` at the edge, `SES_REGION`, and placeholder `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` with `AWS_PROFILE` unset, because the SES client takes its credentials from the SDK's default chain;
+    - `HTTPS_PROXY` at the edge, `NODE_EXTRA_CA_CERTS` at the edge's certificate authority, and `EXTERNAL_REQUEST_PROXY_TEAMS` unset;
+    - `CDP_EMAIL_ATTACHMENTS_S3_ENDPOINT` and `CDP_EMAIL_ATTACHMENTS_S3_PUBLIC_ENDPOINT` at the edge's S3 proxy for the object store the profile names, the dev stack's by default, so upload URLs and downloads both pass the S3 faults; `CDP_EMAIL_ATTACHMENTS_TEAMS` is `*` unless the profile sets it;
+    - `PERSONHOG_ENABLED=true` and `PERSONHOG_ADDR`, without which no CDP role boots;
+    - `ENCRYPTION_SALT_KEYS`, which the email worker needs to sign tracking codes, and `WORKFLOWS_TRANSACTIONAL_EMAIL_JWT_SECRET`, both shared with the runner;
+    - the profile's settings.
 
 ### Provider edge
 
 ```ts
 // nodejs/tests/scenarios/provider-edge/index.ts
 export function startProviderEdge(options: {
-  port: number
-  configurationSets?: ConfigurationSets // validated as SES does, for the fake-ses adapter
-  trackingKeys?: string // ENCRYPTION_SALT_KEYS, to read the action id from the tracking code
-  caDir?: string // creates the CA and leaf certificates; without it the edge serves plain HTTP only
-  region?: string // the SNS certificate's host is sns.<region>.amazonaws.com; us-east-1 when unset
-  feedbackUrl?: string // cdp-api's SES webhook, where a bounce fault posts its feedback
-}): Promise<ProviderEdge>
+    port: number;
+    configurationSets?: ConfigurationSets; // validated as SES does, for the fake-ses adapter
+    trackingKeys?: string; // ENCRYPTION_SALT_KEYS, to read the action id from the tracking code
+    caDir?: string; // creates the CA and leaf certificates; without it the edge serves plain HTTP only
+    region?: string; // the SNS certificate's host is sns.<region>.amazonaws.com; us-east-1 when unset
+    feedbackUrl?: string; // cdp-api's SES webhook, where a bounce fault posts its feedback
+}): Promise<ProviderEdge>;
 ```
 
 ```ts
 // nodejs/tests/scenarios/provider-edge/process.ts
 export function startEdgeProcess(
-  options: EdgeProcessOptions, // port, trackingKeys, caDir and feedbackUrl
-  deadlines?: EdgeDeadlines // startsWithinMs 60 seconds, answersWithinMs 30 seconds for each IPC call
-): Promise<EdgeProcess>
+    options: EdgeProcessOptions, // port, trackingKeys, caDir and feedbackUrl
+    deadlines?: EdgeDeadlines, // startsWithinMs 60 seconds, answersWithinMs 30 seconds for each IPC call
+): Promise<EdgeProcess>;
 export type EdgeProcess = {
-  url: string
-  caCertPath?: string
-  pgProxyOf(upstream: string): Promise<string> // the URL of the edge's Postgres proxy for that database
-  s3ProxyOf(upstream: string): Promise<string> // the URL of the edge's S3 proxy for that object store
-  hold(rule: FaultRule): Promise<FaultHold> // the rule goes to the edge process as plain data
-  clearFaults(): Promise<void>
-  close(): Promise<void> // resolves once the process has exited and its port is free
-  readonly pid: number | undefined
-}
+    url: string;
+    caCertPath?: string;
+    pgProxyOf(upstream: string): Promise<string>; // the URL of the edge's Postgres proxy for that database
+    s3ProxyOf(upstream: string): Promise<string>; // the URL of the edge's S3 proxy for that object store
+    hold(rule: FaultRule): Promise<FaultHold>; // the rule goes to the edge process as plain data
+    clearFaults(): Promise<void>;
+    close(): Promise<void>; // resolves once the process has exited and its port is free
+    readonly pid: number | undefined;
+};
 export type FaultHold = {
-  observed(holdEnds?: AbortSignal): Promise<boolean> // waits in the runner on the edge's firstAppliedAt for the fault, within 10 seconds and before the hold ends
-  accepted?(until: AbortSignal): Promise<boolean> // waits on the same firstAppliedAt with no window, until the fault answered or the signal aborts
-  release(): Promise<void> // removes the fault in the edge process, as DELETE /_faults/:id does
-}
+    observed(holdEnds?: AbortSignal): Promise<boolean>; // waits in the runner on the edge's firstAppliedAt for the fault, within 10 seconds and before the hold ends
+    accepted?(until: AbortSignal): Promise<boolean>; // waits on the same firstAppliedAt with no window, until the fault answered or the signal aborts
+    release(): Promise<void>; // removes the fault in the edge process, as DELETE /_faults/:id does
+};
 ```
 
 ```text
@@ -816,33 +811,33 @@ GET    /_health
 
 ```ts
 export type TruthRecord = {
-  seq: number // strictly increasing, never reused, survives fault clears
-  at: string
-  kind: 'ses.send' | 'ses.feedback' | 'webhook'
-  unitId?: string // from the recipient or the webhook path
-  actionId?: string // from the signed tracking code, or the webhook path
-  flowId?: string // the sending flow, from the signed tracking code
-  invocationId?: string // the sending invocation, from the signed tracking code; a new job can reuse it
-  status: number // what the edge answered, or the 2xx it took before an ambiguous fault dropped the answer; for ses.feedback, what cdp-api answered the edge
-  fault?: string // the fault that shaped the answer
-  detail: Record<string, unknown>
-}
+    seq: number; // strictly increasing, never reused, survives fault clears
+    at: string;
+    kind: "ses.send" | "ses.feedback" | "webhook";
+    unitId?: string; // from the recipient or the webhook path
+    actionId?: string; // from the signed tracking code, or the webhook path
+    flowId?: string; // the sending flow, from the signed tracking code
+    invocationId?: string; // the sending invocation, from the signed tracking code; a new job can reuse it
+    status: number; // what the edge answered, or the 2xx it took before an ambiguous fault dropped the answer; for ses.feedback, what cdp-api answered the edge
+    fault?: string; // the fault that shaped the answer
+    detail: Record<string, unknown>;
+};
 ```
 
 - **Card faults.** `ses.reject` (type `bounce` or `rejected`), `ses.throttle` (`rate` per second, no dose; sends over the rate get SES's throttling error), `dest.status` (`code`), `ses.ambiguous` and `dest.ambiguous` (`accepted`), `ses.status` (`code` from 500 to 599, a server error that SES's client retries on a plain send; a send with files gets one attempt), `s3.status` (`code` from 500 to 599), `s3.stall` (the edge reads the request and never answers it, so the caller runs into its own timeout) and `s3.slow` (`bytesPerSecond`, no dose: every matching request and its answer pass at that rate), each S3 fault matching one `op` (`get`, `put`, `head` or `copy`) or every one, `pg.enqueue_refused`, which refuses the enqueues its dose takes, and `pg.commit_reply_lost`, which lets Postgres commit the enqueues its dose takes and closes the client's connection before the answer. An ambiguous fault closes the connection without an answer. With `accepted: true` the edge first takes the request and records its 2xx in the truth, as a provider that accepted the request before the answer was lost; with `accepted: false` it records nothing. Only an accepted ambiguous send counts against a throttle. A dose is a count or a share of matching requests; `for` bounds it in time. A throttle answers before every other fault, whatever order they were added in, and every send it lets through counts against its rate, bounced sends included. An `s3.slow` answers after every other S3 fault, so a slowed store still serves its errors and stalls. The edge stamps the time each fault first answers a request on the fault that answered, whether that is the throttle or a fault behind it. The fake-ses adapter's own faults, such as a dropped connection, stay outside this vocabulary.
 - **Correlation.** The generator puts the unit id where the delivery path carries it unchanged, so the edge parses ids and the Judge never parses payloads:
-  - email: the recipient `<unit id>@www.example.com`. The domain has an address record, so the pre-send MX check lets it through. The edge reads the action id from the `X-PostHog-Tracking-Code` header with the tracking code signer and the roles' `ENCRYPTION_SALT_KEYS`;
-  - webhooks: the path `/u/<unit id>/<action id>` on `hooks.example.com`, with the action id written into each seeded webhook step.
+    - email: the recipient `<unit id>@www.example.com`. The domain has an address record, so the pre-send MX check lets it through. The edge reads the action id from the `X-PostHog-Tracking-Code` header with the tracking code signer and the roles' `ENCRYPTION_SALT_KEYS`;
+    - webhooks: the path `/u/<unit id>/<action id>` on `hooks.example.com`, with the action id written into each seeded webhook step.
 - **Feedback.** On a `bounce` the edge answers the send, then posts a signed SNS notification (signature version 1) to `feedbackUrl`: a `Permanent` bounce with the recipient in `bouncedRecipients`, carrying the original send's message id, destination, configuration set, tags and headers.
-  - It posts for every send that names a configuration set, as SES publishes events only for those. For a send that names none it posts nothing and records an `ses.feedback` with status 0.
-  - It refuses a bounce fault unless it has both a feedback URL and a `caDir` to sign with: `POST /_faults` answers 400 on `params.type`.
+    - It posts for every send that names a configuration set, as SES publishes events only for those. For a send that names none it posts nothing and records an `ses.feedback` with status 0.
+    - It refuses a bounce fault unless it has both a feedback URL and a `caDir` to sign with: `POST /_faults` answers 400 on `params.type`.
 - **Holds without HTTP.** `EdgeProcess.hold(rule)` adds a fault over IPC, for the Environment's `edge.fault` action, and returns `observed`, `accepted` and `release`. `ProviderEdge.hold(rule)` does the same in process, for Jest.
-  - The fault list records `firstAppliedAt`, when the fault first answered a request.
-  - `observed` polls until that time falls inside a 10-second window from its call (`answeredInWindow`), the window passes, or the hold's signal aborts, and then answers whether it did.
-  - `accepted` polls with no window until the fault first answered or its signal aborts. `edge_accepted` waits on it.
-  - `release` removes the fault and answers the requests it holds whose connection is still open. Removing a fault over HTTP, one or all, does the same.
+    - The fault list records `firstAppliedAt`, when the fault first answered a request.
+    - `observed` polls until that time falls inside a 10-second window from its call (`answeredInWindow`), the window passes, or the hold's signal aborts, and then answers whether it did.
+    - `accepted` polls with no window until the fault first answered or its signal aborts. `edge_accepted` waits on it.
+    - `release` removes the fault and answers the requests it holds whose connection is still open. Removing a fault over HTTP, one or all, does the same.
 - **Recipients.** A record's recipients are what the edge received: the addresses in an SES send's `to`, `cc` and `bcc`, kept in `detail.message`, or a webhook's host. `no_loss` counts accepted effects per unit, action and recipient from them.
-- **S3 proxy.** `ProviderEdge.s3ProxyOf(upstream)` opens an HTTP proxy for an object store on first use, on a port of its own. Every card starts its roles with the attachment store on it, so presigned uploads and the worker's downloads cross the S3 faults. The proxy forwards each request with its own `Host` header, so a request signed for the proxy's address verifies at the store. A request an `s3.status` fault takes gets an S3 error document, `SlowDown` for a 503 and `InternalError` otherwise. The proxy forwards only to a plain HTTP store that serves buckets from its root, and refuses any other upstream when it opens. An S3 fault counts as observed when it answers: `s3.status` once the request's body has ended and the error goes out, `s3.stall` once the body has ended, and `s3.slow` once it first holds back a slice of a body. A `share` of `s3.status` or `s3.stall` picks requests by the card's seed and the object's path.
+- **S3 proxy.** `ProviderEdge.s3ProxyOf(upstream)` opens an HTTP proxy for an object store on first use, on a port of its own. Every card starts its roles with the attachment store on it, so presigned uploads and the worker's downloads cross the S3 faults. The proxy forwards each request with its own `Host` header, so a request signed for the proxy's address verifies at the store. A request an `s3.status` fault takes gets an S3 error document, `SlowDown` for a 503 and `InternalError` otherwise. The proxy forwards only to a plain HTTP store that serves buckets from its root and is named by a host name or an IPv4 address, and refuses any other upstream when it opens. It reads each request's body before it picks a fault, so a request whose client hangs up first takes none, and a fault released before the body ends answers nothing. An S3 fault counts as observed when it answers: `s3.status` once the request's body has ended and the error goes out, `s3.stall` once the body has ended, and `s3.slow` once it first holds back a slice of a body. A `share` of `s3.status` or `s3.stall` picks requests by the card's seed and the object's path.
 - **Postgres proxy.** `ProviderEdge.pgProxyOf(upstream)` opens a proxy for a database on first use, on a port of its own, and forwards the wire protocol both ways. A card that names `pg.enqueue_refused` or `pg.commit_reply_lost` starts its roles with `CYCLOTRON_NODE_DATABASE_URL` on the proxy for the database each role would reach, a profile's setting or a pooler included; every other card connects them straight to the database, so its numbers carry no proxy hop. The runner's own reads, topology and `pg.drop_connections` use the database behind the proxy. The fault refuses an `INSERT INTO cyclotron_jobs` by renaming the table after the fault before it reaches Postgres, so Postgres answers with its own `42P01`, and fails the transaction and skips the rest of the pipeline as it would for any failed statement. A refusal counts against its dose at the rename, and marks the fault observed once the edge passes Postgres's answer on to the client. The proxy matches a statement that opens a `Parse` or a simple query, so an insert after another statement in one query, or one prepared under a name before the fault was armed, passes; Cyclotron's enqueues are unnamed single statements. Postgres ends each simple query and each `Sync` with one ready report, in the order the client sent them, so the proxy pairs each report with the cycle it closes. A lost commit reply holds the answers of a cycle that carries an enqueue, and of every later cycle in its transaction, until the report that closes it. Answers that arrive before the client syncs pass at once, so a client that waits on them never stalls. When the report says the connection is idle, the enqueue inserted at least one row, and no answer in the cycle is an error or a `ROLLBACK`, the transaction committed. The fault takes its dose there, closes the client and the server connection without passing the answers on, and counts as observed at once. An enqueue that inserts nothing, fails or rolls back passes its answers on and keeps the dose. A transaction that recovers from an error through a savepoint, or a simple query that runs more statements after its commit, passes too. The client sees its connection lost after the commit, as a database that went away before it answered, so whatever retries the enqueue writes the jobs a second time. A pair's control reaches Cyclotron through the proxy too, so the two runs differ in the fault alone. A database URL whose query names `host`, `hostaddr` or `port` is refused, since `pg` would connect there instead of to the proxy. The edge answers an encryption request "no", so a client that requires TLS stops at the connect.
 - **Proxy and certificates.** With `caDir`, the edge creates its certificate authority and leaf certificates with the `openssl` CLI. Its CONNECT proxy terminates TLS for `hooks.example.com` and `sns.<region>.amazonaws.com`, where it serves its SNS signing certificate, and tunnels every other host unchanged. cdp-api only accepts a certificate URL on that host, so the edge serves it under the real name rather than the runner changing production code.
 
@@ -851,26 +846,26 @@ export type TruthRecord = {
 ```ts
 // nodejs/tests/scenarios/valves/valves.ts
 export type ValveContext = {
-  environment: Pick<Environment, 'actuate'>
-  probe: Pick<CyclotronProbe, 'runningJobs'>
-  teams: number[]
-  commits: () => readonly WriterSample[] // the writer probe's samples so far
-}
+    environment: Pick<Environment, "actuate">;
+    probe: Pick<CyclotronProbe, "runningJobs">;
+    teams: number[];
+    commits: () => readonly WriterSample[]; // the writer probe's samples so far
+};
 
 export type ValveDefinition = Definition & {
-  // Definition holds the name and the params schema
-  target: z.ZodType<string>
-  strandsRunningJobs: boolean // re-check `when` after apply
-  roleExitGraceMs?: number // a role exit with a code while applied, or this long after release, is the valve's
-  restarts?: readonly CdpRole[] // when set, only these roles' exits are the valve's
-  journalsIntent?: true // the actuation records its own intent, right before its request
-  apply(context: ValveContext, target: string, dose: unknown, holdMs: number): Promise<Actuation>
-}
+    // Definition holds the name and the params schema
+    target: z.ZodType<string>;
+    strandsRunningJobs: boolean; // re-check `when` after apply
+    roleExitGraceMs?: number; // a role exit with a code while applied, or this long after release, is the valve's
+    restarts?: readonly CdpRole[]; // when set, only these roles' exits are the valve's
+    journalsIntent?: true; // the actuation records its own intent, right before its request
+    apply(context: ValveContext, target: string, dose: unknown, holdMs: number): Promise<Actuation>;
+};
 
 export interface Valves {
-  start(entries: ValveEntry[], context: ValveContext): Promise<void> // schedules each entry; returns at once
-  releaseAll(): Promise<void> // cancels pending entries, awaits in-flight ones, then releases; idempotent
-  timeline(): ValveTimelineEntry[] // requested, applied, observed and released times, and any error
+    start(entries: ValveEntry[], context: ValveContext): Promise<void>; // schedules each entry; returns at once
+    releaseAll(): Promise<void>; // cancels pending entries, awaits in-flight ones, then releases; idempotent
+    timeline(): ValveTimelineEntry[]; // requested, applied, observed and released times, and any error
 }
 ```
 
@@ -900,24 +895,18 @@ export interface Valves {
 - **Release.** An applied entry that is never released makes the run `invalid`. An entry that was never applied has nothing to release.
 - **Seeded targets.** The runner hands each entry a pick made of the card `seed` and the entry's place in `valves`. An edge fault with a `share` dose answers a request when a SHA-256 of the pick, the unit and the unit's attempt under that fault falls under the share. The unit is the ordinal at the end of the unit id, and each unit id draws its own attempts, so one card at one seed hits the same units in every run, whatever order their requests arrive in, while it is the only valve on its channel. A throttle, a held answer or a `count` dose that overlaps it on the same channel can take a unit first. A request that names no unit is keyed by its addresses or its host and path. A `count` dose still answers the first matching requests, and `pg.drop_connections` still picks backends at random. `pg.enqueue_refused` and `pg.commit_reply_lost` read no unit from an enqueue: a `share` answers enqueues in the order they arrive, and `faults.json` lists an empty `unitIds` for them. The edge records the unit id of each request a fault answered, and `faults.json` lists them under `unitIds`. Timing still varies between runs: a unit whose request lands outside the window is not hit, so `faults.json` records what fired rather than what the seed planned.
 - **`pg.failover`** runs only on a run host: the runner reads `SCENARIO_RUN_MANIFEST` once and hands it to the valve, which throws without it, so the run is `invalid`. It acts only on the manifest's run cluster, `scn-<run id>`, through the `aws` port.
-  - **Preconditions.** The caller is in the manifest's account, the lease outlasts the hold plus twice the 5-minute observation deadline, one to settle and one to fail back, the cluster is `available`, carries `scenario-run=<run id>` and has exactly two members, the run's writer, still writing, and its reader, and the reader's capacity read passes. That read asks CloudWatch for the reader's one-minute `ServerlessDatabaseCapacity` averages and maxima over the last 10 complete minutes. The answer passes the check under **Reader capacity**, and every minute it returns is at or above the manifest's `readerMinAcu`. Its last five minutes, counted across both statistics, are consecutive, and the newest ended at most 3 minutes ago. Each of those five minutes has both an average and a maximum, an average at or under its maximum, and both at or under the manifest's `readerMaxAcu`, the profile's `readerAcu.max`, even when the metric lags and some of them fall before the 5 minutes ahead of the check. Only the averages inside the 5 minutes before the minute of the check, the window the controller judges before T0, must be at or under the manifest's `readerIdleMaxAcu`. The host and the controller judge a minute by the same rules in `environment/reader-capacity.ts`; only the host also refuses a minute that lacks one of its two readings. A dose of `warmReader: true` skips the idle check alone, so a card can fail over onto a reader that is already scaled up. A manifest without `readerMaxAcu` comes from a lease before the field, and refuses, so lease the run again. A manifest without `readerIdleMaxAcu` refuses and names `readerAcu.idleMax`, the cloud profile field it comes from. A manifest without `readerMinAcu` comes from a lease before the field, and refuses. The lease is checked last, right before the request, because the reads before it can take up to 5 minutes. A failed precondition throws before any request, so the timeline records no intent. So does a precondition read AWS has not answered when the valves release or 5 minutes pass.
-  - **Apply.** It records `intentAt` right before one `failover-db-cluster` request to the reader, sent once with no retry, and sends none once the valves released. Observation runs from the intent, so a promotion counts while the answer to the request is still pending. A client error code is a refusal, and a refusal ends the drive at once: the run is `invalid`, with the refusal as its reason, whatever the judge finds. A server fault, a response lost in transit, or no answer by the valves' release or 5 minutes may have started the promotion, so it is observed, never resent.
-  - **Observation.** Three instants, each in the entry's `observations`: the control plane shows the reader as writer (`cluster_writer`), the pooler's SQL session reaches the reader out of recovery (`sql_writer`), and the writer probe commits its first row on the reader (`first_probe_commit`). A commit that still lands on the old writer does not count. Each stage polls on its own, so a stalled cluster read never delays the other two. Each instant is stamped when the answer arrives, and one that arrives more than 5 minutes after the intent does not count. The card measures each as `seconds_to_<name>` from the intent.
-  - **Release.** It first waits up to 5 minutes for the cluster to be `available`, so a promotion still in flight lands before it decides. When the promotion was not refused and the control plane never showed the reader as writer, it also waits for the writer to move, since the control plane can show the old writer for a while after it accepted the request; a writer that never moves is recorded as `releaseError`, because the request may still land. It never waits for the answer to the failover request. Then a fail-back to the original writer under the same load, unless it already writes, with its own `releaseIntentAt` and `releaseObservations`. The fail-back phase starts at `releaseIntentAt`, and its observation runs from there while the answer to its request is still pending. A cluster that never settles, or a fail-back that is refused or not observed, is recorded as `releaseError` and makes the run `invalid`. The run host gives a stopped card the full 10 minutes of settle and fail-back, plus 5 minutes for its scorecard and evidence, before systemd kills it.
+    - **Preconditions.** The caller is in the manifest's account, the lease outlasts the hold plus twice the 5-minute observation deadline, one to settle and one to fail back, the cluster is `available`, carries `scenario-run=<run id>` and has exactly two members, the run's writer, still writing, and its reader, and the reader's capacity read passes. That read asks CloudWatch for the reader's one-minute `ServerlessDatabaseCapacity` averages and maxima over the last 10 complete minutes. The answer passes the check under **Reader capacity**, and every minute it returns is at or above the manifest's `readerMinAcu`. Its last five minutes, counted across both statistics, are consecutive, and the newest ended at most 3 minutes ago. Each of those five minutes has both an average and a maximum, an average at or under its maximum, and both at or under the manifest's `readerMaxAcu`, the profile's `readerAcu.max`, even when the metric lags and some of them fall before the 5 minutes ahead of the check. Only the averages inside the 5 minutes before the minute of the check, the window the controller judges before T0, must be at or under the manifest's `readerIdleMaxAcu`. The host and the controller judge a minute by the same rules in `environment/reader-capacity.ts`; only the host also refuses a minute that lacks one of its two readings. A dose of `warmReader: true` skips the idle check alone, so a card can fail over onto a reader that is already scaled up. A manifest without `readerMaxAcu` comes from a lease before the field, and refuses, so lease the run again. A manifest without `readerIdleMaxAcu` refuses and names `readerAcu.idleMax`, the cloud profile field it comes from. A manifest without `readerMinAcu` comes from a lease before the field, and refuses. The lease is checked last, right before the request, because the reads before it can take up to 5 minutes. A failed precondition throws before any request, so the timeline records no intent. So does a precondition read AWS has not answered when the valves release or 5 minutes pass.
+    - **Apply.** It records `intentAt` right before one `failover-db-cluster` request to the reader, sent once with no retry, and sends none once the valves released. Observation runs from the intent, so a promotion counts while the answer to the request is still pending. A client error code is a refusal, and a refusal ends the drive at once: the run is `invalid`, with the refusal as its reason, whatever the judge finds. A server fault, a response lost in transit, or no answer by the valves' release or 5 minutes may have started the promotion, so it is observed, never resent.
+    - **Observation.** Three instants, each in the entry's `observations`: the control plane shows the reader as writer (`cluster_writer`), the pooler's SQL session reaches the reader out of recovery (`sql_writer`), and the writer probe commits its first row on the reader (`first_probe_commit`). A commit that still lands on the old writer does not count. Each stage polls on its own, so a stalled cluster read never delays the other two. Each instant is stamped when the answer arrives, and one that arrives more than 5 minutes after the intent does not count. The card measures each as `seconds_to_<name>` from the intent.
+    - **Release.** It first waits up to 5 minutes for the cluster to be `available`, so a promotion still in flight lands before it decides. When the promotion was not refused and the control plane never showed the reader as writer, it also waits for the writer to move, since the control plane can show the old writer for a while after it accepted the request; a writer that never moves is recorded as `releaseError`, because the request may still land. It never waits for the answer to the failover request. Then a fail-back to the original writer under the same load, unless it already writes, with its own `releaseIntentAt` and `releaseObservations`. The fail-back phase starts at `releaseIntentAt`, and its observation runs from there while the answer to its request is still pending. A cluster that never settles, or a fail-back that is refused or not observed, is recorded as `releaseError` and makes the run `invalid`. The run host gives a stopped card the full 10 minutes of settle and fail-back, plus 5 minutes for its scorecard and evidence, before systemd kills it.
 - **Adding a valve** is one `ValveDefinition`. Cards name valves, never backends.
 
 ### Generator
 
 ```ts
 // nodejs/tests/scenarios/generator/generator.ts
-export function seed(loaded: LoadedCard, postgres: PostgresRouter, signal: AbortSignal): Promise<SeedState>
-export function drive(
-  loaded: LoadedCard,
-  seeded: SeedState,
-  journal: Pick<Judge, 'record'>,
-  signal: AbortSignal,
-  context: DriveContext
-): Promise<{ targetUnits: number; offeredUnits: number }>
+export function seed(loaded: LoadedCard, postgres: PostgresRouter, signal: AbortSignal): Promise<SeedState>;
+export function drive(loaded: LoadedCard, seeded: SeedState, journal: Pick<Judge, "record">, signal: AbortSignal, context: DriveContext): Promise<{ targetUnits: number; offeredUnits: number }>;
 ```
 
 - **Seed.** Each card seeds its own teams, so checks scope by team, and one verified email integration per team, which every send needs. Each traffic kind builds its flow with `FixtureHogFlowBuilder`; `insertHogFlow` writes it, skipping Django's validation, so the seed compiles each step's inputs with `compileHog` as Django would. Email steps read the recipient from event properties, because the hogflow worker resolves the person again from storage, and a missing person does not stop the flow.
@@ -933,119 +922,117 @@ export function drive(
 ```ts
 // nodejs/tests/scenarios/judge/judge.ts
 export interface Judge {
-  open(seed: Pick<SeedState, 'teamIds'>): Promise<void>
-  record(unit: JournalEntry): void // synchronous; never blocks the generator
-  converge(withinMs: number, signal: AbortSignal): Promise<Convergence>
-  check(
-    invariants: Named[],
-    gates: Record<string, number>,
-    run: { janitorResets: number; unobserved: string[] } // unobserved: why each valve was not observed
-  ): Promise<InvariantResult[]>
-  evidence(): { journal: JournalEntry[]; truth: TruthRecord[]; fetchRetries: number } // journal.json and truth.json
+    open(seed: Pick<SeedState, "teamIds">): Promise<void>;
+    record(unit: JournalEntry): void; // synchronous; never blocks the generator
+    converge(withinMs: number, signal: AbortSignal): Promise<Convergence>;
+    check(
+        invariants: Named[],
+        gates: Record<string, number>,
+        run: { janitorResets: number; unobserved: string[] }, // unobserved: why each valve was not observed
+    ): Promise<InvariantResult[]>;
+    evidence(): { journal: JournalEntry[]; truth: TruthRecord[]; fetchRetries: number }; // journal.json and truth.json
 }
 
 export type InvariantResult = {
-  name: string
-  passed: boolean
-  observed: number
-  gate?: number
-  violation?: string // the first violation
-  unitIds: string[] // up to 5
-  unjudged?: string // why the invariant could not judge this run
-  missing?: string[] // up to 5 unit ids with too few effects, for no_loss
-  extra?: string[] // up to 5 unit ids with too many effects, for no_loss
-}
+    name: string;
+    passed: boolean;
+    observed: number;
+    gate?: number;
+    violation?: string; // the first violation
+    unitIds: string[]; // up to 5
+    unjudged?: string; // why the invariant could not judge this run
+    missing?: string[]; // up to 5 unit ids with too few effects, for no_loss
+    extra?: string[]; // up to 5 unit ids with too many effects, for no_loss
+};
 
 export type JournalEntry = {
-  // ...
-  expect: {
-    deliveries: string[] // action ids; an action left out expects no effect, such as a send to a suppressed recipient
-    dueAt?: number // epoch ms the unit's deliveries fall due, for work scheduled later
-  }
-}
+    // ...
+    expect: {
+        deliveries: string[]; // action ids; an action left out expects no effect, such as a send to a suppressed recipient
+        dueAt?: number; // epoch ms the unit's deliveries fall due, for work scheduled later
+    };
+};
 ```
 
 - **Open** starts reading the truth at the edge's `/_truth/head`, so records from earlier cards never enter this card's evidence.
 - **Converge** polls the truth and the probe until every expected delivery of every accepted unit has a record and no job for the card's teams is unfinished, or the bound passes. A check that finds both only after the bound still counts as not converged. Past the bound the Judge still runs the invariants.
   The truth `seq` and the time at which `converge` returns are the run's recovery horizon. Each poll reads the truth, then the job count, then the truth again, and converges only when no record of this run's units arrived during the count, so another run's sends do not hold it. So a send or a retried status that lands during a zero count is inside the horizon, and its retry gets its chance. An interrupted `converge` sets none, and so does one whose last read of the truth or the job count failed: `no_loss` is then unjudged and names the failed read. A job count of 0 read beside a failed truth read is reported as unknown, so the run is `invalid`, while a backlog still fails it. The job count covers every retry that has not happened yet: webhook steps reschedule their own hogflow row, and a throttled email reschedules until it is sent.
 - **Invariants.**
-  - `at_least_once`: every expected delivery has a 2xx in the truth, with two exceptions.
-    - A fault answered its last attempt with a code the caller never retries: for webhooks, a 4xx or 5xx outside `RETRIABLE_STATUS_CODES` in `cdp-fetch.ts`, which the check imports so the two never drift; for SES, a 4xx whose error type is neither `TooManyRequestsException` nor `ThrottlingException`, which the edge records in the truth.
-    - A webhook's faulted attempts reached the hogflow worker's `CDP_FETCH_RETRIES`, read from its settings as the worker reads it. The runner passes it to the Judge as `fetchRetries`.
+    - `at_least_once`: every expected delivery has a 2xx in the truth, with two exceptions.
+        - A fault answered its last attempt with a code the caller never retries: for webhooks, a 4xx or 5xx outside `RETRIABLE_STATUS_CODES` in `cdp-fetch.ts`, which the check imports so the two never drift; for SES, a 4xx whose error type is neither `TooManyRequestsException` nor `ThrottlingException`, which the edge records in the truth.
+        - A webhook's faulted attempts reached the hogflow worker's `CDP_FETCH_RETRIES`, read from its settings as the worker reads it. The runner passes it to the Judge as `fetchRetries`.
 
-    A retried SES code that answers every attempt still counts as missed.
+        A retried SES code that answers every attempt still counts as missed.
 
-  - `duplicate_sends`: 2xx answers per unit and action beyond one, at or under the jobs the janitor reset during the run plus `gates.duplicate_sends`. Rejected attempts are evidence, not duplicates.
-    A lease queue replays a job whose holder stalled after its send landed, so each reset allows one resend. One unit can take more than one: a job can be reset again, and an email unit passes through a hogflow job and an email job.
-    The runner reads the resets from the janitor's `cdp_cyclotron_v2_janitor_stalled` counter in the sampled metrics, summed over its replicas and restarts, and passes them to the Judge as `janitorResets`. The counter also counts jobs that stalled before they sent, so the bound is loose on a card that stalls many jobs; the scorecard's `janitor_resets` shows how loose.
-  - `attachments_intact`: every 2xx SES send of a unit that expects files carries the sha256 hashes the unit uploaded, no more and no fewer, also when the unit's intake reply was lost or refused. A unit without files expects none. The check takes no gate, and a ramp judges it over the whole run, so a mismatch fails the run whichever step sent it.
-  - `bounced_suppressed`: every unit whose send the `ses.reject` fault bounced has a follow-up that cdp-api refused with 422 `recipient_suppressed`. A follow-up that was not sent, was accepted, could not reach cdp-api or got another answer fails it, and so does a bounced unit with no follow-up.
-    It also fails a unit whose follow-up was not sent though its send did not bounce. Two cases are let off: the fault refused the send outright, or the edge took the send without a fault after the run's last bounce, which needs a bounce earlier in the run.
-  - `refused_at_intake`: refusals and transport errors the unit did not expect, at or under `gates.refused_at_intake`.
-  - `no_loss`: exactly one accepted effect for each due, eligible unit, action and recipient at the recovery horizon. An accepted effect is a 2xx record in the truth. A missing effect counts only records at or before the horizon's `seq`, so a send that lands later never makes up for one. An extra effect counts every record `check` read, so a late duplicate still fails. It lists missing and extra effects apart, with up to 5 unit ids each, and `observed` counts both. When one flow sent an effect in more than one request, the extra effect names the path that resent it, from the requests' invocation ids. Several invocation ids sent it: a replay before the queue. One invocation id sent it more than once: a lease reclaim, a retry inside the job, or a new job enqueued under the same id. The janitor's sampled reset count names no job and can miss a reset, and an id can outlive its job, so the check does not tell these apart. The violation shows the first extra effect with a path, ahead of earlier ones without. An effect that two flows sent once each, that one request sent to a recipient twice, or whose sends carry no invocation id, such as a webhook's, names none.
-    - Each journal entry declares what it expects, and the check infers nothing from status codes. A unit the intake accepted expects one effect for each expected delivery, two when its follow-up was accepted too. Each flow may send once, so the two must come from two flows: a first flow that sends twice is extra, and the missing follow-up is missing. Every recipient must get the expected effects, not only one of them. A unit the intake refused with a status expects none. A unit whose intake could not be reached may have one or none, because the intake may have taken it before the reply was lost.
-    - An action the entry leaves out of `expect.deliveries`, or a delivery whose `expect.dueAt` falls after the horizon, expects none. A fault that ends a flow, such as a status the caller never retries, still leaves that flow's effect missing, so a card that injects one does not list `no_loss` yet.
-    - An effect beyond what a unit expects is extra. Unlike `duplicate_sends`, nothing is allowed for jobs the janitor reset, and the check takes no gate.
-    - The check is unjudged, and the run `invalid` when nothing else failed, when the last truth read failed, the truth skips a `seq`, `converge` was interrupted, a valve was not observed, or the edge accepted a unit of this run that the journal never recorded. When the only cause is an unobserved valve, the status reason names the valve once.
-    - When the Judge could not read the job count at the deadline, the runner drops `no_loss` with `at_least_once` and `bounced_suppressed`, since deliveries may still have been in flight.
-    - No ramp card lists it yet. A ramp judges its losses step by step, and a `no_loss` failure would replace the ramp's break reason.
+    - `duplicate_sends`: 2xx answers per unit and action beyond one, at or under the jobs the janitor reset during the run plus `gates.duplicate_sends`. Rejected attempts are evidence, not duplicates.
+      A lease queue replays a job whose holder stalled after its send landed, so each reset allows one resend. One unit can take more than one: a job can be reset again, and an email unit passes through a hogflow job and an email job.
+      The runner reads the resets from the janitor's `cdp_cyclotron_v2_janitor_stalled` counter in the sampled metrics, summed over its replicas and restarts, and passes them to the Judge as `janitorResets`. The counter also counts jobs that stalled before they sent, so the bound is loose on a card that stalls many jobs; the scorecard's `janitor_resets` shows how loose.
+    - `attachments_intact`: every 2xx SES send of a unit that expects files carries the sha256 hashes the unit uploaded, no more and no fewer, also when the unit's intake reply was lost or refused. A unit without files expects none. The check takes no gate, and a ramp judges it over the whole run, so a mismatch fails the run whichever step sent it.
+    - `bounced_suppressed`: every unit whose send the `ses.reject` fault bounced has a follow-up that cdp-api refused with 422 `recipient_suppressed`. A follow-up that was not sent, was accepted, could not reach cdp-api or got another answer fails it, and so does a bounced unit with no follow-up.
+      It also fails a unit whose follow-up was not sent though its send did not bounce. Two cases are let off: the fault refused the send outright, or the edge took the send without a fault after the run's last bounce, which needs a bounce earlier in the run.
+    - `refused_at_intake`: refusals and transport errors the unit did not expect, at or under `gates.refused_at_intake`.
+    - `no_loss`: exactly one accepted effect for each due, eligible unit, action and recipient at the recovery horizon. An accepted effect is a 2xx record in the truth. A missing effect counts only records at or before the horizon's `seq`, so a send that lands later never makes up for one. An extra effect counts every record `check` read, so a late duplicate still fails. It lists missing and extra effects apart, with up to 5 unit ids each, and `observed` counts both. When one flow sent an effect in more than one request, the extra effect names the path that resent it, from the requests' invocation ids. Several invocation ids sent it: a replay before the queue. One invocation id sent it more than once: a lease reclaim, a retry inside the job, or a new job enqueued under the same id. The janitor's sampled reset count names no job and can miss a reset, and an id can outlive its job, so the check does not tell these apart. The violation shows the first extra effect with a path, ahead of earlier ones without. An effect that two flows sent once each, that one request sent to a recipient twice, or whose sends carry no invocation id, such as a webhook's, names none.
+        - Each journal entry declares what it expects, and the check infers nothing from status codes. A unit the intake accepted expects one effect for each expected delivery, two when its follow-up was accepted too. Each flow may send once, so the two must come from two flows: a first flow that sends twice is extra, and the missing follow-up is missing. Every recipient must get the expected effects, not only one of them. A unit the intake refused with a status expects none. A unit whose intake could not be reached may have one or none, because the intake may have taken it before the reply was lost.
+        - An action the entry leaves out of `expect.deliveries`, or a delivery whose `expect.dueAt` falls after the horizon, expects none. A fault that ends a flow, such as a status the caller never retries, still leaves that flow's effect missing, so a card that injects one does not list `no_loss` yet.
+        - An effect beyond what a unit expects is extra. Unlike `duplicate_sends`, nothing is allowed for jobs the janitor reset, and the check takes no gate.
+        - The check is unjudged, and the run `invalid` when nothing else failed, when the last truth read failed, the truth skips a `seq`, `converge` was interrupted, a valve was not observed, or the edge accepted a unit of this run that the journal never recorded. When the only cause is an unobserved valve, the status reason names the valve once.
+        - When the Judge could not read the job count at the deadline, the runner drops `no_loss` with `at_least_once` and `bounced_suppressed`, since deliveries may still have been in flight.
+        - No ramp card lists it yet. A ramp judges its losses step by step, and a `no_loss` failure would replace the ramp's break reason.
 
 - **Measurements.** Each has a unit in its definition. Every measurement below is better when lower but `step_claims_per_second`, `step_host_busy_percent`, `step_role_cpu_cores`, `step_role_busiest_cpu_cores`, `step_writer_backends` and `step_writer_active_waits`, which a reader reads against the step's load; the definitions do not record that. The runner's sampler scrapes every role's `/_metrics` every 5 seconds from the drive's start to convergence, and `measure(measurements, evidence)` in `judge/measurements.ts` turns the samples and the Judge's evidence into values.
-  - `role_cpu_seconds`, per role, seconds, lower is better: the sum of `process_cpu_seconds_total` increases, per process lifetime, so a killed role's restart does not reset it.
-  - `role_rss_max_bytes`, per role, bytes, lower is better: the maximum of `process_resident_memory_bytes`.
-  - `delivery_latency_ms`, `p50`, `p95` and `max`, milliseconds, lower is better: from the unit's offer to the edge's first 2xx record for each delivery.
-    - When the journal says which units carry files, as `transactional_email_files` does, it also keys `plain_p50` to `plain_max` for the email deliveries of units without files and `files_p50` to `files_max` for those of units with files. Both read `ses.send` records only, so a webhook in the same card counts in neither. The plain keys show how long a plain send waits while sends with files hold the worker.
-  - `role_heap_max_bytes`, per role, bytes, lower is better: the maximum of `nodejs_heap_size_used_bytes`, for each role that serves it.
-  - `role_restarts`, per role, restarts, lower is better: the supervisor's exits of that role that no valve caused, by the verdict's rule above, summed over replicas. It reads from the end of seeding to the last evidence read, so an exit after the drive counts too. The status reason names the signal of each one, so a reading above 0 shows whether the container was killed or the process exited.
-  - `sends_per_message_max`, sends, lower is better: the most 2xx `ses.send` records that one delivery got. Above 1, an email went out twice. It is `incomplete` when the last truth read failed or did not settle, or the run did not converge, since a later send could still land.
-  - The email worker's attachment gauges, read on `cdp-cyclotron-worker-email` only, since every CDP role registers them:
-    - `attachment_deferrals`, per reason, tokens: the increase of `cdp_email_attachments_deferral_tokens_total`, per process lifetime. Each deferral spent the SES token its dequeue claimed.
-    - `attachment_sends_in_flight_max`, per role, sends: the maximum of `cdp_email_attachments_sends_in_flight`.
-    - `attachment_reserved_bytes_max`, per role, bytes: the maximum of `cdp_email_attachments_reserved_bytes`.
-    - `attachment_budget_bytes`, per role, bytes: the memory budget of each email worker pod, computed as the worker computes it: `CDP_EMAIL_ATTACHMENTS_MEMORY_BUDGET_FRACTION` of the pod's memory less the plain batch allowance. The run target reads the fraction from the role's own settings and the memory from the run host, whose memory limit the roles share. A worker that refuses sends with files is unmeasured, with its refusal. So is a worker whose `NODE_OPTIONS` sizes its heap, since the runner does not read that limit from the worker; reading it is a follow-up.
-    - `attachment_reserved_share_max`, per role, share of the budget: the highest reserved bytes over the budget of the replica that reserved them. At 1, admission is full.
-  - Per ramp step, keyed with the step's scale, such as `at_cap_4x`:
-    - `step_attachment_deferrals_per_second`, per reason, tokens a second: the deferral tokens spent in the step over its length. Each counter is read at the step's edges by linear interpolation between the scrapes on either side, so a scrape interval that crosses an edge splits between the two steps.
-    - `step_delivery_latency_ms`, `plain_p50`, `plain_p95`, `files_p50` and `files_p95`, milliseconds: `delivery_latency_ms` for the units offered in the step. A ramp step offers too few sends for a p99 that is not the step's maximum. A unit delivered after the drive still counts in the step that offered it.
-    - `ramp_onset_scale`, scale: per reason, the first step that spent a deferral token, and `plain_p95_doubled`, the first step whose plain p95 is over twice the first step's. A reason or a slowdown no step reached is censored. A reason whose first token falls in a scrape interval that crosses a step edge is `incomplete`, because the scrapes cannot place it in one step. The slowdown is unmeasured when the first step has no plain send, since it has no baseline. A reason is unmeasured when a restart or a missed scrape falls in any step up to its first rise, since the lost scrapes may hold an earlier token; reading across a restart is a follow-up.
-  - `role_exit_ms`, `sigterm`, milliseconds, lower is better: for the card's `role.terminate` entry, from the SIGTERM to the role's exit when the role exited without dying of a SIGKILL. A role that died of a SIGKILL is not measured in this release, whichever valve sent it, and a role whose exit never arrived is unmeasured; both keep the `sigterm` key with their reason. A card with more than one `role.terminate` entry is unmeasured with no key, since its exits have no stable key.
-  - `lease_reclaim_ms`: not measured in this release. It publishes one unmeasured row, and its timing of a stranded send's resend comes in a follow-up.
-  - `resent_invocations`: not measured in this release. It publishes one unmeasured `total` row, and a count of the invocations this run's units resent comes in a follow-up.
-  - `counter_drift`, messages, closer to 0 is better: how far the production email counters drift from the sink's truth. It is a measurement, not a pass or fail bar.
-    - After `check` reads the truth, the runner reads `app_metrics2` in ClickHouse for the run's teams, from the hour the run started, `app_source = 'hog_flow'`. It reads `email_sent`, `email_delivered` and `email_failed`.
-    - The sink's count for each counter comes from the truth of this run's units:
-      - `email_sent`: 2xx `ses.send` records.
-      - `email_delivered`: 0, because the edge publishes no delivery notifications.
-      - `email_failed`: not counted for now, see below.
-    - Metrics arrive late: the worker flushes them after each batch, and ClickHouse consumes them from Kafka. So the runner reads again every second. It stops when no counter changed for 15 seconds, even when the counts already match the sink, so a late duplicate still shows. After a failed read, the 15 seconds start again at the next read that succeeds. After 60 seconds it keeps the last read and marks it incomplete. The reading is saved as `counters.json`.
-    - Keys: `owed`, the email messages the journal owes by the recovery horizon, counted as `no_loss` counts them. For each counter, `<counter>` is the signed difference, counted minus sink, and `<counter>_counted` and `<counter>_sink` are the two sides. A metrics flush that fails, which the monitoring service logs and swallows, shows as negative drift.
-    - On the local stack, which cloud run hosts also start, ClickHouse reads the `clickhouse_app_metrics2` topic through two Kafka tables, `kafka_app_metrics2` and `kafka_app_metrics2_ws`, and both point at the same broker. Most counts land twice. So the runner also counts the materialized views that read a Kafka table and write into `app_metrics2`, `writable_app_metrics2` or `sharded_app_metrics2`, saved in `counters.json` as `consumers`. When that read fails, `counters.json` keeps its error as `consumersUnread`, and the drift's `_unmeasured` reason quotes it. Unless exactly one view feeds it, the drift is unknown, and both sides stay. To read the drift with one consumer, detach `posthog.app_metrics2_ws_mv` for the run and attach it again after.
-    - A side that cannot be read is `null` and censored, and its `_unmeasured` property says why. When ClickHouse cannot be read, the drift and `<counter>_counted` hold the read's last error, and `owed` and the sink counts stay. When the truth cannot be read, the drift and `<counter>_sink` are unknown, and `<counter>_counted` stays. When the run did not converge, or the edge kept accepting sends through the final truth reads, sends could still land while the counters were read, so the drift is unknown and both sides stay. A send that the edge accepts only while the counters are read, such as a replay of an event still in Kafka, reaches the counters but not the sink, so it shows as positive drift. Without a recovery horizon, `owed` is unknown.
-    - Some keys are always `null` and censored for now, and their `_unmeasured` property says why:
-      - `email_sent_events`, the count of `$workflows_email_sent` events: the stack runs no ingestion, so the events that capture accepts never reach ClickHouse.
-      - `email_bounced`: the edge records a bounce only after the SES webhook answers, so the sink can trail the counter while the read settles.
-      - `email_failed` and `email_failed_sink`: the sink cannot tell a refused send that the worker retried and sent from a refused send that another invocation of the same unit sent, so it can miss a failure the counter holds. `email_failed_counted` stays.
-  - `step_claims_per_second`, per queue and ramp step, jobs per second: the claim rate from `cdp_cyclotron_jobs_processed` in each step, keyed `<queue>_<scale>x`, such as `hogflow_10x`, from the samples inside the step, and incomplete when a replica has a scrape gap in it or restarts in it. Read it against the step's offered rate to see whether the workers kept up.
-  - `step_host_busy_percent`, per ramp step, percent: the run host's busy share in each step, from the `/proc/stat` samples the host ceiling also reads, keyed `<scale>x`.
-  - `step_role_cpu_cores` and `step_role_busiest_cpu_cores`, per role and ramp step, cores: the `process_cpu_seconds_total` rate in each step, summed over the role's replicas and for its busiest replica, keyed `<role>_<scale>x`, and incomplete as `step_claims_per_second` is. Process CPU counts every thread of the process, so a busiest replica near 1 core suggests, but does not show, a saturated main thread.
-  - `step_writer_backends` and `step_writer_active_waits`, per ramp step, backends: the Cyclotron database's client backends in `pg_stat_activity`, which the runner reads every 5 seconds straight from the writer, not through the poolers, averaged over the step. A read counts for the step in which the writer answered it. A run host hands the runner the writer as `SCENARIO_WRITER_URL`, which `host-prepare.sh` writes where only the host's root can read it once the cluster is migrated and seeded, and `host-run-card.sh` starts no card without it. A cloud run never falls back to another database: without the writer, every read fails as `no direct writer URL in a cloud run`, and the step reads unmeasured. `probes.json` keeps every read. The first is keyed by state, such as `active_<scale>x` or `idle_in_transaction_<scale>x`. The second counts only the active ones, keyed by what they wait on, such as `lock_<scale>x`, `io_<scale>x` or `cpu_<scale>x` when they wait on nothing. Both are incomplete when a read in the step failed, `0` and incomplete, keyed `<scale>x`, when failed reads leave no backend to count, and unmeasured, keyed `<scale>x`, when every read in the step failed or none landed in it. A local run without poolers also counts the runner's own probe sessions. A database user that cannot see other users' backends reads them in state `unknown`.
-  - `write_latency_p99_ms`, milliseconds, and `write_latency_recovery_seconds`, seconds, lower is better: the writer probe's commit latency through a `pg.failover` valve.
-    - The baseline is the p99 of the probes that start and commit in the last 10 minutes before the valve. The bar is twice the baseline. Both publish as `baseline` and `bar`.
-    - With under 30 seconds of baseline before the valve, neither measurement publishes anything.
-    - The valve phase splits into whole minutes from its start, keyed `t<offset seconds>`. A minute's point is the p99 of the probes that commit in it. A minute with a failed probe, or a gap of more than 10 seconds between commits, is not recovered, and a gap marks it incomplete.
-    - Write p99 points cover whole minutes only. The part-minute after the last whole minute publishes no point. A valve with no whole minute, after 30 seconds of baseline or more, publishes one censored `t0` point.
-    - Recovery is the offset of the first minute after the last unrecovered one. It is censored when the bar is unknown or the last minute is unrecovered. It is also censored, with an `_unmeasured` reason, when a probe is in flight at the valve end, when a probe in the trailing part-minute fails or passes the bar, or when the writer idles for more than 1.5 seconds in it.
-    - A minute's p99 from about 60 probes is its slowest probe, so one outlier can delay recovery.
-  - `pickup_p99_seconds` and `pickup_recovery_seconds`, seconds, per queue, keyed `<queue>_`: job pickup lateness from `cdp_cyclotron_job_lateness_seconds` through a `pg.failover` valve.
-    - Every key is `null` and censored: `<queue>_baseline`, `<queue>_bar`, each valve point and the recovery. The worker scrapes come every 5 seconds, so no scrape window ends at T0 or at a minute boundary, and `_unmeasured` says so.
+    - `role_cpu_seconds`, per role, seconds, lower is better: the sum of `process_cpu_seconds_total` increases, per process lifetime, so a killed role's restart does not reset it.
+    - `role_rss_max_bytes`, per role, bytes, lower is better: the maximum of `process_resident_memory_bytes`.
+    - `delivery_latency_ms`, `p50`, `p95` and `max`, milliseconds, lower is better: from the unit's offer to the edge's first 2xx record for each delivery.
+    - `role_heap_max_bytes`, per role, bytes, lower is better: the maximum of `nodejs_heap_size_used_bytes`, for each role that serves it.
+    - `role_restarts`, per role, restarts, lower is better: the supervisor's exits of that role that no valve caused, by the verdict's rule above, summed over replicas. It reads from the end of seeding to the last evidence read, so an exit after the drive counts too. The status reason names the signal of each one, so a reading above 0 shows whether the container was killed or the process exited.
+    - The email worker's attachment gauges, read on `cdp-cyclotron-worker-email` only, since every CDP role registers them:
+        - `attachment_deferrals`, per reason, tokens: the increase of `cdp_email_attachments_deferral_tokens_total`, per process lifetime. Each deferral spent the SES token its dequeue claimed.
+        - `attachment_sends_in_flight_max`, per role, sends: the maximum of `cdp_email_attachments_sends_in_flight`.
+        - `attachment_reserved_bytes_max`, per role, bytes: the maximum of `cdp_email_attachments_reserved_bytes`.
+        - `attachment_budget_bytes`, per role, bytes: the memory budget of each email worker pod, computed as the worker computes it: `CDP_EMAIL_ATTACHMENTS_MEMORY_BUDGET_FRACTION` of the pod's memory less the plain batch allowance. The run target reads the fraction from the role's own settings and the memory from the run host, whose memory limit the roles share. A worker that refuses sends with files is unmeasured, with its refusal. So is a worker whose `NODE_OPTIONS` sizes its heap, since the runner does not read that limit from the worker; reading it is a follow-up.
+        - `attachment_reserved_share_max`, per role, share of the budget: the highest reserved bytes over the budget of the replica that reserved them. At 1, admission is full.
+    - Per ramp step, keyed with the step's scale, such as `at_cap_4x`:
+        - `step_attachment_deferrals_per_second`, per reason, tokens a second: the deferral tokens spent in the step over its length. Each counter is read at the step's edges by linear interpolation between the scrapes on either side, so a scrape interval that crosses an edge splits between the two steps.
+        - `step_delivery_latency_ms`, `plain_p50`, `plain_p95`, `files_p50` and `files_p95`, milliseconds: `delivery_latency_ms` for the units offered in the step. A ramp step offers too few sends for a p99 that is not the step's maximum. A unit delivered after the drive still counts in the step that offered it.
+        - `ramp_onset_scale`, scale: per reason, the first step that spent a deferral token, and `plain_p95_doubled`, the first step whose plain p95 is over twice the first step's. A reason or a slowdown no step reached is censored. A reason whose first token falls in a scrape interval that crosses a step edge is `incomplete`, because the scrapes cannot place it in one step. The slowdown is unmeasured when the first step has no plain send, since it has no baseline. A reason reads the email worker alone, the one role that spends tokens. It is unmeasured when an email-worker restart or missed scrape falls before its first rise, or anywhere in the ramp when it never rises, since the lost scrapes may hold an earlier token; reading across a restart is a follow-up.
+    - `role_exit_ms`, `sigterm`, milliseconds, lower is better: for the card's `role.terminate` entry, from the SIGTERM to the role's exit when the role exited without dying of a SIGKILL. A role that died of a SIGKILL is not measured in this release, whichever valve sent it, and a role whose exit never arrived is unmeasured; both keep the `sigterm` key with their reason. A card with more than one `role.terminate` entry is unmeasured with no key, since its exits have no stable key.
+    - `lease_reclaim_ms`: not measured in this release. It publishes one unmeasured row, and its timing of a stranded send's resend comes in a follow-up.
+    - `resent_invocations`: not measured in this release. It publishes one unmeasured `total` row, and a count of the invocations this run's units resent comes in a follow-up.
+    - `counter_drift`, messages, closer to 0 is better: how far the production email counters drift from the sink's truth. It is a measurement, not a pass or fail bar.
+        - After `check` reads the truth, the runner reads `app_metrics2` in ClickHouse for the run's teams, from the hour the run started, `app_source = 'hog_flow'`. It reads `email_sent`, `email_delivered` and `email_failed`.
+        - The sink's count for each counter comes from the truth of this run's units:
+            - `email_sent`: 2xx `ses.send` records.
+            - `email_delivered`: 0, because the edge publishes no delivery notifications.
+            - `email_failed`: not counted for now, see below.
+        - Metrics arrive late: the worker flushes them after each batch, and ClickHouse consumes them from Kafka. So the runner reads again every second. It stops when no counter changed for 15 seconds, even when the counts already match the sink, so a late duplicate still shows. After a failed read, the 15 seconds start again at the next read that succeeds. After 60 seconds it keeps the last read and marks it incomplete. The reading is saved as `counters.json`.
+        - Keys: `owed`, the email messages the journal owes by the recovery horizon, counted as `no_loss` counts them. For each counter, `<counter>` is the signed difference, counted minus sink, and `<counter>_counted` and `<counter>_sink` are the two sides. A metrics flush that fails, which the monitoring service logs and swallows, shows as negative drift.
+        - On the local stack, which cloud run hosts also start, ClickHouse reads the `clickhouse_app_metrics2` topic through two Kafka tables, `kafka_app_metrics2` and `kafka_app_metrics2_ws`, and both point at the same broker. Most counts land twice. So the runner also counts the materialized views that read a Kafka table and write into `app_metrics2`, `writable_app_metrics2` or `sharded_app_metrics2`, saved in `counters.json` as `consumers`. When that read fails, `counters.json` keeps its error as `consumersUnread`, and the drift's `_unmeasured` reason quotes it. Unless exactly one view feeds it, the drift is unknown, and both sides stay. To read the drift with one consumer, detach `posthog.app_metrics2_ws_mv` for the run and attach it again after.
+        - A side that cannot be read is `null` and censored, and its `_unmeasured` property says why. When ClickHouse cannot be read, the drift and `<counter>_counted` hold the read's last error, and `owed` and the sink counts stay. When the truth cannot be read, the drift and `<counter>_sink` are unknown, and `<counter>_counted` stays. When the run did not converge, or the edge kept accepting sends through the final truth reads, sends could still land while the counters were read, so the drift is unknown and both sides stay. A send that the edge accepts only while the counters are read, such as a replay of an event still in Kafka, reaches the counters but not the sink, so it shows as positive drift. Without a recovery horizon, `owed` is unknown.
+        - Some keys are always `null` and censored for now, and their `_unmeasured` property says why:
+            - `email_sent_events`, the count of `$workflows_email_sent` events: the stack runs no ingestion, so the events that capture accepts never reach ClickHouse.
+            - `email_bounced`: the edge records a bounce only after the SES webhook answers, so the sink can trail the counter while the read settles.
+            - `email_failed` and `email_failed_sink`: the sink cannot tell a refused send that the worker retried and sent from a refused send that another invocation of the same unit sent, so it can miss a failure the counter holds. `email_failed_counted` stays.
+    - `step_claims_per_second`, per queue and ramp step, jobs per second: the claim rate from `cdp_cyclotron_jobs_processed` in each step, keyed `<queue>_<scale>x`, such as `hogflow_10x`, from the samples inside the step, and incomplete when a replica has a scrape gap in it or restarts in it. Read it against the step's offered rate to see whether the workers kept up.
+    - `step_host_busy_percent`, per ramp step, percent: the run host's busy share in each step, from the `/proc/stat` samples the host ceiling also reads, keyed `<scale>x`.
+    - `step_role_cpu_cores` and `step_role_busiest_cpu_cores`, per role and ramp step, cores: the `process_cpu_seconds_total` rate in each step, summed over the role's replicas and for its busiest replica, keyed `<role>_<scale>x`, and incomplete as `step_claims_per_second` is. Process CPU counts every thread of the process, so a busiest replica near 1 core suggests, but does not show, a saturated main thread.
+    - `step_writer_backends` and `step_writer_active_waits`, per ramp step, backends: the Cyclotron database's client backends in `pg_stat_activity`, which the runner reads every 5 seconds straight from the writer, not through the poolers, averaged over the step. A read counts for the step in which the writer answered it. A run host hands the runner the writer as `SCENARIO_WRITER_URL`, which `host-prepare.sh` writes where only the host's root can read it once the cluster is migrated and seeded, and `host-run-card.sh` starts no card without it. A cloud run never falls back to another database: without the writer, every read fails as `no direct writer URL in a cloud run`, and the step reads unmeasured. `probes.json` keeps every read. The first is keyed by state, such as `active_<scale>x` or `idle_in_transaction_<scale>x`. The second counts only the active ones, keyed by what they wait on, such as `lock_<scale>x`, `io_<scale>x` or `cpu_<scale>x` when they wait on nothing. Both are incomplete when a read in the step failed, `0` and incomplete, keyed `<scale>x`, when failed reads leave no backend to count, and unmeasured, keyed `<scale>x`, when every read in the step failed or none landed in it. A local run without poolers also counts the runner's own probe sessions. A database user that cannot see other users' backends reads them in state `unknown`.
+    - `write_latency_p99_ms`, milliseconds, and `write_latency_recovery_seconds`, seconds, lower is better: the writer probe's commit latency through a `pg.failover` valve.
+        - The baseline is the p99 of the probes that start and commit in the last 10 minutes before the valve. The bar is twice the baseline. Both publish as `baseline` and `bar`.
+        - With under 30 seconds of baseline before the valve, neither measurement publishes anything.
+        - The valve phase splits into whole minutes from its start, keyed `t<offset seconds>`. A minute's point is the p99 of the probes that commit in it. A minute with a failed probe, or a gap of more than 10 seconds between commits, is not recovered, and a gap marks it incomplete.
+        - Write p99 points cover whole minutes only. The part-minute after the last whole minute publishes no point. A valve with no whole minute, after 30 seconds of baseline or more, publishes one censored `t0` point.
+        - Recovery is the offset of the first minute after the last unrecovered one. It is censored when the bar is unknown or the last minute is unrecovered. It is also censored, with an `_unmeasured` reason, when a probe is in flight at the valve end, when a probe in the trailing part-minute fails or passes the bar, or when the writer idles for more than 1.5 seconds in it.
+        - A minute's p99 from about 60 probes is its slowest probe, so one outlier can delay recovery.
+    - `pickup_p99_seconds` and `pickup_recovery_seconds`, seconds, per queue, keyed `<queue>_`: job pickup lateness from `cdp_cyclotron_job_lateness_seconds` through a `pg.failover` valve.
+        - Every key is `null` and censored: `<queue>_baseline`, `<queue>_bar`, each valve point and the recovery. The worker scrapes come every 5 seconds, so no scrape window ends at T0 or at a minute boundary, and `_unmeasured` says so.
 
 ### Cyclotron probe
 
 ```ts
 // nodejs/tests/scenarios/probe/cyclotron-probe.ts
 export interface CyclotronProbe {
-  unfinishedJobs(query: { teams: number[]; queues: ('hogflow' | 'email')[] }): Promise<number>
-  runningJobs(query: { teams: number[]; queues: ('hogflow' | 'email')[] }): Promise<number>
+    unfinishedJobs(query: { teams: number[]; queues: ("hogflow" | "email")[] }): Promise<number>;
+    runningJobs(query: { teams: number[]; queues: ("hogflow" | "email")[] }): Promise<number>;
 }
 ```
 

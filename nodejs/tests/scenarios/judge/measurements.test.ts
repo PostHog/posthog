@@ -503,77 +503,6 @@ describe('measurements', () => {
         actionId: 'webhook',
     })
 
-    it.each<[string, TruthRecord[], Partial<MeasureEvidence>, object[]]>([
-        [
-            'counts only the accepted SES sends of one delivery, not its failed attempts or its webhook',
-            [
-                record(1, 'run-a-1', 0, 500),
-                record(2, 'run-a-1', 10, 503),
-                record(3, 'run-a-1', 20),
-                record(4, 'run-a-2', 0),
-                record(5, 'run-a-2', 10),
-                webhook(6, 'run-a-3'),
-                webhook(7, 'run-a-3'),
-                webhook(8, 'run-a-3'),
-            ],
-            {},
-            [{ value: 2 }],
-        ],
-        [
-            'marks the maximum incomplete when the last truth read failed',
-            [record(1, 'run-a-1', 0)],
-            { unread: 'the edge did not answer' },
-            [{ value: 1, incomplete: true }],
-        ],
-        [
-            'marks the maximum incomplete when the run did not converge',
-            [record(1, 'run-a-1', 0)],
-            { converged: false },
-            [{ value: 1, incomplete: true }],
-        ],
-        [
-            'leaves the maximum unmeasured when no accepted send was read and the truth read failed',
-            [],
-            { unread: 'the edge did not answer' },
-            [{ value: null, censored: true, unmeasured: 'no accepted SES send was read' }],
-        ],
-    ])('sends_per_message_max %s', (_story, truth, partial, measured) => {
-        expect(
-            measure([{ name: 'sends_per_message_max', params: {} }], evidence({ truth, ...partial })).map(
-                ({ name: _name, unit: _unit, ...value }) => value
-            )
-        ).toEqual(measured)
-    })
-
-    it('splits the delivery times of plain sends from sends with files when the units say which they are', () => {
-        const sent = (unitId: string, attachments: string[]): JournalEntry => ({
-            ...offered(unitId, 0),
-            expect: { deliveries: ['email'], attachments },
-        })
-        const hooked: JournalEntry = { ...offered('hook-1', 0), expect: { deliveries: ['webhook'] } }
-        const journal = [sent('plain-1', []), sent('plain-2', []), sent('files-1', ['a1b2c3']), hooked]
-        const truth = [
-            record(1, 'plain-1', 100),
-            record(2, 'plain-2', 300),
-            record(3, 'files-1', 5000),
-            { ...webhook(4, 'hook-1'), at: new Date(FROM + 9000).toISOString() },
-        ]
-
-        expect(measure([{ name: 'delivery_latency_ms', params: {} }], evidence({ journal, truth }))).toEqual(
-            [
-                ['p50', 300],
-                ['p95', 9000],
-                ['max', 9000],
-                ['plain_p50', 100],
-                ['plain_p95', 300],
-                ['plain_max', 300],
-                ['files_p50', 5000],
-                ['files_p95', 5000],
-                ['files_max', 5000],
-            ].map(([key, value]) => ({ name: 'delivery_latency_ms', key, value, unit: 'ms' }))
-        )
-    })
-
     it('reads each ramp step on its own, and names the step where each reason first deferred and plain mail slowed', () => {
         const sent = (unitId: string, offeredAtMs: number, attachments: string[]): JournalEntry => ({
             ...offered(unitId, offeredAtMs),
@@ -649,7 +578,8 @@ describe('measurements', () => {
             name: 'ramp_onset_scale',
             value: null,
             censored: true,
-            unmeasured: 'not measured: a restart or missed scrape up to the first rise can hide deferrals, a follow-up',
+            unmeasured:
+                'not measured: a restart or missed scrape before the first rise can hide deferrals, a follow-up',
         }
         expect(
             read({ ...ramp(journal, truth), samples: restarted }).filter(
@@ -660,6 +590,28 @@ describe('measurements', () => {
             { ...hidden, key: 'over_budget' },
             { name: 'ramp_onset_scale', key: 'plain_p95_doubled', value: 4 },
         ])
+        const apiSamples = [-1, 3, 11, 15, 19, 23].map((second) => ({
+            ...withGauges(sample(second, -60, 1), 1),
+            role: 'cdp-api',
+        }))
+        const gapsAwayFromTheRise = {
+            ...ramp(journal, truth),
+            samples: [...samples, ...apiSamples],
+            missed: [
+                { role: 'cdp-api', replica: 0, at: atS(7) },
+                { role: ROLE, replica: 0, at: atS(17) },
+            ],
+        }
+        expect(read(gapsAwayFromTheRise).filter((row) => 'name' in row && row.name === 'ramp_onset_scale')).toEqual([
+            { name: 'ramp_onset_scale', key: 'at_cap', value: 1, incomplete: true },
+            { name: 'ramp_onset_scale', key: 'over_budget', value: 4 },
+            { name: 'ramp_onset_scale', key: 'plain_p95_doubled', value: 4 },
+        ])
+        expect(
+            read({ ...ramp(journal, truth), missed: [{ role: ROLE, replica: 0, at: atS(9) }] }).filter(
+                (row) => 'name' in row && row.name === 'ramp_onset_scale' && 'key' in row && row.key === 'over_budget'
+            )
+        ).toEqual([{ ...hidden, key: 'over_budget' }])
     })
 
     it('samples the process metrics a role serves at start and at stop', async () => {

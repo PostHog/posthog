@@ -1967,6 +1967,58 @@ describe('runner through seed, drive and judge', () => {
         })
     }, 30_000)
 
+    it('counts a role exit during the writer CPU read in both the verdict and role_restarts', async () => {
+        const runId = randomUUID()
+        const manifestFile = path.join(cacheHome, 'manifest.json')
+        writeFileSync(
+            manifestFile,
+            JSON.stringify({
+                runId,
+                account: '000000000000',
+                stackName: `scn-${runId}`,
+                schedules: [],
+                expiresAt: new Date(Date.now() + 3_600_000).toISOString(),
+            })
+        )
+        const onHost: Environment = {
+            ...environmentOf('all'),
+            writerCpu: () => {
+                exits.push({
+                    role: 'cdp-cyclotron-worker-hogflow',
+                    replica: 0,
+                    at: new Date().toISOString(),
+                    code: 1,
+                    signal: null,
+                    byValve: false,
+                })
+                return Promise.resolve([])
+            },
+        }
+        const writerCpu = load(path.join(__dirname, '..', 'cards', 'cyclotron-scale.yaml')).card.bars.filter(
+            ({ name }) => name === 'writer_cpu_under'
+        )
+
+        const result = await createRunner(
+            onHost,
+            { ...env, SCENARIO_RUN_MANIFEST: manifestFile },
+            { topologyWithinMs: 1000, topologyEveryMs: 10 }
+        ).run(
+            shortSmoke([], undefined, { bars: writerCpu, measures: [{ name: 'role_restarts', params: {} }] }),
+            NEVER_ABORTED
+        )
+        results.push(result)
+
+        expect({
+            statusReason: result.statusReason,
+            restarts: result.measurements?.find(({ key }) => key === 'cdp-cyclotron-worker-hogflow')?.value,
+        }).toEqual({
+            statusReason: expect.stringContaining(
+                'cdp-cyclotron-worker-hogflow exited (code 1) without a valve causing it'
+            ),
+            restarts: 1,
+        })
+    }, 60_000)
+
     it('drives a run whose topology still changes at the deadline, and records a read past the first two', async () => {
         wiringChurns = true
 

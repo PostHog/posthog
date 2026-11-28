@@ -159,6 +159,32 @@ describe('the edge in front of the attachment store', () => {
         })
     })
 
+    test('passes an upload whose server error was released before its body ended', async () => {
+        const uploaded = file()
+        const status = fault({ name: 's3.status', params: { code: 503 }, match: { op: 'put' }, dose: { share: 1 } })
+        const [slot] = await store.prepareUploads(TEAM, [{ sha256: uploaded.sha256, size: uploaded.sizeBytes }])
+        if (slot.status !== 'upload') {
+            throw new Error(`expected an upload slot, got ${slot.status}`)
+        }
+        const upload = http.request(slot.url, {
+            method: slot.method,
+            headers: { ...slot.headers, expect: '100-continue' },
+        })
+        const answered = once(upload, 'response') as Promise<[http.IncomingMessage]>
+        upload.flushHeaders()
+        await once(upload, 'continue')
+        upload.write(uploaded.bytes.subarray(0, FILE_BYTES / 2))
+        edge.removeFault(status)
+        upload.end(uploaded.bytes.subarray(FILE_BYTES / 2))
+        const [answer] = await answered
+        answer.resume()
+
+        expect({ status: answer.statusCode, answered: edge.firstAppliedAt(status) }).toEqual({
+            status: 200,
+            answered: undefined,
+        })
+    })
+
     test('drops its call to the store when the caller hangs up first, and passes the next call', async () => {
         const held: http.IncomingMessage[] = []
         const slowStore = http.createServer((req, res) => {
@@ -188,23 +214,44 @@ describe('the edge in front of the attachment store', () => {
         }
     })
 
-    test('holds the first download too large to pass whole for edge_accepted, and passes uploads, a short download and the next one', async () => {
-        const short = file()
-        const uploaded = file(256 * 1024)
-        const hold = edge.hold(heldAnswerRule({ channel: 's3' }))
-        await upload(short)
-        await upload(uploaded)
+    test('holds the first download larger than its free bytes for edge_accepted, and passes a short one and the next one', async () => {
+        const bodies: Record<string, Buffer> = { '/short': randomBytes(FILE_BYTES), '/large': randomBytes(256 * 1024) }
+        const store = http.createServer((req, res) => res.end(bodies[req.url ?? '']))
+        await new Promise<void>((resolve) => store.listen(0, '127.0.0.1', resolve))
+        const get = (proxy: string, path: string, onBytes: (received: number) => void = () => undefined) =>
+            new Promise<number>((resolve, reject) => {
+                let received = 0
+                http.get(`${proxy}${path}`, (answer) => {
+                    answer.on('data', (chunk: Buffer) => {
+                        received += chunk.length
+                        onBytes(received)
+                    })
+                    answer.once('end', () => resolve(received))
+                }).on('error', reject)
+            })
+        try {
+            const proxy = await edge.s3ProxyOf(`http://127.0.0.1:${(store.address() as AddressInfo).port}/`)
+            const hold = edge.addFault(heldAnswerRule({ channel: 's3' }))
 
-        const passed = await load(short)
-        const abort = new AbortController()
-        const held = load(uploaded, abort.signal).catch((error: unknown) => error)
-        const accepted = await hold.accepted!(AbortSignal.timeout(10_000))
-        abort.abort()
+            const short = await get(proxy, '/short')
+            const afterShort = edge.firstAppliedAt(hold)
+            let firstAtFree: number | undefined
+            void get(proxy, '/large', (received) => {
+                firstAtFree ??= received >= 64 * 1024 ? received : undefined
+            }).catch(() => undefined)
+            await waitForExpect(() => expect(firstAtFree).toBeDefined(), 10_000, 5)
 
-        expect({ passed, accepted }).toEqual({ passed: short.bytes, accepted: true })
-        expect(await held).toBeInstanceOf(AttachmentStoreUnavailableError)
-        expect(await load(uploaded)).toEqual(uploaded.bytes)
-        await hold.release()
+            expect({ short, afterShort, firstAtFree, held: edge.firstAppliedAt(hold) !== undefined }).toEqual({
+                short: FILE_BYTES,
+                afterShort: undefined,
+                firstAtFree: 64 * 1024,
+                held: true,
+            })
+            expect(await get(proxy, '/large')).toBe(256 * 1024)
+        } finally {
+            store.closeAllConnections()
+            await new Promise((resolve) => store.close(resolve))
+        }
     })
 
     test.each([
@@ -244,7 +291,7 @@ describe('the edge in front of the attachment store', () => {
         })
     })
 
-    test.each(['https://store.example.com', 'http://localhost:19000/s3'])(
+    test.each(['https://store.example.com', 'http://localhost:19000/s3', 'http://[::1]:19000'])(
         'refuses to stand in front of %s, which it cannot reach as the client would',
         async (upstream) => {
             await expect(edge.s3ProxyOf(upstream)).rejects.toThrow(
