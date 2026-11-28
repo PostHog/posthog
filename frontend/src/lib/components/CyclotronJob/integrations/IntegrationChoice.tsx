@@ -37,8 +37,13 @@ export function IntegrationChoice({
     beforeRedirect,
     allowClear = true,
 }: IntegrationConfigureProps): JSX.Element | null {
-    const { integrationsLoading, integrations, newIntegrationModalKind, newIntegrationModalId, slackAvailable } =
-        useValues(integrationsLogic)
+    const {
+        integrationsLoading,
+        providerIntegrations,
+        newIntegrationModalKind,
+        newIntegrationModalId,
+        slackAvailable,
+    } = useValues(integrationsLogic)
     const { newGoogleCloudKey, openNewIntegrationModal, closeNewIntegrationModal, deleteIntegration } =
         useActions(integrationsLogic)
     const { reportIntegrationConnectClicked } = useActions(eventUsageLogic)
@@ -54,14 +59,16 @@ export function IntegrationChoice({
     // shared modal open-state is matched on this id to route completion back to the right picker.
     const modalId = useId()
 
-    const integrationsOfKind = integrations?.filter((x) => x.kind === kind)
+    // A warehouse source keeps its typed-in credentials in a row of the provider's kind. The APIs that
+    // take a connection id refuse that row, so the picker must not offer or auto-select it.
+    const integrationsOfKind = providerIntegrations?.filter((x) => x.kind === kind)
     const integrationKind = findIntegrationByFormValue(integrationsOfKind, value)
 
     // The stored value points to an integration that's no longer available (deleted, or
     // re-installed under a new ID). We deliberately do NOT auto-substitute here — that
     // would silently mask the missing reference and let stale config keep flowing through
     // saves. The UI surfaces a warning below instead so the user picks explicitly.
-    const valueIsMissing = !integrationsLoading && !!value && !!integrations && !integrationKind
+    const valueIsMissing = !integrationsLoading && !!value && !!providerIntegrations && !integrationKind
 
     // Fire at most once: the consumer's write may take a full state round-trip before it flows
     // back into `value`, and re-dispatching on every render in that window can amplify into an

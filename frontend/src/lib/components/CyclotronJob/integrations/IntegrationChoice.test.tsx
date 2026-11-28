@@ -93,6 +93,36 @@ describe('IntegrationChoice', () => {
         expect(onChange).toHaveBeenCalledTimes(1)
     })
 
+    it('never offers a warehouse source credential row of the same kind as a connection', async () => {
+        const sourceRow: IntegrationType = {
+            ...GITHUB_INTEGRATION,
+            id: 7,
+            kind: 'aws-redshift',
+            display_name: 'Source credentials',
+            config: { warehouse_source_type: 'Redshift' },
+        }
+        const connection: IntegrationType = {
+            ...GITHUB_INTEGRATION,
+            id: 8,
+            kind: 'aws-redshift',
+            display_name: 'Export connection',
+        }
+        useMocks({
+            get: { '/api/projects/:team_id/integrations': () => [200, { results: [sourceRow, connection] }] },
+        })
+        const onChange = jest.fn()
+        render(
+            <Provider>
+                <IntegrationChoice integration="aws-redshift" onChange={onChange} />
+            </Provider>
+        )
+
+        await waitFor(() => {
+            expect(onChange).toHaveBeenCalledWith(8)
+        })
+        expect(onChange).not.toHaveBeenCalledWith(7)
+    })
+
     it('routes a new connection to the picker that opened the modal, not a same-kind sibling', async () => {
         // A Redshift COPY export renders two aws-s3 pickers that share one unkeyed setup-modal
         // logic. Completing the modal opened from the first picker must call the first picker's
