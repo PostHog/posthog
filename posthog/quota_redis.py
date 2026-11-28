@@ -1,6 +1,7 @@
 import os
 import threading
 from collections.abc import Iterable, Mapping
+from hashlib import sha256
 from itertools import batched, chain
 from math import inf
 from time import monotonic
@@ -27,7 +28,6 @@ type QuotaRedisClient = Redis | RedisCluster
 QUOTA_WRITE_BATCH_SIZE = 5_000
 QUOTA_WRITE_BUDGET_SECONDS = 30.0
 ROWS_SYNCED_LIMIT_KEY = "@posthog/quota-limits/rows_synced"
-_ROWS_SYNCED_CLEARS_KEY = f"{{{ROWS_SYNCED_LIMIT_KEY}}}:clears"
 _ROWS_SYNCED_CLEAR_RETENTION_SECONDS = 86_400
 ROWS_SYNCED_WRITE_BATCH_SIZE = 1_000
 
@@ -39,35 +39,21 @@ local now = timestamp[1] * 1000000 + timestamp[2]
 _CLEAR_ROWS_SYNCED_LIMITS = (
     _QUOTA_REDIS_TIME
     + """
-local retention = tonumber(ARGV[1])
 local score = string.format('%.0f', now)
-for index = 2, #ARGV do
-    local token = ARGV[index]
-    redis.call('ZADD', KEYS[2], score, token)
-    redis.call('ZREM', KEYS[1], token)
-end
-redis.call('EXPIRE', KEYS[2], retention)
-"""
-)
-
-_PRUNE_ROWS_SYNCED_CLEARS = (
-    _QUOTA_REDIS_TIME
-    + """
-local oldest = string.format('%.0f', now - tonumber(ARGV[1]) * 1000000)
-local expired = redis.call('ZRANGEBYSCORE', KEYS[1], '-inf', oldest, 'LIMIT', 0, ARGV[2])
-if #expired > 0 then
-    redis.call('ZREM', KEYS[1], unpack(expired))
+for index = 2, #KEYS do
+    redis.call('SET', KEYS[index], score, 'EX', ARGV[1])
+    redis.call('ZREM', KEYS[1], ARGV[index])
 end
 """
 )
 
 _ADD_ROWS_SYNCED_LIMITS = """
 local cutoff = tonumber(ARGV[1])
-for index = 2, #ARGV, 2 do
-    local token = ARGV[index]
-    local cleared = redis.call('ZSCORE', KEYS[2], token)
+for index = 2, #KEYS do
+    local cleared = redis.call('GET', KEYS[index])
     if not cleared or tonumber(cleared) < cutoff then
-        redis.call('ZADD', KEYS[1], ARGV[index + 1], token)
+        local token_index = 2 * index - 2
+        redis.call('ZADD', KEYS[1], ARGV[token_index + 1], ARGV[token_index])
     end
 end
 """
@@ -210,6 +196,10 @@ def rows_synced_snapshot_cutoff(client: QuotaRedisClient, keys: Mapping[str, obj
     return cast(int, client.eval(_QUOTA_REDIS_TIME + "return now", 1, ROWS_SYNCED_LIMIT_KEY))
 
 
+def _rows_synced_clear_key(token: str) -> str:
+    return f"{{{ROWS_SYNCED_LIMIT_KEY}}}:clear:{sha256(token.encode()).hexdigest()}"
+
+
 def remove_quota_tokens(client: QuotaRedisClient, key: str, tokens: list[str]) -> None:
     if key != ROWS_SYNCED_LIMIT_KEY:
         client.zrem(key, *tokens)
@@ -217,9 +207,9 @@ def remove_quota_tokens(client: QuotaRedisClient, key: str, tokens: list[str]) -
     for token_batch in batched(tokens, ROWS_SYNCED_WRITE_BATCH_SIZE, strict=False):
         client.eval(
             _CLEAR_ROWS_SYNCED_LIMITS,
-            2,
+            1 + len(token_batch),
             key,
-            _ROWS_SYNCED_CLEARS_KEY,
+            *(_rows_synced_clear_key(token) for token in token_batch),
             _ROWS_SYNCED_CLEAR_RETENTION_SECONDS,
             *token_batch,
         )
@@ -228,17 +218,12 @@ def remove_quota_tokens(client: QuotaRedisClient, key: str, tokens: list[str]) -
 def add_rows_synced_quota_batch(client: QuotaRedisClient, tokens: tuple[tuple[str, int], ...], cutoff: int) -> None:
     """Check for explicit clears and write limits atomically, even if the token was absent at snapshot time."""
     client.eval(
-        _ADD_ROWS_SYNCED_LIMITS, 2, ROWS_SYNCED_LIMIT_KEY, _ROWS_SYNCED_CLEARS_KEY, cutoff, *chain.from_iterable(tokens)
-    )
-
-
-def prune_rows_synced_clear_batch(client: QuotaRedisClient) -> None:
-    client.eval(
-        _PRUNE_ROWS_SYNCED_CLEARS,
-        1,
-        _ROWS_SYNCED_CLEARS_KEY,
-        _ROWS_SYNCED_CLEAR_RETENTION_SECONDS,
-        ROWS_SYNCED_WRITE_BATCH_SIZE,
+        _ADD_ROWS_SYNCED_LIMITS,
+        1 + len(tokens),
+        ROWS_SYNCED_LIMIT_KEY,
+        *(_rows_synced_clear_key(token) for token, _ in tokens),
+        cutoff,
+        *chain.from_iterable(tokens),
     )
 
 
@@ -265,5 +250,3 @@ def reconcile_quota_set(
             client.zadd(key, dict(token_batch))
         else:
             add_rows_synced_quota_batch(client, token_batch, rows_synced_cutoff)
-    if key == ROWS_SYNCED_LIMIT_KEY and monotonic() < deadline:
-        prune_rows_synced_clear_batch(client)

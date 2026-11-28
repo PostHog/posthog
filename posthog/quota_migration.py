@@ -1,5 +1,5 @@
 from collections.abc import Callable, Iterator, Mapping, Sequence
-from dataclasses import field
+from dataclasses import field, replace
 from functools import partial
 from math import inf
 from time import monotonic, sleep, time
@@ -159,12 +159,10 @@ class QuotaReconciliationSnapshots:
                 key: [token for token in tokens if token not in protected_tokens] for key, tokens in snapshot.items()
             }
 
-        return QuotaReconciliationSnapshots(
+        return replace(
+            self,
             shared=exclude(self.shared),
             secondary=None if self.secondary is None else exclude(self.secondary),
-            secondary_budget_seconds_left=self.secondary_budget_seconds_left,
-            shared_rows_synced_cutoff=self.shared_rows_synced_cutoff,
-            secondary_rows_synced_cutoff=self.secondary_rows_synced_cutoff,
         )
 
 
