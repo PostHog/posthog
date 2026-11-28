@@ -15752,10 +15752,10 @@ Diffed against: <https://api.vantage.sh/v2/swagger.json>
 - [x] `GET /unit_costs` — unit economics per cost report (cost per business unit), a headline FinOps metric (medium)
 - [x] `GET /business_metrics and GET /business_metrics/{token}/values` — the metric series that unit costs divide by; needed to reproduce unit-cost math (medium)
 - [x] `GET /network_flow_logs` — the aggregated flow data behind network_flow_reports, which we sync definitions of only (medium)
-- [ ] `GET /cost_alerts/{cost_alert_token}/events` — firing history for the cost alerts we already sync — the state-transition table (medium)
-- [ ] `GET /cost_reports/{cost_report_token}/forecasted_costs` — forecast series per report, used for budget-vs-forecast analysis (medium)
-- [ ] `GET /recommendations/{recommendation_token}/resources` — the specific resources each savings recommendation targets (medium)
-- [ ] `GET /virtual_tag_configs` — lookup defining the virtual tags used to group costs in reports (medium)
+- [x] `GET /cost_alerts/{cost_alert_token}/events` — firing history for the cost alerts we already sync — the state-transition table (medium)
+- [x] `GET /cost_reports/{cost_report_token}/forecasted_costs` — forecast series per report, used for budget-vs-forecast analysis (medium)
+- [x] `GET /recommendations/{recommendation_token}/resources` — the specific resources each savings recommendation targets (medium)
+- [x] `GET /virtual_tag_configs` — lookup defining the virtual tags used to group costs in reports (medium)
 
 Note: Spec is Vantage's own OpenAPI at api.vantage.sh/v2/swagger.json (v2.0.0); vantage.readme.io/openapi.json redirects. The pattern across this source is that report \*definitions\* are synced (cost_reports, resource_reports, network_flow_reports, financial_commitment_reports) but none of the data those reports return. Below the cut: /audit_logs, /invoices (MSP only), /teams/{token}/members, /products and /products/{id}/prices, /billing_profiles, /managed_accounts, /canvases. Excluded /anomaly_notifications, /budget_alerts, /recommendation_views, /me and /ping as config/plumbing.
 
