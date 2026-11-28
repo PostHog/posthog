@@ -1,39 +1,19 @@
 import { useValues } from 'kea'
-import { useLayoutEffect } from 'react'
+import { Suspense } from 'react'
 import { Slide, ToastContainer } from 'react-toastify'
 
-import { ToastProvider, toast } from '@posthog/quill'
-
 import { FEATURE_FLAGS } from 'lib/constants'
-import { useWindowSize } from 'lib/hooks/useWindowSize'
 import { ToastCloseButton } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { setQuillToasts } from 'lib/lemon-ui/LemonToast/quillToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { lazyWithRetry } from 'lib/utils/retryImport'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
-export function AppToaster(): JSX.Element {
-    const { featureFlags } = useValues(featureFlagLogic)
+// Quill stays off the shell's eager path, so its toaster loads only behind the flag.
+const QuillToaster = lazyWithRetry(() => import('./QuillToaster'))
+
+function ToastifyToaster(): JSX.Element {
     const { isDarkModeOn } = useValues(themeLogic)
-    // Reads the window rather than todayShellLogic, which would mount the shell on pages that have none.
-    // `md` is the shell's phone width, TODAY_PHONE_MAX_WIDTH.
-    const { isWindowLessThan } = useWindowSize()
-    const quill = !!featureFlags[FEATURE_FLAGS.TODAY_RAIL_NAV]
-
-    useLayoutEffect(() => {
-        setQuillToasts(quill ? toast : null)
-        return () => setQuillToasts(null)
-    }, [quill])
-
-    if (quill) {
-        return (
-            // The phone layout's tab bar holds the bottom of the screen.
-            <ToastProvider limit={5} placement={isWindowLessThan('md') ? 'top-center' : 'bottom-right'}>
-                {null}
-            </ToastProvider>
-        )
-    }
-
     return (
         <ToastContainer
             autoClose={6000}
@@ -43,4 +23,18 @@ export function AppToaster(): JSX.Element {
             theme={isDarkModeOn ? 'dark' : 'light'}
         />
     )
+}
+
+export function AppToaster(): JSX.Element {
+    const { featureFlags } = useValues(featureFlagLogic)
+
+    if (featureFlags[FEATURE_FLAGS.TODAY_RAIL_NAV]) {
+        return (
+            // lemonToast falls back to react-toastify until quill's viewport mounts, so the fallback shows those.
+            <Suspense fallback={<ToastifyToaster />}>
+                <QuillToaster />
+            </Suspense>
+        )
+    }
+    return <ToastifyToaster />
 }
