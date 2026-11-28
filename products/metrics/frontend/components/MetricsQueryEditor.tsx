@@ -19,8 +19,8 @@ export function MetricsQueryEditor({
     editorKey: string
     query: MetricsQuery
     setQuery: (query: MetricsQuery) => void
-    /** Shows the builder / PromQL / SQL switch. Gets the query as it is now, including an unrun draft. */
-    onSwitchLanguage?: (current: MetricsQuery, to: MetricsQueryLanguage) => void
+    /** Switches the query between the builder, PromQL and SQL. Gets the query as it is now, including an unrun draft. */
+    onSwitchLanguage: (current: MetricsQuery, to: MetricsQueryLanguage) => void
     /** Runs the current PromQL or SQL query again when Run is pressed without a change, as after a failure. */
     onRerun?: () => void
 }): JSX.Element {

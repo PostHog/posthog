@@ -45,7 +45,6 @@ const EMPTY_QUERY_MESSAGE: Record<MetricsQueryLanguage, string> = {
 
 export function MetricsQueryNode(props: MetricsQueryNodeProps): JSX.Element | null {
     const builderEnabled = useFeatureFlag('METRICS_INSIGHT_BUILDER')
-    const languagesEnabled = useFeatureFlag('METRICS_QUERY_LANGUAGES')
     // A language switch replaces the query, so the editor remounts to seed its logic from the new one.
     const [editorKey, setEditorKey] = useState(() => `MetricsQueryEditor.${uniqueEditor++}`)
     const dataQuery = useMemo(() => {
@@ -71,13 +70,11 @@ export function MetricsQueryNode(props: MetricsQueryNodeProps): JSX.Element | nu
     }
 
     const setQuery = props.setQuery
-    const onSwitchLanguage = languagesEnabled
-        ? (current: MetricsQuery, to: MetricsQueryLanguage): void =>
-              switchMetricsQueryLanguage(current, to, (converted) => {
-                  setQuery(converted)
-                  setEditorKey(`MetricsQueryEditor.${uniqueEditor++}`)
-              })
-        : undefined
+    const onSwitchLanguage = (current: MetricsQuery, to: MetricsQueryLanguage): void =>
+        switchMetricsQueryLanguage(current, to, (converted) => {
+            setQuery(converted)
+            setEditorKey(`MetricsQueryEditor.${uniqueEditor++}`)
+        })
 
     return (
         <div className="flex flex-col gap-3 w-full">
@@ -92,16 +89,9 @@ export function MetricsQueryNode(props: MetricsQueryNodeProps): JSX.Element | nu
                 />
             ) : (
                 <div className="flex flex-col items-start gap-2">
-                    {onSwitchLanguage && (
-                        <MetricsQueryLanguagePicker
-                            value="builder"
-                            onChange={(to) => onSwitchLanguage(props.query, to)}
-                        />
-                    )}
+                    <MetricsQueryLanguagePicker value="builder" onChange={(to) => onSwitchLanguage(props.query, to)} />
                     <LemonBanner type="info" className="w-full">
-                        {onSwitchLanguage
-                            ? 'The builder cannot show this query. Switch to PromQL or SQL to edit it.'
-                            : 'This insight uses settings that the builder cannot show, so the builder is off for this insight.'}
+                        The builder cannot show this query. Switch to PromQL or SQL to edit it.
                     </LemonBanner>
                 </div>
             )}

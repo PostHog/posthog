@@ -22,8 +22,8 @@ export interface MetricsQueryControlsProps {
     dataAttrPrefix: 'metrics-query-editor'
     /** The query a language switch converts while the builder has no metric yet. */
     fallbackQuery?: MetricsQuery
-    /** Shows the builder / PromQL / SQL switch. Gets the query as it is now, including an unrun draft. */
-    onSwitchLanguage?: (current: MetricsQuery, to: MetricsQueryLanguage) => void
+    /** Switches the query between the builder, PromQL and SQL. Gets the query as it is now, including an unrun draft. */
+    onSwitchLanguage: (current: MetricsQuery, to: MetricsQueryLanguage) => void
     /** Runs the current PromQL or SQL query again when Run is pressed without a change, as after a failure. */
     onRerun?: () => void
     /** Offers the heatmap display, which saves a histogram query instead of a time series. */
@@ -45,7 +45,7 @@ export function MetricsQueryControls({
 
     const runQuery = (): void => runMetricsQueryDraft(logic, onRerun)
     const switchLanguage = (to: MetricsQueryLanguage): void =>
-        onSwitchLanguage?.(metricsQueryForLanguageSwitch(logic, fallbackQuery), to)
+        onSwitchLanguage(metricsQueryForLanguageSwitch(logic, fallbackQuery), to)
 
     const dateControls = (
         <div className="flex flex-wrap items-center gap-2">
@@ -58,27 +58,18 @@ export function MetricsQueryControls({
 
     return (
         <div className="flex flex-col gap-2" data-attr={dataAttrPrefix}>
-            {onSwitchLanguage ? (
-                <>
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                        <MetricsQueryLanguagePicker
-                            value={language}
-                            onChange={switchLanguage}
-                            disabledReason={disabledReason}
-                        />
-                        {dateControls}
-                    </div>
-                    {language === 'builder' ? (
-                        builderControls
-                    ) : (
-                        <MetricsQueryTextEditor language={language} disabledReason={disabledReason} onRun={runQuery} />
-                    )}
-                </>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+                <MetricsQueryLanguagePicker
+                    value={language}
+                    onChange={switchLanguage}
+                    disabledReason={disabledReason}
+                />
+                {dateControls}
+            </div>
+            {language === 'builder' ? (
+                builderControls
             ) : (
-                <div className="flex flex-wrap items-start gap-2 justify-between">
-                    {builderControls}
-                    {dateControls}
-                </div>
+                <MetricsQueryTextEditor language={language} disabledReason={disabledReason} onRun={runQuery} />
             )}
             <div className="flex flex-wrap items-center justify-between gap-2">
                 <div className="flex flex-wrap items-center gap-2">

@@ -2,7 +2,6 @@ import { useActions, useMountedLogic, useValues } from 'kea'
 
 import { LemonButton } from '@posthog/lemon-ui'
 
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 
 import { type MetricsQueryLanguage } from '~/queries/schema/schema-general'
@@ -23,7 +22,6 @@ export function MetricsViewerQueryBar(): JSX.Element {
     const logic = useMountedLogic(metricsViewerLogic)
     const { language, interval, queryDraft, queryLoading, noQueryReason } = useValues(logic)
     const { setInterval, fetchQueryResults, applyQuery } = useActions(logic)
-    const languagesEnabled = useFeatureFlag('METRICS_QUERY_LANGUAGES')
     const disabledReason = getAccessControlDisabledReason(AccessControlResourceType.Metrics, AccessControlLevel.Viewer)
 
     const runQueryText = (): void => runMetricsQueryDraft(logic, () => fetchQueryResults({}))
@@ -33,15 +31,11 @@ export function MetricsViewerQueryBar(): JSX.Element {
     return (
         <>
             <div className="flex flex-wrap items-center justify-between gap-2">
-                {languagesEnabled ? (
-                    <MetricsQueryLanguagePicker
-                        value={language}
-                        onChange={switchLanguage}
-                        disabledReason={disabledReason}
-                    />
-                ) : (
-                    <span />
-                )}
+                <MetricsQueryLanguagePicker
+                    value={language}
+                    onChange={switchLanguage}
+                    disabledReason={disabledReason}
+                />
                 <div className="flex flex-wrap items-center gap-2">
                     <MetricsDateRangeFilter disabledReason={disabledReason} />
                     <MetricsIntervalPicker value={interval} onChange={setInterval} disabledReason={disabledReason} />
