@@ -102,7 +102,10 @@ from products.access_control.backend.facade.api import property_key_overlaps_res
 from products.ai_training.backend.facade.api import queue_person_training_deletion
 from products.cohorts.backend.models.cohort import Cohort
 from products.cohorts.backend.models.util import get_all_cohort_ids_by_person_uuid
-from products.messaging.backend.facade.transactional_email_log import transactional_emails_in_log
+from products.messaging.backend.facade.transactional_email_log import (
+    transactional_email_log_enabled,
+    transactional_emails_in_log,
+)
 from products.workflows.backend.facade.api import get_workflow_names, get_workflow_view_access
 from products.workflows.backend.facade.contracts import TRANSACTIONAL_EMAIL_ACTION_ID, MessageAsset
 from products.workflows.backend.facade.message_assets import fetch_message_assets_for_person
@@ -1910,6 +1913,8 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if not sends or scopes_caller_lacks(self.request, ["hog_flow:read"]):
             return rows
         try:
+            if not transactional_email_log_enabled(self.team):
+                return rows
             access = get_workflow_view_access(
                 team_id=self.team_id, user_access_control=self.user_access_control, workflow_ids=set(sends.values())
             )

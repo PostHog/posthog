@@ -27,6 +27,7 @@ from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team, User
 from posthog.models.event.new_events_schema import events_route_scope
+from posthog.ph_client import feature_enabled_or_false
 from posthog.settings import CLICKHOUSE_PER_TEAM_QUERY_SETTINGS
 
 from products.messaging.backend.facade.contracts import (
@@ -78,6 +79,7 @@ _SEND_WINDOW_BYTES = len(
     " AND created_at < '2026-01-01 00:00:00.000000') OR "
 )
 IMPACT_WINDOW_DAYS = 7
+TRANSACTIONAL_EMAIL_API_FLAG = "workflows-transactional-email-api"
 
 # A message's rows sit together in the table's sort key, so grouping can finish each message as it reads on.
 _GROUP_AS_READ: dict[str, int] = {"optimize_aggregation_in_order": 1}
@@ -392,6 +394,17 @@ def get_transactional_email(
             opens=not any(opens_off for *_, opens_off, _ in events),
             clicks=not any(clicks_off for *_, clicks_off in events),
         ),
+    )
+
+
+def transactional_email_log_enabled(team: Team) -> bool:
+    """Whether the project's log pages open, which they do only behind the transactional email API flag."""
+    return feature_enabled_or_false(
+        TRANSACTIONAL_EMAIL_API_FLAG,
+        str(team.uuid),
+        groups={"organization": str(team.organization_id)},
+        group_properties={"organization": {"id": str(team.organization_id)}},
+        send_feature_flag_events=False,
     )
 
 

@@ -414,15 +414,20 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
         assert [row["in_transactional_email_log"] for row in response.json()] == [True] * SENDS_PAST_ONE_QUERY
 
     @parameterized.expand(
-        [("without_workflow_access", ["person:read"], None), ("with_it", ["person:read", "hog_flow:read"], True)]
+        [
+            ("a_token_without_workflow_access", ["person:read"], True, None),
+            ("a_token_with_it", ["person:read", "hog_flow:read"], True, True),
+            ("a_project_without_the_log", ["person:read", "hog_flow:read"], False, None),
+        ]
     )
-    def test_a_persons_emails_say_what_the_log_keeps_only_to_a_token_that_reads_the_log(
-        self, _flag, _name, scopes, expected
+    def test_a_persons_emails_say_what_the_log_keeps_only_to_a_reader_of_the_log(
+        self, _flag, _name, scopes, log_enabled, expected
     ):
         message_id = self._send(10, "jane@example.com", [("sent", 1, "")])
         url = self._record_person_emails({"a send": (10, message_id, None)})
         key = generate_random_token_personal()
         PersonalAPIKey.objects.create(label="scoped", user=self.user, secure_value=hash_key_value(key), scopes=scopes)
+        _flag.return_value = log_enabled
 
         response = self.client.get(url, headers={"authorization": f"Bearer {key}"})
 

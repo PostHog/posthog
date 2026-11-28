@@ -112,6 +112,7 @@ from products.messaging.backend.facade.transactional_email import (
     sync_transactional_workflow,
     transactional_email_stage,
 )
+from products.messaging.backend.facade.transactional_email_log import TRANSACTIONAL_EMAIL_API_FLAG
 from products.messaging.backend.presentation.views.code_send_fields import (
     CODE_SEND_EXTRA_FIELDS,
     MESSAGE_LIMIT,
@@ -604,7 +605,6 @@ IDEMPOTENCY_KEY_PARAMETER = OpenApiParameter(
 )
 
 
-TRANSACTIONAL_EMAIL_API_FLAG = "workflows-transactional-email-api"
 TRANSACTIONAL_PUSH_API_FLAG = "workflows-transactional-push-api"
 EMAIL_SCHEDULED_SENDS_FLAG = "workflows-email-scheduled-sends"
 SCHEDULED_SEND_MAX_LEAD = timedelta(days=7)
