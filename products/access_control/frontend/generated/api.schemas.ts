@@ -122,6 +122,7 @@ export const ResolvedAccessSourceSubjectEnumApi = {
  * * `messaging_preference` - messaging_preference
  * * `metrics` - metrics
  * * `notebook` - notebook
+ * * `investigation` - investigation
  * * `offline_evaluation_ingestion` - offline_evaluation_ingestion
  * * `organization` - organization
  * * `organization_integration` - organization_integration
@@ -248,6 +249,7 @@ export const ScopeObjectEnumApi = {
     MessagingPreference: 'messaging_preference',
     Metrics: 'metrics',
     Notebook: 'notebook',
+    Investigation: 'investigation',
     OfflineEvaluationIngestion: 'offline_evaluation_ingestion',
     Organization: 'organization',
     OrganizationIntegration: 'organization_integration',
@@ -397,6 +399,7 @@ export interface ProjectAccessSourceApi {
      * * `messaging_preference` - messaging_preference
      * * `metrics` - metrics
      * * `notebook` - notebook
+     * * `investigation` - investigation
      * * `offline_evaluation_ingestion` - offline_evaluation_ingestion
      * * `organization` - organization
      * * `organization_integration` - organization_integration
@@ -566,6 +569,7 @@ export interface AccessControlObjectRuleApi {
      * * `messaging_preference` - messaging_preference
      * * `metrics` - metrics
      * * `notebook` - notebook
+     * * `investigation` - investigation
      * * `offline_evaluation_ingestion` - offline_evaluation_ingestion
      * * `organization` - organization
      * * `organization_integration` - organization_integration
@@ -680,6 +684,7 @@ export interface AccessControlPropertyRulesResponseApi {
  * * `hog_flow` - hog_flow
  * * `inbox` - inbox
  * * `insight` - insight
+ * * `investigation` - investigation
  * * `llm_analytics` - llm_analytics
  * * `llm_playground` - llm_playground
  * * `llm_prompt` - llm_prompt
@@ -740,6 +745,7 @@ export const RuleResourceEnumApi = {
     HogFlow: 'hog_flow',
     Inbox: 'inbox',
     Insight: 'insight',
+    Investigation: 'investigation',
     LlmAnalytics: 'llm_analytics',
     LlmPlayground: 'llm_playground',
     LlmPrompt: 'llm_prompt',
@@ -805,6 +811,7 @@ export interface AccessControlRuleRequestApi {
      * * `hog_flow` - hog_flow
      * * `inbox` - inbox
      * * `insight` - insight
+     * * `investigation` - investigation
      * * `llm_analytics` - llm_analytics
      * * `llm_playground` - llm_playground
      * * `llm_prompt` - llm_prompt
@@ -966,6 +973,7 @@ export interface AccessControlObjectRuleResourceApi {
      * * `messaging_preference` - messaging_preference
      * * `metrics` - metrics
      * * `notebook` - notebook
+     * * `investigation` - investigation
      * * `offline_evaluation_ingestion` - offline_evaluation_ingestion
      * * `organization` - organization
      * * `organization_integration` - organization_integration
@@ -1091,6 +1099,7 @@ export interface AccessControlMemberRuleRequestApi {
      * * `hog_flow` - hog_flow
      * * `inbox` - inbox
      * * `insight` - insight
+     * * `investigation` - investigation
      * * `llm_analytics` - llm_analytics
      * * `llm_playground` - llm_playground
      * * `llm_prompt` - llm_prompt
@@ -1259,6 +1268,7 @@ export interface ResolvedAccessApi {
      * * `messaging_preference` - messaging_preference
      * * `metrics` - metrics
      * * `notebook` - notebook
+     * * `investigation` - investigation
      * * `offline_evaluation_ingestion` - offline_evaluation_ingestion
      * * `organization` - organization
      * * `organization_integration` - organization_integration
@@ -1409,6 +1419,7 @@ export interface AccessControlRoleRuleRequestApi {
      * * `hog_flow` - hog_flow
      * * `inbox` - inbox
      * * `insight` - insight
+     * * `investigation` - investigation
      * * `llm_analytics` - llm_analytics
      * * `llm_playground` - llm_playground
      * * `llm_prompt` - llm_prompt

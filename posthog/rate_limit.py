@@ -18,7 +18,7 @@ from django.utils.connection import ConnectionProxy
 from prometheus_client import Counter
 from redis.exceptions import RedisError
 from rest_framework import exceptions
-from rest_framework.throttling import SimpleRateThrottle, UserRateThrottle
+from rest_framework.throttling import BaseThrottle, SimpleRateThrottle, UserRateThrottle
 from statshog.defaults.django import statsd
 
 if TYPE_CHECKING:
@@ -872,6 +872,47 @@ class MetricSearchBurstRateThrottle(_TeamBucketRateThrottle):
 class MetricSearchSustainedRateThrottle(_TeamBucketRateThrottle):
     scope = "metric_search_sustained"
     rate = "1200/hour"
+
+
+class _InvestigationProjectRateThrottle(_TeamBucketRateThrottle):
+    @staticmethod
+    def safely_get_team_id_from_view(view):
+        return view.resource_access_team.pk
+
+
+class InvestigationWriteBurstRateThrottle(_InvestigationProjectRateThrottle):
+    scope = "investigation_write_burst"
+    rate = BurstRateThrottle.rate
+
+
+class InvestigationWriteSustainedRateThrottle(_InvestigationProjectRateThrottle):
+    scope = "investigation_write_sustained"
+    rate = SustainedRateThrottle.rate
+
+
+class InvestigationSearchBurstRateThrottle(_UserBucketRateThrottle):
+    scope = "investigation_search_burst"
+    rate = "60/minute"
+    bucket_per_api_key = False
+
+
+class InvestigationSearchSustainedRateThrottle(_InvestigationProjectRateThrottle):
+    scope = "investigation_search_sustained"
+    rate = "1200/hour"
+
+
+class InvestigationSearchRateThrottle(BaseThrottle):
+    def allow_request(self, request: "Request", view: "APIView") -> bool:
+        # DRF evaluates every registered throttle. A viewer already at their limit must leave the project budget intact.
+        for throttle_class in (InvestigationSearchBurstRateThrottle, InvestigationSearchSustainedRateThrottle):
+            throttle = throttle_class()
+            if not throttle.allow_request(request, view):
+                self.retry_after = throttle.wait()
+                return False
+        return True
+
+    def wait(self) -> float | None:
+        return self.retry_after
 
 
 # A metric write that changes its name, description or unit schedules an embedding call, so writes get

@@ -980,11 +980,16 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
             authorization.reuse_current_rules(self.user_access_control, permissions)
         return permissions
 
+    @property
+    def resource_access_team(self) -> Team:
+        """Team that owns this view's resource rules. URL membership is always checked against self.team."""
+        return self.team
+
     @cached_property
     def user_access_control(self) -> "UserAccessControl":
         team: Optional[Team] = None
         try:
-            team = self.team
+            team = self.resource_access_team
         except (Team.DoesNotExist, KeyError):
             pass
 

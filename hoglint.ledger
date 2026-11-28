@@ -2237,6 +2237,7 @@ level:isolated	error_tracking	1
 level:isolated	event_definitions	1
 level:isolated	experiments	1
 level:isolated	groups	1
+level:isolated	investigations	1
 level:isolated	knowledge_writer	1
 level:isolated	legal_documents	1
 level:isolated	managed_warehouse	1

@@ -109,6 +109,7 @@ APIScopeObject = Literal[
     "messaging_preference",
     "metrics",
     "notebook",
+    "investigation",
     "offline_evaluation_ingestion",
     "organization",
     "organization_integration",

@@ -285,6 +285,7 @@ rules:
                               |InsightExplanation
                               |InsightVariable
                               |Integration
+                              |Investigation
                               |IntegrationRepositoryCacheEntry
                               |IntervieweeContext
                               |KnowledgeChunk
@@ -849,6 +850,7 @@ rules:
                         |InsightExplanation
                         |InsightVariable
                         |Integration
+                        |Investigation
                         |IntegrationRepositoryCacheEntry
                         |IntervieweeContext
                         |KnowledgeChunk

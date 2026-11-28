@@ -6261,6 +6261,7 @@ export interface FileSystemEntry {
 }
 
 export type FileSystemIconType =
+    | 'investigation'
     | 'default_icon_type'
     | 'dashboard'
     | 'canvas'
@@ -10484,6 +10485,7 @@ export enum ProductKey {
     MCP_ANALYTICS = 'mcp_analytics',
     MOBILE_REPLAY = 'mobile_replay',
     NOTEBOOKS = 'notebooks',
+    INVESTIGATIONS = 'investigations',
     PERSONS = 'persons',
     PIPELINE_BATCH_EXPORTS = 'pipeline_batch_exports',
     PIPELINE_DESTINATIONS = 'pipeline_destinations',

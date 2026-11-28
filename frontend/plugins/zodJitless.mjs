@@ -14,13 +14,13 @@ import fs from 'node:fs/promises'
 
 export const ZOD_CORE_FILE = /[\\/]zod[\\/]v4[\\/]core[\\/]core\.js$/
 
-const DEFAULT_CONFIG = 'export const globalConfig = {};'
+const CONFIG_DECLARATION = /^export const globalConfig = (?:\{\}|globalThis\.__zod_globalConfig);$/m
 
 export function withJitlessZod(source, filePath) {
-    const contents = source.replace(DEFAULT_CONFIG, 'export const globalConfig = { jitless: true };')
+    const contents = source.replace(CONFIG_DECLARATION, '$&\nglobalConfig.jitless = true;')
     if (contents === source) {
         // zod changed its config declaration upstream. Fail the build rather than ship the JIT compiler.
-        throw new Error(`zod-jitless: no '${DEFAULT_CONFIG}' found in ${filePath}`)
+        throw new Error(`zod-jitless: unrecognized globalConfig declaration in ${filePath}`)
     }
     return contents
 }
