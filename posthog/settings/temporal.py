@@ -123,6 +123,7 @@ SANDBOX_AI_GATEWAY_PRODUCTS: str | None = get_from_env("SANDBOX_AI_GATEWAY_PRODU
 # Gateway credential (phs_) the worker uses to mint per-run phe_ scoped tokens for
 # gateway-routed sandbox runs. Unset: runs fail at provisioning like an unset URL above.
 SANDBOX_AI_GATEWAY_MINT_KEY: str | None = get_from_env("SANDBOX_AI_GATEWAY_MINT_KEY", None, optional=True)
+SANDBOX_AI_GATEWAY_DEV_TOKEN: str | None = get_from_env("SANDBOX_AI_GATEWAY_DEV_TOKEN", None, optional=True)
 # Per-run spend cap and token lifetime for minted scoped tokens. The cap bounds one
 # runaway run; the daily bound per team is cap x the scheduler's runs-per-day limit.
 # The cap must fit a run's real spend plus its in-flight admission holds: a cap near

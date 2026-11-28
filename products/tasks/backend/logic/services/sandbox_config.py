@@ -1,10 +1,22 @@
 from django.conf import settings
+from django.core.exceptions import ImproperlyConfigured
 
 AGENT_EGRESS_DOMAIN_PATTERN = r"(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}"
 
 
 def sandbox_ai_gateway_worker_url() -> str:
     return settings.SANDBOX_AI_GATEWAY_WORKER_URL or settings.SANDBOX_AI_GATEWAY_URL or ""
+
+
+def sandbox_ai_gateway_dev_token() -> str | None:
+    token = settings.SANDBOX_AI_GATEWAY_DEV_TOKEN
+    if not token:
+        return None
+    if not settings.DEBUG:
+        raise ImproperlyConfigured("SANDBOX_AI_GATEWAY_DEV_TOKEN only works with DEBUG on.")
+    if not token.startswith("phe_"):
+        raise ImproperlyConfigured("SANDBOX_AI_GATEWAY_DEV_TOKEN must be a phe_ AI gateway dev mode token.")
+    return token
 
 
 def agent_egress_staging_environment() -> bool:

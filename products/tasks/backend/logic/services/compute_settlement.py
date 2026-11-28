@@ -24,6 +24,7 @@ from posthog.models.project_secret_api_key import find_project_secret_api_key
 
 from products.tasks.backend.logic.services.compute_quota import bills_compute_to_ai_credits, is_billable_sandbox_session
 from products.tasks.backend.logic.services.run_actor import get_actor_distinct_id, get_task_run_credential_user
+from products.tasks.backend.logic.services.sandbox_config import sandbox_ai_gateway_dev_token
 from products.tasks.backend.logic.services.sandbox_pricing import (
     COMPUTE_RATE_CARDS,
     SandboxComputeCost,
@@ -317,7 +318,7 @@ def _mark_settled(session: SandboxSession, response: ReportedSpendResponse) -> S
 
 
 def settle_sandbox_session(session: SandboxSession) -> SettlementOutcome:
-    if not settings.GATEWAY_COMPUTE_DEBIT_ENABLED:
+    if not settings.GATEWAY_COMPUTE_DEBIT_ENABLED or sandbox_ai_gateway_dev_token():
         return SettlementOutcome.DISABLED
     if (
         session.ended_at is None

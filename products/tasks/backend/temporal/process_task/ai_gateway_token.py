@@ -39,7 +39,11 @@ from products.tasks.backend.logic.services.gateway_model_pin import (
     model_allowed_by_product_pin,
 )
 from products.tasks.backend.logic.services.run_actor import is_slack_interaction_state
-from products.tasks.backend.logic.services.sandbox_config import MAX_SANDBOX_TTL_SECONDS, sandbox_ai_gateway_worker_url
+from products.tasks.backend.logic.services.sandbox_config import (
+    MAX_SANDBOX_TTL_SECONDS,
+    sandbox_ai_gateway_dev_token,
+    sandbox_ai_gateway_worker_url,
+)
 
 if TYPE_CHECKING:
     from posthog.llm.gateway_client import AIGatewayConfig
@@ -348,6 +352,8 @@ def token_cap_usd(team_id: int, ai_product: str) -> str:
 
 
 def revoke_scoped_token(token: str, *, gateway_config: "AIGatewayConfig | None" = None) -> None:
+    if gateway_config is None and token == sandbox_ai_gateway_dev_token():
+        return
     gateway_url = gateway_config.url if gateway_config is not None else sandbox_ai_gateway_worker_url()
     base_url = gateway_url.rstrip("/").removesuffix("/v1")
     mint_key = gateway_config.api_key if gateway_config is not None else settings.SANDBOX_AI_GATEWAY_MINT_KEY
@@ -438,6 +444,8 @@ def mint_scoped_token(
     backoff. Private callers require an acknowledged capture pin and fail closed on None.
     `raise_on_failure` preserves retryability for callers that cannot use a fallback gateway.
     """
+    if gateway_config is None and (dev_token := sandbox_ai_gateway_dev_token()):
+        return dev_token
     gateway_url = gateway_config.url if gateway_config is not None else sandbox_ai_gateway_worker_url()
     base_url = gateway_url.rstrip("/").removesuffix("/v1")
     mint_key = gateway_config.api_key if gateway_config is not None else settings.SANDBOX_AI_GATEWAY_MINT_KEY

@@ -268,6 +268,13 @@ reported to error tracking and ignored, so the product keeps its built-in cap.
 
 The sandbox connects to the Go AI gateway at `SANDBOX_AI_GATEWAY_URL`. If the Tasks worker reaches that gateway at a different address, set `SANDBOX_AI_GATEWAY_WORKER_URL` for token minting, revocation, and usage lookups. Modal evals use localhost for the worker and Tailscale Funnel for the remote agent.
 
+For local development without your own gateway, set `SANDBOX_AI_GATEWAY_URL=https://gateway.us.posthog.com` and `SANDBOX_AI_GATEWAY_DEV_TOKEN` to an AI gateway dev mode token (`phe_`) from `hogli gateway:token`.
+The worker passes that token to every sandbox as is, in place of minting a per-run token, and never revokes it.
+Runs on it have no per-run model pin, no run attribution, and no usage or compute settlement, and private runs are captured.
+It only works with `DEBUG` on: outside `DEBUG` the worker refuses to provision runs while it is set.
+Every sandbox shares the token and can spend up to its cap, so mint it with a small cap (for example `hogli gateway:token --cap 25 --ttl 7d`) and revoke it in the dev mode settings when you're done.
+Don't run untrusted repositories or content in sandboxes while it is set.
+
 A run reaches the Go gateway only when its `ai_product` is listed in
 `SANDBOX_AI_GATEWAY_PRODUCTS` and the worker minted a scoped token for it. When the
 worker mints, it also injects `AI_GATEWAY_PRODUCT` and `AI_GATEWAY_AI_STAGE`, naming
