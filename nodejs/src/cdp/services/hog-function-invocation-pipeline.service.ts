@@ -24,6 +24,7 @@ import { HogFunctionManagerService } from './managers/hog-function-manager.servi
 import { HogFunctionMonitoringService } from './monitoring/hog-function-monitoring.service'
 import { HogMaskerService } from './monitoring/hog-masker.service'
 import { HogWatcherService, HogWatcherState, sameWatcherStates } from './monitoring/hog-watcher.service'
+import { OrganizationAdmission } from './organization-admission'
 import { CdpUsageReporterService } from './usage/cdp-usage-reporter.service'
 
 export interface HogFunctionInvocationPipelineConfig {
@@ -46,6 +47,7 @@ export interface HogFunctionInvocationPipelineDeps {
     valkeyShadow: CdpValkeyShadowPools
     /** Absent for consumers that have no dead-letter topic; their build failures stay metrics-only. */
     deadLetterService?: InvocationFailureSink
+    organizationAdmission: OrganizationAdmission
 }
 
 // The one rule for billing and the destinations quota, so an unbilled invocation (an alert notification) is never quota-dropped.
@@ -102,7 +104,12 @@ export class HogFunctionInvocationPipeline {
         invocations: CyclotronJobInvocationHogFunction[]
         release: (persisted?: CyclotronJobInvocation[]) => Promise<void>
     }> {
-        const teamsToLoad = [...new Set(invocationGlobals.map((x) => x.project.id))]
+        const admittedGlobals = await this.deps.organizationAdmission.admitted(
+            invocationGlobals,
+            (globals) => globals.project.id,
+            'hog_function_trigger'
+        )
+        const teamsToLoad = [...new Set(admittedGlobals.map((x) => x.project.id))]
         const hogFunctionsByTeam = await this.deps.hogFunctionManager.getHogFunctionsForTeams(
             teamsToLoad,
             opts.hogTypes,
@@ -111,7 +118,7 @@ export class HogFunctionInvocationPipeline {
 
         const possibleInvocations = (
             await Promise.all(
-                invocationGlobals.map(async (globals) => {
+                admittedGlobals.map(async (globals) => {
                     const teamHogFunctions = opts.invocationFilterFn
                         ? hogFunctionsByTeam[globals.project.id].filter((fn) => opts.invocationFilterFn!(fn, globals))
                         : hogFunctionsByTeam[globals.project.id]

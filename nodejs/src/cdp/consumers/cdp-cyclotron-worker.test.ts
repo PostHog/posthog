@@ -1,9 +1,13 @@
 import { createMockJobQueue } from '~/tests/helpers/mocks/job-queue.mock'
+import { mockProducerObserver } from '~/tests/helpers/mocks/producer.mock'
 import { mockFetch } from '~/tests/helpers/mocks/request.mock'
 
 import { DateTime } from 'luxon'
+import { register } from 'prom-client'
 
+import { KAFKA_HOG_INVOCATION_RESULTS } from '~/common/config/kafka-topics'
 import { closeHub, createHub } from '~/common/utils/db/hub'
+import { PostgresUse } from '~/common/utils/db/postgres'
 import { configureEventLoopYield, getEventLoopYieldThresholdMs } from '~/common/utils/event-loop-yield'
 import { UUIDT } from '~/common/utils/utils'
 import { createCdpConsumerDeps } from '~/tests/helpers/cdp'
@@ -17,6 +21,7 @@ import {
     createHogFunction,
     insertHogFunction,
 } from '../_tests/fixtures'
+import { decodeInvocationGlobals } from '../services/monitoring/hog-invocation-results.service'
 import { compileHog } from '../templates/compiler'
 import { CyclotronJobInvocationHogFunction, HogFunctionInvocationGlobalsWithInputs, HogFunctionType } from '../types'
 import { destinationE2eLagMsSummary } from '../utils'
@@ -618,6 +623,160 @@ describe('CdpCyclotronWorker', () => {
 
                 expect(longestDelay).toBeLessThan(300) // Rough upper bound of the hog exec limiter
             })
+        })
+    })
+
+    describe('an invocation of a deactivated organization', () => {
+        let jobQueue: ReturnType<typeof createMockJobQueue>
+
+        const setOrganizationActive = async (isActive: boolean | null): Promise<void> => {
+            await hub.postgres.query(
+                PostgresUse.COMMON_WRITE,
+                'UPDATE posthog_organization SET is_active = $1 WHERE id = $2',
+                [isActive, team.organization_id],
+                'setOrganizationActive'
+            )
+        }
+
+        const workerIn = (mode: string): CdpCyclotronWorker =>
+            new CdpCyclotronWorker(
+                { ...hub, HOG_INVOCATION_RESULTS_ENABLED: true, CDP_DEACTIVATED_ORGANIZATIONS_MODE: mode },
+                createCdpConsumerDeps(hub),
+                jobQueue
+            )
+
+        const queued = (): CyclotronJobInvocationHogFunction => {
+            const { hogFunction: _unloaded, ...rest } = createExampleInvocation(fn, globals)
+            return { ...rest, queueSource: 'postgres' } as CyclotronJobInvocationHogFunction
+        }
+
+        const deactivatedRows = (): Record<string, any>[] =>
+            mockProducerObserver
+                .getProducedKafkaMessagesForTopic(KAFKA_HOG_INVOCATION_RESULTS)
+                .map((x) => x.value)
+                .filter((row) => row.error_kind === 'organization_deactivated')
+
+        const deactivatedWorkCount = async (mode: string): Promise<number> => {
+            const values = (await register.getSingleMetric('cdp_deactivated_organization_work_total')?.get())?.values
+            return values?.find((v) => v.labels.stage === 'hog_function_dispatch' && v.labels.mode === mode)?.value ?? 0
+        }
+
+        beforeEach(() => {
+            jobQueue = createMockJobQueue()
+            mockFetch.mockResolvedValue({
+                status: 200,
+                json: () => Promise.resolve({}),
+                text: () => Promise.resolve(JSON.stringify({})),
+                headers: {},
+            } as any)
+        })
+
+        it.each<[string, boolean | null, number]>([
+            ['off', false, 0],
+            ['shadow', false, 1],
+            ['enforce', true, 0],
+            ['enforce', null, 0],
+        ])('runs it in %s mode when the organization has is_active %s', async (mode, isActive, counted) => {
+            await setOrganizationActive(isActive)
+            const countBefore = await deactivatedWorkCount(mode)
+
+            const results = await workerIn(mode).processInvocations([queued()])
+
+            expect(results).toMatchObject([{ finished: true }])
+            expect(results[0].error).toBeUndefined()
+            expect(mockFetch).toHaveBeenCalledWith('https://posthog.com', expect.anything())
+            expect(deactivatedRows()).toEqual([])
+            expect((await deactivatedWorkCount(mode)) - countBefore).toEqual(counted)
+        })
+
+        it('ends it in enforce mode as a failed run that keeps its globals, and sends nothing', async () => {
+            await setOrganizationActive(false)
+            const invocation = queued()
+
+            const results = await workerIn('enforce').processInvocations([invocation])
+
+            expect(results).toEqual([])
+            expect(mockFetch).not.toHaveBeenCalled()
+            const rows = deactivatedRows()
+            expect(rows).toEqual([
+                expect.objectContaining({
+                    invocation_id: invocation.id,
+                    function_kind: 'hog_function',
+                    function_id: fn.id,
+                    team_id: team.id,
+                    status: 'failed',
+                }),
+            ])
+            expect(await decodeInvocationGlobals(rows[0].invocation_globals)).toMatchObject({
+                event: globals.event,
+                project: globals.project,
+            })
+            expect(jobQueue.dequeueInvocations).toHaveBeenCalledWith([expect.objectContaining({ id: invocation.id })])
+        })
+
+        it.each<[string, { id?: string; enabled?: boolean }, string]>([
+            ['missing', { id: new UUIDT().toString() }, 'function_not_found'],
+            ['disabled', { enabled: false }, 'function_disabled'],
+        ])(
+            'skips it in shadow mode as before when its function is %s, and does not count it',
+            async (_name, change, errorKind) => {
+                await setOrganizationActive(false)
+                const countBefore = await deactivatedWorkCount('shadow')
+                const changed = await insertHogFunction(
+                    hub.postgres,
+                    team.id,
+                    createHogFunction({
+                        ...HOG_EXAMPLES.simple_fetch,
+                        ...HOG_INPUTS_EXAMPLES.simple_fetch,
+                        ...HOG_FILTERS_EXAMPLES.pageview_or_autocapture_filter,
+                        enabled: change.enabled ?? true,
+                    })
+                )
+                const { hogFunction: _unloaded, ...rest } = createExampleInvocation(changed, globals)
+                const invocation = { ...rest, functionId: change.id ?? changed.id } as CyclotronJobInvocationHogFunction
+
+                const results = await workerIn('shadow').processInvocations([invocation])
+
+                expect(results).toEqual([])
+                expect(
+                    mockProducerObserver
+                        .getProducedKafkaMessagesForTopic(KAFKA_HOG_INVOCATION_RESULTS)
+                        .map((x) => x.value)
+                        .filter((row) => row.invocation_id === invocation.id)
+                        .map((row) => row.error_kind)
+                ).toEqual([errorKind])
+                expect((await deactivatedWorkCount('shadow')) - countBefore).toEqual(0)
+            }
+        )
+
+        it('refuses to start in enforce mode without invocation results', () => {
+            expect(
+                () =>
+                    new CdpCyclotronWorker(
+                        {
+                            ...hub,
+                            HOG_INVOCATION_RESULTS_ENABLED: false,
+                            CDP_DEACTIVATED_ORGANIZATIONS_MODE: 'enforce',
+                        },
+                        createCdpConsumerDeps(hub),
+                        jobQueue
+                    )
+            ).toThrow('HOG_INVOCATION_RESULTS_ENABLED')
+        })
+
+        it('runs the next invocation once the organization is active again', async () => {
+            const worker = workerIn('enforce')
+            await setOrganizationActive(false)
+            await worker.processInvocations([queued()])
+            await setOrganizationActive(true)
+            const teamCacheExpired = Date.now() + 10 * 60 * 1000
+            const clock = jest.spyOn(Date, 'now').mockReturnValue(teamCacheExpired)
+
+            const results = await worker.processInvocations([queued()]).finally(() => clock.mockRestore())
+
+            expect(results).toMatchObject([{ finished: true }])
+            expect(results[0].error).toBeUndefined()
+            expect(mockFetch).toHaveBeenCalledTimes(1)
         })
     })
 })

@@ -133,6 +133,7 @@ export class CdpDlqReplayConsumer extends CdpConsumerBase<PluginsServerConfig> {
         } as RdKafkaConsumerConfig)
 
         this.hogFunctionPipeline = new HogFunctionInvocationPipeline(config, {
+            organizationAdmission: this.organizationAdmission,
             hogFunctionManager: this.hogFunctionManager,
             hogInputsService: this.hogInputsService,
             hogWatcher: this.hogWatcher,
@@ -146,6 +147,7 @@ export class CdpDlqReplayConsumer extends CdpConsumerBase<PluginsServerConfig> {
             deadLetterService: this.buildFailures,
         })
         this.hogFlowPipeline = new HogFlowInvocationPipeline(config, {
+            organizationAdmission: this.organizationAdmission,
             hogFlowManager: this.hogFlowManager,
             hogFlowExecutor: this.hogFlowExecutor,
             hogWatcher: this.hogWatcher,

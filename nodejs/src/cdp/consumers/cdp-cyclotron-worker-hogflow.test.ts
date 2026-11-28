@@ -1,8 +1,12 @@
 import { createMockJobQueue } from '~/tests/helpers/mocks/job-queue.mock'
+import { mockProducerObserver } from '~/tests/helpers/mocks/producer.mock'
 
 import { DateTime } from 'luxon'
+import { register } from 'prom-client'
 
 import { HogFlow } from '~/cdp/schema/hogflow'
+import { TRANSACTIONAL_EMAIL_EVENT } from '~/cdp/services/hogflows/hogflow-sensitivity'
+import { KAFKA_EMAIL_STATUS, KAFKA_HOG_INVOCATION_RESULTS } from '~/common/config/kafka-topics'
 import { InternalPersonWithDistinctId, PersonReadRepository } from '~/common/persons/repositories/person-repository'
 import { closeHub, createHub } from '~/common/utils/db/hub'
 import { PostgresUse } from '~/common/utils/db/postgres'
@@ -14,6 +18,7 @@ import { createTeam, createTestTeamFixture, getTeam } from '~/tests/helpers/sql'
 import { Hub, InternalPerson, Team } from '../../types'
 import { FixtureHogFlowBuilder } from '../_tests/builders/hogflow.builder'
 import { createHogFlowInvocationContext, hideHogFlowsFromReplica, insertHogFlow } from '../_tests/fixtures-hogflows'
+import { decodeInvocationGlobals } from '../services/monitoring/hog-invocation-results.service'
 import {
     CyclotronJobInvocation,
     CyclotronJobInvocationHogFlow,
@@ -757,6 +762,173 @@ describe('CdpCyclotronWorkerHogFlow', () => {
             // invocation keys the terminal lifecycle row as `hog_flow` (not `hog_function`) and
             // collapses the earlier `running` row instead of leaving the run stuck at `running`.
             expect((results[0].invocation as CyclotronJobInvocationHogFlow).hogFlow?.id).toBe(invocation.functionId)
+        })
+    })
+
+    describe('a run of a deactivated organization', () => {
+        const setOrganizationActive = async (isActive: boolean | null): Promise<void> => {
+            await hub.postgres.query(
+                PostgresUse.COMMON_WRITE,
+                'UPDATE posthog_organization SET is_active = $1 WHERE id = $2',
+                [isActive, team.organization_id],
+                'setOrganizationActive'
+            )
+        }
+
+        const workerIn = (mode: string): CdpCyclotronWorkerHogFlow =>
+            new CdpCyclotronWorkerHogFlow(
+                { ...hub, HOG_INVOCATION_RESULTS_ENABLED: true, CDP_DEACTIVATED_ORGANIZATIONS_MODE: mode },
+                createCdpConsumerDeps(hub),
+                jobQueue
+            )
+
+        const queued = (): CyclotronJobInvocation =>
+            createSerializedHogFlowInvocation(hogFlows[0], {
+                event: { distinct_id: 'distinct_A_1', properties: { foo: 'bar' } } as any,
+            })
+
+        const deactivatedRows = (): Record<string, any>[] =>
+            mockProducerObserver
+                .getProducedKafkaMessagesForTopic(KAFKA_HOG_INVOCATION_RESULTS)
+                .map((x) => x.value)
+                .filter((row) => row.error_kind === 'organization_deactivated')
+
+        const deactivatedWorkCount = async (mode: string): Promise<number> => {
+            const values = (await register.getSingleMetric('cdp_deactivated_organization_work_total')?.get())?.values
+            return values?.find((v) => v.labels.stage === 'hog_flow_dispatch' && v.labels.mode === mode)?.value ?? 0
+        }
+
+        it.each<[string, boolean | null, number]>([
+            ['off', false, 0],
+            ['shadow', false, 1],
+            ['enforce', true, 0],
+            ['enforce', null, 0],
+        ])('runs it in %s mode when the organization has is_active %s', async (mode, isActive, counted) => {
+            await setOrganizationActive(isActive)
+            const countBefore = await deactivatedWorkCount(mode)
+
+            const results = await workerIn(mode).processInvocations([queued()])
+
+            expect(results).toMatchObject([{ finished: true }])
+            expect(results[0].error).toBeUndefined()
+            expect(deactivatedRows()).toEqual([])
+            expect((await deactivatedWorkCount(mode)) - countBefore).toEqual(counted)
+        })
+
+        it('ends it in enforce mode as a failed run that keeps its state, and runs nothing', async () => {
+            await setOrganizationActive(false)
+            const invocation = queued()
+
+            const results = await workerIn('enforce').processInvocations([invocation])
+
+            expect(results).toEqual([])
+            const rows = deactivatedRows()
+            expect(rows).toEqual([
+                expect.objectContaining({
+                    invocation_id: invocation.id,
+                    function_kind: 'hog_flow',
+                    function_id: hogFlows[0].id,
+                    team_id: team.id,
+                    status: 'failed',
+                }),
+            ])
+            expect(await decodeInvocationGlobals(rows[0].invocation_globals)).toMatchObject({
+                event: { distinct_id: 'distinct_A_1', properties: { foo: 'bar' } },
+            })
+            expect(jobQueue.dequeueInvocations).toHaveBeenCalledWith([expect.objectContaining({ id: invocation.id })])
+        })
+
+        it('keeps the wake the matcher recorded while the run was queued in its failed run', async () => {
+            await setOrganizationActive(false)
+            const matchedAt = DateTime.now().toISO()!
+            const eventUuid = new UUIDT().toString()
+            const invocation: CyclotronJobInvocation = {
+                ...createSerializedHogFlowInvocation(hogFlows[2], {
+                    event: { distinct_id: 'distinct_A_1', properties: {} } as any,
+                    currentAction: { id: 'wait', startedAtTimestamp: DateTime.now().toMillis() },
+                }),
+                pendingWake: {
+                    wait: {
+                        kind: 'match',
+                        at: matchedAt,
+                        eventName: '$pageview',
+                        eventUuid,
+                        eventTimestamp: matchedAt,
+                    },
+                },
+            }
+
+            await workerIn('enforce').processInvocations([invocation])
+
+            const [row] = deactivatedRows()
+            expect(await decodeInvocationGlobals(row.invocation_globals)).toMatchObject({
+                currentAction: { id: 'wait', eventMatched: true, eventMatchedEventUuid: eventUuid },
+            })
+        })
+
+        it.each([
+            [true, [expect.objectContaining({ status: 'failed', reason: 'organization_deactivated' })]],
+            [false, []],
+        ])(
+            'closes the email status of a transactional email in enforce mode only once its failed run is written (%s)',
+            async (written, statuses) => {
+                await setOrganizationActive(false)
+                const worker = workerIn('enforce')
+                if (!written) {
+                    jest.spyOn(
+                        worker['invocationResultsService'].invocationResultsRowsService,
+                        'recordTerminalFailureDurably'
+                    ).mockResolvedValue(false)
+                }
+                const invocation = createSerializedHogFlowInvocation(hogFlows[0], {
+                    event: { event: TRANSACTIONAL_EMAIL_EVENT, distinct_id: 'distinct_A_1', properties: {} } as any,
+                })
+
+                const { backgroundTask } = await worker.processBatch([invocation])
+                await backgroundTask
+
+                expect(
+                    mockProducerObserver
+                        .getProducedKafkaMessagesForTopic(KAFKA_EMAIL_STATUS)
+                        .map((x) => x.value)
+                        .filter((row) => row.message_id === invocation.id)
+                ).toEqual(statuses)
+            }
+        )
+
+        it('closes the email status of a written failed run when its dequeue fails', async () => {
+            await setOrganizationActive(false)
+            const worker = workerIn('enforce')
+            jest.spyOn(jobQueue, 'dequeueInvocations').mockImplementation((invocations) =>
+                invocations.length ? Promise.reject(new Error('dequeue failed')) : Promise.resolve()
+            )
+            const invocation = createSerializedHogFlowInvocation(hogFlows[0], {
+                event: { event: TRANSACTIONAL_EMAIL_EVENT, distinct_id: 'distinct_A_1', properties: {} } as any,
+            })
+
+            await expect(worker.processBatch([invocation])).rejects.toThrow('dequeue failed')
+            await worker['invocationResultsService'].flush()
+
+            expect(
+                mockProducerObserver
+                    .getProducedKafkaMessagesForTopic(KAFKA_EMAIL_STATUS)
+                    .map((x) => x.value)
+                    .filter((row) => row.message_id === invocation.id)
+            ).toEqual([expect.objectContaining({ status: 'failed', reason: 'organization_deactivated' })])
+        })
+
+        it('runs the next invocation once the organization is active again', async () => {
+            const worker = workerIn('enforce')
+            await setOrganizationActive(false)
+            await worker.processInvocations([queued()])
+            await setOrganizationActive(true)
+            const teamCacheExpired = Date.now() + 10 * 60 * 1000
+            const clock = jest.spyOn(Date, 'now').mockReturnValue(teamCacheExpired)
+
+            const results = await worker.processInvocations([queued()]).finally(() => clock.mockRestore())
+
+            expect(results).toMatchObject([{ finished: true }])
+            expect(results[0].error).toBeUndefined()
         })
     })
 })

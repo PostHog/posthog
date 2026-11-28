@@ -11,11 +11,12 @@ import { logger } from '~/common/utils/logger'
 import { PluginsServerConfig } from '~/types'
 
 import { JobQueue } from '../services/job-queue/job-queue.interface'
+import { ORGANIZATION_DEACTIVATED_FAILURE } from '../services/organization-admission'
 import { CyclotronJobInvocation, CyclotronJobInvocationHogFlow, CyclotronJobInvocationResult } from '../types'
 import { convertToHogFunctionFilterGlobal } from '../utils/hog-function-filtering'
 import { createCanceledInvocationResult, createInvocationResult } from '../utils/invocation-utils'
 import { CdpConsumerBaseDeps } from './cdp-base.consumer'
-import { CdpCyclotronWorker } from './cdp-cyclotron-worker.consumer'
+import { CdpCyclotronWorker, TerminalFailure } from './cdp-cyclotron-worker.consumer'
 
 type LoadHogFlowsResult = {
     loadedInvocations: CyclotronJobInvocationHogFlow[]
@@ -47,6 +48,7 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {
     @instrumented('cdpConsumer.handleEachBatch.loadHogFlows')
     protected async loadHogFlows(invocations: CyclotronJobInvocation[]): Promise<LoadHogFlowsResult> {
         const failedInvocations: CyclotronJobInvocation[] = []
+        const deactivatedInvocations: TerminalFailure[] = []
         const canceledResults: CyclotronJobInvocationResult[] = []
         const hogFlows = await this.hogFlowsFor(invocations.filter((item) => !item.cancelRequestedAt))
 
@@ -120,6 +122,18 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {
 
                 const hogFlowInvocationState = item.state as CyclotronJobInvocationHogFlow['state']
                 applyPendingWake(hogFlowInvocationState, item.pendingWake)
+
+                if (!this.organizationAdmission.admits(team, 'hog_flow_dispatch')) {
+                    deactivatedInvocations.push({
+                        invocation: {
+                            ...item,
+                            state: hogFlowInvocationState,
+                            hogFlow,
+                        } as CyclotronJobInvocationHogFlow,
+                        ...ORGANIZATION_DEACTIVATED_FAILURE,
+                    })
+                    return
+                }
 
                 const personLookup = hogFlowPersonLookup(hogFlow, hogFlowInvocationState)
                 // One-shot: consume the flag on this wake-resolution only. Later steps fall back to normal
@@ -203,6 +217,16 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {
         )
 
         await this.cyclotronJobQueue.dequeueInvocations(failedInvocations)
+        if (deactivatedInvocations.length) {
+            const ended = await this.recordTerminalFailures(deactivatedInvocations)
+            ended.forEach(({ invocation }) =>
+                this.invocationResultsService.emailStatusService.queueUnavailableRun(
+                    invocation,
+                    ORGANIZATION_DEACTIVATED_FAILURE.errorKind
+                )
+            )
+            await this.cyclotronJobQueue.dequeueInvocations(ended.map(({ invocation }) => invocation))
+        }
 
         const loadedInvocations = loadedOrSkipped.filter((item) => item !== undefined)
         return { loadedInvocations, canceledResults }

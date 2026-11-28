@@ -26,6 +26,7 @@ import { HogFunctionMonitoringService } from './monitoring/hog-function-monitori
 import { HogMaskerService } from './monitoring/hog-masker.service'
 import { HogWatcherService, HogWatcherState, sameWatcherStates } from './monitoring/hog-watcher.service'
 import { WorkflowsActivationReporter } from './monitoring/workflows-activation-reporter'
+import { OrganizationAdmission } from './organization-admission'
 
 export interface HogFlowInvocationPipelineConfig {
     CDP_RATE_LIMITER_BUCKET_SIZE: number
@@ -46,6 +47,7 @@ export interface HogFlowInvocationPipelineDeps {
     valkeyShadow: CdpValkeyShadowPools
     /** Absent for consumers that have no dead-letter topic; their build failures stay metrics-only. */
     deadLetterService?: InvocationFailureSink
+    organizationAdmission: OrganizationAdmission
 }
 
 /**
@@ -98,13 +100,18 @@ export class HogFlowInvocationPipeline {
         invocations: CyclotronJobInvocation[]
         release: (persisted?: CyclotronJobInvocation[]) => Promise<void>
     }> {
-        const teamsToLoad = [...new Set(invocationGlobals.map((x) => x.project.id))]
+        const admittedGlobals = await this.deps.organizationAdmission.admitted(
+            invocationGlobals,
+            (globals) => globals.project.id,
+            'hog_flow_trigger'
+        )
+        const teamsToLoad = [...new Set(admittedGlobals.map((x) => x.project.id))]
         const hogFlowsByTeam = await this.deps.hogFlowManager.getHogFlowsForTeams(teamsToLoad)
         const eligibilityFn = options?.eligibilityFn
 
         const possibleInvocations = (
             await Promise.all(
-                invocationGlobals.map(async (globals) => {
+                admittedGlobals.map(async (globals) => {
                     const teamHogFlows = hogFlowsByTeam[globals.project.id]
                     const eligibleFlows = eligibilityFn
                         ? teamHogFlows.filter((flow) => eligibilityFn(flow, globals))

@@ -60,6 +60,7 @@ export class CdpInternalEventsConsumer extends CdpConsumerBase {
             topic: KAFKA_CDP_INTERNAL_EVENTS,
         })
         this.hogFunctionPipeline = new HogFunctionInvocationPipeline(config, {
+            organizationAdmission: this.organizationAdmission,
             hogFunctionManager: this.hogFunctionManager,
             hogInputsService: this.hogInputsService,
             hogWatcher: this.hogWatcher,
@@ -72,6 +73,7 @@ export class CdpInternalEventsConsumer extends CdpConsumerBase {
             valkeyShadow: this.valkeyShadow,
         })
         this.hogFlowPipeline = new HogFlowInvocationPipeline(config, {
+            organizationAdmission: this.organizationAdmission,
             hogFlowManager: this.hogFlowManager,
             hogFlowExecutor: this.hogFlowExecutor,
             hogWatcher: this.hogWatcher,

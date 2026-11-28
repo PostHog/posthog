@@ -304,6 +304,7 @@ export interface Team {
     timezone: string
     // This is parsed as a join from the org table
     available_features: OrganizationAvailableFeature[]
+    organization_active: boolean | null
     drop_events_older_than_seconds: number | null
     logs_settings?: LogsSettings | null
     extra_settings: Record<string, string | number | boolean> | null

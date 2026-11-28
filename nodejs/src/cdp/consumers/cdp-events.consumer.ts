@@ -84,6 +84,7 @@ export class CdpEventsConsumer<
             resolveMessage: (globals) => this.messageByGlobals.get(globals),
         })
         this.hogFunctionPipeline = new HogFunctionInvocationPipeline(config, {
+            organizationAdmission: this.organizationAdmission,
             hogFunctionManager: this.hogFunctionManager,
             hogInputsService: this.hogInputsService,
             hogWatcher: this.hogWatcher,
@@ -97,6 +98,7 @@ export class CdpEventsConsumer<
             deadLetterService: this.deadLetterService,
         })
         this.hogFlowPipeline = new HogFlowInvocationPipeline(config, {
+            organizationAdmission: this.organizationAdmission,
             hogFlowManager: this.hogFlowManager,
             hogFlowExecutor: this.hogFlowExecutor,
             hogWatcher: this.hogWatcher,

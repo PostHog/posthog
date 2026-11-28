@@ -143,6 +143,7 @@ export type CdpConfig = ClickhouseConfig & {
     // Check the cdp_valkey_mirror_operations_total mismatch/failed counts for a feature before
     // flipping it: hog-watcher reads a missing key as healthy with a full token bucket.
     CDP_VALKEY_READ_FEATURES: string
+    CDP_DEACTIVATED_ORGANIZATIONS_MODE: string
     // Counts crashed attempts of each Kafka cyclotron batch in CDP Valkey.
     //   "off"     - no counting.
     //   "shadow"  - a batch that crashed the worker MAX_ATTEMPTS times is logged and counted, then processed.
@@ -473,6 +474,7 @@ export function getDefaultCdpConfig(): CdpConfig {
         CDP_VALKEY_READER_PORT: 6379,
         CDP_VALKEY_TLS: false,
         CDP_VALKEY_READ_FEATURES: '',
+        CDP_DEACTIVATED_ORGANIZATIONS_MODE: 'off',
         CDP_BATCH_QUARANTINE_MODE: 'off',
         CDP_BATCH_QUARANTINE_MAX_ATTEMPTS: 3,
         CDP_BATCH_QUARANTINE_KEY_TTL_SECONDS: 60 * 60,

@@ -100,6 +100,7 @@ export class CdpCohortMembershipTriggerConsumer extends CdpConsumerBase {
             START_AT_LATEST
         )
         this.hogFlowPipeline = new HogFlowInvocationPipeline(config, {
+            organizationAdmission: this.organizationAdmission,
             hogFlowManager: this.hogFlowManager,
             hogFlowExecutor: this.hogFlowExecutor,
             hogWatcher: this.hogWatcher,
