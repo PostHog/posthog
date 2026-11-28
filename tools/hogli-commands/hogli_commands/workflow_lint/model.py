@@ -203,6 +203,17 @@ def read_workflows(workflows_dir: Path, glob: str = "*.y*ml") -> Iterator[Workfl
             yield wf
 
 
+def local_callee(uses: str, workflows: list[Workflow]) -> Workflow | None:
+    """The parsed callee of a `./.github/workflows/x.yml` call, if it is in this page."""
+    if not uses.startswith("./"):
+        return None
+    target = Path(uses[2:]).as_posix()
+    for candidate in workflows:
+        if candidate.path.as_posix().endswith(target):
+            return candidate
+    return None
+
+
 __all__ = [
     "Job",
     "PR_TRIGGERS",
@@ -210,6 +221,7 @@ __all__ = [
     "Step",
     "Workflow",
     "WorkflowParseError",
+    "local_callee",
     "parse_filters",
     "read_workflows",
 ]

@@ -310,10 +310,11 @@ jobs:
             - name: Debounce rapid PR pushes
               # A burst of pushes to one branch each dispatches a run; cancel-in-progress
               # kills the superseded ones, but only after they've begun booting the 8-core
-              # stack. Hold here on the cheap 1x runner through the likely-supersession
-              # window — if a newer push cancels this run mid-wait, the expensive job never
-              # launches. After the wait, if the PR head has already moved past this run's
-              # SHA, skip: the newer run is the real gate (and always runs, since the tip
+              # stack. Hold here on the cheap 1x runner for 120s from the run's creation —
+              # not from job start, so a fast runner pickup cannot shrink the window — through
+              # the likely-supersession window. If a newer push cancels this run mid-wait, the
+              # expensive job never launches. After the wait, skip if the PR head has moved past
+              # this run's SHA: the newer run is the real gate (and always runs, since the tip
               # is never stale against itself). Single pushes just pay the short wait.
               # Trunk rarely re-pushes a merge-queue branch, and the concurrency group cancels the older run.
               #
@@ -491,7 +492,8 @@ jobs:
             && github.event.pull_request.draft != true
             && !startsWith(github.head_ref, 'trunk-merge/')
             && github.event.pull_request.head.repo.full_name == github.repository
-        runs-on: ubuntu-24.04
+        # Depot: the Playwright job waits on this selector. See "Runners" in /authoring-ci-workflows.
+        runs-on: depot-ubuntu-24.04
         timeout-minutes: 5
         outputs:
             mode: ${{ steps.classify.outputs.mode }}
@@ -1347,7 +1349,8 @@ jobs:
     # hogli-lint: not-a-required-gate - records telemetry and emits no required check.
     capture-run-time:
         name: Capture run time
-        runs-on: ubuntu-24.04
+        # Depot: chained behind the gate. See "Runners" in /authoring-ci-workflows.
+        runs-on: depot-ubuntu-24.04
         timeout-minutes: 5
         needs: [changes, select-specs, playwright, playwright_tests]
         if: # Run on pull requests to PostHog/posthog + on PostHog/posthog outside of PRs - but never on forks or Dependabot (no secrets access)
