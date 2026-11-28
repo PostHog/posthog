@@ -107,3 +107,17 @@ class TestDocumentEmbeddingsOrderByPushdown(BaseTest):
         assert inner_query.order_by is not None
         assert inner_query.limit is not None
         assert inner_query.offset is None, "OFFSET should not be pushed down to inner query"
+
+
+class TestDocumentEmbeddingsModelRouting(BaseTest):
+    def _print_clickhouse(self, query_str: str) -> str:
+        from posthog.hogql.query import execute_hogql_query
+
+        return execute_hogql_query(query=query_str, team=self.team).clickhouse or ""
+
+    def test_small_256_model_routes_to_its_own_distributed_table(self):
+        printed = self._print_clickhouse(
+            "SELECT document_id FROM document_embeddings WHERE model_name = 'text-embedding-3-small-256' LIMIT 1"
+        )
+        assert "distributed_posthog_document_embeddings_text_embedding_3_small_256" in printed
+        assert "text_embedding_3_small_1536" not in printed
