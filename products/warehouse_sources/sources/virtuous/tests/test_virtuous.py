@@ -70,6 +70,37 @@ class TestPagination:
         assert len(result.rows) == 3
 
 
+def test_communications_fanout_resumes_on_the_next_child_page() -> None:
+    campaigns = ScriptedResponse(json={"list": [{"campaignId": 7}, {"campaignId": 8}], "total": 2})
+    first_page = [{"communicationId": offset + 1, "campaignId": 7} for offset in range(1000)]
+    remaining_row = {"communicationId": 1001, "campaignId": 7}
+    next_campaign_row = {"communicationId": 1002, "campaignId": 8}
+    last_page = ScriptedResponse(json={"list": [remaining_row], "total": 1001})
+    next_campaign_page = ScriptedResponse(json={"list": [next_campaign_row], "total": 1})
+    result = _driver().run(
+        "communications",
+        [campaigns, ScriptedResponse(json={"list": first_page, "total": 1001}), last_page, next_campaign_page],
+    )
+
+    assert result.raised is None
+    assert result.response is not None
+    assert result.response.primary_keys == ["communicationId"]
+    assert result.rows == [*first_page, remaining_row, next_campaign_row]
+
+    resumed = _driver().run(
+        "communications", [campaigns, last_page, next_campaign_page], resume_state=result.committed_states[0]
+    )
+
+    assert resumed.raised is None
+    assert resumed.paths == [
+        "/api/Campaign/Query",
+        "/api/Communication/ByCampaign/7",
+        "/api/Communication/ByCampaign/8",
+    ]
+    assert resumed.params("skip") == ["0", "1000", "0"]
+    assert resumed.rows == [remaining_row, next_campaign_row]
+
+
 class TestIncrementalRequestShaping:
     @pytest.mark.parametrize(
         ("schema", "inputs", "expected_groups"),
@@ -80,7 +111,7 @@ class TestIncrementalRequestShaping:
                 _last_modified_condition("2024-03-09"),
             ),
             (
-                "contact_individuals",
+                "volunteer_opportunities",
                 {
                     "incremental_field": "modifiedDateTimeUtc",
                     "db_incremental_field_last_value": datetime(2024, 1, 1, 23, 59, tzinfo=UTC),

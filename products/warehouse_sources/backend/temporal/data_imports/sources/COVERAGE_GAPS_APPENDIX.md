@@ -15852,20 +15852,20 @@ Note: Parsed every GET path in Vimeo's official, archived OpenAPI specification 
 
 ## Virtuous — gaps
 
-Today (19): `campaigns`, `contact_individuals`, `contact_notes`, `contacts`, `event_attendees`, `events`, `gift_asks`, `gift_designations`, `gifts`, `grants`, `organization_groups`, `planned_gifts`, `pledges`, `premiums`, `projects`, `recurring_gifts`, `segments`, `tags`, `tasks`
+Today (22): `campaigns`, `communications`, `contact_individuals`, `contact_notes`, `contacts`, `event_attendees`, `events`, `gift_asks`, `gift_designations`, `gifts`, `grants`, `organization_groups`, `planned_gifts`, `pledges`, `premiums`, `projects`, `recurring_gifts`, `segments`, `tags`, `tasks`, `volunteer_opportunities`, `volunteers`
 
 Diffed against: <https://docs.virtuoussoftware.com/api/collections/19331481/UVeAuTw4?segregateAuth=true&versionTag=latest>
 
-- [ ] `Volunteers (POST /api/Volunteer/Query)` — volunteer sign-ups per opportunity and contact, for volunteering analysis; no volunteer table is synced today (high)
-- [ ] `Volunteer opportunities (POST /api/VolunteerOpportunity/Query)` — the opportunities that volunteers sign up for, with dates and capacity (high)
-- [ ] `Communications (POST /api/Communication/Query)` — campaign communications; the communicationId on segments and events resolves to these rows (high)
-- [ ] `Recurring gift payments (GET /api/RecurringGiftPayment/:recurringGiftId)` — payment history per recurring gift, for lifetime value and failed-payment analysis (medium)
+- [x] `Volunteers (GET /api/Volunteer/Search)` — volunteer sign-ups per opportunity and contact. The search route documents `skip` and `take`; `POST /api/Volunteer/Query` does not. (high)
+- [x] `Volunteer opportunities (POST /api/VolunteerOpportunity/Query)` — opportunities that volunteers sign up for, with dates and volunteer needs. (high)
+- [x] `Communications (GET /api/Communication/ByCampaign/:campaignId)` — campaign communications. This route returns `communicationId` for joins to segments. The documented query response omits it. (high)
+- [ ] `Recurring gift payments (GET /api/RecurringGiftPayment/:recurringGiftId)` — payment history per recurring gift. The reference lists `skip` and `take` but shows one payment object, not a page. Confirm the response format before adding a table. (medium)
 - [ ] `Project expenses (GET /api/ProjectExpense)` — costs booked against projects, to compare against gifts for project ROI (medium)
 - [ ] `Volunteer attendance (GET /api/VolunteerOpportunity/:volunteerOpportunityId/Volunteers/:volunteerId/Attendance)` — hours and attendance per volunteer (low)
 - [ ] `Project notes (GET /api/ProjectNote/ByProject/:projectId)` — notes on synced projects (low)
 - [ ] `Event contacts (GET /api/Event/:eventId/Contacts)` — contacts linked to synced events, such as hosts and sponsors (low)
 
-Note: Parsed the Postman collection behind docs.virtuoussoftware.com (about 230 requests). Core giving, contact, campaign, project, event and grant objects are covered. Unsynced areas are volunteering, communications, project expenses and per-recurring-gift payments. Most lists are POST /Query endpoints using skip and take (max take 1000); recurring gift payments, attendance, project notes and event contacts need fan-out under a synced parent. Excluded: email send/search, deprecated reminders, config lookups, webhooks, imports.
+Note: The Postman collection lists about 230 requests. Most query endpoints use `skip` and `take`, with a maximum `take` of 1,000. Recurring gift payments, volunteer attendance, project notes, and event contacts need a request per parent record. Excluded: email send and search, deprecated reminders, configuration lookups, webhooks, and imports.
 
 ## Vitally — gaps
 

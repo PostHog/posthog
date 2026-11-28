@@ -1,7 +1,12 @@
 from dataclasses import field
 from typing import Any, Literal
 
-from products.warehouse_sources.sources.sdk import IncrementalField, IncrementalFieldType, frozen
+from products.warehouse_sources.sources.sdk import (
+    DependentEndpointConfig,
+    IncrementalField,
+    IncrementalFieldType,
+    frozen,
+)
 
 VIRTUOUS_BASE_URL = "https://api.virtuoussoftware.com"
 # Documented maximum `take` for the list and query endpoints.
@@ -31,6 +36,25 @@ class VirtuousEndpointConfig:
     supports_incremental: bool = False
     partition_key: str | None = None
     page_size: int = PAGE_SIZE
+    fanout: DependentEndpointConfig | None = None
+
+    @property
+    def default_incremental_field(self) -> str | None:
+        return MODIFIED_FIELD if self.supports_incremental else None
+
+    @property
+    def incremental_fields(self) -> list[IncrementalField]:
+        field_name = self.default_incremental_field
+        if field_name is None:
+            return []
+        return [
+            {
+                "label": field_name,
+                "type": IncrementalFieldType.DateTime,
+                "field": field_name,
+                "field_type": IncrementalFieldType.DateTime,
+            }
+        ]
 
 
 def _query(
@@ -74,9 +98,32 @@ ENDPOINTS: dict[str, VirtuousEndpointConfig] = {
         _query("recurring_gifts", "/api/RecurringGift/Query"),
         _query("premiums", "/api/Premium/Query"),
         _query("campaigns", "/api/Campaign/Query", primary_keys=["campaignId"]),
+        VirtuousEndpointConfig(
+            name="communications",
+            path="/api/Communication/ByCampaign/{campaign_id}",
+            method="GET",
+            primary_keys=["communicationId"],
+            is_query=False,
+            partition_key="createDateTimeUtc",
+            fanout=DependentEndpointConfig(
+                parent_name="campaigns",
+                resolve_param="campaign_id",
+                resolve_field="campaignId",
+                include_from_parent=[],
+                child_params={"sortBy": "Id", "descending": "false"},
+            ),
+        ),
         _query("projects", "/api/Project/Query"),
         _query("events", "/api/Event/Query"),
         _query("event_attendees", "/api/EventAttendee/Query"),
+        VirtuousEndpointConfig(
+            name="volunteers",
+            path="/api/Volunteer/Search",
+            method="GET",
+            is_query=False,
+            partition_key="createDateTimeUtc",
+        ),
+        _query("volunteer_opportunities", "/api/VolunteerOpportunity/Query"),
         _query("grants", "/api/Grant/Query"),
         _query("tasks", "/api/Task/Query", incremental=False, partition_key=None),
         VirtuousEndpointConfig(name="tags", path="/api/Tag", method="GET", is_query=False),
@@ -89,14 +136,5 @@ ENDPOINTS: dict[str, VirtuousEndpointConfig] = {
 }
 
 INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
-    name: [
-        {
-            "label": MODIFIED_FIELD,
-            "type": IncrementalFieldType.DateTime,
-            "field": MODIFIED_FIELD,
-            "field_type": IncrementalFieldType.DateTime,
-        }
-    ]
-    for name, config in ENDPOINTS.items()
-    if config.supports_incremental
+    name: config.incremental_fields for name, config in ENDPOINTS.items() if config.supports_incremental
 }
