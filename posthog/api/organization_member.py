@@ -34,7 +34,7 @@ from posthog.helpers.trigram_search import (
     drop_similar_when_exact_exists,
     normalize_search_term,
 )
-from posthog.helpers.verified_domain_enforcement import verified_domain_email_q
+from posthog.helpers.verified_domain_enforcement import domain_enforcement_admitted_q
 from posthog.models import OrganizationMembership
 from posthog.models.user import User
 from posthog.models.webauthn_credential import WebauthnCredential
@@ -305,9 +305,7 @@ class OrganizationMemberViewSet(
                 queryset = queryset.filter(user__email__iendswith=f"@{params['email_domain']}")
 
             if params.get("outside_verified_domains") == "true":
-                admitted = verified_domain_email_q(organization)
-                if admitted is not None:
-                    queryset = queryset.exclude(admitted)
+                queryset = queryset.exclude(domain_enforcement_admitted_q(organization))
 
             if "levels" in params:
                 try:

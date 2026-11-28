@@ -651,8 +651,8 @@ class OAuthDeviceViewSet(viewsets.ViewSet):
                 status=status.HTTP_403_FORBIDDEN,
             )
         # The same gap for the verified-domain policy: session auth checks the current organization only.
-        if OrganizationDomain.objects.is_email_blocked_by_domain_enforcement(
-            cast(User, request.user).email, team.organization
+        if OrganizationDomain.objects.is_user_blocked_by_domain_enforcement(
+            cast(User, request.user), team.organization
         ):
             return Response(
                 {"error": "verified_domain_required", "error_description": VERIFIED_DOMAIN_REQUIRED_ERROR},

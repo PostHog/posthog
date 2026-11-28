@@ -96,7 +96,7 @@ def _member_team_ids(user: User, teams: list[Team]) -> set[int]:
         for organization_id, organization in organizations.items()
         if organization.is_pending_deletion
         or not organization.is_active
-        or OrganizationDomain.objects.is_email_blocked_by_domain_enforcement(user.email, organization)
+        or OrganizationDomain.objects.is_user_blocked_by_domain_enforcement(user, organization)
     }
     return {
         team.id

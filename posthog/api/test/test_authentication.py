@@ -581,6 +581,19 @@ class TestLoginAPI(APIBaseTest):
         response = self.client.get(f"/api/projects/{permitted_team.id}/", HTTP_AUTHORIZATION=f"Bearer {key_value}")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
+    def test_service_account_key_reaches_enforced_org(self):
+        self._enforce_current_test_org()
+        service_account = User.objects.create_and_join(
+            self.organization, "deploys@hedgebox.net", None, type=UserType.SERVICE_ACCOUNT
+        )
+        key_value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="Test key", user=service_account, secure_value=hash_key_value(key_value), scopes=["*"]
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/", HTTP_AUTHORIZATION=f"Bearer {key_value}")
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+
     def _blocked_admin_parked_in_permitted_org(self) -> None:
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()

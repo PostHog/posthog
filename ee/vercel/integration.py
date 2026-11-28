@@ -1030,7 +1030,7 @@ class VercelIntegration:
         normal_login_reason = normal_login_required_reason(user)
         if normal_login_reason is not None:
             return normal_login_reason
-        if OrganizationDomain.objects.is_email_blocked_by_domain_enforcement(user.email, installation.organization):
+        if OrganizationDomain.objects.is_user_blocked_by_domain_enforcement(user, installation.organization):
             return "domain_blocked"
         return None
 

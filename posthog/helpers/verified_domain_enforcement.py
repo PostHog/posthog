@@ -1,5 +1,4 @@
 import re
-from typing import Optional
 
 from django.db.models import Q
 
@@ -11,7 +10,7 @@ from rest_framework.request import Request
 from posthog.helpers.two_factor_session import is_path_whitelisted
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
-from posthog.models.user import User
+from posthog.models.user import User, UserType
 
 logger = structlog.get_logger(__name__)
 
@@ -32,19 +31,15 @@ def is_enforcement_disable_request(request: Request) -> bool:
     return request.method == "PATCH" and bool(_ORGANIZATION_DETAIL_PATH.match(request.path))
 
 
-def verified_domain_email_q(organization: Organization) -> Optional[Q]:
+def domain_enforcement_admitted_q(organization: Organization) -> Q:
+    """Return a Q filter for memberships that can stay when verified domain enforcement is enabled.
+
+    Also works before enforcement is enabled, so callers can preview which members would be removed.
     """
-    Q matching `OrganizationMembership` rows whose user's email is on one of the organization's
-    verified domains, or None when the organization has no verified domains (every membership is
-    then outside them). Independent of `enforce_verified_domains`, so callers can preview the
-    impact of enabling it.
-    """
-    domains = list(
+    admitted = ~Q(user__type=UserType.HUMAN)
+    domains = (
         OrganizationDomain.objects.verified_domains().filter(organization=organization).values_list("domain", flat=True)
     )
-    if not domains:
-        return None
-    admitted = Q()
     for domain in domains:
         admitted |= Q(user__email__iendswith=f"@{domain}")
     return admitted
@@ -90,7 +85,7 @@ def resolve_login_organization(user: User) -> bool:
         (
             organization
             for organization in user.organizations.all()
-            if not OrganizationDomain.objects.is_email_blocked_by_domain_enforcement(user.email, organization)
+            if not OrganizationDomain.objects.is_user_blocked_by_domain_enforcement(user, organization)
         ),
         None,
     )

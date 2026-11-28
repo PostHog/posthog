@@ -129,6 +129,16 @@ class OrganizationDomainManager(models.Manager):
             return False
         return not self.is_domain_verified_for_organization(email, organization)
 
+    def is_user_blocked_by_domain_enforcement(self, user: "User", organization: Organization) -> bool:
+        """
+        Whether access for `user` to `organization` should be blocked: the org requires
+        a verified email domain, and `user`'s domain is not one of the org's verified domains.
+        Non-human accounts are exempt.
+        """
+        if not user.is_human:
+            return False
+        return self.is_email_blocked_by_domain_enforcement(user.email, organization)
+
     def is_access_blocked_by_domain_enforcement(self, user: "User") -> bool:
         """
         Whether `user` should be denied access to the organization they're currently in.
@@ -139,7 +149,7 @@ class OrganizationDomainManager(models.Manager):
         organization = user.organization
         if organization is None:
             return False
-        return self.is_email_blocked_by_domain_enforcement(user.email, organization)
+        return self.is_user_blocked_by_domain_enforcement(user, organization)
 
 
 class OrganizationDomain(ModelActivityMixin, UUIDTModel):
