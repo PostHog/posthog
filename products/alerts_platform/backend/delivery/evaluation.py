@@ -308,6 +308,7 @@ def deliver_evaluation(request: AlertDeliveryRequest) -> DeliveryOutcome:
     noticed: set[str] = set()
     native_by_event = _by_subscription(request, native_announced)
     for event_id, all_transitions in subscribed_by_event.items():
+        _record_unsent_copies(request, event_id, platform_destinations, native_by_event.get(event_id, ()))
         for subscribed_destination in _destinations(request, event_id, platform_destinations):
             transitions = (
                 native_by_event.get(event_id, ()) if subscribed_destination.receives_emitted_events else all_transitions
@@ -883,6 +884,51 @@ def _destinations(
         ),
         *rows,
     ]
+
+
+def _record_unsent_copies(
+    request: AlertDeliveryRequest,
+    event_id: str,
+    platform_destinations: "_PlatformDestinations",
+    native_transitions: Sequence[AnnouncedTransition],
+) -> None:
+    """Logs and counts each row whose native transitions no destination sends.
+
+    `_destinations` skips a row that copies a live HogFunction, so that the HogFunction alone sends.
+    When the alert's lookup does not list that HogFunction for this event, no group sends the
+    transition natively, and the source emits nothing for a native transition. Nothing reaches the
+    destination, and this record is the only trace of the skip.
+    """
+    if not native_transitions or platform_destinations.owns_destinations:
+        return
+    listed = {
+        hog_function_id
+        for group in platform_destinations.groups_by_event_id[event_id]
+        for hog_function_id in group.hog_function_ids
+    }
+    copied_by_row = {
+        str(destination.id): destination.legacy_hog_function_ids for destination in platform_destinations.destinations
+    }
+    for row in _platform_subscribers(event_id, platform_destinations):
+        if row.id not in platform_destinations.copies or not listed.isdisjoint(copied_by_row[row.id]):
+            continue
+        logger.warning(
+            "alerts_platform_native_send_unsent",
+            team_id=request.team_id,
+            configuration_id=request.configuration_id,
+            evaluation_key=request.evaluation_key,
+            destination_id=row.id,
+            event_id=event_id,
+            transitions=len(native_transitions),
+        )
+        safe_record(
+            increment_deliveries,
+            request.source.value,
+            row.data["type"],
+            DeliveryPath.NATIVE.value,
+            "unsent",
+            len(native_transitions),
+        )
 
 
 def _platform_subscribers(event_id: str, platform: _PlatformDestinations) -> list[_SubscribedDestination]:

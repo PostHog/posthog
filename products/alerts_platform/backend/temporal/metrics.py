@@ -286,6 +286,7 @@ DeliveryOutcomeLabel = Literal[
     "already_delivered",
     "busy",
     "no_transport",
+    "unsent",
     "announcement_empty",
     "announcement_superseded",
     "announcement_missing",
@@ -322,6 +323,8 @@ def increment_deliveries(source: str, provider: str, path: str, outcome: Deliver
     only reading that says alerts reach people. `misconfigured` is a refusal only the destination's
     owner can fix, so it stays out of `failed`, which measures the platform. `ambiguous` is a send
     whose answer was lost after the request went out, recorded as delivered rather than retried.
+    `unsent` is a native transition that no destination sent, because its row copies a HogFunction
+    that the alert's lookup does not list.
     """
     labels: Attributes = {"source": source, "provider": provider, "path": path, "outcome": outcome}
     try:

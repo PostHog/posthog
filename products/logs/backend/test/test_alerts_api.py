@@ -28,6 +28,8 @@ from posthog.security.url_validation import PinnedUrlVerdict
 from products.alerts_platform.backend.facade import testing as platform_testing
 from products.alerts_platform.backend.facade.api import get_configuration, list_configurations, upsert_configuration
 from products.alerts_platform.backend.facade.contracts import (
+    AlertDeliveryRequest,
+    AlertEventKind,
     DeliveryPath,
     IncidentAction,
     PlatformAlertConfigurationView,
@@ -4030,6 +4032,55 @@ class TestLogsAlertDestinationSends(ClickhouseTestMixin, APIBaseTest):
                 "message": message,
             },
         )
+
+    def test_a_webhook_made_through_the_api_sends_a_platform_firing_natively_once(self) -> None:
+        response = self.client.post(
+            self.base_url,
+            {"name": "Errors", "threshold_count": 10, "filters": {"severityLevels": ["error"]}},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        alert_id = response.json()["id"]
+        response = self.client.post(
+            f"{self.base_url}{alert_id}/destinations/",
+            {"type": "webhook", "webhook_url": "https://example.com/hook"},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        firing_at = datetime(2026, 10, 1, 9, tzinfo=UTC)
+        with team_scope(self.team.id):
+            platform_testing.start_firing(UUID(alert_id), team_id=self.team.id, at=firing_at)
+        platform_testing.record_check(
+            UUID(alert_id),
+            team_id=self.team.id,
+            at=firing_at,
+            previous_state="not_firing",
+            state="firing",
+            value=150.0,
+            condition={"threshold_count": 10, "threshold_operator": "above", "window_minutes": 5},
+            kind=AlertEventKind.FIRING.value,
+            episode_started_at=firing_at,
+        )
+
+        with (
+            patch(_PINNED_URL_CHECK, return_value=PinnedUrlVerdict(allowed=True, reason=None, pinned_ips=set())),
+            patch(_PINNED_SEND, return_value=MagicMock(status_code=202)) as native,
+            patch("products.logs.backend.platform_alert_legacy_events.emit_alert_internal_events") as emit,
+        ):
+            platform_testing.deliver(
+                AlertDeliveryRequest(
+                    source=SourceKind.LOGS,
+                    team_id=self.team.id,
+                    configuration_id=alert_id,
+                    evaluation_key=f"slot:{firing_at.isoformat()}",
+                    destination_alert_id=alert_id,
+                    event_ids_by_kind={AlertEventKind.FIRING.value: "$logs_alert_firing"},
+                    owned_by_platform=True,
+                )
+            )
+
+        assert [call.args[0].url for call in native.call_args_list] == ["https://example.com/hook"]
+        assert emit.call_count == 0
 
     def test_a_destination_lists_its_sends_on_both_paths_and_nothing_else(self) -> None:
         response = self.client.post(
