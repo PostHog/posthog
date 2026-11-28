@@ -1,5 +1,8 @@
 import json
+import socket
 import threading
+from http.client import HTTPConnection, HTTPResponse
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -10,12 +13,14 @@ import requests
 from posthog.llm.gateway_client import AIGatewayConfig
 
 from products.aeo.backend.dev.fake_gateway import (
+    MAX_BODY_BYTES,
     OUTCOME_WEIGHTS,
     Delay,
     FakeGateway,
     FakeGatewayServer,
     engine_outcome,
     parse_delay,
+    refuse,
 )
 from products.aeo.backend.engines import (
     ClaudeWebSearchEngine,
@@ -132,9 +137,11 @@ def test_engine_answers_cover_every_check_state_and_read_through_the_engines(eng
 def test_answers_are_the_same_for_the_same_request_and_differ_between_prompts() -> None:
     gateway = FakeGateway()
     body = {"model": "gpt-5", "input": "best replay tool for 1", "tools": [{"type": "web_search"}]}
-    first = gateway.handle("/v1/responses", body)
-    second = gateway.handle("/v1/responses", body)
-    other = gateway.handle("/v1/responses", {**body, "input": "best replay tool for 2"})
+    # The two calls straddle a second, so an answer that stamps the wall clock would differ.
+    with patch("products.aeo.backend.dev.fake_gateway.time.time", side_effect=[1000.0, 2000.0, 3000.0]):
+        first = gateway.handle("/v1/responses", body)
+        second = gateway.handle("/v1/responses", body)
+        other = gateway.handle("/v1/responses", {**body, "input": "best replay tool for 2"})
 
     assert first.body == second.body
     assert first.body["output"] != other.body["output"]
@@ -153,18 +160,130 @@ def test_the_server_answers_over_http() -> None:
         answered = requests.post(f"{base}/v1/messages", json=body, timeout=5)
         health = requests.get(base, timeout=5)
         unknown = requests.post(f"{base}/v1/chat/completions", json=body, timeout=5)
+        from_a_page = requests.post(
+            f"{base}/v1/messages", json=body, headers={"Origin": "https://evil.example"}, timeout=5
+        )
+        oversized = _post_declaring(server.server_address[1], MAX_BODY_BYTES + 1)
     finally:
         server.shutdown()
         server.server_close()
 
     assert health.json()["mode"] == "generated"
     assert unknown.status_code == 404
+    assert from_a_page.status_code == 403
+    assert oversized.startswith(b"HTTP/1.1 413")
     assert answered.headers["X-Fake-Gateway"] == "generated"
     if answered.status_code == 200:
         assert parse_anthropic_citations(answered.json()).answer_text
     else:
         assert answered.status_code in (400, 429)
         assert json.loads(answered.content)["error"]["message"]
+
+
+def _post_declaring(port: int, content_length: int) -> bytes:
+    """A POST whose headers promise a body that never comes; the answer must arrive without it."""
+    with socket.create_connection(("127.0.0.1", port), timeout=5) as sock:
+        sock.sendall(
+            f"POST /v1/messages HTTP/1.1\r\nHost: fake\r\nContent-Type: application/json\r\n"
+            f"Content-Length: {content_length}\r\n\r\n".encode()
+        )
+        return sock.recv(4096)
+
+
+@pytest.mark.parametrize(
+    "headers, length, record_key, status",
+    [
+        ({}, 10, None, None),
+        ({"Authorization": "Bearer s3cret"}, 10, "s3cret", None),
+        ({"Authorization": "Bearer phs_fake"}, 10, "s3cret", 401),
+        ({}, 10, "s3cret", 401),
+        ({"Origin": "https://evil.example", "Authorization": "Bearer s3cret"}, 10, "s3cret", 403),
+        ({"Sec-Fetch-Mode": "cors"}, 10, None, 403),
+        ({}, MAX_BODY_BYTES + 1, None, 413),
+    ],
+)
+def test_refusals(headers: dict[str, str], length: int, record_key: str | None, status: int | None) -> None:
+    refused = refuse(headers, length, record_key)
+    assert (refused.status if refused else None) == status
+
+
+def _plain_post(port: int, path: str, body: dict[str, Any], headers: dict[str, str]) -> HTTPResponse:
+    """A client that does not go through `requests`, which the recorder under test has patched."""
+    connection = HTTPConnection("127.0.0.1", port, timeout=5)
+    connection.request("POST", path, body=json.dumps(body), headers={"Content-Type": "application/json", **headers})
+    response = connection.getresponse()
+    response.read_body = response.read()  # type: ignore[attr-defined]
+    return response
+
+
+def _recorded_response(status: int, body: dict[str, Any], headers: dict[str, str]) -> requests.Response:
+    response = requests.Response()
+    response.status_code = status
+    response.headers.update(headers)
+    response._content = json.dumps(body).encode()
+    return response
+
+
+def test_record_mode_forwards_only_with_the_key_and_replay_cites_the_recorded_site(tmp_path: Path) -> None:
+    token_file = tmp_path / "token.json"
+    token_file.write_text(json.dumps({"gateway_url": "https://gateway.example/v1", "token": "phs_not_a_real_token"}))
+    store = tmp_path / "store"
+    research = {
+        "model": "claude-haiku-5-5",
+        "max_tokens": 10,
+        "messages": [
+            {"role": "user", "content": "You research a company. Read quillnest.com itself first.\nSite: quillnest.com"}
+        ],
+    }
+    cited_prompt = next(prompt for prompt in PROMPTS if engine_outcome(prompt, "claude-sonnet-5") == "cited")
+    check = {
+        "model": "claude-sonnet-5",
+        "max_tokens": 10,
+        "tools": [{"type": "web_search_20250305", "name": "web_search"}],
+        "messages": [{"role": "user", "content": cited_prompt}],
+    }
+    upstream = _recorded_response(
+        200, {"id": "msg_1", "content": [{"type": "text", "text": "{}"}]}, {"X-PostHog-Denial": "none"}
+    )
+    seen: list[dict[str, Any]] = []
+
+    def post(url: str, *, data: bytes, headers: dict[str, str], timeout: Any) -> requests.Response:
+        seen.append({"url": url, "headers": headers})
+        return upstream
+
+    recorder = FakeGatewayServer(
+        ("127.0.0.1", 0), mode="record", store=store, quiet=True, record_key="s3cret", token_file=token_file
+    )
+    thread = threading.Thread(target=recorder.serve_forever, daemon=True)
+    thread.start()
+    port = recorder.server_address[1]
+    try:
+        with patch("products.aeo.backend.dev.fake_gateway.requests.post", post):
+            unauthenticated = _plain_post(port, "/v1/messages", research, {})
+            recorded = _plain_post(port, "/v1/messages", research, {"Authorization": "Bearer s3cret"})
+    finally:
+        recorder.shutdown()
+        recorder.server_close()
+
+    assert unauthenticated.status == 401
+    assert recorded.status == 200
+    assert recorded.getheader("X-PostHog-Denial") == "none"
+    assert len(seen) == 1
+    assert seen[0]["url"] == "https://gateway.example/v1/messages"
+    assert seen[0]["headers"]["Authorization"] == "Bearer phs_not_a_real_token"
+    assert b"phs_not_a_real_token" not in recorded.read_body  # type: ignore[attr-defined]
+    assert list(store.glob("*.part")) == []
+
+    replayer = FakeGatewayServer(("127.0.0.1", 0), mode="replay", store=store, quiet=True)
+    try:
+        replayed, mode = replayer.answer("/v1/messages", research, {})
+        generated, generated_mode = replayer.answer("/v1/messages", check, {})
+    finally:
+        replayer.server_close()
+    assert (replayed.body, mode) == (upstream.json(), "replay")
+    assert generated_mode == "generated"
+    assert replayer.gateway.domains == ["quillnest.com"]
+    assert any(url.startswith("https://quillnest.com") for url in parse_anthropic_citations(generated.body).cited_urls)
 
 
 @pytest.mark.parametrize(

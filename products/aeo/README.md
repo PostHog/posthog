@@ -169,7 +169,8 @@ hogli start:aeo:fake-gateway   # or: python -m products.aeo.backend.dev.fake_gat
 
 It listens on `http://localhost:8080/v1`, the dev default for `AI_GATEWAY_URL`, so a stack started without the `ai_gateway` capability and without `AI_GATEWAY_URL` in its environment uses it as is.
 A stack that carries a real `AI_GATEWAY_URL` and `AI_GATEWAY_API_KEY`, from `.env.local` or from the shell that started it, keeps paying for real calls until it is pointed at the fake.
-Put these in `.env.local`, make sure the shell does not override them, and restart the `backend`, `celery-worker` and `temporal-worker` units, because each reads the setting once at start:
+Put these in `.env.local`, make sure the shell does not override them, then stop the stack and start it again with `hogli start` or `bin/start`.
+Restarting the `backend`, `celery-worker` and `temporal-worker` units is not enough: the launcher reads `.env.local` once and hands that environment to every unit it restarts.
 
 ```bash
 AI_GATEWAY_URL=http://localhost:8080/v1
@@ -180,7 +181,8 @@ AI_GATEWAY_API_KEY=phs_fake
 
 - **Latency.** Each request sleeps 100 ms by default, enough for the wizard's progress states to show and quick enough for an automated check of the flow. `--realistic` (or `FAKE_GATEWAY_DELAY_MS=800-3000`) sleeps a random time in that range instead, which is what a person sees with the real gateway. `FAKE_GATEWAY_DELAY_MS` or `--delay-ms` takes a fixed number of milliseconds or a range.
 - **Failures on demand.** A site whose domain contains `fail` fails its setup calls with a 500; one containing `unreadable` answers without JSON. The engine answers fail on their own for a few prompts.
-- **Record and replay.** `--record` forwards each call to the real gateway with the token in `~/.ai-gateway-token.json` (never printed or logged) and stores the answers under `.posthog/aeo-fake-gateway/`, keyed by the request. `--replay` serves them back and generates an answer for any request that was never recorded.
+- **Record and replay.** `--record` forwards each call to the real gateway with the token in `~/.ai-gateway-token.json` (never printed or logged) and stores the answers under `.posthog/aeo-fake-gateway/`, keyed by the request. Because that spends real credits, record mode listens on the loopback interface only and answers a call only when its bearer token matches `FAKE_GATEWAY_API_KEY`, so set that variable to a secret and put the same value in `AI_GATEWAY_API_KEY`. `--replay` serves the kept answers back and generates an answer for any request that was never recorded.
+- **Browsers are refused.** Every mode answers 403 to a request that carries `Origin` or `Sec-Fetch-Mode`, and 413 to a body over 2 MB, so a web page cannot drive the fake. The stack's server-side calls send neither header.
 - **Tests.** `products/aeo/backend/test/test_fake_gateway.py` runs the builders through the real parsers in `engines.py`, `suggestions.py` and `keyword_suggestions.py`, so a parser change breaks the fake loudly.
 
 ## The table

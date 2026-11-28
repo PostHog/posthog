@@ -15,12 +15,14 @@ from __future__ import annotations
 import os
 import re
 import sys
+import hmac
 import json
 import time
 import random
 import hashlib
 import argparse
 import threading
+from collections.abc import Mapping
 from dataclasses import dataclass
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -36,6 +38,7 @@ DEFAULT_DELAY_MS = "100"
 REALISTIC_DELAY_MS = "800-3000"
 DEFAULT_STORE = Path(".posthog/aeo-fake-gateway")
 TOKEN_FILE = Path("~/.ai-gateway-token.json")
+MAX_BODY_BYTES = 2 * 1024 * 1024
 # These phrases open the three setup instructions in suggestions.py and keyword_suggestions.py. A request whose
 # first user message carries none of them is an engine prompt.
 RESEARCH_MARKER = "You research a company"
@@ -553,7 +556,7 @@ def _responses_body(model: str, output: list[dict[str, Any]], rng: random.Random
     return {
         "id": f"resp_{rng.getrandbits(96):024x}",
         "object": "response",
-        "created_at": int(time.time()),
+        "created_at": 1_700_000_000 + rng.randrange(100_000_000),
         "status": "completed",
         "model": model,
         "output": output,
@@ -701,6 +704,13 @@ class FakeGateway:
             self.domains.insert(0, domain)
             del self.domains[20:]
 
+    def note_setup(self, path: str, body: dict[str, Any]) -> None:
+        """Remembers the site a setup call is about, so the engine answers that follow cite it."""
+        if classify(path, body) in ("research", "prompts", "keywords"):
+            domain = setup_domain(_first_user_text(body))
+            if domain:
+                self.remember_domain(registrable(domain))
+
     def _check_domain(self, body: dict[str, Any]) -> str:
         """The site an engine answer is about. The prompt rarely names it, so the fake uses the site set up most
         recently, or a brand named in the prompt, or an invented one."""
@@ -720,8 +730,7 @@ class FakeGateway:
         rng = _rng(kind, path, text, model, body.get("tools"))
         if kind in ("research", "prompts", "keywords"):
             domain = setup_domain(text)
-            if domain:
-                self.remember_domain(registrable(domain))
+            self.note_setup(path, body)
             if FAIL_DOMAIN_WORD in domain:
                 return _error(500, "the fake gateway fails setup calls for domains that contain 'fail'")
             if UNREADABLE_DOMAIN_WORD in domain:
@@ -772,9 +781,10 @@ class Recorder:
     """Forwards requests to the real gateway with the token in ~/.ai-gateway-token.json and keeps the answers.
     The token is read once and never written anywhere, including logs."""
 
-    def __init__(self, store: Path, token_file: Path = TOKEN_FILE) -> None:
+    def __init__(self, store: Path, token_file: Path | None = None) -> None:
         self.store = store
         self.store.mkdir(parents=True, exist_ok=True)
+        token_file = token_file or TOKEN_FILE
         data = json.loads(token_file.expanduser().read_text())
         self._token: str = data["token"]
         self.root = str(data.get("gateway_url", "")).rstrip("/").removesuffix("/v1")
@@ -802,10 +812,14 @@ class Recorder:
         }
         response = GatewayResponse(upstream.status_code, payload, kept)
         if response.status == 200:
-            (self.store / f"{request_key(path, body)}.json").write_text(
-                json.dumps({"path": path, "request": body, "response": response.body}, indent=2)
-            )
+            self._keep(request_key(path, body), {"path": path, "request": body, "response": response.body})
         return response
+
+    def _keep(self, key: str, recording: dict[str, Any]) -> None:
+        # Two identical requests in flight share a file; each writes its own and the last rename wins whole.
+        partial = self.store / f".{key}.{threading.get_ident()}.part"
+        partial.write_text(json.dumps(recording, indent=2))
+        os.replace(partial, self.store / f"{key}.json")
 
 
 class Replayer:
@@ -843,6 +857,24 @@ def parse_delay(spec: str | None) -> Delay:
     return Delay(low=low_ms / 1000, high=max(low_ms, high_ms) / 1000)
 
 
+def refuse(headers: Mapping[str, str], length: int, record_key: str | None) -> GatewayResponse | None:
+    """Why a request gets no answer: too large, sent by a browser, or unauthenticated while a real token is in play.
+    Browsers send `Origin` or `Sec-Fetch-Mode` on every fetch and the stack's server-side calls send neither, so a
+    page cannot spend the developer's token through a cross-origin POST."""
+    if length > MAX_BODY_BYTES:
+        return _error(413, f"the fake gateway reads at most {MAX_BODY_BYTES} bytes", "invalid_request_error")
+    lowered = {key.lower(): value for key, value in headers.items()}
+    if "origin" in lowered or "sec-fetch-mode" in lowered:
+        return _error(403, "the fake gateway does not answer browsers", "permission_error")
+    if record_key is not None:
+        sent = lowered.get("authorization", "").removeprefix("Bearer ")
+        if not hmac.compare_digest(sent.encode(), record_key.encode()):
+            return _error(
+                401, "record mode needs `Authorization: Bearer $FAKE_GATEWAY_API_KEY`", "authentication_error"
+            )
+    return None
+
+
 class _Handler(BaseHTTPRequestHandler):
     server: FakeGatewayServer
     protocol_version = "HTTP/1.1"
@@ -872,6 +904,11 @@ class _Handler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:  # noqa: N802
         length = int(self.headers.get("Content-Length") or 0)
+        refused = refuse(dict(self.headers.items()), length, self.server.record_key)
+        if refused is not None:
+            self.close_connection = True
+            self._send(refused, self.server.mode)
+            return
         try:
             body = json.loads(self.rfile.read(length) or b"{}")
         except json.JSONDecodeError:
@@ -903,21 +940,31 @@ class FakeGatewayServer(ThreadingHTTPServer):
         store: Path = DEFAULT_STORE,
         delay: Delay = NO_DELAY,
         quiet: bool = False,
+        record_key: str | None = None,
+        token_file: Path | None = None,
     ) -> None:
+        if mode == "record":
+            if not record_key:
+                raise SystemExit("record mode spends a real token, so it needs FAKE_GATEWAY_API_KEY set to a secret")
+            if address[0] not in ("127.0.0.1", "localhost", "::1"):
+                raise SystemExit("record mode listens on the loopback interface only")
         super().__init__(address, _Handler)
         self.mode = mode
         self.delay = delay
         self.quiet = quiet
+        self.record_key = record_key if mode == "record" else None
         self.gateway = FakeGateway()
-        self.recorder = Recorder(store) if mode == "record" else None
+        self.recorder = Recorder(store, token_file) if mode == "record" else None
         self.replayer = Replayer(store) if mode == "replay" else None
 
     def answer(self, path: str, body: dict[str, Any], headers: dict[str, str]) -> tuple[GatewayResponse, str]:
         if self.recorder is not None:
+            self.gateway.note_setup(path, body)
             return self.recorder.forward(path, body, headers), "record"
         if self.replayer is not None:
             recorded = self.replayer.lookup(path, body)
             if recorded is not None:
+                self.gateway.note_setup(path, body)
                 return recorded, "replay"
         return self.gateway.handle(path, body), "generated"
 
@@ -927,7 +974,11 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--port", type=int, default=int(os.environ.get("FAKE_GATEWAY_PORT", DEFAULT_PORT)))
     parser.add_argument("--host", default="127.0.0.1")
     mode = parser.add_mutually_exclusive_group()
-    mode.add_argument("--record", action="store_true", help="forward to the real gateway and keep the answers")
+    mode.add_argument(
+        "--record",
+        action="store_true",
+        help="forward to the real gateway and keep the answers; callers must send FAKE_GATEWAY_API_KEY as the bearer",
+    )
     mode.add_argument("--replay", action="store_true", help="serve kept answers, generating the ones never recorded")
     parser.add_argument("--store", type=Path, default=DEFAULT_STORE, help="where recorded answers live")
     parser.add_argument(
@@ -944,7 +995,12 @@ def main(argv: list[str] | None = None) -> None:
     run_mode = "record" if args.record else "replay" if args.replay else "generated"
     delay_spec = REALISTIC_DELAY_MS if args.realistic else args.delay_ms
     server = FakeGatewayServer(
-        (args.host, args.port), mode=run_mode, store=args.store, delay=parse_delay(delay_spec), quiet=args.quiet
+        (args.host, args.port),
+        mode=run_mode,
+        store=args.store,
+        delay=parse_delay(delay_spec),
+        quiet=args.quiet,
+        record_key=os.environ.get("FAKE_GATEWAY_API_KEY"),
     )
     sys.stderr.write(
         f"[fake-gateway] {run_mode} mode listening on http://{args.host}:{args.port}/v1, delay {delay_spec} ms\n"
