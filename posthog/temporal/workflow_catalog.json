@@ -545,6 +545,11 @@
     "task_queues": "DUCKLAKE_TASK_QUEUE"
   },
   {
+    "temporal_workflow_type": "ducklake-register.data-imports-landing-sweep",
+    "product": "managed_warehouse",
+    "task_queues": "DUCKLAKE_TASK_QUEUE"
+  },
+  {
     "temporal_workflow_type": "dwh-cdp-producer-job",
     "product": "warehouse_sources",
     "task_queues": "DATA_WAREHOUSE_CDP_PRODUCER_TASK_QUEUE,DATA_WAREHOUSE_TASK_QUEUE"
