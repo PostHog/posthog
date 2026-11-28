@@ -81,6 +81,16 @@ def expected_evaluation_date(alert: BillingAlertConfiguration, now: datetime | N
     return delayed_now.date() - timedelta(days=1)
 
 
+def fetch_billing_status(
+    organization: Organization, *, manager: BillingManager | None = None
+) -> tuple[dict[str, Any], int]:
+    """The organization's billing status and how long the billing service took, in milliseconds."""
+    manager = manager or BillingManager(get_cached_instance_license())
+    start = perf_counter()
+    response = manager.get_billing_status_for_alerts(organization)
+    return response, int((perf_counter() - start) * 1000)
+
+
 def fetch_billing_data(
     alert: BillingAlertConfiguration,
     organization: Organization,
@@ -88,10 +98,7 @@ def fetch_billing_data(
     manager: BillingManager | None = None,
     now: datetime | None = None,
 ) -> tuple[dict[str, Any], int]:
-    manager = manager or BillingManager(get_cached_instance_license())
-    start = perf_counter()
-    response = manager.get_billing_status_for_alerts(organization)
-    return response, int((perf_counter() - start) * 1000)
+    return fetch_billing_status(organization, manager=manager)
 
 
 def _customer(billing_response: dict[str, Any]) -> dict[str, Any]:
@@ -101,11 +108,10 @@ def _customer(billing_response: dict[str, Any]) -> dict[str, Any]:
     return customer
 
 
-def current_period_amount(alert: BillingAlertConfiguration, billing_response: dict[str, Any]) -> Decimal | None:
-    """The alert's metric for the current billing period, or None when the billing service has
+def current_period_amount(metric: str, billing_response: dict[str, Any]) -> Decimal | None:
+    """The metric's total for the current billing period, or None when the billing service has
     no total yet."""
-    _validate_supported_metric(alert)
-    amount_field = _METRIC_AMOUNT_FIELD[alert.metric]
+    amount_field = _METRIC_AMOUNT_FIELD[metric]
     raw_amount = _customer(billing_response).get(amount_field)
     return None if raw_amount is None else _decimal(raw_amount, field=amount_field)
 
@@ -135,7 +141,7 @@ def evaluate_billing_alert(
     period_end = _parse_period_boundary(billing_period.get("current_period_end")) or (default_start + timedelta(days=1))
 
     amount_field = _METRIC_AMOUNT_FIELD[alert.metric]
-    current_value = current_period_amount(alert, billing_response)
+    current_value = current_period_amount(alert.metric, billing_response)
 
     payload: dict[str, Any] = {
         "expected_evaluation_date": expected_date.isoformat(),
