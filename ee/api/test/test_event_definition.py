@@ -6,6 +6,7 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
 from django.db import connection
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 import dateutil.parser
@@ -555,6 +556,39 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
         assert (log.item_id, log.activity) == (str(to_change.id), "changed")
         assert log.detail is not None
         assert sorted((c["field"], c["before"], c["after"]) for c in log.detail["changes"]) == expected_changes
+
+    def test_bulk_update_hidden_query_count_does_not_grow_with_the_batch(self):
+        super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            plan="enterprise", valid_until=datetime(2500, 1, 19, 3, 14, 7)
+        )
+
+        def hide(count: int) -> tuple[int, list[EnterpriseEventDefinition]]:
+            events = [
+                EnterpriseEventDefinition.objects.create(
+                    team=self.demo_team, name=f"bulk_hide_batch_{count}_{i}", verified=True
+                )
+                for i in range(count)
+            ]
+            with CaptureQueriesContext(connection) as queries, self.captureOnCommitCallbacks(execute=True):
+                response = self.client.post(
+                    f"/api/projects/{self.demo_team.pk}/event_definitions/bulk_update_hidden/",
+                    {"ids": [str(e.id) for e in events], "hidden": True},
+                )
+            assert response.status_code == status.HTTP_200_OK, response.json()
+            assert len(response.json()["updated"]) == count
+            return len(queries), events
+
+        hide(1)  # the first request warms per-process caches
+        small_count, _ = hide(2)
+        large_count, events = hide(6)
+
+        assert large_count == small_count
+        # bulk_update skips save(), so the metadata copy and the activity log must still cover every row
+        metadata = EventDefinitionMetadata.objects.for_team(self.demo_team.pk, canonical=True)
+        assert set(metadata.filter(hidden=True, verified=False).values_list("pk", flat=True)) >= {e.id for e in events}
+        assert ActivityLog.objects.filter(
+            team_id=self.demo_team.pk, scope="EventDefinition", item_id__in=[str(e.id) for e in events]
+        ).count() == len(events)
 
     def test_bulk_update_hidden_ignores_event_definitions_in_other_project(self):
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
