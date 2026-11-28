@@ -265,14 +265,6 @@ const isSensitiveMail = (mail: { tags?: Record<string, unknown> } | undefined): 
 // Applied to its own output, it returns that output, so a link redacted before queueing records the same value.
 const sensitiveClickLink = (link: string): string => sensitiveLinkOrigin(resolveClickDestination(link))
 
-const hasHost = (link: string): boolean => {
-    try {
-        return new URL(link).host !== ''
-    } catch {
-        return false
-    }
-}
-
 type RecordedClickLink = { eventUrl: string; perLinkUrl: string }
 
 const recordedClickLink = (isSensitive: boolean, link: string): RecordedClickLink => {
@@ -281,11 +273,10 @@ const recordedClickLink = (isSensitive: boolean, link: string): RecordedClickLin
         return { eventUrl: origin, perLinkUrl: origin }
     }
     const destination = resolveClickDestination(link)
-    if (!carriesPreferencesToken(link)) {
-        return { eventUrl: destination, perLinkUrl: normalizeClickUrl(destination) }
+    return {
+        eventUrl: carriesPreferencesToken(link) ? sensitiveClickLink(link) : destination,
+        perLinkUrl: normalizeClickUrl(destination),
     }
-    const origin = sensitiveClickLink(link)
-    return { eventUrl: origin, perLinkUrl: hasHost(destination) ? normalizeClickUrl(destination) : origin }
 }
 
 type LooseSesRecord = {

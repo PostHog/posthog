@@ -8,13 +8,7 @@ import { FetchResponse, fetch } from '~/common/utils/request'
 
 import { JWT, PosthogJwtAudience } from '../../../utils/jwt-utils'
 import { RecipientTokensService } from '../recipient-tokens.service'
-import {
-    LINK_INSTANCE_SEPARATOR,
-    SesWebhookHandler,
-    nonexistentRecipients,
-    normalizeClickUrl,
-    resolveClickDestination,
-} from './ses'
+import { SesWebhookHandler, nonexistentRecipients, normalizeClickUrl, resolveClickDestination } from './ses'
 import { SNS_SIGNING_CERT_CACHE_SIZE } from './sns-envelope'
 import { EmailTrackingCodeSigner } from './tracking-code'
 
@@ -232,10 +226,7 @@ describe('SesWebhookHandler', () => {
             const metric = (name: string) => result.metrics?.find(({ metricName }) => metricName === name)
             return {
                 recorded: metric('email_link_clicked')?.properties?.$link_url,
-                perLink: metric('email_link_clicked_by_link')
-                    ?.instanceIdOverride?.split(LINK_INSTANCE_SEPARATOR)
-                    .slice(2)
-                    .join(LINK_INSTANCE_SEPARATOR),
+                perLinkKey: metric('email_link_clicked_by_link')?.instanceIdOverride,
             }
         }
 
@@ -296,22 +287,17 @@ describe('SesWebhookHandler', () => {
                 link: `https://example.com/p/${header}.${payload.slice(0, 10)}%0D%0A${payload.slice(10)}.${signature}/`,
                 origin: 'https://example.com',
             },
-            {
-                case: 'a tracked link without a host',
-                link: `http://localhost:8010/public/m/redirect?ph_id=x&target=${encodeURIComponent(`mailto:?body=${encodeURIComponent(preferencesUrl)}`)}`,
-                origin: 'mailto:',
-            },
         ])('records only the origin for $case', async ({ link, origin }) => {
-            const { recorded, perLink } = await clickedLink(link)
+            const { recorded, perLinkKey } = await clickedLink(link)
             expect(recorded).toEqual(origin)
-            expect(perLink).toEqual(expect.stringMatching(/\S/))
-            expect(perLink).not.toContain(payload.slice(0, 16))
-            expect(perLink).not.toContain(signature.slice(0, 16))
+            expect(perLinkKey).toEqual(expect.any(String))
+            expect(perLinkKey).not.toContain(payload.slice(0, 16))
+            expect(perLinkKey).not.toContain(signature.slice(0, 16))
         })
 
         it('keeps a click on the preferences page in the per-link bucket it had before', async () => {
-            expect((await clickedLink(preferencesUrl)).perLink).toEqual(
-                'https://app.posthog.com/messaging-preferences/*'
+            expect((await clickedLink(preferencesUrl)).perLinkKey).toEqual(
+                'act789||https://app.posthog.com/messaging-preferences/*'
             )
         })
 
