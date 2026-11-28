@@ -11,6 +11,7 @@ import {
     digestScoutConfig,
     experimentScanner,
     readyAnalysis,
+    scopedSummarizerScanner,
     variantsDecorator,
     variantsReadout,
 } from '../__mocks__/replayScannersStoryFixtures'
@@ -52,6 +53,18 @@ export const ExperimentVariants: StoryObj = {
         featureFlags: { [FEATURE_FLAGS.VISION_EXPERIMENT_SCANNER]: true },
     },
     decorators: [variantsDecorator(variantsReadout()), variantAnalysisScoutMocks],
+}
+
+// The same scanner with its experiment in the `scope` column instead of the experiment type's
+// config. Everything the experiment drives has to look the same: the Variants tab is offered, the
+// recordings banner names the experiment, and the observations table filters by variant. Reading
+// the type instead of the scope hides all three.
+export const ExperimentVariantsFromScope: StoryObj = {
+    parameters: {
+        pageUrl: urls.replayVision(scopedSummarizerScanner.id),
+        featureFlags: { [FEATURE_FLAGS.VISION_EXPERIMENT_SCANNER]: true },
+    },
+    decorators: [variantsDecorator(variantsReadout(), scopedSummarizerScanner), variantAnalysisScoutMocks],
 }
 
 // No variant analysis scout yet: the counts show, and the comparison offers to set one up.

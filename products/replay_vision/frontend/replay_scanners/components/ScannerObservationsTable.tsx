@@ -35,6 +35,7 @@ import { markSimilarSearchIntent, searchTabUrl, similarSearchUrl } from '../../s
 import { shortBackfillId } from '../../utils/backfills'
 import { citedTextToPlainText } from '../../utils/citations'
 import { readModelOutput, readReasoning } from '../../utils/observation'
+import { scannerExperimentScope } from '../experimentTargeting'
 import {
     OBSERVATIONS_PAGE_SIZE,
     ObservationStatusValue,
@@ -153,6 +154,9 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
         return () => setObservationsActive(false)
     }, [setObservationsActive])
     const scannerType = scanner?.scanner_type
+    // The variant filter follows the experiment the scanner watches, not its answer format: a
+    // scanner carrying its experiment in `scope` has variants to filter by just the same.
+    const experimentScope = scannerExperimentScope(scanner)
     const tagFilterOptions = availableTags.map((tag) => ({ value: tag, label: tag }))
     const scoreScale = scanner?.scanner_type === 'scorer' ? scanner.scanner_config.scale : undefined
     const hasReasoningColumn = scannerType === 'scorer' || scannerType === 'monitor'
@@ -443,16 +447,15 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
                                     Similar sessions
                                 </LemonButton>
                             )}
-                            {scannerType === 'experiment' ? (
+                            {experimentScope ? (
                                 <LemonSelect
                                     size="small"
                                     dropdownMatchSelectWidth={false}
                                     value={observationVariantFilter}
                                     onChange={(value) => setObservationVariantFilter(value)}
                                     options={variantFilterOptions(
-                                        scanner?.scanner_type === 'experiment' &&
-                                            scanner.scanner_config.variants?.length
-                                            ? scanner.scanner_config.variants
+                                        experimentScope.variants?.length
+                                            ? experimentScope.variants
                                             : getExperimentVariants(experimentContext?.experiment).map(
                                                   (variant) => variant.key
                                               ),

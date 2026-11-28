@@ -19,7 +19,10 @@ export interface ExperimentScopeFilterProps {
  */
 export function ExperimentScopeFilter({ scannerId }: ExperimentScopeFilterProps): JSX.Element | null {
     const { scanner, experimentContext } = useValues(replayScannerLogic({ id: scannerId }))
-    const scope = scanner?.scanner_type === 'experiment' ? scannerExperimentScope(scanner) : null
+    // Read off the scope, not the type: a scanner carrying its experiment in the `scope` column
+    // keeps an answer format of its own, and gating on the type hides this banner for every one
+    // of them. `scannerExperimentScope` reads whichever store holds it.
+    const scope = scannerExperimentScope(scanner)
     if (!scope) {
         return null
     }
