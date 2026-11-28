@@ -41,6 +41,7 @@ const passed = (key: HealthPanelCheck['key'], name: string): ExperimentHealthChe
     values: {},
     rule: null,
     rows: [],
+    as_of: '2026-11-03T10:00:00Z',
 })
 
 const skipped = (
@@ -57,6 +58,7 @@ const skipped = (
     values: {},
     rule: null,
     rows: [],
+    as_of: '2026-11-03T10:00:00Z',
 })
 
 const FLAG_SETUP_CHECKS = [
@@ -174,6 +176,7 @@ const found = (key: HealthPanelCheck['key'], name: string): ExperimentHealthChec
     values: {},
     rule: null,
     rows: [],
+    as_of: '2026-11-03T10:00:00Z',
 })
 
 export const ChecksThatCouldNotRun: Story = {

@@ -69,6 +69,7 @@ describe('experiment health gate', () => {
             },
         ],
         setup: null,
+        stale_before: '2026-01-05T00:00:00Z',
     }
 
     const buildContext = (getHealth: Mock, exposureRead: unknown, trackEvent: Mock, request: Mock = vi.fn()): Context =>
@@ -190,6 +191,7 @@ describe('experiment health gate', () => {
             codes: ['no_metric'],
             summary:
                 'Findings: 1 warning. Checks: 1 finding. The exposure checks did not run: the experiment has not started.',
+            staleBefore: '2026-01-05T00:00:00Z',
         },
         {
             name: 'answers for a draft without the flag',
@@ -197,8 +199,9 @@ describe('experiment health gate', () => {
             codes: [],
             summary:
                 'Findings: none. Checks: none ran. The exposure checks did not run: the experiment has not started.',
+            staleBefore: undefined,
         },
-    ])('experiment-health-get $name', async ({ flag, codes, summary }) => {
+    ])('experiment-health-get $name', async ({ flag, codes, summary, staleBefore }) => {
         vi.mocked(isFeatureFlagEnabled).mockResolvedValue(flag)
         const getHealth = vi.fn().mockResolvedValue({ success: true, data: configHealth })
 
@@ -206,6 +209,7 @@ describe('experiment health gate', () => {
 
         expect(result.findings.map((f) => f.code)).toEqual(codes)
         expect(result.summary).toBe(summary)
+        expect(result.stale_before).toBe(staleBefore)
         expect(result).not.toHaveProperty('exposures')
     })
 

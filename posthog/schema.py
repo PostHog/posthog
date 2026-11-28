@@ -33280,6 +33280,16 @@ class ExperimentExposureHealthCheck(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    as_of: AwareDatetime | None = Field(
+        default=None,
+        description=(
+            "The end of the data that the check read, in UTC: the end of the exposures"
+            " that the answer counts, or the time of the check for a check that reads"
+            " only settings. Precomputed exposures of the current day end at the time"
+            " of their last build. A cached answer keeps the time of its calculation."
+            " Missing on an answer cached before the field existed."
+        ),
+    )
     description: str | None = Field(
         default=None,
         description=(

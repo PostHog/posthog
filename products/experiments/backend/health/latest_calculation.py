@@ -97,6 +97,7 @@ def _load_latest_calculation(experiment: Experiment, team_config: TeamExperiment
         hours_of_data=(run.query_to - experiment.start_date) / timedelta(hours=1)
         if run.query_to is not None and experiment.start_date is not None
         else None,
+        data_until=run.query_to,
     )
 
 

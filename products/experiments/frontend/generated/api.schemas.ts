@@ -3101,6 +3101,8 @@ export interface ExperimentHealthCheckResultApi {
     rule: ExperimentHealthCheckRuleApi | null
     /** What the check read per variant, metric or feature flag change, one object each, with the keys and units of `values`. For example, the significance check gives each variant's difference and the smallest difference its sample can detect. A release condition change also gives the conditions as the flag stores them, in before_filters and after_filters. Empty when the check reads no such list. */
     rows: ExperimentHealthCheckResultApiRowsItem[]
+    /** The end of the data that the check read, in UTC. For a check on the stored metric results, the end of the data of the latest calculation or of the current result. For a check on the feature flag's calls, the time of the scan, which is cached for up to a day. The time of the check for a check that reads only settings. A check that reads several of these gives the earliest. */
+    as_of: string
 }
 
 export interface ExperimentHealthReleaseConditionApi {
@@ -3252,6 +3254,11 @@ export interface ExperimentHealthApi {
     checks: ExperimentHealthCheckResultApi[]
     /** The settings of the experiment's flag that decide which variant a user gets. Null when the experiment has no flag. */
     setup?: ExperimentHealthSetupApi | null
+    /**
+     * A check whose `as_of` is earlier than this time is out of date: its data ends more than 36 hours before the end of the experiment's window, which is now, or the end date of an ended experiment. That is the 12 hours after which the results page refreshes results, plus a day, because the exposure counts and the scan of the flag's calls are cached for up to a day. It applies to the checks here and to the exposure query's `health_checks`. Null for a draft, which has no data yet, and for a paused experiment, whose results don't refresh on their own while it's paused.
+     * @nullable
+     */
+    stale_before?: string | null
 }
 
 /**

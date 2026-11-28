@@ -1,5 +1,6 @@
 from collections.abc import Callable, Sequence
 from dataclasses import replace
+from datetime import UTC, datetime
 from typing import assert_never
 
 from posthog.dataclasses import frozen
@@ -18,6 +19,7 @@ from products.experiments.backend.facade.contracts import (
     ExperimentHealthValueKey,
 )
 from products.experiments.backend.facade.daily_calculation import DAILY_CALCULATION_DAYS
+from products.experiments.backend.health.as_of import earliest_data_end, recorded_inputs, recording
 from products.experiments.backend.health.checks.bias_risk import (
     MULTIPLE_VARIANT_BIAS_MINIMUM_COUNT,
     MULTIPLE_VARIANT_BIAS_THRESHOLD,
@@ -560,30 +562,38 @@ def evaluate(
     because what it reads, such as the latest calculation or the flag history, loads only for a running experiment."""
     findings: list[ExperimentHealthFinding] = []
     results: list[ExperimentHealthCheckResult] = []
+    checked_at = datetime.now(UTC)
+    recorded = recording(ctx)
+    recorded_launched = recording(launched) if launched is not None else None
     for check in checks:
-        read_from = ctx
-        try:
-            outcome = check.run(ctx)
-            if launched is not None and _runs_after_launch(outcome):
-                launched_outcome = check.run(launched)
-                if not _not_checked(launched_outcome):
-                    outcome, read_from = launched_outcome, launched
-        except Exception as error:
-            # The findings ride on the health action, the exposure answer and `experiment launched`, so one
-            # failing check must not fail them or hide the findings of the other checks.
-            capture_exception(error)
-            results.append(_result(check, ExperimentHealthCheckStatus.NOT_CHECKED, _CHECK_FAILED, {}, ()))
-            continue
-        values = _read(check.read, read_from, {})
-        rows = _read(check.read_rows, read_from, ())
+        read_from = recorded
+        with recorded_inputs() as read:
+            try:
+                outcome = check.run(recorded)
+                if recorded_launched is not None and _runs_after_launch(outcome):
+                    launched_outcome = check.run(recorded_launched)
+                    if not _not_checked(launched_outcome):
+                        outcome, read_from = launched_outcome, recorded_launched
+            except Exception as error:
+                # The findings ride on the health action, the exposure answer and `experiment launched`, so one
+                # failing check must not fail them or hide the findings of the other checks.
+                capture_exception(error)
+                failed_as_of = earliest_data_end(read, checked_at)
+                results.append(
+                    _result(check, ExperimentHealthCheckStatus.NOT_CHECKED, _CHECK_FAILED, {}, (), failed_as_of)
+                )
+                continue
+            values = _read(check.read, read_from, {})
+            rows = _read(check.read_rows, read_from, ())
+        as_of = earliest_data_end(read, checked_at)
         match outcome:
             case CheckSkip(status=status, reason=reason):
-                results.append(_result(check, status, reason, values, rows))
+                results.append(_result(check, status, reason, values, rows, as_of))
             case ExperimentHealthFinding():
                 findings.append(replace(outcome, check=check.key))
-                results.append(_result(check, ExperimentHealthCheckStatus.FINDING, None, values, rows))
+                results.append(_result(check, ExperimentHealthCheckStatus.FINDING, None, values, rows, as_of))
             case None:
-                results.append(_result(check, ExperimentHealthCheckStatus.PASSED, None, values, rows))
+                results.append(_result(check, ExperimentHealthCheckStatus.PASSED, None, values, rows, as_of))
             case _:
                 assert_never(outcome)
     return ExperimentHealth(findings=tuple(findings), checks=tuple(results))
@@ -600,9 +610,12 @@ def _not_checked(outcome: CheckOutcome) -> bool:
 def not_checked_health(checks: Sequence[HealthCheck], reason: str) -> ExperimentHealth:
     """Every check as not checked with one reason, for an experiment whose inputs no check can read. An empty list
     would read as an experiment without checks, which hides that its problems go unreported."""
+    checked_at = datetime.now(UTC)
     return ExperimentHealth(
         findings=(),
-        checks=tuple(_result(check, ExperimentHealthCheckStatus.NOT_CHECKED, reason, {}, ()) for check in checks),
+        checks=tuple(
+            _result(check, ExperimentHealthCheckStatus.NOT_CHECKED, reason, {}, (), checked_at) for check in checks
+        ),
     )
 
 
@@ -623,6 +636,7 @@ def _result(
     reason: str | None,
     values: CheckValues,
     rows: CheckRows,
+    as_of: datetime,
 ) -> ExperimentHealthCheckResult:
     return ExperimentHealthCheckResult(
         key=check.key,
@@ -633,4 +647,5 @@ def _result(
         values=values,
         rule=check.rule,
         rows=rows,
+        as_of=as_of,
     )

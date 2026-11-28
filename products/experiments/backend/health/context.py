@@ -327,6 +327,11 @@ class PrimaryMetric:
     significance: SignificanceHistory | None = None
 
     @property
+    def data_until(self) -> datetime | None:
+        """The end of the data of the current stored result. None without a stored result."""
+        return self.significance.current_until if self.significance is not None else None
+
+    @property
     def samples(self) -> int | None:
         """The total that the running time estimate's "Target reached" compares, so a check that reads it and the
         estimate agree. None without a stored result."""
@@ -394,6 +399,9 @@ class ExposureTotals:
     # The rows of a warehouse-native exposure query that the totals leave out, by reason. Only the exposure query of a
     # warehouse-native experiment sets it, and None when its count of those rows failed.
     rows_left_out: ExperimentWarehouseNativeRowsLeftOut | None = None
+    # The end of the exposures that the totals count. Precomputed exposures of the current day end at the time of their
+    # last build. Only the exposure query sets it.
+    data_until: datetime | None = None
 
     @property
     def total(self) -> int:
@@ -521,6 +529,7 @@ class LatestCalculation:
     # The hours from launch to the end of the data of this calculation. None when no calculation has finished. The
     # page can show a calculation from days ago until its refresh finishes.
     hours_of_data: float | None = None
+    data_until: datetime | None = None
 
 
 @frozen

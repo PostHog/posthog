@@ -648,6 +648,10 @@ class ExperimentHealthCheckResult:
     rule: ExperimentHealthCheckRule | None
     # What the check read per variant, metric or flag change, with the same keys as `values`.
     rows: tuple[Mapping[ExperimentHealthValueKey, ExperimentHealthRowValue], ...]
+    # pinned: API callers read it. The end of the data that the check read: the end of the counted exposures, the window
+    # end of the stored metric results, or the time of the scan of the flag calls. The time of the check for a check
+    # that reads only settings.
+    as_of: datetime
 
 
 @frozen
@@ -734,6 +738,10 @@ class ExperimentHealth:
     checks: tuple[ExperimentHealthCheckResult, ...]
     # None when not loaded or when the experiment has no flag. Only the health endpoint loads it.
     setup: ExperimentHealthSetup | None = None
+    # pinned: API callers read it. A time rather than a flag per check, because the exposure checks come from an answer
+    # that is cached for a day, and a flag stored there would say "current" exactly when the run is old. Only the health
+    # endpoint sets it.
+    stale_before: datetime | None = None
 
 
 @frozen

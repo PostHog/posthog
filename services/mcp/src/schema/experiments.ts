@@ -211,6 +211,7 @@ export type ExperimentHealthSummary = {
     findings: HealthFinding[]
     checks: HealthCheck[]
     setup?: Schemas.ExperimentHealthSetup
+    stale_before?: Schemas.ExperimentHealth['stale_before']
     exposures?: ExposureCounts
 }
 
@@ -514,7 +515,8 @@ export function transformExperimentHealth(
     experimentId: number,
     details: ExperimentHealthDetails,
     setup: Schemas.ExperimentHealthSetup | null,
-    exposures: ExperimentExposureQueryResponse | null
+    exposures: ExperimentExposureQueryResponse | null,
+    staleBefore: Schemas.ExperimentHealth['stale_before'] = null
 ): ExperimentHealthSummary {
     return {
         experiment_id: experimentId,
@@ -522,6 +524,7 @@ export function transformExperimentHealth(
         findings: details.findings,
         checks: details.checks,
         ...(setup ? { setup } : {}),
+        ...(staleBefore ? { stale_before: staleBefore } : {}),
         ...(exposures ? { exposures: exposureCounts(exposures) } : {}),
     }
 }

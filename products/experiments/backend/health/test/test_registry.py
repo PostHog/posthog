@@ -3,6 +3,7 @@ from datetime import UTC, date, datetime
 from typing import Any
 from zoneinfo import ZoneInfo
 
+import time_machine
 from unittest import TestCase
 from unittest.mock import patch
 
@@ -81,6 +82,8 @@ NO_EXPOSURES = replace(UNEVEN_SPLIT_TOTALS, total_exposures={"control": 0, "test
 ENDED: dict[str, Any] = {"is_running": False, "has_ended": True}
 MATURED_USERS_OFF = 'Runs when "Require completed conversion or retention window" is on'
 LAUNCHED_AT = datetime(2026, 10, 1, tzinfo=UTC)
+CHECKED_AT = datetime(2026, 10, 8, 12, tzinfo=UTC)
+SCANNED_AT = datetime(2026, 10, 7, 20, tzinfo=UTC)
 KEY_CHANGE = BucketingChange(
     changed_at=datetime(2026, 10, 3, tzinfo=UTC), setting=BucketingSetting.KEY, before="old-key", after="flag"
 )
@@ -947,6 +950,70 @@ class TestEvaluate(TestCase):
 
         check = next(check for check in health.checks if check.key == key)
         self.assertEqual((check.status, dict(check.values)), (status, values))
+
+    @parameterized.expand(
+        [
+            (
+                "a_zero_rollout_reads_the_scan_of_the_flag_calls",
+                Key.FLAG_STATE,
+                {
+                    "flag": replace(
+                        UNEVEN_FLAG, release_groups=(FlagReleaseGroup(rollout_percentage=0, property_count=0),)
+                    )
+                },
+                SCANNED_AT,
+            ),
+            ("a_rolled_out_flag_reads_no_scan", Key.FLAG_STATE, {}, CHECKED_AT),
+            ("a_flag_without_pins_reads_no_scan", Key.FORCED_VARIANT_RELEASE_CONDITION, {}, CHECKED_AT),
+            (
+                "a_copy_of_the_context_reads_no_scan",
+                Key.SRM,
+                {**ENDED, "exposures": replace(UNEVEN_SPLIT_TOTALS, sample_ratio_mismatch_p_value=0.0009)},
+                CHECKED_AT,
+            ),
+            (
+                "the_latest_calculation_reads_to_the_end_of_its_data",
+                Key.METRIC_CALCULATION_FAILED,
+                {
+                    "latest_calculation": LatestCalculation(
+                        metric_count=1,
+                        finished_at=datetime(2026, 10, 7, 2, 30, tzinfo=UTC),
+                        failures=(),
+                        completed_count=1,
+                        completed_exposures_paths=frozenset(),
+                        data_until=datetime(2026, 10, 7, 2, tzinfo=UTC),
+                    )
+                },
+                datetime(2026, 10, 7, 2, tzinfo=UTC),
+            ),
+            (
+                "the_exposures_read_to_the_end_of_their_window",
+                Key.SRM,
+                {"exposures": replace(UNEVEN_SPLIT_TOTALS, data_until=datetime(2026, 10, 6, tzinfo=UTC))},
+                datetime(2026, 10, 6, tzinfo=UTC),
+            ),
+        ]
+    )
+    @time_machine.travel(CHECKED_AT, tick=False)
+    def test_as_of_is_the_end_of_the_data_that_the_check_read(
+        self, _name: str, key: Key, changes: dict[str, Any], as_of: datetime
+    ) -> None:
+        traffic = ConditionSetTraffic(
+            since=LAUNCHED_AT,
+            until=SCANNED_AT,
+            team_timezone="UTC",
+            people_by_set={},
+            calls=40,
+            remotely_evaluated_calls=0,
+            people_assigned_outside=12,
+        )
+        health = evaluate(
+            replace(RUNNING_UNEVEN_SPLIT, condition_set_traffic=traffic, **changes),
+            (*EXPERIMENT_HEALTH_CHECKS, *EXPOSURE_HEALTH_CHECKS),
+        )
+
+        check = next(check for check in health.checks if check.key == key)
+        self.assertEqual(check.as_of, as_of)
 
     @parameterized.expand(
         [

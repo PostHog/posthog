@@ -100,9 +100,9 @@ def flag_state_values(ctx: HealthContext) -> CheckValues:
 
 
 def _assigned_outside_values(ctx: HealthContext) -> CheckValues:
-    # At a 0% rollout, the people who still got a variant decide between the note and the warning.
-    traffic = ctx.condition_set_traffic
-    if traffic is None or not needs_outside_assignment_check(ctx):
+    # At a 0% rollout, the people who still got a variant decide between the note and the warning. The scan is read
+    # only then, because reading it dates the check's `as_of` to the scan.
+    if not needs_outside_assignment_check(ctx) or (traffic := ctx.condition_set_traffic) is None:
         return {}
     return {ExperimentHealthValueKey.ASSIGNED_OUTSIDE_COUNT: traffic.people_assigned_outside}
 

@@ -1764,7 +1764,7 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
         )
         srm_check = next(check for check in response.health_checks or [] if check.key == "srm")
         self.assertEqual(
-            (srm_check.values, srm_check.rule and srm_check.rule.model_dump(mode="json")),
+            (srm_check.values, srm_check.rule and srm_check.rule.model_dump(mode="json"), srm_check.as_of),
             (
                 {"p_value": response.sample_ratio_mismatch.p_value, "compared_count": 100, "multiple_variant_count": 0},
                 {
@@ -1774,12 +1774,47 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
                     "test": "chi_squared",
                     "minimum": {"value": "compared_count", "threshold": 100},
                 },
+                datetime(2024, 1, 7, tzinfo=UTC),
             ),
         )
 
         # Expected counts should be 50/50 of total (100)
         self.assertEqual(response.sample_ratio_mismatch.expected["control"], 50.0)
         self.assertEqual(response.sample_ratio_mismatch.expected["test"], 50.0)
+
+    @parameterized.expand(
+        [
+            ("direct", False, datetime(2024, 1, 7, 12, 20, tzinfo=UTC)),
+            ("precomputed", True, datetime(2024, 1, 7, 12, tzinfo=UTC)),
+        ]
+    )
+    def test_as_of_is_the_end_of_the_exposures_that_the_answer_counts(
+        self, _name: str, use_precomputation: bool, as_of: datetime
+    ) -> None:
+        self._setup_precomputation_test(use_precomputation)
+        for day, variant in [("2024-01-02", "control"), ("2024-01-07", "test")]:
+            _create_event(
+                distinct_id=f"{day}_{variant}",
+                event="$feature_flag_called",
+                timestamp=f"{day}T09:00:00Z",
+                properties={
+                    "$feature_flag_response": variant,
+                    f"$feature/{self.feature_flag.key}": variant,
+                    "$feature_flag": self.feature_flag.key,
+                },
+                team=self.team,
+            )
+        flush_persons_and_events()
+
+        with time_machine.travel("2024-01-07T12:00:00Z", tick=False):
+            self._save_experiment_with_precomputation(self.experiment, use_precomputation)
+            query = self._running_exposure_query()
+            ExperimentExposuresQueryRunner(team=self.team, query=query).calculate()
+        # Inside the TTL of today's precomputed window, so this read serves the build of the first read.
+        with time_machine.travel("2024-01-07T12:20:00Z", tick=False):
+            response = ExperimentExposuresQueryRunner(team=self.team, query=query).calculate()
+
+        self.assertEqual({check.as_of for check in response.health_checks or [] if check.key == "srm"}, {as_of})
 
     def _expose_users_behind_a_test_account_filter(
         self,

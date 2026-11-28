@@ -29595,6 +29595,11 @@
             "additionalProperties": false,
             "description": "What one health check concluded on the exposure answer. Same shape as the experiment's `health.checks`.",
             "properties": {
+                "as_of": {
+                    "description": "The end of the data that the check read, in UTC: the end of the exposures that the answer counts, or the time of the check for a check that reads only settings. Precomputed exposures of the current day end at the time of their last build. A cached answer keeps the time of its calculation. Missing on an answer cached before the field existed.",
+                    "format": "date-time",
+                    "type": "string"
+                },
                 "description": {
                     "description": "What the check looks for and why it matters. Missing on an answer cached before the field existed.",
                     "type": "string"

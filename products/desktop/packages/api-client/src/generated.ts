@@ -11221,6 +11221,10 @@ export namespace Schemas {
                 | null
             >
         >;
+        /**
+         * The end of the data that the check read, in UTC. For a check on the stored metric results, the end of the data of the latest calculation or of the current result. For a check on the feature flag's calls, the time of the scan, which is cached for up to a day. The time of the check for a check that reads only settings. A check that reads several of these gives the earliest.
+         */
+        as_of: string;
     };
     export type ExperimentHealthReleaseCondition = {
         /**
@@ -11395,6 +11399,7 @@ export namespace Schemas {
          */
         checks: Array<ExperimentHealthCheckResult>;
         setup?: (ExperimentHealthSetup | null) | undefined;
+        stale_before?: (string | null) | undefined;
     };
     /**
      * Full experiment representation for the detail, create, and update endpoints.
@@ -11795,6 +11800,7 @@ export namespace Schemas {
         | "not_applicable"
         | "not_checked";
     export type ExperimentExposureHealthCheck = {
+        as_of?: (string | null) | undefined;
         description?: (string | null) | undefined;
         /**
          * Stable identifier of the check.

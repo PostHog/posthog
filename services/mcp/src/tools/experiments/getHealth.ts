@@ -53,7 +53,13 @@ export const getHealthHandler: ToolBase<typeof schema, Result>['handler'] = asyn
 
     return withPostHogUrl(
         context,
-        transformExperimentHealth(params.id, health, configRead.health?.setup ?? null, exposures),
+        transformExperimentHealth(
+            params.id,
+            health,
+            configRead.health?.setup ?? null,
+            exposures,
+            configRead.health?.stale_before
+        ),
         `/experiments/${params.id}`
     )
 }

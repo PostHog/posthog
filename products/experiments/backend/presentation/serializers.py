@@ -417,6 +417,14 @@ class ExperimentHealthCheckResultSerializer(serializers.Serializer):
             "stores them, in before_filters and after_filters. Empty when the check reads no such list."
         ),
     )
+    as_of = serializers.DateTimeField(
+        help_text=(
+            "The end of the data that the check read, in UTC. For a check on the stored metric results, the end of "
+            "the data of the latest calculation or of the current result. For a check on the feature flag's calls, "
+            "the time of the scan, which is cached for up to a day. The time of the check for a check that reads "
+            "only settings. A check that reads several of these gives the earliest."
+        ),
+    )
 
 
 class ExperimentHealthReleaseConditionSerializer(serializers.Serializer):
@@ -615,6 +623,18 @@ class ExperimentHealthSerializer(serializers.Serializer):
         help_text=(
             "The settings of the experiment's flag that decide which variant a user gets. Null when the experiment "
             "has no flag."
+        ),
+    )
+    stale_before = serializers.DateTimeField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "A check whose `as_of` is earlier than this time is out of date: its data ends more than 36 hours before "
+            "the end of the experiment's window, which is now, or the end date of an ended experiment. That is the 12 "
+            "hours after which the results page refreshes results, plus a day, because the exposure counts and the "
+            "scan of the flag's calls are cached for up to a day. It applies to the checks here and to the exposure "
+            "query's `health_checks`. Null for a draft, which has no data yet, and for a paused experiment, whose "
+            "results don't refresh on their own while it's paused."
         ),
     )
 
