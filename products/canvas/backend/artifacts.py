@@ -31,7 +31,7 @@ from posthog.dataclasses import frozen
 from posthog.storage import object_storage
 from posthog.storage.object_storage import ObjectStorageError
 
-from products.canvas.backend.contract import artifact_csp
+from products.canvas.backend.contract import artifact_csp, uploaded_media_source
 from products.canvas.backend.models import CanvasBuild
 
 ARTIFACT_TOKEN_SALT = "posthog.canvas.artifact.v1"
@@ -251,7 +251,7 @@ def canvas_artifact(request: HttpRequest, token: str, artifact_path: str) -> Htt
     if request.headers.get("If-None-Match") == etag:
         response: HttpResponse = HttpResponseNotModified()
         response["Content-Type"] = content_type
-        return _with_artifact_headers(response, etag, build.manifest, token_expires_at)
+        return _with_artifact_headers(response, etag, token_expires_at)
 
     try:
         content = object_storage.read_bytes(f"{build.artifact_object_prefix}/{artifact_path}")
@@ -265,10 +265,10 @@ def canvas_artifact(request: HttpRequest, token: str, artifact_path: str) -> Htt
         raise Http404
     response = HttpResponse(content, content_type=content_type)
     response["Content-Disposition"] = "inline"
-    return _with_artifact_headers(response, etag, build.manifest, token_expires_at)
+    return _with_artifact_headers(response, etag, token_expires_at)
 
 
-def _with_artifact_headers(response: HttpResponse, etag: str, manifest: dict, token_expires_at: int) -> HttpResponse:
+def _with_artifact_headers(response: HttpResponse, etag: str, token_expires_at: int) -> HttpResponse:
     response["ETag"] = etag
     shared_cache_seconds = settings.CANVAS_ARTIFACT_SHARED_CACHE_SECONDS
     if shared_cache_seconds > 0:
@@ -292,7 +292,6 @@ def _with_artifact_headers(response: HttpResponse, etag: str, manifest: dict, to
     response["Access-Control-Allow-Origin"] = "*"
     response["Referrer-Policy"] = "no-referrer"
     response["X-Content-Type-Options"] = "nosniff"
-    network_origins = ((manifest.get("capabilities") or {}).get("network") or {}).get("origins") or []
-    response["Content-Security-Policy"] = artifact_csp(network_origins)
+    response["Content-Security-Policy"] = artifact_csp([uploaded_media_source()])
     response["Permissions-Policy"] = ARTIFACT_PERMISSIONS_POLICY
     return response

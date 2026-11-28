@@ -4,9 +4,12 @@ import hashlib
 from posthog.test.base import APIBaseTest, override_settings
 from unittest.mock import patch
 
+from django.test import SimpleTestCase
+
 from posthog.models.scoping import team_scope
 
 from products.canvas.backend import artifacts
+from products.canvas.backend.contract import artifact_csp
 from products.canvas.backend.models import Canvas, CanvasBuild, CanvasSourceVersion
 from products.tasks.backend.models import Channel
 
@@ -66,13 +69,12 @@ class TestCanvasArtifacts(APIBaseTest):
         assert response["Content-Security-Policy"].startswith(
             "sandbox allow-scripts allow-pointer-lock; default-src 'none'"
         )
-        assert "connect-src https://api.example.com" in response["Content-Security-Policy"]
-        assert "style-src 'self' 'unsafe-inline' https://api.example.com" in response["Content-Security-Policy"]
-        assert "img-src 'self' data: blob: https://api.example.com" in response["Content-Security-Policy"]
-        assert "font-src 'self' data: https://api.example.com" in response["Content-Security-Policy"]
-        assert "media-src 'self' data: blob: https://api.example.com" in response["Content-Security-Policy"]
-        assert "frame-src https://api.example.com" in response["Content-Security-Policy"]
-        assert "script-src 'self' https://api.example.com" not in response["Content-Security-Policy"]
+        assert "api.example.com" not in response["Content-Security-Policy"]
+        assert "connect-src 'none'" in response["Content-Security-Policy"]
+        assert "frame-src 'none'" in response["Content-Security-Policy"]
+        assert (
+            "img-src 'self' data: blob: http://localhost:8010/uploaded_media/;" in response["Content-Security-Policy"]
+        )
         assert response["Cache-Control"] == "private, max-age=31536000, immutable"
         # The sandboxed iframe's opaque origin fetches module scripts in CORS
         # mode; without this the entry bundle is blocked and the canvas
@@ -150,3 +152,19 @@ class TestCanvasArtifacts(APIBaseTest):
         # The token only addresses manifest assets; a source key is not one.
         url = self._url().replace("index.html", "../../canvas_source/secret")
         assert self.client.get(url).status_code == 404
+
+
+def _directives(csp: str) -> dict[str, str]:
+    return {part.split(" ", 1)[0]: part for part in (p.strip() for p in csp.split(";")) if part}
+
+
+class TestArtifactCsp(SimpleTestCase):
+    def test_image_source_only_widens_img_src(self):
+        locked = _directives(artifact_csp())
+        widened = _directives(artifact_csp(["https://media.example.com/uploaded_media/"]))
+
+        assert widened["img-src"] == "img-src 'self' data: blob: https://media.example.com/uploaded_media/"
+        for name in ("connect-src", "frame-src", "style-src", "font-src", "media-src"):
+            assert widened[name] == locked[name]
+        assert locked["connect-src"] == "connect-src 'none'"
+        assert locked["frame-src"] == "frame-src 'none'"

@@ -1158,7 +1158,7 @@ class CanvasCapabilityWideningSerializer(serializers.Serializer):
     )
     network_origins_added = serializers.ListField(
         child=serializers.CharField(),
-        help_text="Network origins the draft newly declares it may reach.",
+        help_text="Network origins the draft newly declares. Declared origins are listed but not granted.",
     )
     state_scopes_added = serializers.ListField(
         child=serializers.CharField(),

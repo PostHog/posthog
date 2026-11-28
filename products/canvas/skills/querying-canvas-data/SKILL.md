@@ -19,10 +19,8 @@ The `ph` bridge is the only way a canvas talks to PostHog. Import it with
 canvases use; prefer the import in new code. Its typed surface is
 [references/canvas-sdk.d.ts](references/canvas-sdk.d.ts). Never initialize it: credentials stay in
 the host, and `fetch()`, posthog-js, and hand-rolled clients cannot reach PostHog from the sandbox.
-External requests and resources require a non-PostHog origin declared in
-`capabilities.network.origins`, and work only in the published canvas — the edit-mode preview
-blocks all direct network access. This includes external stylesheets; remote scripts remain
-blocked.
+A canvas can't reach other sites either. Requests and external resources, including stylesheets and
+scripts, are blocked.
 
 ## Data hierarchy — back every metric with a saved insight
 

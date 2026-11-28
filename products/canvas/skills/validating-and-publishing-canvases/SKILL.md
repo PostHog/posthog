@@ -45,22 +45,17 @@ then dies in the rendered canvas. Declare:
   providers, unregistered native tools, and private MCP hosts fail validation; every declared
   tool must have `is_read_only: true` in the catalog. An upstream hint alone does not grant access.
   A canvas with connectors cannot declare shared state.
-- `capabilities.network.origins` — each exact HTTPS origin used by `fetch`, `XMLHttpRequest`, or an
-  external stylesheet, image, font, media file, or frame. Remote scripts remain blocked.
-  Do not include paths, credentials, queries, fragments, or wildcards. The host must be public:
-  loopback and private IPs, single-label names like `intranet`, and the `.local`, `.localhost`,
-  `.internal`, and `.home.arpa` suffixes are all rejected, so a local dev host such as
-  `https://localhost:8010` fails validation with an `invalid_network_origin` error. Data sent to a
-  declared origin leaves PostHog and appears in the capability review before promotion.
+- `capabilities.network.origins` — leave it empty. A canvas can't reach other sites, so a declared
+  origin is not granted, and validation returns a `network_origin_not_granted` warning for each one.
+  A malformed origin fails with an `invalid_network_origin` error.
 
-Before validation, inventory every literal external URL in every source file. Classify navigation
-links and `ph.openExternal()` URLs as navigation; they do not need a network origin. For every
-request or resource URL, declare its scheme + host + optional port only. Include every origin a
-request redirects to and every secondary origin a stylesheet references for fonts or images.
-Never infer that one CDN hostname covers another.
+Before validation, inventory every literal external URL in every source file. Navigation links and
+`ph.openExternal()` URLs are fine. Every request or resource URL on another site fails with an
+`external_resource_blocked` error: move the file into the project, use the PostHog media library for
+images, or query PostHog data with `ph`.
 
-Validation rejects undeclared literal calls and resource URLs (`capability_missing_*` diagnostics)
-so you can fix them before publishing. Dynamic URLs and redirect destinations cannot be inferred,
+Validation rejects resource URLs on other sites (`external_resource_blocked`) and undeclared
+literal `ph` calls (`capability_missing_*` diagnostics) so you can fix them before publishing. Dynamic URLs and redirect destinations cannot be inferred,
 so the inventory is still required even when validation is clean.
 
 ## Validate until clean
@@ -74,7 +69,7 @@ Diagnostics carry `severity`, a stable `code`, a `message`, and (for file-specif
   `forbidden_dynamic_import` / `forbidden_require` / `forbidden_inline_script`,
   `invalid_path`, `capability_missing_insight` / `capability_missing_capture_event` /
   `capability_missing_inline_queries` / `capability_missing_agent_requests` /
-  `capability_missing_network_origin`,
+  `external_resource_blocked`,
   `dependency_not_admitted` / `dependency_version_mismatch`, `platform_token_redeclared` (a CSS
   variable named like a Quill token that the platform stylesheet sets on every element, so the
   value never applies; prefix your own variables), and path/size violations.
@@ -155,7 +150,7 @@ preview.
 1. **Stage** — `canvas-draft-create` with the complete `project` (same shape, capabilities, and
    validation as a publish). No `expected_current_version_id`: a draft is based on nothing and
    conflicts with nothing. The response returns the draft's `version_id`, its queued `build`, and
-   `capability_widening` — the insights, capture events, inline queries, and network origins the
+   `capability_widening` — the insights, capture events, and inline queries the
    draft declares beyond the live version. Surface a non-empty widening to the user before
    promoting; it is the access the change would newly grant.
 2. **Wait for the build** — poll `canvas-builds-retrieve` until the draft's build is terminal, the
