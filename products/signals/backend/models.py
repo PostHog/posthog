@@ -2418,7 +2418,7 @@ class SignalReportArtefact(UUIDModel):
         """Close the plan when a step joins it after the step itself closed.
 
         The roll-up otherwise runs from the step's status change, and a `part_of` row written on a
-        report that is already resolved or archived announces no change. Only a closed source is
+        report that is already resolved, closed or archived announces no change. Only a closed source is
         worth the walk, because an open step leaves its plan open anyway. Scheduled on commit so
         the new row is visible, best-effort so it never breaks the write, and imported lazily to
         avoid a models <-> plan_rollup import cycle.
@@ -2438,6 +2438,7 @@ class SignalReportArtefact(UUIDModel):
                 )
                 if report is None or report.effective_status not in (
                     SignalReport.Status.RESOLVED,
+                    SignalReport.Status.CLOSED,
                     SignalReport.Status.SUPPRESSED,
                 ):
                     return

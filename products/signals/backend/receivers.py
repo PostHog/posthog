@@ -625,6 +625,7 @@ def arm_pending_checks_when_report_monitoring(
 _PLAN_ROLLUP_CLOSED_STATUSES = frozenset(
     {
         SignalReport.Status.RESOLVED,
+        SignalReport.Status.CLOSED,
         SignalReport.Status.SUPPRESSED,
         SignalReport.Status.DELETED,
     }

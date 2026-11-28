@@ -9,7 +9,7 @@ every way a step can close reaches it: a merged pull request, a manual resolve i
 bulk state change, and an MCP state write. Plenty of steps close without a pull request at all.
 """
 
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from functools import cache
 
 from django.db import transaction
@@ -25,6 +25,7 @@ from products.signals.backend.models import (
     SignalReportArtefact,
     SignalReportPullRequest,
 )
+from products.signals.backend.report_actionability_repair import RepairedBatch
 from products.signals.backend.report_check_research import check_authoring_failed
 from products.signals.backend.report_content_gates import team_report_monitoring_enabled
 from products.signals.backend.report_lifecycle import effective_report_status
@@ -39,7 +40,10 @@ logger = structlog.get_logger(__name__)
 # the two from drifting apart. A level costs one indexed read, and a cycle is rejected on write.
 MAX_PLAN_ROLLUP_LEVELS = SignalReportArtefact.MAX_REPORT_LINK_GRAPH_LEVELS
 
-_CLOSED_STATUSES = (SignalReport.Status.RESOLVED, SignalReport.Status.SUPPRESSED)
+# A `closed` step is finished too: its pull request landed and Monitoring ended without a verified
+# outcome. Nothing moves it again, so a plan that waited on it would wait forever.
+_CLOSED_STATUSES = (SignalReport.Status.RESOLVED, SignalReport.Status.CLOSED, SignalReport.Status.SUPPRESSED)
+_LANDED_STATUSES = (SignalReport.Status.RESOLVED, SignalReport.Status.CLOSED)
 
 
 def _pending_replacement(team_id: int, report_id: str) -> bool:
@@ -80,9 +84,10 @@ def _rolled_up_status(
 ) -> SignalReport.Status | None:
     """The status the plan's steps put it in, or None while they disagree or work remains.
 
-    Every step resolved (or resolved and archived together, with at least one resolved) resolves
-    the plan, because the plan's work is done. Every step archived archives the plan, because
-    nobody is going to do it. Any step still open leaves the plan alone.
+    Every step finished with at least one resolved or closed resolves the plan, because the plan's
+    work landed. A closed step keeps its own unverified outcome, so the plan does not repeat it.
+    Every step archived archives the plan, because nobody is going to do it. Any step still open
+    leaves the plan alone.
 
     A deleted step is not a verdict, so it is dropped rather than counted either way. The reader
     already drops a deleted source; the status filter keeps that true if a caller ever asks the
@@ -112,7 +117,7 @@ def _rolled_up_status(
     ]
     if any(status not in _CLOSED_STATUSES for status in statuses):
         return None
-    if any(status == SignalReport.Status.RESOLVED for status in statuses):
+    if any(status in _LANDED_STATUSES for status in statuses):
         return SignalReport.Status.RESOLVED
     return SignalReport.Status.SUPPRESSED
 
@@ -237,3 +242,34 @@ def roll_up_plan_parents(*, team_id: int, report_id: str, include_report: bool =
         frontier = next_frontier
     logger.warning("signals.plan_rollup.depth_exceeded", report_id=str(report_id), team_id=team_id)
     return closed
+
+
+def repair_plans_behind_closed_steps(
+    *, team_id: int | None, batch_size: int, after: str | None = None
+) -> Iterator[RepairedBatch]:
+    """Re-run the roll-up from every closed report that links to another report, one batch at a time.
+
+    Before the roll-up counted a `closed` step as finished, a step that ended in `closed` left its
+    plans open, and no later status change re-reads them. For the `repair_plan_rollups` command.
+    Safe to rerun: the roll-up only moves a plan whose steps are all finished.
+    """
+    steps = SignalReport.objects.filter(
+        status=SignalReport.Status.CLOSED,
+        artefacts__type=SignalReportArtefact.ArtefactType.REPORT_LINK,
+    )
+    if team_id is not None:
+        steps = steps.filter(team_id=team_id)
+    steps = steps.order_by("id").distinct()
+    while True:
+        page = steps.filter(id__gt=after) if after else steps
+        rows = list(page.values_list("id", "team_id")[:batch_size])
+        if not rows:
+            return
+        after = str(rows[-1][0])
+        corrected = 0
+        for report_id, row_team_id in rows:
+            try:
+                corrected += len(roll_up_plan_parents(team_id=row_team_id, report_id=str(report_id)))
+            except Exception:
+                logger.exception("signals.plan_rollup.repair_failed", report_id=str(report_id), team_id=row_team_id)
+        yield RepairedBatch(scanned=len(rows), corrected=corrected, cursor=after)
