@@ -75,6 +75,16 @@ export function captureMessageAudienceClicked(source: string, destination: Messa
     return attemptId
 }
 
+export function captureMessageAudienceWarningsShown(
+    source: string,
+    destination: MessageAudienceDestination,
+    attemptId: string,
+    warnings: string[]
+): void {
+    // pinned: analytics event name
+    posthog.capture('message audience warnings shown', { source, destination, attempt_id: attemptId, warnings })
+}
+
 /** Why this person can't start a broadcast or workflow, if they can't: both need editor access to workflows. */
 export function messageAudienceAccessDisabledReason(): string | null {
     return getAccessControlDisabledReason(AccessControlResourceType.Workflow, AccessControlLevel.Editor)
