@@ -23,14 +23,14 @@ Enable a tool for a new route only after the route is deployed, so MCP never ser
 
 Environment (all default empty — the runner is a no-op until configured):
 
-| Variable                                   | Purpose                                                                                                                        |
-| ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------ |
-| `AI_GATEWAY_URL` / `AI_GATEWAY_API_KEY`    | Existing gateway settings; enable the Claude + OpenAI engines.                                                                 |
-| `EXA_API_KEY`                              | Enables the Exa engine.                                                                                                        |
-| `AEO_PERPLEXITY_ENABLED`                   | Default false. Runs Perplexity via the gateway once legal signs off; dry-run steps in [Perplexity engine](#perplexity-engine). |
-| `AEO_SETUP_MODEL`                          | Model for setup's site research and prompt writing (default `claude-haiku-5-5`, faster than the engines' model).               |
-| `AEO_ANTHROPIC_MODEL` / `AEO_OPENAI_MODEL` | Engine model overrides.                                                                                                        |
-| `AEO_PERPLEXITY_MODEL`                     | Perplexity model on the gateway (default `posthog/perplexity/sonar`, the gateway id for Perplexity's `perplexity/sonar`).      |
+| Variable                                   | Purpose                                                                                                                            |
+| ------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------- |
+| `AI_GATEWAY_URL` / `AI_GATEWAY_API_KEY`    | Existing gateway settings; enable the Claude + OpenAI engines.                                                                     |
+| `EXA_API_KEY`                              | Enables the Exa engine.                                                                                                            |
+| `AEO_PERPLEXITY_ENABLED`                   | Default false. Runs Perplexity via the gateway once legal signs off; dry-run steps in [Perplexity engine](#perplexity-engine).     |
+| `AEO_SETUP_MODEL`                          | Model for setup's site research and prompt writing (default `claude-haiku-5-5`, faster than the engines' model).                   |
+| `AEO_ANTHROPIC_MODEL` / `AEO_OPENAI_MODEL` | Engine model overrides. The OpenAI engine defaults to `gpt-6-luna`, the cheapest OpenAI model that supports the `web_search` tool. |
+| `AEO_PERPLEXITY_MODEL`                     | Perplexity model on the gateway (default `posthog/perplexity/sonar`, the gateway id for Perplexity's `perplexity/sonar`).          |
 
 The scheduled tasks cover the teams with active prompts whose organization is active, not pending deletion, and approved AI data processing.
 The API, MCP tools and page are gated per user by the `web-analytics-content-autopilot` flag, which the early-access feature controls, so only those users can add or turn on prompts.
@@ -252,7 +252,8 @@ Web analytics' Content autopilot (`/web/ai-visibility`, flag `web-analytics-cont
 
 ## Cost
 
-Measured in October 2026: about \$0.06 per OpenAI check and \$0.14 per Claude check, provider web-search fees and tokens included (`$ai_web_search_cost_usd` and `$ai_total_cost_usd` on the `$ai_generation` event).
+Measured in October 2026: about \$0.14 per Claude check, provider web-search fees and tokens included (`$ai_web_search_cost_usd` and `$ai_total_cost_usd` on the `$ai_generation` event).
+An OpenAI check on `gpt-6-luna` is estimated at about \$0.07, from `gpt-5` checks in November 2026 repriced at Luna's token rates. OpenAI's \$10 per 1,000 web searches is most of it.
 A daily run of 1,000 prompts on both engines is about \$200.
 Exa adds \$5 per 1,000 requests (`cost_usd` on the check event).
 No-search checks cost about a quarter (Claude) to two fifths (OpenAI) of a web-search check, since they pay no search fees and read no search results. Set weekly, a set of about 1,300 prompts runs about 190 a day on each no-search engine (an estimate, not measured).
