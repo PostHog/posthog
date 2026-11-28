@@ -644,12 +644,12 @@ class TestCheckTicketPermission(SimpleTestCase):
             ("billing_on_a_free_plan", 200, "billing", FREE, TicketPermission.ALLOWED),
             ("billing_when_billing_is_unreachable", 200, "billing", None, TicketPermission.ALLOWED),
             (
-                "privacy_deletion_from_an_owner_on_a_free_plan",
+                "privacy_deletion_from_an_org_admin_on_a_free_plan",
                 200,
                 "privacy_or_security_deletion",
                 FREE,
                 TicketPermission.ALLOWED,
-                OrganizationMembership.Level.OWNER,
+                True,
             ),
             (
                 "privacy_deletion_from_a_member_on_a_free_plan",
@@ -659,12 +659,12 @@ class TestCheckTicketPermission(SimpleTestCase):
                 TicketPermission.NEEDS_ORG_ADMIN,
             ),
             (
-                "other_deletion_from_an_admin_on_a_paid_plan",
+                "other_deletion_from_an_org_admin_on_a_paid_plan",
                 200,
                 "other_deletion",
                 PAID,
                 TicketPermission.ALLOWED,
-                OrganizationMembership.Level.ADMIN,
+                True,
             ),
             (
                 "other_deletion_from_a_member_on_a_paid_plan",
@@ -692,12 +692,12 @@ class TestCheckTicketPermission(SimpleTestCase):
             ),
             ("free_plan", 200, "privacy", FREE, TicketPermission.PLAN_EXCLUDES_SUPPORT),
             (
-                "privacy_from_an_admin_on_a_free_plan",
+                "privacy_from_an_org_admin_on_a_free_plan",
                 200,
                 "privacy",
                 FREE,
                 TicketPermission.PLAN_EXCLUDES_SUPPORT,
-                OrganizationMembership.Level.ADMIN,
+                True,
             ),
             (
                 "other_deletion_from_a_member_on_a_free_plan",
@@ -707,12 +707,12 @@ class TestCheckTicketPermission(SimpleTestCase):
                 TicketPermission.PLAN_EXCLUDES_SUPPORT,
             ),
             (
-                "other_deletion_from_an_admin_on_a_free_plan",
+                "other_deletion_from_an_org_admin_on_a_free_plan",
                 200,
                 "other_deletion",
                 FREE,
                 TicketPermission.PLAN_EXCLUDES_SUPPORT,
-                OrganizationMembership.Level.ADMIN,
+                True,
             ),
             (
                 "other_deletion_from_a_member_when_billing_is_unreachable",
@@ -722,12 +722,12 @@ class TestCheckTicketPermission(SimpleTestCase):
                 TicketPermission.NEEDS_ORG_ADMIN,
             ),
             (
-                "other_deletion_from_an_admin_when_billing_is_unreachable",
+                "other_deletion_from_an_org_admin_when_billing_is_unreachable",
                 200,
                 "other_deletion",
                 None,
                 TicketPermission.PLAN_UNKNOWN,
-                OrganizationMembership.Level.ADMIN,
+                True,
             ),
             (
                 "other_deletion_from_a_member_in_a_new_organization",
@@ -750,7 +750,7 @@ class TestCheckTicketPermission(SimpleTestCase):
         topic: str,
         billing: dict[str, Any] | None,
         expected: TicketPermission,
-        level: OrganizationMembership.Level = OrganizationMembership.Level.MEMBER,
+        is_org_admin: bool = False,
     ) -> None:
         organization = Organization(created_at=timezone.now() - timedelta(days=organization_age_days))
         billing_manager = MagicMock()
@@ -766,7 +766,9 @@ class TestCheckTicketPermission(SimpleTestCase):
             ),
             patch("products.growth.backend.posthog_support.BillingManager", billing_manager),
         ):
-            assert check_ticket_permission(organization, User(), TicketTopic(topic), level) == expected
+            assert (
+                check_ticket_permission(organization, User(), TicketTopic(topic), is_org_admin=is_org_admin) == expected
+            )
 
     @parameterized.expand(
         [
@@ -833,9 +835,7 @@ class TestCheckTicketPermission(SimpleTestCase):
             patch(f"{services}.BillingManager", billing_manager),
         ):
             plan = get_support_plan(organization, User())
-            permission = check_ticket_permission(
-                organization, User(), TicketTopic.PRIVACY, OrganizationMembership.Level.MEMBER
-            )
+            permission = check_ticket_permission(organization, User(), TicketTopic.PRIVACY, is_org_admin=False)
 
         assert (plan.tier, plan.support_included) == (tier, support_included)
         assert permission == PERMISSION_BY_SUPPORT_INCLUDED[support_included]

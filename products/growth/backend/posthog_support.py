@@ -25,6 +25,9 @@ from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team import Team
 from posthog.models.user import User
 
+from products.authorization.backend.facade import api as authorization
+from products.authorization.backend.facade.contracts import Resource, Subject
+from products.authorization.backend.facade.enums import Action
 from products.growth.backend.facade.posthog_support_types import (
     MAX_SEND_ATTEMPTS,
     MAX_TICKETS_PER_TOPIC,
@@ -106,7 +109,7 @@ def _check_plan(organization: Organization, user: User) -> TicketPermission:
 
 
 def check_ticket_permission(
-    organization: Organization, user: User, topic: TicketTopic, membership_level: OrganizationMembership.Level | None
+    organization: Organization, user: User, topic: TicketTopic, *, is_org_admin: bool
 ) -> TicketPermission:
     """Whether an agent can file a ticket on this topic for this organization.
 
@@ -116,9 +119,7 @@ def check_ticket_permission(
     permission = TicketPermission.ALLOWED if topic in ANY_PLAN_TOPICS else _check_plan(organization, user)
     if permission == TicketPermission.PLAN_EXCLUDES_SUPPORT:
         return permission
-    if topic in ORG_ADMIN_TOPICS and (
-        membership_level is None or membership_level < OrganizationMembership.Level.ADMIN
-    ):
+    if topic in ORG_ADMIN_TOPICS and not is_org_admin:
         return TicketPermission.NEEDS_ORG_ADMIN
     if topic == TicketTopic.OTHER:
         return TicketPermission.TOPIC_EXCLUDED
@@ -331,6 +332,12 @@ def _membership_level(team: Team, user: User) -> OrganizationMembership.Level | 
     return membership.effective_level if membership else None
 
 
+def _is_org_admin(team: Team, user: User) -> bool:
+    return authorization.check(
+        resource=Resource.organization(team.organization_id), action=Action.EDIT, subject=Subject(user_id=user.pk)
+    )
+
+
 def create_draft(
     user: User,
     team: Team,
@@ -344,7 +351,7 @@ def create_draft(
 ) -> DraftOutcome:
     store = SupportDraftStore(user.pk, team.pk)
     membership_level = _membership_level(team, user)
-    permission = check_ticket_permission(team.organization, user, topic, membership_level)
+    permission = check_ticket_permission(team.organization, user, topic, is_org_admin=_is_org_admin(team, user))
     if permission in (
         TicketPermission.TOPIC_EXCLUDED,
         TicketPermission.PLAN_EXCLUDES_SUPPORT,
@@ -384,7 +391,7 @@ def send_draft(user: User, team: Team, draft_id: str) -> SendOutcome:
     if store.topic_limit_reached(draft.topic):
         return failed(SendFailure.TOPIC_LIMIT)
     membership_level = _membership_level(team, user)
-    permission = check_ticket_permission(team.organization, user, draft.topic, membership_level)
+    permission = check_ticket_permission(team.organization, user, draft.topic, is_org_admin=_is_org_admin(team, user))
     if permission != TicketPermission.ALLOWED:
         return failed(SendFailure(permission.value))
 
