@@ -31,7 +31,7 @@ products/mobile/
     views/web-analytics/  -> src/features/views/webAnalytics/WebAnalyticsScreen chrome="stack", and its full list
     views/live.tsx        -> src/features/live/LiveScreen chrome="stack" (Live chip, deep link)
     views/live-countries.tsx -> src/features/live/LiveCountriesScreen (Visitors by country, from Live's map card)
-    chat.tsx              -> src/features/chat/ChatSheet (transparent modal, draws its own sheet;
+    chat.tsx              -> src/features/chat/ChatEntryScreen (full-screen page;
                           no params starts a new chat, `taskId` and `runId` open one, `reportId` attaches a report)
     settings.tsx          -> src/features/settings/SettingsScreen
   src/
@@ -80,8 +80,8 @@ products/mobile/
       verdict/            VerdictSheet (Resolve and Dismiss), verdictCopy, hooks; reasons in model/verdictReasons
       reviewers/          AssigneeSheet, hooks
       priority/           PrioritySheet, hooks
-      chat/               ChatSheet, Composer, ContextChip, MentionPopover, ChatEmptyState, ChatOptionsSheet,
-                          chatRunOptions (model and mode), ChatMarkdown, ChatErrorBubble, ChatProgressLine,
+      chat/               ChatEntryScreen, ChatScreen, Composer, ContextChip, MentionPopover, ChatEmptyState,
+                          ChatOptionsSheet, chatRunOptions (model and mode), ChatMarkdown, ChatErrorBubble, ChatProgressLine,
                           UserBubble, contextPrompt, chatErrors, webLinks (reply links),
                           objectContext and ObjectContextChip (an issue or recording as chat context)
         session/          useSession (create, follow, send, resume, stop, answer), sessionRun (request bodies

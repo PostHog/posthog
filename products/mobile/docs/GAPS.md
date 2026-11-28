@@ -12,8 +12,7 @@ Known gaps and behavior that stays on the device.
   "Custom…" hide the report on this device only. Other devices and the web app still show it.
   "Until more signals arrive" is the only server-side snooze.
 - **Hidden navigation.** Teams, Notifications and Give feedback are not in v1.
-  The project switcher chevron does nothing yet. The nav pill's Products slot leaves the app for the
-  web product library, and is dimmed in demo mode because there is no project to open.
+  The nav pill's Products slot leaves the app for the web product library, and is dimmed in demo mode because there is no project to open.
 - **Agent progress UI.** The prototype's "Step N of M" segments are not shown; the run API has a
   free-text stage only.
 - **Impact avatars.** The prototype data has avatar stacks on Impact facts that its template never
@@ -47,7 +46,6 @@ Known gaps and behavior that stays on the device.
   At the limit, `POST tasks/` or `run/` answers 429 `signal_report_task_cap`; the app shows the server copy and takes the message back. Attach a second report, or none, to chat without the limit.
 - **One-report chats show as "Report" in Chats.** The `basic=true` list carries `origin_product` but not `signal_report_task_relationship`,
   so a discussion started on mobile gets the Report label and branch icon of a Create PR hand-off.
-- **A push for a chat opens the Inbox.** Task push routing (`src/features/notifications/notificationRouting.ts`) opens the task's report, and a `posthog_ai` task has none, so it falls back to the Inbox instead of the chat sheet.
 - **A replayed mode change does not replace a mode the app set.** Only a live `current_mode_update` does. If the agent changed mode while the stream was replaying after a lost cursor, the Mode chip keeps the app's mode until the agent reports one live.
 - **No harness switch on a live run.** A chat started on Claude Code stays on it, and one on Codex stays on Codex. Start a new chat to switch.
 - **`set_config_option` result shape is unverified.** The app treats a 2xx without a JSON-RPC `error` as applied.
@@ -145,7 +143,7 @@ The following need shared server policy or additional product work:
 - **Internal variants need portal setup before their first build.** The dev and preview bundle ids, widget ids, App Groups, push credentials and OAuth redirect URIs do not exist until someone registers them. See [RELEASING.md](RELEASING.md#one-time-setup).
 - **Per-variant widget stores were not run on a device.** Both Swift readers derive the App Group from their bundle id. Only the generated entitlements and a Swift typecheck were checked.
 - **Shared OTA publishing is pending.** A repository workflow is needed before OTA updates are part of the shared release process.
-- **Chat composer under the keyboard (iOS).** On iPhone 17 with iOS 27, the composer's bottom row (Add a report, Send) sits about 30pt behind the keyboard, so Send cannot be tapped while typing. The return key still sends. See the `KeyboardAvoidingView` in `src/features/chat/ChatSheet.tsx`.
+- **Chat composer under the keyboard (iOS).** On iPhone 17 with iOS 27, the composer's bottom row (Add a report, Send) sits about 30pt behind the keyboard, so Send cannot be tapped while typing. The return key still sends. This was seen with the old chat sheet's `KeyboardAvoidingView` and has not been checked since chats became full-screen pages. `src/features/chat/ChatScreen.tsx` now follows the keyboard with `react-native-keyboard-controller`.
 - **Sheets do not hide the screen under them from VoiceOver.** The report's controls stay in the accessibility tree under the hand-off, snooze and chat sheets.
 - **Dev build overlays.** The Expo dev client's tools button covers the inbox More button, and its fast refresh banner covers Back and Close. Release builds do not have them. [TESTING.md](TESTING.md) says how to turn them off.
 - **Android was not run.** Only the iOS simulator was checked.
