@@ -286,6 +286,21 @@ describe('measurements', () => {
         }
     )
 
+    it.each([
+        ['role_heap_max_bytes', 'bytes', 700],
+        ['attachment_sends_in_flight_max', 'sends', 3],
+        ['attachment_reserved_bytes_max', 'bytes', 60_000_000],
+    ])('marks %s incomplete when a scrape the role answered lacks it', (name, unit, value) => {
+        const samples = [
+            withGauges(sample(0, -60, 1), 700, { inFlight: 3, reservedBytes: 60_000_000 }),
+            sample(5, -60, 1),
+        ]
+
+        expect(measure([{ name, params: {} }], evidence({ samples }))).toEqual([
+            { name, unit, key: ROLE, value, incomplete: true },
+        ])
+    })
+
     it.each<[string, MetricSample[], Omit<Measurement, 'name' | 'unit'>[]]>([
         [
             'one process that deferred for two reasons while sampled',
@@ -317,6 +332,22 @@ describe('measurements', () => {
                 withGauges(sample(5, -60, 1), 1, { deferrals: { over_budget: 0 } }),
             ],
             [{ key: 'over_budget', value: 0 }],
+        ],
+        [
+            'a process whose last scrape lacked one reason',
+            [
+                withGauges(sample(0, -60, 1), 1, { deferrals: { over_budget: 4, at_cap: 1 } }),
+                withGauges(sample(5, -60, 1), 1, { deferrals: { at_cap: 1 } }),
+            ],
+            [
+                { key: 'at_cap', value: 0 },
+                {
+                    key: 'over_budget',
+                    value: null,
+                    censored: true,
+                    unmeasured: 'not measured: an email worker scrape lacked this reason',
+                },
+            ],
         ],
     ])('counts the deferral tokens by reason for %s', (_story, samples, measured) => {
         const otherRole = { ...withGauges(sample(0, -60, 1), 1, { deferrals: { idle: 0 } }), role: 'cdp-api' }

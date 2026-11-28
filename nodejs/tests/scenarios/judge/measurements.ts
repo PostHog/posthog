@@ -166,7 +166,10 @@ const peakPerRole = (
     measure: ({ samples, missed }) =>
         [...byRole(rolesOf(samples))].flatMap(([role, ofRole]) => {
             const values = ofRole.flatMap((sample) => read(sample) ?? [])
-            return values.length === 0 ? [] : [{ key: role, value: maxOf(values), ...completeness(role, missed) }]
+            const lacking = values.length < ofRole.length ? { incomplete: true as const } : {}
+            return values.length === 0
+                ? []
+                : [{ key: role, value: maxOf(values), ...completeness(role, missed), ...lacking }]
         }),
 })
 
@@ -273,11 +276,15 @@ export const attachmentDeferrals: MeasurementDefinition = {
         const replicas = deferralReplicasOf(samples)
         const reasons = [...new Set(replicas.flat().flatMap(({ attachments }) => Object.keys(attachments.deferrals)))]
         const incomplete = replicas.some((ofReplica) => lostIncrease(ofReplica, missed))
-        return reasons.sort().map((reason) => ({
-            key: reason,
-            value: increaseAcrossReplicas(replicas, deferredFor(reason), sampledFrom),
-            ...(incomplete ? { incomplete: true as const } : {}),
-        }))
+        return reasons.sort().map((reason) =>
+            replicas.flat().some(({ attachments }) => !(reason in attachments.deferrals))
+                ? { key: reason, ...unmeasured('not measured: an email worker scrape lacked this reason') }
+                : {
+                      key: reason,
+                      value: increaseAcrossReplicas(replicas, deferredFor(reason), sampledFrom),
+                      ...(incomplete ? { incomplete: true as const } : {}),
+                  }
+        )
     },
 }
 

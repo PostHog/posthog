@@ -8,7 +8,9 @@ const HostMatch = z.object({ host: z.string().optional() }).strict()
 
 export const S3Op = z.enum(['get', 'put', 'head', 'copy'])
 export type S3Op = z.infer<typeof S3Op>
+export const S3BodylessOp = S3Op.exclude(['put'])
 const S3Match = z.object({ op: S3Op.optional() }).strict()
+const S3BodylessMatch = z.object({ op: S3BodylessOp.optional() }).strict()
 
 export const S3SlowParams = z.object({ bytesPerSecond: z.number().int().min(1) }).strict()
 
@@ -81,7 +83,7 @@ export const CardFault = z.discriminatedUnion('name', [
         .object({
             name: z.literal('s3.status'),
             params: z.object({ code: z.number().int().min(500).max(599) }).strict(),
-            match: S3Match.optional(),
+            match: S3BodylessMatch.optional(),
             dose: Dose,
             for: Duration.optional(),
         })
@@ -89,7 +91,7 @@ export const CardFault = z.discriminatedUnion('name', [
     z
         .object({
             name: z.literal('s3.stall'),
-            match: S3Match.optional(),
+            match: S3BodylessMatch.optional(),
             dose: Dose,
             for: Duration.optional(),
         })
@@ -281,7 +283,11 @@ function matches({ answer, match }: FaultRule, request: FaultedRequest): boolean
         return isWebhookAnswer(answer) && (match?.host === undefined || match.host === request.host)
     }
     if (request.channel === 's3') {
-        return isS3Answer(answer) && (match?.op === undefined || match.op === request.op)
+        return (
+            isS3Answer(answer) &&
+            (request.op !== 'put' || answer.kind === 's3-slow') &&
+            (match?.op === undefined || match.op === request.op)
+        )
     }
     if (request.channel === 'pg') {
         return answer.kind === (request.at === 'enqueue' ? 'pg-refuse' : 'pg-commit-reply-lost')
@@ -366,7 +372,6 @@ export class FaultList {
         return rule && isWebhookAnswer(rule.answer) ? { name: rule.name, answer: rule.answer } : undefined
     }
 
-    // The proxy reports when the fault really answers, through s3Answered: a paced request may carry no body to slow.
     takeS3(op: S3Op, hit: Hit): { id: string; name: string; answer: S3Answer } | undefined {
         const fault = this.take({ channel: 's3', op }, hit, { appliesNow: false })
         return fault && isS3Answer(fault.rule.answer)
@@ -380,11 +385,9 @@ export class FaultList {
         }
     }
 
-    s3Abandoned(id: string): void {
-        const fault = this.faults.find((candidate) => candidate.id === id)
-        if (fault !== undefined) {
-            fault.applied -= 1
-        }
+    s3Active(id: string): boolean {
+        const now = Date.now()
+        return this.faults.some((fault) => fault.id === id && fault.until > now)
     }
 
     refusePg(): string | undefined {
