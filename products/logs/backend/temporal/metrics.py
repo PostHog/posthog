@@ -5,15 +5,11 @@ import time
 import typing
 import datetime as dt
 
-from django.conf import settings
-
 from prometheus_client import Gauge
 from temporalio import activity, workflow
 from temporalio.common import MetricMeter
-from temporalio.worker import ActivityInboundInterceptor, ExecuteActivityInput, Interceptor
 
 from posthog.temporal.common.logger import get_write_only_logger
-from posthog.temporal.common.metrics import record_schedule_to_start_latency
 
 from products.alerts_platform.backend.facade.check_errors import AlertErrorCode
 from products.logs.backend.alert_state_machine import AlertState, NotificationAction
@@ -24,13 +20,6 @@ _NOTIFICATION_FAILURE_LABELS: dict[NotificationAction, str] = {
     NotificationAction.FIRE: "firing",
     NotificationAction.RESOLVE: "resolved",
 }
-
-ALERTING_ACTIVITY_TYPES = frozenset(
-    {
-        "discover_cohorts_activity",
-        "evaluate_cohort_batch_activity",
-    }
-)
 
 Attributes = dict[str, str | int | float | bool]
 
@@ -318,36 +307,3 @@ class ExecutionTimeRecorder:
             hist.record(value=delta)
         except Exception:
             logger.exception("Failed to record execution time to histogram '%s'", self.histogram_name)
-
-
-class LogsAlertingMetricsInterceptor(Interceptor):
-    """Interceptor to emit Prometheus metrics for logs alerting workflows."""
-
-    task_queue = settings.LOGS_ALERTING_TASK_QUEUE
-
-    def intercept_activity(self, next: ActivityInboundInterceptor) -> ActivityInboundInterceptor:
-        return _LogsAlertingActivityInterceptor(super().intercept_activity(next))
-
-
-class _LogsAlertingActivityInterceptor(ActivityInboundInterceptor):
-    async def execute_activity(self, input: ExecuteActivityInput) -> typing.Any:
-        activity_info = activity.info()
-        activity_type = activity_info.activity_type
-
-        if activity_type not in ALERTING_ACTIVITY_TYPES:
-            return await super().execute_activity(input)
-
-        record_schedule_to_start_latency(
-            "logs_alerting_schedule_to_start_ms",
-            scheduled_time=activity_info.scheduled_time,
-            started_time=activity_info.started_time,
-            description="Time between activity scheduling and start",
-            attributes={"activity_type": activity_type},
-        )
-
-        with ExecutionTimeRecorder(
-            "logs_alerting_cycle_duration_ms",
-            description="Full alert check cycle duration",
-            histogram_attributes={"activity_type": activity_type},
-        ):
-            return await super().execute_activity(input)
