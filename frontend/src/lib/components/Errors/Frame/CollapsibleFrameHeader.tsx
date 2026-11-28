@@ -65,10 +65,17 @@ export function CollapsibleFrameHeader({
     return (
         <div className={cn('flex h-7 w-full bg-surface-popover')}>
             <Collapsible.Trigger
-                className={cn('collapsible-frame-header grow max-w-[calc(100%-30px)]', {
+                className={cn('collapsible-frame-header grow max-w-[calc(100%-30px)] select-text', {
                     'cursor-progress': recordLoading,
                 })}
                 disabled={!hasRecordContext && !recordLoading}
+                onClick={(e) => {
+                    const selection = window.getSelection()
+                    if (selection && selection.toString().length > 0) {
+                        e.preventDefault()
+                        e.stopPropagation()
+                    }
+                }}
             >
                 {functionName && (
                     <span ref={functionRef} className="font-medium frame-function" title={functionName}>
