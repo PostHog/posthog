@@ -108,3 +108,9 @@ def _classifications() -> dict[str, ToolClassification]:
 
 def classify_tool(kind: str) -> ToolClassification | None:
     return _classifications().get(kind)
+
+
+def kinds_alternative_to(product: str) -> tuple[str, ...]:
+    return tuple(
+        kind for kind, classification in _classifications().items() if product in classification.alternative_to
+    )

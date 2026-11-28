@@ -3,10 +3,13 @@ from datetime import datetime
 
 from django.db import connection, transaction
 
+import posthoganalytics
+
 from posthog.dataclasses import frozen
 from posthog.event_usage import report_user_or_team_action
 from posthog.models import Team, User
 from posthog.models.scoping.manager import resolve_effective_team_id
+from posthog.schema_enums import ProductKey
 
 from products.wizard.backend.facade.contracts import (
     RecordWizardScanInput,
@@ -19,7 +22,7 @@ from products.wizard.backend.observability.config import (
     WIZARD_POSTHOG_ALTERNATIVE_DETECTED_EVENT,
     WIZARD_POSTHOG_ALTERNATIVE_REMOVED_EVENT,
 )
-from products.wizard.backend.tool_catalog.catalog import classify_tool
+from products.wizard.backend.tool_catalog.catalog import classify_tool, kinds_alternative_to
 
 
 @frozen
@@ -228,6 +231,22 @@ def _report_posthog_alternative_changes(scan: WizardScan, changes: _ScanChanges)
                 "alternative_to": list(removal.alternative_to),
             },
         )
+    if any(ProductKey.WORKFLOWS in sighting.alternative_to for sighting in changes.sightings):
+        _set_organization_email_providers(str(team.organization_id))
+
+
+def _set_organization_email_providers(organization_id: str) -> None:
+    # Removed tools count too, so a later scan that finds fewer providers keeps the ones found before. Matched by
+    # kind rather than the stored `alternative_to`, which is empty on rows written before a provider was tagged.
+    providers = sorted(
+        WizardDetectedTool.objects.unscoped()
+        .using("default")
+        .filter(team__organization_id=organization_id, kind__in=kinds_alternative_to(ProductKey.WORKFLOWS))
+        .order_by()
+        .values_list("kind", flat=True)
+        .distinct()
+    )
+    posthoganalytics.group_identify("organization", organization_id, properties={"email_providers": providers})
 
 
 def organization_has_detected_tool(*, organization_id: str, kinds: Collection[str]) -> bool:

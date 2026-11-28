@@ -5,6 +5,7 @@ from products.warehouse_sources.sources.sdk import (
     DataWarehouseSourceCategory,
     ExternalDataSourceType,
     FieldType,
+    ProductKey,
     ReleaseStatus,
     ResumableSource,
     ResumableSourceManager,
@@ -74,6 +75,7 @@ class SendGridSource(ResumableSource[SendGridSourceConfig, SendGridResumeConfig]
             "griddler-sendgrid",
         ),
         swiftpm=("github.com/scottkawai/sendgrid-swift",),
+        alternative_to=(ProductKey.WORKFLOWS,),
     )
 
     supported_versions = ("v3",)

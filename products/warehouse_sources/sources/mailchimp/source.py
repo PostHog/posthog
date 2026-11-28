@@ -14,6 +14,7 @@ from products.warehouse_sources.sources.sdk import (
     DataWarehouseSourceCategory,
     ExternalDataSourceType,
     FieldType,
+    ProductKey,
     ReleaseStatus,
     ResumableSource,
     ResumableSourceManager,
@@ -64,6 +65,7 @@ class MailchimpSource(ResumableSource[MailchimpSourceConfig, MailchimpResumeConf
             "mailchimp",
         ),
         swiftpm=("github.com/mailchimp/mailchimp-marketing-swift-sdk", "github.com/mailchimp/mailchimp-sdk-ios"),
+        alternative_to=(ProductKey.WORKFLOWS,),
     )
 
     supported_versions = ("3.0",)
