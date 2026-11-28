@@ -83,16 +83,23 @@ function longRows(frames: DataFrame[]): Cell[][] {
     return [named ? ['series', ...names] : names, ...rows]
 }
 
+// A spreadsheet splits pasted text on every tab and line break and ignores quotes, so a value holding one would start
+// a new cell that `escapeFormulae` never saw.
+function flattenForPaste(rows: Cell[][]): Cell[][] {
+    return rows.map((row) => row.map((cell) => (typeof cell === 'string' ? cell.replace(/[\t\r\n]+/g, ' ') : cell)))
+}
+
 /**
  * A chart's frames as CSV text: a header row, then the rows a person would expect to see in a spreadsheet. Pass `\t`
- * for text pasted into a spreadsheet, which splits cells on tabs, so a tab inside a value is quoted.
+ * for text pasted into a spreadsheet, which puts each value on one cell by replacing its tabs and line breaks.
  */
 export function framesToCsv(frames: DataFrame[], delimiter: ',' | '\t' = ','): string {
     const withFields = frames.filter((frame) => frame.fields.length > 0)
     const joinable = withFields.length > 0 && withFields.every((frame) => keyFieldOf(frame) && !hasRepeatedKeys(frame))
     // A cell that starts with `=` would run as a formula when the file opens in a spreadsheet. Papa's own pattern
     // needs the whole value on one line, so a value with a line break would slip past it.
-    return Papa.unparse(joinable ? wideRows(withFields) : longRows(withFields), {
+    const rows = joinable ? wideRows(withFields) : longRows(withFields)
+    return Papa.unparse(delimiter === '\t' ? flattenForPaste(rows) : rows, {
         delimiter,
         escapeFormulae: /^[=+\-@\t\r]/,
     })
