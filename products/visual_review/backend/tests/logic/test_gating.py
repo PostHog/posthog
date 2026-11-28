@@ -3,6 +3,7 @@
 from datetime import timedelta
 
 import pytest
+import time_machine
 
 from django.utils import timezone
 
@@ -201,12 +202,15 @@ class TestQuarantineStamping:
 
         assert quarantine.identifiers_lifted_after_commit(run, now=now) == expect_lifted_after
 
-    def test_lift_scope_asks_github_about_a_default_branch_run_once(self, repo, team, mocker):
-        now, requests = self._lift_history(repo, team, mocker)
-        quarantine.identifiers_lifted_after_commit(self._run_at_commit(repo, "m4"), now=now)
-        requests.clear()
+    def test_lift_scope_asks_github_about_a_next_day_default_branch_run_once(self, repo, team, mocker):
+        with time_machine.travel(timezone.now(), tick=False) as clock:
+            now, requests = self._lift_history(repo, team, mocker)
+            quarantine.identifiers_lifted_after_commit(self._run_at_commit(repo, "m4"), now=now)
+            requests.clear()
+            clock.shift(timedelta(days=1))
 
-        assert quarantine.identifiers_lifted_after_commit(self._run_at_commit(repo, "m5"), now=now) == set()
+            next_run = self._run_at_commit(repo, "m5")
+            assert quarantine.identifiers_lifted_after_commit(next_run, now=now + timedelta(days=1)) == set()
         assert requests == [("m3", "m5")]
 
     def test_quarantine_excludes_from_changed_count(self, repo, team, mocker):

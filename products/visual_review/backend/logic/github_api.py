@@ -148,6 +148,13 @@ def _is_ancestor(repo: Repo, ancestor_sha: str, head_sha: str, priority: Priorit
     return merge_base == ancestor_sha
 
 
+# A pair of lift commits is asked about on every run while the lift is in scope, which is
+# `quarantine.LIFT_SCOPE_DAYS`. With a week, GitHub gets that question at most once a week instead of
+# once an hour. Most answers are for a run commit that no later run asks about, and a week bounds how
+# long those stay in the shared cache.
+_ANCESTRY_TIMEOUT_SECONDS = 7 * 24 * 60 * 60
+
+
 def commit_ancestry(
     repo: Repo, ancestor_sha: str, head_sha: str, priority: Priority = Priority.CRITICAL
 ) -> bool | None:
@@ -164,6 +171,7 @@ def commit_ancestry(
         "commit_ancestry",
         f"{repo.id}:{ancestor_sha}..{head_sha}",
         lambda: _is_ancestor(repo, ancestor_sha, head_sha, priority),
+        timeout_seconds=_ANCESTRY_TIMEOUT_SECONDS,
     )
 
 
