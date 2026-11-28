@@ -3,10 +3,39 @@ import { Properties } from '~/plugin-scaffold'
 
 import { resolveModelCostForProvider, resolveProviderAliases } from './provider-matching'
 import { manualCostsByModel, openRouterCostsByModel } from './providers'
+import { openAILongContextModels } from './providers/manual-providers'
 import type { ModelCostRow, ResolvedModelCost } from './providers/types'
 
-// Work around for new gemini models that require special cost calculations
-const SPECIAL_COST_MODELS = ['gemini-2.5-pro-preview']
+// A prompt above `inputTokenThreshold` is billed at the rates of the manual `<model>:large` row.
+interface LongContextPricing {
+    model: string
+    inputTokenThreshold: number
+    // The provider that publishes the `:large` rates. Other routes stay on their flat rate,
+    // because their long-context rates are not known.
+    provider?: string
+}
+
+const LONG_CONTEXT_PRICING: LongContextPricing[] = [
+    { model: 'gemini-2.5-pro-preview', inputTokenThreshold: 200000 },
+    // OpenAI: "Short context: ≤272K input tokens. Long context: >272K input tokens."
+    ...openAILongContextModels.map((model) => ({ model, inputTokenThreshold: 272000, provider: 'openai' })),
+]
+
+const escapeRegExp = (value: string): string => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+
+// The name must end at the model or at a dated snapshot suffix (`-2026-03-05`, `-0514`).
+// A longer name such as `gpt-5.4-mini`, `gpt-6-sol-pro` or `gemini-2.5-pro-preview-tts`
+// is a different model with its own price, so it must not take this model's long-context rates.
+const LONG_CONTEXT_PRICING_PATTERNS: [RegExp, LongContextPricing][] = LONG_CONTEXT_PRICING.map((pricing) => [
+    new RegExp(`(?:^|/)${escapeRegExp(pricing.model)}(?:-\\d[\\d-]*)?$`),
+    pricing,
+])
+
+const findLongContextPricing = (aiModel: string): LongContextPricing | undefined => {
+    const lowerAiModel = aiModel.toLowerCase()
+
+    return LONG_CONTEXT_PRICING_PATTERNS.find(([pattern]) => pattern.test(lowerAiModel))?.[1]
+}
 
 export enum CostModelSource {
     OpenRouter = 'openrouter',
@@ -199,23 +228,20 @@ const searchModelInCosts = (model: string, costsDict: Record<string, ModelCostRo
     return undefined
 }
 
-export const requireSpecialCost = (aiModel: string): boolean => {
-    const lowerAiModel = aiModel.toLowerCase()
+export const requireSpecialCost = (aiModel: string): boolean => findLongContextPricing(aiModel) !== undefined
 
-    // TTS is a separate audio-only model, not a context-size variant of Pro.
-    return (
-        !lowerAiModel.endsWith('-tts') &&
-        SPECIAL_COST_MODELS.some((model) => lowerAiModel.includes(model.toLowerCase()))
-    )
-}
+export function getNewModelName(model: string, inputTokens: unknown, provider?: unknown): string {
+    const pricing = findLongContextPricing(model)
 
-export function getNewModelName(model: string, inputTokens: unknown): string {
-    // Gemini 2.5 Pro Preview has a limit of 200k input tokens before the price changes, we store the other price in the :large suffix
-    if (requireSpecialCost(model)) {
-        const tokenCountExceeded = inputTokens ? Number(inputTokens) > 200000 : false
-
-        return tokenCountExceeded ? 'gemini-2.5-pro-preview:large' : 'gemini-2.5-pro-preview'
+    if (!pricing) {
+        return model
     }
 
-    return model
+    if (pricing.provider && (typeof provider !== 'string' || resolveProviderAliases(provider) !== pricing.provider)) {
+        return model
+    }
+
+    const tokenCountExceeded = inputTokens ? Number(inputTokens) > pricing.inputTokenThreshold : false
+
+    return tokenCountExceeded ? `${pricing.model}:large` : model
 }

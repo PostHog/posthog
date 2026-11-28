@@ -644,6 +644,32 @@ describe('getNewModelName()', () => {
         })
     })
 
+    describe('OpenAI long-context threshold logic', () => {
+        it.each([
+            ['gpt-6-sol', 272000, 'openai', 'gpt-6-sol'],
+            ['gpt-6-sol', 272001, 'openai', 'gpt-6-sol:large'],
+            ['openai/gpt-6-sol', 272001, 'openai', 'gpt-6-sol:large'],
+            ['GPT-6-SOL', 272001, 'OpenAI', 'gpt-6-sol:large'],
+            ['gpt-5.4-2026-03-05', 300000, 'openai', 'gpt-5.4:large'],
+            ['gpt-5.4-pro', 300000, 'openai', 'gpt-5.4-pro:large'],
+            ['gpt-6.2-astra', 272001, 'openai', 'gpt-6.2-astra:large'],
+        ])('maps %s with %d input tokens from %s to %s', (model, inputTokens, provider, expected) => {
+            expect(getNewModelName(model, inputTokens, provider)).toBe(expected)
+        })
+
+        it.each([
+            // OpenAI publishes no long-context rate for these variants.
+            ['gpt-5.4-mini', 'openai'],
+            ['gpt-6-sol-pro', 'openai'],
+            ['gpt-6-sol:batch', 'openai'],
+            // Only OpenAI's own long-context rates are published, so other routes keep their flat rate.
+            ['gpt-6-sol', 'azure'],
+            ['gpt-6-sol', undefined],
+        ])('keeps %s from %s on its flat rate above the threshold', (model, provider) => {
+            expect(getNewModelName(model, 1000000, provider)).toBe(model)
+        })
+    })
+
     describe('non-special models', () => {
         it('returns original model name for gpt-4', () => {
             const properties: Properties = {

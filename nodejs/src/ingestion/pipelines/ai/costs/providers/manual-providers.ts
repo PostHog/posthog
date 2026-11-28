@@ -1,4 +1,4 @@
-import type { ModelCostRow } from './types'
+import type { ModelCost, ModelCostRow } from './types'
 
 const manualProviderCosts: ModelCostRow[] = [
     {
@@ -87,6 +87,63 @@ const manualProviderCosts: ModelCostRow[] = [
     },
 ]
 
+// OpenAI bills the whole request at its long-context rates once the prompt is above 272K input tokens.
+// USD per 1M tokens from the "Long" context-length view of https://developers.openai.com/api/docs/pricing,
+// as [input, cached input, cache write, output]. A null is a rate that OpenAI does not publish.
+type PerMillionRates = [input: number, cachedInput: number | null, cacheWrite: number | null, output: number]
+
+const OPENAI_LONG_CONTEXT_RATES: Record<
+    string,
+    { standard: PerMillionRates; priority?: PerMillionRates; flex?: PerMillionRates }
+> = {
+    'gpt-6.2-astra': { standard: [16, 0.8, 20, 60], priority: [32, 1.6, 40, 120] },
+    'gpt-6.2-sol': { standard: [4, 0.2, 5, 15], priority: [8, 0.4, 10, 30] },
+    'gpt-6-astra': { standard: [20, 2, 25, 75], priority: [40, 4, 50, 150], flex: [10, 1, 12.5, 37.5] },
+    'gpt-6.1-sol': { standard: [4, 0.2, 5, 15], priority: [8, 0.4, 10, 30], flex: [2, 0.1, 2.5, 7.5] },
+    'gpt-6.1-terra': { standard: [2, 0.1, 2.5, 7.5], priority: [4, 0.2, 5, 15], flex: [1, 0.05, 1.25, 3.75] },
+    'gpt-6-luna': {
+        standard: [0.2, 0.02, 0.25, 0.75],
+        priority: [0.4, 0.04, 0.5, 1.5],
+        flex: [0.1, 0.01, 0.125, 0.375],
+    },
+    'gpt-6-sol': { standard: [4, 0.4, 5, 15], priority: [8, 0.8, 10, 30], flex: [2, 0.2, 2.5, 7.5] },
+    'gpt-5.6-sol': { standard: [8, 0.8, 10, 30], priority: [16, 1.6, 20, 60], flex: [4, 0.4, 5, 15] },
+    'gpt-5.6-terra': { standard: [4, 0.4, 5, 18], priority: [8, 0.8, 10, 36], flex: [2, 0.2, 2.5, 9] },
+    'gpt-5.6-luna': { standard: [0.4, 0.04, 0.5, 1.8], priority: [0.8, 0.08, 1, 3.6], flex: [0.2, 0.02, 0.25, 0.9] },
+    'gpt-5.5': { standard: [10, 1, null, 45], flex: [5, 0.5, null, 22.5] },
+    'gpt-5.5-pro': { standard: [60, null, null, 270] },
+    'gpt-5.4': { standard: [5, 0.5, null, 22.5], flex: [2.5, 0.25, null, 11.25] },
+    'gpt-5.4-pro': { standard: [60, null, null, 270] },
+}
+
+// The web search tool costs $10 per 1K calls whatever the prompt length.
+const OPENAI_WEB_SEARCH_PER_CALL = 0.01
+
+// Parsing the decimal exponent keeps 0.4 per 1M at exactly 4e-7, where 0.4 / 1e6 is not.
+const perToken = (usdPerMillion: number): number => Number(`${usdPerMillion}e-6`)
+
+const toModelCost = ([input, cachedInput, cacheWrite, output]: PerMillionRates): ModelCost => ({
+    prompt_token: perToken(input),
+    completion_token: perToken(output),
+    ...(cachedInput !== null && { cache_read_token: perToken(cachedInput) }),
+    ...(cacheWrite !== null && { cache_write_token: perToken(cacheWrite) }),
+    web_search: OPENAI_WEB_SEARCH_PER_CALL,
+})
+
+export const openAILongContextModels: string[] = Object.keys(OPENAI_LONG_CONTEXT_RATES)
+
+const openAILongContextCosts: ModelCostRow[] = Object.entries(OPENAI_LONG_CONTEXT_RATES).map(
+    ([model, { standard, priority, flex }]) => ({
+        model: `${model}:large`,
+        cost: {
+            default: toModelCost(standard),
+            openai: toModelCost(standard),
+            ...(priority && { 'openai-fast': toModelCost(priority) }),
+            ...(flex && { 'openai-flex': toModelCost(flex) }),
+        },
+    })
+)
+
 const embeddingModelCosts: ModelCostRow[] = [
     {
         model: 'text-embedding-3-small',
@@ -118,4 +175,4 @@ const embeddingModelCosts: ModelCostRow[] = [
     },
 ]
 
-export const manualCosts: ModelCostRow[] = [...manualProviderCosts, ...embeddingModelCosts]
+export const manualCosts: ModelCostRow[] = [...manualProviderCosts, ...openAILongContextCosts, ...embeddingModelCosts]

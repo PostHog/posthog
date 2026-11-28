@@ -284,7 +284,11 @@ export const processCost = (event: EventWithProperties): EventWithProperties => 
     parsedModel = model
 
     if (requireSpecialCost(parsedModel)) {
-        parsedModel = getNewModelName(parsedModel, event.properties['$ai_input_tokens'])
+        parsedModel = getNewModelName(
+            parsedModel,
+            event.properties['$ai_input_tokens'],
+            event.properties['$ai_provider']
+        )
     }
 
     const costResult: CostModelResult | undefined = findCostFromModel(parsedModel, event.properties)
