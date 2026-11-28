@@ -15,6 +15,7 @@ from products.warehouse_sources.sources.sdk import (
     SourceResponse,
     make_tracked_session,
     retry_with_deadline,
+    to_epoch,
 )
 from products.warehouse_sources.sources.trigger_dev.settings import TRIGGER_DEV_ENDPOINTS, TriggerDevEndpointConfig
 
@@ -212,7 +213,7 @@ def _fetch_cursor_page(
     config: TriggerDevEndpointConfig,
     logger: FilteringBoundLogger,
     after: str | None,
-    formatted_cutoff: str | None,
+    cutoff: datetime | None,
 ) -> tuple[list[dict[str, Any]], str | None]:
     """Fetch one page of a cursor endpoint, returning its rows and the cursor of the next page."""
     params: dict[str, Any] = {"page[size]": config.page_size, **config.extra_params}
@@ -220,8 +221,10 @@ def _fetch_cursor_page(
         # The createdAt filter is only sent on the first (uncursored) request. Mixing a time
         # filter with the cursor is unverified against the live API (no credentials at build
         # time), so we scope it to page one and bound the rest client-side via _should_stop_desc.
-        if formatted_cutoff is not None and config.created_from_param:
-            params[config.created_from_param] = formatted_cutoff
+        if cutoff is not None and config.created_from_param:
+            params[config.created_from_param] = (
+                to_epoch(cutoff, "ms") if config.created_from_epoch_ms else _format_incremental_value(cutoff)
+            )
     else:
         params["page[after]"] = after
 
@@ -250,10 +253,9 @@ def _iter_cursor_pages(
     """
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
     after: str | None = resume.after if resume else None
-    formatted_cutoff = _format_incremental_value(cutoff) if cutoff is not None else None
 
     while True:
-        items, next_after = _fetch_cursor_page(session, base_url, headers, config, logger, after, formatted_cutoff)
+        items, next_after = _fetch_cursor_page(session, base_url, headers, config, logger, after, cutoff)
         stop = _should_stop_desc(items, incremental_field, cutoff)
 
         if next_after and not stop:
@@ -290,10 +292,9 @@ def _iter_run_events(
     after: str | None = resume.after if resume else None
     skip_through: str | None = resume.last_run_id if resume else None
     skip_created_at = resume.last_run_created_at if resume else None
-    formatted_cutoff = _format_incremental_value(cutoff) if cutoff is not None else None
 
     while True:
-        runs, next_after = _fetch_cursor_page(session, base_url, headers, runs_config, logger, after, formatted_cutoff)
+        runs, next_after = _fetch_cursor_page(session, base_url, headers, runs_config, logger, after, cutoff)
         stop = _should_stop_desc(runs, runs_config.default_incremental_field, cutoff)
         marker_on_page = skip_through is not None and skip_through in {run.get("id") for run in runs}
         if not runs:

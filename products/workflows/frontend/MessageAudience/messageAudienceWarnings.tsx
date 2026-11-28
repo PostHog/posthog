@@ -100,7 +100,8 @@ let opening = false
  */
 export async function openMessageAudience(
     audience: MessageAudience,
-    destination: MessageAudienceDestination
+    destination: MessageAudienceDestination,
+    attemptId?: string
 ): Promise<void> {
     if (opening) {
         return
@@ -108,7 +109,7 @@ export async function openMessageAudience(
     opening = true
     try {
         const navigate = async (): Promise<void> => {
-            router.actions.push(messageAudienceUrl(audience, destination))
+            router.actions.push(messageAudienceUrl(audience, destination, attemptId))
         }
         const startedOn = router.values.location.pathname
         const warnings = await loadMessageAudienceWarnings(audience, destination, { offerTestSender: true })

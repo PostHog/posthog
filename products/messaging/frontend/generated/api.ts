@@ -57,8 +57,10 @@ import type {
     TopicPreferencesApi,
     TransactionalEmailActivityApi,
     TransactionalEmailImpactApi,
+    TransactionalEmailImpactSessionsApi,
     TransactionalEmailLogDetailApi,
     TransactionalEmailLogImpactRetrieveParams,
+    TransactionalEmailLogImpactSessionsRetrieveParams,
     TransactionalEmailLogListApi,
     TransactionalEmailLogListParams,
     TransactionalEmailLogResultsRetrieveParams,
@@ -1314,6 +1316,43 @@ export const transactionalEmailLogImpactRetrieve = async (
         ...options,
         method: 'GET',
     })
+}
+
+export const getTransactionalEmailLogImpactSessionsRetrieveUrl = (
+    projectId: string,
+    params: TransactionalEmailLogImpactSessionsRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/transactional_email_log/impact_sessions/?${stringifiedParams}`
+        : `/api/projects/${projectId}/transactional_email_log/impact_sessions/`
+}
+
+/**
+ * List the newest sessions with a pageview from a link in one email, the sessions `impact` counts.
+ * @summary List the sessions with a pageview from a transactional email
+ */
+export const transactionalEmailLogImpactSessionsRetrieve = async (
+    projectId: string,
+    params: TransactionalEmailLogImpactSessionsRetrieveParams,
+    options?: RequestInit
+): Promise<TransactionalEmailImpactSessionsApi> => {
+    return apiMutator<TransactionalEmailImpactSessionsApi>(
+        getTransactionalEmailLogImpactSessionsRetrieveUrl(projectId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
 }
 
 export const getTransactionalEmailLogResultsRetrieveUrl = (

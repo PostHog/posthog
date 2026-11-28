@@ -44,6 +44,22 @@ MONDAY_ENDPOINTS: dict[str, MondayEndpointConfig] = {
         name="board_groups",
         primary_keys=["_board_id", "id"],
     ),
+    # Root `updates(from_date:)` only exists from 2026-07 and filters on creation, so edits would be missed.
+    "updates": MondayEndpointConfig(
+        name="updates",
+        partition_key="created_at",
+    ),
+    # Team, tag and board-membership lists have no pagination or time filter worth persisting.
+    "teams": MondayEndpointConfig(
+        name="teams",
+    ),
+    "tags": MondayEndpointConfig(
+        name="tags",
+    ),
+    "board_subscribers": MondayEndpointConfig(
+        name="board_subscribers",
+        primary_keys=["_board_id", "subscriber_type", "id"],
+    ),
     # `activity_logs(from:)` filters server-side, but each board returns its log
     # newest first. Retention of the log itself depends on the monday.com plan.
     "board_activity_logs": MondayEndpointConfig(

@@ -56,9 +56,9 @@ export const messageAudienceOpenLogic = kea<messageAudienceOpenLogicType>([
 
     listeners(({ actions, props }) => ({
         open: async ({ destination }) => {
-            captureMessageAudienceClicked(props.audience.source, destination)
+            const attemptId = captureMessageAudienceClicked(props.audience.source, destination)
             try {
-                await openMessageAudience(props.audience, destination)
+                await openMessageAudience(props.audience, destination, attemptId)
             } finally {
                 actions.openFinished()
             }

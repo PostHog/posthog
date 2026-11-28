@@ -154,6 +154,106 @@ class TestSignedRequest:
 
 class TestPagination:
     @pytest.mark.parametrize(
+        "endpoint,operation,result_key,vendor_row,expected_row",
+        [
+            (
+                "create_account_status",
+                "ListCreateAccountStatus",
+                "CreateAccountStatuses",
+                {
+                    "Id": "car-example1",
+                    "State": "FAILED",
+                    "FailureReason": "ACCOUNT_LIMIT_EXCEEDED",
+                    "RequestedTimestamp": JAN_2025,
+                    "CompletedTimestamp": JAN_2025,
+                },
+                {
+                    "id": "car-example1",
+                    "state": "FAILED",
+                    "failure_reason": "ACCOUNT_LIMIT_EXCEEDED",
+                    "requested_timestamp": dt.datetime(2025, 1, 1, tzinfo=dt.UTC),
+                    "completed_timestamp": dt.datetime(2025, 1, 1, tzinfo=dt.UTC),
+                },
+            ),
+            (
+                "enabled_service_access",
+                "ListAWSServiceAccessForOrganization",
+                "EnabledServicePrincipals",
+                {"ServicePrincipal": "example.amazonaws.com", "DateEnabled": JAN_2025},
+                {"service_principal": "example.amazonaws.com", "date_enabled": dt.datetime(2025, 1, 1, tzinfo=dt.UTC)},
+            ),
+            (
+                "handshakes",
+                "ListHandshakesForOrganization",
+                "Handshakes",
+                {
+                    "Id": "h-example1",
+                    "Action": "INVITE",
+                    "State": "OPEN",
+                    "RequestedTimestamp": JAN_2025,
+                    "ExpirationTimestamp": JAN_2025 + 86400,
+                    "Resources": [{"Type": "NOTES", "Value": "Example invitation note"}],
+                },
+                {
+                    "id": "h-example1",
+                    "action": "INVITE",
+                    "state": "OPEN",
+                    "requested_timestamp": dt.datetime(2025, 1, 1, tzinfo=dt.UTC),
+                    "expiration_timestamp": dt.datetime(2025, 1, 2, tzinfo=dt.UTC),
+                },
+            ),
+        ],
+    )
+    def test_list_operation_maps_vendor_rows(
+        self, endpoint: str, operation: str, result_key: str, vendor_row: dict[str, Any], expected_row: dict[str, Any]
+    ) -> None:
+        result = driver().run(endpoint, [ScriptedResponse(json=page(result_key, [vendor_row]))])
+
+        assert result.raised is None
+        assert [request_operation(request) for request in result.requests] == [operation]
+        assert result.rows == [expected_row]
+
+    def test_inbound_transfer_keeps_billing_filter_on_the_next_page(self) -> None:
+        result = driver().run(
+            "inbound_responsibility_transfers",
+            [
+                ScriptedResponse(json=page("ResponsibilityTransfers", [], "next-page")),
+                ScriptedResponse(
+                    json=page(
+                        "ResponsibilityTransfers",
+                        [
+                            {
+                                "Id": "rt-example1",
+                                "Type": "BILLING",
+                                "Source": {"ManagementAccountId": "111111111111"},
+                                "Target": {"ManagementAccountId": "222222222222"},
+                                "StartTimestamp": JAN_2025,
+                                "EndTimestamp": str(int(JAN_2025 + 86400) * 1000),
+                            }
+                        ],
+                    ),
+                ),
+            ],
+        )
+
+        assert result.raised is None
+        assert [request_operation(request) for request in result.requests] == ["ListInboundResponsibilityTransfers"] * 2
+        assert [request.json() for request in result.requests] == [
+            {"MaxResults": MAX_RESULTS, "Type": "BILLING"},
+            {"MaxResults": MAX_RESULTS, "Type": "BILLING", "NextToken": "next-page"},
+        ]
+        assert result.rows == [
+            {
+                "id": "rt-example1",
+                "type": "BILLING",
+                "source_management_account_id": "111111111111",
+                "target_management_account_id": "222222222222",
+                "start_timestamp": dt.datetime(2025, 1, 1, tzinfo=dt.UTC),
+                "end_timestamp": dt.datetime(2025, 1, 2, tzinfo=dt.UTC),
+            }
+        ]
+
+    @pytest.mark.parametrize(
         "endpoint,operation,expects_max_results",
         [
             ("accounts", "ListAccounts", True),
@@ -477,16 +577,27 @@ class TestValidateCredentials:
         assert reason == "Enter both an AWS access key ID and a secret access key."
         assert network.requests_log == []
 
-    def test_a_schema_name_probes_that_table_rather_than_the_organization(self) -> None:
+    @pytest.mark.parametrize(
+        "schema_name,operation,required_params",
+        [
+            ("accounts", "ListAccounts", {}),
+            ("inbound_responsibility_transfers", "ListInboundResponsibilityTransfers", {"Type": "BILLING"}),
+        ],
+    )
+    def test_a_schema_name_probes_that_table_rather_than_the_organization(
+        self, schema_name: str, operation: str, required_params: dict[str, str]
+    ) -> None:
+        iam_action = f"organizations:{operation}"
         with scripted_network(
-            [aws_error("AccessDeniedException", "not authorized to perform organizations:ListAccounts")]
+            [aws_error("AccessDeniedException", f"not authorized to perform {iam_action}")]
         ) as network:
-            valid, reason = validate_credentials(CREDENTIALS, schema_name="accounts")
+            valid, reason = validate_credentials(CREDENTIALS, schema_name=schema_name)
 
         assert valid is False
         assert reason is not None
-        assert "organizations:ListAccounts" in reason
-        assert [request_operation(request) for request in network.requests_log] == ["ListAccounts"]
+        assert iam_action in reason
+        assert [request_operation(request) for request in network.requests_log] == [operation]
+        assert network.requests_log[0].json() == {"MaxResults": 1, **required_params}
 
 
 class TestProbeEndpointPermissions:
