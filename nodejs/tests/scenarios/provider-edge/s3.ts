@@ -9,6 +9,7 @@ const PACE_SLICES_PER_SECOND = 10
 export type S3Faults = {
     takeS3(op: S3Op, hit: Hit): { id: string; answer: S3Answer } | undefined
     s3Answered(id: string): void
+    s3Abandoned(id: string): void
 }
 
 export type S3Proxy = { url: string; close(): Promise<void> }
@@ -120,6 +121,13 @@ export async function startS3Proxy(upstream: string, faults: S3Faults): Promise<
             }
         }
         const answer = taken?.answer
+        if (taken && (answer?.kind === 's3-status' || answer?.kind === 's3-stall')) {
+            req.once('close', () => {
+                if (!req.complete) {
+                    faults.s3Abandoned(taken.id)
+                }
+            })
+        }
         if (answer?.kind === 's3-status') {
             req.resume().once('end', () => {
                 answered()
