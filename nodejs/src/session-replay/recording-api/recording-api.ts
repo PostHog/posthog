@@ -43,6 +43,7 @@ import {
     ReplayBlockBucket,
     ReplayBlockTier,
     getDefaultRecordingApiBlocksConfig,
+    parseInternalBlockBytesInFlight,
     parsePublicBlockLimits,
     parseRecordingApiRole,
     parseReplayBlockRateLimits,
@@ -54,6 +55,8 @@ import {
 const REPLAY_BLOCK_CACHE_CONTROL = 'private, max-age=14400, immutable'
 const PUBLIC_BLOCK_HOLD_CAP_MS = 30_000
 
+// Recording blocks compress several-fold with snappy, so a decompressed read is charged at this multiple until its size is known.
+const DECOMPRESSED_SIZE_ESTIMATE = 8
 const KEY_LOOKUP_TIMEOUT_MS = 1000
 // Each Redis, DynamoDB and KMS call gives up after this, so a lookup the listing abandoned does not pile up.
 
@@ -75,6 +78,8 @@ export class RecordingApi {
     private readonly replayBlockBuckets: Record<ReplayBlockTier, ReplayBlockBucket> | null
     private publicBlockBytesInFlight = 0
     private readonly publicBlockLimits: PublicBlockLimits | null
+    private internalBlockBytesInFlight = 0
+    private readonly internalBlockBytesLimit: number
 
     // Postgres and the outputs are only used by internal routes, so a public process passes neither.
     constructor(
@@ -93,6 +98,7 @@ export class RecordingApi {
         // Staff tokens read blocks by ref on internal pods, so those pods cap block bytes in memory too.
         this.publicBlockLimits =
             this.servesPublicRoutes || this.servesStaffReads ? parsePublicBlockLimits(config) : null
+        this.internalBlockBytesLimit = parseInternalBlockBytesInFlight(config)
     }
 
     // Staff tokens are the only caller of the block-by-ref route, so a pod without the staff secret does not serve it.
@@ -360,7 +366,16 @@ export class RecordingApi {
             return
         }
 
-        // Call service
+        // Callers fan out many block reads at once, and each is held whole in memory, so a burst could exceed the pod limit.
+        const requestedBytes = (endByte - startByte + 1) * (decompress ? DECOMPRESSED_SIZE_ESTIMATE : 1)
+        if (!this.admitInternalBlock(requestedBytes)) {
+            RecordingApiMetrics.incrementInternalBlockBusy()
+            res.set('Retry-After', '1')
+            res.status(503).json({ error: 'Busy' })
+            return
+        }
+        let heldBytes = requestedBytes
+
         try {
             const result = await this.recordingService.getBlock({
                 sessionId,
@@ -381,10 +396,16 @@ export class RecordingApi {
                 return
             }
 
+            // A decompressed block is several times its stored size, so the budget holds what the response holds.
+            heldBytes = this.resizeInternalBlockCharge(heldBytes, Buffer.byteLength(result.data))
             const contentType = decompress ? 'application/jsonl' : 'application/octet-stream'
             res.set('Content-Type', contentType)
             res.set('Content-Length', String(Buffer.byteLength(result.data)))
             res.set('Cache-Control', 'public, max-age=2592000, immutable')
+            // Internal callers keep connections alive, so this route keeps send() rather than the write that closes the socket.
+            const sentBytes = heldBytes
+            heldBytes = 0
+            this.releaseOnFinish(res, () => this.releaseInternalBlock(sentBytes))
             res.send(result.data)
         } catch (error) {
             logger.error('[RecordingApi] Error fetching block from S3', {
@@ -397,6 +418,8 @@ export class RecordingApi {
             })
             captureException(error)
             res.status(500).json({ error: 'Failed to fetch block from S3' })
+        } finally {
+            this.releaseInternalBlock(heldBytes)
         }
     }
 
@@ -504,6 +527,48 @@ export class RecordingApi {
         }
         this.publicBlockBytesInFlight += bytes
         return 'ok'
+    }
+
+    // A block larger than the whole budget is admitted only when nothing else is held, so it still serves on its own.
+    private admitInternalBlock(bytes: number): boolean {
+        if (
+            this.internalBlockBytesInFlight > 0 &&
+            this.internalBlockBytesInFlight + bytes > this.internalBlockBytesLimit
+        ) {
+            return false
+        }
+        this.internalBlockBytesInFlight += bytes
+        RecordingApiMetrics.setInternalBlockBytesInFlight(this.internalBlockBytesInFlight)
+        return true
+    }
+
+    private resizeInternalBlockCharge(heldBytes: number, actualBytes: number): number {
+        this.internalBlockBytesInFlight += actualBytes - heldBytes
+        RecordingApiMetrics.setInternalBlockBytesInFlight(this.internalBlockBytesInFlight)
+        return actualBytes
+    }
+
+    private releaseInternalBlock(bytes: number): void {
+        if (bytes === 0) {
+            return
+        }
+        this.internalBlockBytesInFlight -= bytes
+        RecordingApiMetrics.setInternalBlockBytesInFlight(this.internalBlockBytesInFlight)
+    }
+
+    private releaseOnFinish(res: express.Response, onRelease: () => void): void {
+        let released = false
+        const release = (): void => {
+            if (!released) {
+                released = true
+                clearTimeout(timer)
+                onRelease()
+            }
+        }
+        const timer = setTimeout(release, PUBLIC_BLOCK_HOLD_CAP_MS)
+        timer.unref()
+        res.once('finish', release)
+        res.once('close', release)
     }
 
     // The socket closes once the response is fully written or the client aborts. The timer covers anything that
