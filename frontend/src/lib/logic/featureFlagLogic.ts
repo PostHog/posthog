@@ -57,13 +57,7 @@ export function revokePostHogAIAccess(): void {
 }
 let cachedFlagsProxy: FeatureFlagsSet | null = null
 
-function spyOnFeatureFlags(featureFlags: FeatureFlagsSet): FeatureFlagsSet {
-    const appContext = getAppContext()
-    const persistedFlags = getPersistedFeatureFlags(appContext)
-    const availableFlags =
-        areClientFeatureFlagsHonored(appContext?.preflight ?? null) || process.env.NODE_ENV === 'test'
-            ? { ...persistedFlags, ...featureFlags }
-            : persistedFlags
+function applyAppFlagRules(availableFlags: FeatureFlagsSet, appContext: AppContext | undefined): void {
     // PostHog AI 2.0 follows the server's access gate, which also admits beta orgs, so a denied user never sees 2.0 UI.
     const posthogAiAccess = posthogAiAccessRevoked ? false : appContext?.posthog_ai_access
     if (posthogAiAccess !== undefined) {
@@ -73,6 +67,16 @@ function spyOnFeatureFlags(featureFlags: FeatureFlagsSet): FeatureFlagsSet {
     if (availableFlags[FEATURE_FLAGS.TODAY_RAIL_NAV]) {
         availableFlags[FEATURE_FLAGS.SCENE_MENU_BAR] = true
     }
+}
+
+function spyOnFeatureFlags(featureFlags: FeatureFlagsSet): FeatureFlagsSet {
+    const appContext = getAppContext()
+    const persistedFlags = getPersistedFeatureFlags(appContext)
+    const availableFlags =
+        areClientFeatureFlagsHonored(appContext?.preflight ?? null) || process.env.NODE_ENV === 'test'
+            ? { ...persistedFlags, ...featureFlags }
+            : persistedFlags
+    applyAppFlagRules(availableFlags, appContext)
 
     const serialized = JSON.stringify(availableFlags)
     if (serialized === cachedFlagsSerialized && cachedFlagsProxy) {
@@ -112,6 +116,25 @@ function spyOnFeatureFlags(featureFlags: FeatureFlagsSet): FeatureFlagsSet {
     }
     cachedFlagsProxy = flags
     return flags
+}
+
+const POSTHOG_JS_STORED_PERSON_PROPERTIES = '$stored_person_properties'
+const POSTHOG_JS_FLAG_OVERRIDES = '$override_feature_flags'
+const ENROLLMENT_PROPERTY_PREFIX = '$feature_enrollment/'
+
+function withPageDecisions(variants: Record<string, boolean | string>): Record<string, boolean | string> {
+    const storedPersonProperties = posthog.get_property(POSTHOG_JS_STORED_PERSON_PROPERTIES) ?? {}
+    const overriddenFlags = posthog.get_property(POSTHOG_JS_FLAG_OVERRIDES) ?? {}
+    const decidedVariants = { ...variants }
+    for (const [flag, value] of Object.entries(window.POSTHOG_USER_IDENTITY_WITH_FLAGS?.featureFlags ?? {})) {
+        if (
+            !Object.hasOwn(overriddenFlags, flag) &&
+            !Object.hasOwn(storedPersonProperties, ENROLLMENT_PROPERTY_PREFIX + flag)
+        ) {
+            decidedVariants[flag] = value
+        }
+    }
+    return Object.fromEntries(Object.entries(decidedVariants).filter(([, value]) => value))
 }
 
 export function peekFeatureFlag(featureFlags: FeatureFlagsSet, flag: FeatureFlagKey): boolean | string | undefined {
@@ -170,7 +193,14 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         // The app shell keeps this logic mounted for the page lifetime, so a new mount is a new page that
         // starts from the server decision again.
         posthogAiAccessRevoked = false
-        posthog.onFeatureFlags(actions.setFeatureFlags)
+        posthog.onFeatureFlags((flags, variants) => {
+            if (!window.POSTHOG_GLOBAL_ERRORS?.onFeatureFlagsLoadError) {
+                actions.setFeatureFlags(flags, variants)
+                return
+            }
+            const decidedVariants = withPageDecisions(variants)
+            actions.setFeatureFlags(Object.keys(decidedVariants), decidedVariants)
+        })
         if (posthog.config?.advanced_disable_flags) {
             // posthog-js never calls back when flags are off, and the app holds its first render
             // until this arrives. A page with no project key has no flags to wait for.
