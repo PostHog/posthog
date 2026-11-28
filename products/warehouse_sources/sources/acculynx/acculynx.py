@@ -129,6 +129,8 @@ def _job_pages(
     client: ClientConfig,
     inputs: SourceInputs,
     manager: ResumableSourceManager[AcculynxResumeConfig] | None = None,
+    *,
+    params: dict[str, Any] | None = None,
 ) -> Iterator[list[dict[str, Any]]]:
     saved = manager.load_state() if manager and manager.can_resume() else None
     if saved and saved.finished:
@@ -147,6 +149,7 @@ def _job_pages(
         endpoint = _endpoint(
             ENDPOINTS["jobs"],
             {
+                **(params or {}),
                 "startDate": query_start.isoformat(),
                 "endDate": window.end.isoformat(),
                 "dateFilterType": "CreatedDate",
@@ -208,14 +211,17 @@ def _fanout_resource(
     initial_state: dict[str, Any] | None,
 ) -> Resource:
     resources: list[str | EndpointResource] = []
-    for level in _fanout_chain(name):
+    chain = _fanout_chain(name)
+    root_child = PARENT_ENDPOINTS[chain[1]].fanout
+    assert root_child is not None
+    for level in chain:
         config = PARENT_ENDPOINTS[level]
         fanout = config.fanout
         if fanout is None:
-            parent = _resource(level, _endpoint(config))
+            parent = _resource(level, _endpoint(config, root_child.parent_params))
             if level == "jobs":
                 # Job date windows must also apply to the parent walk, or child tables hit the same offset cap.
-                parent["data_iterator"] = lambda: _job_pages(client, inputs)
+                parent["data_iterator"] = partial(_job_pages, client, inputs, params=root_child.parent_params)
             resources.append(parent)
             continue
         endpoint = _endpoint(
@@ -347,7 +353,9 @@ def validate_credentials(
     try:
         config = ENDPOINTS[schema_name or "jobs"]
         path = config.path
-        params: dict[str, Any] = {**config.params, "pageSize": 1}
+        params: dict[str, Any] = dict(config.params)
+        if config.offset_param:
+            params["pageSize"] = 1
         if config.fanout:
             # Bind each level's path parameters from the first row of the level above it.
             bindings: dict[str, str] = {}
@@ -359,7 +367,7 @@ def validate_credentials(
                 parents = next(
                     client.paginate(
                         path=_bind_path(parent.path, bindings),
-                        params={"pageSize": 1},
+                        params={"pageSize": 1, **child_fanout.parent_params},
                         paginator=SinglePagePaginator(),
                         data_selector=parent.data_selector,
                         data_selector_required=True,

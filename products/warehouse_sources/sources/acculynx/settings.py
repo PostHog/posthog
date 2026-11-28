@@ -30,6 +30,8 @@ ENDPOINTS: dict[str, AcculynxEndpoint] = {
         partition_key="createdDate",
         params={"includes": "emailAddress,phoneNumber"},
     ),
+    "contact_types": AcculynxEndpoint(path="contacts/contact-types", offset_param="pageStartIndex"),
+    "account_types": AcculynxEndpoint(path="company-settings/location-settings/account-types", offset_param=None),
     "estimates": AcculynxEndpoint(
         path="estimates/{estimateId}",
         offset_param=None,
@@ -109,6 +111,20 @@ ENDPOINTS: dict[str, AcculynxEndpoint] = {
             resolve_field="id",
             include_from_parent=["id"],
             parent_field_renames={"id": "job_id"},
+        ),
+    ),
+    "lead_history": AcculynxEndpoint(
+        path="leads/{leadId}/history",
+        offset_param=None,
+        primary_keys=("lead_id", "date", "action"),
+        partition_key="date",
+        fanout=DependentEndpointConfig(
+            parent_name="jobs",
+            resolve_param="leadId",
+            resolve_field="id",
+            include_from_parent=["id"],
+            parent_field_renames={"id": "lead_id"},
+            parent_params={"milestones": "lead", "includes": None},
         ),
     ),
     "financial_amendments": AcculynxEndpoint(

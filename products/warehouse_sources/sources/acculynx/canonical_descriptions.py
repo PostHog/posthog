@@ -17,6 +17,20 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
         "docs_url": "https://apidocs.acculynx.com/reference/getcontacts",
         "columns": {"id": "Unique contact identifier.", "createdDate": "Date and time the contact was created."},
     },
+    "contact_types": {
+        "description": "Contact types for the connected company.",
+        "docs_url": "https://apidocs.acculynx.com/reference/getcontacttypes",
+        "columns": {
+            "id": "Unique contact type identifier.",
+            "name": "Contact type name.",
+            "isDefault": "Whether this type is a default.",
+        },
+    },
+    "account_types": {
+        "description": "Active account types for the connected company.",
+        "docs_url": "https://apidocs.acculynx.com/reference/getactiveaccounttypes",
+        "columns": {"id": "Unique account type identifier.", "name": "Account type name."},
+    },
     "estimates": {
         "description": "Detailed job estimates, including financial totals, profit, and section references.",
         "docs_url": "https://apidocs.acculynx.com/reference/getestimatebyid",
@@ -222,6 +236,16 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "calendar_id": "Identifier of the calendar whose appointments were requested.",
             "start": "Appointment start date and time.",
             "end": "Appointment end date and time.",
+        },
+    },
+    "lead_history": {
+        "description": "Actions for jobs at the Lead milestone.",
+        "docs_url": "https://apidocs.acculynx.com/reference/getleadhistory",
+        "columns": {
+            "lead_id": "Identifier of the lead.",
+            "date": "Date and time of the action, in UTC.",
+            "action": "Action taken on the lead.",
+            "leadDeadReason": "Reason the lead was marked dead, when present.",
         },
     },
     "lead_sources": {

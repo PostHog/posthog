@@ -332,6 +332,79 @@ def _page(items: list[dict[str, Any]]) -> dict[str, Any]:
     return {"count": len(items), "pageSize": 25, "pageStartIndex": 0, "items": items}
 
 
+@pytest.mark.parametrize(
+    "name, path, paginated",
+    [
+        ("contact_types", "/api/v2/contacts/contact-types", True),
+        ("account_types", "/api/v2/company-settings/location-settings/account-types", False),
+    ],
+)
+def test_type_lookups_use_the_vendor_collection_and_pagination(
+    name: str,
+    path: str,
+    paginated: bool,
+    pipeline: Callable[..., SyncSourceResponse],
+    http_send: MagicMock,
+    response: Callable[..., Response],
+) -> None:
+    rows = [{"id": "type-1", "name": "Customer"}, {"id": "type-2", "name": "Supplier"}]
+    queries: list[dict[str, list[str]]] = []
+
+    def send(request: PreparedRequest, **_: Any) -> Response:
+        url = urlsplit(request.url or "")
+        assert url.path == path
+        queries.append(parse_qs(url.query))
+        if not paginated:
+            return response(request, {"items": rows})
+        offset = int(queries[-1]["pageStartIndex"][0])
+        return response(
+            request, {"count": 2, "pageSize": 25, "pageStartIndex": offset, "items": rows[offset : offset + 1]}
+        )
+
+    http_send.side_effect = send
+    assert [row for page in pipeline(name).items() for row in page] == rows
+    assert queries == (
+        [{"pageSize": ["25"], "pageStartIndex": [str(offset)]} for offset in range(2)] if paginated else [{}]
+    )
+
+
+def test_lead_history_filters_parent_jobs_and_keeps_lead_ids(
+    pipeline: Callable[..., SyncSourceResponse],
+    http_send: MagicMock,
+    response: Callable[..., Response],
+) -> None:
+    action = {"date": "2025-01-02T00:00:00Z", "action": "Lead was created."}
+    parent_queries: list[dict[str, list[str]]] = []
+
+    def send(request: PreparedRequest, **_: Any) -> Response:
+        url = urlsplit(request.url or "")
+        if url.path == "/api/v2/jobs":
+            parent_queries.append(parse_qs(url.query))
+            return response(
+                request, _page([{"id": lead_id, "createdDate": action["date"]} for lead_id in ("lead-1", "lead-2")])
+            )
+        assert url.path in {"/api/v2/leads/lead-1/history", "/api/v2/leads/lead-2/history"}
+        assert not url.query
+        return response(request, {"items": [action]})
+
+    http_send.side_effect = send
+    result = pipeline("lead_history")
+    rows = [row for page in result.items() for row in page]
+    assert sorted(rows, key=lambda row: row["lead_id"]) == [
+        {**action, "lead_id": "lead-1"},
+        {**action, "lead_id": "lead-2"},
+    ]
+    assert result.primary_keys
+    assert len({tuple(row[key] for key in result.primary_keys) for row in rows}) == len(rows)
+    assert parent_queries[0]["dateFilterType"] == ["CreatedDate"]
+
+    assert validate_credentials(
+        "fake-key", "v2", "lead_history", DateWindow(start=date(2025, 1, 1), end=date(2025, 1, 2))
+    ) == (True, None)
+    assert parent_queries[-1] == {"pageSize": ["1"], "milestones": ["lead"]}
+    assert all(query["milestones"] == ["lead"] for query in parent_queries)
+
+
 TWO_LEVEL_ROUTES: dict[str, dict[str, Any]] = {
     "/api/v2/estimates": _page([{"id": "est-1"}, {"id": "est-2"}]),
     "/api/v2/estimates/est-1/sections": {"items": [{"id": "sec-1"}, {"id": "sec-2"}]},
