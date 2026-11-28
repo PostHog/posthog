@@ -300,7 +300,7 @@ describe('createQueryBatchRunner', () => {
         const results = totals.map((total) => runQuery(total < 3 ? promqlTotal(total) : sqlTotal(total)))
         await flush()
 
-        expect(globalThis.fetch).toHaveBeenCalledTimes(MAX_STREAMS)
+        expect(streams).toHaveLength(MAX_STREAMS)
         expect(streams.map((stream) => stream.body.queries.length)).toEqual([5, 5, 5])
         expect(streams.map((stream) => stream.body.queries[0].target.language)).toEqual(['promql', 'promql', 'promql'])
         for (const stream of streams) {
@@ -317,7 +317,7 @@ describe('createQueryBatchRunner', () => {
         }
         await flush()
 
-        expect(globalThis.fetch).toHaveBeenCalledTimes(MAX_STREAMS)
+        expect(streams).toHaveLength(MAX_STREAMS)
         const asked = streams.map(askedTotals)
         expect(asked.flat().sort((a, b) => a - b)).toEqual([0, 0, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5])
         for (const totalsInStream of asked) {
@@ -343,7 +343,7 @@ describe('createQueryBatchRunner', () => {
         void runQuery(TRENDS).catch(() => {})
         await flush()
 
-        expect(globalThis.fetch).toHaveBeenCalledTimes(1)
+        expect(streams).toHaveLength(1)
         expect(streams[0].body.queries).toHaveLength(2)
     })
 
