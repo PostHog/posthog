@@ -1,4 +1,5 @@
 import type { Meta, StoryObj } from '@storybook/react'
+import { waitFor } from '@testing-library/dom'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 
@@ -7,13 +8,19 @@ import type {
     SourceFilterPreviewResponseApi,
 } from 'products/signals/frontend/generated/api.schemas'
 
-import { expect, userEvent } from 'storybook/test'
+import { expect, fireEvent, userEvent } from 'storybook/test'
 
 import { SourceFilterPreviewPanel } from './SourceFilterPreviewPanel'
 
 const NOW = '2026-11-19T15:00:00Z'
 
-function issue(number: number, title: string, hoursAgo: number, malformed = false): SourceFilterPreviewRecordApi {
+function issue(
+    number: number,
+    title: string,
+    hoursAgo: number,
+    failedConditions: string[] | null = null,
+    malformed = false
+): SourceFilterPreviewRecordApi {
     return {
         id: `issue-${number}`,
         identifier: `ENG-${number}`,
@@ -22,7 +29,7 @@ function issue(number: number, title: string, hoursAgo: number, malformed = fals
         created_at: new Date(Date.parse(NOW) - hoursAgo * 3_600_000).toISOString(),
         malformed,
         field_values: {},
-        failed_conditions: null,
+        failed_conditions: failedConditions,
     }
 }
 
@@ -39,16 +46,20 @@ const PASSING = [
     issue(2465, 'Timezone picker shows UTC offsets twice', 101),
 ]
 
+const NOT_INTERNAL = "NOT has(label_names, 'internal')"
+const UNASSIGNED = 'assignee_id IS NULL'
+const CUSTOMER_FACING = "(priority <= 2 OR has(label_names, 'customer-reported') OR project_name = 'Mobile apps')"
+
 const EXCLUDED = [
-    issue(2480, 'Bump eslint plugin to latest', 3),
-    issue(2478, 'Investigate flaky billing test', 8),
-    issue(2475, 'Onboarding checklist step 3 never completes', 20),
-    issue(2474, 'Q4 planning doc review', 26),
-    issue(2471, 'Rotate staging database credentials', 46),
-    issue(2468, 'Refund request for duplicate invoice', 70),
-    issue(2466, 'Imported issue with a label payload that could not be parsed', 90, true),
-    issue(2464, 'Team offsite logistics', 120),
-    issue(2462, 'iOS widget shows stale numbers', 150),
+    issue(2480, 'Bump eslint plugin to latest', 3, [NOT_INTERNAL]),
+    issue(2478, 'Investigate flaky billing test', 8, [NOT_INTERNAL, UNASSIGNED]),
+    issue(2475, 'Onboarding checklist step 3 never completes', 20, [UNASSIGNED]),
+    issue(2474, 'Q4 planning doc review', 26, [NOT_INTERNAL]),
+    issue(2471, 'Rotate staging database credentials', 46, [NOT_INTERNAL, UNASSIGNED]),
+    issue(2468, 'Refund request for duplicate invoice', 70, [CUSTOMER_FACING]),
+    issue(2466, 'Imported issue with a label payload that could not be parsed', 90, [NOT_INTERNAL], true),
+    issue(2464, 'Team offsite logistics', 120, [NOT_INTERNAL]),
+    issue(2462, 'iOS widget shows stale numbers', 150, [UNASSIGNED]),
 ]
 
 function response(overrides: Partial<SourceFilterPreviewResponseApi>): SourceFilterPreviewResponseApi {
@@ -183,4 +194,13 @@ export const PhoneWidth: Story = {
             <SourceFilterPreviewPanel {...args} />
         </div>
     ),
+}
+
+export const PhoneWidthFailedConditionsOnTap: Story = {
+    ...PhoneWidth,
+    play: async ({ canvas }) => {
+        // A click without a hover first, as a tap on a touch screen sends.
+        fireEvent.click(await canvas.findByText(CUSTOMER_FACING))
+        await waitFor(() => expect(document.querySelector('.Tooltip')).toHaveTextContent(CUSTOMER_FACING))
+    },
 }
