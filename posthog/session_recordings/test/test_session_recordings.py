@@ -226,6 +226,13 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
                 "ASC",
                 ["at_base_time", "at_base_time_plus_20"],
             ],
+            [
+                "retired relevance sort and filter fall back to the default",
+                "surfacing_score",
+                None,
+                ["at_base_time_plus_20", "at_base_time"],
+                "&recommended_only=false",
+            ],
         ]
     )
     @patch(
@@ -242,6 +249,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         order_field: str,
         order_direction: str | None,
         expected_id_order: list[str],
+        extra_query: str = "",
     ) -> None:
         base_time = (now() - relativedelta(days=1)).replace(microsecond=0)
 
@@ -256,7 +264,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         self.produce_replay_summary("user2", session_id_two, base_time + relativedelta(seconds=20))
         self.produce_replay_summary("user2", session_id_two, base_time + relativedelta(seconds=30))
 
-        query_string = f"?order={order_field}"
+        query_string = f"?order={order_field}{extra_query}"
         if order_direction:
             query_string += f"&order_direction={order_direction}"
         response = self.client.get(f"/api/projects/{self.team.id}/session_recordings{query_string}")
