@@ -40,7 +40,6 @@ const FULL_RUN_PATTERNS = [
     '.storybook/',
     'common/storybook/tailwind.config.js',
     'common/storybook/package.json',
-    'frontend/src/lib/',
     'frontend/src/styles/',
     'frontend/src/mocks/',
     // A staticDirs source in common/storybook/.storybook/main.ts. The stories fetch it by URL,
@@ -63,8 +62,35 @@ const FULL_RUN_PATTERNS = [
 
 const STORYBOOK_RELEVANT_FILE_RE =
     /^(frontend\/|products\/.*\/(frontend|mcp\/apps)\/|common\/(esbuilder|mosaic|storybook|tailwind)\/|packages\/quill\/|ee\/frontend\/|services\/mcp\/src\/ui-apps\/)/
-const NON_RUNTIME_FILE_RE =
-    /(^|\/)(__tests__|tests?)\/|\.(test|spec)\.[cm]?[jt]sx?$|(^|\/)README\.md$|^(frontend|playwright)\/snapshots\.yml$/
+
+// A changed file missing from the module graph is safe to skip only when nothing outside
+// Rollup loads it either: not a Sass @import, a staticDirs URL, a worker bundle, or a build
+// script. These patterns name files that no such path loads. A file one of them matches is
+// still selected through the graph when a story does import it.
+const NON_RUNTIME_FILE_PATTERNS = [
+    /(^|\/)(__tests__|tests?|__mocks__|__fixtures__)\//,
+    /\.(test|spec)\.[^/]+$/,
+    /(^|[/.])([a-z][A-Za-z]*Test|test)(Utils|Helpers|Fixtures)\.[cm]?[jt]sx?$/,
+    /(^|\/)test-(utils|helpers)\.[cm]?[jt]sx?$/,
+    /\.md$/,
+    /(^|\/)owners\.yaml$/,
+    /-baseline\.txt$/,
+    /^(frontend|playwright)\/snapshots\.yml$/,
+    /^common\/storybook\/storybook-timings\.json$/,
+    // The Storybook build runs watch-workers.mjs to bundle the web workers; the other
+    // frontend/bin scripts are lint, report, and codegen tooling.
+    /^frontend\/bin\/(?!watch-workers\.mjs$)/,
+    // Orval output. The build erases type-only imports, so one of these is absent from the
+    // graph exactly when no story uses its runtime exports (enums, zod schemas, fetchers).
+    /^(frontend\/src\/generated\/([^/]+\/)?|products\/[^/]+\/frontend\/generated\/)api(\.zod)?(\.schemas)?\.ts$/,
+]
+// Storybook serves these by URL, so a story can depend on a file here that no module imports.
+const STATIC_DIR_RE = /^frontend\/public\//
+
+// The preview and its decorators. A module they import statically runs before every story,
+// so the stories it affects are not the stories that import it.
+const STORYBOOK_SETUP_RE = /(^|\/)\.storybook\//
+const SHARED_LIBRARY_PREFIX = 'frontend/src/lib/'
 
 const MAX_CHANGED_FILES = 100
 // Fallback per-story render cost, used only when the timing manifest is absent.
@@ -267,9 +293,50 @@ export function affectedStoriesFor(changedFiles, graph) {
 }
 
 export function unresolvedRuntimeFiles(unresolvedFiles) {
-    return unresolvedFiles.filter(
-        (file) => STORYBOOK_RELEVANT_FILE_RE.test(normalize(file)) && !NON_RUNTIME_FILE_RE.test(normalize(file))
-    )
+    return unresolvedFiles.filter((file) => {
+        const path = normalize(file)
+        if (!STORYBOOK_RELEVANT_FILE_RE.test(path)) {
+            return false
+        }
+        return STATIC_DIR_RE.test(path) || !NON_RUNTIME_FILE_PATTERNS.some((pattern) => pattern.test(path))
+    })
+}
+
+// Null when the graph comes from a build that did not record dynamicReasons, because then a
+// lazy import() cannot be told apart from a static one.
+export function modulesLoadedByEveryStory(modules) {
+    if (!modules.every((m) => Array.isArray(m.dynamicReasons))) {
+        return null
+    }
+    const staticImports = new Map()
+    for (const m of modules) {
+        const dynamicImporters = new Set(m.dynamicReasons.map(normalize))
+        for (const importer of (m.reasons ?? []).map(normalize)) {
+            if (dynamicImporters.has(importer)) continue
+            if (!staticImports.has(importer)) staticImports.set(importer, [])
+            staticImports.get(importer).push(normalize(m.name))
+        }
+    }
+    const loaded = new Set(modules.map((m) => normalize(m.name)).filter((name) => STORYBOOK_SETUP_RE.test(name)))
+    const queue = [...loaded]
+    while (queue.length > 0) {
+        for (const imported of staticImports.get(queue.shift()) ?? []) {
+            if (loaded.has(imported)) continue
+            loaded.add(imported)
+            queue.push(imported)
+        }
+    }
+    return loaded
+}
+
+export function unboundedChangeReason(changedFile, graph, loadedByEveryStory) {
+    const path = normalize(changedFile)
+    if (loadedByEveryStory === null) {
+        return path.startsWith(SHARED_LIBRARY_PREFIX) && graph.byName.has(path)
+            ? `module graph has no dynamicReasons to bound a change under '${SHARED_LIBRARY_PREFIX}': ${path}`
+            : null
+    }
+    return loadedByEveryStory.has(path) ? `changed file is loaded by the Storybook preview for every story: ${path}` : null
 }
 
 // -----------------------------------------------------------------------------
@@ -317,8 +384,9 @@ export function main() {
         emitFull(`too many changed files (${changed.length} > ${MAX_CHANGED_FILES})`, totalStories)
         return
     }
+    const loadedByEveryStory = modulesLoadedByEveryStory(graph.modules.filter((m) => m && typeof m.name === 'string'))
     for (const f of changed) {
-        const reason = requiresFullRun(f)
+        const reason = requiresFullRun(f) ?? unboundedChangeReason(f, graph, loadedByEveryStory)
         if (reason) {
             emitFull(reason, totalStories)
             return

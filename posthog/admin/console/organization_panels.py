@@ -7,8 +7,8 @@ from django.http import HttpRequest, HttpResponse
 
 import structlog
 
+from posthog.admin.console.organization_tools import DeactivationReasonForm, deactivate_organizations
 from posthog.admin.console.panels import MAX_FACTS_PER_PANEL, Fact, Operation, Owner, Panel, Tone
-from posthog.admin.console.records import RECORD_TYPES
 from posthog.admin.console.registry import console
 from posthog.models.organization import Organization
 
@@ -17,6 +17,15 @@ from ee.billing.quota_limiting import QuotaResource
 logger = structlog.get_logger(__name__)
 
 BILLING = Owner(name="Billing", crest="billing", staff_group="Billing Team")
+
+
+def deactivate_organization(request: HttpRequest, obj: Model, form: forms.Form | None) -> HttpResponse | None:
+    assert isinstance(obj, Organization) and form is not None
+    if deactivate_organizations([obj.id], form.cleaned_data["resolved_reason"]):
+        messages.success(request, f"Deactivated '{obj.name}'.")
+    else:
+        messages.warning(request, f"'{obj.name}' was already inactive. Its reason did not change.")
+    return None
 
 
 @console.register_panel
@@ -37,36 +46,31 @@ class OrganizationOverviewPanel(Panel):
             status = Fact(label="Status", value="Active", tone=Tone.SUCCESS)
         facts = [
             status,
-            Fact(label="Members", value=str(obj.members.count())),
             Fact(label="Created", value=obj.created_at.strftime("%b %-d, %Y")),
         ]
         if obj.is_pending_deletion:
             facts.append(Fact(label="Deletion", value="Pending", tone=Tone.WARNING))
         return facts
 
-
-@console.register_panel
-class OrganizationTeamsPanel(Panel):
-    record = "organization"
-    key = "teams"
-    title = "Teams"
-    owner = None
-    order = 20
-
-    def facts(self, obj: Model) -> list[Fact]:
+    def operations(self, obj: Model) -> list[Operation]:
         assert isinstance(obj, Organization)
-        team_record = RECORD_TYPES["team"]
-        teams = list(obj.teams.order_by("id").only("id", "name")[: MAX_FACTS_PER_PANEL + 1])
-        if not teams:
-            return [Fact(label="Teams", value="This organization has no teams.")]
-        shown = teams if len(teams) <= MAX_FACTS_PER_PANEL else teams[: MAX_FACTS_PER_PANEL - 1]
-        facts = [
-            Fact(label=team.name, value=f"Team {team.pk}", mono=True, href=team_record.url(team)) for team in shown
+        if obj.is_active is False:
+            return []
+        return [
+            Operation(
+                key="deactivate",
+                label="Deactivate organization",
+                handler=deactivate_organization,
+                danger=True,
+                description=(
+                    "Members see the reason you pick instead of the app, but they can still sign in and use the API "
+                    "through a browser session, and background work such as batch exports keeps running. To lock "
+                    "an abuser out, also deactivate their user accounts."
+                ),
+                form_class=DeactivationReasonForm,
+                undo_hint="To undo, reactivate the organization on its Django admin page.",
+            )
         ]
-        if len(shown) < len(teams):
-            hidden = obj.teams.count() - len(shown)
-            facts.append(Fact(label="More", value=f"{hidden} more teams. Look up the organization name to see all."))
-        return facts
 
 
 class QuotaLimits:

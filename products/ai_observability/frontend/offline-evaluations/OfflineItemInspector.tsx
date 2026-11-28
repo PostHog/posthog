@@ -1,7 +1,15 @@
 import { useActions, useValues } from 'kea'
 import type { MouseEvent } from 'react'
 
-import { LemonBanner, LemonButton, LemonCard, LemonModal, LemonSkeleton, LemonTable } from '@posthog/lemon-ui'
+import {
+    LemonBanner,
+    LemonButton,
+    LemonCard,
+    LemonModal,
+    LemonSegmentedButton,
+    LemonSkeleton,
+    LemonTable,
+} from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonModalContent, LemonModalFooter, LemonModalHeader } from 'lib/lemon-ui/LemonModal/LemonModal'
@@ -49,10 +57,12 @@ export function OfflineItemInspector({
         selectedResult,
         selectedResultLoading,
         selectedResultError,
+        payloadFormat: storedPayloadFormat,
         resultPayload,
         resultPayloadLoading,
         resultPayloadError,
     } = useValues(logic)
+    const payloadFormat = storedPayloadFormat === 'raw' ? 'raw' : 'pretty'
     const {
         refreshItem,
         loadOfflineItemPayload,
@@ -61,6 +71,7 @@ export function OfflineItemInspector({
         previousResults,
         loadOfflineSelectedResult,
         loadOfflineResultPayload,
+        setPayloadFormat,
     } = useActions(logic)
     return (
         <LemonModal isOpen={!openTraceId} onClose={onClose} width="64rem" simple>
@@ -79,23 +90,40 @@ export function OfflineItemInspector({
                         </LemonBanner>
                     ) : (
                         item && (
-                            <div className="flex flex-wrap items-center gap-2 text-muted text-xs">
-                                <span className="font-mono break-all" translate="no">
-                                    {item.id}
-                                </span>
-                                {item.trial && <span>{`Trial ${item.trial}`}</span>}
-                                {item.model_version && <span>{`Model: ${item.model_version}`}</span>}
-                                {item.application_trace_id && availableTraceIds.includes(item.application_trace_id) && (
-                                    <LemonButton
-                                        type="secondary"
-                                        size="xsmall"
-                                        to={urls.aiObservabilityTrace(item.application_trace_id)}
-                                        onClick={(event) => openTrace(event, item.application_trace_id!)}
-                                        data-attr="offline-item-application-trace"
-                                    >
-                                        Application trace
-                                    </LemonButton>
-                                )}
+                            <div className="flex flex-wrap items-center justify-between gap-2 text-muted text-xs">
+                                <div className="flex flex-wrap items-center gap-2">
+                                    <span className="font-mono break-all" translate="no">
+                                        {item.id}
+                                    </span>
+                                    {item.trial && <span>{`Trial ${item.trial}`}</span>}
+                                    {item.model_version && <span>{`Model: ${item.model_version}`}</span>}
+                                    {item.application_trace_id &&
+                                        availableTraceIds.includes(item.application_trace_id) && (
+                                            <LemonButton
+                                                type="secondary"
+                                                size="xsmall"
+                                                to={urls.aiObservabilityTrace(item.application_trace_id)}
+                                                onClick={(event) => openTrace(event, item.application_trace_id!)}
+                                                data-attr="offline-item-application-trace"
+                                            >
+                                                Application trace
+                                            </LemonButton>
+                                        )}
+                                </div>
+                                <LemonSegmentedButton
+                                    size="xsmall"
+                                    value={payloadFormat}
+                                    onChange={setPayloadFormat}
+                                    options={[
+                                        // Pinned: these data attributes are selectors for analytics and Playwright.
+                                        {
+                                            value: 'pretty',
+                                            label: 'Pretty',
+                                            'data-attr': 'offline-item-payload-pretty',
+                                        },
+                                        { value: 'raw', label: 'Raw', 'data-attr': 'offline-item-payload-raw' },
+                                    ]}
+                                />
                             </div>
                         )
                     )}
@@ -219,6 +247,7 @@ export function OfflineItemInspector({
                                                 <OfflinePayload
                                                     payload={resultPayload}
                                                     fields={['reasoning', 'error_message', 'metadata']}
+                                                    format={payloadFormat}
                                                 />
                                             )
                                         )}
@@ -243,6 +272,7 @@ export function OfflineItemInspector({
                                 <OfflinePayload
                                     payload={itemPayload}
                                     fields={['input', 'output', 'expected_output', 'metadata']}
+                                    format={payloadFormat}
                                 />
                             )
                         )}

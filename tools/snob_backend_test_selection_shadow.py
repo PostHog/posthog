@@ -96,6 +96,11 @@ FULL_RUN_PATTERNS = (
     "products/ai_observability/shared/crosslang/",
     # The flag_evaluations TTL, which sql.py reads at import time, so a change to it is a behavior change
     "posthog/models/flag_evaluations/crosslang/",
+    # Django reads this file at settings time to route each product app to its database,
+    # so a change to it can break any test while no Python file changes.
+    "products/db_routing.yaml",
+    # Python runs this file before it loads any product module, so a change to it reaches every product test.
+    "products/__init__.py",
     "frontend/src/queries/schema.json",
     "frontend/src/products.json",
     "frontend/public/email/",
@@ -215,6 +220,7 @@ SIGNAL_CONNECT_NAMES = {
     "request_finished",
     "got_request_exception",
 }
+SIGNAL_RECEIVER_DECORATORS = frozenset({"receiver", "mutable_receiver"})
 
 MAX_CHANGED_FILES = 50
 
@@ -370,7 +376,10 @@ def _is_signal_handler_file(path: str) -> bool:
             receiver = _name_from_node(node.value)
             if any(sig in receiver for sig in SIGNAL_CONNECT_NAMES):
                 return True
-        if isinstance(node, ast.Name) and node.id == "receiver":
+        elif isinstance(node, ast.ImportFrom) and node.module == "django.dispatch":
+            if any(alias.name == "receiver" for alias in node.names):
+                return True
+        elif isinstance(node, ast.Call) and _name_from_node(node.func).split(".")[-1] in SIGNAL_RECEIVER_DECORATORS:
             return True
     name = PurePosixPath(path).name
     return "signal" in name
@@ -945,7 +954,7 @@ def segments_for_test_file(path: str) -> frozenset[str]:
         return frozenset({"temporal"})
     if path.startswith(_CORE_IGNORED_PREFIXES):
         return frozenset()
-    if path.startswith(_POE_PREFIXES) or path == "posthog/api/test/dashboards/test_dashboard.py":
+    if path.startswith(_POE_PREFIXES):
         return frozenset({"core", "poe"})
     if path.startswith(("posthog/", "ee/")):
         return frozenset({"core"})
@@ -984,6 +993,13 @@ def selected_seconds_by_segment(test_files: list[str], durations: dict[str, floa
     }
 
 
+def selected_seconds_by_suite(test_files: list[str], durations: dict[str, float]) -> dict[str, int]:
+    return {
+        "django": round(estimate_duration([f for f in test_files if segments_for_test_file(f)], durations)),
+        "product": round(estimate_duration([f for f in test_files if _product_name(f)], durations)),
+    }
+
+
 def narrowable_baseline_seconds(durations: dict[str, float]) -> float:
     """Total test-execution seconds across the Core/POE/Temporal universe that
     selection can narrow. Excludes product/turbo tests, which run regardless of selection,
@@ -1010,6 +1026,7 @@ def build_result(base_ref: str) -> dict[str, Any]:
     durations = load_durations()
     selected_seconds = estimate_duration(combined_tests, durations)
     baseline_seconds = narrowable_baseline_seconds(durations)
+    seconds_by_suite = selected_seconds_by_suite(combined_tests, durations)
     return {
         "mode": "shadow",
         "base_ref": base_ref,
@@ -1036,6 +1053,8 @@ def build_result(base_ref: str) -> dict[str, Any]:
             "selected_seconds": round(selected_seconds),
             "skipped_seconds": round(max(baseline_seconds - selected_seconds, 0.0)),
             "selected_seconds_by_segment": selected_seconds_by_segment(combined_tests, durations),
+            "selected_django_seconds": seconds_by_suite["django"],
+            "selected_product_seconds": seconds_by_suite["product"],
         },
     }
 

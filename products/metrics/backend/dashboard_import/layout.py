@@ -126,3 +126,40 @@ def place_screenshot_boxes(boxes: list[RequestedBox]) -> dict[str, GridLayout]:
                 placed[box.key] = packer.place(x=cursor, w=width, h=max(box.layout.h, box.min_h))
                 cursor += width
     return placed
+
+
+def _overlaps_rows(layout: GridLayout, top: int, bottom: int) -> bool:
+    return layout.y < bottom and layout.y + layout.h > top
+
+
+def _covers_column(layout: GridLayout, column: int) -> bool:
+    return layout.x <= column < layout.x + layout.w
+
+
+def close_dropped_gaps(kept: list[RequestedBox], dropped: list[GridLayout]) -> dict[str, GridLayout]:
+    """Widen tiles into the columns that panels with no tile left empty beside them.
+
+    A tile grows one column at a time while no other tile uses that column in its rows and a dropped
+    panel did, so tiles of different heights never block each other and never overlap.
+    """
+    placed = {box.key: box.layout for box in kept}
+
+    def can_take(key: str, column: int) -> bool:
+        layout = placed[key]
+        top, bottom = layout.y, layout.y + layout.h
+        return (
+            0 <= column < GRID_COLUMNS
+            and not any(
+                other != key and _covers_column(box, column) and _overlaps_rows(box, top, bottom)
+                for other, box in placed.items()
+            )
+            and any(_covers_column(box, column) and _overlaps_rows(box, top, bottom) for box in dropped)
+        )
+
+    for key in sorted(placed, key=lambda key: placed[key].x, reverse=True):
+        while can_take(key, placed[key].x + placed[key].w):
+            placed[key] = placed[key].model_copy(update={"w": placed[key].w + 1})
+    for key in sorted(placed, key=lambda key: placed[key].x):
+        while can_take(key, placed[key].x - 1):
+            placed[key] = placed[key].model_copy(update={"x": placed[key].x - 1, "w": placed[key].w + 1})
+    return placed

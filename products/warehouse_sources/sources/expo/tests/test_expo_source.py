@@ -1,9 +1,30 @@
+from typing import Any
+
+import pytest
 from unittest import mock
 
 from products.warehouse_sources.sources.expo._config import ExpoSourceConfig
+from products.warehouse_sources.sources.expo.expo import ExpoAPIError, get_rows
 from products.warehouse_sources.sources.expo.source import ExpoSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, error_message_matches
 
 _SOURCE = "products.warehouse_sources.sources.expo.source"
+_MODULE = "products.warehouse_sources.sources.expo.expo"
+
+
+def _sync_error(payload: dict[str, Any]) -> str:
+    response = mock.MagicMock()
+    response.status_code = 200
+    response.json.return_value = payload
+    session = mock.MagicMock()
+    session.post.return_value = response
+    manager = mock.MagicMock()
+    manager.can_resume.return_value = False
+
+    with mock.patch(f"{_MODULE}._get_session", return_value=session):
+        with pytest.raises(ExpoAPIError) as error:
+            list(get_rows("token", "app-1", "builds", mock.MagicMock(), manager))
+    return str(error.value)
 
 
 class TestExpoSourceClass:
@@ -17,3 +38,47 @@ class TestExpoSourceClass:
             )
 
         assert expo_source.call_args.kwargs["project_id"] == "app-1"
+
+    @pytest.mark.parametrize(
+        "payload, expected_message_fragment",
+        [
+            (
+                {"errors": [{"message": "Experience with id '00000000-0000-0000-0000-000000000000' does not exist."}]},
+                "eas project:info",
+            ),
+            ({"data": {"app": {"byId": None}}}, "eas project:info"),
+            ({"errors": [{"message": "Entity not authorized"}]}, "token's account"),
+        ],
+        ids=["unknown_project_id", "project_returns_null", "project_not_authorized"],
+    )
+    def test_a_project_config_error_is_non_retryable(
+        self, payload: dict[str, Any], expected_message_fragment: str
+    ) -> None:
+        error = _sync_error(payload)
+        non_retryable = ExpoSource().get_non_retryable_errors()
+
+        matched = [message for pattern, message in non_retryable.items() if error_message_matches(error, [pattern])]
+        assert len(matched) == 1, error
+        assert expected_message_fragment in (matched[0] or "")
+
+    @pytest.mark.parametrize(
+        "message",
+        ["Internal server error", "Service temporarily unavailable"],
+    )
+    def test_a_transient_graphql_error_stays_retryable(self, message: str) -> None:
+        error = _sync_error({"errors": [{"message": message}]})
+
+        assert not error_message_matches(error, ExpoSource().get_non_retryable_errors().keys())
+
+    @pytest.mark.parametrize(
+        "status, retryable",
+        [(500, True), (502, True), (503, True), (504, True), (400, False), (403, False), (404, False)],
+    )
+    def test_only_an_http_server_error_is_retryable(self, status: int, retryable: bool) -> None:
+        source = ExpoSource()
+        config = ExpoSourceConfig(access_token="token", project_id="app-1")
+
+        result = SourceDriver(source, config).run("builds", always(ScriptedResponse(status=status)))
+
+        assert result.raised is not None
+        assert error_message_matches(str(result.raised), source.get_retryable_errors()) is retryable

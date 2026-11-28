@@ -22,7 +22,7 @@ from posthog.clickhouse.query_tagging import Feature, Product, get_team_query_ta
 from posthog.clickhouse.workload import Workload
 from posthog.dataclasses import frozen
 from posthog.event_usage import EventSource
-from posthog.hogql_queries.utils.breakdowns import has_breakdown_filter
+from posthog.hogql_queries.utils.breakdowns import has_breakdown_filter, has_multi_breakdown, has_single_breakdown
 from posthog.hogql_queries.validation.rules import expanded_series_count
 from posthog.interval_specs import interval_spec
 from posthog.models import Team
@@ -31,11 +31,15 @@ from posthog.tasks.alerts.detectors.base import BaseDetector, DetectionResult, D
 from posthog.tasks.alerts.detectors.registry import get_detector
 from posthog.tasks.alerts.utils import WRAPPER_NODE_KINDS, is_non_time_series_trend
 
+from products.alerts.backend.facade.lazy_judge import LazyAndEnsemble, split_ai_member
 from products.product_analytics.backend.facade.models import Insight
 from products.product_analytics.backend.facade.queries import TrendsQueryRunner
 from products.signals.backend.anomaly_scores.artifacts import model_id_of
 from products.signals.backend.anomaly_scores.config import (
     DEFAULT_LIMITS,
+    JUDGE_HISTORY_QUERY_NAME,
+    NO_AI_JUDGE,
+    AIJudgeConfig,
     IntervalScoring,
     ScoringLimits,
     ScoringProfile,
@@ -85,7 +89,11 @@ class ScoredSeries:
 
 @frozen
 class StateIdentity:
-    """What a stored state was built from. A score step needs the same identity, or the visit trains."""
+    """What a stored state was built from.
+
+    A changed interval or query makes the visit train. A changed detector version only makes a soft retrain due,
+    because the stored model still fits the series. See `model_scoring`.
+    """
 
     interval: IntervalType
     detector_version: str
@@ -105,6 +113,8 @@ class TrainedState:
     artifact_sha256: str = ""
     # Stored series that the last score step did not get back.
     missing_series: int = 0
+    # The local settings that the artifacts were fit with. None for a row written before the settings were stored.
+    scoring: IntervalScoring | None = None
 
 
 @frozen
@@ -133,15 +143,31 @@ class InsightScores:
     unmatched_series: int = 0
     # The artifact blob that scored the buckets. None when the split is off.
     model_id: str | None = None
+    # The profile's detector split into its local part and its AI member. None when the profile has no AI member.
+    ai_member: LazyAndEnsemble | None = None
+    # The fetched values of each series, which the AI member reads. Empty when the profile has no AI member.
+    fetched: tuple["FetchedSeries", ...] = ()
+    # None when ``fetched`` already holds the history of a train step.
+    judge_history: "JudgeHistory | None" = None
 
 
 @frozen
-class _FetchedSeries:
+class JudgeHistory:
+    """The fetch of a score step that gives the AI member as much history as a train step."""
+
+    query: TrendsQuery
+    buckets: int
+
+
+@frozen
+class FetchedSeries:
     series_key: str
     label: str
     breakdown_value: str | None
     values: list[float]
     buckets: list[datetime]
+    # The position of the series or formula in the query, for the description of what it counts.
+    series_index: int = 0
 
 
 def _short_hash(payload: Any) -> str:
@@ -149,15 +175,63 @@ def _short_hash(payload: Any) -> str:
     return hashlib.sha256(canonical.encode()).hexdigest()[:16]
 
 
+# Part of the detector version of every stored model. A detector change reaches the stored models in one of two ways:
+# - The old models are still valid, for example a new threshold, window or normalizer: change only the profile settings.
+#   Each stored model keeps scoring with the settings it was fit with, and the train pass replaces the models one
+#   insight at a time, at the pace of its budgets.
+# - The old models are invalid, because `fit` or `score` changed what an artifact means: also change this marker. Every
+#   stored model then stops scoring, and every insight trains before it scores again.
+FIT_VERSION = "artifact_v2"
+
+
 def detector_version(scoring: IntervalScoring, *, artifacts: bool = False) -> str:
     """Identifies the scoring behavior, so scores from different settings are never mixed in one series.
 
-    Score steps read stored artifacts, so the split gets its own version. Bump it when train-step scores change.
+    Score steps read stored artifacts, so the split gets its own version, which includes `FIT_VERSION`.
     """
     behavior: dict[str, Any] = {"min_points": scoring.min_points, "detector": scoring.detector}
     if artifacts:
-        behavior["fit"] = "artifact_v2"
+        behavior["fit"] = FIT_VERSION
     return _short_hash(behavior)
+
+
+def local_scoring(scoring: IntervalScoring) -> IntervalScoring:
+    """The settings without the AI member. Stored artifacts are fits of this part only."""
+    return dataclasses.replace(scoring, detector=split_ai_member(scoring.detector).local)
+
+
+def fit_by_current_version(version: str, scoring: IntervalScoring | None) -> bool:
+    """Whether a stored model of ``version`` was fit with the local settings ``scoring`` under the current `FIT_VERSION`."""
+    return scoring is not None and detector_version(scoring, artifacts=True) == version
+
+
+def model_scoring(state: TrainedState, identity: StateIdentity, current: IntervalScoring) -> IntervalScoring | None:
+    """The local settings that the stored model scores with, or None when it cannot score for ``identity``.
+
+    ``current`` is the local part of the insight's settings now. A model fit with older settings scores with
+    them until a train step replaces it. A model of another interval or query cannot score, and neither can a
+    model of an older `FIT_VERSION`, or of older settings that its row does not store.
+    """
+    if state.identity.interval != identity.interval or state.identity.query_hash != identity.query_hash:
+        return None
+    if state.identity.detector_version == identity.detector_version:
+        return current
+    return state.scoring if fit_by_current_version(state.identity.detector_version, state.scoring) else None
+
+
+def _with_local_part(detector: dict[str, Any], local: dict[str, Any]) -> dict[str, Any]:
+    """``detector`` with its local part replaced by ``local``. The AI member keeps its place."""
+    lazy = split_ai_member(detector)
+    if lazy.judge is None:
+        return local
+    members = detector["detectors"]
+    judge_at = members.index(lazy.judge)
+    # `split_ai_member` returns one local member alone, and two or more as an ensemble of them.
+    if len(members) == 2 or not isinstance(local.get("detectors"), list):
+        outer, local_members = detector, [local]
+    else:
+        outer, local_members = local, list(local["detectors"])
+    return {**outer, "detectors": [*local_members[:judge_at], lazy.judge, *local_members[judge_at:]]}
 
 
 def query_hash(query: TrendsQuery, timezone: ZoneInfo, limits: ScoringLimits = DEFAULT_LIMITS) -> str:
@@ -166,7 +240,12 @@ def query_hash(query: TrendsQuery, timezone: ZoneInfo, limits: ScoringLimits = D
     # The fetch size changes with every visit. `daysOfWeek` stays, because it changes the buckets.
     (dumped.get("dateRange") or {}).pop("date_from", None)
     # Bucket starts step in wall-clock time, so a timezone change needs new artifacts.
-    return _short_hash({"query": dumped, "timezone": timezone.key})
+    identity: dict[str, Any] = {"query": dumped, "timezone": timezone.key}
+    if _formulas(query) and has_breakdown_filter(query.breakdownFilter):
+        # Trends once ranked the breakdown values of each series alone and filled a value that a series cut with zeros,
+        # so the formula read 0. Trends now ranks once over all series. This marker retrains the models fit on zeros.
+        identity["breakdown_ranking"] = "shared"
+    return _short_hash(identity)
 
 
 def series_key(insight_id: int, series_definition: dict[str, Any], breakdown_value: str | None) -> str:
@@ -192,6 +271,9 @@ def trends_query_for(insight: Insight, profile: ScoringProfile) -> TrendsQuery:
     if trends.trendsFilter and trends.trendsFilter.display == ChartDisplayType.CALENDAR_HEATMAP:
         # The chart has its own runner and shows hours of the week, not a time series.
         raise UnsupportedInsightError("Calendar heatmaps are not scored")
+    if len(trends.series) > 1 and _formulas(trends) and _has_histogram_breakdown(trends.breakdownFilter):
+        # Each series bins its own value range, so the formula reads zeros for the bins that another series lacks.
+        raise UnsupportedInsightError("Formulas over histogram breakdowns are not scored")
     interval_scoring(profile, scoring_interval(trends))
     return trends
 
@@ -345,9 +427,13 @@ def supports_score_step(query: TrendsQuery) -> bool:
 
 
 def state_identity(query: TrendsQuery, scoring: IntervalScoring, team: Team, limits: ScoringLimits) -> StateIdentity:
+    """Stored artifacts are fits of the local part, so its version alone decides whether a stored model is current.
+
+    Profiles that differ only in their AI member get the same identity, and read each other's models.
+    """
     return StateIdentity(
         interval=scoring_interval(query),
-        detector_version=detector_version(scoring, artifacts=True),
+        detector_version=detector_version(local_scoring(scoring), artifacts=True),
         query_hash=query_hash(query, team.timezone_info, limits),
     )
 
@@ -475,36 +561,45 @@ def score_insight(
     after: datetime | None = None,
     limits: ScoringLimits = DEFAULT_LIMITS,
     split: SplitRun | None = None,
+    ai_judge: AIJudgeConfig = NO_AI_JUDGE,
 ) -> InsightScores:
     """Score the new buckets of an insight.
 
-    With ``split``, a stored state with the insight's identity and its artifacts makes this a score step, and
+    With ``split``, a stored state that `model_scoring` accepts and its artifacts make this a score step, and
     anything else a train step. Both return the state for the next visit, and a train step returns the
     artifacts to store.
+
+    With a profile that has an AI member, the flags are the local part's alone. `judging.judge_flags` adds the AI member.
     """
-    profile = resolve_profile(team, insight)
+    profile = resolve_profile(team, insight, ai_judge)
     query = trends_query_for(insight, profile)
     interval = scoring_interval(query)
     scoring = interval_scoring(profile, interval)
     timezone = team.timezone_info
+    lazy = split_ai_member(scoring.detector)
     scores = InsightScores(
         interval=interval,
         profile=profile.name,
         detector=str(scoring.detector["type"]),
+        # The full config, so a change to the AI member changes the version, and its scores are never mixed.
         detector_version=detector_version(scoring, artifacts=split is not None),
         series=[],
+        ai_member=lazy if lazy.judge is not None else None,
     )
+    # Detection, fits and stored artifacts read only the local part, so a stored model has the same shape in both profiles.
+    local = dataclasses.replace(scoring, detector=lazy.local)
 
     if split is None:
         to_score = buckets_to_score(interval, now=now, after=after, timezone=timezone, limits=limits)
-        fetched = _fetch(insight, team, query, fetch_buckets(query, scoring, to_score), limits, None)
+        fetched = _fetch(insight, team, query, fetch_buckets(query, local, to_score), limits, None)
+        scores = _keep_fetched(scores, fetched)
         series = [
             ScoredSeries(
                 series_key=line.series_key,
                 label=line.label,
                 breakdown_value=line.breakdown_value,
                 points=score_series(
-                    line.values, line.buckets, scoring=scoring, interval=interval, now=now, after=after, limits=limits
+                    line.values, line.buckets, scoring=local, interval=interval, now=now, after=after, limits=limits
                 ),
             )
             for line in fetched
@@ -512,30 +607,43 @@ def score_insight(
         return dataclasses.replace(scores, series=series)
 
     identity = state_identity(query, scoring, team, limits)
-    state = split.state
-    detector = get_detector(scoring.detector)
-    if (
-        state is not None
-        and split.artifacts is not None
-        and state.identity == identity
-        and state.scored_through is not None
-        and supports_score_step(query)
-    ):
+    state, artifacts = split.state, split.artifacts
+    model = None
+    if state is not None and artifacts is not None and state.scored_through is not None and supports_score_step(query):
+        model = model_scoring(state, identity, local)
+    if state is not None and artifacts is not None and model is not None:
+        if model != local:
+            # The events carry the version of the settings that scored them, so two settings never share one version.
+            fitted = dataclasses.replace(model, detector=_with_local_part(scoring.detector, model.detector))
+            scores = dataclasses.replace(
+                scores,
+                detector=str(fitted.detector["type"]),
+                detector_version=detector_version(fitted, artifacts=True),
+            )
         return _score_step(
             insight,
             team,
             query,
             scores,
             state,
-            split.artifacts,
-            detector,
-            scoring=scoring,
+            artifacts,
+            get_detector(model.detector),
+            scoring=model,
             now=now,
             after=after,
             limits=limits,
         )
     return _train_step(
-        insight, team, query, scores, identity, detector, scoring=scoring, now=now, after=after, limits=limits
+        insight,
+        team,
+        query,
+        scores,
+        identity,
+        get_detector(local.detector),
+        scoring=local,
+        now=now,
+        after=after,
+        limits=limits,
     )
 
 
@@ -557,6 +665,7 @@ def _train_step(
     to_score = buckets_to_score(interval, now=now, after=after, timezone=team.timezone_info, limits=limits)
     buckets = fetch_buckets(query, scoring, to_score)
     fetched = _fetch(insight, team, query, buckets, limits, ScoringRun.TRAIN)
+    scores = _keep_fetched(scores, fetched)
     series: list[ScoredSeries] = []
     artifacts: dict[str, DetectorArtifact] = {}
     newest: list[datetime] = []
@@ -594,6 +703,7 @@ def _train_step(
             trained_at=now,
             scored_through=max(newest).astimezone(UTC) if newest else None,
             series_keys=tuple(artifacts),
+            scoring=scoring,
         ),
     )
 
@@ -624,6 +734,12 @@ def _score_step(
     # One bucket more than the context that preprocessing reads, as in the full fetch.
     buckets = fetch_buckets(query, scoring, to_score, history=detector.context_buckets() + 1)
     fetched = _fetch(insight, team, query, buckets, limits, ScoringRun.SCORE)
+    scores = _keep_fetched(scores, fetched)
+    if scores.ai_member is not None:
+        # Most score steps flag nothing, so the judge's history is fetched only when the judge will be asked.
+        scores = dataclasses.replace(
+            scores, judge_history=JudgeHistory(query=query, buckets=fetch_buckets(query, scoring, to_score))
+        )
     series: list[ScoredSeries] = []
     unmatched = 0
     returned_keys: set[str] = set()
@@ -651,10 +767,35 @@ def _score_step(
         run=ScoringRun.SCORE,
         unmatched_series=unmatched,
         state=dataclasses.replace(
-            state, scored_through=scored_through, missing_series=len(set(state.series_keys) - returned_keys)
+            state,
+            scored_through=scored_through,
+            missing_series=len(set(state.series_keys) - returned_keys),
+            # Fills the settings of a row written before they were stored, so a later settings change keeps the model.
+            scoring=scoring,
         ),
         model_id=model_id_of(state.artifact_key),
     )
+
+
+def fetch_judge_history(
+    insight: Insight, team: Team, scores: InsightScores, limits: ScoringLimits = DEFAULT_LIMITS
+) -> InsightScores:
+    """Replace the fetched values of a score step with the history that a train step fetches, for the AI member.
+
+    The longer range can rank a different top N of breakdown values, so a flagged series can be missing from it.
+    """
+    if scores.judge_history is None:
+        return scores
+    fetched = _fetch(
+        insight,
+        team,
+        scores.judge_history.query,
+        scores.judge_history.buckets,
+        limits,
+        ScoringRun.SCORE,
+        name=JUDGE_HISTORY_QUERY_NAME,
+    )
+    return dataclasses.replace(scores, fetched=tuple(fetched), judge_history=None)
 
 
 def _fetch(
@@ -664,7 +805,9 @@ def _fetch(
     buckets: int,
     limits: ScoringLimits,
     run: ScoringRun | None,
-) -> list[_FetchedSeries]:
+    *,
+    name: str | None = None,
+) -> list[FetchedSeries]:
     timezone = team.timezone_info
     scoring_query = build_scoring_query(query, buckets, limits)
 
@@ -674,7 +817,7 @@ def _fetch(
     client_query_id = f"anomaly_scoring_{uuid.uuid4().hex}"
     # Splits the scoring queries in `query_log`, so train and score cost can be compared, and lets `spend.py`
     # find them. A visit with the split off fetches the full history, as a train step does.
-    tag_queries(name=f"anomaly_scoring_{(run or ScoringRun.TRAIN).value}")
+    tag_queries(name=name or f"anomaly_scoring_{(run or ScoringRun.TRAIN).value}")
     runner = TrendsQueryRunner(
         query=scoring_query,
         team=team,
@@ -712,7 +855,7 @@ def _fetch(
             skipped=len(results) - len(current_results),
         )
 
-    series: list[_FetchedSeries] = []
+    series: list[FetchedSeries] = []
     key_counts: dict[str, int] = {}
     for result in current_results[: limits.max_series]:
         breakdown_value = _breakdown_label(result.get("breakdown_value"))
@@ -720,16 +863,22 @@ def _fetch(
         repeats = key_counts.get(key, 0)
         key_counts[key] = repeats + 1
         series.append(
-            _FetchedSeries(
+            FetchedSeries(
                 # Lines that differ only by name share a key. Event uuids come from the key, so each repeat needs its own.
                 series_key=key if repeats == 0 else _short_hash({"key": key, "repeat": repeats}),
                 label=str(result.get("label") or ""),
                 breakdown_value=breakdown_value,
                 values=list(result.get("data") or []),
                 buckets=[_parse_bucket(day, timezone) for day in result.get("days") or []],
+                series_index=int(result.get("order") or 0),
             )
         )
     return series
+
+
+def _keep_fetched(scores: InsightScores, fetched: list[FetchedSeries]) -> InsightScores:
+    """Keep the fetched values for the AI member. Without one, nothing reads them."""
+    return dataclasses.replace(scores, fetched=tuple(fetched)) if scores.ai_member is not None else scores
 
 
 def _formulas(query: TrendsQuery) -> list[str]:
@@ -741,6 +890,14 @@ def _formulas(query: TrendsQuery) -> list[str]:
     if trends_filter.formulas:
         return list(trends_filter.formulas)
     return [trends_filter.formula] if trends_filter.formula else []
+
+
+def _has_histogram_breakdown(breakdown_filter: BreakdownFilter | None) -> bool:
+    if breakdown_filter is None:
+        return False
+    if has_multi_breakdown(breakdown_filter):
+        return any(breakdown.histogram_bin_count is not None for breakdown in breakdown_filter.breakdowns or [])
+    return has_single_breakdown(breakdown_filter) and breakdown_filter.breakdown_histogram_bin_count is not None
 
 
 def _series_node_definition(node: Any) -> dict[str, Any]:

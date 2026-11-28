@@ -59,7 +59,7 @@ Export it separately from the component so it can be unit tested without renderi
 Declare it in `frontend/src/lib/constants.tsx` with an owner comment, in the same style as the neighbours:
 
 ```ts
-SQL_INSIGHT_DATE_FILTER_NOTICE: 'sql-insight-date-filter-notice', // owner: #team-product-analytics, gates the notice on SQL insights affected by the date filter resolution fix
+SQL_INSIGHT_DATE_FILTER_NOTICE: 'sql-insight-date-filter-notice', // owner: #team-analytics, gates the notice on SQL insights affected by the date filter resolution fix
 ```
 
 The flag does three jobs: it lets you roll the notice out gradually, it lets you turn it off without a deploy if the copy is wrong or the predicate is too broad, and it is the handle you retire the notice by when it has served its purpose.
@@ -95,7 +95,7 @@ Prefer one shared render site over many. A notice about relative date ranges pla
 
 ### 5. A removal date
 
-The exemplar is missing this, and it is the reason the repo still carries `WebAnalyticsFiltersV2MigrationBanner.tsx` (added January 2026, untouched since) and `SamplingDeprecationNotice.tsx`. Nobody deletes these.
+The exemplar is missing this, and it is the reason the repo still carries `SamplingDeprecationNotice.tsx`. Nobody deletes these.
 
 Put the date in a comment above the component, and repeat it in the flag's description in PostHog so it is visible to whoever audits flags later:
 

@@ -8,9 +8,11 @@ from unittest import mock
 
 import requests
 import structlog
+from botocore.credentials import Credentials
 from tenacity import wait_none
 
 from products.warehouse_sources.sources.aws_cost_explorer import aws_cost_explorer
+from products.warehouse_sources.sources.aws_cost_explorer._config import AwsCostExplorerSourceConfig
 from products.warehouse_sources.sources.aws_cost_explorer.aws_cost_explorer import (
     GENERIC_VALIDATION_ERROR,
     TRANSIENT_VALIDATION_ERROR,
@@ -30,7 +32,10 @@ from products.warehouse_sources.sources.aws_cost_explorer.settings import (
     FORECAST_METRICS,
     RESERVATION_SERVICES,
 )
+from products.warehouse_sources.sources.aws_cost_explorer.source import AwsCostExplorerSource
 from products.warehouse_sources.sources.sdk import ResumableSourceManager
+
+CREDENTIALS = Credentials("key", "secret")
 
 LOGGER = structlog.get_logger()
 
@@ -180,17 +185,18 @@ class TestSendOperation:
 
 class TestValidateCredentials:
     def test_missing_credentials_short_circuit_without_a_billed_request(self) -> None:
+        config = AwsCostExplorerSourceConfig.from_dict({"aws_access_key_id": "", "aws_secret_access_key": "secret"})
         with mock.patch.object(aws_cost_explorer, "send_operation") as send:
-            assert validate_credentials("", "secret", None) == (
+            assert AwsCostExplorerSource().validate_credentials(config, team_id=1) == (
                 False,
-                "AWS access key ID and secret access key are required",
+                "Enter both an AWS access key ID and a secret access key.",
             )
 
         send.assert_not_called()
 
     def test_a_successful_probe_validates(self) -> None:
         with mock.patch.object(aws_cost_explorer, "send_operation", return_value={"ResultsByTime": []}) as send:
-            assert validate_credentials("key", "secret", None) == (True, None)
+            assert validate_credentials(CREDENTIALS) == (True, None)
 
         assert send.call_args[0][2] == "GetCostAndUsage"
 
@@ -212,11 +218,11 @@ class TestValidateCredentials:
         )
 
         with mock.patch.object(aws_cost_explorer, "send_operation", side_effect=AwsCostExplorerError(raw, code)):
-            assert validate_credentials("key", "secret", None) == (False, expected)
+            assert validate_credentials(CREDENTIALS) == (False, expected)
 
     def test_a_transport_failure_does_not_leak_internals(self) -> None:
         with mock.patch.object(aws_cost_explorer, "send_operation", side_effect=requests.ConnectionError("boom")):
-            assert validate_credentials("key", "secret", None) == (
+            assert validate_credentials(CREDENTIALS) == (
                 False,
                 "Could not reach the AWS Cost Explorer API",
             )
@@ -240,9 +246,7 @@ class TestGetRows:
         with mock.patch.object(aws_cost_explorer, "send_operation", side_effect=responses) as send:
             batches = list(
                 get_rows(
-                    aws_access_key_id="key",
-                    aws_secret_access_key="secret",
-                    aws_session_token=None,
+                    credentials=CREDENTIALS,
                     start_date=start_date,
                     endpoint=endpoint,
                     resumable_source_manager=manager,
@@ -548,6 +552,67 @@ class TestGetRows:
                 "prediction_interval_upper_bound": 12.0,
             }
         ]
+
+    @staticmethod
+    def _forecast_answers(rejected: tuple[str, ...], blended_error: Optional[str] = None) -> list[Any]:
+        forecast = {
+            "ForecastResultsByTime": [
+                {"TimePeriod": {"Start": "2024-03-03", "End": "2024-03-04"}, "MeanValue": "10.5"},
+            ],
+        }
+
+        def validation_error(message: str) -> AwsCostExplorerError:
+            return error_for_response(make_response(400, {"__type": "ValidationException", "message": message}))
+
+        answers: list[Any] = []
+        for metric in FORECAST_METRICS:
+            if metric == "BLENDED_COST" and blended_error:
+                answers.append(validation_error(blended_error))
+            elif metric in rejected:
+                answers.append(
+                    validation_error(
+                        f"Linked accounts without permissions to view discounts may not query for this metric: {metric}"
+                    )
+                )
+            else:
+                answers.append(forecast)
+        return answers
+
+    @pytest.mark.parametrize(
+        "rejected,expected_metrics",
+        [
+            (("NET_AMORTIZED_COST", "NET_UNBLENDED_COST"), ["AMORTIZED_COST", "BLENDED_COST", "UNBLENDED_COST"]),
+            (("AMORTIZED_COST", "NET_AMORTIZED_COST", "NET_UNBLENDED_COST"), ["BLENDED_COST", "UNBLENDED_COST"]),
+        ],
+    )
+    def test_cost_forecast_skips_metrics_a_linked_account_cannot_view(
+        self, rejected: tuple[str, ...], expected_metrics: list[str]
+    ) -> None:
+        manager = FakeResumeManager()
+
+        batches, _ = self._run(self._forecast_answers(rejected), manager, endpoint="cost_forecast_daily")
+
+        assert [row["metric"] for batch in batches for row in batch] == expected_metrics
+        assert manager.cleared
+
+    @pytest.mark.parametrize(
+        "rejected,blended_error,expected_text",
+        [
+            # Every metric refused: the run fails with the error that maps to the non-retryable fix.
+            (FORECAST_METRICS, None, "Linked accounts without permissions to view discounts"),
+            # Any other validation error still fails the run, even next to a skippable one.
+            (("NET_AMORTIZED_COST",), "Start date must be before end date", "Start date must be before end date"),
+        ],
+    )
+    def test_cost_forecast_fails_when_no_metric_can_sync_or_aws_rejects_for_another_reason(
+        self, rejected: tuple[str, ...], blended_error: Optional[str], expected_text: str
+    ) -> None:
+        manager = FakeResumeManager()
+
+        with pytest.raises(AwsCostExplorerError, match=expected_text):
+            self._run(self._forecast_answers(rejected, blended_error), manager, endpoint="cost_forecast_daily")
+
+        assert not manager.cleared
 
     def test_rightsizing_recommendations_page_without_a_time_period_and_keep_ids_as_strings(self) -> None:
         manager = FakeResumeManager()

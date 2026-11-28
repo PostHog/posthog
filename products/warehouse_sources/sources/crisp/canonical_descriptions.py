@@ -95,6 +95,30 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "timestamp": "The time when the event was stacked.",
         },
     },
+    "conversation_files": {
+        "description": "Files in each conversation, from file messages and from attachments of text and note messages.",
+        "docs_url": "https://docs.crisp.chat/references/rest-api/v1/#list-conversation-files",
+        "columns": {
+            "session_id": "The conversation that contains the file.",
+            "name": "The file name.",
+            "type": "The MIME type of the file.",
+            "url": "The file URL.",
+            "fingerprint": "The fingerprint of the message that holds the file.",
+            "timestamp": "The time when the message that holds the file was sent.",
+        },
+    },
+    "campaign_templates": {
+        "description": "Campaign templates in the workspace.",
+        "docs_url": "https://docs.crisp.chat/references/rest-api/v1/#list-campaign-templates",
+        "columns": {
+            "template_id": "The template identifier.",
+            "type": "The template type: static or custom.",
+            "name": "The template name.",
+            "format": "The template format: markdown or html.",
+            "created_at": "The time when Crisp created the template.",
+            "updated_at": "The time when Crisp last updated the template.",
+        },
+    },
     "teams": {
         "description": "Operator teams in the workspace.",
         "docs_url": "https://docs.crisp.chat/references/rest-api/v1/#list-teams",

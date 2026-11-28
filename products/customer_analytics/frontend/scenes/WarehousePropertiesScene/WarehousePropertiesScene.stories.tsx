@@ -2,7 +2,7 @@ import { MOCK_DEFAULT_ORGANIZATION, MOCK_DEFAULT_USER } from 'lib/api.mock'
 
 import { Meta, StoryObj } from '@storybook/react'
 
-import { FEATURE_FLAGS } from 'lib/constants'
+import { FEATURE_FLAGS, STORYBOOK_FEATURE_FLAGS } from 'lib/constants'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
@@ -67,6 +67,7 @@ const definitions: CustomPropertyDefinitionApi[] = [
                 changed: 118,
                 existing: 112,
                 produced: 112,
+                removed: 7,
                 skipped_missing_person: 6,
                 error: null,
                 created_at: '2023-02-15T14:29:00Z',
@@ -186,6 +187,7 @@ const definitions: CustomPropertyDefinitionApi[] = [
                 changed: 12,
                 existing: 12,
                 produced: 12,
+                removed: 0,
                 skipped_missing_person: 0,
                 error: null,
                 created_at: '2023-02-15T11:59:00Z',
@@ -212,6 +214,7 @@ const runs: CustomPropertySyncRunApi[] = [
         changed: 118,
         existing: 112,
         produced: 112,
+        removed: 7,
         skipped_missing_person: 6,
         error: null,
         created_at: '2023-02-15T14:29:00Z',
@@ -233,6 +236,7 @@ const runs: CustomPropertySyncRunApi[] = [
         changed: 0,
         existing: 0,
         produced: 0,
+        removed: 0,
         skipped_missing_person: 0,
         error: 'The warehouse import for this table failed.',
         created_at: '2023-02-14T09:00:00Z',
@@ -287,4 +291,11 @@ export const WarehouseProperties: Story = {}
 
 export const WarehousePropertiesGroupsTab: Story = {
     parameters: { pageUrl: urls.warehouseProperties('groups') },
+}
+
+export const WarehousePropertiesQuill: Story = {
+    parameters: {
+        featureFlags: [...STORYBOOK_FEATURE_FLAGS, FEATURE_FLAGS.TODAY_RAIL_NAV],
+        testOptions: { waitForSelector: 'text=Billing profile', snapshotBrowsers: [] },
+    },
 }

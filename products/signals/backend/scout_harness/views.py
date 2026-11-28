@@ -124,6 +124,7 @@ from products.signals.backend.scout_harness.lifecycle_lock import (
     resolve_auth_kind,
     user_holds_scout_lifecycle_claim,
 )
+from products.signals.backend.scout_harness.message_routes import scout_send_message_enabled
 from products.signals.backend.scout_harness.precheck import (
     dry_run_scout_precheck,
     resolve_effective_precheck,
@@ -184,6 +185,8 @@ from products.signals.backend.scout_harness.serializers import (
     ScratchpadEntrySerializer,
     SearchMemoryQuerySerializer,
     SearchRecentRunsQuerySerializer,
+    SendScoutMessageRequestSerializer,
+    SendScoutMessageResponseSerializer,
     SignalScoutConfigCreateSerializer,
     SignalScoutConfigListQuerySerializer,
     SignalScoutConfigSerializer,
@@ -239,6 +242,7 @@ from products.signals.backend.scout_harness.tools.lighthouse import (
     execute_lighthouse_audit,
     prepare_lighthouse_audit,
 )
+from products.signals.backend.scout_harness.tools.messages import InvalidMessageError, send_message_sync
 from products.signals.backend.scout_harness.tools.notes import (
     DEFAULT_NOTES_LIST_LIMIT,
     InvalidNoteError,
@@ -805,7 +809,8 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             "matches on `summary`. `date_from` / `date_to` are a half-open window on `created_at` "
             "(`>= date_from`, `< date_to`); pass `date_to` on subsequent calls to walk past the "
             "100-row cap. Pass `emitted=true` to see only runs that surfaced at least one finding. "
-            "Pass `skill_name` (optionally with `skill_version`) to scope to a single scout. "
+            "Pass `skill_name` (optionally with `skill_version`) to scope to a single scout, or "
+            "`exclude_skill_name` to leave one scout's runs out before `limit` applies. "
             "Results capped at 100."
         ),
     )
@@ -817,6 +822,7 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         emitted = validated.get("emitted")
         skill_name = validated.get("skill_name") or None
         skill_version = validated.get("skill_version")
+        exclude_skill_name = validated.get("exclude_skill_name") or None
         limit = validated.get("limit") or 20
         saved = saved_reads_for_request(request, _canonical_team_id(self))
         rows = search_recent_runs(
@@ -828,7 +834,9 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             skill_name=skill_name,
             skill_version=skill_version,
             limit=limit,
-            exclude_skill_name=saved.context.skill_name if saved is not None else None,
+            exclude_skill_names=[
+                name for name in (exclude_skill_name, saved.context.skill_name if saved else None) if name
+            ],
         )
         if saved is not None:
             rows = saved.recent_runs(
@@ -840,6 +848,7 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 skill_name=skill_name,
                 skill_version=skill_version,
                 limit=limit,
+                exclude_skill_name=exclude_skill_name,
             )
         return Response(
             SignalScoutRunSummarySerializer(
@@ -1358,7 +1367,10 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         responses={
             200: OpenApiResponse(
                 response=EmitReportResponseSerializer,
-                description="Report authored (READY/PENDING_INPUT/suppressed), or skipped by a preflight gate.",
+                description=(
+                    "Report authored (READY/PENDING_INPUT/suppressed), skipped by a preflight gate, or refused "
+                    "because an open report already names a source issue."
+                ),
             ),
             400: OpenApiResponse(description="Invalid report shape (empty title/summary/evidence, bad actionability)."),
             404: OpenApiResponse(description="Run not found for this project."),
@@ -1371,7 +1383,9 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             "behaves like a pipeline report. Safe to retry: resending an emission returns the report the first "
             "call authored (`idempotent_replay` true) rather than a second one, keyed on `idempotency_key` or, "
             "without one, on the report's content. Use `reports` to find a report from an earlier run and "
-            "`edit-report` to update it instead of authoring a near-duplicate."
+            "`edit-report` to update it instead of authoring a near-duplicate. A report for a GitHub issue "
+            "that an open report already names is refused with `source_issue_already_reported` and that "
+            "report's id, unless a `follow_up_of`, `part_of`, `depends_on` or `recurrence_of` link names it."
         ),
         operation_id="signals_scout_emit_report",
     )
@@ -1577,6 +1591,89 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         return Response(
             RecordStructuredOutputResponseSerializer(
                 {"recorded_count": result.recorded_count, "record_ids": result.record_ids}
+            ).data,
+            status=status.HTTP_200_OK,
+        )
+
+    @validated_request(
+        request_serializer=SendScoutMessageRequestSerializer,
+        parameters=[_RUN_ID_PATH_PARAMETER],
+        responses={
+            200: OpenApiResponse(
+                response=SendScoutMessageResponseSerializer,
+                description=(
+                    "The call was accepted. `outcome` says whether the message was queued, replaced a queued "
+                    "message, or was refused as a duplicate or over the scout's limit."
+                ),
+            ),
+            400: OpenApiResponse(
+                description=(
+                    "The run is not in progress, the route is unknown, the report is missing, not in this project "
+                    "or not written or edited by this run, the report is not surfaced, the safety judge rejected the "
+                    "title or body, or a field is malformed. "
+                    "The message says what to fix."
+                )
+            ),
+            404: OpenApiResponse(description="Run not found for this project, or scout messaging is off."),
+        },
+        summary="Send a message through an owner-set route",
+        description=(
+            "Ask to message a person or channel through one of the scout config's routes "
+            "(`output_destinations.messages`). Name the route `key`, never a recipient. Outside a dry run the "
+            "message must point at a report this run wrote or edited. Nothing is posted during the run: the "
+            "message is queued and sent when the run ends, and a second call with the same route and "
+            "`dedupe_key` replaces it. A scout sends at most 5 messages in any 24 hours, and a route and key "
+            "sent in the last 30 days is refused as a duplicate."
+        ),
+        operation_id="signals_scout_send_message",
+    )
+    @action(
+        detail=True,
+        methods=["post"],
+        url_path="send_message",
+        required_scopes=["signal_scout_internal:write"],
+        pagination_class=None,
+    )
+    def send_message(self, request: Request, **kwargs) -> Response:
+        run_id = _parse_run_id_or_404(kwargs)
+
+        run = (
+            SignalScoutRun.objects.select_related("scout_config", "task_run", "team")
+            .filter(team_id=_canonical_team_id(self), id=run_id)
+            .first()
+        )
+        if run is None:
+            raise exceptions.NotFound()
+        bound_task_id = _sandbox_bound_task_id(request)
+        if bound_task_id is not None and bound_task_id != run.task_run.task_id:
+            raise exceptions.NotFound()
+        if not scout_send_message_enabled(run.team):
+            raise exceptions.NotFound()
+        if run.task_run.status != tasks_facade.TaskRunStatus.IN_PROGRESS:
+            raise exceptions.ValidationError(
+                {"status": f"Messages can only be sent from in-progress runs (current: {run.task_run.status})."}
+            )
+        data = request.validated_data
+        try:
+            # `run.team` is the canonical team the run was resolved on, as in `emit_report`.
+            result = send_message_sync(
+                team=run.team,
+                run=run,
+                route_key=data["route"],
+                report_id=data.get("report_id") or None,
+                title=data["title"],
+                body=data["body"],
+                dedupe_key=data["dedupe_key"],
+            )
+        except InvalidMessageError as exc:
+            raise exceptions.ValidationError({"detail": str(exc)})
+        return Response(
+            SendScoutMessageResponseSerializer(
+                {
+                    "outcome": str(result.outcome),
+                    "message_id": result.message_id,
+                    "recent_dedupe_keys": list(result.recent_dedupe_keys),
+                }
             ).data,
             status=status.HTTP_200_OK,
         )
@@ -2108,7 +2205,9 @@ class SignalScratchpadViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             "`include_expired=true`, and are hard-deleted by a daily janitor once their expiry is "
             "more than two weeks in the past. Pass `keys_only=true` to scan keys without pulling entry bodies, or "
             "`content_max_chars` to cap each `content` to a preview — both keep a wide orientation scan "
-            "from returning every entry's full prose. Pass `include_revisions=true` with `key` to also get the "
+            "from returning every entry's full prose. Pass `content_offset` to start each `content` at a "
+            "character, and page a long entry with the `content_next_offset` each entry returns. "
+            "Pass `include_revisions=true` with `key` to also get the "
             "entry's earlier versions, newest first, including those of a deleted key. A `key` search also reports who last "
             "changed the entry, and returns an entry hidden only by its expiry as an `expired` marker with blank "
             "`content` instead of nothing. Results capped at 1000."
@@ -2147,6 +2246,7 @@ class SignalScratchpadViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 limit=limit,
                 keys_only=keys_only,
                 content_max_chars=content_max_chars,
+                content_offset=validated.get("content_offset") or 0,
                 include_expired=bool(validated.get("include_expired", False)),
             )
         return Response(ScratchpadEntrySerializer([row.as_dict() for row in rows], many=True).data)
@@ -3746,6 +3846,13 @@ def _scout_tool_catalogue_payload() -> dict[str, Any]:
     return dict(ScoutToolCatalogueSerializer(get_scout_tool_catalogue()).data)
 
 
+def _apply_trial_posture(row: dict[str, Any], trial: SignalScoutRun | None) -> None:
+    """Show a trial run its own scout as it runs: emitting, on the trial's model."""
+    if trial is not None and row["skill_name"] == trial.skill_name:
+        row["emit"] = True
+        row["model"] = (trial.metadata or {}).get("model")
+
+
 class SignalScoutConfigViewSet(ScoutTrialConfigMixin, TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     """Per-scout config: list, register, tune, and delete each scout's schedule, enablement,
     and emit posture.
@@ -3783,7 +3890,9 @@ class SignalScoutConfigViewSet(ScoutTrialConfigMixin, TeamAndOrgViewSetMixin, vi
         if action in {"create", "trial", "trial_result"}:
             return ["signal_scout:write", "llm_skill:write"]
         if action == "partial_update" and (
-            self._sets_structured_output_schema(request) or self._sets_custom_image(request)
+            self._sets_structured_output_schema(request)
+            or self._sets_custom_image(request)
+            or self._sets_message_routes(request)
         ):
             return ["signal_scout:write", "llm_skill:write"]
         # Running a scout drives spend, so a bare trigger is a config write. A trigger carrying a
@@ -3799,6 +3908,16 @@ class SignalScoutConfigViewSet(ScoutTrialConfigMixin, TeamAndOrgViewSetMixin, vi
     def _sets_structured_output_schema(request: Request) -> bool:
         data = request.data
         return isinstance(data, dict) and data.get("structured_output_schema") is not None
+
+    @staticmethod
+    def _sets_message_routes(request: Request) -> bool:
+        # A route's `when` is rendered verbatim into the run prompt, and a route decides who the scout
+        # can message, so setting routes is skill-authoring-level steering. Clearing them is not.
+        # The raw value decides, not the route parser: the serializer coerces entries the parser skips
+        # (a numeric `key` becomes a valid slug), so a parsed check would let those through ungated.
+        data = request.data
+        destinations = data.get("output_destinations") if isinstance(data, dict) else None
+        return isinstance(destinations, dict) and bool(destinations.get("messages"))
 
     @staticmethod
     def _sets_custom_image(request: Request) -> bool:
@@ -3823,6 +3942,13 @@ class SignalScoutConfigViewSet(ScoutTrialConfigMixin, TeamAndOrgViewSetMixin, vi
             raise exceptions.PermissionDenied(
                 "Setting structured_output_schema requires editor access to skills, since the schema "
                 "is read verbatim by the scout agent."
+            )
+
+    def _assert_can_set_message_routes(self) -> None:
+        if not self._has_skill_editor_access():
+            raise exceptions.PermissionDenied(
+                "Setting message routes requires editor access to skills, since the scout agent reads each "
+                "route's condition verbatim and the route decides who it can message."
             )
 
     def _assert_can_select_custom_image(self) -> None:
@@ -3856,7 +3982,8 @@ class SignalScoutConfigViewSet(ScoutTrialConfigMixin, TeamAndOrgViewSetMixin, vi
             "set), `enabled`, `emit` posture, and `tags`. A freshly authored scout skill appears here "
             "once its config is registered, either explicitly via create or by the coordinator's next "
             "tick. Pass `tags` to narrow the fleet to the scouts carrying at least one of the given "
-            "labels, and `search` to narrow it to the scouts matching a substring of either name."
+            "labels, `search` to narrow it to the scouts matching a substring of either name, and "
+            "`source_product` to narrow it to the scouts another product stood up, such as Slack channel scouts."
         ),
         operation_id="signals_scout_config_list",
     )
@@ -3887,6 +4014,8 @@ class SignalScoutConfigViewSet(ScoutTrialConfigMixin, TeamAndOrgViewSetMixin, vi
         # types the label they see, a caller holding a stored identifier types the slug.
         if search := query.get("search"):
             queryset = queryset.filter(Q(display_name__icontains=search) | Q(skill_name__icontains=search))
+        if source_product := query.get("source_product"):
+            queryset = queryset.filter(source_product=source_product)
         # Ordered by the label the reader sees rather than by the identifier, which no surface shows
         # first. A scout with no name of its own falls back to its slug, which is close enough to the
         # label the clients derive from it to keep the two kinds interleaved instead of clumping the
@@ -3896,11 +4025,37 @@ class SignalScoutConfigViewSet(ScoutTrialConfigMixin, TeamAndOrgViewSetMixin, vi
         serializer = SignalScoutConfigSerializer(configs, many=True, context=context)
         body = serializer.data
         trial = trial_run_for_request(request, team_id)
-        if trial is not None:
-            for row in body:
-                if row["skill_name"] == trial.skill_name:
-                    row["emit"] = True
-                    row["model"] = (trial.metadata or {}).get("model")
+        for row in body:
+            _apply_trial_posture(row, trial)
+        return Response(body)
+
+    @extend_schema(
+        responses={
+            200: OpenApiResponse(response=SignalScoutConfigSerializer, description="The scout config."),
+            404: OpenApiResponse(description="Config not found for this project."),
+        },
+        summary="Get a scout config",
+        description=(
+            "Return one scout config by its `id`, with every field the list returns: schedule, posture, "
+            "output destinations, write grants, pre-check queries, structured output schema, and owners."
+        ),
+        operation_id="signals_scout_config_retrieve",
+    )
+    def retrieve(self, request: Request, *args, **kwargs) -> Response:
+        team = _canonical_team(self)
+        config_id = _parse_run_id_or_404(kwargs)
+        config = (
+            SignalScoutConfig.objects.unscoped()
+            .filter(team_id=team.id, id=config_id)
+            .exclude(skill_name__in=withheld_skills_for_team(team.id))
+            .select_related("status_changed_by")
+            .first()
+        )
+        if config is None:
+            raise exceptions.NotFound()
+        context = scout_config_context(team, [config.skill_name], request)
+        body = SignalScoutConfigSerializer(config, context=context).data
+        _apply_trial_posture(body, trial_run_for_request(request, team.id))
         return Response(body)
 
     @extend_schema(
@@ -4024,6 +4179,8 @@ class SignalScoutConfigViewSet(ScoutTrialConfigMixin, TeamAndOrgViewSetMixin, vi
             self._assert_can_author_structured_output_schema()
         if self._sets_custom_image(request):
             self._assert_can_select_custom_image()
+        if self._sets_message_routes(request):
+            self._assert_can_set_message_routes()
         config_id = _parse_run_id_or_404(kwargs)
         repositories_checked = _precheck_scout_repositories(request, team=team, config_id=config_id)
         # The row stays locked from the grant comparison to the save. A whole-config resend that

@@ -1,0 +1,238 @@
+.TileGrid__handle {
+    .TileGrid--editable & {
+        cursor: grab;
+    }
+}
+
+.TileGrid__text {
+    cursor: text;
+    user-select: text;
+}
+
+.TileGrid {
+    /* An empty grid still needs height to take a drop: one row (GRID.rowPx), or all of the section it is in. */
+    min-height: 32px;
+
+    .SectionTile__body > & {
+        min-height: 100%;
+    }
+
+    .react-grid-placeholder,
+    .TileGrid__drop-preview {
+        background: color-mix(in oklab, var(--dv2-interaction-color) 14%, transparent);
+        border: 1px dashed var(--dv2-interaction-color);
+        border-radius: var(--radius-lg, var(--radius));
+        opacity: 1;
+    }
+
+    /* The tile is over another grid, which shows the landing spot. This grid's own spot would be a second one. */
+    &.TileGrid--tile-away > .react-grid-layout > .react-grid-placeholder {
+        display: none;
+    }
+
+    .react-grid-item.react-draggable-dragging > .dash-ContentTile,
+    .react-grid-item.react-draggable-dragging > .TileContextMenu__trigger > .dash-ContentTile,
+    .react-grid-item.react-draggable-dragging > .SectionTile,
+    .react-grid-item.react-draggable-dragging > .TileContextMenu__trigger > .SectionTile {
+        box-shadow: var(--shadow-elevation-3000);
+        opacity: 0.92;
+    }
+
+    /* Each tile is its own stacking layer. A tile dragged out of a section must stay above the tiles that come
+       after that section, so every tile holding the dragged one rises with it. */
+    .react-grid-item:has(.react-draggable-dragging),
+    .react-grid-item:has(.resizing) {
+        z-index: 3;
+    }
+
+    /* Resize handles are grab zones along each edge, shown only by the cursor. Each reaches 6px out, half the gap, so
+       neighbouring tiles' zones never overlap, and the rest of its width sits over the tile's own edge. No handle draws a
+       grip, so no bar or corner mark shows on a tile.
+       The selectors are this long, and each edge resets its own transform, to win over the grid library's own
+       handle styles, which rotate each handle. */
+    .react-grid-item > .react-resizable-handle {
+        position: absolute;
+        width: auto;
+        height: auto;
+        padding: 0;
+        margin: 0;
+        background: none;
+        opacity: 0;
+        transition: opacity 100ms;
+
+        &::after {
+            position: absolute;
+            inset: auto;
+            width: auto;
+            height: auto;
+            content: '';
+            background: var(--dv2-interaction-color);
+            border: 0;
+            border-radius: 2px;
+        }
+
+        &:hover {
+            opacity: 1;
+        }
+
+        /* The grid library shows every handle of a hovered tile. Only the edge under the pointer should show. */
+        &:not(:hover) {
+            opacity: 0;
+        }
+
+        &.react-resizable-handle-e {
+            inset: 0 -6px 12px auto;
+            width: 20px;
+            cursor: ew-resize;
+            transform: none;
+
+            &::after {
+                display: none;
+            }
+        }
+
+        &.react-resizable-handle-w {
+            inset: 0 auto 12px -6px;
+            width: 20px;
+            cursor: ew-resize;
+            transform: none;
+
+            &::after {
+                display: none;
+            }
+        }
+
+        &.react-resizable-handle-n {
+            inset: -6px 12px auto;
+            height: 20px;
+            cursor: ns-resize;
+            transform: none;
+
+            &::after {
+                display: none;
+            }
+        }
+
+        &.react-resizable-handle-nw {
+            inset: -6px auto auto -6px;
+            width: 26px;
+            height: 26px;
+            cursor: nwse-resize;
+            transform: none;
+
+            &::after {
+                display: none;
+            }
+        }
+
+        &.react-resizable-handle-ne {
+            inset: -6px -6px auto auto;
+            width: 26px;
+            height: 26px;
+            cursor: nesw-resize;
+            transform: none;
+
+            &::after {
+                display: none;
+            }
+        }
+
+        &.react-resizable-handle-sw {
+            inset: auto auto -6px -6px;
+            width: 26px;
+            height: 26px;
+            cursor: nesw-resize;
+            transform: none;
+
+            &::after {
+                display: none;
+            }
+        }
+
+        &.react-resizable-handle-s {
+            inset: auto 12px -6px 0;
+            height: 20px;
+            cursor: ns-resize;
+            transform: none;
+
+            &::after {
+                display: none;
+            }
+        }
+
+        &.react-resizable-handle-se {
+            inset: auto 0 0 auto;
+            width: 16px;
+            height: 16px;
+            cursor: nwse-resize;
+            transform: none;
+
+            &::after {
+                display: none;
+            }
+        }
+    }
+
+    /* Over a resize edge, or while resizing, the whole tile or section is outlined instead of the edge. */
+    .react-grid-item:has(> .react-resizable-handle:hover),
+    .react-grid-item.resizing {
+        > .dash-ContentTile,
+        > .TileContextMenu__trigger > .dash-ContentTile,
+        > .SectionTile,
+        > .TileContextMenu__trigger > .SectionTile {
+            outline: 2px solid var(--dv2-interaction-color);
+            outline-offset: -1px;
+        }
+    }
+
+    /* At its minimum size, a tile being resized gets a red dashed overlay. It gives way toward the pointer while the
+       pointer keeps pushing (resizeFeedback.ts), and springs back when let go. The tile itself never changes size. */
+    .react-grid-item[data-dv2-at-minimum] {
+        --dv2-interaction-color: var(--destructive-foreground);
+    }
+
+    .react-grid-item[data-dv2-at-minimum]::after {
+        position: absolute;
+        inset: var(--dv2-band-top, 0) var(--dv2-band-right, 0) var(--dv2-band-bottom, 0) var(--dv2-band-left, 0);
+        z-index: 2;
+        pointer-events: none;
+        content: '';
+        background-color: color-mix(in oklab, var(--destructive-foreground) 8%, transparent);
+        border: 2px dashed var(--destructive-foreground);
+        border-radius: var(--radius-lg);
+        transition: inset 300ms cubic-bezier(0.34, 1.56, 0.64, 1);
+
+        @media (prefers-reduced-motion: reduce) {
+            transition: none;
+        }
+    }
+
+    /* The content squeezes with the overlay, and springs back with the same overshoot when let go. */
+    .react-grid-item[data-dv2-at-minimum] > :not(.react-resizable-handle) {
+        transition: transform 300ms cubic-bezier(0.34, 1.56, 0.64, 1);
+        transform: scale(var(--dv2-squeeze-x, 1), var(--dv2-squeeze-y, 1));
+        transform-origin: var(--dv2-squeeze-origin, left top);
+
+        @media (prefers-reduced-motion: reduce) {
+            transition: none;
+        }
+    }
+
+    .react-grid-item[data-dv2-at-minimum].resizing::after,
+    .react-grid-item[data-dv2-at-minimum].resizing > :not(.react-resizable-handle) {
+        transition: none;
+    }
+
+    /* The edge being dragged stays lit while the pointer runs ahead of it. */
+    .react-grid-item.resizing > .react-resizable-handle:not(:hover) {
+        opacity: 1;
+    }
+
+    /* Both classes are named so this wins over the grid library's own transition rules. */
+    @media (prefers-reduced-motion: reduce) {
+        .react-grid-item.cssTransforms,
+        .react-grid-item.react-grid-placeholder {
+            transition: none;
+        }
+    }
+}

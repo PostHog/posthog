@@ -24,7 +24,7 @@ use metrics::{counter, gauge, histogram};
 use super::drains::PartitionDrains;
 use super::governor::{Adaptation, Governor, GovernorSettings, GovernorSnapshot};
 use super::in_flight::{InFlightRequest, InFlightRequests, RequestId, SentMessage};
-use super::key_queues::{KeyQueues, KeyRun, Settlement};
+use super::key_queues::{EscalationRule, KeyQueues, KeyRun, Settlement};
 use super::packer::Packer;
 use super::request::{Request, RequestClass};
 use super::retry_policy::{RetryPolicy, RetryReason};
@@ -42,9 +42,8 @@ pub enum FailureCause {
 }
 
 /// The worker's soft time budget for every request. A key resends without it
-/// once `attempts` settles left its messages unfinished since it last finished
-/// a run, or at once when its request finished nothing, so a message that
-/// never fits the budget still finishes.
+/// once `attempts` of its settles count under the [`EscalationRule`], so a
+/// message that never fits the budget still finishes.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct RequestBudget {
     pub soft_budget: Duration,
@@ -146,6 +145,7 @@ impl BatcherStateMachine {
             last_progress: now,
             soft_budget: None,
             governor,
+            sample_unbudgeted_rtt: true,
             reconnecting: HashMap::new(),
             drains: PartitionDrains::default(),
         }))
@@ -159,6 +159,26 @@ impl BatcherStateMachine {
                 keys: active
                     .keys
                     .with_budget_attempts(budget.map(|budget| budget.attempts)),
+                ..active
+            }),
+            other => other,
+        }
+    }
+
+    pub fn with_escalation_rule(self, rule: EscalationRule) -> Self {
+        match self {
+            BatcherStateMachine::Running(active) => BatcherStateMachine::Running(ActiveState {
+                keys: active.keys.with_escalation_rule(rule),
+                ..active
+            }),
+            other => other,
+        }
+    }
+
+    pub fn with_unbudgeted_rtt_samples(self, sample: bool) -> Self {
+        match self {
+            BatcherStateMachine::Running(active) => BatcherStateMachine::Running(ActiveState {
+                sample_unbudgeted_rtt: sample,
                 ..active
             }),
             other => other,
@@ -210,8 +230,8 @@ impl BatcherStateMachine {
     }
 
     /// The worker finished every message except `unfinished`. Those go back to
-    /// the front of their keys' queues and are sent again at once as replay,
-    /// without a budget when the worker finished nothing.
+    /// the front of their keys' queues and are sent again as replay, and a
+    /// bounce follows the [`EscalationRule`].
     pub fn on_request_partial(
         self,
         now: Instant,
@@ -353,6 +373,7 @@ pub struct ActiveState {
     last_progress: Instant,
     soft_budget: Option<Duration>,
     governor: Governor,
+    sample_unbudgeted_rtt: bool,
     /// Workers whose stream a failure fenced, with the time of that failure.
     /// The stream reconnects after a backoff, so a request sent since then
     /// may wait it out and is no RTT sample. The first such request to settle
@@ -420,6 +441,7 @@ impl ActiveState {
         let mut effects = Effects::default();
         let sent = self.take_request(request, &mut effects)?;
         self.observe_rtt(&sent, now);
+        self.record_duration(&sent, now, "accepted");
         if accepted as usize != sent.message_count {
             return Err(format!(
                 "worker accepted {accepted} of {} messages",
@@ -464,6 +486,7 @@ impl ActiveState {
         let mut effects = Effects::default();
         let sent = self.take_request(request, &mut effects)?;
         self.observe_rtt(&sent, now);
+        self.record_duration(&sent, now, "partial");
         effects.worker_outcomes.push(WorkerOutcome {
             worker: sent.worker.clone(),
             fault: false,
@@ -477,6 +500,14 @@ impl ActiveState {
         counter!("ingestion_consumer_request_budget_partials_total").increment(1);
         counter!("ingestion_consumer_request_budget_unfinished_messages_total")
             .increment(unfinished_count as u64);
+        if accepted == 0 {
+            counter!("ingestion_consumer_request_budget_bounces_total").increment(1);
+        }
+        let bounce_retry_at = self.retry.retry_at(now, RetryReason::Busy);
+        // A bounce does not move the stall clock, and while bounced keys wait
+        // the freed slots go to other keys. Past half the stall window, or in a
+        // drain, a bounce escalates at once so its resend starts in time.
+        let escalate_now = draining || now >= self.last_progress + self.stall_timeout / 2;
         effects.completions = completions(
             assignment_epoch,
             partial_runs.iter().flat_map(|run| &run.accepted),
@@ -493,9 +524,16 @@ impl ActiveState {
             let settlement = if run.unfinished.is_empty() {
                 Settlement::Done
             } else if accepted == 0 {
-                Settlement::Bounced(run.unfinished)
+                Settlement::Bounced {
+                    messages: run.unfinished,
+                    retry_at: bounce_retry_at,
+                    escalate_now,
+                }
             } else {
-                Settlement::Unfinished(run.unfinished)
+                Settlement::Unfinished {
+                    progressed: !run.accepted.is_empty(),
+                    messages: run.unfinished,
+                }
             };
             self.settle_key(&run.routing_key, settlement, now, &mut effects)?;
         }
@@ -514,6 +552,7 @@ impl ActiveState {
     ) -> Result<Effects, String> {
         let mut effects = Effects::default();
         let sent = self.take_request(request, &mut effects)?;
+        self.record_duration(&sent, now, "failed");
         self.reconnecting.entry(sent.worker.clone()).or_insert(now);
         effects.worker_outcomes.push(WorkerOutcome {
             worker: sent.worker.clone(),
@@ -593,6 +632,9 @@ impl ActiveState {
             self.reconnecting.remove(&sent.worker);
             return;
         }
+        if sent.class.unbudgeted && !self.sample_unbudgeted_rtt {
+            return;
+        }
         let rtt = now.saturating_duration_since(sent.sent_at);
         if let Some(decision) = self.governor.observe(rtt, now) {
             counter!(
@@ -602,6 +644,20 @@ impl ActiveState {
             )
             .increment(1);
         }
+    }
+
+    fn budget_for(&self, class: RequestClass) -> Option<Duration> {
+        self.soft_budget.filter(|_| !class.unbudgeted)
+    }
+
+    fn record_duration(&self, sent: &InFlightRequest, now: Instant, outcome: &'static str) {
+        let budgeted = self.budget_for(sent.class).is_some();
+        histogram!(
+            "ingestion_consumer_request_duration_seconds",
+            "budgeted" => if budgeted { "true" } else { "false" },
+            "outcome" => outcome
+        )
+        .record(now.saturating_duration_since(sent.sent_at).as_secs_f64());
     }
 
     /// A request on a worker that left the pool holds none of the pool's
@@ -627,8 +683,13 @@ impl ActiveState {
             .keys
             .settle(routing_key, settlement, now)
             .map_err(|err| err.to_string())?;
-        if settled.escalated {
-            counter!("ingestion_consumer_request_budget_escalations_total").increment(1);
+        if let Some(escalation) = settled.escalation {
+            counter!(
+                "ingestion_consumer_request_budget_escalations_total",
+                "reason" => escalation.reason.as_str(),
+                "progressed" => if escalation.progressed { "true" } else { "false" }
+            )
+            .increment(1);
         }
         if settled.evicted {
             effects.evicted_keys.push(Arc::clone(routing_key));
@@ -717,7 +778,7 @@ impl ActiveState {
             request: id,
             worker,
             class: request.class,
-            soft_budget: self.soft_budget.filter(|_| !request.class.unbudgeted),
+            soft_budget: self.budget_for(request.class),
             runs: request.runs,
         });
     }
@@ -833,6 +894,7 @@ mod tests {
     use std::collections::VecDeque;
     use std::num::NonZeroUsize;
 
+    use metrics_util::debugging::{DebugValue, DebuggingRecorder};
     use rstest::rstest;
 
     use super::*;
@@ -1078,6 +1140,29 @@ mod tests {
         let next = effects.sends[0].request;
         let (batcher, _) = batcher.on_request_succeeded(answered_at + rtt, &workers, next, 1);
         assert_eq!(batcher.snapshot().governor.rtt, Some(rtt));
+    }
+
+    #[test]
+    fn with_unbudgeted_sampling_off_an_unbudgeted_round_trip_gives_no_rtt_sample() {
+        let now = Instant::now();
+        let workers = pool(&["w"]);
+        let (batcher, effects) = budgeted_batcher(4, 1, now)
+            .with_unbudgeted_rtt_samples(false)
+            .on_groups(now, &workers, 0, vec![run("a", &[1, 2])]);
+        let budgeted = effects.sends[0].request;
+        let rtt = Duration::from_millis(100);
+        let (batcher, effects) =
+            batcher.on_request_partial(now + rtt, &workers, budgeted, 1, vec![message("a", 0, 2)]);
+        assert!(effects.sends[0].class.unbudgeted);
+        let unbudgeted = effects.sends[0].request;
+
+        let (batcher, _) =
+            batcher.on_request_succeeded(now + rtt + SLOW_RTT, &workers, unbudgeted, 1);
+        assert_eq!(
+            batcher.snapshot().governor.rtt,
+            Some(rtt),
+            "only the budgeted round trip is a sample"
+        );
     }
 
     #[test]
@@ -2222,6 +2307,183 @@ mod tests {
             effects.sends[0].soft_budget,
             Some(BUDGET),
             "the earlier unfinished attempt no longer counts"
+        );
+    }
+
+    #[test]
+    fn under_the_stalled_key_rule_bounces_wait_the_busy_delay_and_keep_the_budget_until_the_attempts_run_out(
+    ) {
+        let recorder = DebuggingRecorder::new();
+        let snapshotter = recorder.snapshotter();
+        let _guard = metrics::set_default_local_recorder(&recorder);
+        let now = Instant::now();
+        let workers = pool(&["w"]);
+        let both = || vec![message("a", 0, 1), message("b", 0, 2)];
+        let (batcher, effects) = budgeted_batcher(4, 2, now)
+            .with_escalation_rule(EscalationRule::StalledKey)
+            .on_groups(now, &workers, 0, vec![run("a", &[1]), run("b", &[2])]);
+        let first = effects.sends[0].request;
+
+        let bounced_at = now + BUDGET;
+        let (batcher, effects) = batcher.on_request_partial(bounced_at, &workers, first, 0, both());
+        assert!(
+            effects.sends.is_empty(),
+            "a bounce waits out the busy delay"
+        );
+        assert_eq!(effects.next_wakeup, Some(bounced_at + BUSY_DELAY));
+        let (batcher, effects) = batcher.on_wakeup(bounced_at + BUSY_DELAY, &workers);
+        assert_eq!(
+            (shape(&effects.sends[0]), effects.sends[0].soft_budget),
+            (vec![("a", vec![1]), ("b", vec![2])], Some(BUDGET)),
+            "one bounce keeps the budget"
+        );
+        let second = effects.sends[0].request;
+
+        let bounced_again_at = bounced_at + BUSY_DELAY + BUDGET;
+        let (_, effects) =
+            batcher.on_request_partial(bounced_again_at, &workers, second, 0, both());
+        assert_eq!(
+            (shape(&effects.sends[0]), effects.sends[0].soft_budget),
+            (vec![("a", vec![1]), ("b", vec![2])], None),
+            "the bounce that uses up the attempts resends at once without the budget"
+        );
+        assert!(effects.sends[0].class.unbudgeted);
+
+        let bounces: Vec<u64> = snapshotter
+            .snapshot()
+            .into_vec()
+            .into_iter()
+            .filter_map(|(key, _, _, value)| match (key.key().name(), value) {
+                ("ingestion_consumer_request_budget_bounces_total", DebugValue::Counter(count)) => {
+                    Some(count)
+                }
+                _ => None,
+            })
+            .collect();
+        assert_eq!(bounces, vec![2], "one per request, not one per key");
+    }
+
+    #[rstest]
+    #[case::late_in_the_stall_window(STALL / 2, false)]
+    #[case::while_draining(BUDGET, true)]
+    fn under_the_stalled_key_rule_a_bounce_escalates_at_once_when_time_runs_short(
+        #[case] bounced_after: Duration,
+        #[case] draining: bool,
+    ) {
+        let now = Instant::now();
+        let workers = pool(&["w"]);
+        let (batcher, effects) = packing_batcher(1, Duration::ZERO, 1, now)
+            .with_request_budget(Some(RequestBudget {
+                soft_budget: BUDGET,
+                attempts: NonZeroU32::new(3).expect("nonzero attempts"),
+            }))
+            .with_escalation_rule(EscalationRule::StalledKey)
+            .on_groups(now, &workers, 0, vec![run("a", &[1]), run("b", &[2])]);
+        assert_eq!(shape(&effects.sends[0]), vec![("a", vec![1])]);
+        let first = effects.sends[0].request;
+        let batcher = if draining {
+            batcher.on_shutdown(now, &workers).0
+        } else {
+            batcher
+        };
+
+        let (_, effects) = batcher.on_request_partial(
+            now + bounced_after,
+            &workers,
+            first,
+            0,
+            vec![message("a", 0, 1)],
+        );
+        assert_eq!(
+            (shape(&effects.sends[0]), effects.sends[0].soft_budget),
+            (vec![("a", vec![1])], None),
+            "a takes the slot it freed without its budget, ahead of b's budgeted send"
+        );
+    }
+
+    fn labels(pairs: &[(&str, &str)]) -> Vec<(String, String)> {
+        pairs
+            .iter()
+            .map(|(key, value)| (key.to_string(), value.to_string()))
+            .collect()
+    }
+
+    #[test]
+    fn the_metrics_report_why_each_key_escalated_and_how_long_each_request_took() {
+        let recorder = DebuggingRecorder::new();
+        let snapshotter = recorder.snapshotter();
+        let _guard = metrics::set_default_local_recorder(&recorder);
+        let now = Instant::now();
+        let workers = pool(&["w"]);
+        let (batcher, effects) = budgeted_batcher(4, 1, now).on_groups(
+            now,
+            &workers,
+            0,
+            vec![run("a", &[1, 2]), run("b", &[3])],
+        );
+        let budgeted = effects.sends[0].request;
+        let (batcher, effects) = batcher.on_request_partial(
+            now + Duration::from_secs(1),
+            &workers,
+            budgeted,
+            1,
+            vec![message("a", 0, 2), message("b", 0, 3)],
+        );
+        assert_eq!(
+            shape(&effects.sends[0]),
+            vec![("a", vec![2]), ("b", vec![3])]
+        );
+        let unbudgeted = effects.sends[0].request;
+        let (_, effects) =
+            batcher.on_request_succeeded(now + Duration::from_secs(5), &workers, unbudgeted, 2);
+        assert!(effects.fatal.is_none());
+
+        let mut escalations = Vec::new();
+        let mut durations = Vec::new();
+        for (key, _, _, value) in snapshotter.snapshot().into_vec() {
+            let labels: Vec<_> = key
+                .key()
+                .labels()
+                .map(|label| (label.key().to_string(), label.value().to_string()))
+                .collect();
+            match (key.key().name(), value) {
+                (
+                    "ingestion_consumer_request_budget_escalations_total",
+                    DebugValue::Counter(count),
+                ) => escalations.push((labels, count)),
+                ("ingestion_consumer_request_duration_seconds", DebugValue::Histogram(samples)) => {
+                    let seconds: Vec<f64> =
+                        samples.iter().map(|sample| sample.into_inner()).collect();
+                    durations.push((labels, seconds));
+                }
+                _ => {}
+            }
+        }
+        escalations.sort();
+        durations.sort_by(|a, b| a.0.cmp(&b.0));
+        assert_eq!(
+            escalations,
+            vec![
+                (
+                    labels(&[("reason", "attempts"), ("progressed", "false")]),
+                    1
+                ),
+                (labels(&[("reason", "attempts"), ("progressed", "true")]), 1),
+            ],
+            "progress counts for each key, not for the request"
+        );
+        assert_eq!(
+            durations,
+            vec![
+                (
+                    labels(&[("budgeted", "false"), ("outcome", "accepted")]),
+                    vec![4.0]
+                ),
+                (
+                    labels(&[("budgeted", "true"), ("outcome", "partial")]),
+                    vec![1.0]
+                ),
+            ]
         );
     }
 

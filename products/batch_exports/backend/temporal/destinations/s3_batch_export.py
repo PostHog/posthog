@@ -392,6 +392,7 @@ class S3BatchExportWorkflow(PostHogWorkflow):
             backfill_details=inputs.backfill_details,
             is_backfill=is_backfill,
             batch_export_model=inputs.batch_export_model,
+            use_new_events_schema=inputs.use_new_events_schema,
             use_virtual_style_addressing=inputs.use_virtual_style_addressing,
             legacy_parquet_extension=inputs.legacy_parquet_extension,
             batch_export_id=inputs.batch_export_id,
@@ -426,6 +427,7 @@ async def get_credentials_using_user_aws_role(
     duration: int = 3600,
     max_attempts: int = 5,
     delay: int | float = 1.0,
+    external_role_arn: str | None = None,
 ) -> AWSCredentials:
     """Attempt to obtain credentials assuming a user-provided AWS role.
 
@@ -447,10 +449,13 @@ async def get_credentials_using_user_aws_role(
         max_attempts: How many times to attempt to connect. Useful for tests as
             roles and/or policies may not be immediately available.
         delay: Initial delay in between connection attempts.
+        external_role_arn: The external-access role to assume first. Another use case passes its own
+            dedicated role here. Defaults to the batch exports role.
     """
-    external_role_arn = await asyncio.to_thread(
-        get_or_settings, "BATCH_EXPORT_S3_EXTERNAL_ROLE_ARN", CredentialsCaller.BATCH_EXPORTS
-    )
+    if external_role_arn is None:
+        external_role_arn = await asyncio.to_thread(
+            get_or_settings, "BATCH_EXPORT_S3_EXTERNAL_ROLE_ARN", CredentialsCaller.BATCH_EXPORTS
+        )
     if not external_role_arn:
         raise ExternalRoleArnNotConfiguredError()
 

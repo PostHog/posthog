@@ -48,6 +48,8 @@ class TestValidateCredentials:
                 ),
             ),
             ("plans", _OK, "/services/v2/service_types", (True, None)),
+            ("plan_items", _OK, "/services/v2/service_types", (True, None)),
+            ("workflow_cards", _OK, "/people/v2/workflows", (True, None)),
         ],
     )
     def test_maps_the_probe_status(

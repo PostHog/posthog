@@ -335,6 +335,12 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     [Scene.TwoFactorReset]: { allowUnauthenticated: true, layout: 'plain' },
     [Scene.VercelConnect]: { allowUnauthenticated: true, layout: 'plain', name: 'Connect to Vercel' },
     [Scene.VercelLinkError]: { layout: 'plain', name: 'Vercel account mismatch' },
+    [Scene.ToolbarOAuthError]: {
+        name: 'Toolbar sign-in error',
+        layout: 'plain',
+        projectBased: false,
+        organizationBased: false,
+    },
     [Scene.AgenticAccountMismatch]: { layout: 'plain', name: 'Account mismatch', allowUnauthenticated: true },
     [Scene.AccountConnected]: {
         name: 'Account connected',
@@ -508,6 +514,7 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     [Scene.SessionProfile]: { projectBased: true, name: 'Session profile', iconType: 'session_profile' },
     [Scene.Settings]: { projectBased: true, name: 'Settings' },
     [Scene.IdentityProviderConfig]: { projectBased: true, name: 'Configure identity provider' },
+    [Scene.OAuthApplication]: { projectBased: true, name: 'OAuth application' },
     [Scene.DataDeletionRequestNew]: { projectBased: true, name: 'New deletion request' },
     [Scene.Signup]: { onlyUnauthenticated: true, name: 'Sign up', layout: 'plain' },
     [Scene.Site]: { projectBased: true, hideProjectNotice: true, layout: 'app-raw' },
@@ -681,6 +688,16 @@ export const redirects: Record<
     '/data-management/database': urls.sources(),
     '/data-management/data-warehouse': urls.sources(),
     '/data-pipelines': urls.sources(),
+    // No scene lives under /data-pipelines/*. These entries send guessed and bookmarked subpaths to the
+    // matching page, because the bare '/data-pipelines' entry above does not match a subpath.
+    '/data-pipelines/overview': urls.sources(),
+    '/data-pipelines/sources': urls.sources(),
+    '/data-pipelines/destinations': urls.destinations(),
+    '/data-pipelines/transformations': urls.transformations(),
+    '/data-pipelines/batch-exports': urls.destinations('batch'),
+    '/data-pipelines/new/source': urls.dataPipelinesNew('source'),
+    '/data-pipelines/new/destination': urls.dataPipelinesNew('destination'),
+    '/data-pipelines/new/transformation': urls.dataPipelinesNew('transformation'),
     // TODO: Temporary redirect because of moving marketing Analytics out of web analytics. I will remove this after a month.
     '/web/marketing': (_, searchParams) => {
         const params = new URLSearchParams(searchParams as Record<string, string>).toString()
@@ -821,6 +838,7 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.dataWarehouseManagedViewsets()]: [Scene.DataManagement, 'dataWarehouseManagedViewsets'],
     [urls.coreEvents()]: [Scene.DataManagement, 'coreEvents'],
     [urls.eventDefinitions()]: [Scene.DataManagement, 'eventDefinitions'],
+    [urls.tagDefinitions()]: [Scene.DataManagement, 'tagDefinitions'],
     [urls.eventDefinition(':id')]: [Scene.EventDefinition, 'eventDefinition'],
     [urls.eventDefinitionEdit(':id')]: [Scene.EventDefinitionEdit, 'eventDefinitionEdit'],
     [urls.propertyDefinitions()]: [Scene.DataManagement, 'propertyDefinitions'],
@@ -938,6 +956,8 @@ export const routes: Record<string, [Scene | string, string]> = {
     [`${urls.verifyEmail(':uuid')}/:token`]: [Scene.VerifyEmail, 'verifyEmailWithToken'],
     [urls.vercelConnect()]: [Scene.VercelConnect, 'vercelConnect'],
     [urls.vercelLinkError()]: [Scene.VercelLinkError, 'vercelLinkError'],
+    // pinned: the Django path in posthog/urls.py that every refused toolbar sign-in redirects to.
+    '/toolbar_oauth/error': [Scene.ToolbarOAuthError, 'toolbarOAuthError'],
     [urls.agenticAccountMismatch()]: [Scene.AgenticAccountMismatch, 'agenticAccountMismatch'],
     [urls.unsubscribe()]: [Scene.Unsubscribe, 'unsubscribe'],
     [urls.codeCanvasLink(':channelId', ':dashboardId')]: [Scene.CodeCanvasLink, 'codeCanvasLink'],
@@ -957,6 +977,7 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.notebooks()]: [Scene.Notebooks, 'notebooks'],
     [urls.canvas()]: [Scene.Canvas, 'canvas'],
     [urls.identityProviderConfig(':feature', ':configId')]: [Scene.IdentityProviderConfig, 'identityProviderConfig'],
+    [urls.oauthApplication(':id')]: [Scene.OAuthApplication, 'oauthApplication'],
     [urls.dataDeletionRequestNew()]: [Scene.DataDeletionRequestNew, 'dataDeletionRequestNew'],
     [urls.settings(':section' as any)]: [Scene.Settings, 'settings'],
     [urls.moveToPostHogCloud()]: [Scene.MoveToPostHogCloud, 'moveToPostHogCloud'],

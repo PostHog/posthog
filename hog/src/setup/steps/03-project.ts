@@ -3,9 +3,9 @@ import { z } from 'zod'
 import { failureText, HogError } from '@/core/errors'
 import { hasLogin, writeLoginToConfig } from '@/posthog/login/finish'
 
-import { productIntent, productLabel } from '../products'
+import { productIntent, productLabel, type ProductId } from '../products'
 import { completed, runNext, type SetupRun, type Step } from '../setup-run'
-import { SETUP_NEXT } from '../state'
+import { SETUP_COMMAND } from '../state'
 
 // A failed intent only costs PostHog a hint about what to show first, so it warns and setup goes on.
 async function recordIntents(run: SetupRun): Promise<void> {
@@ -34,6 +34,36 @@ async function recordIntents(run: SetupRun): Promise<void> {
     })
 }
 
+const ENABLEMENT: Partial<Record<ProductId, string>> = {
+    'session-replay': 'session_replay',
+    'error-tracking': 'error_tracking',
+}
+
+const EnablementSchema = z.object({ results: z.record(z.string(), z.string()) })
+
+// Picking session replay means recording sessions, so setup turns it on rather than leave it to the
+// agent. A failure only warns: the agent can still turn it on with `hog api`.
+async function enableProducts(run: SetupRun): Promise<void> {
+    const picked = (run.state?.products ?? []).filter((id) => ENABLEMENT[id] !== undefined)
+    if (picked.length === 0) {
+        return
+    }
+
+    try {
+        const [api, { projectId }] = await Promise.all([run.api(), run.requireLogin()])
+        // PostHog serves this only under the project, not the environment.
+        await api.post(
+            `/api/projects/${projectId}/product_enablement/`,
+            { products: picked.map((id) => ENABLEMENT[id]) },
+            EnablementSchema
+        )
+        run.context.enabled = picked.map(productLabel)
+    } catch (error) {
+        const reason = failureText(error, run.ctx.mode.isCI)
+        run.context.warnings.push(`hog couldn't turn on ${picked.map(productLabel).join(' and ')}: ${reason}`)
+    }
+}
+
 export const project: Step = {
     isDone: async (run) => {
         const [login, loaded] = await Promise.all([run.login(), run.ctx.config()])
@@ -49,7 +79,7 @@ export const project: Step = {
         if (!run.input.next) {
             return runNext(
                 'setup_project_pending',
-                `Run \`${SETUP_NEXT}\` to save the project in \`posthog.json\` and send the products the user picked to PostHog.`
+                `Run \`${SETUP_COMMAND}\` to save the project in \`posthog.json\` and send the products the user picked to PostHog.`
             )
         }
 
@@ -59,7 +89,7 @@ export const project: Step = {
             throw new HogError(
                 'setup_config_unwritable',
                 `Couldn't write ${written.path}: ${written.error ?? 'unknown error'}`,
-                `Check that you can write to ${run.scope.folder}, then run \`${SETUP_NEXT}\` again.`
+                `Check that you can write to ${run.scope.folder}, then run \`${SETUP_COMMAND}\` again.`
             )
         }
 
@@ -68,6 +98,7 @@ export const project: Step = {
         }
 
         await recordIntents(run)
+        await enableProducts(run)
         await run.complete('project')
 
         return undefined

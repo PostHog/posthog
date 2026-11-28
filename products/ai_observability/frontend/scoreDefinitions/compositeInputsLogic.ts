@@ -4,11 +4,13 @@ import posthog from 'posthog-js'
 
 import type { ResourceTagFilters } from '../components/resourceTagFilters'
 import {
+    aiObservabilityOfflineExperimentsScorePreviewsCreate,
     llmAnalyticsScoreDefinitionsList,
     llmAnalyticsScoreDefinitionsVersionsList,
     llmAnalyticsScoreDefinitionsValidateCompositionCreate,
 } from '../generated/api'
 import type { ScoreDefinitionVersionApi } from '../generated/api.schemas'
+import type { ExperimentScorePreviewApi } from '../generated/api.schemas'
 import type { PaginatedScoreDefinitionListApi } from '../generated/api.schemas'
 import {
     buildCompositionFromDraft,
@@ -19,6 +21,8 @@ import {
 } from './scoreDefinitionModalUtils'
 
 export interface CompositeInputsLogicProps {
+    scope?: 'item' | 'experiment'
+    experimentId?: string
     id: string
     inputDefinitionId?: string
     initialDefinitionIds?: string[]
@@ -34,6 +38,7 @@ export interface compositeInputsLogicValues {
     validation: {
         error: string | null
         fingerprint: string
+        preview?: ExperimentScorePreviewApi
     } | null
     validationLoading: boolean
     versions: Record<
@@ -134,12 +139,19 @@ export interface compositeInputsLogicActions {
     validateFormulaSuccess: (
         validation:
             | {
+                  error: null
+                  fingerprint: string
+                  preview: ExperimentScorePreviewApi
+              }
+            | {
                   error: string
                   fingerprint: string
+                  preview?: undefined
               }
             | {
                   error: null
                   fingerprint: string
+                  preview?: undefined
               },
         payload?: {
             draft: ScoreDefinitionDraft
@@ -147,12 +159,19 @@ export interface compositeInputsLogicActions {
     ) => {
         validation:
             | {
+                  error: null
+                  fingerprint: string
+                  preview: ExperimentScorePreviewApi
+              }
+            | {
                   error: string
                   fingerprint: string
+                  preview?: undefined
               }
             | {
                   error: null
                   fingerprint: string
+                  preview?: undefined
               }
         payload?: {
             draft: ScoreDefinitionDraft
@@ -175,7 +194,7 @@ export type compositeInputsLogicType = MakeLogicType<
 export const compositeInputsLogic = kea<compositeInputsLogicType>([
     path(['products', 'ai_observability', 'frontend', 'scoreDefinitions', 'compositeInputsLogic']),
     props({} as CompositeInputsLogicProps),
-    key(({ id }) => `${getCurrentProjectId()}-${id}`),
+    key(({ id, scope }) => `${getCurrentProjectId()}-${id}-${scope ?? 'item'}`),
     actions({
         setSearch: (search: string) => ({ search }),
         setTagFilters: (tagFilters: ResourceTagFilters) => ({ tagFilters }),
@@ -216,7 +235,12 @@ export const compositeInputsLogic = kea<compositeInputsLogicType>([
             {
                 loadOptions: async (_, breakpoint) => {
                     const page = await llmAnalyticsScoreDefinitionsList(getCurrentProjectId(), {
-                        calculation: props.inputDefinitionId ? 'composite' : 'reported',
+                        calculation: props.inputDefinitionId
+                            ? 'composite'
+                            : props.scope === 'experiment'
+                              ? undefined
+                              : 'reported',
+                        scope: props.inputDefinitionId ? undefined : 'item',
                         input_definition_id: props.inputDefinitionId,
                         search: values.search || undefined,
                         tags: JSON.stringify(values.tagFilters.tags),
@@ -259,10 +283,11 @@ export const compositeInputsLogic = kea<compositeInputsLogicType>([
             },
         ],
         validation: [
-            null as { fingerprint: string; error: string | null } | null,
+            null as { fingerprint: string; error: string | null; preview?: ExperimentScorePreviewApi } | null,
             {
                 validateFormula: async ({ draft }) => {
                     const body = {
+                        ...(draft.scope === 'experiment' ? { scope: draft.scope } : {}),
                         kind: draft.kind,
                         composition: buildCompositionFromDraft(draft)!,
                         config: buildConfigFromDraft(draft),
@@ -273,6 +298,18 @@ export const compositeInputsLogic = kea<compositeInputsLogicType>([
                         input_count: draft.inputs.length,
                     })
                     try {
+                        if (props.experimentId && draft.scope === 'experiment') {
+                            const preview = await aiObservabilityOfflineExperimentsScorePreviewsCreate(
+                                getCurrentProjectId(),
+                                props.experimentId,
+                                body
+                            )
+                            posthog.capture('llma experiment score previewed', {
+                                status: preview.status,
+                                input_count: draft.inputs.length,
+                            })
+                            return { fingerprint, error: null, preview }
+                        }
                         await llmAnalyticsScoreDefinitionsValidateCompositionCreate(getCurrentProjectId(), body)
                         posthog.capture('llma composite formula validated', { kind: draft.kind, valid: true })
                         return { fingerprint, error: null }

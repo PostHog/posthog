@@ -1,9 +1,10 @@
+import { createHash } from 'crypto'
 import path from 'path'
 
 import { durationMs } from '../duration'
 import { Controller } from './admission'
 import { AwsError } from './aws'
-import { Manifest, evidenceOf, keyOf } from './lease'
+import { Manifest, evidenceOf, keyOf, manifestBody } from './lease'
 import { CloudProfile } from './profile'
 
 export const RUN_TAG = 'scenario-run'
@@ -48,6 +49,7 @@ function parametersOf(profile: CloudProfile, manifest: Manifest, image: string):
         RunId: manifest.runId,
         Commit: manifest.commit,
         EvidenceBucket: baseline.evidenceBucket,
+        InputManifestSha256: createHash('sha256').update(manifestBody(manifest)).digest('hex'),
         ExpiresAt: manifest.expiresAt,
         EngineVersion: profile.engineVersion,
         WriterClass: profile.writerClass,

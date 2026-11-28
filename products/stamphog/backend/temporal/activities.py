@@ -37,7 +37,7 @@ from urllib.parse import urlparse
 
 from django.conf import settings
 from django.core.serializers.json import DjangoJSONEncoder
-from django.db import router
+from django.db import router, transaction
 from django.db.models import F, Func, JSONField, Value
 from django.db.models.functions import Cast, Coalesce
 from django.utils import timezone
@@ -96,12 +96,12 @@ from products.stamphog.backend.logic.gateway_tokens import (
     GatewayTokenError,
     active_user,
     gateway_root,
-    is_legacy_stamphog_route,
     mint_scoped_token,
     revoke_scoped_token,
 )
 from products.stamphog.backend.logic.github_client import StamphogGitHubClient, expected_app_bot_login
 from products.stamphog.backend.logic.issuer_manifests import issuer_manifest_paths
+from products.stamphog.backend.logic.jsonb import without_nul
 from products.stamphog.backend.logic.policy_files import effective_policy_files
 from products.stamphog.backend.logic.refusal_summary import summarize_refusal
 from products.stamphog.backend.logic.review_trigger import trigger_for_run
@@ -114,8 +114,15 @@ from products.stamphog.backend.logic.reviewer import (
 )
 from products.stamphog.backend.logic.routing.fork_labels import fork_labels
 from products.stamphog.backend.logic.scrubbing import neutralize_active_markdown, scrub_credentials
-from products.stamphog.backend.logic.workflow_proofs import proven_check_runs
+from products.stamphog.backend.logic.workflow_proofs import (
+    SEEN_OUTPUT_KEY,
+    proven_check_runs,
+    seen_entries,
+    seen_on_head,
+    seen_runs,
+)
 from products.stamphog.backend.models import PullRequest, PullRequestAudience, ReviewRun, StamphogRepoConfig
+from products.stamphog.backend.tasks.broadcast_requests import queue_broadcast_request_refresh_after_verdict
 from products.stamphog.backend.tasks.tasks import (
     queue_routing_after_verdict,
     request_rereview_after_external_review,
@@ -197,30 +204,38 @@ def _load_run(input: StamphogReviewInput) -> ReviewRun:
     )
 
 
-def _without_nul(value: Any) -> Any:
-    """Drop NUL characters from every string in ``value``.
-
-    The context holds PR text, and Postgres refuses ``\\u0000`` in jsonb. One NUL in a PR body or
-    comment fails the whole write, and every retry and re-review of that PR fails the same way.
-    """
-    if isinstance(value, str):
-        return value.replace("\x00", "")
-    if isinstance(value, dict):
-        return {_without_nul(key): _without_nul(item) for key, item in value.items()}
-    if isinstance(value, list | tuple):
-        return [_without_nul(item) for item in value]
-    return value
-
-
 def _output_merge(updates: dict[str, Any]) -> Func:
     """Postgres ``output || updates``: a top-level key merge that the database performs."""
     return Func(
         Coalesce(F("output"), Cast(Value("{}"), output_field=JSONField())),
-        Cast(Value(json.dumps(_without_nul(updates), cls=DjangoJSONEncoder)), output_field=JSONField()),
+        Cast(Value(json.dumps(without_nul(updates), cls=DjangoJSONEncoder)), output_field=JSONField()),
         template="%(expressions)s",
         arg_joiner=" || ",
         output_field=JSONField(),
     )
+
+
+def _record_seen_workflow_runs(run: ReviewRun, check_runs: list[dict]) -> None:
+    """Raise the newest publisher runs this run stored to include the ones it just verified.
+
+    A writer's job can hide a newer result, so once any read of the head verified a run, an older
+    result must never decide for the head again. A timed-out attempt can overlap its retry, so the
+    read, the maximum and the write happen under the run's row lock and the value never goes down.
+    """
+    db = router.db_for_write(ReviewRun)
+    with transaction.atomic(using=db):
+        stored = (
+            ReviewRun.objects.for_team(run.team_id)
+            .using(db)
+            .select_for_update()
+            .filter(id=run.id)
+            .values_list(f"output__{SEEN_OUTPUT_KEY}", flat=True)
+            .first()
+        )
+        current = seen_runs([stored])
+        newest = seen_runs([stored, check_runs])
+        if newest != current:
+            _merge_run_output(run, {SEEN_OUTPUT_KEY: seen_entries(newest)})
 
 
 def _merge_run_output(run: ReviewRun, updates: dict[str, Any]) -> None:
@@ -234,7 +249,7 @@ def _merge_run_output(run: ReviewRun, updates: dict[str, Any]) -> None:
     ReviewRun.objects.for_team(run.team_id).using(router.db_for_write(ReviewRun)).filter(id=run.id).update(
         output=_output_merge(updates), updated_at=timezone.now()
     )
-    run.output = {**(run.output or {}), **_without_nul(updates)}
+    run.output = {**(run.output or {}), **without_nul(updates)}
 
 
 # The cap bounds what a leaked token can spend; the TTL must outlive the 30-minute review activity.
@@ -324,11 +339,6 @@ def _hosted_gateway() -> AIGatewayConfig:
     if gateway is None:
         raise RuntimeError(
             "AI_GATEWAY_URL and AI_GATEWAY_API_KEY must both be set; hosted reviews require the ai-gateway"
-        )
-    if is_legacy_stamphog_route(gateway.url):
-        raise RuntimeError(
-            "AI_GATEWAY_API_KEY is set but AI_GATEWAY_URL is the legacy stamphog route; "
-            "the ai-gateway key belongs with the ai-gateway URL"
         )
     return gateway
 
@@ -579,6 +589,12 @@ def _read_review_context(run: ReviewRun) -> dict[str, Any]:
                 if content is not None:
                     policy_files[path] = content
         with timer.step("check_run_proofs"):
+            seen = seen_on_head(
+                run.team_id,
+                repo_config_id=run.pull_request.repo_config_id,
+                pr_number=run.pull_request.pr_number,
+                head_sha=run.head_sha,
+            )
             check_runs = proven_check_runs(
                 client,
                 repo,
@@ -586,7 +602,9 @@ def _read_review_context(run: ReviewRun) -> dict[str, Any]:
                 head_sha=run.head_sha,
                 check_runs=check_runs_future.result(),
                 policy=policy_files.get(STAMPHOG_POLICY_ENTRYPOINT),
+                seen=seen,
             )
+            _record_seen_workflow_runs(run, check_runs)
         history: ReviewHistory = history_future.result()
 
         context = {
@@ -939,7 +957,7 @@ def _fast_refusal_summary(run: ReviewRun, outcome: PregateOutcome) -> str | None
     is already REFUSED, so the note must never delay or fail it.
     """
     gateway = resolve_ai_gateway_config()
-    if gateway is None or is_legacy_stamphog_route(gateway.url) or outcome.result is None:
+    if gateway is None or outcome.result is None:
         return None
     try:
         token = _mint_reviewer_scoped_token(gateway, run, _connected_user(run))
@@ -1018,6 +1036,12 @@ def _attest_gates(run: ReviewRun, client: StamphogGitHubClient) -> GateAttestati
         # the check runs are read again. A failed read lifts nothing, which refuses only the
         # approvals that need a lift.
         try:
+            seen = seen_on_head(
+                run.team_id,
+                repo_config_id=run.pull_request.repo_config_id,
+                pr_number=run.pull_request.pr_number,
+                head_sha=run.head_sha,
+            )
             context["check_runs"] = proven_check_runs(
                 client,
                 repo,
@@ -1025,7 +1049,9 @@ def _attest_gates(run: ReviewRun, client: StamphogGitHubClient) -> GateAttestati
                 head_sha=run.head_sha,
                 check_runs=client.get_check_runs(repo, run.head_sha),
                 policy=policy_files.get(STAMPHOG_POLICY_ENTRYPOINT),
+                seen=seen,
             )
+            _record_seen_workflow_runs(run, context["check_runs"])
         except Exception:
             activity.logger.exception(f"Run {run.id}: check runs unreadable for the gate attestation")
             context["check_runs"] = []
@@ -2037,13 +2063,12 @@ def post_verdict(input: StamphogReviewInput) -> dict:
     # Same reading the reviewer got, from the same stamp, so the handoff can't disagree with what
     # the run was told it was.
     trigger = trigger_for_run(output=output, review_mode=repo_config.review_mode)
-    # No label requested an admitted bot's review, and a label added to its PR starts none.
-    strips_label = (
-        repo_config.review_mode == ReviewMode.LABEL
-        and is_refusal
-        and run.may_publish(parsed.verdict)
-        and trigger != ReviewTrigger.BOT_ADMISSION.value
+    # No label requested an admitted bot's review, and a label added to its PR starts none. In ALL mode the
+    # same holds for a self-driving PR, which is bot-authored.
+    label_requests_review = trigger != ReviewTrigger.BOT_ADMISSION.value and (
+        repo_config.review_mode == ReviewMode.LABEL or trigger != ReviewTrigger.SELF_DRIVING.value
     )
+    strips_label = is_refusal and run.may_publish(parsed.verdict) and label_requests_review
 
     relabel_label = repo_config.trigger_label if strips_label else None
 
@@ -2101,8 +2126,7 @@ def post_verdict(input: StamphogReviewInput) -> dict:
     # Keyed off parsed.verdict, not run.verdict: the gate-blocked branch overrides run.verdict to WAIT,
     # but both the label-strip and the ReviewHog handoff below treat a gate-blocked refusal the same
     # as an engine-refused one.
-    # Action parity: in label-triggered mode a refused/escalated verdict strips the trigger label, so
-    # the author re-requests the next review by re-adding it.
+    # A refusal strips the trigger label in both modes, so the next add fires a `labeled` event.
     # A failure here raises on purpose: the activity retries and the sticky upsert above is idempotent.
     if strips_label:
         client.remove_pr_label(repo, pull_request.pr_number, repo_config.trigger_label)
@@ -2230,6 +2254,9 @@ def _notify_finished_review(
         verdict=finished.verdict,
         silent=run.is_silent,
     )
+    # Another of stamphog's own follow-ups. It refreshes only after an outcome that GitHub shows, because a card
+    # that reacted to a withheld verdict would tell the channel what the silent run kept off the PR.
+    queue_broadcast_request_refresh_after_verdict(run, finished.status)
 
 
 @activity.defn
@@ -2740,33 +2767,48 @@ _PATH_DENY_GATES = frozenset({"deny-list", "tier"})
 def _only_a_human_can_approve(parsed: ReviewerVerdict) -> bool:
     """True when the changed paths alone refused the PR, so a re-review of the same files refuses again.
 
-    A deny on migrations alone is excluded: it lifts once the `Migration risk` check passes.
+    A deny on migrations alone is excluded: a rerun of the `Migration risk` check at the same head can lift it.
+    A WAIT is excluded too: it waits on a pending check that can lift the deny, and re-reviews once that check reports.
     """
+    if parsed.verdict not in (ReviewVerdict.REFUSED, ReviewVerdict.ESCALATE):
+        return False
     gates = [g for g in parsed.gate_result.get("gates") or [] if isinstance(g, dict)]
     failed = {g.get("gate") for g in gates if not g.get("passed", True)}
-    deny_categories = (parsed.gate_result.get("classification") or {}).get("deny_categories") or []
-    return bool(failed) and failed <= _PATH_DENY_GATES and deny_categories != ["migrations"]
+    return bool(failed) and failed <= _PATH_DENY_GATES and _deny_categories(parsed) != ["migrations"]
+
+
+def _deny_categories(parsed: ReviewerVerdict) -> list:
+    return (parsed.gate_result.get("classification") or {}).get("deny_categories") or []
 
 
 def _verdict_body(parsed: ReviewerVerdict, verdict: str, relabel_label: str | None) -> str:
     """The review body: the outcome in words, what to do next, then whatever the engine rendered.
 
     ``relabel_label`` is the caller's own label-removal decision rather than a re-derivation of it, so
-    the review cannot tell an author to re-add a label the run left in place.
+    the review cannot tell an author to add a label the run left in place. The hint says "add", not
+    "re-add", because in ALL mode the label may never have been on the PR.
 
     The engine's ``review_body`` is the rich version (reasoning plus the gate table) and the
     ``reasoning``/``showstoppers`` pair is the fallback when it rendered nothing. The headline is
     prepended to both, so the outcome is stated whichever one is available.
+
+    A gate refusal is stored as a GATED WAIT, so the headline follows the engine's verdict: a refusal
+    must not read as a wait.
     """
+    gate_refused = parsed.gate_blocked and parsed.verdict in (ReviewVerdict.REFUSED, ReviewVerdict.ESCALATE)
+    if gate_refused:
+        verdict = ReviewVerdict.REFUSED
     headline = _VERDICT_HEADLINES.get(verdict, f"**Stamphog review: {verdict}**")
     if _only_a_human_can_approve(parsed):
         headline = _VERDICT_HEADLINES[ReviewVerdict.REFUSED]
         if relabel_label:
-            headline += (
-                f"\n\nRe-adding the `{relabel_label}` label gives the same result unless the changed files change."
-            )
+            headline += f"\n\nAdding the `{relabel_label}` label gives the same result unless the changed files change."
+    elif relabel_label and gate_refused and _deny_categories(parsed) == ["migrations"]:
+        headline += (
+            f"\n\nAdd the `{relabel_label}` label to request another review once the `Migration risk` check passes."
+        )
     elif relabel_label:
-        headline += f"\n\nRe-add the `{relabel_label}` label to request another review once you have addressed this."
+        headline += f"\n\nAdd the `{relabel_label}` label to request another review once you have addressed this."
     detail = parsed.review_body or _reasoning_detail(parsed)
     return f"{headline}\n\n{neutralize_active_markdown(detail)}".rstrip()
 

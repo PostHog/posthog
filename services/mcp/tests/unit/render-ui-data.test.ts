@@ -1,10 +1,17 @@
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js'
 import { describe, expect, it, vi } from 'vitest'
 
-import { loadRenderUiData } from '@/ui-apps/apps/render-ui-data'
+import { loadRenderUiData, readRenderUiEnvelope } from '@/ui-apps/apps/render-ui-data'
 import { APP_DATA_META_KEY } from '@/ui-apps/types'
 
 describe('render-ui data loading', () => {
+    it('reads the envelope, not the preloaded chart data, when the result carries both', () => {
+        const envelope = { tool_name: 'survey-get', tool_input: {}, app_key: 'survey' }
+        const meta = { [APP_DATA_META_KEY]: { id: 'example' } }
+
+        expect(readRenderUiEnvelope(envelope, meta)).toBe(envelope)
+    })
+
     it.each([
         { appKey: 'survey' as const, toolName: 'survey-get' },
         { appKey: 'query-results' as const, toolName: 'query-trends' },

@@ -3,7 +3,7 @@ import uuid
 import logging
 import builtins
 from collections import defaultdict
-from collections.abc import Iterator, Sequence
+from collections.abc import Iterable, Iterator, Sequence
 from contextlib import ExitStack, contextmanager
 from datetime import datetime, timedelta
 from typing import Any, TypeVar, cast
@@ -217,6 +217,9 @@ class InboxOnboardingSetupMode(models.TextChoices):
 # because that module pulls the HTTP stack in and this one is loaded on every Django start.
 GITHUB_LABEL_NAME_MAX_LENGTH = 50
 
+# The `(product, type)` a claim records for the claiming task (`report_assignments._associate_task_with_claim`).
+_CLAIM_TASK_RUN_IDENTIFIER = ("tasks", "agent_run")
+
 
 class SignalFirstReportNotification(UUIDModel):
     # Activation and report visibility belong to the environment, so the recipient must not be canonicalized to its parent.
@@ -326,6 +329,24 @@ class SignalTeamConfig(ModelActivityMixin, UUIDModel):
         if not repository or not isinstance(self.autostart_base_branches, dict):
             return None
         return self.autostart_base_branches.get(repository.lower()) or None
+
+
+UNCHOSEN_AUTOSTART_PRIORITY = AutonomyPriority.P2
+
+
+def effective_autostart_priority(config: SignalTeamConfig | None) -> AutonomyPriority:
+    """The project threshold that auto-start applies.
+
+    A project with no row, or with a null PR switch and the P4 column default, never chose a
+    threshold, so it gets `UNCHOSEN_AUTOSTART_PRIORITY`. P4 opens a PR for every report priority,
+    which nobody chose for these projects. A null switch with any other value keeps that value,
+    because a row only holds another value after a write.
+    """
+    if config is None:
+        return UNCHOSEN_AUTOSTART_PRIORITY
+    if config.autostart_enabled is None and config.default_autostart_priority == AutonomyPriority.P4:
+        return UNCHOSEN_AUTOSTART_PRIORITY
+    return AutonomyPriority(config.default_autostart_priority)
 
 
 class SignalUserAutonomyConfig(UUIDModel):
@@ -1225,6 +1246,61 @@ class SignalReport(UUIDModel):
         )
 
     @staticmethod
+    def pr_target_report_ids_for_tasks(team_id: int, task_ids: Iterable[Any]) -> set[str]:
+        """The reports the tasks' pull requests link to: each task's source report, the reports
+        the task attached a pull request to, and its pipeline, legacy and assignment associations.
+
+        A claim alone associates a task with a report, so a triage task that claims many reports
+        would link its PR to all of them, and the PR's merge or close would then resolve or
+        suppress them all. Claim-only reports are targets only when the task has no other report;
+        otherwise the agent attaches the PR to the report it fixes explicitly.
+        """
+        from products.tasks.backend.facade.api import get_task_signal_report_source_ids  # noqa: PLC0415
+
+        task_ids = {str(task_id) for task_id in task_ids}
+        if not task_ids:
+            return set()
+        direct: dict[str, set[str]] = defaultdict(set)
+        claim_only: dict[str, set[str]] = defaultdict(set)
+
+        def add(task_id: Any, report_id: Any, identifier: tuple[str, str] | None) -> None:
+            associations = claim_only if identifier == _CLAIM_TASK_RUN_IDENTIFIER else direct
+            associations[str(task_id)].add(str(report_id))
+
+        for task_id, report_id, content in SignalReportArtefact.objects.filter(
+            team_id=team_id, type=SignalReportArtefact.ArtefactType.TASK_RUN, task_id__in=task_ids
+        ).values_list("task_id", "report_id", "content"):
+            try:
+                run = TaskRunArtefact.model_validate_json(content)
+            except ValidationError:
+                add(task_id, report_id, None)
+                continue
+            add(task_id, report_id, (run.product, run.type))
+        for task_id, report_id, relationship in SignalReportTask.objects.filter(
+            team_id=team_id, task_id__in=task_ids
+        ).values_list("task_id", "report_id", "relationship"):
+            add(task_id, report_id, task_run_identifier_for_legacy_relationship(relationship))
+        for actor_task_id, report_id in SignalReportAssignment.all_teams.filter(
+            team_id=team_id, actor_kind=SignalActorKind.TASK, actor_task_id__in=task_ids
+        ).values_list("actor_task_id", "report_id"):
+            add(actor_task_id, report_id, None)
+        for task_id, report_id in SignalReportArtefact.objects.filter(
+            team_id=team_id, type=SignalReportArtefact.ArtefactType.PULL_REQUEST, task_id__in=task_ids
+        ).values_list("task_id", "report_id"):
+            add(task_id, report_id, None)
+        for source_task_id, source_id in get_task_signal_report_source_ids(task_ids=task_ids, team_id=team_id).items():
+            add(source_task_id, source_id, None)
+
+        targets: set[str] = set()
+        for task_id in task_ids:
+            associated = direct[task_id] | claim_only[task_id]
+            targets |= associated if len(associated) == 1 else direct[task_id]
+        return {
+            str(report_id)
+            for report_id in SignalReport.objects.filter(team_id=team_id, id__in=targets).values_list("id", flat=True)
+        }
+
+    @staticmethod
     def reports_for_task_ids_filter(task_ids: Any, *, team_id: int | None = None) -> "models.Q":
         """`reports_for_task_filter` widened to a *set* of tasks: a `Q` on `SignalReport.id` matching
         the reports associated with any task in `task_ids` (a collection or, preferably, a `task_id`
@@ -1383,7 +1459,8 @@ class SignalReportGithubComment(TeamScopedRootMixin, UUIDModel):
 
     One row per (report, issue). The row is the claim: it is taken before the comment goes out, so a
     re-notified report cannot post a second comment on the same issue, and it records which issues
-    already heard back.
+    already heard back. A claim also blocks the team's other open reports from commenting on that
+    issue, so an issue gets one comment at a time.
     """
 
     all_teams = models.Manager()  # noqa: DJ012
@@ -1484,6 +1561,8 @@ class SignalReportPullRequest(TeamScopedRootMixin, UUIDModel):
     state = models.CharField(max_length=10, choices=State, default=State.UNKNOWN)
     review_decision = models.CharField(max_length=20, choices=ReviewDecision, null=True, blank=True)
     merged_at = models.DateTimeField(null=True, blank=True)
+    merged_by_login = models.CharField(max_length=255, null=True, blank=True)
+    merged_by_github_id = models.BigIntegerField(null=True, blank=True)
     checked_at = models.DateTimeField(null=True, blank=True)
     participant_ids = ArrayField(models.PositiveBigIntegerField(), null=True, blank=True)
     participant_logins = ArrayField(models.CharField(max_length=255), null=True, blank=True)
@@ -2895,6 +2974,12 @@ class SignalReportMonitoringAttempt(UUIDModel):
     tracker_issue_close_processed_at = models.DateTimeField(null=True, blank=True)
     tracker_issue_close_next_attempt_at = models.DateTimeField(null=True, blank=True)
     close_pr_on_resolve = models.BooleanField(null=True, blank=True)
+    # The person who completed the implementation. The automatic transition out of Monitoring names them,
+    # because nobody makes that transition by hand.
+    credited_user = models.ForeignKey(
+        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_constraint=False, related_name="+"
+    )
+    credited_user_source = models.CharField(max_length=16, null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -3890,6 +3975,120 @@ class SignalScoutEmission(TeamScopedRootMixin, UUIDModel):
         ]
 
 
+class SignalScoutMessage(TeamScopedRootMixin, UUIDModel):
+    """One message a scout run asked to send to a person or channel through an owner-set route.
+
+    Written by the `scout-send-message` tool (`scout_harness/tools/messages.py`) as `queued` and sent
+    when the run ends, so a report the run edits several times reaches Slack once. A second call in
+    the same run with the same route and `dedupe_key` replaces the queued row, which the unique
+    constraint on `(run, route_key, dedupe_key)` enforces. The rows that reach `sent` are what the
+    per-scout cap and the 30-day dedupe window read.
+    """
+
+    class Status(models.TextChoices):
+        QUEUED = "queued", "Queued"
+        SENT = "sent", "Sent"
+        # A dry run (`emit=False`) records what it would have sent and posts nothing.
+        DRY_RUN = "dry_run", "Dry run"
+        # Queued, then not sent at the end of the run: see `drop_reason`.
+        DROPPED = "dropped", "Dropped"
+
+    class DropReason(models.TextChoices):
+        FLAG_OFF = "flag_off", "Feature off"
+        # The owner turned `emit` off after the message was queued.
+        EMIT_OFF = "emit_off", "Emit off"
+        ROUTE_REMOVED = "route_removed", "Route removed"
+        REPORT_MISSING = "report_missing", "Report missing"
+        # The report is suppressed by the safety judge, deleted, or failed, so the inbox does not show it.
+        REPORT_HIDDEN = "report_hidden", "Report hidden"
+        NO_SLACK_INTEGRATION = "no_slack_integration", "No Slack integration"
+        # Another run sent the same route and key after this message was queued.
+        DUPLICATE = "duplicate", "Duplicate"
+        # Left queued by a failed send for longer than the cap window, so no longer worth sending.
+        EXPIRED = "expired", "Expired"
+
+    # See SignalScoutConfig.all_teams for rationale: the end-of-run send runs with no team scope set.
+    all_teams = models.Manager()  # noqa: DJ012
+
+    team = models.ForeignKey(
+        "posthog.Team", on_delete=models.CASCADE, db_constraint=False, db_index=False, related_name="+"
+    )
+    run = models.ForeignKey(SignalScoutRun, on_delete=models.CASCADE, related_name="messages")
+    # The scout is the lane, not the config row, as for the run guard: configs are SET_NULL on runs,
+    # so a config recreated mid-window must not reset the cap or the dedupe window.
+    skill_name = models.CharField(max_length=200)
+    # Null only on a dry run, which writes no report. The tool requires it on every other run.
+    report = models.ForeignKey(SignalReport, on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
+    route_key = models.CharField(max_length=64)
+    dedupe_key = models.CharField(max_length=200)
+    title = models.CharField(max_length=200)
+    body = models.TextField()
+    status = models.CharField(max_length=16, choices=Status.choices, default=Status.QUEUED)
+    drop_reason = models.CharField(max_length=32, choices=DropReason.choices, null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    sent_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        verbose_name = "Signal scout message"
+        verbose_name_plural = "Signal scout messages"
+        default_manager_name = "all_teams"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["run", "route_key", "dedupe_key"], name="signal_scout_message_run_key_uniq"
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["team", "skill_name", "status", "sent_at"], name="signal_scout_message_lane_idx"),
+        ]
+
+
+class SignalScoutMessageDelivery(TeamScopedRootMixin, UUIDModel):
+    """One Slack recipient of a sent `SignalScoutMessage`, with the outcome of its delivery task.
+
+    A message whose route names two targets that resolve to the same Slack id gets one row, and so
+    one post. The Celery delivery task reads the row by id and writes `status`, `slack_ts` and
+    `error_code` back, so a retry of the task cannot post a second time once one post landed.
+    """
+
+    class Status(models.TextChoices):
+        PENDING = "pending", "Pending"
+        SENT = "sent", "Sent"
+        FAILED = "failed", "Failed"
+
+    class TargetType(models.TextChoices):
+        SLACK_DM = "slack_dm", "Slack direct message"
+        SLACK_CHANNEL = "slack_channel", "Slack channel"
+
+    all_teams = models.Manager()  # noqa: DJ012
+
+    team = models.ForeignKey(
+        "posthog.Team", on_delete=models.CASCADE, db_constraint=False, db_index=False, related_name="+"
+    )
+    message = models.ForeignKey(SignalScoutMessage, on_delete=models.CASCADE, related_name="deliveries")
+    target_type = models.CharField(max_length=16, choices=TargetType.choices)
+    # The Slack member or channel id, without the picker's `|name` suffix.
+    target_id = models.CharField(max_length=64)
+    integration_id = models.IntegerField()
+    status = models.CharField(max_length=16, choices=Status.choices, default=Status.PENDING)
+    slack_ts = models.CharField(max_length=64, null=True, blank=True)
+    error_code = models.CharField(max_length=64, null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "Signal scout message delivery"
+        verbose_name_plural = "Signal scout message deliveries"
+        default_manager_name = "all_teams"
+        constraints = [
+            models.UniqueConstraint(fields=["message", "target_id"], name="signal_scout_msg_delivery_uniq"),
+        ]
+        indexes = [
+            # The FK's own index is off; team deletion and the pending-delivery recovery read by team.
+            models.Index(fields=["team", "status", "created_at"], name="signal_scout_msg_dlv_team_idx"),
+        ]
+
+
 class SignalScoutPendingTrigger(TeamScopedRootMixin, UUIDModel):
     """A workflow "Run scout" fire that arrived while its scout was busy, waiting for a run.
 
@@ -4706,7 +4905,7 @@ class PersonalInboxRanking(TeamScopedRootMixin, UUIDModel):
 
 
 class AnomalyScoringState(TeamScopedRootMixin, UUIDModel):
-    """The trained detector artifacts of one insight and scoring profile of the anomaly scoring tick.
+    """The trained detector artifacts of one insight and model profile of the anomaly scoring tick.
 
     A train step fits one artifact per series and writes them as one blob to object storage. A score
     step fetches only the newest buckets and scores them with the stored artifacts. See
@@ -4719,11 +4918,15 @@ class AnomalyScoringState(TeamScopedRootMixin, UUIDModel):
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
     # Not a foreign key: insights belong to another product. A deleted insight leaves a small row behind.
     insight_id = models.BigIntegerField()
+    # The model profile, which scoring profiles with the same local part share. See `ScoringProfile.model_profile`.
     profile = models.CharField(max_length=64)
-    # The insight as the state was built for it. A change to any of them makes the next visit train.
+    # The insight as the state was built for it. A change to the interval or the query makes the next visit train.
+    # A change to the detector version only makes a retrain due, and the model scores with `scoring` until then.
     interval = models.CharField(max_length=16)
     detector_version = models.CharField(max_length=32)
     query_hash = models.CharField(max_length=32)
+    # The local scoring settings that the artifacts were fit with: `min_points` and the detector config.
+    scoring = models.JSONField(null=True, blank=True)
     trained_at = models.DateTimeField()
     # The newest scored bucket start over all series. Null when the insight returned no completed bucket.
     scored_through = models.DateTimeField(null=True, blank=True)

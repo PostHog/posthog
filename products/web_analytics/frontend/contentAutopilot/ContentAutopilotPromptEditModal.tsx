@@ -1,15 +1,27 @@
 import { useActions, useValues } from 'kea'
-import { useEffect, useState } from 'react'
+import { useEffect, useId, useState } from 'react'
 
-import { LemonButton, LemonInput, LemonModal, LemonTextArea } from '@posthog/lemon-ui'
-
-import { LemonField } from 'lib/lemon-ui/LemonField'
+import {
+    Button,
+    Credenza,
+    CredenzaBody,
+    CredenzaContent,
+    CredenzaDescription,
+    CredenzaFooter,
+    CredenzaHeader,
+    CredenzaTitle,
+    Field,
+    FieldDescription,
+    FieldLabel,
+    Textarea,
+} from '@posthog/quill'
 
 import {
     aeoPromptsPartialUpdateBodyPromptMax,
     aeoPromptsPartialUpdateBodyTopicMax,
 } from 'products/web_analytics/frontend/generated/api.zod'
 
+import { AiVisibilityTopicInput } from './AiVisibilityTopicInput'
 import { contentAutopilotPromptDetailLogic } from './contentAutopilotPromptDetailLogic'
 
 export const ContentAutopilotPromptEditModal = (): JSX.Element | null => {
@@ -17,6 +29,7 @@ export const ContentAutopilotPromptEditModal = (): JSX.Element | null => {
     const { savePromptEdit, setPromptEditing } = useActions(contentAutopilotPromptDetailLogic)
     const [text, setText] = useState('')
     const [topic, setTopic] = useState('')
+    const id = useId()
 
     useEffect(() => {
         if (promptEditing && prompt) {
@@ -32,47 +45,58 @@ export const ContentAutopilotPromptEditModal = (): JSX.Element | null => {
     const close = (): void => setPromptEditing(false)
 
     return (
-        <LemonModal
-            isOpen={promptEditing}
-            onClose={promptSaving ? undefined : close}
-            title="Edit prompt"
-            description="A text change adds a new version. Past checks keep the version they ran with."
-            width={640}
-            footer={
-                <>
-                    <LemonButton
-                        type="secondary"
+        // While the prompt saves, the dialog stays open.
+        <Credenza open={promptEditing} onOpenChange={(next) => !next && !promptSaving && close()}>
+            <CredenzaContent>
+                <CredenzaHeader>
+                    <CredenzaTitle>Edit prompt</CredenzaTitle>
+                    <CredenzaDescription>
+                        A text change adds a new version. Past checks keep the version they ran with.
+                    </CredenzaDescription>
+                </CredenzaHeader>
+                <CredenzaBody className="flex flex-col gap-4">
+                    <Field>
+                        <FieldLabel htmlFor={`${id}-prompt`}>Prompt</FieldLabel>
+                        <Textarea
+                            id={`${id}-prompt`}
+                            value={text}
+                            onChange={(event) => setText(event.target.value)}
+                            rows={3}
+                            maxLength={aeoPromptsPartialUpdateBodyPromptMax}
+                            autoFocus
+                        />
+                    </Field>
+                    <Field>
+                        <FieldLabel htmlFor={`${id}-topic`}>Topic</FieldLabel>
+                        <AiVisibilityTopicInput
+                            id={`${id}-topic`}
+                            value={topic}
+                            onChange={setTopic}
+                            maxLength={aeoPromptsPartialUpdateBodyTopicMax}
+                            dataAttr="content-autopilot-prompt-edit-topic"
+                        />
+                        <FieldDescription>Leave empty to remove the topic.</FieldDescription>
+                    </Field>
+                </CredenzaBody>
+                <CredenzaFooter>
+                    <Button
+                        variant="outline"
                         onClick={close}
                         disabledReason={promptSaving ? 'Wait for the prompt to save' : undefined}
                     >
                         Cancel
-                    </LemonButton>
-                    <LemonButton
-                        type="primary"
+                    </Button>
+                    <Button
+                        variant="primary"
                         onClick={() => savePromptEdit(text, topic)}
                         loading={promptSaving}
                         disabledReason={!text.trim() ? 'Enter the prompt text' : undefined}
                         data-attr="content-autopilot-prompt-edit-save"
                     >
                         Save
-                    </LemonButton>
-                </>
-            }
-        >
-            <div className="flex flex-col gap-4">
-                <LemonField.Pure label="Prompt">
-                    <LemonTextArea
-                        value={text}
-                        onChange={setText}
-                        minRows={3}
-                        maxLength={aeoPromptsPartialUpdateBodyPromptMax}
-                        autoFocus
-                    />
-                </LemonField.Pure>
-                <LemonField.Pure label="Topic" help="Leave empty to remove the topic.">
-                    <LemonInput value={topic} onChange={setTopic} maxLength={aeoPromptsPartialUpdateBodyTopicMax} />
-                </LemonField.Pure>
-            </div>
-        </LemonModal>
+                    </Button>
+                </CredenzaFooter>
+            </CredenzaContent>
+        </Credenza>
     )
 }

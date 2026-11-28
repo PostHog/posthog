@@ -1,8 +1,8 @@
-import { type TabKey, useTabHeader } from './tabHeaderStore'
+import { type TabHeaderSlot, type TabKey, useTabHeader } from './tabHeaderStore'
 
 interface TabHeaderPublisherProps {
     scrollToTop?: () => void
-    liveAudience?: boolean
+    filter?: TabHeaderSlot['filter']
     tab: TabKey
     status: string | null
     hint?: string | null
@@ -19,7 +19,7 @@ export function TabHeaderPublisher({
     status,
     hint = null,
     refreshing = false,
-    liveAudience = false,
+    filter = null,
 }: TabHeaderPublisherProps): null {
     useTabHeader(tab, {
         scrollToTop,
@@ -28,8 +28,7 @@ export function TabHeaderPublisher({
         status,
         editing: null,
         editPins: null,
-        filter: null,
-        liveAudience,
+        filter,
     })
     return null
 }

@@ -302,6 +302,10 @@ database "posthog" {
       type    = "LowCardinality(String)"
       default = "''"
     }
+    column "auth_type" {
+      type    = "LowCardinality(String)"
+      default = "''"
+    }
     index "idx_severity_text_set" {
       expr        = "severity_text"
       type        = "set(10)"
@@ -531,6 +535,10 @@ SQL
       type = "UInt8"
     }
     column "internal_source" {
+      type    = "LowCardinality(String)"
+      default = "''"
+    }
+    column "auth_type" {
       type    = "LowCardinality(String)"
       default = "''"
     }
@@ -3760,10 +3768,6 @@ SQL
 }
 
 named_collection "msk_cluster" {
-  external = true
-}
-
-named_collection "warpstream_calculated_events" {
   external = true
 }
 

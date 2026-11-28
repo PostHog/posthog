@@ -26,13 +26,18 @@ provably adds nothing; the third is a deliberate trust trade:
   a diff where EVERY file is ignored still falls closed to a full run (category
   `all_ignored`) — running nothing is a trust-model change this selector
   deliberately doesn't make; the category exists to measure how much a skip
-  mode would save before anyone builds it.
+  mode would save before anyone builds it. `force_full_exempt` is the one
+  narrow exception to that precedence: a unit test or Jest mock that
+  falls inside a `force_full` tree (a test under `frontend/src/lib/`, a
+  `test_middleware.py`) contributes nothing, because it never enters the app
+  bundle or the server. Outside `force_full` trees it has no effect, so a
+  scene's or product's test file still selects that area's specs.
 - `scenes_smoke_only` + `smoke_subset`: a scene listed here declares it has NO
   direct e2e coverage — no spec navigates to it, so the full suite wouldn't
   exercise it either. Changes there run the cheap `smoke_subset` (app boots,
   auth works) instead of everything. A mapping in `scenes` outranks the
   smoke-only list; writing a real spec for the scene means moving it to
-  `scenes`.
+  `scenes`. `products_smoke_only` does the same for product frontends.
 - `backend_smoke` + `backend_smoke_specs` + `backend_explicit`: a backend
   Python file (or its pytest snapshot) that no earlier rule maps runs
   `backend_smoke_specs`, plus the specs of the first `backend_explicit` area
@@ -215,8 +220,10 @@ class AreaMap:
     def __init__(self, area_map: dict, all_specs: set[str]) -> None:
         self._all_specs = all_specs
         self._force_full = [(p, _compile_glob(p)) for p in area_map.get("force_full", [])]
+        self._force_full_exempt = [_compile_glob(p) for p in area_map.get("force_full_exempt", [])]
         self._ignore = [_compile_glob(p) for p in area_map.get("ignore", [])]
         self._products = area_map.get("products", {})
+        self._products_smoke_only = set(area_map.get("products_smoke_only", []))
         self._scenes = area_map.get("scenes", {})
         self._scenes_smoke_only = set(area_map.get("scenes_smoke_only", []))
         self._smoke_subset = area_map.get("smoke_subset", [])
@@ -261,6 +268,8 @@ class AreaMap:
         explicit = self.explicit_specs(path)
         if explicit is not None:
             return explicit
+        if name in self._products_smoke_only:
+            return self._expand(self._smoke_subset)
         return FullRun(f"{path}: product '{name}' has no spec mapping", "unmapped_product", name)
 
     def scene_specs(self, path: str) -> FileOutcome:
@@ -291,6 +300,8 @@ class AreaMap:
         #    force-full path like the playwright workflow file itself).
         pattern = self.force_full_pattern(path)
         if pattern is not None:
+            if any(rx.match(path) for rx in self._force_full_exempt):
+                return None
             return FullRun(f"{path} matches force-full pattern '{pattern}'", "force_full", pattern)
 
         # 2. Provably inert paths contribute nothing (and don't force full).

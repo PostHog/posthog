@@ -126,11 +126,21 @@ class SuspensionMarker:
 
 
 @dataclass(frozen=True)
+class PlanFloorClamp:
+    """A DAG run slowed a saved query's refresh cadence to the fastest one its organization's plan allows."""
+
+    previous_target: timedelta | None
+    plan_floor: timedelta
+    at: datetime
+
+
+@dataclass(frozen=True)
 class SavedQueryNodeState:
     """What a saved query's DAG nodes record about its schedule."""
 
     declared_target: timedelta | None
     suspended: dict[str, SuspensionMarker]
+    plan_clamp: PlanFloorClamp | None
 
 
 @dataclass(frozen=True)
@@ -630,3 +640,11 @@ class ViewEngine:
         if self.target == ViewEngineTarget.CONNECTION:
             return ViewCapability(available=False, reason=connection)
         return _AVAILABLE
+
+
+@frozen
+class ViewCadenceSnapshot:
+    """The cadence each node runs at, per DAG, in the DAGs that read one warehouse table."""
+
+    team_id: int
+    cadences_by_dag: dict[str, dict[str, timedelta | None]]

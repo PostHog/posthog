@@ -15,7 +15,6 @@ Dagster Tests Pass
 Playwright tests pass
 Rust Tests Pass
 MCP Tests Pass
-LLM Services Tests Pass
 Desktop Tests Pass
 Backend CI on Depot / Django Tests Pass on Depot
 Backend CI on Depot / Test results

@@ -19,7 +19,9 @@ from django.test import override_settings
 import boto3
 import pyarrow as pa
 import structlog
+import pyarrow.fs as pa_fs
 import pyarrow.parquet as pq
+from azure.core.exceptions import ResourceNotFoundError
 from botocore.awsrequest import AWSResponse
 from botocore.compat import HTTPHeaders
 from botocore.exceptions import ClientError
@@ -31,6 +33,7 @@ from fsspec.implementations.local import LocalFileSystem
 from parameterized import parameterized
 from urllib3.response import HTTPResponse
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store import (
     delta,
     filesystem,
@@ -60,6 +63,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.obj
     ACCESS_DENIED_ERROR,
     BLOCKED_LOCATION_ERROR,
     FILE_PARSE_ERROR,
+    FILE_REMOVED_ERROR,
     INVALID_CONFIG_ERROR,
     NO_IMPORTABLE_FILES_ERROR,
     NO_SUCH_BUCKET_ERROR,
@@ -812,6 +816,66 @@ class TestReadTable:
 
         assert [(batch.column_names[0], batch.num_rows) for batch in batches] == [("id", 0)]
 
+    def test_a_file_deleted_after_listing_is_a_translated_retryable_error(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        (tmp_path / "orders.csv").write_bytes(b"id\n1\n")
+        store = local_store(tmp_path)
+        [table] = group_tables(store.list_objects("", 10), DiscoveryOptions(), root_name="root")
+
+        # `iter_table` lists the folder again right before opening its files. A real race needs the
+        # delete to land in that exact window, which isn't reproducible with real timing, so the
+        # delete happens inside the mocked `open` call instead: after the fresh listing that found
+        # the file, right as `_iter_files` tries to read it.
+        real_open = store.fs.open
+
+        def deleted_right_before_open(path: str, *args: Any, **kwargs: Any) -> IO[bytes]:
+            (tmp_path / "orders.csv").unlink()
+            return cast(IO[bytes], real_open(path, *args, **kwargs))
+
+        monkeypatch.setattr(store.fs, "open", deleted_right_before_open)
+
+        with pytest.raises(ObjectStorageError, match=FILE_REMOVED_ERROR) as error:
+            read_rows(store, table)
+
+        # Self-heals on the next sync's fresh listing, so it must stay out of error tracking.
+        assert error_message_matches(str(error.value), FakeObjectStorageSource().get_retryable_errors())
+
+    def test_a_blob_deleted_during_the_read_is_a_translated_retryable_error(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        (tmp_path / "orders.csv").write_bytes(b"id\n1\n")
+        store = local_store(tmp_path)
+        [table] = group_tables(store.list_objects("", 10), DiscoveryOptions(), root_name="root")
+
+        # adlfs only turns a deleted Azure blob into FileNotFoundError from the `open()` call
+        # itself (which reads its size); a blob deleted during the first ranged read raises the
+        # Azure SDK's own ResourceNotFoundError straight from `download_blob`, uncaught by adlfs.
+        # Not reproducible with real timing or without live Azure credentials, so the read call
+        # is the mocked boundary.
+        class _DeletedDuringRead:
+            def readable(self) -> bool:
+                return True
+
+            def read(self, size: int = -1) -> bytes:
+                raise ResourceNotFoundError("The specified blob does not exist.")
+
+            def readline(self) -> bytes:
+                raise ResourceNotFoundError("The specified blob does not exist.")
+
+            def __enter__(self) -> "_DeletedDuringRead":
+                return self
+
+            def __exit__(self, *args: Any) -> None:
+                pass
+
+        monkeypatch.setattr(store.fs, "open", lambda *args, **kwargs: _DeletedDuringRead())
+
+        with pytest.raises(ObjectStorageError, match=FILE_REMOVED_ERROR) as error:
+            read_rows(store, table)
+
+        assert error_message_matches(str(error.value), FakeObjectStorageSource().get_retryable_errors())
+
     def test_corrupt_gzip_is_a_parse_error(self, tmp_path: Path) -> None:
         (tmp_path / "bad.csv.gz").write_bytes(b"not gzip")
         store = local_store(tmp_path)
@@ -1021,6 +1085,27 @@ class TestDeltaCursor:
     @staticmethod
     def _deleted(scope: ReplaceScope | None, file: str) -> bool:
         return scope is not None and (file in scope.replaced or file not in scope.retained)
+
+    def test_data_files_read_through_a_filesystem_plan_the_same_read(self) -> None:
+        with tempfile.TemporaryDirectory() as folder:
+            path = str(Path(folder) / "sales")
+            write_deltalake(path, pa.table({"id": [1, 2], "day": ["a", "b"]}), partition_by=["day"])
+            stored = ObjectStorageDeltaCursor(version=0, table_id=str(DeltaTable(path).metadata().id), file_names=True)
+            _update(path)
+            handler = pa_fs.FSSpecHandler(LocalFileSystem())  # type: ignore[abstract]
+            data_filesystem = pa_fs.SubTreeFileSystem(path, pa_fs.PyFileSystem(handler))
+
+            reads = [
+                plan_delta_read(path, {}, "sales", stored=stored, by_file=True, data_filesystem=filesystem)
+                for filesystem in (None, data_filesystem)
+            ]
+            rows = [
+                sorted(map(str, (row for table in read.iter_tables(with_file_names=True) for row in table.to_pylist())))
+                for read in reads
+            ]
+
+        assert reads[0].replace_scope == reads[1].replace_scope
+        assert rows[0] == rows[1] and rows[0]
 
     @parameterized.expand([("append", False), ("by_file", True)])
     def test_a_cleaned_up_version_rebuilds(self, _name: str, by_file: bool) -> None:
@@ -1630,13 +1715,10 @@ def _forbidden_os_error() -> OSError:
 
 
 class TestAccessDeniedMessage:
-    GENERIC_WIZARD_MESSAGE = (
-        f"{ACCESS_DENIED_ERROR} 'example-bucket'. Check the access key and secret, and that the key can list "
-        "and read objects in this bucket."
-    )
+    GENERIC_WIZARD_MESSAGE = f"{ACCESS_DENIED_ERROR} 'example-bucket'. Check that these credentials can list and read objects in this bucket."
     GENERIC_SYNC_MESSAGE = (
-        "The storage provider rejected these credentials. Check the access key and secret, and that "
-        "the key can list and read the bucket, then reconnect the source."
+        "The storage provider rejected these credentials. Check that they can list and read the bucket, "
+        "then reconnect the source."
     )
     PROVIDER_MESSAGE = "This provider denied access. Grant the role on the bucket, then reconnect."
 
@@ -1890,7 +1972,7 @@ class TestDefineAddedTable:
         store = local_store(tmp_path)
 
         table = _source_with_store(store).define_added_table(
-            EXPORTS_ROOT_CONFIG, "My_Events", location, cast(Any, file_format), allow_double_quotes=False
+            EXPORTS_ROOT_CONFIG, 1, "My_Events", location, cast(Any, file_format), allow_double_quotes=False
         )
 
         assert (
@@ -1915,7 +1997,7 @@ class TestDefineAddedTable:
         write_deltalake(str(tmp_path / "events"), pa.table({"id": [1]}))
 
         table = _source_with_store(local_store(tmp_path)).define_added_table(
-            EXPORTS_ROOT_CONFIG, "events", location, cast(Any, file_format), allow_double_quotes=True
+            EXPORTS_ROOT_CONFIG, 1, "events", location, cast(Any, file_format), allow_double_quotes=True
         )
 
         assert (table.kind, table.path, table.pattern, table.file_format) == ("delta", "events", None, "delta")
@@ -1937,7 +2019,7 @@ class TestDefineAddedTable:
 
         with patch.object(type(store), "list_objects", list_only_the_log):
             table = _source_with_store(store).define_added_table(
-                EXPORTS_ROOT_CONFIG, "events", "events/", "infer", allow_double_quotes=True
+                EXPORTS_ROOT_CONFIG, 1, "events", "events/", "infer", allow_double_quotes=True
             )
 
         assert (table.kind, table.path, listed) == ("delta", "events", ["events/_delta_log"])
@@ -1948,7 +2030,7 @@ class TestDefineAddedTable:
 
         with pytest.raises(Exception):
             _source_with_store(store).define_added_table(
-                EXPORTS_ROOT_CONFIG, "events", "events/", "infer", allow_double_quotes=True
+                EXPORTS_ROOT_CONFIG, 1, "events", "events/", "infer", allow_double_quotes=True
             )
 
         assert [c.args[0] for c in store.list_objects.call_args_list] == ["events/_delta_log"]
@@ -1958,7 +2040,7 @@ class TestDefineAddedTable:
 
         with pytest.raises(ObjectStorageError, match="^No Delta table is at .*_delta_log"):
             _source_with_store(local_store(tmp_path)).define_added_table(
-                EXPORTS_ROOT_CONFIG, "events", "events", "delta", allow_double_quotes=True
+                EXPORTS_ROOT_CONFIG, 1, "events", "events", "delta", allow_double_quotes=True
             )
 
     @parameterized.expand(
@@ -1999,7 +2081,7 @@ class TestDefineAddedTable:
 
         with pytest.raises(ObjectStorageError, match=re.escape(expected)):
             _source_with_store(store).define_added_table(
-                EXPORTS_ROOT_CONFIG, "events", location, cast(Any, file_format), allow_double_quotes=True
+                EXPORTS_ROOT_CONFIG, 1, "events", location, cast(Any, file_format), allow_double_quotes=True
             )
 
         store.list_objects.assert_not_called()
@@ -2042,9 +2124,9 @@ class TestDefineAddedTable:
 
         if expected is None:
             with pytest.raises(ObjectStorageError, match="outside|can't be added to it"):
-                source.define_added_table(config, "events", location, "infer", allow_double_quotes=True)
+                source.define_added_table(config, 1, "events", location, "infer", allow_double_quotes=True)
             return
-        table = source.define_added_table(config, "events", location, "infer", allow_double_quotes=True)
+        table = source.define_added_table(config, 1, "events", location, "infer", allow_double_quotes=True)
         assert (table.path, table.pattern, [f.path for f in table.files]) == (*expected, ["exports/events/a.csv"])
 
     @pytest.mark.parametrize(
@@ -2062,7 +2144,7 @@ class TestDefineAddedTable:
 
         with pytest.raises(ObjectStorageError, match=f"^{NO_IMPORTABLE_FILES_ERROR}.*{re.escape(expected)}"):
             _source_with_store(local_store(tmp_path)).define_added_table(
-                EXPORTS_ROOT_CONFIG, "events", location, "infer", allow_double_quotes=True
+                EXPORTS_ROOT_CONFIG, 1, "events", location, "infer", allow_double_quotes=True
             )
 
     def test_a_location_with_more_files_than_a_sync_reads_is_refused(self) -> None:
@@ -2075,7 +2157,7 @@ class TestDefineAddedTable:
 
         with pytest.raises(ObjectStorageError, match=f"^{TOO_MANY_FILES_ERROR}"):
             _source_with_store(store).define_added_table(
-                EXPORTS_ROOT_CONFIG, "events", "events/", "infer", allow_double_quotes=True
+                EXPORTS_ROOT_CONFIG, 1, "events", "events/", "infer", allow_double_quotes=True
             )
 
     @pytest.mark.parametrize(
@@ -2093,7 +2175,7 @@ class TestDefineAddedTable:
         store = bucket_root_store(client)
 
         table = _source_with_store(store).define_added_table(
-            BUCKET_ROOT_CONFIG, "orders", location, "infer", allow_double_quotes=True
+            BUCKET_ROOT_CONFIG, 1, "orders", location, "infer", allow_double_quotes=True
         )
         rebuilt = TableDefinition.from_schema_metadata(table.name, table.schema_metadata())
         assert rebuilt is not None
@@ -2118,7 +2200,7 @@ class TestDefineAddedTable:
 
         with pytest.raises(ObjectStorageError) as error:
             _source_with_store(bucket_root_store(client)).define_added_table(
-                BUCKET_ROOT_CONFIG, "other", "tables/other/", "infer", allow_double_quotes=True
+                BUCKET_ROOT_CONFIG, 1, "other", "tables/other/", "infer", allow_double_quotes=True
             )
 
         assert str(error.value).startswith(expected)
@@ -2139,4 +2221,4 @@ class TestDefineAddedTable:
             values={**BUCKET_ROOT_CONFIG.values, "url_pattern": url, "account_key": "a2V5"}
         )
 
-        assert source.table_root(config) == expected
+        assert source.table_root(config, 1) == expected

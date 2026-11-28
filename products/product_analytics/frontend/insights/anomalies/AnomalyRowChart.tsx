@@ -1,7 +1,15 @@
 import { useValues } from 'kea'
-import { useMemo } from 'react'
+import { useCallback, useMemo } from 'react'
 
-import { type Series, TimeSeriesLineChart } from '@posthog/quill-charts'
+import {
+    type AnomalyMarker,
+    AnomalyPointsLayer,
+    createTooltipDateFormatter,
+    DefaultTooltip,
+    type Series,
+    TimeSeriesLineChart,
+    type TooltipContext,
+} from '@posthog/quill-charts'
 
 import { makeChartErrorHandler } from 'lib/charts/chartErrorHandler'
 import { useChartTheme } from 'lib/charts/hooks'
@@ -15,7 +23,13 @@ import type { AnomalySeriesApi } from 'products/signals/frontend/generated/api.s
 import { anomaliesTabLogic, anomalySeriesKey } from './anomaliesTabLogic'
 import { AnomalyBucketShading } from './AnomalyBucketShading'
 import { anomalyAxisTickFormatter, anomalyChartData } from './anomalyChartData'
-import { ANOMALY_FILL_COLOR_VAR, EARLIER_ANOMALY_FILL_OPACITY } from './anomalyChartStyle'
+import {
+    ANOMALY_FILL_COLOR_VAR,
+    ANOMALY_POINT_RADIUS,
+    EARLIER_ANOMALY_FILL_OPACITY,
+    earlierAnomalyPointColor,
+} from './anomalyChartStyle'
+import { AnomalyJudgeVerdict } from './AnomalyJudgeVerdict'
 import { AnomalyRangeStartLine } from './AnomalyRangeStartLine'
 
 const handleChartError = makeChartErrorHandler('anomalies-tab-row-chart')
@@ -46,33 +60,70 @@ export function AnomalyRowChart({ series, dateFrom, dateTo }: AnomalyRowChartPro
                 : null,
         [series, loaded, dateFrom, dateTo, timezone]
     )
+    const labelCount = data?.labels.length ?? 0
     const tickFormatter = useMemo(
-        () => anomalyAxisTickFormatter(series.interval, timezone),
-        [series.interval, timezone]
+        () => anomalyAxisTickFormatter(series.interval, timezone, labelCount),
+        [series.interval, timezone, labelCount]
+    )
+    // The render prop replaces the built-in tooltip, so it brings the date header the chart would set itself.
+    const tooltipLabelFormatter = useMemo(
+        () => createTooltipDateFormatter({ interval: series.interval, timezone, allDays: data?.labels }),
+        [series.interval, timezone, data?.labels]
+    )
+    const renderTooltip = useCallback(
+        (context: TooltipContext) => {
+            const verdict = data?.verdicts[context.dataIndex]
+            return (
+                <DefaultTooltip
+                    {...context}
+                    labelFormatter={tooltipLabelFormatter}
+                    valueFormatter={(value) => humanFriendlyNumber(value)}
+                    footer={verdict ? <AnomalyJudgeVerdict verdict={verdict} /> : undefined}
+                />
+            )
+        },
+        [data, tooltipLabelFormatter]
     )
     const chartSeries = useMemo<Series[]>(
         () => (data ? [{ key: series.series_key, label: series.series_label || 'Value', data: data.values }] : []),
         [data, series.series_key, series.series_label]
     )
+    const fillColor = getColorVar(ANOMALY_FILL_COLOR_VAR)
+    const markers = useMemo<AnomalyMarker[]>(() => {
+        if (!data) {
+            return []
+        }
+        const marker = (dataIndex: number, color: string): AnomalyMarker => ({
+            dataIndex,
+            value: data.values[dataIndex],
+            color,
+            yAxisId: 'left',
+        })
+        // In-range points come last, so they draw on top where an earlier point overlaps them.
+        return [
+            ...data.earlierFlaggedIndices.map((index) => marker(index, earlierAnomalyPointColor(fillColor))),
+            ...data.flaggedIndices.map((index) => marker(index, fillColor)),
+        ]
+    }, [data, fillColor])
     if (!loaded) {
         return chartPointsStatus[id] === 'failed' ? (
-            <div className="h-28 flex items-center justify-center text-secondary text-sm">
+            <div className="h-44 flex items-center justify-center text-secondary text-sm">
                 Couldn't load this chart. Refresh the page to try again.
             </div>
         ) : (
-            <LemonSkeleton className="h-28 w-full" />
+            <LemonSkeleton className="h-44 w-full" />
         )
     }
     if (!data) {
         return (
-            <div className="h-28 flex items-center justify-center text-secondary text-sm">
+            <div className="h-44 flex items-center justify-center text-secondary text-sm">
                 No scored values to chart
             </div>
         )
     }
 
     return (
-        <div className="h-28 flex flex-col" data-attr="anomalies-tab-row-chart">
+        <div className="h-44 flex flex-col" data-attr="anomalies-tab-row-chart">
             <TimeSeriesLineChart
                 series={chartSeries}
                 labels={data.labels}
@@ -83,17 +134,18 @@ export function AnomalyRowChart({ series, dateFrom, dateTo }: AnomalyRowChartPro
                     xDomain: data.xDomain,
                     yAxis: { tickFormatter: (value) => humanFriendlyNumber(value) },
                     showGrid: true,
-                    tooltip: { valueFormatter: (value) => humanFriendlyNumber(value) },
                 }}
+                tooltip={renderTooltip}
                 onError={handleChartError}
             >
                 <AnomalyBucketShading
                     dataIndices={data.earlierFlaggedIndices}
-                    color={getColorVar(ANOMALY_FILL_COLOR_VAR)}
+                    color={fillColor}
                     opacity={EARLIER_ANOMALY_FILL_OPACITY}
                 />
-                <AnomalyBucketShading dataIndices={data.flaggedIndices} color={getColorVar(ANOMALY_FILL_COLOR_VAR)} />
+                <AnomalyBucketShading dataIndices={data.flaggedIndices} color={fillColor} />
                 {data.flagWindowStartIndex != null && <AnomalyRangeStartLine dataIndex={data.flagWindowStartIndex} />}
+                <AnomalyPointsLayer markers={markers} radius={ANOMALY_POINT_RADIUS} />
             </TimeSeriesLineChart>
         </div>
     )

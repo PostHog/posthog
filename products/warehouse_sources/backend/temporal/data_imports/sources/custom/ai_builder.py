@@ -42,8 +42,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 
 logger = structlog.get_logger(__name__)
 
-# Gateway product tag — registered in `posthog/llm/gateway_client.py` and
-# `services/llm-gateway/src/llm_gateway/products/config.py`, where it is locked to this model.
+# Gateway product tag, registered in `posthog/llm/gateway_client.py`.
 CUSTOM_SOURCE_BUILDER_PRODUCT: Product = "warehouse_custom_source_builder"
 # Manifest authoring is a high-stakes, low-volume reasoning task (a wrong manifest = a broken source),
 # and API docs can be large — so we pay for the strongest long-context model rather than the cheap
@@ -357,7 +356,6 @@ def draft_manifest_sync(
         client
         if client is not None
         else build_anthropic_client(
-            product=CUSTOM_SOURCE_BUILDER_PRODUCT,
             ai_product=CUSTOM_SOURCE_BUILDER_PRODUCT,
             distinct_id=team_distinct_id(team_id),
             team_id=team_id,

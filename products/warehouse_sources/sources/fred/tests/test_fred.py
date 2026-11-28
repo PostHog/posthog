@@ -1,3 +1,5 @@
+import dataclasses
+
 import pytest
 from unittest import mock
 
@@ -11,7 +13,7 @@ from products.warehouse_sources.sources.fred.fred import (
 )
 from products.warehouse_sources.sources.fred.settings import FRED_ENDPOINTS, FredEndpointConfig
 from products.warehouse_sources.sources.fred.source import FredSource
-from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, scripted_network
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, route, scripted_network
 
 
 class TestFredTransport:
@@ -173,6 +175,156 @@ class TestFredTransport:
         assert result.params("category_id") == expected_category_ids
         assert [row["id"] for row in result.rows] == expected_row_ids
         assert result.final_state == FredResumeConfig(pending_category_ids=[])
+
+    @pytest.mark.parametrize(
+        "endpoint, parent_key, child_key, parent_param, resume_state, script, expected_requests, expected_rows, expected_state",
+        [
+            (
+                "release_series",
+                "releases",
+                "seriess",
+                "release_id",
+                None,
+                [
+                    [{"id": 20}, {"id": 10}],
+                    [{"id": "A"}, {"id": "B"}],
+                    [{"id": "C"}],
+                    [{"id": "D"}],
+                ],
+                [(None, "0"), ("10", "0"), ("10", "2"), ("20", "0")],
+                [("A", 10), ("B", 10), ("C", 10), ("D", 20)],
+                FredResumeConfig(next_parent_id=21),
+            ),
+            (
+                "source_releases",
+                "sources",
+                "releases",
+                "source_id",
+                FredResumeConfig(next_parent_id=10, offset=2),
+                [[{"id": 5}, {"id": 10}, {"id": 20}], [{"id": 13}], [{"id": 14}, {"id": 15}], []],
+                [(None, "0"), ("10", "2"), ("20", "0"), ("20", "2")],
+                [(13, 10), (14, 20), (15, 20)],
+                FredResumeConfig(next_parent_id=21),
+            ),
+        ],
+    )
+    def test_parent_fan_out_pages_each_parent_and_resumes_mid_parent(
+        self,
+        endpoint,
+        parent_key,
+        child_key,
+        parent_param,
+        resume_state,
+        script,
+        expected_requests,
+        expected_rows,
+        expected_state,
+    ):
+        bodies = [{parent_key: script[0]}, *({child_key: page} for page in script[1:])]
+        small_page = dataclasses.replace(FRED_ENDPOINTS[endpoint], page_size=2)
+        with mock.patch.dict(FRED_ENDPOINTS, {endpoint: small_page}):
+            result = self._driver().run(
+                endpoint, [ScriptedResponse(json=body) for body in bodies], resume_state=resume_state
+            )
+
+        assert result.raised is None
+        assert list(zip(result.params(parent_param), result.params("offset"))) == expected_requests
+        assert [(row["id"], row[parent_param]) for row in result.rows] == expected_rows
+        assert result.final_state == expected_state
+
+    def test_parent_fan_out_skips_a_parent_fred_rejects(self):
+        result = self._driver().run(
+            "release_series",
+            [
+                ScriptedResponse(json={"releases": [{"id": 1}, {"id": 2}]}),
+                ScriptedResponse(status=400, json={"error_message": "Bad Request.  The release does not exist."}),
+                ScriptedResponse(json={"seriess": [{"id": "GDP"}]}),
+            ],
+        )
+
+        assert result.raised is None
+        assert result.rows == [{"id": "GDP", "release_id": 2}]
+        assert result.final_state == FredResumeConfig(next_parent_id=3)
+
+    @pytest.mark.parametrize(
+        "resume_state, script, expected_requests, expected_rows",
+        [
+            (
+                None,
+                [
+                    ("/fred/category/children", {"categories": [{"id": 1}, {"id": 2}]}),
+                    ("/fred/category/series", {"seriess": []}),
+                    ("/fred/category/children", {"categories": []}),
+                    ("/fred/category/series", {"seriess": [{"id": "A"}, {"id": "B"}]}),
+                    ("/fred/category/series", {"seriess": [{"id": "C"}]}),
+                    ("/fred/category/children", {"categories": []}),
+                    ("/fred/category/series", {"seriess": [{"id": "D"}]}),
+                ],
+                [
+                    ("/fred/category/children", "0", None),
+                    ("/fred/category/series", "0", "0"),
+                    ("/fred/category/children", "1", None),
+                    ("/fred/category/series", "1", "0"),
+                    ("/fred/category/series", "1", "2"),
+                    ("/fred/category/children", "2", None),
+                    ("/fred/category/series", "2", "0"),
+                ],
+                [("A", 1), ("B", 1), ("C", 1), ("D", 2)],
+            ),
+            (
+                # Category 1's children are already on the stack, so the resume pages it
+                # without asking for its children again.
+                FredResumeConfig(pending_category_ids=[2], category_id=1, offset=2),
+                [
+                    ("/fred/category/series", {"seriess": [{"id": "C"}]}),
+                    ("/fred/category/children", {"categories": [{"id": 2}]}),
+                    ("/fred/category/series", {"seriess": [{"id": "D"}]}),
+                ],
+                [
+                    ("/fred/category/series", "1", "2"),
+                    ("/fred/category/children", "2", None),
+                    ("/fred/category/series", "2", "0"),
+                ],
+                [("C", 1), ("D", 2)],
+            ),
+        ],
+    )
+    def test_category_series_walks_the_tree_and_pages_each_category(
+        self, resume_state, script, expected_requests, expected_rows
+    ):
+        small_page = dataclasses.replace(FRED_ENDPOINTS["category_series"], page_size=2)
+        with mock.patch.dict(FRED_ENDPOINTS, {"category_series": small_page}):
+            result = self._driver().run(
+                "category_series",
+                route(
+                    {
+                        path: [ScriptedResponse(json=body) for body_path, body in script if body_path == path]
+                        for path in ("/fred/category/children", "/fred/category/series")
+                    }
+                ),
+                resume_state=resume_state,
+            )
+
+        assert result.raised is None
+        assert list(zip(result.paths, result.params("category_id"), result.params("offset"))) == expected_requests
+        assert [(row["id"], row["category_id"]) for row in result.rows] == expected_rows
+        assert result.final_state == FredResumeConfig(pending_category_ids=[])
+
+    def test_series_updates_drop_a_series_that_shifted_onto_the_next_page(self):
+        small_page = dataclasses.replace(FRED_ENDPOINTS["series_updates"], page_size=2)
+        with mock.patch.dict(FRED_ENDPOINTS, {"series_updates": small_page}):
+            result = self._driver().run(
+                "series_updates",
+                [
+                    ScriptedResponse(json={"seriess": [{"id": "A"}, {"id": "B"}]}),
+                    ScriptedResponse(json={"seriess": [{"id": "B"}, {"id": "C"}]}),
+                    ScriptedResponse(json={"seriess": [{"id": "C"}]}),
+                ],
+            )
+
+        assert result.raised is None
+        assert [[row["id"] for row in page] for page in result.items] == [["A", "B"], ["C"]]
+        assert result.params("offset") == ["0", "2", "4"]
 
     def test_vintage_dates_become_rows_stamped_with_series_id(self):
         result = self._driver("GNPCA").run(

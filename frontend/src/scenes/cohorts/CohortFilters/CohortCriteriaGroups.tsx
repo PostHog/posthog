@@ -64,7 +64,10 @@ export function CohortCriteriaGroups(logicProps: CohortLogicProps): JSX.Element 
                                         </div>
                                         <LemonDivider className="my-4" />
                                         {error && (
-                                            <LemonBanner className="m-2" type="error">
+                                            <LemonBanner
+                                                className="CohortCriteriaGroups__matching-group__error m-2"
+                                                type="error"
+                                            >
                                                 {error}
                                             </LemonBanner>
                                         )}

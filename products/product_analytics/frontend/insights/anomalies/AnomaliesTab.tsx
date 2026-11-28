@@ -8,9 +8,9 @@ import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 
 import { AnomaliesEmptyState } from './AnomaliesEmptyState'
 import { AnomaliesFilters } from './AnomaliesFilters'
-import { SCORED_HISTORY_READY_DAYS, anomaliesTabLogic } from './anomaliesTabLogic'
+import { SCORED_HISTORY_READY_DAYS, anomaliesTabLogic, anomalyRatingKey, anomalySeriesKey } from './anomaliesTabLogic'
 import { AnomalyChartLegend } from './AnomalyChartLegend'
-import { AnomalyInsightGroup } from './AnomalyInsightGroup'
+import { AnomalyRow } from './AnomalyRow'
 
 function SeriesCappedBanner(): JSX.Element {
     return (
@@ -23,26 +23,21 @@ function SeriesCappedBanner(): JSX.Element {
     )
 }
 
+function ScopeFallbackBanner({ viewedWithinDays }: { viewedWithinDays: number }): JSX.Element {
+    return (
+        <div data-attr="anomalies-tab-scope-fallback">
+            <LemonBanner type="info">
+                {`You haven't viewed any insights or dashboards with insights in the last ${viewedWithinDays} days, so this list shows the whole project.`}
+            </LemonBanner>
+        </div>
+    )
+}
+
 export function AnomaliesTab(): JSX.Element {
-    const {
-        anomalies,
-        anomaliesLoading,
-        loadingMore,
-        loadError,
-        series,
-        insightGroups,
-        expandedInsightIds,
-        hasMore,
-        seriesRatings,
-    } = useValues(anomaliesTabLogic)
-    const {
-        loadAnomalies,
-        loadMoreAnomalies,
-        reportInsightOpened,
-        toggleInsightExpanded,
-        rateSeries,
-        reportCreateAlertOpened,
-    } = useActions(anomaliesTabLogic)
+    const { anomalies, anomaliesLoading, loadingMore, loadError, series, hasMore, seriesRatings } =
+        useValues(anomaliesTabLogic)
+    const { loadAnomalies, loadMoreAnomalies, reportInsightOpened, rateSeries, reportCreateAlertOpened } =
+        useActions(anomaliesTabLogic)
 
     const reloading = anomaliesLoading && !loadingMore
 
@@ -69,11 +64,14 @@ export function AnomaliesTab(): JSX.Element {
             ) : reloading || !anomalies ? (
                 <div className="flex flex-col gap-2">
                     {Array.from({ length: 3 }, (_, index) => (
-                        <LemonSkeleton key={index} className="h-36 w-full" />
+                        <LemonSkeleton key={index} className="h-52 w-full" />
                     ))}
                 </div>
             ) : series.length === 0 ? (
                 <>
+                    {anomalies.viewed_scope_empty && anomalies.viewed_within_days != null && (
+                        <ScopeFallbackBanner viewedWithinDays={anomalies.viewed_within_days} />
+                    )}
                     {anomalies.series_capped && <SeriesCappedBanner />}
                     <AnomaliesEmptyState anomalies={anomalies} />
                 </>
@@ -83,6 +81,9 @@ export function AnomaliesTab(): JSX.Element {
                         <LemonBanner type="info">
                             {`This project has ${anomalies.scored_days} of ${SCORED_HISTORY_READY_DAYS} days of scored history. Until it has ${SCORED_HISTORY_READY_DAYS}, anomaly results are less reliable.`}
                         </LemonBanner>
+                    )}
+                    {anomalies.viewed_scope_empty && anomalies.viewed_within_days != null && (
+                        <ScopeFallbackBanner viewedWithinDays={anomalies.viewed_within_days} />
                     )}
                     {anomalies.series_capped && <SeriesCappedBanner />}
                     <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 text-secondary text-sm">
@@ -100,19 +101,20 @@ export function AnomaliesTab(): JSX.Element {
                         <AnomalyChartLegend />
                     </div>
                     <div className="flex flex-col gap-2">
-                        {insightGroups.map((group, index) => (
-                            <AnomalyInsightGroup
-                                key={group.insightId}
-                                group={group}
-                                expanded={!!expandedInsightIds[group.insightId]}
-                                dateFrom={anomalies.date_from}
+                        {series.map((row, index) => (
+                            <AnomalyRow
+                                key={anomalySeriesKey(row)}
+                                series={row}
+                                // A weekly or monthly series can be checked over a longer range than the requested one.
+                                dateFrom={
+                                    anomalies.interval_ranges.find((range) => range.interval === row.interval)
+                                        ?.date_from ?? anomalies.date_from
+                                }
                                 dateTo={anomalies.date_to}
-                                intervalRanges={anomalies.interval_ranges}
-                                seriesRatings={seriesRatings}
-                                onToggleExpanded={() => toggleInsightExpanded(group.insightId, index)}
-                                onOpenInsight={(row) => reportInsightOpened(row, index)}
-                                onRateSeries={(row, rating) => rateSeries(row, rating, index)}
-                                onCreateAlert={(row) => reportCreateAlertOpened(row, index)}
+                                rating={seriesRatings[anomalyRatingKey(row)]}
+                                onOpenInsight={() => reportInsightOpened(row, index)}
+                                onRate={(rating) => rateSeries(row, rating, index)}
+                                onCreateAlert={() => reportCreateAlertOpened(row, index)}
                             />
                         ))}
                     </div>

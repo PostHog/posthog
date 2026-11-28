@@ -6,6 +6,7 @@ import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { TZLabel } from 'lib/components/TZLabel'
 
 import type { ScoreDefinitionApi } from '../generated/api.schemas'
+import { ScorerActor } from './ScorerActor'
 import { ScorerSummary } from './ScorerSummary'
 import { scorerVersionHistoryLogic } from './scorerVersionHistoryLogic'
 
@@ -81,8 +82,17 @@ export function ScorerVersionHistory({ definition }: { definition: ScoreDefiniti
                                 )}
                             </div>
                             <div className="flex flex-wrap items-center justify-between gap-2 text-sm text-muted">
-                                <span>
+                                <span className="flex items-center gap-1">
                                     Created <TZLabel time={selectedVersion.created_at} />
+                                    {(selectedVersion.created_by || selectedVersion.created_by_project_key_id) && (
+                                        <>
+                                            by{' '}
+                                            <ScorerActor
+                                                user={selectedVersion.created_by}
+                                                projectKeyId={selectedVersion.created_by_project_key_id}
+                                            />
+                                        </>
+                                    )}
                                 </span>
                                 <CopyToClipboardInline
                                     explicitValue={selectedVersion.id}
@@ -91,6 +101,11 @@ export function ScorerVersionHistory({ definition }: { definition: ScoreDefiniti
                                     Copy version ID
                                 </CopyToClipboardInline>
                             </div>
+                            {selectedVersion.scope === 'experiment' && (
+                                <p className="mb-0">
+                                    Assigned suites: {selectedVersion.suite_keys.join(', ') || 'None'}
+                                </p>
+                            )}
                             <ScorerSummary
                                 draft={versionDraft}
                                 heading={`Version ${selectedVersion.version}`}
@@ -100,6 +115,17 @@ export function ScorerVersionHistory({ definition }: { definition: ScoreDefiniti
                                             {selectedVersion.composition.inputs.map((input) => (
                                                 <li key={input.alias} className="flex flex-col gap-1 text-sm">
                                                     <span className="font-mono">{input.alias}</span>
+                                                    {selectedVersion.scope === 'experiment' && (
+                                                        <span>
+                                                            {input.statistic?.replaceAll('_', ' ')}
+                                                            {input.category && ` (${input.category})`} ·{' '}
+                                                            {input.version_policy === 'combine'
+                                                                ? 'Combine versions'
+                                                                : input.version_policy === 'exact'
+                                                                  ? 'Exact version'
+                                                                  : 'One version per run'}
+                                                        </span>
+                                                    )}
                                                     <CopyToClipboardInline
                                                         explicitValue={input.scorer_version_id}
                                                         description="Input scorer version ID"

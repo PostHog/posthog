@@ -20,7 +20,16 @@ from uuid import UUID
 
 from pydantic.dataclasses import dataclass
 
-from .enums import AutoQuarantineMode, QuarantineLiftState, ShiftBandKind
+from .enums import (
+    AutoQuarantineMode,
+    DecisionChannel,
+    DecisionState,
+    EarlierDecisionChange,
+    NoRunNeededOutcome,
+    QuarantineLiftState,
+    RunGate,
+    ShiftBandKind,
+)
 
 # Classification thresholds, applied by `diffing.classify_compare_result`:
 #
@@ -96,6 +105,25 @@ class CreateRunInput:
 
 
 @dataclass(frozen=True)
+class NoRunNeededInput:
+    """CI decided that a commit needs no visual run of one run type."""
+
+    repo_id: UUID
+    run_type: str
+    commit_sha: str
+    branch: str
+    pr_number: int | None = None
+
+
+@dataclass(frozen=True)
+class NoRunNeededResult:
+    """What the report did. `detail` says it in a sentence for the CI log."""
+
+    outcome: NoRunNeededOutcome
+    detail: str
+
+
+@dataclass(frozen=True)
 class CreateRepoInput:
     """Input for creating a repo. repo_external_id resolved server-side if omitted."""
 
@@ -105,26 +133,75 @@ class CreateRepoInput:
 
 @dataclass(frozen=True)
 class ApproveSnapshotInput:
-    """A snapshot approval from the UI."""
+    """One snapshot to accept. `new_hash` is None for a removed snapshot."""
 
     identifier: str
-    new_hash: str
+    new_hash: str | None = None
+    old_hash: str | None = None
 
 
 @dataclass(frozen=True)
 class ApproveRunRequestInput:
-    """Request body for marking snapshots reviewed (DB only). run_id and user_id come from URL and auth."""
+    """Request body for accepting snapshots (DB only). run_id and user_id come from URL and auth."""
 
     snapshots: list[ApproveSnapshotInput] = field(default_factory=list)
+    expected_seq: int | None = None
+    override_rejection: bool = False
 
 
 @dataclass(frozen=True)
 class ApproveRunInput:
-    """Full input for marking snapshots reviewed (internal use)."""
+    """Full input for accepting snapshots (internal use)."""
 
     run_id: UUID
     user_id: int
     snapshots: list[ApproveSnapshotInput]
+    expected_seq: int | None = None
+    override_rejection: bool = False
+
+
+# The longest rejection reason a decision keeps. The API refusal texts quote it.
+REASON_MAX_LENGTH = 500
+
+
+@dataclass(frozen=True)
+class RejectSnapshotInput:
+    """One snapshot to reject, with a reason the author can act on. `new_hash` is None for a removed snapshot."""
+
+    identifier: str
+    reason: str
+    new_hash: str | None = None
+    old_hash: str | None = None
+
+
+@dataclass(frozen=True)
+class RejectRunRequestInput:
+    snapshots: list[RejectSnapshotInput] = field(default_factory=list)
+    expected_seq: int | None = None
+
+
+@dataclass(frozen=True)
+class RejectRunInput:
+    run_id: UUID
+    user_id: int
+    snapshots: list[RejectSnapshotInput]
+    expected_seq: int | None = None
+
+
+@dataclass(frozen=True)
+class ClearRunRequestInput:
+    identifiers: list[str] = field(default_factory=list)
+    expected_seq: int | None = None
+    override_rejection: bool = False
+
+
+@dataclass(frozen=True)
+class ClearRunInput:
+    run_id: UUID
+    user_id: int
+    identifiers: list[str]
+    expected_seq: int | None = None
+    override_rejection: bool = False
 
 
 @dataclass(frozen=True)
@@ -270,6 +347,34 @@ class RowShift:
 
 
 @dataclass(frozen=True)
+class SnapshotDecision:
+    """The newest review decision on the pair of pictures a snapshot shows, on any run of its pull request."""
+
+    state: DecisionState
+    by: UserBasicInfo | None
+    via: DecisionChannel
+    at: datetime
+    reason: str
+    run_id: UUID
+    commit_sha: str
+    from_earlier_commit: bool
+    seq: int
+
+
+@dataclass(frozen=True)
+class EarlierSnapshotDecision:
+    """The newest decision on another pair of pictures of the same snapshot, which no longer applies."""
+
+    state: DecisionState
+    by: UserBasicInfo | None
+    via: DecisionChannel
+    at: datetime
+    reason: str
+    commit_sha: str
+    changed: EarlierDecisionChange
+
+
+@dataclass(frozen=True)
 class Snapshot:
     """A snapshot with its comparison results."""
 
@@ -307,6 +412,8 @@ class Snapshot:
     # pair. Present on absorbed (UNCHANGED) snapshots as well, because a shift
     # small enough to absorb is still the only trace of why the pixels moved.
     row_shift: RowShift | None = None
+    decision: SnapshotDecision | None = None
+    earlier_decision: EarlierSnapshotDecision | None = None
 
 
 @dataclass(frozen=True)
@@ -338,6 +445,33 @@ class RunSummary:
 
 
 @dataclass(frozen=True)
+class RunProgress:
+    """How far the review of a run got.
+
+    `total` is `approved + rejected + needs_review + tolerated`. The two `approved_*` counts are
+    subsets of `approved`.
+    """
+
+    total: int
+    approved: int
+    approved_on_earlier_commits: int
+    approved_via_mcp: int
+    rejected: int
+    needs_review: int
+    tolerated: int
+
+
+@dataclass(frozen=True)
+class HeadRun:
+    """The run of a pull request whose verdict gates it."""
+
+    id: UUID
+    commit_sha: str
+    status: str
+    approved: bool
+
+
+@dataclass(frozen=True)
 class Run:
     """A visual review run."""
 
@@ -362,6 +496,48 @@ class Run:
     metadata: dict = field(default_factory=dict)
     # How this row matched the `search` query param: "exact", "similar", or None when not searching.
     search_match_type: str | None = None
+    gate: RunGate = RunGate.CI_JOB
+    # Computed by the single-run read only, because it reads the ledger per run.
+    stale_approval_count: int = 0
+    # Computed by the single-run read only, because they read the pull request's decisions.
+    progress: RunProgress | None = None
+    head_run: HeadRun | None = None
+    can_finalize: bool = False
+
+
+@dataclass(frozen=True)
+class DecisionResult:
+    """What an accept, reject or undo call did, and where the pull request's head run stands after it."""
+
+    run: Run
+    head_run: HeadRun
+    progress: RunProgress
+    already_decided: list[str] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class FinalizeApprover:
+    """The accepts of one person through one channel that a finalized run counts."""
+
+    user: UserBasicInfo | None
+    via: DecisionChannel
+    count: int
+    commit_shas: list[str]
+
+
+@dataclass(frozen=True)
+class RejectedSnapshotDetail:
+    identifier: str
+    by: UserBasicInfo | None
+    reason: str
+
+
+@dataclass(frozen=True)
+class NotFullyResolvedDetail:
+    """Why finalize refused: every rejected snapshot and every snapshot that still needs review."""
+
+    rejected: list[RejectedSnapshotDetail]
+    needs_review: list[str]
 
 
 @dataclass(frozen=True)
@@ -374,6 +550,8 @@ class FinalizeResult:
 
     run: Run
     baseline_content: str
+    progress: RunProgress | None = None
+    approvers: list[FinalizeApprover] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -681,6 +859,38 @@ class BaselineLedgerRepair:
     # Planned entries whose hash differs from the file read again at their own commit. An apply
     # refuses to write while there is any.
     mismatches: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True, kw_only=True)
+class BaselineLedgerAdoptionItem:
+    """One named identifier of a ledger adoption, with the ledger at the cursor and the chosen run's render."""
+
+    identifier: str
+    # Empty when the ledger does not hold the identifier at the cursor.
+    ledger_hash: str
+    render_hash: str
+    # Only reported. An adoption does not change approvals.
+    open_approvals: int
+
+    @property
+    def already_matches(self) -> bool:
+        return self.ledger_hash == self.render_hash
+
+
+@dataclass(frozen=True, kw_only=True)
+class BaselineLedgerAdoption:
+    """What adopting renders into the ledger for one run type plans or wrote, at the newest resolved ledger commit."""
+
+    run_type: str
+    run_id: UUID
+    run_position: int
+    cursor_position: int
+    cursor_sha: str
+    items: tuple[BaselineLedgerAdoptionItem, ...]
+
+    @property
+    def to_append(self) -> tuple[BaselineLedgerAdoptionItem, ...]:
+        return tuple(item for item in self.items if not item.already_matches)
 
 
 # How far back the page reads. Sets the width of the per-day activity strip and

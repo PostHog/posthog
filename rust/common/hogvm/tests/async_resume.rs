@@ -6,8 +6,11 @@
 //! and with a closure whose open upvalue (a live stack reference) must survive serialization.
 
 use std::collections::HashSet;
+use std::sync::Arc;
 
-use hogvm::{execute_resumable, resume, ExecutionContext, Program, Resumable, VmSnapshot};
+use hogvm::{
+    execute_resumable, resume, ExecutionContext, HogVM, OrderedJson, Program, Resumable, VmSnapshot,
+};
 use serde_json::{json, Value};
 
 // Opcodes used below (see common/hogvm/python/operation.py).
@@ -282,4 +285,95 @@ fn sync_execution_rejects_async() {
     let context = ExecutionContext::with_defaults(program)
         .with_async_functions(HashSet::from(["asyncFetch".to_string()]));
     assert!(execute_resumable(&context).is_err());
+}
+
+#[test]
+fn a_snapshot_refuses_a_state_that_repeats_one_string_past_the_heap_limit() {
+    // let s := '<64 KiB>'; let a := []; 64 times: a := arrayPushBack(a, s); asyncFetch(1); return 1
+    let bytecode = r#"["_H", 1, 32, "ZZCONST", 43, 0, 33, 0, 33, 64, 36, 2, 15, 40, 18, 36, 1, 36, 0, 2, "arrayPushBack", 2, 37, 1, 33, 1, 36, 2, 6, 37, 2, 39, -25, 35, 33, 1, 2, "asyncFetch", 1, 35, 33, 1, 38, 35, 35]"#
+        .replace("ZZCONST", &"z".repeat(64 * 1024));
+    let program = Program::new(serde_json::from_str(&bytecode).unwrap()).unwrap();
+    let context = ExecutionContext::with_defaults(program)
+        .with_async_functions(HashSet::from(["asyncFetch".to_string()]))
+        .with_max_async_steps(1);
+    let failure = match execute_resumable(&context) {
+        Err(failure) => failure,
+        Ok(_) => panic!("the state was accepted"),
+    };
+    assert!(
+        matches!(failure.error, hogvm::VmError::OutOfResource(_)),
+        "{:?}",
+        failure.error
+    );
+}
+
+#[test]
+fn a_snapshot_refuses_one_array_that_many_closures_captured() {
+    // fun make(a) { let f := () -> a; return f }; let big := ['<64 KiB>']; let fs := []; 64 times: fs := arrayPushBack(fs, make(big)); asyncFetch(1); return 1
+    let bytecode = r#"["_H", 1, 52, "make", 1, 0, 16, 52, "lambda", 0, 1, 3, 55, 0, 38, 53, 1, true, 0, 36, 1, 38, 35, 53, 0, 32, "ZZCONST", 43, 1, 43, 0, 33, 0, 33, 64, 36, 3, 15, 40, 22, 36, 2, 36, 1, 36, 0, 54, 1, 2, "arrayPushBack", 2, 37, 2, 33, 1, 36, 3, 6, 37, 3, 39, -29, 35, 33, 1, 2, "asyncFetch", 1, 35, 33, 1, 38, 35, 35, 35]"#
+        .replace("ZZCONST", &"z".repeat(64 * 1024));
+    let program = Program::new(serde_json::from_str(&bytecode).unwrap()).unwrap();
+    let context = ExecutionContext::with_defaults(program)
+        .with_async_functions(HashSet::from(["asyncFetch".to_string()]))
+        .with_max_async_steps(1);
+    let failure = match execute_resumable(&context) {
+        Err(failure) => failure,
+        Ok(_) => panic!("the state was accepted"),
+    };
+    assert!(
+        matches!(failure.error, hogvm::VmError::OutOfResource(_)),
+        "{:?}",
+        failure.error
+    );
+}
+
+#[test]
+fn a_snapshot_refuses_a_value_that_holds_itself() {
+    for bytecode in [
+        // let a := {}; a.self := a; asyncFetch(1); return 1
+        r#"["_H", 1, 42, 0, 36, 0, 32, "self", 36, 0, 46, 33, 1, 2, "asyncFetch", 1, 35, 33, 1, 38, 35]"#,
+        // fun make() { let a := {}; a.self := a; let f := () -> a; return f }; let f := make(); asyncFetch(1); return 1
+        r#"["_H", 1, 52, "make", 0, 0, 26, 42, 0, 36, 0, 32, "self", 36, 0, 46, 52, "lambda", 0, 1, 3, 55, 0, 38, 53, 1, true, 0, 36, 1, 38, 35, 57, 53, 0, 36, 0, 54, 0, 33, 1, 2, "asyncFetch", 1, 35, 33, 1, 38, 35, 35]"#,
+    ] {
+        let program = Program::new(serde_json::from_str(bytecode).unwrap()).unwrap();
+        let context = ExecutionContext::with_defaults(program)
+            .with_async_functions(HashSet::from(["asyncFetch".to_string()]))
+            .with_max_async_steps(1);
+        let failure = match execute_resumable(&context) {
+            Err(failure) => failure,
+            Ok(_) => panic!("the state was accepted"),
+        };
+        assert!(
+            matches!(failure.error, hogvm::VmError::OutOfResource(_)),
+            "{:?}",
+            failure.error
+        );
+    }
+}
+
+#[test]
+fn a_restored_vm_counts_what_a_closure_that_captures_itself_holds() {
+    // fun make(big) { let x := null; x := () -> [x, big]; return x }; let f := make(concat(inputs.t, 'x')); asyncFetch(1); return 1
+    let bytecode = r#"["_H", 1, 52, "make", 1, 0, 25, 31, 52, "lambda", 0, 2, 7, 55, 0, 55, 1, 43, 2, 38, 53, 2, true, 1, true, 0, 37, 1, 36, 1, 38, 57, 53, 0, 32, "t", 32, "inputs", 1, 2, 32, "x", 2, "concat", 2, 36, 0, 54, 1, 33, 1, 2, "asyncFetch", 1, 35, 33, 1, 38, 35, 35]"#;
+    let program = Program::new(serde_json::from_str(bytecode).unwrap()).unwrap();
+    let context = ExecutionContext::with_defaults(program)
+        .with_ordered_globals(OrderedJson::Object(vec![(
+            "inputs".into(),
+            OrderedJson::Object(vec![(
+                "t".into(),
+                OrderedJson::String(Arc::from("t".repeat(1024 * 1024))),
+            )]),
+        )]))
+        .with_max_heap_size(8 * 1024 * 1024)
+        .with_async_functions(HashSet::from(["asyncFetch".to_string()]))
+        .with_max_async_steps(1);
+    let Resumable::Suspended { state, .. } = execute_resumable(&context).unwrap() else {
+        panic!("the program did not suspend");
+    };
+    let restored = HogVM::restore(&context, &state).unwrap();
+    assert!(
+        restored.memory_bytes() >= 1024 * 1024,
+        "{}",
+        restored.memory_bytes()
+    );
 }

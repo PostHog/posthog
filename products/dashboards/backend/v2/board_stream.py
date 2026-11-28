@@ -5,8 +5,8 @@ from typing import Any
 
 from django.utils.timezone import now
 
-from products.dashboards.backend.query_sharing_stream import DashboardQuerySharingCachedEvent
-from products.dashboards.backend.v2.cached_tiles import CachedTileStatus
+from products.dashboards.backend.facade.contracts import DashboardQuerySharingCachedEvent
+from products.dashboards.backend.facade.enums import CachedTileStatus
 
 
 def _cached_result_is_stale(insight: dict[str, Any]) -> bool:
@@ -17,7 +17,7 @@ def _cached_result_is_stale(insight: dict[str, Any]) -> bool:
     return not isinstance(target_age, datetime) or target_age <= now()
 
 
-def _mark_stale(entry: dict[str, Any]) -> dict[str, object]:
+def _mark_stale(entry: dict[str, Any]) -> dict[str, Any]:
     if entry["status"] != CachedTileStatus.HIT:
         return entry
     return {**entry, "stale": _cached_result_is_stale(entry["insight"])}
@@ -32,8 +32,7 @@ def _needs_compute(entry: dict[str, Any], *, force: bool) -> bool:
 def cached_event(cached: list[dict[str, Any]], *, force: bool) -> DashboardQuerySharingCachedEvent:
     """Every tile's cached result, stale hits included and marked, and in `pending` the tiles the stream computes
     next: the missing and stale ones, or every hit and miss when `force` is set."""
-    return {
-        "type": "cached",
-        "tiles": [_mark_stale(entry) for entry in cached],
-        "pending": [entry["id"] for entry in cached if _needs_compute(entry, force=force)],
-    }
+    return DashboardQuerySharingCachedEvent(
+        tiles=[_mark_stale(entry) for entry in cached],
+        pending=[entry["id"] for entry in cached if _needs_compute(entry, force=force)],
+    )

@@ -22,7 +22,7 @@ from typing import Any
 
 from change_prover.core import identity, issuer, policy, python_sdk
 from change_prover.core.lockfile_yaml import comparable, load_yaml
-from change_prover.core.policy import LOCKFILE, MANIFEST, WORKSPACE_FILE, join
+from change_prover.core.policy import LOCKFILE, MANIFEST, WORKSPACE_FILE, Refused, join
 from change_prover.core.replay import replay_commands
 
 REGISTRY = "https://registry.npmjs.org/"
@@ -56,6 +56,13 @@ class Identified:
     pr: int
     merge_base: str
     lane: str
+
+
+@dataclass(frozen=True)
+class Ineligible:
+    """The one open pull request at the head, whose author or files get no proof."""
+
+    pr: int
 
 
 @dataclass(frozen=True)
@@ -280,23 +287,29 @@ def replay_lockfile(
     return (worktree / join(directory, LOCKFILE)).read_bytes()
 
 
-def identify(request: IdentifyRequest, github: GitHub) -> Identified | None:
-    """The pull request to prove at the requested head, or None when no author there may have a proof.
+def identify(request: IdentifyRequest, github: GitHub) -> Identified | Ineligible | None:
+    """The pull request to prove at the requested head, the one that gets no proof, or None when none is open.
 
     The answer depends on the head commit and not on the run. Anyone can start a run for a head,
     by reopening the pull request or by opening another one at the same commit from a fork, and
     that run reaches the same answer.
     """
     head = request.head_sha
-    pr = identity.pick_pull_request(github.pull_requests(head, request.base_branch))
+    pulls = github.pull_requests(head, request.base_branch)
+    pr = identity.pick_pull_request(pulls)
     if pr is None:
-        return None
-    lane = identity.author_lane(pr, github.changed_paths(pr["number"]))
-    if lane is None:
-        return None
-    identity.check_head_repository(pr, request.repository)
-    identity.check_pusher(pr, github.pusher_id(pr["head"]["ref"], head))
-    return Identified(pr["number"], github.merge_base(request.base_branch, head), lane)
+        # stamphog waits for this check on every pull request that changes a dependency file, and
+        # takes a signed result only when it names the pull request.
+        return Ineligible(pulls[0]["number"]) if len(pulls) == 1 else None
+    try:
+        lane = identity.author_lane(pr, github.changed_paths(pr["number"]))
+        if lane is None:
+            return Ineligible(pr["number"])
+        identity.check_head_repository(pr, request.repository)
+        identity.check_pusher(pr, github.pusher_id(pr["head"]["ref"], head))
+        return Identified(pr["number"], github.merge_base(request.base_branch, head), lane)
+    except Refused as refusal:
+        raise Refused(str(refusal), pr=pr["number"]) from refusal
 
 
 def issuer_pins(git: Git, workflow_sha: str) -> dict[str, str]:

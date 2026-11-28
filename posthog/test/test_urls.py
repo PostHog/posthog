@@ -23,6 +23,7 @@ from posthog.frontend_views import (
     region_host_from_current_instance,
 )
 from posthog.models.instance_setting import override_instance_config
+from posthog.models.user import User, UserType
 from posthog.temporal.codec_server import decode_payloads
 from posthog.views import handler500, metrics_view
 
@@ -30,6 +31,16 @@ from products.ai_observability.backend.api.personal_spend import PersonalSpendEU
 
 
 class TestUrls(APIBaseTest):
+    @override_settings(AUTO_LOGIN=True)
+    def test_auto_login_skips_service_accounts(self) -> None:
+        self.client.logout()
+        User.objects.all().update(type=UserType.SERVICE_ACCOUNT)
+
+        response = self.client.get("/")
+
+        self.assertRedirects(response, "/login", fetch_redirect_response=False)
+        self.assertNotIn("_auth_user_id", self.client.session)
+
     def test_logged_out_user_is_redirected_to_login(self):
         self.client.logout()
 
@@ -126,6 +137,34 @@ class TestUrls(APIBaseTest):
 
     @parameterized.expand(
         [
+            ("app_route_redirect", "/project/1/settings", status.HTTP_302_FOUND, "noindex"),
+            ("admin_redirect", "/admin/", status.HTTP_302_FOUND, "noindex"),
+            ("invite_signup", f"/signup/{uuid.uuid4()}", status.HTTP_200_OK, "noindex"),
+            ("login", "/login?next=/project/1/settings", status.HTTP_200_OK, None),
+            ("signup", "/signup/", status.HTTP_200_OK, None),
+        ]
+    )
+    @override_settings(ADMIN_PORTAL_ENABLED=True)
+    def test_only_login_and_signup_are_indexable(self, _name, request_path, expected_status, expected_robots_tag):
+        self.client.logout()
+
+        response = self.client.get(request_path, follow=False)
+
+        self.assertEqual(response.status_code, expected_status)
+        self.assertEqual(response.headers.get("X-Robots-Tag"), expected_robots_tag)
+
+    @override_settings(SECURE_SSL_REDIRECT=True)
+    def test_https_redirect_of_an_app_route_is_not_indexable(self):
+        self.client.logout()
+
+        response = self.client.get("/project/1/settings", follow=False)
+
+        self.assertEqual(response.status_code, status.HTTP_301_MOVED_PERMANENTLY)
+        self.assertEqual(response["Location"], "https://testserver/project/1/settings")
+        self.assertEqual(response.headers.get("X-Robots-Tag"), "noindex")
+
+    @parameterized.expand(
+        [
             ("no_slash_no_qs", "/sign-up", "/signup"),
             ("trailing_slash_no_qs", "/sign-up/", "/signup"),
             ("no_slash_with_qs", "/sign-up?email=foo%40bar.com", "/signup?email=foo%40bar.com"),
@@ -158,12 +197,22 @@ class TestUrls(APIBaseTest):
         response = self.client.get(
             "/authorize_and_redirect/?redirect=https://not-permitted.com",
             headers={"referer": "https://not-permitted.com"},
+            follow=True,
         )
+        self.assertEqual(response.redirect_chain, [("/toolbar_oauth/error", 302)])
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        content = response.content.decode()
-        self.assertIn("Domain not authorized", content)
-        self.assertIn("not-permitted.com", content)
-        self.assertIn("/settings/project-toolbar#authorized-urls", content)
+        self.assertEqual(
+            response.context["posthog_app_context"]["toolbar_oauth_error"],
+            {
+                "title": "Domain not authorized",
+                "message": "The toolbar cannot authenticate on this domain because it is not in your project's authorized URLs.",
+                "detail": (
+                    "The hostname not-permitted.com needs to be added to your project's "
+                    "authorized URLs before the toolbar can be used on this site."
+                ),
+                "links_to_authorized_urls": True,
+            },
+        )
 
         response = self.client.get(
             "/authorize_and_redirect/?redirect=https://domain.com", headers={"referer": "https://not.com"}
@@ -199,6 +248,42 @@ class TestUrls(APIBaseTest):
         #     response,
         #     "Do you want to give the PostHog Toolbar on <strong>https://domain.com/sdf</strong> access to your PostHog data?",
         # )
+
+
+class TestStockTwoFactorViewsAreNotMounted(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("login", "/account/login/"),
+            ("setup", "/account/two_factor/setup/"),
+            ("setup_complete", "/account/two_factor/setup/complete/"),
+            ("backup_tokens", "/account/two_factor/backup/tokens/"),
+            ("profile", "/account/two_factor/"),
+            ("disable", "/account/two_factor/disable/"),
+        ]
+    )
+    def test_path_does_not_resolve_to_a_stock_two_factor_view(self, _name: str, path: str) -> None:
+        view = resolve(path).func
+        view_module = getattr(view, "view_class", view).__module__
+
+        self.assertFalse(view_module.startswith("two_factor."), f"{path} resolves to {view_module}")
+
+
+class TestAccountLoginPath(APIBaseTest):
+    def test_account_login_path_does_not_start_a_session(self) -> None:
+        self.client.logout()
+
+        self.client.post(
+            "/account/login/",
+            {
+                "login_view-current_step": "auth",
+                "auth-username": self.CONFIG_EMAIL,
+                "auth-password": self.CONFIG_PASSWORD,
+            },
+            format="multipart",
+        )
+
+        self.assertNotIn("_auth_user_id", self.client.session)
+        self.assertEqual(self.client.get("/api/users/@me/").status_code, status.HTTP_401_UNAUTHORIZED)
 
 
 class TestRegionHostFromCurrentInstance(SimpleTestCase):
@@ -340,6 +425,16 @@ class TestAgentDiscoveryFiles(SimpleTestCase):
             assert body.startswith("# ")
             assert "](https://mcp.posthog.com/mcp)" in body
             assert "](https://us.example.com/settings/user-api-keys)" in body
+
+    @parameterized.expand([("no_slash", "/.well-known/security.txt"), ("trailing_slash", "/.well-known/security.txt/")])
+    def test_security_txt_redirects_to_the_posthog_com_copy(self, _name: str, request_path: str) -> None:
+        request = RequestFactory().get(request_path)
+        match = resolve(request.path)
+
+        response = match.func(request, *match.args, **match.kwargs)
+
+        assert response.status_code == 301
+        assert response["Location"] == "https://posthog.com/.well-known/security.txt"
 
 
 class TestConditionalRoutes(SimpleTestCase):

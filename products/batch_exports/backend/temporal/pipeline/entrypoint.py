@@ -51,6 +51,7 @@ class _BatchExportInputsProtocol(typing.Protocol):
     stage_folder: str | None = None
     on_demand: bool = False
     records_total: int | None = None
+    use_new_events_schema: bool = False
 
 
 class _ComposedBatchExportInputsProtocol(typing.Protocol):
@@ -204,6 +205,7 @@ async def _stage_batch_export_data(
         is_workflows=is_workflows,
         on_demand=batch_export_inputs.on_demand,
         destination_default_fields=batch_export_inputs.destination_default_fields,
+        use_new_events_schema=batch_export_inputs.use_new_events_schema,
     )
     return await workflow.execute_activity(
         insert_into_internal_stage_activity,

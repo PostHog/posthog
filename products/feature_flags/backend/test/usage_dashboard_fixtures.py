@@ -11,22 +11,22 @@ existing dashboards do not change with that file.
 
 from typing import Any
 
-from posthog.helpers.dashboard_templates import (
-    FEATURE_FLAG_TOTAL_VOLUME_INSIGHT_NAME,
-    _create_tile_for_insight,
-    _get_feature_flag_total_volume_insight_description,
-    _get_feature_flag_unique_calls_insight_description,
-    _get_feature_flag_unique_calls_insight_name,
-)
+from posthog.helpers.feature_flag_usage_insights import FEATURE_FLAG_TOTAL_VOLUME_INSIGHT_NAME
 from posthog.models.tag import Tag
 from posthog.models.user import User
 
+from products.dashboards.backend.facade.testing import add_template_insight_tile
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.feature_flags.backend.api.feature_flag import (
     USAGE_DASHBOARD_DESCRIPTION_PREFIX,
     USAGE_DASHBOARD_NAME_PREFIX,
 )
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
+from products.feature_flags.backend.usage_dashboard import (
+    _get_feature_flag_total_volume_insight_description,
+    _get_feature_flag_unique_calls_insight_description,
+    _get_feature_flag_unique_calls_insight_name,
+)
 
 
 def _build_feature_flag_called_property_group(feature_flag: FeatureFlag) -> dict[str, Any]:
@@ -87,8 +87,8 @@ def create_usage_dashboard(feature_flag: FeatureFlag, user: User) -> Dashboard:
     tag, _ = Tag.objects.get_or_create(name="feature flags", team_id=dashboard.team_id)
     dashboard.tagged_items.create(tag_id=tag.id)
 
-    _create_tile_for_insight(
-        dashboard,
+    add_template_insight_tile(
+        dashboard_id=dashboard.id,
         name=FEATURE_FLAG_TOTAL_VOLUME_INSIGHT_NAME,
         description=_get_feature_flag_total_volume_insight_description(feature_flag),
         query={
@@ -126,11 +126,11 @@ def create_usage_dashboard(feature_flag: FeatureFlag, user: User) -> Dashboard:
             },
         },
         color="blue",
-        user=user,
+        created_by_id=user.id,
     )
 
-    _create_tile_for_insight(
-        dashboard,
+    add_template_insight_tile(
+        dashboard_id=dashboard.id,
         name=_get_feature_flag_unique_calls_insight_name(feature_flag),
         description=_get_feature_flag_unique_calls_insight_description(feature_flag),
         query={
@@ -168,7 +168,7 @@ def create_usage_dashboard(feature_flag: FeatureFlag, user: User) -> Dashboard:
             },
         },
         color="green",
-        user=user,
+        created_by_id=user.id,
     )
 
     feature_flag.usage_dashboard = dashboard

@@ -6,6 +6,7 @@ import { allowedCdcSyncFrequencies, clampSyncFrequency } from 'products/data_war
 import {
     buildBulkEnablePayloads,
     bulkSyncMethodDisabledReason,
+    bulkSyncMethodOptions,
     effectiveLookbackDays,
     isSensitiveCredentialField,
     removeEmptySensitiveValues,
@@ -227,9 +228,40 @@ describe('bulkSyncMethodDisabledReason', () => {
             'Deselect the CDC and webhook tables first',
         ],
         ['full_refresh' as const, [{ sync_type: 'webhook' }], 'Deselect the CDC and webhook tables first'],
+        [
+            'xmin' as const,
+            [
+                { sync_type: 'incremental', primary_key_columns: ['id'] },
+                { sync_type: 'full_refresh', primary_key_columns: ['id'] },
+            ],
+            undefined,
+        ],
+        [
+            'xmin' as const,
+            [{ sync_type: 'incremental', primary_key_columns: ['id'] }, { sync_type: 'full_refresh' }],
+            'xmin needs a primary key, which some selected tables have not got',
+        ],
+        [
+            'xmin' as const,
+            [{ sync_type: 'full_refresh', primary_key_columns: [] }],
+            'xmin needs a primary key, which some selected tables have not got',
+        ],
+        ['xmin' as const, [{ sync_type: 'xmin', primary_key_columns: null }], undefined],
+        [
+            'xmin' as const,
+            [{ sync_type: 'cdc', primary_key_columns: ['id'] }],
+            'Deselect the CDC and webhook tables first',
+        ],
     ])('%s over %j', (syncType, overrides, expected) => {
         const schemas = overrides.map((override) => makeSchema(override as Partial<ExternalDataSourceSchema>))
         expect(bulkSyncMethodDisabledReason(schemas, syncType)).toEqual(expected)
+    })
+
+    it.each([
+        [true, ['full_refresh', 'append', 'xmin']],
+        [false, ['full_refresh', 'append']],
+    ])('offers xmin in the bulk menu only when the source supports it (supportsXmin=%s)', (supportsXmin, expected) => {
+        expect(bulkSyncMethodOptions(supportsXmin)).toEqual(expected)
     })
 })
 
@@ -307,6 +339,35 @@ describe('buildBulkEnablePayloads', () => {
         expect(payloads).toEqual([
             { id: 'configured', should_sync: true },
             { id: 'unconfigured', should_sync: true, apply_sync_defaults: true },
+        ])
+    })
+
+    it('gives pending migrated tables the frequency picked in the confirm dialog, and only them', () => {
+        const payloads = buildBulkEnablePayloads(
+            [
+                makeSchema({
+                    id: 'migrated',
+                    should_sync: false,
+                    sync_type: 'full_refresh',
+                    sync_frequency: '6hour',
+                    pending_self_managed_table: true,
+                }),
+                makeSchema({
+                    id: 'migrated-unconfigured',
+                    should_sync: false,
+                    sync_type: null,
+                    pending_self_managed_table: true,
+                }),
+                makeSchema({ id: 'regular', should_sync: false, sync_type: 'full_refresh', sync_frequency: '6hour' }),
+            ],
+            '24hour'
+        )
+        // Without the frequency the migrated table keeps the 6 hour default nobody chose, and each
+        // full refresh bills every row again.
+        expect(payloads).toEqual([
+            { id: 'migrated', should_sync: true, sync_frequency: '24hour' },
+            { id: 'migrated-unconfigured', should_sync: true, apply_sync_defaults: true, sync_frequency: '24hour' },
+            { id: 'regular', should_sync: true },
         ])
     })
 })

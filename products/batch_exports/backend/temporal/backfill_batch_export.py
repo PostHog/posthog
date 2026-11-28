@@ -27,7 +27,6 @@ from posthog.temporal.common.clickhouse import (
     ClickHouseMemoryLimitExceededError,
     ClickHouseQueryTimeoutError,
     ClickHouseTooManyBytesError,
-    get_client,
 )
 from posthog.temporal.common.client import connect
 from posthog.temporal.common.heartbeat import Heartbeater
@@ -40,9 +39,11 @@ from products.batch_exports.backend.service import (
     BackfillDetails,
     aget_or_create_batch_export_backfill,
     align_timestamp_to_interval,
+    coerce_config_to_declared_types,
     unpause_batch_export,
     update_batch_export_backfill,
 )
+from products.batch_exports.backend.temporal.clickhouse import get_batch_exports_client
 from products.batch_exports.backend.temporal.filters import compose_filters_clause
 from products.batch_exports.backend.temporal.metrics import log_query_duration
 from products.batch_exports.backend.temporal.record_batch_model import SessionsRecordBatchModel
@@ -286,7 +287,7 @@ async def _get_backfill_info_for_events(
         query_id=query_id,
         query_type="backfill_info:events",
     ):
-        async with get_client(team_id=team_id) as client:
+        async with get_batch_exports_client(team_id=team_id, reads_new_events_table=reads_native_events) as client:
             result = await client.read_query_as_jsonl(query, query_parameters=query_parameters, query_id=query_id)
 
     min_timestamp_str = result[0]["min_timestamp"]
@@ -370,7 +371,7 @@ async def _get_backfill_info_for_persons(
         query_id=min_timestamp_query_id,
         query_type="backfill_info:persons_min_timestamp",
     ):
-        async with get_client(team_id=team_id) as client:
+        async with get_batch_exports_client(team_id=team_id, reads_new_events_table=False) as client:
             min_timestamp_results = await client.read_query_as_jsonl(
                 min_timestamp_query, query_parameters=query_parameters, query_id=min_timestamp_query_id
             )
@@ -438,7 +439,7 @@ async def _get_backfill_info_for_persons(
         query_id=count_query_id,
         query_type="backfill_info:persons_count",
     ):
-        async with get_client(team_id=team_id) as client:
+        async with get_batch_exports_client(team_id=team_id, reads_new_events_table=False) as client:
             count_results = await client.read_query_as_jsonl(
                 count_query, query_parameters=query_parameters, query_id=count_query_id
             )
@@ -517,7 +518,13 @@ async def get_backfill_info(inputs: GetBackfillInfoInputs) -> GetBackfillInfoOut
     # Build filters clause if filters are configured
     filters_str = ""
     extra_query_parameters: dict[str, typing.Any] = {}
-    reads_native_events = model == "events" and batch_exports_read_new_events_table()
+    reads_native_events = model == "events" and batch_exports_read_new_events_table(
+        inputs.team_id,
+        export_opted_in=coerce_config_to_declared_types(batch_export.destination.type, config).get(
+            "use_new_events_schema"
+        )
+        is True,
+    )
     if batch_export.filters:
         filters_str, extra_query_parameters = await sync_to_async(compose_filters_clause)(
             batch_export.filters, team_id=inputs.team_id, use_new_events_schema=reads_native_events

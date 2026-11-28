@@ -193,9 +193,16 @@ class TestProjectPickerFlow(TestCase):
     def test_pick_in_an_unapproved_shared_channel_starts_nothing(self):
         blocks = self._mention(is_ext_shared_channel=True)["blocks"]
 
-        with patch(
-            "products.slack_app.backend.api._post_channel_approval_prompt", return_value=True
-        ) as mock_approval_prompt:
+        with (
+            patch(
+                "products.slack_app.backend.api._post_channel_approval_prompt", return_value=True
+            ) as mock_approval_prompt,
+            # Off, so the shared channels switch leaves the approval as the only gate.
+            patch(
+                "products.slack_app.backend.logic.shared_channels.is_slack_app_web_settings_enforced",
+                return_value=False,
+            ),
+        ):
             self._click(blocks, project=self.staging)
 
         mock_approval_prompt.assert_called_once()

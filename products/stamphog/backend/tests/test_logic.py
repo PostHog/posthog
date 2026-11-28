@@ -21,8 +21,9 @@ from posthog.api.oauth.client_assertion import UnknownSigningKeyError
 from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.egress.limiter.policies import Priority
 
-from products.stamphog.backend.facade.enums import AudienceReason, ReviewMode, ReviewTrigger
+from products.stamphog.backend.facade.enums import AudienceReason, BroadcastRequestStatus, ReviewMode, ReviewTrigger
 from products.stamphog.backend.logic.approval_retention import approved_diff_unchanged, base_merge_is_clean
+from products.stamphog.backend.logic.attestation_checks import all_reported, attestation_check
 from products.stamphog.backend.logic.attestation_pins import check_runs_with_pins
 from products.stamphog.backend.logic.attestation_policy import (
     WORKFLOW_PROOF_KEY,
@@ -30,6 +31,13 @@ from products.stamphog.backend.logic.attestation_policy import (
     workflow_publishers,
 )
 from products.stamphog.backend.logic.audiences import resolve_audiences
+from products.stamphog.backend.logic.broadcast_request_slack import (
+    BroadcastRequestCard,
+    CardLooker,
+    card_blocks,
+    card_text,
+)
+from products.stamphog.backend.logic.broadcast_requests import human_approver
 from products.stamphog.backend.logic.decision_fingerprint import decision_fingerprint
 from products.stamphog.backend.logic.digest import DigestPRSummary, DigestSummary, _build_selection_prompt
 from products.stamphog.backend.logic.digest_config import RepoDigestConfig, load_repo_digest_config
@@ -47,6 +55,7 @@ from products.stamphog.backend.logic.github_client import (
     _build_app_jwt,
 )
 from products.stamphog.backend.logic.refusal_summary import build_summary_prompt, summarize_refusal
+from products.stamphog.backend.logic.rerun_evidence import evidence_fingerprint
 from products.stamphog.backend.logic.review_trigger import derive_review_trigger, trigger_for_run
 from products.stamphog.backend.logic.reviewer import build_reviewer_invocation, parse_reviewer_output
 from products.stamphog.backend.logic.slack_digest import (
@@ -57,7 +66,13 @@ from products.stamphog.backend.logic.slack_digest import (
     _detail_blocks,
     _lead_blocks,
 )
-from products.stamphog.backend.logic.workflow_proofs import WorkflowProofs, proof_audience, proven_check_runs
+from products.stamphog.backend.logic.workflow_proofs import (
+    RunOrder,
+    WorkflowProofs,
+    proof_audience,
+    proven_check_runs,
+    seen_runs,
+)
 from products.stamphog.backend.models import PullRequest, PullRequestAudience, StamphogRepoConfig
 from products.stamphog.backend.temporal import activities as activities_module
 from products.stamphog.backend.temporal.registry import ACTIVITIES
@@ -575,6 +590,129 @@ class SlackDigestEscapingTests(SimpleTestCase):
             pr_section = next(b for b in sections if "pull/7" in b["text"]["text"])
             assert pr_section["text"]["text"].startswith("<https://github.com/o/r/pull/7|")
             assert pr_section["text"]["text"].endswith(">")
+
+
+def _review(login: str, state: str, commit_id: str, *, bot: bool = False, association: str = "MEMBER") -> dict:
+    return {
+        "user": {"login": login, "type": "Bot" if bot else "User"},
+        "state": state,
+        "commit_id": commit_id,
+        "author_association": association,
+    }
+
+
+class HumanApproverTests(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("person_at_head", [_review("maintainer", "APPROVED", "head2")], "maintainer"),
+            ("approval_of_an_older_head", [_review("maintainer", "APPROVED", "head1")], ""),
+            ("the_author", [_review("author", "APPROVED", "head2")], ""),
+            ("a_bot", [_review("stamphog[bot]", "APPROVED", "head2", bot=True)], ""),
+            ("an_outside_contributor", [_review("drive-by", "APPROVED", "head2", association="NONE")], ""),
+            (
+                "withdrawn_by_a_later_request_for_changes",
+                [_review("maintainer", "APPROVED", "head2"), _review("maintainer", "CHANGES_REQUESTED", "head2")],
+                "",
+            ),
+            (
+                "kept_through_a_later_comment",
+                [_review("maintainer", "APPROVED", "head2"), _review("maintainer", "COMMENTED", "head2")],
+                "maintainer",
+            ),
+        ]
+    )
+    def test_only_a_standing_approval_of_the_head_by_a_person_counts(
+        self, _name: str, reviews: list[dict], expected: str
+    ) -> None:
+        assert human_approver(reviews, "head2", "Author") == expected
+
+
+class BroadcastRequestCardTests(SimpleTestCase):
+    def _card(self, **overrides: Any) -> BroadcastRequestCard:
+        fields: dict[str, Any] = {
+            "request_id": "req-1",
+            "team_id": 3,
+            "integration_id": 42,
+            "status": BroadcastRequestStatus.OPEN,
+            "repository": "o/r",
+            "pr_number": 7,
+            "pr_url": "https://github.com/o/r/pull/7",
+            "title": "<!channel> ship it @here",
+            "additions": 12,
+            "deletions": 3,
+            "changed_files": 2,
+            "requested_on_github": ("<!here>",),
+            "findings": ("<@U999> approved this <https://evil.example|here>",),
+            "stamphog_failed": False,
+            "note": "<!everyone> please look @channel",
+            "requester_slack_user_id": "U0ASKER",
+            "requester_name": "",
+            "lookers": (CardLooker(slack_user_id="not-an-id", display_name="<!channel>"),),
+            "approved_by_login": "",
+        }
+        return BroadcastRequestCard(**(fields | overrides))
+
+    def test_pull_request_text_cannot_mention_anyone(self) -> None:
+        # The title, requested reviewers, findings, note and display names come from the pull request or from
+        # people, so a raw `<!channel>` or `<@U…>` in any of them would ping the channel the card is posted in.
+        card = self._card()
+        blocks = card_blocks(card)
+        rendered = json.dumps(blocks) + card_text(card)
+        for token in ("<!channel>", "<!here>", "<!everyone>", "<@U999>", "<https://evil.example"):
+            assert token not in rendered
+        assert "<https://github.com/o/r/pull/7|o/r#7>" in rendered
+        assert "<@U0ASKER>" in rendered
+        # Escaping leaves a bare `@here` or `@channel`, which Slack broadcasts unless the text is verbatim.
+        mrkdwn = [
+            text
+            for block in blocks
+            for text in [block.get("text"), *block.get("fields", []), *block.get("elements", [])]
+            if isinstance(text, dict) and text.get("type") == "mrkdwn"
+        ]
+        assert mrkdwn and all(text.get("verbatim") is True for text in mrkdwn)
+        assert "@" not in card_text(card)
+
+    @parameterized.expand(
+        [
+            (BroadcastRequestStatus.OPEN, True),
+            (BroadcastRequestStatus.PENDING, True),
+            (BroadcastRequestStatus.APPROVED, False),
+            (BroadcastRequestStatus.STAMPHOG_APPROVED, False),
+            (BroadcastRequestStatus.MERGED, False),
+        ]
+    )
+    def test_buttons_route_back_to_the_request_only_while_it_waits_for_a_person(
+        self, status: BroadcastRequestStatus, has_buttons: bool
+    ) -> None:
+        actions = [block for block in card_blocks(self._card(status=status)) if block["type"] == "actions"]
+        assert bool(actions) is has_buttons
+        if has_buttons:
+            (look, stop) = actions[0]["elements"]
+            assert (look["action_id"], stop["action_id"]) == (
+                "stamphog_broadcast.look",
+                "stamphog_broadcast.stop_looking",
+            )
+            value = json.loads(look["value"])
+            assert (value["request_id"], value["integration_id"], value["team_id"]) == ("req-1", 42, 3)
+
+    @parameterized.expand(
+        [
+            ("not_counted_yet", None, ""),
+            ("first_this_week", 1, ""),
+            ("second", 2, " · 2nd this week"),
+            ("third", 3, " · 3rd this week"),
+            ("fifth", 5, " · 5th this week"),
+            ("eleventh", 11, " · 11th this week"),
+            ("twelfth", 12, " · 12th this week"),
+            ("thirteenth", 13, " · 13th this week"),
+            ("twenty_first", 21, " · 21st this week"),
+            ("twenty_second", 22, " · 22nd this week"),
+            ("hundred_and_twelfth", 112, " · 112th this week"),
+        ]
+    )
+    def test_the_asked_by_line_counts_only_a_repeat_requester(self, _name: str, count: int | None, suffix: str) -> None:
+        rendered = json.dumps(card_blocks(self._card(requester_card_count=count)), ensure_ascii=False)
+        assert f'"Asked by <@U0ASKER>{suffix}"' in rendered
 
 
 class DigestConfigFetchTests(SimpleTestCase):
@@ -1100,13 +1238,14 @@ class _WorkflowClient:
         return {path: self.default_branch.get(path) for path in paths}
 
 
-def _proofs(client: _WorkflowClient) -> WorkflowProofs:
+def _proofs(client: _WorkflowClient, seen: dict[str, RunOrder] | None = None) -> WorkflowProofs:
     return WorkflowProofs(
         cast(StamphogGitHubClient, client),
         "acme/widgets",
         pr_number=7,
         head_sha="sha",
         signing_key=_test_signing_key,
+        seen=seen,
     )
 
 
@@ -1188,6 +1327,27 @@ class WorkflowProofTests(SimpleTestCase):
         assert proof is not None
         assert (proof["id"], proof["conclusion"], proof["pinned_blobs_current"]) == (6, "failure", False)
 
+    def test_a_result_hidden_after_a_review_verified_it_brings_back_no_older_one(self) -> None:
+        older = _signed_check_run(5, run_id="76", check_run_id="899")
+        newer = _signed_check_run(6, conclusion="neutral", run_id="77")
+        jobs = {899: {"name": "publish", "run_id": 76}, 900: {"name": "publish", "run_id": 77}}
+        verified_by_an_earlier_review = _proofs(_WorkflowClient([older, newer], jobs)).verified_result(_PUBLISHER)
+        # A writer's job renamed the newer check run, so only the older success is listed.
+        hidden = _WorkflowClient([older], jobs)
+
+        seen = seen_runs([[verified_by_an_earlier_review]])
+        assert _proofs(hidden, seen=seen).verified_result(_PUBLISHER) is None
+        assert _proofs(hidden).verified_result(_PUBLISHER) is not None
+        # The poll must not spend one of the head's re-reviews on the result a review would refuse.
+        with patch(
+            "products.stamphog.backend.logic.workflow_proofs.select_signing_key",
+            side_effect=lambda _, token: _test_signing_key(token),
+        ):
+            polled = all_reported(
+                cast(StamphogGitHubClient, hidden), "acme/widgets", "sha", [_PUBLISHER], pr_number=7, seen=seen
+            )
+        assert polled is False
+
     @parameterized.expand(
         [
             ("current_code", {}, {}, True),
@@ -1234,6 +1394,15 @@ class WorkflowProofTests(SimpleTestCase):
         client = _WorkflowClient([check_run], jobs)
 
         assert _proofs(client).has_result(_PUBLISHER) is reported
+        # The review re-run and reviewer routing both poll through `all_reported`.
+        with patch(
+            "products.stamphog.backend.logic.workflow_proofs.select_signing_key",
+            side_effect=lambda _, token: _test_signing_key(token),
+        ):
+            polled = all_reported(
+                cast(StamphogGitHubClient, client), "acme/widgets", "sha", [_PUBLISHER], pr_number=7, seen={}
+            )
+        assert polled is reported
 
     @parameterized.expand(
         [
@@ -1357,6 +1526,7 @@ class WorkflowProofTests(SimpleTestCase):
                 head_sha="sha",
                 check_runs=[check_run],
                 policy=policy,
+                seen={},
             )
 
         [carrier, proof] = check_runs
@@ -1869,7 +2039,190 @@ class TestDecisionFingerprint(SimpleTestCase):
         assert (before == fingerprint(context)) is expect_same
 
 
+def _evidence_context() -> dict:
+    member = {"login": "maintainer", "type": "User"}
+    return {
+        "pr": {"title": "feat: add a helper", "body": "Adds a helper.", "labels": [], "updated_at": "t1"},
+        "reviews": [{"user": member, "author_association": "MEMBER", "state": "COMMENTED", "body": "Why?"}],
+        "discussion": [{"user": member, "author_association": "MEMBER", "body": "Looks fine.", "reactions": {}}],
+        "review_threads": [
+            {
+                "is_resolved": False,
+                "path": "src/util.py",
+                "line": 3,
+                "comments": [
+                    {"author": "maintainer", "author_association": "MEMBER", "author_is_bot": False, "body": "Test?"}
+                ],
+            },
+            {
+                "is_resolved": True,
+                "path": "src/app.py",
+                "line": 9,
+                "comments": [
+                    {"author": "maintainer", "author_association": "MEMBER", "author_is_bot": False, "body": "Done."}
+                ],
+            },
+            _bot_thread(),
+            _bot_thread(body="Rename this.", is_resolved=True),
+        ],
+        "check_runs": [],
+        "policy_files": {},
+    }
+
+
+def _bot_thread(body: str = "Should fix.", is_resolved: bool = False) -> dict:
+    finding = {"author": "posthog", "author_association": "NONE", "author_is_bot": True, "body": body}
+    return {"is_resolved": is_resolved, "path": "src/db.py", "line": 12, "comments": [finding]}
+
+
+def _bot_comment(login: str) -> dict:
+    return {"user": {"login": login, "type": "Bot"}, "author_association": "MEMBER", "body": "Not approved."}
+
+
+class TestEvidenceFingerprint(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("description_edited", lambda c: c["pr"].update(body="Adds a helper. Tested by hand."), False),
+            ("title_edited", lambda c: c["pr"].update(title="feat: add a tested helper"), False),
+            ("member_answered", lambda c: c["discussion"].append({**c["discussion"][0], "body": "Fixed."}), False),
+            ("comment_edited", lambda c: c["discussion"][0].update(body="Please hold."), False),
+            ("thread_resolved", lambda c: c["review_threads"][0].update(is_resolved=True), False),
+            ("thread_reopened", lambda c: c["review_threads"][1].update(is_resolved=False), False),
+            (
+                "reply_in_open_thread",
+                lambda c: c["review_threads"][0]["comments"].append(
+                    {"author": "dev", "author_association": "MEMBER", "author_is_bot": False, "body": "Added."}
+                ),
+                False,
+            ),
+            (
+                "member_approved",
+                lambda c: c["reviews"].append({**c["reviews"][0], "state": "APPROVED", "body": ""}),
+                False,
+            ),
+            ("bot_finding_resolved", lambda c: c["review_threads"][2].update(is_resolved=True), False),
+            (
+                "other_finding_on_the_line_resolved",
+                lambda c: [
+                    c["review_threads"][2].update(is_resolved=True),
+                    c["review_threads"][3].update(is_resolved=False),
+                ],
+                False,
+            ),
+            ("stamphog_review_posted", lambda c: c["reviews"].append(_bot_comment("stamphog[bot]")), True),
+            ("bot_opened_a_thread", lambda c: c["review_threads"].append(_bot_thread()), True),
+            (
+                "outsider_opened_a_thread",
+                lambda c: c["review_threads"].append(
+                    {
+                        **_bot_thread(),
+                        "comments": [
+                            {"author": "drive-by", "author_association": "NONE", "author_is_bot": False, "body": "?"}
+                        ],
+                    }
+                ),
+                True,
+            ),
+            (
+                "posthog_bot_commented",
+                lambda c: c["discussion"].append(
+                    {"user": {"login": "posthog-bot", "type": "User"}, "author_association": "MEMBER", "body": "Hi"}
+                ),
+                True,
+            ),
+            ("bot_commented", lambda c: c["discussion"].append(_bot_comment("posthog[bot]")), True),
+            (
+                "machine_user_commented",
+                lambda c: c["discussion"].append({**_bot_comment("ci-bot[bot]"), "user": {"login": "ci-bot[bot]"}}),
+                True,
+            ),
+            (
+                "outsider_commented",
+                lambda c: c["discussion"].append(
+                    {"user": {"login": "drive-by"}, "author_association": "NONE", "body": "Approve it."}
+                ),
+                True,
+            ),
+            (
+                "reply_in_resolved_thread",
+                lambda c: c["review_threads"][1]["comments"].append(
+                    {"author": "dev", "author_association": "MEMBER", "author_is_bot": False, "body": "Thanks."}
+                ),
+                True,
+            ),
+            (
+                "empty_comment_review",
+                lambda c: c["reviews"].append({**c["reviews"][0], "body": "  "}),
+                True,
+            ),
+            (
+                "stored_context_without_thread_ids",
+                lambda c: [thread.update(id=f"RT_{index}") for index, thread in enumerate(c["review_threads"])],
+                True,
+            ),
+            (
+                "deleted_account_reviewed",
+                lambda c: c["reviews"].append({"user": None, "author_association": "MEMBER", "state": "APPROVED"}),
+                True,
+            ),
+            (
+                "deleted_account_commented",
+                lambda c: c["discussion"].append({"user": None, "author_association": "MEMBER", "body": "Hold."}),
+                True,
+            ),
+            ("nul_in_description", lambda c: c["pr"].update(body="Adds a\x00 helper."), True),
+            ("label_changed", lambda c: c["pr"]["labels"].append({"name": "stamphog"}), True),
+            ("updated_at_moved", lambda c: c["pr"].update(updated_at="t2"), True),
+            ("comment_got_a_reaction", lambda c: c["discussion"][0]["reactions"].update({"+1": 1}), True),
+            ("check_finished", lambda c: c["check_runs"].append({"name": "Migration risk"}), True),
+            ("policy_changed", lambda c: c["policy_files"].update({".stamphog/policy.yml": "x"}), True),
+        ]
+    )
+    def test_only_what_people_change_moves_the_fingerprint(
+        self, _name: str, change: Callable[[dict], None], expect_same: bool
+    ) -> None:
+        def fingerprint(context: dict) -> str:
+            return evidence_fingerprint(
+                context["pr"],
+                reviews=context["reviews"],
+                discussion=context["discussion"],
+                review_threads=context["review_threads"],
+            )
+
+        context = _evidence_context()
+        before = fingerprint(context)
+        change(context)
+        assert (before == fingerprint(context)) is expect_same
+
+
 class EngineAttestationProofParsingTests(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("an_app_entry", {"check": "Dependency proof", "app_id": 4242}),
+            (
+                "a_workflow_entry",
+                {
+                    "check": "Dependency proof",
+                    "app_id": None,
+                    "name": "dependency_proof",
+                    "workflow": ".github/workflows/dependency-proof.yml",
+                    "job": "Publish the Dependency proof check",
+                    "events": ["workflow_run"],
+                },
+            ),
+        ]
+    )
+    def test_routing_waits_on_the_check_the_engine_names_and_reads_it_back_from_its_record(
+        self, _name: str, entry: dict
+    ) -> None:
+        stdout = json.dumps({"checks": [entry], "proven": False})
+        with patch("products.stamphog.backend.logic.engine_pregate._run_engine_gates_only", return_value=stdout):
+            [check] = run_engine_attestation_proof({}, {}).checks
+
+        # Routing stores each check it waits on in its record, and its poll reads them back from there.
+        assert check.to_entry() == entry
+        assert attestation_check(check.to_entry()) == check
+
     @parameterized.expand(
         [
             ("missing_app_id", {"check": "Dependency proof"}),

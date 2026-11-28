@@ -78,11 +78,11 @@ describe('email step variants', () => {
         })
     })
 
-    it('leaves out optional content a sandbox step never had', () => {
+    it('leaves out optional content a sandbox step never had and keeps its implicit Hog templating', () => {
         const sandbox = {
             ...graphFields,
             type: 'email_sandbox',
-            config: { inputs: { email: { templating: 'hog', value: { to: { email: 'a@example.com' } } } } },
+            config: { inputs: { email: { value: { to: { email: 'a@example.com' } } } } },
         } as SandboxEmailAction
 
         expect(toOwnEmailAction(sandbox, 3).config).toEqual({
@@ -129,7 +129,9 @@ describe('email step variants', () => {
         ['a Reply-To', { replyTo: 'support@example.com' }, {}, ['reply_to']],
         ['CC or BCC', { cc: '', bcc: 'audit@example.com' }, {}, ['cc_bcc']],
         ['tracking turned off', {}, { tracking_enabled: false }, ['tracking_off']],
+        ['click tracking turned off', {}, { click_tracking_enabled: false }, ['click_tracking_off']],
         ['UTM tags', {}, { utm_tags_enabled: true }, ['utm_tags']],
+        ['connecting clicks to sessions turned off', {}, { run_link_tag_enabled: false }, ['run_link_tag_off']],
     ])('lists %s as settings the sandbox sender drops', (_name, value, config, expected) => {
         expect(
             ownOnlySettings(ownAction(value, { tracking_enabled: true, utm_tags_enabled: false, ...config }))

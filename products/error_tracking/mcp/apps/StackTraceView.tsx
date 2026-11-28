@@ -65,7 +65,9 @@ function FrameContextLines({ context }: { context: NonNullable<StackFrame['conte
                     <span className="inline-block w-10 text-right text-muted-foreground select-none pr-3 tabular-nums">
                         {l.number}
                     </span>
-                    <span className={l.type === 'error' ? 'text-destructive font-medium' : 'text-foreground'}>
+                    <span
+                        className={l.type === 'error' ? 'text-destructive-foreground font-medium' : 'text-foreground'}
+                    >
                         {l.line}
                     </span>
                 </div>

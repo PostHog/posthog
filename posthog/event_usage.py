@@ -8,17 +8,20 @@ from typing import TYPE_CHECKING, NotRequired, Optional, Required, TypedDict
 from urllib.parse import urlparse
 
 from django.contrib.auth.models import AnonymousUser
+from django.http import HttpRequest
 
 import posthoganalytics
 from opentelemetry import trace
 
 from posthog.clickhouse.query_tagging import get_query_tag_value
 from posthog.constants import POSTHOG_INTERNAL_EMAIL_SUFFIX
+from posthog.helpers.ai_signup_attribution import AISignupAttribution
 from posthog.helpers.oauth_pending_connection import PendingOAuthConnection
 from posthog.models import Organization, User
 from posthog.models.activity_logging.model_activity import is_impersonated_session
 from posthog.models.team import Team
 from posthog.oauth_provenance import get_oauth_client_id, is_first_party_oauth_client, is_interactive_desktop_grant
+from posthog.session.activity import client_attribution_properties
 from posthog.settings import SITE_URL
 from posthog.synthetic_user import SyntheticUser
 from posthog.temporal.oauth import POSTHOG_AI_OAUTH_APP_CLIENT_IDS, SIGNALS_OAUTH_APP_CLIENT_IDS, WEBMCP_APP_CLIENT_ID
@@ -46,6 +49,7 @@ def report_user_signed_up(
     referral_source_ai_prompt: str = "",  # prompt they used when discovering PostHog via AI
     referral_source_influencer: str = "",  # account or person that referred them via a social or creator channel
     oauth_connection: Optional[PendingOAuthConnection] = None,  # the app whose OAuth request sent them to sign up
+    ai_signup_attribution: Optional[AISignupAttribution] = None,  # how AI sent the creator of a new organization
 ) -> None:
     """
     Reports that a new user has joined. Only triggered when a new user is actually created (i.e. when an existing user
@@ -56,6 +60,14 @@ def report_user_signed_up(
 
     if not user.distinct_id:
         return
+
+    # The attribution describes how an organization was created, so a user who joins an existing
+    # organization never carries it.
+    ai_signup_properties = (
+        ai_signup_attribution.to_properties()
+        if ai_signup_attribution is not None and is_organization_first_user and user.organization is not None
+        else {}
+    )
 
     props = {
         "is_first_user": is_instance_first_user,
@@ -73,6 +85,7 @@ def report_user_signed_up(
     if oauth_connection is not None:
         props["signup_oauth_client_name"] = oauth_connection.client_name
         props["signup_oauth_client_id"] = oauth_connection.client_id
+    props.update(ai_signup_properties)
     if user_analytics_metadata is not None:
         props.update(user_analytics_metadata)
 
@@ -90,6 +103,9 @@ def report_user_signed_up(
 
     if is_organization_first_user and user.organization is not None:
         exclude_internal_organization_from_crm(user.organization, user)
+
+    if ai_signup_properties and user.organization is not None:
+        posthoganalytics.group_identify("organization", str(user.organization.id), properties=ai_signup_properties)
 
     if oauth_connection is not None and is_organization_first_user and user.team is not None:
         posthoganalytics.group_identify(
@@ -149,6 +165,8 @@ def report_user_joined_organization(organization: Organization, current_user: Us
 
 def report_user_logged_in(
     user: User,
+    *,
+    request: "HttpRequest | Request",
     social_provider: str = "",  # which third-party provider processed the login (empty = no third-party)
 ) -> None:
     """
@@ -160,7 +178,7 @@ def report_user_logged_in(
     posthoganalytics.capture(
         distinct_id=user.distinct_id,
         event="user logged in",
-        properties={"social_provider": social_provider},
+        properties={"social_provider": social_provider, **client_attribution_properties(request, user)},
         groups=groups(user.current_organization, user.current_team),
     )
 
@@ -185,7 +203,9 @@ def report_user_email_change_requested(user: User, *, verification_required: boo
     )
 
 
-def report_user_identity_change_refused(user: User, *, field: str, reason: str) -> None:
+def report_user_identity_change_refused(
+    user: User, *, request: "HttpRequest | Request", field: str, reason: str
+) -> None:
     """Triggered when the API refuses to change the login email or the password.
 
     `reason` is `token_auth` for a personal API key or OAuth token, or `stale_reauth` when the
@@ -201,6 +221,7 @@ def report_user_identity_change_refused(user: User, *, field: str, reason: str) 
             "field": field,
             "reason": reason,
             "$set": user.get_analytics_metadata(),
+            **client_attribution_properties(request, user),
         },
         groups=groups(user.current_organization, user.current_team),
     )
@@ -222,7 +243,7 @@ def report_user_updated(user: User, updated_attrs: list[str]) -> None:
     )
 
 
-def report_user_password_reset(user: User) -> None:
+def report_user_password_reset(user: User, *, request: "HttpRequest | Request") -> None:
     """
     Reports a user resetting their password.
     """
@@ -232,6 +253,7 @@ def report_user_password_reset(user: User) -> None:
     posthoganalytics.capture(
         distinct_id=user.distinct_id,
         event="user password reset",
+        properties=client_attribution_properties(request, user),
         groups=groups(user.current_organization, user.current_team),
     )
 
@@ -412,6 +434,17 @@ MCP_TRANSPORT_EVENT_SOURCES = frozenset(
         EventSource.POSTHOG_CODE,
         EventSource.SELF_DRIVING,
         EventSource.WEBMCP,
+    }
+)
+
+# Surfaces that PostHog runs on a schedule as the owner of an insight, alert or subscription. Their events must not
+# move the owner's last seen time, because the owner did nothing. EXPORT is not in the set, because a person who
+# downloads a file also gets that source.
+AUTOMATED_EVENT_SOURCES = frozenset(
+    {
+        EventSource.CACHE_WARMING,
+        EventSource.ALERT,
+        EventSource.SUBSCRIPTION,
     }
 )
 
@@ -627,6 +660,13 @@ def get_request_analytics_properties(request) -> AnalyticsProps:
 _tracer = trace.get_tracer(__name__)
 
 
+def _merge_analytics_props(properties: dict, analytics_props: AnalyticsProps) -> dict:
+    merged = {**analytics_props, **properties}
+    if analytics_props["source"] in AUTOMATED_EVENT_SOURCES:
+        merged.setdefault("$update_person_last_seen_at", False)
+    return merged
+
+
 def report_user_action(
     user: User | AnonymousUser | SyntheticUser,
     event: str,
@@ -645,7 +685,7 @@ def report_user_action(
     if request is not None:
         properties = {**get_request_analytics_properties(request), **properties}
     if analytics_props is not None:
-        properties = {**analytics_props, **properties}
+        properties = _merge_analytics_props(properties, analytics_props)
 
     # Synthetic principals (e.g. project secret API keys) have no User row but still carry a
     # distinct_id, so service-authenticated actions are captured instead of silently dropped.
@@ -686,7 +726,7 @@ def report_user_or_team_action(
     if properties is None:
         properties = {}
     if analytics_props is not None:
-        properties = {**analytics_props, **properties}
+        properties = _merge_analytics_props(properties, analytics_props)
 
     # isinstance works through Django's SimpleLazyObject because it proxies __class__
     real_user = user if isinstance(user, User) else None

@@ -36,6 +36,7 @@ class TestReferenceEndpoints:
             ("Products",),
             ("ProductDescriptions",),
             ("Promotions",),
+            ("PromotionDescriptions",),
             ("ErrorCodeDescriptions",),
         ]
     )
@@ -153,6 +154,7 @@ class TestSourceResponse:
             ("Products", ["SkuCode"], None),
             ("ProductDescriptions", ["LocalizationKey", "LanguageCode"], None),
             ("Promotions", ["ProviderCode", "CurrencyIso", "StartUtc"], None),
+            ("PromotionDescriptions", ["LocalizationKey", "LanguageCode"], None),
             ("Balance", ["CurrencyIso"], None),
             ("ErrorCodeDescriptions", ["Code"], None),
             ("TransferRecords", ["TransferRef"], "StartedUtc"),

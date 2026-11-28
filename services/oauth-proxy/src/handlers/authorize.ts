@@ -107,7 +107,14 @@ async function redirectToRegionalAuthorize(url: URL, region: Region, kv: KVNames
     if (mapping?.redirect_uris && originalRedirectUri) {
         // A proxy nonce keys the record so knowing the client's state cannot overwrite it.
         nonce = crypto.randomUUID()
-        kvWrites.push(putPendingCallback(kv, nonce, { redirect_uri: originalRedirectUri, state: state ?? null }))
+        kvWrites.push(
+            putPendingCallback(kv, nonce, {
+                redirect_uri: originalRedirectUri,
+                state: state ?? null,
+                region,
+                client_id: clientId ?? undefined,
+            })
+        )
         if (clientId) {
             kvWrites.push(putCallbackRedirectUri(kv, clientId, originalRedirectUri))
         }

@@ -9,7 +9,7 @@ export const template: HogFunctionTemplate = {
     id: 'template-posthog-create-customer-task',
     name: 'Create customer task',
     description:
-        'Create a Customer analytics task with an optional account, assignee, and due date. All fields support workflow variables.',
+        'Create a Customer analytics task with an optional account, assignee, due date, and tags. All fields support workflow variables.',
     icon_url: '/static/posthog-icon.svg',
     category: ['Custom'],
     code_language: 'hog',
@@ -31,6 +31,9 @@ if (not empty(inputs.assigned_to_id)) {
 }
 if (not empty(inputs.due_at)) {
   payload.due_at := inputs.due_at
+}
+if (not empty(inputs.tags)) {
+  payload.tags := inputs.tags
 }
 let response := postHogCreateCustomerTask(payload)
 if (response.status < 200 or response.status >= 300) {
@@ -82,6 +85,14 @@ return response.body
             secret: false,
             required: false,
             description: 'A date and time with a timezone, such as 2030-01-15T17:00:00Z.',
+        },
+        {
+            key: 'tags',
+            type: 'posthog_ticket_tags',
+            label: 'Tags',
+            secret: false,
+            required: false,
+            description: 'Tags to add to the task.',
         },
     ],
 }

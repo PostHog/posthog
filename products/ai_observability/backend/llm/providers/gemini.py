@@ -18,6 +18,7 @@ from pydantic import BaseModel
 
 from products.ai_observability.backend.llm.errors import (
     AuthenticationError,
+    ContextWindowExceededError,
     LLMError,
     ModelNotFoundError,
     ModelPermissionError,
@@ -26,6 +27,7 @@ from products.ai_observability.backend.llm.errors import (
     QuotaExceededError,
     RetryableRateLimitError,
     StructuredOutputParseError,
+    is_context_window_error_message,
     stream_error_chunk,
 )
 from products.ai_observability.backend.llm.types import (
@@ -193,6 +195,8 @@ class GeminiAdapter:
             # issue every time. Share the transport lane, which the caller retries quietly.
             if status_code == 499 or "cancelled" in error_message or "canceled" in error_message:
                 return ProviderConnectionError(str(error))
+            if status_code == 400 and is_context_window_error_message(error_message):
+                return ContextWindowExceededError(str(error))
             return None
         if isinstance(error, httpx.TransportError):
             # google-genai doesn't wrap httpx transport failures (connection reset, read timeout)

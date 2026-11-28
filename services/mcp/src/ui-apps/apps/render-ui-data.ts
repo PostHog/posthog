@@ -15,6 +15,15 @@ export interface RenderUiDataRequest {
     arguments: Record<string, unknown>
 }
 
+/**
+ * The render-ui result's `_meta` app data is the rendered tool's payload, not the render-ui
+ * envelope, so the envelope only travels in `structuredContent`. The generic parser prefers
+ * `_meta` and would hand the app chart data with no `app_key` to dispatch on.
+ */
+export function readRenderUiEnvelope(structuredContent: unknown, _meta?: Record<string, unknown>): unknown {
+    return structuredContent ?? null
+}
+
 /** The `tools/call` that fetches a visualization's data; the server preloads with the same call. */
 export function renderUiDataRequest(
     toolName: string,

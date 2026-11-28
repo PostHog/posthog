@@ -80,7 +80,7 @@ A scheduled run uses the first source that applies:
 3. The default that a canonical scout's skill ships (see below), for a project inside that skill's rollout.
    A project outside the rollout runs with no pre-check.
 
-`posthog:scout-config-list` shows the result:
+`posthog:scout-config-retrieve {"id": "<config id>"}` shows the result:
 
 - `effective_precheck_query`: the query the next scheduled run uses, or null when no pre-check runs.
 - `precheck_query_source`: `config`, `skill_default`, or `off`.
@@ -129,7 +129,7 @@ A manual run has no block, so the body must still work without one.
 A skipped tick creates no run row, sandbox, or model call, but stores its pre-check outcome on the config.
 Before you treat missing runs as a failure:
 
-1. Read the config in `scout-config-list`:
+1. Read the config with `scout-config-retrieve`:
    - `last_precheck_at`: the time of the latest scheduled pre-check.
    - `last_precheck_outcome`: `skip` (the query found nothing new), `run` (the query returned rows that allow a run), or `error` (the query failed, so the gate allows a run).
    - `last_precheck_row_count`: how many rows it returned. Zero rows or one false value can both skip, so use the outcome to tell them from a run.

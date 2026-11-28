@@ -29,6 +29,9 @@ class BexioEndpointConfig:
     name: str
     path: str
     pagination: Literal["offset", "page", "single"] = "offset"
+    # The page-size parameter and the page-count path of a `page` endpoint.
+    page_size_param: str = "limit"
+    page_count_path: Optional[str] = "paging.page_count"
     # The `order_by` value for a full refresh. None when the endpoint has no `order_by` parameter.
     order_by: Optional[str] = None
     # The POST search path that accepts an `updated_at` criterion. None means full refresh only.
@@ -50,6 +53,23 @@ class BexioEndpointConfig:
     @property
     def page_size(self) -> int:
         return PAGE_NUMBER_PAGE_SIZE if self.pagination == "page" else OFFSET_PAGE_SIZE
+
+
+def _invoice_children(name: str, path_suffix: str, pagination: Literal["offset", "single"]) -> BexioEndpointConfig:
+    return BexioEndpointConfig(
+        name=name,
+        path=f"/2.0/kb_invoice/{{invoice_id}}/{path_suffix}",
+        pagination=pagination,
+        primary_keys=("invoice_id", "id"),
+        fanout=DependentEndpointConfig(
+            parent_name="invoices",
+            resolve_param="invoice_id",
+            resolve_field="id",
+            include_from_parent=["id"],
+            parent_field_renames={"id": "invoice_id"},
+            parent_params={"order_by": "id"},
+        ),
+    )
 
 
 def _item_positions(name: str, parent_name: str, document_type: str, parent_key: str) -> BexioEndpointConfig:
@@ -132,6 +152,35 @@ _ENDPOINT_LIST: tuple[BexioEndpointConfig, ...] = (
             include_from_parent=[],
         ),
     ),
+    _invoice_children("invoice_payments", "payment", "offset"),
+    # The reminder list takes no paging parameters and returns every reminder of the invoice.
+    _invoice_children("invoice_reminders", "kb_reminder", "single"),
+    BexioEndpointConfig(
+        name="bank_payments",
+        path="/4.0/banking/payments",
+        pagination="page",
+        # This list names its page size `per-page`, wraps rows in `results` and gives a row count, not a page count.
+        page_size_param="per-page",
+        page_count_path=None,
+        data_selector="results",
+    ),
+    # Lists only the active employees, in one response.
+    BexioEndpointConfig(
+        name="payroll_employees",
+        path="/4.0/payroll/employees",
+        pagination="single",
+        data_selector="data",
+    ),
+    BexioEndpointConfig(name="countries", path="/2.0/country", order_by="id"),
+    BexioEndpointConfig(name="languages", path="/2.0/language", order_by="id"),
+    # The salutation and unit lists have no `order_by` parameter.
+    BexioEndpointConfig(name="salutations", path="/2.0/salutation"),
+    BexioEndpointConfig(name="titles", path="/2.0/title", order_by="id"),
+    BexioEndpointConfig(name="contact_branches", path="/2.0/contact_branch", order_by="id"),
+    BexioEndpointConfig(name="task_statuses", path="/2.0/todo_status", order_by="id"),
+    BexioEndpointConfig(name="task_priorities", path="/2.0/todo_priority", order_by="id"),
+    BexioEndpointConfig(name="payment_types", path="/2.0/payment_type", order_by="id"),
+    BexioEndpointConfig(name="units", path="/2.0/unit"),
 )
 
 BEXIO_ENDPOINTS: dict[str, BexioEndpointConfig] = {endpoint.name: endpoint for endpoint in _ENDPOINT_LIST}

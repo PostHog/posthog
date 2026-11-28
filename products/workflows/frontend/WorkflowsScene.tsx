@@ -21,6 +21,7 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType, Breadcrumb } from '~/types'
 
+import { AdventCalendarBanner } from './AdventCalendar/AdventCalendarBanner'
 import { EmailSuspensionBanner } from './EmailSuspensionBanner'
 import { workflowsEmptyState } from './emptyState/workflowsEmptyState'
 import { EngagementEventsBanner } from './EngagementEventsBanner'
@@ -157,6 +158,9 @@ export const workflowsSceneLogic = kea<workflowsSceneLogicType>([
                 }
             },
             [urls.workflows(':tab' as WorkflowsSceneTab)]: ({ tab }) => {
+                if (urls.workflows(tab as WorkflowsSceneTab) === urls.workflowsAdventCalendar()) {
+                    return
+                }
                 // A shared link often drops the tab segment, so `/workflows/<id>` lands here with the id as the tab.
                 if (tab && isUUIDLike(tab)) {
                     router.actions.replace(urls.workflow(tab, 'workflow'), router.values.searchParams)
@@ -271,6 +275,7 @@ export function WorkflowsScene(props: WorkflowsSceneProps = {}): JSX.Element {
                 }
             />
             <ProviderImportModal />
+            <AdventCalendarBanner />
             <EmailSuspensionBanner />
             <EngagementEventsBanner />
             <LemonTabs<WorkflowsTopTab>

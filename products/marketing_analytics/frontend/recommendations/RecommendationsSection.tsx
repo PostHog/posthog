@@ -1,14 +1,17 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { useEffect, useRef } from 'react'
 
-import { LemonButton, LemonSkeleton, Popover } from '@posthog/lemon-ui'
+import { LemonButton, Popover } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { RecommendationsShownState } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/marketingAnalyticsLogic'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 
 import { MarketingQueryError } from '../dashboard/MarketingQueryError'
+import { QuillRecommendationsSection } from './QuillRecommendationsSection'
 import { RecommendationsIdle } from './RecommendationsIdle'
+import { RecommendationsLoading } from './RecommendationsLoading'
 import { recommendationsLogic } from './recommendationsLogic'
 import { RecommendationsModal } from './RecommendationsModal'
 import { RecommendationsSummary } from './RecommendationsSummary'
@@ -19,6 +22,8 @@ export function RecommendationsSection(): JSX.Element {
         dataWarehouseSources,
         sources,
         dataGaps,
+        serverDataGaps,
+        conversionSource,
         introSeen,
         responseLoading,
         responseError,
@@ -26,12 +31,14 @@ export function RecommendationsSection(): JSX.Element {
         activeRecommendations,
         activeGroups,
         resolvedCount,
+        detectedCount,
         firstRule,
         shownState,
     } = useValues(recommendationsLogic)
     const { openRecommendations, dismissIntro, reportRecommendationsShown, loadData } = useActions(recommendationsLogic)
     // Hands the current query to the node, which runs it again when the sources or dates change.
     useMountedLogic(dataNodeLogic(dataNodeProps))
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     const showGroups = shownState === 'recommendations'
     const openFirstRule = (source: 'intro' | 'button'): void => {
@@ -60,12 +67,39 @@ export function RecommendationsSection(): JSX.Element {
             has_invest_impact: directions.has('invest'),
             source_types: [...new Set(sources.map((source) => source.sourceType))],
             data_gap_count: dataGaps.length,
-            resolved_count: showGroups ? resolvedCount : 0,
+            server_data_gap_kinds: showGroups ? serverDataGaps.map((gap) => gap.kind) : [],
+            conversion_source: showGroups ? (conversionSource?.kind ?? null) : null,
+            // Manual dismissals and applied marks only. Detected ones have their own property.
+            resolved_count: showGroups ? resolvedCount - detectedCount : 0,
+            detected_applied_count: showGroups ? detectedCount : 0,
             intro_shown: showGroups && !introSeen,
         })
         // One event per state the viewer sees, so reloads and new date ranges with the same state do not add views.
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [shownState])
+
+    const error =
+        dataWarehouseSources && sources.length > 0 && responseError ? (
+            <MarketingQueryError
+                message="Could not load recommendations. Try again, and contact support if it keeps happening."
+                queryId={queryId}
+                onRetry={() => loadData('force_async')}
+                loading={responseLoading}
+            />
+        ) : null
+
+    if (todayRailNav) {
+        return (
+            <QuillRecommendationsSection
+                shownState={shownState}
+                showIntro={showGroups && !introSeen}
+                onDismissIntro={dismissIntro}
+                onOpenFirstRule={openFirstRule}
+                error={error}
+                modal={<RecommendationsModal />}
+            />
+        )
+    }
 
     return (
         <div className="@container flex flex-col gap-3 pt-2" data-attr="marketing-recommendations">
@@ -101,20 +135,13 @@ export function RecommendationsSection(): JSX.Element {
                     {shownState === 'recommendations' ? (
                         <RecommendationsSummary onOpen={() => openFirstRule('button')} />
                     ) : shownState === null ? (
-                        <LemonSkeleton className="h-6 w-60" />
+                        <RecommendationsLoading />
                     ) : (
                         <RecommendationsIdle state={shownState} />
                     )}
                 </div>
             </Popover>
-            {dataWarehouseSources && sources.length > 0 && responseError ? (
-                <MarketingQueryError
-                    message="Could not load recommendations. Try again, and contact support if it keeps happening."
-                    queryId={queryId}
-                    onRetry={() => loadData('force_async')}
-                    loading={responseLoading}
-                />
-            ) : null}
+            {error}
             <RecommendationsModal />
         </div>
     )

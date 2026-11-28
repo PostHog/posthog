@@ -1,12 +1,16 @@
+import { MOCK_DEFAULT_USER } from 'lib/api.mock'
+
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
 import api, { CountedPaginatedResponse } from 'lib/api'
 import { OrganizationMembershipLevel } from 'lib/constants'
+import { userLogic } from 'scenes/userLogic'
 
 import { initKeaTests } from '~/test/init'
 import { OrganizationMemberType, Region } from '~/types'
 
+import { accountMemberAdminLinksLogic } from './accountMemberAdminLinksLogic'
 import { accountRelatedUsersLogic, PAGE_SIZE } from './accountRelatedUsersLogic'
 
 const buildMember = (overrides: Partial<OrganizationMemberType> = {}): OrganizationMemberType =>
@@ -36,7 +40,9 @@ const buildResponse = (
 })
 
 describe('accountRelatedUsersLogic', () => {
+    const originalLocation = window.location
     let logic: ReturnType<typeof accountRelatedUsersLogic.build>
+    let adminLinksLogic: ReturnType<typeof accountMemberAdminLinksLogic.build>
 
     beforeEach(() => {
         initKeaTests()
@@ -45,9 +51,17 @@ describe('accountRelatedUsersLogic', () => {
 
     afterEach(() => {
         logic?.unmount()
+        adminLinksLogic?.unmount()
+        Object.defineProperty(window, 'location', { configurable: true, value: originalLocation })
     })
 
-    it('loads the first page of US organization members for the account external id', async () => {
+    it.each([
+        ['https://us.posthog.com', Region.US],
+        ['https://eu.posthog.com', Region.EU],
+        ['https://app.posthog.com', Region.US],
+    ])('preserves the %s API member region in both member tables', async (origin, region) => {
+        Object.defineProperty(window, 'location', { configurable: true, value: { ...originalLocation, origin } })
+        userLogic.actions.loadUserSuccess(MOCK_DEFAULT_USER)
         const member = buildMember()
         const response = buildResponse([member], 1)
         const listForOrg = jest.spyOn(api.organizationMembers, 'listForOrg').mockResolvedValue(response)
@@ -57,8 +71,14 @@ describe('accountRelatedUsersLogic', () => {
 
         await expectLogic(logic)
             .toFinishAllListeners()
-            .toMatchValues({ membersResponse: { ...response, results: [{ ...member, region: Region.US }] } })
+            .toMatchValues({ membersResponse: { ...response, results: [{ ...member, region, source: 'api' }] } })
         expect(listForOrg).toHaveBeenCalledWith('org-uuid', { limit: 20, offset: 0 })
+
+        adminLinksLogic = accountMemberAdminLinksLogic({ externalId: 'org-uuid' })
+        adminLinksLogic.mount()
+        await expectLogic(adminLinksLogic)
+            .toFinishAllListeners()
+            .toMatchValues({ members: [{ ...member, region, source: 'api' }] })
     })
 
     it('does not load when the account has no external id', async () => {
@@ -196,6 +216,7 @@ describe('accountRelatedUsersLogic', () => {
                     user: { id: 101, first_name: 'First1', email: 'eu1@example.com', distinct_id: 'did-1' },
                     last_login: '2026-01-02T03:04:05Z',
                     region: Region.EU,
+                    source: 'warehouse',
                 },
                 {
                     id: 'eu-m-2',
@@ -203,6 +224,7 @@ describe('accountRelatedUsersLogic', () => {
                     user: { id: 102, first_name: 'First2', email: 'eu2@example.com', distinct_id: 'did-2' },
                     last_login: null,
                     region: Region.EU,
+                    source: 'warehouse',
                 },
             ],
         })

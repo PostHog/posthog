@@ -94,6 +94,159 @@ def test_actions_paginate_through_post_body(driver: SourceDriver) -> None:
         }
 
 
+TODAY = datetime.now(UTC).date()
+REPORT_BODY = {"dimensions": ["date", "model_channel_id"]}
+
+
+def _day(days_ago: int) -> str:
+    return (TODAY - timedelta(days=days_ago)).isoformat()
+
+
+@pytest.mark.parametrize(
+    "endpoint,path,body",
+    [
+        ("brand_report", "reports/brands", REPORT_BODY),
+        ("domain_report", "reports/domains", REPORT_BODY),
+        ("url_report", "reports/urls", REPORT_BODY),
+        ("search_fanout_queries", "queries/search", {"view": "rows"}),
+    ],
+)
+@pytest.mark.parametrize(
+    "incremental,watermark,expected_days",
+    [
+        (False, _day(1), [_day(2), _day(1), _day(0)]),
+        (True, None, [_day(2), _day(1), _day(0)]),
+        (True, _day(1), [_day(1), _day(0)]),
+        (True, TODAY - timedelta(days=1), [_day(1), _day(0)]),
+        (True, _day(5), [_day(2), _day(1), _day(0)]),
+    ],
+)
+def test_daily_endpoints_request_one_day_per_window(
+    config: PeecAISourceConfig,
+    endpoint: str,
+    path: str,
+    body: dict,
+    incremental: bool,
+    watermark: str | date | None,
+    expected_days: list[str],
+) -> None:
+    config.start_date = _day(2)
+    result = SourceDriver(PeecAISource(), config).run(
+        endpoint,
+        always(ScriptedResponse(json={"data": [], "total_count": 0})),
+        should_use_incremental_field=incremental,
+        db_incremental_field_last_value=watermark,
+    )
+
+    assert result.raised is None
+    assert [request.url for request in result.requests] == [
+        f"https://api.peec.ai/customer/v1/{path}" for _ in expected_days
+    ]
+    assert [request.json() for request in result.requests] == [
+        {**body, "project_id": "or_example", "start_date": day, "end_date": day, "limit": 10000, "offset": 0}
+        for day in expected_days
+    ]
+    assert result.response is not None
+    assert result.response.sort_mode == "asc"
+
+
+def test_products_send_the_whole_range_in_one_window(driver: SourceDriver) -> None:
+    result = driver.run(
+        "products",
+        [ScriptedResponse(json={"data": [], "total_count": 0})],
+        should_use_incremental_field=True,
+        db_incremental_field_last_value="2025-06-10",
+    )
+
+    assert result.raised is None
+    assert [request.json() for request in result.requests] == [
+        {
+            "order_by": "name",
+            "direction": "asc",
+            "project_id": "or_example",
+            "start_date": "2025-01-01",
+            "end_date": TODAY.isoformat(),
+            "limit": 1000,
+            "offset": 0,
+        }
+    ]
+    assert result.response is not None
+    assert result.response.sort_mode is None
+
+
+def _brand_row(brand_id: str, day: str, channel: dict | None = None) -> dict:
+    return {"brand": {"id": brand_id, "name": "Example"}, "model_channel": channel, "date": day}
+
+
+def test_daily_window_pages_until_short_page_then_moves_to_next_day(config: PeecAISourceConfig) -> None:
+    config.start_date = _day(1)
+    first_page = [_brand_row(f"kw_{index}", _day(1), {"id": "openai-0"}) for index in range(10000)]
+    last_row = _brand_row("kw_last", _day(1))
+    result = SourceDriver(PeecAISource(), config).run(
+        "brand_report",
+        [
+            ScriptedResponse(json={"data": first_page}),
+            ScriptedResponse(json={"data": [last_row]}),
+            ScriptedResponse(json={"data": []}),
+        ],
+    )
+
+    assert result.raised is None
+    assert [(request.json()["start_date"], request.json()["offset"]) for request in result.requests] == [
+        (_day(1), 0),
+        (_day(1), 10000),
+        (_day(0), 0),
+    ]
+    assert len(result.rows) == 10001
+    assert result.rows[0] == {**first_page[0], "brand_id": "kw_0", "model_channel_id": "openai-0"}
+    assert result.rows[-1] == {**last_row, "brand_id": "kw_last", "model_channel_id": None}
+    assert result.saved_states[0] == PeecAIResumeConfig(
+        offset=10000, start_date=_day(1), end_date=_day(0), window_date=_day(1)
+    )
+    assert result.response is not None
+    assert result.response.primary_keys == ["brand_id", "date", "model_channel_id"]
+
+
+def test_daily_resume_continues_inside_the_saved_window(driver: SourceDriver) -> None:
+    result = driver.run(
+        "domain_report",
+        [
+            ScriptedResponse(json={"data": [{"domain": "example.com"}], "total_count": 10001}),
+            ScriptedResponse(json={"data": [], "total_count": 0}),
+        ],
+        resume_state=PeecAIResumeConfig(
+            offset=10000, start_date="2025-06-01", end_date="2025-06-03", window_date="2025-06-02"
+        ),
+        should_use_incremental_field=True,
+        db_incremental_field_last_value="2025-06-15",
+    )
+
+    assert result.raised is None
+    assert [(request.json()["start_date"], request.json()["offset"]) for request in result.requests] == [
+        ("2025-06-02", 10000),
+        ("2025-06-03", 0),
+    ]
+
+
+def test_search_fanout_rows_get_chat_and_query_keys(config: PeecAISourceConfig) -> None:
+    config.start_date = _day(0)
+    row = {
+        "prompt": {"id": "pr_example"},
+        "chat": {"id": "ch_example"},
+        "model_channel": {"id": "openai-0"},
+        "date": _day(0),
+        "query": {"index": 0, "text": "example query"},
+    }
+    result = SourceDriver(PeecAISource(), config).run(
+        "search_fanout_queries", [ScriptedResponse(json={"data": [row], "total_count": 1})]
+    )
+
+    assert result.raised is None
+    assert result.rows == [{**row, "chat_id": "ch_example", "query_index": 0}]
+    assert result.response is not None
+    assert result.response.primary_keys == ["chat_id", "query_index"]
+
+
 def test_tag_groups_fetch_one_unpaginated_page(driver: SourceDriver) -> None:
     rows = [{"group": "persona", "color": "blue", "tag_count": 3}, {"group": "region", "color": None, "tag_count": 1}]
     result = driver.run("tag_groups", [ScriptedResponse(json={"data": rows})])

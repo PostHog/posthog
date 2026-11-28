@@ -91,6 +91,11 @@ class ObjectStorageClient(metaclass=abc.ABCMeta):
     def read_object(self, bucket: str, key: str, *, missing_ok: bool = False) -> Optional[tuple[bytes, Optional[str]]]:
         pass
 
+    def read_bytes_tail(self, bucket: str, key: str, max_bytes: int) -> Optional[bytes]:
+        """The last `max_bytes` of an object, or None when it does not exist."""
+        content = self.read_bytes(bucket, key, missing_ok=True)
+        return None if content is None else content[-max_bytes:]
+
     @abc.abstractmethod
     def tag(self, bucket: str, key: str, tags: dict[str, str]) -> None:
         pass
@@ -366,6 +371,17 @@ class ObjectStorage(ObjectStorageClient):
     def read_bytes(self, bucket: str, key: str, *, missing_ok: bool = False) -> Optional[bytes]:
         result = self.read_object(bucket, key, missing_ok=missing_ok)
         return None if result is None else result[0]
+
+    def read_bytes_tail(self, bucket: str, key: str, max_bytes: int) -> Optional[bytes]:
+        from botocore.exceptions import ClientError  # noqa: PLC0415 — keeps the heavy dep off the import path
+
+        try:
+            # A suffix range returns the whole object when it is shorter than max_bytes.
+            return self.aws_client.get_object(Bucket=bucket, Key=key, Range=f"bytes=-{max_bytes}")["Body"].read()
+        except ClientError as e:
+            if e.response.get("Error", {}).get("Code") == "NoSuchKey":
+                return None
+            raise ObjectStorageError("read failed") from e
 
     def read_object(self, bucket: str, key: str, *, missing_ok: bool = False) -> Optional[tuple[bytes, Optional[str]]]:
         from botocore.exceptions import ClientError  # noqa: PLC0415 — keeps the heavy dep off the import path
@@ -720,6 +736,10 @@ def read(file_name: str, bucket: str | None = None, *, missing_ok: bool = False)
 def read_bytes(file_name: str, bucket: str | None = None, *, missing_ok: bool = False) -> Optional[bytes]:
     bucket = bucket or settings.OBJECT_STORAGE_BUCKET
     return object_storage_client().read_bytes(bucket, file_name, missing_ok=missing_ok)
+
+
+def read_bytes_tail(file_name: str, max_bytes: int, bucket: str | None = None) -> Optional[bytes]:
+    return object_storage_client().read_bytes_tail(bucket or settings.OBJECT_STORAGE_BUCKET, file_name, max_bytes)
 
 
 def read_object(

@@ -13,13 +13,13 @@ from typing import Any
 from urllib.parse import urlsplit
 
 from django.db import transaction
-from django.db.models import Q
+from django.db.models import Q, QuerySet
 from django.utils import timezone
 
 import structlog
 
 from posthog.models.user import User
-from posthog.models.user_integration import slack_link_fits, slack_link_for
+from posthog.models.user_integration import UserIntegration, slack_link_fits, slack_link_for
 
 from products.mcp_store.backend.agents import (
     BuiltInAgentKey,
@@ -84,8 +84,8 @@ from products.mcp_store.backend.tools import (
     resync_installation_tools,
 )
 
-# Re-exported for the presentation layer ("presentation must use facade"
-# import-linter contract): the single MCP URL policy entry point — shared SSRF
+# Re-exported for the presentation layer (hoglint's `presentation-uses-facade`
+# rule): the single MCP URL policy entry point — shared SSRF
 # validation, overridden only by the exact team-scoped internal allowlist.
 from products.mcp_store.backend.url_policy import check_mcp_url_policy as check_mcp_url_policy
 
@@ -490,6 +490,30 @@ def slack_mcp_user_scopes(team_id: int, user_id: int | None) -> tuple[str, ...]:
     nothing the server may not read. Empty when the team cannot use the Slack MCP."""
     template = _connectable_slack_template(team_id, user_id)
     return tuple(template.oauth_scope_allowlist or ()) if template is not None else ()
+
+
+def has_slack_mcp_connected(team_id: int, user_id: int) -> bool:
+    """Whether the member's tasks mount a working Slack MCP, so an agent can read Slack with the member's access."""
+    return _slack_mcp_installations(team_id, user_id).exists()
+
+
+def slack_mcp_installation_id(team_id: int, user_id: int, *, slack_team_id: str, slack_user_id: str) -> str | None:
+    """The member's working Slack MCP installation that reads this Slack workspace as this Slack user, so a run can
+    mount it and nothing else. Only a connection made from the member's Slack link shows whose Slack it reads, so a
+    connection with its own token never counts. None when there is none."""
+    linked = _slack_mcp_installations(team_id, user_id).filter(
+        linked_user_integration__user_id=user_id,
+        linked_user_integration__kind=UserIntegration.IntegrationKind.SLACK,
+        linked_user_integration__integration_id=slack_user_id,
+        linked_user_integration__config__slack_team_id=slack_team_id,
+    )
+    found = linked.values_list("id", flat=True).first()
+    return str(found) if found else None
+
+
+def _slack_mcp_installations(team_id: int, user_id: int) -> QuerySet[MCPServerInstallation]:
+    ready_ids = [installation.id for installation in get_active_installations(team_id, user_id)]
+    return MCPServerInstallation.objects.filter(team_id=team_id, id__in=ready_ids, url=SLACK_MCP_URL)
 
 
 # The token keys of an installation that holds its own token. A linked installation has none of them.

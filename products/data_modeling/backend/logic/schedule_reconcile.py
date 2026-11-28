@@ -12,7 +12,7 @@ the Temporal schedule API.
 
 import uuid
 import dataclasses
-from collections.abc import Iterable, Mapping
+from collections.abc import Collection, Iterable, Mapping
 from datetime import timedelta
 from typing import TYPE_CHECKING
 
@@ -39,13 +39,19 @@ from temporalio.service import RPCError, RPCStatusCode
 
 from posthog.event_usage import groups, report_team_action
 from posthog.exceptions_capture import capture_exception
+from posthog.models.activity_logging.activity_log import Detail, LogActivityEntry, Trigger, bulk_log_activity
 from posthog.models.team import Team
 from posthog.ph_client import ph_background_capture
 from posthog.temporal.common.client import async_connect
 from posthog.temporal.common.schedule import a_create_schedule, a_delete_schedule, a_update_schedule
 from posthog.temporal.common.search_attributes import POSTHOG_DAG_ID_KEY
 
-from products.data_modeling.backend.facade.contracts import PlanFloorRefusalError, UnsupportedFrequencyTargetError
+from products.data_modeling.backend.facade.contracts import (
+    PlanFloorRefusalError,
+    UnsupportedFrequencyTargetError,
+    ViewCadenceSnapshot,
+)
+from products.data_modeling.backend.logic.cadence_changes import cadence_changes
 from products.data_modeling.backend.logic.cohort_scheduling import (
     MINUTES_PER_WEEK,
     ScheduleReconcilePlan,
@@ -65,12 +71,14 @@ from products.data_modeling.backend.logic.freshness import (
 from products.data_modeling.backend.logic.node_frequency import (
     FrequencyGraph,
     build_frequency_graph,
+    dag_ids_reading_warehouse_table,
     drop_plan_floor_clamp,
     get_declared_pin,
     get_declared_target,
     nodes_declared_finer_than,
     persist_seed_targets,
     scheduled_cadences,
+    scheduled_cadences_by_dag,
     seed_targets,
     set_declared_anchor,
     set_declared_pin,
@@ -95,6 +103,7 @@ tracer = trace.get_tracer(__name__)
 
 PLAN_FLOOR_REFUSAL_EVENT = "data modeling refresh refused by plan floor"
 PLAN_FLOOR_CLAMP_EVENT = "data modeling refresh clamped to plan floor"
+PLAN_FLOOR_CLAMP_ACTIVITY = "sync_frequency_plan_floor"
 
 
 class StaleScheduleDeleteError(Exception):
@@ -108,6 +117,39 @@ def maybe_reconcile_dag(dag: DAG) -> None:
     commit — the user's write already succeeded.
     """
     transaction.on_commit(lambda: _reconcile_dag_best_effort(dag))
+
+
+def snapshot_view_cadences_for_table(
+    team_id: int, table_id: uuid.UUID | None, *, skip_dag_ids: Collection[str] = ()
+) -> ViewCadenceSnapshot:
+    """The cadence each node runs at now, in every DAG that reads this warehouse table and is not skipped."""
+    try:
+        dag_ids = {str(dag_id) for dag_id in dag_ids_reading_warehouse_table(team_id, table_id)} if table_id else set()
+        unseen_dag_ids = dag_ids - set(skip_dag_ids)
+        cadences_by_dag = scheduled_cadences_by_dag(team_id, unseen_dag_ids) if unseen_dag_ids else {}
+    except Exception as error:
+        logger.exception("View cadence snapshot failed", team_id=team_id, table_id=str(table_id))
+        capture_exception(error)
+        cadences_by_dag = {}
+    return ViewCadenceSnapshot(team_id=team_id, cadences_by_dag=cadences_by_dag)
+
+
+def reschedule_views_if_cadence_changed(team_id: int, snapshots: Iterable[ViewCadenceSnapshot]) -> None:
+    """Reconcile once, after commit and best-effort, each DAG where a node's cadence moved since its first snapshot."""
+    before: dict[str, dict[str, timedelta | None]] = {}
+    for snapshot in snapshots:
+        for dag_id, cadences in snapshot.cadences_by_dag.items():
+            before.setdefault(dag_id, cadences)
+    if not before:
+        return
+    try:
+        after = scheduled_cadences_by_dag(team_id, before)
+        changed_dag_ids = [dag_id for dag_id, cadences in after.items() if cadences != before[dag_id]]
+        for dag in DAG.objects.select_related("team").filter(team_id=team_id, id__in=changed_dag_ids):
+            maybe_reconcile_dag(dag)
+    except Exception as error:
+        logger.exception("View reschedule check failed", team_id=team_id)
+        capture_exception(error)
 
 
 def _reconcile_dag_best_effort(dag: DAG) -> None:
@@ -449,6 +491,7 @@ def _clamp_dag_targets_to_plan_floor(dag: DAG) -> int:
             stage_plan_floor_clamp(node, plan_floor=floor, at=timezone.now())
             node.save(update_fields=["properties"])
             rewritten.append((node, previous))
+        bulk_log_activity(_plan_floor_clamp_activity(dag, rewritten, floor))
         maybe_reconcile_dag(dag)
     capture = ph_background_capture()
     for node, previous in rewritten:
@@ -463,6 +506,28 @@ def _clamp_dag_targets_to_plan_floor(dag: DAG) -> int:
             groups=groups(team=dag.team),
         )
     return len(rewritten)
+
+
+def _plan_floor_clamp_activity(
+    dag: DAG, rewritten: list[tuple[Node, timedelta]], floor: timedelta
+) -> list[LogActivityEntry]:
+    return [
+        LogActivityEntry(
+            organization_id=dag.team.organization_id,
+            team_id=dag.team_id,
+            user=None,
+            was_impersonated=False,
+            item_id=str(node.saved_query_id),
+            scope="DataWarehouseSavedQuery",
+            activity=PLAN_FLOOR_CLAMP_ACTIVITY,
+            detail=Detail(
+                name=node.saved_query.name if node.saved_query is not None else None,
+                changes=cadence_changes((previous, floor)),
+                trigger=Trigger(job_type="plan_floor_clamp", job_id=str(dag.id), payload={}),
+            ),
+        )
+        for node, previous in rewritten
+    ]
 
 
 def convert_dag_to_tiers(dag: DAG, default: timedelta | None = None) -> int:

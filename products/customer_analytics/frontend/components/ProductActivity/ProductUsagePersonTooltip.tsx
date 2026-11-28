@@ -1,6 +1,9 @@
 import { TZLabel } from 'lib/components/TZLabel'
+import { humanFriendlyDuration } from 'lib/utils/durations'
 
 import type { BookActivityPerson, BookActivityPersonFirstUse } from '~/queries/schema/schema-general'
+
+import { getProductUsagePersonSummary } from './productUsagePresentation'
 
 export function ProductUsagePersonTooltip({
     person,
@@ -20,7 +23,7 @@ export function ProductUsagePersonTooltip({
                     <TZLabel time={firstUse.date} formatDate="MMM D, YYYY" />
                 </div>
             )}
-            <span>{`${person.actionCount} actions, ${Math.round(person.engagedSeconds)} seconds on product pages`}</span>
+            <span>{getProductUsagePersonSummary(person, humanFriendlyDuration)}</span>
             {person.actions.map((action) => (
                 <span key={action.event}>{`${action.event}: ${action.count}`}</span>
             ))}
