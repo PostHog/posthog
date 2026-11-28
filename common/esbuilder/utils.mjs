@@ -112,6 +112,8 @@ export function copyIndexHtml(
             // A bookmarked or shared URL must not keep forcing a build.
             if (window.location.search.indexOf('stable_chunks=') !== -1) {
                 var cleanUrl = new URL(window.location.href)
+                // Boot timing reads this to report a page that fell back, after the URL no longer says so.
+                window.POSTHOG_STABLE_CHUNKS_FALLBACK = cleanUrl.searchParams.get('stable_chunks') === 'fallback'
                 cleanUrl.searchParams.delete('stable_chunks')
                 window.history.replaceState(window.history.state, '', cleanUrl.toString())
             }
