@@ -4,7 +4,7 @@ import { NETWORK_ERROR_MESSAGES } from 'lib/api-error'
 
 import {
     dropHandledAuthGateExceptions,
-    dropInjectedScriptReferenceErrors,
+    dropInjectedScriptExceptions,
     dropScopeNotFoundExceptions,
     dropUnactionableNetworkExceptions,
 } from './exceptionFilters'
@@ -27,7 +27,7 @@ describe('exceptionFilters', () => {
         ['dropScopeNotFoundExceptions', dropScopeNotFoundExceptions],
         ['dropHandledAuthGateExceptions', dropHandledAuthGateExceptions],
         ['dropUnactionableNetworkExceptions', dropUnactionableNetworkExceptions],
-        ['dropInjectedScriptReferenceErrors', dropInjectedScriptReferenceErrors],
+        ['dropInjectedScriptExceptions', dropInjectedScriptExceptions],
     ])('%s passes through non-exception events and exceptions with no list', (_, filter) => {
         const pageview = exceptionEvent([{ type: 'Error', value: 'Project not found.' }], '$pageview')
         const bare: CaptureResult = { uuid: 'example-uuid', event: '$exception', properties: {} }
@@ -110,7 +110,7 @@ describe('exceptionFilters', () => {
         })
     })
 
-    describe('dropInjectedScriptReferenceErrors', () => {
+    describe('dropInjectedScriptExceptions', () => {
         it.each([
             [
                 "the WebKit wording, Can't find variable: WeixinJSBridge",
@@ -183,6 +183,40 @@ describe('exceptionFilters', () => {
                         stacktrace: { frames: [{ filename: 'moz-extension://example/script.js' }] },
                     }),
                 ],
+                false,
+            ],
+            [
+                'an extension TypeError with only masked WebKit frames',
+                [
+                    {
+                        type: 'TypeError',
+                        value: 'Cannot call a class as a function',
+                        mechanism: { handled: false },
+                        stacktrace: {
+                            frames: [
+                                { filename: 'webkit-masked-url://hidden/', in_app: false },
+                                { filename: 'webkit-masked-url://hidden/', in_app: false },
+                            ],
+                        },
+                    },
+                ],
+                false,
+            ],
+            [
+                'an app TypeError called by an extension',
+                [
+                    {
+                        type: 'TypeError',
+                        value: 'x is not a function',
+                        mechanism: { handled: false },
+                        stacktrace: {
+                            frames: [
+                                { filename: 'safari-web-extension://example/script.js', in_app: false },
+                                { filename: 'https://example.com/static/chunk.js', in_app: true },
+                            ],
+                        },
+                    },
+                ],
                 true,
             ],
             [
@@ -212,7 +246,7 @@ describe('exceptionFilters', () => {
         ])('handles %s', (_, exceptions, kept) => {
             const event = exceptionEvent(exceptions)
 
-            expect(dropInjectedScriptReferenceErrors(event)).toBe(kept ? event : null)
+            expect(dropInjectedScriptExceptions(event)).toBe(kept ? event : null)
         })
     })
 })
