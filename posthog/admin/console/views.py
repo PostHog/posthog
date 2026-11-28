@@ -292,6 +292,9 @@ def tools_index(request: HttpRequest) -> HttpResponse:
     return render(request, "admin_console/tools.html", ConsoleEnvironment.context())
 
 
+HANDOFF_OPENER_POLICY = "same-origin-allow-popups"
+
+
 def _record_type(record: str) -> RecordType:
     record_type = RECORD_TYPES.get(record)
     if record_type is None:
@@ -349,7 +352,7 @@ def record_detail(request: HttpRequest, record: str, pk: object) -> HttpResponse
         )
         for panel in console.panels_for(record_type.key)
     ]
-    return render(
+    response = render(
         request,
         "admin_console/record.html",
         {
@@ -366,6 +369,15 @@ def record_detail(request: HttpRequest, record: str, pk: object) -> HttpResponse
             "danger_panels": [rendered for rendered in panels if rendered.panel.danger],
         },
     )
+    if any(
+        rendered.allowed and isinstance(rendered.operation, Operation) and rendered.operation.handoff is not None
+        for panel in panels
+        for rendered in panel.operations
+    ):
+        # Django's default "same-origin" cuts this page off from a tab it opens on another origin, so the
+        # tool's ready message could never reach it. The looser policy applies only where a handoff is offered.
+        response["Cross-Origin-Opener-Policy"] = HANDOFF_OPENER_POLICY
+    return response
 
 
 @require_safe
