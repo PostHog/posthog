@@ -12,3 +12,7 @@ rules:
           - '/tests/test_flag_evaluations_backfill.py'
           - '/tests/test_hogql_event_deletion_flag_calls.py'
       owners: team-feature-flags
+    - match:
+          - '/geoip_*.py'
+          - '/tests/test_geoip_*.py'
+      owners: team-ingestion
