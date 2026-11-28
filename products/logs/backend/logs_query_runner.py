@@ -307,7 +307,9 @@ class LogsFilterBuilder:
         if self.query.filterGroup and len(self.query.filterGroup.values) > 0:
             for property_group in self.query.filterGroup.values:
                 for nested_group in property_group.values:
-                    if isinstance(nested_group, PropertyGroupFilterValue):
+                    # The filter UI can leave an empty group in the URL. It constrains nothing, so a read
+                    # skips it instead of failing. Alert filters still reject it in validate_nested_filter_groups.
+                    if isinstance(nested_group, PropertyGroupFilterValue) and nested_group.values:
                         self.attribute_filter_groups.append(_validated_attribute_group(nested_group))
                 self.resource_attribute_filters = cast(
                     list[LogPropertyFilter],
