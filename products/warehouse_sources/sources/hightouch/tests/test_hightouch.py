@@ -15,6 +15,7 @@ from products.warehouse_sources.sources.hightouch.hightouch import (
     get_resource,
     validate_credentials,
 )
+from products.warehouse_sources.sources.hightouch.settings import HIGHTOUCH_ENDPOINTS
 from products.warehouse_sources.sources.hightouch.source import HightouchSource
 from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
@@ -165,6 +166,41 @@ class TestHightouchTransport:
             {"id": "message-a", "name": "Welcome", "flow_id": "flow-a"},
             {"id": "message-a", "name": "Reminder", "flow_id": "flow-b"},
         ]
+
+    def test_decision_engine_messages_resume_near_the_interrupted_flow(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(HIGHTOUCH_ENDPOINTS["decision_engine_flows"], "page_size", 1)
+        flow_pages = [
+            ScriptedResponse(json={"data": [{"id": f"flow-{index}"}], "hasMore": index < 4}) for index in range(1, 5)
+        ]
+        message = ScriptedResponse(json={"data": [{"id": "message-a"}], "hasMore": False})
+        driver = _driver()
+        interrupted = driver.run(
+            "decision_engine_messages",
+            [
+                flow_pages[0],
+                message,
+                flow_pages[1],
+                message,
+                flow_pages[2],
+                message,
+                flow_pages[3],
+                ScriptedResponse(status=401),
+            ],
+        )
+
+        assert interrupted.raised is not None
+        assert [row["flow_id"] for row in interrupted.rows] == ["flow-1", "flow-2", "flow-3"]
+
+        resumed = driver.run(
+            "decision_engine_messages",
+            [*flow_pages[1:], message],
+            resume_state=interrupted.final_state,
+        )
+
+        assert resumed.raised is None
+        assert resumed.params("offset") == ["1", "2", "3", "0"]
+        assert resumed.paths == ["/api/v1/decision-engine/flows"] * 3 + ["/api/v1/decision-engine/flow/flow-4/messages"]
+        assert resumed.rows == [{"id": "message-a", "flow_id": "flow-4"}]
 
     def test_event_contracts_read_past_a_full_page_without_has_more(self) -> None:
         first_page = [{"id": str(index)} for index in range(100)]

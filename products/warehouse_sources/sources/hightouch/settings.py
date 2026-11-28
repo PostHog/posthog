@@ -32,6 +32,7 @@ class HightouchEndpointConfig:
     sort_mode: Literal["asc", "desc"] = "asc"
     primary_key: str | list[str] = "id"
     fanout: DependentEndpointConfig | None = None
+    resume_parent_pagination: bool = False
     # Response fields dropped from every row before it is yielded. Hightouch `configuration`
     # objects carry connection details (database credentials on sources, hostnames/usernames
     # and API secrets on destinations, custom auth headers on HTTP-destination syncs), which
@@ -102,6 +103,7 @@ HIGHTOUCH_ENDPOINTS: dict[str, HightouchEndpointConfig] = {
         name="decision_engine_messages",
         path="/decision-engine/flow/{flow_id}/messages",
         primary_key=["flow_id", "id"],
+        resume_parent_pagination=True,
         fanout=DependentEndpointConfig(
             parent_name="decision_engine_flows",
             resolve_param="flow_id",

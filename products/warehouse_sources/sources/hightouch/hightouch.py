@@ -215,6 +215,7 @@ def hightouch_source(
                 },
                 resume_hook=save_checkpoint,
                 initial_paginator_state=initial_paginator_state,
+                resume_parent_pagination=endpoint_config.resume_parent_pagination,
             ),
         )
         if endpoint_config.strip_fields:
