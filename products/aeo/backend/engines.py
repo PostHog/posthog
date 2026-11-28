@@ -2,13 +2,13 @@
 
 Each engine runs one prompt against one answer surface and returns the
 citations parsed from the live API response. Parsing must happen here, on the
-caller side: the AI gateway's captured $ai_generation events drop web-search
-result blocks before emission (only the issued search queries survive into
-$ai_output_choices), so the cited URLs exist nowhere except the live response.
+caller side: the cited URLs exist nowhere except the live response. Checks run
+in privacy mode, so their $ai_generation events carry no prompt or answer, and
+the gateway never captures web-search result blocks in any mode.
 
 Gateway-routed engines stamp X-PostHog-Trace-Id and X-PostHog-Properties so
-each check's $ai_generation event (cost, latency, web-search fees) can be
-joined back to the prompt via `aeo_prompt_id` / `aeo_run_id`.
+each check's $ai_generation event (cost, tokens, latency, web-search fees) can
+be joined back to the prompt via `aeo_prompt_id` / `aeo_run_id`.
 """
 
 from __future__ import annotations
@@ -187,11 +187,23 @@ class AICreditsExhausted(Exception):
 
 
 def gateway_request_headers(
-    gateway: AIGatewayConfig, *, trace_id: str, properties: dict[str, str], anthropic: bool = False
+    gateway: AIGatewayConfig,
+    *,
+    trace_id: str,
+    properties: dict[str, str],
+    privacy_mode: bool,
+    anthropic: bool = False,
 ) -> dict[str, str]:
+    """`privacy_mode` keeps the prompt and completion off the call's $ai_generation event. Citation checks set it,
+    because their answers, citations and search queries already live in AEO's own tables."""
     headers = {
         "Authorization": f"Bearer {gateway.api_key}",
-        **(ai_gateway_headers(ai_product=AI_VISIBILITY_AI_PRODUCT, trace_id=trace_id, properties=properties) or {}),
+        **(
+            ai_gateway_headers(
+                ai_product=AI_VISIBILITY_AI_PRODUCT, trace_id=trace_id, properties=properties, privacy_mode=privacy_mode
+            )
+            or {}
+        ),
     }
     if anthropic:
         headers["anthropic-version"] = "2023-06-01"
@@ -595,7 +607,7 @@ class ClaudeWebSearchEngine:
                 }
             ]
         headers = gateway_request_headers(
-            self._gateway, trace_id=trace_id, properties=custom_properties, anthropic=True
+            self._gateway, trace_id=trace_id, properties=custom_properties, privacy_mode=True, anthropic=True
         )
         try:
             body = gateway_post_json(
@@ -620,7 +632,7 @@ def _post_gateway_responses(
     trace_id: str,
     custom_properties: dict[str, str],
 ) -> dict[str, Any]:
-    headers = gateway_request_headers(gateway, trace_id=trace_id, properties=custom_properties)
+    headers = gateway_request_headers(gateway, trace_id=trace_id, properties=custom_properties, privacy_mode=True)
     return gateway_post_json(sessions.get(), gateway.url.rstrip("/") + "/responses", headers, payload)
 
 

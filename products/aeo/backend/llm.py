@@ -63,6 +63,8 @@ def ask_with_web_search(
         gateway,
         trace_id=trace_id,
         properties={"team_id": str(team_id), "aeo_feature": aeo_feature},
+        # Suggestions keep their content in LLM analytics, where people debug and evaluate them.
+        privacy_mode=False,
         anthropic=True,
     )
     if deadline is None:

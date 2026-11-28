@@ -356,6 +356,7 @@ def test_gateway_engines_send_the_search_tool_only_with_search(
     )
     assert (captured["url"], captured["payload"]["model"]) == (f"https://gw.test/v1{path}", web_search_model)
     assert captured["headers"]["X-PostHog-Product"] == "ai_visibility"
+    assert captured["headers"]["X-PostHog-Privacy-Mode"] == "true"
     assert check.error is None and fields["answer_text"]
     assert (fields["engine"], fields["mode"]) == (expected_engine, "web_search" if search else "no_search")
     assert captured["payload"].get("tools") == expected_tools
@@ -798,6 +799,7 @@ def test_perplexity_engine_sends_the_configured_model_with_web_search_to_the_gat
     assert headers["Authorization"] == "Bearer k"
     assert headers["X-PostHog-Trace-Id"] == "t1"
     assert headers["X-PostHog-Product"] == "ai_visibility"
+    assert headers["X-PostHog-Privacy-Mode"] == "true"
     assert json.loads(headers["X-PostHog-Properties"]) == {
         "aeo_prompt_id": "p1",
         "aeo_run_id": "r1",

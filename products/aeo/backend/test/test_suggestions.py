@@ -192,6 +192,23 @@ def test_answer_reads_as_an_object_or_an_array_even_when_cut_off(_name: str, tex
     )
 
 
+def test_suggestion_calls_keep_their_content_in_llm_analytics() -> None:
+    with patch("products.aeo.backend.llm.requests.Session.post", return_value=_response("[]")) as post:
+        ask_with_web_search(
+            MagicMock(url="http://gateway", api_key="key"),
+            "instructions",
+            team_id=1,
+            trace_id="trace",
+            aeo_feature="prompt_suggestions",
+            max_tokens=100,
+            max_searches=1,
+        )
+
+    headers = post.call_args.kwargs["headers"]
+    assert headers["X-PostHog-Product"] == "ai_visibility"
+    assert "X-PostHog-Privacy-Mode" not in headers
+
+
 class TestSuggestPrompts(BaseTest):
     def _suggest(self, answers: list[str], **request: Any) -> tuple[SuggestedPromptSet, MagicMock]:
         post = MagicMock(side_effect=[_response(answer) for answer in answers])
