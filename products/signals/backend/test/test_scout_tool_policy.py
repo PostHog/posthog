@@ -44,6 +44,7 @@ GET_ONLY_TOOLS = frozenset(
         "feature-flag-get-definition-by-key",
         "generate-app-url",
         "llma-parser-recipe-reference",
+        "organization-privacy-facts-get",
         "organizations-get",
         "projects-get",
         "switch-organization",

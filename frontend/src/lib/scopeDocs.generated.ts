@@ -675,6 +675,14 @@ export const SCOPE_DOCS: Readonly<Record<string, ScopeObjectDoc>> = {
         actions: ['read', 'write'],
         docsUrl: 'https://posthog.com/docs/data-pipelines',
     },
+    posthog_support: {
+        name: 'PostHog Support tickets',
+        plural: 'PostHog Support tickets',
+        description: 'Agents can open support tickets on your behalf on some topics, and are told to ask you first.',
+        group: 'Organization & account',
+        actions: ['write'],
+        docsUrl: 'https://posthog.com/docs/support-options',
+    },
     product_enablement: {
         name: 'Product enablement',
         plural: 'product enablement',

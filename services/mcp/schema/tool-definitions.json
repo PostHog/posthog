@@ -545,6 +545,31 @@
             "readOnlyHint": true
         }
     },
+    "organization-privacy-facts-get": {
+        "title": "Get organization privacy facts",
+        "description": "Answer \"where is our data stored?\" and other privacy, residency, DPA, BAA and retention questions with this organization's own facts: its cloud region (US or EU), plan, DPA and BAA status, events and recording retention, IP discarding and AI data processing settings. It reads the active project and answers for that project's organization. To check a different project, or after `switch-organization`, call `switch-project` first. Each section returns `status`. When it is not `ok`, relay its `message`: `needs_admin` means the user should ask an organization admin or owner to check it, `missing_scope` names the scope their key or OAuth token lacks, `rate_limited` means wait `retry_after_seconds` before calling again. `plan` gives `tier` (paid, trial, free or unknown) and `support_included`, by the rule PostHog uses to accept support tickets. Where a skill says \"free plan\", read `support_included: false` whatever the `tier`; where it says a plan with support, read `support_included: true`. Name the plan to the user from `tier`. Null `support_included` or a non-`ok` `plan` means unknown: draft only free-plan tickets, say to use the support panel if their plan has support, else the forum, and don't say paid plans add support. Only owners and admins (`organization.membership_level` 15 or 8) can request deletions from support, so tell a member that an owner or admin must submit it. On the free plan, a deletion without a privacy or security reason goes to the forum instead. PostHog-wide facts (subprocessors, hosting, security) are not in the response: open the links in `sources` and cite them. Answer subprocessor questions with the subprocessors link, not a list. A null `dpa` means no DPA was generated in the app, not that the organization has none. Each `plan_entitlements` item gives its `limit`, with its `unit` (for example years or months) when it has one.",
+        "category": "Organization & project management",
+        "feature": "workspace",
+        "summary": "The organization's region, plan, DPA and BAA status, and retention settings, with links to PostHog's privacy pages.",
+        "required_scopes": ["project:read"],
+        "search_keywords": [
+            "privacy",
+            "data residency",
+            "data region",
+            "where is our data stored",
+            "subprocessors",
+            "DPA",
+            "BAA",
+            "GDPR",
+            "retention"
+        ],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "organizations-get": {
         "description": "Fetches the organizations that the user has access to, with their id, name, and membership level. Use this to discover organizations — including ones other than the active organization — and to resolve an organization name to the id you pass to `switch-organization`.",
         "category": "Organization & project management",

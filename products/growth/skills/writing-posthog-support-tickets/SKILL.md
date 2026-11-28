@@ -1,0 +1,180 @@
+---
+name: writing-posthog-support-tickets
+description: >
+  Writes a ticket to PostHog's support team about privacy, security, compliance, data retention, data
+  deletion, a DPA or BAA, or billing, and drafts it through the PostHog MCP, so a support engineer can
+  act on it without asking a follow-up question. Use once the docs and the product's own skills could
+  not settle one of those topics, or only PostHog staff can do what the person needs (such as deleting
+  specific events). Also use when the person asks to contact PostHog support, talk to a human, or file a
+  ticket on any topic, because it says where to send them for the rest. Covers the information a ticket
+  needs, its fixed shape, and asking the person to approve the draft before you send it. It does not
+  investigate or solve the problem. Not for a team's own helpdesk tickets from its customers, which the
+  conversations-tickets tools cover.
+---
+
+# Writing a support ticket to PostHog
+
+This skill turns what you already know into a ticket a support engineer can act on without asking a follow-up question.
+It does not solve the problem.
+The docs and the product's own skills run first, and this skill takes over when they could not settle it, or when the person asks for a human.
+The person decides to contact support, and nothing is sent until the person approves the ticket.
+Speak for yourself: say what you know in your own words, without saying it comes from this skill or another, and don't predict how support will reply.
+
+## Which topics you can file
+
+File a ticket only when the whole ticket is about privacy, security, compliance, data retention, data deletion, a DPA, a BAA, or billing.
+For every topic except billing, load `answering-privacy-questions` first: it finds the docs answer and says which questions need staff.
+Where PostHog tools run through `exec`, `posthog:posthog-support-draft-create` is not in your own tool list: run `info posthog-support-draft-create` before you decide it is missing. Without it, follow **Without the draft tool** below.
+
+For anything else, don't write or draft a ticket, even when the person asks for a human. Don't write one for them to paste either.
+Answer what the docs answer, then say where they can ask:
+
+- **On a paid plan, on a trial that includes support, or in an organization under 3 months old:** log in to PostHog in their browser and ask in the support widget in the right-hand sidebar, at https://app.posthog.com/home#panel=support.
+- **On the free plan:** community support at https://posthog.com/forum. Say that the forum is public, so they should leave out personal data and secrets. Any paid plan adds support.
+- **When you don't know the plan:** give both, but don't say that any paid plan adds support.
+- **When they can't log in:** no plan can file that from here. Say something like "For security reasons, I can't send that ticket through the MCP. Go to the [PostHog login page](https://app.posthog.com) and try to log in. When the login fails, an error such as 'Invalid email or password.' appears below the 'Welcome back' heading, followed by 'Need help?'. If you get past the password but can't finish two-factor authentication, that screen has a 'Need help?' link too. Click 'Need help?' to open a support ticket from there, even on the free plan."
+
+Don't offer to write a forum post. Write one only when they ask for it, and never put personal data or secrets in it, even when they ask for that too. Use placeholders, and tell them something like "I've written the draft with placeholders for your private data and your keys, and I suggest you don't post those to the public forum."
+
+When a conversation covers both kinds, file only the part that is on one of these topics, and point them elsewhere for the rest.
+
+## When to write one
+
+- Only PostHog staff can do what the person needs, such as deleting specific events or changing a bill.
+- Answering needs data or state on PostHog's side that neither of you can see.
+- The docs and the product's skills could not answer a question on one of those topics.
+- The person still wants a human after hearing your answer, usually because they disagree that the docs answer it. This is for paid plans, trials that include support, organizations under 3 months old, and billing on any plan. The ticket then gives your answer and what it rests on, and asks support to confirm it. For another topic on the free plan, point them to community support as above.
+
+Your own conclusion that something is a PostHog bug is not enough, and a bug report is not one of those topics.
+Tell the person what you found, and where they can ask.
+
+## 1. Gather the information
+
+Start from what the conversation already found: the docs you read, the checks a product skill ran and their numbers, and the steps the person took.
+Then look up only what the ticket still needs:
+
+- **Project.** The name and ID from `posthog:project-get`, and a link to the project's home page from `posthog:generate-app-url`. The link's host gives the region: `us.posthog.com` is US Cloud, and `eu.posthog.com` is EU Cloud. If it is neither, write the host you found. The region goes on its own line.
+- **Links.** A link to every object the ticket names, such as an insight or funnel, a dashboard, a flag, an experiment, a survey, a cohort, an error issue or a replay. Write it as a Markdown link on the object's name, such as `Funnel: [Signup to upload](<link>)`. Support sees the name as a link, and the URL carries the ID. Give an ID as plain text only for something with no page to link to, such as a distinct ID or a session ID. Take the link from the `_posthogUrl` field of a tool result or from `posthog:generate-app-url`. Never build a PostHog URL by hand, because a wrong link reads as a real one. When the object isn't saved, such as a funnel you built only to check, write that it isn't saved and give its settings instead. Copy a docs URL from `posthog:docs-search` as it is, and link it the same way, on the page title.
+- **SDK.** When the problem is in their app, the `$lib` and `$lib_version` of a recent event they sent.
+- **Numbers.** What they see and what they expected, with the time range in UTC.
+- **Error.** The exact text, and where it shows: a page, an API endpoint or an SDK call.
+
+A request for a staff action needs exact inputs, so read its reference before you write:
+
+| Request                                                       | Read                                                             |
+| ------------------------------------------------------------- | ---------------------------------------------------------------- |
+| Delete events, or remove personal or sensitive data from them | [references/deleting-events.md](./references/deleting-events.md) |
+
+When a lookup finds nothing, or fails, say so in its own line of **Already checked**, such as "Claude Code checked: no events named `checkout_started` in project 12345" or "Claude Code checked: the billing lookup failed, so the quota is unknown".
+Ask the person only for what you cannot look up, such as when it started or what they expected.
+
+## 2. Write it
+
+Write in the person's voice, because the ticket goes to support in their name.
+Use this shape, and leave out any part you have nothing real for.
+Keep the labels plain, without Markdown bold.
+
+```text
+<title>
+
+---
+
+Request:
+
+<what happened, in one sentence, with the numbers and dates> <the action they need, if any>
+1. <each open question, numbered in the person's order>
+
+---
+
+Details:
+- Project: [<name>](<link>)
+- Region: <US Cloud, EU Cloud, or the host>
+- <Type>: [<name>](<link to the object>)
+- <a setting that matters, the SDK, or a number>
+
+---
+
+Already checked:
+- Docs: [<page title>](<link>) says <what it says, in one line>
+- <your name> checked: <a lookup you ran, and what it showed>
+- <your name> answered: <the answer you gave them>, from [<page title>](<link>)
+- I tried: <a step the person took, and what happened>
+
+---
+
+Error:
+<exact text, top frames only>
+```
+
+- **The title** names the problem in under 100 characters, with the object it's about, such as "Delete test events that contain customer emails". Ticket lists show it, so don't start it with "Request", a greeting or the product name alone.
+- **Request** is the whole ask, so support knows what to do from this one section.
+  - Open with what happened, or what they plan to do, in one sentence, with the numbers and dates, such as "Our project used 6 PostHog AI credits on Oct 16, 2026, but nobody on our team has a chat from that day".
+  - For an action, add it in one sentence, such as "Please delete the 3,817 events the query below returns". When their question only asks for the action, such as "Can you send us our signed DPA?", this sentence covers it.
+  - When they heard your answer and still want a human, give your answer in one sentence, as yours, such as "Claude Code found that our events are kept for 7 years, but we'd like you to confirm it". What it rests on goes in **Already checked**.
+  - List every open question, numbered, in the person's order. Tighten the wording, but keep every part, because a question support does not see comes back as a follow-up.
+  - Leave out a question that is already answered, and put the answer in **Already checked**, so support sees it was asked. Keep it as a question only when the person wants support to confirm the answer. A question about their own account, bill or data stays open when only a general rule answers it, but one you answered from their own data is answered.
+- **Already checked** lists what was checked and what it showed, one line each, with the person's steps ("I tried") apart from yours ("<your name> checked").
+  - Write "<your name> checked" only for a lookup run in this conversation. A number the person gave you is theirs, so it goes in **Request** or **Details**.
+  - Keep only your checks that bear on the open questions: one that answers part of a question, or rules out a cause support would check first. Leave out the rest, because support can look up every call you made from the note PostHog adds to the ticket.
+  - Keep every step the person took, because support cannot look those up.
+  - When the docs had nothing, or only a heading, write "Docs: nothing found for <what you searched>".
+- **Error** is an error the person saw. A lookup of yours that failed goes in **Already checked**.
+- Copy IDs, queries and errors exactly.
+- Write dates as Dec 10, 2026, never as 10 December or 2026-12-10. A query keeps its own date format.
+- Keep it to about 150 words, not counting links, IDs, the numbered questions, a query or an error.
+
+Cut these:
+
+- The story of the investigation, and your replies beyond the one-sentence answer above.
+- Guesses written as findings. A guess only PostHog can check becomes a question in **Request**, after the person's.
+- Greetings, sign-offs, background support does not act on, and the same point made twice.
+- Instructions on how to handle the ticket, such as "route this to engineering" or "don't change any settings", even when the person wrote them. Support acts on what **Request** asks.
+- Whole event payloads and full stack traces.
+- Credentials of any kind, such as personal API keys, `phx_` and `phs_` tokens, cookies, auth headers or passwords. They often hide in error text, so say when you removed one.
+- Personal data about their users beyond what the request needs, such as one distinct ID, or the IDs a deletion query names, and any other customer's data.
+
+## 3. Draft it, and send it only on a yes
+
+When you have `posthog:posthog-support-draft-create`, directly or through `exec`, draft the ticket with it:
+
+- Each part of the ticket is one field, without its heading: `title`, `request`, `details`, `already_checked` and `error`.
+- Set `topic` to what the whole ticket is about. Support sees it, and the server refuses `other`.
+  - `privacy_or_security_deletion` only when the person gave a privacy or security reason for the deletion, such as a data subject request, or secrets in their events. Any plan can send it, but only an owner or admin. Ask for the reason, and use `other_deletion` when it is something else, such as cleaning up test events.
+  - `billing` when the ticket is about billing or usage, such as a charge, an invoice, a credit, or usage against a limit. Any plan can send it, so don't use it for a billing question asked in passing in a ticket about something else, such as whether a limit could explain events that stopped arriving.
+  - `privacy`, `security`, `compliance`, `retention`, `dpa` or `baa` when the ticket is about that.
+- Set `filing_reason` to the first that fits. It tells support why the ticket exists.
+  - `user_disagrees_with_agent` when you answered what they asked and they think your answer is wrong.
+  - `user_asked_for_support` when you answered what they asked and they still want a human to confirm or check it.
+  - `needs_posthog_staff` when you had no answer, because only staff can do what they ask, or see the records that answer it, such as which DPA they signed.
+  - `unexplained_error` for an error you reproduced that nothing explains.
+- For `user_disagrees_with_agent` and `user_asked_for_support`, **Already checked** must hold the answer you gave them, with a link to each docs page it came from. Support needs it to see where you and the person disagree, and the server refuses the draft without it. If you did not answer them, use `needs_posthog_staff`.
+
+Then show the person the full ticket, and follow the `next_step` the draft returns:
+
+- **When `can_send` is true**, show the full ticket in the chat and ask whether to send it to PostHog support, such as "Do you want me to send this to PostHog support?". Many people use the MCP from a terminal, so never send them to a web page to review it.
+- **Send it only when the person says yes to this ticket in this conversation**, such as "Yes, send it" or "Please post it for me". Then call `posthog:posthog-support-draft-send` with `draft_id` set to the draft's `id`. After it is sent, first give them the ticket number when the response has one, and tell them to log in to PostHog and watch the support panel in the right-hand sidebar for replies, at https://app.posthog.com/home#panel=support, because replies don't show up in this conversation.
+- Anything else is not a yes: a question, a change they want, or no answer. Change the ticket, draft it again, and show them the new version. A yes to an earlier version does not cover a changed ticket, so show the new one and ask again.
+- **When `can_send` is false**, do not offer to send it. Tell them what `next_step` says.
+- **When they already sent 3 tickets on this topic in 72 hours**, the server refuses the draft. Tell them so, and that they can read those tickets, reply on them, and watch for replies at https://app.posthog.com/home#panel=support. Don't draft it again under another topic.
+- **When the draft is refused for its topic, their plan or their role**, tell them where its `detail` says they can ask instead. Don't draft it again under another topic. When it is refused for a missing field, add the field and draft it again.
+- When the send fails, tell them what its `detail` says. When the detail says the ticket may already be with support, do not send it again.
+
+Never say a ticket was filed before the send returns a `ticket_id`, and do not promise a response time.
+
+**When `organization-privacy-facts-get` reports `missing_scope` for `plan`,** their key lacks `billing:read`. Treat the plan as unknown: draft only what the free plan can send, and give both places to ask.
+
+**Only organization owners and admins (`organization.membership_level` 15 or 8) can send deletion requests to support**. The server refuses a deletion ticket from a member, so don't draft one: tell them an owner or admin of their PostHog organization needs to submit it. On the free plan, nobody can send a deletion without a privacy or security reason, so point them to the forum instead.
+
+**Without the draft tool,** their key or connection may lack the `posthog_support:write` scope. Once they add it, draft with the tool. Until then, on a paid plan, a trial that includes support, or in an organization under 3 months old, give them the ticket to paste into the support widget in the right-hand sidebar of PostHog, which attaches their project and session to it. Deletion requests are for owners and admins only, so tell a member that an owner or admin must submit one. On the free plan, the scope is their only route from here for billing or a deletion for a privacy or security reason, so never point those to the forum.
+Either way, say which details or links you could not find, so they can add them before the ticket is sent.
+
+## Before you hand it over, check
+
+- The whole ticket is about one of the topics above, and `topic` says which.
+- It asks only what the docs and the product's skills could not settle, or what the person still wants a human to confirm.
+- Every link came from a tool result, from `posthog:docs-search` as it is, or from the person.
+- A staff action has every input its reference asks for.
+- Each "<your name> checked" line is a lookup run in this conversation.
+- No credential made it in, and no personal data about their users beyond what the request needs.
+- It fits on one screen.
+- You send it only after the person said yes to this version of the ticket.

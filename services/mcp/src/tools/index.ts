@@ -36,6 +36,7 @@ import notebookSetVariables from './notebooks/setVariables'
 import notebookUpdateCell from './notebooks/updateCell'
 // Organizations
 import getOrganizations from './organizations/getOrganizations'
+import getPrivacyFacts from './organizations/getPrivacyFacts'
 import setActiveOrganization from './organizations/setActive'
 // PostHog AI tools
 import {
@@ -77,6 +78,7 @@ export const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
     // Organizations
     'organizations-get': getOrganizations,
     'switch-organization': setActiveOrganization,
+    'organization-privacy-facts-get': getPrivacyFacts,
 
     // Projects
     'projects-get': getProjects,

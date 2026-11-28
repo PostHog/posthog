@@ -161,6 +161,7 @@ class ResourceType(StrEnum):
     ORGANIZATION_MEMBER = "organization_member"
     PERSON = "person"
     PLUGIN = "plugin"
+    POSTHOG_SUPPORT = "posthog_support"
     PRODUCT_ENABLEMENT = "product_enablement"
     PRODUCT_TOUR = "product_tour"
     PROPERTY_DEFINITION = "property_definition"

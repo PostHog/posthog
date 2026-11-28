@@ -35,6 +35,7 @@ import EXEC_LEARN from '@/templates/sections/exec-learn.md'
 import EXEC_TOOL_BLURB_COMPACT from '@/templates/sections/exec-tool-blurb-compact.md'
 import EXEC_TOOL_BLURB from '@/templates/sections/exec-tool-blurb.md'
 import EXPLAIN_CHART from '@/templates/sections/explain-chart.md'
+import FEATURE_AVAILABILITY from '@/templates/sections/feature-availability.md'
 import INBOX_FIRST from '@/templates/sections/inbox-first.md'
 import METRIC_DISCOVERY_COMPACT from '@/templates/sections/metric-discovery-compact.md'
 import METRIC_DISCOVERY_EMPTY_LEARN from '@/templates/sections/metric-discovery-empty-learn.md'
@@ -43,6 +44,7 @@ import METRIC_DISCOVERY from '@/templates/sections/metric-discovery.md'
 import NOTEBOOK_PYTHON from '@/templates/sections/notebook-python.md'
 import NOTEBOOK_RUN from '@/templates/sections/notebook-run.md'
 import NOTEBOOK_SQL from '@/templates/sections/notebook-sql.md'
+import PRIVACY_QUESTIONS from '@/templates/sections/privacy-questions.md'
 import PROJECT_SCOPE from '@/templates/sections/project-scope.md'
 import QUERY_TOOL_ROUTING from '@/templates/sections/query-tool-routing.md'
 import RETRIEVING_DATA from '@/templates/sections/retrieving-data.md'
@@ -378,6 +380,8 @@ export class InstructionsFormatter {
                 ...envContextSections(ctx),
                 URL_PATTERNS,
                 AGENT_FEEDBACK,
+                PRIVACY_QUESTIONS,
+                FEATURE_AVAILABILITY,
                 EXAMPLES,
             ],
             ctx,
@@ -386,7 +390,7 @@ export class InstructionsFormatter {
     }
 
     /** Build the compact `instructions` payload for single-exec clients. Everything
-     *  but the tool-domain index lives on the exec tool's
+     *  but the tool-domain index and the short privacy-questions pointer lives on the exec tool's
      *  `command` parameter description (`buildExecCommandReference`), because this
      *  payload is hard-capped at {@link MCP_INSTRUCTIONS_CHAR_BUDGET} by Claude Code
      *  and the command description is not.
@@ -399,7 +403,7 @@ export class InstructionsFormatter {
      *  overshoots, because `formatPrompt` trims the trailing separator the real payload
      *  keeps.) Enforced by the budget test in `instructions-formatter-snapshot.test.ts`. */
     buildExecInstructions(ctx: InstructionsContext): string {
-        const sections = [COMPACT_INSTRUCTIONS]
+        const sections = [COMPACT_INSTRUCTIONS, PRIVACY_QUESTIONS]
         const rendered = this.compose(sections, ctx, { compact: true })
         const overflow = rendered.length - MCP_INSTRUCTIONS_CHAR_BUDGET
         if (overflow <= 0) {
@@ -590,6 +594,7 @@ export class InstructionsFormatter {
                 formatPrompt(CLI_EXAMPLES_LEARN, learnExampleVars(ctx.renderUiEnabled, skillsEnabled && !claudeChat)),
                 CLI_ERROR_HANDLING,
                 BASIC_FUNCTIONALITY,
+                FEATURE_AVAILABILITY,
                 TOOL_SEARCH,
                 ...envContextSections(ctx),
                 // URL patterns and activity history normally load through `learn urls`
@@ -628,6 +633,7 @@ export class InstructionsFormatter {
             ...envContextSections(ctx),
             URL_PATTERNS,
             AGENT_FEEDBACK,
+            FEATURE_AVAILABILITY,
             EXAMPLES,
         ]
         const renderCtx: InstructionsContext = {

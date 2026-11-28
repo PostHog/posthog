@@ -2023,6 +2023,7 @@ export namespace Schemas {
      * * `organization_member` - organization_member
      * * `person` - person
      * * `plugin` - plugin
+     * * `posthog_support` - posthog_support
      * * `product_enablement` - product_enablement
      * * `product_tour` - product_tour
      * * `project` - project
@@ -2150,6 +2151,7 @@ export namespace Schemas {
       OrganizationMember: 'organization_member',
       Person: 'person',
       Plugin: 'plugin',
+      PosthogSupport: 'posthog_support',
       ProductEnablement: 'product_enablement',
       ProductTour: 'product_tour',
       Project: 'project',
@@ -2277,6 +2279,7 @@ export namespace Schemas {
        * * `organization_member` - organization_member
        * * `person` - person
        * * `plugin` - plugin
+       * * `posthog_support` - posthog_support
        * * `product_enablement` - product_enablement
        * * `product_tour` - product_tour
        * * `project` - project
@@ -2527,6 +2530,7 @@ export namespace Schemas {
        * * `organization_member` - organization_member
        * * `person` - person
        * * `plugin` - plugin
+       * * `posthog_support` - posthog_support
        * * `product_enablement` - product_enablement
        * * `product_tour` - product_tour
        * * `project` - project
@@ -2946,6 +2950,7 @@ export namespace Schemas {
        * * `organization_member` - organization_member
        * * `person` - person
        * * `plugin` - plugin
+       * * `posthog_support` - posthog_support
        * * `product_enablement` - product_enablement
        * * `product_tour` - product_tour
        * * `project` - project
@@ -58499,6 +58504,22 @@ export namespace Schemas {
     }
 
     /**
+     * * `user_asked_for_support` - The person asked to contact PostHog support
+     * * `needs_posthog_staff` - Only PostHog staff can do or see what the person needs
+     * * `unexplained_error` - A reproducible error the agent confirmed but cannot explain
+     * * `user_disagrees_with_agent` - The person disagrees with the agent's answer
+     */
+    export type FilingReasonEnum = typeof FilingReasonEnum[keyof typeof FilingReasonEnum];
+
+
+    export const FilingReasonEnum = {
+      UserAskedForSupport: 'user_asked_for_support',
+      NeedsPosthogStaff: 'needs_posthog_staff',
+      UnexplainedError: 'unexplained_error',
+      UserDisagreesWithAgent: 'user_disagrees_with_agent',
+    } as const;
+
+    /**
      * * `monitoring` - Monitoring
      * * `verifying` - Verifying
      * * `assessment_required` - Assessment required
@@ -76897,6 +76918,7 @@ export namespace Schemas {
        * * `organization_member` - organization_member
        * * `person` - person
        * * `plugin` - plugin
+       * * `posthog_support` - posthog_support
        * * `product_enablement` - product_enablement
        * * `product_tour` - product_tour
        * * `project` - project
@@ -105094,6 +105116,149 @@ export namespace Schemas {
     export interface PostHogConnectionTargetError {
       /** Why the connected project's context could not be read. */
       error: string;
+    }
+
+    export interface PostHogSupportDraft {
+      /** Draft id. */
+      id: string;
+      /** Ticket text as drafted. The sent ticket holds exactly this, then the note in ticket_context. */
+      message: string;
+      /** Note filed under the ticket for support, saying an agent drafted it and why. */
+      ticket_context: string;
+      /** Unix time after which the draft is gone if nobody sent it. */
+      expires_at: number;
+      /** True when the person's plan lets them send this ticket. Offer to send it only when this is true. */
+      can_send: boolean;
+      /** What to tell the person now. */
+      next_step: string;
+    }
+
+    /**
+     * * `privacy` - Privacy
+     * * `security` - Security
+     * * `compliance` - Compliance
+     * * `retention` - Data retention
+     * * `dpa` - Data processing agreement (DPA)
+     * * `baa` - Business associate agreement (BAA)
+     * * `privacy_or_security_deletion` - Deleting data for a privacy or security reason
+     * * `other_deletion` - Deleting data for another reason
+     * * `billing` - Billing or usage
+     * * `other` - Anything else
+     */
+    export type TicketTopicEnum = typeof TicketTopicEnum[keyof typeof TicketTopicEnum];
+
+
+    export const TicketTopicEnum = {
+      Privacy: 'privacy',
+      Security: 'security',
+      Compliance: 'compliance',
+      Retention: 'retention',
+      Dpa: 'dpa',
+      Baa: 'baa',
+      PrivacyOrSecurityDeletion: 'privacy_or_security_deletion',
+      OtherDeletion: 'other_deletion',
+      Billing: 'billing',
+      Other: 'other',
+    } as const;
+
+    export interface PostHogSupportDraftCreate {
+      /**
+         * A short title that names the problem, such as 'Delete test events that contain customer emails'. It opens the ticket, and ticket lists show it, so don't start it with 'Request'.
+         * @maxLength 100
+         */
+      title: string;
+      /**
+         * The whole ask, in the person's voice. Open with what happened in one sentence, with the numbers and dates. Then add the action they need in one sentence, or list every question the docs did not answer, numbered in the person's order, with every part of each question. When they heard your answer and still want a human, give your answer in one sentence, as yours.
+         * @maxLength 2000
+         */
+      request: string;
+      /**
+         * Markdown bullets of facts support needs: the project and the region, a link to each object involved, SDK and version, and every required detail for the kind of request, such as a deletion query and its count. Link each object on its name, such as '- Project: [Web app](<link>)', and put the region on its own line. Take links from _posthogUrl. No guesses.
+         * @maxLength 3000
+         */
+      details?: string;
+      /**
+         * Markdown bullets of what was already checked, each with its result. Start a docs check with 'Docs:' and link the page on its title, a lookup you ran in this conversation with '<your name> checked:', and a step the person took with 'I tried:'. When filing_reason is user_disagrees_with_agent or user_asked_for_support, this is required: add the answer you already gave them, with a link to each docs page it came from. List only your checks that bear on the open questions, because support can look up the rest of your calls. Never write a number the person gave you as your own check.
+         * @maxLength 1500
+         */
+      already_checked?: string;
+      /**
+         * The exact text of an error the person saw, and its top frames. A lookup of yours that failed goes in already_checked. Remove any credential and say that you removed it.
+         * @maxLength 1500
+         */
+      error?: string;
+      /** What the ticket as a whole is about. Only privacy, security, compliance, retention, deletion, DPA, BAA and billing tickets can be filed from here. Use other for everything else, and don't stretch a topic to fit: support sees the topic. A login problem is other, never security. Use privacy_or_security_deletion only when the person gave a privacy or security reason for the deletion. Use billing only when the ticket is about billing or usage, not for a billing question asked in passing.
+       *
+       * * `privacy` - Privacy
+       * * `security` - Security
+       * * `compliance` - Compliance
+       * * `retention` - Data retention
+       * * `dpa` - Data processing agreement (DPA)
+       * * `baa` - Business associate agreement (BAA)
+       * * `privacy_or_security_deletion` - Deleting data for a privacy or security reason
+       * * `other_deletion` - Deleting data for another reason
+       * * `billing` - Billing or usage
+       * * `other` - Anything else */
+      topic: TicketTopicEnum;
+      /** Why a human at PostHog should look at this. Your own conclusion that it is a PostHog bug is not a reason.
+       *
+       * * `user_asked_for_support` - The person asked to contact PostHog support
+       * * `needs_posthog_staff` - Only PostHog staff can do or see what the person needs
+       * * `unexplained_error` - A reproducible error the agent confirmed but cannot explain
+       * * `user_disagrees_with_agent` - The person disagrees with the agent's answer */
+      filing_reason: FilingReasonEnum;
+      /** Name of the agent or client drafting the ticket, such as Claude Code or Codex. */
+      agent_name?: string;
+    }
+
+    export interface PostHogSupportError {
+      /** What went wrong. */
+      detail: string;
+    }
+
+    /**
+     * * `paid` - Paid
+     * * `trial` - Trial
+     * * `free` - Free
+     * * `unknown` - Unknown
+     */
+    export type SupportPlanTierEnum = typeof SupportPlanTierEnum[keyof typeof SupportPlanTierEnum];
+
+
+    export const SupportPlanTierEnum = {
+      Paid: 'paid',
+      Trial: 'trial',
+      Free: 'free',
+      Unknown: 'unknown',
+    } as const;
+
+    export interface PostHogSupportPlan {
+      /** The organization's plan: paid (a paid or custom subscription), trial (an active trial), free, or unknown when PostHog couldn't read billing.
+       *
+       * * `paid` - Paid
+       * * `trial` - Trial
+       * * `free` - Free
+       * * `unknown` - Unknown */
+      tier: SupportPlanTierEnum;
+      /**
+         * True when the plan includes support, so an agent can send a ticket on any topic it can file. Billing tickets, and deletions for a privacy or security reason from an owner or admin, can be sent on any plan. Organizations under 3 months old have support on any plan. Null when PostHog couldn't read billing.
+         * @nullable
+         */
+      support_included: boolean | null;
+    }
+
+    export interface PostHogSupportSentTicket {
+      /** Id of the ticket PostHog support received. */
+      ticket_id: string;
+      /**
+         * The ticket's number, to give the person. Null when PostHog support did not return it.
+         * @nullable
+         */
+      ticket_number: number | null;
+      /** Support panel in PostHog, where the person reads replies. */
+      support_panel_url: string;
+      /** What to tell the person now. */
+      next_step: string;
     }
 
     /**

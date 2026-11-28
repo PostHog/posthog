@@ -712,6 +712,11 @@ CONVERSATIONS_TICKETS_JWT_SECRETS = get_list(
     get_from_env("CONVERSATIONS_TICKETS_JWT_SECRET", "local-dev-conversations-tickets-jwt" if DEBUG or TEST else "")
 )
 
+# PostHog's own support widget. Every region sends agent tickets to the US support project. The token is public.
+# With both unset, a dev instance with SELF_CAPTURE sends to its own team, and any other instance can't send.
+POSTHOG_SUPPORT_WIDGET_HOST = get_from_env("POSTHOG_SUPPORT_WIDGET_HOST", "")
+POSTHOG_SUPPORT_WIDGET_TOKEN = get_from_env("POSTHOG_SUPPORT_WIDGET_TOKEN", "")
+
 # Account actions and customer task creation share these keys but require distinct JWT audiences.
 # The worker mints, Django verifies. Comma-separated, newest first. Empty outside dev/test,
 # so scoped routes fail closed until provisioned. Account actions retain their legacy auth
@@ -913,6 +918,17 @@ CACHES["aeo_prompt_suggestions"] = {
     "LOCATION": REDIS_URL,
 }
 
+# PostHog support drafts enforce a per-user cap and single-use claims, so they must read what they wrote.
+CACHES["posthog_support_drafts"] = {
+    **CACHES["default"],
+    "LOCATION": REDIS_URL,
+    "OPTIONS": {
+        **CACHES["default"]["OPTIONS"],
+        "SOCKET_CONNECT_TIMEOUT": REDIS_SOCKET_CONNECT_TIMEOUT_SECONDS,
+        "SOCKET_TIMEOUT": REDIS_SOCKET_TIMEOUT_SECONDS,
+    },
+}
+
 # Batch reservations and the transactional email throttles read and write throttle history here. A read from
 # a lagging replica would miss the units that an earlier send charged and let a batch past its limit.
 # Keep default's key prefix and primary: other throttles count single requests through default and must see
@@ -1027,6 +1043,7 @@ if TEST:
     CACHES["distinct_id_usage_report"] = CACHES["default"]
     CACHES["data_deletion_stats"] = CACHES["default"]
     CACHES["current_alias_usage"] = CACHES["default"]
+    CACHES["posthog_support_drafts"] = CACHES["default"]
     CACHES["vercel_installation_tokens"] = CACHES["default"]
     CACHES["radar_login_attempt"] = CACHES["default"]
 

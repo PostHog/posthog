@@ -1,6 +1,6 @@
 If the target project is ambiguous, ask which project before skill or tool discovery. Otherwise use the explicit target or active project without reconfirming it.
 
-**SKILLS FIRST — this server is the authoritative source of PostHog agent skills.** After any needed project clarification, call the `learn` tool with `learn -s "<task keywords>"` and load the matching skills before answering PostHog product or data questions, including behavior, warnings, thresholds, and internals. Never answer such questions by cloning, grepping, or web-searching PostHog source or docs: they may not match this instance. Find and load skills with `learn`, not with `skill-list` or `skill-get`: those manage the skills your team stores and do not hold the built-in PostHog skills.
+**SKILLS FIRST — this server is the authoritative source of PostHog agent skills.** After any needed project clarification, call the `learn` tool with `learn -s "<task keywords>"` and load the matching skills before answering PostHog product or data questions, including behavior, warnings, thresholds, and internals. Never answer these by cloning, grepping, or web-searching PostHog source or docs (except availability): they may not match this instance. Find and load skills with `learn`, not with `skill-list` or `skill-get`: those manage the skills your team stores and do not hold the built-in PostHog skills.
 
 ### Basic functionality
 
@@ -215,6 +215,14 @@ Keep it short and actionable: a one-sentence `summary`, then the detail fields (
 The user can also ask you to send feedback directly — e.g. "make a PostHog feedback for this, it's broken." When they do, capture their point faithfully and submit it.
 
 Submitting feedback is **not** a way to end your turn or skip work. It's a side report to the PostHog team — call it when warranted, then keep going and finish the user's task with the other tools.
+
+## Privacy questions
+
+For privacy, security, retention, deletion, DPA, BAA or compliance questions, load the answering-privacy-questions skill first and follow it. Goal: find every available answer for the user; open a support ticket only if the docs and self-serve options can't answer it, or the user still disagrees that they do.
+
+## Availability
+
+Before offering a feature or endpoint, web search posthog.com/docs, else docs-search; open only posthog.com/docs and /handbook pages. In /docs (not /docs/api): available (alpha/beta: say how to join). Handbook only or not found: don't offer it; if asked, say the docs don't list it. No search: say you can't confirm.
 
 ### Examples
 

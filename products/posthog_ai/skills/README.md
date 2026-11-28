@@ -13,6 +13,7 @@ This directory also happens to host the build pipeline for _every_ product's ski
 - **auditing-experiments-flags** — health-checks experiments and feature flags for configuration issues, staleness, and best-practice violations, with severity-badged findings.
 - **writing-simplified-technical-english** — writes English a reader cannot misread, based on ASD-STE100. Used at runtime by Signals and Review Hog for any prose an agent produces that someone else acts on.
 - **checking-deploy-timing** — determines when a PostHog code change reached an environment, by reading the hidden `GIT` deploy annotations and correlating them with the merge commit on GitHub. Internal staff only.
+- **answering-privacy-questions** — answers privacy, compliance, retention and deletion questions from the latest posthog.com docs: DPA and BAA signing, data deletion routes, plan availability, and when to open a support ticket for what only PostHog staff can answer.
 
 ## Adding a new skill
 
