@@ -194,11 +194,11 @@ func (v *EventsView) View() string {
 		Background(lipgloss.AdaptiveColor{Light: "#1D4AFF", Dark: "#1D4AFF"})
 
 	cursorStyle := lipgloss.NewStyle().
-		Background(lipgloss.AdaptiveColor{Light: "#DDE4FF", Dark: "#2A2F4A"}).
-		Foreground(lipgloss.AdaptiveColor{Light: "#1D1F27", Dark: "#EDEDEC"})
+		Background(lipgloss.AdaptiveColor{Light: "#DDE4FF", Dark: "#3E54A3"}).
+		Foreground(lipgloss.AdaptiveColor{Light: "#1D1F27", Dark: "#FFFFFF"})
 
 	mutedStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.AdaptiveColor{Light: "#888888", Dark: "#666666"})
+		Foreground(lipgloss.AdaptiveColor{Light: "#888888", Dark: "#A0A0A0"})
 
 	colEvent := 30
 	colDistinct := 40

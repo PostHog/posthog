@@ -93,12 +93,12 @@ func (v *StatusBarView) ViewHeader() string {
 	}
 
 	filterStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.AdaptiveColor{Light: "#1D4AFF", Dark: "#1D4AFF"})
+		Foreground(lipgloss.AdaptiveColor{Light: "#1D4AFF", Dark: "#8FA8FF"})
 	filterLabelStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.AdaptiveColor{Light: "#888888", Dark: "#666666"})
+		Foreground(lipgloss.AdaptiveColor{Light: "#888888", Dark: "#A0A0A0"})
 
 	hintStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.AdaptiveColor{Light: "#AAAAAA", Dark: "#555555"})
+		Foreground(lipgloss.AdaptiveColor{Light: "#AAAAAA", Dark: "#8A8A8A"})
 
 	filters := ""
 	if v.eventTypeFilter != "" {
@@ -111,7 +111,7 @@ func (v *StatusBarView) ViewHeader() string {
 	team := ""
 	if v.teamName != "" {
 		team = lipgloss.NewStyle().
-			Foreground(lipgloss.AdaptiveColor{Light: "#888888", Dark: "#666666"}).
+			Foreground(lipgloss.AdaptiveColor{Light: "#888888", Dark: "#A0A0A0"}).
 			Render(fmt.Sprintf("Team: %s", v.teamName))
 	}
 
@@ -131,7 +131,7 @@ func (v *StatusBarView) ViewFooter() string {
 		Foreground(lipgloss.AdaptiveColor{Light: "#F54E00", Dark: "#F54E00"}).
 		Bold(true)
 	descStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.AdaptiveColor{Light: "#888888", Dark: "#666666"})
+		Foreground(lipgloss.AdaptiveColor{Light: "#888888", Dark: "#A0A0A0"})
 
 	footerStyle := lipgloss.NewStyle().
 		Padding(0, 1).
