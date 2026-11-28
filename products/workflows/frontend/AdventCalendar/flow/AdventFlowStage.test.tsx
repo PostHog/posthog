@@ -21,6 +21,7 @@ function seed(opened: number[], answers: Record<number, string>): void {
 describe('AdventFlowStage', () => {
     let measure: jest.SpyInstance
     let stage: RenderResult | null
+    const bodiesOverflow = { current: false }
 
     function renderStage(size: { width: number; height: number }, props: AdventFlowStageProps = {}): RenderResult {
         measure.mockReturnValue(size as DOMRect)
@@ -40,17 +41,6 @@ describe('AdventFlowStage', () => {
 
     const card = (): HTMLElement | null => document.querySelector('[data-attr="advent-door-card"]')
 
-    const overflowCardBodies = (): void => {
-        const bodyHeight = (scrolled: number, element: Element): number =>
-            element.classList.contains('AdventCard__body') ? scrolled : 0
-        jest.spyOn(Element.prototype, 'scrollHeight', 'get').mockImplementation(function (this: Element) {
-            return bodyHeight(400, this)
-        })
-        jest.spyOn(Element.prototype, 'clientHeight', 'get').mockImplementation(function (this: Element) {
-            return bodyHeight(120, this)
-        })
-    }
-
     const waitForTheCardToClose = (): void => {
         act(() => jest.advanceTimersByTime(300))
         act(() => jest.advanceTimersByTime(300))
@@ -65,6 +55,15 @@ describe('AdventFlowStage', () => {
         await expectLogic(userLogic).toFinishAllListeners()
         userLogic.actions.loadUserSuccess({ ...userLogic.values.user, uuid: UUID } as UserType)
         stage = null
+        bodiesOverflow.current = false
+        const bodyHeight = (scrolled: number, element: Element): number =>
+            bodiesOverflow.current && element.classList.contains('AdventCard__body') ? scrolled : 0
+        jest.spyOn(Element.prototype, 'scrollHeight', 'get').mockImplementation(function (this: Element) {
+            return bodyHeight(400, this)
+        })
+        jest.spyOn(Element.prototype, 'clientHeight', 'get').mockImplementation(function (this: Element) {
+            return bodyHeight(120, this)
+        })
     })
 
     afterEach(() => {
@@ -162,7 +161,14 @@ describe('AdventFlowStage', () => {
         }
     )
 
-    type CardSetup = 'pinned' | 'overflowing' | 'overflowing at pin' | 'answered' | 'hovered'
+    type CardSetup =
+        | 'pinned'
+        | 'overflowing'
+        | 'overflowing at pin'
+        | 'overflowing after pin'
+        | 'fitting after pin'
+        | 'answered'
+        | 'hovered'
     type Key = 'Tab' | 'Shift+Tab' | 'Escape' | 'Enter' | 'pointer down'
     const CONTROLS: Record<string, string> = {
         Close: '[data-attr="advent-door-card-close"]',
@@ -211,6 +217,18 @@ describe('AdventFlowStage', () => {
             [1, 2],
             'overflowing at pin',
         ],
+        [
+            'day 2 with a body that overflows once the card is pinned',
+            'Tab',
+            CLOSE,
+            BODY,
+            'pinned',
+            2,
+            [1, 2],
+            'overflowing after pin',
+        ],
+        ['day 2 with a body that fits again', 'Tab', CLOSE, CLOSE, 'pinned', 2, [1, 2], 'fitting after pin'],
+        ['day 2 with a body that fits again', 'Shift+Tab', CLOSE, CLOSE, 'pinned', 2, [1, 2], 'fitting after pin'],
         ['day 24', 'Tab', LINK, CLOSE, 'pinned', 24, [1, 2, 24], 'pinned'],
         ['day 24', 'Shift+Tab', CLOSE, LINK, 'pinned', 24, [1, 2, 24], 'pinned'],
         ['a poll before an answer', 'Tab', CLOSE, FIRST_ANSWER, 'pinned', 2, [1], 'pinned'],
@@ -234,9 +252,7 @@ describe('AdventFlowStage', () => {
                     ? door(selector)
                     : (card()?.querySelector<HTMLElement>(CONTROLS[selector]) ?? null)
 
-            if (setup === 'overflowing at pin') {
-                overflowCardBodies()
-            }
+            bodiesOverflow.current = setup === 'overflowing at pin' || setup === 'fitting after pin'
             if (setup === 'hovered') {
                 act(() => fireEvent.mouseEnter(door(day) as HTMLElement))
             } else {
@@ -251,6 +267,9 @@ describe('AdventFlowStage', () => {
                 })
             }
             const body = target(BODY) as HTMLElement
+            if (setup === 'overflowing after pin' || setup === 'fitting after pin') {
+                bodiesOverflow.current = setup === 'overflowing after pin'
+            }
             if (setup === 'overflowing') {
                 Object.defineProperties(body, { scrollHeight: { value: 400 }, clientHeight: { value: 120 } })
                 body.tabIndex = body.querySelector('button, a[href]') ? -1 : 0
@@ -279,15 +298,15 @@ describe('AdventFlowStage', () => {
     it.each([
         ['day 1, whose overflowing body holds a link', 1, true],
         ['day 2, whose body fits', 2, false],
-    ])('gives the body of the pinned card for %s no tab stop', (_, day, overflows) => {
+    ])('gives the body of the pinned card for %s no tab stop', async (_, day, overflows) => {
         jest.spyOn(window, 'matchMedia').mockReturnValue({ matches: true } as MediaQueryList)
+        const user = userEvent.setup({ advanceTimers: jest.advanceTimersByTime })
         seed([1, 2], { 2: 'tim' })
-        if (overflows) {
-            overflowCardBodies()
-        }
+        bodiesOverflow.current = overflows
         renderStage({ width: 1200, height: 830 })
 
         act(() => fireEvent.click(door(day) as HTMLElement))
+        await user.tab()
 
         expect(card()?.querySelector('.AdventCard__body')?.getAttribute('tabindex')).toBeNull()
     })
