@@ -613,6 +613,7 @@ CREDENTIAL_AUTH_TYPES: Mapping[str, str] = {
     "harness-sei": "credentials",
     "harvest": "credentials",
     "harvey": "credentials",
+    "hasura": "credentials",
     "hatchet": "credentials",
     "healthchecks": "credentials",
     "healthie": "credentials",

@@ -114,6 +114,7 @@ NOT_CHECKABLE: dict[str, str] = {
     "GoogleSearchConsole": "database",
     "GoogleSheets": "schemas",
     "GrafanaIRM": "no-request",
+    "Hasura": "schemas",
     "Hatchet": "no-request",
     "HelpScout": "database",
     "Hubspot": "database",

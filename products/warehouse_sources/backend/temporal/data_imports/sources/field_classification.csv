@@ -602,6 +602,7 @@ HarnessCcm,,,,,,harness-ccm
 HarnessSei,,,,,,harness-sei
 Harvest,account_id access_token,,,,,harvest
 Harvey,api_key region,,,,,harvey
+Hasura,graphql_url admin_secret,,,,,hasura
 Hatchet,api_token host tenant_id,,,,,hatchet
 Healthchecks,api_key base_url,,,,,healthchecks
 Healthie,,,,,,healthie
