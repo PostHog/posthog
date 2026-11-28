@@ -24,6 +24,7 @@ import {
     fetchErrorDetail,
     isFetchResponseRetriable,
 } from '../utils/cdp-fetch'
+import { CredentialInjector } from '../utils/credential-auth'
 import { resolveHmacSha256Secret, signHmacSha256Request } from '../utils/hmac-sha256-signature'
 import { createInvocationResult } from '../utils/invocation-utils'
 import { isNonFailureStatus } from '../utils/non-failure-status-codes'
@@ -59,6 +60,7 @@ export interface HogExecutorAsyncConfig {
     fetchBackoffMaxMs: number
     siteUrl: string
     internalApiBaseUrl: string
+    credentialAuthEnforceTeams?: string
 }
 
 /**
@@ -100,7 +102,11 @@ export class HogExecutorAsyncService {
         public readonly hogExecutor: HogExecutorService,
         private config: HogExecutorAsyncConfig,
         private deps: HogExecutorAsyncDependencies
-    ) {}
+    ) {
+        this.credentialInjector = new CredentialInjector(config.credentialAuthEnforceTeams ?? '')
+    }
+
+    private readonly credentialInjector: CredentialInjector
 
     @instrumented('hog-executor.executeWithAsyncFunctions')
     async executeWithAsyncFunctions(
@@ -492,6 +498,29 @@ export class HogExecutorAsyncService {
             }
         }
 
+        // The credential goes on local copies, never on params, which a retry writes back to the queue as plaintext.
+        let requestUrl = params.url
+        let requestBody = params.body ?? undefined
+        if (params.auth_input) {
+            const resolved = await this.deps.hogInputsService.resolveCredential(
+                invocation.hogFunction,
+                params.auth_input
+            )
+            if ('error' in resolved) {
+                return failSigning(resolved.error)
+            }
+            const applied = this.credentialInjector.apply(
+                invocation.teamId,
+                invocation.hogFunction.id,
+                { url: requestUrl, headers: signedHeaders, body: requestBody },
+                resolved.credential
+            )
+            if (!applied.ok) {
+                return failSigning(applied.error)
+            }
+            ;({ url: requestUrl, headers: signedHeaders, body: requestBody } = applied.request)
+        }
+
         // AWS SigV4 signatures expire after ~5 minutes. Sign immediately before the
         // fetch (every attempt — including retries) so a request that sat in the
         // backoff queue or whose first attempt timed out cannot reach AWS with a
@@ -499,7 +528,7 @@ export class HogExecutorAsyncService {
         // regenerated here and never persisted back to queueParameters. Credential
         // resolution + missing-input handling live in `aws-sigv4.ts` — see
         // `resolveAwsSigV4Credentials` for the encrypted_inputs/inputs lookup order.
-        const sentBody = ['GET', 'HEAD'].includes(method) ? '' : (params.body ?? '')
+        const sentBody = ['GET', 'HEAD'].includes(method) ? '' : (requestBody ?? '')
 
         // Standard Webhooks signatures embed a timestamp the receiver checks
         // against a tolerance window (5 minutes in the reference libraries), so they
@@ -545,7 +574,7 @@ export class HogExecutorAsyncService {
             }
             signedHeaders = signAwsRequest({
                 method,
-                url: params.url,
+                url: requestUrl,
                 body: sentBody,
                 headers: signedHeaders,
                 credentials: resolved.credentials,
@@ -559,7 +588,7 @@ export class HogExecutorAsyncService {
         }
 
         const { fetchError, fetchResponse, fetchDuration } = await cdpTrackedFetch({
-            url: params.url,
+            url: requestUrl,
             fetchParams,
             templateId,
             teamId: invocation.teamId,

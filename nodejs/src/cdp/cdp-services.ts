@@ -218,6 +218,7 @@ export type CdpCoreServicesConfig = Pick<
         | 'CDP_EMAIL_TEMPLATE_TAGS_TEAMS'
         | 'CDP_EMAIL_TEXT_PART_TEAMS'
         | 'CDP_EMAIL_SOFT_BOUNCE_EVENT_TIME_TEAMS'
+        | 'CDP_CREDENTIAL_AUTH_ENFORCE_TEAMS'
         | 'CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN'
         | 'CONVERSATIONS_TICKETS_JWT_SECRET'
         | 'CUSTOMER_ANALYTICS_ACCOUNTS_JWT_SECRET'
@@ -583,7 +584,12 @@ export function createCdpCoreServices(
         attachmentStore
     )
     const recipientTokensService = new RecipientTokensService(config.ENCRYPTION_SALT_KEYS, config.SITE_URL)
-    const hogInputsService = new HogInputsService(deps.integrationManager, recipientTokensService, deps.encryptedFields)
+    const hogInputsService = new HogInputsService(
+        deps.integrationManager,
+        recipientTokensService,
+        deps.encryptedFields,
+        config.CDP_CREDENTIAL_AUTH_ENFORCE_TEAMS
+    )
     const pushNotificationService = new PushNotificationService(
         deps.integrationManager,
         deps.encryptedFields,
@@ -610,6 +616,7 @@ export function createCdpCoreServices(
             fetchBackoffMaxMs: config.CDP_FETCH_BACKOFF_MAX_MS,
             siteUrl: config.SITE_URL,
             internalApiBaseUrl: config.INTERNAL_API_BASE_URL,
+            credentialAuthEnforceTeams: config.CDP_CREDENTIAL_AUTH_ENFORCE_TEAMS,
         },
         {
             teamManager: deps.teamManager,
