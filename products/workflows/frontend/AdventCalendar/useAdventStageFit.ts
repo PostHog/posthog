@@ -1,6 +1,7 @@
-import { RefObject, useLayoutEffect, useRef, useState } from 'react'
+import { RefObject } from 'react'
 
 import { ADVENT_PICTURE } from './adventGraph'
+import { useAdventStageSize } from './useAdventStageSize'
 
 const PHONE_STAGE_WIDTH = 480
 
@@ -13,23 +14,7 @@ export interface AdventStageFit {
 }
 
 export function useAdventStageFit(): AdventStageFit {
-    const ref = useRef<HTMLDivElement>(null)
-    const [stage, setStage] = useState({ width: 0, height: 0 })
-
-    useLayoutEffect(() => {
-        const element = ref.current
-        if (!element) {
-            return
-        }
-        const measure = (): void => {
-            const { width, height } = element.getBoundingClientRect()
-            setStage((current) => (current.width === width && current.height === height ? current : { width, height }))
-        }
-        measure()
-        const observer = new ResizeObserver(measure)
-        observer.observe(element)
-        return () => observer.disconnect()
-    }, [])
+    const { ref, stage } = useAdventStageSize()
 
     const scrollsSideways = stage.width < PHONE_STAGE_WIDTH && stage.height > stage.width
     const fillHeight = stage.height / ADVENT_PICTURE.height

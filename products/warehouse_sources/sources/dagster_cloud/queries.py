@@ -87,6 +87,94 @@ query Repositories {
     }
 }"""
 
+REPOSITORY_CATALOG_QUERY = """
+query RepositoryCatalog {
+    repositoriesOrError {
+        __typename
+        ... on RepositoryConnection {
+            nodes {
+                id
+                name
+                origin { id repositoryName repositoryLocationName }
+                location { id name }
+                jobs { id name description pipelineSnapshotId }
+            }
+        }
+        ... on RepositoryNotFoundError { message }
+        ... on PythonError { message }
+    }
+}"""
+
+CODE_LOCATIONS_QUERY = """
+query CodeLocations {
+    workspaceOrError {
+        __typename
+        ... on Workspace {
+            locationEntries {
+                id
+                name
+                loadStatus
+                updatedTimestamp
+                versionKey
+                locationOrLoadError {
+                    __typename
+                    ... on RepositoryLocation { id repositories { id name } }
+                }
+            }
+        }
+        ... on PythonError { message }
+    }
+}"""
+
+ASSET_CHECK_PARENTS_QUERY = """
+query AssetCheckParents($limit: Int!, $cursor: String) {
+    assetsOrError(limit: $limit, cursor: $cursor) {
+        __typename
+        ... on AssetConnection {
+            cursor
+            nodes {
+                id
+                key { path }
+                definition {
+                    assetChecksOrError {
+                        __typename
+                        ... on AssetChecks { checks { name } }
+                    }
+                }
+            }
+        }
+        ... on PythonError { message }
+    }
+}"""
+
+ASSET_CHECK_EXECUTIONS_QUERY = """
+query AssetCheckExecutions($assetKey: AssetKeyInput!, $checkName: String!, $limit: Int!, $cursor: String) {
+    assetCheckExecutions(assetKey: $assetKey, checkName: $checkName, limit: $limit, cursor: $cursor) {
+        id
+        runId
+        status
+        timestamp
+        stepKey
+        evaluation {
+            timestamp
+            severity
+            description
+            success
+            targetMaterialization { storageId runId timestamp }
+        }
+    }
+}"""
+
+ASSET_SLAS_QUERY = """
+query AssetSlas($assetKeys: [AssetKeyInput!]!) {
+    slasForAssets(assetKeys: $assetKeys) {
+        assetKey { path }
+        state
+        since
+        reasonMd
+    }
+}"""
+
 SCHEDULES_QUERY = """
 query RepositorySchedules($repositoryName: String!, $repositoryLocationName: String!) {
     schedulesOrError(
