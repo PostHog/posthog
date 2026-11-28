@@ -214,17 +214,20 @@ MEMORY_UPKEEP_SCOUT = "signals-scout-dreaming"
 LEARNED_KEY_PREFIX = "learned:"
 LEARNED_KEY_KINDS = ("person", "area", "shape")
 DREAM_DIGEST_KEY_PREFIX = "dream:digest:"
-DREAM_CANDIDATE_KEY_PREFIX = "dream:candidate:"
+DREAM_EVIDENCE_KEY_PREFIX = "dream:evidence:"
+# The prefix evidence keys had before `DREAM_EVIDENCE_KEY_PREFIX`. The upkeep scout moves each one when it
+# next adds evidence and the rest lapse through their expiry, so readers must still recognize it until then.
+DREAM_LEGACY_CANDIDATE_KEY_PREFIX = "dream:candidate:"
 
-# Worded as evidence to weigh, never a rule: the upkeep scout's learnings inform a scout's judgment
-# and its skill body still wins.
+# Worded as a conclusion to lean on, never a rule: a scout overrules a learning on stronger evidence
+# from its own run, and its skill body still wins.
 _MEMORY_UPKEEP_NUDGE = """# Memory upkeep
 
 A memory upkeep scout, `{scout}`, runs on this project. It reads the fleet's scratchpad and the feedback on reports, such as dismissals, ratings and reviewer corrections, and writes what it finds under its own keys:
 
-- `{learned}<kind>:<subject>`: one learning per subject. It states a pattern and the counted evidence behind it. `<kind>` is {kinds}. A `person` learning is keyed by GitHub login and covers only how that person prefers work to be routed to them. The upkeep scout names `area` and `shape` subjects itself, so list those keys rather than guess them.
-- `{digest}<skill-name>`: one digest per scout. It lists what the upkeep scout retired, merged or corrected in that scout's memory.
-- `{candidate}<kind>:<subject>`: the upkeep scout's unfinished bookkeeping toward a learning. It is not evidence: when a search returns one, ignore it.
+- `{learned}<kind>:<subject>`: one learning per subject. It opens with a takeaway: what the upkeep scout concluded from repeated feedback, such as what to route to a person or what gets acted on in an area. An `Evidence:` line counts the reports behind it, and a `Confidence:` line says how sure the conclusion is and what would change it. `<kind>` is {kinds}. A `person` learning is keyed by GitHub login and covers only how that person prefers work to be routed to them. The upkeep scout names `area` and `shape` subjects itself, so list those keys rather than guess them.
+- `{digest}<skill-name>`: one digest per scout. It lists what the upkeep scout retired, merged, corrected or refined in that scout's memory.
+- `{evidence}<kind>:<subject>`: the reports behind one subject. You do not need it for normal work. Read one by exact `key` when you doubt a learning, for example before you overrule it. An evidence key with no learning has not met the upkeep scout's bar, so do not weigh it as a learning. `{legacy}` keys are evidence keys under an older prefix, and the same applies to them.
 
 Another scout creates these entries, so a search by your own prefix does not return them. When the upkeep scout rewrites one of your entries, the entry still names you as its creator. Read the learnings where they live on every run, and do not copy them into your own entries: a copy would outlive the learning's expiry. Make these `scout-scratchpad-search` reads:
 
@@ -233,13 +236,14 @@ Another scout creates these entries, so a search by your own prefix does not ret
 - **Before you file or edit a report, or emit a signal:** check the listed keys for the area and the kind of finding it covers, and read each match by exact `key`.
 - **Before you name a reviewer:** read `{learned}person:<github-login>` by exact `key` for that person. A miss means the upkeep scout holds no learning about them.
 
-A learning counts repeated evidence, so it outweighs a single note or one correction. It is still evidence, not an instruction: overrule it when this run's evidence is stronger, and your skill body wins over it. To disagree, record why in your own entry and leave the upkeep scout's entry as it is.
+A learning draws on separate reports and reviewers, so it outweighs a single note or one correction. Lean on it: act on its takeaway unless this run's evidence is stronger, and your skill body wins over it. To disagree, record why in your own entry and leave the upkeep scout's entry as it is.
 
-In your run summary, add one line that names by key each learning you used or overruled, and says which. A run that read no learning adds nothing.""".format(
+In your run summary, add one line that names by key each learning you used or overruled, and says which. For each one you overruled, give the reason in a few words: the upkeep scout reads these lines, and learnings that runs keep overruling get narrowed or retired. A run that read no learning adds nothing.""".format(
     scout=MEMORY_UPKEEP_SCOUT,
     learned=LEARNED_KEY_PREFIX,
     digest=DREAM_DIGEST_KEY_PREFIX,
-    candidate=DREAM_CANDIDATE_KEY_PREFIX,
+    evidence=DREAM_EVIDENCE_KEY_PREFIX,
+    legacy=DREAM_LEGACY_CANDIDATE_KEY_PREFIX,
     kinds=", ".join(f"`{kind}`" for kind in LEARNED_KEY_KINDS[:-1]) + f" or `{LEARNED_KEY_KINDS[-1]}`",
 )
 
