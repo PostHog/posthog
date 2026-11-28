@@ -28,6 +28,17 @@ function setWorkflowAccess(level: AccessControlLevel): void {
     } as AppContext
 }
 
+function fillStorage(): void {
+    let chunk = 'x'.repeat(1 << 20)
+    for (let index = 0; chunk.length > 0; index++) {
+        try {
+            localStorage.setItem(`filler-${index}`, chunk)
+        } catch {
+            chunk = chunk.slice(0, chunk.length >> 1)
+        }
+    }
+}
+
 function openFreshPageLoad(replayArm: string | boolean | undefined, sendsFromCode: boolean): Page {
     let page: Page | undefined
     jest.isolateModules(() => {
@@ -175,21 +186,17 @@ describe('MessagingCtaChip', () => {
         expect(await findText('Not available here')).toBeTruthy()
     })
 
-    it('shows, and hides for the page when its × is clicked, once storage fills after the app loaded', () => {
+    it('stays hidden for the rest of the page after its × is clicked, once storage fills after the app loaded', () => {
         const { renderChip, chip, click, captured } = open('player_chip')
-        const setItem = jest.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
-            throw new DOMException('The quota has been exceeded.', 'QuotaExceededError')
-        })
-        try {
-            renderChip()
-            expect(chip()).not.toBeNull()
+        fillStorage()
+        renderChip()
+        expect(chip()).not.toBeNull()
 
-            click(chip()!.querySelector<HTMLElement>('[aria-label="Hide for 90 days"]')!)
-            expect(chip()).toBeNull()
-            expect(captured('messaging cta dismissed')).toEqual([{ placement: 'replay.player_chip' }])
-        } finally {
-            setItem.mockRestore()
-        }
+        click(chip()!.querySelector<HTMLElement>('[aria-label="Hide for 90 days"]')!)
+        expect(chip()).toBeNull()
+        renderChip()
+        expect(chip()).toBeNull()
+        expect(captured('messaging cta dismissed')).toEqual([{ placement: 'replay.player_chip' }])
     })
 
     it('stays hidden and silent for 90 days after its × is clicked, for that viewer only', () => {

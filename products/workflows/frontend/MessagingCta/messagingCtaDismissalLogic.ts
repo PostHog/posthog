@@ -17,8 +17,14 @@ function storageKey({ viewerId, placement }: MessagingCtaDismissalLogicProps): s
     return `messaging-cta-dismissed:${viewerId}:${placement}`
 }
 
-// Storage can be full or blocked. The chip then shows as if never dismissed, and a dismissal holds for this page only.
+// Storage can be full or blocked, so a dismissal also lives here and holds until the page reloads.
+const dismissedOnThisPage = new Map<string, string>()
+
 function readDismissedAt(props: MessagingCtaDismissalLogicProps): string | null {
+    const onThisPage = dismissedOnThisPage.get(storageKey(props))
+    if (onThisPage) {
+        return onThisPage
+    }
     try {
         return localStorage.getItem(storageKey(props))
     } catch {
@@ -27,6 +33,7 @@ function readDismissedAt(props: MessagingCtaDismissalLogicProps): string | null 
 }
 
 function writeDismissedAt(props: MessagingCtaDismissalLogicProps, dismissedAt: string): void {
+    dismissedOnThisPage.set(storageKey(props), dismissedAt)
     try {
         localStorage.setItem(storageKey(props), dismissedAt)
     } catch {}
