@@ -132,7 +132,10 @@ A version that went live before the window can still show opens and clicks in it
 How often each link position of one step gets clicked.
 It reads the per-link click counter instead of the click events.
 The counter stores each web URL without its query string, replaces long token- and id-shaped path segments with `*`, and cuts URLs at 200 characters.
-The click events keep the full URL, tokens included, so group links only through this counter, never by `$link_url`.
+The click events can keep the full URL, tokens included, so group links only through this counter, never by `$link_url`.
+From 2026-11-29, a link that carries a recipient's preferences token as a JWT, such as the unsubscribe link, keeps only its origin in `$link_url`.
+Clicks recorded before then can still keep the full URL, token included.
+A token hidden in a Base64-encoded redirect target is not detected, so treat `$link_url` as sensitive all the same.
 
 ```sql
 SELECT
