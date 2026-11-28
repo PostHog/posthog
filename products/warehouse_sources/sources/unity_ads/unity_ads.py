@@ -1,3 +1,4 @@
+import re
 from collections.abc import Iterator
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, Optional
@@ -8,6 +9,7 @@ from urllib3.util.retry import Retry
 
 from products.warehouse_sources.sources.sdk import (
     HttpBasicAuth,
+    OffsetPaginator,
     RESTClient,
     RESTClientRetryableError,
     ResumableSourceManager,
@@ -18,9 +20,11 @@ from products.warehouse_sources.sources.sdk import (
 )
 from products.warehouse_sources.sources.unity_ads.settings import (
     HISTORY_DAYS,
-    METRICS,
+    MANAGEMENT_PRIMARY_KEYS,
     UNITY_ADS_ENDPOINTS,
+    UNITY_MANAGEMENT_URL,
     UNITY_STATS_URL,
+    UnityAdsEndpointConfig,
 )
 
 # Unity allows a report request 10 minutes, but one request may hold a worker for 5 at most, so short
@@ -31,6 +35,7 @@ REQUEST_TIMEOUT = (10, 240)
 PROBE_TIMEOUT = 60
 
 INVALID_ORGANIZATION_ID = "The Unity organization ID must be the numeric Organization core ID"
+_MANAGEMENT_ID = re.compile(r"[0-9a-fA-F]{24}")
 
 
 @frozen
@@ -55,7 +60,7 @@ def _iso(day: date) -> str:
 def _windows(
     client: RESTClient,
     url: str,
-    breakdowns: tuple[str, ...],
+    config: UnityAdsEndpointConfig,
     window_days: int,
     start: date,
     today: date,
@@ -75,8 +80,8 @@ def _windows(
                     # `end` is exclusive.
                     "end": _iso(last_day + timedelta(days=1)),
                     "scale": "day",
-                    "metrics": ",".join(METRICS),
-                    "breakdowns": ",".join(breakdowns),
+                    "metrics": ",".join(config.metrics),
+                    "breakdowns": ",".join(config.breakdowns),
                     "format": "json",
                 },
                 paginator=SinglePagePaginator(),
@@ -105,6 +110,39 @@ def _windows(
         window = next_window
 
 
+def _management_id(row: dict[str, Any]) -> str:
+    identifier = row.get("id")
+    if not isinstance(identifier, str) or not _MANAGEMENT_ID.fullmatch(identifier):
+        raise ValueError("Unity returned an invalid app or campaign ID")
+    return identifier
+
+
+def _management_rows(client: RESTClient, url: str, endpoint: str) -> Iterator[list[dict[str, Any]]]:
+    apps_url = f"{url}/apps"
+    for apps in client.paginate(apps_url, paginator=OffsetPaginator(limit=1000), data_selector="results"):
+        if endpoint == "apps":
+            yield apps
+            continue
+
+        for app in apps:
+            app_id = _management_id(app)
+            campaigns_url = f"{apps_url}/{app_id}/campaigns"
+            for campaigns in client.paginate(campaigns_url, paginator=SinglePagePaginator(), data_selector="results"):
+                if endpoint == "campaigns":
+                    yield [{**campaign, "campaignSetId": app_id} for campaign in campaigns]
+                    continue
+
+                bid_path = endpoint.replace("_", "-")
+                for campaign in campaigns:
+                    campaign_id = _management_id(campaign)
+                    for bids in client.paginate(
+                        f"{campaigns_url}/{campaign_id}/{bid_path}",
+                        paginator=SinglePagePaginator(),
+                        data_selector="results",
+                    ):
+                        yield [{**bid, "campaignSetId": app_id, "campaignId": campaign_id} for bid in bids]
+
+
 def unity_ads_source(
     organization_id: str,
     key_id: str,
@@ -114,11 +152,24 @@ def unity_ads_source(
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Optional[Any] = None,
 ) -> SourceResponse:
-    config = UNITY_ADS_ENDPOINTS[endpoint]
     organization_id = organization_id.strip()
     # The ID goes into the request path, so anything but digits is refused.
     if not organization_id.isdigit():
         raise ValueError(INVALID_ORGANIZATION_ID)
+    client = RESTClient(
+        auth=HttpBasicAuth(key_id, secret_key),
+        request_timeout=REQUEST_TIMEOUT,
+        retry_budget_seconds=REQUEST_TIMEOUT[1],
+    )
+    if endpoint in MANAGEMENT_PRIMARY_KEYS:
+        management_url = UNITY_MANAGEMENT_URL.format(organization_id=organization_id)
+        return SourceResponse(
+            name=endpoint,
+            items=lambda: _management_rows(client, management_url, endpoint),
+            primary_keys=list(MANAGEMENT_PRIMARY_KEYS[endpoint]),
+        )
+
+    config = UNITY_ADS_ENDPOINTS[endpoint]
     today = datetime.now(UTC).date()
     floor = today - timedelta(days=HISTORY_DAYS)
 
@@ -132,16 +183,11 @@ def unity_ads_source(
     else:
         start = floor
 
-    client = RESTClient(
-        auth=HttpBasicAuth(key_id, secret_key),
-        request_timeout=REQUEST_TIMEOUT,
-        retry_budget_seconds=REQUEST_TIMEOUT[1],
-    )
-    url = UNITY_STATS_URL.format(organization_id=organization_id)
+    url = UNITY_STATS_URL.format(organization_id=organization_id, report=config.report)
 
     return SourceResponse(
         name=endpoint,
-        items=lambda: _windows(client, url, config.breakdowns, window_days, start, today, resumable_source_manager),
+        items=lambda: _windows(client, url, config, window_days, start, today, resumable_source_manager),
         primary_keys=list(config.primary_keys),
         partition_count=1,
         partition_size=1,
@@ -158,7 +204,7 @@ def validate_credentials(organization_id: str, key_id: str, secret_key: str) -> 
     today = datetime.now(UTC).date()
     try:
         response = make_tracked_session(redact_values=(secret_key,), allow_redirects=False, retry=Retry(total=0)).get(
-            UNITY_STATS_URL.format(organization_id=organization_id.strip()),
+            UNITY_STATS_URL.format(organization_id=organization_id.strip(), report="acquisitions"),
             params={
                 "start": _iso(today - timedelta(days=1)),
                 "end": _iso(today),

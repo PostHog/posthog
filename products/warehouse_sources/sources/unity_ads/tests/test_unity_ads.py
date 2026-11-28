@@ -42,6 +42,10 @@ def _rows(*rows: dict[str, Any]) -> ScriptedResponse:
     return ScriptedResponse(json={"data": list(rows)})
 
 
+def _results(*rows: dict[str, Any], total: int | None = None) -> ScriptedResponse:
+    return ScriptedResponse(json={"results": list(rows), "total": len(rows) if total is None else total})
+
+
 class TestWindows:
     def test_campaigns_read_92_day_windows_from_the_watermark_in_date_order(self) -> None:
         result = _run(
@@ -85,17 +89,34 @@ class TestWindows:
         assert result.rows == []
 
     @pytest.mark.parametrize(
-        ("endpoint", "expected_requests"), [("campaigns_daily", 4), ("campaigns_daily_by_country", 12)]
+        ("endpoint", "expected_requests"),
+        [("campaigns_daily", 4), ("campaigns_daily_by_country", 12), ("skan_daily", 12)],
     )
-    def test_a_first_sync_of_both_tables_fits_one_rate_limit_window(
-        self, endpoint: str, expected_requests: int
-    ) -> None:
-        # Unity allows 30 requests per 30 minutes per organization, shared by both tables.
+    def test_a_first_sync_keeps_requests_within_the_shared_quota(self, endpoint: str, expected_requests: int) -> None:
         result = _run(endpoint, always(ScriptedResponse(status=204)))
 
         assert result.raised is None
         assert result.params("start")[0] == "2025-10-15T00:00:00Z"
         assert len(result.requests) == expected_requests
+
+    def test_skan_reads_the_incremental_window_with_conversion_values(self) -> None:
+        rows = [
+            {"timestamp": "2026-10-14", "campaignId": "campaign-1", "conversionValue": 0, "installs": 11},
+            {"timestamp": "2026-10-14", "campaignId": "campaign-1", "conversionValue": 4, "installs": 5},
+        ]
+        result = _run(
+            "skan_daily",
+            [_rows(*rows)],
+            incremental_field="timestamp",
+            db_incremental_field_last_value=date(2026, 10, 14),
+        )
+
+        assert result.raised is None
+        assert result.paths == ["/advertise/stats/v2/organizations/5772916123937/reports/skan"]
+        request = result.requests[0]
+        assert (request.param("start"), request.param("end")) == ("2026-10-14T00:00:00Z", "2026-10-16T00:00:00Z")
+        assert (request.param("metrics"), request.param("breakdowns")) == ("installs", "campaign,conversionValue")
+        assert result.rows == rows
 
     def test_a_window_that_keeps_timing_out_is_halved_until_it_answers(self) -> None:
         # Unity's report for a large account can outlast the read timeout on every retry of the same window.
@@ -149,6 +170,56 @@ class TestWindows:
 
         assert result.raised is not None
         assert "401 Client Error: Unauthorized for url: https://services.api.unity.com" in str(result.raised)
+
+
+class TestManagementTables:
+    def test_apps_follow_the_offset_until_the_last_page(self) -> None:
+        first_page = [{"id": f"{index:024x}"} for index in range(1000)]
+        last_app = {"id": "a" * 24, "storeId": "com.example.game"}
+        result = _run("apps", [_results(*first_page, total=1001), _results(last_app, total=1001)])
+
+        assert result.raised is None
+        assert result.paths == ["/advertise/v1/organizations/5772916123937/apps"] * 2
+        assert [str(request.param("offset")) for request in result.requests] == ["0", "1000"]
+        assert result.rows == [*first_page, last_app]
+
+    @pytest.mark.parametrize(
+        ("endpoint", "bid_row"),
+        [
+            ("campaigns", None),
+            ("cpi_bids", {"country": "US", "bid": "0.201"}),
+            ("source_bids", {"country": "US", "bid": "0.201", "sourceAppId": "exampleApp01"}),
+        ],
+    )
+    def test_management_rows_keep_the_parent_ids(self, endpoint: str, bid_row: dict[str, str] | None) -> None:
+        apps = [{"id": "a" * 24}, {"id": "b" * 24}]
+        campaigns = [{"id": "c" * 24, "enabled": True}, {"id": "d" * 24, "enabled": False}]
+        apps_path = "/advertise/v1/organizations/5772916123937/apps"
+        paths = [apps_path]
+        responses = [_results(*apps)]
+        expected_rows = []
+        for app, campaign in zip(apps, campaigns):
+            campaign_path = f"{apps_path}/{app['id']}/campaigns"
+            paths.append(campaign_path)
+            responses.append(_results(campaign))
+            if bid_row is None:
+                expected_rows.append({**campaign, "campaignSetId": app["id"]})
+            else:
+                paths.append(f"{campaign_path}/{campaign['id']}/{endpoint.replace('_', '-')}")
+                responses.append(_results(bid_row))
+                expected_rows.append({**bid_row, "campaignSetId": app["id"], "campaignId": campaign["id"]})
+
+        result = _run(endpoint, responses)
+
+        assert result.raised is None
+        assert result.paths == paths
+        assert result.rows == expected_rows
+
+    def test_an_invalid_app_id_never_reaches_a_campaign_url(self) -> None:
+        result = _run("campaigns", [_results({"id": "../../other"})])
+
+        assert isinstance(result.raised, ValueError)
+        assert result.paths == ["/advertise/v1/organizations/5772916123937/apps"]
 
 
 class TestValidateCredentials:
