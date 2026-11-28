@@ -174,7 +174,7 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
 
     def __init__(
         self, *args, error_event_context: str | None = "ui", bypass_warehouse_access_control: bool = False, **kwargs
-    ):
+    ) -> None:
         super().__init__(*args, **kwargs)
         # Same contract as ExperimentQueryRunner.__init__: tags the terminal error event, and None keeps it silent.
         self.error_event_context = error_event_context

@@ -12,6 +12,7 @@ from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import fields
 from datetime import datetime
+from typing import Any
 
 from products.experiments.backend.health.context import (
     ConditionSetTraffic,
@@ -31,12 +32,12 @@ _read_inputs: ContextVar[list[object] | None] = ContextVar("health_check_read_in
 class _RecordingContext(HealthContext):
     __slots__ = ()
 
-    def __init__(self, **values: object) -> None:
+    def __init__(self, **values: Any) -> None:
         # A plain `replace` reads every field of the context to copy it, which would date the check to every windowed
         # input. Failing here makes that mistake show in the tests of the check.
         if _read_inputs.get() is not None:
             raise TypeError("A health check copies its context with `replace` inside `copying_context`")
-        super().__init__(**values)  # type: ignore[arg-type]
+        super().__init__(**values)
 
     def __getattribute__(self, name: str) -> object:
         value = super().__getattribute__(name)
