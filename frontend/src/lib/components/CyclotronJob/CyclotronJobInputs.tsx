@@ -934,6 +934,7 @@ function CyclotronJobInputRenderer({
                             value={input.value}
                             onChange={onValueChange}
                             sampleGlobalsWithInputs={sampleGlobalsWithInputs}
+                            templateId={configuration.template_id}
                         />
                     </Suspense>
                 )

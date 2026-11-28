@@ -6,8 +6,10 @@ import { AiTaskInstructionsCompare } from './components/AiTaskInstructionsCompar
 import { HogFlowFunctionConfiguration } from './components/HogFlowFunctionConfiguration'
 import { OptOutOfMessagesConfiguration } from './components/OptOutOfMessagesConfiguration'
 import { StepSchemaErrors } from './components/StepSchemaErrors'
+import { SurveyResponseWaitConfiguration } from './components/SurveyResponseWaitConfiguration'
 import { SandboxSenderChoiceProvider } from './email/SandboxSenderChoiceProvider'
 import { StepFunctionNode } from './hogFunctionStepLogic'
+import { SHOW_SURVEY_TEMPLATE_ID } from './surveyResponseWait'
 
 export function StepFunctionConfiguration({ node }: { node: StepFunctionNode }): JSX.Element {
     const { actionValidationErrorsById } = useValues(workflowLogic)
@@ -53,6 +55,12 @@ export function StepFunctionConfiguration({ node }: { node: StepFunctionNode }):
                 <SandboxSenderChoiceProvider actionId={node.id}>{functionConfiguration}</SandboxSenderChoiceProvider>
             ) : (
                 functionConfiguration
+            )}
+            {templateId === SHOW_SURVEY_TEMPLATE_ID && (
+                <SurveyResponseWaitConfiguration
+                    actionId={node.id}
+                    surveyId={typeof inputs?.survey_id?.value === 'string' ? inputs.survey_id.value : null}
+                />
             )}
         </>
     )

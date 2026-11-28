@@ -1,4 +1,16 @@
-import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, props, propsChanged, reducers } from 'kea'
+import {
+    MakeLogicType,
+    actions,
+    afterMount,
+    connect,
+    kea,
+    listeners,
+    path,
+    props,
+    propsChanged,
+    reducers,
+    selectors,
+} from 'kea'
 import { loaders } from 'kea-loaders'
 
 import { lemonToast } from '@posthog/lemon-ui'
@@ -16,8 +28,10 @@ export interface workflowSurveyPickerLogicValues {
     currentProjectId: number | string // teamLogic
     limitingSurveyId: string | null
     search: string
+    missingSurveyId: string | null
     selectedSurvey: SurveyApi | null
     selectedSurveyLoading: boolean
+    selectedSurveyUnavailable: boolean
     surveys: SurveyApi[]
     surveysLoading: boolean
 }
@@ -60,6 +74,9 @@ export interface workflowSurveyPickerLogicActions {
     setLimitingSurveyId: (surveyId: string | null) => {
         surveyId: string | null
     }
+    setMissingSurveyId: (surveyId: string) => {
+        surveyId: string
+    }
     setSearch: (search: string) => {
         search: string
     }
@@ -87,12 +104,20 @@ export const workflowSurveyPickerLogic = kea<workflowSurveyPickerLogicType>([
         setSearch: (search: string) => ({ search }),
         limitToWorkflowRecipients: (survey: SurveyApi) => ({ survey }),
         setLimitingSurveyId: (surveyId: string | null) => ({ surveyId }),
+        setMissingSurveyId: (surveyId: string) => ({ surveyId }),
     }),
     reducers({
         search: ['', { setSearch: (_, { search }) => search }],
         limitingSurveyId: [null as string | null, { setLimitingSurveyId: (_, { surveyId }) => surveyId }],
+        missingSurveyId: [
+            null as string | null,
+            {
+                loadSelectedSurvey: () => null,
+                setMissingSurveyId: (_, { surveyId }) => surveyId,
+            },
+        ],
     }),
-    loaders(({ values }) => ({
+    loaders(({ actions, values }) => ({
         surveys: [
             [] as SurveyApi[],
             {
@@ -127,6 +152,7 @@ export const workflowSurveyPickerLogic = kea<workflowSurveyPickerLogicType>([
                     } catch (error) {
                         breakpoint()
                         if (error instanceof ApiError && error.status === 404) {
+                            actions.setMissingSurveyId(surveyId)
                             return null
                         }
                         throw error
@@ -135,6 +161,14 @@ export const workflowSurveyPickerLogic = kea<workflowSurveyPickerLogicType>([
             },
         ],
     })),
+    selectors({
+        selectedSurveyUnavailable: [
+            (s, p) => [s.selectedSurvey, s.missingSurveyId, p.surveyId],
+            (selectedSurvey, missingSurveyId, surveyId): boolean =>
+                !!surveyId &&
+                (missingSurveyId === surveyId || (selectedSurvey?.id === surveyId && !!selectedSurvey.archived)),
+        ],
+    }),
     listeners(({ actions, values, props }) => ({
         setSearch: () => {
             actions.loadSurveys()

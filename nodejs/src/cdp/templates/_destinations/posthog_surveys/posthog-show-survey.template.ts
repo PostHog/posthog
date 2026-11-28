@@ -22,7 +22,7 @@ if (empty(inputs.distinct_id)) {
 
 // The survey's targeting flag matches on this person property, and the SDKs pick it up on their next flag refresh.
 let props := {}
-props[f'$survey_triggered/{inputs.survey_id}'] := true
+props[f'$survey_triggered/{inputs.survey_id}'] := formatDateTime(now(), '%Y-%m-%dT%H:%i:%SZ')
 
 postHogCapture({
   'event': '$set',
