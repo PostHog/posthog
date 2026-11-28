@@ -1,6 +1,9 @@
 use std::collections::{HashMap, HashSet};
 
 use async_trait::async_trait;
+use personhog_common::properties::{
+    jsonb_column_size, rewrite_out_of_range_numbers, trim_properties_to_fit_size, TrimResult,
+};
 use personhog_common::query_tag;
 use sqlx::{Postgres, Transaction};
 use uuid::Uuid;
@@ -39,7 +42,7 @@ impl PersonRepair for PostgresStorage {
             claim_lifecycle_marks(&mut tx, team_id, &uuids, MarkKind::Restore).await?;
         let locked = lock_claimed_persons(&mut tx, team_id, &claimed_ids).await?;
 
-        let (raise_ids, raise_mins): (Vec<i64>, Vec<i64>) = floors
+        let candidates: Vec<(i64, i64)> = floors
             .iter()
             .filter_map(|(uuid, min_version)| {
                 locked
@@ -47,7 +50,36 @@ impl PersonRepair for PostgresStorage {
                     .filter(|row| !row.is_deleted && row.version < *min_version)
                     .map(|row| (row.id, *min_version))
             })
-            .unzip();
+            .collect();
+        let candidate_ids: Vec<i64> = candidates.iter().map(|(id, _)| *id).collect();
+        let (trimmed, too_large) = trim_oversized_properties(
+            &mut tx,
+            team_id,
+            &candidate_ids,
+            self.properties_size_limit,
+            self.properties_trim_target,
+        )
+        .await?;
+
+        let (mut raise_ids, mut raise_mins) = (Vec::new(), Vec::new());
+        let (mut trim_ids, mut trim_mins, mut trim_properties) =
+            (Vec::new(), Vec::new(), Vec::new());
+        for (id, min_version) in candidates {
+            if too_large.contains(&id) {
+                continue;
+            }
+            match trimmed.get(&id) {
+                Some(properties) => {
+                    trim_ids.push(id);
+                    trim_mins.push(min_version);
+                    trim_properties.push(properties.clone());
+                }
+                None => {
+                    raise_ids.push(id);
+                    raise_mins.push(min_version);
+                }
+            }
+        }
         if !raise_ids.is_empty() {
             sqlx::query!(
                 r#"/* service='personhog-replica', operation='raise_person_version_floors' */
@@ -60,6 +92,23 @@ impl PersonRepair for PostgresStorage {
                 team_id as i32,
                 &raise_ids,
                 &raise_mins
+            )
+            .execute(&mut *tx)
+            .await?;
+        }
+        if !trim_ids.is_empty() {
+            sqlx::query!(
+                r#"/* service='personhog-replica', operation='raise_person_version_floors_trimmed' */
+                UPDATE posthog_person p
+                SET version = f.min_version, properties = f.properties::jsonb
+                FROM UNNEST($2::bigint[], $3::bigint[], $4::text[]) AS f(id, min_version, properties)
+                WHERE p.team_id = $1 AND p.id = f.id AND p.is_deleted = false
+                  AND COALESCE(p.version, 0) < f.min_version
+                "#,
+                team_id as i32,
+                &trim_ids,
+                &trim_mins,
+                &trim_properties
             )
             .execute(&mut *tx)
             .await?;
@@ -87,6 +136,11 @@ impl PersonRepair for PostgresStorage {
                     outcome: RaiseOutcome::AtOrAbove,
                     version: row.version,
                 },
+                Some(row) if too_large.contains(&row.id) => RaiseResult {
+                    uuid: *uuid,
+                    outcome: RaiseOutcome::TooLarge,
+                    version: row.version,
+                },
                 Some(_) => RaiseResult {
                     uuid: *uuid,
                     outcome: RaiseOutcome::Raised,
@@ -111,10 +165,20 @@ impl PersonRepair for PostgresStorage {
         let uuids: Vec<Uuid> = persons.iter().map(|p| p.uuid).collect();
         let mut existing = lock_persons_by_uuids(&mut tx, team_id, &uuids).await?;
 
+        // Postgres rejects an insert over check_properties_size, and the error would roll back
+        // every person in the batch.
+        let too_large: HashSet<Uuid> = persons
+            .iter()
+            .filter(|p| {
+                !existing.contains_key(&p.uuid)
+                    && jsonb_column_size(&p.properties) > self.properties_size_limit
+            })
+            .map(|p| p.uuid)
+            .collect();
         // Insert in uuid order, so two calls racing on the same uuids cannot deadlock.
         let mut absent: Vec<&RestoredPerson> = persons
             .iter()
-            .filter(|p| !existing.contains_key(&p.uuid))
+            .filter(|p| !existing.contains_key(&p.uuid) && !too_large.contains(&p.uuid))
             .collect();
         absent.sort_unstable_by_key(|p| p.uuid);
         let inserted: HashMap<Uuid, i64> = if absent.is_empty() {
@@ -187,6 +251,15 @@ impl PersonRepair for PostgresStorage {
         persons
             .iter()
             .map(|p| {
+                if too_large.contains(&p.uuid) {
+                    return Ok(RestoreResult {
+                        uuid: p.uuid,
+                        outcome: RestoreOutcome::TooLarge,
+                        person_id: 0,
+                        version: 0,
+                        restored_distinct_ids: Vec::new(),
+                    });
+                }
                 if let Some(id) = inserted.get(&p.uuid) {
                     let ids = restored_ids.get(&p.uuid).cloned().unwrap_or_default();
                     let outcome = if p.distinct_ids.is_empty() || !ids.is_empty() {
@@ -555,6 +628,62 @@ async fn read_distinct_id_rows(
         )
     })
     .collect())
+}
+
+/// Trim the stored properties of the rows that `check_properties_size` would reject a
+/// version-only update of. The constraint is NOT VALID, so rows written before it can exceed
+/// the limit, and Postgres checks the whole row on every update. Returns the trimmed JSON by
+/// person id, and the ids whose protected properties alone exceed the trim target.
+async fn trim_oversized_properties(
+    tx: &mut Transaction<'_, Postgres>,
+    team_id: i64,
+    person_ids: &[i64],
+    size_limit: usize,
+    trim_target: usize,
+) -> StorageResult<(HashMap<i64, String>, HashSet<i64>)> {
+    let mut trimmed = HashMap::new();
+    let mut too_large = HashSet::new();
+    if person_ids.is_empty() {
+        return Ok((trimmed, too_large));
+    }
+    // An update that leaves the column unchanged reuses the stored value, so the constraint
+    // measures the same pg_column_size this query filters on.
+    let rows = sqlx::query!(
+        r#"/* service='personhog-replica', operation='raise_person_version_floors_oversized' */
+        SELECT id::bigint as "id!", properties::text as "properties!"
+        FROM posthog_person
+        WHERE team_id = $1 AND id = ANY($2) AND pg_column_size(properties) > $3
+        "#,
+        team_id as i32,
+        person_ids,
+        size_limit as i32
+    )
+    .fetch_all(&mut **tx)
+    .await?;
+    for row in rows {
+        let properties: serde_json::Value = serde_json::from_str(&row.properties)
+            .or_else(|_| serde_json::from_str(&rewrite_out_of_range_numbers(&row.properties)))
+            .map_err(|e| {
+                StorageError::Query(format!(
+                    "unparseable properties on person {} (team_id={team_id}): {e}",
+                    row.id
+                ))
+            })?;
+        match trim_properties_to_fit_size(&properties, trim_target) {
+            TrimResult::Trimmed(value) => {
+                trimmed.insert(row.id, value.to_string());
+            }
+            // Only reachable when the out-of-range rewrite shrank the value. The parsed value
+            // fits, so writing it back passes the constraint.
+            TrimResult::Fits => {
+                trimmed.insert(row.id, properties.to_string());
+            }
+            TrimResult::CannotFit => {
+                too_large.insert(row.id);
+            }
+        }
+    }
+    Ok((trimmed, too_large))
 }
 
 /// Lock the claimed persons in id order, keyed by uuid. Locking by id, not uuid, leaves out a person

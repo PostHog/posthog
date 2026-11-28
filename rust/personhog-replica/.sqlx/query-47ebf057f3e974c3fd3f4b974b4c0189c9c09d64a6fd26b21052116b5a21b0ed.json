@@ -1,0 +1,30 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "/* service='personhog-replica', operation='raise_person_version_floors_oversized' */\n        SELECT id::bigint as \"id!\", properties::text as \"properties!\"\n        FROM posthog_person\n        WHERE team_id = $1 AND id = ANY($2) AND pg_column_size(properties) > $3\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "properties!",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int4",
+        "Int8Array",
+        "Int4"
+      ]
+    },
+    "nullable": [
+      false,
+      null
+    ]
+  },
+  "hash": "47ebf057f3e974c3fd3f4b974b4c0189c9c09d64a6fd26b21052116b5a21b0ed"
+}

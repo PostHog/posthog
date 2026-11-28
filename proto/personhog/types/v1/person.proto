@@ -715,6 +715,9 @@ enum RaiseOutcome {
   RAISE_OUTCOME_AT_OR_ABOVE = 2;
   RAISE_OUTCOME_NOT_LIVE = 3;
   RAISE_OUTCOME_MISSING = 4;
+  // The stored properties exceed the size limit and trimming cannot fit them; the row is unchanged.
+  // A raise of an oversized row that trimming can fit trims the properties and reports RAISED.
+  RAISE_OUTCOME_TOO_LARGE = 5;
 }
 
 message RaisePersonVersionFloorResult {
@@ -761,6 +764,8 @@ enum RestoreOutcome {
   RESTORE_OUTCOME_EXISTS_TOMBSTONED = 3;
   // The request listed distinct ids, and every one of them already had a row; nothing was inserted.
   RESTORE_OUTCOME_NO_DISTINCT_ID = 4;
+  // The properties exceed the size limit; nothing was inserted.
+  RESTORE_OUTCOME_TOO_LARGE = 5;
 }
 
 message RestorePersonResult {

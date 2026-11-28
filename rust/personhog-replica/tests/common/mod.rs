@@ -22,8 +22,15 @@ fn database_url() -> String {
 }
 
 fn storage_over(pool: PgPool, hash_key_override_statement_timeout_ms: u64) -> Arc<dyn FullStorage> {
+    Arc::new(postgres_storage(
+        pool,
+        hash_key_override_statement_timeout_ms,
+    ))
+}
+
+fn postgres_storage(pool: PgPool, hash_key_override_statement_timeout_ms: u64) -> PostgresStorage {
     // In tests, use the same pool for everything
-    Arc::new(PostgresStorage::new(
+    PostgresStorage::new(
         pool.clone(),
         pool.clone(),
         pool.clone(),
@@ -33,7 +40,7 @@ fn storage_over(pool: PgPool, hash_key_override_statement_timeout_ms: u64) -> Ar
         3,  // team_delete_max_concurrent_chunks
         12, // tombstoned_delete_max_rows, small enough that the clamp is observable
         hash_key_override_statement_timeout_ms,
-    ))
+    )
 }
 
 /// Test context that manages database connections and provides test data helpers.
@@ -56,6 +63,17 @@ impl TestContext {
             storage,
             team_id,
         }
+    }
+
+    pub fn storage_with_properties_size_limits(
+        &self,
+        limit: usize,
+        trim_target: usize,
+    ) -> Arc<dyn FullStorage> {
+        Arc::new(
+            postgres_storage(self.pool.clone(), 4000)
+                .with_properties_size_limits(limit, trim_target),
+        )
     }
 
     pub fn storage_with_hash_key_override_statement_timeout(
