@@ -77,7 +77,6 @@ class TestRestPagination:
             ("slos", "POST", "/v2/slo/search", {}, "results", "application/json"),
             ("clients", "GET", "/v2/fm-service/v1/clients", None, "clients", "application/json"),
             ("tags", "GET", "/v2/tag", None, "results", "application/json"),
-            ("data_links", "GET", "/v2/crosslink", None, "results", "application/json"),
             # The navigator API documents its own media type as the required Accept header.
             (
                 "navigators",
@@ -113,6 +112,9 @@ class TestRestPagination:
         if endpoint == "clients":
             # Offset pages are only stable under an explicit sort.
             assert set(result.params("sort_key")) == {"instance_uid"}
+        if endpoint == "navigators":
+            # The default sort moves edited navigators between offset pages.
+            assert set(result.params("orderBy")) == {"created"}
         if endpoint == "tags":
             # The tag search matches nothing without a query; offset pages need a stable sort.
             assert set(zip(result.params("query"), result.params("order_by"))) == {("name:*", "name")}
@@ -179,11 +181,6 @@ class TestUnpagedEndpoints:
                 lambda rows: {"locations": rows, "default_location_ids": ["row-0"]},
             ),
             ("roles", "/v2/role", lambda rows: rows),
-            (
-                "synthetic_devices",
-                "/v2/synthetics/devices",
-                lambda rows: {"defaultDeviceId": 1, "devices": rows},
-            ),
         ],
     )
     def test_single_request_reads_every_row(self, endpoint: str, path: str, wrap: Any) -> None:

@@ -127,11 +127,13 @@ SPLUNK_OBSERVABILITY_CLOUD_ENDPOINTS: dict[str, SplunkObservabilityCloudEndpoint
         path="/chart",
     ),
     # Infrastructure navigators, built-in and custom. The dashboards a navigator shows are id
-    # lists on each row, so the per-navigator dashboards call is not needed.
+    # lists on each row, so the per-navigator dashboards call is not needed. The default sort
+    # is lastUpdated, which moves when a navigator is edited, so offset pages sort by created.
     "navigators": SplunkObservabilityCloudEndpointConfig(
         name="navigators",
         path="/navigator",
         accept_header="application/vnd.splunk.observability.navigator+json",
+        extra_params={"orderBy": "created"},
     ),
     # Data link definitions that map a metadata key or value to external targets.
     "data_links": SplunkObservabilityCloudEndpointConfig(
