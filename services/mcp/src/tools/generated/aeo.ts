@@ -419,6 +419,7 @@ const aeoPromptsCitationsList = (): ToolBase<
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/aeo_prompts/citations/`,
             query: {
+                brand: params.brand,
                 branded: params.branded,
                 date_from: params.date_from,
                 date_to: params.date_to,

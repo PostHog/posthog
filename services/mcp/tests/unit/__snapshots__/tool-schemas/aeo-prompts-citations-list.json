@@ -1,6 +1,17 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
+        "brand": {
+            "anyOf": [
+                {
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "A brand id from aeo_brands_list. Lists only the answers that name or cite that brand, so the list matches the counts of aeo_brands_detail. An own brand counts with every own brand. Returns 404 for a brand outside the project's catalog."
+        },
         "branded": {
             "default": "all",
             "description": "Which answers to list, by the prompt as it ran: 'all' (default), 'branded' (the prompt names the brand) or 'non_branded'. Pass the value the overview or rankings used so the list matches their counts. A prompt is branded when its text names the brand: the registrable name of a target domain as a word, case ignored, so 'example' and 'example.com' both name example.com. Branded prompts almost always get answers that mention the brand.\n\n* `all` - All\n* `branded` - Branded\n* `non_branded` - Non-branded",

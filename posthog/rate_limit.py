@@ -973,6 +973,19 @@ class AEOSearchDetailSustainedRateThrottle(_TeamBucketRateThrottle):
     rate = "600/hour"
 
 
+# An AEO brand detail aggregates two windows of checks, citations and searches per brand and filter set, and each
+# new set starts a cold read. A person switches brands and filters a click at a time, so the rates clear a reader
+# while bounding a loop that varies the filters.
+class AEOBrandDetailBurstRateThrottle(_TeamBucketRateThrottle):
+    scope = "aeo_brand_detail_burst"
+    rate = "60/minute"
+
+
+class AEOBrandDetailSustainedRateThrottle(_TeamBucketRateThrottle):
+    scope = "aeo_brand_detail_sustained"
+    rate = "600/hour"
+
+
 # The batch session-context endpoint computes experiment context for up to 20 recordings per
 # call, in up to several per-day ClickHouse scan sets — heavier than most ClickHouse endpoints
 # — and its primary caller is the session-authenticated replay/experiment UI, which the

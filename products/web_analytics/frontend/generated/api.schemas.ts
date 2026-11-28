@@ -3804,6 +3804,11 @@ export type AeoPromptsChecksParams = {
 
 export type AeoPromptsCitationsParams = {
     /**
+     * A brand id from aeo_brands_list. Lists only the answers that name or cite that brand, so the list matches the counts of aeo_brands_detail. An own brand counts with every own brand. Returns 404 for a brand outside the project's catalog.
+     * @nullable
+     */
+    brand?: string | null
+    /**
      * Which answers to list, by the prompt as it ran: 'all' (default), 'branded' (the prompt names the brand) or 'non_branded'. Pass the value the overview or rankings used so the list matches their counts. A prompt is branded when its text names the brand: the registrable name of a target domain as a word, case ignored, so 'example' and 'example.com' both name example.com. Branded prompts almost always get answers that mention the brand.
      *
      * * `all` - All

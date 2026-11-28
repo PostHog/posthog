@@ -14,6 +14,7 @@ from collections.abc import Iterable
 from typing import Any
 
 from django.db import connection
+from django.db.models import Q
 
 from posthog.dataclasses import frozen
 from posthog.models.scoping.manager import resolve_effective_team_id
@@ -52,7 +53,7 @@ from products.aeo.backend.window import CheckWindow
 _BRAND_DETAIL_SQL = f"""
     WITH answered AS MATERIALIZED (
         SELECT check_row.id, check_row.prompt_id, check_row.engine, check_row.created_at,
-            check_row.cited AS own_cited, check_row.target_best_position, check_row.brand_sentiment,
+            check_row.cited AS own_cited, check_row.target_best_position, {{own_sentiment}} AS brand_sentiment,
             check_row.created_at >= %(window_start)s AS current,
             (check_row.created_at AT TIME ZONE %(timezone)s)::date AS day
         FROM posthog_aeo_citation_check AS check_row
@@ -140,6 +141,7 @@ _BRAND_DETAIL_SQL = f"""
                         count(DISTINCT citation.citation_check_id) AS answers
                     FROM posthog_aeo_check_citation AS citation
                     JOIN named ON named.id = citation.citation_check_id
+                    JOIN top_sites AS kept ON kept.domain = citation.domain
                     WHERE citation.team_id = %(team_id)s AND citation.created_at >= %(window_start)s
                         AND citation.created_at < %(until)s AND citation.domain <> '' AND citation.url <> ''
                     GROUP BY citation.domain, 2
@@ -223,6 +225,17 @@ def subject_for(brand: AEOBrand) -> _BrandSubject:
     )
 
 
+def visible_filter(row: AEOBrand) -> Q:
+    """`AEOCitationCheck` rows that name or cite the brand, as the brand detail counts them."""
+    subject = subject_for(row)
+    named = Q(
+        id__in=AEOCheckBrand.objects.for_team(row.team_id)
+        .filter(Q(mentioned=True) | Q(cited=True), brand_id__in=subject.brand_ids)
+        .values("citation_check_id")
+    )
+    return named | Q(cited=True) if subject.is_own else named
+
+
 def get_brand_detail(
     team_id: int, row: AEOBrand, *, brand: Brand, timezone_name: str, window: CheckWindow, scope: CheckScope
 ) -> BrandDetail:
@@ -230,9 +243,12 @@ def get_brand_detail(
     subject = subject_for(row)
     # The ORM reads map a child environment to its parent; raw SQL has to do the same.
     canonical_team_id = resolve_effective_team_id(team_id)
+    # Only the own brand's sentiment is on the check, and leaving the column out for a competitor keeps the window
+    # read on the check's covering index.
+    sql = _BRAND_DETAIL_SQL.replace("{own_sentiment}", "check_row.brand_sentiment" if subject.is_own else "NULL::text")
     with connection.cursor() as cursor:
         cursor.execute(
-            _BRAND_DETAIL_SQL,
+            sql,
             {
                 "team_id": canonical_team_id,
                 "timezone": timezone_name,

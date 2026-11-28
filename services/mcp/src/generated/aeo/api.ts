@@ -785,6 +785,12 @@ export const aeoPromptsCitationsQueryTopicMax = 200
 export const aeoPromptsCitationsQueryUrlMax = 2048
 
 export const AeoPromptsCitationsQueryParams = () => zod.object({
+    brand: zod
+        .string()
+        .nullish()
+        .describe(
+            "A brand id from aeo_brands_list. Lists only the answers that name or cite that brand, so the list matches the counts of aeo_brands_detail. An own brand counts with every own brand. Returns 404 for a brand outside the project's catalog."
+        ),
     branded: zod
         .enum(['all', 'branded', 'non_branded'])
         .default(aeoPromptsCitationsQueryBrandedDefault)

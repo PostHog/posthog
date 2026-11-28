@@ -24,6 +24,7 @@ from posthog.models.scoping import team_scope
 from posthog.models.team import Team
 from posthog.models.utils import generate_random_token_personal
 from posthog.rate_limit import (
+    AEOBrandDetailBurstRateThrottle,
     AEOKeywordReportBurstRateThrottle,
     AEOSearchDetailBurstRateThrottle,
     AEOTopicRelabelBurstRateThrottle,
@@ -35,10 +36,13 @@ from products.aeo.backend.engine_settings import engine_schedule
 from products.aeo.backend.engines import top_domains
 from products.aeo.backend.facade.api import (
     RECOMPUTE_DEBOUNCE_SECONDS,
+    _window,
+    _window_key,
     create_keywords,
     get_prompt_set_overview,
     refresh_stored_results,
 )
+from products.aeo.backend.facade.contracts import BrandedSegment
 from products.aeo.backend.models import (
     AEOBrand,
     AEOCheckBrand,
@@ -47,7 +51,7 @@ from products.aeo.backend.models import (
     AEOPrompt,
     AEOPromptVersion,
 )
-from products.aeo.backend.stored_results import bump_data_version_on_commit
+from products.aeo.backend.stored_results import bump_data_version_on_commit, stored_result
 from products.aeo.backend.test.factories import create_citation_check, create_own_brand, store_what_the_runner_stores
 
 
@@ -2356,6 +2360,65 @@ class TestAEOPromptAPI(APIBaseTest):
         assert [(row["query"], row["answers"], row["prompts"], row["engines"]) for row in detail["searches"]] == [
             ("acme pricing", 2, 2, ["claude-web-search", "openai-web-search"]),
             ("acme review", 1, 1, ["claude-web-search"]),
+        ]
+
+    @time_machine.travel("2026-10-20T12:00:00Z", tick=False)
+    def test_citations_of_a_brand_list_only_the_answers_that_name_it(self) -> None:
+        acme_id = self._brand(self.team, "acme.com", kind="competitor")
+        prompt_id = self._import_one_prompt()
+        named = self._record_check(
+            prompt_id, "openai-web-search", minutes_ago=10, answer_text="Acme is fine.", cited_urls=["https://g2.com/a"]
+        )
+        self._record_check(
+            prompt_id,
+            "openai-web-search",
+            minutes_ago=20,
+            answer_text="Try a spreadsheet.",
+            cited_urls=["https://g2.com/b"],
+        )
+
+        listed = self.client.get(f"{self.url}citations/", {"domain": "g2.com", "brand": acme_id})
+        everyone = self.client.get(f"{self.url}citations/", {"domain": "g2.com"})
+        unknown = self.client.get(f"{self.url}citations/", {"domain": "g2.com", "brand": str(uuid.uuid4())})
+
+        assert listed.status_code == status.HTTP_200_OK, listed.json()
+        assert [row["id"] for row in listed.json()["results"]] == [named]
+        assert everyone.json()["count"] == 2
+        assert unknown.status_code == status.HTTP_404_NOT_FOUND
+
+    @patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
+    def test_brand_detail_is_throttled_for_the_session_authenticated_ui(self, _rate_limit_enabled: MagicMock) -> None:
+        cache.clear()
+        self.addCleanup(cache.clear)
+        acme_id = self._brand(self.team, "acme.com", kind="competitor")
+
+        with patch.object(AEOBrandDetailBurstRateThrottle, "rate", "2/minute"):
+            statuses = [
+                self.client.get(
+                    f"/api/projects/{self.team.id}/aeo_brands/{acme_id}/detail/", {"topic": f"t{index}"}
+                ).status_code
+                for index in range(3)
+            ]
+
+        assert statuses == [status.HTTP_200_OK, status.HTTP_200_OK, status.HTTP_429_TOO_MANY_REQUESTS]
+
+    @time_machine.travel("2026-10-20T12:00:00Z", tick=False)
+    def test_rankings_ignore_a_result_stored_before_brand_ids(self) -> None:
+        create_own_brand(self.team, "example.com")
+        timezone_name = self.team.timezone
+        # What a release before `brand_id` left in the cache for the default request.
+        stored_result(
+            self.team.id,
+            "rankings",
+            _window_key(timezone_name, _window(timezone_name, None, None), BrandedSegment.ALL, None, None),
+            lambda: "a result with the old fields",
+        )
+
+        response = self.client.get(f"{self.url}rankings/", {"branded": "all"})
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert [row["brand_id"] for row in response.json()["brands"]] == [
+            str(AEOBrand.objects.for_team(self.team.id).get(domain="example.com").id)
         ]
 
     @time_machine.travel("2026-10-20T12:00:00Z", tick=False)

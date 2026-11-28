@@ -2858,6 +2858,11 @@
             "fallbacks": [],
             "query": [
                 {
+                    "param": "brand",
+                    "key": "brand",
+                    "csv": false
+                },
+                {
                     "param": "branded",
                     "key": "branded",
                     "csv": false

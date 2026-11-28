@@ -24,6 +24,8 @@ from posthog.permissions import (
     TeamMemberAccessPermission,
 )
 from posthog.rate_limit import (
+    AEOBrandDetailBurstRateThrottle,
+    AEOBrandDetailSustainedRateThrottle,
     AEOPromptSuggestionsBurstRateThrottle,
     AEOPromptSuggestionsSustainedRateThrottle,
     AEOSearchDetailBurstRateThrottle,
@@ -1691,6 +1693,16 @@ class AEOPromptSetCitationsQuerySerializer(AEOCheckScopeQuerySerializer):
         default=False,
         help_text="Set to true to return each engine's answer in answer_text. Left out by default to keep pages small.",
     )
+    brand = serializers.UUIDField(
+        required=False,
+        default=None,
+        allow_null=True,
+        help_text=(
+            "A brand id from aeo_brands_list. Lists only the answers that name or cite that brand, so the list matches "
+            "the counts of aeo_brands_detail. An own brand counts with every own brand. Returns 404 for a brand "
+            "outside the project's catalog."
+        ),
+    )
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         given = [field for field in ("url", "domain", "search") if attrs.get(field)]
@@ -2045,22 +2057,27 @@ class AEOPromptViewSet(_AEOFlagGateMixin, viewsets.GenericViewSet):
     def citations(self, request: ValidatedRequest, **kwargs: Any) -> Response:
         paginator = cast(AEOPromptChecksPagination, self.paginator)
         data = request.validated_query_data
-        with date_range_errors():
-            citations, count = list_prompt_set_citations(
-                self.team_id,
-                timezone_name=self.team.timezone,
-                date_from=data["date_from"],
-                date_to=data["date_to"],
-                limit=paginator.get_limit(request) or DEFAULT_CHECKS_PAGE_SIZE,
-                offset=paginator.get_offset(request),
-                url=data.get("url"),
-                domain=data.get("domain"),
-                search=data.get("search"),
-                engine=data["engine"],
-                topic=data["topic"],
-                branded=BrandedSegment(data["branded"]),
-                include_answer_text=data["include_answer_text"],
-            )
+        brand = data["brand"]
+        try:
+            with date_range_errors():
+                citations, count = list_prompt_set_citations(
+                    self.team_id,
+                    timezone_name=self.team.timezone,
+                    date_from=data["date_from"],
+                    date_to=data["date_to"],
+                    limit=paginator.get_limit(request) or DEFAULT_CHECKS_PAGE_SIZE,
+                    offset=paginator.get_offset(request),
+                    url=data.get("url"),
+                    domain=data.get("domain"),
+                    search=data.get("search"),
+                    engine=data["engine"],
+                    topic=data["topic"],
+                    branded=BrandedSegment(data["branded"]),
+                    include_answer_text=data["include_answer_text"],
+                    brand_id=str(brand) if brand else None,
+                )
+        except BrandNotFoundError:
+            raise NotFound()
         paginator.set_count(count)
         page = self.paginate_queryset(citations)
         return self.get_paginated_response(AEOPromptCitationSerializer(page, many=True).data)
@@ -2398,7 +2415,13 @@ class AEOBrandViewSet(_AEOFlagGateMixin, viewsets.GenericViewSet):
         responses={200: OpenApiResponse(response=AEOBrandDetailSerializer)},
         tags=["web_analytics"],
     )
-    @action(detail=True, methods=["get"], url_path="detail", pagination_class=None)
+    @action(
+        detail=True,
+        methods=["get"],
+        url_path="detail",
+        pagination_class=None,
+        throttle_classes=[AEOBrandDetailBurstRateThrottle, AEOBrandDetailSustainedRateThrottle],
+    )
     def brand_detail(self, request: ValidatedRequest, pk: str, **kwargs: Any) -> Response:
         query = request.validated_query_data
         try:
