@@ -14519,6 +14519,12 @@ export namespace Schemas {
       day: number;
       /** When the server stored the person's first open of this door. Opening it again keeps this time. */
       opened_at: string;
+      /**
+         * The days whose door the signed-in person first opened on that day in their own time zone, using the offset stored with the first open. Each day is one raffle ticket. Sorted ascending.
+         * @items.minimum 1
+         * @items.maximum 24
+         */
+      ticket_days: number[];
     }
 
     export interface AdventCalendarDoorOpenRequest {
@@ -14540,6 +14546,8 @@ export namespace Schemas {
          * @maximum 840
          */
       utc_offset_minutes: number;
+      /** The UUID of the person the browser opened the door as. When it is not the signed-in person, the server stores nothing and answers 409. */
+      user_uuid?: string;
     }
 
     export interface AdventCalendarShare {
@@ -14590,6 +14598,12 @@ export namespace Schemas {
     export interface AdventCalendarResults {
       /** Every advent calendar question, by day. Shares count the answers of every user of this PostHog instance, not only this project's members. Each cloud region counts its own users. */
       questions: AdventCalendarQuestionResult[];
+      /**
+         * The days whose door the signed-in person first opened on that day in their own time zone, using the offset stored with the first open. Each day is one raffle ticket. Sorted ascending.
+         * @items.minimum 1
+         * @items.maximum 24
+         */
+      ticket_days: number[];
     }
 
     /**

@@ -1,4 +1,4 @@
-import { act, fireEvent, render, within } from '@testing-library/react'
+import { act, fireEvent, render, waitFor, within } from '@testing-library/react'
 import { NodeProps, ReactFlowProvider } from '@xyflow/react'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
@@ -73,9 +73,13 @@ describe('AdventStage', () => {
         logic.unmount()
     })
 
-    it('lays out a locked door card the same in the top and bottom rows, with the weekday and date on single lines', () => {
+    it('lays out a locked door card the same in the top and bottom rows, with the weekday and date on single lines, and keeps the date and the ticket count on the present', async () => {
+        useMocks({
+            get: { '/api/projects/:team_id/workflow_advent_calendar/results/': { questions: [], ticket_days: [] } },
+        })
         const logic = adventCalendarLogic()
         logic.mount()
+        await waitFor(() => expect(logic.values.tickets).toBe(0))
         const noop = (): void => {}
         const cardOf = (day: number): HTMLElement => {
             const door = logic.values.graph.doors.find((candidate) => candidate.day === day)!
@@ -107,6 +111,10 @@ describe('AdventStage', () => {
         expect(layout(bottom)).toEqual(layout(top))
         expect(bottom.textContent).toBe('21MondayCoffee or teaOpens December 21.')
         expect(top.textContent).toBe('4FridayLockedOpens December 4.')
+        const present = cardOf(24)
+        expect(present.textContent).toMatch(
+            /Opens December 24\.Open each door on its day to enter the raffle\..*You have 0 tickets\./
+        )
 
         logic.unmount()
     })
