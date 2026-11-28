@@ -3336,9 +3336,12 @@ class Resolver(CloningVisitor):
 
     def _record_read(self, database_table: Table, table_name: str) -> None:
         if isinstance(database_table, SavedQuery):
-            self._record_saved_query_read(database_table.id, is_user_view=type(database_table) is SavedQuery)
+            if type(database_table) is SavedQuery:
+                self._record_saved_query_read(database_table.id)
+            else:
+                self.context.referenced_managed_view_ids.add(database_table.id)
         elif isinstance(database_table, S3Table) and database_table.saved_query_id is not None:
-            self._record_saved_query_read(database_table.saved_query_id, is_user_view=True)
+            self._record_saved_query_read(database_table.saved_query_id)
             self.context.materialized_saved_query_ids.add(database_table.saved_query_id)
         elif isinstance(database_table, S3Table) and database_table.table_id is not None:
             self.context.referenced_warehouse_table_ids.add(database_table.table_id)
@@ -3346,10 +3349,9 @@ class Resolver(CloningVisitor):
         else:
             self._record_direct_read(table_name)
 
-    def _record_saved_query_read(self, saved_query_id: str, *, is_user_view: bool) -> None:
+    def _record_saved_query_read(self, saved_query_id: str) -> None:
         self.context.referenced_saved_query_ids.add(saved_query_id)
-        if is_user_view:
-            self._record_direct_read(saved_query_id)
+        self._record_direct_read(saved_query_id)
 
     def _record_direct_read(self, read_id: str) -> None:
         if self.context.view_body_depth == 0:

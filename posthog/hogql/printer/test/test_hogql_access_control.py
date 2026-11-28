@@ -1399,6 +1399,33 @@ class TestWarehouseViewAccessControl(BaseTest):
         assert "denied_view" not in database._denied_tables
         assert "system.dashboards" in database._denied_tables
 
+    @parameterized.expand([("denied", True), ("no_rule", False)])
+    def test_query_log_saved_query_ids_hides_denied_view_ids(self, _label: str, deny: bool):
+        from posthog.hogql.parser import parse_select
+
+        if deny:
+            self._create_ac(
+                resource="warehouse_view",
+                resource_id=str(self.denied_view.id),
+                access_level="none",
+                member=self._membership(),
+            )
+
+        database = Database.create_for(team=self.team, user=self.user)
+        context = HogQLContext(
+            team_id=self.team.pk, team=self.team, user=self.user, database=database, enable_select_queries=True
+        )
+        prepared = prepare_ast_for_printing(
+            parse_select("SELECT saved_query_ids FROM query_log"), context=context, dialect="clickhouse"
+        )
+        assert prepared is not None
+        sql = print_prepared_ast(prepared, context=context, dialect="clickhouse")
+
+        printed_values = list(context.values.values())
+        assert (str(self.denied_view.id) in printed_values) is deny
+        assert str(self.allowed_view.id) not in printed_values
+        assert ("arrayFilter" in sql) is deny
+
     def _materialize(self, view):
         """Attach a same-named backing DataWarehouseTable to a saved query, mirroring materialization."""
         from products.warehouse_sources.backend.facade.models import DataWarehouseCredential, DataWarehouseTable

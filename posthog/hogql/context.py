@@ -123,6 +123,9 @@ class HogQLContext:
     # Keyed by (table_id, schema_name) to dedupe when a table is referenced multiple times.
     data_warehouse_sync_warnings: dict[tuple[str, str], "DataWarehouseSyncWarning"] = field(default_factory=dict)
     referenced_saved_query_ids: set[str] = field(default_factory=set)
+    # Ids of managed views (SavedQuery subclasses such as revenue analytics views). Their ids are not
+    # saved query ids, so they stay out of referenced_saved_query_ids and the read tags.
+    referenced_managed_view_ids: set[str] = field(default_factory=set)
     materialized_saved_query_ids: set[str] = field(default_factory=set)
     referenced_warehouse_table_ids: set[str] = field(default_factory=set)
     directly_read_ids: set[str] = field(default_factory=set)
@@ -324,6 +327,7 @@ class HogQLContext:
 
     def clear_reads(self) -> None:
         self.referenced_saved_query_ids.clear()
+        self.referenced_managed_view_ids.clear()
         self.materialized_saved_query_ids.clear()
         self.referenced_warehouse_table_ids.clear()
         self.directly_read_ids.clear()
