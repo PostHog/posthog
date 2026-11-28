@@ -541,7 +541,7 @@ export function getDefaultCommonConfig(): CommonConfig {
         // Shared between ingestion and CDP
         CDP_HOG_RUST_VM_EXECUTION_ENABLED: false,
         CDP_HOG_RUST_VM_BATCH_EXECUTION_ENABLED: false,
-        CDP_HOG_FLOW_BATCH_AUDIENCE_FETCH_TIMEOUT_MS: 185_000,
+        CDP_HOG_FLOW_BATCH_AUDIENCE_FETCH_TIMEOUT_MS: 90_000,
         TRANSFORMATIONS_HOG_TIMEOUT_MS: 300,
 
         // Event loop yield helper
