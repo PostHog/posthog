@@ -103,8 +103,9 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
         status_consumer_behind: bool = False,
         first: str = "queued",
         message_id: str | None = None,
+        at: datetime | None = None,
     ) -> str:
-        queued_at = NOW - timedelta(minutes=minutes_ago)
+        queued_at = at or NOW - timedelta(minutes=minutes_ago)
         message_id = message_id or (
             str(uuid5(NAMESPACE_URL, f"{recipient}/{minutes_ago}"))
             if keyed
@@ -1037,6 +1038,20 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
             ],
             "has_more": False,
         }
+
+    @parameterized.expand([("send_stamped_after_its_landing", 1000, -1000), ("sub_second_stamps", -200, -100)])
+    def test_keeps_a_landing_just_before_the_cutoff(self, _flag, _name, send_offset_ms, landing_offset_ms):
+        cutoff = NOW - timedelta(hours=2) + timedelta(milliseconds=300)
+        clicked = [("sent", 1, ""), ("delivered", 2, ""), ("clicked", 60, "")]
+        message_id = self._send(0, "edge@example.com", clicked, at=cutoff + timedelta(milliseconds=send_offset_ms))
+        self._land("edge", "edge-session", message_id, at=cutoff + timedelta(milliseconds=landing_offset_ms))
+        flush_persons_and_events()
+
+        listed = self._impact_sessions(
+            date_from=(NOW - timedelta(days=1)).isoformat(), landed_before=cutoff.isoformat()
+        )
+
+        assert [session["session_id"] for session in listed["sessions"]] == ["edge-session"]
 
     def test_finds_an_older_landing_behind_a_full_cap_of_recent_sends(self, _flag):
         clicked = [("sent", 1, ""), ("delivered", 2, ""), ("clicked", 60, "")]
