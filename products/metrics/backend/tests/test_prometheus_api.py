@@ -11,6 +11,7 @@ import requests
 from parameterized import parameterized
 from requests.auth import HTTPBasicAuth
 from rest_framework import status
+from structlog.testing import capture_logs
 
 from posthog.api.snuffle_proxy import snuffle_request
 from posthog.clickhouse.client import connection
@@ -86,7 +87,11 @@ def test_snuffle_request_authenticates_as_the_registered_user_with_its_current_t
 
 
 @override_settings(
-    SNUFFLE_METRICS_URL="http://snuffle.test:9091", SNUFFLE_METRICS_USER="reader", SNUFFLE_METRICS_PASSWORD="secret"
+    SNUFFLE_METRICS_URL="http://snuffle.test:9091",
+    SNUFFLE_METRICS_USER="reader",
+    SNUFFLE_METRICS_PASSWORD="secret",
+    SNUFFLE_APM_TIMEOUT_SECONDS=60,
+    SNUFFLE_METRICS_TIMEOUT_SECONDS=7,
 )
 class TestPrometheusQueryApi(APIBaseTest):
     def setUp(self):
@@ -110,6 +115,29 @@ class TestPrometheusQueryApi(APIBaseTest):
         assert kwargs["params"] == {"query": ["sum(rate(http_requests_total[5m]))"]}
         assert kwargs["headers"]["X-Team-ID"] == str(self.team.pk)
         assert kwargs["auth"] == HTTPBasicAuth("reader", "secret")
+        assert kwargs["timeout"] == 7
+
+    def test_forwarded_request_logs_team_path_status_and_timings(self):
+        upstream = _upstream()
+        upstream.headers["X-Snuffle-ClickHouse-Read-Bytes"] = "4096"
+        self.request_mock.return_value = upstream
+
+        with capture_logs() as logs:
+            response = self.client.get(f"{self.base}/query_range", {"query": "up"})
+
+        assert response.status_code == status.HTTP_200_OK
+        forwarded = [log for log in logs if log["event"] == "snuffle_proxy_forwarded"]
+        assert len(forwarded) == 1
+        timings = {key: forwarded[0].pop(key) for key in ("pre_forward_ms", "upstream_ms")}
+        assert forwarded[0] == {
+            "event": "snuffle_proxy_forwarded",
+            "log_level": "info",
+            "team_id": self.team.pk,
+            "path": "query_range",
+            "status": 200,
+            "read_bytes": 4096,
+        }
+        assert all(isinstance(ms, int) and ms >= 0 for ms in timings.values())
 
     @parameterized.expand(
         [
