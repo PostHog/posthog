@@ -56,6 +56,7 @@ def build_trino_table_locators(
     """Build explicit Trino targets from the relations managed warehouse provisions."""
     from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
     from products.managed_warehouse.backend.facade import team_state as team_state_facade
+    from products.warehouse_sources.backend.facade.api import all_queryable_table_names
     from products.warehouse_sources.backend.facade.ducklake import list_ducklake_imported_tables
 
     locators: dict[str, TrinoTableLocator] = {
@@ -74,13 +75,17 @@ def build_trino_table_locators(
         )
     )
     model_table_names = get_data_modeling_table_names(team_id, [saved_query.id for saved_query in materialized_models])
-    for saved_query in materialized_models:
-        if database.has_table(saved_query.name):
-            locators[saved_query.name] = (
-                catalog_name,
-                model_schema,
-                model_table_names[saved_query.id],
-            )
+    visible_model_locators = {
+        saved_query: (catalog_name, model_schema, model_table_names[saved_query.id])
+        for saved_query in materialized_models
+        if database.has_table(saved_query.name)
+    }
+    for saved_query, model_locator in visible_model_locators.items():
+        locators[saved_query.name] = model_locator
+    backing_table_names = all_queryable_table_names(team_id) if visible_model_locators else {}
+    for saved_query, model_locator in visible_model_locators.items():
+        if saved_query.table_id in backing_table_names:
+            locators.setdefault(backing_table_names[saved_query.table_id], model_locator)
 
     naming_version = team_state_facade.data_imports_table_naming_version(team_id)
     for table in list_ducklake_imported_tables(team_id, naming_version):
