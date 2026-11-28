@@ -1,3 +1,0 @@
-openai
-anthropic
-python-dotenv

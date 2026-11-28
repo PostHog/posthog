@@ -70,6 +70,8 @@ _CUSTOM_CHANNEL_RULES = [
         ],
     )
 ]
+# Through the end of March 31, this spans 32 calendar days, one past a "last 30 days" range.
+_OVER_A_MONTH = datetime(2026, 2, 28, tzinfo=_NEW_YORK)
 _CHANNEL_FILTER = SessionPropertyFilter(key="$channel_type", value="Docs", operator=PropertyOperator.EXACT)
 
 
@@ -239,29 +241,29 @@ class TestDimensionalReadSelection(SimpleTestCase):
                 DimensionalIneligibleReason.PARTIAL_HOUR_RANGE,
             ),
             (
-                "page_breakdown_over_a_week",
-                _runner(True, breakdown_by=WebStatsBreakdown.PAGE),
+                "page_breakdown_over_a_month",
+                _runner(True, breakdown_by=WebStatsBreakdown.PAGE, date_from=_OVER_A_MONTH),
                 False,
                 _JOB_IDS,
-                DimensionalIneligibleReason.PAGE_TILE_RANGE,
+                DimensionalIneligibleReason.PATH_BREAKDOWN_RANGE,
             ),
             (
-                "entry_page_breakdown_over_a_week",
-                _runner(True, breakdown_by=WebStatsBreakdown.INITIAL_PAGE),
+                "entry_page_breakdown_over_a_month",
+                _runner(True, breakdown_by=WebStatsBreakdown.INITIAL_PAGE, date_from=_OVER_A_MONTH),
                 False,
                 _JOB_IDS,
-                DimensionalIneligibleReason.PAGE_TILE_RANGE,
+                DimensionalIneligibleReason.PATH_BREAKDOWN_RANGE,
             ),
             (
-                "exit_page_breakdown_over_a_week",
-                _runner(True, breakdown_by=WebStatsBreakdown.EXIT_PAGE),
+                "exit_page_breakdown_over_a_month",
+                _runner(True, breakdown_by=WebStatsBreakdown.EXIT_PAGE, date_from=_OVER_A_MONTH),
                 False,
                 _JOB_IDS,
-                DimensionalIneligibleReason.PAGE_TILE_RANGE,
+                DimensionalIneligibleReason.PATH_BREAKDOWN_RANGE,
             ),
             (
-                "page_directory_over_a_week",
-                _runner(True, kind="WebPageDirectoryQuery"),
+                "page_directory_over_a_month",
+                _runner(True, kind="WebPageDirectoryQuery", date_from=_OVER_A_MONTH),
                 False,
                 _JOB_IDS,
                 DimensionalIneligibleReason.PAGE_TILE_RANGE,
@@ -272,11 +274,12 @@ class TestDimensionalReadSelection(SimpleTestCase):
                     True,
                     breakdown_by=WebStatsBreakdown.PAGE,
                     date_from=datetime(2026, 3, 24, tzinfo=_NEW_YORK),
-                    compare_from=datetime(2026, 2, 1, tzinfo=_NEW_YORK),
+                    compare_from=datetime(2026, 3, 14, tzinfo=_NEW_YORK),
+                    compare_to=datetime(2026, 3, 24, tzinfo=_NEW_YORK) - timedelta(microseconds=1),
                 ),
                 False,
                 _JOB_IDS,
-                DimensionalIneligibleReason.PAGE_TILE_RANGE,
+                DimensionalIneligibleReason.PATH_BREAKDOWN_RANGE,
             ),
             ("not_ready", _runner(True), False, None, DimensionalIneligibleReason.NOT_READY),
             (
@@ -376,43 +379,57 @@ class TestDimensionalReadSelection(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("page_breakdown_over_the_last_7_days", WebStatsBreakdown.PAGE, "WebStatsTableQuery", 1, "EU", True),
-            ("page_directory_over_the_last_7_days", WebStatsBreakdown.PAGE, "WebPageDirectoryQuery", 1, "EU", True),
-            ("live_page_team_on_a_page_breakdown", WebStatsBreakdown.PAGE, "WebStatsTableQuery", 1589, "EU", False),
+            ("page_breakdown_over_the_last_7_days", WebStatsBreakdown.PAGE, "WebStatsTableQuery", 2, 8, True),
             (
-                "live_page_team_on_the_page_directory",
-                WebStatsBreakdown.PAGE,
-                "WebPageDirectoryQuery",
-                1589,
-                "EU",
+                "entry_page_breakdown_over_the_last_7_days",
+                WebStatsBreakdown.INITIAL_PAGE,
+                "WebStatsTableQuery",
+                2,
+                8,
+                True,
+            ),
+            ("exit_page_breakdown_over_the_last_7_days", WebStatsBreakdown.EXIT_PAGE, "WebStatsTableQuery", 2, 8, True),
+            ("page_breakdown_over_a_week", WebStatsBreakdown.PAGE, "WebStatsTableQuery", 2, 9, False),
+            ("page_breakdown_over_the_last_30_days", WebStatsBreakdown.PAGE, "WebStatsTableQuery", 2, 31, False),
+            (
+                "entry_page_breakdown_over_the_last_30_days",
+                WebStatsBreakdown.INITIAL_PAGE,
+                "WebStatsTableQuery",
+                2,
+                31,
                 False,
             ),
             (
-                "live_page_team_on_a_device_breakdown",
-                WebStatsBreakdown.DEVICE_TYPE,
+                "exit_page_breakdown_over_the_last_30_days",
+                WebStatsBreakdown.EXIT_PAGE,
                 "WebStatsTableQuery",
-                1589,
-                "EU",
-                True,
+                2,
+                31,
+                False,
             ),
-            ("live_page_team_id_in_the_other_region", WebStatsBreakdown.PAGE, "WebStatsTableQuery", 1589, "US", True),
+            ("page_directory_over_the_last_7_days", WebStatsBreakdown.PAGE, "WebPageDirectoryQuery", 2, 8, True),
+            ("page_directory_over_the_last_14_days", WebStatsBreakdown.PAGE, "WebPageDirectoryQuery", 2, 15, True),
+            ("page_directory_over_the_last_30_days", WebStatsBreakdown.PAGE, "WebPageDirectoryQuery", 2, 31, True),
+            ("page_directory_over_a_month", WebStatsBreakdown.PAGE, "WebPageDirectoryQuery", 2, 32, False),
+            ("many_paths_team_over_the_last_14_days", WebStatsBreakdown.PAGE, "WebPageDirectoryQuery", 1589, 15, True),
+            ("many_paths_team_over_a_month", WebStatsBreakdown.PAGE, "WebPageDirectoryQuery", 1589, 32, False),
+            ("device_breakdown_over_a_month", WebStatsBreakdown.DEVICE_TYPE, "WebStatsTableQuery", 2, 32, True),
         ]
     )
-    def test_page_tiles_serve_up_to_a_week_except_for_live_page_teams(
-        self, _name, breakdown_by, kind, team_id, region, serves
+    def test_page_directory_serves_up_to_30_days_and_path_breakdowns_up_to_7(
+        self, _name, breakdown_by, kind, team_id, calendar_days, serves
     ):
+        date_from = datetime(2026, 4, 1, tzinfo=_NEW_YORK) - timedelta(days=calendar_days)
         runner = _runner(
             True,
             breakdown_by=breakdown_by,
             kind=kind,
             team_id=team_id,
-            date_from=datetime(2026, 3, 24, tzinfo=_NEW_YORK),
-            compare_from=datetime(2026, 3, 17, tzinfo=_NEW_YORK),
-            compare_to=datetime(2026, 3, 24, tzinfo=_NEW_YORK) - timedelta(microseconds=1),
+            date_from=date_from,
+            compare_from=date_from - timedelta(days=calendar_days),
+            compare_to=date_from - timedelta(microseconds=1),
         )
         with (
-            override_settings(CLOUD_DEPLOYMENT=region),
-            patch(f"{_READ}.is_cloud", return_value=True),
             patch(f"{_READ}.team_has_property_access_rules", return_value=False),
             patch(f"{_READ}.dimensional_job_ids", return_value=_JOB_IDS),
         ):

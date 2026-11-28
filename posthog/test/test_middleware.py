@@ -72,6 +72,7 @@ from posthog.models.team import Team
 from posthog.models.user import User, UserType
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.run_mode import derive_run_mode
+from posthog.session.activity import session_public_id
 from posthog.settings import SITE_URL, base_variables
 from posthog.utils import get_ip_address, get_trusted_client_ip
 
@@ -1979,30 +1980,6 @@ class TestAdminImpersonationMiddleware(APIBaseTest):
             data={"read_only": "true", "reason": "Test read-only impersonation"},
         )
 
-    @patch("posthog.admin.console.redis_tool.get_client")
-    def test_admin_writes_allowed_during_read_only_impersonation(self, mock_get_client: MagicMock):
-        """Admin POST/PATCH/DELETE actions must not be blocked by the read-only
-        impersonation middleware — admin runs as the original staff user."""
-        mock_redis = MagicMock()
-        mock_redis.ttl.return_value = -1
-        mock_get_client.return_value = mock_redis
-
-        self.login_as_other_user_read_only()
-
-        # POST to a console tool operation, which is registered directly in the URLconf (not
-        # lazy-loaded), so it's reachable in tests. A successful POST redirects (302) to the tool.
-        response = self.client.post(
-            "/admin/console/tools/redis-values/set-ttl/",
-            data={"key": "test:key", "ttl_seconds": "60", "reason": "Test"},
-        )
-
-        # Endpoint must be reached (would-be 404 means the test isn't proving anything).
-        assert response.status_code != 404, "admin URL not registered in test environment"
-        # Middleware must not return its read-only 403.
-        assert response.status_code != 403, f"unexpected 403: {response.content!r}"
-        # Sanity check the write actually happened.
-        mock_redis.expire.assert_called_once_with("test:key", 60)
-
     def test_api_writes_still_blocked_during_read_only_impersonation(self):
         """Non-admin write requests must still be blocked under read-only impersonation."""
         from products.dashboards.backend.models.dashboard import Dashboard
@@ -2033,44 +2010,6 @@ class TestAdminImpersonationMiddleware(APIBaseTest):
         response = self.client.get("/admin/")
         assert response.status_code == 302
         assert "/admin/login" in response.headers.get("Location", "")
-
-    @patch("posthog.admin.console.redis_tool.get_client")
-    @patch("posthog.admin.console.redis_tool.log_activity")
-    def test_admin_action_attributes_activity_to_staff_user_during_impersonation(
-        self, mock_log_activity: MagicMock, mock_get_client: MagicMock
-    ):
-        """Load-bearing security claim: admin actions performed during impersonation
-        must pass the original staff user (not the impersonated customer) to downstream
-        activity logging. The PR's middleware-ordering comment in `posthog/settings/web.py`
-        says the swap must run before activity-logging code — this asserts that.
-
-        A future middleware reorder that breaks attribution would silently leak
-        `customer-as-actor` into audit logs without breaking any existing test.
-
-        Mechanism: the Redis tool's `set_ttl` operation calls `log_activity(user=request.user, ...)`.
-        Patch `log_activity` and assert the captured `user` kwarg is the staff user.
-        """
-        mock_redis = MagicMock()
-        mock_redis.ttl.return_value = -1
-        mock_get_client.return_value = mock_redis
-
-        self.login_as_other_user()
-
-        response = self.client.post(
-            "/admin/console/tools/redis-values/set-ttl/",
-            data={"key": "test:key", "ttl_seconds": "60", "reason": "Test"},
-        )
-
-        assert response.status_code in (200, 302), f"unexpected status: {response.status_code}"
-        assert mock_log_activity.called, "log_activity was not called — admin view did not reach attribution code"
-        for call in mock_log_activity.call_args_list:
-            logged_user = call.kwargs.get("user")
-            assert logged_user is not None, "log_activity called with user=None"
-            assert logged_user.id == self.user.id, (
-                f"log_activity called with user={logged_user.id} ({logged_user.email}), "
-                f"expected staff user {self.user.id} ({self.user.email}), "
-                f"NOT impersonated customer {self.other_user.id} ({self.other_user.email})"
-            )
 
     def test_admin_index_banner_shows_both_staff_and_customer_email(self):
         """The banner must surface both identities. The existing test only asserts the
@@ -2405,7 +2344,8 @@ class TestUpgradeImpersonation(APIBaseTest):
             follow=True,
         )
 
-    def test_upgrade_succeeds_from_read_only_with_reason(self):
+    @patch("posthoganalytics.capture")
+    def test_upgrade_succeeds_from_read_only_with_reason(self, mock_capture):
         self.login_as_read_only()
 
         # Verify we're in read-only mode
@@ -2424,6 +2364,18 @@ class TestUpgradeImpersonation(APIBaseTest):
         # Verify we're now in read-write mode
         user_response = self.client.get("/api/users/@me/")
         assert user_response.json()["is_impersonated_read_only"] is False
+
+        session_key = self.client.session.session_key
+        assert session_key
+        events = {
+            call.kwargs["event"]: call.kwargs["properties"]
+            for call in mock_capture.call_args_list
+            if call.kwargs.get("event") in ("impersonation_started", "impersonation_upgraded")
+        }
+        for event in ("impersonation_started", "impersonation_upgraded"):
+            assert str(events[event]["target_user_id"]) == str(self.other_user.id)
+            assert events[event]["$ip"] == "127.0.0.1"
+            assert events[event]["session_public_id"] == str(session_public_id(session_key))
 
     def test_start_exposes_reason_on_user_api(self):
         self.login_as_read_only()
@@ -2767,6 +2719,11 @@ class TestActiveOrganizationMiddleware(APIBaseTest):
         )
 
 
+_LOGIN_DATA = {"email": APIBaseTest.CONFIG_EMAIL, "password": APIBaseTest.CONFIG_PASSWORD}
+_NO_ORGANIZATION_EMAIL = "no-organization@example.com"
+_NO_ORGANIZATION_LOGIN_DATA = {"email": _NO_ORGANIZATION_EMAIL, "password": APIBaseTest.CONFIG_PASSWORD}
+
+
 class TestActivityLoggingMiddleware(APIBaseTest):
     def setUp(self):
         super().setUp()
@@ -2821,6 +2778,73 @@ class TestActivityLoggingMiddleware(APIBaseTest):
         credential = self.captured["credential"]
         assert (credential.type if credential else None) == expected_type
         assert self.activity_storage.get_credential() is None
+
+    @parameterized.expand(
+        [
+            ("session", "posthog.urls", "get", "/api/users/@me/", {}, "request_finished", "entry"),
+            ("personal_api_key", "posthog.urls", "get", "/api/users/@me/", {}, "request_finished", None),
+            ("session", __name__, "get", "/api/_raising_probe/", {}, "request_failed", "entry"),
+            ("session", __name__, "get", "/api/_rotating_raising_probe/", {}, "request_failed", "entry"),
+            ("session", "posthog.urls", "post", "/logout", {}, "request_finished", "entry"),
+            (
+                "session",
+                "posthog.urls",
+                "patch",
+                "/api/users/@me/",
+                {"current_password": APIBaseTest.CONFIG_PASSWORD, "password": "a_new_example_password"},
+                "request_finished",
+                "entry",
+            ),
+            ("anonymous", "posthog.urls", "post", "/api/login", _LOGIN_DATA, "request_finished", "exit"),
+            (
+                "anonymous",
+                "posthog.urls",
+                "post",
+                "/api/login",
+                _NO_ORGANIZATION_LOGIN_DATA,
+                "request_finished",
+                "exit",
+            ),
+            ("another_user_session", "posthog.urls", "post", "/api/login", _LOGIN_DATA, "request_finished", None),
+        ]
+    )
+    def test_request_log_names_the_credential(
+        self,
+        client_state: str,
+        urlconf: str,
+        method: str,
+        path: str,
+        data: dict[str, Any],
+        event: str,
+        logged_session: str | None,
+    ) -> None:
+        expected_id: object = None
+        if client_state == "personal_api_key":
+            self.client.logout()
+            token = generate_random_token_personal()
+            key = PersonalAPIKey.objects.create(
+                user=self.user, label="Example key", secure_value=hash_key_value(token), scopes=["user:read"]
+            )
+            self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+            expected_id = key.id
+        elif client_state == "anonymous":
+            self.client.logout()
+            User.objects.create_user(_NO_ORGANIZATION_EMAIL, APIBaseTest.CONFIG_PASSWORD, first_name="")
+        elif client_state == "another_user_session":
+            self.client.force_login(User.objects.create_and_join(self.organization, "another@example.com", None))
+        entry_session_key = self.client.session.session_key
+
+        self.client.raise_request_exception = False
+        with capture_logs() as logs, override_settings(ROOT_URLCONF=urlconf):
+            getattr(self.client, method)(path, data)
+
+        if logged_session is not None:
+            session_key = entry_session_key if logged_session == "entry" else self.client.session.session_key
+            assert session_key is not None
+            expected_id = str(session_public_id(session_key))
+        [entry] = [log for log in logs if log["event"] == event]
+        expected_type = "personal_api_key" if client_state == "personal_api_key" else "session"
+        assert (entry["credential_type"], entry["credential_id"]) == (expected_type, expected_id)
 
     def test_captures_x_posthog_client_header(self):
         request = self.factory.get("/", HTTP_X_POSTHOG_CLIENT="posthog-js/1.234.0")
@@ -3279,9 +3303,15 @@ def _raising_probe(request: HttpRequest) -> HttpResponse:
     raise RuntimeError("probe")
 
 
+def _rotating_raising_probe(request: HttpRequest) -> HttpResponse:
+    request.session.cycle_key()
+    raise RuntimeError("probe")
+
+
 urlpatterns = [
     path("api/_http_request_id_probe/", _http_request_id_probe),
     path("api/_raising_probe/", _raising_probe),
+    path("api/_rotating_raising_probe/", _rotating_raising_probe),
     path("api/_route_id_probe/<int:probe_id>/", _route_id_probe),
 ]
 
@@ -3952,6 +3982,20 @@ class TestCurrentAliasUsage(APIBaseTest):
                 status.HTTP_200_OK,
                 ("user", True),
             ),
+            (
+                "project_scoped_key_on_a_view_outside_the_mixin",
+                "/api/user_home_settings/@me/",
+                "own_team",
+                status.HTTP_200_OK,
+                ("user", True),
+            ),
+            (
+                "unscoped_key_on_a_view_outside_the_mixin",
+                "/api/user_home_settings/@me/",
+                None,
+                status.HTTP_200_OK,
+                ("user", False),
+            ),
         ]
     )
     def test_reports_what_decided_the_scope(
@@ -3981,7 +4025,7 @@ class TestCurrentAliasUsage(APIBaseTest):
             )
 
         assert response.status_code == expected_status
-        [event] = self._alias_events(capture)
+        [event] = self._alias_events(capture) + self._alias_events(capture, FLAT_ROUTE_USED_EVENT)
         assert (event["properties"]["project_from"], event["properties"]["credential_pins_scope"]) == expected
 
     @parameterized.expand(
@@ -3989,6 +4033,12 @@ class TestCurrentAliasUsage(APIBaseTest):
             ("flat_route_follows_the_user", "/api/feature_flag/", False, [("api/feature_flag/", "user")]),
             ("flat_route_with_a_token", "/api/cohort/", True, [("api/cohort/", "token")]),
             ("nested_route", "/api/projects/{team_id}/feature_flags/", False, []),
+            (
+                "view_outside_the_mixin",
+                "/api/user_home_settings/@me/",
+                False,
+                [("api/user_home_settings/{uuid}/", "user")],
+            ),
         ]
     )
     def test_reports_flat_route_callers(

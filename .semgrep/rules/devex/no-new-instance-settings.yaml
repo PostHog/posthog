@@ -1,0 +1,38 @@
+rules:
+    - id: no-new-instance-settings
+      message: |
+          Do not add instance settings. A CONSTANCE_CONFIG key is a Postgres row that staff edit at
+          runtime, the database keeps its value as plain text, and a stored row silently overrides
+          the environment variable. Read a secret or static config from an environment variable in
+          posthog/settings/, with the value from the deployment secret store and charts. Gate a
+          rollout, a team allowlist or a kill switch with a feature flag. See the instance settings
+          rule in .agents/architecture.md.
+          Pre-existing findings are grandfathered; only newly introduced findings block CI.
+      languages: [python]
+      severity: WARNING
+      pattern-either:
+          # Report each key, not the whole dict, so the baseline scan keeps existing keys
+          # grandfathered and reports only a key the PR adds.
+          - patterns:
+                - pattern-either:
+                      - pattern: |
+                            CONSTANCE_CONFIG = {..., $KEY: $VALUE, ...}
+                      - pattern: |
+                            CONSTANCE_CONFIG: $TYPE = {..., $KEY: $VALUE, ...}
+                - focus-metavariable: $KEY
+          - pattern: CONSTANCE_CONFIG[$KEY] = $VALUE
+          - pattern: CONSTANCE_CONFIG |= $VALUE
+          - pattern: CONSTANCE_CONFIG.update(...)
+          - pattern: CONSTANCE_CONFIG.setdefault(...)
+          - pattern: $X.CONSTANCE_CONFIG[$KEY] = $VALUE
+          - pattern: $X.CONSTANCE_CONFIG.update(...)
+          - pattern: $X.CONSTANCE_CONFIG.setdefault(...)
+      paths:
+          exclude:
+              - '**/test/**'
+              - '**/tests/**'
+              - '**/test_*.py'
+      metadata:
+          category: security
+          subcategory: audit
+          confidence: HIGH

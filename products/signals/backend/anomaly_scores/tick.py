@@ -62,6 +62,7 @@ from products.signals.backend.anomaly_scores.queue import (
     SKIP_COOLDOWN,
     FirstTrainReport,
     InsightPick,
+    ScoredDueBacklog,
     TeamCensus,
     analytics_source_enabled_at,
     charge_queries,
@@ -154,6 +155,7 @@ class AnomalyScoringTickPlan:
     stale_candidates: int = 0
     train_backlog_soft: int = 0
     train_backlog_hard: int = 0
+    older_version_models: int = 0
     active: int = 0
     active_reasons: dict[str, int] | None = None
     enrolled_teams: int = 0
@@ -168,6 +170,7 @@ class AnomalyScoringTickPlan:
     oldest_due_seconds: int | None = None
     oldest_refresh_seconds: int | None = None
     due_unread: int | None = None
+    scored_due: ScoredDueBacklog | None = None
     first_train: FirstTrainReport | None = None
     cpu: CpuSpendReport | None = None
     ai_judge: AIJudgeConfig = NO_AI_JUDGE
@@ -193,6 +196,8 @@ class ScoreInsightResult:
     ai_checks: JudgeCounts = NO_AI_CHECKS
     # Queries of the judge's history fetch, past the query cost of the pick.
     history_queries: int = 0
+    # The detector version of the stored model after the visit. None when the split is off.
+    model_detector_version: str | None = None
 
 
 @frozen
@@ -222,6 +227,9 @@ class AnomalyScoringTickResult:
     stale_candidates: int = 0
     train_backlog_soft: int = 0
     train_backlog_hard: int = 0
+    # Active insights whose stored model was fit with older detector settings, and still scores with them. It falls
+    # to zero as the train pass refits the models after a detector change.
+    older_version_models: int = 0
     # Active insights of the eligible teams, and how many of them have each activity reason.
     active: int = 0
     active_reasons: dict[str, int] | None = None
@@ -252,6 +260,8 @@ class AnomalyScoringTickResult:
     oldest_refresh_seconds: int | None = None
     # Due rows that the read caps left out, so the backlog counts above do not include them.
     due_unread: int | None = None
+    # The scored due rows of the whole due list, which the read caps do not cut. None when the plan does not read it.
+    scored_due: ScoredDueBacklog | None = None
     first_train: FirstTrainReport | None = None
     # The CPU spend that the plan read, and what its CPU limits left out. None when the plan did not run.
     cpu: CpuSpendReport | None = None
@@ -301,6 +311,7 @@ def plan_tick(limit: int | None, now: datetime.datetime) -> AnomalyScoringTickPl
         stale_candidates=selection.stale_candidates,
         train_backlog_soft=selection.train_backlog_soft,
         train_backlog_hard=selection.train_backlog_hard,
+        older_version_models=selection.older_version_models,
         active=selection.active,
         active_reasons=selection.active_reasons,
         enrolled_teams=selection.enrolled_teams,
@@ -315,6 +326,7 @@ def plan_tick(limit: int | None, now: datetime.datetime) -> AnomalyScoringTickPl
         oldest_due_seconds=selection.oldest_due_seconds,
         oldest_refresh_seconds=selection.oldest_refresh_seconds,
         due_unread=selection.due_unread,
+        scored_due=selection.scored_due,
         first_train=selection.first_train,
         cpu=selection.cpu,
         ai_judge=config.ai_judge,
@@ -460,6 +472,7 @@ def run_insight(input: ScoreInsightInput, now: datetime.datetime) -> ScoreInsigh
         empty_train=empty_train,
         ai_checks=result.ai_checks,
         history_queries=result.history_queries,
+        model_detector_version=result.model_detector_version,
     )
     return result
 
@@ -477,6 +490,7 @@ def capture_pick(
     empty_train: int = 0,
     ai_checks: JudgeCounts = NO_AI_CHECKS,
     history_queries: int = 0,
+    model_detector_version: str | None = None,
 ) -> None:
     """One event per pick, with the ids that the SDK metrics leave out, so cost and outcome break down per project."""
     ph_background_capture()(
@@ -497,6 +511,7 @@ def capture_pick(
             "empty_train_streak": empty_train,
             **_ai_check_properties(ai_checks),
             "ai_history_fetched": ai_checks.history_fetches > 0,
+            "model_detector_version": model_detector_version,
         },
     )
 
@@ -677,6 +692,7 @@ def _score_pick(input: ScoreInsightInput, now: datetime.datetime) -> ScoreInsigh
         missing_series=scores.state.missing_series if scores.state else 0,
         ai_checks=ai_checks,
         history_queries=history_queries,
+        model_detector_version=scores.state.identity.detector_version if scores.state else None,
     )
 
 
@@ -708,6 +724,7 @@ def capture_tick(result: AnomalyScoringTickResult) -> None:
         stale_candidates=result.stale_candidates,
         train_backlog_soft=result.train_backlog_soft,
         train_backlog_hard=result.train_backlog_hard,
+        older_version_models=result.older_version_models,
         active=result.active,
         active_reasons=result.active_reasons,
         enrolled_teams=result.enrolled_teams,
@@ -726,6 +743,7 @@ def capture_tick(result: AnomalyScoringTickResult) -> None:
         oldest_due_seconds=result.oldest_due_seconds,
         oldest_refresh_seconds=result.oldest_refresh_seconds,
         due_unread=result.due_unread,
+        scored_due=result.scored_due,
         first_train=result.first_train,
         shards=result.shards,
         max_shard_picks=result.max_shard_picks,
@@ -735,6 +753,7 @@ def capture_tick(result: AnomalyScoringTickResult) -> None:
     )
     cpu = result.cpu
     first_train = result.first_train
+    scored_due = result.scored_due
     ph_background_capture()(
         distinct_id=ANOMALY_SCORING_FLAG_DISTINCT_ID,
         event="anomaly scoring tick",
@@ -758,6 +777,7 @@ def capture_tick(result: AnomalyScoringTickResult) -> None:
             "stale_candidates": result.stale_candidates,
             "train_backlog_soft": result.train_backlog_soft,
             "train_backlog_hard": result.train_backlog_hard,
+            "older_version_models": result.older_version_models,
             "active_insights": result.active,
             **{f"active_{reason}": count for reason, count in (result.active_reasons or {}).items()},
             "enrolled_teams": result.enrolled_teams,
@@ -776,6 +796,10 @@ def capture_tick(result: AnomalyScoringTickResult) -> None:
             "oldest_due_seconds": result.oldest_due_seconds,
             "oldest_refresh_seconds": result.oldest_refresh_seconds,
             "due_unread": result.due_unread,
+            "score_ready_due": scored_due.score_ready if scored_due else None,
+            "score_ready_oldest_due_seconds": scored_due.score_ready_oldest_due_seconds if scored_due else None,
+            "needs_train_due": scored_due.needs_train if scored_due else None,
+            "needs_train_oldest_due_seconds": scored_due.needs_train_oldest_due_seconds if scored_due else None,
             "first_train_waiting_teams": first_train.waiting_teams if first_train else None,
             "picked_first_train": first_train.picked if first_train else None,
             "never_scored_due": first_train.never_scored_due if first_train else None,
@@ -877,6 +901,7 @@ class AnomalyScoringTickWorkflow:
             stale_candidates=plan.stale_candidates,
             train_backlog_soft=plan.train_backlog_soft,
             train_backlog_hard=plan.train_backlog_hard,
+            older_version_models=plan.older_version_models,
             active=plan.active,
             active_reasons=plan.active_reasons,
             enrolled_teams=plan.enrolled_teams,
@@ -893,6 +918,7 @@ class AnomalyScoringTickWorkflow:
             oldest_due_seconds=plan.oldest_due_seconds,
             oldest_refresh_seconds=plan.oldest_refresh_seconds,
             due_unread=plan.due_unread,
+            scored_due=plan.scored_due,
             first_train=plan.first_train,
             shards=len(shards),
             max_shard_picks=max((len(shard.started) for shard in shards), default=0),

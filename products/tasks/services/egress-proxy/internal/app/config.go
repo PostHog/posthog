@@ -14,6 +14,7 @@ import (
 type ServerConfig struct {
 	ListenAddress          string `json:"listen_address"`
 	AdminAddress           string `json:"admin_address"`
+	MetricsAddress         string `json:"metrics_address,omitempty"`
 	RequestTimeoutSeconds  int    `json:"request_timeout_seconds"`
 	ShutdownTimeoutSeconds int    `json:"shutdown_timeout_seconds"`
 }
@@ -22,6 +23,7 @@ type ProxyConfig struct {
 	ServerConfig
 	CertificateFile          string         `json:"certificate_file"`
 	PrivateKeyFile           string         `json:"private_key_file"`
+	ServerCAFile             string         `json:"server_ca_file,omitempty"`
 	ClientCAFile             string         `json:"client_ca_file"`
 	VerificationKeysFile     string         `json:"verification_keys_file"`
 	RegistryURL              string         `json:"registry_url"`
@@ -83,7 +85,11 @@ func readConfig(path string, config any) error {
 }
 
 func (c ServerConfig) validate() error {
-	for _, address := range []string{c.ListenAddress, c.AdminAddress} {
+	addresses := []string{c.ListenAddress, c.AdminAddress}
+	if c.MetricsAddress != "" {
+		addresses = append(addresses, c.MetricsAddress)
+	}
+	for _, address := range addresses {
 		host, port, err := net.SplitHostPort(address)
 		number, portErr := strconv.Atoi(port)
 		if err != nil || portErr != nil || number < 0 || number > 65535 || (host != "" && net.ParseIP(host) == nil) {

@@ -1,6 +1,6 @@
 import { APIScopeObject, AccessControlLevel, EffectiveAccessControlEntry } from '~/types'
 
-import { getAccessSummaryTags, inheritedReasonOf } from './helpers'
+import { getAccessSummaryTags, inheritedReasonOf, parseAccessDeepLink } from './helpers'
 import { AccessControlRoleEntry } from './types'
 
 const makeEffectiveEntry = (
@@ -85,5 +85,29 @@ describe('helpers', () => {
                 { resource: 'dashboard', level: AccessControlLevel.Editor },
             ])
         })
+    })
+})
+
+describe('parseAccessDeepLink', () => {
+    it.each([
+        ['no deep link params', { other: 'x' }, null],
+        [
+            'a member link',
+            { access_tab: 'members', access_member_id: 'm-1', other: 'x' },
+            { tab: 'members', roleId: null, memberId: 'm-1', rest: { other: 'x' } },
+        ],
+        [
+            'a role link',
+            { access_tab: 'roles', access_role_id: 'r-1' },
+            { tab: 'roles', roleId: 'r-1', memberId: null, rest: {} },
+        ],
+        [
+            'a member id under another tab',
+            { access_tab: 'defaults', access_member_id: 'm-1' },
+            { tab: 'defaults', roleId: null, memberId: null, rest: {} },
+        ],
+        ['an unknown tab', { access_tab: 'nope' }, { tab: null, roleId: null, memberId: null, rest: {} }],
+    ])('reads %s', (_case, searchParams, expected) => {
+        expect(parseAccessDeepLink(searchParams)).toEqual(expected)
     })
 })

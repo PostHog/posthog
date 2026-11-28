@@ -90,7 +90,10 @@ class SuperwallSource(ResumableSource[SuperwallSourceConfig, SuperwallResumeConf
         if response.status_code == 403:
             if schema_name is None:
                 return True, None
-            return False, f"The Superwall API key needs the `{ENDPOINTS[schema_name].scope}` scope."
+            settings = ENDPOINTS[schema_name]
+            if settings.scope_param == "organization_id":
+                return False, f"The Superwall API key needs the `{settings.scope}` and `projects:read` scopes."
+            return False, f"The Superwall API key needs the `{settings.scope}` scope."
         if response.status_code == 404:
             return False, "Superwall could not find this resource. Check the project and application IDs."
         response.raise_for_status()
@@ -118,6 +121,8 @@ class SuperwallSource(ResumableSource[SuperwallSourceConfig, SuperwallResumeConf
             job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
             api_version=self.resolve_api_version(inputs.api_version),
+            should_use_incremental_field=inputs.should_use_incremental_field,
+            db_incremental_field_last_value=inputs.db_incremental_field_last_value,
         )
 
     @property
@@ -129,7 +134,8 @@ class SuperwallSource(ResumableSource[SuperwallSourceConfig, SuperwallResumeConf
             caption=(
                 "Create an organization API key in Superwall under Access Controls. "
                 "Grant read scopes for the tables you select: `paywalls:read`, `campaigns:read`, "
-                "`products:read`, `entitlements:read`, `surveys:read`, and `webhooks:read`. "
+                "`products:read`, `entitlements:read`, `surveys:read`, `webhooks:read`, `projects:read`, "
+                "and `audit_logs:read` (audit logs also need `projects:read`). "
                 "Webhook events include only the history retained by Superwall."
             ),
             docsUrl="https://posthog.com/docs/cdp/sources/superwall",

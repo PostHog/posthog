@@ -23,14 +23,14 @@ Enable a tool for a new route only after the route is deployed, so MCP never ser
 
 Environment (all default empty — the runner is a no-op until configured):
 
-| Variable                                   | Purpose                                                                                                                        |
-| ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------ |
-| `AI_GATEWAY_URL` / `AI_GATEWAY_API_KEY`    | Existing gateway settings; enable the Claude + OpenAI engines.                                                                 |
-| `EXA_API_KEY`                              | Enables the Exa engine.                                                                                                        |
-| `AEO_PERPLEXITY_ENABLED`                   | Default false. Runs Perplexity via the gateway once legal signs off; dry-run steps in [Perplexity engine](#perplexity-engine). |
-| `AEO_SETUP_MODEL`                          | Model for setup's site research and prompt writing (default `claude-haiku-5-5`, faster than the engines' model).               |
-| `AEO_ANTHROPIC_MODEL` / `AEO_OPENAI_MODEL` | Engine model overrides.                                                                                                        |
-| `AEO_PERPLEXITY_MODEL`                     | Perplexity model on the gateway (default `posthog/perplexity/sonar`, the gateway id for Perplexity's `perplexity/sonar`).      |
+| Variable                                   | Purpose                                                                                                                            |
+| ------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------- |
+| `AI_GATEWAY_URL` / `AI_GATEWAY_API_KEY`    | Existing gateway settings; enable the Claude + OpenAI engines.                                                                     |
+| `EXA_API_KEY`                              | Enables the Exa engine.                                                                                                            |
+| `AEO_PERPLEXITY_ENABLED`                   | Default false. Runs Perplexity via the gateway once legal signs off; dry-run steps in [Perplexity engine](#perplexity-engine).     |
+| `AEO_SETUP_MODEL`                          | Model for setup's site research and prompt writing (default `claude-haiku-5-5`, faster than the engines' model).                   |
+| `AEO_ANTHROPIC_MODEL` / `AEO_OPENAI_MODEL` | Engine model overrides. The OpenAI engine defaults to `gpt-6-luna`, the cheapest OpenAI model that supports the `web_search` tool. |
+| `AEO_PERPLEXITY_MODEL`                     | Perplexity model on the gateway (default `posthog/perplexity/sonar`, the gateway id for Perplexity's `perplexity/sonar`).          |
 
 The scheduled tasks cover the teams with active prompts whose organization is active, not pending deletion, and approved AI data processing.
 The API, MCP tools and page are gated per user by the `web-analytics-content-autopilot` flag, which the early-access feature controls, so only those users can add or turn on prompts.
@@ -155,6 +155,36 @@ Without `--dry-run` it refuses Perplexity until `AEO_PERPLEXITY_ENABLED` is on.
 python manage.py run_aeo_citation_checks --team-id <id> --engines perplexity --limit 50 --dry-run
 ```
 
+## Local development without a gateway token
+
+A fake gateway answers every call the product makes, so setup, the engines and every tab run on the local stack with no AI gateway token.
+The answers are invented from the request and seeded by it: the same request gets the same answer, different prompts get different ones, and a share of the engine answers fail or leave the site uncited, so each state of the page appears.
+Accuracy is not the point; the data only has to look plausible.
+
+Start it from the repository root, inside the dev environment:
+
+```bash
+hogli start:aeo:fake-gateway   # or: python -m products.aeo.backend.dev.fake_gateway
+```
+
+It listens on `http://localhost:8080/v1`, the dev default for `AI_GATEWAY_URL`, so a stack started without the `ai_gateway` capability and without `AI_GATEWAY_URL` in its environment uses it as is.
+A stack that carries a real `AI_GATEWAY_URL` and `AI_GATEWAY_API_KEY`, from `.env.local` or from the shell that started it, keeps paying for real calls until it is pointed at the fake.
+Put these in `.env.local`, make sure the shell does not override them, then stop the stack and start it again with `hogli start` or `bin/start`.
+Restarting the `backend`, `celery-worker` and `temporal-worker` units is not enough: the launcher reads `.env.local` once and hands that environment to every unit it restarts.
+
+```bash
+AI_GATEWAY_URL=http://localhost:8080/v1
+AI_GATEWAY_API_KEY=phs_fake
+```
+
+`GET http://localhost:8080/` shows the mode and the sites set up so far, which the engine answers cite.
+
+- **Latency.** Each request sleeps 100 ms by default, enough for the wizard's progress states to show and quick enough for an automated check of the flow. `--realistic` (or `FAKE_GATEWAY_DELAY_MS=800-3000`) sleeps a random time in that range instead, which is what a person sees with the real gateway. `FAKE_GATEWAY_DELAY_MS` or `--delay-ms` takes a fixed number of milliseconds or a range.
+- **Failures on demand.** A site whose domain contains `fail` fails its setup calls with a 500; one containing `unreadable` answers without JSON. The engine answers fail on their own for a few prompts.
+- **Record and replay.** `--record` forwards each call to the real gateway with the token in `~/.ai-gateway-token.json` (never printed or logged) and stores the answers under `.posthog/aeo-fake-gateway/`, keyed by the request. Because that spends real credits, record mode listens on the loopback interface only and answers a call only when its bearer token matches `FAKE_GATEWAY_API_KEY`, so set that variable to a secret and put the same value in `AI_GATEWAY_API_KEY`. `--replay` serves the kept answers back and generates an answer for any request that was never recorded.
+- **Browsers are refused.** Every mode answers 403 to a request that carries `Origin` or `Sec-Fetch-Mode`, and 413 to a body over 2 MB, so a web page cannot drive the fake. The stack's server-side calls send neither header.
+- **Tests.** `products/aeo/backend/test/test_fake_gateway.py` runs the builders through the real parsers in `engines.py`, `suggestions.py` and `keyword_suggestions.py`, so a parser change breaks the fake loudly.
+
 ## The table
 
 `system.aeo_citation_checks` — one row per prompt × engine × run, read-only in HogQL:
@@ -222,8 +252,10 @@ Web analytics' Content autopilot (`/web/ai-visibility`, flag `web-analytics-cont
 
 ## Cost
 
-Measured in October 2026: about \$0.06 per OpenAI check and \$0.14 per Claude check, provider web-search fees and tokens included (`$ai_web_search_cost_usd` and `$ai_total_cost_usd` on the `$ai_generation` event).
-A daily run of 1,000 prompts on both engines is about \$200.
+Measured in October 2026: about \$0.14 per Claude check, provider web-search fees and tokens included (`$ai_web_search_cost_usd` and `$ai_total_cost_usd` on the `$ai_generation` event).
+An OpenAI check on `gpt-6-luna` is estimated at about \$0.035, from `gpt-5` checks in November 2026 repriced at Luna's token rates. This stays an estimate until capped checks are measured.
+The OpenAI engine caps each check at 3 searches with `max_tool_calls`, the same as Claude's `max_uses`, so the web search fee (\$10 per 1,000 searches) is at most \$0.03 a check. OpenAI does not always enforce the cap, so a response over it logs `aeo_openai_search_cap_exceeded` and is still counted in full.
+A daily run of 1,000 prompts on both engines is about \$175.
 Exa adds \$5 per 1,000 requests (`cost_usd` on the check event).
 No-search checks cost about a quarter (Claude) to two fifths (OpenAI) of a web-search check, since they pay no search fees and read no search results. Set weekly, a set of about 1,300 prompts runs about 190 a day on each no-search engine (an estimate, not measured).
 

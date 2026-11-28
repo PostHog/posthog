@@ -64,6 +64,8 @@ export interface TaskComposerProps {
     /** Focus the input on mount. A host page that is not mainly a composer turns it off and uses `focusRequest`. */
     autoFocus?: boolean
     prefillRequest?: ComposerPrefillRequest | null
+    /** Blocks sending and explains why, for example when the instance cannot run the agent. */
+    disabledReason?: string
 }
 
 export interface ComposerPrefillRequest {
@@ -76,6 +78,7 @@ export function TaskComposer({
     focusRequest = 0,
     autoFocus = true,
     prefillRequest,
+    disabledReason,
 }: TaskComposerProps): JSX.Element {
     const inline = variant === 'inline'
     const {
@@ -270,6 +273,7 @@ export function TaskComposer({
                             onChange={draft.onChange}
                             onSubmit={() => draft.submit(submitNewTask)}
                             loading={isSubmittingTask}
+                            disabledReason={disabledReason}
                             textAreaRef={textAreaRef}
                         >
                             {skin === 'quill' ? (

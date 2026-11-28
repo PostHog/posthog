@@ -8,7 +8,7 @@ from unittest import mock
 import duckdb
 from syrupy.assertion import SnapshotAssertion
 
-from posthog.schema import HogQLQueryModifiers
+from posthog.schema import CustomBotCondition, CustomBotField, CustomBotMatcher, CustomBotRule, HogQLQueryModifiers
 
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLDialect, HogQLQuerySettings
@@ -16,6 +16,7 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.database.direct_trino_table import DirectTrinoTable
 from posthog.hogql.database.models import (
+    BooleanDatabaseField,
     DateTimeDatabaseField,
     DecimalDatabaseField,
     ExpressionField,
@@ -47,7 +48,7 @@ from posthog.hogql.transforms.trino.transpiler import TrinoTranspilerInput, tran
 from posthog.hogql.transforms.trino.validate import _SPECIAL_CALLS
 from posthog.hogql.trino_parameters import convert_pyformat_placeholders
 
-from posthog.schema_enums import PersonsOnEventsMode
+from posthog.schema_enums import FilterLogicalOperator, PersonsOnEventsMode
 
 
 def _trino_modifiers() -> HogQLQueryModifiers:
@@ -582,6 +583,12 @@ def test_ignores_clickhouse_cte_materialization_hint() -> None:
         ),
         ("(id > 0) != 0", '(CAST(("users"."id" > 0) AS INTEGER) != 0)'),
         ("(id > 0) = (id < 5)", '(("users"."id" > 0) = ("users"."id" < 5))'),
+        ("isValidUTF8(user_id) = 1", '(CAST(IF("users"."user_id" IS NULL, NULL, true) AS INTEGER) = 1)'),
+        ("bitTest(id, 1) = 1", "BIGINT '1', CAST(1 AS INTEGER))) <> 0) AS INTEGER) = 1)"),
+        (
+            "notEmpty(user_id) = 1",
+            '(CAST(("users"."user_id" IS NOT NULL AND "users"."user_id" <> \'\') AS INTEGER) = 1)',
+        ),
         ("id = 1", '("users"."id" = 1)'),
         # ClickHouse reads date + n as n days and datetime + n as n seconds, with the number on either side.
         ("toDate(created_at) - 1", "date_add('day', CAST(-(1) AS BIGINT), CAST("),
@@ -601,6 +608,16 @@ def test_ignores_clickhouse_cte_materialization_hint() -> None:
         ("toDate(created_at) - (SELECT max(id) FROM users)", "date_add('day', CAST(-((SELECT max("),
         ("toLastDayOfMonth(created_at) - 1", "date_add('day', CAST(-(1) AS BIGINT), last_day_of_month("),
         ("toMonday(created_at) + 7", "date_add('day', CAST(7 AS BIGINT), CAST(date_trunc('week'"),
+        (
+            "toDate(created_at) - INTERVAL 2 DAY + id",
+            'date_add(\'day\', CAST("users"."id" AS BIGINT), (CAST("users"."created_at" AS DATE) - ',
+        ),
+        ("INTERVAL 1 MONTH + toDate(created_at) - 1", "date_add('day', CAST(-(1) AS BIGINT), ("),
+        ("minus(toDate(created_at), INTERVAL 27 DAY) + id", 'date_add(\'day\', CAST("users"."id" AS BIGINT), '),
+        (
+            "minOrDefaultIf(toDate(created_at) + toIntervalDay(toNullable(id)), id > 1)",
+            'FILTER (WHERE (("users"."id" > 1))), NULL)',
+        ),
         ("now('UTC')", "SELECT at_timezone(now(), "),
         (
             "toDateTime64(id, 3, 'UTC')",
@@ -697,6 +714,8 @@ def test_prints_core_trino_expression_mappings(expression: str, expected: str) -
         ("SELECT x = 1 FROM (SELECT argMax(is_active, id) AS x FROM flagged)", '(CAST("x" AS INTEGER) = 1)'),
         ("WITH c AS (SELECT min(is_active) AS x FROM flagged) SELECT x = 1 FROM c", '(CAST("c"."x" AS INTEGER) = 1)'),
         ("SELECT max(score) = 1 FROM flagged", '(max("flagged"."score") = 1)'),
+        ("SELECT flag = 1 FROM json_flags", '(CAST("json_flags"."flag" AS INTEGER) = 1)'),
+        ("SELECT id FROM copy_history WHERE NOT is_copy", 'WHERE (NOT CAST("copy_history"."is_copy" AS BOOLEAN))'),
         (
             "SELECT x FROM (SELECT is_active AS x FROM flagged UNION ALL SELECT 2 AS x) WHERE x",
             'WHERE CAST("x" AS BOOLEAN)',
@@ -754,6 +773,39 @@ def test_derived_column_types_reach_type_dependent_lowerings(query: str, expecte
         )
     )
 
+    context.database.tables.add_child(
+        TableNode(
+            name="json_flags",
+            table=SavedQuery(
+                id="json_flags",
+                name="json_flags",
+                query="SELECT isValidJSON(user_id) AS flag FROM users",
+                fields={"flag": BooleanDatabaseField(name="flag")},
+            ),
+        )
+    )
+    context.database.tables.add_child(
+        TableNode(
+            name="copies",
+            table=SavedQuery(
+                id="copies",
+                name="copies",
+                query="SELECT id, toBool(id) AS is_copy FROM users UNION ALL SELECT id, ifNull(id > 0, 0) AS is_copy FROM users",
+                fields={"id": IntegerDatabaseField(name="id"), "is_copy": BooleanDatabaseField(name="is_copy")},
+            ),
+        )
+    )
+    context.database.tables.add_child(
+        TableNode(
+            name="copy_history",
+            table=SavedQuery(
+                id="copy_history",
+                name="copy_history",
+                query="SELECT c.id AS id, c.is_copy AS is_copy FROM copies AS c",
+                fields={"id": IntegerDatabaseField(name="id"), "is_copy": BooleanDatabaseField(name="is_copy")},
+            ),
+        )
+    )
     sql, _ = prepare_and_print_ast(parse_select(query), context, "trino")
 
     assert expected in sql
@@ -1647,6 +1699,104 @@ def test_rejects_excessive_select_alias_expansion() -> None:
     projections = ["1 AS a0", *[f"a{i - 1} + a{i - 1} AS a{i}" for i in range(1, 18)]]
     with pytest.raises(TrinoLoweringError, match="TRINO_AST_EXPANSION_LIMIT"):
         prepare_and_print_ast(parse_select(f"SELECT {', '.join(projections)}"), _context_with_trino_table(), "trino")
+
+
+def test_layers_select_alias_chains_over_a_subquery_instead_of_expanding_them() -> None:
+    projections = ["id AS a0", *[f"a{i - 1} + a{i - 1} AS a{i}" for i in range(1, 18)]]
+    sql, _ = prepare_and_print_ast(
+        parse_select(f"WITH s AS (SELECT 1 AS id) SELECT {', '.join(projections)} FROM s"),
+        _context_with_trino_table(),
+        "trino",
+    )
+    with duckdb.connect(":memory:") as connection:
+        assert connection.execute(sql).fetchall() == [tuple(2**i for i in range(18))]
+
+
+_LONG_ALIAS_CHAIN = ", ".join(["id AS a0", *[f"a{i - 1} + 1 AS a{i}" for i in range(1, 60)], "a0 + 1 AS z"])
+_WIDE_SOURCE = ", ".join(f"1 AS c{i}" for i in range(500))
+_ALIAS_LINKS_OVER_WIDE_SOURCE = ", ".join(
+    ["c0 AS a0", *[f"a{i - 1} + 1 AS a{i}" for i in range(1, 22)], "a0 + a0 AS z"]
+)
+
+
+@pytest.mark.parametrize(
+    "query, expected",
+    [
+        ("WITH s AS (SELECT 1 AS id, 5 AS A) SELECT id AS a, a + a AS b FROM s", [(1, 2)]),
+        (f"WITH s AS (SELECT 1 AS id) SELECT {_LONG_ALIAS_CHAIN} FROM s", [(*range(1, 61), 2)]),
+        (f"WITH s AS (SELECT {_WIDE_SOURCE}) SELECT {_ALIAS_LINKS_OVER_WIDE_SOURCE} FROM s", [(*range(1, 23), 2)]),
+    ],
+)
+def test_select_alias_chains_the_layering_skips_keep_their_results(query: str, expected: list[tuple]) -> None:
+    sql, _ = prepare_and_print_ast(parse_select(query), _context_with_trino_table(), "trino")
+    with duckdb.connect(":memory:") as connection:
+        assert connection.execute(sql).fetchall() == expected
+
+
+def test_layered_select_aliases_keep_view_columns_the_view_star_omits() -> None:
+    context = _context_with_trino_table()
+    assert context.database is not None
+    context.database.tables.add_child(
+        TableNode(
+            name="v",
+            table=SavedQuery(
+                id="v",
+                name="v",
+                query="SELECT 7 AS secret, 1 AS id",
+                fields={
+                    "secret": IntegerDatabaseField(name="secret", hidden=True),
+                    "id": IntegerDatabaseField(name="id"),
+                },
+            ),
+        )
+    )
+    sql, _ = prepare_and_print_ast(parse_select("SELECT secret, id AS a, a + a AS b FROM v"), context, "trino")
+    with duckdb.connect(":memory:") as connection:
+        assert connection.execute(sql).fetchall() == [(7, 1, 2)]
+
+
+@pytest.mark.parametrize(
+    "date_alias",
+    [
+        "toMonday(toDate('2026-11-27'))",
+        "toLastDayOfMonth(toDate('2026-11-27'))",
+        "(SELECT max(d) FROM (SELECT toDate('2026-11-27') AS d))",
+    ],
+)
+def test_layered_select_aliases_keep_the_date_type_the_printer_inferred(date_alias: str) -> None:
+    sql, _ = prepare_and_print_ast(
+        parse_select(f"WITH s AS (SELECT 1 AS id) SELECT {date_alias} AS a, a + 1 AS b, a + 2 AS c FROM s"),
+        _context_with_trino_table(),
+        "trino",
+    )
+    assert sql.count("date_add('day'") == 2
+
+
+@pytest.mark.parametrize(
+    "query, expected",
+    [
+        (
+            "SELECT id AS a, a + a AS b FROM (SELECT 1 AS id, 2 AS unused, 3 AS UNUSED) AS src",
+            'SELECT "src"."id" AS "a", ("src"."id" + "src"."id") AS "b" FROM',
+        ),
+        (
+            "WITH seed AS (SELECT 1 AS id) SELECT id AS a, arrayMap(a -> a + a, [2]) AS b FROM seed AS src",
+            'transform(ARRAY[2], "a" -> ("a" + "a"))',
+        ),
+        (
+            "WITH s AS (SELECT 1 AS id) SELECT id AS a, arrayMap(x -> a + a, [2]) AS b FROM s",
+            'transform(ARRAY[2], "x" -> ("s"."id" + "s"."id"))',
+        ),
+        (
+            "WITH s AS (SELECT properties FROM users) "
+            "SELECT properties.flag AS a, coalesce(a, true) AS b, coalesce(a, false) AS c FROM s",
+            'coalesce(CAST(json_extract_scalar("s"."properties", \'$["flag"]\') AS BOOLEAN), true)',
+        ),
+    ],
+)
+def test_does_not_layer_select_alias_reads_inside_lambdas_or_over_properties(query: str, expected: str) -> None:
+    sql, _ = prepare_and_print_ast(parse_select(query), _context_with_trino_table(), "trino")
+    assert expected in sql
 
 
 def test_rejects_excessive_rendered_expression_size() -> None:
@@ -3004,6 +3154,7 @@ def test_prints_type_aware_and_search_rewrites(expression: str, expected: str) -
         ),
         ("percentile_cont(0.5) WITHIN GROUP (ORDER BY id)", "__hogql_percentile_values"),
         ("percentile_disc(0.5) WITHIN GROUP (ORDER BY id)", "greatest(CAST(ceil("),
+        ("isLikelyBot(properties.user_agent, properties.ip)", " IN (IPADDRESS '"),
     ],
 )
 def test_prints_live_parity_regressions(expression: str, expected: str) -> None:
@@ -3011,6 +3162,27 @@ def test_prints_live_parity_regressions(expression: str, expected: str) -> None:
         parse_select(f"SELECT {expression} FROM users"), _context_with_trino_table(), "trino"
     )
     assert expected in sql
+
+
+_OFFICE_CIDR_RULE = CustomBotRule(
+    id="1",
+    name="Office crawler",
+    combiner=FilterLogicalOperator.AND_,
+    items=[
+        CustomBotCondition(id="c1", key=CustomBotField.FIELD_IP, matcher=CustomBotMatcher.CIDR, pattern="192.0.2.0/24")
+    ],
+)
+
+
+@pytest.mark.parametrize("custom_rules", [[], [_OFFICE_CIDR_RULE]], ids=["built_in_rules", "custom_cidr_rule"])
+def test_prints_the_bot_ip_lookup_once(custom_rules: list[CustomBotRule]) -> None:
+    context = _context_with_trino_table()
+    context.modifiers.customBotDefinitions = custom_rules
+    sql, _ = prepare_and_print_ast(
+        parse_select("SELECT getBotName(properties.$raw_user_agent, properties.$ip) FROM users"), context, "trino"
+    )
+    last_built_in_network = re.findall(r"IPADDRESS '[^']+'", sql)[-1]
+    assert sql.count(last_built_in_network) == 1
 
 
 def test_preserves_legacy_clickhouse_array_reverse_sort_mapping() -> None:

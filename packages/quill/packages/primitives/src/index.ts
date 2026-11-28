@@ -345,8 +345,10 @@ export {
     anchoredToast,
     toastManager,
     anchoredToastManager,
+    type ToastAction,
     type ToastCardProps,
     type ToastOptions,
+    type ToastPlacement,
     type AnchoredToastOptions,
     type ToastType,
 } from './toast'

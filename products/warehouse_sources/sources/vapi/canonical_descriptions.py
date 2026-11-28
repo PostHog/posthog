@@ -3,6 +3,32 @@ from products.warehouse_sources.sources.sdk import CanonicalDescriptions
 # Descriptions sourced from the official Vapi API reference (https://docs.vapi.ai/api-reference)
 # and the OpenAPI spec served at https://api.vapi.ai/api-json.
 CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
+    "analytics": {
+        "description": "Daily call totals in UTC across all available history. Full refresh includes changes to past calls.",
+        "docs_url": "https://api.vapi.ai/api-json",
+        "columns": {
+            "date": "Date of the daily total in UTC.",
+            "callCount": "Number of calls.",
+            "totalCost": "Sum of call costs.",
+            "totalDuration": "Sum of call durations.",
+            "totalMinutesUsed": "Sum of call minutes used.",
+        },
+    },
+    "structured_outputs": {
+        "description": "Definitions of structured outputs that extract data from conversations. Full refresh includes changes to existing definitions.",
+        "docs_url": "https://api.vapi.ai/api-json",
+        "columns": {
+            "id": "Unique identifier for the structured output.",
+            "orgId": "Identifier for the organization that owns the structured output.",
+            "name": "Name of the structured output.",
+            "description": "Description of the data to extract.",
+            "schema": "JSON schema that defines the extracted data.",
+            "assistantIds": "Identifiers for linked assistants.",
+            "workflowIds": "Identifiers for linked workflows.",
+            "createdAt": "ISO 8601 timestamp when the definition was created.",
+            "updatedAt": "ISO 8601 timestamp when the definition was last updated.",
+        },
+    },
     "calls": {
         "description": "Phone and web calls handled by Vapi voice assistants, squads, or workflows, including transcript artifacts, analysis, ended reason, and per-component cost breakdown.",
         "docs_url": "https://docs.vapi.ai/api-reference/calls/list",

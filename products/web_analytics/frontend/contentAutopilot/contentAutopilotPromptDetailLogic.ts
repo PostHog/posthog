@@ -27,8 +27,8 @@ import type {
     PaginatedAEOPromptCheckListApi,
 } from 'products/web_analytics/frontend/generated/api.schemas'
 
+import { aiVisibilityTopicsLogic } from './aiVisibilityTopicsLogic'
 import { AnswerBrand, AnswerMentions, answerMentions } from './answerMentions'
-import { contentAutopilotFilterBarLogic } from './contentAutopilotFilterBarLogic'
 import { contentAutopilotLogic } from './contentAutopilotLogic'
 import type { ContentAutopilotWorkspaceTab } from './contentAutopilotLogic'
 import { contentAutopilotPromptsLogic } from './contentAutopilotPromptsLogic'
@@ -734,7 +734,7 @@ export const contentAutopilotPromptDetailLogic = kea<contentAutopilotPromptDetai
                     actions.loadAeoPromptVersions(updated.id)
                 }
                 actions.loadAeoPrompts()
-                contentAutopilotFilterBarLogic.findMounted()?.actions.loadPromptTopics()
+                aiVisibilityTopicsLogic.findMounted()?.actions.loadPromptTopics()
             } catch (error) {
                 actions.savePromptEditFailure()
                 // A 400 or 409 says why the change was refused, for example a duplicate prompt text.
@@ -760,7 +760,7 @@ export const contentAutopilotPromptDetailLogic = kea<contentAutopilotPromptDetai
                 )
                 actions.loadAeoPrompts()
                 actions.loadSetupContext()
-                contentAutopilotFilterBarLogic.findMounted()?.actions.loadPromptTopics()
+                aiVisibilityTopicsLogic.findMounted()?.actions.loadPromptTopics()
             } catch (error) {
                 actions.setPromptArchivedFailure()
                 // A 400 explains why the change was refused, so show it rather than asking for a retry.

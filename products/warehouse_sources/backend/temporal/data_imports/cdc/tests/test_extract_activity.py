@@ -1727,6 +1727,26 @@ class TestQuietRunSlotAdvance:
         capture.reader.confirm_position.assert_called_once_with("0/900")
         capture.reader.close.assert_called_once()
 
+    @parameterized.expand(
+        [
+            ("lost_slot", "slot_missing", True),
+            ("auto_dropped_slot", "auto_dropped_critical_lag", True),
+            ("billing_stop", "billing_limit_expired", False),
+        ]
+    )
+    def test_a_successful_read_lifts_a_marker_that_reports_the_slot_lost(self, _name, reason, lifted):
+        source = _make_source()
+        schema = _make_schema("users", source=source)
+        schema.sync_type_config["cdc_broken"] = {"reason": reason}
+
+        with (
+            _capture_harness(source, [schema]) as capture,
+            patch(f"{_ACTIVITIES}.clear_slot_loss_markers") as clear_markers,
+        ):
+            capture.extract()
+
+        assert clear_markers.called is lifted
+
 
 class TestCDCBoundedReadLoop:
     """The read loop peeks at most CDC_MAX_CHANGES_PER_READ changes per pass, advancing the slot

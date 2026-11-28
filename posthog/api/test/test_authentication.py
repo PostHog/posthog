@@ -47,6 +47,7 @@ from posthog.api.authentication import (
 )
 from posthog.api.email_verification import is_email_verification_disabled
 from posthog.api.oauth.cimd import CIMDFetchError
+from posthog.api.test.test_code_based_verification import workflows_refuses_the_recipient
 from posthog.auth import (
     ExportRendererAuthentication,
     InternalAPIUser,
@@ -83,6 +84,7 @@ from posthog.models.project_secret_api_key import ProjectSecretAPIKey
 from posthog.models.team.team import Team
 from posthog.models.user import UserType
 from posthog.models.utils import generate_random_token_personal, hash_key_value
+from posthog.session.activity import session_public_id
 from posthog.test.api_keys import create_project_secret_api_key
 from posthog.test.authentication_checks import covers_authentication
 from posthog.workos_radar import RadarAttempt, RadarVerdict
@@ -439,10 +441,16 @@ class TestLoginAPI(APIBaseTest):
         self.assertEqual(response.json()["email"], self.user.email)
 
         # Assert the event was captured.
+        session_key = self.client.session.session_key
+        assert session_key
         mock_capture.assert_any_call(
             distinct_id=self.user.distinct_id,
             event="user logged in",
-            properties={"social_provider": ""},
+            properties={
+                "social_provider": "",
+                "$ip": "127.0.0.1",
+                "session_public_id": str(session_public_id(session_key)),
+            },
             groups={
                 "instance": ANY,
                 "organization": str(self.team.organization_id),
@@ -690,6 +698,24 @@ class TestLoginAPI(APIBaseTest):
 
         User.objects.filter(pk=self.user.pk).update(type=UserType.SERVICE_ACCOUNT)
 
+        self.assertEqual(self.client.get("/api/users/@me/").status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_email_unverified_null_user_still_logs_in_when_the_code_email_is_refused(self):
+        with workflows_refuses_the_recipient():
+            response = self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        self.assertEqual(self.client.get("/api/users/@me/").status_code, status.HTTP_200_OK)
+
+    def test_email_unverified_login_reports_a_refused_code_email(self):
+        self.user.is_email_verified = False
+        self.user.save()
+
+        with workflows_refuses_the_recipient():
+            response = self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.content)
+        self.assertEqual(response.json()["code"], "email_verification_code_undeliverable")
         self.assertEqual(self.client.get("/api/users/@me/").status_code, status.HTTP_401_UNAUTHORIZED)
 
     @patch("posthoganalytics.capture")
@@ -2398,10 +2424,16 @@ class TestPasswordResetAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         # assert events were captured
+        session_key = self.client.session.session_key
+        assert session_key
         mock_capture.assert_any_call(
             distinct_id=self.user.distinct_id,
             event="user logged in",
-            properties={"social_provider": ""},
+            properties={
+                "social_provider": "",
+                "$ip": "127.0.0.1",
+                "session_public_id": str(session_public_id(session_key)),
+            },
             groups={
                 "instance": ANY,
                 "organization": str(self.team.organization_id),
@@ -2411,6 +2443,7 @@ class TestPasswordResetAPI(APIBaseTest):
         mock_capture.assert_any_call(
             event="user password reset",
             distinct_id=self.user.distinct_id,
+            properties={"$ip": "127.0.0.1"},
             groups={
                 "instance": ANY,
                 "organization": str(self.team.organization_id),

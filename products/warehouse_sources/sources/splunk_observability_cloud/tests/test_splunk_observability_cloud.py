@@ -70,15 +70,27 @@ class TestTimestampConversion:
 
 class TestRestPagination:
     @pytest.mark.parametrize(
-        ("endpoint", "method", "path", "body", "data_key"),
+        ("endpoint", "method", "path", "body", "data_key", "accept"),
         [
-            ("detectors", "GET", "/v2/detector", None, "results"),
+            ("detectors", "GET", "/v2/detector", None, "results", "application/json"),
             # The SLO search is a POST whose filters are all optional; an empty body matches all.
-            ("slos", "POST", "/v2/slo/search", {}, "results"),
-            ("clients", "GET", "/v2/fm-service/v1/clients", None, "clients"),
+            ("slos", "POST", "/v2/slo/search", {}, "results", "application/json"),
+            ("clients", "GET", "/v2/fm-service/v1/clients", None, "clients", "application/json"),
+            ("tags", "GET", "/v2/tag", None, "results", "application/json"),
+            # The navigator API documents its own media type as the required Accept header.
+            (
+                "navigators",
+                "GET",
+                "/v2/navigator",
+                None,
+                "results",
+                "application/vnd.splunk.observability.navigator+json",
+            ),
         ],
     )
-    def test_full_page_then_short_page(self, endpoint: str, method: str, path: str, body: Any, data_key: str) -> None:
+    def test_full_page_then_short_page(
+        self, endpoint: str, method: str, path: str, body: Any, data_key: str, accept: str
+    ) -> None:
         full_page = [{"id": str(i)} for i in range(PAGE_SIZE)]
         responses = [
             ScriptedResponse(json={data_key: full_page}),
@@ -96,9 +108,16 @@ class TestRestPagination:
             (method, path, body),
             (method, path, body),
         ]
+        assert {request.headers["accept"] for request in result.requests} == {accept}
         if endpoint == "clients":
             # Offset pages are only stable under an explicit sort.
             assert set(result.params("sort_key")) == {"instance_uid"}
+        if endpoint == "navigators":
+            # The default sort moves edited navigators between offset pages.
+            assert set(result.params("orderBy")) == {"created"}
+        if endpoint == "tags":
+            # The tag search matches nothing without a query; offset pages need a stable sort.
+            assert set(zip(result.params("query"), result.params("order_by"))) == {("name:*", "name")}
         # Resume state is saved only while there is a next page to resume to, and after
         # the page has been yielded.
         assert result.saved_states == [SplunkObservabilityCloudResumeConfig(offset=PAGE_SIZE)]

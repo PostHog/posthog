@@ -76,7 +76,7 @@ class TestBuildOpenAIChatClient:
         [
             (GATEWAY_URL, None, "must be set together"),
             (None, GATEWAY_KEY, "must be set together"),
-            ("https://gateway.example", GATEWAY_KEY, "OpenAI base path"),
+            ("https://gateway.example", GATEWAY_KEY, "path must be /v1"),
         ],
     )
     def test_misconfigured_gateway_falls_back_to_direct_and_logs(self, gateway_url, gateway_key, reason):

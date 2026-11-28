@@ -32,9 +32,7 @@ class LivestormEndpointConfig:
     fanout: Optional[DependentEndpointConfig] = None
 
 
-# Registrants and attendees are only listable per session. A person can register for many sessions,
-# so the session id is part of the key.
-SESSION_PEOPLE_FANOUT = DependentEndpointConfig(
+SESSION_FANOUT = DependentEndpointConfig(
     parent_name="sessions",
     resolve_param="session_id",
     resolve_field="id",
@@ -70,11 +68,39 @@ LIVESTORM_ENDPOINTS: dict[str, LivestormEndpointConfig] = {
         primary_keys=["session_id", "id"],
         incremental_fields=[UPDATED_AT_INCREMENTAL_FIELD],
         default_incremental_field="updated_at",
-        fanout=SESSION_PEOPLE_FANOUT,
+        fanout=SESSION_FANOUT,
+    ),
+    "session_chat_messages": LivestormEndpointConfig(
+        name="session_chat_messages",
+        path="/sessions/{session_id}/chat_messages",
+        primary_keys=["session_id", "id"],
+        incremental_fields=[],
+        fanout=SESSION_FANOUT,
+    ),
+    "session_questions": LivestormEndpointConfig(
+        name="session_questions",
+        path="/sessions/{session_id}/questions",
+        primary_keys=["session_id", "id"],
+        incremental_fields=[],
+        fanout=SESSION_FANOUT,
+    ),
+    "team_members": LivestormEndpointConfig(
+        name="team_members",
+        path="/users",
+        primary_keys=["id"],
+        incremental_fields=[],
+    ),
+    "people_attributes": LivestormEndpointConfig(
+        name="people_attributes",
+        path="/people_attributes",
+        primary_keys=["id"],
+        incremental_fields=[],
     ),
 }
 
 ENDPOINTS = tuple(LIVESTORM_ENDPOINTS.keys())
+ADMIN_READ_ENDPOINTS = ("team_members", "people_attributes")
+OPT_IN_ENDPOINTS = ("session_chat_messages", "session_questions", *ADMIN_READ_ENDPOINTS)
 
 INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
     name: list(config.incremental_fields) for name, config in LIVESTORM_ENDPOINTS.items() if config.incremental_fields

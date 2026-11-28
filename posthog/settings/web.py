@@ -294,7 +294,7 @@ ROOT_URLCONF = "posthog.urls"
 TEMPLATES = [
     {
         "BACKEND": "django.template.backends.django.DjangoTemplates",
-        "DIRS": ["frontend/dist", "posthog/templates"],
+        "DIRS": [os.path.join(BASE_DIR, "frontend/dist"), os.path.join(BASE_DIR, "posthog/templates")],
         "APP_DIRS": True,
         "OPTIONS": {
             "context_processors": [
@@ -1514,9 +1514,8 @@ except ValueError:
     WIZARD_GATEWAY_TOKEN_CAP_USD_BY_PROGRAM = {}
     WIZARD_GATEWAY_TOKEN_CAP_USD_BY_PROGRAM_INVALID = True
 
-# PostHog Desktop on the Go ai-gateway: the URL is the ai-gateway host because gateway.* cannot
-# validate a phe_. A dedicated relay-team phs_ keeps the mint ceiling to desktop tokens. Unset
-# refuses as `unconfigured`, which keeps the app on the legacy gateway.
+# PostHog Desktop on the Go ai-gateway. A dedicated relay-team phs_ keeps the mint ceiling to desktop
+# tokens. Unset refuses mints as `unconfigured`.
 DESKTOP_GATEWAY_URL = get_from_env("DESKTOP_GATEWAY_URL", "")
 DESKTOP_GATEWAY_MINT_KEY = get_from_env("DESKTOP_GATEWAY_MINT_KEY", "")
 DESKTOP_GATEWAY_TOKEN_CAP_USD = get_from_env("DESKTOP_GATEWAY_TOKEN_CAP_USD", "200")
@@ -1573,7 +1572,7 @@ MCP_CATALOG_SYNC_ON_WORKER_READY: bool = get_from_env("MCP_CATALOG_SYNC_ON_WORKE
 AEO_ANTHROPIC_MODEL = get_from_env("AEO_ANTHROPIC_MODEL", "claude-sonnet-5")
 # Setup's site research and prompt writing. A faster model than the Claude engine's, since a person waits on it.
 AEO_SETUP_MODEL = get_from_env("AEO_SETUP_MODEL", "claude-haiku-5-5")
-AEO_OPENAI_MODEL = get_from_env("AEO_OPENAI_MODEL", "gpt-5")
+AEO_OPENAI_MODEL = get_from_env("AEO_OPENAI_MODEL", "gpt-6-luna")
 AEO_PERPLEXITY_MODEL = get_from_env("AEO_PERPLEXITY_MODEL", "posthog/perplexity/sonar")
 # A full daily run covers the whole prompt set, so the cap only guards against a runaway import.
 AEO_MAX_PROMPTS_PER_RUN = get_from_env("AEO_MAX_PROMPTS_PER_RUN", 2000, type_cast=int)
@@ -1656,8 +1655,7 @@ WEB_ANALYTICS_PATH_CLEANING_SUGGESTIONS_TEAM_IDS: list[int] = [
     )
 ]
 
-# Model the path-cleaning-suggestion job sends to the LLM gateway. Must be in the `web_analytics`
-# product allowlist in services/llm-gateway/src/llm_gateway/products/config.py.
+# Model the path-cleaning-suggestion job sends to the AI gateway.
 WEB_ANALYTICS_PATH_CLEANING_SUGGESTIONS_MODEL: str = get_from_env(
     "WEB_ANALYTICS_PATH_CLEANING_SUGGESTIONS_MODEL", "claude-haiku-4-5"
 )
