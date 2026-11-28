@@ -1,4 +1,5 @@
 from collections.abc import Mapping
+from datetime import UTC, datetime, timedelta
 
 from django.db import transaction
 from django.db.models import Count, Q
@@ -13,6 +14,8 @@ from products.workflows.backend.facade.contracts import (
 from products.workflows.backend.facade.enums import AdventCalendarDay, AdventCalendarOption
 from products.workflows.backend.models.advent_calendar_answer import AdventCalendarAnswer
 from products.workflows.backend.models.advent_calendar_door_open import AdventCalendarDoorOpen
+
+ADVENT_CALENDAR_YEAR = 2026
 
 ADVENT_CALENDAR_QUESTIONS: Mapping[AdventCalendarDay, tuple[AdventCalendarOption, ...]] = {
     AdventCalendarDay.FAVORITE_FOUNDER: (AdventCalendarOption.JAMES, AdventCalendarOption.TIM),
@@ -43,8 +46,18 @@ def open_advent_calendar_door(
             user_id=user_id, day=day, defaults={"hoggy": hoggy, "utc_offset_minutes": utc_offset_minutes}
         )
     return AdventCalendarDoorOpenResult(
-        day=door_open.day, opened_at=door_open.opened_at, utc_offset_minutes=door_open.utc_offset_minutes
+        day=door_open.day, opened_at=door_open.opened_at, ticket_days=advent_calendar_ticket_days(user_id)
     )
+
+
+def advent_calendar_ticket_days(user_id: int) -> tuple[int, ...]:
+    opens = AdventCalendarDoorOpen.objects.filter(user_id=user_id).values_list("day", "opened_at", "utc_offset_minutes")
+    return tuple(sorted(day for day, opened_at, offset in opens if _opened_on_its_day(day, opened_at, offset)))
+
+
+def _opened_on_its_day(day: int, opened_at: datetime, utc_offset_minutes: int) -> bool:
+    local = opened_at.astimezone(UTC) + timedelta(minutes=utc_offset_minutes)
+    return (local.year, local.month, local.day) == (ADVENT_CALENDAR_YEAR, 12, day)
 
 
 def advent_calendar_results(user_id: int) -> list[AdventCalendarQuestionResult]:
