@@ -140,7 +140,7 @@ impl PersonhogStore {
     ) -> Result<bool> {
         count_call("flip_changelog");
         let migration_key = self.key(StoreKey::Migration);
-        let config_key = self.key(StoreKey::ChangelogConfig);
+        let config_key = self.config_write_key()?;
         let mut draining = config.draining.clone();
         draining.push(Generation {
             topic: migration.from.topic.clone(),
@@ -278,7 +278,7 @@ impl PersonhogStore {
         config: &ChangelogConfig,
         mod_revision: i64,
     ) -> Result<bool> {
-        let key = self.key(StoreKey::ChangelogConfig);
+        let key = self.config_write_key()?;
         let txn = Txn::new()
             .when(vec![Compare::mod_revision(
                 key.clone(),
@@ -305,7 +305,7 @@ impl PersonhogStore {
         if retired.draining.len() == config.draining.len() {
             return Ok(false);
         }
-        let key = self.key(StoreKey::ChangelogConfig);
+        let key = self.config_write_key()?;
         let txn = Txn::new()
             .when(vec![
                 Compare::mod_revision(key.clone(), CompareOp::Equal, mod_revision),
@@ -337,7 +337,7 @@ impl PersonhogStore {
             cluster: Some(cluster.clone()),
             ..config.clone()
         };
-        let key = self.key(StoreKey::ChangelogConfig);
+        let key = self.config_write_key()?;
         let txn = Txn::new()
             .when(vec![
                 Compare::mod_revision(key.clone(), CompareOp::Equal, mod_revision),

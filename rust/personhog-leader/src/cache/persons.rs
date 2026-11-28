@@ -269,6 +269,21 @@ impl PersonCache {
         self.inner.insert(key, stored);
     }
 
+    /// Insert unless the cache already holds this version or a newer one. The compare and
+    /// the insert are two steps, so callers must not run it for one partition at the same
+    /// time; a follower holds the partition's gate around it.
+    pub fn put_if_newer(&self, key: PersonCacheKey, person: CachedPerson) -> bool {
+        let held = self
+            .inner
+            .get(&key)
+            .map(|entry| entry.value().cached_version());
+        if held.is_some_and(|held| held.version >= person.version) {
+            return false;
+        }
+        self.put(key, person);
+        true
+    }
+
     pub fn remove(&self, key: &PersonCacheKey) {
         self.inner.remove(key);
     }
@@ -388,6 +403,15 @@ mod tests {
             FillOutcome::NotTracking
         );
         assert!(by_fills.get(&key(2)).is_none());
+    }
+
+    #[test]
+    fn put_if_newer_keeps_the_highest_version_whatever_the_order() {
+        let cache = PersonCache::new(1024 * 1024, Arc::new(PropertiesCodec::disabled()));
+        for (version, replaces) in [(5, true), (5, false), (4, false), (6, true)] {
+            assert_eq!(cache.put_if_newer(key(1), at_version(version)), replaces);
+        }
+        assert_eq!(cache.get(&key(1)).unwrap().version, 6);
     }
 
     #[test]

@@ -211,6 +211,9 @@ pub fn warm_sources(config: &ChangelogConfig, partition: u32) -> Vec<WarmSource>
 /// Bounds the staleness a dropped watch stream can hide.
 pub const CHANGELOG_RECONCILE_INTERVAL: Duration = Duration::from_secs(30);
 pub const CHANGELOG_BOOT_POLL_INTERVAL: Duration = Duration::from_secs(1);
+/// How often a follower and its router re-read the config. They take no part in a
+/// migration, so a watch that stalls leaves them on the old layout until the next re-read.
+pub const FOLLOWER_RECONCILE_INTERVAL: Duration = Duration::from_secs(1);
 
 /// The partition count and the draining floor have their own atomics:
 /// routing reads them per request.
@@ -269,6 +272,13 @@ impl LiveChangelog {
             .read()
             .expect("changelog config lock poisoned")
             .clone()
+    }
+
+    /// The partition count and the epoch it belongs to, read together. A request routed
+    /// by one and checked against the other would mix two layouts across a flip.
+    pub fn layout(&self) -> (u32, u64) {
+        let current = self.current.read().expect("changelog config lock poisoned");
+        (current.partitions, current.epoch)
     }
 
     pub fn epoch(&self) -> u64 {
@@ -345,17 +355,20 @@ pub async fn keep_changelog_live(
     live: LiveChangelog,
     cancel: CancellationToken,
 ) {
+    keep_changelog_live_every(store, live, CHANGELOG_RECONCILE_INTERVAL, cancel).await
+}
+
+pub async fn keep_changelog_live_every(
+    store: Arc<PersonhogStore>,
+    live: LiveChangelog,
+    reconcile_interval: Duration,
+    cancel: CancellationToken,
+) {
     let initial = live.current();
-    watch_changelog_config_loop(
-        store,
-        initial,
-        CHANGELOG_RECONCILE_INTERVAL,
-        cancel,
-        |config| {
-            live.adopt(config);
-            ControlFlow::Continue(())
-        },
-    )
+    watch_changelog_config_loop(store, initial, reconcile_interval, cancel, |config| {
+        live.adopt(config);
+        ControlFlow::Continue(())
+    })
     .await
 }
 
