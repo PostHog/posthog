@@ -1,5 +1,6 @@
 import { ProviderEdge, startProviderEdge } from '.'
 import { createHash, randomBytes } from 'node:crypto'
+import { once } from 'node:events'
 import http from 'node:http'
 import { AddressInfo } from 'node:net'
 
@@ -24,6 +25,7 @@ const UPSTREAM = config.CDP_EMAIL_ATTACHMENTS_S3_ENDPOINT
 const TEAM = 1
 const FILE_BYTES = 4096
 const PACE_BYTES_PER_SECOND = 1_000_000
+const PACED_BYTES_PER_SECOND = 40_000
 const CALL_TIMEOUT_MS = 500
 
 type TestFile = { bytes: Buffer; sha256: string; sizeBytes: number; filename: string; contentType: string }
@@ -132,6 +134,31 @@ describe('the edge in front of the attachment store', () => {
         expect(await load(uploaded)).toEqual(uploaded.bytes)
     })
 
+    test('keeps a counted server error for the next upload when one hangs up before its body ends', async () => {
+        const uploaded = file()
+        const status = fault({ name: 's3.status', params: { code: 503 }, match: { op: 'put' }, dose: { count: 1 } })
+        const [slot] = await store.prepareUploads(TEAM, [{ sha256: uploaded.sha256, size: uploaded.sizeBytes }])
+        if (slot.status !== 'upload') {
+            throw new Error(`expected an upload slot, got ${slot.status}`)
+        }
+        const partial = http.request(slot.url, {
+            method: slot.method,
+            headers: { ...slot.headers, expect: '100-continue' },
+        })
+        partial.on('error', () => undefined)
+        partial.flushHeaders()
+        await once(partial, 'continue')
+        partial.write(uploaded.bytes.subarray(0, FILE_BYTES / 2))
+        partial.destroy()
+
+        const answer = await upload(uploaded)
+
+        expect({ status: answer.status, answered: edge.firstAppliedAt(status) !== undefined }).toEqual({
+            status: 503,
+            answered: true,
+        })
+    })
+
     test('drops its call to the store when the caller hangs up first, and passes the next call', async () => {
         const held: http.IncomingMessage[] = []
         const slowStore = http.createServer((req, res) => {
@@ -145,13 +172,16 @@ describe('the edge in front of the attachment store', () => {
         try {
             const proxy = await edge.s3ProxyOf(`http://127.0.0.1:${(slowStore.address() as AddressInfo).port}/`)
 
-            const hungUp = await internalFetch(`${proxy}/held`, { timeoutMs: CALL_TIMEOUT_MS }).catch(
-                (error: Error) => error.name
-            )
+            const caller = new AbortController()
+            const hungUp = new Promise<string>((resolve) => {
+                http.get(`${proxy}/held`, { signal: caller.signal }).on('error', (error) => resolve(error.name))
+            })
+            await waitForExpect(() => expect(held).toHaveLength(1), 5000, 5)
+            caller.abort()
             await waitForExpect(() => expect(held.map((call) => call.destroyed)).toEqual([true]), 5000, 5)
             const next = await internalFetch(`${proxy}/next`)
 
-            expect({ hungUp, next: await next.text() }).toEqual({ hungUp: 'TimeoutError', next: 'next' })
+            expect({ hungUp: await hungUp, next: await next.text() }).toEqual({ hungUp: 'AbortError', next: 'next' })
         } finally {
             slowStore.closeAllConnections()
             await new Promise((resolve) => slowStore.close(resolve))
@@ -166,11 +196,16 @@ describe('the edge in front of the attachment store', () => {
         if (op === 'get') {
             await upload(uploaded)
         }
-        const slow = fault({ name: 's3.slow', params: { bytesPerSecond: PACE_BYTES_PER_SECOND }, match: { op } })
+        const slow = fault({ name: 's3.slow', params: { bytesPerSecond: PACED_BYTES_PER_SECOND }, match: { op } })
 
+        const startedAt = performance.now()
         await transfer(uploaded)
+        const tookMs = performance.now() - startedAt
 
-        expect(edge.firstAppliedAt(slow)).toBeDefined()
+        expect({
+            observed: edge.firstAppliedAt(slow) !== undefined,
+            heldToItsPace: tookMs >= 0.9 * (FILE_BYTES / PACED_BYTES_PER_SECOND) * 1000,
+        }).toEqual({ observed: true, heldToItsPace: true })
         expect(await load(uploaded)).toEqual(uploaded.bytes)
     })
 
