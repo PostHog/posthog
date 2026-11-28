@@ -8,6 +8,7 @@ import posthog from 'posthog-js'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -19,13 +20,14 @@ import type {
     ObservationRequestApi,
 } from 'products/replay_vision/frontend/generated/api.schemas'
 
-import { SCAN_POLL_INTERVAL_MS, SCAN_QUESTION } from './afterClickingScanLogic'
+import { SCAN_POLL_INTERVAL_MS } from './afterClickingScanLogic'
 import { EmailImpactTab } from './EmailImpactTab'
 
 const WORKFLOW_ID = '0192c3a4-5b6c-7d8e-9f01-23456789abcd'
 const REPLAY_ON = { ...MOCK_DEFAULT_TEAM, session_recording_opt_in: true }
 const READY = 'Ask Replay vision about these sessions'
 const ANSWER = "They opened the invoice page, but the page didn't show whether they found the download."
+const OLD_ANSWER = 'They opened the pricing page and left after a minute.'
 
 const IMPACT: TransactionalEmailImpactApi = {
     sent: 10,
@@ -53,9 +55,10 @@ interface FakeReplayVision {
     lostCreateAnswers: number
     failedPolls: number
     createGate: Promise<void>
+    answers: Map<string, string>
 }
 
-function finished(scan: ObservationRequestApi): ObservationRequestApi {
+function finished(scan: ObservationRequestApi, answer: string): ObservationRequestApi {
     return {
         ...scan,
         status: 'completed',
@@ -64,7 +67,7 @@ function finished(scan: ObservationRequestApi): ObservationRequestApi {
                 ...scan.sessions[0],
                 state: 'succeeded',
                 scanner_result: {
-                    model_output: { scanner_type: 'monitor', verdict: 'inconclusive', reasoning: ANSWER },
+                    model_output: { scanner_type: 'monitor', verdict: 'inconclusive', reasoning: answer },
                     signals_count: 0,
                 },
             },
@@ -75,8 +78,8 @@ function finished(scan: ObservationRequestApi): ObservationRequestApi {
 
 describe('AfterClickingCard', () => {
     let vision: FakeReplayVision
-    let sessionsDateFroms: (string | null)[]
     let failedSessionLists: number
+    let linkTrackingOn: boolean
     let captured: string[]
 
     beforeEach(() => {
@@ -85,8 +88,8 @@ describe('AfterClickingCard', () => {
             captured.push(event)
             return undefined
         })
-        sessionsDateFroms = []
         failedSessionLists = 0
+        linkTrackingOn = true
         vision = {
             bodies: [],
             scansByKey: new Map(),
@@ -94,12 +97,15 @@ describe('AfterClickingCard', () => {
             lostCreateAnswers: 0,
             failedPolls: 0,
             createGate: Promise.resolve(),
+            answers: new Map(),
         }
         useMocks({
             get: {
                 '/api/projects/:team_id/transactional_email_log/impact/': () => [200, IMPACT],
-                '/api/projects/:team_id/transactional_email_log/impact_sessions/': ({ request }) => {
-                    sessionsDateFroms.push(new URL(request.url).searchParams.get('date_from'))
+                '/api/projects/:team_id/transactional_email_log/impact_sessions/': () => {
+                    if (!linkTrackingOn) {
+                        return [200, { sessions: [], has_more: false }]
+                    }
                     if (failedSessionLists > 0) {
                         failedSessionLists -= 1
                         return [500, {}]
@@ -125,7 +131,7 @@ describe('AfterClickingCard', () => {
                         vision.failedPolls -= 1
                         return [502, {}]
                     }
-                    return [200, finished(scan)]
+                    return [200, finished(scan, vision.answers.get(scan.id) ?? ANSWER)]
                 },
             },
             post: {
@@ -133,7 +139,7 @@ describe('AfterClickingCard', () => {
                     const body = (await request.json()) as CreateObservationRequestApi
                     vision.bodies.push(body)
                     await vision.createGate
-                    const key = body.idempotency_key ?? ''
+                    const key = body.idempotency_key ?? `no-key-${vision.bodies.length}`
                     const existing = vision.scansByKey.get(key)
                     const scan: ObservationRequestApi = existing ?? {
                         id: `request-${vision.scansByKey.size + 1}`,
@@ -154,7 +160,10 @@ describe('AfterClickingCard', () => {
                         vision.lostCreateAnswers -= 1
                         return [504, {}]
                     }
-                    return [existing ? 200 : 202, vision.startsRunning ? scan : finished(scan)]
+                    return [
+                        existing ? 200 : 202,
+                        vision.startsRunning ? scan : finished(scan, vision.answers.get(scan.id) ?? ANSWER),
+                    ]
                 },
             },
         })
@@ -234,9 +243,10 @@ describe('AfterClickingCard', () => {
             expect.objectContaining({
                 session_ids: ['session-a', 'session-b'],
                 inline: {
-                    prompt: expect.stringContaining(SCAN_QUESTION),
+                    prompt: expect.stringContaining('Did the person finish what they came to do?'),
                     scanner_config: { allow_inconclusive: true },
                 },
+                wait_for_session_end: true,
                 reference: `workflows-email:${WORKFLOW_ID}`,
             }),
         ])
@@ -256,9 +266,10 @@ describe('AfterClickingCard', () => {
         const user = userEvent.setup({ advanceTimers: jest.advanceTimersByTime })
 
         await user.click(await screen.findByText('Scan sessions'))
-        expect(await screen.findByText(/^0 of 1\ssession scanned$/)).toBeInTheDocument()
+        expect(await screen.findByText(/^0 of 1\ssession scanned\./)).toBeInTheDocument()
         await act(() => jest.advanceTimersByTimeAsync(SCAN_POLL_INTERVAL_MS))
-        await user.click(await screen.findByText('Try again'))
+        expect(await screen.findByText(/progress couldn't load/)).toBeInTheDocument()
+        await user.click(screen.getByText('Try again'))
 
         expect(await screen.findByText(ANSWER)).toBeInTheDocument()
         expect(vision.bodies).toHaveLength(1)
@@ -290,13 +301,30 @@ describe('AfterClickingCard', () => {
         await screen.findByText(READY)
         await selectPeriod('Last 30 days')
         await screen.findByText(READY)
+        vision.answers.set('request-1', OLD_ANSWER)
         answerCreate()
         await userEvent.click(screen.getByText('Scan sessions'))
 
         expect(await screen.findByText(ANSWER)).toBeInTheDocument()
+        expect(screen.queryByText(OLD_ANSWER)).not.toBeInTheDocument()
         expect(vision.scansByKey.size).toBe(2)
-        expect(captured.filter((event) => event === 'transactional email impact scan completed')).toHaveLength(1)
-        expect(sessionsDateFroms).toHaveLength(3)
+    })
+
+    it('lists the sessions once link tracking turns on', async () => {
+        linkTrackingOn = false
+        const trackingOff = { email_workflow_run_link_tag_enabled: false }
+        renderTab({ ...REPLAY_ON, workflows_config: { ...REPLAY_ON.workflows_config, ...trackingOff } })
+        expect(await screen.findByText('No sessions yet')).toBeInTheDocument()
+
+        linkTrackingOn = true
+        act(() => {
+            teamLogic.actions.loadCurrentTeamSuccess({
+                ...REPLAY_ON,
+                workflows_config: { ...REPLAY_ON.workflows_config, email_workflow_run_link_tag_enabled: true },
+            })
+        })
+
+        expect(await screen.findByText(READY)).toBeInTheDocument()
     })
 
     test.each([

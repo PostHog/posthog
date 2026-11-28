@@ -63,12 +63,10 @@ export function AfterClickingScanPanel(): JSX.Element {
         case 'scanning':
             return (
                 <AfterClickingNotice title="Scanning sessions">
-                    <LemonProgress
-                        className="self-stretch"
-                        percent={state.total ? (state.done / state.total) * 100 : 0}
-                    />
+                    <LemonProgress className="self-stretch" percent={(state.done / Math.max(state.total, 1)) * 100} />
                     <span className="text-secondary text-sm">
-                        {`${state.done} of ${pluralize(state.total, 'session', 'sessions')} scanned`}
+                        {`${state.done} of ${pluralize(state.total, 'session', 'sessions')} scanned. `}
+                        Replay vision scans each session once it has ended, so a session still recording waits.
                     </span>
                 </AfterClickingNotice>
             )

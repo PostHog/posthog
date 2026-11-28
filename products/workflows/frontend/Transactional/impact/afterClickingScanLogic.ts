@@ -19,6 +19,8 @@ import type {
 import { getReplayVisionEditDisabledReason } from 'products/replay_vision/frontend/utils/accessControl'
 import type { MonitorVerdict } from 'products/replay_vision/frontend/utils/observation'
 
+import type { LinkTagging } from './impactSteps'
+
 export const SCAN_POLL_INTERVAL_MS = 3000
 export const SCAN_QUESTION = 'Did the person finish what they came to do?'
 const SCAN_PROMPT = `At some point in this session the person clicked a link in an email and landed on a page whose URL has a ph_workflow_run parameter. Look only at what they did from that page on, and answer this question: ${SCAN_QUESTION}`
@@ -26,13 +28,10 @@ const SCAN_PROMPT = `At some point in this session the person clicked a link in 
 export interface AfterClickingScanLogicProps {
     workflowId: string
     days: number
+    linkTagging: LinkTagging
 }
 
-export interface SessionAnswer {
-    sessionId: string
-    verdict: MonitorVerdict
-    reasoning: string
-}
+export type SessionAnswer = { sessionId: string; verdict: MonitorVerdict; reasoning: string }
 
 export type AfterClickingScanState =
     | { kind: 'loading-sessions' }
@@ -49,6 +48,8 @@ export function scanDisabledReason(currentTeam: TeamPublicType | TeamType | null
         : getReplayVisionEditDisabledReason()
 }
 
+const POLL_ERROR = "The scan may still be running, but its progress couldn't load. Try again to check on it."
+
 function scanErrorMessage(error: unknown): string {
     const shown = error instanceof ApiError && (error.status === 400 || error.status === 403) && error.detail
     return shown || "Replay vision couldn't scan these sessions. Try again."
@@ -57,10 +58,9 @@ function scanErrorMessage(error: unknown): string {
 function sessionAnswer(session: ObservationRequestSessionApi): SessionAnswer | null {
     const output = session.scanner_result?.model_output as Record<string, unknown> | null | undefined
     const verdict = output?.verdict
-    if (verdict !== 'yes' && verdict !== 'no' && verdict !== 'inconclusive') {
-        return null
-    }
-    return { sessionId: session.session_id, verdict, reasoning: String(output?.reasoning ?? '') }
+    return verdict === 'yes' || verdict === 'no' || verdict === 'inconclusive'
+        ? { sessionId: session.session_id, verdict, reasoning: String(output?.reasoning ?? '') }
+        : null
 }
 
 function scanRequestState(request: ObservationRequestApi): AfterClickingScanState {
@@ -136,7 +136,7 @@ export type afterClickingScanLogicType = MakeLogicType<
 
 export const afterClickingScanLogic = kea<afterClickingScanLogicType>([
     props({} as AfterClickingScanLogicProps),
-    key((props) => `${props.workflowId}:${props.days}`),
+    key((props) => `${props.workflowId}:${props.days}:${props.linkTagging}`),
     path((key) => ['products', 'workflows', 'frontend', 'Transactional', 'impact', 'afterClickingScanLogic', key]),
     connect(() => ({ values: [teamLogic, ['currentTeamId', 'currentTeam']] })),
     actions({
@@ -175,14 +175,14 @@ export const afterClickingScanLogic = kea<afterClickingScanLogicType>([
         scanState: [
             (s) => [s.sessions, s.sessionsLoading, s.scanRequest, s.scanStarting, s.scanError],
             (
-                sessions: TransactionalEmailImpactSessionsApi | null,
-                sessionsLoading: boolean,
-                scanRequest: ObservationRequestApi | null,
-                scanStarting: boolean,
-                scanError: string | null
+                sessions: afterClickingScanLogicValues['sessions'],
+                sessionsLoading: afterClickingScanLogicValues['sessionsLoading'],
+                scanRequest: afterClickingScanLogicValues['scanRequest'],
+                scanStarting: afterClickingScanLogicValues['scanStarting'],
+                scanError: afterClickingScanLogicValues['scanError']
             ): AfterClickingScanState => {
                 if (scanError) {
-                    return { kind: 'scan-error', message: scanError }
+                    return { kind: 'scan-error', message: scanRequest ? POLL_ERROR : scanError }
                 }
                 if (scanRequest) {
                     return scanRequestState(scanRequest)
@@ -205,6 +205,7 @@ export const afterClickingScanLogic = kea<afterClickingScanLogicType>([
     }),
     listeners(({ actions, values, props, cache }) => ({
         scanSessions: async (_, breakpoint) => {
+            cache.disposables.dispose('scanPoll')
             if (!values.scanRequest && !cache.scanKey) {
                 cache.scanKey = uuid()
                 // pinned: analytics event name - renaming breaks dashboards
@@ -220,6 +221,7 @@ export const afterClickingScanLogic = kea<afterClickingScanLogicType>([
                     : await visionRequestsCreate(String(values.currentTeamId), {
                           session_ids: (values.sessions?.sessions ?? []).map((session) => session.session_id),
                           inline: { prompt: SCAN_PROMPT, scanner_config: { allow_inconclusive: true } },
+                          wait_for_session_end: true,
                           reference: `workflows-email:${props.workflowId}`,
                           idempotency_key: cache.scanKey,
                       })
@@ -243,7 +245,7 @@ export const afterClickingScanLogic = kea<afterClickingScanLogicType>([
             // pinned: analytics event name - renaming breaks dashboards
             posthog.capture('transactional email impact scan completed', {
                 sessions: request.sessions.length,
-                answered: request.sessions.filter((session) => session.scanner_result).length,
+                answered: request.sessions.filter((session) => sessionAnswer(session)).length,
                 days: props.days,
             })
         },

@@ -136,7 +136,7 @@ export const Ready: StoryObj<AfterClickingStoryArgs> = {
 export const Scanning: StoryObj<AfterClickingStoryArgs> = {
     render: Template,
     args: { sessions: SESSIONS },
-    play: ({ canvasElement }) => scan(canvasElement, /^5 of 12\ssessions scanned$/),
+    play: ({ canvasElement }) => scan(canvasElement, /^5 of 12\ssessions scanned\./),
 }
 
 export const Answers: StoryObj<AfterClickingStoryArgs> = {
