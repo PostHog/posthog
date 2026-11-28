@@ -13,12 +13,12 @@ import { MIN_BASELINE_SECONDS, SAMPLE_INTERVAL_MS, SCRAPE_TIMEOUT_MS } from '../
 import { roleFreeze, roleKill, roleTerminate } from '../valves/valves'
 import { DEFINITIONS, Definition, Definitions } from './definitions'
 import { AdmissionTargets, loadTargetsOf } from './load-targets'
-import { AlertsProfile, Card, Load, Named, Profile, SeedOverride, stepsOf } from './schema'
+import { AlertsProfile, Card, Load, Named, Profile, SeedOverride, scaleOf, stepsOf } from './schema'
 import { Target, targetProblems } from './target'
 
 export const PROFILES_DIR = path.join(__dirname, '..', 'profiles')
 export const ROLE_RESTART_BACKOFF_MS = 2000
-export const PROCESS_ENV_SETTINGS = ['HOG_BYTECODE_CACHE_REQUIRED', 'HOG_BYTECODE_CACHE_REWRITE']
+export const PROCESS_ENV_SETTINGS = ['HOG_BYTECODE_CACHE_REQUIRED', 'HOG_BYTECODE_CACHE_REWRITE', 'NODE_OPTIONS']
 export const LOAD_PRODUCER_SETTING_PREFIX = 'KAFKA_PRODUCER_'
 
 export type LoadedCard = {
@@ -186,8 +186,8 @@ const topScaleOf = (card: Card): number => Math.max(...stepsOf(card.drive).map((
 
 function checkWorkflowRate(card: Card, profile: Profile, defaults: Settings): string[] {
     const ceiling = settingOf(profile, defaults, 'CDP_RATE_LIMITER_REFILL_RATE') * RATE_LIMIT_SHARE
-    const topScale = topScaleOf(card)
     return card.drive.traffic.flatMap(({ name }) => {
+        const topScale = Math.max(...stepsOf(card.drive).map((step) => scaleOf(step, name)))
         const kind = TRAFFIC.find((traffic) => traffic.name === name)
         const shape = kind?.profile.safeParse(profile.traffic[name])
         if (kind === undefined || kind.intake === 'transactional' || !shape?.success) {
@@ -332,6 +332,11 @@ function checkSesLimiter(card: Card, profile: Profile, load: Load | undefined, d
     )
     if (load === undefined || !sendsEmail) {
         return []
+    }
+    if (stepsOf(card.drive).some(({ only }) => only !== undefined)) {
+        return [
+            'drive.ramp: a step with only scales part of the traffic, and load admission and the SES limiter check scale every target; run the card on a profile without a load block',
+        ]
     }
     const capacity = settingOf(profile, defaults, 'CDP_SES_RATE_LIMIT_CAPACITY')
     const replicas = profile.replicas['cdp-cyclotron-worker-email'] ?? 1

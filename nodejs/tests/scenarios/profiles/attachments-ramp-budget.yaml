@@ -1,0 +1,19 @@
+name: attachments-ramp-budget
+traffic:
+    event_email:
+        ratePerSecond: 1
+    transactional_email_files:
+        ratePerSecond: 2
+        files:
+            share: 1
+            perSend: 2
+            sizes:
+                - bytes: 200000
+                  weight: 5
+                - bytes: 4000000
+                  weight: 3
+                - bytes: 12000000
+                  weight: 2
+settings:
+    CDP_EMAIL_ATTACHMENTS_MAX_IN_FLIGHT: '64'
+    CDP_EMAIL_ATTACHMENTS_MEMORY_BUDGET_FRACTION: '0.01'

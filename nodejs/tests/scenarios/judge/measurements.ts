@@ -8,6 +8,7 @@ import type { CdpRole, Named, Step } from '../cards'
 import type { Definition } from '../cards/definitions'
 import type { ObservationName } from '../environment/failover'
 import { ReplicaOf, nameOf } from '../environment/identity'
+import type { AttachmentBudget } from '../environment/roles'
 import type { RoleExit } from '../environment/supervisor'
 import type { QueueCounts, WriterBackends } from '../probe/cyclotron-probe'
 import type { WriterSample } from '../probe/writer-probe'
@@ -77,6 +78,7 @@ export type MeasureEvidence = Omit<JudgeEvidence, 'janitorResets' | 'boundary'> 
         steps: readonly Step[]
         timeline: readonly ValveTimelineEntry[]
         counters?: CounterReading
+        attachmentBudgets?: readonly AttachmentBudget[]
         truthFrom: number
         unread?: string
         horizonAt?: number
@@ -189,6 +191,62 @@ export const attachmentReservedBytesMax = peakPerRole(
     emailWorkerOnly
 )
 
+const unbudgeted = (role: string, budgets: readonly AttachmentBudget[] | undefined): Measured | undefined => {
+    const ofRole = (budgets ?? []).filter((budget) => budget.role === role)
+    const refused = ofRole.find((budget) => 'refusal' in budget)
+    const unread = ofRole.find((budget) => 'unmeasured' in budget)
+    return ofRole.length === 0
+        ? { key: role, value: null, censored: true, unmeasured: 'the run target computes no budget for this role' }
+        : unread && 'unmeasured' in unread
+          ? { key: role, ...unmeasured(unread.unmeasured) }
+          : refused && 'refusal' in refused
+            ? {
+                  key: role,
+                  value: null,
+                  censored: true,
+                  unmeasured: `the worker admits no sends with files: ${refused.refusal}`,
+              }
+            : undefined
+}
+
+const budgetOf = (budgets: readonly AttachmentBudget[], { role, replica }: { role: string; replica: number }): number =>
+    budgets.flatMap((budget) =>
+        budget.role === role && budget.replica === replica && 'budgetBytes' in budget ? [budget.budgetBytes] : []
+    )[0]
+
+export const attachmentBudgetBytes: MeasurementDefinition = {
+    name: 'attachment_budget_bytes',
+    params: z.object({}).strict(),
+    unit: 'bytes',
+    measure: ({ attachmentBudgets = [] }) =>
+        [...Map.groupBy(attachmentBudgets, ({ role }) => role)].map(
+            ([role, ofRole]) =>
+                unbudgeted(role, ofRole) ?? {
+                    key: role,
+                    value: Math.min(
+                        ...ofRole.flatMap((budget) => ('budgetBytes' in budget ? [budget.budgetBytes] : []))
+                    ),
+                }
+        ),
+}
+
+export const attachmentReservedShareMax: MeasurementDefinition = {
+    name: 'attachment_reserved_share_max',
+    params: z.object({}).strict(),
+    unit: 'share',
+    measure: ({ samples, missed, attachmentBudgets }) =>
+        [...byRole(emailWorkerOnly(samples).filter(({ attachments }) => attachments !== undefined))].map(
+            ([role, ofRole]) =>
+                unbudgeted(role, attachmentBudgets) ?? {
+                    key: role,
+                    value: maxOf(
+                        ofRole.map((sample) => sample.attachments!.reservedBytes / budgetOf(attachmentBudgets!, sample))
+                    ),
+                    ...completeness(role, missed),
+                }
+        ),
+}
+
 export const roleRestarts: MeasurementDefinition = {
     name: 'role_restarts',
     params: z.object({}).strict(),
@@ -232,34 +290,219 @@ export const attachmentDeferrals: MeasurementDefinition = {
 
 const nearestRank = (sorted: number[], share: number): number => sorted[Math.ceil(share * sorted.length) - 1]
 
+type Latency = { offeredAt: number; withFiles: boolean; emailed: boolean; ms: number }
+
+function latenciesOf({ journal, truth }: Pick<MeasureEvidence, 'journal' | 'truth'>): Latency[] {
+    const firstAccepted = new Map<string, { at: number; emailed: boolean }>()
+    for (const { kind, unitId, actionId, status, at } of [...truth].sort((a, b) => a.seq - b.seq)) {
+        const key = unitId !== undefined && actionId !== undefined ? deliveryKey(unitId, actionId) : undefined
+        if (key !== undefined && status >= 200 && status < 300 && !firstAccepted.has(key)) {
+            firstAccepted.set(key, { at: Date.parse(at), emailed: kind === 'ses.send' })
+        }
+    }
+    return journal
+        .filter(({ answer }) => answer.accepted)
+        .flatMap(({ unitId, offeredAt, expect }) =>
+            expect.deliveries.flatMap((actionId) => {
+                const delivered = firstAccepted.get(deliveryKey(unitId, actionId))
+                return delivered === undefined
+                    ? []
+                    : [
+                          {
+                              offeredAt,
+                              withFiles: (expect.attachments?.length ?? 0) > 0,
+                              emailed: delivered.emailed,
+                              ms: delivered.at - offeredAt,
+                          },
+                      ]
+            })
+        )
+}
+
+const sortedMs = (latencies: readonly Latency[]): number[] => latencies.map(({ ms }) => ms).sort((a, b) => a - b)
+
+const runsFiles = ({ journal }: Pick<MeasureEvidence, 'journal'>): boolean =>
+    journal.some(({ answer, expect }) => answer.accepted && expect.attachments !== undefined)
+
 export const deliveryLatencyMs: MeasurementDefinition = {
     name: 'delivery_latency_ms',
     params: z.object({}).strict(),
     unit: 'ms',
-    measure: ({ journal, truth }) => {
-        const firstAccepted = new Map<string, number>()
-        for (const { unitId, actionId, status, at } of [...truth].sort((a, b) => a.seq - b.seq)) {
-            const key = unitId !== undefined && actionId !== undefined ? deliveryKey(unitId, actionId) : undefined
-            if (key !== undefined && status >= 200 && status < 300 && !firstAccepted.has(key)) {
-                firstAccepted.set(key, Date.parse(at))
-            }
-        }
-        const latencies = journal
-            .filter(({ answer }) => answer.accepted)
-            .flatMap(({ unitId, offeredAt, expect }) =>
-                expect.deliveries.flatMap((actionId) => {
-                    const deliveredAt = firstAccepted.get(deliveryKey(unitId, actionId))
-                    return deliveredAt === undefined ? [] : [deliveredAt - offeredAt]
-                })
-            )
-            .sort((a, b) => a - b)
-        return latencies.length === 0
+    measure: (evidence) => {
+        const sorted = sortedMs(latenciesOf(evidence))
+        return sorted.length === 0
             ? []
             : [
-                  { key: 'p50', value: nearestRank(latencies, 0.5) },
-                  { key: 'p95', value: nearestRank(latencies, 0.95) },
-                  { key: 'max', value: latencies.at(-1)! },
+                  { key: 'p50', value: nearestRank(sorted, 0.5) },
+                  { key: 'p95', value: nearestRank(sorted, 0.95) },
+                  { key: 'max', value: sorted.at(-1)! },
               ]
+    },
+}
+
+const PARTS = [
+    { part: 'plain', withFiles: false },
+    { part: 'files', withFiles: true },
+] as const
+
+function stepLatencies(evidence: MeasureEvidence): (ScaledPhase & { part: string; sorted: number[] })[] {
+    const latencies = latenciesOf(evidence)
+    return runsFiles(evidence)
+        ? stepPhasesOf(evidence.drive, evidence.steps).flatMap(({ scale, step }) =>
+              PARTS.map(({ part, withFiles }) => ({
+                  scale,
+                  step,
+                  part,
+                  sorted: sortedMs(
+                      latencies.filter(
+                          (latency) =>
+                              latency.emailed &&
+                              latency.withFiles === withFiles &&
+                              latency.offeredAt >= step.from &&
+                              latency.offeredAt < step.to
+                      )
+                  ),
+              }))
+          )
+        : []
+}
+
+export const stepDeliveryLatencyMs: MeasurementDefinition = {
+    name: 'step_delivery_latency_ms',
+    params: z.object({}).strict(),
+    unit: 'ms',
+    measure: (evidence) =>
+        stepLatencies(evidence).flatMap(({ scale, part, sorted }) =>
+            sorted.length === 0
+                ? []
+                : [
+                      { key: `${part}_p50_${scale}x`, value: nearestRank(sorted, 0.5) },
+                      { key: `${part}_p95_${scale}x`, value: nearestRank(sorted, 0.95) },
+                  ]
+        ),
+}
+
+const deferralSamplesOf = ({ samples }: Pick<MeasureEvidence, 'samples'>): MetricSample[] =>
+    emailWorkerOnly(samples).filter(({ attachments }) => attachments !== undefined)
+
+function stepDeferrals(evidence: MeasureEvidence): (ScaledPhase & { reason: string; increase: StepIncrease })[] {
+    const samples = deferralSamplesOf(evidence)
+    const reasons = [...new Set(samples.flatMap(({ attachments }) => Object.keys(attachments!.deferrals)))].sort()
+    return stepPhasesOf(evidence.drive, evidence.steps).flatMap(({ scale, step }) =>
+        reasons.map((reason) => ({
+            scale,
+            step,
+            reason,
+            increase: stepIncrease(samples, emailWorkerMisses(evidence.missed), deferredFor(reason), step),
+        }))
+    )
+}
+
+export const stepAttachmentDeferralsPerSecond: MeasurementDefinition = {
+    name: 'step_attachment_deferrals_per_second',
+    params: z.object({}).strict(),
+    unit: 'tokens/s',
+    measure: (evidence) =>
+        stepDeferrals(evidence).map(({ scale, step, reason, increase: { value, incomplete } }) => ({
+            key: `${reason}_${scale}x`,
+            value: value / seconds(step.to - step.from),
+            ...(incomplete ? { incomplete } : {}),
+        })),
+}
+
+const PLAIN_SLOWDOWN = 2
+
+const onsetOf = (key: string, scales: readonly number[]): Measured =>
+    scales.length === 0 ? { key, value: null, censored: true } : { key, value: scales[0] }
+
+const emailWorkerMisses = (missed: readonly MissedScrape[]): MissedScrape[] =>
+    missed.filter(({ role }) => role === EMAIL_WORKER)
+
+// The scrape before the first rise of a reason, or undefined when no scrape interval inside one process shows a rise.
+function firstRiseFrom(samples: readonly MetricSample[], read: Counter, from: number): number | undefined {
+    const starts = replicasOf(samples).flatMap((ofReplica) =>
+        ofReplica
+            .slice(1)
+            .map((to, i) => ({ from: ofReplica[i], to }))
+            .filter(({ from: at, to }) => to.at > from && at.startedAt === to.startedAt && read(to) > read(at))
+            .map(({ from: at }) => at.at)
+    )
+    return starts.length === 0 ? undefined : Math.min(...starts)
+}
+
+// A restart or a missed scrape can hide the tokens spent before the first rise, so the onset could lie earlier.
+// One that falls after the first rise cannot move it.
+function hiddenBeforeRise(evidence: MeasureEvidence, reason: string, ramp: Phase): boolean {
+    const samples = deferralSamplesOf(evidence)
+    const until = firstRiseFrom(samples, deferredFor(reason), ramp.from) ?? ramp.to
+    const restarted = replicasOf(samples).some((ofReplica) =>
+        ofReplica
+            .slice(1)
+            .some((to, i) => to.startedAt !== ofReplica[i].startedAt && to.at > ramp.from && ofReplica[i].at < until)
+    )
+    const missedScrape = emailWorkerMisses(evidence.missed).some(({ at }) => at > ramp.from && at < until)
+    return restarted || missedScrape
+}
+
+// A token counted only in the scrape interval that crosses the step's end may have been spent in the next step.
+function deferralOnsetOf(
+    reason: string,
+    deferrals: ReturnType<typeof stepDeferrals>,
+    evidence: MeasureEvidence
+): Measured {
+    const ofReason = deferrals.filter((deferral) => deferral.reason === reason)
+    const ramp = { from: ofReason[0].step.from, to: ofReason.at(-1)!.step.to }
+    if (hiddenBeforeRise(evidence, reason, ramp)) {
+        return {
+            key: reason,
+            ...unmeasured(
+                'not measured: a restart or missed scrape before the first rise can hide deferrals, a follow-up'
+            ),
+        }
+    }
+    const first = ofReason.find((deferral) => deferral.increase.value > 0)
+    return first === undefined
+        ? { key: reason, value: null, censored: true }
+        : { key: reason, value: first.scale, ...(first.increase.risesBeforeEnd ? {} : { incomplete: true }) }
+}
+
+function plainSlowdownOf(evidence: MeasureEvidence): Measured[] {
+    const [opening, ...later] = stepLatencies(evidence).filter(({ part }) => part === 'plain')
+    const p95Of = ({ sorted }: { sorted: number[] }): number => nearestRank(sorted, 0.95)
+    if (opening === undefined || later.length === 0) {
+        return []
+    }
+    return opening.sorted.length === 0
+        ? [
+              {
+                  key: 'plain_p95_doubled',
+                  value: null,
+                  censored: true,
+                  unmeasured: 'the first step delivered no plain send to compare the later steps with',
+              },
+          ]
+        : [
+              onsetOf(
+                  'plain_p95_doubled',
+                  later
+                      .filter((step) => step.sorted.length > 0 && p95Of(step) > PLAIN_SLOWDOWN * p95Of(opening))
+                      .map(({ scale }) => scale)
+              ),
+          ]
+}
+
+export const rampOnsetScale: MeasurementDefinition = {
+    name: 'ramp_onset_scale',
+    params: z.object({}).strict(),
+    unit: 'x',
+    measure: (evidence) => {
+        const deferrals = stepDeferrals(evidence)
+        return [
+            ...[...new Set(deferrals.map(({ reason }) => reason))].map((reason) =>
+                deferralOnsetOf(reason, deferrals, evidence)
+            ),
+            ...plainSlowdownOf(evidence),
+        ]
     },
 }
 
@@ -497,7 +740,7 @@ function phaseIncrease(
     missed: readonly MissedScrape[],
     read: Counter,
     phase: Phase
-): Measured {
+): { value: number; incomplete?: true } {
     let value = 0
     let incomplete = false
     for (const ofReplica of replicasOf(samples)) {
@@ -520,6 +763,42 @@ function phaseIncrease(
             )
     }
     return { value, ...(incomplete ? { incomplete: true as const } : {}) }
+}
+
+type StepIncrease = { value: number; incomplete?: true; risesBeforeEnd: boolean }
+
+const share = (a: MetricSample, b: MetricSample, outside: number): number => outside / (b.at - a.at)
+
+// Scrapes do not fall on step edges, so each step reads the counter interpolated at its edges, as openedAt does for
+// the baseline, and the interval that crosses an edge splits between the two steps. Across a restart nothing can be
+// interpolated, and the step keeps the whole interval, which phaseIncrease already marks incomplete.
+function stepIncrease(
+    samples: readonly MetricSample[],
+    missed: readonly MissedScrape[],
+    read: Counter,
+    step: Phase
+): StepIncrease {
+    const { value, incomplete } = phaseIncrease(samples, missed, read, step)
+    let trimmed = value
+    let risesBeforeEnd = false
+    for (const window of replicasOf(samples).map((ofReplica) => bracketing(ofReplica, step))) {
+        const intervals = window.slice(1).map((to, i) => ({ from: window[i], to }))
+        intervals.forEach(({ from, to }, i) => {
+            const rise = from.startedAt === to.startedAt ? read(to) - read(from) : read(to)
+            const crossesEnd = i === intervals.length - 1 && to.at > step.to
+            risesBeforeEnd ||= rise > 0 && !crossesEnd
+            if (from.startedAt !== to.startedAt) {
+                return
+            }
+            if (from.at < step.from) {
+                trimmed -= rise * share(from, to, step.from - from.at)
+            }
+            if (crossesEnd) {
+                trimmed -= rise * share(from, to, to.at - step.to)
+            }
+        })
+    }
+    return { value: trimmed, ...(incomplete ? { incomplete } : {}), risesBeforeEnd }
 }
 
 const spanOf = (window: readonly { at: number }[]): number => (window.length < 2 ? 0 : window.at(-1)!.at - window[0].at)
@@ -1088,6 +1367,11 @@ export const MEASUREMENTS: MeasurementDefinition[] = [
     attachmentDeferrals,
     attachmentSendsInFlightMax,
     attachmentReservedBytesMax,
+    attachmentBudgetBytes,
+    attachmentReservedShareMax,
+    stepDeliveryLatencyMs,
+    stepAttachmentDeferralsPerSecond,
+    rampOnsetScale,
     roleExitMs,
     leaseReclaimMs,
     resentInvocations,

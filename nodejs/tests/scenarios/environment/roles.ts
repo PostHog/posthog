@@ -1,7 +1,10 @@
 import { createHash } from 'crypto'
+import { totalmem } from 'os'
+import { getHeapStatistics } from 'v8'
 import { z } from 'zod'
 
 import { getDefaultCdpConfig } from '~/cdp/config'
+import { MachineMemory, inFlightLimitsFor } from '~/cdp/services/messaging/in-flight-registry'
 import { PluginServerMode } from '~/common/config'
 import { getDefaultConfig, overrideConfigWithEnv } from '~/common/config/config'
 
@@ -206,6 +209,63 @@ export function roleSpecs(
             },
         }
     })
+}
+
+export type AttachmentBudget = RoleId & ({ budgetBytes: number } | { refusal: string } | { unmeasured: string })
+
+const NODE_ENV_KEYS = ['NODE_ENV', 'DEBUG'] as const
+
+function defaultsUnder(env: NodeJS.ProcessEnv): ReturnType<typeof getDefaultCdpConfig> {
+    const runner = NODE_ENV_KEYS.map((key) => [key, process.env[key]] as const)
+    const put = (key: string, value: string | undefined): void => {
+        if (value === undefined) {
+            delete process.env[key]
+        } else {
+            process.env[key] = value
+        }
+    }
+    NODE_ENV_KEYS.forEach((key) => put(key, env[key]))
+    try {
+        return getDefaultCdpConfig()
+    } finally {
+        runner.forEach(([key, value]) => put(key, value))
+    }
+}
+
+const SIZES_HEAP = /--max-old-space-size/
+
+const runnerMemory = (): MachineMemory => ({
+    constrainedBytes: process.constrainedMemory(),
+    totalBytes: totalmem(),
+    heapLimitBytes: getHeapStatistics().heap_size_limit,
+})
+
+export function attachmentBudgetsOf(specs: RoleSpec[], machine: MachineMemory = runnerMemory()): AttachmentBudget[] {
+    return specs
+        .filter(({ role }) => role === 'cdp-cyclotron-worker-email')
+        .map(({ role, replica, env }): AttachmentBudget => {
+            if (SIZES_HEAP.test(env.NODE_OPTIONS ?? '')) {
+                return {
+                    role,
+                    replica,
+                    unmeasured:
+                        'not measured: NODE_OPTIONS sizes the worker heap, and reading it from the worker is a follow-up',
+                }
+            }
+            const config = overrideConfigWithEnv(defaultsUnder(env), env)
+            const admission = inFlightLimitsFor(
+                {
+                    memoryFraction: config.CDP_EMAIL_ATTACHMENTS_MEMORY_BUDGET_FRACTION,
+                    maxInFlight: config.CDP_EMAIL_ATTACHMENTS_MAX_IN_FLIGHT,
+                    heartbeatIntervalMs: config.CDP_CYCLOTRON_HEARTBEAT_INTERVAL_MS,
+                    attachmentStoreBucket: config.CDP_EMAIL_ATTACHMENTS_S3_BUCKET,
+                },
+                machine
+            )
+            return 'refusal' in admission
+                ? { role, replica, refusal: admission.refusal }
+                : { role, replica, budgetBytes: admission.limits.budgetBytes }
+        })
 }
 
 export function fetchRetriesOf({ env }: RoleSpec): number {

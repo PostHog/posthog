@@ -231,6 +231,61 @@ describe('measurements', () => {
         )
     })
 
+    it.each<[string, MeasureEvidence['attachmentBudgets'], Omit<Measurement, 'unit'>[]]>([
+        [
+            "budgets that differ by replica, so each replica's reserved bytes count against its own",
+            [
+                { role: ROLE, replica: 0, budgetBytes: 100_000_000 },
+                { role: ROLE, replica: 1, budgetBytes: 120_000_000 },
+            ],
+            [
+                { name: 'attachment_budget_bytes', key: ROLE, value: 100_000_000 },
+                { name: 'attachment_reserved_share_max', key: ROLE, value: 0.5 },
+            ],
+        ],
+        [
+            'a worker that refused sends with files',
+            [{ role: ROLE, replica: 0, refusal: 'no attachment store is set' }],
+            ['attachment_budget_bytes', 'attachment_reserved_share_max'].map((name) => ({
+                name,
+                key: ROLE,
+                value: null,
+                censored: true as const,
+                unmeasured: 'the worker admits no sends with files: no attachment store is set',
+            })),
+        ],
+        [
+            'a replica whose heap the runner could not read',
+            [
+                { role: ROLE, replica: 0, budgetBytes: 100_000_000 },
+                { role: ROLE, replica: 1, unmeasured: 'the heap is unread' },
+            ],
+            ['attachment_budget_bytes', 'attachment_reserved_share_max'].map((name) => ({
+                name,
+                key: ROLE,
+                value: null,
+                censored: true as const,
+                unmeasured: 'the heap is unread',
+            })),
+        ],
+    ])(
+        'states the email worker budget and how close reserved bytes came to it, for %s',
+        (_story, attachmentBudgets, measured) => {
+            const samples = [
+                withGauges(sample(0, -60, 1), 1, { reservedBytes: 20_000_000 }),
+                withGauges(sample(5, -60, 1, 100, 1), 1, { reservedBytes: 60_000_000 }),
+                { ...withGauges(sample(5, -60, 1), 1, { reservedBytes: 10_000_000 }), role: 'cdp-api' as const },
+            ]
+
+            expect(
+                measure(
+                    ['attachment_budget_bytes', 'attachment_reserved_share_max'].map((name) => ({ name, params: {} })),
+                    evidence({ samples, attachmentBudgets })
+                ).map(({ unit: _unit, ...value }) => value)
+            ).toEqual(measured)
+        }
+    )
+
     it.each([
         ['role_heap_max_bytes', 'bytes', 700],
         ['attachment_sends_in_flight_max', 'sends', 3],
@@ -471,6 +526,123 @@ describe('measurements', () => {
             { name: 'delivery_latency_ms', key: 'p95', value: 1900, unit: 'ms' },
             { name: 'delivery_latency_ms', key: 'max', value: 2000, unit: 'ms' },
         ])
+    })
+
+    const webhook = (seq: number, unitId: string, status = 200): TruthRecord => ({
+        ...record(seq, unitId, 0, status),
+        kind: 'webhook',
+        actionId: 'webhook',
+    })
+
+    it('reads each ramp step on its own, and names the step where each reason first deferred and plain mail slowed', () => {
+        const sent = (unitId: string, offeredAtMs: number, attachments: string[]): JournalEntry => ({
+            ...offered(unitId, offeredAtMs),
+            expect: { deliveries: ['email'], attachments },
+        })
+        const journal = [
+            sent('plain-1', 1000, []),
+            sent('files-1', 1000, ['a1b2c3']),
+            { ...offered('hook-1', 1000), expect: { deliveries: ['webhook'] } },
+            sent('plain-2', 11_000, []),
+            sent('files-2', 11_000, ['d4e5f6']),
+        ]
+        const truth = [
+            record(1, 'plain-1', 1100),
+            record(2, 'files-1', 3000),
+            { ...webhook(3, 'hook-1'), at: new Date(FROM + 6000).toISOString() },
+            record(4, 'plain-2', 11_250),
+            record(5, 'files-2', 17_000),
+        ]
+        const atCap = [0, 0, 0, 4, 4, 4, 8]
+        const overBudget = [0, 0, 0, 0, 1, 1, 1]
+        const samples = [-1, 3, 7, 11, 15, 19, 23].map((second, i) =>
+            withGauges(sample(second, -60, 1), 1, { deferrals: { at_cap: atCap[i], over_budget: overBudget[i] } })
+        )
+        const ramp = (rampJournal: JournalEntry[], rampTruth: TruthRecord[]): MeasureEvidence =>
+            evidence({
+                journal: rampJournal,
+                truth: rampTruth,
+                samples,
+                drive: { startedAt: atS(0), endedAt: atS(20) },
+                steps: [
+                    { scale: 1, fromMs: 0, toMs: 10_000 },
+                    { scale: 4, fromMs: 10_000, toMs: 20_000, only: ['transactional_email_files'] },
+                ],
+            })
+        const names = ['step_delivery_latency_ms', 'step_attachment_deferrals_per_second', 'ramp_onset_scale']
+        const read = (rampEvidence: MeasureEvidence): object[] =>
+            measure(
+                names.map((name) => ({ name, params: {} })),
+                rampEvidence
+            ).map(({ unit: _unit, ...value }) => value)
+
+        expect(read(ramp(journal, truth))).toEqual([
+            ...[
+                ['plain_p50_1x', 100],
+                ['plain_p95_1x', 100],
+                ['files_p50_1x', 2000],
+                ['files_p95_1x', 2000],
+                ['plain_p50_4x', 250],
+                ['plain_p95_4x', 250],
+                ['files_p50_4x', 6000],
+                ['files_p95_4x', 6000],
+            ].map(([key, value]) => ({ name: 'step_delivery_latency_ms', key, value })),
+            ...[
+                ['at_cap_1x', 0.3],
+                ['over_budget_1x', 0],
+                ['at_cap_4x', 0.2],
+                ['over_budget_4x', 0.1],
+            ].map(([key, value]) => ({ name: 'step_attachment_deferrals_per_second', key, value })),
+            { name: 'ramp_onset_scale', key: 'at_cap', value: 1, incomplete: true },
+            { name: 'ramp_onset_scale', key: 'over_budget', value: 4 },
+            { name: 'ramp_onset_scale', key: 'plain_p95_doubled', value: 4 },
+        ])
+        expect(read(ramp(journal.slice(1), truth.slice(1))).at(-1)).toEqual({
+            name: 'ramp_onset_scale',
+            key: 'plain_p95_doubled',
+            value: null,
+            censored: true,
+            unmeasured: 'the first step delivered no plain send to compare the later steps with',
+        })
+        const restarted = samples.map((at, i) => (i < 2 ? at : { ...at, startedAt: FROM / 1000 + 5 }))
+        const hidden = {
+            name: 'ramp_onset_scale',
+            value: null,
+            censored: true,
+            unmeasured:
+                'not measured: a restart or missed scrape before the first rise can hide deferrals, a follow-up',
+        }
+        expect(
+            read({ ...ramp(journal, truth), samples: restarted }).filter(
+                (row) => 'name' in row && row.name === 'ramp_onset_scale'
+            )
+        ).toEqual([
+            { ...hidden, key: 'at_cap' },
+            { ...hidden, key: 'over_budget' },
+            { name: 'ramp_onset_scale', key: 'plain_p95_doubled', value: 4 },
+        ])
+        const apiSamples = [-1, 3, 11, 15, 19, 23].map((second) => ({
+            ...withGauges(sample(second, -60, 1), 1),
+            role: 'cdp-api',
+        }))
+        const gapsAwayFromTheRise = {
+            ...ramp(journal, truth),
+            samples: [...samples, ...apiSamples],
+            missed: [
+                { role: 'cdp-api', replica: 0, at: atS(7) },
+                { role: ROLE, replica: 0, at: atS(17) },
+            ],
+        }
+        expect(read(gapsAwayFromTheRise).filter((row) => 'name' in row && row.name === 'ramp_onset_scale')).toEqual([
+            { name: 'ramp_onset_scale', key: 'at_cap', value: 1, incomplete: true },
+            { name: 'ramp_onset_scale', key: 'over_budget', value: 4 },
+            { name: 'ramp_onset_scale', key: 'plain_p95_doubled', value: 4 },
+        ])
+        expect(
+            read({ ...ramp(journal, truth), missed: [{ role: ROLE, replica: 0, at: atS(9) }] }).filter(
+                (row) => 'name' in row && row.name === 'ramp_onset_scale' && 'key' in row && row.key === 'over_budget'
+            )
+        ).toEqual([{ ...hidden, key: 'over_budget' }])
     })
 
     it('samples the process metrics a role serves at start and at stop', async () => {

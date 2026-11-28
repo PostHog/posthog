@@ -63,7 +63,9 @@ export const ValveEntry = z
     })
 export type ValveEntry = z.infer<typeof ValveEntry>
 
-export const RampStep = z.object({ scale: z.number().positive(), for: Duration }).strict()
+export const RampStep = z
+    .object({ scale: z.number().positive(), for: Duration, only: z.array(z.string()).min(1).optional() })
+    .strict()
 export type RampStep = z.infer<typeof RampStep>
 
 export const Card = z
@@ -106,6 +108,13 @@ export const Card = z
                     path: ['ramp'],
                 }
             )
+            .refine(
+                ({ ramp, traffic }) =>
+                    (ramp ?? []).every(({ only }) =>
+                        (only ?? []).every((name) => traffic.some((kind) => kind.name === name))
+                    ),
+                { message: 'a ramp step scales only traffic the drive runs', path: ['ramp'] }
+            )
             .refine(({ ramp, stopOnBreak }) => !stopOnBreak || (ramp ?? []).every((step) => durationMs(step.for) > 0), {
                 message: 'every step of a ramp that stops on a break must last longer than 0ms',
                 path: ['ramp'],
@@ -144,12 +153,15 @@ export const Card = z
     })
 export type Card = z.infer<typeof Card>
 
-export type Step = { scale: number; fromMs: number; toMs: number }
+export type Step = { scale: number; fromMs: number; toMs: number; only?: string[] }
+
+export const scaleOf = ({ scale, only }: Pick<Step, 'scale' | 'only'>, kind: string): number =>
+    only === undefined || only.includes(kind) ? scale : 1
 
 export function stepsOf(drive: Card['drive']): Step[] {
     let fromMs = 0
-    return (drive.ramp ?? [{ scale: 1, for: drive.for }]).map(({ scale, for: lasts }) => {
-        const step = { scale, fromMs, toMs: fromMs + durationMs(lasts) }
+    return (drive.ramp ?? [{ scale: 1, for: drive.for }]).map(({ scale, for: lasts, only }) => {
+        const step = { scale, fromMs, toMs: fromMs + durationMs(lasts), ...(only ? { only } : {}) }
         fromMs = step.toMs
         return step
     })

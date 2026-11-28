@@ -40,6 +40,7 @@ import {
     MODES_WITHOUT_A_ROLE,
     ROLE_PORTS,
     Role,
+    attachmentBudgetsOf,
     attachmentStoreUpstreamOf,
     configHashOf,
     consumerGroupsOf,
@@ -67,6 +68,7 @@ import {
 } from './stack'
 import { createSupervisor } from './supervisor'
 
+const MIB = 1024 * 1024
 const SELF = 100
 const REPO = '/work/posthog'
 const NODEJS = `${REPO}/nodejs`
@@ -482,6 +484,54 @@ describe('scenario environment', () => {
             ['a setting the worker cannot parse, as the worker keeps its default', { CDP_FETCH_RETRIES: 'many' }, 3],
         ])('reads the fetch retries of the hogflow worker from %s', (_story, settings, retries) => {
             expect(fetchRetriesOf(hogflowWorker(settings))).toBe(retries)
+        })
+
+        it.each<[string, Record<string, string>, object]>([
+            [
+                'the profile share of the memory left after the plain batch',
+                {
+                    CDP_EMAIL_ATTACHMENTS_S3_BUCKET: 'scenario-files',
+                    CDP_EMAIL_ATTACHMENTS_MEMORY_BUDGET_FRACTION: '0.25',
+                },
+                { budgetBytes: 1024 * MIB },
+            ],
+            [
+                'the refusal of a worker without an attachment store',
+                { CDP_EMAIL_ATTACHMENTS_S3_BUCKET: '' },
+                { refusal: expect.any(String) },
+            ],
+            [
+                "the worker's dev defaults, which name an attachment store a production runner does not",
+                { CDP_EMAIL_ATTACHMENTS_MEMORY_BUDGET_FRACTION: '0.25' },
+                { budgetBytes: 1024 * MIB },
+            ],
+            [
+                'no budget when NODE_OPTIONS sizes the worker heap, which the runner does not read from the worker',
+                { CDP_EMAIL_ATTACHMENTS_S3_BUCKET: 'scenario-files', NODE_OPTIONS: '--max-old-space-size 64' },
+                {
+                    unmeasured:
+                        'not measured: NODE_OPTIONS sizes the worker heap, and reading it from the worker is a follow-up',
+                },
+            ],
+        ])('computes the email worker budget as the worker does, from %s', (_story, settings, budget) => {
+            const machine = { constrainedBytes: 0, totalBytes: 4608 * MIB, heapLimitBytes: 4096 * MIB }
+            const { NODE_ENV: runnerNodeEnv, DEBUG: runnerDebug } = process.env
+            process.env.NODE_ENV = 'production'
+            delete process.env.DEBUG
+            try {
+                expect(
+                    attachmentBudgetsOf(
+                        roleSpecs(base, EDGE, secretsOf({}), STATE_DIR, settings, undefined, {}),
+                        machine
+                    )
+                ).toEqual([{ role: 'cdp-cyclotron-worker-email', replica: 0, ...budget }])
+                expect([process.env.NODE_ENV, process.env.DEBUG]).toEqual(['production', undefined])
+            } finally {
+                Object.assign(process.env, { NODE_ENV: runnerNodeEnv })
+                if (runnerDebug !== undefined) {
+                    process.env.DEBUG = runnerDebug
+                }
+            }
         })
 
         it('refuses fetch retries that never run out', () => {
