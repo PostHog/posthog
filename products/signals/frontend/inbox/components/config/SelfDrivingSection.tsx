@@ -687,8 +687,13 @@ function GitHubIssueWritebackRow(): JSX.Element {
  * is on, and a blank name saves as the default label rather than as no label.
  */
 function PullRequestLabelRow(): JSX.Element {
-    const { pullRequestLabelEnabled, draftPullRequestLabel, savePullRequestLabelDisabledReason, teamConfigUpdating } =
-        useValues(signalTeamConfigLogic)
+    const {
+        pullRequestLabelEnabled,
+        pullRequestLabel,
+        draftPullRequestLabel,
+        savePullRequestLabelDisabledReason,
+        teamConfigUpdating,
+    } = useValues(signalTeamConfigLogic)
     const { patchTeamConfig, setDraftPullRequestLabel, saveDraftPullRequestLabel } = useActions(signalTeamConfigLogic)
 
     return (
@@ -706,27 +711,45 @@ function PullRequestLabelRow(): JSX.Element {
             }
         >
             {pullRequestLabelEnabled && (
-                <div className="flex items-center gap-2">
-                    <LemonInput
-                        size="small"
-                        className="w-48"
-                        placeholder={DEFAULT_PULL_REQUEST_LABEL}
-                        maxLength={GITHUB_LABEL_NAME_MAX_LENGTH}
-                        value={draftPullRequestLabel}
-                        onChange={setDraftPullRequestLabel}
-                        onPressEnter={saveDraftPullRequestLabel}
-                        aria-label="Pull request label name"
-                    />
-                    <LemonButton
-                        type="secondary"
-                        size="small"
-                        onClick={saveDraftPullRequestLabel}
-                        loading={teamConfigUpdating}
-                        disabledReason={savePullRequestLabelDisabledReason ?? undefined}
-                        data-attr="signals-pull-request-label-save"
-                    >
-                        Save
-                    </LemonButton>
+                <div className="flex flex-col gap-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                        <LemonInput
+                            size="small"
+                            className="w-48"
+                            placeholder={DEFAULT_PULL_REQUEST_LABEL}
+                            maxLength={GITHUB_LABEL_NAME_MAX_LENGTH}
+                            value={draftPullRequestLabel}
+                            onChange={setDraftPullRequestLabel}
+                            onPressEnter={saveDraftPullRequestLabel}
+                            aria-label="Pull request label name"
+                        />
+                        {/* The switch already saved the label, so Save only appears once there is a new name to save. */}
+                        {!savePullRequestLabelDisabledReason && (
+                            <LemonButton
+                                type="secondary"
+                                size="small"
+                                onClick={saveDraftPullRequestLabel}
+                                loading={teamConfigUpdating}
+                                data-attr="signals-pull-request-label-save"
+                            >
+                                Save
+                            </LemonButton>
+                        )}
+                    </div>
+                    <p className="m-0 text-xs text-secondary">
+                        {pullRequestLabel.trim() ? (
+                            <>
+                                PRs get the <span className="font-medium text-default">{pullRequestLabel.trim()}</span>{' '}
+                                label.
+                            </>
+                        ) : (
+                            <>
+                                PRs get the default{' '}
+                                <span className="font-medium text-default">{DEFAULT_PULL_REQUEST_LABEL}</span> label.
+                                Enter a name to use a different one.
+                            </>
+                        )}
+                    </p>
                 </div>
             )}
         </AutonomySettingRow>
