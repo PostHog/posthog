@@ -913,16 +913,22 @@ class OrganizationMembership(ModelActivityMixin, UUIDTModel):
             ]
         )
         if new_level is not None:
-            if new_level == OrganizationMembership.Level.OWNER:
-                if not can_manage_owners:
-                    raise exceptions.PermissionDenied(
-                        "You can only make another member owner if you're this organization's owner."
-                    )
-                self.save()
-            elif new_level == OrganizationMembership.Level.ADMIN and not can_edit:
+            if new_level == OrganizationMembership.Level.OWNER and not can_manage_owners:
+                raise exceptions.PermissionDenied(
+                    "You can only make another member owner if you're this organization's owner."
+                )
+            if new_level == OrganizationMembership.Level.ADMIN and not can_edit:
                 raise exceptions.PermissionDenied(
                     "You can only change access level of others to lower or equal to your current one."
                 )
+            # After the permission checks, so that a caller who may not make this change gets the same
+            # refusal whatever the account type.
+            if new_level > OrganizationMembership.Level.MEMBER and membership_being_updated.user.is_service_account:
+                raise exceptions.ValidationError(
+                    {"level": "Service accounts can only have the member level."}, code="service_account_level"
+                )
+            if new_level == OrganizationMembership.Level.OWNER:
+                self.save()
         if membership_being_updated.organization_id != self.organization_id:
             raise exceptions.PermissionDenied("You both need to belong to the same organization.")
         if not can_edit:
