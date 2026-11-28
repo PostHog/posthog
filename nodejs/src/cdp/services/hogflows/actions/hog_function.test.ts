@@ -1540,9 +1540,9 @@ describe('HogFunctionHandler', () => {
                     }
                 )
                 await deliver()
-                for (const link of unsubscribeLinks(fakeSes.deliveries[0].html)) {
-                    await supertest(sesEndpoint).get(new URL(link).pathname)
-                }
+                const [trackedLink] = unsubscribeLinks(fakeSes.deliveries[0].html)
+                expect(trackedLink).toMatch(new RegExp(`^${sesEndpoint}/L0/\\d+$`))
+                await supertest(sesEndpoint).get(new URL(trackedLink).pathname).expect(302)
 
                 const reported = await new SesWebhookHandler(
                     new EmailTrackingCodeSigner(hub.ENCRYPTION_SALT_KEYS, hub.CDP_EMAIL_TRACKING_URL)

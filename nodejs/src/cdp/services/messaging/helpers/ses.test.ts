@@ -223,9 +223,10 @@ describe('SesWebhookHandler', () => {
                 body: [{ eventType: 'Click', mail: baseMail, click: { link, timestamp: '2025-10-03T12:02:00Z' } }],
                 headers: {},
             })
+            const metric = (name: string) => result.metrics?.find(({ metricName }) => metricName === name)
             return {
-                recorded: result.metrics?.[0].properties?.$link_url,
-                perLink: result.metrics?.[1].instanceIdOverride,
+                recorded: metric('email_link_clicked')?.properties?.$link_url,
+                perLink: metric('email_link_clicked_by_link')?.instanceIdOverride,
             }
         }
 
@@ -284,6 +285,10 @@ describe('SesWebhookHandler', () => {
             { case: 'a customer page under the same path', link: 'https://example.com/messaging-preferences/settings' },
             { case: 'a token for another purpose', link: `https://example.com/opt-out/${otherAudienceToken}` },
             { case: 'a preferences token without its signature', link: `https://example.com/p/${unsignedToken}` },
+            {
+                case: 'a preferences token whose header is an escaped non-ASCII character',
+                link: `https://example.com/p/%C3%A9.${payload}.${signature}`,
+            },
             { case: 'a long run of escapes', link: `https://example.com/?q=${'%25'.repeat(200_000)}` },
             { case: 'a long run of dots', link: `https://example.com/?q=${'eyJ.'.repeat(200_000)}` },
         ])('records the whole link for $case', async ({ link }) => {

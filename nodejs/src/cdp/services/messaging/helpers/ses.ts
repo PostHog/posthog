@@ -265,8 +265,16 @@ const isSensitiveMail = (mail: { tags?: Record<string, unknown> } | undefined): 
 // Applied to its own output, it returns that output, so a link redacted before queueing records the same value.
 const sensitiveClickLink = (link: string): string => sensitiveLinkOrigin(resolveClickDestination(link))
 
-const recordsOnlyLinkOrigin = (isSensitive: boolean, link: string): boolean =>
-    isSensitive || carriesPreferencesToken(link)
+type RecordedClickLink = { eventUrl: string; perLinkUrl: string }
+
+const recordedClickLink = (isSensitive: boolean, link: string): RecordedClickLink => {
+    const destination = resolveClickDestination(link)
+    if (isSensitive || carriesPreferencesToken(link)) {
+        const origin = sensitiveLinkOrigin(destination)
+        return { eventUrl: origin, perLinkUrl: origin }
+    }
+    return { eventUrl: destination, perLinkUrl: normalizeClickUrl(destination) }
+}
 
 type LooseSesRecord = {
     mail?: { tags?: Record<string, unknown>; commonHeaders?: Record<string, unknown>; headers?: unknown }
@@ -640,13 +648,13 @@ export class SesWebhookHandler extends SnsEnvelopeVerifier {
                 // — prefer those over the webhook receipt time so the event reflects when the action
                 // actually happened, not when AWS got around to delivering the notification.
                 let timestamp: string | undefined
+                let clickLink: RecordedClickLink | undefined
                 if ('open' in rec && rec.open) {
                     timestamp = rec.open.timestamp
                 } else if ('click' in rec && rec.click) {
                     timestamp = rec.click.timestamp
-                    properties.$link_url = recordsOnlyLinkOrigin(isSensitive, rec.click.link)
-                        ? sensitiveClickLink(rec.click.link)
-                        : resolveClickDestination(rec.click.link)
+                    clickLink = recordedClickLink(isSensitive, rec.click.link)
+                    properties.$link_url = clickLink.eventUrl
                     const linkIndex = rec.click.linkTags?.[SES_LINK_INDEX_TAG]?.[0]
                     if (linkIndex !== undefined) {
                         properties.$link_index = linkIndex
@@ -690,7 +698,7 @@ export class SesWebhookHandler extends SnsEnvelopeVerifier {
                 // back to the invocation id, producing a row per send per link rather than an
                 // aggregate, and the breakdown is per-action anyway. It carries its own metric name
                 // so the existing `email_link_clicked` totals and trends can't double-count it.
-                if (rec.eventType === 'Click' && actionId) {
+                if (rec.eventType === 'Click' && actionId && clickLink) {
                     metrics.push({
                         functionId,
                         invocationId,
@@ -702,9 +710,7 @@ export class SesWebhookHandler extends SnsEnvelopeVerifier {
                         instanceIdOverride: buildLinkInstanceId(
                             actionId,
                             rec.click.linkTags?.[SES_LINK_INDEX_TAG]?.[0] ?? '',
-                            recordsOnlyLinkOrigin(isSensitive, rec.click.link)
-                                ? sensitiveClickLink(rec.click.link)
-                                : normalizeClickUrl(resolveClickDestination(rec.click.link))
+                            clickLink.perLinkUrl
                         ),
                         timestamp,
                         workflowVersion,

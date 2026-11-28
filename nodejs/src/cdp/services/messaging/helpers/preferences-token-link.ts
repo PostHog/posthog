@@ -4,7 +4,6 @@ import { PosthogJwtAudience } from '../../../utils/jwt-utils'
 
 const PERCENT = 0x25
 const DOT = 0x2e
-const ASCII_LIMIT = 0x80
 
 const isWhitespaceOrControl = (code: number): boolean => code <= 0x20 || code === 0x7f
 
@@ -33,8 +32,7 @@ const decodableEscapeAtEnd = (chars: number[]): number | undefined => {
     if (high < 0 || low < 0) {
         return undefined
     }
-    const code = high * 16 + low
-    return code < ASCII_LIMIT ? code : undefined
+    return high * 16 + low
 }
 
 const appendDecoding = (chars: number[], code: number): void => {
@@ -56,10 +54,6 @@ const fullyDecodedChars = (link: string): number[] => {
     return chars
 }
 
-const isPreferencesAudience = (audience: unknown): boolean =>
-    audience === PosthogJwtAudience.SUBSCRIPTION_PREFERENCES ||
-    (Array.isArray(audience) && audience.includes(PosthogJwtAudience.SUBSCRIPTION_PREFERENCES))
-
 const isPreferencesPayload = (segment: number[]): boolean => {
     const json = Buffer.from(Buffer.from(segment).toString('latin1'), 'base64url')
     if (json[0] !== 0x7b) {
@@ -68,7 +62,10 @@ const isPreferencesPayload = (segment: number[]): boolean => {
     try {
         const payload: unknown = parseJSON(json.toString('utf8'))
         return (
-            typeof payload === 'object' && payload !== null && isPreferencesAudience((payload as { aud?: unknown }).aud)
+            typeof payload === 'object' &&
+            payload !== null &&
+            'aud' in payload &&
+            payload.aud === PosthogJwtAudience.SUBSCRIPTION_PREFERENCES
         )
     } catch {
         return false
