@@ -59,11 +59,10 @@ Access rules can also be changed with MCP write tools. Read the current rule fir
   them. `organization_level` is a number: 1 member, 8 admin, 15 owner.
 - **Creators** have full access to the objects they created, and only those. A member with `viewer` on
   dashboards can still edit the dashboard they created, and cannot edit the others.
-- **Two resolution modes.** Organizations resolve rules either most-specific-first (member rule, then
-  role rules, then default, and object rule before tool rule) or legacy (the highest of the member's own
-  rule and role rules wins). The tools do not say which mode applies. The server already applied it. So
-  **trust `effective_access_level` and never recompute it from the stored rules.** If the user asks why,
-  explain from `inherited_access`, not from your own precedence.
+- **Precedence.** For the project, a tool or an object, the most specific subject with a rule decides: the member's own rule, then the highest of the rules of their roles, then the default.
+  A rule on an object comes before a rule on its tool, with one exception: an object's default rule gives nothing to a member whose access to the tool is `none`.
+  `effective_access_level` is the result of this order, so read the enforced level from it.
+  `inherited_access` says where that level comes from.
 
 ## Available tools
 
@@ -107,11 +106,8 @@ All access control tools take an optional project id and default to the active p
       `default-objects-list`, and pick out the rows for this object. Tell the user how many roles you
       would walk and ask before doing it for a member in many roles.
    4. No rule on the object: the tool-level answer from step 2 applies.
-5. **Several rules on one object.** When the member, a role and the default each set a level on the
-   same object, the server picks one by the organization's resolution mode, and no tool returns that
-   pick for another member. Report every rule you found with its subject, say the enforced one depends
-   on the mode, and do not guess. Property questions work like step 4 with the properties tools, minus
-   the creator check, since properties have no creator.
+5. **More than one rule on the object.** The object tools return the stored rules, not the level the member ends up with. Apply the precedence above to get it.
+   Property questions work like step 4 with the properties tools, minus the creator check, since properties have no creator.
 6. **"Who can ..." questions** are `members-list` without `member_id`, filtered on
    `resources.<tool>.effective_access_level`. The response is every member times every tool and has no
    pagination. For a large organization, ask which people the user cares about first, or answer per
