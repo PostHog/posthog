@@ -333,21 +333,32 @@ def seed_weekly_digest(context: CustomPromptSandboxContext) -> dict[str, Any]:
     }
 
 
+@frozen
+class VisitorMove:
+    value: str
+    current: int
+    previous: int
+
+
 def seed_traffic_change_drivers(context: CustomPromptSandboxContext) -> dict[str, Any]:
     team = _team(context)
     complete_week = DateRange(date_from="-7d", excludeIncompletePeriods=True)
     compare = CompareFilter(compare=True)
     visitors = _overview(team, dateRange=complete_week, compareFilter=compare)["visitors"]
 
-    def movers(breakdown: WebStatsBreakdown) -> list[tuple[str, int, int]]:
+    def movers(breakdown: WebStatsBreakdown) -> list[VisitorMove]:
         rows = []
         for cells in _stats_cells(team, breakdown, limit=50, dateRange=complete_week, compareFilter=compare):
             current, previous = (cells["visitors"] or [0, 0])[:2]
-            rows.append((str(cells["breakdown_value"]), round(current or 0), round(previous or 0)))
-        return sorted(rows, key=lambda row: abs(row[1] - row[2]), reverse=True)[:3]
+            rows.append(
+                VisitorMove(
+                    value=str(cells["breakdown_value"]), current=round(current or 0), previous=round(previous or 0)
+                )
+            )
+        return sorted(rows, key=lambda row: abs(row.current - row.previous), reverse=True)[:3]
 
-    def described(rows: list[tuple[str, int, int]]) -> str:
-        return ", ".join(f"{value} ({previous} to {current})" for value, current, previous in rows)
+    def described(rows: list[VisitorMove]) -> str:
+        return ", ".join(f"{row.value} ({row.previous} to {row.current})" for row in rows)
 
     channels = movers(WebStatsBreakdown.INITIAL_CHANNEL_TYPE)
     referrers = movers(WebStatsBreakdown.INITIAL_REFERRING_DOMAIN)
@@ -361,8 +372,8 @@ def seed_traffic_change_drivers(context: CustomPromptSandboxContext) -> dict[str
             ),
             "tolerance": (
                 "The direction of the headline change must match and the percentage must be within 3 points. The "
-                f"answer must name {channels[0][0] if channels else 'the top channel mover'} or "
-                f"{referrers[0][0] if referrers else 'the top referrer mover'} as a driver, with before and after "
+                f"answer must name {channels[0].value if channels else 'the top channel mover'} or "
+                f"{referrers[0].value if referrers else 'the top referrer mover'} as a driver, with before and after "
                 "visitor counts within 5%, and say which days each period covers."
             ),
         }
