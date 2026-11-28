@@ -37,13 +37,14 @@ def _drop_repeated_rows(
 ) -> Callable[[dict[str, Any]], dict[str, Any] | list[dict[str, Any]]]:
     # The fan-out finishes one parent before the next, so the seen keys only need to cover one scope.
     scope: list[Any] = [None]
+    id_fields = [field for field in primary_keys if field != scope_field]
     seen: set[tuple[Any, ...]] = set()
 
     def drop(row: dict[str, Any]) -> dict[str, Any] | list[dict[str, Any]]:
         if row.get(scope_field) != scope[0]:
             scope[0] = row.get(scope_field)
             seen.clear()
-        key = tuple(row.get(field) for field in primary_keys)
+        key = tuple(row.get(field) for field in id_fields)
         if key in seen:
             return []
         seen.add(key)

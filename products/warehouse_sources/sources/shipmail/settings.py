@@ -122,6 +122,7 @@ SHIPMAIL_ENDPOINTS: dict[str, ShipmailEndpointConfig] = {
         primary_keys=["mailbox_id", "id"],
         required_scopes=("messages:read", "mailboxes:read"),
         partition_key="first_message_at",
+        # The API sorts only by attention_since or last_message_at, and both change during a walk.
         # A thread that gets a new message during the walk moves to a later page. The repeat is
         # dropped, so the row keeps the state from the first page; the next sync refreshes it. A
         # resumed attempt starts with no record of earlier rows and can still write a repeat.
