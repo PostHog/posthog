@@ -1,5 +1,6 @@
 import { Meta, StoryObj } from '@storybook/react'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
@@ -32,3 +33,10 @@ export default meta
 
 type Story = StoryObj<{}>
 export const DraftExperiment: Story = {}
+
+// The test arm of the implementation experiment: a switch between the agent prompt and the code snippet, open on the prompt.
+export const DraftExperimentAgentPrompt: Story = {
+    parameters: {
+        featureFlags: { [FEATURE_FLAGS.EXPERIMENT_IMPLEMENTATION_AGENT_PROMPT]: 'test' },
+    },
+}
