@@ -4,7 +4,7 @@ A source pushes occurrence facts with `record_occurrence`, or registers a feed t
 registrar reads. The platform evaluates every appearance alert itself.
 """
 
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from datetime import datetime
 from typing import Any, Final, Literal
 from uuid import UUID
@@ -13,11 +13,17 @@ from pydantic import BaseModel, ConfigDict, Field, create_model
 
 from products.alerts_platform.backend.facade.contracts import (
     APPEARANCE_GROUPING,
+    AlertDestinationData,
+    AlertEventKind,
+    AppearanceAlertDestination,
+    DestinationType,
     InvalidPlatformAlertEdit,
     NativeAlertLifecycle,
+    NewAlertDestination,
     OccurrenceFeed,
     OccurrenceKind,
     PlatformAlertConfigurationEdit,
+    PlatformAlertConfigurationView,
     SourceConfigSpec,
     SourceKind,
 )
@@ -152,3 +158,37 @@ def record_occurrence(
 def register_occurrence_feed(source: SourceKind, feed: OccurrenceFeed) -> None:
     """A source without detection reports what it saw, and the platform's registry decides what is new."""
     occurrences.register_feed(source, feed)
+
+
+def create_appearance_alert(
+    *,
+    team_id: int,
+    source: SourceKind,
+    name: str,
+    filters: Sequence[dict[str, Any]],
+    destination: AppearanceAlertDestination,
+    created_by_id: int | None = None,
+) -> PlatformAlertConfigurationView:
+    """Creates an appearance alert and its destination in one transaction. The destination hears of firing only."""
+    # Imported here, because sources import this module from `ready()` and the write path reaches Temporal.
+    from products.alerts_platform.backend.logic import appearance_alerts  # noqa: PLC0415
+
+    return appearance_alerts.create_appearance_alert(
+        team_id=team_id,
+        source=source,
+        name=name,
+        filters=filters,
+        destinations=[NewAlertDestination(data=_destination_data(destination), event_kinds=(AlertEventKind.FIRING,))],
+        created_by_id=created_by_id,
+    )
+
+
+def _destination_data(destination: AppearanceAlertDestination) -> AlertDestinationData:
+    if destination.webhook_url is not None:
+        return AlertDestinationData(type=DestinationType.WEBHOOK, webhook_url=destination.webhook_url)
+    assert destination.slack_workspace_id is not None and destination.slack_channel_id is not None
+    return AlertDestinationData(
+        type=DestinationType.SLACK,
+        slack_workspace_id=destination.slack_workspace_id,
+        slack_channel_id=destination.slack_channel_id,
+    )

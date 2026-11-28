@@ -1753,6 +1753,22 @@ class NewAlertDestination:
 
 
 @frozen
+class AppearanceAlertDestination:
+    """The one Slack or webhook destination a new appearance alert starts with."""
+
+    webhook_url: str | None = None
+    slack_workspace_id: int | None = None
+    slack_channel_id: str | None = None
+
+    def __post_init__(self) -> None:
+        has_slack = self.slack_workspace_id is not None or self.slack_channel_id is not None
+        if self.webhook_url is not None and has_slack:
+            raise ValueError("an appearance alert destination is a webhook or Slack, not both")
+        if self.webhook_url is None and (self.slack_workspace_id is None or self.slack_channel_id is None):
+            raise ValueError("an appearance alert destination needs a webhook URL, or a Slack workspace and channel")
+
+
+@frozen
 class StoredAlertDestination:
     """One `AlertDestination` row, with its configuration decrypted."""
 
