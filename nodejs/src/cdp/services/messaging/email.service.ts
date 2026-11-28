@@ -1275,10 +1275,11 @@ export class EmailService {
             // function. Checking here means callers can't bypass it by taking a different upstream
             // route. Suppressed addresses are removed from every list. A suppressed `to` is replaced by
             // the first deliverable cc address, and the send is skipped only when none is left.
+            const recipients = this.withoutMarketingCopies(invocation, params, addLog)
             const suppressionOptions: SuppressionCheckOptions = {
                 transactional: invocation.hogFunction?.metadata?.message_category_type === 'transactional',
             }
-            const suppression = await removeSuppressedRecipients(params, (email) =>
+            const suppression = await removeSuppressedRecipients(recipients, (email) =>
                 this.emailSuppressionService.isSuppressed(invocation.teamId, email, suppressionOptions)
             )
             if (suppression.skip) {
@@ -1303,12 +1304,12 @@ export class EmailService {
             }
             // Always send the lists the suppression check parsed, so delivery uses the addresses it checked.
             const deliverableParams = this.withUnsubscribeLink(invocation, {
-                ...params,
+                ...recipients,
                 to:
                     suppression.promotedTo ??
-                    (params.to?.email
-                        ? { ...params.to, email: quoteMailbox(unquoteMailbox(params.to.email)) }
-                        : params.to),
+                    (recipients.to?.email
+                        ? { ...recipients.to, email: quoteMailbox(unquoteMailbox(recipients.to.email)) }
+                        : recipients.to),
                 cc: suppression.cc,
                 bcc: suppression.bcc,
             })
@@ -1856,6 +1857,23 @@ export class EmailService {
             deadline ? { email: sendEmailParams, files, deadline } : { email: sendEmailParams }
         )
         return messageIdOrSendError(outcome, from.email)
+    }
+
+    private withoutMarketingCopies(
+        invocation: CyclotronJobInvocationHogFunction,
+        params: CyclotronInvocationQueueParametersEmailType,
+        addLog: ReturnType<typeof createAddLogFunction>
+    ): CyclotronInvocationQueueParametersEmailType {
+        if (invocation.state?.send?.category?.type !== 'marketing') {
+            return params
+        }
+        if (params.cc?.trim() || params.bcc?.trim()) {
+            addLog(
+                'warn',
+                'Not sending the cc and bcc copies: a marketing email goes only to its recipient, with their own unsubscribe link.'
+            )
+        }
+        return { ...params, cc: undefined, bcc: undefined }
     }
 
     private withUnsubscribeLink(

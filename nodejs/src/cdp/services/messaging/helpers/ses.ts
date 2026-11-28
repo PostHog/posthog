@@ -264,6 +264,22 @@ const isSensitiveMail = (mail: { tags?: Record<string, unknown> } | undefined): 
 // Applied to its own output, it returns that output, so a link redacted before queueing records the same value.
 const sensitiveClickLink = (link: string): string => sensitiveLinkOrigin(resolveClickDestination(link))
 
+const PREFERENCES_PAGE_PATH = '/messaging-preferences'
+
+const withoutPreferencesToken = (link: string): string => {
+    try {
+        const url = new URL(link)
+        return url.pathname.startsWith(`${PREFERENCES_PAGE_PATH}/`)
+            ? `${url.protocol}//${url.host}${PREFERENCES_PAGE_PATH}`
+            : link
+    } catch {
+        return link
+    }
+}
+
+const clickedLink = (link: string, isSensitive: boolean): string =>
+    isSensitive ? sensitiveClickLink(link) : withoutPreferencesToken(resolveClickDestination(link))
+
 type LooseSesRecord = {
     mail?: { tags?: Record<string, unknown>; commonHeaders?: Record<string, unknown>; headers?: unknown }
     click?: { link?: unknown }
@@ -640,9 +656,7 @@ export class SesWebhookHandler extends SnsEnvelopeVerifier {
                     timestamp = rec.open.timestamp
                 } else if ('click' in rec && rec.click) {
                     timestamp = rec.click.timestamp
-                    properties.$link_url = isSensitive
-                        ? sensitiveClickLink(rec.click.link)
-                        : resolveClickDestination(rec.click.link)
+                    properties.$link_url = clickedLink(rec.click.link, isSensitive)
                     const linkIndex = rec.click.linkTags?.[SES_LINK_INDEX_TAG]?.[0]
                     if (linkIndex !== undefined) {
                         properties.$link_index = linkIndex
