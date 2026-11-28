@@ -30,8 +30,10 @@ export interface ReportCheckRowData {
     check: SignalReportCheckApi
     reportStatus: SignalReportStatusEnumApi
     tag: { label: string; type: LemonTagType }
-    /** The line under the title: when it runs, who runs it, or what the verdict said. */
+    /** The line under the title: when it runs, who runs it, or how the verdict landed. */
     detail: string
+    /** What the verdict found, as the agent's Markdown. Only checks that reached a verdict carry one. */
+    explanation?: string
     /** A check a person stopped. The row renders faded with a struck title. */
     cancelled: boolean
     /** Open checks can still be stopped; terminal ones cannot. */
@@ -252,23 +254,25 @@ function openCheckRow(
 function terminalCheckRow(
     check: SignalReportCheckApi,
     explanation: string | undefined
-): Pick<ReportCheckRowData, 'tag' | 'detail'> {
+): Pick<ReportCheckRowData, 'tag' | 'detail' | 'explanation'> {
     const ranOn = check.last_run_at ? shortDate(check.last_run_at) : null
 
     switch (check.status) {
         case 'passed':
-            return { tag: { label: 'Still holds', type: 'success' }, detail: joinDetail([ranOn, explanation]) }
+            return { tag: { label: 'Still holds', type: 'success' }, detail: ranOn ?? '', explanation }
         case 'failed':
-            return { tag: { label: 'No longer holds', type: 'danger' }, detail: joinDetail([ranOn, explanation]) }
+            return { tag: { label: 'No longer holds', type: 'danger' }, detail: ranOn ?? '', explanation }
         case 'errored':
             return {
                 tag: { label: "Couldn't measure", type: 'warning' },
-                detail: joinDetail([`Gave up after ${check.consecutive_errors} tries`, ranOn, explanation]),
+                detail: joinDetail([`Gave up after ${check.consecutive_errors} tries`, ranOn]),
+                explanation,
             }
         case 'inconclusive':
             return {
                 tag: { label: 'Inconclusive', type: 'info' },
-                detail: joinDetail([inconclusiveReasonLabel(check.last_outcome_reason), ranOn, explanation]),
+                detail: joinDetail([inconclusiveReasonLabel(check.last_outcome_reason), ranOn]),
+                explanation,
             }
         case 'cancelled':
             return { tag: { label: 'Cancelled', type: 'muted' }, detail: `Stopped ${shortDate(check.updated_at)}` }

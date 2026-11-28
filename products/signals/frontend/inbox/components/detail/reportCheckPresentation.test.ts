@@ -48,9 +48,10 @@ function rowFor(
 ): {
     tag: string
     detail: string
+    explanation?: string
 } {
     const [row] = buildReportCheckRows([makeCheck(overrides)], explanations, 'monitoring')
-    return { tag: row.tag.label, detail: row.detail }
+    return { tag: row.tag.label, detail: row.detail, explanation: row.explanation }
 }
 
 describe('reportCheckPresentation', () => {
@@ -109,14 +110,19 @@ describe('reportCheckPresentation', () => {
                     expect(row.detail).toBe('Checks run only while this report is in Monitoring.')
                     expect(row.check).toBe(checks.find(({ id }) => id === row.check.id))
                 }
-                expect(rows.find(({ check }) => check.id === 'passed')?.detail).toBe('Sep 27 · The expectation held.')
+                expect(rows.find(({ check }) => check.id === 'passed')).toMatchObject({
+                    detail: 'Sep 27',
+                    explanation: 'The expectation held.',
+                })
                 expect(reportChecksMeta(checks, reportStatus)).toBe('5 · paused')
             }
         )
 
         // The section exists so a reader can tell a scheduled check from a waiting one from a check
         // that never ran. A wrong mapping here puts the wrong verdict word on the row.
-        it.each<[string, Partial<SignalReportCheckApi>, string, string]>([
+        // The explanation is a rest element, because Jest reads a fifth named parameter as a `done`
+        // callback on rows without one.
+        it.each<[string, Partial<SignalReportCheckApi>, string, string, string?]>([
             [
                 'a check waiting for the report to resolve names its soak',
                 { status: 'pending' },
@@ -246,19 +252,22 @@ describe('reportCheckPresentation', () => {
                 'a passed check reports the verdict, not the status name',
                 { status: 'passed', last_run_at: '2026-09-27T09:00:00Z' },
                 'Still holds',
-                'Sep 27 · 11 rageclicks in the last 14 days.',
+                'Sep 27',
+                '11 rageclicks in the last 14 days.',
             ],
             [
                 'a failed check reads as the claim no longer holding',
                 { status: 'failed', last_run_at: '2026-09-27T09:00:00Z' },
                 'No longer holds',
-                'Sep 27 · 11 rageclicks in the last 14 days.',
+                'Sep 27',
+                '11 rageclicks in the last 14 days.',
             ],
             [
                 'an errored check says how many tries it took before giving up',
                 { status: 'errored', last_run_at: '2026-09-27T09:00:00Z', consecutive_errors: 3 },
                 "Couldn't measure",
-                'Gave up after 3 tries · Sep 27 · 11 rageclicks in the last 14 days.',
+                'Gave up after 3 tries · Sep 27',
+                '11 rageclicks in the last 14 days.',
             ],
             [
                 'an inconclusive check reads apart from errored and says why in plain words',
@@ -269,7 +278,8 @@ describe('reportCheckPresentation', () => {
                     last_outcome_reason: 'needs_manual_verification',
                 },
                 'Inconclusive',
-                'Needs a person to verify · Sep 27 · 11 rageclicks in the last 14 days.',
+                'Needs a person to verify · Sep 27',
+                '11 rageclicks in the last 14 days.',
             ],
             [
                 'an open check waiting on data says why it looks again',
@@ -295,10 +305,11 @@ describe('reportCheckPresentation', () => {
                 'Cancelled',
                 'Stopped Sep 21',
             ],
-        ])('%s', (_name, overrides, tag, detail) => {
+        ])('%s', (_name, overrides, tag, detail, ...[explanation]) => {
             expect(rowFor(overrides, new Map([['check-1', '11 rageclicks in the last 14 days.']]))).toEqual({
                 tag,
                 detail,
+                explanation,
             })
         })
 

@@ -445,7 +445,7 @@ function CheckLifecycleBody({
     detail: string
 }): JSX.Element {
     return (
-        <div className="flex w-full flex-col items-start gap-1">
+        <div className="flex w-full min-w-0 flex-col items-start gap-1 [overflow-wrap:anywhere]">
             {title?.trim() ? <span className="text-xs text-default">{title}</span> : null}
             {rationale?.trim() ? <span className="text-xs text-default">{rationale}</span> : null}
             {detail ? <span className="text-xs text-tertiary">{detail}</span> : null}
