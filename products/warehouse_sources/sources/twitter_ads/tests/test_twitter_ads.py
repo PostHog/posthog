@@ -14,7 +14,6 @@ from unittest.mock import MagicMock, patch
 from django.test import override_settings
 
 import requests
-from requests_oauthlib import OAuth1
 
 from products.warehouse_sources.sources.sdk import ResumableSourceManager, SourceResponse
 from products.warehouse_sources.sources.sdk.testing import (
@@ -69,32 +68,44 @@ def request_url(request: requests.PreparedRequest) -> str:
     return request.url
 
 
-def test_signing_pagination_and_resume(client: TwitterAdsClient, manager: MagicMock) -> None:
-    with patch.object(
-        client.session,
-        "send",
-        side_effect=[
-            response({"data": [{"id": "one"}], "next_cursor": "next-page"}),
-            response({"data": [{"id": "two", "deleted": True}], "next_cursor": None}),
-        ],
-    ) as send:
-        resource = twitter_ads_source(client, "account", "campaigns", manager, None, MagicMock())
-        assert list(sync_items(resource)) == [[{"id": "one"}], [{"id": "two", "deleted": True}]]
-    requests_sent = [call.args[0] for call in send.call_args_list]
-    assert isinstance(client.session.auth, OAuth1)
-    assert all(b"oauth_signature=" in request.headers["Authorization"] for request in requests_sent)
-    assert all(parse_qs(urlparse(request_url(request)).query)["with_deleted"] == ["true"] for request in requests_sent)
-    assert parse_qs(urlparse(request_url(requests_sent[1])).query)["cursor"] == ["next-page"]
-    assert manager.save_state.call_args_list[0].args[0] == TwitterAdsResumeConfig(cursor="next-page")
-    assert manager.save_state.call_args_list[1].args[0].complete
-    manager.load_state.return_value = TwitterAdsResumeConfig(cursor="saved-page")
-    with patch.object(client.session, "send", return_value=response({"data": [], "next_cursor": None})) as send:
-        list(sync_items(resource))
-    assert parse_qs(urlparse(request_url(send.call_args.args[0])).query)["cursor"] == ["saved-page"]
-    manager.load_state.return_value = TwitterAdsResumeConfig(complete=True)
-    with patch.object(client.session, "send") as send:
-        assert list(sync_items(resource)) == []
-    send.assert_not_called()
+@pytest.mark.parametrize("table", ["campaigns", "promoted_accounts"])
+def test_signing_pagination_and_resume(source_driver: SourceDriver, table: str) -> None:
+    first_row = {"id": "one"}
+    last_row = {"id": "two", "deleted": True}
+    first_page = ScriptedResponse(json={"data": [first_row], "next_cursor": "next-page"})
+    last_page = ScriptedResponse(json={"data": [last_row], "next_cursor": None})
+
+    result = source_driver.run(table, [first_page, last_page])
+
+    assert result.raised is None
+    assert result.rows == [first_row, last_row]
+    assert result.paths == [f"/12/accounts/account/{table}"] * 2
+    assert all("oauth_signature=" in request.headers["authorization"] for request in result.requests)
+    assert result.params("with_deleted") == ["true", "true"]
+    assert result.params("cursor") == [None, "next-page"]
+    checkpoint, completed = result.committed_states
+    assert checkpoint == TwitterAdsResumeConfig(cursor="next-page")
+    assert completed == TwitterAdsResumeConfig(complete=True)
+
+    resumed = source_driver.run(table, [last_page], resume_state=checkpoint)
+    assert resumed.raised is None
+    assert resumed.params("cursor") == ["next-page"]
+    assert resumed.rows == [last_row]
+
+    finished = source_driver.run(table, [], resume_state=completed)
+    assert finished.raised is None
+    assert finished.rows == []
+    assert finished.requests == []
+
+
+def test_accounts_sync_imports_only_the_selected_account(source_driver: SourceDriver) -> None:
+    account = {"id": "account", "timezone": "America/New_York"}
+    result = source_driver.run("accounts", [ScriptedResponse(json={"data": [account, {"id": "other"}]})])
+    assert result.raised is None
+    assert result.rows == [account]
+    assert result.paths == ["/12/accounts"]
+    assert result.params("account_ids") == ["account"]
+    assert result.final_state == TwitterAdsResumeConfig(complete=True)
 
 
 @pytest.mark.parametrize(
@@ -318,8 +329,79 @@ def stats_source() -> Iterator[TwitterAdsSource]:
 
 
 @pytest.fixture
-def stats_driver(stats_source: TwitterAdsSource) -> SourceDriver:
+def source_driver(stats_source: TwitterAdsSource) -> SourceDriver:
     return SourceDriver(stats_source, TwitterAdsSourceConfig(account_id="account", twitter_ads_integration_id=1))
+
+
+def test_targeting_criteria_checkpoints_empty_line_item_pages(source_driver: SourceDriver) -> None:
+    next_cursors = ["second", "third", "fourth", "last", None]
+    result = source_driver.run(
+        "targeting_criteria", [ScriptedResponse(json={"data": [], "next_cursor": cursor}) for cursor in next_cursors]
+    )
+
+    assert result.raised is None
+    assert result.rows == []
+    assert result.paths == ["/12/accounts/account/line_items"] * len(next_cursors)
+    assert result.params("cursor") == [None, *next_cursors[:-1]]
+    assert result.committed_states == [
+        TwitterAdsResumeConfig(line_items_cursor=cursor, complete=cursor is None) for cursor in next_cursors
+    ]
+
+
+def test_targeting_criteria_resumes_with_the_same_line_item_ids(source_driver: SourceDriver) -> None:
+    first_batch = [{"id": f"line-{index}"} for index in range(200)]
+    first_batch_ids = ",".join(row["id"] for row in first_batch)
+    line_items_path = "/12/accounts/account/line_items"
+    criteria_path = "/12/accounts/account/targeting_criteria"
+
+    def answer(request: RecordedRequest) -> ScriptedResponse:
+        cursor = request.param("cursor")
+        if request.path == line_items_path:
+            assert request.param("count") == "200"
+            if cursor is None:
+                return ScriptedResponse(json={"data": first_batch, "next_cursor": "next-line-items"})
+            assert cursor == "next-line-items"
+            return ScriptedResponse(json={"data": [{"id": "last-line"}]})
+        assert request.path == criteria_path
+        line_item_ids = request.param("line_item_ids")
+        assert request.param("with_deleted") == "true"
+        assert request.param("sort_by") is None
+        if line_item_ids == first_batch_ids:
+            if cursor is None:
+                return ScriptedResponse(json={"data": [{"id": "first"}], "next_cursor": "next-criteria"})
+            assert cursor == "next-criteria"
+            return ScriptedResponse(json={"data": [{"id": "second", "deleted": True}]})
+        assert line_item_ids == "last-line"
+        if cursor is None:
+            return ScriptedResponse(json={"data": [{"id": "third"}], "next_cursor": "last-criteria"})
+        assert cursor == "last-criteria"
+        return ScriptedResponse(json={"data": [{"id": "last"}]})
+
+    result = source_driver.run("targeting_criteria", answer)
+    assert result.raised is None
+    assert result.paths == [
+        line_items_path,
+        criteria_path,
+        criteria_path,
+        line_items_path,
+        criteria_path,
+        criteria_path,
+    ]
+    assert [row["id"] for row in result.rows] == ["first", "second", "third", "last"]
+
+    for checkpoint_index, expected_paths in enumerate(
+        (
+            [criteria_path, line_items_path, criteria_path, criteria_path],
+            [line_items_path, criteria_path, criteria_path],
+            [criteria_path],
+        )
+    ):
+        resumed = source_driver.run(
+            "targeting_criteria", answer, resume_state=result.committed_states[checkpoint_index]
+        )
+        assert resumed.raised is None
+        assert resumed.paths == expected_paths
+        assert resumed.rows == result.rows[checkpoint_index + 1 :]
 
 
 def stats_metadata(request: RecordedRequest, timezone: str) -> ScriptedResponse | None:
@@ -354,7 +436,7 @@ def stats_success(request: RecordedRequest, timezone: str) -> ScriptedResponse:
 @pytest.mark.parametrize("narrowing", ["entity", "day"])
 @pytest.mark.parametrize("timezone", ["Asia/Kolkata", "America/Los_Angeles"])
 def test_stats_rejection_recovers_all_rows_and_resumes(
-    stats_driver: SourceDriver, table: str, narrowing: str, timezone: str
+    source_driver: SourceDriver, table: str, narrowing: str, timezone: str
 ) -> None:
     def answer(request: RecordedRequest) -> ScriptedResponse:
         metadata = stats_metadata(request, timezone)
@@ -367,7 +449,9 @@ def test_stats_rejection_recovers_all_rows_and_resumes(
         return stats_success(request, timezone)
 
     with time_machine.travel("2025-11-12T12:00:00Z", tick=False):
-        result = stats_driver.run(table, answer, incremental_field="date", db_incremental_field_last_value="2025-10-31")
+        result = source_driver.run(
+            table, answer, incremental_field="date", db_incremental_field_last_value="2025-10-31"
+        )
         assert result.raised is None
         assert len(result.rows) == 2 * 12 * len(PLACEMENTS)
         assert len({(row["entity_id"], row["date"], row["placement"]) for row in result.rows}) == len(result.rows)
@@ -376,7 +460,7 @@ def test_stats_rejection_recovers_all_rows_and_resumes(
         assert result.final_state.complete
         checkpoint = result.committed_states[0]
         assert checkpoint.next_date == "2025-11-06"
-        resumed = stats_driver.run(table, answer, resume_state=checkpoint)
+        resumed = source_driver.run(table, answer, resume_state=checkpoint)
     assert resumed.raised is None
     assert resumed.rows == [row for row in result.rows if row["date"] >= date(2025, 11, 6)]
     stats_requests = [request for request in result.requests if "/stats/" in request.path]
@@ -556,7 +640,11 @@ def test_web_entrypoints_do_not_wait_for_rate_limit_reset(
     ],
 )
 def test_stats_rejection_preserves_rows_and_does_not_skip_failure(
-    stats_driver: SourceDriver, failure: ScriptedResponse, expected_requests: int, permanent: bool, partial_entity: bool
+    source_driver: SourceDriver,
+    failure: ScriptedResponse,
+    expected_requests: int,
+    permanent: bool,
+    partial_entity: bool,
 ) -> None:
     def answer(request: RecordedRequest) -> ScriptedResponse:
         metadata = stats_metadata(request, "Asia/Kolkata")
@@ -572,7 +660,7 @@ def test_stats_rejection_preserves_rows_and_does_not_skip_failure(
         return failure
 
     with time_machine.travel("2025-11-12T12:00:00Z", tick=False):
-        result = stats_driver.run(
+        result = source_driver.run(
             "campaign_stats", answer, incremental_field="date", db_incremental_field_last_value="2025-10-31"
         )
     assert len(result.rows) == (54 if partial_entity else 48)

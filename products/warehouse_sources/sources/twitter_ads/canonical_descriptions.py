@@ -110,6 +110,30 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "deleted": "Whether the lead form has been archived.",
         },
     },
+    "accounts": {
+        "description": "The X Ads account selected for this source.",
+        "docs_url": "https://docs.x.com/x-ads-api/campaign-management/reference#get-accounts",
+        "columns": {"id": "Ad account identifier.", "name": "Ad account name.", "timezone": "Ad account time zone."},
+    },
+    "promoted_accounts": {
+        "description": "An association between an X user account and the line item that promotes it.",
+        "docs_url": "https://docs.x.com/x-ads-api/campaign-management/reference#get-accounts-account-id-promoted-accounts",
+        "columns": {
+            "id": "Promoted account identifier.",
+            "user_id": "Identifier of the X user account that the line item promotes.",
+            "line_item_id": "Identifier of the line item that promotes the account.",
+        },
+    },
+    "targeting_criteria": {
+        "description": "A targeting rule for an X Ads line item.",
+        "docs_url": "https://docs.x.com/x-ads-api/campaign-management/reference#get-accounts-account-id-targeting-criteria",
+        "columns": {
+            "id": "Targeting rule identifier.",
+            "line_item_id": "Identifier of the line item that uses the rule.",
+            "targeting_type": "Category of the rule, such as location or custom audience.",
+            "targeting_value": "Value that the rule uses to match the audience.",
+        },
+    },
     **{
         table: {
             "description": f"Daily unsegmented X advertising metrics for a {entity}, separated by placement.",

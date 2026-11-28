@@ -1,8 +1,19 @@
 API_VERSION = "12"
-ENTITY_TABLES = ("campaigns", "line_items", "promoted_tweets", "funding_instruments", "media_creatives", "lead_forms")
+ENTITY_TABLES = (
+    "campaigns",
+    "line_items",
+    "promoted_tweets",
+    "funding_instruments",
+    "media_creatives",
+    "lead_forms",
+    "accounts",
+    "promoted_accounts",
+    "targeting_criteria",
+)
 # Lead forms cap `count` at 200 and list newest first with no `sort_by`.
 PAGE_SIZES = {"lead_forms": 200}
-UNSORTABLE_TABLES = ("media_creatives", "lead_forms")
+UNSORTED_TABLES = ("media_creatives", "lead_forms", "targeting_criteria")
+TARGETING_CRITERIA_LINE_ITEM_LIMIT = 200
 STATS_TABLES = {"campaign_stats": "CAMPAIGN", "line_item_stats": "LINE_ITEM"}
 PLACEMENTS = ("ALL_ON_TWITTER", "SPOTLIGHT", "TREND")
 LOOKBACK_SECONDS = 3 * 24 * 60 * 60
