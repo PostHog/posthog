@@ -1,6 +1,6 @@
 import './AdventFlowStage.scss'
 
-import { CSSProperties, memo, ReactNode, useState } from 'react'
+import { CSSProperties, memo, ReactNode } from 'react'
 
 import { IconCalendar, IconLeave } from '@posthog/icons'
 import { Popover, PopoverContent, PopoverTrigger } from '@posthog/quill'
@@ -88,9 +88,8 @@ function ExitTile({
     orientation,
     note,
 }: Pick<AdventFlowStepProps, 'node' | 'orientation'> & { note: AdventFlowExitNote }): JSX.Element {
-    const [isOpen, setIsOpen] = useState(false)
     return (
-        <Popover open={isOpen} onOpenChange={setIsOpen}>
+        <Popover>
             <PopoverTrigger
                 openOnHover
                 delay={0}
