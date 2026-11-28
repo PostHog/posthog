@@ -6,7 +6,7 @@ import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { getRelativeNextPath } from 'lib/utils/url'
 import { urls } from 'scenes/urls'
 
-import { ANALYTICS_BACK_NAME } from './analyticsUtils'
+export const ANALYTICS_BACK_NAME = 'Analytics'
 
 export interface AnalyticsBackLink {
     url: string

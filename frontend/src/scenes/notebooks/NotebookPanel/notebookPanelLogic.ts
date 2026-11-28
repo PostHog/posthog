@@ -1,6 +1,11 @@
 import { MakeLogicType, actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { router } from 'kea-router'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
+import { retryImport } from 'lib/utils/retryImport'
+import { urls } from 'scenes/urls'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { SidePanelTab } from '~/types'
@@ -119,8 +124,18 @@ export const notebookPanelLogic = kea<notebookPanelLogicType>([
     }),
 
     listeners(({ actions, values }) => ({
-        selectNotebook: (options) => {
+        selectNotebook: async (options) => {
             if (options.silent) {
+                return
+            }
+            // The Today layout has no notebook side panel, so the notebook opens as a page
+            if (values.featureFlags[FEATURE_FLAGS.TODAY_RAIL_NAV]) {
+                // On that page already, a push only adds a duplicate history entry
+                if (removeProjectIdIfPresent(router.values.location.pathname) !== urls.notebook(options.id)) {
+                    // Loaded on demand because this logic ships on the logged-out boot path
+                    const { withBackLink } = await retryImport(() => import('scenes/analytics/analyticsBackLink'))
+                    router.actions.push(withBackLink(urls.notebook(options.id)))
+                }
                 return
             }
             actions.openSidePanel(SidePanelTab.Notebooks)

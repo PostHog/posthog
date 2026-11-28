@@ -4,8 +4,7 @@ import { urls } from 'scenes/urls'
 
 import type { LinkBreadcrumb } from '~/types'
 
-import { analyticsBackLink } from './analyticsBackLink'
-import { ANALYTICS_BACK_NAME } from './analyticsUtils'
+import { ANALYTICS_BACK_NAME, analyticsBackLink } from './analyticsBackLink'
 
 /**
  * The old "Product analytics" and "Dashboards" lists are not in the Analytics navigation, so they must not be the
