@@ -2,7 +2,12 @@ from typing import Any, cast
 
 from posthog.schema import FunnelConversionMetric, FunnelsAlertConfig, FunnelsQuery, FunnelVizType
 
-from products.alerts.backend.evaluation.contract import AlertExtractionError, ComparableSeries, SeriesPoint
+from products.alerts.backend.evaluation.contract import (
+    ONGOING_PERIOD_EXCLUDED_MESSAGE,
+    AlertExtractionError,
+    ComparableSeries,
+    SeriesPoint,
+)
 
 # Funnel alerts evaluate a conversion-rate percentage (0–100): a steps funnel at the configured step,
 # a trends funnel at the latest period. Other viz types (time-to-convert, flow) have no conversion-rate
@@ -86,10 +91,7 @@ class HistoricalTrendsFunnelStrategy(FunnelVizStrategy):
         # The clip removes the ongoing interval from the results, so an alert asking to check it can
         # never do what it says: reject the conflicting configuration instead of silently degrading.
         if config.check_ongoing_interval and already_complete:
-            raise AlertExtractionError(
-                "check_ongoing_interval is not supported when the insight excludes incomplete periods "
-                "(DateRange.excludeIncompletePeriods): the ongoing interval is clipped from the query results."
-            )
+            raise AlertExtractionError(ONGOING_PERIOD_EXCLUDED_MESSAGE)
         series_dicts = _require_list(_current_period_only(result), "trends")
         # Empty = no one entered the funnel: benign, not a misconfig.
         if not series_dicts:

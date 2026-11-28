@@ -7,7 +7,12 @@ from posthog.caching.calculate_results import calculate_for_query_based_insight
 from posthog.event_usage import EventSource
 from posthog.tasks.alerts.trends import query_excludes_incomplete_periods
 
-from products.alerts.backend.evaluation.contract import AlertExtractionError, ExtractionResult, lookback_intervals_for
+from products.alerts.backend.evaluation.contract import (
+    INSIGHT_TYPE_CHANGED_MESSAGE,
+    AlertExtractionError,
+    ExtractionResult,
+    lookback_intervals_for,
+)
 from products.alerts.backend.evaluation.funnel_strategies import strategy_for_viz
 from products.alerts.backend.models.alert import AlertConfiguration
 from products.product_analytics.backend.facade.models import Insight
@@ -55,7 +60,7 @@ class FunnelsExtractor:
         strategy = strategy_for_viz(viz)
 
         if not (alert.config and alert.config.get("type") == "FunnelsAlertConfig"):
-            raise AlertExtractionError(f"Unsupported alert config type: {alert.config}")
+            raise AlertExtractionError(INSIGHT_TYPE_CHANGED_MESSAGE)
         config = FunnelsAlertConfig.model_validate(alert.config)
 
         condition = AlertCondition.model_validate(alert.condition)

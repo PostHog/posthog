@@ -14,8 +14,20 @@ from posthog.tasks.alerts.trends import (
     query_excludes_incomplete_periods,
 )
 
+from products.alerts.backend.evaluation.contract import (
+    INSIGHT_TYPE_CHANGED_MESSAGE,
+    ONGOING_PERIOD_EXCLUDED_MESSAGE,
+    AlertDataUnavailableError,
+    AlertExtractionError,
+)
 from products.alerts.backend.evaluation.funnels import _trailing_date_range_override
-from products.alerts.backend.evaluation.trends import TrendsExtractor
+from products.alerts.backend.evaluation.metrics import MetricsExtractor
+from products.alerts.backend.evaluation.trends import (
+    ONGOING_PERIOD_NEEDS_UPPER_THRESHOLD_MESSAGE,
+    PERCENTAGE_THRESHOLD_ON_ABSOLUTE_VALUE_MESSAGE,
+    RELATIVE_CONDITION_ON_NON_TIME_SERIES_MESSAGE,
+    TrendsExtractor,
+)
 
 TRENDS_CALC_PATH = "products.alerts.backend.evaluation.trends.calculate_for_query_based_insight"
 
@@ -67,15 +79,24 @@ class TestIncompletePeriodInteraction(TestCase):
         self.assertEqual(query_excludes_incomplete_periods(query), expected)
 
 
-def _trends_alert(condition_type: AlertConditionType, check_ongoing: bool = False) -> MagicMock:
+def _trends_alert(
+    condition_type: AlertConditionType,
+    check_ongoing: bool = False,
+    threshold_configuration: dict | None = None,
+    config_type: str = "TrendsAlertConfig",
+) -> MagicMock:
     alert = MagicMock()
-    alert.config = {"type": "TrendsAlertConfig", "series_index": 0, "check_ongoing_interval": check_ongoing}
+    alert.config = {"type": config_type, "series_index": 0, "check_ongoing_interval": check_ongoing}
     alert.condition = {"type": condition_type}
     alert.evaluation_delay_intervals = 0
     threshold = MagicMock()
-    threshold.configuration = {"type": "absolute", "bounds": {"upper": 100}}
+    threshold.configuration = threshold_configuration or {"type": "absolute", "bounds": {"upper": 100}}
     alert.threshold = threshold
     return alert
+
+
+def _ongoing_trends_query() -> dict:
+    return {**_clipped_trends_query(), "dateRange": {"date_from": "-7d"}}
 
 
 def _clipped_trends_query() -> dict:
@@ -130,15 +151,78 @@ class TestTrendsExtractorIncompletePeriods(TestCase):
         self.assertEqual(series.current_index, 2)
         self.assertFalse(series.is_current_interval)
 
-    def test_check_ongoing_interval_conflicts_with_clipped_query(self):
-        # The clip removes the ongoing interval from the results, so an alert asking to check it
-        # can never do what it says: reject the configuration instead of silently degrading.
+    @parameterized.expand(
+        [
+            (
+                "check ongoing period on a query that clips it",
+                _trends_alert(AlertConditionType.ABSOLUTE_VALUE, check_ongoing=True),
+                _clipped_trends_query(),
+                ONGOING_PERIOD_EXCLUDED_MESSAGE,
+            ),
+            (
+                "relative increase on a non time series insight",
+                _trends_alert(AlertConditionType.RELATIVE_INCREASE),
+                {**_clipped_trends_query(), "trendsFilter": {"display": "BoldNumber"}},
+                RELATIVE_CONDITION_ON_NON_TIME_SERIES_MESSAGE,
+            ),
+            (
+                "relative decrease on a non time series insight",
+                _trends_alert(AlertConditionType.RELATIVE_DECREASE),
+                {**_clipped_trends_query(), "trendsFilter": {"display": "ActionsPie"}},
+                RELATIVE_CONDITION_ON_NON_TIME_SERIES_MESSAGE,
+            ),
+            (
+                "absolute value with check ongoing period and no upper bound",
+                _trends_alert(
+                    AlertConditionType.ABSOLUTE_VALUE,
+                    check_ongoing=True,
+                    threshold_configuration={"type": "absolute", "bounds": {"lower": 1}},
+                ),
+                _ongoing_trends_query(),
+                ONGOING_PERIOD_NEEDS_UPPER_THRESHOLD_MESSAGE,
+            ),
+            (
+                "relative increase with check ongoing period and no upper bound",
+                _trends_alert(
+                    AlertConditionType.RELATIVE_INCREASE,
+                    check_ongoing=True,
+                    threshold_configuration={"type": "absolute", "bounds": {"lower": 1}},
+                ),
+                _ongoing_trends_query(),
+                ONGOING_PERIOD_NEEDS_UPPER_THRESHOLD_MESSAGE,
+            ),
+            (
+                "absolute value with a percentage threshold",
+                _trends_alert(
+                    AlertConditionType.ABSOLUTE_VALUE,
+                    threshold_configuration={"type": "percentage", "bounds": {"upper": 0.5}},
+                ),
+                _ongoing_trends_query(),
+                PERCENTAGE_THRESHOLD_ON_ABSOLUTE_VALUE_MESSAGE,
+            ),
+            (
+                "funnel settings on an insight changed to trends",
+                _trends_alert(AlertConditionType.ABSOLUTE_VALUE, config_type="FunnelsAlertConfig"),
+                _ongoing_trends_query(),
+                INSIGHT_TYPE_CHANGED_MESSAGE,
+            ),
+        ]
+    )
+    def test_a_config_the_insight_no_longer_fits_is_a_broken_config(self, _name, alert, query, expected_message):
         with patch(TRENDS_CALC_PATH) as calc:
             calc.return_value = MagicMock(result=[{"data": [1.0, 2.0], "days": ["d1", "d2"], "label": "series"}])
-            with self.assertRaisesRegex(ValueError, "excludes incomplete periods"):
+            with self.assertRaises(AlertExtractionError) as raised:
                 TrendsExtractor().extract(
-                    _trends_alert(AlertConditionType.ABSOLUTE_VALUE, check_ongoing=True),
-                    MagicMock(),
-                    _clipped_trends_query(),
-                    ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
+                    alert, MagicMock(), query, ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE
                 )
+        self.assertNotIsInstance(raised.exception, AlertDataUnavailableError)
+        self.assertEqual(str(raised.exception), expected_message)
+
+    def test_metrics_settings_mismatch_is_a_broken_config(self):
+        with self.assertRaisesRegex(AlertExtractionError, INSIGHT_TYPE_CHANGED_MESSAGE):
+            MetricsExtractor().extract(
+                _trends_alert(AlertConditionType.ABSOLUTE_VALUE),
+                MagicMock(),
+                {"kind": "MetricsQuery", "clauses": []},
+                ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
+            )

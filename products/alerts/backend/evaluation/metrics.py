@@ -7,6 +7,8 @@ from posthog.caching.calculate_results import calculate_for_query_based_insight
 from posthog.event_usage import EventSource
 
 from products.alerts.backend.evaluation.contract import (
+    INSIGHT_TYPE_CHANGED_MESSAGE,
+    AlertExtractionError,
     ComparableSeries,
     ExtractionResult,
     SeriesPoint,
@@ -47,7 +49,7 @@ class MetricsExtractor:
     ) -> ExtractionResult:
         metrics_query = MetricsQuery.model_validate(query)
         if not (alert.config and alert.config.get("type") == "MetricsAlertConfig"):
-            raise ValueError(f"Unsupported alert config type: {alert.config}")
+            raise AlertExtractionError(INSIGHT_TYPE_CHANGED_MESSAGE)
         config = MetricsAlertConfig.model_validate(alert.config)
         # Dispatcher short-circuits when threshold/bounds are missing, so both are present here.
         # Config/condition compatibility (e.g. check_ongoing_interval needs an upper bound) is
