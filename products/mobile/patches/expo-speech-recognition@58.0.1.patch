@@ -1,0 +1,264 @@
+diff --git a/android/src/main/java/expo/modules/speechrecognition/ExpoSpeechService.kt b/android/src/main/java/expo/modules/speechrecognition/ExpoSpeechService.kt
+index 4a0604ab8ffd5112ec0bb770be56b3bc62dfcc80..966a4ed2b2812e857e14ea96fdc0eedf9045f1fb 100644
+--- a/android/src/main/java/expo/modules/speechrecognition/ExpoSpeechService.kt
++++ b/android/src/main/java/expo/modules/speechrecognition/ExpoSpeechService.kt
+@@ -633,7 +633,6 @@ class ExpoSpeechService(
+                 ),
+             )
+         }
+-        log("onResults(), results: $resultsList")
+ 
+         teardownAndEnd()
+     }
+@@ -643,7 +642,6 @@ class ExpoSpeechService(
+         // Avoid sending result event if there was an empty result, or the first result is an empty string
+         val nonEmptyStrings = partialResultsList.filter { it["transcript"]?.toString()?.isNotEmpty() ?: false }
+ 
+-        log("onPartialResults(), results: $nonEmptyStrings")
+         if (nonEmptyStrings.isNotEmpty()) {
+             sendEvent("result", mapOf("results" to nonEmptyStrings, "isFinal" to false))
+         }
+@@ -685,7 +683,6 @@ class ExpoSpeechService(
+                 ),
+             )
+         }
+-        log("onSegmentResults(), transcriptions: $resultsList")
+ 
+         // If the user opted to stop
+         if (recognitionState == RecognitionState.STOPPING) {
+diff --git a/ios/ExpoSpeechRecognitionModule.swift b/ios/ExpoSpeechRecognitionModule.swift
+index 9dc90826634fe3424c0c143eb7cfd72efe90498a..d7560048b0a9395cd84abbb52a34a53191e1c536 100644
+--- a/ios/ExpoSpeechRecognitionModule.swift
++++ b/ios/ExpoSpeechRecognitionModule.swift
+@@ -1,5 +1,6 @@
+ import AVFoundation
+ import ExpoModulesCore
++import Foundation
+ import Speech
+ 
+ struct Segment {
+@@ -40,7 +41,23 @@ private func legacyResolveBlock(for promise: Promise) -> EXPromiseResolveBlock {
+ 
+ public class ExpoSpeechRecognitionModule: Module {
+ 
+-  var speechRecognizer: ExpoSpeechRecognizer?
++  @MainActor var speechRecognizer: ExpoSpeechRecognizer?
++  private let startTaskLock = NSLock()
++  private var startTask: Task<Void, Never>?
++
++  private func cancelStartTask() {
++    startTaskLock.withLock {
++      startTask?.cancel()
++      startTask = nil
++    }
++  }
++
++  private func runStartTask(_ operation: @escaping @MainActor () async -> Void) {
++    startTaskLock.withLock {
++      startTask?.cancel()
++      startTask = Task { await operation() }
++    }
++  }
+ 
+   // Hack for iOS 18 to detect final results
+   // See: https://forums.developer.apple.com/forums/thread/762952 for more info
+@@ -63,7 +80,8 @@ public class ExpoSpeechRecognitionModule: Module {
+ 
+     OnDestroy {
+       // Cancel any running speech recognizers
+-      Task {
++      cancelStartTask()
++      Task { @MainActor in
+         await speechRecognizer?.abort()
+       }
+     }
+@@ -170,7 +188,7 @@ public class ExpoSpeechRecognitionModule: Module {
+     }
+ 
+     AsyncFunction("getStateAsync") { (promise: Promise) in
+-      Task {
++      Task { @MainActor in
+         let state = await speechRecognizer?.getState()
+         promise.resolve(state ?? "inactive")
+       }
+@@ -178,9 +196,10 @@ public class ExpoSpeechRecognitionModule: Module {
+ 
+     /** Start recognition with args: lang, interimResults, maxAlternatives */
+     Function("start") { (options: SpeechRecognitionOptions) in
+-      Task {
++      runStartTask { [self] in
+         do {
+           let currentLocale = await speechRecognizer?.getLocale()
++          guard !Task.isCancelled else { return }
+ 
+           // Reset the previous result
+           self.previousResult = nil
+@@ -199,13 +218,17 @@ public class ExpoSpeechRecognitionModule: Module {
+               return
+             }
+ 
+-            self.speechRecognizer = try await ExpoSpeechRecognizer(
++            let recognizer = try await ExpoSpeechRecognizer(
+               locale: locale
+             )
++            guard !Task.isCancelled else { return }
++            self.speechRecognizer = recognizer
+           }
+ 
+           if !options.requiresOnDeviceRecognition {
+-            guard await SFSpeechRecognizer.hasAuthorizationToRecognize() else {
++            let authorized = await SFSpeechRecognizer.hasAuthorizationToRecognize()
++            guard !Task.isCancelled else { return }
++            guard authorized else {
+               sendErrorAndStop(
+                 error: "not-allowed",
+                 message: RecognizerError.notAuthorizedToRecognize.message
+@@ -214,7 +237,9 @@ public class ExpoSpeechRecognitionModule: Module {
+             }
+           }
+ 
+-          guard await AVAudioSession.sharedInstance().hasPermissionToRecord() else {
++          let hasMicrophonePermission = await AVAudioSession.sharedInstance().hasPermissionToRecord()
++          guard !Task.isCancelled else { return }
++          guard hasMicrophonePermission else {
+             sendErrorAndStop(
+               error: "not-allowed",
+               message: RecognizerError.notPermittedToRecord.message
+@@ -261,6 +286,7 @@ public class ExpoSpeechRecognitionModule: Module {
+             }
+           )
+         } catch {
++          guard !Task.isCancelled else { return }
+           self.sendEvent(
+             "error",
+             [
+@@ -364,7 +390,8 @@ public class ExpoSpeechRecognitionModule: Module {
+     }
+ 
+     Function("stop") { () -> Void in
+-      Task {
++      cancelStartTask()
++      Task { @MainActor in
+         if let recognizer = speechRecognizer {
+           await recognizer.stop()
+         } else {
+@@ -373,8 +400,9 @@ public class ExpoSpeechRecognitionModule: Module {
+       }
+     }
+ 
+-    Function("abort") { () -> Void in
+-      Task {
++    Function("abort") { () -> Bool in
++      cancelStartTask()
++      Task { @MainActor in
+         sendEvent("error", ["error": "aborted", "message": "Speech recognition aborted."])
+ 
+         if let recognizer = speechRecognizer {
+@@ -383,6 +411,7 @@ public class ExpoSpeechRecognitionModule: Module {
+           sendEvent("end")
+         }
+       }
++      return true
+     }
+ 
+     Function("getSpeechRecognitionServices") { () -> [String] in
+diff --git a/ios/ExpoSpeechRecognizer.swift b/ios/ExpoSpeechRecognizer.swift
+index b27842501f72e1a5a9382636397cbef30d5a2b30..696f6bef748634d90c7765e130d1e0c5c4c35ecd 100644
+--- a/ios/ExpoSpeechRecognizer.swift
++++ b/ios/ExpoSpeechRecognizer.swift
+@@ -134,21 +134,21 @@ actor ExpoSpeechRecognizer: ObservableObject {
+     audioStartHandler: @escaping (String?, Double) -> Void,
+     audioEndHandler: @escaping (String?, Double) -> Void,
+     volumeChangeHandler: @escaping (Float) -> Void
+-  ) {
++  ) async {
++    guard !Task.isCancelled else { return }
+     self.endHandler = endHandler
+     self.audioEndHandler = audioEndHandler
+     self.volumeChangeHandler = volumeChangeHandler
+     self.errorHandler = errorHandler
+-    Task {
+-      await startRecognizer(
+-        options: options,
+-        resultHandler: resultHandler,
+-        errorHandler: errorHandler,
+-        startHandler: startHandler,
+-        speechStartHandler: speechStartHandler,
+-        audioStartHandler: audioStartHandler
+-      )
+-    }
++    // Await the actor hop so the caller's cancellation can still prevent audio setup.
++    await startRecognizer(
++      options: options,
++      resultHandler: resultHandler,
++      errorHandler: errorHandler,
++      startHandler: startHandler,
++      speechStartHandler: speechStartHandler,
++      audioStartHandler: audioStartHandler
++    )
+   }
+ 
+   /// Stops the speech recognizer.
+@@ -170,10 +170,8 @@ actor ExpoSpeechRecognizer: ObservableObject {
+   /// Cancels the current speech recognition task.
+   /// This is different from `stop` in that the recognition task is immediately cancelled and no
+   /// final result is emitted.
+-  @MainActor func abort() {
+-    Task {
+-      await reset(andEmitEnd: true)
+-    }
++  @MainActor func abort() async {
++    await reset(andEmitEnd: true)
+   }
+ 
+   ///
+@@ -207,6 +205,7 @@ actor ExpoSpeechRecognizer: ObservableObject {
+     speechStartHandler: @escaping () -> Void,
+     audioStartHandler: @escaping (String?, Double) -> Void
+   ) {
++    guard !Task.isCancelled else { return }
+     // Reset the speech recognizer before starting
+     reset(andEmitEnd: false)
+ 
+@@ -221,11 +220,14 @@ actor ExpoSpeechRecognizer: ObservableObject {
+       return
+     }
+ 
++    guard !options.requiresOnDeviceRecognition || recognizer.supportsOnDeviceRecognition else {
++      errorHandler(RecognizerError.recognizerIsUnavailable)
++      reset(andEmitEnd: true)
++      return
++    }
++
+     do {
+-      let request = Self.prepareRequest(
+-        options: options,
+-        recognizer: recognizer
+-      )
++      let request = Self.prepareRequest(options: options)
+       self.request = request
+       let isSourcedFromFile = options.audioSource?.uri != nil
+ 
+@@ -574,10 +576,7 @@ actor ExpoSpeechRecognizer: ObservableObject {
+     audioEndTimestampMillis = nil
+   }
+ 
+-  private static func prepareRequest(
+-    options: SpeechRecognitionOptions,
+-    recognizer: SFSpeechRecognizer
+-  ) -> SFSpeechRecognitionRequest {
++  private static func prepareRequest(options: SpeechRecognitionOptions) -> SFSpeechRecognitionRequest {
+     let request = SFSpeechAudioBufferRecognitionRequest()
+ 
+     // We also force-enable partial results on non-continuous mode,
+@@ -585,9 +584,7 @@ actor ExpoSpeechRecognizer: ObservableObject {
+     // These won't get emitted to the user, however
+     request.shouldReportPartialResults = options.interimResults || !options.continuous
+ 
+-    if recognizer.supportsOnDeviceRecognition {
+-      request.requiresOnDeviceRecognition = options.requiresOnDeviceRecognition
+-    }
++    request.requiresOnDeviceRecognition = options.requiresOnDeviceRecognition
+ 
+     if let taskHint = options.iosTaskHint {
+       request.taskHint = taskHint.sfSpeechRecognitionTaskHint
