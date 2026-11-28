@@ -1088,9 +1088,9 @@ class TestCreateEventDefinitionsSql(SimpleTestCase):
         columns = [column.strip() for column in select_clause.split(",")]
         assert columns == sorted(columns)
 
-    def test_joins_the_enterprise_table_with_a_left_join(self):
+    def test_joins_the_metadata_table_with_a_left_join(self):
         sql = create_event_definitions_sql(EventDefinitionType.EVENT, is_enterprise=True)
-        assert "LEFT JOIN ee_enterpriseeventdefinition" in sql
+        assert "LEFT JOIN event_definitions_eventdefinitionmetadata" in sql
         assert "FULL OUTER JOIN" not in sql
 
     def test_not_null_sort_keys_carry_no_nulls_clause(self):

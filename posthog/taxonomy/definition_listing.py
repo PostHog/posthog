@@ -6,7 +6,7 @@ load at a point we choose and returns a 503 the caller can retry.
 """
 
 from django.db import router
-from django.db.models import Model
+from django.db.models import Field, Model
 
 from rest_framework import status
 from rest_framework.exceptions import APIException
@@ -23,6 +23,23 @@ def definition_read_db_alias(model: type[Model]) -> str:
     # the model's class name, so pass the model the page query itself runs through — the
     # enterprise child, wherever EE is available — not its parent.
     return router.db_for_read(model)
+
+
+def definition_list_select_column(field: Field, definition_model: type[Model], metadata_table: str) -> str:
+    """The select expression that fills `field` on a row of a definition list.
+
+    The list hydrates the enterprise model, which adds fields to `definition_model`. The list reads
+    those fields from `metadata_table`, which has a column of the same name for each of them.
+    """
+    definition_table = definition_model._meta.db_table
+    # Qualified by table, so a column name both joined tables carry stays unambiguous.
+    if field.model is definition_model:
+        return f'{definition_table}."{field.column}"'
+    # The metadata table names the primary key of the enterprise model differently. The definition id
+    # fills it, so a row without a metadata row still has a primary key.
+    if field.primary_key:
+        return f'{definition_table}."id" AS "{field.column}"'
+    return f'{metadata_table}."{field.column}"'
 
 
 class DefinitionListTimedOut(APIException):

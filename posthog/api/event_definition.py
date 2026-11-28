@@ -63,6 +63,7 @@ from posthog.settings import EE_AVAILABLE
 from posthog.taxonomy.definition_listing import (
     DEFINITION_LIST_STATEMENT_TIMEOUT_MS,
     DefinitionListTimedOut,
+    definition_list_select_column,
     definition_read_db_alias,
 )
 from posthog.taxonomy.definition_search import (
@@ -78,7 +79,7 @@ from posthog.utils import get_safe_cache, relative_date_parse
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.event_definitions.backend.facade.api import batch_definition_metadata_copies
-from products.event_definitions.backend.models import EventDefinition
+from products.event_definitions.backend.models import EventDefinition, EventDefinitionMetadata
 from products.event_definitions.backend.models.property_definition import effective_project_id_expr
 
 # If EE is enabled, we use ee.api.ee_event_definition.EnterpriseEventDefinitionSerializer
@@ -122,22 +123,24 @@ def read_db_alias() -> str:
     return definition_read_db_alias(event_definition_model(EE_AVAILABLE))
 
 
+_METADATA_TABLE = EventDefinitionMetadata._meta.db_table
+
+
 def _event_definitions_source_sql(
     event_type: EventDefinitionType,
     is_enterprise: bool,
     conditions: str,
 ) -> str:
     """FROM/JOIN/WHERE shared by the page fetch and the count that pages it."""
-    # LEFT, not FULL OUTER. The two return the same rows here, on two independent grounds:
-    # `eventdefinition_ptr_id` is the child's primary key and a validated NOT NULL foreign key, so an
-    # enterprise row without a base row cannot be committed; and even if one existed, the scope
+    # LEFT, not FULL OUTER. A metadata row without a base row can exist, because its link has no
+    # database constraint. But the scope
     # filter below reads base-table columns, so that row's `COALESCE(project_id, team_id)` would be
     # NULL and it would be filtered out regardless of join type.
     # The join type does change the plan. A full join can be neither a nested loop nor a filter
     # pushed into the scan, which leaves a sequential scan of the whole table available to the
     # planner — and it picked that plan in production once statistics shifted.
-    enterprise_join = (
-        "LEFT JOIN ee_enterpriseeventdefinition ON posthog_eventdefinition.id=ee_enterpriseeventdefinition.eventdefinition_ptr_id"
+    metadata_join = (
+        f"LEFT JOIN {_METADATA_TABLE} ON {_METADATA_TABLE}.event_definition_id = posthog_eventdefinition.id"
         if is_enterprise
         else ""
     )
@@ -151,10 +154,11 @@ def _event_definitions_source_sql(
     # `event_definition_proj_uniq`, so the planner can seek that index for the project scope and
     # for any `name` equality in `conditions`. The equivalent form
     # `project_id = X OR (project_id IS NULL AND team_id = X)` matches no index at all.
+    # The columns carry the table name because the metadata table has a `team_id` column too.
     return f"""
             FROM posthog_eventdefinition
-            {enterprise_join}
-            WHERE COALESCE(project_id, team_id) = %(project_id)s
+            {metadata_join}
+            WHERE COALESCE(posthog_eventdefinition.project_id, posthog_eventdefinition.team_id) = %(project_id)s
             {conditions}
         """
 
@@ -167,7 +171,7 @@ def create_event_definitions_count_sql(
 ) -> str:
     """Counts the rows `create_event_definitions_sql` pages over.
 
-    Selecting no column lets Postgres drop the enterprise join whenever `conditions` reads only
+    Selecting no column lets Postgres drop the metadata join whenever `conditions` reads only
     base-table columns, so the common count is an index-only scan. A bounded count stops at
     %(count_cap)s rows, because an exact count over millions of definitions walks the project's whole
     index range on every page load.
@@ -187,14 +191,13 @@ def create_event_definitions_sql(
     if order_expressions is None:
         order_expressions = []
 
-    # Qualified by table, so a column name both joined tables carry stays unambiguous.
+    # Django defers a model field that is missing from a raw result and loads it later with one query
+    # per row, so the select keeps every field. Only the deprecated tags stay out: nothing reads them.
     event_definition_fields = {
-        f'{f.model._meta.db_table}."{f.column}"'
+        definition_list_select_column(f, EventDefinition, _METADATA_TABLE)
         for f in event_definition_model(is_enterprise)._meta.get_fields()
         if isinstance(f, Field) and f.column is not None and f.column not in ["deprecated_tags", "tags"]
     }
-    # Django relies on PK being present in the result set to tell if it's a saved instance
-    event_definition_fields.add("id as pk")
     # Sorted because a set iterates in an order that depends on the process hash seed. Unsorted,
     # every worker emits a different statement text, so pg_stat_statements and Performance Insights
     # split this query's load across hundreds of fingerprints and none of them looks expensive.
@@ -541,9 +544,7 @@ class EventDefinitionViewSet(
 
         exclude_hidden = self.request.GET.get("exclude_hidden", "false").lower() == "true"
         if exclude_hidden and EE_AVAILABLE:
-            filter_query += (
-                " AND (ee_enterpriseeventdefinition.hidden IS NULL OR ee_enterpriseeventdefinition.hidden = false)"
-            )
+            filter_query += f" AND ({_METADATA_TABLE}.hidden IS NULL OR {_METADATA_TABLE}.hidden = false)"
 
         if exclude_stale:
             # `last_seen_at` is not indexed: the predicate runs after the project-scoped
@@ -559,13 +560,12 @@ class EventDefinitionViewSet(
         if verified_param is not None:
             if verified_param.lower() == "true":
                 filter_query += (
-                    " AND (ee_enterpriseeventdefinition.verified = true"
-                    " OR posthog_eventdefinition.name = ANY(%(core_events)s))"
+                    f" AND ({_METADATA_TABLE}.verified = true OR posthog_eventdefinition.name = ANY(%(core_events)s))"
                 )
                 params["core_events"] = CORE_EVENTS
             else:
                 filter_query += (
-                    " AND (ee_enterpriseeventdefinition.verified IS NULL OR ee_enterpriseeventdefinition.verified = false)"
+                    f" AND ({_METADATA_TABLE}.verified IS NULL OR {_METADATA_TABLE}.verified = false)"
                     " AND NOT posthog_eventdefinition.name = ANY(%(core_events)s)"
                 )
                 params["core_events"] = CORE_EVENTS

@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any, Optional, cast
 
 import time_machine
@@ -53,17 +53,19 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
         cls.demo_team = create_team(organization=cls.organization)
         cls.user = create_user("user", "pass", cls.organization)
 
-        for event_definition in cls.EXPECTED_EVENT_DEFINITIONS:
-            EnterpriseEventDefinition.objects.create(name=event_definition["name"], team_id=cls.demo_team.pk)
-            capture_event(
-                event=EventFixture(
-                    event=event_definition["name"],
-                    team_id=cls.demo_team.pk,
-                    distinct_id="abc",
-                    timestamp=datetime(2020, 1, 1),
-                    properties={},
+        # The list reads the metadata copy, which a save of an ee row writes only once the save commits
+        with cls.captureOnCommitCallbacks(execute=True):
+            for event_definition in cls.EXPECTED_EVENT_DEFINITIONS:
+                EnterpriseEventDefinition.objects.create(name=event_definition["name"], team_id=cls.demo_team.pk)
+                capture_event(
+                    event=EventFixture(
+                        event=event_definition["name"],
+                        team_id=cls.demo_team.pk,
+                        distinct_id="abc",
+                        timestamp=datetime(2020, 1, 1),
+                        properties={},
+                    )
                 )
-            )
 
     def test_list_event_definitions(self):
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
@@ -84,14 +86,15 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
             ],
         )
 
-        for event_definition in self.EXPECTED_EVENT_DEFINITIONS:
-            definition = EnterpriseEventDefinition.objects.filter(
-                name=event_definition["name"], team=self.demo_team
-            ).first()
-            if definition is None:
-                raise AssertionError(f"Event definition {event_definition['name']} not found")
-            definition.verified = event_definition["verified"] or False
-            definition.save()
+        with self.captureOnCommitCallbacks(execute=True):
+            for event_definition in self.EXPECTED_EVENT_DEFINITIONS:
+                definition = EnterpriseEventDefinition.objects.filter(
+                    name=event_definition["name"], team=self.demo_team
+                ).first()
+                if definition is None:
+                    raise AssertionError(f"Event definition {event_definition['name']} not found")
+                definition.verified = event_definition["verified"] or False
+                definition.save()
 
         response = self.client.get("/api/projects/@current/event_definitions/")
 
@@ -101,6 +104,61 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
             ("purchase", False),
             ("watched_movie", True),
         ]
+
+    def test_list_reads_each_enterprise_field_from_the_metadata_table(self):
+        super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            plan="enterprise", valid_until=datetime(2500, 1, 19, 3, 14, 7)
+        )
+        metadata_user = create_user("metadata_user", "pass", self.organization)
+        with self.captureOnCommitCallbacks(execute=True):
+            event = EnterpriseEventDefinition.objects.create(
+                team=self.demo_team,
+                name="signup_completed",
+                description="enterprise description",
+                owner=self.user,
+                updated_by=self.user,
+                verified=True,
+                verified_at=timezone.now(),
+                verified_by=self.user,
+                default_columns=["enterprise_column"],
+            )
+        EventDefinitionMetadata.all_teams.filter(pk=event.pk).update(
+            description="metadata description",
+            owner=metadata_user,
+            updated_at=datetime(2019, 12, 1, tzinfo=UTC),
+            updated_by=metadata_user,
+            verified=False,
+            verified_at=None,
+            verified_by=None,
+            hidden=True,
+            default_columns=["metadata_column"],
+        )
+
+        response = self.client.get("/api/projects/@current/event_definitions/?names=signup_completed")
+
+        assert response.status_code == status.HTTP_200_OK
+        [row] = response.json()["results"]
+        assert {
+            "description": row["description"],
+            "owner": row["owner"]["id"],
+            "updated_at": row["updated_at"],
+            "updated_by": row["updated_by"]["id"],
+            "verified": row["verified"],
+            "verified_at": row["verified_at"],
+            "verified_by": row["verified_by"],
+            "hidden": row["hidden"],
+            "default_columns": row["default_columns"],
+        } == {
+            "description": "metadata description",
+            "owner": metadata_user.id,
+            "updated_at": "2019-12-01T00:00:00Z",
+            "updated_by": metadata_user.id,
+            "verified": False,
+            "verified_at": None,
+            "verified_by": None,
+            "hidden": True,
+            "default_columns": ["metadata_column"],
+        }
 
     def test_retrieve_existing_event_definition(self):
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
@@ -141,14 +199,15 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
             plan="enterprise", valid_until=datetime(2500, 1, 19, 3, 14, 7)
         )
-        enterprise_property = EnterpriseEventDefinition.objects.create(
-            team=self.demo_team, name="enterprise event", owner=self.user
-        )
+        with self.captureOnCommitCallbacks(execute=True):
+            enterprise_property = EnterpriseEventDefinition.objects.create(
+                team=self.demo_team, name="enterprise event", owner=self.user
+            )
+            regular_event = EnterpriseEventDefinition.objects.create(
+                team=self.demo_team, name="regular event", owner=self.user
+            )
         tag = Tag.objects.create(name="deprecated", team_id=self.demo_team.id)
         enterprise_property.tagged_items.create(tag_id=tag.id)
-        regular_event = EnterpriseEventDefinition.objects.create(
-            team=self.demo_team, name="regular event", owner=self.user
-        )
         regular_event.tagged_items.create(tag_id=tag.id)
 
         response = self.client.get(f"/api/projects/@current/event_definitions/?search=enter")
@@ -199,9 +258,9 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
         )
 
         for event_definition in self.EXPECTED_EVENT_DEFINITIONS:
-            EnterpriseEventDefinition.objects.filter(name=event_definition["name"], team=self.demo_team).update(
-                verified=event_definition["verified"] or False
-            )
+            EventDefinitionMetadata.all_teams.filter(
+                event_definition__name=event_definition["name"], team=self.demo_team
+            ).update(verified=event_definition["verified"] or False)
 
         url = "/api/projects/@current/event_definitions/"
         if verified_param is not None:
@@ -636,16 +695,12 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
             plan="enterprise", valid_until=datetime(2500, 1, 19, 3, 14, 7)
         )
-        # Create some events with hidden flag
-        EnterpriseEventDefinition.objects.create(
-            team=self.demo_team, project=self.demo_team.project, name="visible_event"
-        )
-        EnterpriseEventDefinition.objects.create(
-            team=self.demo_team, project=self.demo_team.project, name="hidden_event1", hidden=True
-        )
-        EnterpriseEventDefinition.objects.create(
-            team=self.demo_team, project=self.demo_team.project, name="hidden_event2", hidden=True
-        )
+        with self.captureOnCommitCallbacks(execute=True):
+            for name in ("visible_event", "hidden_event1", "hidden_event2"):
+                EnterpriseEventDefinition.objects.create(team=self.demo_team, project=self.demo_team.project, name=name)
+        EventDefinitionMetadata.all_teams.filter(
+            team=self.demo_team, event_definition__name__in=["hidden_event1", "hidden_event2"]
+        ).update(hidden=True)
 
         response = self.client.get(f"/api/projects/{self.demo_team.pk}/event_definitions/?exclude_hidden=true")
         assert response.status_code == status.HTTP_200_OK
@@ -745,7 +800,8 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
 
     def test_list_filters_stay_unambiguous_when_both_tables_have_the_columns(self):
         License.objects.create(key="test_key", plan="enterprise", valid_until=datetime(2500, 1, 19, 3, 14, 7))
-        EnterpriseEventDefinition.objects.create(team=self.demo_team, name="checkout_completed", verified=True)
+        with self.captureOnCommitCallbacks(execute=True):
+            EnterpriseEventDefinition.objects.create(team=self.demo_team, name="checkout_completed", verified=True)
         with connection.cursor() as cursor:
             # Run the deferred FK checks of the inserts above, or Postgres refuses the ALTER TABLE.
             cursor.execute("SET CONSTRAINTS ALL IMMEDIATE")

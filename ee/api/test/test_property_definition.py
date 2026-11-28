@@ -13,9 +13,10 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.api.test.test_property_definition import exclude_virtual_properties
+from posthog.api.test.test_user import create_user
 from posthog.models import ActivityLog, Tag
 
-from products.event_definitions.backend.models import EventProperty
+from products.event_definitions.backend.models import EventProperty, PropertyDefinitionMetadata
 from products.event_definitions.backend.models.property_definition import PropertyDefinition
 
 from ee.models.license import License, LicenseManager
@@ -95,15 +96,16 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
         )
         tag = Tag.objects.create(name="deprecated", team_id=self.team.id)
         EventProperty.objects.create(team=self.team, event="$pageview", property="enterprise property")
-        enterprise_property = EnterprisePropertyDefinition.objects.create(
-            team=self.team, name="enterprise property", description=""
-        )
+        with self.captureOnCommitCallbacks(execute=True):
+            enterprise_property = EnterprisePropertyDefinition.objects.create(
+                team=self.team, name="enterprise property", description=""
+            )
+            other_property = EnterprisePropertyDefinition.objects.create(
+                team=self.team, name="other property", description=""
+            )
+            set_property = EnterprisePropertyDefinition.objects.create(team=self.team, name="$set", description="")
         enterprise_property.tagged_items.create(tag_id=tag.id)
-        other_property = EnterprisePropertyDefinition.objects.create(
-            team=self.team, name="other property", description=""
-        )
         other_property.tagged_items.create(tag_id=tag.id)
-        set_property = EnterprisePropertyDefinition.objects.create(team=self.team, name="$set", description="")
         set_property.tagged_items.create(tag_id=tag.id)
 
         response = self.client.get(f"/api/projects/@current/property_definitions/?search=enter")
@@ -176,8 +178,12 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
             plan="enterprise", valid_until=datetime.datetime(2500, 1, 19, 3, 14, 7)
         )
 
-        EnterprisePropertyDefinition.objects.create(team=self.team, name="verified_prop", verified=True)
-        EnterprisePropertyDefinition.objects.create(team=self.team, name="unverified_prop", verified=False)
+        with self.captureOnCommitCallbacks(execute=True):
+            for name in ("verified_prop", "unverified_prop"):
+                EnterprisePropertyDefinition.objects.create(team=self.team, name=name, verified=False)
+        PropertyDefinitionMetadata.all_teams.filter(team=self.team, property_definition__name="verified_prop").update(
+            verified=True
+        )
 
         url = "/api/projects/@current/property_definitions/"
         if verified_param is not None:
@@ -187,6 +193,57 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK
         assert sorted([r["name"] for r in exclude_virtual_properties(response.json()["results"])]) == expected_names
+
+    def test_list_reads_each_enterprise_field_and_the_verified_order_from_the_metadata_table(self):
+        super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            plan="enterprise", valid_until=datetime.datetime(2500, 1, 19, 3, 14, 7)
+        )
+        metadata_user = create_user("metadata_user", "pass", self.organization)
+        with self.captureOnCommitCallbacks(execute=True):
+            enterprise_verified = EnterprisePropertyDefinition.objects.create(
+                team=self.team,
+                name="a_plan",
+                description="enterprise description",
+                updated_by=self.user,
+                verified=True,
+                verified_at=timezone.now(),
+                verified_by=self.user,
+            )
+            metadata_verified = EnterprisePropertyDefinition.objects.create(team=self.team, name="b_plan")
+        PropertyDefinitionMetadata.all_teams.filter(pk=enterprise_verified.pk).update(
+            description="metadata description",
+            updated_at=datetime.datetime(2019, 12, 1, tzinfo=datetime.UTC),
+            updated_by=metadata_user,
+            verified=False,
+            verified_at=None,
+            verified_by=None,
+            hidden=True,
+        )
+        PropertyDefinitionMetadata.all_teams.filter(pk=metadata_verified.pk).update(verified=True)
+
+        response = self.client.get("/api/projects/@current/property_definitions/?search=_plan")
+
+        assert response.status_code == status.HTTP_200_OK
+        results = exclude_virtual_properties(response.json()["results"])
+        assert [row["name"] for row in results] == ["b_plan", "a_plan"]
+        row = results[1]
+        assert {
+            "description": row["description"],
+            "updated_at": row["updated_at"],
+            "updated_by": row["updated_by"]["id"],
+            "verified": row["verified"],
+            "verified_at": row["verified_at"],
+            "verified_by": row["verified_by"],
+            "hidden": row["hidden"],
+        } == {
+            "description": "metadata description",
+            "updated_at": "2019-12-01T00:00:00Z",
+            "updated_by": metadata_user.id,
+            "verified": False,
+            "verified_at": None,
+            "verified_by": None,
+            "hidden": True,
+        }
 
     def test_update_property_definition(self):
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
@@ -525,7 +582,8 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
             plan="enterprise", valid_until=datetime.datetime(2500, 1, 19, 3, 14, 7)
         )
-        EnterprisePropertyDefinition.objects.create(team=self.team, name="billing_plan_tier", verified=True)
+        with self.captureOnCommitCallbacks(execute=True):
+            EnterprisePropertyDefinition.objects.create(team=self.team, name="billing_plan_tier", verified=True)
         with connection.cursor() as cursor:
             # Run the deferred FK checks of the inserts above, or Postgres refuses the ALTER TABLE.
             cursor.execute("SET CONSTRAINTS ALL IMMEDIATE")
@@ -555,8 +613,9 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
             {"name": "6_when_verified", "verified": False},
         ]
 
-        for property in properties:
-            EnterprisePropertyDefinition.objects.create(team=self.team, name=property["name"])
+        with self.captureOnCommitCallbacks(execute=True):
+            for property in properties:
+                EnterprisePropertyDefinition.objects.create(team=self.team, name=property["name"])
 
         response = self.client.get("/api/projects/@current/property_definitions/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -571,12 +630,13 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
             ("6_when_verified", False, None),
         ]
 
-        for property in properties:
-            definition = EnterprisePropertyDefinition.objects.filter(name=property["name"], team=self.team).first()
-            if definition is None:
-                raise AssertionError(f"Property definition {property['name']} not found")
-            definition.verified = property["verified"] or False
-            definition.save()
+        with self.captureOnCommitCallbacks(execute=True):
+            for property in properties:
+                definition = EnterprisePropertyDefinition.objects.filter(name=property["name"], team=self.team).first()
+                if definition is None:
+                    raise AssertionError(f"Property definition {property['name']} not found")
+                definition.verified = property["verified"] or False
+                definition.save()
 
         response = self.client.get("/api/projects/@current/property_definitions/")
 
@@ -610,14 +670,12 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
             plan="enterprise", valid_until=datetime.datetime(2500, 1, 19, 3, 14, 7)
         )
-        # Create some properties with hidden flag
-        EnterprisePropertyDefinition.objects.create(team=self.team, name="visible_property", property_type="String")
-        EnterprisePropertyDefinition.objects.create(
-            team=self.team, name="hidden_property1", property_type="String", hidden=True
-        )
-        EnterprisePropertyDefinition.objects.create(
-            team=self.team, name="hidden_property2", property_type="String", hidden=True
-        )
+        with self.captureOnCommitCallbacks(execute=True):
+            for name in ("visible_property", "hidden_property1", "hidden_property2"):
+                EnterprisePropertyDefinition.objects.create(team=self.team, name=name, property_type="String")
+        PropertyDefinitionMetadata.all_teams.filter(
+            team=self.team, property_definition__name__in=["hidden_property1", "hidden_property2"]
+        ).update(hidden=True)
 
         response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/?exclude_hidden=true")
         self.assertEqual(response.status_code, status.HTTP_200_OK)

@@ -39,6 +39,7 @@ from posthog.settings import EE_AVAILABLE
 from posthog.taxonomy.definition_listing import (
     DEFINITION_LIST_STATEMENT_TIMEOUT_MS,
     DefinitionListTimedOut,
+    definition_list_select_column,
     definition_read_db_alias,
 )
 from posthog.taxonomy.definition_search import search_plan
@@ -50,10 +51,12 @@ from posthog.taxonomy.taxonomy import (
 )
 from posthog.utils import relative_date_parse
 
-from products.event_definitions.backend.models import EventProperty, PropertyDefinition
+from products.event_definitions.backend.models import EventProperty, PropertyDefinition, PropertyDefinitionMetadata
 from products.event_definitions.backend.models.property_definition import effective_project_id_expr
 
 tracer = trace.get_tracer(__name__)
+
+_METADATA_TABLE = PropertyDefinitionMetadata._meta.db_table
 
 # list of all event properties defined in the taxonomy, that don't start with $
 EXCLUDED_EVENT_CORE_PROPERTIES = [
@@ -550,12 +553,9 @@ class QueryContext:
     def with_verified_filter(self, verified: Optional[bool], use_enterprise_taxonomy: bool) -> Self:
         if verified is not None and use_enterprise_taxonomy:
             if verified:
-                verified_filter = " AND ee_enterprisepropertydefinition.verified = true"
+                verified_filter = f" AND {_METADATA_TABLE}.verified = true"
             else:
-                verified_filter = (
-                    " AND (ee_enterprisepropertydefinition.verified IS NULL"
-                    " OR ee_enterprisepropertydefinition.verified = false)"
-                )
+                verified_filter = f" AND ({_METADATA_TABLE}.verified IS NULL OR {_METADATA_TABLE}.verified = false)"
             return dataclasses.replace(
                 self,
                 excluded_properties_filter=(
@@ -568,7 +568,7 @@ class QueryContext:
 
     def with_hidden_filter(self, exclude_hidden: bool, use_enterprise_taxonomy: bool) -> Self:
         if exclude_hidden and use_enterprise_taxonomy:
-            hidden_filter = " AND (ee_enterprisepropertydefinition.hidden IS NULL OR ee_enterprisepropertydefinition.hidden = false)"
+            hidden_filter = f" AND ({_METADATA_TABLE}.hidden IS NULL OR {_METADATA_TABLE}.hidden = false)"
             return dataclasses.replace(
                 self,
                 excluded_properties_filter=(
@@ -597,7 +597,7 @@ class QueryContext:
         )
 
     def as_sql(self, order_by_verified: bool):
-        verified_ordering = "ee_enterprisepropertydefinition.verified DESC NULLS LAST," if order_by_verified else ""
+        verified_ordering = f"{_METADATA_TABLE}.verified DESC NULLS LAST," if order_by_verified else ""
         length_ordering = (
             f"length({self.property_definition_table}.name) ASC," if self.order_by_search_relevance else ""
         )
@@ -812,12 +812,9 @@ class PropertyDefinitionViewSet(
                 # Prevent fetching deprecated `tags` field. Tags are separately fetched in TaggedItemSerializerMixin
                 property_definition_fields = ", ".join(
                     [
-                        f'{f.cached_col.alias}."{f.column}"'
+                        definition_list_select_column(f, PropertyDefinition, _METADATA_TABLE)
                         for f in enterprise_model._meta.get_fields()
-                        if isinstance(f, Field)
-                        and f.column is not None
-                        and f.column not in ["deprecated_tags", "tags"]
-                        and hasattr(f, "cached_col")
+                        if isinstance(f, Field) and f.column is not None and f.column not in ["deprecated_tags", "tags"]
                     ]
                 )
 
@@ -856,7 +853,8 @@ class PropertyDefinitionViewSet(
                 QueryContext(
                     project_id=self.project_id,
                     table=(
-                        "posthog_propertydefinition LEFT JOIN ee_enterprisepropertydefinition ON posthog_propertydefinition.id=ee_enterprisepropertydefinition.propertydefinition_ptr_id"
+                        f"posthog_propertydefinition LEFT JOIN {_METADATA_TABLE}"
+                        f" ON {_METADATA_TABLE}.property_definition_id = posthog_propertydefinition.id"
                         if EE_AVAILABLE
                         else "posthog_propertydefinition"
                     ),
