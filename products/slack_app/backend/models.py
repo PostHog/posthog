@@ -256,14 +256,7 @@ class SlackSettings(UUIDModel):
         blank=True,
         help_text="Let PostHog pick the model for each new task this user starts from Slack.",
     )
-    # Only read on a personal row. Superseded by `chatgpt_apps_mode`, and read only when that is NULL:
-    # True resolves to `ChatGPTAppsMode.ALWAYS`.
-    chatgpt_apps_enabled = models.BooleanField(
-        null=True,
-        blank=True,
-        help_text="Let Slack tasks that run on this user's ChatGPT plan use the apps connected to that plan.",
-    )
-    # Only read on a personal row. NULL falls back to `chatgpt_apps_enabled`, then to off.
+    # Only read on a personal row. NULL means the user never picked, which resolves to off.
     chatgpt_apps_mode = models.CharField(
         max_length=16,
         null=True,

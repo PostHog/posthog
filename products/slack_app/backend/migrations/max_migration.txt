@@ -1,1 +1,1 @@
-0030_chatgpt_apps_mode_and_thread_joins
+0031_untrack_slacksettings_chatgpt_apps_enabled
