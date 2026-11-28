@@ -2,11 +2,14 @@ from typing import Any
 
 from posthog.schema import InsightThreshold, MetricsAlertConfig, MetricsQuery, MetricsQueryLanguage
 
+from posthog.hogql.errors import ExposedHogQLError
+
 from posthog.api.services.query import ExecutionMode
 from posthog.caching.calculate_results import calculate_for_query_based_insight
 from posthog.event_usage import EventSource
 
 from products.alerts.backend.evaluation.contract import (
+    AlertDataUnavailableError,
     ComparableSeries,
     ExtractionResult,
     SeriesPoint,
@@ -25,6 +28,18 @@ def _series_label(row: dict[str, Any]) -> str:
         rendered = ", ".join(f"{key}={value}" for key, value in sorted(labels.items()))
         return f"{name} {{{rendered}}}"
     return str(name)
+
+
+def _caused_by_transient_backend_error(error: BaseException) -> bool:
+    # The metrics runner re-raises a PromQLQueryError as a plain ExposedHogQLError, so the `transient` flag
+    # (the backend failed or is not configured, not the query) is only on a cause. Alerts cannot import the
+    # metrics error type because products.metrics depends on products.alerts, so read the flag by name.
+    cause: BaseException | None = error
+    while cause is not None:
+        if getattr(cause, "transient", False) is True:
+            return True
+        cause = cause.__cause__
+    return False
 
 
 class MetricsExtractor:
@@ -69,16 +84,21 @@ class MetricsExtractor:
             if config.variables
             else None
         )
-        calculation_result = calculate_for_query_based_insight(
-            insight,
-            team=alert.team,
-            execution_mode=execution_mode,
-            query_override=query_override,
-            cache_age_seconds=cache_age_seconds,
-            # Scheduled alert check (no request user); attribute the read to the alert owner.
-            user=alert.created_by,
-            analytics_props={"source": EventSource.ALERT},
-        )
+        try:
+            calculation_result = calculate_for_query_based_insight(
+                insight,
+                team=alert.team,
+                execution_mode=execution_mode,
+                query_override=query_override,
+                cache_age_seconds=cache_age_seconds,
+                # Scheduled alert check (no request user); attribute the read to the alert owner.
+                user=alert.created_by,
+                analytics_props={"source": EventSource.ALERT},
+            )
+        except ExposedHogQLError as err:
+            if _caused_by_transient_backend_error(err):
+                raise AlertDataUnavailableError(str(err)) from err
+            raise
         if calculation_result.result is None:
             raise RuntimeError(f"No results found for insight with alert id = {alert.id}")
 
