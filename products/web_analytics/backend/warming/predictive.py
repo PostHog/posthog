@@ -3,8 +3,9 @@ from collections.abc import Iterable
 from datetime import UTC, datetime, timedelta
 from typing import Literal
 
+from django.conf import settings
+
 from posthog.dataclasses import frozen
-from posthog.models.instance_setting import get_instance_setting
 
 WarmingArm = Literal["predictive", "current"]
 
@@ -88,10 +89,7 @@ class ShapeDemand:
 
 
 def predictive_rollout_percent() -> int:
-    try:
-        return int(get_instance_setting("WEB_ANALYTICS_PREDICTIVE_WARMING_ROLLOUT_PERCENT"))
-    except Exception:
-        return 0
+    return settings.WEB_ANALYTICS_PREDICTIVE_WARMING_ROLLOUT_PERCENT
 
 
 def arm_for(team_id: int, rollout_percent: int) -> WarmingArm:

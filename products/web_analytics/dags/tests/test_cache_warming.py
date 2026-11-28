@@ -8,7 +8,7 @@ from types import SimpleNamespace
 from posthog.test.base import BaseTest, ClickhouseTestMixin
 from unittest.mock import MagicMock, call, patch
 
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, override_settings
 from django.utils.dateparse import parse_datetime
 
 import dagster
@@ -993,7 +993,7 @@ class TestWarmQueriesOp(BaseTest):
                 return_value=(runner, {}, True),
             ),
             patch("products.web_analytics.dags.cache_warming.QueryCache") as mock_cm,
-            override_instance_config("WEB_ANALYTICS_PREDICTIVE_WARMING_ROLLOUT_PERCENT", rollout_percent),
+            override_settings(WEB_ANALYTICS_PREDICTIVE_WARMING_ROLLOUT_PERCENT=rollout_percent),
             patch.object(cache_warming._TeamDemand, "request_probability", return_value=probability),
         ):
             mock_cm.return_value.freshness.return_value = None

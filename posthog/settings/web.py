@@ -1684,6 +1684,10 @@ WEB_ANALYTICS_NO_JOIN_ROLLOUT_PERCENT: int = get_from_env(
     "WEB_ANALYTICS_NO_JOIN_ROLLOUT_PERCENT", _NO_JOIN_DEFAULT_ROLLOUT_PERCENT, type_cast=int
 )
 
+WEB_ANALYTICS_PREDICTIVE_WARMING_ROLLOUT_PERCENT: int = get_from_env(
+    "WEB_ANALYTICS_PREDICTIVE_WARMING_ROLLOUT_PERCENT", 0, type_cast=int
+)
+
 
 # Teams whose *filtered* web overview queries (event-property filters only) run as two
 # independent scans linked by a session-id set: the events side evaluates the filters and
