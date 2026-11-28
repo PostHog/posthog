@@ -9,6 +9,11 @@ from asgiref.sync import async_to_sync
 from parameterized import parameterized
 from temporalio import workflow as temporal_workflow
 
+from posthog.hogql.database.database import Database
+from posthog.hogql.errors import UNRESOLVED_FIELD_MESSAGE, QueryError
+
+from posthog.models.user import User
+
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.data_quality.backend.facade.enums import (
     CheckRunStatus,
@@ -204,6 +209,68 @@ class TestCheckSuiteActivities(BaseTest):
         assert outcome.passed == 1
         runs = DataQualityCheckRun.objects.for_team(self.team.id).filter(suite_run_id=prepared.suite_run_id)
         assert list(runs.values_list("quality_check_id", flat=True)) == [stays.id]
+
+    @parameterized.expand([("one_author", False), ("two_authors", True)])
+    def test_checks_that_run_as_the_same_user_share_one_database(self, _name: str, second_author: bool) -> None:
+        other = User.objects.create_and_join(self.organization, "other@posthog.com", None)
+        first = self._check(
+            check_type=CheckType.CUSTOM_SQL, column_name="", config={"query": "select 1"}, created_by=self.user
+        )
+        second = self._check(
+            check_type=CheckType.CUSTOM_SQL,
+            column_name="",
+            config={"query": "select 2"},
+            created_by=other if second_author else self.user,
+        )
+        prepared = self._prepare(trigger=SuiteRunTrigger.MATERIALIZATION)
+        build_database = Database.create_for
+        built_for: dict[int, object] = {}
+
+        def _build(*args, **kwargs):
+            database = build_database(*args, **kwargs)
+            built_for[id(database)] = kwargs.get("user")
+            return database
+
+        with (
+            patch.object(Database, "create_for", side_effect=_build),
+            patch(RUNNER_QUERY, return_value=_Response(["failure_count", "observed_value"], [0, 0])) as query,
+        ):
+            _run_batch(
+                RunCheckBatchInputs(
+                    team_id=self.team.id,
+                    suite_run_id=prepared.suite_run_id,
+                    check_ids=[str(first.id), str(second.id)],
+                )
+            )
+
+        databases = [call.kwargs["context"].database for call in query.call_args_list]
+        assert [built_for[id(database)] for database in databases] == [
+            call.kwargs["user"] for call in query.call_args_list
+        ]
+        assert len({id(database) for database in databases}) == (2 if second_author else 1)
+
+    def test_a_check_that_finds_the_shared_database_stale_reruns_on_a_fresh_one(self) -> None:
+        first = self._check()
+        second = self._check(column_name="total")
+        prepared = self._prepare(trigger=SuiteRunTrigger.MATERIALIZATION)
+        databases: list[object] = []
+
+        def _query(*, context, **kwargs):
+            if databases and context.database is databases[0]:
+                raise QueryError(f"{UNRESOLVED_FIELD_MESSAGE}: total")
+            databases.append(context.database)
+            return _Response(["failure_count", "observed_value"], [0, 0])
+
+        with patch(RUNNER_QUERY, side_effect=_query):
+            outcome = _run_batch(
+                RunCheckBatchInputs(
+                    team_id=self.team.id,
+                    suite_run_id=prepared.suite_run_id,
+                    check_ids=[str(first.id), str(second.id)],
+                )
+            )
+
+        assert (outcome.passed, outcome.errored) == (2, 0)
 
     def test_a_staged_audit_that_cannot_reach_the_staged_files_runs_no_check(self) -> None:
         check = self._check()
