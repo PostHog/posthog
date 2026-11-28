@@ -93,6 +93,7 @@ text-card-foreground`; borders `border-border`. Never a hardcoded hex or light-o
 - Omit `color` on a series to get the palette color for its index. Read `theme.colors[i]` when the same color is needed elsewhere, such as a legend swatch. An explicit `color` must be a hex or rgb value: line, area, and bar series do not resolve `var(--…)`.
 - A chart fills its parent. Wrap it in a flex column with a fixed height, `<div className="flex h-[280px] flex-col">`. A parent without `flex flex-col` gives the chart zero height. `BarList` and `ProportionBar` size themselves from their rows and need no wrapper.
 - Charts take `labels` (one per x position) and `series` (`{ key, label, data }`, with `data.length === labels.length`), not row objects. See [references/platform-libraries.md](references/platform-libraries.md) for which chart to use and how each one is configured.
+- A shape the library does not ship, or a mark a stock chart does not draw (a target line, a release marker, a callout), is the `drawing-custom-charts` skill. Load it before writing any d3 or any chart draw code.
 - Multi-series bars stack by default. Pass `barLayout: "grouped"` for side-by-side bars. The legend is off by default; pass `legend: { show: true }` when there is more than one series.
 - Write Unicode glyphs (curly quotes, ellipsis, arrows, emoji) as literal characters in JSX —
   `\uXXXX` escapes render verbatim in JSX text.
