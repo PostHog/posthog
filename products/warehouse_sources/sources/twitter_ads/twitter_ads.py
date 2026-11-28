@@ -323,8 +323,12 @@ class TwitterAdsClient:
         for page in self.pages(
             f"{account_path}/line_items", state.line_items_cursor, params={"count": TARGETING_CRITERIA_LINE_ITEM_LIMIT}
         ):
+            next_cursor = page.get("next_cursor")
             if page["data"]:
-                yield from batch(",".join(row["id"] for row in page["data"]), page.get("next_cursor"))
+                yield from batch(",".join(row["id"] for row in page["data"]), next_cursor)
+            else:
+                manager.save_state(TwitterAdsResumeConfig(line_items_cursor=next_cursor, complete=not next_cursor))
+                manager.safe_point()
 
     def stats_pages(
         self,

@@ -99,16 +99,14 @@ def test_signing_pagination_and_resume(client: TwitterAdsClient, manager: MagicM
     send.assert_not_called()
 
 
-def test_accounts_sync_imports_only_the_selected_account(client: TwitterAdsClient, manager: MagicMock) -> None:
-    account = {"id": "selected", "timezone": "America/New_York"}
-    with patch.object(
-        client.session, "send", return_value=response({"data": [account, {"id": "other"}], "next_cursor": None})
-    ) as send:
-        resource = twitter_ads_source(client, "selected", "accounts", manager, None, MagicMock())
-        assert list(sync_items(resource)) == [[account]]
-    url = urlparse(request_url(send.call_args.args[0]))
-    assert url.path == "/12/accounts"
-    assert parse_qs(url.query)["account_ids"] == ["selected"]
+def test_accounts_sync_imports_only_the_selected_account(source_driver: SourceDriver) -> None:
+    account = {"id": "account", "timezone": "America/New_York"}
+    result = source_driver.run("accounts", [ScriptedResponse(json={"data": [account, {"id": "other"}]})])
+    assert result.raised is None
+    assert result.rows == [account]
+    assert result.paths == ["/12/accounts"]
+    assert result.params("account_ids") == ["account"]
+    assert result.final_state == TwitterAdsResumeConfig(complete=True)
 
 
 @pytest.mark.parametrize(
@@ -332,11 +330,26 @@ def stats_source() -> Iterator[TwitterAdsSource]:
 
 
 @pytest.fixture
-def stats_driver(stats_source: TwitterAdsSource) -> SourceDriver:
+def source_driver(stats_source: TwitterAdsSource) -> SourceDriver:
     return SourceDriver(stats_source, TwitterAdsSourceConfig(account_id="account", twitter_ads_integration_id=1))
 
 
-def test_targeting_criteria_resumes_with_the_same_line_item_ids(stats_driver: SourceDriver) -> None:
+def test_targeting_criteria_checkpoints_empty_line_item_pages(source_driver: SourceDriver) -> None:
+    next_cursors = ["second", "third", "fourth", "last", None]
+    result = source_driver.run(
+        "targeting_criteria", [ScriptedResponse(json={"data": [], "next_cursor": cursor}) for cursor in next_cursors]
+    )
+
+    assert result.raised is None
+    assert result.rows == []
+    assert result.paths == ["/12/accounts/account/line_items"] * len(next_cursors)
+    assert result.params("cursor") == [None, *next_cursors[:-1]]
+    assert result.committed_states == [
+        TwitterAdsResumeConfig(line_items_cursor=cursor, complete=cursor is None) for cursor in next_cursors
+    ]
+
+
+def test_targeting_criteria_resumes_with_the_same_line_item_ids(source_driver: SourceDriver) -> None:
     first_batch = [{"id": f"line-{index}"} for index in range(200)]
     first_batch_ids = ",".join(row["id"] for row in first_batch)
     line_items_path = "/12/accounts/account/line_items"
@@ -365,7 +378,7 @@ def test_targeting_criteria_resumes_with_the_same_line_item_ids(stats_driver: So
         assert cursor == "last-criteria"
         return ScriptedResponse(json={"data": [{"id": "last"}]})
 
-    result = stats_driver.run("targeting_criteria", answer)
+    result = source_driver.run("targeting_criteria", answer)
     assert result.raised is None
     assert result.paths == [
         line_items_path,
@@ -384,7 +397,9 @@ def test_targeting_criteria_resumes_with_the_same_line_item_ids(stats_driver: So
             [criteria_path],
         )
     ):
-        resumed = stats_driver.run("targeting_criteria", answer, resume_state=result.committed_states[checkpoint_index])
+        resumed = source_driver.run(
+            "targeting_criteria", answer, resume_state=result.committed_states[checkpoint_index]
+        )
         assert resumed.raised is None
         assert resumed.paths == expected_paths
         assert resumed.rows == result.rows[checkpoint_index + 1 :]
@@ -422,7 +437,7 @@ def stats_success(request: RecordedRequest, timezone: str) -> ScriptedResponse:
 @pytest.mark.parametrize("narrowing", ["entity", "day"])
 @pytest.mark.parametrize("timezone", ["Asia/Kolkata", "America/Los_Angeles"])
 def test_stats_rejection_recovers_all_rows_and_resumes(
-    stats_driver: SourceDriver, table: str, narrowing: str, timezone: str
+    source_driver: SourceDriver, table: str, narrowing: str, timezone: str
 ) -> None:
     def answer(request: RecordedRequest) -> ScriptedResponse:
         metadata = stats_metadata(request, timezone)
@@ -435,7 +450,9 @@ def test_stats_rejection_recovers_all_rows_and_resumes(
         return stats_success(request, timezone)
 
     with time_machine.travel("2025-11-12T12:00:00Z", tick=False):
-        result = stats_driver.run(table, answer, incremental_field="date", db_incremental_field_last_value="2025-10-31")
+        result = source_driver.run(
+            table, answer, incremental_field="date", db_incremental_field_last_value="2025-10-31"
+        )
         assert result.raised is None
         assert len(result.rows) == 2 * 12 * len(PLACEMENTS)
         assert len({(row["entity_id"], row["date"], row["placement"]) for row in result.rows}) == len(result.rows)
@@ -444,7 +461,7 @@ def test_stats_rejection_recovers_all_rows_and_resumes(
         assert result.final_state.complete
         checkpoint = result.committed_states[0]
         assert checkpoint.next_date == "2025-11-06"
-        resumed = stats_driver.run(table, answer, resume_state=checkpoint)
+        resumed = source_driver.run(table, answer, resume_state=checkpoint)
     assert resumed.raised is None
     assert resumed.rows == [row for row in result.rows if row["date"] >= date(2025, 11, 6)]
     stats_requests = [request for request in result.requests if "/stats/" in request.path]
@@ -624,7 +641,11 @@ def test_web_entrypoints_do_not_wait_for_rate_limit_reset(
     ],
 )
 def test_stats_rejection_preserves_rows_and_does_not_skip_failure(
-    stats_driver: SourceDriver, failure: ScriptedResponse, expected_requests: int, permanent: bool, partial_entity: bool
+    source_driver: SourceDriver,
+    failure: ScriptedResponse,
+    expected_requests: int,
+    permanent: bool,
+    partial_entity: bool,
 ) -> None:
     def answer(request: RecordedRequest) -> ScriptedResponse:
         metadata = stats_metadata(request, "Asia/Kolkata")
@@ -640,7 +661,7 @@ def test_stats_rejection_preserves_rows_and_does_not_skip_failure(
         return failure
 
     with time_machine.travel("2025-11-12T12:00:00Z", tick=False):
-        result = stats_driver.run(
+        result = source_driver.run(
             "campaign_stats", answer, incremental_field="date", db_incremental_field_last_value="2025-10-31"
         )
     assert len(result.rows) == (54 if partial_entity else 48)
