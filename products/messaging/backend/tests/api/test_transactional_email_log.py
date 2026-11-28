@@ -990,7 +990,7 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
         clicked = [("sent", 1, ""), ("delivered", 2, ""), ("clicked", 60, "")]
         message_id = self._send(120, "reader@example.com", clicked)
         self._land("reader", "earlier-session", message_id, at=NOW - timedelta(minutes=100))
-        for n in range(200):
+        for n in range(201):
             self._land("reader", f"later-session-{n:03d}", message_id, at=NOW - timedelta(minutes=10))
         flush_persons_and_events()
 
