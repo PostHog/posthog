@@ -267,7 +267,7 @@ describe('message audience attempts', () => {
         },
     }
 
-    it.each<{ destination: MessageAudienceDestination; label: string; how: string; warning?: string }>([
+    it.each<{ destination: MessageAudienceDestination; label: string; how: string; warning?: string; kind?: string }>([
         { destination: 'workflow', label: 'Build a custom workflow', how: 'directly' },
         { destination: 'broadcast', label: 'Send a one-time email', how: 'directly' },
         {
@@ -275,11 +275,18 @@ describe('message audience attempts', () => {
             label: 'Build a custom workflow',
             how: 'through Continue',
             warning: TEST_SENDER_FOR_WORKFLOW,
+            kind: 'test_sender_only',
         },
-        { destination: 'broadcast', label: 'Send a one-time email', how: 'through Continue', warning: NO_SENDER },
+        {
+            destination: 'broadcast',
+            label: 'Send a one-time email',
+            how: 'through Continue',
+            warning: NO_SENDER,
+            kind: 'no_sender',
+        },
     ])(
         'saves the attempt of the sent click event in the $destination opened $how',
-        async ({ destination, label, warning }) => {
+        async ({ destination, label, warning, kind }) => {
             useSendMocks(warning ? { senders: [], sandbox: testSender } : { senders: [verified] })
             app.router.actions.push('/project/997/early_access_features/1')
             const { fireEvent, render, screen, waitFor } = app.rtl
@@ -301,6 +308,18 @@ describe('message audience attempts', () => {
 
             const [attempt] = await sentAttempts(1)
             expect(attempt).toMatch(UUID)
+            await waitFor(() =>
+                expect(
+                    sentEvents
+                        .filter(({ event }) => event === 'message audience warnings shown')
+                        .map(({ properties }) => [
+                            properties.source,
+                            properties.destination,
+                            properties.attempt_id,
+                            properties.warnings,
+                        ])
+                ).toEqual(kind ? [['early_access', destination, attempt, [kind]]] : [])
+            )
             expect(await savedAttempt[destination]()).toEqual(attempt)
         }
     )
