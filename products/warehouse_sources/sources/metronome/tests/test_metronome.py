@@ -604,20 +604,28 @@ class TestMetronomeSourceResponse:
 
         assert manager.save_state.called is False
 
-    @patch(f"{TRANSPORT}.build_dependent_resource")
-    def test_invoices_fan_out_over_customers(self, mock_build) -> None:
-        mock_build.return_value = iter([])
+    def test_a_resumed_invoices_walk_skips_the_customers_it_already_wrote(self) -> None:
+        # A large account's invoice walk runs for hours. When every attempt started again at the
+        # first customer, a worker restart every few hours meant the table never finished.
+        result = _driver().run(
+            "invoices",
+            [
+                ScriptedResponse(json={"data": [{"id": "c1"}, {"id": "c2"}], "next_page": None}),
+                ScriptedResponse(json={"data": [{"id": "inv_2", "customer_id": "c2"}], "next_page": None}),
+            ],
+            resume_state=MetronomeResumeConfig(parent_cursor="cursor-2", completed_customers=("c1",)),
+        )
 
-        metronome_source(api_key="tok", endpoint="invoices", team_id=1, job_id="job-1")
-
-        kwargs = mock_build.call_args.kwargs
-        assert kwargs["fanout"].parent_name == "customers"
-        assert kwargs["fanout"].resolve_param == "customer_id"
-        # The invoice payload already carries `customer_id`, so nothing is copied down.
-        assert kwargs["fanout"].include_from_parent == []
-        assert kwargs["fanout"].child_params == {"sort": "date_asc"}
-        assert kwargs["parent_endpoint_extra"]["data_selector"] == "data"
-        assert kwargs["child_endpoint_extra"]["data_selector"] == "data"
+        assert result.raised is None
+        assert result.paths == ["/v1/customers", "/v1/customers/c2/invoices"]
+        assert result.requests[0].param("next_page") == "cursor-2"
+        assert result.queries[1] == {"limit": ("25",), "sort": ("date_asc",)}
+        assert [row["id"] for row in result.rows] == ["inv_2"]
+        last_checkpoint = result.committed_states[-1]
+        assert (last_checkpoint.parent_cursor, sorted(last_checkpoint.completed_customers)) == (
+            "cursor-2",
+            ["c1", "c2"],
+        )
 
 
 class TestMetronomeBodyFanout:
@@ -772,7 +780,7 @@ class TestMetronomeNewFanoutTables:
     @parameterized.expand(
         [
             # A first sync reaches back a year, from the UTC midnight before it.
-            ("first_sync", {}, "2025-09-03T00:00:00Z"),
+            ("first_sync", {}, "2025-09-03T00:00:00Z", "2026-09-04T00:00:00Z"),
             # The watermark arrives already moved back by the lookback, and lands mid-day. Asking
             # from mid-day would return a partial day as a second row under a different key.
             (
@@ -783,10 +791,27 @@ class TestMetronomeNewFanoutTables:
                     "db_incremental_field_last_value": "2026-08-27T15:00:00Z",
                 },
                 "2026-08-27T00:00:00Z",
+                "2026-09-04T00:00:00Z",
+            ),
+            # A resumed attempt replays the window its checkpoint stored, so one table never mixes
+            # breakdowns cut off at two different instants.
+            (
+                "resumed",
+                {
+                    "resume_state": MetronomeResumeConfig(
+                        completed_customers=("cust_0",),
+                        starting_on="2026-08-01T00:00:00Z",
+                        ending_before="2026-09-02T00:00:00Z",
+                    )
+                },
+                "2026-08-01T00:00:00Z",
+                "2026-09-02T00:00:00Z",
             ),
         ]
     )
-    def test_invoice_breakdowns_ask_for_whole_days_from_the_watermark(self, _name, inputs, starting_on) -> None:
+    def test_invoice_breakdowns_ask_for_whole_days_from_the_watermark(
+        self, _name, inputs, starting_on, ending_before
+    ) -> None:
         with time_machine.travel(NOW, tick=False):
             result = _driver().run(
                 "invoice_breakdowns",
@@ -807,7 +832,7 @@ class TestMetronomeNewFanoutTables:
         breakdown_query = result.queries[1]
         assert breakdown_query["starting_on"] == (starting_on,)
         # The day in progress is included, so the newest day is never a full period behind.
-        assert breakdown_query["ending_before"] == ("2026-09-04T00:00:00Z",)
+        assert breakdown_query["ending_before"] == (ending_before,)
         assert breakdown_query["window_size"] == ("DAY",)
         assert [row["id"] for row in result.rows] == ["inv_1"]
 
