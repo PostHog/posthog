@@ -381,6 +381,13 @@ export class FaultList {
         }
     }
 
+    s3Abandoned(id: string): void {
+        const fault = this.faults.find((candidate) => candidate.id === id)
+        if (fault !== undefined) {
+            fault.applied -= 1
+        }
+    }
+
     refusePg(): string | undefined {
         const fault = this.take({ channel: 'pg', at: 'enqueue' }, PG_HIT, { appliesNow: false })
         if (fault === undefined) {

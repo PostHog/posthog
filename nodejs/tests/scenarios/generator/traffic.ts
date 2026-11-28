@@ -367,11 +367,11 @@ const fitsOneEmail = (sizes: readonly number[]): boolean =>
 export function fileBytes({ seed, sizeBytes }: UnitFile): Buffer {
     const block = Buffer.alloc(Math.min(BLOCK_BYTES, sizeBytes))
     let state = (seed ^ 0x9e3779b9) >>> 0 || 1
+    const word = Buffer.alloc(4)
     for (let at = 0; at < block.length; at += 4) {
         state ^= state << 13
         state ^= state >>> 17
         state ^= state << 5
-        const word = Buffer.alloc(4)
         word.writeUInt32LE(state >>> 0)
         word.copy(block, at)
     }

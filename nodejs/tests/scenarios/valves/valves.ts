@@ -7,7 +7,7 @@ import type { RunManifest } from '../cloud/lease'
 import { TerminationGrace, durationMs } from '../duration'
 import type { Actuation, Environment } from '../environment/environment'
 import type { Observation } from '../environment/failover'
-import type { RoleTermination } from '../environment/supervisor'
+import type { RoleExit, RoleTermination } from '../environment/supervisor'
 import type { CyclotronProbe, Queue } from '../probe/cyclotron-probe'
 import type { WriterSample } from '../probe/writer-probe'
 import {
@@ -346,6 +346,35 @@ export const VALVES: ValveDefinition[] = [
     pgEnqueueRefused,
     pgCommitReplyLost,
 ]
+
+export const appliedWithin = (
+    { intentAt, appliedAt, releasedAt }: ValveTimelineEntry,
+    at: string,
+    graceMs: number
+): boolean => {
+    const from = intentAt ?? appliedAt
+    const time = Date.parse(at)
+    return (
+        from !== undefined &&
+        appliedAt !== undefined &&
+        Date.parse(from) <= time &&
+        (releasedAt === undefined || time <= Date.parse(releasedAt) + graceMs)
+    )
+}
+
+export const exitedByValve = (exit: RoleExit, timeline: readonly ValveTimelineEntry[]): boolean =>
+    exit.byValve ||
+    (exit.code !== null &&
+        exit.code < 128 &&
+        exit.signal === null &&
+        timeline.some((entry) => {
+            const valve = VALVES.find(({ name }) => name === entry.valve)
+            return (
+                valve?.roleExitGraceMs !== undefined &&
+                (valve.restarts?.includes(exit.role) ?? true) &&
+                appliedWithin(entry, exit.at, valve.roleExitGraceMs)
+            )
+        }))
 
 export const cyclotronThroughEdge = (entries: readonly ValveEntry[]): boolean =>
     entries.some(({ valve }) => VALVES.find(({ name }) => name === valve)?.cyclotronThroughEdge === true)

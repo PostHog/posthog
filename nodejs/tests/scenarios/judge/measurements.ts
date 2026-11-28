@@ -12,7 +12,7 @@ import type { AttachmentBudget } from '../environment/roles'
 import type { RoleExit } from '../environment/supervisor'
 import type { QueueCounts, WriterBackends } from '../probe/cyclotron-probe'
 import type { WriterSample } from '../probe/writer-probe'
-import type { ValveTimelineEntry } from '../valves/valves'
+import { ValveTimelineEntry, exitedByValve } from '../valves/valves'
 import { CounterReading, counterDrift } from './drift'
 import { acceptedDeliveriesOf, deliveryKey } from './invariants'
 import type { JudgeEvidence } from './invariants'
@@ -65,6 +65,8 @@ export type DriveWindow = { startedAt: number; endedAt: number; warmedAt?: numbe
 type Value = { value: number; censored?: true } | { value: null; censored: true }
 
 type Measured = { key?: string; incomplete?: true; unmeasured?: string } & Value
+
+const unmeasured = (reason: string): Measured => ({ value: null, censored: true, unmeasured: reason })
 
 export type Measurement = { name: string; unit: string } & Measured
 
@@ -243,10 +245,10 @@ export const roleRestarts: MeasurementDefinition = {
     name: 'role_restarts',
     params: z.object({}).strict(),
     unit: 'restarts',
-    measure: ({ samples, exits = [] }) =>
+    measure: ({ samples, exits = [], timeline }) =>
         [...new Set([...samples, ...exits].map(({ role }) => role))].sort().map((role) => ({
             key: role,
-            value: exits.filter((exit) => exit.role === role && !exit.byValve).length,
+            value: exits.filter((exit) => exit.role === role && !exitedByValve(exit, timeline)).length,
         })),
 }
 
@@ -286,9 +288,10 @@ export const sendsPerMessageMax: MeasurementDefinition = {
     measure: ({ truth, unread, unsettled, converged }) => {
         const accepted = acceptedDeliveriesOf(sesSendsOf(truth)).map(({ accepted }) => accepted)
         const incomplete = unread !== undefined || unsettled !== undefined || converged === false
-        return accepted.length === 0
-            ? []
-            : [{ value: maxOf(accepted), ...(incomplete ? { incomplete: true as const } : {}) }]
+        if (accepted.length === 0) {
+            return incomplete ? [unmeasured('no accepted SES send was read')] : []
+        }
+        return [{ value: maxOf(accepted), ...(incomplete ? { incomplete: true as const } : {}) }]
     },
 }
 
@@ -478,8 +481,6 @@ const terminationsOf = (
     timeline: readonly ValveTimelineEntry[]
 ): (ValveTimelineEntry & Required<Pick<ValveTimelineEntry, 'exit'>>)[] =>
     timeline.flatMap((entry) => (entry.exit === undefined ? [] : [{ ...entry, exit: entry.exit }]))
-
-const unmeasured = (reason: string): Measured => ({ value: null, censored: true, unmeasured: reason })
 
 export const roleExitMs: MeasurementDefinition = {
     name: 'role_exit_ms',
