@@ -141,6 +141,13 @@ export namespace Schemas {
       answers_citing: number;
     }
 
+    export interface AEOEngineCheckCount {
+      /** The engine. */
+      engine: string;
+      /** Active prompts with at least one check on this engine. */
+      checks: number;
+    }
+
     /**
      * * `web_search` - Web search
      * * `no_search` - No search
@@ -155,6 +162,7 @@ export namespace Schemas {
 
     /**
      * * `daily` - Daily
+     * * `every_3_days` - Every 72 hours
      * * `weekly` - Weekly
      */
     export type CheckFrequencyEnum = typeof CheckFrequencyEnum[keyof typeof CheckFrequencyEnum];
@@ -162,6 +170,7 @@ export namespace Schemas {
 
     export const CheckFrequencyEnum = {
       Daily: 'daily',
+      Every3Days: 'every_3_days',
       Weekly: 'weekly',
     } as const;
 
@@ -180,6 +189,7 @@ export namespace Schemas {
       /** 'daily' checks every prompt each day. 'weekly' checks each prompt once a week, a seventh of the prompt set each day.
        *
        * * `daily` - Daily
+       * * `every_3_days` - Every 72 hours
        * * `weekly` - Weekly */
       frequency: CheckFrequencyEnum;
     }
@@ -400,6 +410,7 @@ export namespace Schemas {
      * * `pending` - Pending
      * * `completed` - Completed
      * * `failed` - Failed
+     * * `cancelled` - Cancelled
      */
     export type AEOSuggestionJobStatusEnum = typeof AEOSuggestionJobStatusEnum[keyof typeof AEOSuggestionJobStatusEnum];
 
@@ -408,6 +419,7 @@ export namespace Schemas {
       Pending: 'pending',
       Completed: 'completed',
       Failed: 'failed',
+      Cancelled: 'cancelled',
     } as const;
 
     export interface AEOKeywordSuggestionJob {
@@ -419,7 +431,8 @@ export namespace Schemas {
        *
        * * `pending` - Pending
        * * `completed` - Completed
-       * * `failed` - Failed */
+       * * `failed` - Failed
+       * * `cancelled` - Cancelled */
       status: AEOSuggestionJobStatusEnum;
       /** Why the job failed. Empty unless status is failed. */
       error?: string;
@@ -561,6 +574,20 @@ export namespace Schemas {
          * @maxItems 2000
          */
       prompts: AEOPromptImport[];
+    }
+
+    export interface AEOPromptBulkSetTopicRequest {
+      /**
+         * Ids of the prompts to change, from GET aeo_prompts/. At most 500. Archived prompts are refused.
+         * @minItems 1
+         * @maxItems 500
+         */
+      prompt_ids: string[];
+      /**
+         * The topic to set. A name that matches an existing topic in another letter case takes that topic's spelling. An empty string removes the topic.
+         * @maxLength 200
+         */
+      topic: string;
     }
 
     export interface AEOPromptCheck {
@@ -1076,7 +1103,7 @@ export namespace Schemas {
          */
       previous_visibility: number | null;
       /**
-         * For the project's own brand, the share (0-1) of scored answers whose sentiment toward it was positive. Null for competitors and when nothing was scored.
+         * The share (0-1) of scored answers naming the brand whose sentences about it were positive. Null when none of them was scored yet.
          * @nullable
          */
       positive_share: number | null;
@@ -1107,7 +1134,7 @@ export namespace Schemas {
       urls: number;
       /** Whether the domain is the project's own site. */
       is_target: boolean;
-      /** Whether the domain is one of the competitors in 'brands'. */
+      /** Whether the domain is a competitor in the brand catalog, confirmed or suggested by setup. Brands ranked only because answers cite them are not. */
       is_competitor: boolean;
     }
 
@@ -1123,7 +1150,7 @@ export namespace Schemas {
     }
 
     export interface AEOPromptSetRankings {
-      /** The project's brand and up to 10 competitors, most visible first. Competitors are the ones confirmed in the brand catalog, matched by name and aliases. Until any are confirmed, they are the brands behind the domains the engines cite most, leaving out the project's own brand on any domain and a fixed list of review sites, forums and social networks, and a common-word domain name can over-count. */
+      /** The project's brand and up to 10 competitors, most visible first. Competitors are the ones confirmed in the brand catalog, matched by name and aliases. Until any are confirmed, they are the competitors setup suggested, and without those the brands behind the domains the engines cite most, leaving out the project's own brand on any domain and a fixed list of review sites, forums and social networks, and a common-word domain name can over-count. */
       brands: AEORankedBrand[];
       /** Visibility per brand and day in the current window, ordered by day then domain. */
       daily: AEORankedBrandDay[];
@@ -1157,6 +1184,47 @@ export namespace Schemas {
       answers: number;
       /** Whether the competitors are the ones confirmed in the brand catalog (matched by name and aliases). False means they were derived from the most cited domains. */
       competitors_confirmed: boolean;
+    }
+
+    export interface AEOPromptSetRelatedSearch {
+      /** Another web search the engines ran in the same answers, normalized the same way. */
+      query: string;
+      /** Answers that ran both searches in the window. */
+      answers: number;
+      /** Share (0-1) of the answers that ran the requested search and ran this one too. */
+      share_of_answers: number;
+    }
+
+    export interface AEOPromptSetSearchDetail {
+      /** The 10 domains cited most by the answers that ran the search, most cited first, then the best-ranked own domain when it ranks lower. 'share_of_answers' is over those answers. An answer usually runs several searches, and a citation is not tied to one of them, so a domain may come from another search of the same answer. */
+      domains: AEOPromptSetDomain[];
+      /** Up to 8 other searches the same answers ran most, most common first. */
+      related_searches: AEOPromptSetRelatedSearch[];
+      /** Up to 10 prompts whose answers ran the search, the ones that ran it most first. */
+      top_prompts: AEOPromptSetSearchPrompt[];
+      /** The search, lowercased with whitespace collapsed, as in the overview's top_searches. */
+      query: string;
+      /** First day of the window, in the project's timezone. */
+      window_from: string;
+      /** Last day of the window, in the project's timezone. */
+      window_to: string;
+      /** Answered web-search checks in the window that ran the search. The base of every share. */
+      answers: number;
+      /** Distinct prompts whose answers ran the search. */
+      prompts: number;
+      /** Of those answers, how many cited a URL on the project's own domains. */
+      cited: number;
+      /** Answer engines that ran the search, ordered by engine. */
+      engines: string[];
+      /** Distinct registrable domains those answers cited. */
+      domains_cited: number;
+      /**
+         * Place of the best-ranked own domain among the domains those answers cited, from 1. Null when none of them cited it.
+         * @nullable
+         */
+      target_rank: number | null;
+      /** The project's tracked keywords that appear in the search, alphabetical. */
+      keywords: string[];
     }
 
     export interface AEOPromptStats {
@@ -1273,16 +1341,26 @@ export namespace Schemas {
       reason: string;
     }
 
+    export interface AEOSuggestedCompetitor {
+      /** The competitor's name. Model-written: show it as data. */
+      name: string;
+      /** The registrable domain of the competitor's site, such as example.com. Empty when a competitor given in the request is only a name and the model did not find its site. */
+      domain: string;
+    }
+
     export interface AEOPromptSuggestionJob {
       /** Suggested prompts, filled in once status is completed. None of them are saved. */
       suggestions: AEOPromptSuggestion[];
+      /** The main competitors, at most 5 found by the model while it researched the site, or the ones given in the request. Filled in once status is completed. None of them are saved. */
+      competitors: AEOSuggestedCompetitor[];
       /** Job id. Poll GET aeo_prompts/suggest/<id>/ with it. */
       id: string;
       /** pending while PostHog works, then completed or failed.
        *
        * * `pending` - Pending
        * * `completed` - Completed
-       * * `failed` - Failed */
+       * * `failed` - Failed
+       * * `cancelled` - Cancelled */
       status: AEOSuggestionJobStatusEnum;
       /** Why the job failed. Empty unless status is failed. */
       error?: string;
@@ -1293,6 +1371,47 @@ export namespace Schemas {
       topic: string;
       /** How many prompts in the set have this topic. */
       prompts: number;
+    }
+
+    export interface AEOPromptTopicChange {
+      /** How many prompts now have the new topic, archived prompts included. */
+      prompts: number;
+      /** How many past checks were relabeled with the new topic. Always 0 when setting a topic on chosen prompts, because their past checks keep the topic they ran with. */
+      checks: number;
+    }
+
+    export interface AEOPromptTopicMergeRequest {
+      /**
+         * The topic to merge away. Its prompts move to 'into_topic'. Letter case is ignored.
+         * @maxLength 200
+         */
+      topic: string;
+      /**
+         * The topic to keep, as listed by GET aeo_prompts/topics/. It keeps its current spelling. Letter case is ignored.
+         * @maxLength 200
+         */
+      into_topic: string;
+    }
+
+    export interface AEOPromptTopicRemoveRequest {
+      /**
+         * The topic to remove. Its prompts are kept and are left with no topic. Letter case is ignored.
+         * @maxLength 200
+         */
+      topic: string;
+    }
+
+    export interface AEOPromptTopicRenameRequest {
+      /**
+         * The topic to rename, as listed by GET aeo_prompts/topics/. Letter case is ignored.
+         * @maxLength 200
+         */
+      topic: string;
+      /**
+         * The new name. It may differ from the old one only in letter case, to fix its spelling. Fails with 409 when another topic already has the name: merge the two instead.
+         * @maxLength 200
+         */
+      new_topic: string;
     }
 
     export interface AEOPromptVersion {
@@ -1353,6 +1472,8 @@ export namespace Schemas {
     export interface AEOSetupContext {
       /** Up to 5 domains the project may be about, the most likely first. */
       websites: AEOWebsiteCandidate[];
+      /** Per engine, how many active prompts have a check. Against active_prompts, this is the progress of a first run. Engines with no check yet are left out. */
+      first_run_checks: AEOEngineCheckCount[];
       /** Every engine as the project runs it now, defaults included. Ask the user which ones to track, and offer only the available ones. */
       engines: AEOEngineSetting[];
       /** Domains already set as the project's own brands. */
@@ -1371,14 +1492,19 @@ export namespace Schemas {
       ai_data_processing_approved: boolean;
       /** Whether citation checks run for this project. When false, setup saves the brand, prompts and keywords but cannot queue the first run. */
       first_run_available: boolean;
-      /** How many prompts setup asks PostHog to suggest. One run makes about this many checks per enabled engine. */
+      /** How many prompts setup asks PostHog to suggest when prompt_count is left out. One run makes about this many checks per enabled engine. */
       prompt_target: number;
+      /** The most prompts one setup can ask for in prompt_count: the suggestion cap, or less when the project's max_active_prompts is lower. */
+      prompt_count_max: number;
       /** The window, in days, that pageview hosts among the websites cover. */
       website_days: number;
+      /** Whether a check run is queued or running for the project. When it turns false after a run, no more checks from that run will arrive. */
+      checks_running?: boolean;
     }
 
     /**
      * * `brand` - Brand
+     * * `research` - Research
      * * `prompts` - Prompts
      * * `keywords` - Keywords
      * * `first_run` - First Run
@@ -1388,6 +1514,7 @@ export namespace Schemas {
 
     export const SetupStepEnum = {
       Brand: 'brand',
+      Research: 'research',
       Prompts: 'prompts',
       Keywords: 'keywords',
       FirstRun: 'first_run',
@@ -1412,9 +1539,10 @@ export namespace Schemas {
     } as const;
 
     export interface AEOSetupStep {
-      /** brand (the own brand), prompts (suggested and saved), keywords (suggested and saved) or first_run (the first citation check run queued).
+      /** brand (the own brand), prompts (suggested and saved), first_run (the first citation check run queued) or keywords (suggested and saved).
        *
        * * `brand` - Brand
+       * * `research` - Research
        * * `prompts` - Prompts
        * * `keywords` - Keywords
        * * `first_run` - First Run */
@@ -1429,7 +1557,9 @@ export namespace Schemas {
       status: SetupStepStatusEnum;
       /** How many brands, prompts or keywords the step added. */
       added?: number;
-      /** Why a step was skipped (already_set, already_run, not_requested, not_available, nothing_to_run), why the keywords or first_run step failed, 'paused' when the prompts step saved its prompts turned off, or 'prompt_limit' when it saved some of them turned off to stay within max_active_prompts. */
+      /** How many prompts the prompts step asked for, so added can be shown against it. 0 on every other step and on a skipped prompts step. */
+      requested?: number;
+      /** Why a step was skipped (already_set, already_run, not_requested, not_available, nothing_to_run), why the keywords or first_run step failed, or a note on a done prompts step: 'paused' when it saved its prompts turned off, 'prompt_limit' when it saved some of them turned off to stay within max_active_prompts, or 'fewer' when it added fewer prompts than requested. Only one note is given, in that order, so compare added with requested to tell whether the step came up short. */
       detail?: string;
     }
 
@@ -1442,7 +1572,8 @@ export namespace Schemas {
        *
        * * `pending` - Pending
        * * `completed` - Completed
-       * * `failed` - Failed */
+       * * `failed` - Failed
+       * * `cancelled` - Cancelled */
       status: AEOSuggestionJobStatusEnum;
       /** Why the job failed. Empty unless status is failed. */
       error?: string;
@@ -1476,6 +1607,12 @@ export namespace Schemas {
       only_first_run?: boolean;
       /** With only_first_run, turn on paused prompts before the run, such as the ones a setup without run_first_check saved paused, highest ranked first and up to the project's max_active_prompts. Turned-on prompts are checked on each engine's schedule from then on. */
       activate_paused_prompts?: boolean;
+      /**
+         * How many prompts setup asks PostHog to suggest and save. One run makes this many checks per enabled engine, so it sets the cost of each run. Prompts past the project's max_active_prompts are saved paused.
+         * @minimum 1
+         * @maximum 50
+         */
+      prompt_count?: number;
     }
 
     export interface AEOVisibilityDashboard {
@@ -9672,7 +9809,7 @@ export namespace Schemas {
     export type ExperimentWarehouseNativeRowsLeftOutExposedWithoutRows = {[key: string]: number} | null;
 
     /**
-     * Exposure rows whose variant is not one the flag serves, counted by the value seen.
+     * Exposure rows whose variant is not one the flag serves, counted by the value seen. At most the 50 most common values.
      */
     export type ExperimentWarehouseNativeRowsLeftOutUnknownVariants = {[key: string]: number} | null;
 
@@ -9681,7 +9818,9 @@ export namespace Schemas {
       empty_id?: number | null;
       /** Exposed entities with no row of the metric query that counted, by variant. */
       exposed_without_rows?: ExperimentWarehouseNativeRowsLeftOutExposedWithoutRows;
-      /** Exposure rows whose variant is not one the flag serves, counted by the value seen. */
+      /** Exposure rows whose variant is not one the flag serves, in total, including the values that `unknown_variants` leaves out. */
+      unknown_variant_rows?: number | null;
+      /** Exposure rows whose variant is not one the flag serves, counted by the value seen. At most the 50 most common values. */
       unknown_variants?: ExperimentWarehouseNativeRowsLeftOutUnknownVariants;
     }
 
@@ -10513,6 +10652,8 @@ export namespace Schemas {
     }
 
     export interface WebVitalsPathBreakdownResultItem {
+      /** Number of `$web_vitals` samples for this metric and page in the period. Unset when served from precomputed buckets. */
+      count?: number | null;
       path: string;
       value: number;
     }
@@ -10772,6 +10913,7 @@ export namespace Schemas {
       AppleAds: 'apple-ads',
       Postgresql: 'postgresql',
       AwsS3: 'aws-s3',
+      AwsWarehouseSources: 'aws-warehouse-sources',
       AwsRedshift: 'aws-redshift',
       S3Compatible: 's3-compatible',
       Snowflake: 'snowflake',
@@ -11695,6 +11837,8 @@ export namespace Schemas {
       interval?: IntervalType | null;
       kind?: 'WebVitalsPathBreakdownQuery';
       metric: WebVitalsMetric;
+      /** Drop pages with fewer samples than this in the period, so a page with a handful of slow loads does not outrank a busy page with a real problem. No floor when omitted. */
+      minSamples?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
       orderBy?: (WebAnalyticsOrderByFields | WebAnalyticsOrderByDirection)[] | null;
@@ -14295,6 +14439,157 @@ export namespace Schemas {
       session_id: string | null;
       /** True when a scout (scheduled agent) ran the query. */
       is_scout: boolean;
+    }
+
+    /**
+     * * `2` - Favorite founder
+     * * `5` - Pineapple on pizza
+     * * `10` - Tabs or spaces
+     * * `13` - Dark or light mode
+     * * `18` - Ship on a Friday
+     * * `21` - Coffee or tea
+     */
+    export type AdventCalendarDayEnum = typeof AdventCalendarDayEnum[keyof typeof AdventCalendarDayEnum];
+
+
+    export const AdventCalendarDayEnum = {
+      Number2: 2,
+      Number5: 5,
+      Number10: 10,
+      Number13: 13,
+      Number18: 18,
+      Number21: 21,
+    } as const;
+
+    /**
+     * * `james` - James
+     * * `tim` - Tim
+     * * `yes` - Yes
+     * * `no` - No
+     * * `tabs` - Tabs
+     * * `spaces` - Spaces
+     * * `dark` - Dark mode
+     * * `light` - Light mode
+     * * `coffee` - Coffee
+     * * `tea` - Tea
+     */
+    export type AdventCalendarOptionEnum = typeof AdventCalendarOptionEnum[keyof typeof AdventCalendarOptionEnum];
+
+
+    export const AdventCalendarOptionEnum = {
+      James: 'james',
+      Tim: 'tim',
+      Yes: 'yes',
+      No: 'no',
+      Tabs: 'tabs',
+      Spaces: 'spaces',
+      Dark: 'dark',
+      Light: 'light',
+      Coffee: 'coffee',
+      Tea: 'tea',
+    } as const;
+
+    export interface AdventCalendarAnswer {
+      /** The calendar day of the question the person answers.
+       *
+       * * `2` - Favorite founder
+       * * `5` - Pineapple on pizza
+       * * `10` - Tabs or spaces
+       * * `13` - Dark or light mode
+       * * `18` - Ship on a Friday
+       * * `21` - Coffee or tea */
+      day: AdventCalendarDayEnum;
+      /** The option the person picks. It must be one of the two options of that day's question.
+       *
+       * * `james` - James
+       * * `tim` - Tim
+       * * `yes` - Yes
+       * * `no` - No
+       * * `tabs` - Tabs
+       * * `spaces` - Spaces
+       * * `dark` - Dark mode
+       * * `light` - Light mode
+       * * `coffee` - Coffee
+       * * `tea` - Tea */
+      option: AdventCalendarOptionEnum;
+    }
+
+    export interface AdventCalendarDoorOpen {
+      /** The calendar day of the door. */
+      day: number;
+      /** When the server stored the person's first open of this door. Opening it again keeps this time. */
+      opened_at: string;
+    }
+
+    export interface AdventCalendarDoorOpenRequest {
+      /**
+         * The calendar day of the door, 1 to 24.
+         * @minimum 1
+         * @maximum 24
+         */
+      day: number;
+      /**
+         * The slug of the hoggy the door showed: lowercase letters, digits and hyphens, at most 64 characters.
+         * @maxLength 64
+         * @pattern ^[a-z0-9-]+$
+         */
+      hoggy: string;
+      /**
+         * The browser's offset from UTC in minutes, east positive, from -720 to 840. A later rule uses it to tell which local day the person opened the door on.
+         * @minimum -720
+         * @maximum 840
+         */
+      utc_offset_minutes: number;
+    }
+
+    export interface AdventCalendarShare {
+      /** One option of the question.
+       *
+       * * `james` - James
+       * * `tim` - Tim
+       * * `yes` - Yes
+       * * `no` - No
+       * * `tabs` - Tabs
+       * * `spaces` - Spaces
+       * * `dark` - Dark mode
+       * * `light` - Light mode
+       * * `coffee` - Coffee
+       * * `tea` - Tea */
+      option: AdventCalendarOptionEnum;
+      /** Percent of all answers to the question that picked this option, rounded to a whole number. 0 for every option while the question has no answers. */
+      share: number;
+    }
+
+    export interface AdventCalendarQuestionResult {
+      /** The calendar day of the question.
+       *
+       * * `2` - Favorite founder
+       * * `5` - Pineapple on pizza
+       * * `10` - Tabs or spaces
+       * * `13` - Dark or light mode
+       * * `18` - Ship on a Friday
+       * * `21` - Coffee or tea */
+      day: AdventCalendarDayEnum;
+      /** The option the signed-in person picked, or null when they have not answered this question.
+       *
+       * * `james` - James
+       * * `tim` - Tim
+       * * `yes` - Yes
+       * * `no` - No
+       * * `tabs` - Tabs
+       * * `spaces` - Spaces
+       * * `dark` - Dark mode
+       * * `light` - Light mode
+       * * `coffee` - Coffee
+       * * `tea` - Tea */
+      answer: AdventCalendarOptionEnum | null;
+      /** Each option of the question, in the calendar's order, with its share of all answers. */
+      shares: AdventCalendarShare[];
+    }
+
+    export interface AdventCalendarResults {
+      /** Every advent calendar question, by day. Shares count the answers of every user of this PostHog instance, not only this project's members. Each cloud region counts its own users. */
+      questions: AdventCalendarQuestionResult[];
     }
 
     /**
@@ -17339,15 +17634,36 @@ export namespace Schemas {
     }
 
     export interface ApproveSnapshotInput {
-      /** The snapshot identifier to approve (e.g. Storybook story id plus theme). */
+      /**
+         * The snapshot identifier, such as a Storybook story id plus theme.
+         * @maxLength 512
+         */
       identifier: string;
-      /** The content hash of the new baseline image to record for this identifier. */
-      new_hash: string;
+      /**
+         * The snapshot's `current_artifact.content_hash` on the run you pass as `id`. Null only for a `removed` snapshot, and only in a ledger-mode repo: elsewhere finalize accepts removals by itself.
+         * @maxLength 128
+         * @nullable
+         */
+      new_hash?: string | null;
+      /**
+         * Optional: the snapshot's `baseline_artifact.content_hash` on that run, or an empty string for a `new` snapshot. When given, the call is refused if the run compares against another baseline, so the decision lands only on the pair of pictures you looked at.
+         * @maxLength 128
+         * @nullable
+         */
+      old_hash?: string | null;
     }
 
     export interface ApproveRunRequestInput {
-      /** Snapshots to mark reviewed, each with `identifier` and `new_hash`. This only records the review in the database (the per-snapshot "Accept change" action) — it does not change the baseline or the GitHub gate. Commit the baseline and green the gate with the finalize endpoint. */
+      /** Snapshots to accept, each with `identifier` and `new_hash`. This only records the decision (the per-snapshot "Accept change" action). It does not change the baseline or pass the gate: the finalize endpoint does that. */
       snapshots: ApproveSnapshotInput[];
+      /**
+         * Optional: the highest decision `seq` you read on these snapshots, or 0 when you read none. The call is refused with 409 `decided_since` when someone decided on one of them after that.
+         * @minimum 0
+         * @nullable
+         */
+      expected_seq?: number | null;
+      /** Accept a snapshot someone else rejected. Only for a person who read the rejection. An agent through MCP can never accept over a rejection. */
+      override_rejection?: boolean;
     }
 
     export type AppsignalIssueSignalExtraKind = typeof AppsignalIssueSignalExtraKind[keyof typeof AppsignalIssueSignalExtraKind] | null;
@@ -17370,6 +17686,30 @@ export namespace Schemas {
       alert_state?: string | null;
       metric_name?: string | null;
     }
+
+    /**
+     * * `one_hit_wonder` - The One-Hit Wonder
+     * * `swiss_army_knife` - The Swiss Army Knife
+     * * `night_owl` - The Night Owl
+     * * `weekend_warrior` - The Weekend Warrior
+     * * `speed_demon` - The Speed Demon
+     * * `rocket` - The Rocket
+     * * `superhero` - The Superhero
+     * * `all_rounder` - The All-Rounder
+     */
+    export type ArchetypeEnum = typeof ArchetypeEnum[keyof typeof ArchetypeEnum];
+
+
+    export const ArchetypeEnum = {
+      OneHitWonder: 'one_hit_wonder',
+      SwissArmyKnife: 'swiss_army_knife',
+      NightOwl: 'night_owl',
+      WeekendWarrior: 'weekend_warrior',
+      SpeedDemon: 'speed_demon',
+      Rocket: 'rocket',
+      Superhero: 'superhero',
+      AllRounder: 'all_rounder',
+    } as const;
 
     export interface ArchiveExperiment {
       /** When the linked feature flag is still enabled, also disable and archive it along with the experiment. Has no effect if the flag is already disabled (it is archived either way). */
@@ -19694,6 +20034,8 @@ export namespace Schemas {
      * `AwsS3BatchExportInputs` in `products/batch_exports/backend/service.py`.
      */
     export interface AwsS3DestinationConfig {
+      /** Whether this export reads the new events table. Use it to try the new table on one export, such as a copy of a production export, before your other exports move. Setting it to false does not keep the export on the old table after all exports move. */
+      use_new_events_schema?: boolean;
       /** Name of the destination bucket. */
       bucket_name: string;
       /** Region the bucket is in (e.g. 'us-east-1'). */
@@ -19908,6 +20250,8 @@ export namespace Schemas {
      * `AzureBlobBatchExportInputs` in `products/batch_exports/backend/service.py`.
      */
     export interface AzureBlobDestinationConfig {
+      /** Whether this export reads the new events table. Use it to try the new table on one export, such as a copy of a production export, before your other exports move. Setting it to false does not keep the export on the old table after all exports move. */
+      use_new_events_schema?: boolean;
       /** Azure Blob Storage container name. */
       container_name: string;
       /** Object key prefix applied to every exported file. */
@@ -20519,6 +20863,8 @@ export namespace Schemas {
      * `DatabricksBatchExportInputs` in `products/batch_exports/backend/service.py`.
      */
     export interface DatabricksDestinationConfig {
+      /** Whether this export reads the new events table. Use it to try the new table on one export, such as a copy of a production export, before your other exports move. Setting it to false does not keep the export on the old table after all exports move. */
+      use_new_events_schema?: boolean;
       /** Databricks SQL warehouse HTTP path. */
       http_path: string;
       /** Unity Catalog name. */
@@ -20549,6 +20895,8 @@ export namespace Schemas {
      * `products/batch_exports/backend/service.py`.
      */
     export interface BigQueryDestinationConfig {
+      /** Whether this export reads the new events table. Use it to try the new table on one export, such as a copy of a production export, before your other exports move. Setting it to false does not keep the export on the old table after all exports move. */
+      use_new_events_schema?: boolean;
       /** BigQuery dataset ID to write to. */
       dataset_id: string;
       /** BigQuery table ID inside the dataset. */
@@ -20572,6 +20920,8 @@ export namespace Schemas {
      * non-credential fields of `PostgresBatchExportInputs` in `products/batch_exports/backend/service.py`.
      */
     export interface PostgresDestinationConfig {
+      /** Whether this export reads the new events table. Use it to try the new table on one export, such as a copy of a production export, before your other exports move. Setting it to false does not keep the export on the old table after all exports move. */
+      use_new_events_schema?: boolean;
       /** PostgreSQL database name to connect to. */
       database: string;
       /** PostgreSQL schema name containing the destination table. */
@@ -20599,6 +20949,8 @@ export namespace Schemas {
      * `products/batch_exports/backend/service.py`.
      */
     export interface S3CompatibleDestinationConfig {
+      /** Whether this export reads the new events table. Use it to try the new table on one export, such as a copy of a production export, before your other exports move. Setting it to false does not keep the export on the old table after all exports move. */
+      use_new_events_schema?: boolean;
       /** Name of the destination bucket. */
       bucket_name: string;
       /** Region the bucket is in (e.g. 'us-east-1'). */
@@ -20645,6 +20997,8 @@ export namespace Schemas {
      * `products/batch_exports/backend/service.py`.
      */
     export interface SnowflakeDestinationConfig {
+      /** Whether this export reads the new events table. Use it to try the new table on one export, such as a copy of a production export, before your other exports move. Setting it to false does not keep the export on the old table after all exports move. */
+      use_new_events_schema?: boolean;
       /** Snowflake database to write to. */
       database: string;
       /** Snowflake compute warehouse to use. */
@@ -20715,6 +21069,8 @@ export namespace Schemas {
      * `products/batch_exports/backend/service.py`.
      */
     export interface RedshiftDestinationConfig {
+      /** Whether this export reads the new events table. Use it to try the new table on one export, such as a copy of a production export, before your other exports move. Setting it to false does not keep the export on the old table after all exports move. */
+      use_new_events_schema?: boolean;
       /** Redshift database name to connect to. */
       database: string;
       /** Redshift cluster or Serverless workgroup endpoint. Required when using an AWS Redshift integration; plain Redshift integrations store the host themselves. */
@@ -24265,6 +24621,52 @@ export namespace Schemas {
       /** Status of the broadcast, such as draft or active. */
       status: string;
     }
+
+    /**
+     * * `slack_message` - Slack message
+     */
+    export type BroadcastRequestDeliveryKindEnum = typeof BroadcastRequestDeliveryKindEnum[keyof typeof BroadcastRequestDeliveryKindEnum];
+
+
+    export const BroadcastRequestDeliveryKindEnum = {
+      SlackMessage: 'slack_message',
+    } as const;
+
+    /**
+     * * `github` - Pull request comment
+     * * `slack` - Slack
+     * * `api` - API
+     * * `slack_link` - Slack link
+     */
+    export type BroadcastRequestSourceEnum = typeof BroadcastRequestSourceEnum[keyof typeof BroadcastRequestSourceEnum];
+
+
+    export const BroadcastRequestSourceEnum = {
+      Github: 'github',
+      Slack: 'slack',
+      Api: 'api',
+      SlackLink: 'slack_link',
+    } as const;
+
+    /**
+     * * `pending` - Waiting for Stamphog
+     * * `open` - Waiting for a person
+     * * `approved` - Approved by a person
+     * * `stamphog_approved` - Approved by Stamphog
+     * * `merged` - Merged
+     * * `closed` - Closed
+     */
+    export type BroadcastRequestStatusEnum = typeof BroadcastRequestStatusEnum[keyof typeof BroadcastRequestStatusEnum];
+
+
+    export const BroadcastRequestStatusEnum = {
+      Pending: 'pending',
+      Open: 'open',
+      Approved: 'approved',
+      StamphogApproved: 'stamphog_approved',
+      Merged: 'merged',
+      Closed: 'closed',
+    } as const;
 
     /**
      * * `breaking_master` - Breaking Master
@@ -29439,6 +29841,23 @@ export namespace Schemas {
       initial_permission_mode?: InitialPermissionModeEnum;
     }
 
+    export interface ClearRunRequestInput {
+      /**
+         * Identifiers of the snapshots whose accept or reject to undo, on the run you pass as `id`.
+         * @maxItems 500
+         * @items.maxLength 512
+         */
+      identifiers: string[];
+      /**
+         * Optional: the highest decision `seq` you read on these snapshots, or 0 when you read none. The call is refused with 409 `decided_since` when someone decided on one of them after that.
+         * @minimum 0
+         * @nullable
+         */
+      expected_seq?: number | null;
+      /** Undo a rejection someone else made. Only for a person who read the rejection. Your own rejection undoes without it. An agent through MCP can never undo another user's rejection. */
+      override_rejection?: boolean;
+    }
+
     export interface CliAuthorize {
       /**
          * Most the token can spend, in USD, within the bounds `usage` reports. Omit for the default.
@@ -29983,6 +30402,58 @@ export namespace Schemas {
       readonly has_installation: boolean;
     }
 
+    export interface CodeReviewApprovalBroadcastRequestDelivery {
+      /** Where the request was posted. 'slack_message' is a message in the repository's Slack channel.
+       *
+       * * `slack_message` - Slack message */
+      readonly kind: BroadcastRequestDeliveryKindEnum;
+      /**
+         * Link that opens the posted message, as Slack returned it. Null when Slack did not return one.
+         * @nullable
+         */
+      readonly url: string | null;
+    }
+
+    export interface CodeReviewApprovalBroadcastRequest {
+      /** ID of the Broadcast request. */
+      readonly id: string;
+      /** 'pending' while auto-approval reviews the head, so nothing is posted yet. 'open' when auto-approval did not approve and the request waits for a person. 'approved' when a person approved the current head; a new push sets 'open' again. 'stamphog_approved' when auto-approval approved, so no person needs to look. 'merged' or 'closed' when the pull request merged or closed. Only 'pending', 'open' and 'approved' are active, and a pull request has at most one active request.
+       *
+       * * `pending` - Waiting for Stamphog
+       * * `open` - Waiting for a person
+       * * `approved` - Approved by a person
+       * * `stamphog_approved` - Approved by Stamphog
+       * * `merged` - Merged
+       * * `closed` - Closed */
+      readonly status: BroadcastRequestStatusEnum;
+      /** The pull request head the request follows. A push moves it. */
+      readonly head_sha: string;
+      /** Where the request came from: a pull request comment ('github'), a Slack mention ('slack') or the API ('api').
+       *
+       * * `github` - Pull request comment
+       * * `slack` - Slack
+       * * `api` - API
+       * * `slack_link` - Slack link */
+      readonly requested_via: BroadcastRequestSourceEnum;
+      /** The requester's note for the people who review, shown in Slack only. Blank when there is none. */
+      readonly note: string;
+      /** Slack display names of the people who said they will look, in the order they said it. */
+      readonly looking: readonly string[];
+      /** GitHub login of the person whose approval of the current head set 'approved'. Blank otherwise. */
+      readonly approved_by_login: string;
+      /** Where the request was posted. Empty until auto-approval does not approve. */
+      readonly deliveries: readonly CodeReviewApprovalBroadcastRequestDelivery[];
+      /**
+         * How many broadcast messages the requester caused in the 7 days up to this request's message, this one included. Counted once when the message is posted. Null until then.
+         * @nullable
+         */
+      readonly requester_card_count: number | null;
+      /** When somebody asked for people to review. */
+      readonly created_at: string;
+      /** When the request last changed. */
+      readonly updated_at: string;
+    }
+
     /**
      * One installation of the App the authorizing user can reach, offered for an explicit pick.
      */
@@ -30159,6 +30630,8 @@ export namespace Schemas {
       readonly routing_mode: RoutingModeEnum;
       /** The latest reviewer routing record of the pull request, or null when routing never wrote one: routing is off, the pull request is still a draft, or no routing event arrived yet. Use the routing runs list for the owners each run requested or cut. */
       readonly routing: CodeReviewApprovalPullRequestRouting | null;
+      /** The newest request for people to review this pull request, or null when nobody asked. Set by a review request with allow_broadcast set to true, or by `@posthog stamp --allow-broadcast`. */
+      readonly broadcast_request: CodeReviewApprovalBroadcastRequest | null;
       /** When this pull request was first captured. */
       readonly created_at: string;
       /** When this pull request was last updated. */
@@ -30211,8 +30684,14 @@ export namespace Schemas {
       readonly routing_fork_labels: CodeReviewApprovalRepositoryRoutingForkLabels;
       /** Whether a clean PostHog Review run on a pull request that opened or was marked ready starts a silent auto-approval review of that head, whatever review_mode says. A silent review posts only an approval: any other verdict is stored and nothing is written to the pull request. Only for review_mode 'label' in a repository where PostHog Review runs automatic reviews: 'all' refuses it, and setting review_mode to 'all' turns it off. With routing_mode 'fallback', a head waits for that silent review before routing. Defaults to false. */
       readonly review_on_clean_external_review: boolean;
+      /** Whether `stamp --allow-broadcast` and review requests with allow_broadcast set to true may ask people to review. When auto-approval does not approve the pull request, it posts the pull request to broadcast_slack_channel_id. Turning it on needs a channel. Defaults to false. */
+      readonly broadcast_enabled: boolean;
+      /** Slack channel ID, such as 'C0123456789', where auto-approval posts pull requests that need a person to review. It uses the project's Slack integration, which must be able to post in the channel. Blank when no channel is set. */
+      readonly broadcast_slack_channel_id: string;
+      /** Display name of the Slack channel in broadcast_slack_channel_id, without the '#'. Letters, digits, '-' and '_' only, up to 80 characters, like a Slack channel name. Shown in replies only, so a stale name does not change where requests go. */
+      readonly broadcast_slack_channel_name: string;
       /**
-         * The caller's access level on the code review auto-approval resource, resolved for the team that owns this row. 'editor' can turn reviews on. 'manager' is required to turn them off or to change review_mode, trigger_label, routing_mode, routing_fork_labels or review_on_clean_external_review.
+         * The caller's access level on the code review auto-approval resource, resolved for the team that owns this row. 'editor' can turn reviews on. 'manager' is required to turn them off or to change review_mode, trigger_label, routing_mode, routing_fork_labels, review_on_clean_external_review, broadcast_enabled, broadcast_slack_channel_id or broadcast_slack_channel_name.
          * @nullable
          */
       readonly user_access_level: string | null;
@@ -30263,6 +30742,18 @@ export namespace Schemas {
       routing_fork_labels?: CodeReviewApprovalRepositoryWriteRoutingForkLabels;
       /** Whether a clean PostHog Review run on a pull request that opened or was marked ready starts a silent auto-approval review of that head, whatever review_mode says. A silent review posts only an approval: any other verdict is stored and nothing is written to the pull request. Only for review_mode 'label' in a repository where PostHog Review runs automatic reviews: 'all' refuses it, and setting review_mode to 'all' turns it off. With routing_mode 'fallback', a head waits for that silent review before routing. Defaults to false. */
       review_on_clean_external_review?: boolean;
+      /** Whether `stamp --allow-broadcast` and review requests with allow_broadcast set to true may ask people to review. When auto-approval does not approve the pull request, it posts the pull request to broadcast_slack_channel_id. Turning it on needs a channel. Defaults to false. */
+      broadcast_enabled?: boolean;
+      /**
+         * Slack channel ID, such as 'C0123456789', where auto-approval posts pull requests that need a person to review. It uses the project's Slack integration, which must be able to post in the channel. Blank when no channel is set.
+         * @maxLength 64
+         */
+      broadcast_slack_channel_id?: string;
+      /**
+         * Display name of the Slack channel in broadcast_slack_channel_id, without the '#'. Letters, digits, '-' and '_' only, up to 80 characters, like a Slack channel name. Shown in replies only, so a stale name does not change where requests go.
+         * @maxLength 255
+         */
+      broadcast_slack_channel_name?: string;
     }
 
     export interface CodeReviewApprovalRoutingFile {
@@ -40065,6 +40556,180 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `web` - Visual Review page
+     * * `api` - API key
+     * * `mcp` - Agent through MCP
+     */
+    export type DecisionChannelEnum = typeof DecisionChannelEnum[keyof typeof DecisionChannelEnum];
+
+
+    export const DecisionChannelEnum = {
+      Web: 'web',
+      Api: 'api',
+      Mcp: 'mcp',
+    } as const;
+
+    export interface DecisionRefusal {
+      /** The refused snapshot. Empty when the whole call was refused. */
+      identifier: string;
+      /** Why it was refused, such as `hash_mismatch` or `decided_by_person`. */
+      code: string;
+      /** What went wrong and what to do next. */
+      detail: string;
+      /**
+         * The `seq` of the newest decision on the snapshot, when the refusal is about it.
+         * @nullable
+         */
+      current_seq: number | null;
+    }
+
+    export interface DecisionError {
+      /** What went wrong and what to do next. */
+      detail: string;
+      /** A stable code for the error, such as `lift_commit_unknown` or `rate_limited`. */
+      code?: string;
+      /** Every refused snapshot. The call is all or nothing, so nothing was written. */
+      snapshots: DecisionRefusal[];
+    }
+
+    export interface RunProgress {
+      /** Changed, new and removed snapshots that gate the run, plus rejected quarantined ones. */
+      total: number;
+      /** Accepted, on this run or on an earlier run of the pull request. */
+      approved: number;
+      /** Accepted on an earlier commit of the pull request, and still counting because the pictures match. */
+      approved_on_earlier_commits: number;
+      /** Accepted by an agent through MCP. */
+      approved_via_mcp: number;
+      /** Rejected. Each one blocks finalize. */
+      rejected: number;
+      /** Not accepted, rejected or tolerated yet. Includes removed snapshots nobody decided on, which finalize accepts by itself. */
+      needs_review: number;
+      /** Tolerated as rendering noise. */
+      tolerated: number;
+    }
+
+    export interface HeadRun {
+      /** UUID of the run of the pull request whose verdict gates it. */
+      id: string;
+      /** The commit of that run. */
+      commit_sha: string;
+      /** The run's processing status. */
+      status: string;
+      /** Whether that run is finalized. */
+      approved: boolean;
+    }
+
+    /**
+     * * `review` - review
+     * * `observe` - observe
+     */
+    export type RunPurposeEnum = typeof RunPurposeEnum[keyof typeof RunPurposeEnum];
+
+
+    export const RunPurposeEnum = {
+      Review: 'review',
+      Observe: 'observe',
+    } as const;
+
+    /**
+     * * `ci_job` - ci_job
+     * * `commit_status` - commit_status
+     */
+    export type RunGateEnum = typeof RunGateEnum[keyof typeof RunGateEnum];
+
+
+    export const RunGateEnum = {
+      CiJob: 'ci_job',
+      CommitStatus: 'commit_status',
+    } as const;
+
+    export interface RunSummary {
+      total: number;
+      changed: number;
+      new: number;
+      removed: number;
+      unchanged: number;
+      unresolved?: number;
+      tolerated_matched?: number;
+    }
+
+    export type RunMetadata = { [key: string]: unknown };
+
+    export interface Run {
+      approved_by?: UserBasicInfo | null;
+      /** How far the review of this run got. Only on the single-run read, null in lists. */
+      progress?: RunProgress | null;
+      /** The newest run of the pull request, which finalize needs. Only on the single-run read, null in lists. */
+      head_run?: HeadRun | null;
+      /** Whether a finalize without `approve_all` would pass now: this is the pull request's newest run, it is not finalized, nothing is rejected, and every changed and new snapshot is accepted, tolerated or quarantined. A removed snapshot nobody decided on does not hold it back, because finalize accepts it. Only on the single-run read, false in lists. */
+      can_finalize?: boolean;
+      /** Why CI submitted the run. `review` runs gate the PR and need approval. `observe` runs are tracking-only, for example default-branch pushes and merge-queue runs, and can never be approved.
+       *
+       * * `review` - review
+       * * `observe` - observe */
+      readonly purpose: RunPurposeEnum;
+      /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of branch/run type, a commit SHA prefix, or an exact PR number) or `similar` (a fuzzy trigram match, returned only when no exact match exists). Null when the list is not filtered by `search`.
+       *
+       * * `exact` - exact
+       * * `similar` - similar */
+      readonly search_match_type: SearchMatchTypeEnum | null;
+      /** What gates the merge for this run, fixed when the run is created. `ci_job`: the CI job that completes the run fails while snapshots are unresolved. `commit_status`: the commit status Visual Review posts is the required check, and the CI job passes on unresolved snapshots.
+       *
+       * * `ci_job` - ci_job
+       * * `commit_status` - commit_status */
+      readonly gate: RunGateEnum;
+      /** How many open approvals this run rests on have a baseline that changed after the approval, because another pull request merged a different picture for the same snapshot. A run that would pass gets a failing commit status while this is above 0. Update the branch and review the new run. Only for current `commit_status` pull request runs, and only on the single-run read: 0 elsewhere and in lists. */
+      readonly stale_approval_count: number;
+      id: string;
+      repo_id: string;
+      status: string;
+      run_type: string;
+      commit_sha: string;
+      branch: string;
+      /** @nullable */
+      pr_number: number | null;
+      approved: boolean;
+      /** @nullable */
+      approved_at: string | null;
+      summary: RunSummary;
+      /** @nullable */
+      error_message: string | null;
+      created_at: string;
+      /** @nullable */
+      completed_at: string | null;
+      is_stale?: boolean;
+      /** @nullable */
+      superseded_by_id?: string | null;
+      metadata?: RunMetadata;
+    }
+
+    export interface DecisionResult {
+      /** The run the call was made on. */
+      run: Run;
+      /** The newest run of the pull request. A decision counts there when the pictures are the same. */
+      head_run: HeadRun;
+      /** How far the review of the newest run got after this call. */
+      progress: RunProgress;
+      /** Identifiers whose newest decision already was the one requested, so nothing was written for them and the first decider stays. */
+      already_decided: string[];
+    }
+
+    /**
+     * * `approved` - approved
+     * * `rejected` - rejected
+     * * `cleared` - cleared
+     */
+    export type DecisionStateEnum = typeof DecisionStateEnum[keyof typeof DecisionStateEnum];
+
+
+    export const DecisionStateEnum = {
+      Approved: 'approved',
+      Rejected: 'rejected',
+      Cleared: 'cleared',
+    } as const;
+
+    /**
      * * `follow` - Let each repository decide
      * * `flash` - On everywhere
      * * `off` - Off everywhere
@@ -41435,7 +42100,7 @@ export namespace Schemas {
       date_to: string;
       /** Project timezone for the period boundaries. */
       timezone: string;
-      /** True when the headline metrics, top pages and top sources exclude events from test accounts. Goal conversions include them. */
+      /** True when the headline metrics, top pages and top sources exclude events from test accounts. Follows the project's "Filter out internal and test users" default, like the query-web-* tools. Goal conversions include them either way. */
       filter_test_accounts: boolean;
       /** Metric definitions to use when you compare the digest with a direct query. */
       notes: string[];
@@ -42241,6 +42906,49 @@ export namespace Schemas {
     }
 
     /**
+     * * `before` - before
+     * * `after` - after
+     * * `both` - both
+     */
+    export type EarlierDecisionChangeEnum = typeof EarlierDecisionChangeEnum[keyof typeof EarlierDecisionChangeEnum];
+
+
+    export const EarlierDecisionChangeEnum = {
+      Before: 'before',
+      After: 'after',
+      Both: 'both',
+    } as const;
+
+    export interface EarlierSnapshotDecision {
+      /** What the earlier decision was.
+       *
+       * * `approved` - approved
+       * * `rejected` - rejected
+       * * `cleared` - cleared */
+      state: DecisionStateEnum;
+      /** Who made the earlier decision. */
+      by: UserBasicInfo | null;
+      /** How the decision reached Visual Review: `web` (the Visual Review page), `api` (an API key), or `mcp` (an agent through MCP). `mcp` comes from a marker the client sends, so it is a best effort. An accept from before decisions kept a history shows `web`.
+       *
+       * * `web` - Visual Review page
+       * * `api` - API key
+       * * `mcp` - Agent through MCP */
+      via: DecisionChannelEnum;
+      /** When the earlier decision was made. */
+      at: string;
+      /** Why the earlier picture was rejected. Empty for other decisions. */
+      reason: string;
+      /** The commit the earlier decision was made on. */
+      commit_sha: string;
+      /** Which picture changed since: `before` (the baseline, because the default branch or a pull request below changed it), `after` (the pull request's own picture), or `both`.
+       *
+       * * `before` - before
+       * * `after` - after
+       * * `both` - both */
+      changed: EarlierDecisionChangeEnum;
+    }
+
+    /**
      * Feature flag payload for this early access feature
      */
     export type EarlyAccessFeaturePayload = { [key: string]: unknown };
@@ -42794,10 +43502,10 @@ export namespace Schemas {
          */
       metrics?: ReportMetricWrite[] | null;
       /**
-         * The full set of follow-up prompts (questions or next-step actions) the report should offer above its `Ask AI` box. Replaces the report's prompts rather than adding to them, so send every one you want kept. Omit the field (or send null) to leave them untouched, and send an empty list to take them down, which is what you want once a rewrite has left them pointing at the old report.
-         * @maxItems 3
+         * The full set of follow-up prompts (questions or next-step actions) the report should offer above its `Ask AI` box. Replaces the report's prompts rather than adding to them, so send every one you want kept. Omit the field (or send null) to leave them untouched, and send an empty list to take them down, which is what you want once a rewrite has left them pointing at the old report. The report stores at most 3 unique prompts of up to 200 characters each. A prompt past those bounds is left out, not cut, and the rest of the report is stored. `quality_hints` says which bound left a prompt out. When every prompt you send is left out, the stored prompts stay as they were.
+         * @maxItems 10
          * @nullable
-         * @items.maxLength 200
+         * @items.maxLength 2000
          */
       suggested_prompts?: string[] | null;
       /**
@@ -42877,6 +43585,7 @@ export namespace Schemas {
     /**
      * * `title` - title
      * * `summary` - summary
+     * * `suggested_prompts` - suggested_prompts
      */
     export type ReportQualityHintFieldEnum = typeof ReportQualityHintFieldEnum[keyof typeof ReportQualityHintFieldEnum];
 
@@ -42884,6 +43593,7 @@ export namespace Schemas {
     export const ReportQualityHintFieldEnum = {
       Title: 'title',
       Summary: 'summary',
+      SuggestedPrompts: 'suggested_prompts',
     } as const;
 
     export interface ReportQualityHint {
@@ -42897,7 +43607,8 @@ export namespace Schemas {
       /** The field the check matched.
        *
        * * `title` - title
-       * * `summary` - summary */
+       * * `summary` - summary
+       * * `suggested_prompts` - suggested_prompts */
       field: ReportQualityHintFieldEnum;
       /** What the check found and what to do next time. */
       message: string;
@@ -42957,7 +43668,7 @@ export namespace Schemas {
       decision_fields_set: string[];
       /** Request fields the edit did not apply, each with the reason. Empty when every field applied. */
       warnings: EditReportWarning[];
-      /** Quality checks the title or summary matched. A `repair` hint means the stored text differs from what you sent: escape the JSON one time only next time. A `hint` means the text was stored as sent: correct it with edit_report if the hint applies. Empty when no check matched. */
+      /** Quality checks the title, summary, or suggested prompts matched. A `repair` hint means what was stored differs from what you sent: escape the JSON one time only next time, and keep suggested prompts within their bounds. A `hint` means the text was stored as sent: correct it with edit_report if the hint applies. Empty when no check matched. */
       quality_hints: ReportQualityHint[];
       /** Whether your note raised the report's corroboration count instead of landing as its own entry. Only notes marked corroboration_only can collapse; free-form notes remain in the work log. */
       corroboration_collapsed: boolean;
@@ -43993,9 +44704,9 @@ export namespace Schemas {
          */
       metrics?: ReportMetricWrite[];
       /**
-         * Optional follow-up prompts to offer above the report's `Ask AI` box: questions to ask, or next-step actions to request (e.g. carrying out the report's recommendation). The reader clicks one to fill the box with it, then sends or edits it. Write the prompts your own research left open, phrased as the reader would send them.
-         * @maxItems 3
-         * @items.maxLength 200
+         * Optional follow-up prompts to offer above the report's `Ask AI` box: questions to ask, or next-step actions to request (e.g. carrying out the report's recommendation). The reader clicks one to fill the box with it, then sends or edits it. Write the prompts your own research left open, phrased as the reader would send them. The report stores at most 3 unique prompts of up to 200 characters each. A prompt past those bounds is left out, not cut, and the rest of the report is stored. `quality_hints` says which bound left a prompt out.
+         * @maxItems 10
+         * @items.maxLength 2000
          */
       suggested_prompts?: string[];
       /**
@@ -44051,7 +44762,7 @@ export namespace Schemas {
       remediation: string | null;
       /** True when this call authored nothing because the emission had already landed — the fields above describe that first report. Expected on a retry; treat the report as filed and don't send it again. */
       idempotent_replay: boolean;
-      /** Quality checks the title or summary matched. A `repair` hint means the stored text differs from what you sent: escape the JSON one time only next time. A `hint` means the text was stored as sent: correct it with edit_report if the hint applies. Empty when no check matched. */
+      /** Quality checks the title, summary, or suggested prompts matched. A `repair` hint means what was stored differs from what you sent: escape the JSON one time only next time, and keep suggested prompts within their bounds. A `hint` means the text was stored as sent: correct it with edit_report if the hint applies. Empty when no check matched. */
       quality_hints: ReportQualityHint[];
     }
 
@@ -50767,6 +51478,7 @@ export namespace Schemas {
      * * `result_ready` - Result Ready
      * * `flag_shared` - Flag Shared
      * * `stale_experiment` - Stale Experiment
+     * * `exposure_rows_left_out` - Exposure Rows Left Out
      */
     export type ExperimentHealthFindingCodeEnum = typeof ExperimentHealthFindingCodeEnum[keyof typeof ExperimentHealthFindingCodeEnum];
 
@@ -50803,6 +51515,7 @@ export namespace Schemas {
       ResultReady: 'result_ready',
       FlagShared: 'flag_shared',
       StaleExperiment: 'stale_experiment',
+      ExposureRowsLeftOut: 'exposure_rows_left_out',
     } as const;
 
     /**
@@ -50879,6 +51592,7 @@ export namespace Schemas {
      * * `multiple_variants_share` - Multiple Variants Share
      * * `events_billing_limit` - Events Billing Limit
      * * `feature_flags_billing_limit` - Feature Flags Billing Limit
+     * * `exposure_rows_left_out` - Exposure Rows Left Out
      */
     export type ExperimentHealthCheckKeyEnum = typeof ExperimentHealthCheckKeyEnum[keyof typeof ExperimentHealthCheckKeyEnum];
 
@@ -50913,6 +51627,7 @@ export namespace Schemas {
       MultipleVariantsShare: 'multiple_variants_share',
       EventsBillingLimit: 'events_billing_limit',
       FeatureFlagsBillingLimit: 'feature_flags_billing_limit',
+      ExposureRowsLeftOut: 'exposure_rows_left_out',
     } as const;
 
     /**
@@ -50953,7 +51668,8 @@ export namespace Schemas {
        * * `metrics_not_matured` - Metrics Not Matured
        * * `result_ready` - Result Ready
        * * `flag_shared` - Flag Shared
-       * * `stale_experiment` - Stale Experiment */
+       * * `stale_experiment` - Stale Experiment
+       * * `exposure_rows_left_out` - Exposure Rows Left Out */
       code: ExperimentHealthFindingCodeEnum;
       /**
          * The case within the code, when a code covers several, for example 'running_but_no_rollout' within 'flag_off_while_running'. Null when the code has one case.
@@ -51014,7 +51730,8 @@ export namespace Schemas {
        * * `bias_risk_multiple_excluded` - Bias Risk Multiple Excluded
        * * `multiple_variants_share` - Multiple Variants Share
        * * `events_billing_limit` - Events Billing Limit
-       * * `feature_flags_billing_limit` - Feature Flags Billing Limit */
+       * * `feature_flags_billing_limit` - Feature Flags Billing Limit
+       * * `exposure_rows_left_out` - Exposure Rows Left Out */
       check: ExperimentHealthCheckKeyEnum;
     }
 
@@ -51105,6 +51822,9 @@ export namespace Schemas {
      * * `assigned_outside_count` - Users or groups who got a variant from a call that the flag service didn't evaluate and that is no local evaluation, such as a bootstrapped value. Read only while a running experiment's feature flag has a 0% rollout
      * * `other_draft_experiment_count` - Other draft experiments on the same feature flag that are not archived
      * * `filters_test_accounts` - Whether the counts leave out internal and test users, because the experiment applies the test account filters
+     * * `left_out_row_count` - Rows of the warehouse-native exposure query that the exposures leave out, for any reason
+     * * `unknown_variant_row_count` - Rows of the warehouse-native exposure query whose variant is none of the experiment's variants
+     * * `empty_id_row_count` - Rows of the warehouse-native exposure query whose entity_id is empty
      */
     export type ExperimentHealthValueKeyEnum = typeof ExperimentHealthValueKeyEnum[keyof typeof ExperimentHealthValueKeyEnum];
 
@@ -51180,6 +51900,9 @@ export namespace Schemas {
       AssignedOutsideCount: 'assigned_outside_count',
       OtherDraftExperimentCount: 'other_draft_experiment_count',
       FiltersTestAccounts: 'filters_test_accounts',
+      LeftOutRowCount: 'left_out_row_count',
+      UnknownVariantRowCount: 'unknown_variant_row_count',
+      EmptyIdRowCount: 'empty_id_row_count',
     } as const;
 
     /**
@@ -51276,7 +51999,10 @@ export namespace Schemas {
        * * `other_running_experiment_count` - Other experiments that run on the same feature flag and are not archived
        * * `assigned_outside_count` - Users or groups who got a variant from a call that the flag service didn't evaluate and that is no local evaluation, such as a bootstrapped value. Read only while a running experiment's feature flag has a 0% rollout
        * * `other_draft_experiment_count` - Other draft experiments on the same feature flag that are not archived
-       * * `filters_test_accounts` - Whether the counts leave out internal and test users, because the experiment applies the test account filters */
+       * * `filters_test_accounts` - Whether the counts leave out internal and test users, because the experiment applies the test account filters
+       * * `left_out_row_count` - Rows of the warehouse-native exposure query that the exposures leave out, for any reason
+       * * `unknown_variant_row_count` - Rows of the warehouse-native exposure query whose variant is none of the experiment's variants
+       * * `empty_id_row_count` - Rows of the warehouse-native exposure query whose entity_id is empty */
       value: ExperimentHealthValueKeyEnum;
       /** The value that the key must reach. Below it, the check reports no finding. */
       threshold: number;
@@ -51354,7 +52080,10 @@ export namespace Schemas {
        * * `other_running_experiment_count` - Other experiments that run on the same feature flag and are not archived
        * * `assigned_outside_count` - Users or groups who got a variant from a call that the flag service didn't evaluate and that is no local evaluation, such as a bootstrapped value. Read only while a running experiment's feature flag has a 0% rollout
        * * `other_draft_experiment_count` - Other draft experiments on the same feature flag that are not archived
-       * * `filters_test_accounts` - Whether the counts leave out internal and test users, because the experiment applies the test account filters */
+       * * `filters_test_accounts` - Whether the counts leave out internal and test users, because the experiment applies the test account filters
+       * * `left_out_row_count` - Rows of the warehouse-native exposure query that the exposures leave out, for any reason
+       * * `unknown_variant_row_count` - Rows of the warehouse-native exposure query whose variant is none of the experiment's variants
+       * * `empty_id_row_count` - Rows of the warehouse-native exposure query whose entity_id is empty */
       value: ExperimentHealthValueKeyEnum;
       /** The threshold, in the unit that the suffix of the key gives. */
       threshold: number;
@@ -51413,7 +52142,8 @@ export namespace Schemas {
        * * `bias_risk_multiple_excluded` - Bias Risk Multiple Excluded
        * * `multiple_variants_share` - Multiple Variants Share
        * * `events_billing_limit` - Events Billing Limit
-       * * `feature_flags_billing_limit` - Feature Flags Billing Limit */
+       * * `feature_flags_billing_limit` - Feature Flags Billing Limit
+       * * `exposure_rows_left_out` - Exposure Rows Left Out */
       key: ExperimentHealthCheckKeyEnum;
       /** The problem the check looks for, for example 'Metrics not set up'. */
       name: string;
@@ -51859,6 +52589,7 @@ export namespace Schemas {
       UnservedVariantExposures: 'unserved_variant_exposures',
       EventsBillingLimit: 'events_billing_limit',
       FeatureFlagsBillingLimit: 'feature_flags_billing_limit',
+      ExposureRowsLeftOut: 'exposure_rows_left_out',
     } as const;
 
     export type ExperimentExposureHealthValueKey = typeof ExperimentExposureHealthValueKey[keyof typeof ExperimentExposureHealthValueKey];
@@ -51876,6 +52607,9 @@ export namespace Schemas {
       KeptByTestAccountFilterPercentage: 'kept_by_test_account_filter_percentage',
       UnservedExposedCount: 'unserved_exposed_count',
       UnservedExposedPercentage: 'unserved_exposed_percentage',
+      LeftOutRowCount: 'left_out_row_count',
+      UnknownVariantRowCount: 'unknown_variant_row_count',
+      EmptyIdRowCount: 'empty_id_row_count',
     } as const;
 
     export interface ExperimentExposureHealthRuleMinimum {
@@ -51961,6 +52695,7 @@ export namespace Schemas {
       UnservedVariantExposures: 'unserved_variant_exposures',
       EventsBillingLimit: 'events_billing_limit',
       FeatureFlagsBillingLimit: 'feature_flags_billing_limit',
+      ExposureRowsLeftOut: 'exposure_rows_left_out',
     } as const;
 
     export type ExperimentExposureHealthFindingSeverity = typeof ExperimentExposureHealthFindingSeverity[keyof typeof ExperimentExposureHealthFindingSeverity];
@@ -57779,91 +58514,60 @@ export namespace Schemas {
       VerificationComplete: 'verification_complete',
     } as const;
 
-    /**
-     * * `review` - review
-     * * `observe` - observe
-     */
-    export type RunPurposeEnum = typeof RunPurposeEnum[keyof typeof RunPurposeEnum];
-
-
-    export const RunPurposeEnum = {
-      Review: 'review',
-      Observe: 'observe',
-    } as const;
-
-    /**
-     * * `ci_job` - ci_job
-     * * `commit_status` - commit_status
-     */
-    export type RunGateEnum = typeof RunGateEnum[keyof typeof RunGateEnum];
-
-
-    export const RunGateEnum = {
-      CiJob: 'ci_job',
-      CommitStatus: 'commit_status',
-    } as const;
-
-    export interface RunSummary {
-      total: number;
-      changed: number;
-      new: number;
-      removed: number;
-      unchanged: number;
-      unresolved?: number;
-      tolerated_matched?: number;
+    export interface FinalizeApprover {
+      /** Who accepted. */
+      user: UserBasicInfo | null;
+      /** How the decision reached Visual Review: `web` (the Visual Review page), `api` (an API key), or `mcp` (an agent through MCP). `mcp` comes from a marker the client sends, so it is a best effort. An accept from before decisions kept a history shows `web`.
+       *
+       * * `web` - Visual Review page
+       * * `api` - API key
+       * * `mcp` - Agent through MCP */
+      via: DecisionChannelEnum;
+      /** How many of the run's changes this person accepted this way. */
+      count: number;
+      /** The commits of the pull request the accepts were made on. */
+      commit_shas: string[];
     }
 
-    export type RunMetadata = { [key: string]: unknown };
+    export interface RejectedSnapshotDetail {
+      /** Who rejected it. */
+      by: UserBasicInfo | null;
+      identifier: string;
+      reason: string;
+    }
 
-    export interface Run {
-      approved_by?: UserBasicInfo | null;
-      /** Why CI submitted the run. `review` runs gate the PR and need approval. `observe` runs are tracking-only, for example default-branch pushes and merge-queue runs, and can never be approved.
-       *
-       * * `review` - review
-       * * `observe` - observe */
-      readonly purpose: RunPurposeEnum;
-      /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of branch/run type, a commit SHA prefix, or an exact PR number) or `similar` (a fuzzy trigram match, returned only when no exact match exists). Null when the list is not filtered by `search`.
-       *
-       * * `exact` - exact
-       * * `similar` - similar */
-      readonly search_match_type: SearchMatchTypeEnum | null;
-      /** What gates the merge for this run, fixed when the run is created. `ci_job`: the CI job that completes the run fails while snapshots are unresolved. `commit_status`: the commit status Visual Review posts is the required check, and the CI job passes on unresolved snapshots.
-       *
-       * * `ci_job` - ci_job
-       * * `commit_status` - commit_status */
-      readonly gate: RunGateEnum;
-      /** How many open approvals this run rests on have a baseline that changed after the approval, because another pull request merged a different picture for the same snapshot. A run that would pass gets a failing commit status while this is above 0. Update the branch and review the new run. Only for current `commit_status` pull request runs, and only on the single-run read: 0 elsewhere and in lists. */
-      readonly stale_approval_count: number;
-      id: string;
-      repo_id: string;
-      status: string;
-      run_type: string;
-      commit_sha: string;
-      branch: string;
-      /** @nullable */
-      pr_number: number | null;
-      approved: boolean;
-      /** @nullable */
-      approved_at: string | null;
-      summary: RunSummary;
-      /** @nullable */
-      error_message: string | null;
-      created_at: string;
-      /** @nullable */
-      completed_at: string | null;
-      is_stale?: boolean;
-      /** @nullable */
-      superseded_by_id?: string | null;
-      metadata?: RunMetadata;
+    /**
+     * Every 409 of finalize. `code` says which one, and only its own fields are present.
+     */
+    export interface FinalizeConflict {
+      /** What went wrong and what to do next. */
+      detail: string;
+      /** A stable code for the error, such as `lift_commit_unknown` or `rate_limited`. */
+      code?: string;
+      /** With `not_fully_resolved`: every rejected snapshot. It clears with a new picture, the rejecter's undo, or a person's explicit override ("accept anyway"). An agent can never clear it. */
+      rejected?: RejectedSnapshotDetail[];
+      /** With `not_fully_resolved`: every snapshot that still needs a decision. */
+      needs_review?: string[];
+      /**
+         * With `stale_run`: the pull request's newest run, which is the one to finalize, when known.
+         * @nullable
+         */
+      head_run_id?: string | null;
+      /** With `stale_run`: the commit of that newest run, when known. */
+      head_commit_sha?: string;
     }
 
     export interface FinalizeResult {
+      /** The review of the finalized run. */
+      progress?: RunProgress | null;
+      /** Who accepted the run's changes, by person and channel, most accepts first. */
+      approvers: FinalizeApprover[];
       run: Run;
       baseline_content: string;
     }
 
     export interface FinalizeRunRequestInput {
-      /** Approve every still-pending changed and new snapshot before finalizing (tolerated snapshots are left untouched). Leave false to finalize a run you've already reviewed — finalizing fails if any changed/new snapshot is still unreviewed. */
+      /** Accept every changed and new snapshot that nobody decided on before finalizing. Tolerated and quarantined snapshots are left alone, and a rejected snapshot is never accepted, so it still blocks. Leave false to finalize a run you already reviewed: finalizing fails if any change still needs review. */
       approve_all?: boolean;
       /** Whether the server commits the approved baseline to the PR branch and greens the gate (the normal path — leave true). Set false only for tooling that commits the baseline itself: the server skips the commit and returns the signed YAML in `baseline_content` instead. With false, the gate is NOT greened, `metadata.baseline_commit_sha` is absent, and no post-approval PR comment is posted. */
       commit_to_github?: boolean;
@@ -61057,6 +61761,11 @@ export namespace Schemas {
          * @pattern ^[a-z_]+:[A-Za-z0-9_-]+$
          */
       source_record?: string | null;
+      /**
+         * The call-to-action impression this workflow started from. Set only when creating a workflow.
+         * @nullable
+         */
+      entry_attempt_id?: string | null;
       readonly created_at: string;
       readonly created_by: UserBasic;
       readonly updated_at: string;
@@ -68577,6 +69286,7 @@ export namespace Schemas {
      * * `apns` - Apple Push
      * * `aws-redshift` - Aws Redshift
      * * `aws-s3` - Aws S3
+     * * `aws-warehouse-sources` - Aws Warehouse Sources
      * * `azure-blob` - Azure Blob
      * * `bing-ads` - Bing Ads
      * * `clickup` - Clickup
@@ -68634,6 +69344,7 @@ export namespace Schemas {
       Apns: 'apns',
       AwsRedshift: 'aws-redshift',
       AwsS3: 'aws-s3',
+      AwsWarehouseSources: 'aws-warehouse-sources',
       AzureBlob: 'azure-blob',
       BingAds: 'bing-ads',
       Clickup: 'clickup',
@@ -68691,6 +69402,7 @@ export namespace Schemas {
        * * `apns` - Apple Push
        * * `aws-redshift` - Aws Redshift
        * * `aws-s3` - Aws S3
+       * * `aws-warehouse-sources` - Aws Warehouse Sources
        * * `azure-blob` - Azure Blob
        * * `bing-ads` - Bing Ads
        * * `clickup` - Clickup
@@ -68859,6 +69571,7 @@ export namespace Schemas {
        * * `apns` - Apple Push
        * * `aws-redshift` - Aws Redshift
        * * `aws-s3` - Aws S3
+       * * `aws-warehouse-sources` - Aws Warehouse Sources
        * * `azure-blob` - Azure Blob
        * * `bing-ads` - Bing Ads
        * * `clickup` - Clickup
@@ -69683,7 +70396,7 @@ export namespace Schemas {
       id: string;
       /** Library name. Unique in this project, ignoring case. */
       name: string;
-      /** True for the library new learned sources join. There is at most one. */
+      /** True when new sources learned from support tickets join this library. Several libraries can have it. */
       is_default: boolean;
       /** How many sources are in this library. */
       source_count: number;
@@ -69697,6 +70410,26 @@ export namespace Schemas {
          * @maxLength 255
          */
       name: string;
+    }
+
+    /**
+     * Body of a search sent with POST, which keeps the query text out of the request URL.
+     */
+    export interface KnowledgeSearchRequest {
+      /**
+         * Natural-language search query. Runs hybrid (semantic + full-text) retrieval over all SAFE, READY knowledge chunks in this project. At most 2000 characters.
+         * @maxLength 2000
+         */
+      query: string;
+      /** Maximum number of ranked chunks to return. Defaults to 10, capped at 20. */
+      limit?: number;
+      /** When true, rerank search results with a listwise LLM pass for better relevance. Defaults to false (RRF order only). Falls back to RRF order on rerank failure. */
+      rerank?: boolean;
+      /**
+         * Limit retrieval to sources in this library. Omit to search every ready source.
+         * @nullable
+         */
+      library_id?: string | null;
     }
 
     /**
@@ -74759,6 +75492,163 @@ export namespace Schemas {
       error_code?: string | null;
     }
 
+    export interface MCPWrappedIntroCard {
+      /** First month with 100+ tool calls, as YYYY-MM. MCP analytics started tracking then. */
+      readonly tracked_since: string;
+      /** MCP servers that each sent at least 1% of the project's tool calls. */
+      readonly server_count: number;
+    }
+
+    export interface MCPWrappedMonth {
+      /** Month as YYYY-MM. */
+      readonly month: string;
+      /** Tool calls in the month. */
+      readonly calls: number;
+    }
+
+    export interface MCPWrappedToolCallsCard {
+      /** Tool calls in the period. */
+      readonly total_calls: number;
+      /** Calls per month from the tracked-since month on, oldest first. */
+      readonly months: readonly MCPWrappedMonth[];
+      /**
+         * The last month's calls over the first full month's, set only when it is 1.5 or more.
+         * @nullable
+         */
+      readonly growth_multiple: number | null;
+    }
+
+    export interface MCPWrappedToolCount {
+      /** Tool name. */
+      readonly tool: string;
+      /** Tool calls in the period. */
+      readonly calls: number;
+    }
+
+    export interface MCPWrappedTopToolsCard {
+      /** Up to five tools, busiest first. */
+      readonly tools: readonly MCPWrappedToolCount[];
+    }
+
+    export interface MCPWrappedShare {
+      /** Name of the app, AI lab or model family, or "Other". */
+      readonly name: string;
+      /** Share of the calls the bar covers, from 0 to 1. */
+      readonly share: number;
+    }
+
+    export interface MCPWrappedSharesCard {
+      /** Largest first, with the remainder as a final Other entry. */
+      readonly shares: readonly MCPWrappedShare[];
+    }
+
+    export interface MCPWrappedRushHourCard {
+      /** Busiest ISO weekday, 1 is Monday. */
+      readonly weekday: number;
+      /** Busiest hour, 0 to 23, in timezone. */
+      readonly hour: number;
+      /** The project's timezone, which weekday and hour use. */
+      readonly timezone: string;
+      /** Intensity from 0 to 100 for each of the 168 weekday-hour slots, index (weekday - 1) * 24 + hour. */
+      readonly heat: readonly number[];
+      /** Under 15% of calls fell on weekends. */
+      readonly quiet_weekends: boolean;
+      /** Over half of the calls fell between 10 pm and 6 am. */
+      readonly night_shift: boolean;
+    }
+
+    export interface MCPWrappedToolErrorRate {
+      /** Tool name. */
+      readonly tool: string;
+      /** Share of the tool's calls that errored, 0 to 1. */
+      readonly error_rate: number;
+      /** The tool's calls this year. */
+      readonly calls: number;
+    }
+
+    export interface MCPWrappedReliabilityCard {
+      /** Share of calls without an error, 0 to 1. */
+      readonly success_rate: number;
+      /** The tool with the lowest error rate among tools with 100+ calls, more calls winning a tie, when 3 or more qualify. */
+      readonly most_reliable_tool: MCPWrappedToolErrorRate | null;
+      /** The tool with the highest error rate among tools with 100+ calls, when 3 or more qualify and its rate is above the most reliable tool's. */
+      readonly struggling_tool: MCPWrappedToolErrorRate | null;
+    }
+
+    export interface MCPWrappedToolLatency {
+      /** Tool name. */
+      readonly tool: string;
+      /** 95th percentile response time in ms. */
+      readonly p95_duration_ms: number;
+    }
+
+    export interface MCPWrappedSpeedCard {
+      /** 95th percentile response time across all calls, in ms. */
+      readonly p95_duration_ms: number;
+      /** The quickest of the five busiest tools. */
+      readonly quickest_busy_tool: MCPWrappedToolLatency | null;
+      /** The slowest tool with 100+ calls. */
+      readonly slowest_tool: MCPWrappedToolLatency | null;
+    }
+
+    export interface MCPWrappedArchetypeCard {
+      /** The server's personality, from the first rule it meets.
+       *
+       * * `one_hit_wonder` - The One-Hit Wonder
+       * * `swiss_army_knife` - The Swiss Army Knife
+       * * `night_owl` - The Night Owl
+       * * `weekend_warrior` - The Weekend Warrior
+       * * `speed_demon` - The Speed Demon
+       * * `rocket` - The Rocket
+       * * `superhero` - The Superhero
+       * * `all_rounder` - The All-Rounder */
+      readonly archetype: ArchetypeEnum;
+      /**
+         * The number that earned the archetype: a share, a tool count, a p95 in ms or a growth multiple.
+         * @nullable
+         */
+      readonly evidence: number | null;
+    }
+
+    export interface MCPWrappedCards {
+      /** Opening card. */
+      readonly intro: MCPWrappedIntroCard;
+      /** Total and monthly tool calls. */
+      readonly tool_calls: MCPWrappedToolCallsCard;
+      /** The busiest tools. */
+      readonly top_tools: MCPWrappedTopToolsCard;
+      /** Share of calls by app. Null when too many calls have no client. */
+      readonly apps: MCPWrappedSharesCard | null;
+      /** Share of calls by AI lab, as agents report it. Null when too few calls carry a model. */
+      readonly labs: MCPWrappedSharesCard | null;
+      /** Share of calls by model family, as agents report it. Null when too few calls carry a model. */
+      readonly models: MCPWrappedSharesCard | null;
+      /** Busiest weekday and hour. Null under 1,000 calls. */
+      readonly rush_hour: MCPWrappedRushHourCard | null;
+      /** Calls without an error. */
+      readonly reliability: MCPWrappedReliabilityCard;
+      /** Response times. Null when most calls have no duration. */
+      readonly speed: MCPWrappedSpeedCard | null;
+      /** The server's personality. */
+      readonly archetype: MCPWrappedArchetypeCard;
+    }
+
+    export interface MCPWrapped {
+      /** Year the wrap covers, Jan 1 to Dec 1. */
+      readonly year: number;
+      /** When the wrap was computed. */
+      readonly generated_at: string;
+      /** When the wrap stops showing, 14 days after it was computed. */
+      readonly expires_at: string;
+      /** Values for each story card. */
+      readonly cards: MCPWrappedCards;
+    }
+
+    export interface MCPWrappedResponse {
+      /** The project's wrap, or null when none is ready and fresh. */
+      readonly wrapped: MCPWrapped | null;
+    }
+
     export interface MakeTransactional {
       /**
          * ID of the verified email sender integration the email is sent from. Defaults to the project's default sender. Ignored for push templates.
@@ -78349,6 +79239,12 @@ export namespace Schemas {
          * @maximum 12
          */
       width?: number;
+      /**
+         * Card height in pixels. Omit for automatic height.
+         * @minimum 120
+         * @maximum 1600
+         */
+      height?: number;
       /**
          * Source notebook cell ID.
          * @maxLength 160
@@ -85021,6 +85917,8 @@ export namespace Schemas {
          * @nullable
          */
       readonly approval_dismissed_at: string | null;
+      /** The newest request for people to review this pull request, or null when nobody asked. Set by a review request with allow_broadcast set to true, or by `@posthog stamp --allow-broadcast`. It belongs to the pull request, so every run of the pull request shows it. */
+      readonly broadcast_request: CodeReviewApprovalBroadcastRequest | null;
       /** When the review run was created. */
       readonly created_at: string;
       /** When the review run was last updated. */
@@ -86978,6 +87876,35 @@ export namespace Schemas {
       results: SnapshotHistoryEntry[];
     }
 
+    export interface SnapshotDecision {
+      /** `approved`: accepted. `rejected`: rejected, which blocks finalize. `cleared`: a decision was undone, so the snapshot needs review again.
+       *
+       * * `approved` - approved
+       * * `rejected` - rejected
+       * * `cleared` - cleared */
+      state: DecisionStateEnum;
+      /** Who made the decision. */
+      by: UserBasicInfo | null;
+      /** How the decision reached Visual Review: `web` (the Visual Review page), `api` (an API key), or `mcp` (an agent through MCP). `mcp` comes from a marker the client sends, so it is a best effort. An accept from before decisions kept a history shows `web`.
+       *
+       * * `web` - Visual Review page
+       * * `api` - API key
+       * * `mcp` - Agent through MCP */
+      via: DecisionChannelEnum;
+      /** When the decision was made. */
+      at: string;
+      /** Why the snapshot was rejected. Empty for other decisions. */
+      reason: string;
+      /** The run of the pull request the decision was made on. */
+      run_id: string;
+      /** The commit of that run. */
+      commit_sha: string;
+      /** Whether the decision was made on an earlier commit of the pull request and still counts here. */
+      from_earlier_commit: boolean;
+      /** Order of the decision within the pull request. Pass the highest `seq` you read as `expected_seq` when you decide, so a decision made after your read is not replaced unseen. */
+      seq: number;
+    }
+
     export type SnapshotMetadata = { [key: string]: unknown };
 
     export interface Snapshot {
@@ -86989,6 +87916,12 @@ export namespace Schemas {
       row_shift?: RowShift | null;
       /** Whether a quarantine covered this snapshot when the run was last gated, so its diff did not block the pull request. It keeps that value after the quarantine ends or a new one starts. */
       is_quarantined?: boolean;
+      /** Where the snapshot stands in review on this run: `pending`, `approved` (accepted), `rejected` or `tolerated`, and empty for an unchanged snapshot. In ledger mode a decision made on another run of the pull request counts here while the pictures are the same. */
+      review_state: string;
+      /** The newest decision on the exact before and after pictures this snapshot shows, on any run of the pull request. Null when nobody decided on this pair. */
+      decision?: SnapshotDecision | null;
+      /** Set only when `decision` is null: the newest decision on another picture of this snapshot, which no longer applies because a picture changed. Judge the new picture like any change. */
+      earlier_decision?: EarlierSnapshotDecision | null;
       id: string;
       run_id: string;
       identifier: string;
@@ -86998,7 +87931,6 @@ export namespace Schemas {
       diff_percentage: number | null;
       /** @nullable */
       diff_pixel_count: number | null;
-      review_state: string;
       /** @nullable */
       reviewed_at: string | null;
       approved_hash: string;
@@ -91387,6 +92319,7 @@ export namespace Schemas {
       /** 'daily' or 'weekly'. Weekly checks each prompt once a week and costs a seventh as much.
        *
        * * `daily` - Daily
+       * * `every_3_days` - Every 72 hours
        * * `weekly` - Weekly */
       frequency?: CheckFrequencyEnum;
     }
@@ -92367,6 +93300,18 @@ export namespace Schemas {
       routing_fork_labels?: PatchedCodeReviewApprovalRepositoryWriteRoutingForkLabels;
       /** Whether a clean PostHog Review run on a pull request that opened or was marked ready starts a silent auto-approval review of that head, whatever review_mode says. A silent review posts only an approval: any other verdict is stored and nothing is written to the pull request. Only for review_mode 'label' in a repository where PostHog Review runs automatic reviews: 'all' refuses it, and setting review_mode to 'all' turns it off. With routing_mode 'fallback', a head waits for that silent review before routing. Defaults to false. */
       review_on_clean_external_review?: boolean;
+      /** Whether `stamp --allow-broadcast` and review requests with allow_broadcast set to true may ask people to review. When auto-approval does not approve the pull request, it posts the pull request to broadcast_slack_channel_id. Turning it on needs a channel. Defaults to false. */
+      broadcast_enabled?: boolean;
+      /**
+         * Slack channel ID, such as 'C0123456789', where auto-approval posts pull requests that need a person to review. It uses the project's Slack integration, which must be able to post in the channel. Blank when no channel is set.
+         * @maxLength 64
+         */
+      broadcast_slack_channel_id?: string;
+      /**
+         * Display name of the Slack channel in broadcast_slack_channel_id, without the '#'. Letters, digits, '-' and '_' only, up to 80 characters, like a Slack channel name. Shown in replies only, so a stale name does not change where requests go.
+         * @maxLength 255
+         */
+      broadcast_slack_channel_name?: string;
     }
 
     export interface PatchedCohort {
@@ -96064,6 +97009,8 @@ export namespace Schemas {
       source_ids?: string[];
       /** Replaces this environment's repositories in the library. Omit to leave them unchanged. Repositories only another environment allows stay. */
       repos?: string[];
+      /** Whether new sources learned from support tickets join this library. Omit to leave it unchanged. Sources that are already in the library stay. At least one library must have it. */
+      is_default?: boolean;
     }
 
     /**
@@ -97942,7 +98889,7 @@ export namespace Schemas {
       /** When enabled, a new feature flag needs at least one tag, and a tagged flag cannot lose its last one. A create that declares it comes from a survey, experiment, early access feature, product tour, or web experiment is exempt, because those forms have no tag input. The caller sets that declaration, so a flag can still be created without a tag. */
       require_tags?: boolean;
       /**
-         * Domains to block from /flags requests, up to 100. A domain also covers its subdomains. It is compared with the Origin header, or with Referer when Origin is missing or names no domain.
+         * Domains to block from /flags requests, up to 100. A domain also covers its subdomains. It is compared with Origin, or with Referer when Origin names no domain.
          * @maxItems 1000
          * @items.maxLength 2000
          */
@@ -97954,13 +98901,13 @@ export namespace Schemas {
          */
       blocked_ips?: string[];
       /**
-         * Domains allowed to make /flags requests, up to 100. When not empty, pages whose domain is not listed or is hidden get no flags. Requests with no Origin and no Referer, such as those from server-side and mobile SDKs, are not checked. Same rules as blocked_hosts, but shared hosting domains such as vercel.app are rejected. A blocked domain wins.
+         * Domains allowed to make /flags requests, up to 100. When not empty, pages whose domain is not listed or is hidden get no flags. Requests without Origin or Referer, such as from server-side and mobile SDKs, are not checked. Same rules as blocked_hosts, but shared hosts such as vercel.app are rejected. A blocked domain wins.
          * @maxItems 1000
          * @items.maxLength 2000
          */
       allowed_hosts?: string[];
       /**
-         * IP addresses or CIDR ranges allowed to make /flags requests, up to 100. When not empty, every other caller gets no flags, including servers and browsers on allowed domains. Behind a reverse proxy, the proxy's address is checked, so requests through the managed reverse proxy get no flags. Entries follow the same rules as blocked_ips. A blocked address wins.
+         * IP addresses or CIDR ranges allowed to make /flags requests, up to 100. When not empty, all other callers get no flags, even browsers on allowed domains. Add IPv6 addresses too, as callers may connect over IPv6. Behind a proxy, such as the managed reverse proxy, the proxy's address is checked. Same entry rules as blocked_ips. A blocked address wins.
          * @maxItems 1000
          * @items.maxLength 2000
          */
@@ -98810,6 +99757,7 @@ export namespace Schemas {
       marketing_analytics_config?: TeamMarketingAnalyticsConfig;
       customer_analytics_config?: TeamCustomerAnalyticsConfig;
       workflows_config?: TeamWorkflowsConfig;
+      /** A list sent replaces the saved one. Omitted fields are kept. */
       feature_flag_policy_config?: TeamFeatureFlagPolicyConfig;
       base_currency?: BaseCurrencyEnum;
       /**
@@ -99846,6 +100794,55 @@ export namespace Schemas {
       hog_function_id: string;
     }
 
+    /**
+     * * `slack_dm` - Slack direct message
+     * * `slack_channel` - Slack channel
+     */
+    export type SignalScoutMessageDeliveryTargetTypeEnum = typeof SignalScoutMessageDeliveryTargetTypeEnum[keyof typeof SignalScoutMessageDeliveryTargetTypeEnum];
+
+
+    export const SignalScoutMessageDeliveryTargetTypeEnum = {
+      SlackDm: 'slack_dm',
+      SlackChannel: 'slack_channel',
+    } as const;
+
+    export interface SignalScoutMessageTarget {
+      type: SignalScoutMessageDeliveryTargetTypeEnum;
+      /**
+         * Slack member ID, for `slack_dm`.
+         * @maxLength 255
+         */
+      user?: string;
+      /**
+         * Slack channel ID, for `slack_channel`. Never a shared channel.
+         * @maxLength 255
+         */
+      channel?: string;
+    }
+
+    export interface SignalScoutMessageRoute {
+      /**
+         * Slug the scout names to send on this route.
+         * @maxLength 64
+         * @pattern ^[a-z0-9]+(?:-[a-z0-9]+)*$
+         */
+      key: string;
+      /**
+         * When the scout should send, shown in its run prompt.
+         * @maxLength 300
+         */
+      when: string;
+      /**
+         * @minItems 1
+         * @maxItems 5
+         */
+      to: SignalScoutMessageTarget[];
+    }
+
+    /**
+     * Output destinations plus message routes. Only the config create and update paths take routes, so the
+     * scout and source-product create tools keep their schemas small.
+     */
     export interface SignalScoutOutputDestinationsUpdate {
       /** Slack destination for each emitted scout finding or report. Null or omitted disables Slack delivery. */
       slack?: SignalScoutSlackDestinationUpdate | null;
@@ -99853,6 +100850,11 @@ export namespace Schemas {
       webhook?: SignalScoutWebhookDestination | null;
       /** Whether this scout's reports appear in the shared inbox. Defaults to true. Set false to keep the reports this scout authors out of the inbox and its Slack notifications, for example for a digest scout read in Slack. Reports this scout only edits are not affected. An update that omits this key keeps the stored value. */
       inbox?: boolean;
+      /**
+         * Routes the scout may message on, through `slack.integration_id`. Omit to keep, `[]` to clear.
+         * @maxItems 10
+         */
+      messages?: SignalScoutMessageRoute[];
     }
 
     /**
@@ -103307,12 +104309,8 @@ export namespace Schemas {
          * @nullable
          */
       billing_period_end: string | null;
-      /** Rows synced in the billing period, billed and not yet billed. */
+      /** Billable rows this project synced in the billing period. Other projects in the organization are not counted. */
       total_rows: number;
-      /** Rows billing has already counted. */
-      tracked_billing_rows: number;
-      /** Rows synced since billing last counted. */
-      pending_billing_rows: number;
       /** Rows written by materialized view runs in the billing period. */
       materialized_rows_in_billing_period: number;
       /** Rows synced in the billing period, keyed by source id. */
@@ -105355,6 +106353,7 @@ export namespace Schemas {
       marketing_analytics_config?: TeamMarketingAnalyticsConfig;
       customer_analytics_config?: TeamCustomerAnalyticsConfig;
       workflows_config?: TeamWorkflowsConfig;
+      /** A list sent replaces the saved one. Omitted fields are kept. */
       feature_flag_policy_config?: TeamFeatureFlagPolicyConfig;
       base_currency?: BaseCurrencyEnum;
       /**
@@ -106187,6 +107186,7 @@ export namespace Schemas {
       marketing_analytics_config?: TeamMarketingAnalyticsConfig;
       customer_analytics_config?: TeamCustomerAnalyticsConfig;
       workflows_config?: TeamWorkflowsConfig;
+      /** A list sent replaces the saved one. Omitted fields are kept. */
       feature_flag_policy_config?: TeamFeatureFlagPolicyConfig;
       base_currency?: BaseCurrencyEnum;
       /**
@@ -112429,6 +113429,43 @@ export namespace Schemas {
       Redshift: 'Redshift',
     } as const;
 
+    export interface RejectSnapshotInput {
+      /**
+         * The snapshot identifier, such as a Storybook story id plus theme.
+         * @maxLength 512
+         */
+      identifier: string;
+      /**
+         * The snapshot's `current_artifact.content_hash` on the run you pass as `id`. Null only for a `removed` snapshot, and only in a ledger-mode repo: elsewhere finalize accepts removals by itself.
+         * @maxLength 128
+         * @nullable
+         */
+      new_hash?: string | null;
+      /**
+         * Optional: the snapshot's `baseline_artifact.content_hash` on that run, or an empty string for a `new` snapshot. When given, the call is refused if the run compares against another baseline, so the decision lands only on the pair of pictures you looked at.
+         * @maxLength 128
+         * @nullable
+         */
+      old_hash?: string | null;
+      /**
+         * What is wrong with the new picture, so the author can fix it. Shown on the pull request.
+         * @minLength 1
+         * @maxLength 500
+         */
+      reason: string;
+    }
+
+    export interface RejectRunRequestInput {
+      /** Snapshots to reject, each with `identifier`, `new_hash` and `reason`. */
+      snapshots: RejectSnapshotInput[];
+      /**
+         * Optional: the highest decision `seq` you read on these snapshots, or 0 when you read none. The call is refused with 409 `decided_since` when someone decided on one of them after that.
+         * @minimum 0
+         * @nullable
+         */
+      expected_seq?: number | null;
+    }
+
     /**
      * Marks this actor as a group.
      */
@@ -116368,6 +117405,13 @@ export namespace Schemas {
          * @minimum 1
          */
       pr_number: number;
+      /** Also ask people to review. Auto-approval reviews first. When it does not approve, it posts the pull request to the repository's Slack channel for people to review. When it approves, nothing is posted. The repository must have broadcasting turned on. Asking again returns the request that is already active. Only set it when the user asks for people to review. */
+      allow_broadcast?: boolean;
+      /**
+         * A short note for the people who review, shown in Slack only and never on GitHub. Needs allow_broadcast set to true. A request that is already active keeps its note.
+         * @maxLength 200
+         */
+      note?: string;
     }
 
     /**
@@ -116390,6 +117434,8 @@ export namespace Schemas {
       readonly run: ReviewRun;
       /** True when this request queued a new run. False when a queued, running, or finished run already covered the current head, which is returned instead. */
       readonly created: boolean;
+      /** The request for people to review that this request made or found active. Null unless allow_broadcast was true. */
+      readonly broadcast_request: CodeReviewApprovalBroadcastRequest | null;
     }
 
     export interface ReviewResolutionConfig {
@@ -117606,6 +118652,24 @@ export namespace Schemas {
       Background: 'background',
     } as const;
 
+    /**
+     * Output destinations plus message routes. Only the config create and update paths take routes, so the
+     * scout and source-product create tools keep their schemas small.
+     */
+    export interface SignalScoutRoutedOutputDestinations {
+      /** Slack destination for each emitted scout finding or report. Null or omitted disables Slack delivery. */
+      slack?: SignalScoutSlackDestination | null;
+      /** The CDP destination another product provisioned for this scout's reports. Null or omitted means no webhook. Unlike Slack, Signals does not deliver this itself: the reference lives here so the owning product can manage the destination's lifecycle. */
+      webhook?: SignalScoutWebhookDestination | null;
+      /** Whether this scout's reports appear in the shared inbox. Defaults to true. Set false to keep the reports this scout authors out of the inbox and its Slack notifications, for example for a digest scout read in Slack. Reports this scout only edits are not affected. An update that omits this key keeps the stored value. */
+      inbox?: boolean;
+      /**
+         * Routes the scout may message on, through `slack.integration_id`. Omit to keep, `[]` to clear.
+         * @maxItems 10
+         */
+      messages?: SignalScoutMessageRoute[];
+    }
+
     export type ScoutPrecheckQuerySourceEnum = typeof ScoutPrecheckQuerySourceEnum[keyof typeof ScoutPrecheckQuerySourceEnum];
 
 
@@ -117697,7 +118761,7 @@ export namespace Schemas {
          */
       readonly run_cron_schedule: string | null;
       /** Destinations that receive each finding or report this scout emits. Empty when none is configured. */
-      readonly output_destinations: SignalScoutOutputDestinations;
+      readonly output_destinations: SignalScoutRoutedOutputDestinations;
       /**
          * Optional JSON Schema (draft 2020-12) describing ONE structured record this scout produces via `scout-record-output` — e.g. a per-report quality judgment (`{"type": "object", "properties": {"verdict": {"enum": ["good", "bad", "unsure"]}, "reason": {"type": "string"}}, "required": ["verdict", "reason"]}`). The root must be `"type": "object"`. Setting a schema turns the structured-output channel on: the run prompt renders the schema and every submitted record is validated against it and recorded in the project as a `$scout_structured_output` event, queryable like any event. The channel also requires emit — a dry-run scout has nowhere to record to. Cardinality is the scout's call (one record per run, one per judged entity, ...). Null = channel off. Setting a schema requires skill-authoring authorization (the `llm_skill:write` scope and skill editor access) since the scout reads it verbatim in its prompt; clearing it needs only the config write. Records validate against the schema in force when the run was dispatched.
          * @nullable
@@ -120269,6 +121333,77 @@ export namespace Schemas {
     }
 
     /**
+     * * `queued` - Queued
+     * * `replaced` - Replaced
+     * * `duplicate` - Duplicate
+     * * `over_cap` - Over Cap
+     * * `dry_run` - Dry Run
+     */
+    export type SendMessageOutcomeEnum = typeof SendMessageOutcomeEnum[keyof typeof SendMessageOutcomeEnum];
+
+
+    export const SendMessageOutcomeEnum = {
+      Queued: 'queued',
+      Replaced: 'replaced',
+      Duplicate: 'duplicate',
+      OverCap: 'over_cap',
+      DryRun: 'dry_run',
+    } as const;
+
+    /**
+     * Request body for `scout-send-message`: one message on an owner-set route.
+     */
+    export interface SendScoutMessageRequest {
+      /**
+         * Key of the route to send on, from the scout config's `output_destinations.messages`. The route decides who receives the message; the scout never names a recipient.
+         * @maxLength 64
+         */
+      route: string;
+      /**
+         * Id of the report this message is about. Required unless the scout is on a dry run. The report must belong to this project and must have been written or edited by this run.
+         * @maxLength 64
+         * @nullable
+         */
+      report_id?: string | null;
+      /**
+         * Short plain-text title. At most 80 characters.
+         * @maxLength 80
+         */
+      title: string;
+      /**
+         * Markdown body with the links the reader needs. At most 500 characters. A link whose label looks like an address on another host is shown as the bare URL.
+         * @maxLength 500
+         */
+      body: string;
+      /**
+         * Stable id for the subject of the message, for example `pr-12345`. A message whose route and key were sent in the last 30 days is refused as a duplicate. A second call in the same run with the same route and key replaces the queued message.
+         * @maxLength 200
+         */
+      dedupe_key: string;
+    }
+
+    /**
+     * Outcome of a `scout-send-message` call.
+     */
+    export interface SendScoutMessageResponse {
+      /** `queued`: saved and sent when the run ends. `replaced`: this run already queued a message on this route and key, and it now holds this content. `duplicate`: the route and key were sent in the last 30 days, so nothing was queued. `over_cap`: the scout reached its message limit, so nothing was queued. `dry_run`: recorded for review and never sent.
+       *
+       * * `queued` - Queued
+       * * `replaced` - Replaced
+       * * `duplicate` - Duplicate
+       * * `over_cap` - Over Cap
+       * * `dry_run` - Dry Run */
+      outcome: SendMessageOutcomeEnum;
+      /**
+         * Id of the queued message, or null when nothing was queued.
+         * @nullable
+         */
+      message_id: string | null;
+      /** On `duplicate`: the keys recently sent on this route, newest first. Empty otherwise. */
+      recent_dedupe_keys: string[];
+    }
+
+    /**
      * Data for the template's Liquid placeholders, available as `variables`. For example `{"reset_link": "https://..."}` fills `{{ variables.reset_link }}`.
      */
     export type SendTransactionalEmailMessageData = {[key: string]: unknown};
@@ -122506,7 +123641,7 @@ export namespace Schemas {
          */
       run_interval_minutes?: number;
       /** Destinations that receive each finding or report this scout emits. Empty by default. */
-      output_destinations?: SignalScoutOutputDestinations;
+      output_destinations?: SignalScoutRoutedOutputDestinations;
       /** What the scout's sandbox can reach over the network while it runs. Defaults to `trusted`, the platform's trusted-domain allowlist (PostHog, GitHub, common package registries). Set `full` to let this scout reach any site, for skills that read external sources such as documentation or papers.
        *
        * * `trusted` - Trusted domains only
@@ -123519,6 +124654,8 @@ export namespace Schemas {
     export interface SlackScoutChannelSource {
       /** Id of the Slack data warehouse source. */
       id: string;
+      /** Name that tells the project's Slack sources apart: the source's table prefix, or the date it was connected when it has no prefix. */
+      label: string;
       /** Channels the source syncs, ordered by name. */
       channels: SlackScoutChannel[];
     }
@@ -123933,6 +125070,8 @@ export namespace Schemas {
       deprecatedVersions: SourceVersionDeprecation[];
       /** Change data capture engine, which picks the CDC setup form and status panel. Null when the source has no CDC. */
       cdcEngine?: CDCEngine | null;
+      /** Whether the source can sync tables with xmin replication. Each table still needs a primary key and a physical `xmin` column, which the schema API checks per table. */
+      supportsXmin?: boolean;
       /** Credential-free documented table catalog, empty for SQL and file sources with user-defined schemas. The public endpoint sets it; the wizard omits it to keep its payload small. */
       tables?: SourceDocumentedTable[] | null;
     }
@@ -128797,7 +129936,7 @@ export namespace Schemas {
       readonly email_sending_suspension_reason: string;
       /** The project's sending tier, what it allows, and how much of it has been used; null when the caller lacks project-wide workflow access. Tiers grow on their own as the project builds a clean sending record. */
       readonly sending_allowance: EmailSendingAllowance | null;
-      /** Sending health across every project in this PostHog region over the last 30 whole days, which all send through the same infrastructure. Null when AWS is unreachable or has no data, or while the feature is not yet released to this project. */
+      /** Sending health across every project in this PostHog region over the last 30 whole days, which all send through the same infrastructure. Null when AWS is unreachable or has no data, when the region sent too few emails for its totals to stay private, or while the feature is not yet released to this project. */
       readonly infrastructure: EmailInfrastructureHealth | null;
     }
 
@@ -130570,6 +131709,22 @@ export namespace Schemas {
       sessions: number | null;
       /** Whether the project setting that tags tracked links on the sender's own domain with ph_workflow_run is on now. The tag connects a click to its session. When false, sessions is null. Set it with workflows_config.email_workflow_run_link_tag_enabled in the project settings. */
       link_tagging_enabled: boolean;
+    }
+
+    export interface TransactionalEmailImpactSession {
+      /** The session ID, the same one session recordings use. */
+      session_id: string;
+      /** The send in the ph_workflow_run tag of the session's earliest pageview from the sends read. */
+      message_id: string;
+      /** The session's earliest pageview from a link in the sends read. */
+      first_pageview_at: string;
+    }
+
+    export interface TransactionalEmailImpactSessions {
+      /** Sessions with a pageview whose URL carries the ph_workflow_run tag of a clicked send read, up to 7 days after the period, newest first pageview first, 200 at most. Empty while link tagging is off, when `impact` returns no session count. */
+      sessions: TransactionalEmailImpactSession[];
+      /** True when sessions may be left out: there are more than 200, or only the newest clicked sends were read, because they reach 10,000 or more than one query holds. */
+      has_more: boolean;
     }
 
     export interface TransactionalEmailLogEvent {
@@ -140143,11 +141298,11 @@ export namespace Schemas {
      */
     domain?: string;
     /**
-     * Only list answers from this answer engine, for example 'claude-web-search'.
-     * @minLength 1
+     * Only count checks from this answer engine, for example 'claude-web-search'. Omit to count every engine.
      * @maxLength 64
+     * @nullable
      */
-    engine?: string;
+    engine?: string | null;
     /**
      * Set to true to return each engine's answer in answer_text. Left out by default to keep pages small.
      */
@@ -140167,6 +141322,12 @@ export namespace Schemas {
      * @maxLength 1000
      */
     search?: string;
+    /**
+     * Only count checks that ran with this prompt topic. A prompt moved to another topic keeps its past checks under the old one. An empty value counts the checks of prompts that had no topic. Omit to count every topic.
+     * @maxLength 200
+     * @nullable
+     */
+    topic?: string | null;
     /**
      * List the answers that cited this exact URL, as it appears in cited_urls or the rankings' top_pages.
      * @minLength 1
@@ -140240,6 +141401,10 @@ export namespace Schemas {
      */
     branded?: AeoPromptsOverviewBranded;
     /**
+     * Count only the checks of prompts that aren't archived. Setup's first results use it, so the answers to prompts archived by a reset don't count.
+     */
+    current_prompts?: boolean;
+    /**
      * First day of the window. Takes a date such as '2026-11-01' or a relative day such as '-30d' (30 days ago), '-2w', 'mStart' (first day of this month) or 'yStart'. Days are whole days in the project's timezone. Default '-30d'. The window from date_from to date_to can cover at most 91 days.
      * @maxLength 32
      * @nullable
@@ -140285,6 +141450,10 @@ export namespace Schemas {
      */
     branded?: AeoPromptsRankingsBranded;
     /**
+     * Count only the checks of prompts that aren't archived. Setup's first results use it, so the answers to prompts archived by a reset don't count.
+     */
+    current_prompts?: boolean;
+    /**
      * First day of the window. Takes a date such as '2026-11-01' or a relative day such as '-30d' (30 days ago), '-2w', 'mStart' (first day of this month) or 'yStart'. Days are whole days in the project's timezone. Default '-30d'. The window from date_from to date_to can cover at most 91 days.
      * @maxLength 32
      * @nullable
@@ -140314,6 +141483,57 @@ export namespace Schemas {
 
 
     export const AeoPromptsRankingsBranded = {
+      All: 'all',
+      Branded: 'branded',
+      NonBranded: 'non_branded',
+    } as const;
+
+    export type AeoPromptsSearchDetailParams = {
+    /**
+     * Which checks to count, by the prompt as it ran: 'all' (default), 'branded' (the prompt names the brand) or 'non_branded'. Every count, the window before included, uses the same checks. Use 'non_branded' to judge visibility, since a prompt that names the brand almost always gets an answer that mentions it. A prompt is branded when its text names the brand: the registrable name of a target domain as a word, case ignored, so 'example' and 'example.com' both name example.com. Branded prompts almost always get answers that mention the brand.
+     *
+     * * `all` - All
+     * * `branded` - Branded
+     * * `non_branded` - Non-branded
+     * @minLength 1
+     */
+    branded?: AeoPromptsSearchDetailBranded;
+    /**
+     * First day of the window. Takes a date such as '2026-11-01' or a relative day such as '-30d' (30 days ago), '-2w', 'mStart' (first day of this month) or 'yStart'. Days are whole days in the project's timezone. Default '-30d'. The window from date_from to date_to can cover at most 91 days.
+     * @maxLength 32
+     * @nullable
+     */
+    date_from?: string | null;
+    /**
+     * Last day of the window, included. Takes a date such as '2026-11-01' or a relative day such as '-30d' (30 days ago), '-2w', 'mStart' (first day of this month) or 'yStart'. Days are whole days in the project's timezone. Default today. A later day is read as today.
+     * @maxLength 32
+     * @nullable
+     */
+    date_to?: string | null;
+    /**
+     * Only count checks from this answer engine, for example 'claude-web-search'. Omit to count every engine.
+     * @maxLength 64
+     * @nullable
+     */
+    engine?: string | null;
+    /**
+     * The web search to describe. Case and repeated spaces are ignored, as in the overview's top_searches.
+     * @minLength 1
+     * @maxLength 1000
+     */
+    search: string;
+    /**
+     * Only count checks that ran with this prompt topic. A prompt moved to another topic keeps its past checks under the old one. An empty value counts the checks of prompts that had no topic. Omit to count every topic.
+     * @maxLength 200
+     * @nullable
+     */
+    topic?: string | null;
+    };
+
+    export type AeoPromptsSearchDetailBranded = typeof AeoPromptsSearchDetailBranded[keyof typeof AeoPromptsSearchDetailBranded];
+
+
+    export const AeoPromptsSearchDetailBranded = {
       All: 'all',
       Branded: 'branded',
       NonBranded: 'non_branded',
@@ -141597,7 +142817,7 @@ export namespace Schemas {
      */
     limit?: number;
     /**
-     * Natural-language search query. Runs hybrid (semantic + full-text) retrieval over all SAFE, READY knowledge chunks in this project.
+     * Natural-language search query. Runs hybrid (semantic + full-text) retrieval over all SAFE, READY knowledge chunks in this project. At most 2000 characters.
      */
     query: string;
     /**
@@ -149270,6 +150490,7 @@ export namespace Schemas {
      * * `apns` - Apple Push
      * * `aws-redshift` - Aws Redshift
      * * `aws-s3` - Aws S3
+     * * `aws-warehouse-sources` - Aws Warehouse Sources
      * * `azure-blob` - Azure Blob
      * * `bing-ads` - Bing Ads
      * * `clickup` - Clickup
@@ -149338,6 +150559,7 @@ export namespace Schemas {
       AppleAds: 'apple-ads',
       AwsRedshift: 'aws-redshift',
       AwsS3: 'aws-s3',
+      AwsWarehouseSources: 'aws-warehouse-sources',
       AzureBlob: 'azure-blob',
       BingAds: 'bing-ads',
       Clickup: 'clickup',
@@ -154959,6 +156181,21 @@ export namespace Schemas {
     workflow_id: string;
     };
 
+    export type TransactionalEmailLogImpactSessionsRetrieveParams = {
+    /**
+     * Only sends queued at or after this time. Defaults to 7 days ago. The log keeps sends for 30 days.
+     */
+    date_from?: string;
+    /**
+     * Only sends queued before this time. Defaults to now.
+     */
+    date_to?: string;
+    /**
+     * The workflow behind the transactional email.
+     */
+    workflow_id: string;
+    };
+
     export type TransactionalEmailLogResultsRetrieveParams = {
     /**
      * Only sends queued at or after this time. Defaults to 7 days ago. The log keeps sends for 30 days.
@@ -155402,6 +156639,15 @@ export namespace Schemas {
      * Scope to a single scanner's observations. Defaults to every scanner you can read.
      */
     scanner_id?: string;
+    };
+
+    export type VisionRequestsListParams = {
+    /**
+     * Only requests made with this `reference`. Returns the newest 20 of the last 30 days at most.
+     * @minLength 1
+     * @maxLength 200
+     */
+    reference: string;
     };
 
     export type VisionScannersListParams = {
@@ -156196,10 +157442,30 @@ export namespace Schemas {
      */
     quarantined_only?: boolean;
     /**
+     * Only snapshots in this review state on the run, after decisions made on other runs of the pull request. `pending` with `exclude_unchanged=true` lists what still needs a decision.
+     *
+     * * `pending` - pending
+     * * `approved` - approved
+     * * `tolerated` - tolerated
+     * * `rejected` - rejected
+     * @minLength 1
+     */
+    review_state?: VisualReviewRunsSnapshotsListReviewState;
+    /**
      * Return only the snapshot with this id, read from the `id` field of a snapshot in the run. Use it to fetch one snapshot without listing the whole run.
      */
     snapshot_id?: string;
     };
+
+    export type VisualReviewRunsSnapshotsListReviewState = typeof VisualReviewRunsSnapshotsListReviewState[keyof typeof VisualReviewRunsSnapshotsListReviewState];
+
+
+    export const VisualReviewRunsSnapshotsListReviewState = {
+      Pending: 'pending',
+      Approved: 'approved',
+      Tolerated: 'tolerated',
+      Rejected: 'rejected',
+    } as const;
 
     export type VisualReviewRunsToleratedHashesListParams = {
     /**
@@ -156565,11 +157831,11 @@ export namespace Schemas {
 
     export type WebAnalyticsWeeklyDigestParams = {
     /**
-     * When true (default), include period-over-period change for each metric comparing against the prior equal-length period. Set to false to skip the comparison query (faster).
+     * When true (default), include period-over-period change for each metric comparing against the `days` complete days before the window. Set to false to skip the comparison query (faster).
      */
     compare?: boolean;
     /**
-     * Lookback window in days (1–90). Defaults to 7.
+     * Number of complete days to summarize (1–90), ending yesterday in the project timezone. Defaults to 7.
      */
     days?: number;
     };

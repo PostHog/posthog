@@ -1,12 +1,13 @@
 import { Button } from '@posthog/quill'
 
-import { percentage } from 'lib/utils/numbers'
+import { pluralize } from 'lib/utils/strings'
 
 import type { AEOPromptMoverApi } from 'products/web_analytics/frontend/generated/api.schemas'
 
 import { AiVisibilityTable } from './AiVisibilityTable'
 import { ContentAutopilotKpiDelta } from './ContentAutopilotKpiDelta'
-import { moverDelta } from './movers'
+import { ContentAutopilotRateBar } from './ContentAutopilotRateBar'
+import { shareDelta } from './shares'
 
 /** The prompts that moved, gains first. A prompt opens its page. */
 export const ContentAutopilotPromptMoversTable = ({
@@ -49,9 +50,7 @@ export const ContentAutopilotPromptMoversTable = ({
                 align: 'right',
                 tooltip: 'Visibility in this date range.',
                 render: (_, { mention_rate, answers }) => (
-                    <span className="tabular-nums whitespace-nowrap">
-                        {percentage(mention_rate, 0)} <span className="text-muted-foreground">of {answers}</span>
-                    </span>
+                    <ContentAutopilotRateBar rate={mention_rate} tooltip={`Out of ${pluralize(answers, 'answer')}`} />
                 ),
             },
             {
@@ -60,17 +59,25 @@ export const ContentAutopilotPromptMoversTable = ({
                 align: 'right',
                 tooltip: `Visibility in the ${days} days before.`,
                 render: (_, { previous_mention_rate, previous_answers }) => (
-                    <span className="tabular-nums whitespace-nowrap">
-                        {percentage(previous_mention_rate, 0)}{' '}
-                        <span className="text-muted-foreground">of {previous_answers}</span>
-                    </span>
+                    <ContentAutopilotRateBar
+                        rate={previous_mention_rate}
+                        tooltip={`Out of ${pluralize(previous_answers, 'answer')}`}
+                    />
                 ),
             },
             {
                 title: 'Change',
                 key: 'change',
                 align: 'right',
-                render: (_, { change }) => <ContentAutopilotKpiDelta delta={moverDelta(change, days)} />,
+                render: (_, { mention_rate, previous_mention_rate }) => (
+                    <ContentAutopilotKpiDelta
+                        delta={shareDelta(
+                            mention_rate,
+                            previous_mention_rate,
+                            `Change against the ${days} days before, in percentage points`
+                        )}
+                    />
+                ),
             },
         ]}
     />

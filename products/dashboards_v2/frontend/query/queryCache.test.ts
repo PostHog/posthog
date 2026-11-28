@@ -58,6 +58,63 @@ describe('queryCache', () => {
         expect(runQuery).toHaveBeenCalledTimes(1)
     })
 
+    it('aborts a query in flight once no tile waits for it, and runs it again on the next mount', async () => {
+        const runQuery = jest
+            .fn<ReturnType<RunQuery>, Parameters<RunQuery>>()
+            .mockImplementation(
+                (_request, signal) =>
+                    new Promise((_resolve, reject) =>
+                        signal?.addEventListener('abort', () => reject(new Error('aborted')))
+                    )
+            )
+        const [first, second] = [new AbortController(), new AbortController()]
+        void runCachedQuery(runQuery, KEY, 0, first.signal).catch(() => {})
+        void runCachedQuery(runQuery, KEY, 0, second.signal).catch(() => {})
+        await Promise.resolve()
+        const runnerSignal = runQuery.mock.calls[0][1]!
+
+        first.abort()
+        await Promise.resolve()
+        expect(runnerSignal.aborted).toBe(false)
+        second.abort()
+        await Promise.resolve()
+        expect(runnerSignal.aborted).toBe(true)
+
+        void runCachedQuery(runQuery, KEY).catch(() => {})
+        await Promise.resolve()
+        expect(runQuery).toHaveBeenCalledTimes(2)
+    })
+
+    it('aborts a query in flight once no tile waits for it, even after the cache evicted it', async () => {
+        const runQuery = jest.fn<ReturnType<RunQuery>, Parameters<RunQuery>>().mockReturnValue(new Promise(() => {}))
+        const keyFor = (n: number): string => JSON.stringify({ language: 'hogql', query: `select ${n}` })
+        const gone = new AbortController()
+        void runCachedQuery(runQuery, keyFor(0), 0, gone.signal)
+        for (let n = 1; n <= MAX_CACHED_QUERIES; n++) {
+            void runCachedQuery(runQuery, keyFor(n))
+        }
+        await Promise.resolve()
+
+        gone.abort()
+        await Promise.resolve()
+
+        expect(runQuery.mock.calls[0][1]?.aborted).toBe(true)
+    })
+
+    it('keeps a query in flight when its tile asks again in the same task, such as on a refresh', async () => {
+        const runQuery = jest.fn<ReturnType<RunQuery>, Parameters<RunQuery>>().mockReturnValue(new Promise(() => {}))
+        const before = new AbortController()
+        void runCachedQuery(runQuery, KEY, 0, before.signal)
+        await Promise.resolve()
+
+        before.abort()
+        void runCachedQuery(runQuery, KEY, 1, new AbortController().signal)
+        await Promise.resolve()
+
+        expect(runQuery.mock.calls[0][1]?.aborted).toBe(false)
+        expect(runQuery).toHaveBeenCalledTimes(1)
+    })
+
     it('runs a failed query again on the next mount', async () => {
         const runQuery = jest
             .fn<ReturnType<RunQuery>, Parameters<RunQuery>>()

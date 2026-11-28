@@ -1,6 +1,7 @@
 from unittest import mock
 
 from products.warehouse_sources.sources.partnerstack._config import PartnerStackSourceConfig
+from products.warehouse_sources.sources.partnerstack.partnerstack import INVALID_KEYS_MESSAGE
 from products.warehouse_sources.sources.partnerstack.source import PartnerStackSource
 from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, scripted_network
 
@@ -15,7 +16,7 @@ class TestPartnerStackSource:
         with scripted_network([ScriptedResponse(status=401)]) as network:
             result = self.source.validate_credentials(self.config, self.team_id)
 
-        assert result == (False, "Invalid PartnerStack API keys")
+        assert result == (False, INVALID_KEYS_MESSAGE)
         assert network.requests_log[0].headers["authorization"] == "Basic cHViOnByaXY="
 
     @mock.patch("products.warehouse_sources.sources.partnerstack.source.partnerstack_source")

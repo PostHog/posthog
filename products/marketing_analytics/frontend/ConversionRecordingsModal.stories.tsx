@@ -1,5 +1,7 @@
 import { Meta, StoryObj } from '@storybook/react'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { QuillSurfaceContext } from 'lib/ui/QuillSurface/quillSurfaceContext'
 import recordingEventsJson from 'scenes/session-recordings/__mocks__/recording_events_query'
 import { recordingMetaJson } from 'scenes/session-recordings/__mocks__/recording_meta'
 import { snapshotsAsJSONLines } from 'scenes/session-recordings/__mocks__/recording_snapshots'
@@ -101,6 +103,24 @@ export const WithRecordings: Story = {
     parameters: {
         testOptions: {
             waitForSelector: 'iframe.PlayerFrame__document >>> .PlayerFrame__content .replayer-wrapper iframe',
+        },
+    },
+}
+
+export const WithRecordingsQuill: Story = {
+    ...WithRecordings,
+    decorators: [
+        (Story) => (
+            <QuillSurfaceContext.Provider value={true}>
+                <Story />
+            </QuillSurfaceContext.Provider>
+        ),
+    ],
+    parameters: {
+        featureFlags: [FEATURE_FLAGS.TODAY_RAIL_NAV],
+        testOptions: {
+            waitForSelector: 'iframe.PlayerFrame__document >>> .PlayerFrame__content .replayer-wrapper iframe',
+            snapshotTargetSelector: '[role="dialog"]',
         },
     },
 }

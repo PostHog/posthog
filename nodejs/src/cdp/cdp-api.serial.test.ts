@@ -57,7 +57,7 @@ import {
     attachmentFile,
     attachmentStoreConfig,
     deliveredTo,
-    sesClientFor,
+    sesTransportFor,
     uploadAttachment,
 } from './_tests/email-delivery-fakes'
 import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from './_tests/examples'
@@ -111,7 +111,7 @@ import {
 import { BASE_REDIS_KEY, HogWatcherState } from './services/monitoring/hog-watcher.service'
 import { template as emailTemplate } from './templates/_destinations/email/email.template'
 import { compileHog } from './templates/compiler'
-import { HogFunctionInvocationGlobals, HogFunctionType } from './types'
+import { CYCLOTRON_QUEUE_ROLES, HogFunctionInvocationGlobals, HogFunctionType } from './types'
 import { EMAIL_BODY_TAG_LIMIT, LIQUID_RENDER_LIMIT_MS } from './utils/liquid'
 
 // Email MX validation runs on every email send, so without a mock the test-panel
@@ -2819,6 +2819,7 @@ describe('CDP API', () => {
             manager = new CyclotronV2Manager({
                 pool: { dbUrl: hub.CYCLOTRON_NODE_DATABASE_URL! },
                 depthLimit: 1_000_000,
+                ...CYCLOTRON_QUEUE_ROLES,
             })
             await manager.connect()
             cyclotron = new Pool({ connectionString: hub.CYCLOTRON_NODE_DATABASE_URL })
@@ -2844,6 +2845,7 @@ describe('CDP API', () => {
             const worker = new CyclotronV2Worker({
                 pool: { dbUrl: hub.CYCLOTRON_NODE_DATABASE_URL! },
                 queueName: 'email',
+                fairDequeueQueues: CYCLOTRON_QUEUE_ROLES.fairDequeueQueues,
                 batchMaxSize: 100,
                 pollDelayMs: 10,
                 includeEmptyBatches: true,
@@ -4166,7 +4168,7 @@ describe('CDP API', () => {
                     new EmailQueueOfOneTest(queueName, workerConfig),
                     new InFlightRegistry({ budgetBytes: 2 ** 40, heapLimitBytes: 2 ** 40, maxInFlight: 1 }, () => 0)
                 )
-                worker.emailService.sesV2Client = sesClientFor(ses)
+                worker.emailService.sesTransport = sesTransportFor(ses)
                 await worker.start()
                 try {
                     const delivered = await waitForExpect(() => {

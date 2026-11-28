@@ -1,12 +1,12 @@
 import { useActions, useValues } from 'kea'
 
-import { Empty, EmptyDescription, EmptyHeader, EmptyTitle, Heading, Spinner, Text, cn } from '@posthog/quill'
+import { Empty, EmptyDescription, EmptyHeader, EmptyTitle, cn } from '@posthog/quill'
 
 import { pluralize } from 'lib/utils/strings'
 
 import { AiVisibilityBanner } from './AiVisibilityBanner'
 import { AiVisibilityCard } from './AiVisibilityCard'
-import { AiVisibilityCompetitorReview } from './AiVisibilityCompetitorReview'
+import { AiVisibilitySetupWizard } from './AiVisibilitySetupWizard'
 import { ContentAutopilotCitedSitesTable } from './ContentAutopilotCitedSitesTable'
 import { ContentAutopilotEngineTable } from './ContentAutopilotEngineTable'
 import { ContentAutopilotEngineTopicHeatmap } from './ContentAutopilotEngineTopicHeatmap'
@@ -21,21 +21,18 @@ import { contentAutopilotPromptsOverviewLogic } from './contentAutopilotPromptsO
 import { ContentAutopilotPromptsOverviewSkeleton } from './ContentAutopilotPromptsOverviewSkeleton'
 import { ContentAutopilotPromptsSearchTable } from './ContentAutopilotPromptsSearchTable'
 import { ContentAutopilotPromptsTopicTable } from './ContentAutopilotPromptsTopicTable'
-import { ContentAutopilotSetupCard } from './ContentAutopilotSetupCard'
-import { ContentAutopilotSetupJobCard } from './ContentAutopilotSetupJobCard'
 import { contentAutopilotSetupLogic } from './contentAutopilotSetupLogic'
 import { ContentAutopilotStatStrip } from './ContentAutopilotStatStrip'
 import { ContentAutopilotVisibilityChart } from './ContentAutopilotVisibilityChart'
 import { POSITION_DESCRIPTION } from './promptReport'
-import { engineTopicGrid } from './promptsOverview'
-import { brandedAnswersNote, filtersHeading, segmentPrompts, sortEngines, windowRange } from './utils'
+import { engineTopicGrid, overviewTiles } from './promptsOverview'
+import { brandedAnswersNote, segmentPrompts, sortEngines, windowRange } from './utils'
 
 export const ContentAutopilotPromptsOverview = (): JSX.Element => {
     const {
         overview,
         overviewLoading,
         overviewError,
-        overviewKpis,
         hasChecks,
         chartMetric,
         visibilityChart,
@@ -47,7 +44,7 @@ export const ContentAutopilotPromptsOverview = (): JSX.Element => {
     )
     const { setWorkspaceTab } = useActions(contentAutopilotLogic)
     const { topic } = useValues(contentAutopilotFiltersLogic)
-    const { job: setupJob, setupJobShown, setupContext } = useValues(contentAutopilotSetupLogic)
+    const { setupContext, wizardStep } = useValues(contentAutopilotSetupLogic)
 
     if (overviewError === 'forbidden') {
         return <ContentAutopilotPromptsDisabled />
@@ -62,40 +59,16 @@ export const ContentAutopilotPromptsOverview = (): JSX.Element => {
             </AiVisibilityBanner>
         )
     }
-    // A setup job saves prompts partway through, so its progress stays up until the person dismisses it.
-    if (setupJob && setupJobShown) {
-        return <ContentAutopilotSetupJobCard job={setupJob} />
+    if (wizardStep) {
+        return <AiVisibilitySetupWizard step={wizardStep} />
     }
-    if (!overview || !overviewKpis || !visibilityChart || !visibilityQuery || !sourcesQuery) {
+    if (!setupContext || !overview || !visibilityChart || !visibilityQuery || !sourcesQuery) {
         return <ContentAutopilotPromptsOverviewSkeleton />
     }
-    const header = (
-        <div className="flex flex-wrap items-start justify-between gap-2">
-            <div className="min-w-0 flex-1 basis-80">
-                <Heading size="sm" render={<h3 className="m-0 flex items-center gap-2" />}>
-                    {filtersHeading(overview)}
-                    {overviewLoading ? <Spinner data-attr="content-autopilot-prompts-overview-loading" /> : null}
-                </Heading>
-                <Text
-                    size="xs"
-                    variant="muted"
-                    render={<p className="m-0" />}
-                    data-attr="content-autopilot-prompts-overview-answers"
-                >
-                    {brandedAnswersNote(overview.branded, overview.current.checks - overview.current.failed)}{' '}
-                    {overview.current.failed
-                        ? `${pluralize(overview.current.failed, 'check')} failed and ${overview.current.failed === 1 ? 'is' : 'are'} left out. `
-                        : ''}
-                    Each number is compared with the {overview.days} days before.
-                </Text>
-            </div>
-        </div>
-    )
     const narrowed = overview.engine !== null || overview.topic !== null
     if (!hasChecks && (narrowed || overview.branded_answers + overview.non_branded_answers > 0)) {
         return (
             <section className="flex flex-col gap-4" data-attr="content-autopilot-prompts-overview">
-                {header}
                 <Empty data-attr="content-autopilot-prompts-overview-segment-empty">
                     <EmptyHeader>
                         <EmptyTitle>
@@ -110,12 +83,23 @@ export const ContentAutopilotPromptsOverview = (): JSX.Element => {
     }
     if (!hasChecks) {
         const paused = setupContext?.paused_prompts ?? 0
-        if (overview.prompts_tracked > 0) {
-            return <ContentAutopilotFirstRunCard prompts={overview.prompts_tracked} />
+        // The filter bar can hide every prompt from the overview's count, so the project's own count decides.
+        if ((setupContext?.active_prompts ?? overview.prompts_tracked) > 0) {
+            return <ContentAutopilotFirstRunCard prompts={setupContext?.active_prompts ?? overview.prompts_tracked} />
         }
-        // A configure-only setup saves its prompts paused, which the overview does not count.
-        return paused > 0 ? <ContentAutopilotFirstRunCard prompts={paused} paused /> : <ContentAutopilotSetupCard />
+        return <ContentAutopilotFirstRunCard prompts={paused} paused />
     }
+
+    const tiles = overviewTiles(overview)
+    // The tiles show only their value, so the answers they come from are in each rate's tooltip.
+    const base = [
+        brandedAnswersNote(overview.branded, overview.current.checks - overview.current.failed),
+        overview.current.failed
+            ? `${pluralize(overview.current.failed, 'check')} failed and ${overview.current.failed === 1 ? 'is' : 'are'} left out.`
+            : '',
+    ]
+        .filter(Boolean)
+        .join(' ')
 
     // The chart's legend order, so an engine sits in the same place in the chart and the table.
     const engineOrder = sortEngines(overview.engines.map(({ engine }) => engine))
@@ -133,8 +117,6 @@ export const ContentAutopilotPromptsOverview = (): JSX.Element => {
             aria-busy={overviewLoading}
             data-attr="content-autopilot-prompts-overview"
         >
-            {header}
-            <AiVisibilityCompetitorReview />
             <ContentAutopilotStatStrip
                 className="grid-cols-2 @3xl/prompts-overview:grid-cols-4"
                 data-attr="content-autopilot-prompts-overview-kpis"
@@ -142,28 +124,28 @@ export const ContentAutopilotPromptsOverview = (): JSX.Element => {
                 <ContentAutopilotKpiStat
                     label="Prompts tracked"
                     description="Paused and archived prompts don't count."
-                    {...overviewKpis.promptsTracked}
+                    value={tiles.prompts}
                     onClick={() => setWorkspaceTab('prompts')}
                     data-attr="content-autopilot-prompts-overview-kpi-prompts"
                 />
                 <ContentAutopilotKpiStat
                     label="Visibility"
-                    description="Share of answers that name your brand or link to your site."
-                    {...overviewKpis.mentionRate}
+                    description={`Share of answers that name your brand or link to your site. ${base}`}
+                    value={tiles.visibility}
                     onClick={() => setChartMetric('mentioned')}
                     data-attr="content-autopilot-prompts-overview-kpi-mentioned"
                 />
                 <ContentAutopilotKpiStat
                     label="Cited as a source"
-                    description="Share of answers that link to a page on your site."
-                    {...overviewKpis.citationRate}
+                    description={`Share of answers that link to a page on your site. ${base}`}
+                    value={tiles.cited}
                     onClick={() => setChartMetric('cited')}
                     data-attr="content-autopilot-prompts-overview-kpi-cited"
                 />
                 <ContentAutopilotKpiStat
                     label="Average position"
-                    description={POSITION_DESCRIPTION}
-                    {...overviewKpis.position}
+                    description={`${POSITION_DESCRIPTION} ${base}`}
+                    value={tiles.position}
                     onClick={() => setChartMetric('position')}
                     data-attr="content-autopilot-prompts-overview-kpi-position"
                 />
@@ -228,6 +210,8 @@ export const ContentAutopilotPromptsOverview = (): JSX.Element => {
                             dateFrom={overview.window_from}
                             dateTo={overview.window_to}
                             branded={overview.branded}
+                            engine={overview.engine}
+                            topic={overview.topic}
                             onOpenPrompt={openOverviewSearchPrompt}
                         />
                     </div>

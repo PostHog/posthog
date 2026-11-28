@@ -7,6 +7,7 @@ modules' heavy imports (GitHub client, temporal client) stay off that module, wh
 settings serializer imports on every request.
 """
 
+from products.stamphog.backend.tasks.broadcast_requests import refresh_broadcast_requests_for_pull_request
 from products.stamphog.backend.tasks.digest import send_daily_digests
 from products.stamphog.backend.tasks.schedules import DAILY_DIGEST_CRONTAB
 from products.stamphog.backend.tasks.tasks import (
@@ -28,6 +29,7 @@ __all__ = [
     "queue_inbox_pr_review",
     "queue_routing_after_external_review",
     "queue_silent_review",
+    "refresh_broadcast_requests_for_pull_request",
     "request_rereview_after_external_review",
     "route_pull_request_reviewers",
     "send_daily_digests",

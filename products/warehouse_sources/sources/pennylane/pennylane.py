@@ -1,5 +1,6 @@
 import json
 from collections.abc import Iterator
+from dataclasses import field
 from datetime import UTC, datetime
 from typing import Any, Optional
 
@@ -19,6 +20,7 @@ from products.warehouse_sources.sources.pennylane.settings import (
 )
 from products.warehouse_sources.sources.sdk import (
     BearerTokenAuth,
+    ClientConfig,
     Endpoint,
     JSONResponseCursorPaginator,
     RESTAPIConfig,
@@ -26,6 +28,7 @@ from products.warehouse_sources.sources.sdk import (
     ResumableSourceManager,
     SinglePagePaginator,
     SourceResponse,
+    build_dependent_resource,
     frozen,
     parse_datetime_value,
     rest_api_resource,
@@ -34,9 +37,20 @@ from products.warehouse_sources.sources.sdk import (
 
 @frozen
 class PennylaneResumeConfig:
-    cursor: str
+    cursor: str | None = None
     # True when the cursor pages through a changelog, False when it pages through the full list.
     changelog: bool = False
+    # Child tables: the state `build_dependent_resource` checkpoints over the parent listing.
+    fanout_state: dict[str, Any] | None = None
+
+
+@frozen
+class _FanoutEndpoint:
+    name: str
+    path: str
+    page_size: int
+    incremental_fields: list[Any] = field(default_factory=list)
+    default_incremental_field: str | None = None
 
 
 class _ChangelogPaginator(JSONResponseCursorPaginator):
@@ -69,13 +83,15 @@ def _client(api_key: str) -> RESTClient:
 
 def validate_credentials(api_key: str, schema_name: str | None = None) -> tuple[bool, str | None]:
     # `/me` needs no scope, so it checks only the token. A table check reads one row of that table.
+    # A child table needs the scope of its parent, so its check reads the parent.
     endpoint = ENDPOINTS.get(schema_name) if schema_name else None
+    probe = ENDPOINTS[endpoint.fanout.parent_name] if endpoint and endpoint.fanout else endpoint
     client = _client(api_key)
     try:
         next(
             client.paginate(
-                endpoint.path if endpoint else "/me",
-                params={"limit": 1} if endpoint else None,
+                probe.path if probe else "/me",
+                params={"limit": 1} if probe else None,
                 paginator=SinglePagePaginator(),
             )
         )
@@ -156,6 +172,53 @@ def _changed_rows(
             manager.safe_point()
 
 
+def _client_config(api_key: str) -> ClientConfig:
+    return {"base_url": API_BASE_URL, "auth": {"type": "bearer", "token": api_key}, "request_timeout": 60}
+
+
+def _list_endpoint_extra() -> Endpoint:
+    return {"data_selector": "items", "data_selector_required": True, "paginator": _list_paginator()}
+
+
+def _fanout_rows(
+    api_key: str,
+    endpoint: str,
+    config: PennylaneEndpointConfig,
+    team_id: int,
+    job_id: str,
+    resume: PennylaneResumeConfig | None,
+    manager: ResumableSourceManager[PennylaneResumeConfig],
+) -> Any:
+    assert config.fanout is not None
+    parent = ENDPOINTS[config.fanout.parent_name]
+    endpoint_configs = {
+        config.fanout.parent_name: _FanoutEndpoint(
+            name=config.fanout.parent_name, path=parent.path, page_size=parent.page_size
+        ),
+        endpoint: _FanoutEndpoint(name=endpoint, path=config.path, page_size=config.page_size),
+    }
+
+    def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+        if state:
+            manager.save_state(PennylaneResumeConfig(fanout_state=state))
+
+    return build_dependent_resource(
+        endpoint_configs=endpoint_configs,
+        child_endpoint=endpoint,
+        fanout=config.fanout,
+        client_config=_client_config(api_key),
+        path_format_values={},
+        team_id=team_id,
+        job_id=job_id,
+        db_incremental_field_last_value=None,
+        parent_endpoint_extra=_list_endpoint_extra(),
+        child_endpoint_extra=_list_endpoint_extra(),
+        resume_hook=save_checkpoint,
+        initial_paginator_state=resume.fanout_state if resume is not None else None,
+        resume_parent_pagination=True,
+    )
+
+
 def pennylane_source(
     api_key: str,
     endpoint: str,
@@ -176,7 +239,13 @@ def pennylane_source(
     # A cursor from the other read path is a position in a different listing, so it is not used.
     resume_cursor = resume.cursor if resume is not None and resume.changelog == reads_changelog else None
 
-    if start is not None:
+    if config.fanout is not None:
+        child = _fanout_rows(api_key, endpoint, config, team_id, job_id, resume, resumable_source_manager)
+
+        def items() -> Any:
+            return child
+
+    elif start is not None:
         changelog_start_date = start
 
         def items() -> Any:
@@ -191,11 +260,7 @@ def pennylane_source(
             "paginator": _list_paginator(),
         }
         rest_config: RESTAPIConfig = {
-            "client": {
-                "base_url": API_BASE_URL,
-                "auth": {"type": "bearer", "token": api_key},
-                "request_timeout": 60,
-            },
+            "client": _client_config(api_key),
             "resources": [{"name": endpoint, "endpoint": endpoint_config, "table_format": "delta"}],
         }
 
@@ -219,13 +284,13 @@ def pennylane_source(
     return SourceResponse(
         name=endpoint,
         items=items,
-        primary_keys=["id"],
+        primary_keys=list(config.primary_keys),
         partition_count=1 if partitioned else None,
         partition_size=1 if partitioned else None,
         partition_mode="datetime" if partitioned else None,
         partition_format="month" if partitioned else None,
         partition_keys=[config.partition_key] if config.partition_key is not None else None,
-        # Lists are sorted by id and changelog reads fetch records in batches, so neither read
+        # Lists are sorted by id and changelog reads fetch records in batches, so no read
         # arrives in `updated_at` order.
         sort_mode=None,
     )

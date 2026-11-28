@@ -65,6 +65,7 @@ pub struct AdaptiveIngestionRuntime {
     redis: Arc<dyn ScriptRunner>,
     thresholds: Thresholds,
     min_history_days: usize,
+    shadow_team_percent: u8,
     ledger: Ledger,
     heal_gate: HealGate,
 }
@@ -98,6 +99,12 @@ impl AdaptiveIngestionRuntime {
                 "invalid ADAPTIVE_INGESTION_MIN_HISTORY_DAYS: {min_history_days}"
             )));
         }
+        let shadow_team_percent = config.adaptive_ingestion_shadow_team_percent;
+        if shadow_team_percent > 100 {
+            return Err(UnhandledError::Other(format!(
+                "invalid ADAPTIVE_INGESTION_SHADOW_TEAM_PERCENT: {shadow_team_percent}"
+            )));
+        }
         let timeout = |ms: u64| (ms != 0).then(|| Duration::from_millis(ms));
         let redis = RedisClient::with_config(
             config.issue_buckets_redis_url.clone(),
@@ -111,14 +118,21 @@ impl AdaptiveIngestionRuntime {
             Arc::new(redis),
             thresholds,
             min_history_days,
+            shadow_team_percent,
         ))))
     }
 
-    fn new(redis: Arc<dyn ScriptRunner>, thresholds: Thresholds, min_history_days: usize) -> Self {
+    fn new(
+        redis: Arc<dyn ScriptRunner>,
+        thresholds: Thresholds,
+        min_history_days: usize,
+        shadow_team_percent: u8,
+    ) -> Self {
         Self {
             redis,
             thresholds,
             min_history_days,
+            shadow_team_percent,
             ledger: Ledger {
                 windows: vec![RECENT, HOURLY, DAILY],
             },
@@ -127,10 +141,17 @@ impl AdaptiveIngestionRuntime {
     }
 }
 
-fn enabled_for(team_id: i32, settings: &HashMap<i32, RateLimitSettings>) -> bool {
-    settings
-        .get(&team_id)
-        .is_some_and(|setting| setting.adaptive_ingestion_enabled)
+/// A project is in the shadow rollout by its ID alone, so that a query can select the same projects with
+/// `team_id % 100`, and so that the measurement does not depend on which projects turned the setting on.
+fn enabled_for(
+    team_id: i32,
+    settings: &HashMap<i32, RateLimitSettings>,
+    shadow_team_percent: u8,
+) -> bool {
+    team_id.rem_euclid(100) < i32::from(shadow_team_percent)
+        || settings
+            .get(&team_id)
+            .is_some_and(|setting| setting.adaptive_ingestion_enabled)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
@@ -191,7 +212,7 @@ async fn apply_shadow(
     let mut teams: HashMap<i32, Vec<(usize, Uuid)>> = HashMap::new();
     for (idx, item) in items.iter().enumerate() {
         let Ok(event) = item else { continue };
-        if enabled_for(event.team_id(), settings) {
+        if enabled_for(event.team_id(), settings, runtime.shadow_team_percent) {
             teams
                 .entry(event.team_id())
                 .or_default()
@@ -391,7 +412,7 @@ mod tests {
     }
 
     fn runtime(redis: Arc<dyn ScriptRunner>) -> Arc<AdaptiveIngestionRuntime> {
-        Arc::new(AdaptiveIngestionRuntime::new(redis, THRESHOLDS, 14))
+        Arc::new(AdaptiveIngestionRuntime::new(redis, THRESHOLDS, 14, 0))
     }
 
     fn enabled() -> HashMap<i32, RateLimitSettings> {
@@ -444,6 +465,16 @@ mod tests {
         let over_project: Vec<bool> = verdicts.iter().map(|v| v.over_project_line).collect();
         assert_eq!(over_project, [false, false, false, false, true, true]);
         assert_eq!(verdicts[5].reading.unwrap().issue_day, 2.0);
+    }
+
+    #[test]
+    fn the_rollout_includes_a_share_of_projects_whatever_their_setting() {
+        let off = HashMap::new();
+        assert!(!enabled_for(7, &off, 0));
+        assert!(enabled_for(7, &enabled(), 0));
+        assert!(enabled_for(104, &off, 5));
+        assert!(!enabled_for(105, &off, 5));
+        assert!(enabled_for(199, &off, 100));
     }
 
     #[tokio::test]

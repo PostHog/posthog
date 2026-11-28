@@ -156,8 +156,8 @@ In CI, you can set both sets of names while some jobs still run posthog-cli.
 | `login`                                            | `auth login`, plus `auth status` and `auth logout`                                                             |
 | `update`                                           | `upgrade`                                                                                                      |
 | `sourcemap inject --directory <dir>`               | `error-tracking inject <dir>`                                                                                  |
-| `sourcemap upload --directory <dir>`               | `error-tracking upload <dir>`                                                                                  |
-| `sourcemap process --directory <dir>`              | `error-tracking process <dir>`                                                                                 |
+| `sourcemap upload --directory <dir>`               | `error-tracking upload <dir> --kind js`. Without `--kind`, hog also uploads the native debug files it finds    |
+| `sourcemap process --directory <dir>`              | `error-tracking process <dir> --kind js`. Without `--kind`, hog also uploads the native debug files it finds   |
 | `hermes inject --directory <dir>`                  | `error-tracking inject <dir>`                                                                                  |
 | `hermes clone -m <file1> -c <file2>`               | `error-tracking clone <file1> <file2>`                                                                         |
 | `hermes upload --directory <dir>`                  | `error-tracking upload <dir>`                                                                                  |

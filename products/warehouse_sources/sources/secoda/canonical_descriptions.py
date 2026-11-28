@@ -3,6 +3,45 @@ from products.warehouse_sources.sources.sdk import CanonicalDescriptions
 # Descriptions sourced from the Secoda API docs (https://docs.secoda.co/api/reference).
 # Partial coverage is fine — uncovered columns fall back to LLM enrichment.
 CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
+    "queries": {
+        "description": "Queries that Secoda extracts from connected data integrations.",
+        "docs_url": "https://docs.secoda.co/api/reference/queries",
+        "columns": {
+            "id": "The query ID in Secoda.",
+            "title": "The query title.",
+            "integration": "The integration that supplied the query.",
+        },
+    },
+    "dashboards": {
+        "description": "Dashboards in the Secoda catalog.",
+        "docs_url": "https://docs.secoda.co/api/reference/dashboards",
+        "columns": {
+            "id": "The dashboard ID in Secoda.",
+            "title": "The dashboard title.",
+            "integration": "The integration that supplied the dashboard.",
+        },
+    },
+    "audit_logs": {
+        "description": "Actions that users, systems, and integrations take in a Secoda workspace.",
+        "docs_url": "https://docs.secoda.co/api/reference/audit-logs",
+        "columns": {
+            "id": "The audit log entry ID.",
+            "activity_type": "The type of action.",
+            "logged_at": "When Secoda recorded the action.",
+            "performer_id": "The ID of the user, system, or integration that took the action.",
+            "resource_id": "The ID of the resource that the action affected.",
+        },
+    },
+    "custom_properties": {
+        "description": "Custom property definitions in a Secoda workspace.",
+        "docs_url": "https://docs.secoda.co/api/reference/custom-properties",
+        "columns": {
+            "id": "The custom property ID.",
+            "name": "The custom property name.",
+            "entity_types": "The resource types that can use the property.",
+            "value_type": "The type of value the property accepts.",
+        },
+    },
     "tables": {
         "description": "A table catalogued in Secoda from a connected data integration.",
         "docs_url": "https://docs.secoda.co/api/reference/tables",

@@ -1,8 +1,10 @@
 import time
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any
+from uuid import UUID
 
 import pytest
+import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
@@ -15,7 +17,7 @@ from parameterized import parameterized
 from rest_framework.test import APIClient
 
 from posthog.constants import AvailableFeature
-from posthog.models import ProjectSecretAPIKey, Team
+from posthog.models import OrganizationMembership, ProjectSecretAPIKey, Team
 from posthog.models.personal_api_key import hash_key_value
 from posthog.models.utils import generate_random_token_secret
 
@@ -107,6 +109,9 @@ class TestObservationRequestAPI(APIBaseTest):
 
         read = client.get(f"{self.url}{body['id']}/")
         self.assertEqual(read.status_code, 200, read.json())
+        # A key call skips the scanner and observation access filters, so it must not list another caller's requests.
+        listed = client.get(self.url, {"reference": "job-7"})
+        self.assertEqual(listed.status_code, 403, listed.json())
 
     @parameterized.expand(
         [
@@ -189,6 +194,95 @@ class TestObservationRequestAPI(APIBaseTest):
         )
 
         self.assertEqual((parent.status_code, response.status_code), (202, 400), response.json())
+
+    def _stored_request(
+        self,
+        reference: str,
+        minutes_ago: int,
+        *,
+        team: Team | None = None,
+        scanner: ReplayScanner | None = None,
+        session_id: str = "s1",
+    ) -> str:
+        requests = ReplayObservationRequest.objects.for_team((team or self.team).id)
+        request = requests.create(
+            team=team or self.team,
+            scanner=scanner or self.scanner,
+            session_ids=[session_id],
+            start_outcomes=[{"session_id": session_id, "scan_outcome": "started"}],
+            source="user",
+            created_by=self.user,
+            reference=reference,
+        )
+        requests.filter(id=request.id).update(created_at=timezone.now() - timedelta(minutes=minutes_ago))
+        return str(request.id)
+
+    def test_lists_the_recent_readable_requests_with_a_reference_newest_first(self) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        newer = self._stored_request("email:welcome", 5, session_id="s-newer")
+        older = self._stored_request("email:welcome", 10, session_id="s-older")
+        self._stored_request("email:receipt", 1)
+        self._stored_request("email:welcome", 31 * 24 * 60)
+        self._stored_request("email:welcome", 1, team=Team.objects.create(organization=self.organization))
+        experiment = create_experiment(self.team, "restricted-flag")
+        hidden_scanner = ReplayScanner.objects.create(
+            team=self.team,
+            name="hidden",
+            scanner_type=ScannerType.MONITOR,
+            scanner_config={"prompt": "did the user check out?"},
+            model=ScannerModel.GEMINI_3_8_FLASH,
+            experiment_targeting={"experiment_id": experiment.id, "variant": "test"},
+        )
+        self._stored_request("email:welcome", 1, scanner=hidden_scanner)
+        AccessControl.objects.create(
+            team=self.team, resource="experiment", resource_id=str(experiment.id), access_level="none"
+        )
+        for session_id, snapshot_scanner in (("s-newer", hidden_scanner), ("s-older", self.scanner)):
+            ReplayObservation.objects.create(
+                scanner=self.scanner,
+                team=self.team,
+                session_id=session_id,
+                scanner_snapshot=snapshot_for(snapshot_scanner),
+                triggered_by=ObservationTrigger.ON_DEMAND,
+                status=ObservationStatus.RUNNING,
+            )
+
+        response = self.client.get(self.url, {"reference": "email:welcome"})
+
+        self.assertEqual(response.status_code, 200, response.json())
+        self.assertEqual(
+            [(r["id"], [s["session_id"] for s in r["sessions"]], r["status"]) for r in response.json()],
+            [(newer, [], "completed"), (older, ["s-older"], "running")],
+        )
+        self.assertEqual(self.client.get(self.url).status_code, 400)
+
+    @parameterized.expand(
+        [
+            ("exactly 30 days old", timedelta(days=30), True),
+            ("a minute past 30 days old", timedelta(days=30, minutes=1), False),
+        ]
+    )
+    def test_lists_requests_as_old_as_the_window(self, _name: str, age: timedelta, listed: bool) -> None:
+        with time_machine.travel(datetime(2026, 11, 20, 12, tzinfo=UTC), tick=False):
+            request_id = self._stored_request("email:welcome", int(age.total_seconds() // 60))
+            response = self.client.get(self.url, {"reference": "email:welcome"})
+
+        self.assertEqual([r["id"] for r in response.json()], [request_id] if listed else [])
+
+    def test_a_full_page_of_requests_made_at_the_same_moment_keeps_the_highest_ids(self) -> None:
+        with time_machine.travel(datetime(2026, 11, 20, 12, tzinfo=UTC), tick=False):
+            request_ids = [self._stored_request("email:welcome", 5) for _ in range(21)]
+            response = self.client.get(self.url, {"reference": "email:welcome"})
+
+        self.assertEqual(
+            [r["id"] for r in response.json()],
+            sorted(request_ids, key=UUID, reverse=True)[:20],
+        )
 
     def test_a_request_that_waits_for_the_session_to_end_starts_nothing_yet(self) -> None:
         response = self.client.post(

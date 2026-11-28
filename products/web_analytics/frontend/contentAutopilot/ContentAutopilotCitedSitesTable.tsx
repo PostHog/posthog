@@ -1,4 +1,4 @@
-import { percentage } from 'lib/utils/numbers'
+import { pluralize } from 'lib/utils/strings'
 
 import type {
     AEOPromptSetDomainApi,
@@ -6,7 +6,9 @@ import type {
 } from 'products/web_analytics/frontend/generated/api.schemas'
 
 import { AiVisibilityTable } from './AiVisibilityTable'
+import { REPORT_TABLE_PAGE_SIZE } from './aiVisibilityTablePaging'
 import { ContentAutopilotCitationsLink } from './ContentAutopilotCitationsLink'
+import { ContentAutopilotRateBar } from './ContentAutopilotRateBar'
 import { ContentAutopilotSiteLabel } from './ContentAutopilotSiteLabel'
 
 /** The sites the engines cite most. A site opens the answers that cite it. */
@@ -27,6 +29,7 @@ export const ContentAutopilotCitedSitesTable = ({
         embedded
         dataSource={domains}
         rowKey="domain"
+        pagination={{ pageSize: REPORT_TABLE_PAGE_SIZE }}
         emptyState="No answer cited a site in this window."
         columns={[
             {
@@ -50,10 +53,10 @@ export const ContentAutopilotCitedSitesTable = ({
                 align: 'right',
                 tooltip: 'Share of answers that link to at least one page on the site.',
                 render: (_, { share_of_answers, answers }) => (
-                    <span className="tabular-nums whitespace-nowrap">
-                        {percentage(share_of_answers, 1)}{' '}
-                        <span className="text-muted-foreground">({answers.toLocaleString()})</span>
-                    </span>
+                    <ContentAutopilotRateBar
+                        rate={share_of_answers}
+                        tooltip={`Cited in ${pluralize(answers, 'answer')}`}
+                    />
                 ),
             },
         ]}

@@ -133,6 +133,7 @@ ButtonGroup
 
 - Use Tailwind utility classes exclusively — no inline styles, no CSS modules
 - Use semantic color tokens: `bg-primary`, `text-foreground`, `border-input` — never raw colors
+- Status tokens are the inverse of shadcn's. `destructive`, `success`, `warning` and `info` are pale fills; text, icons and strokes use the `-foreground` token (`text-destructive-foreground`). `[lint: quill-status-text-needs-foreground]`
 - Components that accept icon children own their icon sizing — `flex-shrink: 0` plus a `svg:not([class*='size-'])` size rule in the component's `.css` file (see `button.css`), so consumers drop in bare lucide icons without `size-*` classes; the `:not` guard keeps explicit `size-*` as a deliberate escape hatch
 - Use `group/name` for scoped parent selectors (e.g., `group/tabs`, `group/input-group`)
 - Use `data-[variant=...]` selectors for variant-aware child styling

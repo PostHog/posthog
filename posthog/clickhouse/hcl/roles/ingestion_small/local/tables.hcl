@@ -2253,10 +2253,13 @@ SQL
     column "timestamp" { type = "DateTime64(6, 'UTC')" }
     column "inserted_at" { type = "DateTime64(6, 'UTC')" }
     engine "kafka" {
-      collection = "warpstream_ingestion"
-      topic_list = "clickhouse_billing_usage_records"
-      group_name = "clickhouse_billing_usage_records"
-      format     = "JSONEachRow"
+      collection           = "warpstream_ingestion"
+      topic_list           = "clickhouse_billing_usage_records"
+      group_name           = "clickhouse_billing_usage_records"
+      format               = "JSONEachRow"
+      num_consumers        = 1
+      skip_broken_messages = 100
+      thread_per_consumer  = true
     }
   }
 

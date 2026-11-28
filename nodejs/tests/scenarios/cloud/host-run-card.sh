@@ -85,7 +85,14 @@ pair=()
 [ "$(jq -r '.pair // false' "$SCENARIO_RUN_MANIFEST")" = true ] && pair=(--pair)
 SCENARIO_POOLER_URLS=$(cat "$root/pooler/urls") || exit
 export SCENARIO_POOLER_URLS
-(cd "$repo/nodejs" && exec node --import tsx tests/scenarios/main.ts run "$card_id" --profile "$input/runner-profile.yaml" "${pair[@]}") >"$evidence/card.log" 2>&1 &
+SCENARIO_WRITER_URL=$(cat "$root/writer/url") && [ -n "$SCENARIO_WRITER_URL" ] || exit
+export SCENARIO_WRITER_URL
+# The runner holds every scrape of every role until the verdict, which outgrows Node's default heap on a large
+# card. A command-line flag, unlike NODE_OPTIONS, leaves the roles the runner starts on their own heaps.
+heap_mb=$(awk '/^MemTotal:/ { print int($2 / 4096) }' "${SCENARIO_MEMINFO:-/proc/meminfo}" 2>/dev/null)
+heap=()
+[[ $heap_mb =~ ^[1-9][0-9]*$ ]] && heap=(--max-old-space-size="$heap_mb")
+(cd "$repo/nodejs" && exec node "${heap[@]}" --import tsx tests/scenarios/main.ts run "$card_id" --profile "$input/runner-profile.yaml" "${pair[@]}") >"$evidence/card.log" 2>&1 &
 card=$!
 copy_live "$SCENARIO_RUN_ID" live.jsonl
 control_id=$(jq -r '.controlRunId // empty' "$SCENARIO_RUN_MANIFEST")

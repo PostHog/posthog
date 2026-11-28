@@ -13,10 +13,12 @@ import type {
     AddSnapshotsResultApi,
     ApproveRunRequestInputApi,
     BaselineOverviewApi,
+    ClearRunRequestInputApi,
     CompleteRunInputApi,
     CreateRepoInputApi,
     CreateRunInputApi,
     CreateRunResultApi,
+    DecisionResultApi,
     FinalizeResultApi,
     FinalizeRunRequestInputApi,
     FlakinessOverviewApi,
@@ -35,6 +37,7 @@ import type {
     QuarantineLiftEntryApi,
     QuarantinedIdentifierEntryApi,
     RecomputeResultApi,
+    RejectRunRequestInputApi,
     RepoApi,
     ReviewStateCountsApi,
     RunApi,
@@ -521,24 +524,46 @@ export const getVisualReviewRunsApproveCreateUrl = (projectId: string, id: strin
 }
 
 /**
- * Mark snapshots reviewed (DB only).
+ * Accept snapshots (DB only).
  *
- * Records the per-snapshot "Accept change" decision. Does not commit the baseline
- * or change the GitHub gate — call finalize to ship the run. Works on a quarantined
- * snapshot too: a quarantined snapshot approved here is committed by finalize, which
- * updates a quarantined story's baseline entry without lifting the quarantine.
+ * Records the per-snapshot "Accept change" decision. Does not change the baseline or pass
+ * the gate; call finalize on the pull request's newest run for that. In ledger mode the run
+ * can be an older run of the pull request: the accept counts on every run that renders the
+ * same pictures. Works on a quarantined snapshot too: finalize records or commits it, and the
+ * quarantine stays.
  */
 export const visualReviewRunsApproveCreate = async (
     projectId: string,
     id: string,
     approveRunRequestInputApi: ApproveRunRequestInputApi,
     options?: RequestInit
-): Promise<RunApi> => {
-    return apiMutator<RunApi>(getVisualReviewRunsApproveCreateUrl(projectId, id), {
+): Promise<DecisionResultApi> => {
+    return apiMutator<DecisionResultApi>(getVisualReviewRunsApproveCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(approveRunRequestInputApi),
+    })
+}
+
+export const getVisualReviewRunsClearCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/visual_review/runs/${id}/clear/`
+}
+
+/**
+ * Undo the accept or reject of snapshots, in ledger mode, so they need review again.
+ */
+export const visualReviewRunsClearCreate = async (
+    projectId: string,
+    id: string,
+    clearRunRequestInputApi: ClearRunRequestInputApi,
+    options?: RequestInit
+): Promise<DecisionResultApi> => {
+    return apiMutator<DecisionResultApi>(getVisualReviewRunsClearCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(clearRunRequestInputApi),
     })
 }
 
@@ -568,14 +593,14 @@ export const getVisualReviewRunsFinalizeCreateUrl = (projectId: string, id: stri
 }
 
 /**
- * Finalize a fully-reviewed run: commit the approved baseline and green the gate.
+ * Finalize a fully-reviewed run: record or commit the accepted baseline and pass the gate.
  *
- * Commits exactly the snapshots approved in the DB (tolerated ones keep their baseline)
- * and only succeeds once every changed/new snapshot is resolved. With approve_all=true,
- * any still-pending changed/new snapshot is approved first; quarantined snapshots are
- * skipped, but a quarantined snapshot approved by identifier is still committed.
- * With commit_to_github=false the server returns the signed baseline YAML instead of
- * committing it.
+ * Succeeds only once every changed, new and removed snapshot is accepted, tolerated or
+ * quarantined, and none is rejected. In ledger mode an accept made on an earlier run of the
+ * pull request counts while the pictures are the same, and removals nobody rejected are
+ * accepted. With approve_all=true every change nobody decided on is accepted first; a
+ * rejected snapshot is never accepted. With commit_to_github=false the server returns the
+ * signed baseline YAML instead of committing it.
  */
 export const visualReviewRunsFinalizeCreate = async (
     projectId: string,
@@ -667,6 +692,30 @@ export const visualReviewRunsRecomputeCreate = async (
     })
 }
 
+export const getVisualReviewRunsRejectCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/visual_review/runs/${id}/reject/`
+}
+
+/**
+ * Reject snapshots of a pull request run with a reason, in ledger mode.
+ *
+ * A rejected snapshot blocks finalize until the pull request renders a different picture or
+ * the rejection is undone.
+ */
+export const visualReviewRunsRejectCreate = async (
+    projectId: string,
+    id: string,
+    rejectRunRequestInputApi: RejectRunRequestInputApi,
+    options?: RequestInit
+): Promise<DecisionResultApi> => {
+    return apiMutator<DecisionResultApi>(getVisualReviewRunsRejectCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(rejectRunRequestInputApi),
+    })
+}
+
 export const getVisualReviewRunsSnapshotHistoryListUrl = (
     projectId: string,
     id: string,
@@ -726,7 +775,7 @@ export const getVisualReviewRunsSnapshotsListUrl = (
 }
 
 /**
- * Get a run's snapshots with diff results, excluding quarantined ones by default.
+ * Get a run's snapshots with diff results and review decisions, excluding quarantined ones by default.
  */
 export const visualReviewRunsSnapshotsList = async (
     projectId: string,

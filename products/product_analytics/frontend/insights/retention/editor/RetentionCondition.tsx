@@ -1,9 +1,8 @@
 import { useActions, useValues } from 'kea'
 import { Fragment } from 'react'
-import { toast } from 'react-toastify'
 
 import { IconInfo, IconPlus, IconPlusSmall, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonCheckbox, LemonInput, LemonSelect } from '@posthog/lemon-ui'
+import { LemonButton, LemonCheckbox, LemonInput, LemonSelect, lemonToast } from '@posthog/lemon-ui'
 import { Button, Checkbox, Field, FieldLabel, Input, Text } from '@posthog/quill'
 
 import { DataWarehousePopoverField, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
@@ -223,7 +222,7 @@ export function RetentionCondition({ insightProps }: EditorFilterProps): JSX.Ele
             if (newValue > 31) {
                 newValue = 10
             }
-            toast.warn(
+            lemonToast.warning(
                 <>
                     The maximum number of {dateOptionPlurals[period || 'Day']} is <strong>31</strong>
                 </>

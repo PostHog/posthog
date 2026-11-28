@@ -1069,87 +1069,6 @@ export interface VisionSpendSeriesApi {
 }
 
 /**
- * * `summarize_recording` - Summarize recording
- */
-export type BuiltInScanKeyEnumApi = (typeof BuiltInScanKeyEnumApi)[keyof typeof BuiltInScanKeyEnumApi]
-
-export const BuiltInScanKeyEnumApi = {
-    SummarizeRecording: 'summarize_recording',
-} as const
-
-/**
- * * `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite
- * * `gemini-3-flash-preview` - Gemini 3 Flash
- * * `gemini-3.8-flash` - Gemini 3.8 Flash
- */
-export type ScannerModelEnumApi = (typeof ScannerModelEnumApi)[keyof typeof ScannerModelEnumApi]
-
-export const ScannerModelEnumApi = {
-    Gemini35FlashLite: 'gemini-3.5-flash-lite',
-    Gemini3FlashPreview: 'gemini-3-flash-preview',
-    Gemini38Flash: 'gemini-3.8-flash',
-} as const
-
-/**
- * A question asked inline, without saving a scanner first.
- */
-export interface InlineScanConfigApi {
-    /** Run a scan PostHog defines instead of your own prompt. `summarize_recording` is the AI summary the Summarize button in the replay player runs, so its results are shared with that button. Leave out `prompt`, `scanner_type` and `scanner_config` when this is set.
-     *
-     * * `summarize_recording` - Summarize recording */
-    built_in?: BuiltInScanKeyEnumApi
-    /**
-     * What to look for in these sessions, in plain language. The same instruction a saved scanner carries. Required unless `built_in` is set.
-     * @maxLength 20000
-     */
-    prompt?: string
-    /** What the scan produces. Defaults to monitor, an open-ended observation against the prompt. Use `summarizer` for a summary in your own words; use `built_in: summarize_recording` for the Summarize button's summary. An inline scan is keyed by its whole config, so asking the same question again reuses its answers.
-     *
-     * * `monitor` - Monitor
-     * * `classifier` - Classifier
-     * * `scorer` - Scorer
-     * * `summarizer` - Summarizer
-     * * `experiment` - Experiment */
-    scanner_type?: ScannerTypeEnumApi
-    /** Type-specific configuration beyond the prompt: `tags` for a classifier, `scale` for a scorer, optional `length` for a summarizer. Omit it for a monitor. `prompt` belongs in the `prompt` field and is rejected here. */
-    scanner_config?: unknown
-    /** Model to scan with. Determines what each observation costs in credits.
-     *
-     * * `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite
-     * * `gemini-3-flash-preview` - Gemini 3 Flash
-     * * `gemini-3.8-flash` - Gemini 3.8 Flash */
-    model?: ScannerModelEnumApi
-}
-
-/**
- * Body of POST /vision/requests/ - the sessions plus a saved scanner or an inline question.
- */
-export interface CreateObservationRequestApi {
-    /**
-     * Session recording IDs to scan, at most 200 per request. Scans start until the in-flight limit or monthly credit quota is reached; the rest are reported as skipped rather than failing the whole request. Duplicates are dropped.
-     * @maxItems 200
-     * @items.maxLength 128
-     */
-    session_ids: string[]
-    /** A saved scanner to apply to the sessions. Pass this or `inline`, not both. */
-    scanner_id?: string
-    /** A question to ask without saving a scanner first. Asking the same question again reuses the answers already given for the same sessions. Pass this or `scanner_id`, not both. */
-    inline?: InlineScanConfigApi
-    /**
-     * Any unique string per logical request, such as a UUID. Sending the same key again returns the first request instead of starting new scans, so a retry after a timeout never charges twice.
-     * @maxLength 200
-     */
-    idempotency_key?: string
-    /**
-     * Your own id for this request, such as a ticket or job id. Returned unchanged.
-     * @maxLength 200
-     */
-    reference?: string
-    /** Hold the scans until every session has been quiet for 35 minutes, so each one is scanned whole. Use it when the sessions may still be recording. A scan of a live session sees only part of it, and its observation can't be replaced later. Sessions still active after 6 hours are scanned as they are. */
-    wait_for_session_end?: boolean
-}
-
-/**
  * * `running` - Running
  * * `completed` - Completed
  */
@@ -1260,6 +1179,87 @@ export interface ObservationRequestApi {
     created_at: string
     /** One entry per session, in request order. */
     sessions: ObservationRequestSessionApi[]
+}
+
+/**
+ * * `summarize_recording` - Summarize recording
+ */
+export type BuiltInScanKeyEnumApi = (typeof BuiltInScanKeyEnumApi)[keyof typeof BuiltInScanKeyEnumApi]
+
+export const BuiltInScanKeyEnumApi = {
+    SummarizeRecording: 'summarize_recording',
+} as const
+
+/**
+ * * `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite
+ * * `gemini-3-flash-preview` - Gemini 3 Flash
+ * * `gemini-3.8-flash` - Gemini 3.8 Flash
+ */
+export type ScannerModelEnumApi = (typeof ScannerModelEnumApi)[keyof typeof ScannerModelEnumApi]
+
+export const ScannerModelEnumApi = {
+    Gemini35FlashLite: 'gemini-3.5-flash-lite',
+    Gemini3FlashPreview: 'gemini-3-flash-preview',
+    Gemini38Flash: 'gemini-3.8-flash',
+} as const
+
+/**
+ * A question asked inline, without saving a scanner first.
+ */
+export interface InlineScanConfigApi {
+    /** Run a scan PostHog defines instead of your own prompt. `summarize_recording` is the AI summary the Summarize button in the replay player runs, so its results are shared with that button. Leave out `prompt`, `scanner_type` and `scanner_config` when this is set.
+     *
+     * * `summarize_recording` - Summarize recording */
+    built_in?: BuiltInScanKeyEnumApi
+    /**
+     * What to look for in these sessions, in plain language. The same instruction a saved scanner carries. Required unless `built_in` is set.
+     * @maxLength 20000
+     */
+    prompt?: string
+    /** What the scan produces. Defaults to monitor, an open-ended observation against the prompt. Use `summarizer` for a summary in your own words; use `built_in: summarize_recording` for the Summarize button's summary. An inline scan is keyed by its whole config, so asking the same question again reuses its answers.
+     *
+     * * `monitor` - Monitor
+     * * `classifier` - Classifier
+     * * `scorer` - Scorer
+     * * `summarizer` - Summarizer
+     * * `experiment` - Experiment */
+    scanner_type?: ScannerTypeEnumApi
+    /** Type-specific configuration beyond the prompt: `tags` for a classifier, `scale` for a scorer, optional `length` for a summarizer. Omit it for a monitor. `prompt` belongs in the `prompt` field and is rejected here. */
+    scanner_config?: unknown
+    /** Model to scan with. Determines what each observation costs in credits.
+     *
+     * * `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite
+     * * `gemini-3-flash-preview` - Gemini 3 Flash
+     * * `gemini-3.8-flash` - Gemini 3.8 Flash */
+    model?: ScannerModelEnumApi
+}
+
+/**
+ * Body of POST /vision/requests/ - the sessions plus a saved scanner or an inline question.
+ */
+export interface CreateObservationRequestApi {
+    /**
+     * Session recording IDs to scan, at most 200 per request. Scans start until the in-flight limit or monthly credit quota is reached; the rest are reported as skipped rather than failing the whole request. Duplicates are dropped.
+     * @maxItems 200
+     * @items.maxLength 128
+     */
+    session_ids: string[]
+    /** A saved scanner to apply to the sessions. Pass this or `inline`, not both. */
+    scanner_id?: string
+    /** A question to ask without saving a scanner first. Asking the same question again reuses the answers already given for the same sessions. Pass this or `scanner_id`, not both. */
+    inline?: InlineScanConfigApi
+    /**
+     * Any unique string per logical request, such as a UUID. Sending the same key again returns the first request instead of starting new scans, so a retry after a timeout never charges twice.
+     * @maxLength 200
+     */
+    idempotency_key?: string
+    /**
+     * Your own id for this request, such as a ticket or job id. Returned unchanged.
+     * @maxLength 200
+     */
+    reference?: string
+    /** Hold the scans until every session has been quiet for 35 minutes, so each one is scanned whole. Use it when the sessions may still be recording. A scan of a live session sees only part of it, and its observation can't be replaced later. Sessions still active after 6 hours are scanned as they are. */
+    wait_for_session_end?: boolean
 }
 
 /**
@@ -2538,6 +2538,69 @@ export const SignalScoutConfigManagedByEnumApi = {
     Background: 'background',
 } as const
 
+/**
+ * * `slack_dm` - Slack direct message
+ * * `slack_channel` - Slack channel
+ */
+export type SignalScoutMessageDeliveryTargetTypeEnumApi =
+    (typeof SignalScoutMessageDeliveryTargetTypeEnumApi)[keyof typeof SignalScoutMessageDeliveryTargetTypeEnumApi]
+
+export const SignalScoutMessageDeliveryTargetTypeEnumApi = {
+    SlackDm: 'slack_dm',
+    SlackChannel: 'slack_channel',
+} as const
+
+export interface SignalScoutMessageTargetApi {
+    type: SignalScoutMessageDeliveryTargetTypeEnumApi
+    /**
+     * Slack member ID, for `slack_dm`.
+     * @maxLength 255
+     */
+    user?: string
+    /**
+     * Slack channel ID, for `slack_channel`. Never a shared channel.
+     * @maxLength 255
+     */
+    channel?: string
+}
+
+export interface SignalScoutMessageRouteApi {
+    /**
+     * Slug the scout names to send on this route.
+     * @maxLength 64
+     * @pattern ^[a-z0-9]+(?:-[a-z0-9]+)*$
+     */
+    key: string
+    /**
+     * When the scout should send, shown in its run prompt.
+     * @maxLength 300
+     */
+    when: string
+    /**
+     * @minItems 1
+     * @maxItems 5
+     */
+    to: SignalScoutMessageTargetApi[]
+}
+
+/**
+ * Output destinations plus message routes. Only the config create and update paths take routes, so the
+ * scout and source-product create tools keep their schemas small.
+ */
+export interface SignalScoutRoutedOutputDestinationsApi {
+    /** Slack destination for each emitted scout finding or report. Null or omitted disables Slack delivery. */
+    slack?: SignalScoutSlackDestinationApi | null
+    /** The CDP destination another product provisioned for this scout's reports. Null or omitted means no webhook. Unlike Slack, Signals does not deliver this itself: the reference lives here so the owning product can manage the destination's lifecycle. */
+    webhook?: SignalScoutWebhookDestinationApi | null
+    /** Whether this scout's reports appear in the shared inbox. Defaults to true. Set false to keep the reports this scout authors out of the inbox and its Slack notifications, for example for a digest scout read in Slack. Reports this scout only edits are not affected. An update that omits this key keeps the stored value. */
+    inbox?: boolean
+    /**
+     * Routes the scout may message on, through `slack.integration_id`. Omit to keep, `[]` to clear.
+     * @maxItems 10
+     */
+    messages?: SignalScoutMessageRouteApi[]
+}
+
 export type ScoutPrecheckQuerySourceEnumApi =
     (typeof ScoutPrecheckQuerySourceEnumApi)[keyof typeof ScoutPrecheckQuerySourceEnumApi]
 
@@ -2629,7 +2692,7 @@ export interface SignalScoutConfigApi {
      */
     readonly run_cron_schedule: string | null
     /** Destinations that receive each finding or report this scout emits. Empty when none is configured. */
-    readonly output_destinations: SignalScoutOutputDestinationsApi
+    readonly output_destinations: SignalScoutRoutedOutputDestinationsApi
     /**
      * Optional JSON Schema (draft 2020-12) describing ONE structured record this scout produces via `scout-record-output` — e.g. a per-report quality judgment (`{"type": "object", "properties": {"verdict": {"enum": ["good", "bad", "unsure"]}, "reason": {"type": "string"}}, "required": ["verdict", "reason"]}`). The root must be `"type": "object"`. Setting a schema turns the structured-output channel on: the run prompt renders the schema and every submitted record is validated against it and recorded in the project as a `$scout_structured_output` event, queryable like any event. The channel also requires emit — a dry-run scout has nowhere to record to. Cardinality is the scout's call (one record per run, one per judged entity, ...). Null = channel off. Setting a schema requires skill-authoring authorization (the `llm_skill:write` scope and skill editor access) since the scout reads it verbatim in its prompt; clearing it needs only the config write. Records validate against the schema in force when the run was dispatched.
      * @nullable
@@ -3568,6 +3631,15 @@ export type VisionObservationsSearchSuggestionsRetrieveParams = {
      * Scope to a single scanner's observations. Defaults to every scanner you can read.
      */
     scanner_id?: string
+}
+
+export type VisionRequestsListParams = {
+    /**
+     * Only requests made with this `reference`. Returns the newest 20 of the last 30 days at most.
+     * @minLength 1
+     * @maxLength 200
+     */
+    reference: string
 }
 
 export type VisionScannersListParams = {

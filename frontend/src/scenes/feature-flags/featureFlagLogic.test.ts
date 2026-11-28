@@ -12,7 +12,6 @@ import { render } from '@testing-library/react'
 import { combineUrl, router } from 'kea-router'
 import { expectLogic, partial } from 'kea-test-utils'
 import posthog from 'posthog-js'
-import { toast } from 'react-toastify'
 
 import { lemonToast as sharedLemonToast } from '@posthog/lemon-ui'
 
@@ -734,49 +733,41 @@ describe('featureFlagLogic', () => {
                 ],
                 ['the logic unmounts', async () => logic.unmount()],
             ])('clears the failure notice when %s', async (_label, close) => {
-                const dismiss = jest.spyOn(toast, 'dismiss')
-                try {
-                    useMocks({ get: { [FLAG_URL]: () => [500, SERVER_ERROR_BODY] } })
+                const dismiss = jest.mocked(lemonToast.dismiss)
+                useMocks({ get: { [FLAG_URL]: () => [500, SERVER_ERROR_BODY] } })
 
-                    await expectLogic(logic, () => logic.actions.refreshFeatureFlagAfterAgentChange())
-                        .toDispatchActions(['refreshFeatureFlagFailure'])
-                        .toFinishAllListeners()
+                await expectLogic(logic, () => logic.actions.refreshFeatureFlagAfterAgentChange())
+                    .toDispatchActions(['refreshFeatureFlagFailure'])
+                    .toFinishAllListeners()
 
-                    const [, options] = jest.mocked(lemonToast.error).mock.calls[0]
-                    dismiss.mockClear()
-                    await close()
+                const [, options] = jest.mocked(lemonToast.error).mock.calls[0]
+                dismiss.mockClear()
+                await close()
 
-                    expect(dismiss).toHaveBeenCalledWith(options?.toastId)
-                } finally {
-                    dismiss.mockRestore()
-                }
+                expect(dismiss).toHaveBeenCalledWith(options?.toastId)
             })
 
             // A dirty-form refresh leaves its notice open until someone acts on it, so a later failure
             // would otherwise stack a second permanent notice offering the same reload.
             it('replaces the kept-edits notice when a later refresh fails', async () => {
-                const dismiss = jest.spyOn(toast, 'dismiss')
-                try {
-                    logic.actions.setFeatureFlag({ ...logic.values.featureFlag, name: 'half-written local edit' })
-                    expect(logic.values.isFormDirty).toBe(true)
+                const dismiss = jest.mocked(lemonToast.dismiss)
+                logic.actions.setFeatureFlag({ ...logic.values.featureFlag, name: 'half-written local edit' })
+                expect(logic.values.isFormDirty).toBe(true)
 
-                    useMocks(serverFlagMock({ active: false }))
-                    await expectLogic(logic, () => logic.actions.refreshFeatureFlagAfterAgentChange())
-                        .toDispatchActions(['refreshFeatureFlagSuccess'])
-                        .toFinishAllListeners()
-                    expect(lemonToast.info).toHaveBeenCalledTimes(1)
+                useMocks(serverFlagMock({ active: false }))
+                await expectLogic(logic, () => logic.actions.refreshFeatureFlagAfterAgentChange())
+                    .toDispatchActions(['refreshFeatureFlagSuccess'])
+                    .toFinishAllListeners()
+                expect(lemonToast.info).toHaveBeenCalledTimes(1)
 
-                    dismiss.mockClear()
-                    useMocks({ get: { [FLAG_URL]: () => [500, SERVER_ERROR_BODY] } })
+                dismiss.mockClear()
+                useMocks({ get: { [FLAG_URL]: () => [500, SERVER_ERROR_BODY] } })
 
-                    await expectLogic(logic, () => logic.actions.refreshFeatureFlagAfterAgentChange())
-                        .toDispatchActions(['refreshFeatureFlagFailure'])
-                        .toFinishAllListeners()
+                await expectLogic(logic, () => logic.actions.refreshFeatureFlagAfterAgentChange())
+                    .toDispatchActions(['refreshFeatureFlagFailure'])
+                    .toFinishAllListeners()
 
-                    expect(dismiss).toHaveBeenCalledWith('feature-flag-agent-change-1')
-                } finally {
-                    dismiss.mockRestore()
-                }
+                expect(dismiss).toHaveBeenCalledWith('feature-flag-agent-change-1')
             })
 
             // Needs the two-in-flight setup for the same reason as the superseded-response case above:

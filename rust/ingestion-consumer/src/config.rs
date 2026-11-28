@@ -7,7 +7,7 @@ use rdkafka::ClientConfig;
 use tracing::info;
 
 use crate::batcher::governor::{Adaptation, GovernorSettings};
-use crate::batcher::key_queues::RunCap;
+use crate::batcher::key_queues::{EscalationRule, RunCap};
 use crate::batcher::packer::{PackTargets, Packer};
 use crate::batcher::retry_policy::RetryPolicy;
 use crate::batcher::state_machine::{BatcherStateMachine, RequestBudget};
@@ -197,11 +197,19 @@ pub struct Config {
     #[envconfig(from = "INGESTION_REQUEST_SOFT_BUDGET_MS", default = "0")]
     pub request_soft_budget_ms: u64,
 
-    /// How many budgeted attempts may leave a key's messages unfinished, since
-    /// the key last finished a run, before it resends without a budget. At
-    /// least 1. Only read when `INGESTION_REQUEST_SOFT_BUDGET_MS` is set.
+    /// How many settles that count under `INGESTION_BUDGET_ESCALATION_RULE` a
+    /// key may reach before it resends without a budget. At least 1. Only read
+    /// when `INGESTION_REQUEST_SOFT_BUDGET_MS` is set.
     #[envconfig(from = "INGESTION_REQUEST_BUDGET_ATTEMPTS", default = "3")]
     pub request_budget_attempts: u32,
+
+    /// `legacy` (default) or `stalled_key`; see the README's Batcher section.
+    #[envconfig(from = "INGESTION_BUDGET_ESCALATION_RULE", default = "legacy")]
+    pub budget_escalation_rule: EscalationRule,
+
+    /// `false` keeps the resends of escalated keys out of the RTT average.
+    #[envconfig(from = "INGESTION_GOVERNOR_SAMPLE_UNBUDGETED", default = "true")]
+    pub governor_sample_unbudgeted: bool,
 
     /// `off` (default) keeps the governor observing: it measures request
     /// round-trip time and reports the permit pool it would run, while free
@@ -513,6 +521,8 @@ impl Config {
             Instant::now(),
         )?
         .with_request_budget(self.request_budget()?)
+        .with_escalation_rule(self.budget_escalation_rule)
+        .with_unbudgeted_rtt_samples(self.governor_sample_unbudgeted)
         .with_governor(self.governor_settings()?)
     }
 
@@ -642,16 +652,30 @@ impl Config {
         let attempts = NonZeroU32::new(self.request_budget_attempts)
             .ok_or("INGESTION_REQUEST_BUDGET_ATTEMPTS must be at least 1")?;
         // A partial ack that finished nothing does not count as progress, so
-        // it must come back before the stall watchdog fires. Its resend goes
-        // without a budget, so no second one follows for the same key.
-        if budget_ms.saturating_add(self.pack_latency_budget_ms)
-            >= self.consumer_deferred_flush_timeout_ms
-        {
-            return Err(
-                "INGESTION_REQUEST_SOFT_BUDGET_MS plus INGESTION_PACK_LATENCY_BUDGET_MS must be \
-                 below CONSUMER_DEFERRED_FLUSH_TIMEOUT_MS"
-                    .to_string(),
-            );
+        // it must come back before the stall watchdog fires. Under the
+        // stalled-key rule only a bounce in the second half of the stall
+        // window escalates at once, so bounces must come back within half of it.
+        let (unprogressed_ms, window_ms) = match self.budget_escalation_rule {
+            EscalationRule::Legacy => (budget_ms, self.consumer_deferred_flush_timeout_ms),
+            EscalationRule::StalledKey => (
+                budget_ms.saturating_add(self.parked_retry_interval_ms),
+                self.consumer_deferred_flush_timeout_ms / 2,
+            ),
+        };
+        if unprogressed_ms.saturating_add(self.pack_latency_budget_ms) >= window_ms {
+            return Err(match self.budget_escalation_rule {
+                EscalationRule::Legacy => {
+                    "INGESTION_REQUEST_SOFT_BUDGET_MS plus INGESTION_PACK_LATENCY_BUDGET_MS must \
+                     be below CONSUMER_DEFERRED_FLUSH_TIMEOUT_MS"
+                }
+                EscalationRule::StalledKey => {
+                    "under INGESTION_BUDGET_ESCALATION_RULE=stalled_key, \
+                     INGESTION_REQUEST_SOFT_BUDGET_MS plus INGESTION_PARKED_RETRY_INTERVAL_MS plus \
+                     INGESTION_PACK_LATENCY_BUDGET_MS must be below half of \
+                     CONSUMER_DEFERRED_FLUSH_TIMEOUT_MS"
+                }
+            }
+            .to_string());
         }
         Ok(Some(RequestBudget {
             soft_budget: Duration::from_millis(budget_ms),
@@ -805,6 +829,13 @@ mod tests {
         ],
         Some((49999, 3))
     )]
+    #[case::just_below_half_the_stall_timeout_with_the_retry_delay_under_the_stalled_key_rule(
+        &[
+            ("INGESTION_REQUEST_SOFT_BUDGET_MS", "29799"),
+            ("INGESTION_BUDGET_ESCALATION_RULE", "stalled_key"),
+        ],
+        Some((29799, 3))
+    )]
     fn a_valid_request_budget_is_read(
         #[case] vars: &[(&str, &str)],
         #[case] expected: Option<(u64, u32)>,
@@ -836,8 +867,35 @@ mod tests {
         ("INGESTION_REQUEST_SOFT_BUDGET_MS", "250"),
         ("INGESTION_REQUEST_BUDGET_ATTEMPTS", "0"),
     ])]
+    #[case::at_half_the_stall_timeout_with_the_retry_delay_under_the_stalled_key_rule(&[
+        ("INGESTION_REQUEST_SOFT_BUDGET_MS", "29800"),
+        ("INGESTION_BUDGET_ESCALATION_RULE", "stalled_key"),
+    ])]
     fn an_invalid_request_budget_is_rejected(#[case] vars: &[(&str, &str)]) {
         assert!(config(vars).request_budget().is_err());
+    }
+
+    #[rstest]
+    #[case::unset(&[], (EscalationRule::Legacy, true))]
+    #[case::set(
+        &[
+            ("INGESTION_BUDGET_ESCALATION_RULE", "stalled_key"),
+            ("INGESTION_GOVERNOR_SAMPLE_UNBUDGETED", "false"),
+        ],
+        (EscalationRule::StalledKey, false)
+    )]
+    fn the_escalation_settings_default_to_the_legacy_behavior(
+        #[case] vars: &[(&str, &str)],
+        #[case] expected: (EscalationRule, bool),
+    ) {
+        let config = config(vars);
+        assert_eq!(
+            (
+                config.budget_escalation_rule,
+                config.governor_sample_unbudgeted
+            ),
+            expected
+        );
     }
 
     struct DrainTimeoutCase {

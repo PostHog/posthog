@@ -312,6 +312,22 @@ def _resolve_warehouse_source_intervals(nodes: list[Node]) -> dict[str, timedelt
     return intervals
 
 
+def dag_ids_reading_warehouse_table(team_id: int, table_id: uuid.UUID) -> set[uuid.UUID]:
+    """DAGs with a source node that resolves to this table, by its stamped table id or by its name."""
+    table_name = (
+        DataWarehouseTable.objects.filter(team_id=team_id, id=table_id)
+        .exclude(deleted=True)
+        .values_list("name", flat=True)
+        .first()
+    )
+    matches_table = Q(properties__warehouse_table_id=str(table_id))
+    if table_name is not None:
+        matches_table |= Q(name=table_name)
+    return set(
+        Node.objects.filter(team_id=team_id, type=NodeType.TABLE).filter(matches_table).values_list("dag_id", flat=True)
+    )
+
+
 def resolve_source_intervals(source_nodes: list[Node]) -> tuple[dict[str, timedelta], set[str]]:
     """Classify each source (TABLE) node into a freshness floor.
 
@@ -672,9 +688,19 @@ def _unpinned_cadence_by_cadence(
 def scheduled_cadences_by_node(team_id: int, dag_ids: Iterable[uuid.UUID | str]) -> dict[str, timedelta | None]:
     """The cadence the scheduler runs each node of these DAGs at, keyed by node id."""
     result: dict[str, timedelta | None] = {}
-    for dag in DAG.objects.filter(team_id=team_id, id__in=set(dag_ids)):
-        result.update(scheduled_cadences(build_frequency_graph(dag))[0])
+    for cadences in scheduled_cadences_by_dag(team_id, dag_ids).values():
+        result.update(cadences)
     return result
+
+
+def scheduled_cadences_by_dag(
+    team_id: int, dag_ids: Iterable[uuid.UUID | str]
+) -> dict[str, dict[str, timedelta | None]]:
+    """The cadence the scheduler runs each node of these DAGs at, keyed by DAG id, then node id."""
+    return {
+        str(dag.id): scheduled_cadences(build_frequency_graph(dag))[0]
+        for dag in DAG.objects.filter(team_id=team_id, id__in=set(dag_ids))
+    }
 
 
 def scheduled_cadences(

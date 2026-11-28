@@ -50,6 +50,19 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "latest_customer_activity_time": "The time of the latest customer activity.",
         },
     },
+    "account_relationships": {
+        "description": "Parent-child and partner-client relationships between Pylon accounts.",
+        "docs_url": "https://docs.usepylon.com/pylon-docs/developer/api/api-reference/accounts",
+        "columns": {
+            "id": "The ID of the relationship.",
+            "child_account_id": "The ID of the child or client account.",
+            "parent_account_id": "The ID of the parent or partner account.",
+            "related_object_id": "The ID of the related parent or partner account.",
+            "relationship_type": "The type of relationship, either parent_account or partner_account.",
+            "created_at": "The time Pylon created the relationship.",
+            "updated_at": "The time Pylon last updated the relationship.",
+        },
+    },
     "contacts": {
         "description": "Individual contacts (people) associated with accounts in Pylon.",
         "docs_url": "https://docs.usepylon.com/pylon-docs/developer/api/api-reference/contacts",
@@ -232,6 +245,16 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "last_published_at": "The time the article was last published.",
         },
     },
+    "surveys": {
+        "description": "Survey definitions for the Pylon organization.",
+        "docs_url": "https://docs.usepylon.com/pylon-docs/developer/api/api-reference/surveys",
+        "columns": {
+            "id": "The ID of the survey. Matches survey_id in survey responses.",
+            "name": "The name of the survey.",
+            "type": "The type of survey, such as CSAT or NPS.",
+            "updated_at": "The time Pylon last updated the survey.",
+        },
+    },
     "survey_responses": {
         "description": "Responses to Pylon surveys (such as CSAT and NPS), one row per submitted response.",
         "docs_url": "https://docs.usepylon.com/pylon-docs/developer/api/api-reference/surveys",
@@ -265,6 +288,23 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "email_info": "Email metadata for messages sent over email.",
             "slack_info": "Slack metadata for messages sent over Slack.",
             "timestamp": "The time at which the message was created.",
+        },
+    },
+    "issue_threads": {
+        "description": (
+            "Internal discussion threads on Pylon issues, including threads linked to a chat platform. "
+            "Each refresh includes only threads on issues returned by Pylon for the last 365 days. "
+            "New threads on excluded issues do not sync. Previously synced threads can drop out as their issues age."
+        ),
+        "docs_url": "https://docs.usepylon.com/pylon-docs/developer/api/api-reference/messages",
+        "columns": {
+            "id": "The Pylon ID of the thread.",
+            "issue_id": "The ID of the issue that contains the thread.",
+            "name": "The name of the thread.",
+            "source": "The source of the thread.",
+            "delivery_mode": "The message destination, or none for Pylon-only threads.",
+            "channel_id": "The chat platform channel ID for a linked thread.",
+            "thread_id": "The thread ID on the linked chat platform.",
         },
     },
 }

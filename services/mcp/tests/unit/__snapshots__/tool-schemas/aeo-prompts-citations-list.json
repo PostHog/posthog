@@ -38,10 +38,16 @@
             "type": "string"
         },
         "engine": {
-            "description": "Only list answers from this answer engine, for example 'claude-web-search'.",
-            "maxLength": 64,
-            "minLength": 1,
-            "type": "string"
+            "anyOf": [
+                {
+                    "maxLength": 64,
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Only count checks from this answer engine, for example 'claude-web-search'. Omit to count every engine."
         },
         "include_answer_text": {
             "default": false,
@@ -62,6 +68,18 @@
             "maxLength": 1000,
             "minLength": 1,
             "type": "string"
+        },
+        "topic": {
+            "anyOf": [
+                {
+                    "maxLength": 200,
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Only count checks that ran with this prompt topic. A prompt moved to another topic keeps its past checks under the old one. An empty value counts the checks of prompts that had no topic. Omit to count every topic."
         },
         "url": {
             "description": "List the answers that cited this exact URL, as it appears in cited_urls or the rankings' top_pages.",

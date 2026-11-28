@@ -144,7 +144,7 @@ def _compile(value: dict[str, Any], *, is_dwh_source: bool) -> dict[str, Any]:
     input_deps: set[str] = set()
     try:
         bytecode = generate_template_bytecode(
-            sendable, input_deps, function_type="destination", is_dwh_source=is_dwh_source
+            sendable, input_deps, function_type="destination", is_dwh_source=is_dwh_source, in_workflow=True
         )
     except Exception as error:
         raise ValidationError({"config": f"Invalid template: {error}"})

@@ -1,8 +1,7 @@
 import { z } from 'zod'
 
-import { Duration, durationMs } from '../duration'
+import { Duration, MAX_TIMER_MS, TerminationGrace, durationMs } from '../duration'
 
-const MAX_TIMER_MS = 2 ** 31 - 1
 const MAX_SEED = 2 ** 32 - 1
 
 export const SeedOverride = z.number().int().min(0).max(MAX_SEED)
@@ -228,6 +227,7 @@ export const Profile = z
         load: Load.optional(),
         host: Host.optional(),
         alerts: AlertsProfile.optional(),
+        terminationGrace: TerminationGrace.optional(),
     })
     .strict()
     .refine(({ synthetic, backlog }) => !synthetic?.includes('backlog_padding') || backlog !== undefined, {

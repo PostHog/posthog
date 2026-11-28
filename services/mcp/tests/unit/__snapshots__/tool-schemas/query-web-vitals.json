@@ -38,8 +38,8 @@
             "description": "Date range for the query. Defaults to the last 7 days when omitted — a good window for a stable percentile."
         },
         "doPathCleaning": {
-            "default": false,
-            "description": "Apply the team's path-cleaning rules to the returned paths.",
+            "default": true,
+            "description": "Apply the team's path-cleaning rules to the returned paths, so `/project/123/settings` and `/project/456/settings` roll up into one row. On by default, like the Web vitals tab; a team with no rules sees raw paths either way.",
             "type": "boolean"
         },
         "filterTestAccounts": {
@@ -55,6 +55,12 @@
             "description": "Required. Which Core Web Vital to break down by: `LCP` (load, ms), `INP` (interactivity, ms), `CLS` (layout stability, unitless score), or `FCP` (first paint, ms).",
             "enum": ["INP", "LCP", "CLS", "FCP"],
             "type": "string"
+        },
+        "minSamples": {
+            "description": "Drop pages with fewer than this many samples in the period. Each row carries its `count`; set this (e.g. 50 or 100 on a busy site) so one-off slow loads on rarely visited pages do not fill the `poor` band ahead of real problems.",
+            "maximum": 9007199254740991,
+            "minimum": 1,
+            "type": "integer"
         },
         "percentile": {
             "description": "Required. Percentile to aggregate each page's samples at. Use `p75` unless the user asks otherwise — the Google bands are defined at p75.",

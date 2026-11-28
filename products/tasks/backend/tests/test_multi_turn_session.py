@@ -23,7 +23,7 @@ from posthog.storage.object_storage import ObjectStorageError
 from products.tasks.backend.facade import agents as agents_facade
 from products.tasks.backend.facade.api import _public_task_run_state
 from products.tasks.backend.facade.contracts import SessionFile
-from products.tasks.backend.facade.profiles import get_task_profile
+from products.tasks.backend.facade.profiles import GithubAccess, get_task_profile
 from products.tasks.backend.logic.services.custom_prompt_internals import (
     AgentError,
     AgentTurnFailed,
@@ -2178,6 +2178,19 @@ class TestCreateTaskAndTriggerForwardsContext:
         assert public_state["codex_max_subagents"] == 9
         assert public_state["codex_shared_prompt_cache"] is True
         assert public_state["disable_skills"] is True
+
+    @pytest.mark.asyncio
+    async def test_a_run_without_github_attaches_no_github_credential(self) -> None:
+        team, user = await sync_to_async(self._setup_team_and_user)()
+        context = CustomPromptSandboxContext(team_id=team.id, user_id=user.id, github_access=GithubAccess.NONE)
+
+        with patch("products.tasks.backend.temporal.client.execute_task_processing_workflow"):
+            task_run = await agents_facade.create_task_and_trigger("prompt", context, profile=USER)
+
+        task = await sync_to_async(Task.objects.get)(id=task_run.task_id)
+        # The profile allows GitHub, so only the run's own limit keeps the credential out of the sandbox.
+        assert task.github_access_limit == GithubAccess.NONE
+        assert task.github_integration_id is None
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(("output_schema", "expected_flag"), [({"type": "object"}, True), (None, None)])

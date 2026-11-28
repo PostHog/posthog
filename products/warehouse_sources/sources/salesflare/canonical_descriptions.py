@@ -3,6 +3,19 @@ from products.warehouse_sources.sources.sdk import CanonicalDescriptions
 # Descriptions sourced from the Salesflare REST API docs (https://api.salesflare.com/docs).
 # Partial coverage is fine — uncovered columns fall back to LLM enrichment.
 CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
+    "persons": {
+        "description": "A person in the Salesflare directory.",
+        "docs_url": "https://api.salesflare.com/docs#tag/Persons/operation/getPersons",
+        "columns": {"id": "The unique ID of the person."},
+    },
+    "custom_fields": {
+        "description": "A custom field definition for a Salesflare account, contact, or opportunity.",
+        "docs_url": "https://api.salesflare.com/docs#tag/Custom-Fields/operation/getCustomfieldsItemclass",
+        "columns": {
+            "id": "The ID of the custom field.",
+            "item_class": "The type of record that uses the custom field.",
+        },
+    },
     "contacts": {
         "description": "A person in your Salesflare CRM — a lead, prospect, or customer contact.",
         "docs_url": "https://api.salesflare.com/docs",
