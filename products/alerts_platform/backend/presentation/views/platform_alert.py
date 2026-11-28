@@ -55,6 +55,7 @@ from products.alerts_platform.backend.facade.contracts import (
     PlatformAlertConfigurationEdit,
     PlatformAlertConfigurationView,
     PlatformAlertCreateRefused,
+    PlatformAlertListFilters,
     PlatformAlertNotEditable,
     SourceConfigSpec,
     SourceKind,
@@ -64,6 +65,8 @@ from products.alerts_platform.backend.facade.enums import (
     PlatformAlertCheckStatus,
     PlatformAlertConfigurationRecurrenceUnit,
     PlatformAlertConfigurationSourceKind,
+    PlatformAlertListState,
+    PlatformAlertMute,
     PlatformAlertOwner,
     PlatformAlertState,
 )
@@ -338,15 +341,80 @@ class PlatformAlertConfigurationListQuerySerializer(serializers.Serializer):
         required=False,
         help_text="Only the alert copied from, or created with, this source configuration, such as a logs alert's id.",
     )
-    source_kind = serializers.ChoiceField(
+    source_kind = serializers.MultipleChoiceField(
         required=False,
         choices=PlatformAlertConfigurationSourceKind.choices,
-        help_text="Only alerts of this source kind, such as metrics. A kind the caller cannot read returns no alerts.",
+        help_text="Only alerts of these source kinds, such as metrics. Repeat the parameter for more than one kind. "
+        "A kind the caller cannot read returns no alerts.",
     )
     created_by = serializers.UUIDField(
         required=False,
         help_text="Only alerts created by the user with this UUID.",
     )
+    state = serializers.MultipleChoiceField(
+        required=False,
+        choices=PlatformAlertListState.choices,
+        help_text="Only alerts in any of these states. An enabled alert is in each state that one of its groups is in. "
+        "An alert with no group is not_checked, and a disabled alert is only disabled. "
+        "Repeat the parameter for more than one state.",
+    )
+    muted = serializers.MultipleChoiceField(
+        required=False,
+        choices=PlatformAlertMute.choices,
+        help_text="Only alerts that hold their messages for any of these reasons. snoozed: the alert or one of its "
+        "groups is snoozed now. quiet_hours: the alert has quiet hours. Repeat the parameter for more than one reason.",
+    )
+    label = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        help_text="Only alerts with this label, as key:value, such as team:billing. Repeat the parameter for more "
+        "than one label. An alert matches when it has any of the values given for a key, and a match for every key.",
+    )
+
+    def validate_label(self, value: list[str]) -> dict[str, tuple[str, ...]]:
+        values_by_key: dict[str, tuple[str, ...]] = {}
+        for item in value:
+            key, separator, label_value = item.partition(":")
+            if not separator or not key:
+                raise serializers.ValidationError(f"Write each label as key:value, such as team:billing. Got {item!r}.")
+            values_by_key[key] = (*values_by_key.get(key, ()), label_value)
+        return values_by_key
+
+
+class PlatformAlertStateFacetValueSerializer(serializers.Serializer):
+    value = serializers.ChoiceField(choices=PlatformAlertListState.choices, help_text="The state, as `state` takes it.")
+    count = serializers.IntegerField(help_text="How many alerts are in this state.")
+
+
+class PlatformAlertMuteFacetValueSerializer(serializers.Serializer):
+    value = serializers.ChoiceField(choices=PlatformAlertMute.choices, help_text="The reason, as `muted` takes it.")
+    count = serializers.IntegerField(help_text="How many alerts hold their messages for this reason.")
+
+
+class PlatformAlertSourceKindFacetValueSerializer(serializers.Serializer):
+    value = serializers.ChoiceField(
+        choices=PlatformAlertConfigurationSourceKind.choices, help_text="The source kind, as `source_kind` takes it."
+    )
+    count = serializers.IntegerField(help_text="How many alerts are of this source kind.")
+
+
+class PlatformAlertLabelFacetValueSerializer(serializers.Serializer):
+    value = serializers.CharField(help_text="One value of the label key.")
+    count = serializers.IntegerField(help_text="How many alerts have the label with this value.")
+
+
+class PlatformAlertLabelFacetSerializer(serializers.Serializer):
+    key = serializers.CharField(help_text="The label key. Filter on it with `label=key:value`.")
+    values = PlatformAlertLabelFacetValueSerializer(many=True, help_text="Each value of the key, sorted by value.")
+
+
+class PlatformAlertFacetsSerializer(serializers.Serializer):
+    states = PlatformAlertStateFacetValueSerializer(many=True, help_text="Each state, most urgent first.")
+    mutes = PlatformAlertMuteFacetValueSerializer(many=True, help_text="Each reason an alert holds its messages.")
+    source_kinds = PlatformAlertSourceKindFacetValueSerializer(
+        many=True, help_text="Each source kind with at least one alert."
+    )
+    labels = PlatformAlertLabelFacetSerializer(many=True, help_text="Each label key with at least one alert, by key.")
 
 
 # A configuration shows the source product's data (its filters and firing state), so a reader
@@ -1301,8 +1369,8 @@ class PlatformAlertConfigurationViewSet(TeamAndOrgViewSetMixin, viewsets.Generic
         limit = paginator.get_limit(request)
         assert limit is not None
         source_kinds = self._readable_source_kinds()
-        if (source_kind := query.validated_data.get("source_kind")) is not None:
-            source_kinds = [kind for kind in source_kinds if kind == source_kind]
+        if wanted_kinds := query.validated_data.get("source_kind"):
+            source_kinds = [kind for kind in source_kinds if kind in wanted_kinds]
         page = platform_api.list_configurations(
             team_id=self._canonical_team_id(),
             source_kinds=source_kinds,
@@ -1310,6 +1378,11 @@ class PlatformAlertConfigurationViewSet(TeamAndOrgViewSetMixin, viewsets.Generic
             offset=paginator.get_offset(request),
             legacy_configuration_id=query.validated_data.get("legacy_configuration_id"),
             created_by_uuid=query.validated_data.get("created_by"),
+            filters=PlatformAlertListFilters(
+                states=tuple(query.validated_data.get("state", ())),
+                mutes=tuple(query.validated_data.get("muted", ())),
+                labels=query.validated_data.get("label", {}),
+            ),
         )
         paginator.set_count(page.total)
         configurations = self.paginate_queryset(page.configurations) or []
@@ -1317,6 +1390,20 @@ class PlatformAlertConfigurationViewSet(TeamAndOrgViewSetMixin, viewsets.Generic
         return self.get_paginated_response(
             PlatformAlertConfigurationSerializer(configurations, many=True, context={"extras": extras}).data
         )
+
+    @extend_schema(
+        summary="Count alerts for each filter value",
+        description="How many alerts match each value the list filters on: state, muted, source_kind and label. "
+        "The counts cover every alert the caller can read, and no filter narrows them. "
+        "An alert counts once for each value it matches.",
+        responses={200: PlatformAlertFacetsSerializer},
+    )
+    @action(detail=False, methods=["get"], url_path="facets", pagination_class=None)
+    def facets(self, request: Request, **kwargs) -> Response:
+        facets = platform_api.configuration_facets(
+            team_id=self._canonical_team_id(), source_kinds=self._readable_source_kinds()
+        )
+        return Response(PlatformAlertFacetsSerializer(facets).data)
 
     @extend_schema(
         summary="Get an alert",

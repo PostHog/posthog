@@ -5,6 +5,13 @@
             "description": "Only alerts created by the user with this UUID.",
             "type": "string"
         },
+        "label": {
+            "description": "Only alerts with this label, as key:value, such as team:billing. Repeat the parameter for more than one label. An alert matches when it has any of the values given for a key, and a match for every key.",
+            "items": {
+                "type": "string"
+            },
+            "type": "array"
+        },
         "legacy_configuration_id": {
             "description": "Only the alert copied from, or created with, this source configuration, such as a logs alert's id.",
             "type": "string"
@@ -14,22 +21,44 @@
             "maximum": 1000,
             "type": "number"
         },
+        "muted": {
+            "description": "Only alerts that hold their messages for any of these reasons. snoozed: the alert or one of its groups is snoozed now. quiet_hours: the alert has quiet hours. Repeat the parameter for more than one reason.",
+            "items": {
+                "description": "* `snoozed` - Snoozed\n* `quiet_hours` - Quiet hours",
+                "enum": ["snoozed", "quiet_hours"],
+                "type": "string"
+            },
+            "type": "array"
+        },
         "offset": {
             "description": "The initial index from which to return the results.",
             "type": "number"
         },
         "source_kind": {
-            "description": "Only alerts of this source kind, such as metrics. A kind the caller cannot read returns no alerts.\n\n* `logs` - Logs\n* `insight` - Insight\n* `warehouse_source` - Warehouse source\n* `warehouse_destination` - Warehouse destination\n* `metrics` - Metrics\n* `traces` - Traces\n* `error_tracking` - Error tracking",
-            "enum": [
-                "logs",
-                "insight",
-                "warehouse_source",
-                "warehouse_destination",
-                "metrics",
-                "traces",
-                "error_tracking"
-            ],
-            "type": "string"
+            "description": "Only alerts of these source kinds, such as metrics. Repeat the parameter for more than one kind. A kind the caller cannot read returns no alerts.",
+            "items": {
+                "description": "* `logs` - Logs\n* `insight` - Insight\n* `warehouse_source` - Warehouse source\n* `warehouse_destination` - Warehouse destination\n* `metrics` - Metrics\n* `traces` - Traces\n* `error_tracking` - Error tracking",
+                "enum": [
+                    "logs",
+                    "insight",
+                    "warehouse_source",
+                    "warehouse_destination",
+                    "metrics",
+                    "traces",
+                    "error_tracking"
+                ],
+                "type": "string"
+            },
+            "type": "array"
+        },
+        "state": {
+            "description": "Only alerts in any of these states. An enabled alert is in each state that one of its groups is in. An alert with no group is not_checked, and a disabled alert is only disabled. Repeat the parameter for more than one state.",
+            "items": {
+                "description": "* `broken` - Broken\n* `errored` - Errored\n* `firing` - Firing\n* `snoozed` - Snoozed\n* `not_firing` - Not firing\n* `disabled` - Disabled\n* `not_checked` - Not checked yet",
+                "enum": ["broken", "errored", "firing", "snoozed", "not_firing", "disabled", "not_checked"],
+                "type": "string"
+            },
+            "type": "array"
         }
     },
     "type": "object"

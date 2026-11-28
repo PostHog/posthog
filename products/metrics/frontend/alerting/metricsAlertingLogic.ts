@@ -105,7 +105,7 @@ export const metricsAlertingLogic = kea<metricsAlertingLogicType>([
                 loadAlerts: async (_ = null, breakpoint) => {
                     // The platform caps metrics alerts per team well under one page, so one request holds them all.
                     const response = await platformAlertsList(String(values.currentTeamId), {
-                        source_kind: PlatformAlertConfigurationSourceKindEnumApi.Metrics,
+                        source_kind: [PlatformAlertConfigurationSourceKindEnumApi.Metrics],
                         limit: 100,
                     })
                     breakpoint()

@@ -722,3 +722,99 @@ class TestPlatformAlertAPI(APIBaseTest):
         ), response.json()
         logged = ActivityLog.objects.filter(scope="PlatformAlertConfiguration", activity="reset", user=self.user)
         assert logged.count() == (1 if expected == status.HTTP_200_OK else 0)
+
+    def _seed_list(self) -> None:
+        self._set_flag(True)
+        firing = self._create_configuration(self.team, "Firing")
+        erroring = self._create_configuration(
+            self.team, "Erroring", source_kind=PlatformAlertConfiguration.SourceKind.METRICS
+        )
+        disabled = self._create_configuration(self.team, "Disabled")
+        self._create_configuration(self.team, "Unchecked")
+        groups = [
+            (firing, "checkout", PlatformAlert.State.FIRING, None),
+            (firing, "billing", PlatformAlert.State.NOT_FIRING, datetime(2026, 10, 1, 12, tzinfo=UTC)),
+            (erroring, "api", PlatformAlert.State.NOT_FIRING, None),
+            (disabled, "api", PlatformAlert.State.FIRING, datetime(2026, 9, 30, tzinfo=UTC)),
+        ]
+        with team_scope(self.team.id):
+            for configuration, key, state, snooze_until in groups:
+                PlatformAlert.objects.create(
+                    team=self.team,
+                    configuration=configuration,
+                    grouping_key=key,
+                    state=state,
+                    snooze_until=snooze_until,
+                )
+            PlatformAlertConfiguration.objects.filter(id=firing.id).update(labels={"team": "apm", "env": "prod"})
+            PlatformAlertConfiguration.objects.filter(id=erroring.id).update(
+                check_status=PlatformAlertConfiguration.CheckStatus.ERRORED,
+                labels={"team": "billing"},
+                schedule_restriction={"blocked_windows": [{"start": "22:00", "end": "06:00"}]},
+            )
+            PlatformAlertConfiguration.objects.filter(id=disabled.id).update(enabled=False, labels={"team": "apm"})
+
+    @parameterized.expand(
+        [
+            ("one_state", "state=firing", ["Firing"]),
+            ("a_group_in_the_state_is_enough", "state=not_firing", ["Firing"]),
+            ("a_failing_check_takes_each_groups_place", "state=errored", ["Erroring"]),
+            ("a_disabled_alert_is_only_disabled", "state=disabled", ["Disabled"]),
+            ("no_group_is_not_checked", "state=not_checked", ["Unchecked"]),
+            ("values_of_one_facet_widen", "state=firing&state=errored", ["Erroring", "Firing"]),
+            ("a_group_snoozed_now", "muted=snoozed", ["Firing"]),
+            ("quiet_hours", "muted=quiet_hours", ["Erroring"]),
+            ("one_label", "label=team:apm", ["Disabled", "Firing"]),
+            ("values_of_one_label_key_widen", "label=team:apm&label=team:billing", ["Disabled", "Erroring", "Firing"]),
+            ("different_label_keys_narrow", "label=team:apm&label=env:prod", ["Firing"]),
+            ("facets_narrow", "state=firing&label=team:billing", []),
+            (
+                "many_source_kinds",
+                "source_kind=metrics&source_kind=logs",
+                ["Disabled", "Erroring", "Firing", "Unchecked"],
+            ),
+        ]
+    )
+    @time_machine.travel(datetime(2026, 10, 1, 9, tzinfo=UTC), tick=False)
+    def test_list_filters(self, _name: str, query: str, expected: list[str]) -> None:
+        self._seed_list()
+
+        response = self.client.get(f"/api/projects/{self.team.id}/platform_alerts/?{query}")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert sorted(row["name"] for row in response.json()["results"]) == expected
+        assert response.json()["count"] == len(expected)
+
+    def test_a_label_filter_without_a_key_is_refused(self) -> None:
+        self._set_flag(True)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/platform_alerts/?label=billing")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json()["attr"] == "label"
+
+    @time_machine.travel(datetime(2026, 10, 1, 9, tzinfo=UTC), tick=False)
+    def test_facets_count_each_value_over_every_readable_alert(self) -> None:
+        self._seed_list()
+        self._create_configuration(self.organization.teams.create(name="Other"), "Elsewhere")
+
+        response = self.client.get(f"/api/projects/{self.team.id}/platform_alerts/facets/?state=firing")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json() == {
+            "states": [
+                {"value": "broken", "count": 0},
+                {"value": "errored", "count": 1},
+                {"value": "firing", "count": 1},
+                {"value": "snoozed", "count": 0},
+                {"value": "not_firing", "count": 1},
+                {"value": "disabled", "count": 1},
+                {"value": "not_checked", "count": 1},
+            ],
+            "mutes": [{"value": "snoozed", "count": 1}, {"value": "quiet_hours", "count": 1}],
+            "source_kinds": [{"value": "logs", "count": 3}, {"value": "metrics", "count": 1}],
+            "labels": [
+                {"key": "env", "values": [{"value": "prod", "count": 1}]},
+                {"key": "team", "values": [{"value": "apm", "count": 2}, {"value": "billing", "count": 1}]},
+            ],
+        }

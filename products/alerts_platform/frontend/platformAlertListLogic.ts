@@ -114,7 +114,7 @@ export const platformAlertListLogic: LogicWrapper<platformAlertListLogicType> = 
                 loadAlerts: async (_ = null, breakpoint) => {
                     // The platform caps alerts per team and product well under one page, so one request holds them all.
                     const response = await platformAlertsList(String(values.currentTeamId), {
-                        source_kind: props.sourceKind,
+                        source_kind: [props.sourceKind],
                         limit: 100,
                         ...(values.createdByFilter ? { created_by: values.createdByFilter } : {}),
                     })

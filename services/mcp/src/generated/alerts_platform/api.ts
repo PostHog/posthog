@@ -24,6 +24,12 @@ export const platformAlertsListQueryLimitMax = 1000
 
 export const PlatformAlertsListQueryParams = () => zod.object({
     created_by: zod.string().optional().describe('Only alerts created by the user with this UUID.'),
+    label: zod
+        .array(zod.string())
+        .optional()
+        .describe(
+            'Only alerts with this label, as key:value, such as team:billing. Repeat the parameter for more than one label. An alert matches when it has any of the values given for a key, and a match for every key.'
+        ),
     legacy_configuration_id: zod
         .string()
         .optional()
@@ -33,12 +39,44 @@ export const PlatformAlertsListQueryParams = () => zod.object({
         .max(platformAlertsListQueryLimitMax)
         .optional()
         .describe('Number of results to return per page.'),
-    offset: zod.number().optional().describe('The initial index from which to return the results.'),
-    source_kind: zod
-        .enum(['logs', 'insight', 'warehouse_source', 'warehouse_destination', 'metrics', 'traces', 'error_tracking'])
+    muted: zod
+        .array(zod.enum(['snoozed', 'quiet_hours']).describe('\* `snoozed` - Snoozed\n\* `quiet_hours` - Quiet hours'))
         .optional()
         .describe(
-            'Only alerts of this source kind, such as metrics. A kind the caller cannot read returns no alerts.\n\n\* `logs` - Logs\n\* `insight` - Insight\n\* `warehouse_source` - Warehouse source\n\* `warehouse_destination` - Warehouse destination\n\* `metrics` - Metrics\n\* `traces` - Traces\n\* `error_tracking` - Error tracking'
+            'Only alerts that hold their messages for any of these reasons. snoozed: the alert or one of its groups is snoozed now. quiet_hours: the alert has quiet hours. Repeat the parameter for more than one reason.'
+        ),
+    offset: zod.number().optional().describe('The initial index from which to return the results.'),
+    source_kind: zod
+        .array(
+            zod
+                .enum([
+                    'logs',
+                    'insight',
+                    'warehouse_source',
+                    'warehouse_destination',
+                    'metrics',
+                    'traces',
+                    'error_tracking',
+                ])
+                .describe(
+                    '\* `logs` - Logs\n\* `insight` - Insight\n\* `warehouse_source` - Warehouse source\n\* `warehouse_destination` - Warehouse destination\n\* `metrics` - Metrics\n\* `traces` - Traces\n\* `error_tracking` - Error tracking'
+                )
+        )
+        .optional()
+        .describe(
+            'Only alerts of these source kinds, such as metrics. Repeat the parameter for more than one kind. A kind the caller cannot read returns no alerts.'
+        ),
+    state: zod
+        .array(
+            zod
+                .enum(['broken', 'errored', 'firing', 'snoozed', 'not_firing', 'disabled', 'not_checked'])
+                .describe(
+                    '\* `broken` - Broken\n\* `errored` - Errored\n\* `firing` - Firing\n\* `snoozed` - Snoozed\n\* `not_firing` - Not firing\n\* `disabled` - Disabled\n\* `not_checked` - Not checked yet'
+                )
+        )
+        .optional()
+        .describe(
+            'Only alerts in any of these states. An enabled alert is in each state that one of its groups is in. An alert with no group is not_checked, and a disabled alert is only disabled. Repeat the parameter for more than one state.'
         ),
 })
 

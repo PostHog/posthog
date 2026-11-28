@@ -37,7 +37,9 @@ from products.alerts_platform.backend.facade.contracts import (
     PlatformAlertConfigurationPage,
     PlatformAlertConfigurationView,
     PlatformAlertEvents,
+    PlatformAlertFacets,
     PlatformAlertHistory,
+    PlatformAlertListFilters,
     PlatformAlertListHistory,
     PlatformAlertOutcome,
     PlatformAlertRuntime,
@@ -213,11 +215,13 @@ def list_configurations(
     configuration_ids: Collection[UUID] | None = None,
     created_by_uuid: UUID | None = None,
     held_only: bool = False,
+    filters: PlatformAlertListFilters | None = None,
 ) -> PlatformAlertConfigurationPage:
     """One page of configurations a caller may read, with the total behind it. With a
     `legacy_configuration_id`, only the copy of that source row. With `configuration_ids`, only those.
     With `created_by_uuid`, only the ones that user created. With `held_only`, only the ones whose
-    settings the platform holds: those with no source row, and the copies it owns."""
+    settings the platform holds: those with no source row, and the copies it owns. With `filters`,
+    only the ones that match them."""
     return platform_reads.list_configurations(
         team_id=team_id,
         source_kinds=source_kinds,
@@ -227,7 +231,13 @@ def list_configurations(
         configuration_ids=configuration_ids,
         created_by_uuid=created_by_uuid,
         held_only=held_only,
+        filters=filters,
     )
+
+
+def configuration_facets(*, team_id: int, source_kinds: Sequence[str]) -> PlatformAlertFacets:
+    """How many of the configurations a caller may read match each value the list filters on."""
+    return platform_reads.configuration_facets(team_id=team_id, source_kinds=source_kinds)
 
 
 def owned_copies_by_legacy_id(

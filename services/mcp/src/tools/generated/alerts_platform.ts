@@ -63,10 +63,13 @@ const platformAlertsList = (): ToolBase<
             path: `/api/projects/${encodeURIComponent(String(projectId))}/platform_alerts/`,
             query: {
                 created_by: params.created_by,
+                label: params.label,
                 legacy_configuration_id: params.legacy_configuration_id,
                 limit: params.limit,
+                muted: params.muted,
                 offset: params.offset,
                 source_kind: params.source_kind,
+                state: params.state,
             },
         })
         const filtered = {

@@ -40693,6 +40693,11 @@
                     "csv": false
                 },
                 {
+                    "param": "label",
+                    "key": "label",
+                    "csv": false
+                },
+                {
                     "param": "legacy_configuration_id",
                     "key": "legacy_configuration_id",
                     "csv": false
@@ -40703,6 +40708,11 @@
                     "csv": false
                 },
                 {
+                    "param": "muted",
+                    "key": "muted",
+                    "csv": false
+                },
+                {
                     "param": "offset",
                     "key": "offset",
                     "csv": false
@@ -40710,6 +40720,11 @@
                 {
                     "param": "source_kind",
                     "key": "source_kind",
+                    "csv": false
+                },
+                {
+                    "param": "state",
+                    "key": "state",
                     "csv": false
                 }
             ],
