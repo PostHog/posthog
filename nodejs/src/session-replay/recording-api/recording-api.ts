@@ -407,13 +407,13 @@ export class RecordingApi {
             const sentBytes = Buffer.byteLength(result.data)
             this.chargeInternalBlock(sentBytes - heldBytes)
             heldBytes = 0
-            this.releaseOnFinish(res, () => this.chargeInternalBlock(-sentBytes))
+            this.releaseWhenWritten(res, () => this.chargeInternalBlock(-sentBytes))
             const contentType = decompress ? 'application/jsonl' : 'application/octet-stream'
             res.set('Content-Type', contentType)
             res.set('Content-Length', String(sentBytes))
             res.set('Cache-Control', 'public, max-age=2592000, immutable')
-            // Internal callers keep connections alive, so this route keeps send() rather than the write that closes the socket.
-            res.send(result.data)
+            res.write(result.data)
+            res.end()
         } catch (error) {
             logger.error('[RecordingApi] Error fetching block from S3', {
                 error: serializeError(error),
@@ -556,29 +556,14 @@ export class RecordingApi {
         RecordingApiMetrics.setInternalBlockBytesInFlight(this.internalBlockBytesInFlight)
     }
 
-    private releaseOnFinish(res: express.Response, onRelease: () => void): void {
-        let released = false
-        const release = (): void => {
-            if (!released) {
-                released = true
-                clearTimeout(timer)
-                onRelease()
-            }
-        }
+    // The socket closes once the response is fully written or the client aborts. The timer covers anything that
+    // emits neither, and outlasts the Envoy route timeout, which resets a stalled upstream response.
+    private releaseWhenWritten(res: express.Response, onRelease: () => void): void {
         // A caller that hung up during the read already emitted close, so nothing else would release its bytes.
         if (res.writableFinished) {
             onRelease()
             return
         }
-        const timer = setTimeout(release, PUBLIC_BLOCK_HOLD_CAP_MS)
-        timer.unref()
-        res.once('finish', release)
-        res.once('close', release)
-    }
-
-    // The socket closes once the response is fully written or the client aborts. The timer covers anything that
-    // emits neither, and outlasts the Envoy route timeout, which resets a stalled upstream response.
-    private releaseWhenWritten(res: express.Response, bytes: number): void {
         let released = false
         let finishEmitted = false
         res.once('finish', () => (finishEmitted = true))
@@ -586,7 +571,7 @@ export class RecordingApi {
             if (!released) {
                 released = true
                 clearTimeout(timer)
-                this.publicBlockBytesInFlight -= bytes
+                onRelease()
             }
         }
         const timer = setTimeout(release, PUBLIC_BLOCK_HOLD_CAP_MS)
@@ -703,8 +688,11 @@ export class RecordingApi {
                 return
             }
             // send() hands the whole buffer to uWS at once, so a slow reader would hold it after the budget frees it.
-            // A write with Content-Length set goes out under backpressure and closes the socket once fully written.
-            this.releaseWhenWritten(res, admittedBytes)
+            // A write with Content-Length set goes out under backpressure and emits socket close once fully written.
+            const writtenBytes = admittedBytes
+            this.releaseWhenWritten(res, () => {
+                this.publicBlockBytesInFlight -= writtenBytes
+            })
             admittedBytes = 0
             res.write(result.data)
             res.end()
