@@ -12,7 +12,7 @@ import type { QueueCounts } from '../probe/cyclotron-probe'
 import type { WriterSample } from '../probe/writer-probe'
 import type { ValveTimelineEntry } from '../valves/valves'
 import { CounterReading, counterDrift } from './drift'
-import { deliveryKey, unjudgedNoLossOf } from './invariants'
+import { deliveryKey } from './invariants'
 import type { JudgeEvidence } from './invariants'
 import type { IntakeAnswer, JournalEntry } from './judge'
 
@@ -61,9 +61,6 @@ export type MeasureEvidence = Omit<JudgeEvidence, 'janitorResets' | 'boundary'> 
         horizonSeq?: number
         converged?: boolean
         unsettled?: string
-        truthFrom: number
-        unobserved: readonly string[]
-        interrupted?: true
     }
 
 export type MeasurementDefinition = Definition & {
@@ -191,8 +188,7 @@ export const webhookTriggerAnswerMs: MeasurementDefinition = {
     measure: (evidence) =>
         webhookTriggersByStep(evidence).flatMap(([{ scale }, triggers]) => {
             const answered = triggers.flatMap(({ answer }) => answer.attemptsMs ?? []).sort((a, b) => a - b)
-            const incompleteness =
-                evidence.interrupted || triggers.some(untimedAttempt) ? { incomplete: true as const } : {}
+            const incompleteness = triggers.some(untimedAttempt) ? { incomplete: true as const } : {}
             return (
                 [
                     ['p50', 0.5],
@@ -206,13 +202,6 @@ export const webhookTriggerAnswerMs: MeasurementDefinition = {
                     : { value: nearestRank(answered, share) }),
             }))
         }),
-}
-
-function unjudgedLossOf(evidence: MeasureEvidence): string | undefined {
-    if (evidence.unread === undefined && evidence.horizonSeq === undefined) {
-        return 'the run reached no recovery horizon'
-    }
-    return unjudgedNoLossOf(evidence.journal, evidence.truth, evidence)
 }
 
 const failedWith = (answer: IntakeAnswer, failed: (status: number) => boolean): boolean =>
@@ -236,11 +225,9 @@ export const webhookTriggerOutcomes: MeasurementDefinition = {
                     : []
             )
         )
-        const unjudged = unjudgedLossOf(evidence)
-        const incompleteness = evidence.interrupted ? { incomplete: true as const } : {}
         return webhookTriggersByStep(evidence).flatMap(([{ scale }, triggers]) => {
             const accepted = triggers.filter(({ answer }) => answer.accepted)
-            const rows: Measured[] = [
+            return [
                 { key: `offered_${scale}x`, value: triggers.length },
                 { key: `accepted_${scale}x`, value: accepted.length },
                 {
@@ -257,8 +244,15 @@ export const webhookTriggerOutcomes: MeasurementDefinition = {
                 },
                 {
                     key: `lost_${scale}x`,
-                    ...(unjudged !== undefined
-                        ? { value: null, censored: true as const, unmeasured: unjudged }
+                    ...(evidence.unread !== undefined || horizonSeq === undefined
+                        ? {
+                              value: null,
+                              censored: true as const,
+                              unmeasured:
+                                  evidence.unread !== undefined
+                                      ? `the truth could not be read (${evidence.unread})`
+                                      : 'the run reached no recovery horizon',
+                          }
                         : {
                               value: accepted.filter(({ unitId, expect }) =>
                                   expect.deliveries.some((actionId) => !delivered.has(deliveryKey(unitId, actionId)))
@@ -266,7 +260,6 @@ export const webhookTriggerOutcomes: MeasurementDefinition = {
                           }),
                 },
             ]
-            return rows.map((row) => ({ ...row, ...incompleteness }))
         })
     },
 }

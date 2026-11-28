@@ -325,11 +325,7 @@ export const bouncedSuppressed: InvariantDefinition = {
 
 const runOf = (unitId: string): string => unitId.slice(0, unitId.lastIndexOf('-'))
 
-export function unjudgedNoLossOf(
-    journal: readonly JournalEntry[],
-    truth: readonly TruthRecord[],
-    boundary: Pick<RunBoundary, 'truthFrom' | 'unread' | 'unsettled' | 'unobserved'>
-): string | undefined {
+function unjudgedNoLoss({ journal, truth, boundary }: JudgeEvidence): string | undefined {
     if (boundary.unread !== undefined) {
         return `the truth could not be read: ${boundary.unread}`
     }
@@ -444,7 +440,7 @@ export const noLoss: InvariantDefinition = {
                 `the run reached no recovery horizon: the last convergence read failed: ${horizon.unread}`
             )
         }
-        const unjudged = unjudgedNoLossOf(evidence.journal, evidence.truth, evidence.boundary)
+        const unjudged = unjudgedNoLoss(evidence)
         if (unjudged !== undefined) {
             return unjudgedOf(unjudged)
         }

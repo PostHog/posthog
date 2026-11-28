@@ -764,8 +764,12 @@ export function createRunner(
                 dependencies = await health.stop()
                 alerted = await alerting?.finish(driveWindow, valves.timeline(), judgedAt)
                 const janitorResets = janitorResetsOf({ ...sampled, sampledFrom: sampler.sampledFrom })
-                const unobserved = unobservedValvesOf(valves.timeline(), driveWindow)
-                const checked = await judge.check(card.invariants, card.gates, { janitorResets, unobserved }, signal)
+                const checked = await judge.check(
+                    card.invariants,
+                    card.gates,
+                    { janitorResets, unobserved: unobservedValvesOf(valves.timeline(), driveWindow) },
+                    signal
+                )
                 const { unread } = judge.evidence()
                 const convergence: Convergence = unread === undefined ? converged : { ...converged, unread }
                 const invariants = judgedInvariantsOf(checked, convergence)
@@ -789,8 +793,6 @@ export function createRunner(
                     drive: driveWindow,
                     steps,
                     timeline: valves.timeline(),
-                    unobserved,
-                    ...((signal.aborted || valves.refusal.aborted) && { interrupted: true as const }),
                 }
                 const measurements = measure(card.measure, evidence)
                 const admissions = admissionsOf(

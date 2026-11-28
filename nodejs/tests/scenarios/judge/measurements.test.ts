@@ -62,8 +62,6 @@ const record = (seq: number, unitId: string, atMs: number, status = 200): TruthR
 const evidence = (partial: Partial<MeasureEvidence>): MeasureEvidence => ({
     journal: [],
     truth: [],
-    truthFrom: 0,
-    unobserved: [],
     fetchRetries: 3,
     samples: [],
     missed: [],
