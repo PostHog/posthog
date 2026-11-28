@@ -411,6 +411,7 @@ class TestScoutMessageRoutesConfigAPI(_MessagesFixture, APIBaseTest):
             ("above_the_ceiling", None, 11, True, status.HTTP_400_BAD_REQUEST, None),
             ("without_skill_editor_access", None, 3, False, status.HTTP_403_FORBIDDEN, None),
             ("resend_of_the_stored_value_without_editor_access", 3, 3, False, status.HTTP_200_OK, 3),
+            ("resend_of_a_stored_value_above_a_lowered_ceiling", 20, 20, True, status.HTTP_200_OK, 20),
         ]
     )
     def test_setting_the_message_cap_is_bounded_by_the_ceiling_and_gated_like_routes(
@@ -440,7 +441,7 @@ class TestScoutMessageRoutesConfigAPI(_MessagesFixture, APIBaseTest):
         config.refresh_from_db()
         assert config.max_messages_per_day == expected_stored
         if expected_status == status.HTTP_200_OK:
-            assert response.json()["message_cap"] == expected_stored
+            assert response.json()["message_cap"] == min(expected_stored, 10)
 
     def test_an_upsert_with_an_empty_list_clears_the_stored_routes(self) -> None:
         LLMSkill.objects.create(team=self.team, name="signals-scout-foo", description="d", body="watch")
@@ -511,6 +512,7 @@ class TestSendQueuedScoutMessages(_MessagesFixture, BaseTest):
         [
             ("flag_off", "flag_off"),
             ("emit_turned_off_during_the_run", "emit_off"),
+            ("cap_set_to_zero_during_the_run", "cap_off"),
             ("route_removed_during_the_run", "route_removed"),
             ("report_deleted_during_the_run", "report_hidden"),
             ("sent_by_an_overlapping_run", "duplicate"),
@@ -525,6 +527,8 @@ class TestSendQueuedScoutMessages(_MessagesFixture, BaseTest):
             self._set_routes(run.scout_config, _route("another-route", _DM))
         elif reason == "emit_off":
             SignalScoutConfig.all_teams.filter(pk=run.scout_config.pk).update(emit=False)
+        elif reason == "cap_off":
+            SignalScoutConfig.all_teams.filter(pk=run.scout_config.pk).update(max_messages_per_day=0)
         elif reason == "report_hidden":
             SignalReport.objects.filter(pk=report.pk).update(status=SignalReport.Status.DELETED)
         elif reason == "duplicate":

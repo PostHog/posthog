@@ -4664,9 +4664,14 @@ class _ScoutConfigCapabilityFieldsMixin(serializers.Serializer):
         if value is None:
             return value
         if isinstance(self.instance, SignalScoutConfig):
+            # A stored value above a since-lowered ceiling is clamped at run time, so resending it must not block other edits.
+            if value == self.instance.max_messages_per_day:
+                return value
             team_id = self.instance.team_id
         else:
-            team = self.context["get_team"]()
+            get_team = self.context.get("get_team")
+            # Some create paths pass a `team` object instead of the routed `get_team` lambda.
+            team = get_team() if callable(get_team) else self.context["team"]
             team_id = team.parent_team_id or team.id
         ceiling = resolve_scout_message_cap(value, _message_cap_layers(self.context, team_id)).ceiling
         if value > ceiling:

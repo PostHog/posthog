@@ -4011,6 +4011,8 @@ class SignalScoutMessage(TeamScopedRootMixin, UUIDModel):
         DUPLICATE = "duplicate", "Duplicate"
         # Left queued by a failed send for longer than the cap window, so no longer worth sending.
         EXPIRED = "expired", "Expired"
+        # The owner set the scout's message cap to 0 after the message was queued.
+        CAP_OFF = "cap_off", "Messages off"
 
     # See SignalScoutConfig.all_teams for rationale: the end-of-run send runs with no team scope set.
     all_teams = models.Manager()  # noqa: DJ012

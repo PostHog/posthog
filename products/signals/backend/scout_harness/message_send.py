@@ -40,8 +40,10 @@ from products.signals.backend.scout_harness.message_routes import (
     MessageRoute,
     find_message_route,
     lock_scout_message_lane,
+    resolve_scout_message_cap,
     scout_send_message_enabled,
 )
+from products.signals.backend.scout_harness.team_limits import team_config_layers_for_team
 from products.signals.backend.tasks import enqueue_scout_slack_delivery
 from products.tasks.backend.facade import api as tasks_facade
 
@@ -90,6 +92,13 @@ def _send_run_messages(run: SignalScoutRun) -> int:
     config = run.scout_config
     enabled = scout_send_message_enabled(team)
     integration_id = _integration_id(config)
+    # The cap is checked when a message is queued, so a cap set to 0 mid-run has to stop what is already queued.
+    cap_off = (
+        resolve_scout_message_cap(
+            config.max_messages_per_day if config else None, team_config_layers_for_team(team.parent_team_id or team.id)
+        ).limit
+        == 0
+    )
     sent = 0
     for message_id in message_ids:
         try:
@@ -99,6 +108,7 @@ def _send_run_messages(run: SignalScoutRun) -> int:
                 message_id=message_id,
                 config=config,
                 enabled=enabled,
+                cap_off=cap_off,
                 integration_id=integration_id,
             ):
                 sent += 1
@@ -203,6 +213,7 @@ def _send_one(
     message_id: Any,
     config: SignalScoutConfig | None,
     enabled: bool,
+    cap_off: bool,
     integration_id: int | None,
 ) -> bool:
     with transaction.atomic():
@@ -219,7 +230,7 @@ def _send_one(
             return False
         route = find_message_route(config.output_destinations, message.route_key) if config else None
         drop_reason = _drop_reason(
-            message=message, config=config, route=route, enabled=enabled, integration_id=integration_id
+            message=message, config=config, route=route, enabled=enabled, cap_off=cap_off, integration_id=integration_id
         )
         if drop_reason is None and _sent_recently(message):
             drop_reason = SignalScoutMessage.DropReason.DUPLICATE
@@ -263,12 +274,15 @@ def _drop_reason(
     config: SignalScoutConfig | None,
     route: MessageRoute | None,
     enabled: bool,
+    cap_off: bool,
     integration_id: int | None,
 ) -> SignalScoutMessage.DropReason | None:
     if not enabled:
         return SignalScoutMessage.DropReason.FLAG_OFF
     if config is not None and not config.emit:
         return SignalScoutMessage.DropReason.EMIT_OFF
+    if cap_off:
+        return SignalScoutMessage.DropReason.CAP_OFF
     if route is None:
         return SignalScoutMessage.DropReason.ROUTE_REMOVED
     if integration_id is None:
