@@ -98,7 +98,13 @@ def unsuspend_email_sending(team_id: int) -> EmailSendingSuspensionChange:
 
 
 def set_email_sending_tier(
-    team_id: int, *, tier: int, pinned: bool, user_id: int | None = None, was_impersonated: bool = False
+    team_id: int,
+    *,
+    tier: int,
+    pinned: bool,
+    staff_note: str = "",
+    user_id: int | None = None,
+    was_impersonated: bool = False,
 ) -> int:
     """Write a staff-chosen tier and pin state, and return the tier the team had before."""
     team = ensure_workflows_config(team_id)
@@ -124,6 +130,7 @@ def set_email_sending_tier(
         previous_tier=previous_tier,
         new_tier=tier,
         reason="staff_set",
+        staff_note=staff_note,
         pin_change=(previous_pinned, pinned),
         user_id=user_id,
         was_impersonated=was_impersonated,
