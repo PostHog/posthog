@@ -316,85 +316,44 @@ describe('measurements', () => {
         ])
     })
 
-    const heldBy = (truth: TruthRecord): TruthRecord => ({ ...truth, fault: 'ses.hold' })
-    const holding = (releasedAtMs: number): ValveTimelineEntry => ({
-        valve: 'ses.hold',
-        target: 'ses',
-        requestedAt: at(3000),
-        appliedAt: at(3000),
-        observedAt: at(4000),
-        releasedAt: at(releasedAtMs),
-    })
-    const exited = terminated({ exitedAt: at(30_000), code: 0 })
-    const heldPastExit = [
-        heldBy(record(1, 'run-a-1', 4000)),
-        heldBy(record(2, 'run-a-2', 4500)),
-        record(3, 'run-a-3', 4600),
-        heldBy(record(4, 'run-a-5', 35_000)),
-        record(5, 'run-a-1', 42_000),
-    ]
-    const HELD_KEYS = ['held_once', 'held_twice']
-    const heldUntilExit = {
-        timeline: [holding(40_100), exited],
-        truth: heldPastExit,
-        converged: false,
-    } satisfies Partial<MeasureEvidence>
-
-    it('reads the sends held at the exit, not those the replacement worker sent into the hold', () => {
-        expect(measure([{ name: 'ses_calls_held_past_exit', params: {} }], evidence(heldUntilExit))).toEqual([
-            { name: 'ses_calls_held_past_exit', unit: 'sends', value: 2 },
-        ])
-    })
-
-    it.each<[string, Partial<MeasureEvidence>, string]>([
-        [
-            'the hold answered before the worker exited',
-            { timeline: [holding(20_000), exited], truth: heldPastExit.slice(0, 3), converged: true },
-            'the hold answered before the worker exited, so no SES call was open at the exit',
-        ],
-        [
-            'the runner has no release time for the hold',
-            { ...heldUntilExit, timeline: [{ ...holding(40_100), releasedAt: undefined }, exited] },
-            'the hold has no release time, so nothing shows it still kept the answers at the exit',
-        ],
-        [
-            'the card terminates a worker other than the email worker',
-            { ...heldUntilExit, timeline: [holding(40_100), { ...exited, target: 'cdp-cyclotron-worker-hogflow' }] },
-            'the card terminates cdp-cyclotron-worker-hogflow, not the email worker that makes the SES calls',
-        ],
-        [
-            'the card holds SES answers twice',
-            { ...heldUntilExit, timeline: [holding(20_000), { ...holding(40_100), appliedAt: at(25_000) }, exited] },
-            'the card holds SES answers more than once, so a held send has no one release to compare with the exit',
-        ],
-    ])('counts no held sends in either reading when %s', (_story, held, reason) => {
-        const journal = ['run-a-1', 'run-a-2', 'run-a-5'].map((unitId) => offered(unitId, 0))
-        const unread = { value: null, censored: true, unmeasured: reason }
+    it('counts deliveries never, once and twice, and leaves the held ones unmeasured though the hold outlasted the exit', () => {
+        const journal = ['run-a-1', 'run-a-2', 'run-a-3', 'run-a-4', 'run-a-5'].map((unitId) => offered(unitId, 0))
+        const heldBy = (truth: TruthRecord): TruthRecord => ({ ...truth, fault: 'ses.hold' })
+        const holding: ValveTimelineEntry = {
+            valve: 'ses.hold',
+            target: 'ses',
+            requestedAt: at(3000),
+            appliedAt: at(3000),
+            observedAt: at(4000),
+            releasedAt: at(40_100),
+        }
+        const truth = [
+            heldBy(record(1, 'run-a-1', 4000)),
+            heldBy(record(2, 'run-a-2', 4500)),
+            record(3, 'run-a-3', 4600),
+            heldBy(record(4, 'run-a-5', 35_000)),
+            record(5, 'run-a-1', 42_000),
+        ]
+        const timeline = [holding, terminated({ exitedAt: at(30_000), code: 0 })]
+        const unread = {
+            value: null,
+            censored: true,
+            unmeasured: 'not measured: the edge does not record when the hold answered its sends, a follow-up',
+        }
 
         expect(
             measure(
                 ['ses_calls_held_past_exit', 'sends_per_delivery'].map((name) => ({ name, params: {} })),
-                evidence({ ...held, journal })
-            ).filter(({ name, key }) => name === 'ses_calls_held_past_exit' || key?.startsWith('held_'))
+                evidence({ journal, truth, timeline, converged: false })
+            ).map(({ unit: _unit, ...value }) => value)
         ).toEqual([
-            { name: 'ses_calls_held_past_exit', unit: 'sends', ...unread },
-            ...HELD_KEYS.map((key) => ({ name: 'sends_per_delivery', unit: 'deliveries', key, ...unread })),
-        ])
-    })
-
-    it('counts how many deliveries went out never, once and twice, and the same for the sends held at the exit', () => {
-        const journal = ['run-a-1', 'run-a-2', 'run-a-3', 'run-a-4', 'run-a-5'].map((unitId) => offered(unitId, 0))
-
-        expect(
-            measure([{ name: 'sends_per_delivery', params: {} }], evidence({ ...heldUntilExit, journal })).map(
-                ({ key, value, incomplete }) => [key, value, incomplete]
-            )
-        ).toEqual([
-            ['never', 1, true],
-            ['once', 3, true],
-            ['twice', 1, true],
-            ['held_once', 1, true],
-            ['held_twice', 1, true],
+            { name: 'ses_calls_held_past_exit', ...unread },
+            ...[
+                ['never', 1],
+                ['once', 3],
+                ['twice', 1],
+            ].map(([key, value]) => ({ name: 'sends_per_delivery', key, value, incomplete: true })),
+            ...['held_once', 'held_twice'].map((key) => ({ name: 'sends_per_delivery', key, ...unread })),
         ])
     })
 
