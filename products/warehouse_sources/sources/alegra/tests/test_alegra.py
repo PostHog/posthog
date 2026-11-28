@@ -123,6 +123,10 @@ def test_unknown_table_fails_before_network(
         ("payment_terms", "/api/v1/terms", {}),
         ("price_lists", "/api/v1/price-lists", {"order_field": ["id"], "order_direction": ["ASC"]}),
         ("remissions", "/api/v1/remissions", {"order_field": ["id"], "order_direction": ["ASC"]}),
+        ("income_debit_notes", "/api/v1/income-debit-notes", {}),
+        ("retentions", "/api/v1/retentions", {}),
+        ("currencies", "/api/v1/currencies", {}),
+        ("custom_fields", "/api/v1/custom-fields", {}),
     ],
 )
 def test_endpoint_request_shape(
@@ -134,10 +138,13 @@ def test_endpoint_request_shape(
     path: str,
     query: dict[str, list[str]],
 ) -> None:
-    sent = http_boundary([(200, [{"id": "row-test", "status": "inactive"}])])
-    assert rows(response_for(config, replace(inputs, schema_name=schema_name))) == [
-        [{"id": "row-test", "status": "inactive"}]
-    ]
+    page = (
+        [{"code": "EUR", "exchangeRate": 1.15}]
+        if schema_name == "currencies"
+        else [{"id": "row-test", "status": "inactive"}]
+    )
+    sent = http_boundary([(200, page)])
+    assert rows(response_for(config, replace(inputs, schema_name=schema_name))) == [page]
     request_url = urlsplit(sent[0].url or "")
     assert request_url.path == path
     assert parse_qs(request_url.query) == {**query, "limit": ["30"], "start": ["0"]}

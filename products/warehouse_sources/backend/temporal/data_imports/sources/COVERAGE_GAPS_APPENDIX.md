@@ -476,12 +476,12 @@ Re-audited 2026-11-19 against: <https://developer.alegra.com/llms.txt>
 
 - [x] `Users (GET /users)` — staff and seller identities for invoices and bills (high)
 - [x] `Payment terms (GET /terms)` — lookup of payment terms for invoices and bills (medium)
-- [ ] `Retentions (GET /retentions)` — tax withholding definitions applied to documents (medium)
+- [x] `Retentions (GET /retentions)` — tax withholding definitions applied to documents (medium)
 - [x] `Price lists (GET /price-lists)` — price list definitions used by items and sales (medium)
-- [ ] `Currencies (GET /currencies)` — currency definitions and rates for multi-currency documents (medium)
-- [ ] `Custom fields (GET /custom-fields)` — definitions of user-defined fields on documents and contacts (medium)
+- [x] `Currencies (GET /currencies)` — currency definitions and rates for multi-currency documents (medium)
+- [x] `Custom fields (GET /custom-fields)` — definitions of custom fields on items (medium)
 - [x] `Remissions (GET /remissions)` — delivery notes between orders and invoices (medium)
-- [ ] `Income debit notes (GET /income-debit-notes)` — debit notes issued to customers, the sales side of debit_notes (medium)
+- [x] `Income debit notes (GET /income-debit-notes)` — debit notes issued to customers, the sales side of debit_notes (medium)
 - [ ] `Global invoices (GET /global-invoices)` — summary invoices for sales without a named customer (low)
 - [ ] `Recurring payments (GET /recurring-payments)` — scheduled recurring payments (low)
 

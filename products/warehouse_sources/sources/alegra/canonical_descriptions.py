@@ -214,4 +214,52 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "warehouse": "Warehouse that the goods leave from.",
         },
     },
+    "income_debit_notes": {
+        "description": "Debit notes issued to customers.",
+        "docs_url": "https://developer.alegra.com/reference/get_income-debit-notes",
+        "columns": {
+            "id": "Unique identifier of the customer debit note.",
+            "date": "Date of the debit note.",
+            "client": "Customer associated with the debit note.",
+            "numberTemplate": "Number and prefix of the debit note.",
+            "total": "Total amount of the debit note.",
+            "balance": "Outstanding balance of the debit note.",
+            "items": "Line items with quantities, prices, and taxes.",
+        },
+    },
+    "retentions": {
+        "description": "Tax withholding definitions in the Alegra account.",
+        "docs_url": "https://developer.alegra.com/reference/get_retentions",
+        "columns": {
+            "id": "Unique identifier of the withholding definition.",
+            "name": "Name of the withholding definition.",
+            "calculatedBy": "Method used to calculate the withholding amount.",
+            "percentage": "Tax withholding rate as a percentage.",
+            "type": "Type of tax withholding.",
+            "status": "Status of the withholding definition.",
+        },
+    },
+    "currencies": {
+        "description": "Currencies and exchange rates configured in the Alegra account.",
+        "docs_url": "https://developer.alegra.com/reference/get_currencies",
+        "columns": {
+            "code": "Currency code, such as USD.",
+            "name": "Name of the currency.",
+            "symbol": "Symbol of the currency.",
+            "status": "Currency status: active or inactive.",
+            "exchangeRate": "Configured exchange rate for the currency.",
+        },
+    },
+    "custom_fields": {
+        "description": "Definitions of custom fields on items.",
+        "docs_url": "https://developer.alegra.com/reference/get_custom-fields",
+        "columns": {
+            "id": "Unique identifier of the custom field.",
+            "name": "Name of the custom field.",
+            "resourceType": "Type of resource associated with the field.",
+            "type": "Data type of the field.",
+            "defaultValue": "Default value of the field.",
+            "settings": "Field settings, including whether the field is required or prints on invoices.",
+        },
+    },
 }

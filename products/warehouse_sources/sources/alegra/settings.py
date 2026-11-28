@@ -55,6 +55,10 @@ ENDPOINTS: dict[str, AlegraEndpoint] = {
     "payment_terms": AlegraEndpoint(path="terms"),
     "price_lists": AlegraEndpoint(path="price-lists", params={"order_field": "id", "order_direction": "ASC"}),
     "remissions": AlegraEndpoint(path="remissions", params={"order_field": "id", "order_direction": "ASC"}),
+    "income_debit_notes": AlegraEndpoint(path="income-debit-notes"),
+    "retentions": AlegraEndpoint(path="retentions"),
+    "currencies": AlegraEndpoint(path="currencies", primary_keys=("code",), partition_keys=("code",)),
+    "custom_fields": AlegraEndpoint(path="custom-fields"),
 }
 
 # Document dates can be edited, and server-side date filters have not been verified against a live account.
