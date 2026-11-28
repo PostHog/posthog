@@ -25,6 +25,7 @@ from posthog.models import Organization, Team, User
 from posthog.models.ai_events.test_util import bulk_create_ai_events
 from posthog.models.event.util import bulk_create_events
 from posthog.temporal.ai_observability.judge_attachments import JudgeAttachments
+from posthog.temporal.ai_observability.model_resolution import model_spec
 from posthog.temporal.ai_observability.run_session_evaluation import fetch_session_for_evaluation
 from posthog.temporal.ai_observability.trace_summarization.fetch_and_format import _fetch_and_format_trace
 
@@ -38,9 +39,9 @@ from products.ai_observability.backend.facade.evaluation_runtime import (
     build_trace_hog_globals,
     execute_hog_eval_bytecode,
 )
+from products.ai_observability.backend.llm import DEFAULT_MODEL_BY_PROVIDER
 from products.ai_observability.backend.llm.attachments import AttachmentPart
 from products.ai_observability.backend.llm.errors import ContextWindowExceededError
-from products.ai_observability.backend.models.evaluation_config import EvaluationConfig
 from products.ai_observability.backend.models.evaluations import Evaluation
 from products.ai_observability.backend.models.provider_keys import LLMProviderKey
 from products.cdp.backend.validation import compile_hog
@@ -110,17 +111,21 @@ def setup_data():
 
 
 @pytest.fixture
-def active_key_config(setup_data):
-    """Give the team a healthy active provider key so a null-config judge resolves via DefaultModelSpec."""
-    team = setup_data["team"]
+def pinned_judge_key(setup_data):
+    """Pin a healthy OpenAI key on judges these tests build without a model configuration."""
     key = LLMProviderKey.objects.create(
-        team=team,
+        team=setup_data["team"],
         provider="openai",
         name="openai key",
         state=LLMProviderKey.State.OK,
         encrypted_config={"api_key": "sk-test"},
     )
-    EvaluationConfig.objects.create(team=team, active_provider_key=key)
+    pinned = {"provider": "openai", "model": DEFAULT_MODEL_BY_PROVIDER["openai"], "provider_key_id": str(key.id)}
+    with patch(
+        "posthog.temporal.ai_observability.evaluation_llm_judge.model_spec",
+        side_effect=lambda config: model_spec(config or pinned),
+    ):
+        yield key
 
 
 def evaluation_dict(setup_data: dict, **overrides: Any) -> dict[str, Any]:
@@ -969,7 +974,7 @@ class TestExecuteTraceLLMJudgeActivity:
     def test_judges_full_trace_transcript(
         self,
         setup_data: dict[str, Any],
-        active_key_config: None,
+        pinned_judge_key: None,
         trace: LLMTrace,
         expected_fragments: list[str],
     ) -> None:
@@ -1017,7 +1022,7 @@ class TestExecuteTraceLLMJudgeActivity:
     def test_context_window_rejection_retries_once_at_the_fallback_budget(
         self,
         setup_data: dict[str, Any],
-        active_key_config: None,
+        pinned_judge_key: None,
         content_length: int,
         rejections: int,
         expected_calls: int,
@@ -1061,7 +1066,7 @@ class TestExecuteTraceLLMJudgeActivity:
 
     @pytest.mark.django_db(transaction=True)
     def test_sends_the_trace_images_to_a_judge_with_images(
-        self, setup_data: dict[str, Any], active_key_config: None
+        self, setup_data: dict[str, Any], pinned_judge_key: None
     ) -> None:
         image = {"type": "image_url", "image_url": {"url": "data:image/png;base64,aGk="}}
         trace = create_trace([], inputState=[{"role": "user", "content": [image, {"type": "text", "text": "Chart?"}]}])
@@ -1091,7 +1096,7 @@ class TestExecuteTraceLLMJudgeActivity:
 
     @pytest.mark.django_db(transaction=True)
     def test_retry_without_rejected_images_sends_the_transcript_the_flag_describes(
-        self, setup_data: dict[str, Any], active_key_config: None
+        self, setup_data: dict[str, Any], pinned_judge_key: None
     ) -> None:
         # Inline base64 renders in full in the plain transcript, which then gets cut, and as a short marker in
         # the marked one, which fits whole.
@@ -1144,7 +1149,7 @@ class TestExecuteTraceLLMJudgeActivity:
 
     @pytest.mark.django_db(transaction=True)
     def test_overflow_with_images_retries_the_shorter_transcript_with_the_images_first(
-        self, setup_data: dict[str, Any], active_key_config: None
+        self, setup_data: dict[str, Any], pinned_judge_key: None
     ) -> None:
         screenshot = {"type": "image_url", "image_url": {"url": "data:image/png;base64,aGk="}}
         prompt = "start " + "x" * 100_000 + " critical evidence " + "y" * 100_000 + " end"

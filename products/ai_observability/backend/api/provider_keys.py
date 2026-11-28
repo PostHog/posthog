@@ -676,9 +676,8 @@ class LLMProviderKeyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, v
             state=LLMProviderKey.State.OK,
         ).exclude(id=instance.id)
 
-        # An evaluation with no pinned key runs on the project's active key (`active_key_fallback`), so a
-        # problem with that key turns it off too. Listed apart, because replacing a key only re-pins the
-        # configs above.
+        # Errored judges with no pinned key in a project whose active key this is. Listed apart, because
+        # replacing a key only re-pins the configs above.
         active_key_evaluations = []
         if EvaluationConfig.objects.filter(team_id=self.team_id, active_provider_key=instance).exists():
             active_key_evaluations = [
