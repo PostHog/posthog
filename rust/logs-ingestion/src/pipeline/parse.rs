@@ -4,8 +4,11 @@ use ingestion_framework::{drop, ok, KafkaMessage, Outcome, PipelineResult, Proce
 use metrics::counter;
 
 use crate::internal_logs::INTERNAL_LOGS_HEADER;
+use crate::secret_key::{
+    is_secret_key_digest, is_unhashed_secret_key, loggable_token, AUTH_TYPE_SECRET_KEY,
+};
 
-use super::context::{kafka_header, quarantine_log_message, LogsPipelineContext};
+use super::context::{kafka_header, quarantine_log_message, AppSource, LogsPipelineContext};
 use super::deps::Team;
 use super::errors::NamedError;
 use super::types::{parse_min_timestamp_header, parse_size_header, LogsIngestionMessage};
@@ -34,10 +37,25 @@ async fn parse(
         }
     };
 
+    let sent_secret_key = is_secret_key_digest(&token);
+    let sent_unhashed_key = is_unhashed_secret_key(&token);
+    let secret_key_allowed = context.identity.app_source == AppSource::Logs;
     // A Postgres blip is retried in place with bounded backoff: dropping it would lose good data for
     // every team whose token is not cached yet. Only an outage past the backoff drops.
     let team: Option<Team> = match context
-        .retry(|| context.deps.team_manager.get_team_by_token(&token))
+        .retry(|| async {
+            if sent_unhashed_key || (sent_secret_key && !secret_key_allowed) {
+                Ok(None)
+            } else if sent_secret_key {
+                context
+                    .deps
+                    .team_manager
+                    .get_team_by_secret_key(&token)
+                    .await
+            } else {
+                context.deps.team_manager.get_team_by_token(&token).await
+            }
+        })
         .await
     {
         Ok(team) => team,
@@ -48,9 +66,14 @@ async fn parse(
         }
     };
     let Some(team) = team else {
-        tracing::warn!(token_with_no_team = %token, "team_not_found");
+        tracing::warn!(token_with_no_team = %loggable_token(&token), "team_not_found");
         count_dropped("team_not_found");
         return Ok(drop("team_not_found"));
+    };
+    let public_token = if sent_secret_key {
+        team.api_token.clone()
+    } else {
+        token
     };
 
     let bytes_uncompressed = parse_size_header(header("bytes_uncompressed").as_deref());
@@ -77,7 +100,14 @@ async fn parse(
             "logs_ingestion_invalid_size_headers"
         );
         let error = anyhow::Error::new(NamedError::new("Error", "invalid_size_headers"));
-        quarantine_log_message(context, &message, &error, Some(&token), Some(team.id)).await?;
+        quarantine_log_message(
+            context,
+            &message,
+            &error,
+            Some(&public_token),
+            Some(team.id),
+        )
+        .await?;
         return Ok(drop("invalid_size_headers"));
     };
 
@@ -91,7 +121,8 @@ async fn parse(
         header("created_at").as_deref(),
     );
     Ok(ok(LogsIngestionMessage {
-        token,
+        token: public_token,
+        auth_type: sent_secret_key.then_some(AUTH_TYPE_SECRET_KEY),
         message: message.clone(),
         team_id: team.id,
         bytes_uncompressed,

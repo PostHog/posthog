@@ -29,6 +29,7 @@ import { createLogsOutputsRegistry } from '~/logs/outputs/registry'
 import { PatternMessageKeysCache } from '~/logs/pattern-message-keys-cache'
 import { RetentionRulesCache } from '~/logs/retention/retention-rules-cache'
 import { SamplingRulesCache } from '~/logs/sampling/sampling-rules-cache'
+import { SecretKeyTeams } from '~/logs/secret-key-teams'
 import { LogsTransformerService } from '~/logs/transformations/logs-transformer.service'
 
 import { HogFunctionManagerService } from '../cdp/services/managers/hog-function-manager.service'
@@ -124,6 +125,7 @@ export class IngestionLogsServer implements NodeServer {
         logger.info('👍', 'PostHog Redis ready')
 
         const teamManager = new TeamManager(this.postgres)
+        const secretKeyTeams = new SecretKeyTeams(this.postgres, teamManager)
         const quotaLimiting = new QuotaLimiting(this.posthogRedisPool, teamManager)
         const samplingRulesCache = new SamplingRulesCache(this.postgres)
         // Metric rules are inert without an export URL — the consumer also gates on
@@ -169,6 +171,7 @@ export class IngestionLogsServer implements NodeServer {
             })
             const consumer = createLogsIngestionConsumer(this.config, {
                 teamManager,
+                secretKeyTeams,
                 quotaLimiting,
                 outputs,
                 samplingRulesCache,

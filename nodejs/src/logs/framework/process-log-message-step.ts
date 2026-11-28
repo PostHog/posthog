@@ -27,6 +27,7 @@ import { withDefaultMetricRules } from '../metrics-rules/default-metric-rules'
 import { type BatchTallies, createBatchTallies, tallyRecords } from '../metrics-rules/tally'
 import { LOGS_OUTPUT } from '../outputs/outputs'
 import { RETENTION_EXPIRED_STAGE_NAME } from '../retention/retention-expired-stage'
+import { AUTH_TYPE_HEADER } from '../secret-key-teams'
 import type { TransformationBatchBudget } from '../transformations/logs-transformer.service'
 import type { LogsIngestionMessage } from '../types'
 import {
@@ -257,6 +258,7 @@ async function processLogMessage(context: LogsPipelineContext, input: LogsProces
                         ...(input.verifiedAsInternalLogs !== undefined
                             ? { [INTERNAL_SOURCE_HEADER]: input.verifiedAsInternalLogs.source }
                             : {}),
+                        ...(input.authType ? { [AUTH_TYPE_HEADER]: input.authType } : {}),
                         token: input.token,
                         team_id: input.teamId.toString(),
                         'json-parse': jsonParse.toString(),

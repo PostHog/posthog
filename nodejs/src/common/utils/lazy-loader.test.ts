@@ -7,6 +7,7 @@ import {
 } from '@opentelemetry/sdk-trace-node'
 
 import { LazyLoader } from './lazy-loader'
+import { logger } from './logger'
 import { delay } from './utils'
 
 describe('LazyLoader', () => {
@@ -512,6 +513,32 @@ describe('LazyLoader', () => {
             expect(result4).toBe('value2')
             expect(loadSpy).toHaveBeenCalledTimes(0)
             expect(loader).toHaveBeenCalledTimes(1)
+        })
+
+        it('logs each key as loggableKey writes it', async () => {
+            const warn = jest.spyOn(logger, 'warn').mockImplementation(() => {})
+            const debug = jest.spyOn(logger, 'debug').mockImplementation(() => {})
+            lazyLoader = new LazyLoader({
+                name: 'test',
+                loader,
+                refreshAgeMs: 1000 * 60 * 2,
+                refreshBackgroundAgeMs: 1000 * 60 * 1,
+                refreshJitterMs: 0,
+                loggableKey: (key) => key.slice(0, 4),
+            })
+            loader.mockResolvedValueOnce({ secret_key: 'value' }).mockRejectedValueOnce(new Error('blip'))
+
+            await lazyLoader.get('secret_key')
+            jest.spyOn(Date, 'now').mockReturnValue(start + 1000 * 60 * 1.5)
+            await lazyLoader.get('secret_key')
+            await delay(100)
+
+            expect(debug).toHaveBeenCalledWith('[LazyLoader]', 'test', 'Loading: ', ['secr'])
+            expect(warn).toHaveBeenCalledWith('[LazyLoader:test] Background refresh failed', {
+                key: 'secr',
+                error: 'Error: blip',
+            })
+            expect(JSON.stringify([...warn.mock.calls, ...debug.mock.calls])).not.toContain('secret_key')
         })
 
         it('does not background-refresh a key whose value has become null', async () => {

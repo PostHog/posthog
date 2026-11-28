@@ -98,6 +98,8 @@ export type LazyLoaderOptions<T> = {
      * The value is then reloaded at this time or after the refresh age, whichever comes first.
      */
     expiresAt?: (value: T) => number | undefined
+    /** How a key is written to the logs, for a loader whose keys are credentials. The key itself by default. */
+    loggableKey?: (key: string) => string
 }
 
 export type LoadOptions = {
@@ -269,7 +271,7 @@ export class LazyLoader<T> {
                 if (backgroundRefreshAfter && Date.now() > backgroundRefreshAfter) {
                     void this.load([key]).catch((err) => {
                         logger.warn(`[LazyLoader:${this.options.name}] Background refresh failed`, {
-                            key,
+                            key: this.loggableKey(key),
                             error: String(err),
                         })
                     })
@@ -316,6 +318,10 @@ export class LazyLoader<T> {
                 }
             )
         )
+    }
+
+    private loggableKey(key: string): string {
+        return this.options.loggableKey?.(key) ?? key
     }
 
     private spanAttributes(keys: string[], keysToLoad: Set<string>, outcome: LazyLoaderSpanOutcome): Attributes {
@@ -395,7 +401,12 @@ export class LazyLoader<T> {
                 resolve(Array.from(keys))
             }
         }).then(async (bufferedKeys) => {
-            logger.debug('[LazyLoader]', this.options.name, 'Loading: ', bufferedKeys)
+            logger.debug(
+                '[LazyLoader]',
+                this.options.name,
+                'Loading: ',
+                bufferedKeys.map((key) => this.loggableKey(key))
+            )
             const loaded = await this.invokeLoader(bufferedKeys)
             this.setValues(loaded)
             return loaded
