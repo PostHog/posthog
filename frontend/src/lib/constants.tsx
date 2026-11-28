@@ -601,6 +601,7 @@ export const FEATURE_FLAGS = {
     UI_CUSTOMIZATION: 'ui-customization', // owner: #team-surfaces, enables personal UI layouts
     UNIFIED_APM_PRODUCT: 'unified-apm-product', // owner: #team-apm (@jonmcwest, @frankh), gates the shared APM product backing logs, tracing, and metrics
     UPTIME_MONITORING: 'uptime-monitoring', // owner: #team-apm, gates the unreleased uptime monitoring product
+    USER_JOURNEYS: 'user-journeys', // owner: #team-analytics, gates the unreleased user journeys product; mirrored by `USER_JOURNEYS_FLAG` in products/user_journeys/backend/feature_flags.py
     UX_HIDE_PROJECT_NOTICE: 'ux-hide-project-notice', // owner: #team-platform-ux, hides the project notice banner across all scenes
     UX_REMOVE_SIDEPANEL: 'ux-remove-sidepanel', // owner: #team-surveys
     VISION_EXPERIMENT_SCANNER: 'experiment-scanner', // owner: #team-replay, experiment scanners overall: the type in the scanner editor, creating one from experiments, and the variants tab

@@ -249,6 +249,7 @@
             "type": null,
             "intents": ["uptime_monitoring"]
         },
+        { "path": "User journeys", "category": "Unreleased", "iconType": "insight/paths", "type": null, "intents": [] },
         {
             "path": "Visual review",
             "category": "Unreleased",

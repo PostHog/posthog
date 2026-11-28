@@ -138,6 +138,7 @@ PRODUCTS_APPS = [
     "products.uptime_monitoring.backend.apps.UptimeMonitoringConfig",
     "products.authorization.backend.apps.AuthorizationConfig",
     "products.agent_transcripts.backend.apps.AgentTranscriptsConfig",
+    "products.user_journeys.backend.apps.UserJourneysConfig",
 ]
 
 INSTALLED_APPS = [

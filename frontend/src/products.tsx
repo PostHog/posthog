@@ -53,6 +53,7 @@ import type { LogsSceneActiveTab } from '../../products/logs/frontend/logsSceneL
 import type { MetricsSceneActiveTab } from '../../products/metrics/frontend/metricsSceneLogic'
 import type { InboxTabKey } from '../../products/signals/frontend/inbox/types'
 import type { TracingSceneTab } from '../../products/tracing/frontend/tracingSceneLogic'
+import type { JourneySourceEnumApi, JourneyStepApi } from '../../products/user_journeys/frontend/generated/api.schemas'
 import type { MessagingNavTabKey } from '../../products/workflows/frontend/messagingTabs'
 import type { WorkflowsSceneTab } from '../../products/workflows/frontend/WorkflowsScene'
 import type { DashboardsTab } from './scenes/dashboard/dashboards/dashboardsLogic'
@@ -360,6 +361,10 @@ export const productRoutes: Record<string, [string, string]> = {
     '/tracing/retention-rules/new': ['TracingRetentionNew', 'tracingRetentionNew'],
     '/tracing/retention-rules/:id': ['TracingRetentionDetail', 'tracingRetentionDetail'],
     '/uptime-monitoring': ['UptimeMonitoring', 'uptimeMonitoring'],
+    '/user-journeys': ['UserJourneys', 'userJourneys'],
+    '/user-journeys/new': ['UserJourneyEdit', 'userJourneyNew'],
+    '/user-journeys/:id': ['UserJourney', 'userJourney'],
+    '/user-journeys/:id/edit': ['UserJourneyEdit', 'userJourneyEdit'],
     '/visual-review': ['VisualReviewIndex', 'visualReviewIndex'],
     '/visual-review/settings': ['VisualReviewSettings', 'visualReviewSettings'],
     '/visual-review/repos/:repoOwner/:repoName/runs': ['VisualReviewRuns', 'visualReviewRepoRuns'],
@@ -1359,6 +1364,14 @@ export const productConfiguration: Record<string, any> = {
         description: 'Check that your sites and endpoints respond, and find out when they go down.',
         iconType: 'uptime_monitoring',
     },
+    UserJourneys: {
+        name: 'User journeys',
+        projectBased: true,
+        description: 'Save the paths people take through your product and see how many sessions complete them.',
+        iconType: 'insight/paths',
+    },
+    UserJourney: { name: 'User journey', projectBased: true, iconType: 'insight/paths' },
+    UserJourneyEdit: { name: 'Edit user journey', projectBased: true, iconType: 'insight/paths' },
     VisualReviewIndex: {
         name: 'Visual review',
         description:
@@ -2134,6 +2147,21 @@ export const productUrls = {
     tracingRetentionNew: (): string => '/tracing/retention-rules/new',
     tracingRetentionDetail: (id: string): string => `/tracing/retention-rules/${id}`,
     uptimeMonitoring: (): string => '/uptime-monitoring',
+    userJourneys: (): string => '/user-journeys',
+    userJourneyNew: (prefill?: {
+        name?: string
+        description?: string
+        steps?: JourneyStepApi[]
+        source?: JourneySourceEnumApi
+    }): string =>
+        combineUrl('/user-journeys/new', {
+            name: prefill?.name,
+            description: prefill?.description,
+            steps: prefill?.steps,
+            source: prefill?.source,
+        }).url,
+    userJourney: (id: string): string => `/user-journeys/${id}`,
+    userJourneyEdit: (id: string): string => `/user-journeys/${id}/edit`,
     visualReviewRuns: (): string => '/visual-review',
     visualReviewSettings: (): string => '/visual-review/settings',
     visualReviewRun: (runId: string): string => `/visual-review/runs/${runId}`,
@@ -2580,6 +2608,7 @@ export type ProductTreePath =
     | 'Tracing'
     | 'Transactional'
     | 'Uptime monitoring'
+    | 'User journeys'
     | 'Visual review'
     | 'Web analytics'
     | 'Web scripts'
@@ -3539,6 +3568,18 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         tags: ['alpha'],
         sceneKey: 'UptimeMonitoring',
         sceneKeys: ['UptimeMonitoring'],
+    },
+    {
+        path: 'User journeys',
+        intents: [],
+        category: ProductItemCategory.UNRELEASED,
+        iconType: 'insight/paths',
+        href: urls.userJourneys(),
+        searchKeywords: ['flows', 'user flows', 'paths', 'regressions'],
+        flag: FEATURE_FLAGS.USER_JOURNEYS,
+        tags: ['alpha'],
+        sceneKey: 'UserJourneys',
+        sceneKeys: ['UserJourneys', 'UserJourney', 'UserJourneyEdit'],
     },
     {
         path: 'Visual review',

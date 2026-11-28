@@ -210,6 +210,10 @@ export const productScenes: Record<string, () => Promise<any>> = {
         import('../../products/tracing/frontend/scenes/TracingRetentionDetailScene/TracingRetentionDetailScene'),
     UptimeMonitoring: () =>
         import('../../products/uptime_monitoring/frontend/scenes/UptimeMonitoringScene/UptimeMonitoringScene'),
+    UserJourneys: () => import('../../products/user_journeys/frontend/scenes/UserJourneysScene/UserJourneysScene'),
+    UserJourney: () => import('../../products/user_journeys/frontend/scenes/UserJourneyScene/UserJourneyScene'),
+    UserJourneyEdit: () =>
+        import('../../products/user_journeys/frontend/scenes/UserJourneyEditScene/UserJourneyEditScene'),
     VisualReviewIndex: () => import('../../products/visual_review/frontend/scenes/VisualReviewIndexScene'),
     VisualReviewRuns: () => import('../../products/visual_review/frontend/scenes/VisualReviewRunsScene'),
     VisualReviewRun: () => import('../../products/visual_review/frontend/scenes/VisualReviewRunScene'),
