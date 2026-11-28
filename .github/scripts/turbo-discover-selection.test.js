@@ -99,25 +99,53 @@ test('each distrusted input has its own reason, so telemetry can tell them apart
     }
 })
 
-test('after a full run passed, a ready PR runs the subset unless the subset is absent or blind', () => {
+test('a ready PR runs the subset in place of a full run that the merge queue or an earlier pass covers', () => {
     const requested = selectionFixture({ ast: { full_run_reasons: ['conftest.py'] }, snob: { status: 'ok' } })
+    const emptySelection = selectionFixture({ combined: { count: 0, products: [], segments: segments() } })
     const cascade = (runLegacyReason, extra) => ({
         legacyChanged: false,
         runLegacyReason,
         selection: selectionFixture({ snob: { status: 'ok' } }),
+        diffProducts: ['tasks'],
+        queueKickStateRead: true,
         ...extra,
     })
     const cases = [
-        [cascade('non_isolated_product'), 'selected', '', 'untrusted'],
-        [cascade('contract_cascade', { selection: requested }), 'selected', '', 'untrusted'],
-        [{ selection: requested }, 'selected', '', 'full_run_requested'],
+        [cascade('non_isolated_product'), 'selected', '', 'product_cascade'],
+        [cascade('non_isolated_product', { fullRunAlreadyPassed: false }), 'selected', '', 'product_cascade'],
+        [cascade('contract_cascade', { selection: requested }), 'selected', '', 'product_cascade'],
+        [cascade('contract_cascade', { productCascadePhase: 1 }), 'selected', '', ''],
+        [cascade('contract_cascade', { selection: null }), 'skip', 'selector_error', 'product_cascade'],
+        [cascade('contract_cascade', { productCascadePhase: 1, selection: null }), 'skip', 'selector_error', 'product_cascade'],
+        [
+            cascade('contract_cascade', { selection: selectionFixture({ snob: { status: 'error' } }) }),
+            'skip',
+            'selector_error',
+            'product_cascade',
+        ],
+        [
+            cascade('contract_cascade', { selection: selectionFixture({ snob: { status: 'ok' }, durations: undefined }) }),
+            'skip',
+            'no_durations',
+            'product_cascade',
+        ],
+        [cascade('contract_cascade', { diffProducts: null }), 'full', 'untrusted', ''],
+        [cascade('contract_cascade', { fullRunAlreadyPassed: false, queueKickRearmed: true }), 'full', 'untrusted', ''],
+        [cascade('contract_cascade', { fullRunAlreadyPassed: false, queueKickStateRead: false }), 'full', 'untrusted', ''],
+        [
+            cascade('contract_cascade', { productCascadePhase: 1, selection: null, queueKickStateRead: false }),
+            'full',
+            'selector_error',
+            '',
+        ],
+        [cascade('contract_cascade', { draft: true }), 'skip', 'untrusted', ''],
+        [cascade('contract_cascade', { disabled: true }), 'full', 'disabled', ''],
         [cascade('schema'), 'full', 'untrusted', ''],
         [cascade('lib_cascade'), 'full', 'untrusted', ''],
-        [cascade('contract_cascade', { selection: null }), 'full', 'untrusted', ''],
-        [{ selection: selectionFixture({ combined: { count: 0, products: [], segments: segments() } }) }, 'full', 'empty_selection', ''],
+        [{ selection: requested }, 'selected', '', 'full_run_requested'],
+        [{ selection: requested, fullRunAlreadyPassed: false }, 'full', 'full_run_requested', ''],
+        [{ selection: emptySelection }, 'full', 'empty_selection', ''],
         [{ disabled: true }, 'full', 'disabled', ''],
-        [cascade('contract_cascade', { draft: true }), 'skip', 'untrusted', ''],
-        [cascade('contract_cascade', { fullRunAlreadyPassed: false }), 'full', 'untrusted', ''],
     ]
     for (const [overrides, mode, skipReason, waivedReason] of cases) {
         const decision = decide({ fullRunAlreadyPassed: true, ...overrides })
@@ -266,10 +294,11 @@ const decideCascade = (overrides) =>
         runLegacy: true,
         runLegacyReason: 'non_isolated_product',
         selection: cascadeSelection(),
+        diffProducts: ['tasks'],
         ...overrides,
     })
 
-test('only phase 1 product cascades select today, and the rest report a shadow selection', () => {
+test('after a failed queue attempt, only phase 1 product cascades select, and the rest report a shadow selection', () => {
     const noShadow = { shadow_mode: '', shadow_skip_reason: '', shadow_selection_size: null }
     const shadowed = { mode: 'full', skip_reason: 'untrusted', shadow_mode: 'selected', shadow_skip_reason: '', shadow_selection_size: 1 }
     const cases = [
@@ -314,7 +343,7 @@ test('only phase 1 product cascades select today, and the rest report a shadow s
         ],
     ]
     for (const [overrides, expected] of cases) {
-        const decision = decideCascade(overrides)
+        const decision = decideCascade({ queueKickRearmed: true, ...overrides })
         for (const [key, value] of Object.entries(expected)) {
             assert.equal(decision[key], value, `${key} for ${JSON.stringify(overrides)}`)
         }
@@ -371,6 +400,7 @@ test('keeps the must-run set plus what the selector reached, in product director
 test('a selection that reaches no product runs only the must-run set, which may be nothing', () => {
     assert.deepEqual(narrowedProducts(products, ['signals'], { combined: { products: [] } }), ['signals'])
     assert.deepEqual(narrowedProducts(products, [], { combined: { products: [] } }), [])
+    assert.deepEqual(narrowedProducts(products, ['signals'], null), ['signals'])
 })
 
 test('products outside the matrix are ignored', () => {
@@ -400,7 +430,8 @@ test('the events_json leg runs the whole list, a narrowed list, or nothing', () 
     const cases = [
         [{ mode: '' }, null],
         [{ mode: 'full' }, null],
-        [{ mode: 'skip' }, []],
+        [{ mode: 'skip', products: ['web-analytics'] }, ['products/web_analytics/backend/hogql_queries']],
+        [{ mode: 'skip', products: ['web-analytics'], draft: true }, []],
         [
             { mode: '', skippedProducts: ['batch-exports'] },
             [

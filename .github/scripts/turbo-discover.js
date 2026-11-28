@@ -26,10 +26,10 @@
 // DEDICATED_BUCKET_PRODUCTS opt out of grouping and always run alone.
 //
 // Backend test selection: the selector's output (SELECTION_JSON) decides which
-// Django tests run and, on a legacy diff or a trusted product cascade, which products
-// stay in the matrix. One verdict feeds both, so the two matrices can never disagree
-// about whether the selection is trustworthy. A product cascade is trusted by phase,
-// see TRUSTED_PRODUCT_CASCADE_PHASE.
+// Django tests run and, on a legacy diff or a product cascade, which products stay in the
+// matrix. One verdict feeds both, so the two matrices can never disagree about whether the
+// selection is trustworthy. A ready PR's product cascade never runs the full matrices, because
+// the merge queue gates it, see decideSelection.
 //
 // Input:  LEGACY_CHANGED env var ("true"/"false")
 //         SCHEMA_CHANGED env var ("true"/"false") — when set and LEGACY_CHANGED
@@ -44,8 +44,12 @@
 //         kill switch.
 //         PR_DRAFT ("true"/"false") — what an untrusted selection falls back to.
 //         FULL_RUN_ALREADY_PASSED ("true"/"false") — a full run passed on an earlier head of
-//         this PR (backend-full-run-state.js), so a product cascade or a selector full-run
-//         request runs the selected subset. QUEUE_KICK_REARMED only reaches telemetry.
+//         this PR (backend-full-run-state.js), so a selector full-run request runs the
+//         selected subset.
+//         QUEUE_KICK_REARMED ("true"/"false") — a failed merge queue attempt asks for a full
+//         run, so a product cascade falls back to the full matrices again.
+//         QUEUE_KICK_STATE_READ ("true"/"false") — the lookup of that state succeeded. Without
+//         it a product cascade falls back to the full matrices too.
 //         .github/new-events-schema-targets.txt — the test paths of the events_json leg,
 //         which runs them against the native-JSON events table.
 // Output: JSON on stdout: { matrix, run_legacy, django_shards, selection }
@@ -658,11 +662,11 @@ function loadSelection(path) {
     }
 }
 
-// Products to test on a legacy diff once the selection is trusted: the must-run set
-// plus the products the selector reached through the import graph. Callers narrow only
-// on a `selected` verdict, so the trust rules live in decideSelection, not here.
+// Products to test once the selection is trusted, or once the merge queue gates a product
+// cascade: the must-run set plus the products the selector reached through the import graph.
+// The trust rules live in decideSelection, not here.
 function narrowedProducts(products, mustRunProducts, selection) {
-    const selected = ((selection.combined && selection.combined.products) || []).map(moduleToProduct)
+    const selected = (selection?.combined?.products ?? []).map(moduleToProduct)
     const keep = new Set([...mustRunProducts, ...selected])
     console.error(`Products reached by the backend test selector: ${JSON.stringify(selected)}`)
     return products.filter((p) => keep.has(p))
@@ -1254,14 +1258,15 @@ function emptySegments() {
 
 // An untrusted selection runs the full matrices on a ready PR and skips them on a draft,
 // which is the pre-selection draft behavior: a draft has a later ready run to defer to,
-// and skipping is the cheaper of the two mistakes.
-function fallbackSelection(fallbackMode, reason, selection) {
+// and skipping is the cheaper of the two mistakes. A ready PR's product cascade also skips,
+// because the merge queue is its full run (see decideSelection).
+function fallbackSelection(fallbackMode, reason, selection, waivedFullRunReason = '') {
     console.error(`Backend test selection not used (${reason}) — Django matrix mode=${fallbackMode}`)
     return {
         mode: fallbackMode,
         narrowed: false,
         skip_reason: reason,
-        waived_full_run_reason: '',
+        waived_full_run_reason: waivedFullRunReason,
         ...emptySegments(),
         ...selectionMetrics(selection),
     }
@@ -1293,6 +1298,12 @@ const PRODUCT_CASCADE_REASONS = new Set(['non_isolated_product', 'contract_casca
 // Which Django tests this run should execute, and whether the product matrix may narrow.
 // Pure: every input is an argument, so each branch is unit-tested rather than inferred
 // from a workflow run.
+// The merge queue runs the full matrices before anything lands, and it is the gate for what
+// a ready PR's product cascade can break in core. Such a run never falls back to full: it
+// runs the selector's subset when one is usable and skips the Django matrices when none is,
+// with waived_full_run_reason 'product_cascade'. A failed queue attempt re-arms the full run,
+// because the PR is then the only place to reproduce the failure before the next attempt. A
+// cascade whose reach is unknown cannot narrow the product matrix, so it keeps the fallback.
 //   applies        this run selects at all (a PR, off the merge queue, no force label)
 //   disabled       the DISABLE_BACKEND_TEST_SELECTION kill switch
 //   draft          fall back by skipping rather than by running everything
@@ -1304,6 +1315,13 @@ const PRODUCT_CASCADE_REASONS = new Set(['non_isolated_product', 'contract_casca
 //   selection      the selector's parsed output, null when it did not produce one
 //   fullRunAlreadyPassed  a full run passed on an earlier head of this ready PR, see
 //                  backend-full-run-state.js
+//   queueKickRearmed  a failed merge queue attempt asks this ready PR for a full run, see
+//                  backend-full-run-state.js
+//   queueKickStateRead  the lookup behind queueKickRearmed succeeded. A cascade whose
+//                  re-arm state is unknown keeps the fallback, so a lookup failure can never
+//                  hide a failed queue attempt.
+//   diffProducts   the products a product-only diff reached, or null when a change reaches
+//                  core directly or the reach is unknown
 function decideSelection({
     applies,
     disabled,
@@ -1316,6 +1334,9 @@ function decideSelection({
     trustedProductCascadePhase = TRUSTED_PRODUCT_CASCADE_PHASE,
     selection,
     fullRunAlreadyPassed = false,
+    queueKickRearmed = false,
+    queueKickStateRead = false,
+    diffProducts = null,
 }) {
     if (!applies || runLegacy === false) {
         // Nothing to narrow: either the event never selects, or the Django suite is
@@ -1335,10 +1356,20 @@ function decideSelection({
         // distinguishable from a genuine cascade in the selection telemetry.
         return fallbackSelection(fallbackMode, 'disabled', selection)
     }
-    // Once a full run passed on this PR, the full matrices already covered what the trust
-    // rules and the selector's full-run patterns guard against, and the merge queue runs
-    // them again before anything lands. A missing selection, a schema or lib cascade, and
-    // an empty selection stay full: there the subset is absent, or blind to what changed.
+    const queueGatesProductCascade =
+        !draft &&
+        queueKickStateRead &&
+        !queueKickRearmed &&
+        PRODUCT_CASCADE_REASONS.has(runLegacyReason) &&
+        diffProducts !== null
+    const fallback = (reason) =>
+        queueGatesProductCascade
+            ? fallbackSelection('skip', reason, selection, 'product_cascade')
+            : fallbackSelection(fallbackMode, reason, selection)
+    // Once a full run passed on this PR, the full matrices already covered what the
+    // selector's full-run patterns guard against, and the merge queue runs them again
+    // before anything lands. A missing or empty selection stays full: there the subset is
+    // absent, or blind to what changed.
     const waivesFullRun = fullRunAlreadyPassed && !draft
     let waivedFullRunReason = ''
     if (
@@ -1351,31 +1382,33 @@ function decideSelection({
         // its subset would be incomplete. A direct legacy edit is the selector's home
         // turf and is deliberately trusted — its own FULL_RUN_PATTERNS decide when a
         // legacy change is too broad to narrow.
-        // A product cascade with no selector subset to fall back to stays full.
-        if (!(waivesFullRun && PRODUCT_CASCADE_REASONS.has(runLegacyReason) && selection)) {
+        if (!queueGatesProductCascade) {
             return fallbackSelection(fallbackMode, 'untrusted', selection)
         }
-        waivedFullRunReason = 'untrusted'
+        waivedFullRunReason = 'product_cascade'
     }
     if (!selection) {
-        return fallbackSelection(fallbackMode, 'selector_error', selection)
+        return fallback('selector_error')
     }
     if (PRODUCT_CASCADE_REASONS.has(runLegacyReason) && selection.snob?.status !== 'ok') {
         // A product cascade has no legacy edit for the empty_selection guard below to catch,
         // so only the import graph shows which core tests reach the product. A failed Snob
         // run still exits cleanly with the AST-only subset, which can be no test at all.
-        return fallbackSelection(fallbackMode, 'selector_error', selection)
+        return fallback('selector_error')
     }
     const fullRunReasons = selection.ast?.full_run_reasons ?? []
     if (fullRunReasons.length > 0) {
         console.error(`Selector requested a full run:\n  ${fullRunReasons.join('\n  ')}`)
-        if (!waivesFullRun) {
+        if (queueGatesProductCascade) {
+            waivedFullRunReason = 'product_cascade'
+        } else if (waivesFullRun) {
+            waivedFullRunReason = 'full_run_requested'
+        } else {
             return fallbackSelection(fallbackMode, 'full_run_requested', selection)
         }
-        waivedFullRunReason = waivedFullRunReason || 'full_run_requested'
     }
     if (!(Number(selection.durations?.total_seconds) > 0)) {
-        return fallbackSelection(fallbackMode, 'no_durations', selection)
+        return fallback('no_durations')
     }
     const segments = selection.combined?.segments ?? {}
     const core = segments.core ?? []
@@ -1396,7 +1429,9 @@ function decideSelection({
         return fallbackSelection(fallbackMode, 'empty_selection', selection)
     }
     console.error(`Selected: ${core.length} core, ${poe.length} POE-eligible, ${temporal.length} temporal, ${compat.length} compat`)
-    if (waivedFullRunReason) {
+    if (waivedFullRunReason === 'product_cascade') {
+        console.error('The merge queue runs the full matrices for this product cascade, so the full fallback is waived')
+    } else if (waivedFullRunReason) {
         console.error(`A full run already passed on this PR, so the ${waivedFullRunReason} fallback is waived`)
     }
     return {
@@ -1415,9 +1450,12 @@ function decideSelection({
     }
 }
 
-// The highest product cascade phase whose selection gates a ready PR. A cascade in a higher
-// phase still runs the full matrices, and its telemetry reports what the selection would
-// have run (would_trust_phase, shadow_*). See productCascadePhase for the phases.
+// The highest product cascade phase whose selection is trusted. A ready PR's cascade selects
+// in any phase while the merge queue gates it, so the phase decides only a draft, a cascade
+// whose reach is unknown, and a ready PR after a failed queue attempt re-armed the full run.
+// There a cascade in a higher phase
+// still runs the full matrices, and its telemetry reports what the selection would have run
+// (would_trust_phase, shadow_*). See productCascadePhase for the phases.
 const TRUSTED_PRODUCT_CASCADE_PHASE = 1
 
 const PRODUCT_FRONTEND_FILE = /^products\/[^/]+\/frontend\//
@@ -1520,8 +1558,9 @@ function fullRunJsonTargets(targets, skippedProducts) {
 //   selectedTests    every test file the selector picked, product tests included
 //   products         the product matrix after narrowing
 //   skippedProducts  products that SKIP_PRODUCT_TESTS or the quarantine file dropped
-//   draft            the PR is a draft. Only read in selected mode, the one mode that the
-//                    merge queue's draft trunk-merge/** PR never reaches.
+//   draft            the PR is a draft. Only read in selected and skip mode, which the
+//                    merge queue's draft trunk-merge/** PR never reaches. A ready PR skips
+//                    only a product cascade, and keeps the paths of its product matrix.
 //   doubled          retain only paths the schema copies do not cover
 //   skipReason       why the selection fell back, from decideSelection
 //   runLegacyReason  why the Django suite runs
@@ -1554,10 +1593,10 @@ function decideJsonTargets({
                 )
         )
     }
-    if (mode === 'skip') {
-        return []
-    }
     const productPaths = targets.filter((target) => isUnderProduct(target, products))
+    if (mode === 'skip') {
+        return draft ? [] : productPaths
+    }
     if (!runLegacy) {
         return productPaths
     }
@@ -2039,16 +2078,24 @@ const selectionDecision = decideSelectionWithShadow({
     productCascadePhase: productCascadePhase(runLegacyReason, changedFiles),
     selection,
     fullRunAlreadyPassed: process.env.FULL_RUN_ALREADY_PASSED === 'true',
+    queueKickRearmed: process.env.QUEUE_KICK_REARMED === 'true',
+    queueKickStateRead: process.env.QUEUE_KICK_STATE_READ === 'true',
+    diffProducts,
 })
 
 // Narrow the legacy-diff matrix after every drop and lift above, so narrowing can only
 // remove products. The matrix is then packed from the narrowed list.
 const productCountBeforeNarrowing = products.length
 let productMatrixNarrowed = false
-if (diffProducts !== null && selectionDecision.mode === 'selected' && PRODUCT_CASCADE_REASONS.has(runLegacyReason)) {
-    // A trusted product cascade keeps the products the diff reached, not every product.
+if (
+    diffProducts !== null &&
+    PRODUCT_CASCADE_REASONS.has(runLegacyReason) &&
+    (selectionDecision.mode === 'selected' || selectionDecision.waived_full_run_reason === 'product_cascade')
+) {
+    // A trusted product cascade, or one the merge queue gates, keeps the products the diff
+    // reached, not every product.
     const mustRun = [...new Set([...diffProducts, ...liftedProducts])].sort()
-    console.error(`Products that must run after a trusted product cascade: ${JSON.stringify(mustRun)}`)
+    console.error(`Products that must run after a product cascade: ${JSON.stringify(mustRun)}`)
     products = narrowedProducts(products, mustRun, selection)
     productMatrixNarrowed = true
 }
@@ -2062,12 +2109,6 @@ if (selectionDecision.shadow_mode === 'selected') {
 if (mustRunProducts !== null && selectionDecision.mode === 'selected') {
     const mustRun = [...new Set([...mustRunProducts, ...liftedProducts])].sort()
     console.error(`Products that must run if the matrix is narrowed: ${JSON.stringify(mustRun)}`)
-    products = narrowedProducts(products, mustRun, selection)
-    productMatrixNarrowed = true
-} else if (diffProducts !== null && selectionDecision.waived_full_run_reason === 'untrusted') {
-    // A waived product cascade keeps the products the diff reached, not every product.
-    const mustRun = [...new Set([...diffProducts, ...liftedProducts])].sort()
-    console.error(`Products that must run after a waived product cascade: ${JSON.stringify(mustRun)}`)
     products = narrowedProducts(products, mustRun, selection)
     productMatrixNarrowed = true
 }

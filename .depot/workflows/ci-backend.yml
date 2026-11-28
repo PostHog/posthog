@@ -111,9 +111,12 @@ on:
         # Eligible source PRs run the snob-selected Django subset (one shard per active segment),
         # draft or ready; turbo-tests still skip drafts. When selection can't be
         # trusted, a ready source PR runs the full matrices and a draft skips them.
-        # Once a full run passed on the PR, a selector full-run request or a product cascade
-        # with a selection runs the subset instead, until a failed merge queue attempt
-        # re-arms full runs (.github/scripts/backend-full-run-state.js).
+        # A ready PR whose Django suite runs only because of a product cascade never runs
+        # the full matrices, because the merge queue gates that cascade: it runs the subset
+        # and the products the diff reached, or skips the Django matrices without a usable
+        # subset. Once a full run passed on the PR, a selector full-run request runs the
+        # subset too. A failed merge queue attempt re-arms full runs for both, until the
+        # next full run passes (.github/scripts/backend-full-run-state.js).
         # Add the `run-ci-backend` label to force the full matrices on a PR's next run;
         # the gate removes it once that run completes, so later pushes select again. The
         # `no-ci` label silences the workflow on a draft entirely. No
@@ -914,9 +917,10 @@ jobs:
             - name: Look up an earlier full backend pass on this PR
               id: full-run-state
               # A ready PR runs the full matrices at most once: after a full run passes, a selector
-              # full-run request or an untrusted product cascade runs the selected subset. The
-              # selector runs on legacy diffs only, so a product-only cascade stays full for now.
-              # A failed read leaves `passed` empty, so the run stays full.
+              # full-run request runs the selected subset. A failed merge queue attempt re-arms the
+              # full run, for a product cascade too. A failed read leaves `passed` empty, so a
+              # full-run request stays full, and leaves the re-arm unknown, so a product cascade
+              # stays full too.
               if: env.SELECTION_APPLIES == 'true' && github.event.pull_request.draft != true && vars.DISABLE_BACKEND_TEST_SELECTION != 'true'
               continue-on-error: true
               timeout-minutes: 2
@@ -993,9 +997,10 @@ jobs:
             # see which products a posthog/ or ee/ edit reaches, and the selector can, because
             # it follows the import graph into products/. Both matrices read one verdict, so
             # they can never disagree about whether the selection is trustworthy.
-            # On a legacy diff, and on a ready PR's product-only diff: turbo-discover.js trusts a
-            # product cascade's selection by phase, and reports what an untrusted one would have
-            # run. A product-only draft skips the matrices whatever the selector picks. The
+            # On a legacy diff, and on a ready PR's product-only diff: turbo-discover.js uses a
+            # product cascade's selection while the merge queue gates it, and after a failed
+            # queue attempt trusts it by phase. A product-only draft skips the matrices whatever
+            # the selector picks. The
             # DISABLE_BACKEND_TEST_SELECTION kill switch skips the run too; the script still
             # reports the `disabled` reason from its own env.
             - name: Install uv
@@ -1063,6 +1068,7 @@ jobs:
                   PR_DRAFT: ${{ github.event.pull_request.draft }}
                   FULL_RUN_ALREADY_PASSED: ${{ steps.full-run-state.outputs.passed == 'true' }}
                   QUEUE_KICK_REARMED: ${{ steps.full-run-state.outputs.rearmed_by_queue_kick == 'true' }}
+                  QUEUE_KICK_STATE_READ: ${{ steps.full-run-state.outcome == 'success' && steps.full-run-state.outputs.rearmed_by_queue_kick != '' }}
                   RUN_NEW_EVENTS_SCHEMA: ${{ contains(github.event.pull_request.labels.*.name, 'test-new-events-schema') }}
                   SCHEMA_CHANGED: ${{ github.event_name != 'pull_request' || needs.changes.outputs.schema }}
                   TURBO_SCM_HEAD: ${{ github.sha }}
@@ -3186,15 +3192,18 @@ jobs:
                       MODE="skip"
                   fi
 
-                  if [[ "$MODE" == "skip" ]]; then
+                  if [[ "$MODE" == "skip" && -z "$JSON_TARGETS_FILES" ]]; then
                       # Draft PR where selection couldn't be trusted: skip the heavy
-                      # matrices and defer to the full run on ready for review.
+                      # matrices and defer to the full run on ready for review. A ready
+                      # PR's product cascade without a usable selection skips them too,
+                      # and defers to the merge queue.
                       echo "include=[]" >> "$GITHUB_OUTPUT"
                       echo "Django matrix size: 0 (mode=skip)"
                       exit 0
                   fi
-                  if [[ "$DJANGO_SUITE" != "true" ]]; then
-                      # A product change that reaches no legacy code skips the Django suite.
+                  if [[ "$DJANGO_SUITE" != "true" || "$MODE" == "skip" ]]; then
+                      # A product change that reaches no legacy code skips the Django suite,
+                      # and so does a ready PR's product cascade in skip mode.
                       # The product jobs read the legacy events table only, so the events_json
                       # rows still run the listed paths of the products in the product matrix.
                       core="[]"
@@ -5291,6 +5300,7 @@ jobs:
             github.event_name == 'pull_request' &&
             github.event.pull_request.draft == false &&
             needs.turbo-discover.outputs.mode != 'selected' &&
+            needs.turbo-discover.outputs.mode != 'skip' &&
             github.event.pull_request.head.repo.full_name == 'PostHog/posthog' &&
             (needs.turbo-tests.result != 'skipped' || needs.django.result != 'skipped')
         steps:

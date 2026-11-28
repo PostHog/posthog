@@ -1487,18 +1487,34 @@ describe('CI workflow run plans', () => {
     })
 
     const fullDjangoLegs = ['Core', 'Core poe', 'Temporal', 'compat', 'json-targets']
+    const fullDiscovery = { mode: 'full', run_legacy: 'true', matrix: '[{"group":"a"}]' }
+    const skipCascade = (jsonTargetsFiles: string): Record<string, string> => ({
+        mode: 'skip',
+        run_legacy: 'true',
+        matrix: '[{"group":"a"}]',
+        selection: JSON.stringify({ json_targets_files: jsonTargetsFiles, json_targets_shards: jsonTargetsFiles ? 2 : '' }),
+    })
     it.each([
-        ['3-hourly schedule', { ...schedule(), event: { schedule: '23 */3 * * *' } }, fullDjangoLegs, 1],
+        ['3-hourly schedule', { ...schedule(), event: { schedule: '23 */3 * * *' } }, fullDiscovery, fullDjangoLegs, 1],
         [
             'off-hour schedule',
             { ...schedule(), event: { schedule: '23 1,2,4,5,7,8,10,11,13,14,16,17,19,20,22,23 * * *' } },
+            fullDiscovery,
             ['Core'],
             0,
         ],
-        ['schedule without a cron string', { ...schedule(), event: {} }, fullDjangoLegs, 1],
-        ['manual dispatch', workflowDispatch(), fullDjangoLegs, 1],
-        ['merge queue', mergeQueue(), ['Core', 'Temporal', 'compat', 'json-targets'], 1],
-    ] as const)('the core-only scheduled scope on %s', (_name, github, djangoLegs, productJobs) => {
+        ['schedule without a cron string', { ...schedule(), event: {} }, fullDiscovery, fullDjangoLegs, 1],
+        ['manual dispatch', workflowDispatch(), fullDiscovery, fullDjangoLegs, 1],
+        ['merge queue', mergeQueue(), fullDiscovery, ['Core', 'Temporal', 'compat', 'json-targets'], 1],
+        [
+            'a ready PR product cascade in skip mode with events_json paths',
+            pullRequest(),
+            skipCascade('products/a/backend/tests/test_a.py products/b/backend/tests/test_b.py'),
+            ['json-targets'],
+            1,
+        ],
+        ['a ready PR product cascade in skip mode with no events_json paths', pullRequest(), skipCascade(''), [], 1],
+    ] as const)('the Django matrix scope on %s', (_name, github, turboDiscover, djangoLegs, productJobs) => {
         const depot = workflow(DEPOT_BACKEND)
         const functions = planFunctions({ dependenciesSucceeded: true, dependenciesFailed: false, cancelled: false })
         const context = {
@@ -1511,7 +1527,7 @@ describe('CI workflow run plans', () => {
                         compat_matrix: '[{"clickhouse-server-image":"clickhouse/clickhouse-server:compat"}]',
                     },
                 },
-                'turbo-discover': { outputs: { mode: 'full', run_legacy: 'true', matrix: '[{"group":"a"}]' } },
+                'turbo-discover': { outputs: turboDiscover },
             },
         }
         const buildInclude = (job: string): Record<string, JsonValue>[] => {
