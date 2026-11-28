@@ -1912,6 +1912,9 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # The log's own endpoints need hog_flow:read, so a token without it learns nothing of what the log keeps.
         if not sends or scopes_caller_lacks(self.request, ["hog_flow:read"]):
             return rows
+        # The log's endpoints check access to workflows as a whole, which a grant on one workflow does not give.
+        if not self.user_access_control.check_access_level_for_resource("hog_flow", "viewer"):
+            return rows
         try:
             if not transactional_email_log_enabled(self.team):
                 return rows
@@ -1928,7 +1931,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             return rows
         return [
             dataclasses.replace(row, in_transactional_email_log=uuid.UUID(row.invocation_id) in kept)
-            if row.invocation_id in sends
+            if row.action_id == TRANSACTIONAL_EMAIL_ACTION_ID and row.invocation_id in sends
             else row
             for row in rows
         ]

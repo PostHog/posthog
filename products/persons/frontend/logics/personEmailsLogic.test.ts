@@ -75,7 +75,9 @@ describe('personEmailsLogic', () => {
         featureFlagLogic.actions.setFeatureFlags(flags, Object.fromEntries(flags.map((flag) => [flag, true])))
         const logic = personEmailsLogic({ teamId: 997, personId: 'person-1' })
         logic.mount()
-        await expectLogic(logic, () => void logic.values.emails).toDispatchActions(['loadEmailsSuccess'])
+        await expectLogic(logic, () => void logic.values.emails)
+            .toFinishAllListeners()
+            .toMatchValues({ emails: [email] })
         const [loaded] = logic.values.emails
         requestsOnOpen = []
         mswServer.events.on('request:start', ({ request }) => requestsOnOpen.push(request.url))

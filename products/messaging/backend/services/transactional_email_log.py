@@ -320,6 +320,8 @@ def list_transactional_emails(
     return _build_entries(team_id, rows[:limit]), has_more
 
 
+# The events cluster has no email status tables, so a project that reads events_json still reads its sends here.
+@events_route_scope(HogQLQueryModifiers(useNewEventsSchema=False))
 def get_transactional_email(
     team_id: int, message_id: UUID, *, access: WorkflowViewAccess | None = None
 ) -> TransactionalEmailLogDetail | None:

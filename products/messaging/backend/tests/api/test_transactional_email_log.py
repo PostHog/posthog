@@ -78,6 +78,10 @@ SMALL_MAX_QUERY_SIZE = 16 * 1024
 SENDS_PAST_ONE_QUERY = 120
 
 
+def _action_of(name: str) -> str:
+    return "email-step" if name.startswith("workflow email") else "transactional_email"
+
+
 @time_machine.travel(NOW, tick=False)
 @patch(
     "products.messaging.backend.presentation.views.message_templates.posthoganalytics.feature_enabled",
@@ -340,7 +344,7 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
                 "jane@example.com",
                 NOW - timedelta(minutes=minutes_ago, seconds=-1),
                 person_id=str(person.uuid),
-                action_id="email-step" if name == "workflow email" else "transactional_email",
+                action_id=_action_of(name),
                 workflow_id=workflow_id,
             )
         return f"/api/projects/{self.team.id}/persons/{person.uuid}/emails/"
@@ -349,6 +353,7 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
     def test_a_persons_emails_say_which_sends_their_send_page_opens(self, _flag):
         restricted = create_workflow_for_test(team_id=self.team.id, name="Payroll").id
         sent = [("sent", 1, "")]
+        three_hours_ago = self._send(180, "jane@example.com", sent)
         sends: dict[str, tuple[int, str, str | None]] = {
             "keyed a week ago": (7 * 24 * 60, self._send(7 * 24 * 60, "jane@example.com", sent, keyed=True), None),
             "keyed, not in email_status yet": (
@@ -361,7 +366,8 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
                 self._send(30, "jane@example.com", sent, keyed=True, events_consumer_behind=True),
                 None,
             ),
-            "sent three hours ago": (180, self._send(180, "jane@example.com", sent), None),
+            "sent three hours ago": (180, three_hours_ago, None),
+            "workflow email of that run": (180, three_hours_ago, None),
             "of a denied workflow": (20, self._send(20, "jane@example.com", sent, workflow_id=restricted), restricted),
             "gone from the log": (
                 2 * 24 * 60,
@@ -379,24 +385,31 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
 
         with override_instance_config("CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS", str(self.team.pk)):
             response = self.client.get(url)
+            details = {
+                name: self.client.get(self._url(f"{message_id}/")).status_code
+                for name, (_, message_id, _) in sends.items()
+                if _action_of(name) == "transactional_email"
+            }
 
         assert response.status_code == status.HTTP_200_OK, response.json()
-        listed = {row["invocation_id"]: row["in_transactional_email_log"] for row in response.json()}
-        assert {name: listed[message_id] for name, (_, message_id, _) in sends.items()} == {
+        listed = {
+            (row["invocation_id"], row["action_id"]): row["in_transactional_email_log"] for row in response.json()
+        }
+        assert {name: listed[(message_id, _action_of(name))] for name, (_, message_id, _) in sends.items()} == {
             "keyed a week ago": True,
             "keyed, not in email_status yet": True,
             "keyed, not in the log yet": False,
             "sent three hours ago": True,
+            "workflow email of that run": None,
             "of a denied workflow": False,
             "gone from the log": False,
             "workflow email": None,
         }
-        opens = {
-            name: self.client.get(self._url(f"{message_id}/")).status_code == status.HTTP_200_OK
+        assert details == {
+            name: status.HTTP_200_OK if listed[(message_id, "transactional_email")] else status.HTTP_404_NOT_FOUND
             for name, (_, message_id, _) in sends.items()
-            if name != "workflow email"
+            if name in details
         }
-        assert opens == {name: listed[message_id] for name, (_, message_id, _) in sends.items() if name in opens}
 
     def test_a_persons_emails_say_what_the_log_keeps_for_a_page_past_one_query(self, _flag):
         sends = {
@@ -415,19 +428,23 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            ("a_token_without_workflow_access", ["person:read"], True, None),
-            ("a_token_with_it", ["person:read", "hog_flow:read"], True, True),
-            ("a_project_without_the_log", ["person:read", "hog_flow:read"], False, None),
+            ("a_token_without_workflow_access", ["person:read"], True, False, None),
+            ("a_token_with_it", ["person:read", "hog_flow:read"], True, False, True),
+            ("a_project_without_the_log", ["person:read", "hog_flow:read"], False, False, None),
+            ("a_member_denied_workflows_who_made_this_one", ["person:read", "hog_flow:read"], True, True, None),
         ]
     )
     def test_a_persons_emails_say_what_the_log_keeps_only_to_a_reader_of_the_log(
-        self, _flag, _name, scopes, log_enabled, expected
+        self, _flag, _name, scopes, log_enabled, workflows_denied, expected
     ):
-        message_id = self._send(10, "jane@example.com", [("sent", 1, "")])
-        url = self._record_person_emails({"a send": (10, message_id, None)})
+        own_workflow = create_workflow_for_test(team_id=self.team.id, name="Mine", created_by_id=self.user.id).id
+        message_id = self._send(10, "jane@example.com", [("sent", 1, "")], workflow_id=own_workflow)
+        url = self._record_person_emails({"a send": (10, message_id, own_workflow)})
         key = generate_random_token_personal()
         PersonalAPIKey.objects.create(label="scoped", user=self.user, secure_value=hash_key_value(key), scopes=scopes)
         _flag.return_value = log_enabled
+        if workflows_denied:
+            self._deny_member("hog_flow")
 
         response = self.client.get(url, headers={"authorization": f"Bearer {key}"})
 
