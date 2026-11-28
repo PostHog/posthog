@@ -18,7 +18,10 @@ from products.slack_app.backend.logic.daily_focus import (
     turn_on_daily_focus_on_mention,
 )
 from products.slack_app.backend.models import SlackDailyFocus, SlackUserProfileCache
-from products.slack_app.backend.temporal.activities.slack_app_work_focus import find_slack_app_work_focus_activity
+from products.slack_app.backend.temporal.activities.slack_app_work_focus import (
+    find_slack_app_work_focus_activity,
+    run_slack_app_daily_focus_agent_activity,
+)
 from products.slack_app.backend.temporal.types import SlackAppWorkFocusInputs
 from products.slack_app.backend.tests.conftest import SLACK_TEAM_ID, SLACK_USER_ID
 
@@ -135,6 +138,34 @@ def test_a_daily_run_queued_without_its_claimed_time_sends_nothing(workspace_int
     # A run that sends nothing is still counted, so adoption has a denominator of runs.
     assert captured.call_args.args[1] == "slack app daily work focus run finished"
     assert captured.call_args.kwargs["outcome"] == "superseded"
+
+
+@pytest.mark.django_db
+def test_an_agent_run_is_counted_once_with_its_final_outcome(workspace_integration) -> None:
+    inputs = SlackAppWorkFocusInputs(
+        integration_id=workspace_integration.id,
+        slack_team_id=SLACK_TEAM_ID,
+        slack_user_id="U_AGENT",
+        since=1,
+        run_at=2,
+    )
+    with (
+        patch("products.slack_app.backend.logic.daily_focus.capture_slack_event") as captured,
+        patch(
+            "products.slack_app.backend.logic.onboarding.work_focus.find_and_send_daily_focus",
+            return_value="agent_started",
+        ),
+        patch(
+            "products.slack_app.backend.logic.onboarding.daily_focus_agent.run_daily_focus_agent",
+            return_value="nothing_actionable",
+        ),
+        patch("products.slack_app.backend.logic.daily_focus.person_zone", return_value=ZoneInfo("UTC")),
+    ):
+        find_slack_app_work_focus_activity(inputs)
+        run_slack_app_daily_focus_agent_activity(inputs)
+
+    # A quiet day and a failed send stay apart in adoption, so the hand-off to the agent is not a finished run.
+    assert [call.kwargs["outcome"] for call in captured.call_args_list] == ["nothing_actionable"]
 
 
 @pytest.mark.parametrize(

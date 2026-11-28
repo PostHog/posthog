@@ -33,6 +33,7 @@ class TestAuthorizedUrlsEvaluation(BaseTest):
         [
             ("nothing_ingested_yet", False, None, 1),
             ("web_project", True, "$pageview", 1),
+            ("app_only_project", True, "$screen", 0),
             ("server_only_project", True, "$mcp_tool_call", 0),
         ]
     )

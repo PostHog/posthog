@@ -1,33 +1,65 @@
-from posthog.test.base import BaseTest
+import uuid
+from datetime import timedelta
+from typing import Any
+
+from posthog.test.base import (
+    APIBaseTest,
+    BaseTest,
+    ClickhouseTestMixin,
+    _create_event,
+    _create_person,
+    flush_persons_and_events,
+)
 from unittest.mock import patch
+
+from django.utils import timezone
 
 from parameterized import parameterized
 
+from posthog.schema import HogQLQuery
+
 from posthog.hogql.errors import QueryError
 
+from posthog.dataclasses import frozen
 from posthog.exceptions import (
     ClickHouseClusterMemoryLimitExceeded,
     ClickHouseQueryMemoryLimitExceeded,
     ClickHouseQueryTimeOut,
 )
+from posthog.hogql_queries.query_runner import ExecutionMode
 
-from products.autoresearch.backend.dataset.labeling import LABELER_QUERY_MODIFIERS, PREDICTION_EVENT_NAME
+from products.autoresearch.backend.dataset.labeling import (
+    LABELER_QUERY_MODIFIERS,
+    PREDICTION_EVENT_NAME,
+    build_random_t0_labeler_sql,
+)
 from products.autoresearch.backend.dataset.validation import (
+    LIVE_ESTIMATE_SAMPLE_LIMIT,
     ValidationResult,
     _run_validation,
     validate_pipeline_definition,
 )
+from products.autoresearch.backend.query import run_hogql_rows
+
+
+@frozen
+class _ValidatedLabels:
+    result: ValidationResult
+    labeler_rows: int
+    labeler_positives: int
 
 
 def _mock_rows(
     positives: int, total: int, identified: int | None = None, inference: int | None = None
 ) -> list[list[list[int]]]:
-    # Query order: eligible count, sampled labeler, inference count. Sample size
-    # equals total so the extrapolated positives line up with the input.
+    # Query order: eligible count, sampled labeler, inference count. The labeler keeps every
+    # candidate of its sample, at the input's base rate, so the estimate lines up with the input.
     eligible_identified = total if identified is None else identified
+    sampled = min(eligible_identified, LIVE_ESTIMATE_SAMPLE_LIMIT)
+    sampled_positives = round(positives * sampled / eligible_identified) if eligible_identified else 0
     return [
         [[eligible_identified, total]],
-        [[eligible_identified, positives]],
+        [[sampled, sampled_positives]],
         [[eligible_identified if inference is None else inference]],
     ]
 
@@ -269,3 +301,97 @@ class TestValidationWarnings(BaseTest):
             )
         assert len(mock_run.call_args_list) == 3
         assert all(call.kwargs["user"] is self.user for call in mock_run.call_args_list)
+
+
+class TestValidationAgainstTheLabeler(ClickhouseTestMixin, APIBaseTest):
+    HORIZON_DAYS = 30
+    LOOKBACK_DAYS = 180
+
+    def _create_trial_population(self) -> None:
+        # Each person starts a trial once, on a day spread over the lookback, browses for a few
+        # days after it, and every third person subscribes five days after the trial.
+        now = timezone.now()  # nosemgrep: test-datetime-now-without-freeze (must match ClickHouse server-side now())
+        for i in range(48):
+            distinct_id = f"person_{i}"
+            trial_days_ago = 6 + 3 * i
+            _create_person(
+                team_id=self.team.pk,
+                distinct_ids=[distinct_id],
+                uuid=uuid.uuid5(uuid.NAMESPACE_URL, distinct_id),
+                is_identified=True,
+                created_at=now - timedelta(days=trial_days_ago),
+            )
+            events = [("trial started", trial_days_ago)]
+            events += [("$pageview", trial_days_ago - offset) for offset in (0, 2, 5, 10) if trial_days_ago > offset]
+            if i % 3 == 0:
+                events.append(("subscription started", trial_days_ago - 5))
+            for event, days_ago in events:
+                _create_event(
+                    team=self.team, event=event, distinct_id=distinct_id, timestamp=now - timedelta(days=days_ago)
+                )
+        flush_persons_and_events()
+
+    def _validate_and_label(self, population: dict[str, Any]) -> _ValidatedLabels:
+        result = validate_pipeline_definition(
+            team=self.team,
+            target_event="subscription started",
+            horizon_days=self.HORIZON_DAYS,
+            training_lookback_days=self.LOOKBACK_DAYS,
+            training_population=population,
+            inference_population=population,
+        )
+        sql, values = build_random_t0_labeler_sql(
+            target_event="subscription started",
+            horizon_days=self.HORIZON_DAYS,
+            lookback_days=self.LOOKBACK_DAYS,
+            training_population=population,
+            team=self.team,
+        )
+        [[rows, positives]] = run_hogql_rows(
+            team=self.team,
+            query=HogQLQuery(query=sql, values=values, modifiers=LABELER_QUERY_MODIFIERS),
+            execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+        )
+        assert result.error is None
+        assert result.positive_count is not None and result.negative_count is not None
+        assert result.positive_count + result.negative_count == result.estimated_training_rows
+        return _ValidatedLabels(result=result, labeler_rows=int(rows), labeler_positives=int(positives))
+
+    @parameterized.expand(
+        [
+            # The population window equals the horizon, so nobody has a trial both in the last
+            # 30 days and before the cutoff. The trainer still keeps people whose T0 falls
+            # within 30 days after their trial.
+            (
+                "performed_event_within_the_horizon",
+                {"kind": "performed_event_within_days", "days": 30, "event": "trial started"},
+            ),
+            ("performed_any_event_within_days", {"kind": "performed_event_within_days", "days": 30}),
+            ("person_first_seen_within_days", {"kind": "person_first_seen_within_days", "days": 30}),
+            ("active_not_performed_target", {"kind": "active_not_performed_target", "active_within_days": 30}),
+            ("ever_performed_event", {"kind": "ever_performed_event", "event": "trial started"}),
+            ("ever_performed_target", {"kind": "ever_performed_target"}),
+        ]
+    )
+    def test_counts_are_the_unsampled_labelers_below_the_sample_limit(
+        self, _name: str, population: dict[str, Any]
+    ) -> None:
+        self._create_trial_population()
+
+        labels = self._validate_and_label(population)
+
+        assert labels.labeler_rows > 0
+        assert labels.result.estimated_training_rows == labels.labeler_rows
+        assert labels.result.positive_count == labels.labeler_positives
+
+    def test_a_sampled_estimate_scales_the_share_the_labeler_keeps(self) -> None:
+        self._create_trial_population()
+        population = {"kind": "performed_event_within_days", "days": 30, "event": "trial started"}
+
+        with patch("products.autoresearch.backend.dataset.validation.LIVE_ESTIMATE_SAMPLE_LIMIT", 20):
+            labels = self._validate_and_label(population)
+
+        estimated_rows = labels.result.estimated_training_rows
+        assert estimated_rows is not None
+        assert labels.labeler_rows > 0
+        assert abs(estimated_rows - labels.labeler_rows) <= 0.35 * labels.labeler_rows

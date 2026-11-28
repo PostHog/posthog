@@ -1,4 +1,5 @@
 import uuid
+import dataclasses
 from collections.abc import Callable
 from pathlib import Path
 from typing import TypeVar, cast
@@ -24,6 +25,7 @@ from posthog.admin.console.confirm import ConfirmationToken
 from posthog.admin.console.panels import Fact, Gate, Operation, Owner, Panel, Tone
 from posthog.admin.console.records import RECORD_TYPES, SUPPORT_TICKET_PARAM, RecordLink, RecordType
 from posthog.admin.console.registry import console
+from posthog.admin.console.related import RelatedRecords
 from posthog.admin.console.results import OperationResult, OperationResults, ResultState
 from posthog.admin.console.tools import ConsoleTool, Page, ToolOperation
 from posthog.dataclasses import frozen
@@ -220,6 +222,13 @@ def _with_kept_query(url: str, request: HttpRequest, names: tuple[str, ...]) -> 
     return f"{url}?{urlencode(kept)}" if kept else url
 
 
+def _with_kept_ticket(link: RecordLink, request: HttpRequest) -> RecordLink:
+    # A header link that stays in the console carries the support ticket, like the operation links do.
+    if not link.href.startswith(reverse("admin_console_home")):
+        return link
+    return dataclasses.replace(link, href=_with_kept_query(link.href, request, (SUPPORT_TICKET_PARAM,)))
+
+
 def _find_user(query: str) -> User | None:
     # Team and organization names rarely hold an @, so a query with one is an email address and opens that user.
     if "@" not in query:
@@ -283,6 +292,9 @@ def tools_index(request: HttpRequest) -> HttpResponse:
     return render(request, "admin_console/tools.html", ConsoleEnvironment.context())
 
 
+HANDOFF_OPENER_POLICY = "same-origin-allow-popups"
+
+
 def _record_type(record: str) -> RecordType:
     record_type = RECORD_TYPES.get(record)
     if record_type is None:
@@ -340,12 +352,13 @@ def record_detail(request: HttpRequest, record: str, pk: object) -> HttpResponse
         )
         for panel in console.panels_for(record_type.key)
     ]
-    return render(
+    response = render(
         request,
         "admin_console/record.html",
         {
             **_record_context(record_type, obj),
-            "record_links": record_type.links(obj),
+            "record_links": [_with_kept_ticket(link, request) for link in record_type.links(obj)],
+            "related": RelatedRecords(record_type, obj).previews(),
             "attention": [
                 AttentionItem(panel=rendered.panel, fact=fact)
                 for rendered in panels
@@ -354,6 +367,33 @@ def record_detail(request: HttpRequest, record: str, pk: object) -> HttpResponse
             ],
             "regular_panels": [rendered for rendered in panels if not rendered.panel.danger],
             "danger_panels": [rendered for rendered in panels if rendered.panel.danger],
+        },
+    )
+    if any(
+        rendered.allowed and isinstance(rendered.operation, Operation) and rendered.operation.handoff is not None
+        for panel in panels
+        for rendered in panel.operations
+    ):
+        # Django's default "same-origin" cuts this page off from a tab it opens on another origin, so the
+        # tool's ready message could never reach it. The looser policy applies only where a handoff is offered.
+        response["Cross-Origin-Opener-Policy"] = HANDOFF_OPENER_POLICY
+    return response
+
+
+@require_safe
+def related_list(request: HttpRequest, record: str, pk: object, relation_key: str) -> HttpResponse:
+    record_type = _record_type(record)
+    obj = get_object_or_404(record_type.queryset(), pk=pk)
+    relation = record_type.relation(relation_key)
+    if relation is None:
+        raise Http404("This record has no such related list")
+    return render(
+        request,
+        "admin_console/related.html",
+        {
+            **_record_context(record_type, obj),
+            "relation": relation,
+            "page": RelatedRecords(record_type, obj).page(request, relation),
         },
     )
 
@@ -522,17 +562,24 @@ def operation_result(request: HttpRequest, result_id: str) -> HttpResponse:
     return _no_store(response)
 
 
-def _record_form_initial(request: HttpRequest, operation: Operation) -> dict[str, object] | None:
-    # A link preselects a choice, so an old URL that names one of several documents opens the form on it.
+def _preselected_choices(
+    request: HttpRequest, form_class: type[forms.Form], field_type: type[forms.ChoiceField] = forms.ChoiceField
+) -> dict[str, object]:
+    # A link preselects choices, so an old URL that names one of several documents opens the form on it, and the
+    # rows staff tick in a table open the form with those rows ticked.
     # Text fields stay empty: a reason taken from a URL would reach the audit log without staff writing it.
-    # The one exception is an operation that opts in to a reason naming the support ticket it was opened from.
+    return {
+        name: request.GET.getlist(name) if isinstance(field, forms.MultipleChoiceField) else request.GET[name]
+        for name, field in form_class.base_fields.items()
+        if isinstance(field, field_type) and name in request.GET
+    }
+
+
+def _record_form_initial(request: HttpRequest, operation: Operation) -> dict[str, object] | None:
+    # The one exception to empty text fields is an operation that opts in to a reason naming its support ticket.
     if operation.form_class is None:
         return None
-    preselected: dict[str, object] = {
-        name: request.GET[name]
-        for name, field in operation.form_class.base_fields.items()
-        if isinstance(field, forms.ChoiceField) and name in request.GET
-    }
+    preselected = _preselected_choices(request, operation.form_class)
     ticket = request.GET.get(SUPPORT_TICKET_PARAM, "").strip()
     if operation.reason_from_ticket and ticket:
         preselected["reason"] = f"For ticket {ticket}"
@@ -636,6 +683,15 @@ def _with_query(url: str, request: HttpRequest) -> str:
     return url + _query_suffix(request)
 
 
+def _subject_crumbs(tool: ConsoleTool, request: HttpRequest) -> tuple[RecordLink, ...]:
+    """The breadcrumb through the record a tool page is about. Empty for a tool that is not about one record."""
+    obj = tool.subject_of(request)
+    if obj is None or tool.subject is None:
+        return ()
+    record_type = RECORD_TYPES[tool.subject]
+    return (*record_type.parents(obj), RecordLink(label=record_type.title(obj), href=record_type.url(obj)))
+
+
 @require_safe
 def tool_page(request: HttpRequest, tool_key: str) -> HttpResponse:
     tool = _get_tool(tool_key)
@@ -663,7 +719,8 @@ def tool_page(request: HttpRequest, tool_key: str) -> HttpResponse:
         {
             **ConsoleEnvironment.context(),
             "tool": tool,
-            "page": tool.page(request).refuse_secrets("tool page").check_decisions(offered),
+            "subject_crumbs": _subject_crumbs(tool, request),
+            "page": tool.page(request).refuse_secrets("tool page").check_operations(offered),
             "operations": operations,
             "query_suffix": _query_suffix(request),
         },
@@ -724,14 +781,19 @@ def run_tool_operation(request: HttpRequest, tool_key: str, operation_key: str) 
         badge=tool.group,
         subtitle=tool.description,
         back_url=tool_url,
-        breadcrumbs=(RecordLink(label=tool.title, href=tool_url),),
+        breadcrumbs=(*_subject_crumbs(tool, request), RecordLink(label=tool.title, href=tool_url)),
         is_record=False,
     )
     step = ConfirmStep(request, ConfirmationToken(request, f"tool:{tool.key}", operation.key))
     if step.expired:
         return step.render_expired(request)
 
-    form = step.bind(operation)
+    # Only the rows ticked in a selectable table, which fill a multiple choice field. A link must not pick a single
+    # choice such as an execution mode or a deactivation reason for staff.
+    preselected = (
+        _preselected_choices(request, operation.form_class, forms.MultipleChoiceField) if operation.form_class else {}
+    )
+    form = step.bind(operation, initial={**(operation.form_initial or {}), **preselected})
     context = _operation_context(target, operation, form, request)
     if request.method == "GET":
         return render(request, "admin_console/operation.html", context)

@@ -640,3 +640,11 @@ class ViewEngine:
         if self.target == ViewEngineTarget.CONNECTION:
             return ViewCapability(available=False, reason=connection)
         return _AVAILABLE
+
+
+@frozen
+class ViewCadenceSnapshot:
+    """The cadence each node runs at, per DAG, in the DAGs that read one warehouse table."""
+
+    team_id: int
+    cadences_by_dag: dict[str, dict[str, timedelta | None]]

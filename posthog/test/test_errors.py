@@ -35,9 +35,13 @@ from posthog.errors import (
     look_up_clickhouse_error_code_meta,
     wrap_clickhouse_query_error,
 )
-from posthog.exceptions import ClickHouseQueryMemoryLimitExceeded
+from posthog.exceptions import ClickHouseQueryMemoryLimitExceeded, ClickHouseUDFTimeOut
 
 HTTP_CLIENT_URL = "https://clickhouse.example.com:8443"
+UDF_POOL_TIMEOUT = (
+    "User defined function 'aggregate_funnel_array_v13' failed. Command: 'v13/aggregate_funnel', Arguments: [3]. "
+    "Original error: Code: 159. DB::Exception: Pipe read timeout exceeded 10000 milliseconds. (TIMEOUT_EXCEEDED)"
+)
 
 
 def _http_client_response(code: int, detail: str, name: str) -> str:
@@ -94,6 +98,30 @@ class TestWrapClickhouseQueryError:
                 "Expected: Date[32] or DateTime[64], got: UInt8",
                 "The 2nd argument to `dateDiff` has type UInt8. Use a date or date-time value.",
             ),
+            (
+                "date_argument_with_type_parameters",
+                "A value of illegal type was provided as 2nd argument 'startdate' to function 'dateDiff'. "
+                "Expected: Date[32] or DateTime[64], got: Array(Date)",
+                "The 2nd argument to `dateDiff` has type Array. Use a date or date-time value.",
+            ),
+            (
+                "validated_argument",
+                "A value of illegal type was provided as 1st argument 'private_arg' to function 'trimBoth'. "
+                "Expected: String or FixedString, got: Date32",
+                "The 1st argument to `trim` has type Date32. Convert it to String or FixedString.",
+            ),
+            (
+                "validated_argument_with_unlisted_expected_type",
+                "A value of illegal type was provided as 1st argument 'private_arg' to function 'arrayStringConcat'. "
+                "Expected: Enum8('private' = 1), got: String",
+                "The 1st argument to `arrayStringConcat` has type String. Convert it to a type the function accepts.",
+            ),
+            (
+                "validated_argument_with_type_parameters",
+                "A value of illegal type was provided as 1st argument 'private_arg' to function 'trimBoth'. "
+                "Expected: String or FixedString, got: Array(String)",
+                "Check the argument types for `trim`. Cast each argument to a type the function accepts.",
+            ),
         ]
     )
     def test_argument_type_error_identifies_the_expression(self, _case: str, diagnostic: str, expected: str) -> None:
@@ -111,6 +139,10 @@ class TestWrapClickhouseQueryError:
         [
             ("Illegal type Secretthing of argument of function privateFn",),
             ("Unexpected argument: In scope SELECT 'Illegal type String of argument of function length'",),
+            (
+                "A value of illegal type was provided as 1st argument 'private_arg' to function 'privateFn'. "
+                "Expected: String, got: Int64",
+            ),
         ]
     )
     def test_unrecognized_type_and_function_use_fixed_guidance(self, diagnostic: str) -> None:
@@ -610,6 +642,12 @@ class TestWrapClickhouseQueryError:
                 QueryErrorCategory.QUERY_PERFORMANCE_ERROR,
             ),
             (
+                "funnel_udf_timeout",
+                _http_client_error(754, UDF_POOL_TIMEOUT, "UDF_EXECUTION_FAILED"),
+                ClickHouseUDFTimeOut,
+                QueryErrorCategory.QUERY_PERFORMANCE_ERROR,
+            ),
+            (
                 "unknown_identifier",
                 _http_client_error(47, "Missing columns: 'privat_column'.", "UNKNOWN_IDENTIFIER"),
                 CHQueryErrorUnknownIdentifier,
@@ -626,6 +664,42 @@ class TestWrapClickhouseQueryError:
         assert classify_query_error(raw) == category
         assert classify_query_error(wrapped) == category
         assert HTTP_CLIENT_URL not in str(wrapped)
+
+    @parameterized.expand(
+        [
+            ("funnel_timeout", f"DB::Exception: {UDF_POOL_TIMEOUT}. (UDF_EXECUTION_FAILED)", True),
+            (
+                "funnel_timeout_name_only",
+                "DB::Exception: User defined function 'aggregate_funnel_v13' failed. (TIMEOUT_EXCEEDED)",
+                True,
+            ),
+            (
+                "funnel_script_error",
+                "DB::Exception: User defined function 'aggregate_funnel_v13' failed. Exit code 1. (UDF_EXECUTION_FAILED)",
+                False,
+            ),
+            (
+                "other_udf_timeout",
+                UDF_POOL_TIMEOUT.replace("aggregate_funnel_array_v13", "JSONDropKeysPool"),
+                False,
+            ),
+        ]
+    )
+    def test_only_a_funnel_udf_with_an_inner_timeout_is_a_timeout(
+        self, _name: str, raw_message: str, is_timeout: bool
+    ) -> None:
+        raw = ServerException(raw_message, code=754)
+        wrapped = wrap_clickhouse_query_error(raw)
+
+        if is_timeout:
+            assert type(wrapped) is ClickHouseUDFTimeOut
+            assert "date range" in str(wrapped)
+            expected = QueryErrorCategory.QUERY_PERFORMANCE_ERROR
+        else:
+            assert type(wrapped).__name__ == "CHQueryErrorUdfExecutionFailed"
+            expected = QueryErrorCategory.ERROR
+        assert classify_query_error(raw) == expected
+        assert classify_query_error(wrapped) == expected
 
     def test_http_client_cancel_reports_its_clickhouse_type_and_is_not_retried(self) -> None:
         raw = _http_client_error(394, "Query was cancelled.", "QUERY_WAS_CANCELLED")

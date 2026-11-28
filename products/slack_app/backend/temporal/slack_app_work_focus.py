@@ -13,10 +13,13 @@ from products.slack_app.backend.temporal.activities.slack_app_work_focus import 
     claim_due_slack_app_daily_focus_activity,
     find_slack_app_work_focus_activity,
     index_slack_app_daily_summary_activity,
+    run_slack_app_daily_focus_agent_activity,
 )
 from products.slack_app.backend.temporal.types import SlackAppDailySummaryIndexInputs, SlackAppWorkFocusInputs
 
 SLACK_APP_WORK_FOCUS_ACTIVITY_TIMEOUT = timedelta(minutes=2)
+# The agent's poll budget plus the time to start its sandbox and send the DM.
+SLACK_APP_DAILY_FOCUS_AGENT_TIMEOUT = timedelta(minutes=10)
 # One read of every channel the bot is in, plus Jev over the newest roots, for the largest workspace.
 SLACK_APP_DAILY_SUMMARY_INDEX_TIMEOUT = timedelta(minutes=5)
 # All attempts end inside the sweep's ten-minute run, so a stuck index costs the summary, never the workspace's runs.
@@ -81,6 +84,27 @@ class SlackAppWorkFocusWorkflow(PostHogWorkflow):
             start_to_close_timeout=SLACK_APP_WORK_FOCUS_ACTIVITY_TIMEOUT,
             retry_policy=_RETRY if inputs.since is None else _DAILY_RETRY,
             summary="find the work focus",
+        )
+        workflow.set_current_details(outcome)
+
+
+@workflow.defn(name="slack-app-daily-focus-agent")
+class SlackAppDailyFocusAgentWorkflow(PostHogWorkflow):
+    """One person's daily work focus as an agent run, started by the daily run once it decides to use the agent."""
+
+    @staticmethod
+    def parse_inputs(inputs: list[str]) -> SlackAppWorkFocusInputs:
+        return SlackAppWorkFocusInputs(**json.loads(inputs[0]))
+
+    @workflow.run
+    async def run(self, inputs: SlackAppWorkFocusInputs) -> None:
+        outcome = await workflow.execute_activity(
+            run_slack_app_daily_focus_agent_activity,
+            inputs,
+            start_to_close_timeout=SLACK_APP_DAILY_FOCUS_AGENT_TIMEOUT,
+            # Each attempt starts a sandbox, so a failed run is tried once more and then left for tomorrow.
+            retry_policy=RetryPolicy(maximum_attempts=2),
+            summary="run the daily focus agent",
         )
         workflow.set_current_details(outcome)
 

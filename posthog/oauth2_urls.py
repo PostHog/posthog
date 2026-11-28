@@ -1,10 +1,10 @@
 from django.urls import path, re_path
+from django.views.generic.base import RedirectView
 
 from posthog.api.oauth import (
     DynamicClientRegistrationView,
     OAuthAuthorizationServerMetadataView,
     OAuthAuthorizationView,
-    OAuthClientManifestView,
     OAuthConnectDiscoveryInfoView,
     OAuthDeviceAuthorizationView,
     OAuthIntrospectTokenView,
@@ -16,6 +16,7 @@ from posthog.api.oauth import (
 )
 from posthog.api.oauth.cimd_verification_check import CIMDVerificationCheckView
 from posthog.api.oauth.ema_issuer import EmaTrustedIssuerView
+from posthog.api.oauth.metadata import AGENT_AUTH_SKILL_URL
 from posthog.api.oauth.scope_reference import OAuthScopeReferenceView
 from posthog.utils import opt_slash_path
 
@@ -42,7 +43,8 @@ urlpatterns = [
         OAuthProtectedResourceMetadataView.as_view(),
         name="oauth-protected-resource-metadata",
     ),
-    path("auth.md", OAuthClientManifestView.as_view(), name="auth-md-manifest"),
+    # Agents that look for the manifest at the service root, the auth.md convention, reach the shared copy.
+    path("auth.md", RedirectView.as_view(url=AGENT_AUTH_SKILL_URL, permanent=True), name="auth-md-manifest"),
     path(".well-known/jwks.json", OAuthJwksInfoView.as_view(), name="jwks-info"),
     opt_slash_path("oauth/userinfo", OAuthUserInfoView.as_view(), name="user-info"),
     opt_slash_path("oauth/register", DynamicClientRegistrationView.as_view(), name="register"),

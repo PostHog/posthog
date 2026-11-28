@@ -38,13 +38,14 @@ export function SurveyFollowUpWorkflowButton({ surveyId }: { surveyId: string })
             menuItem
             tooltip="Open a workflow that emails each person who responds to this survey"
             onClick={() => {
-                captureMessageAudienceClicked(SOURCE, 'workflow')
+                const attemptId = captureMessageAudienceClicked(SOURCE, 'workflow')
                 router.actions.push(
                     urlForNewWorkflowWithTrigger(
                         surveyFollowUpTrigger(surveyId),
                         SOURCE,
                         draftMessage({ kind: 'survey_responded' }),
-                        { source: 'survey', source_id: surveyId }
+                        { source: 'survey', source_id: surveyId },
+                        attemptId
                     )
                 )
             }}

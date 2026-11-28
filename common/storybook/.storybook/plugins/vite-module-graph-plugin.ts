@@ -11,7 +11,11 @@ import type { Plugin } from 'vite'
  * The Vite/Rollup port of the former webpack `ModuleGraphPlugin`. Rollup already
  * tracks the full graph, so we just serialize each module's repo-relative path and
  * the repo-relative paths of its importers (`reasons`, matching the old format the
- * analyzer reads: `{ modules: [{ name, reasons }] }`).
+ * analyzer reads: `{ modules: [{ name, reasons, dynamicReasons }] }`).
+ *
+ * `dynamicReasons` lists the importers that reach a module only through `import()`.
+ * The analyzer needs it to tell the modules the Storybook preview evaluates for every
+ * story from the ones it loads only when a story renders a lazy scene.
  */
 export function moduleGraphPlugin(repoRoot: string): Plugin {
     const repoRootWithSep = repoRoot.endsWith(path.sep) ? repoRoot : repoRoot + path.sep
@@ -53,22 +57,19 @@ export function moduleGraphPlugin(repoRoot: string): Plugin {
                 return relative
             }
 
-            const modules: { name: string; reasons: string[] }[] = []
+            const namesOf = (ids: readonly string[] | undefined): Set<string> =>
+                new Set((ids ?? []).map(nameOf).filter((from): from is string => !!from))
+
+            const modules: { name: string; reasons: string[]; dynamicReasons: string[] }[] = []
             for (const id of this.getModuleIds()) {
                 const name = nameOf(id)
                 if (!name) {
                     continue
                 }
                 const info = this.getModuleInfo(id)
-                const reasons = new Set<string>()
-                const importers = new Set<string>([...(info?.importers ?? []), ...(info?.dynamicImporters ?? [])])
-                for (const importer of importers) {
-                    const from = nameOf(importer)
-                    if (from) {
-                        reasons.add(from)
-                    }
-                }
-                modules.push({ name, reasons: [...reasons] })
+                const staticReasons = namesOf(info?.importers)
+                const dynamicReasons = [...namesOf(info?.dynamicImporters)].filter((from) => !staticReasons.has(from))
+                modules.push({ name, reasons: [...staticReasons, ...dynamicReasons], dynamicReasons })
             }
 
             this.emitFile({ type: 'asset', fileName: 'module-graph.json', source: JSON.stringify({ modules }) })

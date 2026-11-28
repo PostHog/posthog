@@ -149,6 +149,23 @@ class TestRequestShaping:
             ),
             ("group_memberships", {}, "/groups/v2/memberships", "2026-11-10", None, None, None),
             ("check_in_events", {}, "/check-ins/v2/events", "2025-05-28", None, "created_at", None),
+            ("signups", {}, "/registrations/v2/signups", "2025-05-01", None, "created_at", None),
+            ("attendees", {}, "/registrations/v2/attendees", "2025-05-01", None, "created_at", None),
+            ("marital_statuses", {}, "/people/v2/marital_statuses", "2026-10-05", None, "sequence", None),
+            ("name_prefixes", {}, "/people/v2/name_prefixes", "2026-10-05", None, "value", None),
+            ("episodes", {}, "/publishing/v2/episodes", "2024-03-25", None, None, None),
+            (
+                "note_categories",
+                {
+                    "incremental_field": "updated_at",
+                    "db_incremental_field_last_value": datetime(2026, 1, 1, tzinfo=UTC),
+                },
+                "/people/v2/note_categories",
+                "2026-10-05",
+                "2026-01-01T00:00:00Z",
+                "updated_at",
+                "asc",
+            ),
         ],
     )
     def test_request_matches_the_sync_mode(
@@ -207,6 +224,208 @@ class TestPlansFanOut:
         ]
         assert result.response is not None
         assert result.response.sort_mode is None
+
+
+class TestSingleHopFanOut:
+    @pytest.mark.parametrize(
+        ("schema", "parent_path", "child", "parent_key", "inputs", "expected_filter", "expected_order"),
+        [
+            (
+                "workflow_steps",
+                "/people/v2/workflows",
+                "steps",
+                "workflow_id",
+                {
+                    "incremental_field": "updated_at",
+                    "db_incremental_field_last_value": datetime(2026, 1, 15, tzinfo=UTC),
+                },
+                "2026-01-15T00:00:00Z",
+                "updated_at",
+            ),
+            ("workflow_steps", "/people/v2/workflows", "steps", "workflow_id", {}, None, "created_at"),
+            ("workflow_cards", "/people/v2/workflows", "cards", "workflow_id", {}, None, "created_at"),
+            (
+                "form_submissions",
+                "/people/v2/forms",
+                "form_submissions",
+                "form_id",
+                {
+                    "incremental_field": "updated_at",
+                    "db_incremental_field_last_value": datetime(2026, 1, 15, tzinfo=UTC),
+                },
+                "2026-01-15T00:00:00Z",
+                "updated_at",
+            ),
+            ("form_fields", "/people/v2/forms", "fields", "form_id", {}, None, "sequence"),
+        ],
+    )
+    def test_fetches_children_per_parent_with_the_parent_id_on_each_row(
+        self,
+        schema: str,
+        parent_path: str,
+        child: str,
+        parent_key: str,
+        inputs: dict[str, Any],
+        expected_filter: str | None,
+        expected_order: str,
+    ) -> None:
+        result = _driver().run(
+            schema,
+            route(
+                {
+                    parent_path: [_page([_resource("w1"), _resource("w2")], 2)],
+                    f"{parent_path}/w1/{child}": [_page([_resource("c1", updated_at="2026-02-01T00:00:00Z")], 1)],
+                    f"{parent_path}/w2/{child}": [_page([_resource("c2", updated_at="2026-02-02T00:00:00Z")], 1)],
+                }
+            ),
+            **inputs,
+        )
+
+        assert result.raised is None
+        assert result.paths == [parent_path, f"{parent_path}/w1/{child}", f"{parent_path}/w2/{child}"]
+        assert result.params(UPDATED_AT_FILTER_PARAM) == [None, expected_filter, expected_filter]
+        assert result.params("order")[1:] == [expected_order, expected_order]
+        assert [(row[parent_key], row["id"]) for row in result.rows] == [("w1", "c1"), ("w2", "c2")]
+
+
+class TestSchedulesFanOut:
+    def test_fetches_every_schedule_of_each_services_person_and_skips_a_removed_person(self) -> None:
+        schedule = {
+            **_resource("s1", status="D", team_name="Band"),
+            "relationships": {"person": {"data": {"type": "Person", "id": "p1"}}},
+        }
+        result = _driver().run(
+            "schedules",
+            route(
+                {
+                    "/services/v2/people": [_page([_resource("p1"), _resource("p2")], 2)],
+                    "/services/v2/people/p1/schedules": [_page([schedule], 1)],
+                    "/services/v2/people/p2/schedules": [
+                        ScriptedResponse(status=404, json={"errors": [{"status": "404"}]})
+                    ],
+                }
+            ),
+        )
+
+        assert result.raised is None
+        assert result.params("filter") == [
+            None,
+            "all,with_declined,not_across_organizations",
+            "all,with_declined,not_across_organizations",
+        ]
+        assert {request.headers["x-pco-api-version"] for request in result.requests} == {"2018-11-01"}
+        assert result.rows == [{"id": "s1", "person_id": "p1", "status": "D", "team_name": "Band"}]
+
+    def test_resume_starts_the_people_listing_at_the_saved_page(self) -> None:
+        result = _driver().run(
+            "schedules",
+            route(
+                {
+                    "/services/v2/people": [_page([_resource("p200")], 201)],
+                    "/services/v2/people/p200/schedules": [_page([_resource("s200")], 1)],
+                }
+            ),
+            resume_state=PlanningCenterResumeConfig(fanout_state={"parent": {"offset": 200}}),
+        )
+
+        assert result.raised is None
+        assert result.params("offset")[0] == "200"
+        assert result.params("order")[0] == "created_at"
+        assert [(row["person_id"], row["id"]) for row in result.rows] == [("p200", "s200")]
+
+
+class TestIncludedResources:
+    @pytest.mark.parametrize(
+        ("schema", "include", "resource_type", "relationship_data"),
+        [
+            (
+                "donation_designations",
+                "designations",
+                "Designation",
+                lambda child_id: {"designations": {"data": [{"type": "Designation", "id": child_id}]}},
+            ),
+            (
+                "donation_refunds",
+                "refund",
+                "Refund",
+                lambda child_id: {"refund": {"data": {"type": "Refund", "id": child_id}}},
+            ),
+        ],
+    )
+    def test_walks_donation_pages_and_reads_the_included_children(
+        self, schema: str, include: str, resource_type: str, relationship_data: Any
+    ) -> None:
+        def page(donation_ids: list[str]) -> ScriptedResponse:
+            donations = [
+                {**_resource(donation_id), "relationships": relationship_data(f"x{donation_id}")}
+                for donation_id in donation_ids
+            ]
+            # The last donation has no child, as a donation with no refund has `"data": null`.
+            donations[-1]["relationships"] = {}
+            included = [
+                {**_resource(f"x{donation_id}", amount_cents=100), "type": resource_type}
+                for donation_id in donation_ids[:-1]
+            ]
+            included.append({**_resource("f1", name="General"), "type": "Fund"})
+            return ScriptedResponse(
+                json={"data": donations, "included": included, "meta": {"total_count": 101, "count": len(donations)}}
+            )
+
+        result = _driver().run(schema, [page([str(i) for i in range(100)]), page(["100"])])
+
+        assert result.raised is None
+        assert result.paths == ["/giving/v2/donations", "/giving/v2/donations"]
+        assert result.params("include") == [include, include]
+        assert result.params("offset") == ["0", "100"]
+        assert len(result.rows) == 99
+        assert result.rows[0] == {"id": "x0", "donation_id": "0", "amount_cents": 100}
+        assert result.committed_states == [PlanningCenterResumeConfig(next_offset=100)]
+
+
+class TestPlanItemsChainedFanOut:
+    def test_fetches_items_per_plan_with_both_parent_ids_on_each_row(self) -> None:
+        item = {
+            **_resource("i1", title="Welcome", item_type="header", sequence=1),
+            "relationships": {"plan": {"data": {"type": "Plan", "id": "p1"}}, "song": {"data": None}},
+        }
+        result = _driver().run(
+            "plan_items",
+            route(
+                {
+                    "/services/v2/service_types": [_page([_resource("st1"), _resource("st2")], 2)],
+                    "/services/v2/service_types/st1/plans": [_page([_resource("p1")], 1)],
+                    "/services/v2/service_types/st2/plans": [_page([_resource("p2")], 1)],
+                    "/services/v2/service_types/st1/plans/p1/items": [_page([item], 1)],
+                    # A plan deleted after its plans page was read.
+                    "/services/v2/service_types/st2/plans/p2/items": [
+                        ScriptedResponse(status=404, json={"errors": [{"status": "404"}]})
+                    ],
+                }
+            ),
+        )
+
+        assert result.raised is None
+        assert sorted(result.paths) == [
+            "/services/v2/service_types",
+            "/services/v2/service_types/st1/plans",
+            "/services/v2/service_types/st1/plans/p1/items",
+            "/services/v2/service_types/st2/plans",
+            "/services/v2/service_types/st2/plans/p2/items",
+        ]
+        assert {request.headers["x-pco-api-version"] for request in result.requests} == {"2018-11-01"}
+        assert result.rows == [
+            {
+                "id": "i1",
+                "service_type_id": "st1",
+                "plan_id": "p1",
+                "title": "Welcome",
+                "item_type": "header",
+                "sequence": 1,
+                "song_id": None,
+            }
+        ]
+        assert result.response is not None
+        assert result.response.supports_resume is False
 
 
 class TestFlattenResource:

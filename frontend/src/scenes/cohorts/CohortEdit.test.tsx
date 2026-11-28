@@ -6,6 +6,7 @@ import { expectLogic, partial } from 'kea-test-utils'
 
 import { recentTaxonomicFiltersLogic } from 'lib/components/TaxonomicFilter/recentTaxonomicFiltersLogic'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { cohortEditLogic } from 'scenes/cohorts/cohortEditLogic'
 import { NEW_COHORT, NEW_CRITERIA_GROUP } from 'scenes/cohorts/CohortFilters/constants'
 import { BehavioralFilterKey } from 'scenes/cohorts/CohortFilters/types'
@@ -29,6 +30,7 @@ import {
     PropertyFilterValue,
     PropertyOperator,
     PropertyType,
+    TimeUnitType,
 } from '~/types'
 
 import { CohortCsvUploadModal } from './CohortCsvUploadModal'
@@ -276,9 +278,59 @@ describe('cohortEditLogic', () => {
                 logic.actions.submitCohort()
             }).toDispatchActions(['setCohort', 'submitCohort', 'submitCohortFailure'])
 
-            await new Promise((resolve) => setTimeout(resolve, 10))
+            await new Promise((resolve) => requestAnimationFrame(resolve))
 
             expect(scrollIntoViewSpy).not.toHaveBeenCalled()
+        })
+    })
+
+    describe('scroll to a rendered error', () => {
+        afterEach(() => {
+            cleanup()
+            jest.restoreAllMocks()
+        })
+
+        it('scrolls to the group error of a lone negated criterion instead of showing a toast', async () => {
+            const scrollIntoView = jest.spyOn(Element.prototype, 'scrollIntoView')
+            jest.spyOn(Element.prototype, 'getClientRects').mockReturnValue([{}] as unknown as DOMRectList)
+            const toastError = jest.spyOn(lemonToast, 'error')
+
+            logic = cohortEditLogic({ id: 'new' })
+            logic.mount()
+            logic.actions.setCohort({
+                ...NEW_COHORT,
+                name: 'Never signed up',
+                filters: {
+                    properties: {
+                        id: 'outer',
+                        type: FilterLogicalOperator.Or,
+                        values: [
+                            {
+                                id: 'group',
+                                type: FilterLogicalOperator.And,
+                                values: [
+                                    {
+                                        type: BehavioralFilterKey.Behavioral,
+                                        value: BehavioralEventType.PerformEvent,
+                                        event_type: TaxonomicFilterGroupType.Events,
+                                        key: 'signed up',
+                                        time_value: 30,
+                                        time_interval: TimeUnitType.Day,
+                                        negation: true,
+                                    },
+                                ],
+                            },
+                        ],
+                    },
+                },
+            })
+            render(<CohortEdit id="new" />)
+
+            await userEvent.click(document.querySelector('[data-attr="save-cohort"]') as HTMLElement)
+
+            await waitFor(() => expect(scrollIntoView).toHaveBeenCalled())
+            expect(scrollIntoView.mock.contexts[0]).toHaveClass('CohortCriteriaGroups__matching-group__error')
+            expect(toastError).not.toHaveBeenCalled()
         })
     })
 

@@ -9,6 +9,7 @@ from __future__ import annotations
 import re
 import uuid
 import datetime as dt
+import dataclasses
 from collections import Counter, defaultdict
 from collections.abc import Mapping
 from typing import Any
@@ -52,7 +53,9 @@ from products.aeo.backend import (
     prompt_limit,
     rankings,
     run_stop,
+    search_details,
     suggestions,
+    topics,
 )
 from products.aeo.backend.brand import (
     brand_names,
@@ -113,6 +116,7 @@ from products.aeo.backend.facade.contracts import (
     PromptSetOverview,
     PromptSetRankings,
     PromptSetSearch,
+    PromptSetSearchDetail,
     PromptSetSearchPrompt,
     PromptSetTopicCounts,
     PromptStats,
@@ -120,6 +124,7 @@ from products.aeo.backend.facade.contracts import (
     PromptSuggestionRequest,
     PromptTextConflictError,
     PromptTopic,
+    PromptTopicChange,
     PromptUpdate,
     PromptUpdateError,
     PromptVersion,
@@ -130,6 +135,7 @@ from products.aeo.backend.facade.contracts import (
     VisibilityDashboard,
 )
 from products.aeo.backend.models import AEOBrand, AEOCitationCheck, AEOPrompt, AEOPromptVersion
+from products.aeo.backend.page_urls import page_url, page_url_sql
 from products.aeo.backend.runner import run_citation_checks
 from products.aeo.backend.scope import SCOPE_SQL, CheckScope, scope_filter, scope_sql_params, scope_without_segment
 from products.aeo.backend.seeding import PromptCandidate, normalize_prompt, prompt_hash, upsert_prompts
@@ -239,6 +245,30 @@ def list_prompt_topics(team_id: int) -> list[PromptTopic]:
     return [PromptTopic(topic=row["label"], prompts=row["prompts"]) for row in rows]
 
 
+def rename_prompt_topic(team_id: int, topic: str, new_topic: str) -> PromptTopicChange:
+    """Rename a topic on every prompt that has it, archived ones included, and on the checks that ran with it.
+    Adds no prompt version. Raises PromptTopicNotFoundError, PromptTopicError and PromptTopicConflictError."""
+    return topics.rename_topic(team_id, topic, new_topic)
+
+
+def merge_prompt_topics(team_id: int, topic: str, into_topic: str) -> PromptTopicChange:
+    """Move every prompt of `topic`, and the checks that ran with it, to `into_topic`. Adds no prompt version.
+    Raises PromptTopicNotFoundError and PromptTopicError."""
+    return topics.merge_topics(team_id, topic, into_topic)
+
+
+def remove_prompt_topic(team_id: int, topic: str) -> PromptTopicChange:
+    """Leave every prompt of `topic`, and the checks that ran with it, with no topic. Adds no prompt version.
+    Raises PromptTopicNotFoundError and PromptTopicError."""
+    return topics.remove_topic(team_id, topic)
+
+
+def set_prompts_topic(team_id: int, prompt_ids: list[uuid.UUID], topic: str) -> PromptTopicChange:
+    """Set one topic on the chosen prompts. Their past checks keep the topic they ran with, and no prompt version
+    is added. Raises PromptNotFoundError and PromptUpdateError."""
+    return topics.set_topic(team_id, prompt_ids, topic)
+
+
 def get_prompt(team_id: int, prompt_id: str) -> Prompt:
     return _to_prompts(team_id, [_get_prompt_row(team_id, prompt_id)])[0]
 
@@ -253,6 +283,9 @@ def update_prompt(team_id: int, prompt_id: str, change: PromptUpdate, *, user_id
     text = _validated_text(change.prompt) if change.prompt is not None else None
     with transaction.atomic():
         limit = prompt_limit.lock(team_id) if change.active else None
+        if change.topic is not None:
+            # A topic change runs one at a time with the topic edits, which read topic names under this lock.
+            prompt_limit.lock_project(team_id)
         # Locks the prompt row, so two concurrent text edits cannot take the same version number.
         prompt = _get_prompt_row(team_id, prompt_id, lock=True)
         _check_update_allowed(prompt, change)
@@ -346,6 +379,15 @@ _CITES_DOMAIN_SQL = """EXISTS (
     ) AS host
     WHERE lower(host) = %s OR right(lower(host), %s) = %s
 )"""
+# Compares pages without their tracking parameters, the way the page reports group them, so a page opens
+# the answers that cited any of its variants.
+_CITES_PAGE_SQL = f"""EXISTS (
+    SELECT 1 FROM jsonb_array_elements_text(
+        CASE WHEN jsonb_typeof("posthog_aeo_citation_check"."cited_urls") = 'array'
+            THEN "posthog_aeo_citation_check"."cited_urls" ELSE '[]'::jsonb END
+    ) AS cited_url(url)
+    WHERE {page_url_sql("cited_url.url")} = %s
+)"""
 # Normalizes each search the same way as `_TOP_SEARCHES_SQL`, so a search from the overview finds its checks.
 _RAN_SEARCH_SQL = """EXISTS (
     SELECT 1 FROM jsonb_array_elements_text(
@@ -372,6 +414,7 @@ def list_prompt_set_citations(
     domain: str | None = None,
     search: str | None = None,
     engine: str | None = None,
+    topic: str | None = None,
     branded: BrandedSegment = BrandedSegment.ALL,
     include_answer_text: bool = False,
 ) -> tuple[list[PromptCitation], int]:
@@ -382,14 +425,17 @@ def list_prompt_set_citations(
         raise ValueError("Pass exactly one of url, domain or search.")
     window = _window(timezone_name, date_from, date_to)
     checks = AEOCitationCheck.objects.for_team(team_id).filter(
-        check_segment_filter(branded),
+        scope_filter(CheckScope(segment=branded, engine=engine, topic=topic)),
         created_at__gte=window.start,
         created_at__lt=window.until,
         check_failed=False,
         mode=CheckMode.WEB_SEARCH,
     )
     if url is not None:
-        checks = checks.filter(cited_urls__contains=[url])
+        checks = checks.filter(
+            # nosemgrep: python.django.security.audit.raw-query.avoid-raw-sql -- constant SQL, the URL is a bound parameter
+            RawSQL(_CITES_PAGE_SQL, [page_url(url)], output_field=BooleanField())
+        )
     elif domain is not None:
         domain = domain.strip().lower()
         checks = checks.filter(
@@ -401,9 +447,6 @@ def list_prompt_set_citations(
             # nosemgrep: python.django.security.audit.raw-query.avoid-raw-sql -- constant SQL, the search is a bound parameter
             RawSQL(_RAN_SEARCH_SQL, [_normalize_search(search)], output_field=BooleanField())
         )
-    if engine is not None:
-        checks = checks.filter(engine=engine)
-
     fields = _CHECK_FIELDS if include_answer_text else tuple(f for f in _CHECK_FIELDS if f != "answer_text")
     page = (
         checks.annotate(
@@ -887,6 +930,35 @@ def get_prompt_set_rankings(
         ),
         refresh=refresh,
     )
+
+
+def get_prompt_set_search_detail(
+    team_id: int,
+    query: str,
+    *,
+    timezone_name: str,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    branded: BrandedSegment = BrandedSegment.ALL,
+    engine: str | None = None,
+    topic: str | None = None,
+    refresh: bool = False,
+) -> PromptSetSearchDetail:
+    """The sites cited by the answers that ran one web search from `date_from` to `date_to` in the team's
+    timezone, the searches they ran next to it, the tracked keywords it contains and its prompts. `query` is
+    normalized the way the overview's searches are. Raises InvalidDateRangeError."""
+    window = _window(timezone_name, date_from, date_to)
+    query = _normalize_search(query)
+    detail = stored_result(
+        team_id,
+        "search_detail",
+        (*_window_key(timezone_name, window, branded, engine, topic), query),
+        lambda: search_details.get_search_detail(
+            team_id, query, window=window, scope=CheckScope(segment=branded, engine=engine, topic=topic)
+        ),
+        refresh=refresh,
+    )
+    return dataclasses.replace(detail, keywords=search_details.matching_keywords(team_id, query))
 
 
 def get_prompt_set_movers(

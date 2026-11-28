@@ -1,18 +1,25 @@
-from posthog.test.base import BaseTest
 from unittest.mock import MagicMock
+
+from django.test import SimpleTestCase, override_settings
 
 from rest_framework.exceptions import ValidationError
 
 from posthog.schema import EventsNode, LifecycleDataWarehouseNode, LifecycleQuery
 
 from posthog.hogql_queries.validation.validation import QueryValidationContext
+from posthog.models import Team
 
 from products.product_analytics.backend.hogql_queries.lifecycle.lifecycle_validation_rules import (
     RequireLifecycleDataWarehouseSeriesForCustomAggregationTarget,
 )
 
 
-class TestLifecycleValidationRules(BaseTest):
+@override_settings(PERSON_ON_EVENTS_V2_OVERRIDE=True, CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
+class TestLifecycleValidationRules(SimpleTestCase):
+    def setUp(self) -> None:
+        super().setUp()
+        self.team = Team(id=1, timezone="UTC")
+
     def _context(self, query: LifecycleQuery) -> QueryValidationContext:
         runner = MagicMock(query=query, team=self.team, user=None)
         return QueryValidationContext(query=query, team=self.team, user=None, runner=runner)

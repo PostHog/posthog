@@ -1,7 +1,17 @@
-import { MakeLogicType, actions, kea, path, reducers, selectors } from 'kea'
+import { MakeLogicType, actions, kea, listeners, path, reducers, selectors } from 'kea'
+import { subscriptions } from 'kea-subscriptions'
+import posthog from 'posthog-js'
 
 import { type AttachedContextItem, NEW_CHAT_KEY, attachedContextItemKey } from '~/layout/ai/attachedContext'
 import { type ChatChipsByTask, addChatChips, removeChatChip, withRemovedGroup } from '~/layout/ai/chatContextChips'
+
+const SKILL_ITEM_TYPE = 'skill'
+
+function skillNames(items: AttachedContextItem[]): Set<string> {
+    return new Set(
+        items.flatMap((item) => (item.type === SKILL_ITEM_TYPE && item.key !== undefined ? [String(item.key)] : []))
+    )
+}
 
 function withoutPicks(
     pickedByChat: Record<string, AttachedContextItem[]>,
@@ -33,11 +43,13 @@ export interface attachedContextLogicActions {
     contextDelivered: (
         taskId: string,
         items: AttachedContextItem[],
-        fromNewChat?: boolean
+        fromNewChat?: boolean,
+        wireItems?: AttachedContextItem[]
     ) => {
         fromNewChat: boolean
         items: AttachedContextItem[]
         taskId: string
+        wireItems: AttachedContextItem[]
     }
     deregisterContext: (providerId: string) => {
         providerId: string
@@ -151,11 +163,18 @@ export const attachedContextLogic = kea<attachedContextLogicType>([
         /**
          * A send delivered `items` to the chat: record them for dedupe, and save the visible ones as its chips.
          * `fromNewChat` says the new chat composer sent them, so its draft picks are the ones delivered.
+         * `wireItems` are the items the message carried after dedupe pruned the rest, and default to `items`.
          */
-        contextDelivered: (taskId: string, items: AttachedContextItem[], fromNewChat: boolean = false) => ({
+        contextDelivered: (
+            taskId: string,
+            items: AttachedContextItem[],
+            fromNewChat: boolean = false,
+            wireItems: AttachedContextItem[] = items
+        ) => ({
             taskId,
             items,
             fromNewChat,
+            wireItems,
         }),
         /** Record rendered context-block lines observed in `taskId`'s run log (see `seenContextLinesByTask`). */
         markContextLinesSeen: (taskId: string, lines: string[]) => ({ taskId, lines }),
@@ -326,5 +345,32 @@ export const attachedContextLogic = kea<attachedContextLogicType>([
             (s) => [s.contextItems],
             (contextItems: AttachedContextItem[]): boolean => contextItems.length > 0,
         ],
+    }),
+
+    listeners(({ selectors }) => ({
+        contextDelivered: ({ taskId, fromNewChat, wireItems }, _, __, previousState) => {
+            // Only the wire items count, because dedupe also prunes items that the run log shows the task
+            // received before a reload, and `sentContextKeysByTask` starts empty after one.
+            const deliveredBefore = selectors.sentContextKeysByTask(previousState)[taskId] ?? []
+            const newItems = wireItems.filter((item) => !deliveredBefore.includes(attachedContextItemKey(item)))
+            for (const skillName of skillNames(newItems)) {
+                posthog.capture('posthog ai context skill delivered', {
+                    skill_name: skillName,
+                    task_id: taskId,
+                    from_new_chat: fromNewChat,
+                })
+            }
+        },
+    })),
+
+    subscriptions({
+        contextItems: (contextItems: AttachedContextItem[], previousItems: AttachedContextItem[] | undefined) => {
+            const attachedBefore = skillNames(previousItems ?? [])
+            for (const skillName of skillNames(contextItems)) {
+                if (!attachedBefore.has(skillName)) {
+                    posthog.capture('posthog ai context skill attached', { skill_name: skillName })
+                }
+            }
+        },
     }),
 ])

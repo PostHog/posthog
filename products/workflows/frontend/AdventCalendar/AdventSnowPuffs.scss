@@ -1,0 +1,51 @@
+.AdventSnowPuff {
+    position: absolute;
+    width: 0;
+    height: 0;
+    pointer-events: none;
+}
+
+.AdventSnowPuff__cloud {
+    position: absolute;
+    width: 7cqw;
+    height: 7cqw;
+    background: radial-gradient(circle, var(--advent-snow) 0%, transparent 70%);
+    border-radius: 50%;
+    opacity: 0;
+    transform: translate(-50%, -50%);
+    animation: AdventSnowPuff__cloud 700ms ease-out forwards;
+}
+
+.AdventSnowPuff__flake {
+    position: absolute;
+    width: var(--advent-puff-size);
+    height: var(--advent-puff-size);
+    background: var(--advent-snow);
+    border-radius: 50%;
+    opacity: 0;
+    animation: AdventSnowPuff__flake 650ms ease-out var(--advent-puff-delay) forwards;
+}
+
+@keyframes AdventSnowPuff__cloud {
+    0% {
+        opacity: 0.9;
+        transform: translate(-50%, -50%) scale(0.4);
+    }
+
+    100% {
+        opacity: 0;
+        transform: translate(-50%, -50%) scale(1.6);
+    }
+}
+
+@keyframes AdventSnowPuff__flake {
+    0% {
+        opacity: 1;
+        transform: translate(-50%, -50%);
+    }
+
+    100% {
+        opacity: 0;
+        transform: translate(calc(-50% + var(--advent-puff-x)), calc(-50% + var(--advent-puff-y)));
+    }
+}

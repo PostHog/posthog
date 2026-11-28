@@ -54,7 +54,10 @@ from products.tasks.backend.facade.api import ensure_task_run_session
 from products.tasks.backend.facade.profiles import NetworkAccess, NetworkPolicy
 from products.tasks.backend.feature_flags import own_subscription_cloud_enabled
 from products.tasks.backend.logic.model_access import ModelAccess, resolve_model_access
-from products.tasks.backend.logic.services.agent_egress_enrollment import AgentEgressEnrollmentConfig
+from products.tasks.backend.logic.services.agent_egress_enrollment import (
+    AgentEgressEnrollmentConfig,
+    AgentEgressScoutCohort,
+)
 from products.tasks.backend.logic.services.agent_egress_probe import AgentEgressProbeConfig
 from products.tasks.backend.logic.services.agent_instructions import (
     agent_instructions_state_update,
@@ -998,6 +1001,19 @@ def _agent_egress_enrollment_config(
         )
         return None
     if (resumed or context.mode == "interactive") and not config.maintain_for_run:
+        return None
+    if config.route_git_reads and (
+        not input.supports_agent_egress_git_reads
+        or context.origin_product != Task.OriginProduct.SIGNALS_SCOUT
+        or context.profile_key != "signals.scout_full_network"
+        or not _agent_egress_git_enabled(context, config, resumed=resumed)
+        or not AgentEgressScoutCohort.selects(
+            _flag_payload(flags, AGENT_EGRESS_ENROLLMENT_FEATURE_FLAG),
+            team_id=context.team_id,
+            skill_name=(context.state or {}).get("ai_agent_name"),
+            repository=context.repositories[0],
+        )
+    ):
         return None
     return config
 

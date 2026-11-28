@@ -20,36 +20,44 @@ Reference: <https://developers.pipedrive.com/docs/api/v1>
 
 ## Endpoints synced
 
-| Schema              | Path                                            | Pagination | Primary key              | Partition key |
-| ------------------- | ----------------------------------------------- | ---------- | ------------------------ | ------------- |
-| deals               | `/api/v2/deals`                                 | cursor     | id                       | add_time      |
-| archived_deals      | `/api/v2/deals/archived`                        | cursor     | id                       | add_time      |
-| persons             | `/api/v2/persons`                               | cursor     | id                       | add_time      |
-| organizations       | `/api/v2/organizations`                         | cursor     | id                       | add_time      |
-| products            | `/api/v2/products`                              | cursor     | id                       | add_time      |
-| pipelines           | `/api/v2/pipelines`                             | cursor     | id                       | add_time      |
-| stages              | `/api/v2/stages`                                | cursor     | id                       | add_time      |
-| activities          | `/api/v2/activities`                            | cursor     | id                       | add_time      |
-| notes               | `/api/v1/notes`                                 | offset     | id                       | add_time      |
-| leads               | `/api/v1/leads`                                 | offset     | id                       | add_time      |
-| users               | `/api/v1/users`                                 | offset     | id                       | —             |
-| deal_fields         | `/api/v1/dealFields`                            | offset     | id                       | —             |
-| person_fields       | `/api/v1/personFields`                          | offset     | id                       | —             |
-| organization_fields | `/api/v1/organizationFields`                    | offset     | id                       | —             |
-| lead_labels         | `/api/v1/leadLabels`                            | none       | id                       | —             |
-| activity_types      | `/api/v1/activityTypes`                         | none       | id                       | —             |
-| currencies          | `/api/v1/currencies`                            | none       | id                       | —             |
-| call_logs           | `/api/v1/callLogs`                              | offset     | id                       | start_time    |
-| goals               | `/api/v1/goals/find`                            | none       | id                       | —             |
-| deal_products       | `/api/v2/deals/products`                        | cursor     | deal_id, id              | add_time      |
-| deal_changelog      | `/api/v1/deals/{id}/changelog`                  | cursor     | deal_id, field_key, time | time          |
-| mail_threads        | `/api/v1/mailbox/mailThreads`                   | offset     | id                       | add_time      |
-| mail_messages       | `/api/v1/mailbox/mailThreads/{id}/mailMessages` | none       | id                       | add_time      |
-| projects            | `/api/v2/projects`                              | cursor     | id                       | add_time      |
-| archived_projects   | `/api/v2/projects/archived`                     | cursor     | id                       | add_time      |
-| project_tasks       | `/api/v1/tasks`                                 | cursor     | id                       | add_time      |
-| project_boards      | `/api/v1/projects/boards`                       | none       | id                       | —             |
-| project_phases      | `/api/v1/projects/phases`                       | none       | id                       | —             |
+| Schema                     | Path                                            | Pagination | Primary key              | Partition key |
+| -------------------------- | ----------------------------------------------- | ---------- | ------------------------ | ------------- |
+| deals                      | `/api/v2/deals`                                 | cursor     | id                       | add_time      |
+| archived_deals             | `/api/v2/deals/archived`                        | cursor     | id                       | add_time      |
+| persons                    | `/api/v2/persons`                               | cursor     | id                       | add_time      |
+| organizations              | `/api/v2/organizations`                         | cursor     | id                       | add_time      |
+| products                   | `/api/v2/products`                              | cursor     | id                       | add_time      |
+| pipelines                  | `/api/v2/pipelines`                             | cursor     | id                       | add_time      |
+| stages                     | `/api/v2/stages`                                | cursor     | id                       | add_time      |
+| activities                 | `/api/v2/activities`                            | cursor     | id                       | add_time      |
+| notes                      | `/api/v1/notes`                                 | offset     | id                       | add_time      |
+| leads                      | `/api/v1/leads`                                 | offset     | id                       | add_time      |
+| archived_leads             | `/api/v1/leads/archived`                        | offset     | id                       | add_time      |
+| users                      | `/api/v1/users`                                 | offset     | id                       | —             |
+| deal_fields                | `/api/v1/dealFields`                            | offset     | id                       | —             |
+| person_fields              | `/api/v1/personFields`                          | offset     | id                       | —             |
+| organization_fields        | `/api/v1/organizationFields`                    | offset     | id                       | —             |
+| activity_fields            | `/api/v1/activityFields`                        | none       | id                       | —             |
+| product_fields             | `/api/v1/productFields`                         | offset     | id                       | —             |
+| lead_fields                | `/api/v1/leadFields`                            | offset     | id                       | —             |
+| note_fields                | `/api/v1/noteFields`                            | none       | id                       | —             |
+| project_fields             | `/api/v2/projectFields`                         | cursor     | field_code               | —             |
+| lead_labels                | `/api/v1/leadLabels`                            | none       | id                       | —             |
+| activity_types             | `/api/v1/activityTypes`                         | none       | id                       | —             |
+| currencies                 | `/api/v1/currencies`                            | none       | id                       | —             |
+| call_logs                  | `/api/v1/callLogs`                              | offset     | id                       | start_time    |
+| goals                      | `/api/v1/goals/find`                            | none       | id                       | —             |
+| deal_products              | `/api/v2/deals/products`                        | cursor     | deal_id, id              | add_time      |
+| deal_changelog             | `/api/v1/deals/{id}/changelog`                  | cursor     | deal_id, field_key, time | time          |
+| deal_participants          | `/api/v1/deals/{id}/participants`               | offset     | deal_id, id              | add_time      |
+| organization_relationships | `/api/v1/organizationRelationships?org_id={id}` | none       | org_id, id               | add_time      |
+| mail_threads               | `/api/v1/mailbox/mailThreads`                   | offset     | id                       | add_time      |
+| mail_messages              | `/api/v1/mailbox/mailThreads/{id}/mailMessages` | none       | id                       | add_time      |
+| projects                   | `/api/v2/projects`                              | cursor     | id                       | add_time      |
+| archived_projects          | `/api/v2/projects/archived`                     | cursor     | id                       | add_time      |
+| project_tasks              | `/api/v1/tasks`                                 | cursor     | id                       | add_time      |
+| project_boards             | `/api/v1/projects/boards`                       | none       | id                       | —             |
+| project_phases             | `/api/v1/projects/phases`                       | none       | id                       | —             |
 
 `lead_labels`, `activity_types` and `currencies` are documented as unpaginated and always return every row, so they are read in one request.
 
@@ -67,7 +75,15 @@ Call logs have no `add_time`, so the table is partitioned on the call `start_tim
 `deal_changelog` sends one request chain per deal, because the changelog has no batched form.
 Changelog rows carry neither an id nor the deal id, so the source adds the `deal_id` it requested.
 The resume state holds the deal list and page, the last finished deal id, and the cursor of the deal group in progress, so it does not grow with the account.
-`archived_deals` and `archived_projects` read the archived lists, which `/api/v2/deals` and `/api/v2/projects` leave out.
+`deal_participants` sends one request chain per deal, paged by offset, and adds the `deal_id` it requested.
+`archived_deals`, `archived_leads` and `archived_projects` read the archived lists, which `/api/v2/deals`, `/api/v1/leads` and `/api/v2/projects` leave out.
+
+`organization_relationships` reads `/organizationRelationships` once per organization in `/api/v2/organizations`, because the endpoint requires an `org_id`.
+A relationship is listed for both of its organizations, with calculated fields relative to the organization requested, so the source adds that `org_id` and keys rows by `org_id` and `id`.
+
+`activity_fields`, `product_fields`, `lead_fields` and `note_fields` read the v1 field lists, which have the same shape as `deal_fields`.
+Lead and note fields have no v2 endpoint.
+`project_fields` reads `/api/v2/projectFields`, the only version that has it, and is keyed by `field_code`.
 
 `mail_threads` reads `/mailbox/mailThreads` once per folder (`inbox`, `sent`, `archive`, `drafts`).
 A thread is listed in every folder that holds one of its messages, so a thread already read from an earlier folder is skipped.

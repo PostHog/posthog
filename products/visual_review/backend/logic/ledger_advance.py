@@ -501,7 +501,9 @@ class _LedgerAdvancer:
             for entry in entries:
                 self._landed_identifiers.setdefault(entry.run_type, set()).add(entry.identifier)
             transaction.on_commit(self._publish_for_landed_identifiers, using=WRITER_DB, robust=True)
-        commit_status.publish_after_approvals_close(self.repo, closed_without_entry)
+        commit_status.publish_after_approvals_close(
+            self.repo, closed_without_entry, finished_pull_requests=frozenset({landing.pr_number})
+        )
         landed_ids = {approval_id for approval_ids in landed_by_verdict.values() for approval_id in approval_ids}
         self.approvals_landed += len(landed_ids)
         self._forget(landed_ids)
@@ -694,7 +696,11 @@ class _LedgerAdvancer:
             ):
                 if pr_numbers_to_abandon:
                     abandoned = open_approvals.filter(pr_number__in=pr_numbers_to_abandon)
-                    commit_status.publish_after_approvals_close(self.repo, list(abandoned.only("id", "run_type")))
+                    commit_status.publish_after_approvals_close(
+                        self.repo,
+                        list(abandoned.only("id", "run_type")),
+                        finished_pull_requests=frozenset(pr_numbers_to_abandon),
+                    )
                     abandoned.update(
                         state=BaselineApprovalState.ABANDONED, detail=detail, resolved_at=self.now, updated_at=self.now
                     )

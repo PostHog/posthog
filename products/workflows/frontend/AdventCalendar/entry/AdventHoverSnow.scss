@@ -1,0 +1,60 @@
+$advent-six-armed-flake: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round'%3E%3Cpath d='M12 2v20M3.3 7l17.4 10M3.3 17 20.7 7M9.5 3.5 12 6l2.5-2.5M9.5 20.5 12 18l2.5 2.5M4 10.2l3.4.9-.9 3.4M20 13.8l-3.4-.9.9-3.4M4 13.8l3.4-.9-.9-3.4M20 10.2l-3.4.9.9 3.4'/%3E%3C/svg%3E");
+
+.AdventHoverSnow {
+    --advent-flake-color: color-mix(in oklab, var(--brand-blue) 45%, var(--color-white));
+
+    position: fixed;
+    inset: 0;
+    z-index: calc(var(--z-hedgehog-buddy) - 1);
+    overflow: hidden;
+    pointer-events: none;
+    visibility: hidden;
+    opacity: 0;
+    transition:
+        opacity 300ms ease-out,
+        visibility 0s linear 300ms;
+
+    [theme='dark'] & {
+        --advent-flake-color: var(--color-white);
+    }
+}
+
+.AdventHoverSnow--falling {
+    visibility: visible;
+    opacity: 1;
+    transition: opacity 300ms ease-out;
+}
+
+.AdventHoverSnow__flake {
+    position: absolute;
+    top: calc(-1 * var(--advent-flake-size));
+    width: var(--advent-flake-size);
+    height: var(--advent-flake-size);
+    background-color: var(--advent-flake-color);
+    opacity: 0.85;
+    mask: $advent-six-armed-flake center / contain no-repeat;
+    animation: AdventHoverSnow__fall-0 var(--advent-flake-duration) linear var(--advent-flake-delay) infinite;
+    animation-play-state: paused;
+
+    .AdventHoverSnow--falling & {
+        animation-play-state: running;
+    }
+}
+
+@for $drift from -3 through 3 {
+    .AdventHoverSnow__flake--drift-#{$drift + 3} {
+        animation-name: AdventHoverSnow__fall-#{$drift + 3};
+    }
+
+    @keyframes AdventHoverSnow__fall-#{$drift + 3} {
+        to {
+            transform: translate3d($drift * 12px, calc(100vh + 32px), 0) rotate(180deg);
+        }
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .AdventHoverSnow {
+        display: none;
+    }
+}

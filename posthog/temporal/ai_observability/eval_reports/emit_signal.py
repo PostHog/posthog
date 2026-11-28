@@ -139,8 +139,7 @@ async def summarize_report_for_signal(
 ) -> EvalReportSignalSummary:
     """Use the signals LLM to produce a signal-sized summary of a report run.
 
-    The call runs only on the Go gateway, so it raises when the gateway is not configured rather
-    than reaching the legacy Python gateway under the bare `signals` slug. The `ai_product` tag
+    The call raises when the Go gateway is not configured. The `ai_product` tag
     stays separate from the report agent's `aio_eval_reports`: a budget denial on one must not
     stop the other.
     """

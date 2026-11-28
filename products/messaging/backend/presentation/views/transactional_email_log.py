@@ -33,6 +33,7 @@ from products.messaging.backend.facade.transactional_email_log import (
     get_transactional_email_activity,
     list_transactional_emails,
     transactional_email_impact,
+    transactional_email_impact_sessions,
     transactional_email_results,
     transactional_email_stats,
     transactional_email_stats_over_time,
@@ -276,13 +277,46 @@ class TransactionalEmailImpactSerializer(serializers.Serializer):
         allow_null=True,
         help_text="Sessions with a pageview from a link in this email: the pageview URL carries the ph_workflow_run "
         "tag of one of its clicked sends, up to window_days after the period. Reads the newest 10,000 clicked sends "
-        "at most. Sends that went out while link tagging was off carry no tag. Null when link_tagging_enabled is "
-        "false, when the user has no access to querying events, or when the count could not be computed.",
+        "at most, see sessions_capped_at. Sends that went out while link tagging was off carry no tag. Null when "
+        "link_tagging_enabled is false, when the user has no access to querying events, or when the count could not "
+        "be computed.",
+    )
+    sessions_capped_at = serializers.IntegerField(
+        allow_null=True,
+        help_text="Set when the period has more clicked sends than sessions reads: sessions then counts only the "
+        "newest this many clicked sends. Null when sessions covers every clicked send, or when sessions is null.",
     )
     link_tagging_enabled = serializers.BooleanField(
         help_text="Whether the project setting that tags tracked links on the sender's own domain with "
         "ph_workflow_run is on now. The tag connects a click to its session. When false, sessions is null. Set it "
         "with workflows_config.email_workflow_run_link_tag_enabled in the project settings."
+    )
+
+
+class TransactionalEmailImpactSessionsQuerySerializer(DateRangeQuerySerializer):
+    workflow_id = serializers.UUIDField(help_text="The workflow behind the transactional email.")
+
+
+class TransactionalEmailImpactSessionSerializer(serializers.Serializer):
+    session_id = serializers.CharField(help_text="The session ID, the same one session recordings use.")
+    message_id = serializers.CharField(
+        help_text="The send in the ph_workflow_run tag of the session's earliest pageview from the sends read."
+    )
+    first_pageview_at = serializers.DateTimeField(
+        help_text="The session's earliest pageview from a link in the sends read."
+    )
+
+
+class TransactionalEmailImpactSessionsSerializer(serializers.Serializer):
+    sessions = TransactionalEmailImpactSessionSerializer(
+        many=True,
+        help_text="Sessions with a pageview whose URL carries the ph_workflow_run tag of a clicked send read, up to 7 "
+        "days after the period, newest first pageview first, 200 at most. Empty while link tagging is off, when "
+        "`impact` returns no session count.",
+    )
+    has_more = serializers.BooleanField(
+        help_text="True when sessions may be left out: there are more than 200, or only the newest clicked sends "
+        "were read, because they reach 10,000 or more than one query holds."
     )
 
 
@@ -382,7 +416,16 @@ class TransactionalEmailLogViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     schema = _PageSchema()
     permission_classes = [CDPLogPropertyAccessPermission]
     scope_object = "hog_flow"
-    scope_object_read_actions = ["list", "retrieve", "activity", "stats", "stats_over_time", "results", "impact"]
+    scope_object_read_actions = [
+        "list",
+        "retrieve",
+        "activity",
+        "stats",
+        "stats_over_time",
+        "results",
+        "impact",
+        "impact_sessions",
+    ]
 
     def initial(self, request: Request, *args: Any, **kwargs: Any) -> None:
         super().initial(request, *args, **kwargs)
@@ -393,7 +436,7 @@ class TransactionalEmailLogViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         if self.action in ("list", "retrieve"):
             return ["hog_flow:read", "person:read"]
         # Results count any event the caller names, so they read event data the way a query does.
-        if self.action in ("results", "impact"):
+        if self.action in ("results", "impact", "impact_sessions"):
             return ["hog_flow:read", "query:read"]
         # Activity reads the recipient's events, so it needs person and event access.
         if self.action == "activity":
@@ -619,3 +662,37 @@ class TransactionalEmailLogViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 date_to=query.get("date_to"),
             )
         return Response(TransactionalEmailImpactSerializer(asdict(impact)).data)
+
+    @validated_request(
+        query_serializer=TransactionalEmailImpactSessionsQuerySerializer,
+        responses={
+            200: OpenApiResponse(response=TransactionalEmailImpactSessionsSerializer),
+            403: OpenApiResponse(
+                description="The personal API key or OAuth token lacks the `hog_flow:read` or `query:read` scope, or the "
+                "user has no access to workflows in this project or to querying events."
+            ),
+            404: OpenApiResponse(description="The project has no such workflow, or the user may not view it."),
+        },
+        summary="List the sessions with a pageview from a transactional email",
+        description="List the newest sessions with a pageview from a link in one email, the sessions `impact` counts.",
+    )
+    @action(detail=False, methods=["GET"])
+    def impact_sessions(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
+        require_email_impact(self.team)
+        query = request.validated_query_data
+        workflow_id = str(query["workflow_id"])
+        if workflow_id not in self._workflow_access().viewable_ids:
+            raise NotFound()
+        if not user_can_access_resource(
+            self.team, cast(User, request.user), "query", "viewer", user_access_control=self.user_access_control
+        ):
+            raise PermissionDenied("You need access to querying events to list sessions.")
+        with query_concurrency_slots(self.team):
+            sessions = transactional_email_impact_sessions(
+                self.team,
+                cast(User, request.user),
+                workflow_id,
+                date_from=query.get("date_from"),
+                date_to=query.get("date_to"),
+            )
+        return Response(TransactionalEmailImpactSessionsSerializer(asdict(sessions)).data)

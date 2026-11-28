@@ -12,11 +12,14 @@ class EndpointConfig(TypedDict):
     data_selector: str
     primary_keys: list[str]
     partition_key: str | None
-    # Report endpoints take a date range and page with `skip` and `limit`.
+    # Report endpoints take a date range. Unless `date_windows` is set, they page with `skip` and `limit`.
     report: NotRequired[bool]
     # Fields the request sorts by, so that `skip` paging is stable.
     sort: NotRequired[str]
     requires_products: NotRequired[bool]
+    # The TrustQuotes for Web report documents no `skip` or `limit` and groups days with `date-group`,
+    # so the source sends one request per day to bound each response.
+    date_windows: NotRequired[bool]
 
 
 ENDPOINTS: dict[str, EndpointConfig] = {
@@ -53,6 +56,25 @@ ENDPOINTS: dict[str, EndpointConfig] = {
         "sort": "date,productId,categoryId",
         "requires_products": True,
     },
+    "traffic_pages": {
+        "path": "reports/traffic/pages",
+        "data_selector": "",
+        "primary_keys": ["date", "productId", "url"],
+        "partition_key": "date",
+        "report": True,
+        "sort": "date,productId,url",
+        "requires_products": True,
+    },
+    "trustquotes_web_pages": {
+        "path": "reports/syndication/tqw/pages",
+        "data_selector": "",
+        # The spec marks `domain`, `page` and `link` optional, so all three are in the key and the source
+        # writes "" for a missing one: a row that lacks one still differs from the others by the rest.
+        "primary_keys": ["date", "productId", "widgetId", "domain", "page", "link"],
+        "partition_key": "date",
+        "report": True,
+        "date_windows": True,
+    },
     "visitor_insights_companies": {
         "path": "reports/visitor-insights/companies",
         "data_selector": "",
@@ -79,6 +101,8 @@ ENDPOINTS: dict[str, EndpointConfig] = {
 
 INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
     "traffic_products": [incremental_field("date")],
+    "traffic_pages": [incremental_field("date")],
+    "trustquotes_web_pages": [incremental_field("date")],
     "visitor_insights_companies": [incremental_field("date")],
     "visitor_insights_pages": [incremental_field("date")],
     "intent": [incremental_field("date", IncrementalFieldType.Date)],
@@ -88,6 +112,7 @@ INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
 INCREMENTAL_LOOKBACK_SECONDS = dict.fromkeys(INCREMENTAL_FIELDS, 2 * 24 * 60 * 60)
 
 REPORT_PAGE_SIZE = 1000
+DATE_WINDOW_DAYS = 1
 # The reports document no retention, so a first sync reads one year of daily rows.
 REPORT_HISTORY_DAYS = 365
 # The intent API serves at most the 45 days before today.

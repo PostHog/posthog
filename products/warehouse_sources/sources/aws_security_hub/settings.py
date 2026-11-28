@@ -167,3 +167,26 @@ ERROR_MESSAGES = {
     "ExpiredTokenException": "The AWS session token expired. Reconnect with new credentials.",
     "SubscriptionRequiredException": SUBSCRIPTION_MESSAGE,
 }
+
+
+# The IAM actions this source calls. A role session can use only these.
+AWS_SESSION_ACTIONS = (
+    "securityhub:DescribeProducts",
+    "securityhub:DescribeProductsV2",
+    "securityhub:DescribeStandards",
+    "securityhub:DescribeStandardsControls",
+    "securityhub:GetEnabledStandards",
+    "securityhub:GetFindingHistory",
+    "securityhub:GetFindings",
+    "securityhub:GetFindingsTrendsV2",
+    "securityhub:GetFindingsV2",
+    "securityhub:GetInsightResults",
+    "securityhub:GetInsights",
+    "securityhub:GetRemediationsV2",
+    "securityhub:GetResourcesTrendsV2",
+    "securityhub:GetResourcesV2",
+    "securityhub:GetSoftwareV2",
+    "securityhub:ListExposuresByRemediationV2",
+    "securityhub:ListMembers",
+    "securityhub:ListSecurityControlDefinitions",
+)

@@ -1,3 +1,4 @@
+import dataclasses
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from uuid import uuid4
@@ -13,6 +14,7 @@ from django.utils import timezone
 
 from parameterized import parameterized
 
+from posthog.models.instance_setting import get_instance_setting, override_instance_config
 from posthog.models.scoping import team_scope
 
 from products.experiments.backend.models.experiment import (
@@ -22,6 +24,7 @@ from products.experiments.backend.models.experiment import (
     ExperimentToSavedMetric,
 )
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
+from products.experiments.backend.recalculation.kill_switch import RECALCULATION_ENABLED_SETTING
 from products.experiments.backend.temporal.models import ScheduledRecalculationStartResult
 from products.experiments.backend.temporal.scheduled_recalculation_activities import (
     SKIPPED_EVENT,
@@ -36,6 +39,7 @@ from products.experiments.backend.temporal.scheduled_recalculation_logic import 
     SKIP_EXPOSURE_QUERY_FAILED,
     SKIP_INSUFFICIENT_EXPOSURES,
     SKIP_NO_METRICS,
+    SKIP_RECALCULATION_PAUSED,
     SKIP_RECENT_RUN,
     SKIP_START_WINDOW_ELAPSED,
     SKIP_ZERO_ROLLOUT,
@@ -47,7 +51,7 @@ MODULE = "products.experiments.backend.temporal.scheduled_recalculation_activiti
 DISPATCH = "products.experiments.backend.recalculation.admission.start_metrics_recalculation_workflow"
 
 # Unwrap the database_sync_to_async_pool decorator so the bodies run synchronously in the test
-# transaction, matching recalculation/test_activities.py.
+# transaction, matching recalculation/test_helpers.py.
 _check_exposures_raw = _check_experiment_exposures_sync.func  # type: ignore[attr-defined]
 _start_recalculation_raw = _start_scheduled_recalculation_sync.func  # type: ignore[attr-defined]
 _discover_raw = _discover_scheduled_recalculation_candidates_sync.func  # type: ignore[attr-defined]
@@ -156,9 +160,31 @@ class TestScheduledRecalculationActivities(BaseTest):
         assert capture.call_args.kwargs["properties"]["reason"] == reason
         assert capture.call_args.kwargs["properties"]["hour"] == 12
 
+    @parameterized.expand(
+        [
+            ("discovery", lambda test: dataclasses.astuple(_discover()), (12, [])),
+            ("exposure_check", lambda test: _check_exposures(test.experiment.id, 12), False),
+            ("start", lambda test: _start_recalculation(test.experiment.id, 12).skip_reason, SKIP_RECALCULATION_PAUSED),
+        ]
+    )
+    def test_activity_reads_only_the_setting_while_recalculation_is_paused(
+        self, _name: str, run: Callable[["TestScheduledRecalculationActivities"], object], expected: object
+    ):
+        with (
+            override_instance_config(RECALCULATION_ENABLED_SETTING, False),
+            patch(f"{MODULE}.count_total_exposures", return_value=120),
+            patch(DISPATCH),
+            CaptureQueriesContext(connection) as queries,
+        ):
+            get_instance_setting.cache_clear()  # type: ignore[attr-defined]
+            assert run(self) == expected
+        assert [q["sql"] for q in queries.captured_queries if "posthog_instancesetting" not in q["sql"]] == []
+
     def test_discovery_query_count_does_not_grow_with_skips(self):
         # Covers the skipped events too: each one reads the team, organization and creator.
         def discovery_queries() -> int:
+            # Without this, only the first discovery reads the kill switch setting, and the counts differ by one.
+            get_instance_setting.cache_clear()  # type: ignore[attr-defined]
             with patch(f"{MODULE}.posthoganalytics.capture"), CaptureQueriesContext(connection) as queries:
                 _discover()
             return len(queries.captured_queries)
