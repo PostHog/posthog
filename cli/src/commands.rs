@@ -17,9 +17,11 @@ use crate::{
         capture_command_run_without_context, context, init_context, set_telemetry_command_name,
         set_telemetry_env_id_from_environment, INVOCATION_CONTEXT,
     },
+    jvm::JvmSubcommand,
     proguard::ProguardSubcommand,
     release::ReleaseSubcommand,
     sourcemaps::{hermes::HermesSubcommand, plain::SourcemapCommand},
+    utils::auth::get_token,
 };
 
 #[derive(Parser)]
@@ -85,6 +87,7 @@ fn dry_run_skipped_command(command: &Commands) -> Option<&'static str> {
         } => Some("native debug symbols"),
         Commands::Hermes { .. } => Some("hermes sourcemap"),
         Commands::Proguard { .. } => Some("proguard"),
+        Commands::Jvm { .. } => Some("JVM sources"),
         // Resolving a release creates the row when it doesn't exist yet, which a dry run must not
         // do. The command prints nothing, so a caller injecting the id ships a bundle without one.
         Commands::Release { .. } => Some("release"),
@@ -162,6 +165,12 @@ pub enum Commands {
     Proguard {
         #[command(subcommand)]
         cmd: ProguardSubcommand,
+    },
+
+    #[command(about = "Upload the source files of a Java or Kotlin build to PostHog")]
+    Jvm {
+        #[command(subcommand)]
+        cmd: JvmSubcommand,
     },
 
     #[command(about = "Upload, download, and manage symbol sets")]
@@ -303,6 +312,9 @@ impl Commands {
             Commands::Proguard { cmd } => match cmd {
                 ProguardSubcommand::Upload(_) => "proguard_upload",
             },
+            Commands::Jvm { cmd } => match cmd {
+                JvmSubcommand::Upload(_) => "jvm_upload",
+            },
             Commands::SymbolSets { cmd } => match cmd {
                 SymbolSetsSubcommand::Upload(_) => "symbolset_upload",
                 SymbolSetsSubcommand::Download(_) => "symbolset_download",
@@ -392,6 +404,13 @@ impl Cli {
     }
 
     fn run_impl(self) -> Result<Option<i32>, CapturedError> {
+        if let Commands::Jvm {
+            cmd: JvmSubcommand::Upload(args),
+        } = &self.command
+        {
+            crate::jvm::upload::remove_previous_meta(args)?;
+        }
+
         if self.dry_run {
             if let Some(kind) = dry_run_skipped_command(&self.command) {
                 warn!(
@@ -400,6 +419,22 @@ impl Cli {
                      Do not use --dry-run for release builds."
                 );
                 return Ok(None);
+            }
+        }
+
+        // Checked before `init_context`, which fails when it finds no credentials.
+        if let Commands::Jvm {
+            cmd: JvmSubcommand::Upload(args),
+        } = &self.command
+        {
+            if args.skip_without_credentials {
+                if let Err(error) = get_token(self.env_file.clone()) {
+                    warn!(
+                        "Skipping the JVM source upload, because no PostHog credentials were \
+                         found ({error:#}). Exceptions from this build show no source code."
+                    );
+                    return Ok(None);
+                }
             }
         }
 
@@ -483,6 +518,11 @@ impl Cli {
             Commands::Proguard { cmd } => match cmd {
                 ProguardSubcommand::Upload(args) => {
                     crate::proguard::upload::upload(&args)?;
+                }
+            },
+            Commands::Jvm { cmd } => match cmd {
+                JvmSubcommand::Upload(args) => {
+                    crate::jvm::upload::upload(&args)?;
                 }
             },
             Commands::SymbolSets { cmd } => match cmd {
@@ -622,6 +662,28 @@ mod tests {
             arg.get_env(),
             Some(std::ffi::OsStr::new("POSTHOG_CLI_DOTENV_FILE"))
         );
+    }
+
+    #[test]
+    fn a_skipped_jvm_upload_leaves_no_meta_file_from_an_earlier_upload() {
+        let out = tempfile::tempdir().unwrap();
+        let previous = out.path().join(crate::jvm::sources::META_PROPERTIES_FILE);
+        std::fs::write(&previous, "io.posthog.proguard.mapid=earlier-upload\n").unwrap();
+
+        let cli = Cli::try_parse_from([
+            "posthog-cli",
+            "--dry-run",
+            "jvm",
+            "upload",
+            "--source",
+            "src/main/java",
+            "--meta-out",
+            out.path().to_str().unwrap(),
+        ])
+        .unwrap();
+
+        assert!(matches!(cli.run_impl(), Ok(None)));
+        assert!(!previous.exists());
     }
 
     #[test]

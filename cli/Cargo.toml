@@ -37,7 +37,7 @@ dirs = "7.0.0"
 dunce = "1.0.5"
 inquire = "0.8.1"
 chrono = "0.4.42"
-posthog-symbol-data = "0.5.2"
+posthog-symbol-data = { version = "0.5.2", path = "../rust/common/symbol_data" }
 walkdir = "2.5.0"
 globset = "0.4"
 ratatui = "0.29.0"

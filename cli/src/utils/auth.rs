@@ -71,9 +71,12 @@ pub struct EnvVarProvider {
 }
 
 fn try_source<F: Fn(&str) -> Option<String>>(lookup: F) -> Option<Token> {
-    let token = lookup("POSTHOG_CLI_API_KEY").or_else(|| lookup("POSTHOG_CLI_TOKEN"))?;
-    let env_id = lookup("POSTHOG_CLI_PROJECT_ID").or_else(|| lookup("POSTHOG_CLI_ENV_ID"))?;
-    let host = lookup("POSTHOG_CLI_HOST");
+    // CI systems often set a secret that the job cannot read to an empty string. An empty value
+    // counts as missing, so that the next variable or credential source is used instead.
+    let non_empty = |name: &str| lookup(name).filter(|value| !value.is_empty());
+    let token = non_empty("POSTHOG_CLI_API_KEY").or_else(|| non_empty("POSTHOG_CLI_TOKEN"))?;
+    let env_id = non_empty("POSTHOG_CLI_PROJECT_ID").or_else(|| non_empty("POSTHOG_CLI_ENV_ID"))?;
+    let host = non_empty("POSTHOG_CLI_HOST");
     Some(Token {
         host,
         token,
@@ -218,6 +221,20 @@ mod tests {
         let mut only_id = HashMap::new();
         only_id.insert("POSTHOG_CLI_PROJECT_ID", "1");
         assert!(try_source(lookup(&only_id)).is_none());
+    }
+
+    #[test]
+    fn try_source_treats_empty_values_as_missing() {
+        let mut empty_key = HashMap::new();
+        empty_key.insert("POSTHOG_CLI_API_KEY", "");
+        empty_key.insert("POSTHOG_CLI_PROJECT_ID", "1");
+        assert!(try_source(lookup(&empty_key)).is_none());
+
+        empty_key.insert("POSTHOG_CLI_TOKEN", "phx_legacy");
+        empty_key.insert("POSTHOG_CLI_HOST", "");
+        let token = try_source(lookup(&empty_key)).unwrap();
+        assert_eq!(token.token, "phx_legacy");
+        assert_eq!(token.host, None);
     }
 
     #[test]

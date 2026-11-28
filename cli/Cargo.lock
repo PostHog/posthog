@@ -2205,8 +2205,6 @@ dependencies = [
 [[package]]
 name = "posthog-symbol-data"
 version = "0.5.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b26f92cc8a5b55b540bd4e8f18d579da035a2541b6e9dd876db905264d4ee1fd"
 dependencies = [
  "serde",
  "thiserror 2.0.17",

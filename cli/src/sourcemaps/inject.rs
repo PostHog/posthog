@@ -270,7 +270,7 @@ pub fn get_release_for_maps<'a>(
 
 /// An incomplete release without Git metadata is optional; Git lookup errors remain fatal when
 /// the missing coordinates depend on Git.
-fn resolve_release_builder(
+pub(crate) fn resolve_release_builder(
     directory: &Path,
     release: ReleaseArgs,
 ) -> Result<Option<ReleaseBuilder>> {
