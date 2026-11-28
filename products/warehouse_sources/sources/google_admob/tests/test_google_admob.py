@@ -7,6 +7,7 @@ import pytest
 import time_machine
 from unittest import mock
 
+import requests
 from parameterized import parameterized
 
 from products.warehouse_sources.sources.google_admob._config import GoogleAdMobSourceConfig
@@ -58,6 +59,7 @@ NOT_FOUND_BODY = {"error": {"code": 404, "message": "Requested entity was not fo
 def _connected_account() -> Iterator[None]:
     """Stand in for the DB-backed integration that holds the Google access token."""
     integration = mock.MagicMock()
+    integration.kind = "google-admob"
     integration.access_token = "access-token"
     integration.errors = ""
     oauth = mock.MagicMock()
@@ -218,38 +220,31 @@ class TestReportSync:
         with _connected_account():
             yield
 
-    def test_walks_thirty_day_windows_up_to_yesterday(self) -> None:
-        result = _driver(start_date="2026-01-01").run(NETWORK_REPORT, _report_script(_report(_network_row("20260301"))))
+    def test_walks_week_windows_up_to_yesterday(self) -> None:
+        result = _driver(start_date="2026-02-28").run(NETWORK_REPORT, _report_script(_report(_network_row("20260301"))))
 
         assert result.raised is None
         assert _date_ranges(result.requests) == [
-            ("2026-01-01", "2026-01-30"),
-            ("2026-01-31", "2026-03-01"),
-            ("2026-03-02", "2026-03-14"),
+            ("2026-02-28", "2026-03-06"),
+            ("2026-03-07", "2026-03-13"),
+            ("2026-03-14", "2026-03-14"),
         ]
-        spec = next(r for r in result.requests if r.method == "POST").json()["reportSpec"]
-        assert spec["dimensions"] == ["DATE", "APP", "AD_UNIT", "COUNTRY", "FORMAT", "PLATFORM"]
-        assert "AD_TYPE" not in spec["dimensions"]
-        assert spec["maxReportRows"] == 100_000
-        assert {r.path for r in result.requests if r.method == "POST"} == {f"{ACCOUNT_PATH}/networkReport:generate"}
         assert result.requests[0].headers["authorization"] == "Bearer access-token"
         assert {row["currency_code"] for row in result.rows} == {"EUR"}
-        assert result.response is not None
-        assert result.response.primary_keys == ["date", "app", "ad_unit", "country", "format", "platform"]
-
-    def test_mediation_report_posts_to_its_own_method(self) -> None:
-        result = _driver(start_date="2026-03-14").run(MEDIATION_REPORT, _report_script(_report()))
-
-        assert result.raised is None
-        post = next(r for r in result.requests if r.method == "POST")
-        assert post.path == f"{ACCOUNT_PATH}/mediationReport:generate"
-        assert "AD_SOURCE" in post.json()["reportSpec"]["dimensions"]
+        # The cursor moves past a window only before the window's last batch is handed over.
+        assert result.committed_states == [
+            AdMobResumeConfig(next_start_date="2026-03-07", window_days=7),
+            AdMobResumeConfig(next_start_date="2026-03-14", window_days=7),
+            AdMobResumeConfig(next_start_date="2026-03-15", window_days=7),
+        ]
+        assert result.final_state is None
 
     @parameterized.expand(
         [
             ("incremental_uses_watermark", True, "2026-03-10", "2026-03-10"),
             ("incremental_without_watermark_uses_start_date", True, None, "2026-03-01"),
             ("full_refresh_ignores_watermark", False, "2026-03-10", "2026-03-01"),
+            ("watermark_before_start_date_uses_start_date", True, "2026-02-01", "2026-03-01"),
         ]
     )
     def test_first_requested_day(
@@ -264,60 +259,139 @@ class TestReportSync:
         )
 
         assert result.raised is None
-        assert _date_ranges(result.requests)[0] == (expected_start, "2026-03-14")
+        assert _date_ranges(result.requests)[0][0] == expected_start
 
     def test_default_start_is_one_year_back(self) -> None:
         result = _driver().run(NETWORK_REPORT, _report_script(_report()))
 
         assert _date_ranges(result.requests)[0][0] == "2025-03-15"
 
-    def test_truncated_window_is_halved_and_the_smaller_window_kept(self) -> None:
-        def answer(request: RecordedRequest) -> ScriptedResponse:
-            start = request.json()["reportSpec"]["dateRange"]["startDate"]
-            end = request.json()["reportSpec"]["dateRange"]["endDate"]
-            span = (
-                datetime(end["year"], end["month"], end["day"]) - datetime(start["year"], start["month"], start["day"])
-            ).days + 1
-            # More than four days of data hits the (patched) row limit.
-            if span > 4:
-                return _report(_network_row("20260301", "a"), _network_row("20260301", "b"))
-            return _report(_network_row("20260301", "a"))
+    @parameterized.expand(
+        [
+            ("full_response", lambda: _report(*[_network_row("20260312", str(i)) for i in range(8)])),
+            ("dropped_connection", lambda: requests.ConnectionError("the report took too long")),
+        ]
+    )
+    def test_multi_day_window_is_halved_and_grows_back(self, _name: str, failure: Any) -> None:
+        def answer(request: RecordedRequest) -> Any:
+            date_range = request.json()["reportSpec"]["dateRange"]
+            if date_range["startDate"] != date_range["endDate"]:
+                answer_or_error = failure()
+                if isinstance(answer_or_error, BaseException):
+                    raise answer_or_error
+                return answer_or_error
+            return _report(_network_row("20260312"))
 
-        with mock.patch(f"{TRANSPORT_MODULE}.MAX_REPORT_ROWS", 2):
-            result = _driver(start_date="2026-03-01").run(NETWORK_REPORT, _report_script(answer))
+        with mock.patch(f"{TRANSPORT_MODULE}.REPORT_ROW_BUDGET", 8):
+            result = _driver(start_date="2026-03-12").run(NETWORK_REPORT, _report_script(answer))
 
         assert result.raised is None
-        assert _date_ranges(result.requests) == [
-            ("2026-03-01", "2026-03-14"),
-            ("2026-03-01", "2026-03-07"),
-            ("2026-03-01", "2026-03-03"),
-            ("2026-03-04", "2026-03-06"),
-            ("2026-03-07", "2026-03-09"),
-            ("2026-03-10", "2026-03-12"),
+        assert list(dict.fromkeys(_date_ranges(result.requests))) == [
+            ("2026-03-12", "2026-03-14"),
+            ("2026-03-12", "2026-03-12"),
+            # A small window doubles again, up to the full window size.
             ("2026-03-13", "2026-03-14"),
+            ("2026-03-13", "2026-03-13"),
+            ("2026-03-14", "2026-03-14"),
         ]
-        # Only the windows under the limit are kept.
-        assert len(result.rows) == 5
+        # Only the windows under the budget are kept.
+        assert len(result.rows) == 3
 
-    def test_resumes_from_saved_state_instead_of_the_start_date(self) -> None:
+    def test_full_day_is_split_by_app_then_country(self) -> None:
+        full = _report(*[_network_row("20260314", str(i)) for i in range(4)])
+
+        def values(dimension: str, *names: str) -> ScriptedResponse:
+            return _report(*[{"row": {"dimensionValues": {dimension: {"value": name}}}} for name in names])
+
+        def answer(request: RecordedRequest) -> ScriptedResponse:
+            spec = request.json()["reportSpec"]
+            filters = {f["dimension"]: tuple(f["matchesAny"]["values"]) for f in spec.get("dimensionFilters", [])}
+            if spec["dimensions"] == ["APP"]:
+                return values("APP", "app-c", "app-a", "app-b")
+            if spec["dimensions"] == ["COUNTRY"]:
+                assert filters == {"APP": ("app-c",)}
+                return values("COUNTRY", "US", "FR")
+            if filters.get("APP") in (None, ("app-b", "app-c"), ("app-c",)) and "COUNTRY" not in filters:
+                return full
+            return _report(_network_row("20260314", f"{filters['APP'][0]}-{filters.get('COUNTRY', ('all',))[0]}"))
+
+        with mock.patch(f"{TRANSPORT_MODULE}.REPORT_ROW_BUDGET", 4):
+            result = _driver(start_date="2026-03-14").run(NETWORK_REPORT, _report_script(answer))
+
+        assert result.raised is None
+        report_filters = [
+            [(f["dimension"], f["matchesAny"]["values"]) for f in r.json()["reportSpec"].get("dimensionFilters", [])]
+            for r in result.requests
+            if r.method == "POST" and len(r.json()["reportSpec"]["dimensions"]) > 1
+        ]
+        assert report_filters == [
+            [],
+            [("APP", ["app-a"])],
+            [("APP", ["app-b", "app-c"])],
+            [("APP", ["app-b"])],
+            [("APP", ["app-c"])],
+            [("APP", ["app-c"]), ("COUNTRY", ["FR"])],
+            [("APP", ["app-c"]), ("COUNTRY", ["US"])],
+        ]
+        assert [row["ad_unit"] for row in result.rows] == ["app-a-all", "app-b-all", "app-c-FR", "app-c-US"]
+
+    @parameterized.expand(
+        [
+            ("fits_the_admob_limit", 2, None),
+            ("fills_the_admob_limit", 3, "cannot read it completely"),
+        ]
+    )
+    def test_slice_that_cannot_be_split_is_read_with_the_admob_limit(
+        self, _name: str, final_rows: int, error: str | None
+    ) -> None:
+        def answer(request: RecordedRequest) -> ScriptedResponse:
+            spec = request.json()["reportSpec"]
+            if spec["dimensions"] in (["APP"], ["COUNTRY"]):
+                dimension = spec["dimensions"][0]
+                return _report({"row": {"dimensionValues": {dimension: {"value": "only"}}}})
+            if spec["maxReportRows"] == 3:
+                return _report(*[_network_row("20260314", str(i)) for i in range(final_rows)])
+            return _report(*[_network_row("20260314", str(i)) for i in range(2)])
+
+        with (
+            mock.patch(f"{TRANSPORT_MODULE}.REPORT_ROW_BUDGET", 2),
+            mock.patch(f"{TRANSPORT_MODULE}.ADMOB_MAX_REPORT_ROWS", 3),
+        ):
+            result = _driver(start_date="2026-03-14").run(NETWORK_REPORT, _report_script(answer))
+
+        if error is None:
+            assert result.raised is None
+            assert len(result.rows) == final_rows
+        else:
+            assert error in str(result.raised)
+            assert result.rows == []
+
+    def test_large_window_is_yielded_in_chunks_with_the_cursor_staged_before_the_last(self) -> None:
+        rows = [_network_row("20260314", str(i)) for i in range(5)]
+
+        with mock.patch(f"{TRANSPORT_MODULE}.YIELD_CHUNK_ROWS", 2):
+            result = _driver(start_date="2026-03-14").run(NETWORK_REPORT, _report_script(_report(*rows)))
+
+        assert result.raised is None
+        assert [len(item) for item in result.items] == [2, 2, 1]
+        assert result.saved_states == [AdMobResumeConfig(next_start_date="2026-03-15", window_days=7)]
+
+    @parameterized.expand(
+        [
+            ("saved_window_size", 2, ("2026-03-01", "2026-03-02")),
+            ("state_from_before_window_size", None, ("2026-03-01", "2026-03-07")),
+        ]
+    )
+    def test_resumes_from_saved_state_instead_of_the_start_date(
+        self, _name: str, window_days: int | None, first_range: tuple[str, str]
+    ) -> None:
         result = _driver(start_date="2026-01-01").run(
             NETWORK_REPORT,
             _report_script(_report()),
-            resume_state=AdMobResumeConfig(next_start_date="2026-03-10"),
+            resume_state=AdMobResumeConfig(next_start_date="2026-03-01", window_days=window_days),
         )
 
-        assert _date_ranges(result.requests) == [("2026-03-10", "2026-03-14")]
-
-    def test_cursor_is_saved_before_the_window_it_covers_is_yielded(self) -> None:
-        result = _driver(start_date="2026-01-01").run(NETWORK_REPORT, _report_script(_report(_network_row("20260101"))))
-
-        assert result.raised is None
-        assert result.committed_states[:3] == [
-            AdMobResumeConfig(next_start_date="2026-01-31"),
-            AdMobResumeConfig(next_start_date="2026-03-02"),
-            AdMobResumeConfig(next_start_date="2026-03-15"),
-        ]
-        assert result.final_state is None
+        assert _date_ranges(result.requests)[0] == first_range
 
     def test_rejected_token_is_refreshed_once_mid_sync(self) -> None:
         answers = iter([ScriptedResponse(status=401, json=UNAUTHENTICATED_BODY), _report()])

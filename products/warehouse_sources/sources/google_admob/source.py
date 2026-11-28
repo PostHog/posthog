@@ -30,6 +30,7 @@ from products.warehouse_sources.sources.sdk import (
     ReleaseStatus,
     ResumableSource,
     ResumableSourceManager,
+    RetryableHTTPError,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
@@ -45,6 +46,10 @@ from products.warehouse_sources.sources.sdk import (
 INTEGRATION_KIND = "google-admob"
 
 RECONNECT_MESSAGE = "Could not use the credentials for this AdMob connection. Please reconnect the Google account."
+
+
+class AdMobTokenRefreshError(Exception):
+    """Google's token endpoint failed for a reason that can pass, such as a timeout or a 5xx."""
 
 
 @SourceRegistry.register
@@ -94,12 +99,22 @@ class GoogleAdMobSource(ResumableSource[GoogleAdMobSourceConfig, AdMobResumeConf
         """A valid Google access token for the linked account. `force_refresh` mints a new one even
         when the current one looks fresh, for a token that Google rejected mid-sync."""
         integration = self.get_oauth_integration(integration_id, team_id)
+        # The lookup only scopes to the team, so a config pointing at another provider's integration
+        # would otherwise send that provider's token to Google, and refresh it on a 401.
+        if integration.kind != INTEGRATION_KIND:
+            raise ValueError(f"Integration not found: {integration_id}")
 
         oauth = OauthIntegration(integration)
         if force_refresh or oauth.access_token_expired():
             integration = oauth.refresh_access_token()
             if integration.errors == ERROR_TOKEN_REFRESH_FAILED:
-                raise AdMobAuthError(RECONNECT_MESSAGE)
+                # Only a dead grant marks the row terminal. A timeout or a 5xx from Google's token
+                # endpoint can pass, so the sync retries instead of asking the user to reconnect.
+                if integration.config.get("refresh_terminal"):
+                    raise AdMobAuthError(RECONNECT_MESSAGE)
+                raise AdMobTokenRefreshError(
+                    "Could not refresh the Google access token for this AdMob connection. The sync will retry."
+                )
 
         if not integration.access_token:
             raise AdMobAuthError(RECONNECT_MESSAGE)
@@ -119,13 +134,13 @@ class GoogleAdMobSource(ResumableSource[GoogleAdMobSourceConfig, AdMobResumeConf
             ) from e
         except AdMobAuthError as e:
             raise IntegrationAccountListingError(str(e)) from e
-        except requests.RequestException as e:
+        except (AdMobTokenRefreshError, requests.RequestException) as e:
             raise IntegrationAccountListingError(
                 "Could not reach Google to refresh this connection. Please try again in a few minutes."
             ) from e
 
         try:
-            accounts = AdMobClient(access_token).list_accounts()
+            accounts = AdMobClient(access_token, retry=False).list_accounts()
         except requests.HTTPError as e:
             status = e.response.status_code if e.response is not None else None
             if status in (401, 403):
@@ -136,7 +151,7 @@ class GoogleAdMobSource(ResumableSource[GoogleAdMobSourceConfig, AdMobResumeConf
             raise IntegrationAccountListingError(
                 "Google is having trouble responding right now. Please try again in a few minutes."
             ) from e
-        except requests.RequestException as e:
+        except (RetryableHTTPError, requests.RequestException) as e:
             raise IntegrationAccountListingError(
                 "Google is having trouble responding right now. Please try again in a few minutes."
             ) from e
@@ -201,7 +216,7 @@ class GoogleAdMobSource(ResumableSource[GoogleAdMobSourceConfig, AdMobResumeConf
 
         try:
             access_token = self.access_token(config.google_admob_integration_id, team_id)
-        except (ValueError, AdMobAuthError) as e:
+        except (ValueError, AdMobAuthError, AdMobTokenRefreshError) as e:
             return False, str(e)
         except requests.RequestException as e:
             return False, f"Could not reach Google to refresh this connection ({e}). Please retry."

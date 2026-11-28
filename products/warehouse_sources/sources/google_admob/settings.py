@@ -1,21 +1,34 @@
-from dataclasses import dataclass
-
-from products.warehouse_sources.sources.sdk import IncrementalField, IncrementalFieldType
+from products.warehouse_sources.sources.sdk import IncrementalField, IncrementalFieldType, frozen
 
 ADMOB_HOST = "https://admob.googleapis.com"
 
 # Every call the source makes (accounts, apps, ad units, both reports) accepts the read-only scope.
 REQUIRED_SCOPES = "https://www.googleapis.com/auth/admob.readonly"
 
-# The report endpoints return at most 100,000 rows per request and drop the rest without an error.
-MAX_REPORT_ROWS = 100_000
+# The report endpoints accept up to 100,000 rows per request and drop the rest without an error.
+ADMOB_MAX_REPORT_ROWS = 100_000
+
+# A full 100,000-row response takes several hundred MB in memory, so each request asks for fewer
+# rows. A response that fills this budget is treated as truncated, and the sync asks again for a
+# smaller slice.
+REPORT_ROW_BUDGET = 20_000
+
+# Rows per yielded batch, so one response never reaches the pipeline as a single large batch.
+YIELD_CHUNK_ROWS = 5_000
+
+# When one day still fills the row budget, the day is split by these dimensions, in this order.
+SPLIT_DIMENSIONS = ("APP", "COUNTRY")
+
+# Metrics for the small report that lists the values of a split dimension. A row with activity in
+# the full report has ad requests, impressions or earnings.
+SPLIT_VALUE_METRICS = ("AD_REQUESTS", "IMPRESSIONS", "ESTIMATED_EARNINGS")
 
 # `apps.list` and `adUnits.list` return up to 10,000 items when no page size is set.
 LIST_PAGE_SIZE = 10_000
 
-# A report request covers this many days. When a window comes back at the row limit, the sync
-# halves the window and keeps the smaller size for the rest of the run.
-REPORT_WINDOW_DAYS = 30
+# A report request covers at most this many days. When a window fills the row budget or times out,
+# the sync halves it. A window that comes back well under the budget doubles again, up to this size.
+REPORT_WINDOW_DAYS = 7
 
 # AdMob keeps revising estimated earnings for several days, so each incremental run re-reads a
 # trailing window instead of keeping a day at its first value.
@@ -35,7 +48,7 @@ AD_UNITS = "ad_units"
 DATE_FIELD = "date"
 
 
-@dataclass(frozen=True)
+@frozen
 class AdMobReportConfig:
     name: str
     # The path segment after `accounts/{publisher_id}/`.
@@ -85,7 +98,7 @@ ADMOB_REPORTS: dict[str, AdMobReportConfig] = {
 }
 
 
-@dataclass(frozen=True)
+@frozen
 class AdMobListConfig:
     name: str
     # The path segment after `accounts/{publisher_id}/`.
