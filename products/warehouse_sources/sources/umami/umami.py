@@ -1,7 +1,7 @@
 import time
 from collections.abc import Iterator
 from dataclasses import field, replace
-from typing import Any
+from typing import Any, ClassVar
 from urllib.parse import quote, urlsplit
 
 from requests import PreparedRequest, Response
@@ -16,6 +16,7 @@ from products.warehouse_sources.sources.sdk import (
     Resource,
     RESTAPIConfig,
     ResumableSourceManager,
+    SourceCursorManager,
     SourceInputs,
     SourceResponse,
     frozen,
@@ -34,12 +35,19 @@ LOGIN_ATTEMPTS = 3
 # A server-supplied date range outside this span is implausible. Rejecting it bounds the number of event windows.
 MIN_TIMESTAMP_MS = 631_152_000_000  # 1990-01-01
 MAX_FUTURE_MS = 366 * DAY_MS
-MAX_SESSION_PROPERTY_PAGES = 1_000
+MAX_FAN_OUT_PAGES = 1_000
+BOUNDED_FAN_OUT_TABLES = {"event_properties", "goals", "session_properties", "funnels"}
 
 
 class UmamiError(ValueError):
     def __init__(self, message: str) -> None:
         super().__init__(f"Umami configuration: {message}")
+
+
+@frozen
+class UmamiEventCursor:
+    cursor_kind: ClassVar[str] = "umami-event-properties"
+    watermarks: dict[str, int]
 
 
 @frozen
@@ -51,6 +59,8 @@ class UmamiResumeState:
     end_at: int | None = None
     stop_at: int | None = None
     session_index: int = 0
+    pages_before_window: int = 0
+    event_watermarks: dict[str, int] = field(default_factory=dict)
 
 
 def normalize_host(host: str | None) -> str:
@@ -233,25 +243,11 @@ class UmamiClient:
 
 def _read_session_properties_page(
     client: UmamiClient,
-    inputs: SourceInputs,
     manager: ResumableSourceManager[UmamiResumeState],
     state: UmamiResumeState,
     website_id: str,
     batch: list[dict[str, Any]],
 ) -> Iterator[list[dict[str, Any]]]:
-    if state.page > MAX_SESSION_PROPERTY_PAGES:
-        inputs.logger.warning(
-            "umami.session_property_page_limit_reached",
-            resource=inputs.schema_name,
-            website_id=website_id,
-            page=state.page,
-            page_limit=MAX_SESSION_PROPERTY_PAGES,
-        )
-        raise UmamiError(
-            f"The session properties sync exceeded the session page limit "
-            f"of {MAX_SESSION_PROPERTY_PAGES:,} pages for one website."
-        )
-
     for index, session in enumerate(batch[state.session_index :], start=state.session_index):
         manager.safe_point()
         session_id = str(session["id"])
@@ -273,9 +269,12 @@ def get_rows(
     config: UmamiSourceConfig,
     inputs: SourceInputs,
     manager: ResumableSourceManager[UmamiResumeState],
+    cursor_manager: SourceCursorManager[UmamiEventCursor] | None,
 ) -> Iterator[list[dict[str, Any]]]:
     state = manager.load_state() if manager.can_resume() else None
     state = state or UmamiResumeState()
+    cursor = cursor_manager.load() if cursor_manager and inputs.should_use_incremental_field else None
+    watermarks = cursor.watermarks if cursor is not None else {}
     with UmamiClient(config) as client:
         manager.safe_point()
         websites = client.resource(
@@ -295,14 +294,7 @@ def get_rows(
             return
 
         endpoint = ENDPOINTS[inputs.schema_name]
-        watermark = (
-            timestamp_ms(inputs.db_incremental_field_last_value)
-            if inputs.schema_name == "event_properties"
-            and inputs.should_use_incremental_field
-            and inputs.incremental_field == endpoint.partition_key
-            and inputs.db_incremental_field_last_value is not None
-            else None
-        )
+        bounded = inputs.schema_name in BOUNDED_FAN_OUT_TABLES
         resource_name = "sessions" if inputs.schema_name == "session_properties" else inputs.schema_name
         for website_batch in websites:
             manager.safe_point()
@@ -328,8 +320,7 @@ def get_rows(
                         raise UmamiError("Umami returned a reversed date range. Check the server API version.")
                     if start_at < MIN_TIMESTAMP_MS or stop_at > int(time.time() * 1000) + MAX_FUTURE_MS:
                         raise UmamiError("Umami returned an implausible date range. Check the server API version.")
-                    if watermark is not None:
-                        start_at = max(start_at, watermark)
+                    start_at = max(start_at, watermarks.get(website_id, start_at))
                     state = replace(
                         state,
                         website_id=website_id,
@@ -338,6 +329,7 @@ def get_rows(
                         end_at=None,
                         page=1,
                         session_index=0,
+                        pages_before_window=0,
                     )
                 elif state.website_id != website_id:
                     state = UmamiResumeState(website_id=website_id, completed_websites=state.completed_websites)
@@ -367,8 +359,18 @@ def get_rows(
                         page=state.page,
                     )
                     for batch in resource:
+                        website_page = state.pages_before_window + state.page
+                        if bounded and website_page > MAX_FAN_OUT_PAGES:
+                            inputs.logger.warning(
+                                "umami.fan_out_page_limit_reached",
+                                resource=inputs.schema_name,
+                                website_id=website_id,
+                                page=website_page,
+                                page_limit=MAX_FAN_OUT_PAGES,
+                            )
+                            raise UmamiError(f"The sync exceeded the limit of {MAX_FAN_OUT_PAGES:,} pages per website.")
                         if inputs.schema_name == "session_properties":
-                            yield from _read_session_properties_page(client, inputs, manager, state, website_id, batch)
+                            yield from _read_session_properties_page(client, manager, state, website_id, batch)
                             state = replace(state, page=state.page + 1, session_index=0)
                             manager.save_state(state)
                         else:
@@ -376,27 +378,45 @@ def get_rows(
                                 row["websiteId"] = website_id
                                 if inputs.schema_name == "event_properties":
                                     row["createdAt"] = row["eventProperties"][0]["createdAt"]
+                            if inputs.schema_name == "event_properties":
+                                latest = max(timestamp_ms(row["createdAt"]) for row in batch)
+                                if latest > state.event_watermarks.get(website_id, watermarks.get(website_id, -1)):
+                                    state = replace(
+                                        state, event_watermarks=state.event_watermarks | {website_id: latest}
+                                    )
                             state = replace(state, page=state.page + 1)
                             manager.save_state(state)
                             yield batch
                         manager.safe_point()
                     if end_at is None:
                         break
-                    state = replace(state, start_at=end_at + 1, end_at=None, page=1)
-                state = UmamiResumeState(completed_websites=[*state.completed_websites, website_id])
+                    state = replace(
+                        state,
+                        start_at=end_at + 1,
+                        end_at=None,
+                        page=1,
+                        pages_before_window=state.pages_before_window + state.page - 1 if bounded else 0,
+                    )
+                state = UmamiResumeState(
+                    completed_websites=[*state.completed_websites, website_id],
+                    event_watermarks=state.event_watermarks,
+                )
         manager.save_state(state)
         manager.safe_point()
+        if cursor_manager is not None:
+            cursor_manager.stage(UmamiEventCursor(watermarks=watermarks | state.event_watermarks))
 
 
 def umami_source(
     config: UmamiSourceConfig,
     inputs: SourceInputs,
     manager: ResumableSourceManager[UmamiResumeState],
+    cursor_manager: SourceCursorManager[UmamiEventCursor] | None,
 ) -> SourceResponse:
     endpoint = ENDPOINTS[inputs.schema_name]
     return SourceResponse(
         name=inputs.schema_name,
-        items=lambda: get_rows(config, inputs, manager),
+        items=lambda: get_rows(config, inputs, manager, cursor_manager),
         primary_keys=list(endpoint.primary_keys),
         partition_keys=[endpoint.partition_key],
         partition_mode="datetime",

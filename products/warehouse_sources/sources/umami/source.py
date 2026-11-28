@@ -4,6 +4,7 @@ from requests.exceptions import HTTPError
 
 from products.warehouse_sources.sources.sdk import (
     CanonicalDescriptions,
+    CursorSource,
     DataWarehouseSourceCategory,
     ExternalDataSourceType,
     ProductKey,
@@ -27,6 +28,7 @@ from products.warehouse_sources.sources.umami.umami import (
     TRANSIENT_SERVER_STATUSES,
     UmamiClient,
     UmamiError,
+    UmamiEventCursor,
     UmamiResumeState,
     normalize_host,
     umami_source,
@@ -34,7 +36,9 @@ from products.warehouse_sources.sources.umami.umami import (
 
 
 @SourceRegistry.register
-class UmamiSource(ResumableSource[UmamiSourceConfig, UmamiResumeState], ValidateDatabaseHostMixin):
+class UmamiSource(
+    ResumableSource[UmamiSourceConfig, UmamiResumeState], CursorSource[UmamiEventCursor], ValidateDatabaseHostMixin
+):
     codebase_detection = detect(
         env=("^UMAMI_", "^(NEXT_PUBLIC|VITE|PUBLIC|NUXT_PUBLIC|NUXT|GATSBY|REACT_APP)_UMAMI_"),
         script_hosts=("cloud.umami.is",),
@@ -166,6 +170,9 @@ class UmamiSource(ResumableSource[UmamiSourceConfig, UmamiResumeState], Validate
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[UmamiResumeState]:
         return ResumableSourceManager(inputs, UmamiResumeState)
 
+    def cursor_class(self) -> type[UmamiEventCursor]:
+        return UmamiEventCursor
+
     def source_for_pipeline(
         self,
         config: UmamiSourceConfig,
@@ -179,7 +186,8 @@ class UmamiSource(ResumableSource[UmamiSourceConfig, UmamiResumeState], Validate
         valid, error = self.is_database_host_valid(urlsplit(normalize_host(config.host)).hostname or "", inputs.team_id)
         if not valid:
             raise UmamiError(error or "The API host is not allowed.")
-        return umami_source(config, inputs, resumable_source_manager)
+        cursor_manager = self.get_cursor_manager(inputs) if inputs.schema_name == "event_properties" else None
+        return umami_source(config, inputs, resumable_source_manager, cursor_manager)
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {

@@ -5,11 +5,12 @@ from unittest.mock import patch
 
 from requests.exceptions import HTTPError
 
+from products.warehouse_sources.sources.sdk import SourceCursorManager
 from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, error_message_matches, route
 from products.warehouse_sources.sources.umami._config import UmamiSourceConfig
 from products.warehouse_sources.sources.umami.settings import DAY_MS
 from products.warehouse_sources.sources.umami.source import UmamiSource
-from products.warehouse_sources.sources.umami.umami import UmamiResumeState
+from products.warehouse_sources.sources.umami.umami import UmamiError, UmamiEventCursor, UmamiResumeState
 
 START = 1704067200000
 
@@ -129,32 +130,58 @@ def test_saved_definitions_resume_without_requesting_a_date_range(table: str) ->
     assert all(request.param("startAt") is None and request.param("endAt") is None for request in definitions)
 
 
-def test_event_properties_request_an_inclusive_incremental_window() -> None:
+def test_event_properties_backfill_new_websites_and_resume_known_websites_inclusively() -> None:
     created_at = "2024-01-01T00:00:00.123Z"
     properties = [
         {"createdAt": created_at, "dataKey": "plan", "stringValue": "basic"},
         {"createdAt": created_at, "dataKey": "amount", "numberValue": 50},
     ]
+    known_event = {"eventId": "purchase", "eventProperties": properties}
+    historical_event = {"eventId": "signup", "eventProperties": [{"createdAt": "2024-01-01T00:00:00Z"}]}
+    cursor = SourceCursorManager(UmamiEventCursor, None, UmamiSource())
+    initial = driver().run(
+        "event_properties",
+        route(
+            {
+                "/websites": [page([{"id": "site-a"}]), page([])],
+                "/site-a/daterange": [ScriptedResponse(json={"startDate": START, "endDate": START + 500})],
+                "/site-a/event-data": [page([known_event]), page([])],
+            }
+        ),
+        incremental_field="createdAt",
+        source_cursor=cursor,
+    )
+    assert initial.raised is None
+    assert cursor.staged == UmamiEventCursor(watermarks={"site-a": START + 123})
+
+    next_cursor = SourceCursorManager(UmamiEventCursor, cursor.staged, UmamiSource())
     result = driver().run(
         "event_properties",
         route(
             {
-                "/websites": [page([{"id": "old-site"}, {"id": "site-a"}]), page([])],
-                "/old-site/daterange": [ScriptedResponse(json={"startDate": START - 100, "endDate": START})],
+                "/websites": [page([{"id": "site-b"}, {"id": "site-a"}]), page([])],
+                "/site-b/daterange": [ScriptedResponse(json={"startDate": START - 100, "endDate": START})],
+                "/site-b/event-data": [page([historical_event]), page([])],
                 "/site-a/daterange": [ScriptedResponse(json={"startDate": START, "endDate": START + 500})],
-                "/site-a/event-data": [page([{"eventId": "purchase", "eventProperties": properties}]), page([])],
+                "/site-a/event-data": [page([known_event]), page([])],
             }
         ),
         incremental_field="createdAt",
         db_incremental_field_last_value=created_at,
+        source_cursor=next_cursor,
     )
     assert result.raised is None
-    assert result.rows == [
-        {"websiteId": "site-a", "eventId": "purchase", "createdAt": created_at, "eventProperties": properties}
-    ]
+    assert [(row["websiteId"], row["eventId"]) for row in result.rows] == [("site-b", "signup"), ("site-a", "purchase")]
+    assert result.rows[1] == {
+        "websiteId": "site-a",
+        "eventId": "purchase",
+        "createdAt": created_at,
+        "eventProperties": properties,
+    }
     events = [request for request in result.requests if request.path.endswith("/event-data")]
-    assert [request.param("startAt") for request in events] == [str(START + 123)] * 2
-    assert [request.param("endAt") for request in events] == [str(START + 500)] * 2
+    assert [request.param("startAt") for request in events] == [str(START - 100)] * 2 + [str(START + 123)] * 2
+    assert [request.param("endAt") for request in events] == [str(START)] * 2 + [str(START + 500)] * 2
+    assert next_cursor.staged == UmamiEventCursor(watermarks={"site-a": START + 123, "site-b": START})
 
 
 def test_session_properties_resume_within_a_page_and_keep_repeated_keys() -> None:
@@ -198,27 +225,72 @@ def test_session_properties_resume_within_a_page_and_keep_repeated_keys() -> Non
 
 
 @pytest.mark.parametrize("repeats_last_page", [False, True])
-def test_session_properties_stop_at_the_website_page_limit(repeats_last_page: bool) -> None:
-    session = {"id": "session-a", "createdAt": "2024-01-01T00:00:00Z"}
-    with patch("products.warehouse_sources.sources.umami.umami.MAX_SESSION_PROPERTY_PAGES", 2):
+@pytest.mark.parametrize("table,path", [("session_properties", "sessions"), ("goals", "goals"), ("funnels", "funnels")])
+def test_fan_out_stops_at_the_website_page_limit(table: str, path: str, repeats_last_page: bool) -> None:
+    row = {"id": "item-a", "createdAt": "2024-01-01T00:00:00Z"}
+    routes = {
+        "/websites": [page([{"id": "site-a"}]), page([])],
+        f"/site-a/{path}": [page([row]), page([row] if repeats_last_page else [])],
+    }
+    resume_state = UmamiResumeState(page=2, website_id="site-a")
+    if table == "session_properties":
+        routes["/item-a/properties"] = [ScriptedResponse(json=[{"dataKey": "plan", "stringValue": "basic"}])]
+        resume_state = UmamiResumeState(page=2, website_id="site-a", start_at=START, end_at=START, stop_at=START)
+
+    with patch("products.warehouse_sources.sources.umami.umami.MAX_FAN_OUT_PAGES", 2):
         result = driver("https://analytics.example.com").run(
-            "session_properties",
+            table,
+            route(routes),
+            resume_state=resume_state,
+        )
+
+    assert [request.param("page") for request in result.requests if request.path.endswith(f"/{path}")] == ["2", "3"]
+    assert len(result.rows) == 1
+    if table == "session_properties":
+        assert result.paths.count("/api/websites/site-a/sessions/item-a/properties") == 1
+    if repeats_last_page:
+        assert isinstance(result.raised, UmamiError)
+        assert "exceeded the limit of 2 pages per website" in str(result.raised)
+    else:
+        assert result.raised is None
+
+
+def test_event_properties_keep_the_page_budget_across_windows_and_retries() -> None:
+    next_day = START + DAY_MS
+    cursor = SourceCursorManager(UmamiEventCursor, None, UmamiSource())
+    with patch("products.warehouse_sources.sources.umami.umami.MAX_FAN_OUT_PAGES", 1):
+        interrupted = driver().run(
+            "event_properties",
             route(
                 {
                     "/websites": [page([{"id": "site-a"}]), page([])],
-                    "/site-a/sessions": [page([session]), page([session] if repeats_last_page else [])],
-                    "/session-a/properties": [ScriptedResponse(json=[{"dataKey": "plan", "stringValue": "basic"}])],
+                    "/site-a/daterange": [ScriptedResponse(json={"startDate": START, "endDate": next_day})],
+                    "/site-a/event-data": [
+                        page([{"eventId": "first", "eventProperties": [{"createdAt": START}]}]),
+                        page([]),
+                        ScriptedResponse(status=400, json={}),
+                    ],
                 }
             ),
-            resume_state=UmamiResumeState(page=2, website_id="site-a", start_at=START, end_at=START, stop_at=START),
+            source_cursor=cursor,
         )
+        assert isinstance(interrupted.raised, HTTPError)
+        assert [row["eventId"] for row in interrupted.rows] == ["first"]
 
-    assert [request.param("page") for request in result.requests if request.path.endswith("/sessions")] == ["2", "3"]
-    assert result.paths.count("/api/websites/site-a/sessions/session-a/properties") == 1
-    if repeats_last_page:
-        assert "exceeded the session page limit" in str(result.raised)
-    else:
-        assert result.raised is None
+        resumed = driver().run(
+            "event_properties",
+            route(
+                {
+                    "/websites": [page([{"id": "site-a"}]), page([])],
+                    "/site-a/event-data": [page([{"eventId": "later", "eventProperties": [{"createdAt": next_day}]}])],
+                }
+            ),
+            resume_state=interrupted.final_state,
+            source_cursor=cursor,
+        )
+    assert isinstance(resumed.raised, UmamiError)
+    assert resumed.rows == []
+    assert cursor.staged is None
 
 
 @pytest.mark.parametrize("second_status", [200, 401])
