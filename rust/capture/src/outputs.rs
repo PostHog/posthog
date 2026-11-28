@@ -1,8 +1,8 @@
 //! The outputs layer: the produce surface above the sinks.
 //!
 //! An [`Output`] is a published-to destination: either a single backend
-//! sink, or a policy composing two child outputs. The one policy is
-//! failover (health-gated Kafka primary with an S3 secondary).
+//! sink, or a policy composing two child outputs: health-gated failover
+//! (Kafka, then S3) or select (one target picked at boot).
 //!
 //! Outputs take two routes. The v0 event route ([`PublishEvents`]) hands over
 //! events before any payload prep, so each target resolves topics and
@@ -65,6 +65,7 @@ pub struct Output {
 enum Inner {
     Single(Box<dyn Sink>),
     Failover(Failover),
+    Select(Select),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -95,6 +96,18 @@ impl Output {
     pub fn single<S: Sink + 'static>(sink: S) -> Self {
         Self {
             inner: Inner::Single(Box::new(sink)),
+        }
+    }
+
+    /// A retriable error on `live` returns to the caller and never moves the
+    /// batch to the other target.
+    pub fn select(primary: Output, fallback: Output, live: Target) -> Self {
+        Self {
+            inner: Inner::Select(Select {
+                primary: Box::new(primary),
+                fallback: Box::new(fallback),
+                live,
+            }),
         }
     }
 
@@ -132,6 +145,7 @@ impl PublishEvents for Output {
         match &self.inner {
             Inner::Single(sink) => sink.publish_events(events).await,
             Inner::Failover(failover) => failover.publish_events(events).await,
+            Inner::Select(select) => select.live().publish_events(events).await,
         }
     }
 }
@@ -142,6 +156,22 @@ impl PublishPrepared for Output {
         match &self.inner {
             Inner::Single(sink) => sink.publish_prepared(events).await,
             Inner::Failover(failover) => failover.publish_prepared(events).await,
+            Inner::Select(select) => select.live().publish_prepared(events).await,
+        }
+    }
+}
+
+struct Select {
+    primary: Box<Output>,
+    fallback: Box<Output>,
+    live: Target,
+}
+
+impl Select {
+    fn live(&self) -> &Output {
+        match self.live {
+            Target::Primary => &self.primary,
+            Target::Fallback => &self.fallback,
         }
     }
 }
@@ -592,6 +622,75 @@ mod tests {
         let results = outcomes(output.publish_prepared(vec![prepared_event()]).await);
 
         assert_eq!(results[0].1, failed(CaptureError::RetryableSinkError));
+    }
+
+    #[rstest::rstest]
+    #[case(Target::Primary)]
+    #[case(Target::Fallback)]
+    #[tokio::test]
+    async fn select_publishes_only_to_the_live_target(#[case] live: Target) {
+        let primary = MockSink::new();
+        let fallback = MockSink::new();
+        let output = Output::select(
+            Output::single(primary.clone()),
+            Output::single(fallback.clone()),
+            live,
+        );
+
+        output
+            .publish_events(vec![test_event(), test_event()])
+            .await
+            .unwrap();
+
+        let counts = (primary.get_events().len(), fallback.get_events().len());
+        let expected = match live {
+            Target::Primary => (2, 0),
+            Target::Fallback => (0, 2),
+        };
+        assert_eq!(counts, expected);
+    }
+
+    #[rstest::rstest]
+    #[case(Target::Primary)]
+    #[case(Target::Fallback)]
+    #[tokio::test]
+    async fn select_publishes_prepared_events_only_to_the_live_target(#[case] live: Target) {
+        let primary = PreparedSink::default();
+        let fallback = PreparedSink::default();
+        let output = Output::select(
+            Output::single(primary.clone()),
+            Output::single(fallback.clone()),
+            live,
+        );
+        let event = prepared_event();
+        let uuid = event.uuid;
+
+        output.publish_prepared(vec![event]).await;
+
+        let (live_sink, idle_sink) = match live {
+            Target::Primary => (&primary, &fallback),
+            Target::Fallback => (&fallback, &primary),
+        };
+        assert_eq!(live_sink.seen(), vec![uuid]);
+        assert!(idle_sink.seen().is_empty());
+    }
+
+    #[tokio::test]
+    async fn select_returns_a_retriable_error_without_trying_the_other_target() {
+        let idle = MockSink::new();
+        let output = Output::select(
+            Output::single(idle.clone()),
+            Output::single(FailSink(CaptureError::RetryableSinkError)),
+            Target::Fallback,
+        );
+
+        assert!(matches!(
+            output.publish_events(vec![test_event()]).await,
+            Err(CaptureError::RetryableSinkError)
+        ));
+        let results = outcomes(output.publish_prepared(vec![prepared_event()]).await);
+        assert_eq!(results[0].1, failed(CaptureError::RetryableSinkError));
+        assert!(idle.get_events().is_empty());
     }
 
     #[tokio::test]
