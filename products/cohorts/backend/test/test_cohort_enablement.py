@@ -97,7 +97,7 @@ class TestCohortEnablement(BaseTest):
         cohort = self._cohort(FLAG_CALL_LEAF)
 
         with mock.patch("posthog.tasks.calculate_cohort.trigger_cohort_backfill_run_task.apply_async"):
-            turned_on = turn_realtime_on(self.team.id, cohort.id, can_edit=lambda _: True)
+            turned_on = turn_realtime_on(self.team.id, cohort.id, can_edit=lambda _: True, enabled_by_id=None)
 
         assert turned_on == [cohort.id]
 
@@ -109,7 +109,7 @@ class TestCohortEnablement(BaseTest):
 
     def _turn_on(self, cohort: Cohort) -> list[int]:
         with mock.patch("posthog.tasks.calculate_cohort.trigger_cohort_backfill_run_task.apply_async"):
-            return turn_realtime_on(self.team.id, cohort.id, can_edit=lambda _: True)
+            return turn_realtime_on(self.team.id, cohort.id, can_edit=lambda _: True, enabled_by_id=None)
 
     def test_turning_on_a_cohort_turns_on_what_it_nests_and_queues_both_builds(self) -> None:
         nested = self._cohort(PAGEVIEW_LEAF)
@@ -129,12 +129,13 @@ class TestCohortEnablement(BaseTest):
             mock.patch("posthog.tasks.calculate_cohort.trigger_cohort_backfill_run_task.apply_async"),
             self.captureOnCommitCallbacks(execute=True),
         ):
-            turned_on = turn_realtime_on(self.team.id, cohort.id, can_edit=lambda _: True)
+            turned_on = turn_realtime_on(self.team.id, cohort.id, can_edit=lambda _: True, enabled_by_id=self.user.id)
 
         cohorts = list(Cohort.objects.filter(id__in=[nested.id, cohort.id]).order_by("id"))
         already_on.refresh_from_db()
         assert sorted(turned_on) == [nested.id, cohort.id]
         assert all(each.realtime_enabled for each in cohorts)
+        assert [each.realtime_enabled_by_id for each in cohorts] == [None, self.user.id]
         assert cohorts[1].last_backfill_events_at is None
         assert (already_on.realtime_enabled_at, already_on.last_backfill_events_at) == (STAMPED_AT, STAMPED_AT)
         readiness = resolve_realtime_readiness(cohorts)
@@ -270,7 +271,7 @@ class TestCohortEnablement(BaseTest):
             self._set_flag_evaluations_mode(FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY)
 
         with self.assertRaises(RealtimeTurnOnRefused):
-            turn_realtime_on(self.team.id, cohort.id, can_edit=lambda _: True)
+            turn_realtime_on(self.team.id, cohort.id, can_edit=lambda _: True, enabled_by_id=None)
 
         assert not Cohort.objects.filter(team=self.team, realtime_enabled_at__isnull=False).exists()
 
@@ -377,7 +378,12 @@ class TestCohortEnablement(BaseTest):
 
     @override_settings(FLAGS_REDIS_URL="redis://localhost:6379/0")
     def test_turning_off_clears_the_stamps_supersedes_the_build_and_rebuilds_the_flags_cache(self) -> None:
-        cohort = self._cohort(PAGEVIEW_LEAF, realtime_enabled_at=STAMPED_AT, last_backfill_events_at=STAMPED_AT)
+        cohort = self._cohort(
+            PAGEVIEW_LEAF,
+            realtime_enabled_at=STAMPED_AT,
+            realtime_enabled_by_id=self.user.id,
+            last_backfill_events_at=STAMPED_AT,
+        )
         run = CohortBackfillRun.objects.for_team(self.team.id).create(
             team_id=self.team.id,
             cohort=cohort,
@@ -399,6 +405,10 @@ class TestCohortEnablement(BaseTest):
 
         cohort.refresh_from_db()
         participation.refresh_from_db()
-        assert (cohort.realtime_enabled_at, cohort.last_backfill_events_at) == (None, None)
+        assert (cohort.realtime_enabled_at, cohort.realtime_enabled_by_id, cohort.last_backfill_events_at) == (
+            None,
+            None,
+            None,
+        )
         assert participation.superseded_at is not None
         rebuild.assert_called_once_with(self.team.id)

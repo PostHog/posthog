@@ -263,7 +263,7 @@ class TestBackfillReadiness(BaseTest):
         ):
             turn_realtime_off(self.team.id, cohort.id)
             if turned_on_again:
-                turn_realtime_on(self.team.id, cohort.id, can_edit=lambda _: True)
+                turn_realtime_on(self.team.id, cohort.id, can_edit=lambda _: True, enabled_by_id=None)
 
         self.assertFalse(stamp(run, cohort.id))
 

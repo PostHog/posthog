@@ -32,6 +32,8 @@ from products.cohorts.backend.models.backfill import (
 from products.cohorts.backend.models.cohort import Cohort, CohortType
 from products.cohorts.backend.models.dependencies import _behavioral_cohort_ids_key
 from products.cohorts.backend.models.team_access import RealtimeCohortLevel, RealtimeCohortTeamAccess
+from products.notifications.backend.facade.api import NotificationType, TargetType
+from products.notifications.backend.facade.testing import StoredNotification, stored_notifications_for_team
 
 
 class TestFinalizerKindCoverage(SimpleTestCase):
@@ -315,17 +317,112 @@ class TestBackfillFinalizer(BaseTest):
             ],
         )
 
-    def _turned_on_cohort_missing_only_its_events_stamp(self) -> tuple[CohortBackfillRun, Cohort]:
+    def _turned_on_cohort_missing_only_its_events_stamp(
+        self,
+        *,
+        enabled_by_id: int | None = None,
+        trigger_kind: CohortBackfillTrigger = CohortBackfillTrigger.COHORT_CREATED,
+    ) -> tuple[CohortBackfillRun, Cohort]:
         run, cohorts = self._make_run(["completed"], scope=CohortBackfillScope.COHORT)
         now = timezone.now()
         CohortBackfillRun.objects.for_team(self.team.id).filter(id=run.id).update(
-            created_at=now - timedelta(minutes=10)
+            created_at=now - timedelta(minutes=10), trigger_kind=trigger_kind
         )
         Cohort.objects.filter(id=cohorts[0].id).update(
-            realtime_enabled_at=now - timedelta(hours=1), last_backfill_person_properties_at=now - timedelta(hours=2)
+            name="Weekly visitors",
+            realtime_enabled_at=now - timedelta(hours=1),
+            realtime_enabled_by_id=enabled_by_id,
+            last_backfill_person_properties_at=now - timedelta(hours=2),
         )
         run.refresh_from_db()
+        cohorts[0].refresh_from_db()
         return run, cohorts[0]
+
+    def _finalize_with_notifications(self, *, enabled: bool = True) -> None:
+        with mock.patch(
+            "posthoganalytics.feature_enabled",
+            side_effect=lambda flag, *a, **kw: enabled and flag == "real-time-notifications",
+        ):
+            finalize_backfill_runs()
+
+    @parameterized.expand(
+        [
+            ("first_build", CohortBackfillTrigger.COHORT_CREATED, True, "Weekly visitors", False),
+            ("build_after_an_edit", CohortBackfillTrigger.COHORT_EDITED, True, "Weekly visitors", False),
+            ("long_name_with_a_colon", CohortBackfillTrigger.COHORT_CREATED, True, "Q4: " + "v" * 396, False),
+            ("unnamed_cohort", CohortBackfillTrigger.COHORT_CREATED, True, None, False),
+            ("no_one_recorded", CohortBackfillTrigger.COHORT_CREATED, False, "Weekly visitors", False),
+            ("deleted_cohort", CohortBackfillTrigger.COHORT_CREATED, True, "Weekly visitors", True),
+        ]
+    )
+    def test_ready_notifies_the_person_who_turned_realtime_on(
+        self, _name: str, trigger_kind: CohortBackfillTrigger, recorded: bool, cohort_name: str | None, deleted: bool
+    ) -> None:
+        _run, cohort = self._turned_on_cohort_missing_only_its_events_stamp(
+            enabled_by_id=self.user.id if recorded else None, trigger_kind=trigger_kind
+        )
+        Cohort.objects.filter(id=cohort.id).update(name=cohort_name, deleted=deleted)
+
+        self._finalize_with_notifications()
+
+        expected = StoredNotification(
+            notification_type=NotificationType.COHORT_REALTIME_READY,
+            title="Realtime cohort is ready",
+            body=f"Cohort '{cohort_name or 'Untitled cohort'}' is ready. Feature flags can target it now.",
+            resource_id=str(cohort.id),
+            source_url=f"/project/{self.team.project_id}/cohorts/{cohort.id}",
+            resolved_user_ids=[self.user.id],
+            target_type=TargetType.USER,
+            target_id=str(self.user.id),
+        )
+        notified = recorded and not deleted
+        self.assertEqual(stored_notifications_for_team(self.team.id), [expected] if notified else [])
+        self.assertEqual(len(self._ready_events()), 1)
+
+    @parameterized.expand([("first_notification_stored", True), ("first_notification_dropped", False)])
+    def test_a_rebuild_after_the_turn_on_does_not_notify_again(self, _name: str, first_pass_notifies: bool) -> None:
+        _run, cohort = self._turned_on_cohort_missing_only_its_events_stamp(enabled_by_id=self.user.id)
+        self._finalize_with_notifications(enabled=first_pass_notifies)
+        Cohort.objects.filter(id=cohort.id).update(last_backfill_events_at=None)
+        self._make_run(["completed"], scope=CohortBackfillScope.COHORT, cohorts=[cohort])
+
+        self._finalize_with_notifications()
+
+        self.assertEqual(len(self._ready_events()), 2)
+        self.assertEqual(len(stored_notifications_for_team(self.team.id)), 1 if first_pass_notifies else 0)
+
+    def test_a_turn_off_and_on_before_the_recipient_is_cleared_keeps_the_new_recipient(self) -> None:
+        _run, cohort = self._turned_on_cohort_missing_only_its_events_stamp(enabled_by_id=self.user.id)
+        turned_on_again_at = timezone.now()
+
+        def turn_off_and_on_again(*args: object, **kwargs: object) -> None:
+            Cohort.objects.filter(id=cohort.id).update(realtime_enabled_at=turned_on_again_at)
+
+        with mock.patch(
+            "products.cohorts.backend.backfill.finalize.create_notification", side_effect=turn_off_and_on_again
+        ):
+            finalize_backfill_runs()
+
+        cohort.refresh_from_db()
+        self.assertEqual(
+            (cohort.realtime_enabled_at, cohort.realtime_enabled_by_id), (turned_on_again_at, self.user.id)
+        )
+
+    def test_a_failing_notification_keeps_the_stamp_and_the_ready_event(self) -> None:
+        run, cohort = self._turned_on_cohort_missing_only_its_events_stamp(enabled_by_id=self.user.id)
+
+        with mock.patch(
+            "products.cohorts.backend.backfill.finalize.create_notification", side_effect=RuntimeError("unavailable")
+        ):
+            result = finalize_backfill_runs()
+
+        run.refresh_from_db()
+        cohort.refresh_from_db()
+        self.assertEqual(result.errored, 0)
+        self.assertEqual(run.status, CohortBackfillRunStatus.COMPLETED)
+        self.assertIsNotNone(cohort.last_backfill_events_at)
+        self.assertEqual(cohort.realtime_enabled_by_id, self.user.id)
+        self.assertEqual([event["cohort_id"] for event in self._ready_events()], [cohort.pk])
 
     @parameterized.expand(
         [

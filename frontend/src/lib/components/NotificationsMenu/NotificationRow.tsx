@@ -101,6 +101,10 @@ export const REALTIME_NOTIFICATION_TYPE_META: Record<string, { label: string; de
         label: 'Feature flag failures',
         description: 'When a feature flag in your project fails to evaluate',
     },
+    cohort_realtime_ready: {
+        label: 'Realtime cohorts ready',
+        description: 'When a realtime cohort you turned on is ready',
+    },
 }
 
 export function NotificationTitle({

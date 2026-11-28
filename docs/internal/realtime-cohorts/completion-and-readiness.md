@@ -232,6 +232,15 @@ It sends the seconds since the run was created and, for a `cohort_created` run (
 A team enablement, an edit and a repair leave `realtime_enabled_at` where it was, so their runs send no turn-on time.
 The event is not a count of every cohort that becomes usable: a cohort stamped while its team is below `serving` reports nothing then, and nothing reports it when the team is promoted.
 An edit that clears a stamp makes the cohort report again once it is rebuilt, and an event that fails to send after the commit is lost.
+For each cohort that qualifies for that event, the finalizer also sends an in-app notification to the person who turned realtime on for it, when the cohort records one.
+The cohorts a turn-on includes, the cohorts a workflow import turns on and the team enablement record no one, so they send no notification.
+`realtime_enabled_by_id` names the person to notify when that turn-on first becomes ready, so a build that follows an edit made before the first build finished notifies too.
+Once the finalizer has tried to send, it clears `realtime_enabled_by_id` if realtime has not been turned off and on again since, so a rebuild after a later edit notifies no one.
+It clears it also when the notification is dropped, because the in-app notifications flag is off for the organization, the person muted the type, or the person can't open the cohort.
+When the send raises, the cohort keeps the record, and its next ready report tries again.
+The notification's idempotency key holds the cohort and its `realtime_enabled_at`, so two passes that report the same turn-on send one.
+A deleted cohort sends no notification.
+Turning realtime on for a cohort that is already on records no one, so the person who asks to prepare it again is not notified.
 
 The realtime cohorts gate (`is_realtime_cohort_flag_targeting_enabled`) is open for a team whose access row is `serving`, and for a team on `REALTIME_COHORT_TEAM_ALLOWLIST` when the realtime targeting rollout flag is on for the user.
 That list also holds load-test teams, which is why the flag still decides there.

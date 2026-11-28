@@ -28,6 +28,7 @@ class NotificationType(str, Enum):
     FIRST_REPORT_COMPLETED = "first_report_completed"
     REPORT_CLAIM_TAKEN_OVER = "report_claim_taken_over"
     ALERT_DESTINATION_REFUSED = "alert_destination_refused"
+    COHORT_REALTIME_READY = "cohort_realtime_ready"
 
 
 class Priority(str, Enum):

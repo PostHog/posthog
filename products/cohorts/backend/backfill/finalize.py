@@ -55,6 +55,13 @@ from products.cohorts.backend.models.backfill import (
 )
 from products.cohorts.backend.models.cohort import Cohort
 from products.cohorts.backend.models.dependencies import invalidate_team_behavioral_cohort_cache
+from products.notifications.backend.facade.api import (
+    NotificationData,
+    NotificationType,
+    Priority,
+    TargetType,
+    create_notification,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -120,6 +127,16 @@ class _ReadyCohort:
     cohort_id: int
     trigger_kind: str
     run_created_at: datetime
+
+
+@frozen
+class _ConfirmedReadyCohort:
+    """A ready cohort that flags can target after its run committed."""
+
+    team: Team
+    cohort: Cohort
+    ready: _ReadyCohort
+    ready_at: datetime
 
 
 # Every kind this finalizer knows how to stamp. Discovery draws from these keys, so the lookup below
@@ -255,40 +272,94 @@ def finalize_backfill_runs() -> FinalizerPass:
                 )
 
     _publish_held_runs(result)
+    confirmed: list[_ConfirmedReadyCohort] = []
     try:
-        _report_ready_cohorts(ready_cohorts)
+        confirmed = _confirm_ready_cohorts(ready_cohorts)
+        _report_ready_cohorts(confirmed)
     except Exception:
         logger.exception("cohort_backfill_finalizer_ready_event_failed", cohorts=len(ready_cohorts))
+    _notify_ready_cohorts(confirmed)
     return result
 
 
-def _report_ready_cohorts(ready_cohorts: Sequence[_ReadyCohort]) -> None:
+def _confirm_ready_cohorts(ready_cohorts: Sequence[_ReadyCohort]) -> list[_ConfirmedReadyCohort]:
     if not ready_cohorts:
-        return
+        return []
     team_ids = {each.team_id for each in ready_cohorts}
-    teams = Team.objects.only("uuid", "organization_id").in_bulk(team_ids)
+    teams = Team.objects.only("uuid", "organization_id", "project_id").in_bulk(team_ids)
     cohorts = Cohort.objects.filter(team_id__in=team_ids).in_bulk([each.cohort_id for each in ready_cohorts])
+    confirmed: list[_ConfirmedReadyCohort] = []
+    for each in ready_cohorts:
+        team = teams.get(each.team_id)
+        cohort = cohorts.get(each.cohort_id)
+        ready_at = cohort.realtime_ready_at if cohort is not None and cohort.team_id == each.team_id else None
+        if team is None or cohort is None or ready_at is None:
+            continue
+        confirmed.append(_ConfirmedReadyCohort(team=team, cohort=cohort, ready=each, ready_at=ready_at))
+    return confirmed
+
+
+def _report_ready_cohorts(confirmed: Sequence[_ConfirmedReadyCohort]) -> None:
+    if not confirmed:
+        return
     with ph_scoped_capture(event_region=get_instance_region()) as capture:
-        for each in ready_cohorts:
-            team = teams.get(each.team_id)
-            cohort = cohorts.get(each.cohort_id)
-            ready_at = cohort.realtime_ready_at if cohort is not None and cohort.team_id == each.team_id else None
-            if team is None or cohort is None or ready_at is None:
-                continue
+        for each in confirmed:
+            cohort, ready_at = each.cohort, each.ready_at
             properties: dict[str, Any] = {
-                "cohort_id": each.cohort_id,
-                "trigger_kind": each.trigger_kind,
-                "seconds_since_run_created": max(0.0, (ready_at - each.run_created_at).total_seconds()),
+                "cohort_id": cohort.id,
+                "trigger_kind": each.ready.trigger_kind,
+                "seconds_since_run_created": max(0.0, (ready_at - each.ready.run_created_at).total_seconds()),
             }
             # An edit, a team enablement and a repair leave `realtime_enabled_at` where it was, which can be
             # the day the cohort was created, so only a turn-on's first build measures from it.
-            if each.trigger_kind == CohortBackfillTrigger.COHORT_CREATED and cohort.realtime_enabled_at is not None:
+            if (
+                each.ready.trigger_kind == CohortBackfillTrigger.COHORT_CREATED
+                and cohort.realtime_enabled_at is not None
+            ):
                 properties["seconds_since_turn_on"] = max(0.0, (ready_at - cohort.realtime_enabled_at).total_seconds())
             capture(
-                distinct_id=str(team.uuid),
+                distinct_id=str(each.team.uuid),
                 event="cohort realtime ready",
                 properties=properties,
-                groups=groups(team=team),
+                groups=groups(team=each.team),
+            )
+
+
+def _notify_ready_cohorts(confirmed: Sequence[_ConfirmedReadyCohort]) -> None:
+    for each in confirmed:
+        cohort = each.cohort
+        if cohort.deleted or cohort.realtime_enabled_by_id is None or cohort.realtime_enabled_at is None:
+            continue
+        try:
+            create_notification(
+                NotificationData(
+                    team_id=cohort.team_id,
+                    notification_type=NotificationType.COHORT_REALTIME_READY,
+                    priority=Priority.NORMAL,
+                    # The name stays out of the title, because the title holds 255 characters and a name 400.
+                    title="Realtime cohort is ready",
+                    body=f"Cohort '{cohort}' is ready. Feature flags can target it now.",
+                    target_type=TargetType.USER,
+                    target_id=str(cohort.realtime_enabled_by_id),
+                    resource_type="cohort",
+                    resource_id=str(cohort.id),
+                    source_url=f"/project/{each.team.project_id}/cohorts/{cohort.id}",
+                    # Two passes can confirm the same turn-on before either clears the recipient below.
+                    idempotency_key=f"cohort_realtime_ready:{cohort.id}:{cohort.realtime_enabled_at.isoformat()}",
+                )
+            )
+            # A notification row is purged after 90 days, and none is written when the type is muted or the
+            # notifications flag is off, so the key alone would let a rebuild long after the turn-on notify again.
+            # Matching the turn-on leaves the recipient of a turn-off and a new turn-on in between in place.
+            Cohort.objects.filter(
+                team_id=cohort.team_id,
+                id=cohort.id,
+                realtime_enabled_at=cohort.realtime_enabled_at,
+                realtime_enabled_by_id=cohort.realtime_enabled_by_id,
+            ).update(realtime_enabled_by_id=None)
+        except Exception:
+            logger.exception(
+                "cohort_backfill_finalizer_ready_notification_failed", team_id=cohort.team_id, cohort_id=cohort.id
             )
 
 

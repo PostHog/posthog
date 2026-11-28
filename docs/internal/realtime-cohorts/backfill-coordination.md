@@ -139,8 +139,10 @@ The processor does not load it, and the shuffler forwards no event for a team wh
   It refuses the turn-on when the project's plan doesn't allow it: each cohort it turns on needs a slot, and the criteria of each have to fit the plan's history limit ([plan limits](definitions-and-eligibility.md#plan-limits)).
   The team's advisory lock covers the count and the save, and the cohort API's edit check takes it too, so two turn-ons, or a turn-on and an edit, cannot both take the last slot.
   For each cohort it turns on, it fills the shape hashes, clears the stamps, and queues one `cohort_created` build per kind through the debounce above.
+  It records who turned realtime on, in `realtime_enabled_by_id`, on the cohort the person turned on and on none of the cohorts it includes.
+  The finalizer clears it once it has tried to notify that person ([completion and readiness](completion-and-readiness.md)).
   The seeder parses trigger kinds, so a new kind would need a seeder deploy first.
-- **Off.** It clears the stamps and, on commit, supersedes the cohort's active runs of both kinds.
+- **Off.** It clears the stamps and who turned realtime on, and, on commit, supersedes the cohort's active runs of both kinds.
   It leaves the cohorts it includes on.
   The cohort API refuses it while a flag that is not deleted or archived reaches the cohort and the cohort has event criteria, while an active workflow relies on the cohort, or while a realtime cohort that is on and not static includes it.
 

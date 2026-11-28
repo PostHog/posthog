@@ -73,14 +73,19 @@ class RealtimeLimitReached(RealtimeTurnOnRefused):
         self.used = used
 
 
-def turn_realtime_on(team_id: int, cohort_id: int, *, can_edit: Callable[[Cohort], bool]) -> list[int]:
+def turn_realtime_on(
+    team_id: int, cohort_id: int, *, can_edit: Callable[[Cohort], bool], enabled_by_id: int | None
+) -> list[int]:
     """Turn realtime on for the cohort and every realtime cohort it includes, and queue their backfills.
+
+    Records ``enabled_by_id`` on the cohort when this call turns it on, so that person hears when it first
+    becomes ready. A cohort already on keeps its record, and the cohorts it includes record no one.
 
     Returns the ids it turned on. Raises ``RealtimeTurnOnRefused`` before it writes anything when one
     of them can never be ready, or ``can_edit`` refuses one of them, and its subclass ``RealtimeLimitReached``
     when the project's plan doesn't allow them.
     """
-    return _turn_on(team_id, cohort_id, can_edit=can_edit, including_cohort=True)
+    return _turn_on(team_id, cohort_id, can_edit=can_edit, including_cohort=True, enabled_by_id=enabled_by_id)
 
 
 def turn_realtime_on_for_included_cohorts(
@@ -91,10 +96,17 @@ def turn_realtime_on_for_included_cohorts(
     Does nothing once the cohort itself is off, so an edit that read the cohort before a turn-off cannot
     undo it.
     """
-    return _turn_on(team_id, cohort_id, can_edit=can_edit, including_cohort=False)
+    return _turn_on(team_id, cohort_id, can_edit=can_edit, including_cohort=False, enabled_by_id=None)
 
 
-def _turn_on(team_id: int, cohort_id: int, *, can_edit: Callable[[Cohort], bool], including_cohort: bool) -> list[int]:
+def _turn_on(
+    team_id: int,
+    cohort_id: int,
+    *,
+    can_edit: Callable[[Cohort], bool],
+    including_cohort: bool,
+    enabled_by_id: int | None,
+) -> list[int]:
     if not is_processing_team(team_id, fresh=True):
         raise RealtimeTurnOnRefused("Realtime cohorts aren't available for this project.")
 
@@ -128,6 +140,8 @@ def _turn_on(team_id: int, cohort_id: int, *, can_edit: Callable[[Cohort], bool]
             for field in COHORT_REALTIME_SWITCH_FIELDS:
                 setattr(each, field, None)
             each.realtime_enabled_at = now
+            if each.id == cohort_id:
+                each.realtime_enabled_by_id = enabled_by_id
             _refuse_unless_it_can_be_ready(each)
 
         # The team's lock is held from this count through the saves below, so two turn-ons, or a turn-on and an

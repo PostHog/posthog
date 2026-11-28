@@ -9310,8 +9310,10 @@ class TestCohortRealtimeSwitch(APIBaseTest):
             self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {key}")
 
         turned_on = self._switch(cohort, True)
+        enabled_by_id = Cohort.objects.get(id=cohort.id).realtime_enabled_by_id
         turned_off = self._switch(cohort, False)
 
+        assert enabled_by_id == self.user.id
         assert [(call.args[1], call.args[2]["cohort_id"]) for call in mock_report_user_action.call_args_list] == [
             ("cohort realtime enabled", cohort.pk),
             ("cohort realtime disabled", cohort.pk),
@@ -9566,7 +9568,11 @@ class TestCohortRealtimeSwitch(APIBaseTest):
 
         assert response.status_code == 201, response.json()
         assert response.json()["realtime_enabled"] is turned_on
-        assert Cohort.objects.get(id=response.json()["id"]).realtime_enabled is turned_on
+        created = Cohort.objects.get(id=response.json()["id"])
+        assert (created.realtime_enabled, created.realtime_enabled_by_id) == (
+            turned_on,
+            self.user.id if turned_on else None,
+        )
         assert self._limit_events(report_user_action) == (
             [{"limit": "cohorts", "allowed": 3, "used": 3, "source": "create"}] if already_on else []
         )
