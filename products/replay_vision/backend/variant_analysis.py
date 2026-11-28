@@ -13,15 +13,11 @@ from collections.abc import Callable
 from datetime import datetime
 from typing import Any
 
-import structlog
-
 from posthog.dataclasses import frozen
 
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner
 from products.replay_vision.backend.scout_source import SCOUT_SOURCE_PRODUCT
 from products.signals.backend.facade import api as signals_facade
-
-logger = structlog.get_logger(__name__)
 
 # pinned: marks the scouts the readout reads and the sweep pauses. Stored on the scout's config tags.
 VARIANT_ANALYSIS_TAG = "replay-vision-variant-analysis"
@@ -186,25 +182,6 @@ def variant_analysis_for_scanner(
         lines=_lines(payload.get("variants"), cited_variants) if current else {},
         differences=_differences(payload.get("differences")) if current else (),
     )
-
-
-def pause_variant_analysis_scouts(scanner: ReplayScanner) -> int:
-    """Turn off the scanner's enabled variant analysis scouts and return how many were turned off.
-
-    Called once the scanner has stopped for good, so the scout stops re-reading unchanged data on the
-    customer's bill. It is not turned back on by a relaunch: the person does that.
-    """
-    paused = 0
-    for scout in signals_facade.scouts_for_source(
-        scanner.team_id, SCOUT_SOURCE_PRODUCT, str(scanner.id), tag=VARIANT_ANALYSIS_TAG
-    ):
-        if scout.enabled and signals_facade.update_scout_for_source(
-            scanner.team_id, SCOUT_SOURCE_PRODUCT, scout.config_id, enabled=False
-        ):
-            paused += 1
-    if paused:
-        logger.info("replay_vision.variant_analysis.scouts_paused", scanner_id=str(scanner.id), paused=paused)
-    return paused
 
 
 def _cited_ids(raw: Any) -> set[str]:

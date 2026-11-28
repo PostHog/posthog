@@ -93,6 +93,7 @@ from products.replay_vision.backend.tests.helpers import (
     unsynced_allowance,
     update_experiment,
 )
+from products.replay_vision.backend.variant_analysis import VARIANT_ANALYSIS_TAG
 
 # Every scanner built below runs on this model, so its price sets what one observation draws.
 _OBSERVATION_CREDITS = observation_credits_for_model(ScannerModel.GEMINI_3_8_FLASH)
@@ -232,7 +233,7 @@ class TestFindScannerCandidatesActivity:
 
         with (
             _patched_queries() as (fast_query, deep_query),
-            patch(f"{_ACTIVITY}.pause_variant_analysis_scouts") as pause_scouts,
+            patch(f"{_ACTIVITY}.pause_scanner_scouts") as pause_scouts,
         ):
             result = find_scanner_candidates(
                 FindScannerCandidatesInputs(scanner_id=scanner.id, team_id=scanner.team_id)
@@ -243,6 +244,8 @@ class TestFindScannerCandidatesActivity:
         # Once the data stops changing, the variant analysis scout would only re-read it on the
         # customer's bill. A pause resumes, so its scout sits the pause out.
         assert pause_scouts.called is (state != "paused")
+        if state in ("ended", "archived"):
+            assert pause_scouts.call_args.kwargs == {"tag": VARIANT_ANALYSIS_TAG}
         scanner.refresh_from_db()
         assert scanner.enabled is (state != "deleted")
         if state != "deleted":
@@ -271,7 +274,7 @@ class TestFindScannerCandidatesActivity:
 
         with (
             _patched_queries() as (fast_query, deep_query),
-            patch(f"{_ACTIVITY}.pause_variant_analysis_scouts", side_effect=RuntimeError("signals down")),
+            patch(f"{_ACTIVITY}.pause_scanner_scouts", side_effect=RuntimeError("signals down")),
         ):
             result = find_scanner_candidates(inputs)
 
@@ -280,7 +283,7 @@ class TestFindScannerCandidatesActivity:
         scanner.refresh_from_db()
         assert scanner.enabled is True
 
-        with _patched_queries(), patch(f"{_ACTIVITY}.pause_variant_analysis_scouts") as pause_scouts:
+        with _patched_queries(), patch(f"{_ACTIVITY}.pause_scanner_scouts") as pause_scouts:
             find_scanner_candidates(inputs)
 
         assert pause_scouts.called
@@ -1328,7 +1331,7 @@ def test_free_only_experiment_scanner_stays_on_until_its_scout_is_paused() -> No
     with (
         unsynced_allowance(credit_limit=1_000_000),
         patch("products.notifications.backend.facade.api.create_notification"),
-        patch(f"{_ACTIVITY}.pause_variant_analysis_scouts", side_effect=RuntimeError("signals down")),
+        patch(f"{_ACTIVITY}.pause_scanner_scouts", side_effect=RuntimeError("signals down")),
     ):
         check_scanner_budget(inputs)
     scanner.refresh_from_db()
@@ -1337,7 +1340,7 @@ def test_free_only_experiment_scanner_stays_on_until_its_scout_is_paused() -> No
     with (
         unsynced_allowance(credit_limit=1_000_000),
         patch("products.notifications.backend.facade.api.create_notification"),
-        patch(f"{_ACTIVITY}.pause_variant_analysis_scouts") as pause_scouts,
+        patch(f"{_ACTIVITY}.pause_scanner_scouts") as pause_scouts,
     ):
         check_scanner_budget(inputs)
     assert pause_scouts.called
