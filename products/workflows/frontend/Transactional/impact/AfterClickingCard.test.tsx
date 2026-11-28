@@ -17,6 +17,7 @@ import type { TransactionalEmailImpactApi } from 'products/messaging/frontend/ge
 import type {
     CreateObservationRequestApi,
     ObservationRequestApi,
+    RequestSessionStateEnumApi,
 } from 'products/replay_vision/frontend/generated/api.schemas'
 
 import { SCAN_POLL_INTERVAL_MS } from './afterClickingScanLogic'
@@ -57,6 +58,7 @@ interface FakeReplayVision {
     bodies: CreateObservationRequestApi[]
     scansByKey: Map<string, ObservationRequestApi>
     startsRunning: boolean
+    endStates: RequestSessionStateEnumApi[] | null
     lostCreateAnswers: number
     failedPolls: number
     pollFailure: [number, Record<string, string>]
@@ -99,6 +101,25 @@ function byteOrder(a: string, b: string): number {
     return a < b ? -1 : a > b ? 1 : 0
 }
 
+function ended(
+    scan: ObservationRequestApi,
+    endStates: RequestSessionStateEnumApi[] | null,
+    answer: string
+): ObservationRequestApi {
+    if (!endStates) {
+        return finished(scan, answer)
+    }
+    const done = endStates[0] === 'succeeded' ? finished(scan, answer) : { ...scan, status: 'completed' as const }
+    return {
+        ...done,
+        sessions: done.sessions.map((session, index) =>
+            endStates[index] === 'succeeded'
+                ? session
+                : { ...session, scan_outcome: 'started', state: endStates[index], scanner_result: null }
+        ),
+    }
+}
+
 describe('AfterClickingCard', () => {
     let vision: FakeReplayVision
     let failedSessionLists: number
@@ -120,6 +141,7 @@ describe('AfterClickingCard', () => {
             bodies: [],
             scansByKey: new Map(),
             startsRunning: false,
+            endStates: null,
             lostCreateAnswers: 0,
             failedPolls: 0,
             pollFailure: [502, {}],
@@ -229,7 +251,9 @@ describe('AfterClickingCard', () => {
                     }
                     return [
                         existing ? 200 : 202,
-                        vision.startsRunning ? scan : finished(scan, vision.answers.get(scan.id) ?? ANSWER),
+                        vision.startsRunning
+                            ? scan
+                            : ended(scan, vision.endStates, vision.answers.get(scan.id) ?? ANSWER),
                     ]
                 },
             },
@@ -305,6 +329,28 @@ describe('AfterClickingCard', () => {
         renderTab(REPLAY_ON)
 
         expect(await screen.findByText(/^Replay vision watches 2 of the sessions people started/)).toBeInTheDocument()
+    })
+
+    it('shows a failed scan without a retry when every session failed or was lost', async () => {
+        vision.endStates = ['failed', 'lost']
+        renderTab(REPLAY_ON)
+
+        await userEvent.click(await screen.findByText('Scan sessions'))
+
+        expect(
+            await screen.findByText("Replay vision couldn't scan 2 sessions. Reload the page to scan them again.")
+        ).toBeInTheDocument()
+        expect(screen.queryByText('Try again')).not.toBeInTheDocument()
+    })
+
+    it('shows the answers of a scan where some sessions failed', async () => {
+        vision.endStates = ['succeeded', 'failed']
+        renderTab(REPLAY_ON)
+
+        await userEvent.click(await screen.findByText('Scan sessions'))
+
+        expect(await screen.findByText(ANSWER)).toBeInTheDocument()
+        expect(screen.getByText(/^No answer for 1\ssession\.$/)).toBeInTheDocument()
     })
 
     it("asks the fixed question about the period's sessions and shows each answer", async () => {

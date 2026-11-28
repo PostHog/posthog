@@ -5,6 +5,7 @@ import posthog from 'posthog-js'
 import { ApiError } from 'lib/api-error'
 import { dayjs } from 'lib/dayjs'
 import { uuid } from 'lib/utils/dom'
+import { pluralize } from 'lib/utils/strings'
 import { teamLogic } from 'scenes/teamLogic'
 
 import type { TeamPublicType, TeamType } from '~/types'
@@ -41,7 +42,7 @@ export type AfterClickingScanState =
     | { kind: 'ready'; sessionCount: number; hasMore: boolean }
     | { kind: 'scanning'; done: number; total: number }
     | { kind: 'finished'; answers: SessionAnswer[]; withoutAnswer: number }
-    | { kind: 'scan-error'; message: string }
+    | { kind: 'scan-error'; message: string; retry: boolean }
 
 export function scanDisabledReason(currentTeam: TeamPublicType | TeamType | null): string | null {
     return currentTeam?.project_id && currentTeam.id !== currentTeam.project_id
@@ -63,10 +64,14 @@ function sessionAnswer(session: ObservationRequestSessionApi): SessionAnswer | n
 }
 
 function scanRequestState(request: ObservationRequestApi): AfterClickingScanState {
+    const started = request.sessions.filter((session) => session.state !== 'skipped')
     if (request.status === 'running') {
-        const started = request.sessions.filter((session) => session.state !== 'skipped')
         const done = started.filter((session) => session.state !== 'pending' && session.state !== 'running')
         return { kind: 'scanning', done: done.length, total: started.length }
+    }
+    if (started.length > 0 && started.every((session) => session.state === 'failed' || session.state === 'lost')) {
+        const message = `Replay vision couldn't scan ${pluralize(started.length, 'session', 'sessions')}.`
+        return { kind: 'scan-error', message: `${message} Reload the page to scan them again.`, retry: false }
     }
     const answers = request.sessions.map(sessionAnswer).filter((answer): answer is SessionAnswer => answer !== null)
     return { kind: 'finished', answers, withoutAnswer: request.sessions.length - answers.length }
@@ -188,7 +193,7 @@ export const afterClickingScanLogic = kea<afterClickingScanLogicType>([
                 scanError: afterClickingScanLogicValues['scanError']
             ): AfterClickingScanState => {
                 if (scanError) {
-                    return { kind: 'scan-error', message: scanErrorMessage(scanError, !!scanRequest) }
+                    return { kind: 'scan-error', message: scanErrorMessage(scanError, !!scanRequest), retry: true }
                 }
                 if (scanRequest) {
                     return scanRequestState(scanRequest)

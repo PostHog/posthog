@@ -95,7 +95,7 @@ export function AfterClickingScanPanel(): JSX.Element {
             return (
                 <AfterClickingNotice title="The scan didn't finish">
                     <span className="text-secondary text-sm">{state.message}</span>
-                    {scanButton('Try again')}
+                    {state.retry && scanButton('Try again')}
                 </AfterClickingNotice>
             )
     }
