@@ -122,7 +122,7 @@ describe('judge', () => {
 
     const deliver = (
         unitId: string,
-        actionId = 'email',
+        actionId: string | null = 'email',
         flowId = 'flow-1',
         cc: string[] = [],
         invocationId = `invocation-${unitId}`,
@@ -141,17 +141,20 @@ describe('judge', () => {
                                 FileName: `scenario-${i + 1}.pdf`,
                                 RawContent: bytes,
                             })),
-                            Headers: [
-                                {
-                                    Name: 'X-PostHog-Tracking-Code',
-                                    Value: new EmailTrackingCodeSigner(TRACKING_KEYS, '').generate({
-                                        functionId: flowId,
-                                        id: invocationId,
-                                        teamId: 7,
-                                        state: { actionId },
-                                    }),
-                                },
-                            ],
+                            Headers:
+                                actionId === null
+                                    ? []
+                                    : [
+                                          {
+                                              Name: 'X-PostHog-Tracking-Code',
+                                              Value: new EmailTrackingCodeSigner(TRACKING_KEYS, '').generate({
+                                                  functionId: flowId,
+                                                  id: invocationId,
+                                                  teamId: 7,
+                                                  state: { actionId },
+                                              }),
+                                          },
+                                      ],
                         },
                     },
                 })
@@ -466,6 +469,22 @@ describe('judge', () => {
             expect(result.crossedBy).toBeUndefined()
         }
     )
+
+    it('fails attachments_intact for files SES accepted in a send the edge could not tie to an action', async () => {
+        judge.record({ ...offered(), expect: { deliveries: ['email'], attachments: [shaOf(INVOICE)] } })
+        await deliver(UNIT, null, 'flow-1', [], `invocation-${UNIT}`, [RECEIPT])
+        await deliver(UNIT, 'email', 'flow-1', [], `invocation-${UNIT}`, [INVOICE])
+
+        const [result] = await judge.check([{ name: 'attachments_intact', params: {} }], {}, NO_RESETS)
+
+        expect(result).toMatchObject({
+            name: 'attachments_intact',
+            passed: false,
+            observed: 1,
+            violation: `${UNIT}: SES accepted a send the edge could not tie to an action, so its files go unchecked`,
+            unitIds: [UNIT],
+        })
+    })
 
     it('crosses the duplicate_sends gate at the step whose unit counted every extra acceptance', async () => {
         const units = [

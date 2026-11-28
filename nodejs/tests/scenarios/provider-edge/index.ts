@@ -25,7 +25,7 @@ import {
 import { TRUTH_PAGE_LIMIT, Truth, truthMessageOf } from './truth'
 
 export type { CardFault, FaultRule } from './faults'
-export { AmbiguousParams, S3Op, S3SlowParams, SesRejectParams, SesThrottleParams } from './faults'
+export { AmbiguousParams, S3BodylessOp, S3Op, S3SlowParams, SesRejectParams, SesThrottleParams } from './faults'
 export type { SesAttachment, SesMessage } from './ses'
 export { UNIT_EMAIL_DOMAIN } from './ses'
 export type { TruthAttachment, TruthHead, TruthMessage, TruthPage, TruthRecord } from './truth'

@@ -9,6 +9,7 @@ const PACE_SLICES_PER_SECOND = 10
 export type S3Faults = {
     takeS3(op: S3Op, hit: Hit): { id: string; answer: S3Answer } | undefined
     s3Answered(id: string): void
+    s3Active(id: string): boolean
 }
 
 export type S3Proxy = { url: string; close(): Promise<void> }
@@ -26,7 +27,7 @@ function opOf(req: http.IncomingMessage): S3Op | undefined {
     }
 }
 
-export function paced(bytesPerSecond: number, onDelay: () => void): Transform {
+export function paced(bytesPerSecond: number, onDelay: () => void, active: () => boolean = () => true): Transform {
     const sliceBytes = Math.max(1, Math.floor(bytesPerSecond / PACE_SLICES_PER_SECOND))
     let pending: NodeJS.Timeout | undefined
     return new Transform({
@@ -36,6 +37,9 @@ export function paced(bytesPerSecond: number, onDelay: () => void): Transform {
                 slices.push(chunk.subarray(at, at + sliceBytes))
             }
             const next = (): void => {
+                while (slices.length > 0 && !active()) {
+                    this.push(slices.shift())
+                }
                 const slice = slices.shift()
                 if (slice === undefined) {
                     pending = undefined
@@ -60,10 +64,9 @@ export function paced(bytesPerSecond: number, onDelay: () => void): Transform {
     })
 }
 
-type Pace = { bytesPerSecond: number; onDelay: () => void }
+type Pace = { bytesPerSecond: number; onDelay: () => void; active: () => boolean }
 
 const carry = (from: Readable, to: Writable, pace: Pace | undefined): void => {
-    // pipeline throws, outside any handler, into a stream that closed already, which would take the whole edge down.
     if (to.destroyed) {
         from.destroy()
         return
@@ -71,7 +74,7 @@ const carry = (from: Readable, to: Writable, pace: Pace | undefined): void => {
     if (pace === undefined) {
         pipeline(from, to, () => undefined)
     } else {
-        pipeline(from, paced(pace.bytesPerSecond, pace.onDelay), to, () => undefined)
+        pipeline(from, paced(pace.bytesPerSecond, pace.onDelay, pace.active), to, () => undefined)
     }
 }
 
@@ -85,13 +88,7 @@ function serverError(res: http.ServerResponse, status: number, method: string | 
     )
 }
 
-function forward(
-    upstream: URL,
-    req: http.IncomingMessage,
-    body: Buffer[],
-    res: http.ServerResponse,
-    pace: Pace | undefined
-): void {
+function forward(upstream: URL, req: http.IncomingMessage, res: http.ServerResponse, pace: Pace | undefined): void {
     const outbound = http.request(
         { hostname: upstream.hostname, port: upstream.port, method: req.method, path: req.url, headers: req.headers },
         (answer) => {
@@ -105,42 +102,41 @@ function forward(
             outbound.destroy()
         }
     })
-    carry(Readable.from(body), outbound, pace)
+    carry(req, outbound, pace)
 }
 
 export async function startS3Proxy(upstream: string, faults: S3Faults): Promise<S3Proxy> {
     const target = new URL(upstream)
-    // The proxy forwards each signed request as it came, Host and path included, so it reaches only a plain HTTP store
-    // that serves buckets from its root, as the dev stack's does.
     if (target.protocol !== 'http:' || target.pathname !== '/' || target.hostname.startsWith('[')) {
         throw new Error(
             `the S3 edge forwards only to a plain HTTP store at its root, not to ${target.origin}${target.pathname}`
         )
     }
     const server = http.createServer((req, res) => {
-        const body: Buffer[] = []
-        req.on('data', (chunk: Buffer) => body.push(chunk))
-        req.once('end', () => {
-            const op = opOf(req)
-            const taken = op && faults.takeS3(op, { pickKey: (req.url ?? '/').split('?')[0] })
-            const answer = taken?.answer
-            if (taken && answer?.kind === 's3-status') {
-                faults.s3Answered(taken.id)
-                serverError(res, answer.status, req.method)
-            } else if (taken && answer?.kind === 's3-stall') {
-                faults.s3Answered(taken.id)
-            } else {
-                forward(
-                    target,
-                    req,
-                    body,
-                    res,
-                    taken && answer?.kind === 's3-slow'
-                        ? { bytesPerSecond: answer.bytesPerSecond, onDelay: () => faults.s3Answered(taken.id) }
-                        : undefined
-                )
-            }
-        })
+        const op = opOf(req)
+        const taken = op && faults.takeS3(op, { pickKey: (req.url ?? '/').split('?')[0] })
+        const answer = taken?.answer
+        if (taken && answer?.kind === 's3-status') {
+            req.resume()
+            faults.s3Answered(taken.id)
+            serverError(res, answer.status, req.method)
+        } else if (taken && answer?.kind === 's3-stall') {
+            req.resume()
+            faults.s3Answered(taken.id)
+        } else {
+            forward(
+                target,
+                req,
+                res,
+                taken && answer?.kind === 's3-slow'
+                    ? {
+                          bytesPerSecond: answer.bytesPerSecond,
+                          onDelay: () => faults.s3Answered(taken.id),
+                          active: () => faults.s3Active(taken.id),
+                      }
+                    : undefined
+            )
+        }
     })
     await new Promise<void>((resolve, reject) => {
         server.once('error', reject)
