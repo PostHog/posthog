@@ -133,6 +133,17 @@ class TestSlackBlocks(SimpleTestCase):
         assert "&lt;!channel&gt;" in text["text"]["text"]
         assert "<!" not in text["text"]["text"] + links["text"]["text"]
 
+    def test_escaped_links_stay_inside_what_slack_accepts(self) -> None:
+        url = "https://grafana.example.com/d?" + "&".join(f"p{i}=1" for i in range(40))
+        message = alert_message(rule_details=tuple(MessageDetail(label=f"link_{i}", value=url) for i in range(8)))
+
+        text, links = blocks_for(message)[1:3]
+
+        assert len(links["text"]["text"]) <= MAX_SECTION_CHARS
+        assert links["text"]["text"].endswith(">")
+        assert text["text"]["verbatim"] is True
+        assert "*link_7:*" in text["text"]["text"]
+
     def test_escaped_context_stays_inside_what_slack_accepts(self) -> None:
         message = alert_message(context=("&" * 300,) * 3)
 

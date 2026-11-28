@@ -95,8 +95,21 @@ def _body(details: tuple[MessageDetail, ...]) -> str:
     return "\n".join(clip_text(line, share) for line in lines)
 
 
+def _link_line(detail: MessageDetail) -> str:
+    return f"*{detail.label}:* <{escape_slack_mrkdwn(detail.value)}>"
+
+
 def _details_blocks(details: tuple[MessageDetail, ...]) -> list[dict[str, Any]]:
-    links = [detail for detail in details if _is_link(detail)][:MAX_LINK_LINES]
+    # Escaping grows each `&` fivefold, and a link cut in half is broken, so only whole links that
+    # fit go in. The rest stay in the text section, which clips.
+    links: list[MessageDetail] = []
+    size = -1
+    for detail in details:
+        if len(links) == MAX_LINK_LINES:
+            break
+        if _is_link(detail) and size + 1 + len(_link_line(detail)) <= MAX_SECTION_CHARS:
+            links.append(detail)
+            size += 1 + len(_link_line(detail))
     text = tuple(detail for detail in details if detail not in links)
     blocks: list[dict[str, Any]] = []
     if text:
@@ -106,8 +119,7 @@ def _details_blocks(details: tuple[MessageDetail, ...]) -> list[dict[str, Any]]:
         block["text"]["verbatim"] = True
         blocks.append(block)
     if links:
-        lines = (f"*{detail.label}:* <{escape_slack_mrkdwn(detail.value)}>" for detail in links)
-        blocks.append(section_block("\n".join(lines)))
+        blocks.append(section_block("\n".join(_link_line(detail) for detail in links)))
     return blocks
 
 
