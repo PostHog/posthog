@@ -3,6 +3,9 @@ import json
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 
+from parameterized import parameterized
+from rest_framework import status
+
 from posthog.schema import DateRange, LogsQuery
 
 from posthog.hogql.errors import QueryError
@@ -76,3 +79,17 @@ class TestLogsCustomColumns(ClickhouseTestMixin, APIBaseTest):
         # interactive endpoint's 400 check. Exceeding the cap must fail before the query runs.
         with self.assertRaises(QueryError):
             self._run(["service_name"] * (MAX_CUSTOM_COLUMNS + 1))
+
+    @parameterized.expand([("message.service",), ("toString(body.error_message)",)])
+    def test_custom_column_reading_a_string_field_property_returns_400(self, custom_column: str):
+        query_params = {
+            "dateRange": {"date_from": DATE_FROM, "date_to": DATE_TO},
+            "serviceNames": ["argo-rollouts"],
+            "filterGroup": {"type": "AND", "values": []},
+            "customColumns": [custom_column],
+        }
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/logs/query", data={"query": query_params}, format="json"
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("Invalid custom column", response.json()["error"])

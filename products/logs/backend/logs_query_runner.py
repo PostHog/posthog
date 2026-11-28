@@ -21,7 +21,7 @@ from posthog.schema import (
 
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings, LimitContext
-from posthog.hogql.errors import ExposedHogQLError, QueryError
+from posthog.hogql.errors import ExposedHogQLError, QueryError, ResolutionError
 from posthog.hogql.parser import parse_expr, parse_order_expr, parse_select
 from posthog.hogql.property import (
     get_lowercase_index_hint,
@@ -797,17 +797,24 @@ class LogsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunnerMi
         return selects
 
     def _calculate(self) -> LogsQueryResponse:
-        response = self.paginator.execute_hogql_query(
-            query_type="LogsQuery",
-            query=self.to_query(),
-            modifiers=self.modifiers,
-            team=self.team,
-            workload=Workload.LOGS,
-            timings=self.timings,
-            limit_context=self.limit_context,
-            filters=self.query_date_range.to_hogql_filters(),
-            settings=self.settings,
-        )
+        try:
+            response = self.paginator.execute_hogql_query(
+                query_type="LogsQuery",
+                query=self.to_query(),
+                modifiers=self.modifiers,
+                team=self.team,
+                workload=Workload.LOGS,
+                timings=self.timings,
+                limit_context=self.limit_context,
+                filters=self.query_date_range.to_hogql_filters(),
+                settings=self.settings,
+            )
+        except ResolutionError as e:
+            # A custom column can parse yet fail to resolve, e.g. `message.service` on a string field.
+            # Without custom columns, a resolution failure is a resolver bug and must stay internal.
+            if not self.query.customColumns:
+                raise
+            raise QueryError(f"Invalid custom column: {e}") from e
         results = []
         for result in response.results:
             results.append(
