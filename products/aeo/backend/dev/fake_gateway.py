@@ -857,10 +857,21 @@ def parse_delay(spec: str | None) -> Delay:
     return Delay(low=low_ms / 1000, high=max(low_ms, high_ms) / 1000)
 
 
-def refuse(headers: Mapping[str, str], length: int, record_key: str | None) -> GatewayResponse | None:
-    """Why a request gets no answer: too large, sent by a browser, or unauthenticated while a real token is in play.
-    Browsers send `Origin` or `Sec-Fetch-Mode` on every fetch and the stack's server-side calls send neither, so a
-    page cannot spend the developer's token through a cross-origin POST."""
+def content_length(headers: Mapping[str, str]) -> int | None:
+    """The body size a POST declares, or None when it declares none or not a whole number; a negative or
+    non-numeric value would otherwise turn into an unbounded read."""
+    lowered = {key.lower(): value for key, value in headers.items()}
+    declared = lowered.get("content-length", "").strip()
+    return int(declared) if declared.isdigit() else None
+
+
+def refuse(headers: Mapping[str, str], record_key: str | None) -> GatewayResponse | None:
+    """Why a request gets no answer: no usable body size, too large, sent by a browser, or unauthenticated while a
+    real token is in play. Browsers send `Origin` or `Sec-Fetch-Mode` on every fetch and the stack's server-side
+    calls send neither, so a page cannot spend the developer's token through a cross-origin POST."""
+    length = content_length(headers)
+    if length is None:
+        return _error(400, "a POST needs a whole-number Content-Length", "invalid_request_error")
     if length > MAX_BODY_BYTES:
         return _error(413, f"the fake gateway reads at most {MAX_BODY_BYTES} bytes", "invalid_request_error")
     lowered = {key.lower(): value for key, value in headers.items()}
@@ -903,14 +914,14 @@ class _Handler(BaseHTTPRequestHandler):
         self._send(GatewayResponse(200, body), self.server.mode)
 
     def do_POST(self) -> None:  # noqa: N802
-        length = int(self.headers.get("Content-Length") or 0)
-        refused = refuse(dict(self.headers.items()), length, self.server.record_key)
+        headers = dict(self.headers.items())
+        refused = refuse(headers, self.server.record_key)
         if refused is not None:
             self.close_connection = True
             self._send(refused, self.server.mode)
             return
         try:
-            body = json.loads(self.rfile.read(length) or b"{}")
+            body = json.loads(self.rfile.read(content_length(headers) or 0) or b"{}")
         except json.JSONDecodeError:
             self._send(_error(400, "body is not JSON", "invalid_request_error"), self.server.mode)
             return

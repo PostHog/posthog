@@ -163,7 +163,8 @@ def test_the_server_answers_over_http() -> None:
         from_a_page = requests.post(
             f"{base}/v1/messages", json=body, headers={"Origin": "https://evil.example"}, timeout=5
         )
-        oversized = _post_declaring(server.server_address[1], MAX_BODY_BYTES + 1)
+        oversized = _post_declaring(server.server_address[1], str(MAX_BODY_BYTES + 1))
+        unbounded = _post_declaring(server.server_address[1], "-1")
     finally:
         server.shutdown()
         server.server_close()
@@ -172,6 +173,7 @@ def test_the_server_answers_over_http() -> None:
     assert unknown.status_code == 404
     assert from_a_page.status_code == 403
     assert oversized.startswith(b"HTTP/1.1 413")
+    assert unbounded.startswith(b"HTTP/1.1 400")
     assert answered.headers["X-Fake-Gateway"] == "generated"
     if answered.status_code == 200:
         assert parse_anthropic_citations(answered.json()).answer_text
@@ -180,7 +182,7 @@ def test_the_server_answers_over_http() -> None:
         assert json.loads(answered.content)["error"]["message"]
 
 
-def _post_declaring(port: int, content_length: int) -> bytes:
+def _post_declaring(port: int, content_length: str) -> bytes:
     """A POST whose headers promise a body that never comes; the answer must arrive without it."""
     with socket.create_connection(("127.0.0.1", port), timeout=5) as sock:
         sock.sendall(
@@ -191,19 +193,24 @@ def _post_declaring(port: int, content_length: int) -> bytes:
 
 
 @pytest.mark.parametrize(
-    "headers, length, record_key, status",
+    "headers, record_key, status",
     [
-        ({}, 10, None, None),
-        ({"Authorization": "Bearer s3cret"}, 10, "s3cret", None),
-        ({"Authorization": "Bearer phs_fake"}, 10, "s3cret", 401),
-        ({}, 10, "s3cret", 401),
-        ({"Origin": "https://evil.example", "Authorization": "Bearer s3cret"}, 10, "s3cret", 403),
-        ({"Sec-Fetch-Mode": "cors"}, 10, None, 403),
-        ({}, MAX_BODY_BYTES + 1, None, 413),
+        ({"Content-Length": "10"}, None, None),
+        ({"content-length": " 10 ", "Authorization": "Bearer s3cret"}, "s3cret", None),
+        ({"Content-Length": "10", "Authorization": "Bearer phs_fake"}, "s3cret", 401),
+        ({"Content-Length": "10"}, "s3cret", 401),
+        ({"Content-Length": "10", "Origin": "https://evil.example", "Authorization": "Bearer s3cret"}, "s3cret", 403),
+        ({"Content-Length": "10", "Sec-Fetch-Mode": "cors"}, None, 403),
+        ({"Content-Length": str(MAX_BODY_BYTES + 1)}, None, 413),
+        ({"Content-Length": "-1"}, None, 400),
+        ({"Content-Length": "+10"}, None, 400),
+        ({"Content-Length": "1e3"}, None, 400),
+        ({"Content-Length": "lots"}, None, 400),
+        ({}, None, 400),
     ],
 )
-def test_refusals(headers: dict[str, str], length: int, record_key: str | None, status: int | None) -> None:
-    refused = refuse(headers, length, record_key)
+def test_refusals(headers: dict[str, str], record_key: str | None, status: int | None) -> None:
+    refused = refuse(headers, record_key)
     assert (refused.status if refused else None) == status
 
 
