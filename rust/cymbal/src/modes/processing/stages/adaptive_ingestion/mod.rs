@@ -405,6 +405,9 @@ mod tests {
                     name: None,
                     description: None,
                     created_at: Utc::now(),
+                    latest_release_id: None,
+                    latest_release_created_at: None,
+                    resolved_until: None,
                 },
             },
         }

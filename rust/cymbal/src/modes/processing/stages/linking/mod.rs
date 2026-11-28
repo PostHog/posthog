@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+pub mod batch_issue_state;
 pub mod issue;
 pub mod rule_suppression;
 pub mod suppression;
@@ -9,11 +10,13 @@ use uuid::Uuid;
 
 use crate::{
     app_context::AppContext,
-    issue_resolution::Issue,
     metric_consts::LINKING_STAGE,
     stages::{
         linking::{
-            issue::IssueLinker, rule_suppression::RuleSuppression, suppression::IssueSuppression,
+            batch_issue_state::BatchIssueState,
+            issue::{IssueLinker, LoadedIssue},
+            rule_suppression::RuleSuppression,
+            suppression::IssueSuppression,
         },
         pipeline::{FingerprintedPipelineItem, LinkedPipelineItem},
     },
@@ -33,7 +36,9 @@ pub struct LinkingStage {
     // constructed per batch via `From`), so events sharing candidate fingerprints within a
     // single batch resolve the Issue exactly once. moka's `try_get_with` also deduplicates
     // concurrent misses for the same key inside the same batch.
-    pub batch_issue_cache: Cache<(TeamId, String), Issue>,
+    pub batch_issue_cache: Cache<(TeamId, String), LoadedIssue>,
+    // The newest copy of each issue this batch wrote, and the release writes that moved it.
+    pub batch_issue_state: BatchIssueState,
 }
 
 impl Stage for LinkingStage {
@@ -72,6 +77,7 @@ impl From<&Arc<AppContext>> for LinkingStage {
             app_context: ctx.clone(),
             issue_cache: ctx.issue_cache.clone(),
             batch_issue_cache: CacheBuilder::new(10_000).build(),
+            batch_issue_state: BatchIssueState::default(),
         }
     }
 }

@@ -374,6 +374,10 @@ impl ExceptionEvent<Fingerprinted> {
         &self.state.fingerprint
     }
 
+    pub fn release(&self) -> Option<&ReleaseInfo> {
+        self.state.metadata.release.as_ref()
+    }
+
     pub(crate) fn exception_handled(&self) -> Option<bool> {
         self.exception_list
             .first()
@@ -830,6 +834,9 @@ mod tests {
                 name: None,
                 description: None,
                 created_at: chrono::Utc::now(),
+                latest_release_id: None,
+                latest_release_created_at: None,
+                resolved_until: None,
             };
             let processed = parsed
                 .into_resolved()
@@ -911,6 +918,9 @@ mod tests {
             name: None,
             description: None,
             created_at: chrono::Utc::now(),
+            latest_release_id: None,
+            latest_release_created_at: None,
+            resolved_until: None,
         };
         let assignment = serde_json::to_value(fingerprinted.processed_properties(&issue)).unwrap();
         assert_eq!(assignment["$exception_issue_id"], issue.id.to_string());
@@ -944,6 +954,9 @@ mod tests {
             name: None,
             description: None,
             created_at: chrono::Utc::now(),
+            latest_release_id: None,
+            latest_release_created_at: None,
+            resolved_until: None,
         };
         let mut record = release_record("hash-abc");
         record.metadata = Some(serde_json::json!({

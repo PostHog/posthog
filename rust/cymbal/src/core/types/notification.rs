@@ -6,6 +6,7 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Deserializer, Serialize};
 use uuid::Uuid;
 
+use crate::core::types::frames::releases::ReleaseInfo;
 use crate::types::ProcessedExceptionProperties;
 
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
@@ -238,6 +239,30 @@ pub struct IssueReopened {
     pub event_uuid: Uuid,
     pub event_timestamp: String,
     pub assignee: Option<String>,
+    /// Set only when a release newer than the issue's latest release reopened it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reopened_by_release: Option<ReopenedByRelease>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub previous_status: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ReopenedByRelease {
+    pub id: Uuid,
+    pub version: String,
+    pub project: String,
+    pub created_at: DateTime<Utc>,
+}
+
+impl From<&ReleaseInfo> for ReopenedByRelease {
+    fn from(release: &ReleaseInfo) -> Self {
+        Self {
+            id: release.id(),
+            version: release.version().to_string(),
+            project: release.project().to_string(),
+            created_at: release.created_at(),
+        }
+    }
 }
 
 /// Payload for [`IngestionNotification::IssueSpiking`].

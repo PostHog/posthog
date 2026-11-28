@@ -9,9 +9,10 @@ use serde::{Deserialize, Serialize};
 use tracing::warn;
 use uuid::Uuid;
 
+use crate::core::types::frames::releases::ReleaseInfo;
 use crate::core::types::notification::{
     IngestionNotification, IssueCreated, IssueNotificationContext, IssueReopened, IssueSnapshot,
-    IssueSpiking, NotificationMeta, SeveritySource,
+    IssueSpiking, NotificationMeta, ReopenedByRelease, SeveritySource,
 };
 use crate::modes::processing::rules::assignment::{Assignee, Assignment};
 use crate::types::ProcessedExceptionProperties;
@@ -32,6 +33,9 @@ const ERROR_TRACKING_EVENT_PROPERTIES_KEY_PREFIX: &str = "error_tracking:event_p
 // serialized blobs, etc.), so we cap both before writing to Postgres and Kafka.
 const MAX_ISSUE_NAME_CHARS: usize = 255;
 const MAX_ISSUE_DESCRIPTION_CHARS: usize = 255;
+// The `resolved_until` value Django writes for an issue resolved until a new release. Any other
+// value, or none, reopens a resolved issue on the next exception.
+const RESOLVED_UNTIL_NEW_RELEASE: &str = "new_release";
 
 #[derive(Debug, Clone)]
 pub struct IssueFingerprintOverride {
@@ -51,6 +55,9 @@ pub struct Issue {
     pub name: Option<String>,
     pub description: Option<String>,
     pub created_at: DateTime<Utc>,
+    pub resolved_until: Option<String>,
+    pub latest_release_id: Option<Uuid>,
+    pub latest_release_created_at: Option<DateTime<Utc>>,
 }
 
 pub struct IssueWithFirstSeen {
@@ -61,6 +68,9 @@ pub struct IssueWithFirstSeen {
     pub name: Option<String>,
     pub description: Option<String>,
     pub created_at: DateTime<Utc>,
+    pub resolved_until: Option<String>,
+    pub latest_release_id: Option<Uuid>,
+    pub latest_release_created_at: Option<DateTime<Utc>>,
     pub fingerprint_first_seen: Option<DateTime<Utc>>,
 }
 
@@ -75,6 +85,9 @@ impl IssueWithFirstSeen {
                 name: self.name,
                 description: self.description,
                 created_at: self.created_at,
+                resolved_until: self.resolved_until,
+                latest_release_id: self.latest_release_id,
+                latest_release_created_at: self.latest_release_created_at,
             },
             self.fingerprint_first_seen,
         )
@@ -89,6 +102,39 @@ pub enum IssueStatus {
     Resolved,
     PendingRelease,
     Suppressed,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ReleaseCheck {
+    Unchanged,
+    StaysResolved,
+    RecordRelease,
+    Reopen,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Reopened {
+    pub previous_status: String,
+    pub cause: ReopenCause,
+}
+
+/// The issue row as `apply_release` locked it, before its own write.
+#[derive(sqlx::FromRow)]
+struct LockedIssue {
+    status: String,
+    name: Option<String>,
+    severity: Option<String>,
+    resolved_until: Option<String>,
+    latest_release_id: Option<Uuid>,
+    latest_release_created_at: Option<DateTime<Utc>>,
+    reopen: bool,
+    record_release: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ReopenCause {
+    NewOccurrence,
+    NewRelease(ReopenedByRelease),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -148,7 +194,7 @@ impl Issue {
         let res = sqlx::query_as!(
             IssueWithFirstSeen,
             r#"
-            SELECT i.id, i.team_id, i.status, i.severity, i.name, i.description, i.created_at, f.first_seen as fingerprint_first_seen
+            SELECT i.id, i.team_id, i.status, i.severity, i.name, i.description, i.created_at, i.resolved_until, i.latest_release_id, i.latest_release_created_at, f.first_seen as fingerprint_first_seen
             FROM posthog_errortrackingissue i
             JOIN posthog_errortrackingissuefingerprintv2 f ON i.id = f.issue_id
             WHERE f.team_id = $1 AND f.fingerprint = $2
@@ -173,7 +219,7 @@ impl Issue {
         let res = sqlx::query_as!(
             Issue,
             r#"
-            SELECT id, team_id, status, severity, name, description, created_at FROM posthog_errortrackingissue
+            SELECT id, team_id, status, severity, name, description, created_at, resolved_until, latest_release_id, latest_release_created_at FROM posthog_errortrackingissue
             WHERE team_id = $1 AND id = $2
             "#,
             team_id,
@@ -190,6 +236,7 @@ impl Issue {
         name: String,
         description: String,
         severity: Option<IssueSeverity>,
+        release: Option<&ReleaseInfo>,
         executor: E,
     ) -> Result<Issue, UnhandledError>
     where
@@ -212,12 +259,15 @@ impl Issue {
             name: Some(name),
             description: Some(description),
             created_at: Utc::now(),
+            resolved_until: None,
+            latest_release_id: release.map(ReleaseInfo::id),
+            latest_release_created_at: release.map(ReleaseInfo::created_at),
         };
 
         sqlx::query!(
             r#"
-            INSERT INTO posthog_errortrackingissue (id, team_id, status, severity, name, description, created_at)
-            VALUES ($1, $2, $3, $4, $5, $6, $7)
+            INSERT INTO posthog_errortrackingissue (id, team_id, status, severity, name, description, created_at, latest_release_id, latest_release_created_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
             "#,
             issue.id,
             issue.team_id,
@@ -225,7 +275,9 @@ impl Issue {
             issue.severity,
             issue.name,
             issue.description,
-            issue.created_at
+            issue.created_at,
+            issue.latest_release_id,
+            issue.latest_release_created_at
         )
         .execute(executor)
         .await?;
@@ -250,51 +302,139 @@ impl Issue {
         Ok(())
     }
 
-    pub fn can_reopen(&self) -> bool {
-        !matches!(self.status, IssueStatus::Active | IssueStatus::Suppressed)
+    fn resolved_until_new_release(&self) -> bool {
+        self.resolved_until.as_deref() == Some(RESOLVED_UNTIL_NEW_RELEASE)
     }
 
-    pub async fn maybe_reopen<'c, E>(&mut self, executor: E) -> Result<bool, UnhandledError>
+    pub fn release_check(&self, release_created_at: Option<DateTime<Utc>>) -> ReleaseCheck {
+        let newer = release_created_at.is_some_and(|created_at| {
+            self.latest_release_created_at
+                .is_none_or(|latest| created_at > latest)
+        });
+        match self.status {
+            IssueStatus::Suppressed => ReleaseCheck::Unchanged,
+            IssueStatus::Active if newer => ReleaseCheck::RecordRelease,
+            IssueStatus::Active => ReleaseCheck::Unchanged,
+            IssueStatus::Resolved
+                if self.resolved_until_new_release() && release_created_at.is_some() && !newer =>
+            {
+                ReleaseCheck::StaysResolved
+            }
+            _ => ReleaseCheck::Reopen,
+        }
+    }
+
+    /// Refreshes this copy from the locked row, and returns the reopen if there was one.
+    pub async fn apply_release<'c, E>(
+        &mut self,
+        executor: E,
+        release: Option<&ReleaseInfo>,
+    ) -> Result<Option<Reopened>, UnhandledError>
     where
         E: sqlx::Executor<'c, Database = sqlx::Postgres>,
     {
-        Ok(self.reopen(executor).await?.is_some())
-    }
-
-    pub async fn reopen<'c, E>(&mut self, executor: E) -> Result<Option<String>, UnhandledError>
-    where
-        E: sqlx::Executor<'c, Database = sqlx::Postgres>,
-    {
-        if !self.can_reopen() {
+        let release_created_at = release.map(ReleaseInfo::created_at);
+        if !matches!(
+            self.release_check(release_created_at),
+            ReleaseCheck::RecordRelease | ReleaseCheck::Reopen
+        ) {
             return Ok(None);
         }
 
-        // The row is locked before it is read, so the status returned is the one this update replaced,
-        // even when another writer reopens the issue at the same time.
-        let reopened: Option<(String, Option<String>, Option<String>)> = sqlx::query_as(
+        // Decided again on the locked row, because a person can resolve the issue after this worker
+        // loaded it. A resolved issue's latest release then moves only with the reopen.
+        let locked: Option<LockedIssue> = sqlx::query_as(
             r#"
-            UPDATE posthog_errortrackingissue AS issue
-            SET status = 'active'
-            FROM (
-                SELECT id, status FROM posthog_errortrackingissue WHERE id = $1 FOR UPDATE
-            ) AS before
-            WHERE issue.id = before.id AND before.status NOT IN ('active', 'suppressed')
-            RETURNING before.status, issue.name, issue.severity
+            WITH locked AS (
+                SELECT
+                    id, status, name, severity, resolved_until, latest_release_id,
+                    latest_release_created_at,
+                    status NOT IN ('active', 'suppressed') AND (
+                        status != 'resolved'
+                        OR resolved_until IS DISTINCT FROM 'new_release'
+                        OR latest_release_created_at IS NULL
+                        OR $3::timestamptz IS NULL
+                        OR $3::timestamptz > latest_release_created_at
+                    ) AS reopen,
+                    $3::timestamptz IS NOT NULL AND (
+                        latest_release_created_at IS NULL
+                        OR $3::timestamptz > latest_release_created_at
+                    ) AS newer
+                FROM posthog_errortrackingissue
+                WHERE id = $1
+                FOR UPDATE
+            ),
+            decided AS (
+                SELECT *, newer AND (status = 'active' OR reopen) AS record_release FROM locked
+            ),
+            updated AS (
+                UPDATE posthog_errortrackingissue AS issue
+                SET
+                    status = CASE WHEN decided.reopen THEN 'active' ELSE issue.status END,
+                    resolved_at = CASE WHEN decided.reopen THEN NULL ELSE issue.resolved_at END,
+                    resolved_until = CASE WHEN decided.reopen THEN NULL ELSE issue.resolved_until END,
+                    latest_release_id = CASE
+                        WHEN decided.record_release THEN $2::uuid ELSE issue.latest_release_id
+                    END,
+                    latest_release_created_at = CASE
+                        WHEN decided.record_release THEN $3::timestamptz
+                        ELSE issue.latest_release_created_at
+                    END
+                FROM decided
+                WHERE issue.id = decided.id AND (decided.reopen OR decided.record_release)
+            )
+            SELECT
+                status, name, severity, resolved_until, latest_release_id, latest_release_created_at,
+                reopen, record_release
+            FROM decided
             "#,
         )
         .bind(self.id)
+        .bind(release.map(ReleaseInfo::id))
+        .bind(release_created_at)
         .fetch_optional(executor)
         .await?;
 
-        let Some((previous, name, severity)) = reopened else {
+        let Some(locked) = locked else {
             return Ok(None);
         };
-        self.status = IssueStatus::Active;
-        self.name = name;
-        self.severity = severity;
+        self.name = locked.name;
+        self.severity = locked.severity;
+        self.status = if locked.reopen {
+            IssueStatus::Active
+        } else {
+            IssueStatus::from(locked.status.clone())
+        };
+        self.resolved_until = if locked.reopen {
+            None
+        } else {
+            locked.resolved_until.clone()
+        };
+        (self.latest_release_id, self.latest_release_created_at) = if locked.record_release {
+            (release.map(ReleaseInfo::id), release_created_at)
+        } else {
+            (locked.latest_release_id, locked.latest_release_created_at)
+        };
+        if !locked.reopen {
+            return Ok(None);
+        }
         metrics::counter!(ISSUE_REOPENED).increment(1);
 
-        Ok(Some(previous))
+        let cause = match (
+            locked.status.as_str(),
+            locked.resolved_until.as_deref(),
+            locked.latest_release_created_at,
+            release,
+        ) {
+            ("resolved", Some(RESOLVED_UNTIL_NEW_RELEASE), Some(_), Some(release)) => {
+                ReopenCause::NewRelease(release.into())
+            }
+            _ => ReopenCause::NewOccurrence,
+        };
+        Ok(Some(Reopened {
+            previous_status: locked.status,
+            cause,
+        }))
     }
 
     pub async fn get_assignments<'c, E>(
@@ -410,6 +550,9 @@ mod tests {
             name: Some("Issue".to_string()),
             description: None,
             created_at: Utc::now(),
+            latest_release_id: None,
+            latest_release_created_at: None,
+            resolved_until: None,
         };
 
         let state = FingerprintIssueState::new(&issue, "fingerprint", None, Utc::now());
@@ -613,6 +756,7 @@ pub async fn send_issue_reopened_notification(
     processed_properties: ProcessedExceptionProperties,
     event_uuid: Uuid,
     event_timestamp: &DateTime<Utc>,
+    reopened: Reopened,
 ) -> Result<(), UnhandledError> {
     store_error_tracking_event_properties(
         &*context.issue_buckets_redis_client,
@@ -634,6 +778,11 @@ pub async fn send_issue_reopened_notification(
             event_uuid,
             event_timestamp: event_timestamp.to_rfc3339(),
             assignee: assignment_to_string(assignment)?,
+            reopened_by_release: match reopened.cause {
+                ReopenCause::NewRelease(release) => Some(release),
+                ReopenCause::NewOccurrence => None,
+            },
+            previous_status: Some(reopened.previous_status),
         }),
     )
     .await
@@ -793,11 +942,15 @@ impl Display for IssueSeverity {
 
 #[cfg(test)]
 mod test {
+    use chrono::{DateTime, Duration, Utc};
     use common_redis::{MockRedisClient, MockRedisValue};
     use uuid::Uuid;
 
+    use super::{Issue, IssueStatus, ReleaseCheck, ReopenCause, RESOLVED_UNTIL_NEW_RELEASE};
     use crate::{
-        modes::processing::rules::assignment::Assignee, sanitize_string,
+        core::types::frames::releases::{ReleaseInfo, ReleaseRecord},
+        modes::processing::rules::assignment::Assignee,
+        sanitize_string,
         types::ProcessedExceptionProperties,
     };
 
@@ -853,7 +1006,7 @@ mod test {
     #[sqlx::test(migrations = "./tests/test_migrations")]
     async fn a_reopen_returns_the_status_it_replaced_once(pool: sqlx::PgPool) {
         let mut issue =
-            super::Issue::insert_new(1, "TypeError".to_string(), String::new(), None, &pool)
+            super::Issue::insert_new(1, "TypeError".to_string(), String::new(), None, None, &pool)
                 .await
                 .unwrap();
         sqlx::query("UPDATE posthog_errortrackingissue SET status = 'resolved', name = 'Updated issue', severity = 'high' WHERE id = $1")
@@ -863,23 +1016,32 @@ mod test {
             .unwrap();
         issue.status = super::IssueStatus::Resolved;
         // A second writer that read the issue before the first reopened it.
-        let mut stale = issue.clone();
+        let stale = issue.clone();
 
         assert_eq!(
-            issue.reopen(&pool).await.unwrap(),
-            Some("resolved".to_string())
+            issue.apply_release(&pool, None).await.unwrap(),
+            Some(super::Reopened {
+                previous_status: "resolved".to_string(),
+                cause: super::ReopenCause::NewOccurrence,
+            })
         );
         assert_eq!(issue.status, super::IssueStatus::Active);
         assert_eq!(issue.name.as_deref(), Some("Updated issue"));
         assert_eq!(issue.severity.as_deref(), Some("high"));
-        assert_eq!(stale.reopen(&pool).await.unwrap(), None);
+        assert_eq!(
+            stale.clone().apply_release(&pool, None).await.unwrap(),
+            None
+        );
 
         sqlx::query("UPDATE posthog_errortrackingissue SET status = 'suppressed' WHERE id = $1")
             .bind(issue.id)
             .execute(&pool)
             .await
             .unwrap();
-        assert_eq!(stale.reopen(&pool).await.unwrap(), None);
+        assert_eq!(
+            stale.clone().apply_release(&pool, None).await.unwrap(),
+            None
+        );
         let status: String =
             sqlx::query_scalar("SELECT status FROM posthog_errortrackingissue WHERE id = $1")
                 .bind(issue.id)
@@ -889,12 +1051,308 @@ mod test {
         assert_eq!(status, "suppressed");
     }
 
+    fn release_at(created_at: DateTime<Utc>) -> ReleaseInfo {
+        ReleaseRecord {
+            id: Uuid::now_v7(),
+            team_id: 1,
+            hash_id: "hash".to_string(),
+            created_at,
+            version: format!("1.0.{}", created_at.timestamp()),
+            project: "my-app".to_string(),
+            metadata: None,
+        }
+        .to_info()
+    }
+
+    type IssueRow = (String, Option<Uuid>, Option<DateTime<Utc>>, String);
+
+    async fn issue_row(pool: &sqlx::PgPool, id: Uuid) -> IssueRow {
+        sqlx::query_as(
+            "SELECT status, latest_release_id, resolved_at, xmin::text || ':' || xmax::text FROM posthog_errortrackingissue WHERE id = $1",
+        )
+        .bind(id)
+        .fetch_one(pool)
+        .await
+        .unwrap()
+    }
+
+    #[sqlx::test(migrations = "./tests/test_migrations")]
+    async fn a_release_is_applied_against_the_locked_row(pool: sqlx::PgPool) {
+        let base: DateTime<Utc> = "2026-03-01T12:00:00Z".parse().unwrap();
+        let (r1, r2, r3) = (
+            release_at(base),
+            release_at(base + Duration::hours(1)),
+            release_at(base + Duration::hours(2)),
+        );
+        let resolved_between_r2_and_r3 = base + Duration::minutes(90);
+        let any = Some(ReopenCause::NewOccurrence);
+        let by = |release: &ReleaseInfo| Some(ReopenCause::NewRelease(release.into()));
+        let active = IssueStatus::Active;
+
+        let cases = [
+            (
+                "active, first release",
+                "active",
+                None,
+                None,
+                Some(&r1),
+                None,
+                Some(&r1),
+            ),
+            (
+                "active, newer release",
+                "active",
+                Some(&r1),
+                None,
+                Some(&r2),
+                None,
+                Some(&r2),
+            ),
+            (
+                "active, older release",
+                "active",
+                Some(&r2),
+                None,
+                Some(&r1),
+                None,
+                Some(&r2),
+            ),
+            (
+                "active, no release",
+                "active",
+                Some(&r1),
+                None,
+                None,
+                None,
+                Some(&r1),
+            ),
+            (
+                "suppressed",
+                "suppressed",
+                None,
+                None,
+                Some(&r1),
+                None,
+                None,
+            ),
+            (
+                "no release history",
+                "resolved",
+                None,
+                None,
+                Some(&r1),
+                any.clone(),
+                Some(&r1),
+            ),
+            (
+                "no release",
+                "resolved",
+                Some(&r1),
+                None,
+                None,
+                any.clone(),
+                Some(&r1),
+            ),
+            (
+                "older release",
+                "resolved",
+                Some(&r2),
+                None,
+                Some(&r1),
+                None,
+                Some(&r2),
+            ),
+            (
+                "same release",
+                "resolved",
+                Some(&r1),
+                None,
+                Some(&r1),
+                None,
+                Some(&r1),
+            ),
+            (
+                "newer, created before the resolve",
+                "resolved",
+                Some(&r1),
+                None,
+                Some(&r2),
+                by(&r2),
+                Some(&r2),
+            ),
+            (
+                "archived",
+                "archived",
+                Some(&r2),
+                None,
+                Some(&r1),
+                any.clone(),
+                Some(&r2),
+            ),
+            (
+                "pending release",
+                "pending_release",
+                None,
+                None,
+                None,
+                any.clone(),
+                None,
+            ),
+            (
+                "resolved after load, newer",
+                "resolved",
+                Some(&r1),
+                Some((active, Some(&r1))),
+                Some(&r2),
+                by(&r2),
+                Some(&r2),
+            ),
+            (
+                "resolved after load, older than stored",
+                "resolved",
+                Some(&r3),
+                Some((active, Some(&r1))),
+                Some(&r2),
+                None,
+                Some(&r3),
+            ),
+            (
+                "resolved after load, same as stored",
+                "resolved",
+                Some(&r2),
+                Some((active, Some(&r1))),
+                Some(&r2),
+                None,
+                Some(&r2),
+            ),
+        ];
+
+        for (case, status, latest, loaded_before_resolve, release, expected, expected_latest) in
+            cases
+        {
+            let created = Issue::insert_new(
+                1,
+                "TypeError".to_string(),
+                String::new(),
+                None,
+                latest,
+                &pool,
+            )
+            .await
+            .unwrap();
+            let stored_resolved_at = (status == "resolved").then_some(resolved_between_r2_and_r3);
+            sqlx::query(
+                "UPDATE posthog_errortrackingissue SET status = $2, resolved_at = $3, resolved_until = $4 WHERE id = $1",
+            )
+            .bind(created.id)
+            .bind(status)
+            .bind(stored_resolved_at)
+            .bind((status == "resolved").then_some(RESOLVED_UNTIL_NEW_RELEASE))
+            .execute(&pool)
+            .await
+            .unwrap();
+            let mut issue = Issue::load(&pool, 1, created.id).await.unwrap().unwrap();
+            if let Some((loaded_status, loaded_latest)) = loaded_before_resolve {
+                issue.status = loaded_status;
+                issue.latest_release_id = loaded_latest.map(ReleaseInfo::id);
+                issue.latest_release_created_at = loaded_latest.map(ReleaseInfo::created_at);
+            }
+            let before = issue_row(&pool, created.id).await;
+
+            let reopened = issue.apply_release(&pool, release).await.unwrap();
+
+            let after = issue_row(&pool, created.id).await;
+            assert_eq!(
+                reopened.as_ref().map(|r| r.cause.clone()),
+                expected,
+                "{case}"
+            );
+            if let Some(reopened) = &reopened {
+                assert_eq!(reopened.previous_status, status, "{case}");
+            }
+            let expected_status = if expected.is_some() { "active" } else { status };
+            let expected_resolved_at = stored_resolved_at.filter(|_| expected.is_none());
+            let expected_latest = expected_latest.map(ReleaseInfo::id);
+            assert_eq!(
+                (after.0.as_str(), after.1, after.2),
+                (expected_status, expected_latest, expected_resolved_at),
+                "{case}"
+            );
+            let touched = loaded_before_resolve.is_some()
+                || expected.is_some()
+                || expected_latest != latest.map(ReleaseInfo::id);
+            assert_eq!(after.3 != before.3, touched, "{case}: touched the row");
+            assert_eq!(
+                (issue.status.to_string(), issue.latest_release_id),
+                (after.0, after.1),
+                "{case}: the copy matches the row"
+            );
+        }
+    }
+
+    #[sqlx::test(migrations = "./tests/test_migrations")]
+    async fn an_issue_resolved_until_the_next_occurrence_reopens_on_any_release(
+        pool: sqlx::PgPool,
+    ) {
+        let base: DateTime<Utc> = "2026-03-01T12:00:00Z".parse().unwrap();
+        let (older, latest) = (release_at(base), release_at(base + Duration::hours(1)));
+
+        for resolved_until in [Some("next_occurrence"), None] {
+            let created = Issue::insert_new(
+                1,
+                "TypeError".to_string(),
+                String::new(),
+                None,
+                Some(&latest),
+                &pool,
+            )
+            .await
+            .unwrap();
+            sqlx::query(
+                "UPDATE posthog_errortrackingissue SET status = 'resolved', resolved_at = NOW(), resolved_until = $2 WHERE id = $1",
+            )
+            .bind(created.id)
+            .bind(resolved_until)
+            .execute(&pool)
+            .await
+            .unwrap();
+            let mut issue = Issue::load(&pool, 1, created.id).await.unwrap().unwrap();
+
+            assert_eq!(
+                issue.release_check(Some(older.created_at())),
+                ReleaseCheck::Reopen,
+                "{resolved_until:?}"
+            );
+            let reopened = issue.apply_release(&pool, Some(&older)).await.unwrap();
+
+            assert_eq!(
+                reopened.map(|reopened| reopened.cause),
+                Some(ReopenCause::NewOccurrence),
+                "{resolved_until:?}"
+            );
+            let row: (String, Option<String>, Option<Uuid>) = sqlx::query_as(
+                "SELECT status, resolved_until, latest_release_id FROM posthog_errortrackingissue WHERE id = $1",
+            )
+            .bind(created.id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+            assert_eq!(
+                row,
+                ("active".to_string(), None, Some(latest.id())),
+                "{resolved_until:?}"
+            );
+            assert_eq!(issue.resolved_until, None, "{resolved_until:?}");
+        }
+    }
+
     #[sqlx::test(migrations = "./tests/test_migrations")]
     async fn initial_severity_update_reaches_state_and_notification_payloads(pool: sqlx::PgPool) {
         let mut issue = super::Issue::insert_new(
             1,
             "TypeError".to_string(),
             "Example".to_string(),
+            None,
             None,
             &pool,
         )

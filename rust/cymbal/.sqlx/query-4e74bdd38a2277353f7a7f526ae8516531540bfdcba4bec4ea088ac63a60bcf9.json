@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            SELECT id, team_id, status, severity, name, description, created_at FROM posthog_errortrackingissue\n            WHERE team_id = $1 AND id = $2\n            ",
+  "query": "\n            SELECT id, team_id, status, severity, name, description, created_at, resolved_until, latest_release_id, latest_release_created_at FROM posthog_errortrackingissue\n            WHERE team_id = $1 AND id = $2\n            ",
   "describe": {
     "columns": [
       {
@@ -37,6 +37,21 @@
         "ordinal": 6,
         "name": "created_at",
         "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 7,
+        "name": "resolved_until",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 8,
+        "name": "latest_release_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 9,
+        "name": "latest_release_created_at",
+        "type_info": "Timestamptz"
       }
     ],
     "parameters": {
@@ -52,8 +67,11 @@
       true,
       true,
       true,
-      false
+      false,
+      true,
+      true,
+      true
     ]
   },
-  "hash": "dd3d05427c18cda4a1f487be6066ed318038b8306c4b83e3c1e433a76fb0652f"
+  "hash": "4e74bdd38a2277353f7a7f526ae8516531540bfdcba4bec4ea088ac63a60bcf9"
 }

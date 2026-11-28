@@ -41,6 +41,9 @@ fn issue(team_id: i32) -> Issue {
         name: Some("TypeError".to_string()),
         description: Some("Example".to_string()),
         created_at: Utc::now(),
+        latest_release_id: None,
+        latest_release_created_at: None,
+        resolved_until: None,
     }
 }
 

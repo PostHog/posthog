@@ -314,6 +314,42 @@ impl TestHarness {
             .expect("Should update issue status");
     }
 
+    async fn resolve(&self, issue_id: Uuid, resolved_until: &str) {
+        sqlx::query(
+            "UPDATE posthog_errortrackingissue SET status = 'resolved', resolved_at = NOW(), resolved_until = $2 WHERE id = $1",
+        )
+        .bind(issue_id)
+        .bind(resolved_until)
+        .execute(&self.db)
+        .await
+        .expect("Should resolve issue");
+    }
+
+    async fn issue_status_and_latest_release(&self, issue_id: Uuid) -> (String, Option<Uuid>) {
+        sqlx::query_as(
+            "SELECT status, latest_release_id FROM posthog_errortrackingissue WHERE id = $1",
+        )
+        .bind(issue_id)
+        .fetch_one(&self.db)
+        .await
+        .expect("Issue should exist")
+    }
+
+    async fn insert_release(&self, version: &str, created_at: DateTime<Utc>) -> Uuid {
+        let id = Uuid::now_v7();
+        sqlx::query(
+            "INSERT INTO posthog_errortrackingrelease (id, team_id, hash_id, created_at, version, project) VALUES ($1, 1, $2, $3, $4, 'my-app')",
+        )
+        .bind(id)
+        .bind(format!("hash-{version}"))
+        .bind(created_at)
+        .bind(version)
+        .execute(&self.db)
+        .await
+        .expect("Release should be inserted");
+        id
+    }
+
     async fn get_issue_id(&self) -> Uuid {
         let row: (Uuid,) =
             sqlx::query_as("SELECT id FROM posthog_errortrackingissue WHERE team_id = 1")
@@ -786,6 +822,98 @@ async fn suppressed_issue_returns_suppressed_response(db: PgPool) {
     assert!(
         body.first_event().is_none(),
         "Suppressed event should not be present"
+    );
+}
+
+fn make_release_event(fingerprint: &str, release_id: Option<Uuid>) -> AnyEvent {
+    let mut event = make_event_with_options(
+        vec![make_exception("TypeError", "cannot read property")],
+        Some(fingerprint),
+        Some(false),
+    );
+    if let Some(release_id) = release_id {
+        event.properties["$release_id"] = json!(release_id.to_string());
+    }
+    event
+}
+
+#[sqlx::test(migrations = "./tests/test_migrations")]
+async fn a_resolved_issue_follows_its_resolve_mode(db: PgPool) {
+    let harness = TestHarness::new(db);
+    let base: DateTime<Utc> = "2026-03-01T12:00:00Z".parse().unwrap();
+    // The test schema stores a release's `created_at` without a time zone, so a database that does
+    // not run in UTC shifts it by hours. Days apart keeps the releases in order.
+    let older = harness.insert_release("1.0.0", base).await;
+    let newer = harness
+        .insert_release("2.0.0", base + chrono::Duration::days(2))
+        .await;
+    let (_, created): (_, SuccessResponse) = harness
+        .post_event(&make_release_event("latest-release", Some(older)))
+        .await;
+    let issue_id = created.take_properties().issue_id();
+    assert_eq!(
+        harness.issue_status_and_latest_release(issue_id).await,
+        ("active".to_string(), Some(older))
+    );
+
+    let cases = [
+        ("new_release", Some(older), "resolved", Some(older)),
+        ("next_occurrence", Some(older), "active", Some(older)),
+        ("new_release", None, "active", Some(older)),
+        ("new_release", Some(newer), "active", Some(newer)),
+    ];
+    for (resolved_until, release, expected_status, expected_latest) in cases {
+        harness.resolve(issue_id, resolved_until).await;
+
+        let (status, body): (_, SuccessResponse) = harness
+            .post_event(&make_release_event("latest-release", release))
+            .await;
+
+        assert!(status.is_success());
+        assert_eq!(body.take_properties().issue_id(), issue_id);
+        assert_eq!(
+            harness.issue_status_and_latest_release(issue_id).await,
+            (expected_status.to_string(), expected_latest),
+            "{resolved_until} {release:?}"
+        );
+    }
+}
+
+#[sqlx::test(migrations = "./tests/test_migrations")]
+async fn each_release_in_a_batch_is_applied_to_the_issue(db: PgPool) {
+    let harness = TestHarness::new(db);
+    let base: DateTime<Utc> = "2026-03-01T12:00:00Z".parse().unwrap();
+    let older = harness.insert_release("1.0.0", base).await;
+    let newer = harness
+        .insert_release("2.0.0", base + chrono::Duration::days(2))
+        .await;
+    let newest = harness
+        .insert_release("3.0.0", base + chrono::Duration::days(4))
+        .await;
+    let (_, created): (_, SuccessResponse) = harness
+        .post_event(&make_release_event("same-batch", Some(older)))
+        .await;
+    let issue_id = created.take_properties().issue_id();
+    harness.resolve(issue_id, "new_release").await;
+
+    let mut events = vec![
+        make_release_event("same-batch", Some(older)),
+        make_release_event("same-batch", Some(newer)),
+        make_release_event("same-batch", Some(newest)),
+    ];
+    events.extend((0..200).map(|_| make_release_event("same-batch", Some(older))));
+    let (status, body): (_, SuccessResponse) = harness.post_events(events).await;
+
+    assert!(status.is_success());
+    assert_eq!(body.0.len(), 203);
+    for event in &body.0 {
+        let properties: ProcessedExceptionProperties =
+            serde_json::from_value(event.as_ref().unwrap().properties.clone()).unwrap();
+        assert_eq!(properties.issue_id(), issue_id);
+    }
+    assert_eq!(
+        harness.issue_status_and_latest_release(issue_id).await,
+        ("active".to_string(), Some(newest))
     );
 }
 
