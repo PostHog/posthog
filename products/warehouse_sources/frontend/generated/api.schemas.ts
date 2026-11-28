@@ -2554,6 +2554,7 @@ export type CDCEngineApi = (typeof CDCEngineApi)[keyof typeof CDCEngineApi]
 
 export const CDCEngineApi = {
     Postgres: 'postgres',
+    Mysql: 'mysql',
 } as const
 
 export interface SourceDocumentedTableApi {

@@ -184,7 +184,7 @@ class FakeCDCAdapter:
     def get_lag(self, conn: Any, source: ExternalDataSource) -> CDCLag | None:
         raise NotImplementedError(_NOT_EXERCISED)
 
-    def is_slot_invalidation_error(self, exc: BaseException) -> bool:
+    def is_stream_lost_error(self, exc: BaseException) -> bool:
         return isinstance(exc, FakeStreamLostError)
 
     def is_connection_error(self, exc: BaseException) -> bool:

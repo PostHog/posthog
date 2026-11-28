@@ -158,7 +158,7 @@ def _extract_patches(source, schemas, events, store=None, lag_bytes=0):
 
     adapter = MagicMock()
     adapter.create_reader.return_value = reader
-    adapter.is_slot_invalidation_error.return_value = False
+    adapter.is_stream_lost_error.return_value = False
     adapter.position_to_seq.side_effect = lambda position: PgLSN.deserialize(position).value
     adapter.get_lag.return_value = CDCLag(behind_bytes=lag_bytes, retention_cap_mb=None)
 

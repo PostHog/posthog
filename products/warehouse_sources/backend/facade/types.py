@@ -1542,6 +1542,7 @@ class CDCEngine(StrEnum):
     """Change data capture engine of a source type, which picks its CDC setup form and status panel."""
 
     POSTGRES = "postgres"
+    MYSQL = "mysql"
 
 
 class ManagedWarehouseSQLMode(StrEnum):
