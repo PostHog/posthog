@@ -1,4 +1,4 @@
-from collections.abc import Callable, Iterator
+from collections.abc import Iterator
 from contextlib import contextmanager
 from time import perf_counter
 from typing import TYPE_CHECKING
@@ -23,7 +23,6 @@ if TYPE_CHECKING:
     from products.access_control.backend.facade.user_access_control import UserAccessControl
 
 
-ACCOUNT_PERSONS_CATALOG_FLAG = "account-persons-builtin-catalog"
 ACCOUNT_PERSONS_FEWER_HOPS_FLAG = "account-persons-fewer-hops"
 PERSON_COLUMNS = frozenset({"id", "created_at", "last_seen_at", "is_identified", "team_id"})
 MEMBERSHIP_COLUMNS = frozenset({"person_id", "distinct_ids", "account_first_seen", "account_last_seen"})
@@ -112,7 +111,6 @@ class AccountPersonsCatalog:
     def __init__(self, team: Team, user: User) -> None:
         self.team = team
         self.user = user
-        self.variant: str | None = None
         self.query_variant: str | None = None
         self.database: Database | None = None
         self.build_duration_ms = 0.0
@@ -136,17 +134,8 @@ class AccountPersonsCatalog:
     @contextmanager
     def run(self, *, track: bool = True) -> Iterator[None]:
         started_at = perf_counter()
-        self.variant = self.get_variant(ACCOUNT_PERSONS_CATALOG_FLAG)
         self.query_variant = self.get_variant(ACCOUNT_PERSONS_FEWER_HOPS_FLAG)
         properties: dict[str, str] = {}
-        if self.variant is not None:
-            properties.update(
-                {
-                    "catalog_experiment": ACCOUNT_PERSONS_CATALOG_FLAG,
-                    "catalog_variant": self.variant,
-                    f"$feature/{ACCOUNT_PERSONS_CATALOG_FLAG}": self.variant,
-                }
-            )
         if self.query_variant is not None:
             properties.update(
                 {
@@ -155,7 +144,7 @@ class AccountPersonsCatalog:
                     f"$feature/{ACCOUNT_PERSONS_FEWER_HOPS_FLAG}": self.query_variant,
                 }
             )
-        if not track or not properties:
+        if not track:
             yield
             return
         emit_slo_started(
@@ -190,7 +179,6 @@ class AccountPersonsCatalog:
 
     def get_database(
         self,
-        build_full_database: Callable[[], Database],
         *,
         modifiers: "HogQLQueryModifiers",
         timings: "HogQLTimings",
@@ -198,10 +186,8 @@ class AccountPersonsCatalog:
     ) -> Database:
         started_at = perf_counter()
         try:
-            if self.variant != "test":
-                return build_full_database()
             if self.database is None:
-                # This experiment is a one-off exception to the builder's restriction on user-written HogQL.
+                # This catalog is a one-off exception to the builder's restriction on user-written HogQL.
                 # It depends on the supports_query allowlist and the existing access checks.
                 # Do not copy this pattern to other query paths.
                 self.database = Database.create_for_posthog_tables(self.team, modifiers=modifiers, timings=timings)

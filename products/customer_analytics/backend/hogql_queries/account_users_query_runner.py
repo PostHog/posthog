@@ -115,7 +115,6 @@ class AccountUsersQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
         if self._catalog is None:
             return build_full_database()
         return self._catalog.get_database(
-            build_full_database,
             modifiers=self.modifiers,
             timings=self.timings,
             user_access_control=self.user_access_control,
@@ -152,8 +151,6 @@ class AccountUsersQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
         except UserAccessControlError:
             return "denied"
         access_key = reader.get_access_key()
-        if self._catalog is not None and self._catalog.variant is not None:
-            access_key += f":catalog-{self._catalog.variant}"
         if self._catalog is not None and self._catalog.query_variant is not None:
             access_key += f":fewer-hops-{self._catalog.query_variant}"
         return access_key
