@@ -250,6 +250,34 @@ Fired when an element is selected in inspect mode.
 
 **File:** `shared/elements/elementsLogic.ts`
 
+### `toolbar element journeys viewed`
+
+Fired once for each answer the Journeys section of the element card shows for a selected element.
+A loading section, a project without user journeys, and the `user-journeys` flag being off send nothing.
+
+| Property             | Type                  | Description                                                                                           |
+| -------------------- | --------------------- | ----------------------------------------------------------------------------------------------------- |
+| `result`             | `string`              | `paths`, `no-clicks` (nobody clicked the element), `no-shared-path` or `error`                        |
+| `path_count`         | `number \| null`      | Paths shown. `null` on `error`                                                                        |
+| `anchor_click_count` | `number \| null`      | Clicks on the element in the date range. `null` on `error`                                            |
+| `source`             | `string \| undefined` | `'extension'` when the browser extension panel showed the section. The floating toolbar leaves it out |
+
+**Files:** `shared/element-paths/elementPathsLogic.ts`, `extension/logics/panel/extensionJourneysLogic.ts`
+
+### `toolbar element journeys save clicked`
+
+Fired when the user clicks **Save as journey** on a path, which opens the journey form in PostHog.
+
+| Property                   | Type                  | Description                                                                                |
+| -------------------------- | --------------------- | ------------------------------------------------------------------------------------------ |
+| `path_index`               | `number`              | Zero-based rank of the path in the section                                                 |
+| `step_count`               | `number`              | Steps in the path                                                                          |
+| `has_approximate_steps`    | `boolean`             | Whether a step of the path is a best-effort match                                          |
+| `share_of_anchor_sessions` | `number`              | Share of the analyzed sessions that took the path, from 0 to 1                             |
+| `source`                   | `string \| undefined` | `'extension'` when the browser extension panel sent it. The floating toolbar leaves it out |
+
+**Files:** `shared/element-paths/elementPathsLogic.ts`, `extension/logics/panel/extensionJourneysLogic.ts`
+
 ## Actions
 
 ### `toolbar_manual_selector_modal_opened`

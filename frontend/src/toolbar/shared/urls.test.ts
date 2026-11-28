@@ -20,6 +20,31 @@ describe('toolbar urls duplicate', () => {
         productTour: [['tour-id'], ['tour-id', 'step=2'], ['tour-id', '?step=2']],
         sessionProfile: [['session-uuid']],
         settings: [[], ['project'], ['environment-customization', 'date-and-time'], ['user']],
+        userJourneyNew: [
+            [],
+            [{ name: 'Path through "Start [trial]" & more', source: 'toolbar' }],
+            [
+                {
+                    name: 'Checkout path',
+                    steps: [
+                        {
+                            type: 'pageview',
+                            url: '^https://shop\\.example\\.com/cart/*(?:[?#].*)?$',
+                            url_matching: 'regex',
+                        },
+                        {
+                            type: 'element_click',
+                            selector: 'button[data-attr="pay#now"] > span:nth-child(2)',
+                            text: '50% off & free',
+                            href: null,
+                            url: null,
+                            url_matching: 'exact',
+                        },
+                    ],
+                    source: 'toolbar',
+                },
+            ],
+        ],
         webAnalyticsWebVitals: [[]],
     }
 

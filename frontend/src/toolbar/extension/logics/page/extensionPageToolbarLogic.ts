@@ -27,6 +27,7 @@ import { EMPTY_PAGE_EVENTS_STATE, extensionPageEventsLogic } from './extensionPa
 import { extensionPageExperimentsLogic } from './extensionPageExperimentsLogic'
 import { extensionPageFlagsLogic } from './extensionPageFlagsLogic'
 import { extensionPageHeatmapLogic } from './extensionPageHeatmapLogic'
+import { extensionPageJourneysLogic, getPageJourneysState } from './extensionPageJourneysLogic'
 import { extensionPageMoreLogic } from './extensionPageMoreLogic'
 import { extensionPageWebVitalsLogic, getPageWebVitalsState } from './extensionPageWebVitalsLogic'
 
@@ -163,6 +164,7 @@ export const extensionPageToolbarLogic = kea<extensionPageToolbarLogicType>([
             extensionPageFlagsLogic,
             extensionPageWebVitalsLogic,
             extensionPageExperimentsLogic,
+            extensionPageJourneysLogic,
         ],
     })),
     actions({
@@ -291,6 +293,7 @@ export const extensionPageToolbarLogic = kea<extensionPageToolbarLogicType>([
                 'web-vitals': () => extensionPageWebVitalsLogic.actions.reloadWebVitals(),
                 more: (command) => extensionPageMoreLogic.findMounted()?.actions.handleCommand(command),
                 experiments: (command) => extensionPageExperimentsLogic.actions.handleCommand(command),
+                journeys: (command) => extensionPageJourneysLogic.actions.handleCommand(command),
             }
             ;(handlers[message.tool] as (command: PageToolbarCommand['command']) => void)(message.command)
         },
@@ -329,5 +332,6 @@ export function getPageToolbarState(): PageToolbarState {
         webVitals: getPageWebVitalsState(extensionPageWebVitalsLogic.values.posthog),
         experiments: extensionPageExperimentsLogic.values.pageState,
         more: extensionPageMoreLogic.values.pageState,
+        journeys: getPageJourneysState(),
     }
 }

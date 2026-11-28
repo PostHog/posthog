@@ -196,6 +196,7 @@ const base = {
             result: null,
         },
     },
+    journeys: { enabled: false, view: { status: 'idle' } },
 }
 
 export const PANEL_STATES = {

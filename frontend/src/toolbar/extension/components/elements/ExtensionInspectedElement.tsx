@@ -3,21 +3,25 @@ import { useActions, useValues } from 'kea'
 import { IconPlus, IconX } from '@posthog/icons'
 
 import { ElementClickStats } from 'lib/components/heatmaps/ElementClickStats'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Link } from 'lib/lemon-ui/Link'
 
 import { SelectorQualityWarning } from '~/toolbar/shared/elements/SelectorQualityWarning'
+import { useToolbarFeatureFlag } from '~/toolbar/shared/toolbarPosthogJS'
 import { urls } from '~/toolbar/shared/urls'
 
 import { extensionActionsLogic } from '../../logics/panel/extensionActionsLogic'
 import { extensionPageToolbarConnectionLogic } from '../../logics/panel/extensionPageToolbarConnectionLogic'
 import { extensionPanelLogic } from '../../logics/panel/extensionPanelLogic'
+import { ExtensionElementJourneys } from './ExtensionElementJourneys'
 
 export function ExtensionInspectedElement(): JSX.Element | null {
     const { inspect, heatmap } = useValues(extensionPageToolbarConnectionLogic)
     const { sendCommand } = useActions(extensionPageToolbarConnectionLogic)
     const { newAction } = useActions(extensionActionsLogic)
     const { projectUrl } = useValues(extensionPanelLogic)
+    const journeysEnabled = useToolbarFeatureFlag(FEATURE_FLAGS.USER_JOURNEYS)
     const element = inspect?.element
     if (!element) {
         return null
@@ -60,6 +64,7 @@ export function ExtensionInspectedElement(): JSX.Element | null {
                     deadclickCount={stats.deadclickCount}
                 />
             )}
+            {journeysEnabled && inspect.isSelected && <ExtensionElementJourneys />}
             <div className="flex flex-col gap-1">
                 <div className="font-semibold">Actions ({actions.length})</div>
                 {actions.length === 0 ? (

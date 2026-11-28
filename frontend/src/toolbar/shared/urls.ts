@@ -2,6 +2,8 @@ import { combineUrl } from 'kea-router'
 
 import { toParams } from 'lib/utils/url'
 
+import type { JourneySource, JourneyStep } from '~/toolbar/shared/element-paths/elementPathsApiTypes'
+
 // The toolbar's own copy of the `urls` helpers it links to in the PostHog app. The app's
 // `scenes/urls.ts` spreads every product manifest into its `urls` object, which would pull the
 // entire product scene graph into the customer-facing toolbar bundle — so toolbar code imports
@@ -33,6 +35,18 @@ export const urls = {
     sessionProfile: (id: string): string => `/sessions/${id}`,
     settings: (section: string = 'project', setting?: string): string =>
         combineUrl(`/settings/${section}`, undefined, setting).url,
+    userJourneyNew: (prefill?: {
+        name?: string
+        description?: string
+        steps?: JourneyStep[]
+        source?: JourneySource
+    }): string =>
+        combineUrl('/user-journeys/new', {
+            name: prefill?.name,
+            description: prefill?.description,
+            steps: prefill?.steps,
+            source: prefill?.source,
+        }).url,
     webAnalyticsWebVitals: (): string => `/web/web-vitals`,
 }
 

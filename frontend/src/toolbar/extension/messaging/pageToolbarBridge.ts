@@ -10,6 +10,7 @@ import type { ToolbarProject } from 'lib/toolbar/toolbarProject'
 import type { SelectorMatchCounts } from '~/toolbar/shared/actions/SelectorCountContext'
 import type { EventCategory } from '~/toolbar/shared/debug/eventCategories'
 import type { PosthogDebugInfo } from '~/toolbar/shared/debug/posthogDebugInfo'
+import type { ElementPathsView } from '~/toolbar/shared/element-paths/elementPaths'
 import type { ElementSelectorType } from '~/toolbar/shared/experiments/elementSelectorTypes'
 import type { FlagComparison, FlagComparisonFailureReason } from '~/toolbar/shared/flags/flagComparisonLogic'
 import type { FlagInfo } from '~/toolbar/shared/flags/flagInfo'
@@ -22,6 +23,7 @@ import type { PageEventsCommand } from '../logics/page/extensionPageEventsLogic'
 import type { PageExperimentsCommand } from '../logics/page/extensionPageExperimentsLogic'
 import type { PageFlagsCommand } from '../logics/page/extensionPageFlagsLogic'
 import type { PageHeatmapCommand } from '../logics/page/extensionPageHeatmapLogic'
+import type { PageJourneysCommand } from '../logics/page/extensionPageJourneysLogic'
 import type { PageMoreCommand } from '../logics/page/extensionPageMoreLogic'
 import type {
     PageInspectCommand,
@@ -102,6 +104,7 @@ export interface PageToolCommands {
     'web-vitals': PageWebVitalsCommand
     more: PageMoreCommand
     experiments: PageExperimentsCommand
+    journeys: PageJourneysCommand
 }
 
 export type PageToolName = keyof PageToolCommands
@@ -286,6 +289,12 @@ export interface PageToolbarMoreState {
     }
 }
 
+export interface PageToolbarJourneysState {
+    /** True while the page loads paths for the selected element. The panel turns it on while it shows the section. */
+    enabled: boolean
+    view: ElementPathsView
+}
+
 export interface PageToolbarState {
     mode: PageToolbarMode
     inspect: PageToolbarInspectState
@@ -298,6 +307,7 @@ export interface PageToolbarState {
     webVitals: PageToolbarWebVitalsState
     experiments: PageToolbarExperimentsState
     more: PageToolbarMoreState
+    journeys: PageToolbarJourneysState
 }
 
 export type PageToolbarMessage =

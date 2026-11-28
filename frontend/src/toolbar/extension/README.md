@@ -48,12 +48,12 @@ When it can't reach the site, the panel asks the user to reload the page and try
 The Chrome Web Store asks what data the extension sends, in the item's privacy tab.
 Update the answers there when the extension starts to send new data.
 
-| Category                   | What the extension sends                                                                                                                       | Where                     |
-| -------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------- |
-| Authentication information | The PostHog session cookie, and the OAuth code, PKCE verifier and access and refresh tokens of the toolbar sign-in.                            | The user's PostHog host   |
-| Web history                | The active tab's URL, when the panel connects the toolbar to a project and when it loads heatmap and web vitals data for the page.             | The user's PostHog host   |
-| Website content            | Element selectors and text in a saved action, variant HTML in a saved experiment, and page screenshots in a saved heatmap or event screenshot. | The user's PostHog host   |
-| User activity              | Usage events from the panel, such as the tools the user opens, with the user's PostHog distinct ID.                                            | PostHog's usage analytics |
+| Category                   | What the extension sends                                                                                                                                                                    | Where                     |
+| -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------- |
+| Authentication information | The PostHog session cookie, and the OAuth code, PKCE verifier and access and refresh tokens of the toolbar sign-in.                                                                         | The user's PostHog host   |
+| Web history                | The active tab's URL, when the panel connects the toolbar to a project and when it loads heatmap, web vitals and journeys data for the page.                                                | The user's PostHog host   |
+| Website content            | Element selectors and text in a saved action or of a selected element whose journeys load, variant HTML in a saved experiment, and page screenshots in a saved heatmap or event screenshot. | The user's PostHog host   |
+| User activity              | Usage events from the panel, such as the tools the user opens, with the user's PostHog distinct ID.                                                                                         | PostHog's usage analytics |
 
 The content script never sends usage events or logs, because it mounts the toolbar without `instrument`.
 
@@ -145,7 +145,7 @@ Upload the new images to the store item by hand. The store doesn't take them fro
 
 The page tools run the floating toolbar's own logics in the content script, and draw its overlays in the content script's shadow root:
 
-- `elementsLogic` for Inspect.
+- `elementsLogic` for Inspect, and `elementPathsLogic` for the journeys of the selected element.
 - `heatmapToolbarMenuLogic`, `heatmapDataLogic` and `heatmapCaptureLogic` for the heatmap.
 - `actionsLogic` and `actionsTabLogic` for actions.
 - `flagsToolbarLogic` and `flagComparisonLogic` for feature flags.
@@ -204,6 +204,7 @@ Use a site in the project's authorized URLs.
 
 1. Open the panel on the site. The panel connects the toolbar to the project: a tab opens and closes by itself.
 2. Click the Inspect icon and hover an element. The panel shows its selector and actions. Click the element to keep it selected.
+   With the `user-journeys` flag on, the selected element shows its most common paths. **Save as journey** opens the journey form in PostHog with the steps filled in.
 3. Click **Heatmap**. Check the clickmap counts, the heatmap canvas, the scroll depth type, **Filter to area**, **Load all**, and **Save to PostHog**.
 4. Reload the page. The heatmap comes back.
 5. In Inspect, select an element and click **Create action from this element**. Name the action, check the match count, and save it.

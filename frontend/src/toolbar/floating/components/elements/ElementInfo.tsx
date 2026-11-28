@@ -4,11 +4,14 @@ import { IconPlus } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { ElementClickStats } from 'lib/components/heatmaps/ElementClickStats'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 import { ActionsListView } from '~/toolbar/floating/components/actions/ActionsListView'
+import { ElementInfoJourneys } from '~/toolbar/floating/components/elements/ElementInfoJourneys'
 import { ActionStep } from '~/toolbar/shared/actions/ActionStep'
 import { elementsLogic } from '~/toolbar/shared/elements/elementsLogic'
 import { heatmapToolbarMenuLogic } from '~/toolbar/shared/elements/heatmapToolbarMenuLogic'
+import { useToolbarFeatureFlag } from '~/toolbar/shared/toolbarPosthogJS'
 
 import { actionsTabLogic } from '../../../shared/actions/actionsTabLogic'
 import { SelectorQualityWarning } from '../../../shared/elements/SelectorQualityWarning'
@@ -16,9 +19,10 @@ import { SelectorQualityWarning } from '../../../shared/elements/SelectorQuality
 export function ElementInfo(): JSX.Element | null {
     const { clickCount: totalClickCount, dateRange } = useValues(heatmapToolbarMenuLogic)
 
-    const { activeMeta } = useValues(elementsLogic)
+    const { activeMeta, activeMetaIsSelected } = useValues(elementsLogic)
     const { createAction } = useActions(elementsLogic)
     const { automaticActionCreationEnabled } = useValues(actionsTabLogic)
+    const journeysEnabled = useToolbarFeatureFlag(FEATURE_FLAGS.USER_JOURNEYS)
 
     if (!activeMeta) {
         return null
@@ -49,6 +53,8 @@ export function ElementInfo(): JSX.Element | null {
                     />
                 </div>
             ) : null}
+
+            {journeysEnabled && activeMetaIsSelected && <ElementInfoJourneys />}
 
             <div className="p-3 border-l-[5px] border-l-success bg-surface-secondary">
                 {!automaticActionCreationEnabled && (

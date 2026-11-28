@@ -4,6 +4,7 @@ import type { PaginatedResponse } from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import type { ToolbarRouteScope } from 'lib/toolbar/toolbarProject'
 
+import type { ElementPathsParams, ElementPathsResult } from '~/toolbar/shared/element-paths/elementPathsApiTypes'
 import { toolbarConfigLogic } from '~/toolbar/shared/toolbarConfigLogic'
 import { toolbarApiPath, toolbarFetch } from '~/toolbar/shared/toolbarFetch'
 import { toolbarLogger } from '~/toolbar/shared/toolbarLogger'
@@ -340,6 +341,11 @@ export const toolbarApi = {
     webVitals: {
         get: <T = unknown>(params: { pathname: string }, options: ToolbarApiOptions): Promise<ToolbarApiResult<T>> =>
             apiGet<T>(teamRoute(`web_vitals${encodeParams(params, '?')}`), options),
+    },
+
+    elementPaths: {
+        get: (params: ElementPathsParams, options: ToolbarApiOptions): Promise<ToolbarApiResult<ElementPathsResult>> =>
+            apiGet(teamRoute(`user_journeys/element_paths/${encodeParams(params, '?')}`), options),
     },
 
     eventDefinitions: {

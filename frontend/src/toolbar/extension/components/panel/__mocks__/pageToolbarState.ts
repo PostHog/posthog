@@ -203,6 +203,7 @@ export function pageToolbarState(mode: PageToolbarMode): PageToolbarState {
                 result: null,
             },
         },
+        journeys: { enabled: false, view: { status: 'idle' } },
     }
 }
 
