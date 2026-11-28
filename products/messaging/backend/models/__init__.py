@@ -1,6 +1,6 @@
 from .email_hard_bounce import EmailHardBounce
 from .first_code_send import FirstCodeSend
-from .message_category import MessageCategory, MessageCategoryType
+from .message_category import MessageCategory, MessageCategoryImportKey, MessageCategoryType
 from .message_preferences import ALL_MESSAGE_PREFERENCE_CATEGORY_ID, MessageRecipientPreference, PreferenceStatus
 from .message_suppression import MessageSuppression, SuppressionSource
 from .message_template import MessageTemplate
@@ -14,6 +14,7 @@ __all__ = [
     "EmailHardBounce",
     "FirstCodeSend",
     "MessageCategory",
+    "MessageCategoryImportKey",
     "MessageCategoryType",
     "MessageRecipientPreference",
     "MessageSuppression",

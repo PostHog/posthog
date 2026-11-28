@@ -252,6 +252,7 @@ class MailchimpImportProvider(ImportProvider):
             ),
             count_labels=(
                 ("created", "New categories"),
+                ("matched", "Matched an existing category"),
                 ("already_present", "Already in PostHog, left as they are"),
                 ("empty_audiences", "Empty audiences, not imported"),
                 ("opted_out", "People with a new opt-out"),
@@ -273,6 +274,7 @@ class MailchimpImportProvider(ImportProvider):
             ),
             count_labels=(
                 ("created", "New categories"),
+                ("matched", "Matched an existing category"),
                 ("already_present", "Already in PostHog, left as they are"),
                 ("hidden_groups", "Hidden group categories, not imported"),
                 ("opted_out", "People with a new group opt-out"),
@@ -718,7 +720,7 @@ def _save_left_members(context: ImportContext, target: _Target, items: list[dict
     if first and target.details.get("first"):
         stats = _as_dict(audience.get("stats"))
         members = int(stats.get("member_count") or 0)
-        counts |= {"created": result.created, "already_present": result.already_present}
+        counts |= {"created": result.created, "matched": result.matched, "already_present": result.already_present}
         items_out = (
             ImportItem(
                 label=_audience_name(audience),
@@ -842,7 +844,7 @@ def _save_group_members(context: ImportContext, target: _Target, items: list[dic
     }
     items_out: tuple[ImportItem, ...] = ()
     if first and target.details.get("first"):
-        counts |= {"created": result.created, "already_present": result.already_present}
+        counts |= {"created": result.created, "matched": result.matched, "already_present": result.already_present}
         audience = _audience_name(target.details["audience"])
         names = ", ".join(group.name for group in groups[:_MAX_NOTED_ITEMS])
         more = f" and {len(groups) - _MAX_NOTED_ITEMS} more" if len(groups) > _MAX_NOTED_ITEMS else ""

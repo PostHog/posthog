@@ -111,6 +111,7 @@ class TestMailchimpImport(TestMailchimpImportBase):
         ]
         assert run.progress["audiences"]["counts"] == {
             "created": 2,
+            "matched": 0,
             "already_present": 0,
             "empty_audiences": 1,
             "opted_out": 6,

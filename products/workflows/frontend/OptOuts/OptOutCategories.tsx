@@ -3,7 +3,7 @@ import { useEffect, useMemo, useState } from 'react'
 
 import * as construction2Png from '@posthog/brand/hoggies/png/construction-2'
 import { IconDownload, IconPlus } from '@posthog/icons'
-import { LemonButton, LemonCollapse, LemonDialog, LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
+import { LemonButton, LemonCollapse, LemonDialog, LemonInput, LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
 
 import { pngHoggie } from 'lib/brand/hoggies'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
@@ -16,6 +16,8 @@ import { OptOutList } from './OptOutList'
 import { providerImportLogic } from './providerImportLogic'
 
 const HedgehogConstruction2 = pngHoggie(construction2Png)
+// Imports can add dozens of categories, and a short list doesn't need a search box.
+const SEARCH_FROM_CATEGORY_COUNT = 10
 
 export function OptOutCategories(): JSX.Element {
     const { categories, categoriesLoading, isNewCategoryModalOpen } = useValues(optOutCategoriesLogic)
@@ -24,6 +26,7 @@ export function OptOutCategories(): JSX.Element {
     const { openImportModal } = useActions(providerImportLogic)
     const { importButtonLabel } = useValues(providerImportLogic)
     const [editingCategory, setEditingCategory] = useState<MessageCategory | null>(null)
+    const [search, setSearch] = useState('')
 
     useEffect(() => {
         loadCategories()
@@ -37,9 +40,20 @@ export function OptOutCategories(): JSX.Element {
         setEditingCategory(null)
     }
 
+    const canSearch = (categories?.length ?? 0) >= SEARCH_FROM_CATEGORY_COUNT
+    const searchTerm = canSearch ? search.trim() : ''
+
+    const shownCategories = useMemo(() => {
+        const term = searchTerm.toLowerCase()
+        return (categories || []).filter(
+            (category: MessageCategory) =>
+                !term || category.name.toLowerCase().includes(term) || category.key.toLowerCase().includes(term)
+        )
+    }, [categories, searchTerm])
+
     const collapseItems = useMemo(
         () =>
-            (categories || []).map((category: MessageCategory) => ({
+            shownCategories.map((category: MessageCategory) => ({
                 key: category.id,
                 header: (
                     <div className="flex justify-between w-full gap-2">
@@ -119,7 +133,7 @@ export function OptOutCategories(): JSX.Element {
                     </div>
                 ),
             })),
-        [categories, deleteCategory]
+        [shownCategories, deleteCategory]
     )
 
     return (
@@ -128,8 +142,21 @@ export function OptOutCategories(): JSX.Element {
                 <LemonSkeleton className="h-10" />
             ) : (
                 <>
+                    {canSearch && (
+                        <LemonInput
+                            type="search"
+                            placeholder="Search categories"
+                            aria-label="Search categories"
+                            value={search}
+                            onChange={setSearch}
+                            className="mb-2 max-w-100"
+                            data-attr="opt-out-categories-search"
+                        />
+                    )}
                     {collapseItems.length > 0 ? (
                         <LemonCollapse panels={collapseItems} />
+                    ) : searchTerm ? (
+                        <div className="text-secondary py-4">No categories match "{searchTerm}".</div>
                     ) : (
                         <ProductIntroduction
                             thingName="category"

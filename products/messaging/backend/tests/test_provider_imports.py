@@ -1,4 +1,6 @@
 from datetime import timedelta
+from typing import Any
+from uuid import uuid4
 
 import time_machine
 from posthog.test.base import BaseTest
@@ -11,6 +13,7 @@ from django.utils import timezone
 
 from parameterized import parameterized
 
+from products.messaging.backend.models.message_category import MessageCategory, MessageCategoryType
 from products.messaging.backend.models.message_preferences import (
     ALL_MESSAGE_PREFERENCE_CATEGORY_ID,
     MessageRecipientPreference,
@@ -26,6 +29,7 @@ from products.messaging.backend.provider_imports.base import (
 from products.messaging.backend.provider_imports.resend import ResendImportProvider
 from products.messaging.backend.services import imported_data
 from products.messaging.backend.services.customerio_client import CustomerIOAPIError
+from products.messaging.backend.services.imported_data import ImportedCategory
 
 SERVICE = "products.messaging.backend.services.customerio_import_service"
 
@@ -373,6 +377,63 @@ class TestOptOutCarrying(BaseTest):
         assert max(query["sql"].lower().count("@example.com") for query in queries.captured_queries) <= 4
         stored = MessageRecipientPreference.objects.filter(team_id=self.team.id, identifier__in=addresses)
         assert stored.count() == 5
+
+
+class TestCategoryImport(BaseTest):
+    def _category(self, name: str, **fields: object) -> MessageCategory:
+        return MessageCategory.objects.create(team_id=self.team.id, key=f"own_{uuid4().hex}", name=name, **fields)
+
+    @parameterized.expand(
+        [
+            ("live_with_other_case_and_spacing", {}, "reused"),
+            ("transactional", {"category_type": MessageCategoryType.TRANSACTIONAL}, "created"),
+            ("deleted", {"deleted": True}, "created"),
+        ]
+    )
+    def test_an_imported_category_follows_the_existing_category_with_its_name(
+        self, _name: str, fields: dict, outcome: str
+    ) -> None:
+        existing = self._category("Weekly  digest ", **fields)
+        imported = [
+            ImportedCategory(key="tool_a_digest", name="weekly digest"),
+            ImportedCategory(key="tool_b_digest", name="Weekly Digest"),
+        ]
+
+        first = imported_data.import_categories(self.team.id, imported, created_by_id=None)
+        with CaptureQueriesContext(connection) as queries:
+            second = imported_data.import_categories(self.team.id, imported, created_by_id=None)
+
+        # A run reads one page at a time, so a page that creates nothing must not wait on the team's import lock.
+        assert not any("pg_advisory_xact_lock" in query["sql"] for query in queries.captured_queries)
+        live = MessageCategory.objects.filter(team_id=self.team.id, deleted=False, category_type="marketing")
+        assert first.ids_by_key == second.ids_by_key
+        assert live.count() == 1
+        expected_id = str(existing.id) if outcome == "reused" else str(live.get().id)
+        assert first.ids_by_key == {"tool_a_digest": expected_id, "tool_b_digest": expected_id}
+        assert (first.created, first.matched) == ((0, 2) if outcome == "reused" else (1, 1))
+        assert (second.created, second.matched) == (0, 2 if outcome == "reused" else 1)
+
+    def test_a_category_another_writer_inserts_first_leaves_no_id_pointing_at_nothing(self) -> None:
+        imported = [
+            ImportedCategory(key="tool_a_launch", name="Launch news"),
+            ImportedCategory(key="tool_b_launch", name="launch news"),
+        ]
+        manager = type(MessageCategory.objects)
+        original = manager.bulk_create
+        theirs: list[MessageCategory] = []
+
+        def insert_first(self_: Any, objs: list, **kwargs: Any) -> list:
+            if self_.model is MessageCategory:
+                theirs.append(
+                    MessageCategory.objects.create(team_id=self.team.id, key="tool_a_launch", name="Launches")
+                )
+            return original(self_, objs, **kwargs)
+
+        with patch.object(manager, "bulk_create", autospec=True, side_effect=insert_first):
+            result = imported_data.import_categories(self.team.id, imported, created_by_id=None)
+
+        assert result.ids_by_key == {"tool_a_launch": str(theirs[0].id), "tool_b_launch": str(theirs[0].id)}
+        assert result.created == 0
 
 
 REGION = ImportSettingSpec(
