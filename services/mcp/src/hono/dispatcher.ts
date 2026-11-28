@@ -39,11 +39,12 @@ import {
     STATELESS_PROTOCOL_VERSION,
     validateModernRequest,
 } from '@/lib/stateless-protocol'
+import type { SkillCatalog } from '@/skills/skill-catalog'
 
 import { trackInitEvent } from './analytics'
 import { OmnibusSkillsCache } from './cache/OmnibusSkillsCache'
 import type { RedisLike } from './cache/RedisCache'
-import { getEnv, MCP_EXEC_SKILLS_FEATURE_FLAG } from './constants'
+import { getEnv, MCP_EXEC_SKILLS_FEATURE_FLAG, MCP_SKILLS_EXTENSION_FLAG } from './constants'
 import { GuidanceEngine } from './guidance/engine'
 import { InstructionsBuilder } from './instructions'
 import { InterviewRecruitment, InterviewRequestError } from './interview-recruitment'
@@ -51,6 +52,14 @@ import { initDurationSeconds, initStepDurationSeconds, initTotal } from './metri
 import { RequestStateResolver, type ResolvedState } from './request-state-resolver'
 import { ResourceCatalog } from './resource-catalog'
 import { SkillCatalogService } from './skill-catalog-service'
+import {
+    getSkill,
+    isSkillUri,
+    listSkills,
+    readSkillFile,
+    SKILLS_EXTENSION_ID,
+    UnknownSkillResourceError,
+} from './skills-extension'
 import { ToolCatalog } from './tool-catalog'
 import { ToolExecutor } from './tool-executor'
 
@@ -69,10 +78,19 @@ const Method = {
     ResourcesRead: 'resources/read' as ReadResourceRequest['method'],
     PromptsList: 'prompts/list' as ListPromptsRequest['method'],
     PromptsGet: 'prompts/get' as GetPromptRequest['method'],
+    SkillsList: 'skills/list',
+    SkillsGet: 'skills/get',
     Ping: 'ping' as PingRequest['method'],
 } as const
 
-const TRACKED_METHODS: Set<string> = new Set([Method.Initialize, Method.Discover, Method.ToolsList, Method.ToolsCall])
+const TRACKED_METHODS: Set<string> = new Set([
+    Method.Initialize,
+    Method.Discover,
+    Method.ToolsList,
+    Method.ToolsCall,
+    Method.SkillsList,
+    Method.SkillsGet,
+])
 
 // Results the 2026-07-28 spec types as CacheableResult (required ttlMs +
 // cacheScope). Everything here varies per token (scopes, flags, staff gating)
@@ -102,6 +120,13 @@ const SERVER_CAPABILITIES = {
         'io.modelcontextprotocol/enterprise-managed-authorization': {},
     },
 } as const
+
+// The skills extension requires these fields on every list and get result, whichever dialect asked.
+function skillsResult<T extends object>(
+    result: T
+): T & { resultType: 'complete'; ttlMs: number; cacheScope: 'private' } {
+    return { ...result, resultType: 'complete', ttlMs: CACHEABLE_RESULT_TTL_MS, cacheScope: 'private' }
+}
 
 function isRequest(msg: JSONRPCMessage): msg is JSONRPCRequest {
     return (
@@ -435,7 +460,7 @@ class McpDispatcher {
             }
             return jsonRpcResult(id, stateless ? this.decorateStatelessResult(method, result) : result)
         } catch (error) {
-            if (error instanceof InterviewRequestError) {
+            if (error instanceof InterviewRequestError || error instanceof UnknownSkillResourceError) {
                 return jsonRpcMethodError(id, ErrorCode.InvalidParams, error.message)
             }
             // A step-up client needs the HTTP 403 and its challenge, not a JSON-RPC error.
@@ -522,7 +547,14 @@ class McpDispatcher {
             case Method.ResourcesList:
                 return this.resourceCatalog.getResourcesList(props.resources)
             case Method.ResourcesRead:
+                if (isSkillUri(params?.uri)) {
+                    return readSkillFile(this.skillCatalogService.getCatalog(), params.uri)
+                }
                 return await this.resourceCatalog.readResource(params)
+            case Method.SkillsList:
+                return skillsResult(listSkills(this.skillCatalogFor(state!), params?.cursor))
+            case Method.SkillsGet:
+                return skillsResult(getSkill(this.skillCatalogFor(state!), params?.uri))
             case Method.PromptsList:
                 return this.resourceCatalog.getPromptsList()
             case Method.PromptsGet:
@@ -531,6 +563,28 @@ class McpDispatcher {
                 return {}
             default:
                 return METHOD_NOT_FOUND
+        }
+    }
+
+    // On top of its own flag, the extension keeps the `learn` gate, so both surfaces serve one set of skills to one audience.
+    private skillsExtensionEnabled(state: ResolvedState): boolean {
+        return (
+            state.toolFeatureFlags?.[MCP_SKILLS_EXTENSION_FLAG] === true &&
+            this.instructionsBuilder.execSkillsEnabled(state)
+        )
+    }
+
+    private skillCatalogFor(state: ResolvedState): SkillCatalog | undefined {
+        return this.skillsExtensionEnabled(state) ? this.skillCatalogService.getCatalog() : undefined
+    }
+
+    private capabilitiesFor(state: ResolvedState): InitializeResult['capabilities'] {
+        if (!this.skillsExtensionEnabled(state)) {
+            return SERVER_CAPABILITIES
+        }
+        return {
+            ...SERVER_CAPABILITIES,
+            extensions: { ...SERVER_CAPABILITIES.extensions, [SKILLS_EXTENSION_ID]: {} },
         }
     }
 
@@ -572,7 +626,7 @@ class McpDispatcher {
 
         return {
             protocolVersion,
-            capabilities: SERVER_CAPABILITIES,
+            capabilities: this.capabilitiesFor(state),
             serverInfo: { name: MCP_SERVER_NAME, version: MCP_SERVER_VERSION },
             ...(instructions ? { instructions } : {}),
         }
@@ -590,7 +644,7 @@ class McpDispatcher {
             // Advertising legacy versions here would invite modern clients to
             // select one via `_meta`, which we reject.
             supportedVersions: [...MODERN_PROTOCOL_VERSIONS],
-            capabilities: SERVER_CAPABILITIES,
+            capabilities: this.capabilitiesFor(state),
             serverInfo: { name: MCP_SERVER_NAME, version: MCP_SERVER_VERSION },
             ...(instructions ? { instructions } : {}),
         }

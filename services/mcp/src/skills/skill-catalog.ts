@@ -258,13 +258,21 @@ export class SkillCatalog {
 
 const FRONTMATTER_PATTERN = /^---\n([\s\S]*?)\n---(?:\n|$)/
 
-export function parseFrontmatter(content: string, source: string): { name: string; description: string } {
+export function parseFrontmatterFields(content: string, source: string): Record<string, unknown> {
     const match = content.match(FRONTMATTER_PATTERN)
     if (!match?.[1]) {
         throw new Error(`Missing YAML frontmatter in "${source}"`)
     }
     const parsed: unknown = parseYaml(match[1])
-    if (!isRecord(parsed) || typeof parsed.name !== 'string' || typeof parsed.description !== 'string') {
+    if (!isRecord(parsed)) {
+        throw new Error(`Invalid name or description in "${source}" frontmatter`)
+    }
+    return parsed
+}
+
+export function parseFrontmatter(content: string, source: string): { name: string; description: string } {
+    const parsed = parseFrontmatterFields(content, source)
+    if (typeof parsed.name !== 'string' || typeof parsed.description !== 'string') {
         throw new Error(`Invalid name or description in "${source}" frontmatter`)
     }
     const name = parsed.name.trim()

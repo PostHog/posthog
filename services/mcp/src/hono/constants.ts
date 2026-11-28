@@ -5,6 +5,7 @@ export const MCP_EXEC_SKILLS_FEATURE_FLAG = 'mcp-exec-skills'
 export const MCP_INBOX_FIRST_FLAG = 'mcp-inbox-first'
 export const MCP_CURSOR_EXEC_MODE_FLAG = 'mcp-cursor-exec-mode'
 export const MCP_TIME_SERIES_CHARTS_FLAG = 'mcp-time-series-charts'
+export const MCP_SKILLS_EXTENSION_FLAG = 'mcp-skills-extension'
 
 export {
     USER_AGENT,
