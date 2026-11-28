@@ -209,7 +209,7 @@ export const webhookTriggerAnswerMs: MeasurementDefinition = {
 }
 
 function unjudgedLossOf(evidence: MeasureEvidence): string | undefined {
-    if (evidence.unread === undefined && evidence.horizonSeq === undefined) {
+    if (evidence.horizonSeq === undefined) {
         return 'the run reached no recovery horizon'
     }
     return unjudgedNoLossOf(evidence.journal, evidence.truth, evidence)

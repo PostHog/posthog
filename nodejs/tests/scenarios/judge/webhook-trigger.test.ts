@@ -156,6 +156,11 @@ describe('workflow webhook triggers per ramp step', () => {
         ['the truth could not be read', { unread: 'edge unreachable' }, 'edge unreachable'],
         ['the run reached no recovery horizon', { horizonSeq: undefined }, 'no recovery horizon'],
         [
+            'the run reached no recovery horizon and its last truth read failed',
+            { horizonSeq: undefined, unread: 'the run was stopped' },
+            'no recovery horizon',
+        ],
+        [
             'the truth skips a seq',
             { truth: evidence().truth.filter(({ seq }) => seq !== 5) },
             'the truth skips from seq 4 to 6',
