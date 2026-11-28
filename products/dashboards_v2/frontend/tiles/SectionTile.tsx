@@ -25,7 +25,7 @@ import { GRID, type SectionPanel, type Tile, isSection, spanPx } from '../dashbo
 import { everyTile } from '../dashboard/document/tileTree'
 import type { OnSectionRows } from '../grid/TileGrid'
 import { TileActions } from './core/TileActions'
-import { showsBorder } from './core/tileAppearance'
+import { showsBorder, tileBackgroundStyle } from './core/tileAppearance'
 import { TileContextMenu, hasTileMenu } from './core/TileContextMenu'
 import { AddTileMenu } from './menu/AddTileMenu'
 import { useSectionActions, useSectionPlacementActions } from './menu/tileMenuActions'
@@ -101,7 +101,7 @@ export function SectionTile({
                 </AlertDialogContent>
             </AlertDialog>
             <TileContextMenu actions={actions}>
-                <Section border={showsBorder(panel)}>
+                <Section border={showsBorder(panel)} backgroundColor={panel.appearance?.backgroundColor}>
                     <SectionHeader
                         actions={
                             (showAdd || hasMenu) && (
@@ -145,12 +145,21 @@ function removeWarning(panel: SectionPanel): string {
 }
 
 /** A section is a quill card, so it reads like a tile that holds tiles. */
-export function Section({ border = true, children }: { border?: boolean; children: ReactNode }): JSX.Element {
+export function Section({
+    border = true,
+    backgroundColor,
+    children,
+}: {
+    border?: boolean
+    backgroundColor?: string
+    children: ReactNode
+}): JSX.Element {
     return (
         <Card
             size="sm"
             role="group"
             className={border ? 'SectionTile' : 'SectionTile SectionTile--no-border'}
+            style={tileBackgroundStyle(backgroundColor)}
             data-attr="dashboard-v2-section"
         >
             {children}

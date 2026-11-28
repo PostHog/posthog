@@ -24,7 +24,12 @@ import {
     UNVERIFIED_SENDER_MESSAGE,
 } from '../Channels/emailSendingMessages'
 import { canAdoptSandboxSender } from '../Channels/sandboxSender'
-import { MessageAudience, MessageAudienceDestination, messageAudienceUrl } from './messageAudience'
+import {
+    MessageAudience,
+    MessageAudienceDestination,
+    captureMessageAudienceWarningsShown,
+    messageAudienceUrl,
+} from './messageAudience'
 
 export function emailSenderWarning(integrations: Pick<IntegrationConfigApi, 'kind' | 'config'>[]): string | null {
     const senders = integrations.filter((integration) => integration.kind === 'email')
@@ -92,6 +97,13 @@ export async function loadMessageAudienceWarnings(
     ].filter((warning): warning is string => !!warning)
 }
 
+const WARNING_KINDS = new Map([
+    [EMAIL_SENDING_SUSPENDED_MESSAGE, 'email_sending_suspended'],
+    [NO_EMAIL_SENDER_MESSAGE, 'no_sender'],
+    [UNVERIFIED_SENDER_MESSAGE, 'unverified_sender'],
+    [TEST_SENDER_ONLY_WORKFLOW_MESSAGE, 'test_sender_only'],
+])
+
 let opening = false
 
 /**
@@ -101,7 +113,7 @@ let opening = false
 export async function openMessageAudience(
     audience: MessageAudience,
     destination: MessageAudienceDestination,
-    attemptId?: string
+    attemptId: string
 ): Promise<void> {
     if (opening) {
         return
@@ -121,6 +133,12 @@ export async function openMessageAudience(
             await navigate()
             return
         }
+        captureMessageAudienceWarningsShown(
+            audience.source,
+            destination,
+            attemptId,
+            warnings.map((warning) => WARNING_KINDS.get(warning) ?? 'cohort_cannot_launch')
+        )
         // The modal covers the entry point, and Continue shows its own loading state while it opens the email.
         LemonDialog.open({
             title: 'Before you send',
@@ -142,7 +160,11 @@ export async function openMessageAudience(
                 UNVERIFIED_SENDER_MESSAGE,
                 TEST_SENDER_ONLY_WORKFLOW_MESSAGE,
             ].some((message) => warnings.includes(message))
-                ? { children: 'Set up email', onClick: () => router.actions.push(urls.workflows('channels')) }
+                ? {
+                      children: 'Set up email',
+                      onClick: () => router.actions.push(urls.workflows('channels')),
+                      'data-attr': `message-audience-${audience.source}-set-up-email`,
+                  }
                 : { children: 'Cancel' },
         })
     } finally {

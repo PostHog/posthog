@@ -54,8 +54,16 @@ function rowClass(action: MenuAction): string | undefined {
     return action.disabledReason && !action.loading ? 'h-auto py-1' : undefined
 }
 
+function sectionsOf(actions: MenuAction[]): { label?: string; actions: MenuAction[] }[] {
+    const labels = [...new Set(actions.map((action) => action.section))]
+    if (labels.length < 2) {
+        return [{ actions }]
+    }
+    return labels.map((label) => ({ label, actions: actions.filter((action) => action.section === label) }))
+}
+
 function MenuEntry({ action, parts }: { action: MenuAction; parts: MenuParts }): JSX.Element {
-    const { Item, CheckboxItem, Sub, SubTrigger, SubContent, RadioGroup, RadioItem } = parts
+    const { Group, Label, Separator, Item, CheckboxItem, Sub, SubTrigger, SubContent, RadioGroup, RadioItem } = parts
     if (action.submenu && action.choice) {
         const selected = action.submenu.find((child) => child.checked)?.key ?? null
         return (
@@ -91,8 +99,14 @@ function MenuEntry({ action, parts }: { action: MenuAction; parts: MenuParts }):
                     <EntryLabel action={action} />
                 </SubTrigger>
                 <SubContent>
-                    {action.submenu.map((child) => (
-                        <MenuEntry key={child.key} action={child} parts={parts} />
+                    {sectionsOf(action.submenu).map((section, index) => (
+                        <Group key={section.label ?? index}>
+                            {index > 0 && <Separator />}
+                            {section.label && <Label>{section.label}</Label>}
+                            {section.actions.map((child) => (
+                                <MenuEntry key={child.key} action={child} parts={parts} />
+                            ))}
+                        </Group>
                     ))}
                 </SubContent>
             </Sub>

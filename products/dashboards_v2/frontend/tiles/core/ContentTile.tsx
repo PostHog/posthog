@@ -1,7 +1,7 @@
 import './ContentTile.css'
 
 import clsx from 'clsx'
-import { type CSSProperties, useMemo } from 'react'
+import { type CSSProperties, useMemo, useState } from 'react'
 
 import { IconInfo } from '@posthog/icons'
 import {
@@ -21,8 +21,9 @@ import { PanelErrorBoundary } from '../../panels/core/PanelErrorBoundary'
 import { type SavedPanel } from '../../panels/core/panelSchema'
 import { type TileCustomization, findPanel } from '../../panels/core/panelSpec'
 import { PanelView } from '../../panels/core/PanelView'
+import { TileBackgroundContext } from '../../panels/core/tileBackground'
 import { TileActions } from './TileActions'
-import { NO_BACKGROUND, showsBorder, tileBackgroundColor } from './tileAppearance'
+import { NO_BACKGROUND, showsBorder, tileBackgroundColor, tileBackgroundStyle } from './tileAppearance'
 import { TileContextMenu, hasTileMenu } from './TileContextMenu'
 import { isPartShown } from './tileParts'
 
@@ -32,19 +33,40 @@ const NO_ACTIONS: MenuAction[] = []
 
 function cardLook(
     panel: SavedPanel,
-    customizations: TileCustomization[]
+    customizations: TileCustomization[],
+    fromPanel: string | null
 ): { className: string; style: CSSProperties | undefined } {
-    const color = tileBackgroundColor(panel, customizations)
-    const tint = color === NO_BACKGROUND ? null : color
+    const color = fromPanel ?? tileBackgroundColor(panel, customizations)
     return {
         className: clsx(
             color === NO_BACKGROUND && 'dash-ContentTile--no-background',
-            !showsBorder(panel) && 'dash-ContentTile--no-border',
-            tint && 'dash-ContentTile--tinted'
+            !showsBorder(panel) && 'dash-ContentTile--no-border'
         ),
-        // A saved color can be any CSS color, so no class can carry it.
-        style: tint ? ({ '--dv2-tile-background-color': tint } as CSSProperties) : undefined,
+        style: tileBackgroundStyle(color),
     }
+}
+
+function DescriptionInfo({ description }: { description: string }): JSX.Element {
+    const [open, setOpen] = useState(false)
+    return (
+        <Tooltip open={open} onOpenChange={setOpen}>
+            <TooltipTrigger
+                // A touch screen has no hover, so a click opens the description and must not close it again.
+                closeOnClick={false}
+                render={
+                    <button
+                        type="button"
+                        className="inline-flex shrink-0 text-muted-foreground"
+                        aria-label={description}
+                        onClick={() => setOpen(true)}
+                    />
+                }
+            >
+                <IconInfo />
+            </TooltipTrigger>
+            <TooltipContent className="max-w-80">{description}</TooltipContent>
+        </Tooltip>
+    )
 }
 
 /**
@@ -74,7 +96,8 @@ export function ContentTile({
     const slots = panelSlots(definition)
     const showHeader = isPartShown(panel, 'header', slots)
     const showFooter = isPartShown(panel, 'footer', slots)
-    const look = cardLook(panel, definition?.allowedCustomizations ?? [])
+    const [backgroundFromPanel, setBackgroundFromPanel] = useState<string | null>(null)
+    const look = cardLook(panel, definition?.allowedCustomizations ?? [], backgroundFromPanel)
     const HeaderExtra = definition?.HeaderExtra
     const Footer = definition?.Footer
     // Placement goes first so the slideshow stays above the image download in the shared view group.
@@ -98,22 +121,7 @@ export function ContentTile({
                     <CardHeader className={clsx(editable && 'TileGrid__handle')}>
                         <CardTitle className="flex items-center gap-1 min-w-0">
                             <span className="TileGrid__text truncate">{panel.title}</span>
-                            {panel.description && (
-                                <Tooltip>
-                                    <TooltipTrigger
-                                        render={
-                                            <span
-                                                tabIndex={0}
-                                                className="inline-flex shrink-0 text-muted-foreground"
-                                                aria-label={panel.description}
-                                            />
-                                        }
-                                    >
-                                        <IconInfo />
-                                    </TooltipTrigger>
-                                    <TooltipContent className="max-w-80">{panel.description}</TooltipContent>
-                                </Tooltip>
-                            )}
+                            {panel.description && <DescriptionInfo description={panel.description} />}
                         </CardTitle>
                         {(HeaderExtra || hasMenu) && (
                             <TileActions menu={hasMenu}>
@@ -128,7 +136,9 @@ export function ContentTile({
                 )}
                 {!showHeader && hasMenu && <TileActions menu className="dash-ContentTile__float-toolbar" />}
                 <CardContent className="flex flex-col flex-1 min-h-0 overflow-hidden">
-                    <PanelView panel={panel} definition={definition} setConfig={setConfig} />
+                    <TileBackgroundContext.Provider value={setBackgroundFromPanel}>
+                        <PanelView panel={panel} definition={definition} setConfig={setConfig} />
+                    </TileBackgroundContext.Provider>
                 </CardContent>
                 {showFooter && (
                     // The grid's drag cancel selector lists this class, so a tile dragged by its body never starts a drag here.

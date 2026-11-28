@@ -25,6 +25,7 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 const TEST_SENDER_FOR_WORKFLOW =
     "You don't have a verified email sender yet. You can send a test from the PostHog test sender to verified members of your organization. To email your users, set up your own domain."
 const NO_SENDER = 'Set up an email sender before sending'
+const UNVERIFIED_SENDER = "Verify the sender's domain before sending"
 
 type SentEvent = { event: string; properties: Record<string, any> }
 
@@ -173,10 +174,20 @@ describe('message audience attempts', () => {
 
     const projectId = (): number => app.ApiConfig.getCurrentProjectId()
 
-    const useSendMocks = ({ senders, sandbox }: { senders: object[]; sandbox?: object }): void => {
+    const useSendMocks = ({
+        senders,
+        sandbox,
+        suspended = false,
+        matching = false,
+    }: {
+        senders: object[]
+        sandbox?: object
+        suspended?: boolean
+        matching?: boolean
+    }): void => {
         useMocks({
             get: {
-                '/api/projects/:team_id/hog_flows/email_sending_suspension/': { email_sending_suspended: false },
+                '/api/projects/:team_id/hog_flows/email_sending_suspension/': { email_sending_suspended: suspended },
                 '/api/projects/:team_id/workflow_email_sandbox/status/': sandbox ?? {
                     ...testSender,
                     adoption_enabled: false,
@@ -184,7 +195,9 @@ describe('message audience attempts', () => {
                 '/api/projects/:team_id/integrations/': { count: senders.length, results: senders, next: null },
                 '/api/projects/:team_id/cohorts/': { count: 0, results: [], next: null },
                 '/api/projects/:team_id/cohorts/:id/': ({ params }) =>
-                    String(params.id) === '42' ? { ...flagCohort, is_calculating: false } : readyList,
+                    String(params.id) === '42'
+                        ? { ...flagCohort, is_calculating: false }
+                        : { ...readyList, is_calculating: matching },
                 [`/api/projects/:team_id/feature_flags/1/`]: { ...app.NEW_FLAG, id: 1, key: 'test-flag' },
                 [`/api/projects/:team_id/surveys/${SURVEY_ID}/`]: survey,
                 [`/api/projects/:team_id/surveys/${SURVEY_ID}/archived-response-uuids/`]: [],
@@ -267,7 +280,16 @@ describe('message audience attempts', () => {
         },
     }
 
-    it.each<{ destination: MessageAudienceDestination; label: string; how: string; warning?: string }>([
+    it.each<{
+        destination: MessageAudienceDestination
+        label: string
+        how: string
+        warning?: string
+        kinds?: string[]
+        senders?: object[]
+        suspended?: boolean
+        matching?: boolean
+    }>([
         { destination: 'workflow', label: 'Build a custom workflow', how: 'directly' },
         { destination: 'broadcast', label: 'Send a one-time email', how: 'directly' },
         {
@@ -275,32 +297,93 @@ describe('message audience attempts', () => {
             label: 'Build a custom workflow',
             how: 'through Continue',
             warning: TEST_SENDER_FOR_WORKFLOW,
+            kinds: ['test_sender_only'],
         },
-        { destination: 'broadcast', label: 'Send a one-time email', how: 'through Continue', warning: NO_SENDER },
+        {
+            destination: 'broadcast',
+            label: 'Send a one-time email',
+            how: 'through Continue',
+            warning: NO_SENDER,
+            kinds: ['no_sender'],
+        },
+        {
+            destination: 'broadcast',
+            label: 'Send a one-time email',
+            how: 'through Continue past an unverified sender',
+            warning: UNVERIFIED_SENDER,
+            kinds: ['unverified_sender'],
+            senders: [{ ...verified, config: { verified: false } }],
+        },
+        {
+            destination: 'broadcast',
+            label: 'Send a one-time email',
+            how: 'through Continue past a sending suspension',
+            warning: NO_SENDER,
+            kinds: ['email_sending_suspended', 'no_sender'],
+            suspended: true,
+        },
+        {
+            destination: 'broadcast',
+            label: 'Send a one-time email',
+            how: 'through Continue past a cohort still matching people',
+            warning: '"Signups" is still matching people. You can launch when it finishes.',
+            kinds: ['cohort_cannot_launch'],
+            senders: [verified],
+            matching: true,
+        },
     ])(
         'saves the attempt of the sent click event in the $destination opened $how',
-        async ({ destination, label, warning }) => {
-            useSendMocks(warning ? { senders: [], sandbox: testSender } : { senders: [verified] })
+        async ({ destination, label, warning, kinds, senders, suspended, matching }) => {
+            useSendMocks(
+                warning ? { senders: senders ?? [], sandbox: testSender, suspended, matching } : { senders: [verified] }
+            )
+            const source = matching ? 'cohort' : 'early_access'
             app.router.actions.push('/project/997/early_access_features/1')
             const { fireEvent, render, screen, waitFor } = app.rtl
             render(
                 <app.MessageAudienceButton
-                    audience={app.enrolledPeopleAudience(earlyAccessFeature, 'early_access')}
+                    audience={
+                        matching
+                            ? {
+                                  properties: [
+                                      {
+                                          key: 'id',
+                                          type: PropertyFilterType.Cohort,
+                                          value: readyList.id,
+                                          operator: PropertyOperator.In,
+                                      },
+                                  ],
+                                  source,
+                              }
+                            : app.enrolledPeopleAudience(earlyAccessFeature, 'early_access')
+                    }
                     label="Email opted-in users"
                 />
             )
 
+            const warningsShown = (): unknown[][] =>
+                sentEvents
+                    .filter(({ event }) => event === 'message audience warnings shown')
+                    .map(({ properties }) => [
+                        properties.source,
+                        properties.destination,
+                        properties.attempt_id,
+                        properties.warnings,
+                    ])
+
             fireEvent.click(screen.getByText('Email opted-in users'))
             fireEvent.click(await screen.findByText(label))
+            const [attempt] = await sentAttempts(1)
+            expect(attempt).toMatch(UUID)
             if (warning) {
                 expect(await screen.findByText(warning)).toBeInTheDocument()
+                await waitFor(() => expect(warningsShown()).toEqual([[source, destination, attempt, kinds]]))
                 fireEvent.click(screen.getByText('Continue'))
                 await waitFor(() => expect(screen.queryByText('Before you send')).not.toBeInTheDocument())
             }
             await opened(destination === 'workflow' ? app.urls.workflowNew() : app.urls.broadcastNew())
 
-            const [attempt] = await sentAttempts(1)
-            expect(attempt).toMatch(UUID)
+            expect(warningsShown()).toEqual(kinds ? [[source, destination, attempt, kinds]] : [])
             expect(await savedAttempt[destination]()).toEqual(attempt)
         }
     )

@@ -6,7 +6,7 @@ export const contentPanelPartsSchema = z.object({
     footer: z.boolean().optional(),
 })
 
-/** How a tile looks. A setting that is missing is on. A section has no background to change. */
+/** How a tile looks. A setting that is missing is on. */
 export const tileAppearanceSchema = z.object({
     border: z.boolean().optional(),
     /** Any CSS color. The tile mixes it into its background as a tint, and `transparent` removes the background. */

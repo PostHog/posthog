@@ -33,13 +33,7 @@ function changeParts({ panel, ...tile }: Tile, parts: ContentPanelParts): Tile {
 }
 
 function changeAppearance({ panel, ...tile }: Tile, change: AppearanceChange): Tile {
-    if (!isSectionPanel(panel)) {
-        return { ...tile, panel: { ...panel, appearance: withAppearance(panel.appearance, change) } }
-    }
-    if (change.border === undefined) {
-        return { ...tile, panel }
-    }
-    return { ...tile, panel: { ...panel, appearance: withAppearance(panel.appearance, { border: change.border }) } }
+    return { ...tile, panel: { ...panel, appearance: withAppearance(panel.appearance, change) } }
 }
 
 export function applyPresentationEdit(dashboard: Dashboard, edit: PresentationEdit): Dashboard {
