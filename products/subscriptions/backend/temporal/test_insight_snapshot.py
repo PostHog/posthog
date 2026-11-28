@@ -5,6 +5,8 @@ from decimal import Decimal
 import pytest
 from unittest.mock import MagicMock, patch
 
+from posthog.hogql.errors import ExposedHogQLError
+
 from posthog.caching.insight_result import InsightResult
 
 from products.subscriptions.backend.temporal.insight_snapshot import (
@@ -154,3 +156,25 @@ def test_snapshot_records_the_effective_interval_of_time_series(query: dict, exp
         )
 
     assert snapshot.get("interval") == expected
+
+
+def test_a_query_refused_before_execution_fails_only_its_own_insight() -> None:
+    insight = MagicMock(id=1, short_id="sample", name="Raw warehouse rows", description="", filters_hash="filters-hash")
+    insight.get_effective_query.return_value = {
+        "kind": "DataVisualizationNode",
+        "source": {"kind": "HogQLQuery", "query": "select 1"},
+    }
+    refusal = ExposedHogQLError("Raw queries on the managed warehouse need a browser session in the app.")
+    module = "products.subscriptions.backend.temporal.insight_snapshot"
+    with (
+        patch(f"{module}.calculate_cache_key", side_effect=refusal),
+        patch(f"{module}.assert_creator_can_run"),
+        patch(f"{module}.calculate_for_query_based_insight", side_effect=refusal),
+    ):
+        snapshot = build_insight_delivery_snapshot(
+            insight=insight, team=MagicMock(id=2), dashboard=None, tile=None, user=None
+        )
+
+    assert snapshot["query_hash"] == "filters-hash"
+    assert snapshot["query_results"] is None
+    assert snapshot["query_error"]["type"] == "ExposedHogQLError"

@@ -38,7 +38,7 @@ def test_native_schema_uses_warehouse_inventory(
         override_settings(MANAGED_WAREHOUSE_TRINO_CANARY_DOMAIN="canary.dw.us.postwh.com" if canary else ""),
         tags_context(trigger=None, feature=None, alert_config_id=None),
         patch("posthoganalytics.feature_enabled", return_value=True),
-        patch("posthog.hogql.direct_connection.get_query_tags", return_value=QueryTags()),
+        patch("posthog.hogql.direct_connection.get_query_tags", return_value=QueryTags(browser_session=True)),
         patch(
             "products.managed_warehouse.backend.query_execution.UserAccessControl.has_project_access",
             new_callable=PropertyMock,
@@ -79,7 +79,11 @@ def test_native_schema_rejects_unavailable_access_without_loading_default_catalo
         patch("posthoganalytics.feature_enabled", return_value=failure != "flag"),
         patch(
             "posthog.hogql.direct_connection.get_query_tags",
-            return_value=QueryTags(access_method=AccessMethod.PERSONAL_API_KEY if failure == "token" else None),
+            return_value=(
+                QueryTags(access_method=AccessMethod.PERSONAL_API_KEY)
+                if failure == "token"
+                else QueryTags(browser_session=True)
+            ),
         ),
         patch(
             "products.managed_warehouse.backend.query_execution.UserAccessControl.has_project_access",
