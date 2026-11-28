@@ -120,8 +120,9 @@ class TestSlackBlocks(SimpleTestCase):
             details=(MessageDetail(label="Service", value="https://evil.example.com/login"),),
             rule_details=(
                 MessageDetail(label="dashboard_url", value="https://grafana.example.com/d/abc?a=1&viewPanel=2"),
-                MessageDetail(label="description", value="https://x.example.com/ <!here>"),
-                MessageDetail(label="runbook_url", value="https://x.example.com/|<!channel>"),
+                MessageDetail(label="wiki_url", value="https://x.example.com/ see wiki"),
+                MessageDetail(label="runbook_url", value="https://x.example.com/|https://good.example.com"),
+                MessageDetail(label="status_url", value="https://x.example.com/<!channel>"),
                 MessageDetail(label="team", value="payments"),
             ),
         )
@@ -143,6 +144,14 @@ class TestSlackBlocks(SimpleTestCase):
 
         assert [block["type"] for block in blocks] == ["header", "section", "actions"]
         assert blocks[1]["text"]["text"] == "*runbook_url:* <https://x.example.com/r>"
+
+    def test_a_long_url_under_a_long_label_is_still_a_link(self) -> None:
+        label = "x" * 46 + "_url"
+        url = "https://x.example.com/" + "a" * 400
+
+        links = blocks_for(alert_message(rule_details=(MessageDetail(label=label, value=url),)))[1]
+
+        assert links["text"]["text"] == f"*{label}:* <{url}>"
 
     @parameterized.expand([("with_its_own_url", MAX_LINK_LINES), ("that_repeats_the_first_link", 0)])
     def test_a_url_detail_past_the_link_limit_stays_as_plain_text(self, _name: str, last: int) -> None:

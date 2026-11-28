@@ -68,10 +68,10 @@ IMAGE_REFUSAL: Final = "invalid_blocks"
 
 # Slack leaves a bare URL in a verbatim section as plain text, so a URL detail is written as a
 # `<url>` link. The URL is the visible text of its link, so it cannot disguise another destination.
-# Only under a label that ends `_url`, the name `validate_annotations` checks links by: any other
-# value can come whole from ingested data, which must not choose the site a link opens.
-_LINK_VALUE: Final = re.compile(r"https?://[^\s<>|]{1,300}")
-_LINK_LABEL: Final = re.compile(r"[\w .-]{1,40}")
+# Only a detail whose label ends `_url` becomes a link, so ingested data cannot choose the site it
+# opens: a rule label takes no template, and `validate_annotations` lets none into a `_url` host.
+_LINK_VALUE: Final = re.compile(r"https?://[^\s<>|]+")
+_LINK_LABEL: Final = re.compile(r"[\w .-]+")
 MAX_LINK_LINES: Final = 8
 
 
