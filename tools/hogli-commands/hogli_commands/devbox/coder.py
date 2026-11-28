@@ -438,6 +438,9 @@ def _exit_for_failed_build(returncode: int, output: str) -> NoReturn:
     raise SystemExit(returncode or 1)
 
 
+_TAILSCALE_STATUS_TIMEOUT_SECONDS = 10
+
+
 def _resolve_tailscale() -> str | None:
     """Return path to the tailscale CLI, checking PATH then the macOS app bundle."""
     if path := shutil.which("tailscale"):
@@ -460,12 +463,16 @@ def _tailscale_status() -> dict[str, Any] | None:
     if not tailscale_path:
         return None
 
-    result = subprocess.run(
-        [tailscale_path, "status", "--json"],
-        capture_output=True,
-        text=True,
-        env=_tailscale_env(tailscale_path),
-    )
+    try:
+        result = subprocess.run(
+            [tailscale_path, "status", "--json"],
+            capture_output=True,
+            text=True,
+            env=_tailscale_env(tailscale_path),
+            timeout=_TAILSCALE_STATUS_TIMEOUT_SECONDS,
+        )
+    except subprocess.TimeoutExpired:
+        return None
     if result.returncode != 0:
         return None
 
@@ -503,6 +510,16 @@ def tailscale_state() -> tuple[bool, str | None]:
     """
     status = _tailscale_status()
     return _backend_running(status), _tailnet_name(status)
+
+
+def tailscale_self_dns() -> str | None:
+    status = _tailscale_status()
+    if status is None or not _backend_running(status):
+        return None
+    dns = (status.get("Self") or {}).get("DNSName")
+    if not isinstance(dns, str) or not dns.strip("."):
+        return None
+    return dns.rstrip(".").lower()
 
 
 def _tailscale_install_hint() -> str:
