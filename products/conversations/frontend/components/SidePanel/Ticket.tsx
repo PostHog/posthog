@@ -29,7 +29,12 @@ export function Ticket({
     messagesMinHeight = fillParent ? '0' : '300px',
     messagesMaxHeight = fillParent ? 'none' : '400px',
 }: TicketProps): JSX.Element {
-    const { messages, messagesLoading, messageSending, currentTicket } = useValues(sidepanelTicketsLogic)
+    const {
+        messages,
+        messagesLoading,
+        messageSending,
+        latestCurrentTicket: currentTicket,
+    } = useValues(sidepanelTicketsLogic)
     const { sendMessage, setView } = useActions(sidepanelTicketsLogic)
 
     return (
