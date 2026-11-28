@@ -474,28 +474,29 @@ WHERE and(
         extractor = SessionMinTimestampWhereClauseExtractorV3 if v3 else SessionMinTimestampWhereClauseExtractorV2
         earliest = self.query_compare_to_date_range or self.query_date_range
         count_query = parse_select(
-            f"""
+            """
 SELECT
     (
         SELECT uniq(events.$session_id_uuid)
         FROM events
         WHERE and(
             events.$session_id_uuid IS NOT NULL,
-            {{event_type_expr}},
-            {{inside_timestamp_period}},
-            {{filters}},
+            {event_type_expr},
+            {inside_timestamp_period},
+            {filters},
         )
     ) AS matching_sessions,
     (
-        SELECT uniq({raw_table}.session_id_v7)
+        SELECT uniq(session_id_v7)
         FROM {raw_table}
         WHERE and(
-            {{session_start}} >= {{date_from}} - toIntervalDay({{buffer_days}}),
-            {{session_start_copy}} <= {{date_to}} + toIntervalDay({{buffer_days}}),
+            {session_start} >= {date_from} - toIntervalDay({buffer_days}),
+            {session_start_copy} <= {date_to} + toIntervalDay({buffer_days}),
         )
     ) AS sessions_in_range
             """,
             placeholders={
+                "raw_table": ast.Field(chain=[raw_table]),
                 "event_type_expr": self.event_type_expr,
                 "inside_timestamp_period": self._periods_expression("timestamp"),
                 "filters": self.events_evaluable_filters(),
