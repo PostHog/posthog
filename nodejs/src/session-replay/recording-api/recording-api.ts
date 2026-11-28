@@ -389,6 +389,8 @@ export class RecordingApi {
                 startByte,
                 endByte,
                 decompress,
+                // A stalled S3 read would otherwise hold its share of the budget after the caller gave up.
+                timeoutMs: PUBLIC_BLOCK_HOLD_CAP_MS,
             })
 
             // Serialize response

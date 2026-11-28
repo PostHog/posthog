@@ -75,6 +75,8 @@ class RecordingApiClient:
                 async with self.session.get(url, params=params, headers=headers) as response:
                     if response.status != 503:
                         return await self._read_block(response, session_id, team_id)
+                    # Closing keeps this connection to the busy pod out of the pool the retry draws from.
+                    response.close()
             raise BlockFetchError("Recording API stayed busy")
         except (RecordingDeletedError, BlockFetchError):
             raise
