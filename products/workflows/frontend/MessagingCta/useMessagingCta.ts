@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
-import { useEffect, useMemo } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 
 import { FEATURE_FLAGS, FeatureFlagKey } from 'lib/constants'
 import {
@@ -51,12 +51,15 @@ export function useMessagingCta(key: MessagingPlacementKey, viewerId: string): M
 
     const placement = placementFor(key)
     const flag = areaFlag(placement.area) as FeatureFlagKey
+    // An answer equal to the bootstrap leaves featureFlagLogic's values unchanged, so it renders nothing new.
+    const [flagAnswered, setFlagAnswered] = useState(() => hasThisPageLoadsValue(flag))
+    useEffect(() => posthog.onFeatureFlags(() => setFlagAnswered(hasThisPageLoadsValue(flag))), [flag])
     const flagValue = peekFeatureFlag(featureFlags, flag)
     const destinationFlag = DESTINATION_FLAGS[placement.destination]
     const destinationAvailable = !destinationFlag || !!peekFeatureFlag(featureFlags, destinationFlag)
     const eligible =
         receivedFeatureFlags &&
-        hasThisPageLoadsValue(flag) &&
+        flagAnswered &&
         destinationAvailable &&
         !isDismissed &&
         !messageAudienceAccessDisabledReason()
