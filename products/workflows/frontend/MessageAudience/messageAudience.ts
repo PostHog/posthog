@@ -46,7 +46,7 @@ export function cohortAudienceProperties(cohort: { id: number; name?: string | n
 export function messageAudienceUrl(
     audience: MessageAudience,
     destination: MessageAudienceDestination,
-    attemptId: string
+    attemptId?: string
 ): string {
     if (destination === 'broadcast') {
         return urlForNewBroadcastWithAudience({

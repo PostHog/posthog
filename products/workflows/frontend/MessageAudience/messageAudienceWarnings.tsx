@@ -101,7 +101,7 @@ let opening = false
 export async function openMessageAudience(
     audience: MessageAudience,
     destination: MessageAudienceDestination,
-    attemptId: string
+    attemptId?: string
 ): Promise<void> {
     if (opening) {
         return

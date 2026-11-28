@@ -221,12 +221,12 @@ export const issueAffectedBroadcastLogic = kea<issueAffectedBroadcastLogicType>(
     listeners(({ actions, props, values, cache }) => ({
         openModal: () => {
             // The click on the entry point, before any outcome, so abandoned attempts count too.
-            cache.attemptId = captureMessageAudienceClicked(SOURCE, 'broadcast')
+            captureMessageAudienceClicked(SOURCE, 'broadcast')
             actions.loadAffectedCount()
             actions.loadSendWarnings()
         },
         openModalAfterResolve: () => {
-            cache.attemptId = captureMessageAudienceClicked(RESOLVED_SOURCE, 'broadcast')
+            captureMessageAudienceClicked(RESOLVED_SOURCE, 'broadcast')
             actions.loadAffectedCount()
             actions.loadSendWarnings()
         },
@@ -276,8 +276,7 @@ export const issueAffectedBroadcastLogic = kea<issueAffectedBroadcastLogicType>(
                         broadcastEmail: draftMessage({ kind: 'issue_fixed' }),
                         draftSource: { source: 'error_tracking', source_id: props.issueId },
                     },
-                    'broadcast',
-                    cache.attemptId
+                    'broadcast'
                 )
             )
         },
