@@ -424,6 +424,46 @@ def snooze_group(
     return platform_reads.instance_view(alert, configuration)
 
 
+def resolve_group(
+    *, team_id: int, source_kinds: Sequence[str], configuration_id: UUID, grouping_key: str
+) -> PlatformAlertSnapshot | None:
+    """Moves one open group of a configuration the platform owns to not firing, for a person.
+
+    None when the configuration does not exist or its kind is not among `source_kinds`. The alert
+    stays enabled and keeps its schedule, apart from the fence that stops a running check from
+    writing back the state it read. A group that still breaches fires again at a later check, as a
+    new firing.
+    """
+    now = django_timezone.now()
+    with transaction.atomic():
+        # The configuration before its instance, the order `record_outcomes` locks them in.
+        configuration = (
+            PlatformAlertConfiguration.objects.for_team(team_id, canonical=True)
+            .select_for_update()
+            .filter(id=configuration_id, source_kind__in=list(source_kinds))
+            .first()
+        )
+        if configuration is None:
+            return None
+        if configuration.owner != PlatformAlertOwner.PLATFORM:
+            raise PlatformAlertNotEditable(
+                f"This alert is managed by the {configuration.source_kind} product, so its groups cannot be "
+                "resolved here."
+            )
+        alert = (
+            PlatformAlert.objects.for_team(team_id, canonical=True)
+            .filter(configuration=configuration, grouping_key=grouping_key)
+            .first()
+        )
+        if alert is None:
+            raise UnknownPlatformAlertGroup(grouping_key)
+        # Any state other than not firing is open, as `open_keys` judges it, so every open state resolves.
+        if alert.state == PlatformAlertState.NOT_FIRING:
+            raise InvalidPlatformAlertEdit("grouping_key", "This group is not firing, so there is nothing to resolve.")
+        control_plane.announce_after_commit(control_plane.resolve_instance(configuration, alert, now=now))
+    return platform_reads.instance_view(alert, configuration)
+
+
 def update_owned_copy(
     *,
     team_id: int,

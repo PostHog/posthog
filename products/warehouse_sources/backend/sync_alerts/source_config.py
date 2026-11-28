@@ -22,6 +22,7 @@ from products.warehouse_sources.backend.models.external_data_destination import 
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.sync_alerts.destinations import (
     EVENT_IDS_BY_INCIDENT_ACTION,
+    EVENT_IDS_BY_KIND,
     WAREHOUSE_ALERTS_FLAG,
 )
 from products.warehouse_sources.backend.sync_alerts.wording import (
@@ -138,6 +139,7 @@ def _spec(
         ),
         incident_event_ids=EVENT_IDS_BY_INCIDENT_ACTION[source_kind],
         alert_url=alert_url,
+        event_ids_by_kind=EVENT_IDS_BY_KIND[source_kind],
         access_flag=WAREHOUSE_ALERTS_FLAG,
     )
 

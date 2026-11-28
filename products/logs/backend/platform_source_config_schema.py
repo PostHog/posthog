@@ -19,7 +19,7 @@ from products.alerts_platform.backend.facade.contracts import (
 )
 from products.logs.backend.alert_deletion import delete_platform_owned, remove_alert_destinations
 from products.logs.backend.alert_group_columns import grouping_problem
-from products.logs.backend.alert_source_cycle import EVENT_IDS_BY_INCIDENT_ACTION
+from products.logs.backend.alert_source_cycle import EVENT_IDS_BY_INCIDENT_ACTION, EVENT_IDS_BY_KIND
 from products.logs.backend.models import CHECK_INTERVAL_MINUTES, LogsAlertConfiguration
 from products.logs.backend.platform_ownership import admit_platform_write, create_platform_owned, creates_native_alert
 from products.logs.backend.platform_source_config import WindowMinutes, has_any_filter, logs_alert_url
@@ -82,4 +82,5 @@ LOGS_SOURCE_CONFIG = SourceConfigSpec(
     native_create=creates_native_alert,
     incident_event_ids=EVENT_IDS_BY_INCIDENT_ACTION,
     alert_url=logs_alert_url,
+    event_ids_by_kind=EVENT_IDS_BY_KIND,
 )

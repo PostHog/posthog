@@ -652,22 +652,27 @@ class TestDeliverEvaluation(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("still_firing", "firing", FIRING, FIRING, [IncidentAction.TRIGGER]),
+            ("still_firing", True, "firing", FIRING, FIRING, [IncidentAction.TRIGGER]),
             # ClickHouse returns the episode start without a zone.
             (
                 "still_firing_read_without_a_zone",
+                True,
                 "firing",
                 FIRING,
                 FIRING.replace(tzinfo=None),
                 [IncidentAction.TRIGGER],
             ),
-            ("resolved_since", "not_firing", None, FIRING, []),
-            ("firing_again_since", "firing", FIRING + timedelta(hours=1), FIRING, []),
+            ("resolved_since", True, "not_firing", None, FIRING, []),
+            ("firing_again_since", True, "firing", FIRING + timedelta(hours=1), FIRING, []),
+            ("unheld_still_firing", False, "firing", FIRING, FIRING, [IncidentAction.TRIGGER]),
+            # A person resolved the group before this trigger's delivery ran.
+            ("unheld_resolved_since", False, "not_firing", None, FIRING, []),
         ]
     )
-    def test_a_released_hold_opens_an_incident_only_inside_the_firing_it_held(
+    def test_a_trigger_opens_an_incident_only_inside_the_firing_it_announces(
         self,
         _name: str,
+        held: bool,
         state: str,
         firing_started_at: datetime | None,
         episode_started_at: datetime,
@@ -683,17 +688,18 @@ class TestDeliverEvaluation(APIBaseTest):
         PlatformAlert.objects.for_team(self.team.id).create(
             team=self.team, configuration=configuration, state=state, firing_started_at=firing_started_at
         )
-        PlatformAlertDeliveryHold.objects.for_team(self.team.id).create(
-            team=self.team,
-            configuration=configuration,
-            evaluation_key="eval-1",
-            reason="investigation",
-            request={},
-            held_at=FIRING,
-            release_after=FIRING,
-            released_at=FIRING,
-            release_action=HoldRelease.SEND,
-        )
+        if held:
+            PlatformAlertDeliveryHold.objects.for_team(self.team.id).create(
+                team=self.team,
+                configuration=configuration,
+                evaluation_key="eval-1",
+                reason="investigation",
+                request={},
+                held_at=FIRING,
+                release_after=FIRING,
+                released_at=FIRING,
+                release_action=HoldRelease.SEND,
+            )
 
         self._run(
             _announcement(_transition(AlertEventKind.FIRING, episode_started_at=episode_started_at)),
