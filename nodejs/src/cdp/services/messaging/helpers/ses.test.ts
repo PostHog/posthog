@@ -192,6 +192,21 @@ describe('SesWebhookHandler', () => {
             `https://track.example.com/r?to=${encodeURIComponent('https://app.posthog.com/messaging-preferences/')}*${encodeURIComponent('/')}`,
         ],
         [
+            'a preferences link with encoded dots',
+            'https://app.posthog.com/messaging-preferences/eyJhbGciOiJIUzI1NiJ9%2EeyJ0ZWFtIjoxfQ%2Ec2lnbmF0dXJl/',
+            'https://app.posthog.com/messaging-preferences/*/',
+        ],
+        [
+            'a preferences link inside two redirects',
+            `https://track.example.com/r?to=${encodeURIComponent(`https://other.example.com/r?to=${encodeURIComponent('https://app.posthog.com/messaging-preferences/eyJhbGciOiJIUzI1NiJ9.eyJ0ZWFtIjoxfQ.c2lnbmF0dXJl/')}`)}`,
+            `https://track.example.com/r?to=${encodeURIComponent(`https://other.example.com/r?to=${encodeURIComponent('https://app.posthog.com/messaging-preferences/')}`)}*${encodeURIComponent(encodeURIComponent('/'))}`,
+        ],
+        [
+            'a customer link with a dotted path',
+            'https://example.com/docs/messaging-preferences/v1.2.3/',
+            'https://example.com/docs/messaging-preferences/v1.2.3/',
+        ],
+        [
             'a customer link with the same path',
             'https://example.com/messaging-preferences/weekly?locale=en',
             'https://example.com/messaging-preferences/weekly?locale=en',
