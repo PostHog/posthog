@@ -1,6 +1,8 @@
 import re
+import json
 import uuid
 import random
+import hashlib
 from concurrent.futures import Future, ThreadPoolExecutor
 from io import StringIO
 from queue import Queue
@@ -14,6 +16,7 @@ from unittest.mock import patch
 from django.core.management import call_command
 from django.db import connection
 from django.test import SimpleTestCase
+from django.test.utils import CaptureQueriesContext
 
 from celery.exceptions import SoftTimeLimitExceeded
 from parameterized import parameterized
@@ -67,6 +70,8 @@ class TestBrandMatcher(SimpleTestCase):
             ("leading_punctuation", ".NET", "asp.net vs .NET", [(".NET", MentionKind.NAME, 11)]),
             ("first_whole_word_after_a_partial", "Acme", "acmes, then acme", [("acme", MentionKind.NAME, 12)]),
             ("offsets_are_code_points", "Acme", "İİ acme", [("acme", MentionKind.NAME, 3)]),
+            ("one_character_is_never_searched_for", "X", "x marks the spot", []),
+            ("punctuation_only_is_never_searched_for", "!!", "wow!! !!", []),
         ]
     )
     def test_a_name_matches_as_a_whole_phrase(
@@ -87,12 +92,13 @@ class TestBrandMatcher(SimpleTestCase):
                 [("https://www.acmecorp.com/pricing", MentionKind.URL, 1)],
             ),
             ("email_is_not_a_domain_mention", "mail sales@acmecorp.com", [("acmecorp", MentionKind.DOMAIN_LABEL, 11)]),
+            ("one_character_alias_is_never_searched_for", "a b c", []),
         ]
     )
     def test_a_brand_is_found_by_each_of_its_identifiers(
         self, _name: str, text: str, expected: list[tuple[str, MentionKind, int]]
     ) -> None:
-        matcher = _matcher("Acme Corp", aliases=["ACM"], domain="acmecorp.com")
+        matcher = _matcher("Acme Corp", aliases=["ACM", "a", "-"], domain="acmecorp.com")
         assert _mentions(matcher, text) == expected
 
     @parameterized.expand(
@@ -119,7 +125,7 @@ class TestBrandMatcher(SimpleTestCase):
         assert [m.start for m in found[OTHER]] == [0]
 
     def test_agrees_with_the_word_regex_the_reads_used_on_random_text(self) -> None:
-        names = ["acme", "acme corp", "yahoo!", ".net", "c++", "x"]
+        names = ["acme", "acme corp", "yahoo!", ".net", "c++", "xx"]
         alphabet = ["acme", "corp", "yahoo", "!", ".", "net", "c", "+", "x", " ", "_", "-", "\n", "é"]
         rng = random.Random(7)
         for name in names:
@@ -134,6 +140,32 @@ class TestBrandMatcher(SimpleTestCase):
                     assert bool(found) == bool(first)
                     if first:
                         assert found[0][2] == first.start(2)
+
+    def test_a_name_on_every_line_keeps_only_the_first_mentions(self) -> None:
+        text = "the end. " * 5000
+
+        found = _mentions(_matcher("The"), text)
+
+        assert [start for _, _, start in found] == [9 * i for i in range(check_brands.MAX_STORED_MENTIONS)]
+
+    def test_keeps_the_mentions_an_unbounded_match_keeps_first(self) -> None:
+        matcher = BrandMatcher(
+            [
+                brand_identity(BRAND, name="Acme", aliases=["acme corp", ".acme"], domain="acme.com"),
+                brand_identity(OTHER, name="Corp", aliases=[], domain="corp.example"),
+            ]
+        )
+        alphabet = ["acme", " corp", ".acme", " acme.com", " https://acme.com/acme", " www.acme.com", ", ", "\n"]
+        rng = random.Random(11)
+        for _ in range(300):
+            text = "".join(rng.choice(alphabet) for _ in range(rng.randint(0, 40)))
+            bounded = matcher.text_mentions(text)
+            with patch.object(check_brands, "MAX_STORED_MENTIONS", 10**9):
+                unbounded = matcher.text_mentions(text)
+            with self.subTest(text=text):
+                assert bounded == {
+                    brand_id: mentions[: check_brands.MAX_STORED_MENTIONS] for brand_id, mentions in unbounded.items()
+                }
 
 
 class TestResolveCheckBrands(BaseTest):
@@ -383,6 +415,50 @@ class TestResolveCheckBrands(BaseTest):
         assert not AEOCheckBrand.objects.for_team(self.team.id).filter(brand=acme).exists()
         assert not has_stale_brands(self.team.id)
 
+    def test_a_common_word_brand_is_written_a_few_checks_at_a_time(self) -> None:
+        self._brand("the.example", "The")
+        checks = [self._check(answer_text="the " * 1000) for _ in range(5)]
+
+        with (
+            patch.object(check_brands, "WRITE_CHUNK_CHECKS", 2),
+            CaptureQueriesContext(connection) as queries,
+        ):
+            self._write(*checks)
+
+        inserts = [
+            q["sql"] for q in queries.captured_queries if q["sql"].startswith('INSERT INTO "posthog_aeo_check_brand"')
+        ]
+        assert len(inserts) == 3
+        rows = AEOCheckBrand.objects.for_team(self.team.id)
+        assert rows.count() == 5
+        assert {len(row.mentions) for row in rows} == {check_brands.MAX_STORED_MENTIONS}
+
+    def test_a_brand_resolved_with_a_one_character_name_is_resolved_again_without_it(self) -> None:
+        brand = self._brand("x.com", "X")
+        check = self._check(answer_text="x marks the spot")
+        AEOCheckBrand.objects.for_team(self.team.id).create(
+            team=self.team,
+            citation_check=check,
+            brand=brand,
+            created_at=check.created_at,
+            mentioned=True,
+            cited=False,
+            retrieved=False,
+            first_position=0,
+            answer_length=16,
+            matched_by=MentionKind.NAME,
+            mentions=[{"surface": "x", "kind": "name", "start": 0}],
+        )
+        AEOCitationCheck.objects.for_team(self.team.id).filter(id=check.id).update(brands_resolved_at=check.created_at)
+        old_key = hashlib.sha256(json.dumps(["x", [], "x.com"]).encode()).hexdigest()[:16]
+        AEOBrand.objects.for_team(self.team.id).filter(id=brand.id).update(mentions_key=old_key)
+
+        assert has_stale_brands(self.team.id)
+        resolve_stale_brands(self.team.id)
+
+        assert not has_stale_brands(self.team.id)
+        assert not AEOCheckBrand.objects.for_team(self.team.id).filter(mentioned=True).exists()
+
     def test_a_failed_check_is_resolved_without_rows(self) -> None:
         self._brand("acme.com", "Acme")
         self._check(check_failed=True, answer_text=None)
@@ -461,3 +537,112 @@ def connection_pid() -> int:
     with connection.cursor() as cursor:
         cursor.execute("SELECT pg_backend_pid()")
         return cursor.fetchone()[0]
+
+
+class TestBrandEditPass(BaseTest):
+    def _brand(self, domain: str, name: str, **fields: Any) -> AEOBrand:
+        return AEOBrand.objects.for_team(self.team.id).create(
+            team=self.team, name=name, domain=domain, source=BrandSource.MANUAL, **fields
+        )
+
+    def _check(self, answer_text: str, **fields: Any) -> AEOCitationCheck:
+        prompts = AEOPrompt.objects.for_team(self.team.id)
+        prompt = prompts.first() or prompts.create(
+            team=self.team, prompt="best tool?", prompt_hash="h", prompt_source=AEOPrompt.Source.MANUAL
+        )
+        check = AEOCitationCheck.objects.for_team(self.team.id).create(
+            team=self.team,
+            prompt=prompt,
+            run_id=uuid.uuid4(),
+            prompt_text=prompt.prompt,
+            prompt_source=prompt.prompt_source,
+            prompt_hash=prompt.prompt_hash,
+            engine="exa-answer",
+            model="exa-answer",
+            answer_text=answer_text,
+            **fields,
+        )
+        write_facts([check])
+        return check
+
+    def _history(self) -> None:
+        self.acme = self._brand("acme.com", "Acme Inc")
+        self._brand("globex.com", "Globex")
+        self._check("Roadrunner leads, then Globex.")
+        self._check("Nothing about anyone.")
+        self._check("See ROADRUNNER.example and acme.com/pricing.")
+        self._check(
+            "Cited only.", cited_urls=["https://other.example/a"], top_cited_domains=["other.example", "docs.acme.com"]
+        )
+        self._check("Retrieved only.", retrieved_urls=["https://www.acme.com/x"])
+        self._check("The \u212aayak app.")
+        self._check("Acme Inc is popular.")
+        self._check("Unrelated filler text.")
+        self._check("Sources only.", cited_urls=["https://docs.roadrunner.example/a"])
+        self._check("Sources only.", retrieved_urls=["https://roadrunner.example/b"])
+        enrich_check_brands(self.team.id)
+
+    def _rows(self) -> set[tuple[Any, ...]]:
+        return {
+            (
+                row.citation_check_id,
+                row.brand_id,
+                row.mentioned,
+                row.cited,
+                row.retrieved,
+                row.first_position,
+                row.citation_position,
+                row.matched_by,
+            )
+            for row in AEOCheckBrand.objects.for_team(self.team.id)
+        }
+
+    def _every_check_matched_again(self) -> set[tuple[Any, ...]]:
+        matcher = BrandMatcher(catalog_identities(self.team.id))
+        return {
+            (
+                check.id,
+                match.brand_id,
+                match.mentioned,
+                match.cited,
+                match.retrieved,
+                match.first_position,
+                match.citation_position,
+                match.matched_by,
+            )
+            for check in AEOCitationCheck.objects.for_team(self.team.id)
+            for match in matcher.match(check)
+        }
+
+    @parameterized.expand(
+        [
+            ("new_alias", {}, {"aliases": ["Roadrunner"]}, 6),
+            ("rename_drops_the_old_name", {}, {"name": "Roadrunner"}, 6),
+            ("removed_alias_drops_its_rows", {"aliases": ["Roadrunner"]}, {"aliases": []}, 6),
+            ("name_outside_ascii_reads_every_check", {}, {"aliases": ["Röadrunner"]}, 10),
+            ("kelvin_sign_folds_to_k", {}, {"aliases": ["kayak"]}, 5),
+        ]
+    )
+    def test_the_edit_pass_writes_what_matching_every_check_again_writes(
+        self, _name: str, before: dict[str, Any], change: dict[str, Any], checks_read: int
+    ) -> None:
+        self._history()
+        for fields in (before, change):
+            self.acme.refresh_from_db()
+            for field, value in fields.items():
+                setattr(self.acme, field, value)
+            self.acme.save()
+            result = resolve_stale_brands(self.team.id)
+
+        assert self._rows() == self._every_check_matched_again()
+        assert result.checks == checks_read
+        assert not has_stale_brands(self.team.id)
+
+    def test_a_brand_new_to_the_catalog_gets_its_history(self) -> None:
+        self._history()
+        self._brand("roadrunner.example", "Roadrunner")
+
+        result = resolve_stale_brands(self.team.id)
+
+        assert self._rows() == self._every_check_matched_again()
+        assert result.checks == 5

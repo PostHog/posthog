@@ -152,6 +152,7 @@ from products.aeo.backend.facade.contracts import (
     RankedPage,
     SuggestedCompetitor,
     VisibilityDashboard,
+    is_findable_brand_name,
 )
 from products.authorization.backend.facade import api as authorization
 from products.authorization.backend.facade.contracts import Resource
@@ -168,6 +169,15 @@ DEFAULT_BRANDS_PAGE_SIZE = 100
 DEFAULT_COMPETITOR_CANDIDATES = 20
 MAX_COMPETITOR_CANDIDATES = 100
 MAX_BRAND_ALIASES = 20
+
+
+def _validate_findable_brand_name(value: str) -> None:
+    if not is_findable_brand_name(value):
+        raise ValidationError(
+            "Use at least two characters, including a letter or a number, so answers can be searched for this name."
+        )
+
+
 MAX_CHECKS_PAGE_SIZE = 100
 STATS_DAYS = 30
 DATE_FORMAT_HELP = (
@@ -1419,6 +1429,7 @@ class AEOBrandCreateRequestSerializer(serializers.Serializer):
         required=False,
         allow_blank=True,
         max_length=BRAND_NAME_MAX_LENGTH,
+        validators=[_validate_findable_brand_name],
         help_text="Brand name as people say it. Guessed from the domain when empty.",
     )
     kind = serializers.ChoiceField(
@@ -1426,7 +1437,11 @@ class AEOBrandCreateRequestSerializer(serializers.Serializer):
         help_text="What the brand is to the project: 'own' (the project's site, counted as us in citations), 'competitor', 'publisher' or 'unknown'.",
     )
     aliases = serializers.ListField(
-        child=serializers.CharField(max_length=BRAND_NAME_MAX_LENGTH, help_text="One other name for the brand."),
+        child=serializers.CharField(
+            max_length=BRAND_NAME_MAX_LENGTH,
+            validators=[_validate_findable_brand_name],
+            help_text="One other name for the brand.",
+        ),
         required=False,
         max_length=MAX_BRAND_ALIASES,
         help_text="Other names for the brand, used to find it in answer text. Names are trimmed, and repeated names are dropped.",
@@ -1435,7 +1450,10 @@ class AEOBrandCreateRequestSerializer(serializers.Serializer):
 
 class AEOBrandUpdateRequestSerializer(serializers.Serializer):
     name = serializers.CharField(
-        required=False, max_length=BRAND_NAME_MAX_LENGTH, help_text="Brand name as people say it."
+        required=False,
+        max_length=BRAND_NAME_MAX_LENGTH,
+        validators=[_validate_findable_brand_name],
+        help_text="Brand name as people say it.",
     )
     kind = serializers.ChoiceField(
         choices=BrandKind.choices,
@@ -1448,7 +1466,11 @@ class AEOBrandUpdateRequestSerializer(serializers.Serializer):
         help_text="'confirmed' to accept the brand, 'ignored' to hide it, 'suggested' to put it back for review.",
     )
     aliases = serializers.ListField(
-        child=serializers.CharField(max_length=BRAND_NAME_MAX_LENGTH, help_text="One other name for the brand."),
+        child=serializers.CharField(
+            max_length=BRAND_NAME_MAX_LENGTH,
+            validators=[_validate_findable_brand_name],
+            help_text="One other name for the brand.",
+        ),
         required=False,
         max_length=MAX_BRAND_ALIASES,
         help_text="Replaces the brand's other names. Names are trimmed, and repeated names are dropped.",

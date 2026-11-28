@@ -499,6 +499,15 @@ class PromptLimitError(Exception):
 
 
 BRAND_NAME_MAX_LENGTH = 200
+
+
+def is_findable_brand_name(name: str) -> bool:
+    """Whether answers are searched for this brand name or alias. One character, or a name without a letter
+    or digit, occurs in almost every answer, so it would match everywhere."""
+    name = name.strip()
+    return len(name) > 1 and any(char.isalnum() for char in name)
+
+
 KEYWORD_MAX_LENGTH = 100
 MAX_KEYWORDS_PER_TEAM = 200
 BRAND_DOMAIN_MAX_LENGTH = 253
