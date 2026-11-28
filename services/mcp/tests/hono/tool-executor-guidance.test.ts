@@ -186,7 +186,10 @@ describe('ToolExecutor guidance notices', () => {
                     ? { build: () => tool, meta: undefined, rawInputSchema: undefined, definition: undefined }
                     : undefined
             })
-            const capture = vi.spyOn(getPostHogClient(), 'captureToolCall').mockImplementation(() => {})
+            let properties: CohortCall['properties']
+            vi.spyOn(getPostHogClient(), 'captureToolCall').mockImplementation((event) => {
+                properties = event.properties
+            })
             const executor = new ToolExecutor(catalog, new InstructionsBuilder(''), undefined, engine)
             const state = makeToolExecutorState(tools, {
                 useSingleExec: mode === 'exec',
@@ -201,7 +204,7 @@ describe('ToolExecutor guidance notices', () => {
                 state
             )) as SqlResult
             await new Promise((resolve) => setImmediate(resolve))
-            return { result, properties: capture.mock.calls.at(-1)?.[0].properties }
+            return { result, properties }
         }
 
         it.each([
