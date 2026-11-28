@@ -240,7 +240,7 @@ export function ProductSelection(): JSX.Element {
     const { currentStep } = useValues(productSelectionLogic)
 
     return (
-        <div className="flex flex-col w-full pb-[max(env(safe-area-inset-bottom),80px)] sm:pb-0 items-center justify-start overflow-x-hidden">
+        <div className="flex flex-col w-full pb-[max(env(safe-area-inset-bottom),80px)] sm:pb-0 items-center justify-start">
             <div className="flex flex-col items-center justify-start sm:justify-center flex-grow w-full">
                 {currentStep === 'choose_path' && <ChoosePathStep />}
                 {currentStep === 'product_selection' && <ProductSelectionStep />}
