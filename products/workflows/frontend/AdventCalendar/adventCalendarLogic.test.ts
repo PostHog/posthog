@@ -998,9 +998,26 @@ describe('adventCalendarLogic', () => {
         })
     })
 
-    it('reports a tip click with its day', () => {
+    it.each<[string, boolean, unknown[][]]>([
+        [
+            'live',
+            false,
+            [
+                ['workflows advent tip clicked', { day: 7 }],
+                ['workflows advent shared', {}],
+            ],
+        ],
+        ['in a staff preview of another day', true, []],
+    ])('reports a tip click with its day and a share %s', (_, isPreview, sent) => {
+        if (isPreview) {
+            preflightLogic.actions.loadPreflightSuccess({ ...preflightLogic.values.preflight!, is_debug: false })
+            signIn({ is_staff: true })
+            router.actions.push('/workflows/advent', { day: '2' })
+        }
+        capture.mockClear()
         logic.actions.clickTip(7)
+        logic.actions.share()
 
-        expect(capture).toHaveBeenCalledWith('workflows advent tip clicked', { day: 7 })
+        expect(capture.mock.calls).toEqual(sent)
     })
 })

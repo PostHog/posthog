@@ -764,10 +764,10 @@ export const adventCalendarLogic = kea<adventCalendarLogicType>([
                 }
             },
             clickTip: ({ day }) => {
-                posthog.capture(EVENTS.tipClicked, { day })
+                captureLive(values.isLive, EVENTS.tipClicked, { day })
             },
             share: () => {
-                posthog.capture(EVENTS.shared)
+                captureLive(values.isLive, EVENTS.shared, {})
             },
             loadUserSuccess: () => {
                 actions.preloadImages()
