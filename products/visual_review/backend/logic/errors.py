@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+from uuid import UUID
+
+from posthog.dataclasses import frozen
+
 
 class RepoNotFoundError(Exception):
     pass
@@ -68,13 +72,23 @@ class BaselineEntriesLostError(Exception):
 
 
 class StaleRunError(Exception):
-    """Approval blocked because a newer run exists for this PR."""
+    """Approval blocked because a newer run exists for this PR. Names that run when it is known."""
 
-    pass
+    def __init__(self, message: str, head_run_id: UUID | None = None, head_commit_sha: str = "") -> None:
+        super().__init__(message)
+        self.head_run_id = head_run_id
+        self.head_commit_sha = head_commit_sha
+
+
+@frozen
+class RejectedSnapshot:
+    identifier: str
+    by_id: int | None
+    reason: str
 
 
 class RunNotFullyResolvedError(Exception):
-    """Finalize blocked because some changed/new snapshots are still unreviewed.
+    """Finalize blocked because some changed/new snapshots are still unreviewed or rejected.
 
     Visual review is all-or-nothing: the baseline is only committed once every
     changed/new snapshot is approved or tolerated. Committing a subset is pointless
@@ -82,7 +96,53 @@ class RunNotFullyResolvedError(Exception):
     changes.
     """
 
+    def __init__(
+        self,
+        message: str,
+        rejected: list[RejectedSnapshot] | None = None,
+        needs_review: list[str] | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.rejected = rejected or []
+        self.needs_review = needs_review or []
+
+
+@frozen
+class DecisionRefusal:
+    """Why one snapshot of a decision call was refused. A `conflict` is a 409, the rest are 400s."""
+
+    identifier: str
+    code: str
+    detail: str
+    conflict: bool
+    # The seq of the newest decision on the snapshot's pictures, when the refusal is about that decision.
+    current_seq: int | None = None
+
+
+class SnapshotRejectedError(Exception):
+    """A toleration refused because the pull request's newest decision on the pair is a rejection."""
+
     pass
+
+
+class DecidedByPersonError(Exception):
+    """A toleration by an agent refused because a person made the newest decision on the pair."""
+
+    pass
+
+
+class DecisionRefusedError(Exception):
+    """A review decision call refused as a whole, because at least one snapshot could not take the decision.
+
+    The call is all or nothing, so `refusals` names every refused snapshot. The code and the
+    status come from the first refusal.
+    """
+
+    def __init__(self, refusals: list[DecisionRefusal]) -> None:
+        self.refusals = refusals
+        self.code = refusals[0].code
+        self.conflict = refusals[0].conflict
+        super().__init__(" ".join(dict.fromkeys(refusal.detail for refusal in refusals)))
 
 
 class BaselineFilePathNotConfiguredError(Exception):

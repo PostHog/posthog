@@ -9,6 +9,22 @@
                    {% if field.value %}checked{% endif %} />
             {{ field.label }}
         </label>
+    {% elif field.widget_type == "checkboxselectmultiple" %}
+        <fieldset class="flex flex-col gap-1.5 m-0 p-0 border-0">
+            <legend class="quill-field__label quill-label font-bold mb-1">{{ field.label }}</legend>
+            {% for value, label in field.field.choices %}
+                <label class="quill-label flex items-start gap-2 font-normal">
+                    <input name="{{ field.html_name }}"
+                           type="checkbox"
+                           value="{{ value }}"
+                           class="mt-0.5"
+                           {% if value|stringformat:"s" in field.value %}checked{% endif %} />
+                    {{ label }}
+                </label>
+            {% empty %}
+                <p class="text-muted-foreground m-0">Nothing to choose.</p>
+            {% endfor %}
+        </fieldset>
     {% else %}
         <label class="quill-field__label quill-label font-bold"
                for="{{ field.id_for_label }}">{{ field.label }}</label>

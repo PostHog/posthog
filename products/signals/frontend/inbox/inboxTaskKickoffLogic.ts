@@ -4,11 +4,13 @@ import posthog from 'posthog-js'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { shouldReportApiFailure } from 'lib/api-error'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { uuid } from 'lib/utils/dom'
 import { addProjectIdIfMissing } from 'lib/utils/kea-router'
+import { isAbortedRequest } from 'lib/utils/requests'
 import { retryImport } from 'lib/utils/retryImport'
 import { projectLogic } from 'scenes/projectLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -496,11 +498,13 @@ export interface inboxTaskKickoffLogicActions {
     contextDelivered: (
         taskId: string,
         items: AttachedContextItem[],
-        fromNewChat?: boolean | undefined
+        fromNewChat?: boolean | undefined,
+        wireItems?: AttachedContextItem[] | undefined
     ) => {
         fromNewChat: boolean
         items: AttachedContextItem[]
         taskId: string
+        wireItems: AttachedContextItem[]
     } // attachedContextLogic
     clearActiveCreation: () => {
         value: true
@@ -929,7 +933,9 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
                     }
                 }
             } catch (error) {
-                posthog.captureException(error)
+                if (shouldReportApiFailure(error)) {
+                    posthog.captureException(error)
+                }
             } finally {
                 cache.warmingReportId = null
                 cache.warmReleaseRequested = false
@@ -1127,6 +1133,10 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
                 captureInboxReportActionCompleted({ report, actionType: 'discuss', outcome: 'success' })
                 actions.discussReportSuccess()
             } catch (error: any) {
+                if (cache.disposables.isDisposed || isAbortedRequest(error)) {
+                    actions.discussReportFailure()
+                    return
+                }
                 handleKickoffError(error, report, 'discuss', "Couldn't ask AI about this report. Try again.")
                 actions.discussReportFailure()
                 if (background) {
@@ -1297,7 +1307,7 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
                 captureInboxReportActionCompleted({ report, actionType: 'create_pr', outcome: 'success' })
                 actions.createPrSuccess()
             } catch (error: any) {
-                if (disposables.isDisposed) {
+                if (disposables.isDisposed || isAbortedRequest(error)) {
                     return
                 }
                 if (values.activeCreation?.streamKey === streamKey) {

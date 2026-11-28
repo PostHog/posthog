@@ -14,6 +14,7 @@ from uuid import UUID
 from zoneinfo import ZoneInfo
 
 from posthog.hogql import ast
+from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS, HogQLGlobalSettings
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
@@ -21,6 +22,7 @@ from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.client.execute import default_settings, sync_execute
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.dataclasses import frozen
+from posthog.exceptions_capture import capture_exception
 from posthog.models import Team, User
 from posthog.settings import CLICKHOUSE_PER_TEAM_QUERY_SETTINGS
 
@@ -31,6 +33,8 @@ from products.messaging.backend.facade.contracts import (
     EmailStatsInterval,
     TransactionalEmailConversions,
     TransactionalEmailImpact,
+    TransactionalEmailImpactSession,
+    TransactionalEmailImpactSessions,
     TransactionalEmailLogDetail,
     TransactionalEmailLogEntry,
     TransactionalEmailLogEvent,
@@ -53,6 +57,7 @@ from products.messaging.backend.models.message_template import MessageTemplate
 from products.messaging.backend.models.transactional_email_key import TransactionalEmailKey
 from products.messaging.backend.services.code_emails import code_emails_by_workflow
 from products.messaging.backend.services.transactional_email_status import message_created_at
+from products.workflows.backend.facade.api import is_email_workflow_run_link_tag_enabled
 from products.workflows.backend.facade.contracts import WorkflowViewAccess
 from products.workflows.backend.facade.message_assets import (
     fetch_first_email_sends,
@@ -68,6 +73,7 @@ MAX_CONVERSION_WINDOW_DAYS = 30
 MAX_RESULTS_RECIPIENTS = 10_000
 _SINCE_MS_LITERAL_BYTES = len("1700000000000, ")
 IMPACT_WINDOW_DAYS = 7
+MAX_IMPACT_SESSIONS = 200
 
 # A message's rows sit together in the table's sort key, so grouping can finish each message as it reads on.
 _GROUP_AS_READ: dict[str, int] = {"optimize_aggregation_in_order": 1}
@@ -638,11 +644,13 @@ def transactional_email_impact(
     workflow_id: str,
     event: str | None,
     *,
+    can_query_events: bool,
     date_from: datetime | None = None,
     date_to: datetime | None = None,
 ) -> TransactionalEmailImpact:
-    """How far one email's sends got, from sent to clicked, and how often the person behind a send did `event` within
-    a week of clicking, against sends that were delivered and never clicked."""
+    """How far one email's sends got, from sent to clicked, how many distinct sessions had a pageview in the period or
+    the week after it whose URL carries the link tag of a clicked send, and how often the person behind a send did
+    `event` within a week of clicking, against sends that were delivered and never clicked."""
     period = _window(date_from, date_to)
     params: dict[str, Any] = {
         "start": period.start,
@@ -676,21 +684,17 @@ def transactional_email_impact(
         _GROUP_AS_READ,
         query_type="transactional_email_impact_funnel",
     )
-    if not event:
-        return TransactionalEmailImpact(
-            sent=sent,
-            delivered=delivered,
-            opened=opened,
-            clicked=clicked,
-            not_clicked=not_clicked,
-            untracked=untracked,
-            clicks_untracked=clicks_untracked,
-            window_days=IMPACT_WINDOW_DAYS,
-            after_click=None,
-            without_click=None,
-        )
-    sends = _sends_to_follow(team, workflow_id, period)
-    converted = _converted_sends(team, user, event, sends)
+    link_tagging_enabled = is_email_workflow_run_link_tag_enabled(team_id=team.id)
+    sessions: int | None = None
+    if link_tagging_enabled and can_query_events:
+        sessions = _sessions_with_a_pageview_from_the_email(team, user, workflow_id, period) if clicked else 0
+    after_click: TransactionalEmailConversions | None = None
+    without_click: TransactionalEmailConversions | None = None
+    if event:
+        sends = _sends_to_follow(team, workflow_id, period)
+        converted = _converted_sends(team, user, event, sends)
+        after_click = _conversions_of([send for send in sends if send.clicked], converted)
+        without_click = _conversions_of([send for send in sends if not send.clicked], converted)
     return TransactionalEmailImpact(
         sent=sent,
         delivered=delivered,
@@ -700,9 +704,152 @@ def transactional_email_impact(
         untracked=untracked,
         clicks_untracked=clicks_untracked,
         window_days=IMPACT_WINDOW_DAYS,
-        after_click=_conversions_of([send for send in sends if send.clicked], converted),
-        without_click=_conversions_of([send for send in sends if not send.clicked], converted),
+        after_click=after_click,
+        without_click=without_click,
+        sessions=sessions,
+        link_tagging_enabled=link_tagging_enabled,
     )
+
+
+def _sessions_with_a_pageview_from_the_email(
+    team: Team, user: User | None, workflow_id: str, period: _Period
+) -> int | None:
+    # The session count is optional, so a failed count leaves sessions empty and keeps the funnel and the conversions.
+    try:
+        return _count_sessions(team, user, workflow_id, period)
+    except Exception as error:
+        capture_exception(error, {"workflow_id": workflow_id, "team_id": team.id})
+        return None
+
+
+def _count_sessions(team: Team, user: User | None, workflow_id: str, period: _Period) -> int | None:
+    sessions: set[str] = set()
+    for batch in _batches_by_query_size(
+        team.id, _clicked_message_ids(team, workflow_id, period), _escaped_literal_bytes
+    ):
+        batch_sessions = _sessions_in_batch(team, user, batch, period)
+        # A batch that fills the row limit can hold more sessions than it returned, so the count is unknown.
+        if len(batch_sessions) >= MAX_SELECT_RETURNED_ROWS:
+            return None
+        sessions |= batch_sessions
+    return len(sessions)
+
+
+def _clicked_message_ids(team: Team, workflow_id: str, period: _Period) -> list[str]:
+    rows = _execute(
+        team.id,
+        f"""
+        SELECT toString(message_id)
+        FROM (
+            SELECT {_MESSAGE_COLUMNS}
+            FROM {EMAIL_STATUS_EVENTS_TABLE}
+            WHERE team_id = %(team_id)s AND created_at >= %(start)s AND created_at < %(end)s
+            GROUP BY created_at, message_id
+        )
+        WHERE message_function_id = %(workflow_id)s AND delivery_status != '' AND was_clicked
+        ORDER BY queued_at DESC, message_id DESC
+        LIMIT %(limit)s
+        """,
+        {"start": period.start, "end": period.end, "workflow_id": workflow_id, "limit": MAX_RESULTS_RECIPIENTS},
+        _GROUP_AS_READ,
+        query_type="transactional_email_impact_clicked_sends",
+    )
+    return [message_id for (message_id,) in rows]
+
+
+def _sessions_in_batch(team: Team, user: User | None, message_ids: list[str], period: _Period) -> set[str]:
+    # The email worker tags each link on the sender's own domain with ph_workflow_run=<invocation id>, and the
+    # invocation id is the send's message id.
+    response = execute_hogql_query(
+        """
+        SELECT DISTINCT $session_id
+        FROM events
+        WHERE event = '$pageview'
+          AND timestamp >= {start} AND timestamp < {end}
+          AND $session_id != ''
+          AND position(properties.$current_url, 'ph_workflow_run=') > 0
+          AND extractURLParameter(properties.$current_url, 'ph_workflow_run') IN {message_ids}
+        LIMIT {limit}
+        """,
+        team=team,
+        user=user,
+        placeholders={
+            "start": ast.Constant(value=period.start),
+            "end": ast.Constant(value=period.end + timedelta(days=IMPACT_WINDOW_DAYS)),
+            "message_ids": ast.Constant(value=message_ids),
+            "limit": ast.Constant(value=MAX_SELECT_RETURNED_ROWS),
+        },
+        query_type="transactional_email_impact_sessions",
+        workload=Workload.ONLINE,
+        # A timed-out scan must fail rather than return a partial count that reads as complete.
+        settings=HogQLGlobalSettings(timeout_overflow_mode="throw"),
+    )
+    return {session_id for (session_id,) in response.results or []}
+
+
+def transactional_email_impact_sessions(
+    team: Team,
+    user: User | None,
+    workflow_id: str,
+    *,
+    date_from: datetime | None = None,
+    date_to: datetime | None = None,
+) -> TransactionalEmailImpactSessions:
+    if not is_email_workflow_run_link_tag_enabled(team_id=team.id):
+        return TransactionalEmailImpactSessions(sessions=(), has_more=False)
+    period = _window(date_from, date_to)
+    clicked = _clicked_message_ids(team, workflow_id, period)
+    batches = list(_batches_by_query_size(team.id, clicked, _escaped_literal_bytes))
+    if not batches:
+        return TransactionalEmailImpactSessions(sessions=(), has_more=False)
+    newest_sends = batches[0]
+    sends_left_out = len(batches) > 1 or len(clicked) >= MAX_RESULTS_RECIPIENTS
+    landings = _session_landings_in_batch(team, user, newest_sends, period)
+    newest = sorted(landings, key=lambda session: (session.first_pageview_at, session.session_id), reverse=True)
+    return TransactionalEmailImpactSessions(
+        sessions=tuple(newest[:MAX_IMPACT_SESSIONS]),
+        has_more=len(newest) > MAX_IMPACT_SESSIONS or sends_left_out,
+    )
+
+
+def _session_landings_in_batch(
+    team: Team, user: User | None, message_ids: list[str], period: _Period
+) -> list[TransactionalEmailImpactSession]:
+    response = execute_hogql_query(
+        """
+        SELECT
+            $session_id,
+            argMin(run_id, tuple(timestamp, run_id)),
+            min(timestamp) AS first_pageview_at
+        FROM (
+            SELECT $session_id, timestamp, extractURLParameter(properties.$current_url, 'ph_workflow_run') AS run_id
+            FROM events
+            WHERE event = '$pageview'
+              AND timestamp >= {start} AND timestamp < {end}
+              AND $session_id != ''
+              AND position(properties.$current_url, 'ph_workflow_run=') > 0
+              AND extractURLParameter(properties.$current_url, 'ph_workflow_run') IN {message_ids}
+        )
+        GROUP BY $session_id
+        ORDER BY first_pageview_at DESC, $session_id DESC
+        LIMIT {limit}
+        """,
+        team=team,
+        user=user,
+        placeholders={
+            "start": ast.Constant(value=period.start),
+            "end": ast.Constant(value=period.end + timedelta(days=IMPACT_WINDOW_DAYS)),
+            "message_ids": ast.Constant(value=message_ids),
+            "limit": ast.Constant(value=MAX_IMPACT_SESSIONS + 1),
+        },
+        query_type="transactional_email_impact_session_list",
+        workload=Workload.ONLINE,
+        settings=HogQLGlobalSettings(timeout_overflow_mode="throw"),
+    )
+    return [
+        TransactionalEmailImpactSession(session_id=session_id, message_id=message_id, first_pageview_at=at)
+        for (session_id, message_id, at) in response.results or []
+    ]
 
 
 @frozen

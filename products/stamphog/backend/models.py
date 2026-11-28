@@ -17,7 +17,11 @@ from posthog.models.scoping.product_mixin import ProductTeamModel
 from posthog.models.utils import uuid7
 
 from .facade.enums import (
+    ACTIVE_BROADCAST_REQUEST_STATUSES,
     AudienceReason,
+    BroadcastRequestDeliveryKind,
+    BroadcastRequestSource,
+    BroadcastRequestStatus,
     ChannelResolutionSource,
     DigestRunStatus,
     LlmSkipReason,
@@ -74,6 +78,9 @@ class StamphogRepoConfig(ModelActivityMixin, ProductTeamModel):
     routing_fork_labels = models.JSONField(default=dict, db_default={})
     # Off by default: a clean external review starts a review outside review_mode, which widens when stamphog runs.
     review_on_clean_external_review = models.BooleanField(default=False, db_default=False)
+    broadcast_enabled = models.BooleanField(default=False, db_default=False)
+    broadcast_slack_channel_id = models.CharField(max_length=64, blank=True, default="", db_default="")
+    broadcast_slack_channel_name = models.CharField(max_length=255, blank=True, default="", db_default="")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -451,3 +458,115 @@ class RoutingRunOwner(ProductTeamModel):
 
     def __str__(self) -> str:
         return f"{self.owner} {self.outcome} ({self.reason})"
+
+
+class BroadcastRequest(ProductTeamModel):
+    """A request for a person to review one pull request when stamphog does not approve it.
+
+    It follows the pull request across heads until a person or stamphog approves, or the pull
+    request merges or closes. A pull request has at most one active request, so asking again
+    returns the existing one rather than posting a second message.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid7, editable=False)
+    pull_request = models.ForeignKey(PullRequest, on_delete=models.CASCADE, related_name="broadcast_requests")
+    status = models.CharField(
+        max_length=32, choices=BroadcastRequestStatus.choices, default=BroadcastRequestStatus.PENDING.value
+    )
+    head_sha = models.CharField(max_length=64)
+    # The PostHog user who asked (plain id, no FK: multi-DB product). Null when a Slack user who
+    # asked has no PostHog account.
+    requested_by_user_id = models.BigIntegerField(null=True, blank=True)
+    requested_via = models.CharField(max_length=16, choices=BroadcastRequestSource.choices)
+    requester_slack_user_id = models.CharField(max_length=64, blank=True, default="")
+    requester_github_login = models.CharField(max_length=255, blank=True, default="")
+    # A request from a pull request comment never carries a note, because pull request comments are public.
+    note = models.CharField(max_length=200, blank=True, default="")
+    approved_by_login = models.CharField(max_length=255, blank=True, default="")
+    # The head that already sent its one thread reply to the people looking, so a retry does not reply twice.
+    pinged_head_sha = models.CharField(max_length=64, blank=True, default="")
+    # How many cards the requester caused in the 7 days up to this request's card, that card included.
+    # Set once when the card is first posted, so later edits show the same number. Null until then.
+    requester_card_count = models.PositiveIntegerField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta(ProductTeamModel.Meta):
+        constraints = [
+            # Backs the idempotent create: two requests that race for one pull request cannot both be active.
+            models.UniqueConstraint(
+                fields=["pull_request"],
+                # Sorted, because set order changes between processes and would make makemigrations see a change.
+                condition=Q(status__in=sorted(status.value for status in ACTIVE_BROADCAST_REQUEST_STATUSES)),
+                name="unique_stamphog_active_broadcast_request",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"Broadcast request {self.status} at {self.head_sha[:10]}"
+
+
+class BroadcastRequestDelivery(ProductTeamModel):
+    """Where one Broadcast request was posted, so that it can be edited in place."""
+
+    class State(models.TextChoices):
+        # The row exists before the first post, so a retry locks it and does not post a second time.
+        PENDING = "pending", "Pending"
+        POSTED = "posted", "Posted"
+        FAILED = "failed", "Failed"
+
+    id = models.UUIDField(primary_key=True, default=uuid7, editable=False)
+    # The unique constraint below leads with the request, so it serves the lookups a plain FK index would.
+    broadcast_request = models.ForeignKey(
+        BroadcastRequest, on_delete=models.CASCADE, related_name="deliveries", db_index=False
+    )
+    kind = models.CharField(max_length=32, choices=BroadcastRequestDeliveryKind.choices)
+    # The integration that posted the message. An edit must use the same bot token, because a
+    # message can only be edited by the app that posted it.
+    integration_id = models.BigIntegerField(null=True, blank=True)
+    channel_id = models.CharField(max_length=64, blank=True, default="")
+    message_ts = models.CharField(max_length=32, blank=True, default="")
+    # The post that a card in a thread replies to. Empty for a card posted in the channel itself.
+    thread_ts = models.CharField(max_length=32, blank=True, default="", db_default="")
+    # The link Slack itself returned for the posted message, so the API never builds a Slack URL.
+    permalink = models.CharField(max_length=512, blank=True, default="")
+    state = models.CharField(max_length=16, choices=State.choices, default=State.PENDING)
+    posted_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta(ProductTeamModel.Meta):
+        constraints = [
+            models.UniqueConstraint(
+                fields=["broadcast_request", "kind"], name="unique_stamphog_broadcast_request_delivery"
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.kind} {self.state}"
+
+
+class BroadcastRequestParticipant(ProductTeamModel):
+    """A Slack user who said they will look at a broadcast request."""
+
+    id = models.UUIDField(primary_key=True, default=uuid7, editable=False)
+    # The unique constraint below leads with the request, so it serves the lookups a plain FK index would.
+    broadcast_request = models.ForeignKey(
+        BroadcastRequest, on_delete=models.CASCADE, related_name="participants", db_index=False
+    )
+    slack_user_id = models.CharField(max_length=64)
+    display_name = models.CharField(max_length=255, blank=True, default="")
+    # False after they stop looking. The row stays, so a second click turns it back on rather than adding a row.
+    looking = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta(ProductTeamModel.Meta):
+        constraints = [
+            models.UniqueConstraint(
+                fields=["broadcast_request", "slack_user_id"], name="unique_stamphog_broadcast_request_participant"
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.display_name or self.slack_user_id} ({'looking' if self.looking else 'stopped'})"

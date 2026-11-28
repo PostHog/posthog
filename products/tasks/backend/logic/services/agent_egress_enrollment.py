@@ -14,6 +14,31 @@ from products.tasks.backend.logic.services.sandbox_config import (
 )
 
 
+class AgentEgressScoutTarget(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True, frozen=True)
+
+    team_id: int = Field(gt=0)
+    skill_name: str = Field(min_length=1)
+    repository: str = Field(min_length=1)
+
+
+class AgentEgressScoutCohort(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True, frozen=True)
+
+    scouts: list[AgentEgressScoutTarget] = Field(min_length=1)
+
+    @classmethod
+    def selects(cls, payload: object, *, team_id: int, skill_name: object, repository: str) -> bool:
+        try:
+            cohort = cls.model_validate_json(payload) if isinstance(payload, str) else cls.model_validate(payload)
+        except ValueError:
+            return False
+        return any(
+            target.team_id == team_id and target.skill_name == skill_name and target.repository == repository
+            for target in cohort.scouts
+        )
+
+
 class AgentEgressEnrollmentConfig(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -26,6 +51,7 @@ class AgentEgressEnrollmentConfig(BaseModel):
     renew_relay_certificate: bool = False
     maintain_for_run: bool = False
     publish_git_read_grant: bool = False
+    route_git_reads: bool = False
     duration_seconds: int = Field(default=360, ge=1, le=600)
     concurrency: int = Field(default=1, ge=1, le=32)
     requests_per_round: int = Field(default=1, ge=1, le=256)
@@ -38,6 +64,8 @@ class AgentEgressEnrollmentConfig(BaseModel):
             config = cls.model_validate_json(read_agent_egress_config(Path(settings.AGENT_EGRESS_ENROLLMENT_CONFIG)))
             if config.maintain_for_run and not config.renew_relay_certificate:
                 raise ValueError("Run-lifetime maintenance requires certificate renewal")
+            if config.route_git_reads and not (config.publish_git_read_grant and config.maintain_for_run):
+                raise ValueError("Git routing requires grant publication and run-lifetime maintenance")
             if not config.region or config.region != settings.AGENT_EGRESS_REGION:
                 raise ValueError("Egress region mismatch")
             return config
@@ -47,6 +75,7 @@ class AgentEgressEnrollmentConfig(BaseModel):
 
 class AgentEgressRunConfig(AgentEgressProbeConfig):
     publish_git_read_grant: bool = False
+    route_git_reads: bool = False
 
     @classmethod
     def for_run(cls, *, team_id: int, run_id: UUID, sandbox_id: str) -> AgentEgressRunConfig:

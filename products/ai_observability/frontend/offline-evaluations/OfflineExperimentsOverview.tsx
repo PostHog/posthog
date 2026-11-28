@@ -1,5 +1,6 @@
 import { useActions, useValues } from 'kea'
-import type { ReactNode } from 'react'
+import { router } from 'kea-router'
+import { useState, type ReactNode } from 'react'
 
 import { IconChevronRight, IconRefresh, IconSearch } from '@posthog/icons'
 import {
@@ -26,6 +27,8 @@ import { ResourceTagFilter } from '../components/ResourceTagFilter'
 import { cleanTagFilters } from '../components/resourceTagFilters'
 import { ResourceTags } from '../components/ResourceTags'
 import type { OfflineExperimentReadApi } from '../generated/api.schemas'
+import { comparisonUrl, MAX_COMPARISON_RUNS } from './offlineComparison'
+import { OfflineExperimentScoreValue } from './OfflineExperimentScoreValue'
 import { OfflineExperimentsEmptyState } from './OfflineExperimentsEmptyState'
 import { offlineExperimentsLogic, type OfflineExperimentsLogicProps } from './offlineExperimentsLogic'
 import { OfflineExperimentStatus } from './OfflineExperimentStatus'
@@ -35,9 +38,11 @@ import { OfflineScoreChooser } from './OfflineScoreChooser'
 
 export function OfflineExperimentsOverview({
     navigation,
+    initialSelectedKeys,
     ...props
-}: OfflineExperimentsLogicProps & { navigation?: ReactNode }): JSX.Element {
+}: OfflineExperimentsLogicProps & { navigation?: ReactNode; initialSelectedKeys?: string[] }): JSX.Element {
     const logic = offlineExperimentsLogic(props)
+    const [selectionBarTarget, setSelectionBarTarget] = useState<HTMLDivElement | null>(null)
     const {
         experiments,
         experimentsLoading,
@@ -62,9 +67,29 @@ export function OfflineExperimentsOverview({
             title: 'Experiment',
             key: 'name',
             className: '@max-[50rem]:w-1/3',
-            width: '19%',
             render: (_, experiment) => (
-                <Tooltip title={`${experiment.name} · ${experiment.id}`}>
+                <Tooltip
+                    title={
+                        <div>
+                            <strong>{experiment.name}</strong>
+                            <div>{experiment.id}</div>
+                            <div>
+                                {[
+                                    `${experiment.accepted_item_count.toLocaleString()} items`,
+                                    experiment.visible_scorer_definition_count === null
+                                        ? 'Scorers unavailable'
+                                        : `${experiment.visible_scorer_definition_count.toLocaleString()} visible scorers`,
+                                    experiment.visible_result_count === null
+                                        ? 'Results unavailable'
+                                        : `${experiment.visible_result_count.toLocaleString()} visible results`,
+                                    experiment.visible_scorer_version_count === null
+                                        ? 'Scorer version count unavailable'
+                                        : `${experiment.visible_scorer_version_count.toLocaleString()} visible scorer versions`,
+                                ].join(' · ')}
+                            </div>
+                        </div>
+                    }
+                >
                     <Link
                         to={urls.aiObservabilityOfflineEvaluationExperiment(experiment.id)}
                         className="block font-semibold truncate @max-[50rem]:max-w-40"
@@ -91,9 +116,43 @@ export function OfflineExperimentsOverview({
             ),
         },
         {
+            title: 'Source',
+            key: 'source',
+            className: '@max-[50rem]:hidden',
+            width: '8%',
+            render: (_, experiment) => (
+                <Tooltip title={offlineRunSourceLabel(experiment.run_source)}>
+                    <span className="block truncate">{offlineRunSourceLabel(experiment.run_source)}</span>
+                </Tooltip>
+            ),
+        },
+        {
+            title: 'Experiment score',
+            key: 'experiment_score',
+            width: '18%',
+            isHidden: !experiments?.results.some((run) => run.experiment_score),
+            render: (_, run) => {
+                const score = run.experiment_score
+                if (!score) {
+                    return (
+                        <span className="text-muted" aria-label="No experiment score">
+                            —
+                        </span>
+                    )
+                }
+                return <OfflineExperimentScoreValue score={score} />
+            },
+        },
+        {
+            title: 'Upload',
+            key: 'status',
+            width: '10%',
+            render: (_, experiment) => <OfflineExperimentStatus status={experiment.status} />,
+        },
+        {
             title: 'Author',
             key: 'created_by',
-            width: '18%',
+            width: '10%',
             className:
                 '[&_.profile-package]:max-w-full @max-[50rem]:[&_.profile-package]:max-w-24 [&_.profile-name]:truncate',
             render: (_, experiment) =>
@@ -107,58 +166,11 @@ export function OfflineExperimentsOverview({
             title: 'Execution',
             key: 'execution',
             className: '@max-[50rem]:hidden',
-            width: '14%',
+            width: '10%',
             render: (_, experiment) => (
                 <div className="truncate">
                     <TZLabel time={experiment.started_at} />
                 </div>
-            ),
-        },
-        {
-            title: 'Source',
-            key: 'source',
-            className: '@max-[50rem]:hidden',
-            width: '10%',
-            render: (_, experiment) => (
-                <Tooltip title={offlineRunSourceLabel(experiment.run_source)}>
-                    <span className="block truncate">{offlineRunSourceLabel(experiment.run_source)}</span>
-                </Tooltip>
-            ),
-        },
-        {
-            title: 'Upload',
-            key: 'status',
-            width: '10%',
-            render: (_, experiment) => <OfflineExperimentStatus status={experiment.status} />,
-        },
-        {
-            title: <Tooltip title="Result and scorer counts include only results you can access.">Coverage</Tooltip>,
-            key: 'coverage',
-            className: '@max-[40rem]:hidden',
-            width: '10%',
-            render: (_, experiment) => (
-                <Tooltip
-                    title={[
-                        `${experiment.accepted_item_count.toLocaleString()} items`,
-                        experiment.visible_scorer_definition_count === null
-                            ? 'Scorers unavailable'
-                            : `${experiment.visible_scorer_definition_count.toLocaleString()} scorers`,
-                        experiment.visible_result_count === null
-                            ? 'Results unavailable'
-                            : `${experiment.visible_result_count.toLocaleString()} visible results`,
-                        experiment.visible_scorer_version_count === null
-                            ? 'Scorer version count unavailable'
-                            : `${experiment.visible_scorer_version_count} visible scorer versions`,
-                    ].join(' · ')}
-                >
-                    <span className="block truncate text-xs" translate="no">
-                        {`${experiment.accepted_item_count.toLocaleString()} items · ${
-                            experiment.visible_scorer_definition_count === null
-                                ? 'Scorers unavailable'
-                                : `${experiment.visible_scorer_definition_count.toLocaleString()} scorers`
-                        }`}
-                    </span>
-                </Tooltip>
             ),
         },
     ]
@@ -336,10 +348,15 @@ export function OfflineExperimentsOverview({
                 )}
             </section>
             <section aria-label="Recent experiments" className="space-y-3">
-                <div className="flex flex-wrap justify-between items-center gap-2">
-                    <h2 className="mb-0">Recent experiments</h2>
+                <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-2 gap-y-1 @min-[46rem]:grid-cols-[minmax(0,1fr)_auto_auto]">
+                    <h2 className="mb-0 @min-[32rem]:@max-[46rem]:col-span-full">Recent experiments</h2>
+                    <div
+                        ref={setSelectionBarTarget}
+                        className="flex min-h-9 items-center justify-end @max-[32rem]:order-last @max-[32rem]:col-span-full"
+                    />
                     <LemonInput
                         size="small"
+                        className="@max-[32rem]:w-40"
                         type="search"
                         prefix={<IconSearch />}
                         value={filters.search || ''}
@@ -353,10 +370,34 @@ export function OfflineExperimentsOverview({
                     </LemonBanner>
                 ) : (
                     <LemonTable
-                        className="@max-[50rem]:[&_colgroup]:hidden @max-[50rem]:[&_table]:table-auto"
+                        className="@max-[50rem]:[&_colgroup]:hidden @max-[50rem]:[&_table]:table-auto @max-[50rem]:[&_th:first-child]:w-px"
                         dataSource={experiments?.results || []}
                         columns={columns}
                         rowKey="id"
+                        bulkSelection={{
+                            initialSelectedKeys,
+                            noun: ['experiment', 'experiments'],
+                            barPortalTarget: selectionBarTarget,
+                            getSelectionLabel: ({ selectedCount }) => `${selectedCount} selected`,
+                            rowAriaLabel: (run) => `Select ${run.name}`,
+                            renderActions: ({ selectedKeys, selectedCount }) => (
+                                <LemonButton
+                                    type="primary"
+                                    size="small"
+                                    data-attr="offline-compare-experiments"
+                                    to={comparisonUrl(selectedKeys, router.values.searchParams)}
+                                    disabledReason={
+                                        selectedCount < 2
+                                            ? 'Select at least two experiments'
+                                            : selectedCount > MAX_COMPARISON_RUNS
+                                              ? `Select up to ${MAX_COMPARISON_RUNS} experiments`
+                                              : undefined
+                                    }
+                                >
+                                    Compare experiments
+                                </LemonButton>
+                            ),
+                        }}
                         size="small"
                         loading={experimentsLoading || experiments === null}
                         tableLayout="fixed"

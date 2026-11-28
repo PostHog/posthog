@@ -29,18 +29,12 @@ import { EmailSuppressionService } from './email-suppression.service'
 import { escapeHtml } from './helpers/escape-html'
 import { replaceHrefAnchors } from './helpers/href-anchors'
 import { hasClickTrackingOptOut, hasSesNoTrack } from './helpers/link-tags'
+import { Attribute, readOpeningTagOrCut } from './helpers/opening-tag'
 import { SES_LINK_INDEX_TAG, SesWebhookHandler } from './helpers/ses'
 import { SnsEnvelope } from './helpers/sns-envelope'
 import { EmailTrackingCodeSigner, trackingCodeFormatCounter } from './helpers/tracking-code'
 
 export const PIXEL_GIF = Buffer.from('R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==', 'base64')
-
-const OPENING_TAG =
-    /^<a\b(?:[\t\n\f\r /]+(?![\t\n\f\r /])|[^\t\n\f\r />][^\t\n\f\r />=]*(?![^\t\n\f\r />=])(?:[\t\n\f\r ]*=[\t\n\f\r ]*(?![\t\n\f\r ])(?:"[^"]*"|'[^']*'|(?:[^\t\n\f\r >"'][^\t\n\f\r >]*)?(?![^\t\n\f\r >]))|(?![\t\n\f\r ]*=)))*>/i
-const OPENING_TAG_PLAIN_CUT = /^<a\b[^>]*>/i
-
-// Matches an existing `ses:tags` attribute so our link tag can be merged into its value.
-const SES_TAGS_ATTR_REGEX = /\bses:tags\s*=\s*(?:"([^"]*)"|'([^']*)'|([^'">\s]+))/i
 
 /**
  * How anchors in the email body are prepared for click attribution.
@@ -65,9 +59,12 @@ const addAttributeToOpeningTag = (openingTag: string, attribute: string): string
     return `${withoutSelfClose.trimEnd()} ${attribute}>`
 }
 
-const withSesLinkIndexTag = (openingTag: string, linkIndex: number): string => {
+const replaceAttribute = (html: string, attribute: Attribute, replacement: string): string =>
+    html.slice(0, attribute.start) + replacement + html.slice(attribute.end)
+
+const withSesLinkIndexTag = (openingTag: string, attributes: Attribute[], linkIndex: number): string => {
     const tag = `${SES_LINK_INDEX_TAG}:${linkIndex}`
-    const existing = openingTag.match(SES_TAGS_ATTR_REGEX)
+    const existing = attributes.find(({ name }) => name === 'ses:tags')
     if (!existing) {
         return addAttributeToOpeningTag(openingTag, `ses:tags="${tag}"`)
     }
@@ -75,8 +72,8 @@ const withSesLinkIndexTag = (openingTag: string, linkIndex: number): string => {
     // `ses:tags` would silently discard whichever set loses. Merge into the author's existing
     // value instead so both their tags and ours reach SES. SES separates pairs with `;` and
     // allows only `0-9 A-Z a-z - _` in a value, so any other separator makes one malformed tag.
-    const value = existing[1] ?? existing[2] ?? existing[3] ?? ''
-    return openingTag.replace(SES_TAGS_ATTR_REGEX, () => `ses:tags="${value ? `${value};` : ''}${tag}"`)
+    const value = (existing.value ?? '').replaceAll('"', '&quot;')
+    return replaceAttribute(openingTag, existing, `ses:tags="${value ? `${value};` : ''}${tag}"`)
 }
 
 const trackingEventsCounter = new Counter({
@@ -236,6 +233,7 @@ export const addTrackingToEmail = (
     // on every send, which is what makes counts comparable across recipients.
     let anchorIndex = 0
     const allLinksOptedOut = !isClickTrackingEnabled(invocation)
+    const redirectUrls = new Map<string, string>()
 
     html = replaceHrefAnchors(html, ({ html: m, href: rawHref }) => {
         const linkIndex = anchorIndex++
@@ -249,7 +247,8 @@ export const addTrackingToEmail = (
         // app deeplinks resolve - routing through our cross-domain redirect breaks them.
         // Match only the opening <a> tag so a marker in the link's inner HTML (a child
         // element's attribute or literal link text) can't silently disable tracking.
-        const openingTag = m.match(OPENING_TAG)?.[0] ?? m.match(OPENING_TAG_PLAIN_CUT)?.[0] ?? ''
+        const { attributes, end } = readOpeningTagOrCut(m, '<a'.length)
+        const openingTag = m.slice(0, end + 1)
         const optedOut = allLinksOptedOut || hasClickTrackingOptOut(openingTag)
 
         if (mode === 'ses') {
@@ -262,16 +261,18 @@ export const addTrackingToEmail = (
                     ? m
                     : addAttributeToOpeningTag(openingTag, 'ses:no-track') + m.slice(openingTag.length)
             }
-            return withSesLinkIndexTag(openingTag, linkIndex) + m.slice(openingTag.length)
+            return withSesLinkIndexTag(openingTag, attributes, linkIndex) + m.slice(openingTag.length)
         }
 
         if (optedOut) {
             return m
         }
-        const tracked = signer.redirectUrl(trackingInvocation, href, isTest)
+        const tracked = redirectUrls.get(href) ?? signer.redirectUrl(trackingInvocation, href, isTest)
+        redirectUrls.set(href, tracked)
 
         // replace just the href in the original tag to preserve other attributes
-        return m.replace(/\bhref\s*=\s*(?:"[^"]*"|'[^']*'|[^'">\s]+)/i, `href="${tracked}"`)
+        const hrefAttribute = attributes.find(({ name, value }) => name === 'href' && value !== null)!
+        return replaceAttribute(m, hrefAttribute, `href="${tracked}"`)
     })
 
     if (mode === 'ses') {

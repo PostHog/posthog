@@ -54,6 +54,7 @@ import {
     recommendationDataGaps,
     recommendationsShownState,
     recommendationsSource,
+    resolved,
     sectionRecommendations,
     serverDataGaps,
     sumImpact,
@@ -112,9 +113,11 @@ export interface recommendationsLogicValues {
     resolutionOverrides: ResolutionOverrides
     pendingKeys: string[]
     showResolved: boolean
+    showingResolved: boolean
     disclaimer: string | undefined
     recommendations: MarketingAnalyticsRecommendation[]
     activeRecommendations: MarketingAnalyticsRecommendation[]
+    resolvedRecommendations: MarketingAnalyticsRecommendation[]
     resolvedCount: number
     detectedCount: number
     totals: RecommendationTotal[]
@@ -285,7 +288,12 @@ export const recommendationsLogic = kea<recommendationsLogicType>([
         ],
         showResolved: [
             false,
-            { setShowResolved: (_, { showResolved }) => showResolved, closeRecommendations: () => false },
+            {
+                setShowResolved: (_, { showResolved }) => showResolved,
+                // The resolved recommendations replace the rule tables, so picking a rule goes back to its table.
+                selectRule: () => false,
+                closeRecommendations: () => false,
+            },
         ],
         selectedRule: [
             null as MarketingAnalyticsRecommendationRule | null,
@@ -389,12 +397,21 @@ export const recommendationsLogic = kea<recommendationsLogicType>([
             (recommendations: MarketingAnalyticsRecommendation[]): MarketingAnalyticsRecommendation[] =>
                 unresolved(recommendations),
         ],
+        resolvedRecommendations: [
+            (s) => [s.recommendations],
+            (recommendations: MarketingAnalyticsRecommendation[]): MarketingAnalyticsRecommendation[] =>
+                resolved(recommendations),
+        ],
         resolvedCount: [
             (s) => [s.recommendations, s.activeRecommendations],
             (
                 recommendations: MarketingAnalyticsRecommendation[],
                 activeRecommendations: MarketingAnalyticsRecommendation[]
             ): number => recommendations.length - activeRecommendations.length,
+        ],
+        showingResolved: [
+            (s) => [s.showResolved, s.resolvedCount],
+            (showResolved: boolean, resolvedCount: number): boolean => showResolved && resolvedCount > 0,
         ],
         detectedCount: [
             (s) => [s.recommendations],
@@ -410,20 +427,17 @@ export const recommendationsLogic = kea<recommendationsLogicType>([
         activeGroups: [
             (s) => [s.recommendations],
             (recommendations: MarketingAnalyticsRecommendation[]): RecommendationGroup[] =>
-                groupRecommendations(recommendations, false, null),
+                groupRecommendations(recommendations, null),
         ],
         groups: [
-            (s) => [s.recommendations, s.activeRecommendations, s.resolvedCount, s.showResolved, s.selectedRule],
+            (s) => [s.recommendations, s.activeRecommendations, s.selectedRule],
             (
                 recommendations: MarketingAnalyticsRecommendation[],
                 activeRecommendations: MarketingAnalyticsRecommendation[],
-                resolvedCount: number,
-                showResolved: boolean,
                 selectedRule: MarketingAnalyticsRecommendationRule | null
             ): RecommendationGroup[] =>
                 groupRecommendations(
                     recommendations,
-                    showResolved && resolvedCount > 0,
                     // With nothing left anywhere, the modal says so for every rule instead of one empty rule.
                     activeRecommendations.length > 0 ? selectedRule : null
                 ),
@@ -456,7 +470,7 @@ export const recommendationsLogic = kea<recommendationsLogicType>([
         selectedGroupTotals: [
             (s) => [s.selectedGroup],
             (selectedGroup: RecommendationGroup | null): RecommendationTotal[] =>
-                sumImpact(unresolved(selectedGroup?.recommendations ?? [])),
+                sumImpact(selectedGroup?.recommendations ?? []),
         ],
         shownState: [
             (s) => [
@@ -543,7 +557,7 @@ export const recommendationsLogic = kea<recommendationsLogicType>([
             actions.loadData('force_async')
         },
         resolutionRemoved: () => {
-            // With nothing resolved the toggle is hidden, so a later dismiss must hide its row again.
+            // With nothing resolved the toggle is hidden, so a later dismiss must not open the resolved view again.
             if (values.showResolved && values.resolvedCount === 0) {
                 actions.setShowResolved(false)
             }

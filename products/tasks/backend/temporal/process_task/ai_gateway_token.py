@@ -2,10 +2,10 @@
 
 Routed runs authenticate with a short-lived `phe_` token minted here from the worker's
 gateway credential: pinned product and on-behalf-of team, per-run spend cap, one internal
-wallet. Minting is best-effort and the matching must agree with `resolveGatewayTarget` in
+wallet. The matching must agree with `resolveGatewayTarget` in
 packages/agent/packages/agent/src/utils/gateway.ts; the agent routes to the Go gateway
-only when the product is allowlisted AND a token is present, so a mint failure or matcher
-disagreement degrades ordinary runs to the Python gateway. Private trials fail closed.
+only when the product is allowlisted AND a token is present. A run that gets no token
+fails at provisioning with `gateway_token_unavailable`.
 """
 
 import time
@@ -132,8 +132,8 @@ AI_CREDITS_BILLED_PRODUCTS = frozenset(p for p, bucket in PRODUCT_CREDIT_BUCKET.
 
 _PRODUCT_ALLOWED_MODELS = PRODUCT_ALLOWED_MODELS
 
-# Minting is optional (no token = Python-gateway fallback), so the total budget
-# stays a few seconds: 2 attempts x 3s + one short backoff, not a 30s provisioning stall.
+# Bounded to a few seconds (2 attempts x 3s + one short backoff) so a gateway outage fails
+# provisioning fast instead of stalling it.
 _MINT_ATTEMPTS = 2
 _MINT_TIMEOUT_SECONDS = 3
 

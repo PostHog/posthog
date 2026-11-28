@@ -10,14 +10,17 @@ import { parseJSON } from '~/common/utils/json-parse'
 import { internalFetch } from '~/common/utils/request'
 import { waitForExpect } from '~/tests/helpers/expectations'
 
+import { load } from '../cards'
 import { ValveEntry } from '../cards/schema'
 import { FakeCloud, FakeCloudOptions } from '../cloud/fake-cloud'
 import { pinClockAfterMinuteStart } from '../cloud/fixtures'
 import { Actuation, createEnvironment } from '../environment/environment'
 import { Role } from '../environment/roles'
+import type { RoleTermination } from '../environment/supervisor'
 import { Queue } from '../probe/cyclotron-probe'
 import type { WriterSample } from '../probe/writer-probe'
 import { ProviderEdge, TruthPage, startProviderEdge } from '../provider-edge'
+import { EdgeProcess, startEdgeProcess } from '../provider-edge/process'
 import { Truth } from '../provider-edge/truth'
 import { ValveContext, createValves } from './valves'
 
@@ -250,26 +253,83 @@ describe('valves', () => {
         return { cloud, ...run, writerNow, commits, environment, stalledOnce }
     }
 
-    it.each<[string, Partial<FakeCloudOptions>, boolean, Record<string, unknown>]>([
-        [
-            'fails the run cluster over and back, and journals each recovery stage',
-            {},
-            true,
-            {
-                intentAt: expect.any(String),
-                appliedAt: expect.any(String),
-                observedAt: expect.any(String),
-                releasedAt: expect.any(String),
-                observations: STAGES,
-                releaseIntentAt: expect.any(String),
-                releaseObservations: STAGES,
-            },
-        ],
+    const RECOVERED = {
+        intentAt: expect.any(String),
+        appliedAt: expect.any(String),
+        observedAt: expect.any(String),
+        releasedAt: expect.any(String),
+        observations: STAGES,
+        releaseIntentAt: expect.any(String),
+        releaseObservations: STAGES,
+    }
+
+    it.each<[string, Partial<FakeCloudOptions>, boolean, Record<string, unknown>, ValveEntry['dose']?]>([
+        ['fails the run cluster over and back, and journals each recovery stage', {}, true, RECOVERED],
         [
             'records no intent for a failover its preconditions refused',
             { liveReaderAcu: { maxima: [1, 1, 3, 1, 1] } },
             true,
             { error: expect.stringMatching(/^pg\.failover refused: .* was above its 2.5 ACU idle limit/) },
+        ],
+        [
+            'fails a reader above its idle limit over and back when the dose takes a warm reader',
+            { liveReaderAcu: { maxima: [3, 3, 3, 3, 3] } },
+            true,
+            RECOVERED,
+            { warmReader: true },
+        ],
+        [
+            'records no intent for a warm-reader failover on a reader whose oldest lagging minute averaged above its maximum',
+            { liveReaderAcu: { maxima: [33, 2, 2, 2, 2], lagMinutes: 1 } },
+            true,
+            { error: expect.stringMatching(/^pg\.failover refused: .* was above its 32 ACU maximum/) },
+            { warmReader: true },
+        ],
+        [
+            'records no intent for a warm-reader failover on a reader whose minute peaked above its maximum',
+            { liveReaderAcu: { maxima: [2, 2, 2, 40, 2], averages: [2, 2, 2, 3, 2] } },
+            true,
+            {
+                error: expect.stringMatching(
+                    /^pg\.failover refused: .* was above its 32 ACU maximum in its last 5 minutes: 40 at /
+                ),
+            },
+            { warmReader: true },
+        ],
+        [
+            'records no intent for a warm-reader failover on a reader whose newest minute peaked above its maximum with no average',
+            { liveReaderAcu: { maxima: [2, 2, 2, 2, 2, 40], averages: [2, 2, 2, 2, 2, null] } },
+            true,
+            {
+                error: expect.stringMatching(
+                    /^pg\.failover refused: .*'s capacity read has no average or no maximum for .*; .* was above its 32 ACU maximum in its last 5 minutes: 40 at /
+                ),
+            },
+            { warmReader: true },
+        ],
+        [
+            'records no intent for a failover on a reader whose minute averaged above its own maximum',
+            { liveReaderAcu: { maxima: [1, 1, 1, 1, 1], averages: [1, 1, 2, 1, 1] } },
+            true,
+            {
+                error: expect.stringMatching(
+                    /^pg\.failover refused: .*'s capacity read has an average above its maximum at /
+                ),
+            },
+        ],
+        [
+            'fails a warm reader at its maximum over and back',
+            { liveReaderAcu: { maxima: [32, 32, 32, 32, 32] } },
+            true,
+            RECOVERED,
+            { warmReader: true },
+        ],
+        [
+            'records no intent for a warm-reader failover whose capacity read has fewer values than timestamps',
+            { shortValuesOf: 'Average' },
+            true,
+            { error: expect.stringMatching(/^pg\.failover refused: .*'s capacity read has 5 timestamps and 4 values/) },
+            { warmReader: true },
         ],
         [
             'records no intent for a failover whose capacity read has fewer values than timestamps',
@@ -298,12 +358,12 @@ describe('valves', () => {
             },
         ],
         ['refuses a failover outside a run host', {}, false, { error: 'pg.failover runs only on a run host' }],
-    ])('%s', async (_story, options, onRunHost, recorded) => {
+    ])('%s', async (_story, options, onRunHost, recorded, dose = {}) => {
         const valves = createValves({ pollMs: 5 })
         const { context } = stackOf()
         const run = runClusterOf(options)
 
-        await valves.start([FAILOVER], {
+        await valves.start([{ ...FAILOVER, dose }], {
             ...context,
             commits: run.commits,
             manifest: onRunHost ? run.manifest : undefined,
@@ -376,6 +436,83 @@ describe('valves', () => {
                     releasedAt: expect.any(String),
                 },
             ])
+        }
+    )
+
+    it.each([
+        ['its own grace', { grace: '20s' }, undefined, true, { releasedAt: expect.any(String), error: undefined }],
+        ['the grace of its profile', {}, 20_000, true, { releasedAt: expect.any(String), error: undefined }],
+        [
+            'its own grace over the one its profile names',
+            { grace: '20s' },
+            45_000,
+            true,
+            { releasedAt: expect.any(String), error: undefined },
+        ],
+        [
+            'its own grace, keeping the exit of a role that outlived its SIGKILL unreleased',
+            { grace: '20s' },
+            undefined,
+            false,
+            { error: 'cdp-cyclotron-worker-email did not exit 10s after its grace', releasedAt: undefined },
+        ],
+    ])(
+        'terminates the role with %s and records how the role exited',
+        async (_story, dose, terminationGraceMs, exits, expected) => {
+            const valves = createValves({ pollMs: 5 })
+            const stack = stackOf()
+            const signalledMs = Date.parse('2026-01-01T00:00:00.000Z')
+            const iso = (ms: number): string => new Date(ms).toISOString()
+            let observedNow = (): void => undefined
+            const observing = new Promise<void>((resolve) => (observedNow = resolve))
+            const context: ValveContext = {
+                ...stack.context,
+                terminationGraceMs,
+                environment: {
+                    actuate: (action) => {
+                        if (action.kind !== 'terminate') {
+                            return Promise.reject(new Error(`unexpected ${action.kind}`))
+                        }
+                        const killedMs = signalledMs + action.graceMs
+                        let exit: RoleTermination = { signalledAt: iso(signalledMs) }
+                        return Promise.resolve({
+                            observed: () => {
+                                observedNow()
+                                return Promise.resolve(true)
+                            },
+                            release: () => {
+                                exit = exits
+                                    ? {
+                                          ...exit,
+                                          killedAt: iso(killedMs),
+                                          exitedAt: iso(killedMs + 1000),
+                                          code: null,
+                                          signal: 'SIGKILL',
+                                      }
+                                    : { ...exit, killedAt: iso(killedMs) }
+                                return exits
+                                    ? Promise.resolve()
+                                    : Promise.reject(new Error(`${EMAIL_WORKER} did not exit 10s after its grace`))
+                            },
+                            journal: () => ({ exit }),
+                        })
+                    },
+                },
+            }
+
+            await valves.start([{ ...kill({ at: '0ms' }), valve: 'role.terminate', dose }], context)
+            await observing
+            await valves.releaseAll()
+
+            const { exit, error, releasedAt } = valves.timeline()[0]
+            expect({ exit, error, releasedAt }).toEqual({
+                exit: {
+                    signalledAt: '2026-01-01T00:00:00.000Z',
+                    killedAt: '2026-01-01T00:00:20.000Z',
+                    ...(exits && { exitedAt: '2026-01-01T00:00:21.000Z', code: null, signal: 'SIGKILL' }),
+                },
+                ...expected,
+            })
         }
     )
 
@@ -622,12 +759,12 @@ describe('valves', () => {
             }
         }
 
-        const send = (abortSignal?: AbortSignal): Promise<string> =>
+        const send = (abortSignal?: AbortSignal, to = 'run-1-1@www.example.com'): Promise<string> =>
             ses
                 .send(
                     new SendEmailCommand({
                         FromEmailAddress: 'flows@www.example.com',
-                        Destination: { ToAddresses: ['run-1-1@www.example.com'] },
+                        Destination: { ToAddresses: [to] },
                         Content: { Simple: { Subject: { Data: 'Hello' }, Body: { Text: { Data: 'Hello' } } } },
                     }),
                     { abortSignal }
@@ -652,6 +789,184 @@ describe('valves', () => {
             expect(valves.timeline()[0].error).toBeUndefined()
         })
 
+        it('picks the units a share dose hits from the seed override, whatever order they arrive in, and lists them', async () => {
+            const ordinals = Array.from({ length: 20 }, (_, index) => index + 1)
+            const firedIn = async (seed: number, arriving: number[]) => {
+                const { card } = load(path.join(__dirname, '../cards/email-worker-killed-after-accept.yaml'), { seed })
+                const runId = randomUUID()
+                const valves = createValves({ pollMs: 5 })
+                await valves.start(
+                    [
+                        {
+                            valve: 'ses.reject',
+                            target: 'ses',
+                            dose: { type: 'rejected', share: 0.5 },
+                            at: '0ms',
+                            for: '1m',
+                        },
+                    ],
+                    { ...onEdge(), seed: card.seed }
+                )
+                await waitForExpect(() => expect(valves.timeline()[0].appliedAt).toBeDefined(), 2000, 5)
+                const outcomes = new Map<number, string[]>()
+                for (const ordinal of [...arriving, ...arriving]) {
+                    const outcome = await send(undefined, `${runId}-${ordinal}@www.example.com`)
+                    outcomes.set(ordinal, [...(outcomes.get(ordinal) ?? []), outcome])
+                }
+                await valves.releaseAll()
+                const [fired] = valves.fired()
+                return {
+                    fired,
+                    outcomes: ordinals.map((ordinal) => outcomes.get(ordinal)!),
+                    rejected: ordinals.filter((ordinal) => outcomes.get(ordinal)!.includes('MessageRejected')),
+                    hit: fired.unitIds?.map((unitId) => Number(unitId.slice(runId.length + 1))).sort((a, b) => a - b),
+                }
+            }
+
+            const first = await firedIn(6, ordinals)
+            const reordered = await firedIn(6, [...ordinals].reverse())
+            const otherSeed = await firedIn(7, ordinals)
+
+            expect(first.fired).toEqual({
+                valve: 'ses.reject',
+                target: 'ses',
+                dose: { type: 'rejected', share: 0.5 },
+                requestedAt: expect.any(String),
+                intentAt: expect.any(String),
+                appliedAt: expect.any(String),
+                observedAt: expect.any(String),
+                releasedAt: expect.any(String),
+                unitIds: expect.any(Array),
+            })
+            expect(first.hit).toEqual(first.rejected)
+            expect(first.rejected.length).toBeGreaterThan(0)
+            expect(first.rejected.length).toBeLessThan(ordinals.length)
+            expect(first.outcomes.some(([once, again]) => once !== again)).toBe(true)
+            expect(reordered.outcomes).toEqual(first.outcomes)
+            expect(otherSeed.outcomes).not.toEqual(first.outcomes)
+        })
+
+        it('lists a unit the fault hits while the valve releases it', async () => {
+            let late: string | undefined
+            const valves = createValves({ pollMs: 5 })
+            await valves.start(
+                [{ valve: 'ses.reject', target: 'ses', dose: { type: 'rejected', share: 1 }, at: '0ms', for: '1m' }],
+                {
+                    ...onEdge(),
+                    seed: 1,
+                    environment: {
+                        actuate: async (action) => {
+                            const hold = await onEdge().environment.actuate(action)
+                            return {
+                                ...hold,
+                                release: async () => {
+                                    late = await send(undefined, 'run-1-2@www.example.com')
+                                    await hold.release()
+                                },
+                            }
+                        },
+                    },
+                }
+            )
+            await waitForExpect(() => expect(valves.timeline()[0].appliedAt).toBeDefined(), 2000, 5)
+            const first = await send()
+            await valves.releaseAll()
+
+            expect({ first, late, unitIds: valves.fired()[0].unitIds }).toEqual({
+                first: 'MessageRejected',
+                late: 'MessageRejected',
+                unitIds: ['run-1-1', 'run-1-2'],
+            })
+        })
+
+        describe('through an edge process', () => {
+            let edgeProcess: EdgeProcess
+            const onEdgeProcess = (): ValveContext => ({
+                ...onEdge(),
+                environment: {
+                    actuate: (action) =>
+                        action.kind === 'edge.fault'
+                            ? edgeProcess.hold(action.rule)
+                            : Promise.reject(new Error(`no ${action.kind} here`)),
+                },
+            })
+
+            beforeEach(async () => {
+                edgeProcess = await startEdgeProcess({ port: 0 })
+            })
+
+            afterEach(async () => {
+                await edgeProcess.close()
+            })
+
+            it('records why a fault lists no units when its edge process is gone after release', async () => {
+                const valves = createValves({ pollMs: 5 })
+                await valves.start(
+                    [
+                        {
+                            valve: 'ses.reject',
+                            target: 'ses',
+                            dose: { type: 'rejected', share: 1 },
+                            at: '0ms',
+                            for: '1m',
+                        },
+                    ],
+                    {
+                        ...onEdgeProcess(),
+                        environment: {
+                            actuate: async (action) => {
+                                const hold = await onEdgeProcess().environment.actuate(action)
+                                return {
+                                    ...hold,
+                                    release: async () => {
+                                        await hold.release()
+                                        await edgeProcess.close()
+                                    },
+                                }
+                            },
+                        },
+                    }
+                )
+                await waitForExpect(() => expect(valves.timeline()[0].appliedAt).toBeDefined(), 2000, 5)
+                await valves.releaseAll()
+
+                expect(valves.fired()).toEqual([
+                    expect.objectContaining({
+                        error: expect.stringContaining('unit ids unreadable: the provider edge process exited'),
+                        releasedAt: expect.any(String),
+                    }),
+                ])
+                expect(valves.fired()[0].unitIds).toBeUndefined()
+            })
+
+            it('lists a fault whose edge process was gone before it applied, with its error', async () => {
+                await edgeProcess.close()
+                const valves = createValves({ pollMs: 5 })
+                await valves.start(
+                    [
+                        {
+                            valve: 'ses.reject',
+                            target: 'ses',
+                            dose: { type: 'rejected', share: 1 },
+                            at: '0ms',
+                            for: '1m',
+                        },
+                    ],
+                    onEdgeProcess()
+                )
+                await waitForExpect(() => expect(valves.timeline()[0].error).toBeDefined(), 2000, 5)
+                await valves.releaseAll()
+
+                expect(valves.fired()).toEqual([
+                    expect.objectContaining({
+                        valve: 'ses.reject',
+                        intentAt: expect.any(String),
+                        error: expect.any(String),
+                    }),
+                ])
+            })
+        })
+
         it.each([
             ['rejected', 'MessageRejected'],
             ['bounce', 'sent'],
@@ -667,9 +982,11 @@ describe('valves', () => {
             expect({
                 outcomes,
                 faults: truth.records.filter(({ kind }) => kind === 'ses.send').map(({ fault }) => fault),
+                dose: valves.fired()[0].dose,
             }).toEqual({
                 outcomes: [outcome, outcome],
                 faults: ['ses.reject', 'ses.reject'],
+                dose: { type, share: 1 },
             })
         })
 
@@ -767,6 +1084,37 @@ describe('valves', () => {
                 observed: valves.timeline()[0].observedAt !== undefined,
                 next: await send(),
             }).toEqual({ answered: outcome, sentWhenKilled, error, observed: running, next: 'sent' })
+        })
+
+        it('kills after one seeded SES acceptance and records the selected unit', async () => {
+            const run = async (arriving: number[], seed?: number) => {
+                const { card } = load(path.join(__dirname, '../cards/email-worker-killed-after-accept.yaml'), { seed })
+                const runId = randomUUID()
+                const valves = createValves({ pollMs: 5 })
+                const stack = withWorker(true)
+                await valves.start([{ ...card.valves[0], at: '0ms' }], { ...stack.context, seed: card.seed })
+                await stack.held
+                const aborted: number[] = []
+                for (const ordinal of arriving) {
+                    const outcome = await send(
+                        stack.worker.aborted ? undefined : stack.worker,
+                        `${runId}-${ordinal}@www.example.com`
+                    )
+                    if (outcome === 'AbortError') {
+                        aborted.push(ordinal)
+                    }
+                }
+                await valves.releaseAll()
+                return {
+                    aborted,
+                    hit: valves.fired()[0]?.unitIds?.map((id) => Number(id.slice(runId.length + 1))),
+                    kills: stack.sentWhenKilled.length,
+                }
+            }
+
+            expect(await run([3, 1, 4, 5, 2])).toEqual({ aborted: [1], hit: [1], kills: 1 })
+            expect(await run([4, 3, 1, 5, 2], 8)).toEqual({ aborted: [1], hit: [1], kills: 1 })
+            expect(await run([3, 1, 4, 5, 2], 13)).toEqual({ aborted: [2], hit: [2], kills: 1 })
         })
 
         it('holds no send and kills nothing before its arming delay passes', async () => {

@@ -1158,11 +1158,21 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                 return
 
             if lock_result is not None and lock_result.deferred:
-                workflow.logger.info(
-                    "Run deferred because this sync keeps failing",
-                    extra={"schema_id": str(inputs.external_data_schema_id)},
-                )
-                get_run_deferred_metric().add(1)
+                # Logs and metrics only, so the command sequence is the same for every reason.
+                if lock_result.stood_down_reason:
+                    workflow.logger.info(
+                        "Run stood down before the lock",
+                        extra={
+                            "schema_id": str(inputs.external_data_schema_id),
+                            "reason": lock_result.stood_down_reason,
+                        },
+                    )
+                else:
+                    workflow.logger.info(
+                        "Run deferred because this sync keeps failing",
+                        extra={"schema_id": str(inputs.external_data_schema_id)},
+                    )
+                    get_run_deferred_metric().add(1)
                 return
 
             if lock_result is None or not lock_result.acquired:

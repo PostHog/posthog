@@ -10,6 +10,7 @@ from posthog.hogql.database.trino_unnest_table import TRINO_UNNEST_TABLE_NAME
 from posthog.hogql.errors import QueryError
 from posthog.hogql.functions.mapping import find_hogql_aggregation
 from posthog.hogql.resolver_utils import lookup_field_by_name
+from posthog.hogql.transforms.trino.alias_layers import TrinoSiblingAliasLayerer
 from posthog.hogql.transforms.trino.any_join import lower_trino_any_joins
 from posthog.hogql.transforms.trino.asof_join import TrinoAsOfJoinLowerer
 from posthog.hogql.transforms.trino.errors import TrinoLoweringError
@@ -608,6 +609,14 @@ class _RepeatedInlineAliasHider(TraversingVisitor):
         super().visit_alias(node)
 
 
+def _named_projections(projections: list[ast.Expr]) -> dict[str, ast.Alias]:
+    named: dict[str, ast.Alias] = {}
+    for projection in reversed(projections):
+        if isinstance(projection, ast.Alias) and (projection.alias not in named or not projection.hidden):
+            named[projection.alias] = projection
+    return named
+
+
 class TrinoPhysicalProjectionAliasLowerer(CloningVisitor):
     def __init__(self, context: HogQLContext) -> None:
         super().__init__(clear_types=False)
@@ -615,8 +624,11 @@ class TrinoPhysicalProjectionAliasLowerer(CloningVisitor):
 
     def visit_select_query(self, node: ast.SelectQuery) -> ast.SelectQuery:
         lowered = super().visit_select_query(node)
+        named_projections = _named_projections(lowered.select)
         for projection in lowered.select:
             if not isinstance(projection, ast.Alias) or not projection.hidden:
+                continue
+            if named_projections[projection.alias] is not projection:
                 continue
             expression = projection.expr
             while isinstance(expression, ast.Alias) and expression.hidden:
@@ -1371,6 +1383,7 @@ def normalize_trino_ast(node: ast.AST, context: HogQLContext, *, physical_names:
     lowered = TrinoAsOfJoinLowerer().visit(lowered)
     lowered = lower_trino_any_joins(lowered, physical_names=physical_names)
     lowered = lower_trino_query_wrappers(lowered, budget)
+    lowered = TrinoSiblingAliasLayerer().visit(lowered)
     lowered = TrinoSelectAliasLowerer(context, budget).visit(lowered)
     _RepeatedInlineAliasHider().visit(lowered)
     lowered = TrinoPhysicalProjectionAliasLowerer(context).visit(lowered)

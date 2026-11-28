@@ -175,6 +175,114 @@ class TestFanOut:
         assert [(row["workflowId"], row["testRunId"], row["id"]) for row in result.rows] == [("w1", "r1", "c1")]
 
 
+class TestDataTables:
+    def test_data_tables_sort_on_created_at(self) -> None:
+        result = _driver().run("data_tables", [_response([{"id": "t1", "name": "Leads"}], next_cursor=None)])
+
+        assert result.raised is None
+        assert result.queries[0] == {"sortBy": ("createdAt:asc",), "limit": ("250",)}
+
+    def test_columns_read_a_bare_array_per_table(self) -> None:
+        result = _driver().run(
+            "data_table_columns",
+            [
+                _response([{"id": "t1"}, {"id": "t2"}], next_cursor=None),
+                ScriptedResponse(json=[{"id": "c1", "name": "email", "type": "string", "dataTableId": "t1"}]),
+                ScriptedResponse(json=[]),
+            ],
+        )
+
+        assert result.raised is None
+        assert [path.rsplit("/api/v1", 1)[-1] for path in result.paths[1:]] == [
+            "/data-tables/t1/columns",
+            "/data-tables/t2/columns",
+        ]
+        assert result.queries[1] == {}
+        assert [(row["dataTableId"], row["id"]) for row in result.rows] == [("t1", "c1")]
+
+    @parameterized.expand(
+        [
+            (
+                "user_columns_move_into_data",
+                {
+                    "id": 1,
+                    "createdAt": "2026-01-01T00:00:00.000Z",
+                    "updatedAt": "2026-01-02T00:00:00.000Z",
+                    "email": "a@example.com",
+                    "score": 3,
+                },
+                {
+                    "dataTableId": "t1",
+                    "id": 1,
+                    "createdAt": "2026-01-01T00:00:00.000Z",
+                    "updatedAt": "2026-01-02T00:00:00.000Z",
+                    "data": {"email": "a@example.com", "score": 3},
+                },
+            ),
+            (
+                "table_without_user_columns",
+                {"id": 2, "createdAt": "2026-01-01T00:00:00.000Z", "updatedAt": "2026-01-01T00:00:00.000Z"},
+                {
+                    "dataTableId": "t1",
+                    "id": 2,
+                    "createdAt": "2026-01-01T00:00:00.000Z",
+                    "updatedAt": "2026-01-01T00:00:00.000Z",
+                    "data": {},
+                },
+            ),
+            (
+                "null_user_value_is_kept",
+                {
+                    "id": 3,
+                    "createdAt": "2026-01-01T00:00:00.000Z",
+                    "updatedAt": "2026-01-01T00:00:00.000Z",
+                    "notes": None,
+                },
+                {
+                    "dataTableId": "t1",
+                    "id": 3,
+                    "createdAt": "2026-01-01T00:00:00.000Z",
+                    "updatedAt": "2026-01-01T00:00:00.000Z",
+                    "data": {"notes": None},
+                },
+            ),
+        ]
+    )
+    def test_rows_nest_user_columns(self, _name, api_row, expected) -> None:
+        result = _driver().run(
+            "data_table_rows",
+            [
+                _response([{"id": "t1"}], next_cursor=None),
+                ScriptedResponse(json={"nextCursor": None, "data": [api_row]}),
+            ],
+        )
+
+        assert result.raised is None
+        assert result.paths[1].endswith("/data-tables/t1/rows")
+        assert result.queries[1] == {"limit": ("250",)}
+        assert result.rows == [expected]
+
+
+class TestCommunityPackages:
+    def test_reads_one_bare_array_page(self) -> None:
+        packages = [
+            {"packageName": "n8n-nodes-example", "installedVersion": "1.2.0", "installedNodes": []},
+            {"packageName": "n8n-nodes-other", "installedVersion": "0.1.0", "installedNodes": []},
+        ]
+        result = _driver().run("community_packages", [ScriptedResponse(json=packages)])
+
+        assert result.raised is None
+        assert result.rows == packages
+        assert len(result.requests) == 1
+        assert result.queries[0] == {}
+
+    def test_non_list_body_raises(self) -> None:
+        result = _driver().run("community_packages", [ScriptedResponse(json={"message": "unexpected"})])
+
+        assert isinstance(result.raised, ValueError)
+        assert "Required a list response body" in str(result.raised)
+
+
 def _summary(total: int) -> ScriptedResponse:
     return ScriptedResponse(json={"total": {"value": total, "deviation": None, "unit": "count"}})
 

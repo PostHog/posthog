@@ -1,7 +1,12 @@
 from posthog.api import sharing
 from posthog.api.routing import RouterRegistry
 
-from products.dashboards.backend.presentation.views import dashboard, dashboard_templates, dashboard_v2
+from products.dashboards.backend.presentation.views import (
+    dashboard,
+    dashboard_templates,
+    dashboard_v2,
+    dashboard_v2_boards,
+)
 
 
 def register_routes(routers: RouterRegistry) -> None:
@@ -16,6 +21,12 @@ def register_routes(routers: RouterRegistry) -> None:
         ["project_id"],
     )
 
+    routers.projects.register(
+        r"dashboard_v2/boards",
+        dashboard_v2_boards.DashboardV2BoardViewSet,
+        "project_dashboard_v2_boards",
+        ["team_id"],
+    )
     routers.projects.register(r"dashboard_v2", dashboard_v2.DashboardV2ViewSet, "project_dashboard_v2", ["team_id"])
 
     dashboards_router = routers.projects.register(

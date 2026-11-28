@@ -1,3 +1,4 @@
+import uuid
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 from queue import Queue
@@ -8,6 +9,7 @@ from unittest.mock import patch
 
 from django.db import close_old_connections, connection, transaction
 
+from products.error_tracking.backend.logic.issue_changes import Status, StatusChanged, record_ingestion_change
 from products.error_tracking.backend.logic.issue_mutations import (
     assign_issue,
     bulk_update_issues,
@@ -132,6 +134,36 @@ class TestIssueChangeRecording(BaseTest):
             ({"previous": None}, assigned),
             ({"previous": assigned}, None),
         ]
+
+    def test_ingestion_change_is_written_once_per_change_id(self, _flag) -> None:
+        issue = self._create_issue({"fp": EARLY})
+        change_id = uuid.uuid4()
+        event_uuid = uuid.uuid4()
+
+        for _ in range(2):
+            record_ingestion_change(
+                change_id=change_id,
+                team_id=self.team.id,
+                issue_id=issue.id,
+                data=StatusChanged(previous=Status.RESOLVED),
+                event_uuid=event_uuid,
+                event_timestamp=LATE,
+            )
+
+        [change] = self._changes()
+        assert (change.id, change.operation_id, change.kind, change.data) == (
+            change_id,
+            change_id,
+            "status_changed",
+            {"previous": "resolved"},
+        )
+        assert (change.actor_type, change.actor_user_id, change.event_uuid, change.event_timestamp) == (
+            "ingestion",
+            None,
+            event_uuid,
+            LATE,
+        )
+        assert change.snapshot["first_seen"] == EARLY.isoformat()
 
     def test_writes_nothing_when_the_flag_is_off(self, flag) -> None:
         flag.return_value = False

@@ -3,36 +3,13 @@ from __future__ import annotations
 from typing import cast
 
 from rest_framework import exceptions
-from rest_framework.request import Request
 
-from posthog.permissions import get_authenticator_scopes
 from posthog.scopes.catalog import APIScopeObject
 
 from products.access_control.backend.facade.user_access_control import AccessControlLevel, UserAccessControl
 from products.dashboards.backend.models.dashboard_widget import DashboardWidget
 from products.dashboards.backend.widget_catalog import get_widget_product_access_denied_message
 from products.dashboards.backend.widget_registry import WidgetRegistryEntry, get_widget_registry_entry
-
-
-def get_widget_api_scope_error(
-    registry_entry: WidgetRegistryEntry,
-    request: Request,
-) -> str | None:
-    key_scopes = get_authenticator_scopes(request.successful_authenticator)
-    if key_scopes is None:
-        return None
-
-    if "*" in key_scopes:
-        return None
-
-    required_scopes = registry_entry.get("required_scopes") or []
-    for required_scope in required_scopes:
-        valid_scopes = [required_scope]
-        if required_scope.endswith(":read"):
-            valid_scopes.append(required_scope.replace(":read", ":write"))
-        if not any(scope in key_scopes for scope in valid_scopes):
-            return f"API key missing required scope '{required_scope}'"
-    return None
 
 
 def get_widget_product_access_error(
@@ -53,14 +30,17 @@ def get_widget_product_access_error(
     return None
 
 
+def widget_product_access_error(widget_type: str, user_access_control: UserAccessControl) -> str | None:
+    registry_entry = get_widget_registry_entry(widget_type)
+    if registry_entry is None:
+        return f"Unknown widget type: {widget_type}"
+    return get_widget_product_access_error(registry_entry, user_access_control)
+
+
 def check_widget_tile_product_access(
     widget: DashboardWidget,
     user_access_control: UserAccessControl,
 ) -> None:
-    registry_entry = get_widget_registry_entry(widget.widget_type)
-    if registry_entry is None:
-        raise exceptions.PermissionDenied(f"Unknown widget type: {widget.widget_type}")
-
-    access_error = get_widget_product_access_error(registry_entry, user_access_control)
+    access_error = widget_product_access_error(widget.widget_type, user_access_control)
     if access_error:
         raise exceptions.PermissionDenied(access_error)

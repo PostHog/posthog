@@ -1,8 +1,18 @@
 import { z } from 'zod'
 
-import { Duration, durationMs } from '../duration'
+import { Duration, MAX_TIMER_MS, TerminationGrace, durationMs } from '../duration'
 
-const MAX_TIMER_MS = 2 ** 31 - 1
+const MAX_SEED = 2 ** 32 - 1
+
+export const SeedOverride = z.number().int().min(0).max(MAX_SEED)
+
+export function parseSeed(value: string): number {
+    const parsed = SeedOverride.safeParse(Number(value))
+    if (!/^(0|[1-9][0-9]{0,9})$/.test(value) || !parsed.success) {
+        throw new Error(`--seed must be a decimal integer between 0 and ${MAX_SEED}.`)
+    }
+    return parsed.data
+}
 
 export const CdpRole = z.enum([
     'cdp-processed-events',
@@ -26,7 +36,10 @@ export const RunningOnQueue = z
     .strict()
 
 export const EdgeAccepted = z
-    .object({ name: z.literal('edge_accepted'), params: z.object({ channel: z.literal('ses') }).strict() })
+    .object({
+        name: z.literal('edge_accepted'),
+        params: z.object({ channel: z.literal('ses'), share: z.number().gt(0).max(1).optional() }).strict(),
+    })
     .strict()
 
 const When = z.discriminatedUnion('name', [RunningOnQueue, EdgeAccepted], {
@@ -60,6 +73,7 @@ export const Card = z
         clock: z.literal('real'),
         profile: z.string(),
         seed: z.number().int(),
+        seedable: z.boolean().optional(),
         setup: z.object({ teams: z.number().int().min(1) }).strict(),
         drive: z
             .object({
@@ -107,8 +121,13 @@ export const Card = z
         bars: z.array(Named).default([]),
         gates: z.record(z.string(), z.number()).default({}),
         pair: z.boolean().optional(),
+        unpaired: z.string().trim().min(1).optional(),
     })
     .strict()
+    .refine(({ pair, unpaired }) => !pair || unpaired === undefined, {
+        message: 'a card that runs paired names no reason to run unpaired',
+        path: ['unpaired'],
+    })
     .refine(({ drive, valves }) => !drive.stopOnBreak || valves.length === 0, {
         message: 'a stopOnBreak card schedules no valves, since its drive can stop before they are due',
         path: ['valves'],
@@ -182,15 +201,46 @@ export type Load = z.infer<typeof Load>
 export const Host = z.object({ cpuCeiling: z.number().min(0).max(1) }).strict()
 export type Host = z.infer<typeof Host>
 
+const ProfileScale = z
+    .number()
+    .positive()
+    .max(1)
+    .refine((scale) => scale === 2 ** Math.round(Math.log2(scale)), 'use a power of two')
+
+const PositiveParks = z.object({ parks: z.number().int().positive() })
+
+export const AlertsProfile = z
+    .object({ rules: z.string(), labels: z.string(), exclude: z.array(z.string()).default([]) })
+    .strict()
+export type AlertsProfile = z.infer<typeof AlertsProfile>
+
 export const Profile = z
     .object({
         name: z.string(),
+        scale: ProfileScale.optional(),
+        scaleBasis: z.literal('measured_peak').optional(),
+        synthetic: z.array(z.enum(['transactional_email_parks', 'backlog_padding'])).optional(),
         traffic: z.record(z.string(), z.unknown()).default({}),
         settings: z.record(z.string(), z.string()).default({}),
         replicas: z.partialRecord(CdpRole, z.number().int().min(1)).default({}),
         backlog: Backlog.optional(),
         load: Load.optional(),
         host: Host.optional(),
+        alerts: AlertsProfile.optional(),
+        terminationGrace: TerminationGrace.optional(),
     })
     .strict()
+    .refine(({ synthetic, backlog }) => !synthetic?.includes('backlog_padding') || backlog !== undefined, {
+        path: ['synthetic'],
+        message: 'backlog_padding requires a backlog',
+    })
+    .refine(
+        ({ synthetic, traffic }) =>
+            !synthetic?.includes('transactional_email_parks') ||
+            PositiveParks.safeParse(traffic.transactional_email).success,
+        {
+            path: ['synthetic'],
+            message: 'transactional_email_parks requires positive transactional email parks',
+        }
+    )
 export type Profile = z.infer<typeof Profile>

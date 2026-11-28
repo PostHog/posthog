@@ -5,7 +5,7 @@ from types import SimpleNamespace
 import pytest
 import time_machine
 from posthog.test.base import BaseTest, ClickhouseTestMixin
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, call, patch
 
 from django.test import override_settings
 from django.utils import timezone
@@ -29,19 +29,24 @@ from products.experiments.backend.models.experiment import (
     ExperimentSavedMetric,
     ExperimentToSavedMetric,
 )
-from products.experiments.backend.recalculation import (
+from products.experiments.backend.recalculation.admission import (
     RECALCULATION_AGE_LIMIT_FEATURE_FLAG,
     RECALCULATION_WINDOW_TOO_LONG_MESSAGE,
+    MetricsRecalculationStart,
+    MetricsRecalculationStartOutcome,
     RecalculationRateLimited,
-    build_timeseries_cold_start_payload,
     exceeds_recalculation_age_limit,
-    get_active_recalculation,
-    get_latest_recalculation,
-    get_live_query_progress,
-    get_recalculation_by_id,
-    get_run_results,
     request_recalculation,
     request_recalculation_without_age_limit,
+    start_metrics_recalculation,
+    start_metrics_recalculation_without_age_limit,
+)
+from products.experiments.backend.recalculation.payloads import build_timeseries_cold_start_payload, get_run_results
+from products.experiments.backend.recalculation.query_progress import get_live_query_progress
+from products.experiments.backend.recalculation.runs import (
+    get_active_recalculation,
+    get_latest_recalculation,
+    get_recalculation_by_id,
 )
 from products.experiments.backend.test.utils import patch_calculation_key_version
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
@@ -62,7 +67,6 @@ def _calculation_key(experiment: Experiment, metric_uuid: str) -> str:
     return calculation_config.calculation_key()
 
 
-_RECALCULATION_MODULE = "products.experiments.backend.recalculation"
 _DISPATCH_MODULE = "products.experiments.backend.temporal.recalculation.dispatch"
 
 
@@ -76,6 +80,10 @@ def _workflow_closed() -> SimpleNamespace:
 
 def _workflow_not_found() -> RPCError:
     return RPCError("workflow not found", RPCStatusCode.NOT_FOUND, b"")
+
+
+def _temporal_unavailable() -> RPCError:
+    return RPCError("unavailable", RPCStatusCode.UNAVAILABLE, b"")
 
 
 def _describe(outcome: SimpleNamespace | Exception) -> AsyncMock:
@@ -329,9 +337,9 @@ class TestRecalculationService(BaseTest):
             patch(
                 "products.experiments.backend.organization_flags.feature_enabled_or_false", side_effect=evaluate_flag
             ),
-            patch("products.experiments.backend.recalculation.posthoganalytics.capture") as mock_capture,
+            patch("products.experiments.backend.recalculation.admission.posthoganalytics.capture") as mock_capture,
             patch(f"{_DISPATCH_MODULE}._describe_recalculation_workflow", new=_describe(_workflow_not_found())),
-            patch("products.experiments.backend.recalculation.cancel_superseded_workflows") as mock_cancel,
+            patch("products.experiments.backend.recalculation.admission.cancel_superseded_workflows") as mock_cancel,
             self.captureOnCommitCallbacks(execute=True),
         ):
             over_limit = exceeds_recalculation_age_limit(exp)
@@ -373,6 +381,53 @@ class TestRecalculationService(BaseTest):
             "max_age_days": 180,
         }
 
+    @parameterized.expand(
+        [
+            (
+                "age_limit_rejects_the_run",
+                start_metrics_recalculation,
+                MetricsRecalculationStartOutcome.REJECTED,
+                "failed",
+            ),
+            (
+                "staff_start_skips_the_age_limit",
+                start_metrics_recalculation_without_age_limit,
+                MetricsRecalculationStartOutcome.STARTED,
+                "pending",
+            ),
+        ]
+    )
+    def test_start_on_an_experiment_over_the_age_limit(
+        self,
+        name: str,
+        start: Callable[[Experiment, User | None, str], MetricsRecalculationStart],
+        expected_outcome: MetricsRecalculationStartOutcome,
+        expected_status: str,
+    ):
+        exp = self._launched_experiment(flag_key=f"start-{name}")
+        exp.start_date = timezone.now() - timedelta(days=181)
+        exp.save()
+
+        with (
+            patch(
+                "products.experiments.backend.organization_flags.feature_enabled_or_false",
+                side_effect=lambda key, *args, **kwargs: key == RECALCULATION_AGE_LIMIT_FEATURE_FLAG,
+            ),
+            patch(
+                "products.experiments.backend.recalculation.admission.start_metrics_recalculation_workflow"
+            ) as dispatch,
+        ):
+            started = start(exp, self.user, "manual")
+
+        assert started.outcome == expected_outcome
+        assert ExperimentMetricsRecalculation.objects.get(id=started.recalculation_id).status == expected_status
+        expected_dispatches = (
+            [call(started.recalculation_id, team_id=self.team.id, organization_id=str(self.organization.id))]
+            if expected_outcome == MetricsRecalculationStartOutcome.STARTED
+            else []
+        )
+        assert dispatch.call_args_list == expected_dispatches
+
     def test_request_recalculation_is_idempotent(self):
         exp = self._launched_experiment()
         first = request_recalculation(exp, self.user, "manual")
@@ -394,6 +449,7 @@ class TestRecalculationService(BaseTest):
             ("pending_workflow_running", "pending", "created_at", 45, _workflow_running(), True),
             ("in_progress_workflow_running", "in_progress", "started_at", 45, _workflow_running(), True),
             ("in_progress_describe_error", "in_progress", "started_at", 45, TimeoutError(), True),
+            ("in_progress_describe_rpc_error", "in_progress", "started_at", 45, _temporal_unavailable(), True),
             ("in_progress_past_ceiling", "in_progress", "started_at", 75, _workflow_running(), False),
         ]
     )
@@ -421,7 +477,7 @@ class TestRecalculationService(BaseTest):
                 f"{_DISPATCH_MODULE}._describe_recalculation_workflow", new=_describe(describe_outcome)
             ) as mock_describe,
             patch(f"{_DISPATCH_MODULE}.capture_exception") as mock_capture_exception,
-            patch("products.experiments.backend.recalculation.cancel_superseded_workflows") as mock_cancel,
+            patch("products.experiments.backend.recalculation.admission.cancel_superseded_workflows") as mock_cancel,
             self.captureOnCommitCallbacks(execute=True),
         ):
             result = request_recalculation(exp, self.user, "manual")
@@ -432,7 +488,7 @@ class TestRecalculationService(BaseTest):
             assert result["id"] == str(stale_row.id)
             assert stale_row.status == status
             mock_cancel.assert_not_called()
-            assert mock_capture_exception.called is isinstance(describe_outcome, TimeoutError)
+            assert mock_capture_exception.called is isinstance(describe_outcome, Exception)
             return
 
         # A fresh row was created (NOT the stale one), the stale row was marked FAILED, and its workflow
@@ -860,7 +916,7 @@ class TestLiveQueryProgress(BaseTest):
     def test_returns_none_without_querying_clickhouse_when_not_in_progress(self, status: str):
         recalc = self._recalc(status)
         with team_scope(self.team.id, canonical=True):
-            with patch("products.experiments.backend.recalculation.sync_execute") as mock_execute:
+            with patch("products.experiments.backend.recalculation.query_progress.sync_execute") as mock_execute:
                 assert get_live_query_progress(recalc) is None
         mock_execute.assert_not_called()
 
@@ -869,7 +925,7 @@ class TestLiveQueryProgress(BaseTest):
         # is the fail-closed backstop against a caller passing a row from a different team than the request scope.
         recalc = self._recalc("in_progress")
         with team_scope(self.team.id + 1, canonical=True):
-            with patch("products.experiments.backend.recalculation.sync_execute") as mock_execute:
+            with patch("products.experiments.backend.recalculation.query_progress.sync_execute") as mock_execute:
                 assert get_live_query_progress(recalc) is None
         mock_execute.assert_not_called()
 
@@ -877,7 +933,7 @@ class TestLiveQueryProgress(BaseTest):
         recalc = self._recalc("in_progress")
         with team_scope(self.team.id, canonical=True):
             with patch(
-                "products.experiments.backend.recalculation.sync_execute",
+                "products.experiments.backend.recalculation.query_progress.sync_execute",
                 return_value=[(1_284_512, 9_800_000)],
             ):
                 progress = get_live_query_progress(recalc)
@@ -892,7 +948,7 @@ class TestLiveQueryProgress(BaseTest):
         recalc = self._recalc("in_progress")
         with team_scope(self.team.id, canonical=True):
             with patch(
-                "products.experiments.backend.recalculation.sync_execute",
+                "products.experiments.backend.recalculation.query_progress.sync_execute",
                 return_value=[(0, 0)],
             ):
                 progress = get_live_query_progress(recalc)
@@ -907,7 +963,7 @@ class TestLiveQueryProgress(BaseTest):
         recalc = self._recalc("in_progress")
         with team_scope(self.team.id, canonical=True):
             with patch(
-                "products.experiments.backend.recalculation.sync_execute",
+                "products.experiments.backend.recalculation.query_progress.sync_execute",
                 side_effect=Exception("clusterAllReplicas unavailable"),
             ):
                 assert get_live_query_progress(recalc) is None

@@ -1,11 +1,11 @@
 import { dayjs } from 'lib/dayjs'
-import { percentage } from 'lib/utils/numbers'
 
 import type {
     AEOPromptDailyEngineStatsApi,
     AEOPromptStatsApi,
 } from 'products/web_analytics/frontend/generated/api.schemas'
 
+import { formatShare, shareDelta } from './shares'
 import { isNoSearchEngine } from './utils'
 
 export type PromptVisibilityMetric = 'cited' | 'mentioned' | 'position'
@@ -118,16 +118,6 @@ const rateKpi = (
     }
 }
 
-/** `delta` is in rate units (0.12 is 12 percentage points), shown as whole points. */
-export const pointsDelta = (delta: number, tooltip: string): KpiDelta => {
-    const points = Math.round(delta * 100)
-    return {
-        label: points === 0 ? 'No change' : `${points > 0 ? '+' : ''}${points} pts`,
-        direction: points === 0 ? 'flat' : points > 0 ? 'up' : 'down',
-        tooltip,
-    }
-}
-
 export const POSITION_DESCRIPTION =
     'Where your link sits among the sources of answers that cite you, on average. #1 is first. Lower is better.'
 
@@ -190,15 +180,15 @@ export const countDelta = (change: number, tooltip: string): KpiDelta => ({
 })
 
 export const rateKpiCard = (kpi: PromptRateKpi): KpiCardContent => ({
-    value: kpi.average === null ? 'No answers' : percentage(kpi.average, 0),
+    value: kpi.average === null ? 'No answers' : formatShare(kpi.average),
     note:
         kpi.latest === null || !kpi.latestDate
             ? 'Average over the last 30 days'
-            : `Average over the last 30 days. On ${dayjs(kpi.latestDate).format('MMM D')}: ${percentage(kpi.latest, 0)}`,
+            : `Average over the last 30 days. On ${dayjs(kpi.latestDate).format('MMM D')}: ${formatShare(kpi.latest)}`,
     delta:
-        kpi.delta === null
+        kpi.average === null || kpi.latest === null
             ? null
-            : pointsDelta(kpi.delta, 'The latest day against the 30-day average, in percentage points'),
+            : shareDelta(kpi.latest, kpi.average, 'The latest day against the 30-day average, in percentage points'),
 })
 
 /** Window-wide visibility and citation rates, with the latest day and how far it sits from the average.

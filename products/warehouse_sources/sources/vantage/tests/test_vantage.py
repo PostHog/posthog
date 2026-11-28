@@ -1,5 +1,7 @@
 from typing import Any, Optional
 
+from unittest.mock import patch
+
 import requests
 from parameterized import parameterized
 
@@ -30,8 +32,9 @@ def _response(
     next_url: Optional[str] = None,
     include_links: bool = True,
     status_code: int = 200,
+    metadata: Optional[dict[str, Any]] = None,
 ) -> ScriptedResponse:
-    body: dict[str, Any] = {}
+    body = dict(metadata or {})
     if items is not None:
         body[data_key] = items
     if include_links:
@@ -45,21 +48,33 @@ def _run(script: Script, endpoint: str = "cost_reports", **kwargs: Any) -> Drive
 
 
 class TestPagination:
-    def test_follows_links_next_and_terminates(self) -> None:
+    @parameterized.expand(
+        [
+            ("cost_reports", {"token": "report_a"}, {"token": "report_b"}),
+            (
+                "virtual_tag_configs",
+                {"token": "tag_a", "key": "Team", "values": [{"token": "value_a", "name": "Example"}]},
+                {"token": "tag_b", "key": "Service", "values": []},
+            ),
+        ]
+    )
+    def test_follows_links_next_and_terminates(
+        self, endpoint: str, first_row: dict[str, Any], second_row: dict[str, Any]
+    ) -> None:
         # Regression guard: not advancing the URL loops forever; not terminating on a null `next`
         # over-fetches. Rows must come back across every page, in order.
-        p2 = f"{VANTAGE_BASE_URL}/cost_reports?page=2&limit=1000"
+        next_url = f"{VANTAGE_BASE_URL}/{endpoint}?page=2&limit=1000"
         result = _run(
             [
-                _response([{"token": "a"}, {"token": "b"}], next_url=p2),
-                _response([{"token": "c"}], next_url=None),
-            ]
+                _response([first_row], data_key=endpoint, next_url=next_url),
+                _response([second_row], data_key=endpoint),
+            ],
+            endpoint=endpoint,
         )
 
-        assert result.rows == [{"token": "a"}, {"token": "b"}, {"token": "c"}]
-        assert len(result.requests) == 2
-        assert result.params("limit")[0] == "1000"
-        assert result.urls[1] == p2  # second request follows the body's `links.next` verbatim
+        assert result.raised is None
+        assert result.rows == [first_row, second_row]
+        assert result.urls == [f"{VANTAGE_BASE_URL}/{endpoint}?limit=1000", next_url]
 
     def test_a_run_with_no_saved_state_starts_from_the_first_page(self) -> None:
         result = _run([_response([{"token": "a"}], next_url=None)])
@@ -218,6 +233,40 @@ class TestFanOut:
                 {"groupings": {"region": {"value": "us-east-1"}}, "bytes": 2048.0, "estimated_cost": "0.10"},
             ),
             (
+                "cost_alert_events",
+                "cost_alerts",
+                "?limit=1000",
+                [{"token": "alert_a"}, {"token": "alert_b"}],
+                f"{VANTAGE_BASE_URL}/cost_alerts/{{token}}/events?limit=1000",
+                ["alert_a", "alert_b"],
+                "cost_alert_token",
+                {"token": "event_a", "triggered_at": "2025-01-01T00:00:00Z"},
+                "cost_alert_events",
+            ),
+            (
+                "forecasted_costs",
+                "cost_reports",
+                "?limit=1000",
+                [{"token": "report_a"}, {"token": "report_b"}],
+                f"{VANTAGE_BASE_URL}/cost_reports/{{token}}/forecasted_costs?limit=1000",
+                ["report_a", "report_b"],
+                "cost_report_token",
+                {"date": "2027-01-01T00:00:00Z", "amount": "45.62", "provider": "all", "service": "all"},
+                "forecasted_costs",
+                {"currency": "EUR"},
+            ),
+            (
+                "recommendation_resources",
+                "recommendations",
+                "?limit=1000",
+                [{"token": "rec_a"}, {"token": "rec_b"}],
+                f"{VANTAGE_BASE_URL}/recommendations/{{token}}/resources?limit=500",
+                ["rec_a", "rec_b"],
+                "recommendation_token",
+                {"token": "resource_a", "resource_id": "example-1", "recommendation_actions": []},
+                "resources",
+            ),
+            (
                 "cost_providers",
                 "workspaces",
                 "?limit=1000",
@@ -264,29 +313,35 @@ class TestFanOut:
         child_path_values: list[str],
         parent_column: str,
         child_row: dict[str, Any],
+        data_key: str | None = None,
+        response_metadata: dict[str, Any] | None = None,
     ) -> None:
         first_child = child_url.format(token=child_path_values[0])
         second_page = f"{first_child}&page=2"
         second_child = child_url.format(token=child_path_values[1])
         parent_values = [next(iter(parent.values())) for parent in parents]
 
-        data_key = VANTAGE_ENDPOINTS[endpoint].data_key
+        data_key = data_key or VANTAGE_ENDPOINTS[endpoint].data_key
 
         result = _run(
             _by_url(
                 {
                     f"{VANTAGE_BASE_URL}/{parent_key}{parent_query}": _response(parents, data_key=parent_key),
-                    first_child: _response([dict(child_row)], data_key=data_key, next_url=second_page),
-                    second_page: _response([dict(child_row)], data_key=data_key),
-                    second_child: _response([dict(child_row)], data_key=data_key),
+                    first_child: _response(
+                        [dict(child_row)], data_key=data_key, next_url=second_page, metadata=response_metadata
+                    ),
+                    second_page: _response([dict(child_row)], data_key=data_key, metadata=response_metadata),
+                    second_child: _response([dict(child_row)], data_key=data_key, metadata=response_metadata),
                 }
             ),
             endpoint=endpoint,
         )
 
         assert result.raised is None
-        assert [row[parent_column] for row in result.rows] == [parent_values[0], parent_values[0], parent_values[1]]
-        assert all(f"_{parent_key}_" not in column for row in result.rows for column in row)
+        assert result.rows == [
+            {**child_row, **(response_metadata or {}), parent_column: parent_value}
+            for parent_value in (parent_values[0], parent_values[0], parent_values[1])
+        ]
         assert result.urls[1:] == [first_child, second_page, second_child]
 
     def test_child_404_for_a_deleted_report_skips_only_that_report(self) -> None:
@@ -349,6 +404,83 @@ class TestFanOut:
 
         assert isinstance(result.raised, VantageUntrustedURLError)
         assert result.urls[1:] == [first_child]
+
+    @parameterized.expand(
+        [
+            ("cost_alert_events", "cost_alerts", "/cost_alerts/parent_a/events", "cost_alert_events", 1000),
+            ("forecasted_costs", "cost_reports", "/cost_reports/parent_a/forecasted_costs", "forecasted_costs", 1000),
+            ("recommendation_resources", "recommendations", "/recommendations/parent_a/resources", "resources", 500),
+        ]
+    )
+    def test_child_page_limit_survives_resume(
+        self, endpoint: str, parent: str, child_path: str, data_key: str, page_size: int
+    ) -> None:
+        parent_url = f"{VANTAGE_BASE_URL}/{parent}?limit=1000"
+        parent_page = _response([{"token": "parent_a"}], data_key=parent)
+        first_child = f"{VANTAGE_BASE_URL}{child_path}?limit={page_size}"
+        second_page = f"{first_child}&page=2"
+        rows = [{"token": "child_a"}]
+        metadata = {"currency": "EUR"} if endpoint == "forecasted_costs" else None
+
+        with patch("products.warehouse_sources.sources.vantage.vantage.MAX_CHILD_PAGES", 2):
+            complete = _run(
+                _by_url(
+                    {
+                        parent_url: parent_page,
+                        first_child: _response(rows, data_key=data_key, next_url=second_page, metadata=metadata),
+                        second_page: _response(rows, data_key=data_key, metadata=metadata),
+                    }
+                ),
+                endpoint=endpoint,
+            )
+            assert complete.raised is None
+            assert len(complete.rows) == 2
+
+            resumed = _run(
+                _by_url(
+                    {
+                        parent_url: parent_page,
+                        second_page: _response(rows, data_key=data_key, next_url=first_child, metadata=metadata),
+                    }
+                ),
+                endpoint=endpoint,
+                resume_state=complete.committed_states[0],
+            )
+
+        assert isinstance(resumed.raised, RuntimeError)
+        assert "page limit" in str(resumed.raised)
+        assert resumed.urls == [parent_url, second_page]
+
+    def test_recommendation_resume_skips_earlier_parent_pages(self) -> None:
+        parent_urls = [f"{VANTAGE_BASE_URL}/recommendations?limit=1000"] + [
+            f"{VANTAGE_BASE_URL}/recommendations?page={page}&limit=1000" for page in range(2, 5)
+        ]
+        child_urls = [f"{VANTAGE_BASE_URL}/recommendations/rec_{page}/resources?limit=500" for page in range(1, 5)]
+        parent_pages = {
+            parent_url: _response(
+                [{"token": f"rec_{page}"}],
+                data_key="recommendations",
+                next_url=parent_urls[page] if page < len(parent_urls) else None,
+            )
+            for page, parent_url in enumerate(parent_urls, start=1)
+        }
+        child_pages = {
+            child_url: _response([{"token": f"resource_{page}"}], data_key="resources")
+            for page, child_url in enumerate(child_urls, start=1)
+        }
+
+        complete = _run(_by_url({**parent_pages, **child_pages}), endpoint="recommendation_resources")
+        assert complete.raised is None
+
+        resumed = _run(
+            _by_url({**parent_pages, child_urls[-1]: child_pages[child_urls[-1]]}),
+            endpoint="recommendation_resources",
+            resume_state=complete.committed_states[2],
+        )
+
+        assert resumed.raised is None
+        assert resumed.rows == [{"token": "resource_4", "recommendation_token": "rec_4"}]
+        assert resumed.urls == [*parent_urls[1:], child_urls[-1]]
 
 
 class TestValidateCredentials:

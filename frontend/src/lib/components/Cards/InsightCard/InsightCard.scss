@@ -19,7 +19,8 @@
         }
     }
 
-    &:has([data-bi-filter-status='unaffected']) {
+    &:has([data-bi-filter-status='unaffected']),
+    &:has([data-insight-filter-status='unaffected']) {
         opacity: 0.3;
     }
 
@@ -52,6 +53,10 @@
     min-height: 0; // Allow flex item to shrink below content size (e.g. when description is toggled)
     overflow: auto;
     border-radius: 0 0 var(--radius) var(--radius);
+
+    &.DataVisualization > .bg-surface-primary {
+        border-radius: 0;
+    }
 
     .LineGraph,
     .AnnotationsOverlay {

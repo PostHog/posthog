@@ -51,6 +51,7 @@ from products.cohorts.backend.models.cohort import Cohort
 from products.event_definitions.backend.models import PropertyDefinition
 from products.event_definitions.backend.models.event_definition import EventDefinition
 from products.experiments.backend.experiment_service import ExperimentService
+from products.experiments.backend.facade.contracts import EXPERIMENT_SETUP_CONTEXT_FLAG
 from products.experiments.backend.facade.experiments import get_experiment
 from products.experiments.backend.health.context import ConditionSetTraffic
 from products.experiments.backend.logic.experiments import LIST_DEFERRED_FIELDS
@@ -72,7 +73,6 @@ from products.experiments.backend.models.team_experiments_config import TeamExpe
 from products.experiments.backend.models.web_experiment import WebExperiment
 from products.experiments.backend.presentation.serializers import ExperimentSerializer
 from products.experiments.backend.presentation.views import EnterpriseExperimentsViewSet
-from products.experiments.backend.setup_context import EXPERIMENT_SETUP_CONTEXT_FLAG
 from products.experiments.backend.test.utils import EXPERIMENT_EXPOSURE_EVENT_CUTOFF, override_exposure_event_cutoff
 from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
 from products.feature_flags.backend.models.evaluation_context import EvaluationContext, FeatureFlagEvaluationContext
@@ -1247,6 +1247,72 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
             ],
             [expected],
         )
+
+    @parameterized.expand(
+        [
+            ("draft", "", {}, "no_metric", ("not_applicable", "Runs after launch", {})),
+            (
+                "draft_at_launch",
+                "?at_launch=true",
+                {},
+                "no_metric",
+                ("finding", None, {"primary_metric_count": 0, "secondary_metric_count": 0}),
+            ),
+            (
+                "matured_users_at_launch",
+                "?at_launch=true",
+                {
+                    "metrics": [{**_HEALTH_METRIC, "conversion_window": 7, "conversion_window_unit": "day"}],
+                    "only_count_matured_users": True,
+                },
+                "metrics_not_matured",
+                (
+                    "finding",
+                    None,
+                    {"only_count_matured_users": True, "primary_metric_count": 1, "waiting_metric_count": 1},
+                ),
+            ),
+            (
+                "stale_experiment_at_launch",
+                "?at_launch=true",
+                {},
+                "stale_experiment",
+                ("passed", None, {"since_start_hours": 0.0, "daily_calculation_ends_at": "2026-03-06T12:00:00+00:00"}),
+            ),
+        ]
+    )
+    def test_health_checks_a_draft_at_launch_on_request(
+        self,
+        _name: str,
+        query: str,
+        experiment_fields: dict[str, Any],
+        check_key: str,
+        expected: tuple[str, str | None, dict[str, Any]],
+    ) -> None:
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            key=f"health-at-launch-{_name}",
+            created_by=self.user,
+            filters={
+                "groups": [{"properties": [], "rollout_percentage": 100}],
+                "multivariate": {
+                    "variants": [
+                        {"key": "control", "rollout_percentage": 50},
+                        {"key": "test", "rollout_percentage": 50},
+                    ]
+                },
+            },
+        )
+        experiment = Experiment.objects.create(
+            team=self.team, name=f"health-at-launch-{_name}", feature_flag=flag, **experiment_fields
+        )
+
+        with time_machine.travel(datetime(2026, 1, 5, 12, tzinfo=UTC), tick=False):
+            response = self.client.get(f"/api/projects/{self.team.id}/experiments/{experiment.id}/health/{query}")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        check = next(check for check in response.json()["checks"] if check["key"] == check_key)
+        self.assertEqual((check["status"], check["reason"], check["values"]), expected)
 
     def _deny_event_property(self, name: str) -> None:
         self.organization.available_product_features = [
@@ -2569,7 +2635,21 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
         self.assertIsNone(response.json()["start_date"])
         self.assertEqual(response.json()["end_date"], "2024-02-11T00:00:00Z")
 
-    def test_invalid_update(self):
+    @parameterized.expand(
+        [
+            (
+                "changed_flag_key",
+                {"description": "Bazinga", "filters": {}, "feature_flag_key": "new_key"},
+                "Can't update keys: feature_flag_key on Experiment",
+            ),
+            (
+                "folder",
+                {"description": "Bazinga", "_create_in_folder": "Special Folder/Experiments"},
+                "Can't update keys: _create_in_folder on Experiment",
+            ),
+        ]
+    )
+    def test_invalid_update(self, _name: str, update: dict[str, Any], message: str) -> None:
         # Draft experiment
         ff_key = "a-b-tests"
         response = self.client.post(
@@ -2588,19 +2668,9 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
         id = response.json()["id"]
 
         # Now update
-        response = self.client.patch(
-            f"/api/projects/{self.team.id}/experiments/{id}",
-            {
-                "description": "Bazinga",
-                "filters": {},
-                "feature_flag_key": "new_key",
-            },  # invalid
-        )
+        response = self.client.patch(f"/api/projects/{self.team.id}/experiments/{id}", update)
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(
-            response.json()["detail"],
-            "Can't update keys: get_feature_flag_key on Experiment",
-        )
+        self.assertEqual(response.json()["detail"], message)
 
     def test_draft_experiment_doesnt_have_FF_active(self):
         # Draft experiment
@@ -4628,9 +4698,14 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
         self.assertIn(active_experiment_id, experiment_ids)
         self.assertNotIn(experiment_id, experiment_ids)
 
-    def test_detail_endpoint_returns_404_for_deleted_experiment(self):
-        """Test that detail endpoint returns 404 for soft-deleted experiments"""
-
+    @parameterized.expand(
+        [
+            ("retrieve", None),
+            ("update", {"name": "Renamed"}),
+            ("update_with_null_deleted", {"deleted": None, "name": "Renamed"}),
+        ]
+    )
+    def test_detail_endpoint_returns_404_for_deleted_experiment(self, _name, update_body):
         response = self.client.post(
             f"/api/projects/{self.team.id}/experiments/",
             {
@@ -4651,9 +4726,10 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
             format="json",
         )
 
-        # Try to get the deleted experiment
-        response = self.client.get(f"/api/projects/{self.team.id}/experiments/{experiment_id}/")
+        url = f"/api/projects/{self.team.id}/experiments/{experiment_id}/"
+        response = self.client.get(url) if update_body is None else self.client.patch(url, update_body, format="json")
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(Experiment.objects.get(id=experiment_id).name, "Test Experiment")
 
     def test_restore_allows_payload_with_additional_fields(self):
         create_response = self.client.post(
@@ -5823,7 +5899,7 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
             {**metric, "source": {"kind": "EventsNode", "event": "stale_event"}} if extra_body else {"uuid": "m1"}
         )
 
-        with patch("products.experiments.backend.presentation.views.sync_connect") as mock_connect:
+        with patch("products.experiments.backend.recalculation.admission.sync_connect") as mock_connect:
             mock_connect.return_value.start_workflow = AsyncMock()
             response = self.client.post(
                 f"/api/projects/{self.team.id}/experiments/{experiment.id}/recalculate_timeseries/",
@@ -9673,7 +9749,7 @@ class TestExperimentSetupContextEndpoint(ClickhouseTestMixin, APILicensedTest):
 
         assert response.status_code == expected_status, response.content
 
-    def test_omits_experiments_the_user_cannot_access(self) -> None:
+    def test_omits_experiments_and_shared_metrics_the_user_cannot_access(self) -> None:
         other_user = self._create_user("setup-context-other@posthog.com")
         visible_flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="setup-visible")
         hidden_flag = FeatureFlag.objects.create(team=self.team, created_by=other_user, key="setup-hidden")
@@ -9684,6 +9760,20 @@ class TestExperimentSetupContextEndpoint(ClickhouseTestMixin, APILicensedTest):
             team=self.team, name="Hidden", created_by=other_user, feature_flag=hidden_flag
         )
         AccessControl.objects.create(resource="experiment", resource_id=hidden.id, team=self.team, access_level="none")
+        metric_query = {
+            "kind": "ExperimentMetric",
+            "metric_type": "mean",
+            "source": {"kind": "EventsNode", "event": "$pageview"},
+        }
+        visible_metric = ExperimentSavedMetric.objects.create(
+            team=self.team, name="Visible metric", created_by=self.user, query=metric_query
+        )
+        hidden_metric = ExperimentSavedMetric.objects.create(
+            team=self.team, name="Hidden metric", created_by=other_user, query=metric_query
+        )
+        AccessControl.objects.create(
+            resource="experiment_saved_metric", resource_id=hidden_metric.id, team=self.team, access_level="none"
+        )
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
         self.organization_membership.save()
 
@@ -9692,6 +9782,8 @@ class TestExperimentSetupContextEndpoint(ClickhouseTestMixin, APILicensedTest):
         assert response.status_code == status.HTTP_200_OK, response.content
         listed = [experiment["id"] for experiment in response.json()["previous_experiments"]["data"]["experiments"]]
         assert listed == [visible.id]
+        shared = [metric["id"] for metric in response.json()["shared_metrics"]["data"]["metrics"]]
+        assert shared == [visible_metric.id]
 
     def test_serializes_a_context_with_every_section_populated(self) -> None:
         # The response serializer runs outside the per-section guard, so a field it cannot render
@@ -9915,7 +10007,7 @@ class TestExperimentTags(APILicensedTest):
         return response.json()
 
     def test_create_with_tags_persists_and_normalizes_them(self):
-        # Guards the expected_fields allowlist in ExperimentSerializer.create: if tags stops being
+        # Guards the expected_fields allowlist in ExperimentSerializer.to_create: if tags stops being
         # popped before that check, every tagged create fails with "Can't create keys: tags".
         experiment = self._create_experiment("Tagged", "tags-create-flag", tags=["Growth", "checkout"])
         assert sorted(experiment["tags"]) == ["checkout", "growth"]
@@ -9977,19 +10069,49 @@ class TestExperimentTags(APILicensedTest):
         row = next(r for r in response.json()["results"] if r["id"] == experiment["id"])
         assert row["tags"] == ["growth"]
 
+    def _create_view_only_experiment(self, flag_key: str) -> Experiment:
+        other_user = self._create_user(f"{flag_key}@posthog.com")
+        flag = FeatureFlag.objects.create(team=self.team, created_by=other_user, key=flag_key)
+        view_only = Experiment.objects.create(team=self.team, name="Theirs", created_by=other_user, feature_flag=flag)
+        AccessControl.objects.create(
+            resource="experiment", resource_id=view_only.id, team=self.team, access_level="viewer"
+        )
+        return view_only
+
     def test_bulk_update_tags(self):
-        # Wiring guard for TaggedItemViewSetMixin on the experiments viewset: team-scoped queryset,
-        # per-object mutation, and missing IDs reported as skipped.
+        # This viewset's own bulk_update_tags: edit check, project scope, skipped entries and activity log.
         experiment = self._create_experiment("Bulk", "tags-bulk-flag", tags=["existing"])
+        view_only = self._create_view_only_experiment("tags-bulk-flag-b")
+        other_project = Team.objects.create(organization=self.organization, name="Other project")
+        elsewhere = Experiment.objects.create(
+            team=other_project,
+            name="Elsewhere",
+            feature_flag=FeatureFlag.objects.create(team=other_project, created_by=self.user, key="tags-bulk-flag-c"),
+        )
         response = self.client.post(
             f"/api/projects/{self.team.id}/experiments/bulk_update_tags/",
-            {"ids": [experiment["id"], 999999], "action": "add", "tags": ["added"]},
+            {"ids": [experiment["id"], view_only.id, elsewhere.id, 999999], "action": "add", "tags": ["added"]},
             format="json",
         )
         assert response.status_code == status.HTTP_200_OK, response.json()
         body = response.json()
         assert body["updated"] == [{"id": experiment["id"], "tags": ["added", "existing"]}]
-        assert body["skipped"] == [{"id": 999999, "reason": "Not found or no edit access"}]
+        assert body["skipped"] == [
+            {"id": view_only.id, "reason": "Not found or no edit access"},
+            {"id": elsewhere.id, "reason": "Not found or no edit access"},
+            {"id": 999999, "reason": "Not found or no edit access"},
+        ]
+        log = ActivityLog.objects.get(scope="Experiment", activity="updated", item_id=str(experiment["id"]))
+        assert log.detail is not None
+        assert log.detail["changes"] == [
+            {
+                "type": "Experiment",
+                "action": "changed",
+                "field": "tags",
+                "before": ["existing"],
+                "after": ["added", "existing"],
+            }
+        ]
 
     def test_bulk_update_tags_works_with_personal_api_key(self):
         # scope_object_write_actions must include bulk_update_tags for PAT access — a config-only
@@ -10021,13 +10143,7 @@ class TestExperimentTags(APILicensedTest):
 
     def test_matching_ids_excludes_view_only_experiments(self):
         editable = self._create_experiment("Mine", "tags-acl-flag-a")
-
-        other_user = self._create_user("other-tags-acl@posthog.com")
-        flag = FeatureFlag.objects.create(team=self.team, created_by=other_user, key="tags-acl-flag-b")
-        view_only = Experiment.objects.create(team=self.team, name="Theirs", created_by=other_user, feature_flag=flag)
-        AccessControl.objects.create(
-            resource="experiment", resource_id=view_only.id, team=self.team, access_level="viewer"
-        )
+        view_only = self._create_view_only_experiment("tags-acl-flag-b")
 
         response = self.client.get(f"/api/projects/{self.team.id}/experiments/matching_ids/")
         assert response.status_code == status.HTTP_200_OK, response.json()

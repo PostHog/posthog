@@ -51,6 +51,7 @@ from products.signals.backend.activity_summary.search import (
     search_summaries,
 )
 from products.signals.backend.anomaly_scores import search as anomaly_search
+from products.signals.backend.anomaly_scores.read import AnomalyJudgeKind as AnomalyJudgeKind
 from products.signals.backend.anomaly_scores.search import (
     VIEWED_WITHIN_DAYS as VIEWED_WITHIN_DAYS,
     AnomalyDashboardNotFound as AnomalyDashboardNotFound,
@@ -1642,6 +1643,10 @@ def update_scout_for_source(
         config.run_cron_schedule = run_cron_schedule
         config.schedule_changed_at = datetime.now(UTC)
         update_fields += ["run_cron_schedule", "schedule_changed_at"]
+    stored_routes = (config.output_destinations or {}).get("messages")
+    if output_destinations is not None and "messages" not in output_destinations and stored_routes:
+        # Message routes are owner-set on the scout surface, so a source product's delivery update keeps them.
+        output_destinations = {**output_destinations, "messages": stored_routes}
     if output_destinations is not None and output_destinations != config.output_destinations:
         config.output_destinations = output_destinations
         update_fields.append("output_destinations")

@@ -1,9 +1,10 @@
-import { CardError, LoadedCard, Target, load } from '.'
-import { mkdtempSync, readdirSync, writeFileSync } from 'fs'
+import { CardError, LoadedCard, Target, load, loadText } from '.'
+import { mkdirSync, mkdtempSync, readdirSync, writeFileSync } from 'fs'
 import os from 'os'
 import path from 'path'
 import { stringify } from 'yaml'
 
+import { pairProblemsOf } from '../runner/pair'
 import { admissionsOf } from '../runner/status'
 
 const card = {
@@ -115,6 +116,13 @@ describe('load', () => {
     it.each<[string, object | string, object | string | undefined, string | string[]]>([
         ['a card that is not YAML', 'id: [', undefined, 'card: '],
         ['a card with the wrong shape', { ...card, clock: 'scheduled' }, undefined, 'clock: '],
+        [
+            'a card that runs paired and names a reason it runs unpaired',
+            { ...card, pair: true, unpaired: 'it judges no no_loss' },
+            undefined,
+            'unpaired: a card that runs paired names no reason to run unpaired',
+        ],
+        ['a blank reason the card runs unpaired', { ...card, unpaired: ' ' }, undefined, 'unpaired: '],
         [
             'an unknown traffic kind',
             { ...card, drive: { ...card.drive, traffic: [{ name: 'event_sms' }] } },
@@ -290,14 +298,17 @@ describe('load', () => {
             `edge_accepted on ${valve} of ${target}`,
             { ...card, valves: [{ ...emailWorkerKill, valve, target, when: edgeAccepted }] },
             { ...profile, replicas: { 'cdp-cyclotron-worker-email': 2 } },
-            "valves.0.when: edge_accepted holds an email worker's send, so it fires only role.kill on cdp-cyclotron-worker-email",
+            "valves.0.when: edge_accepted holds an email worker's send, so it fires only role.kill or role.terminate on cdp-cyclotron-worker-email",
         ]),
-        [
-            'edge_accepted while the profile runs more than one email worker',
-            { ...card, valves: [{ ...emailWorkerKill, when: edgeAccepted }] },
+        ...[
+            ['role.kill', {}],
+            ['role.terminate', { grace: '20s' }],
+        ].map(([valve, dose]): [string, object, object, string] => [
+            `edge_accepted on ${valve} while the profile runs more than one email worker`,
+            { ...card, valves: [{ ...emailWorkerKill, valve, dose, when: edgeAccepted }] },
             { ...profile, replicas: { 'cdp-cyclotron-worker-email': 2 } },
-            "valves.0.target: role.kill stops cdp-cyclotron-worker-email replica 0 only, and edge_accepted can hold another replica's send; run one email worker replica on this card",
-        ],
+            `valves.0.target: ${valve} stops cdp-cyclotron-worker-email replica 0 only, and edge_accepted can hold another replica's send; run one email worker replica on this card`,
+        ]),
         [
             'an unknown valve',
             { ...card, valves: [{ ...emailWorkerKill, valve: 'role.melt' }] },
@@ -314,6 +325,33 @@ describe('load', () => {
             },
             undefined,
             'valves.0.dose.share: ',
+        ],
+        [
+            'a terminate armed on running_on_queue',
+            { ...card, valves: [{ ...emailWorkerKill, valve: 'role.terminate', dose: { grace: '20s' } }] },
+            undefined,
+            'valves.0.when: arm role.terminate on edge_accepted or at, since a worker given SIGTERM drains its jobs before it exits',
+        ],
+        [
+            'a terminate with no grace on a profile that names none',
+            { ...card, valves: [{ ...emailWorkerKill, valve: 'role.terminate', when: edgeAccepted }] },
+            profile,
+            'valves.0.dose.grace: role.terminate needs a grace; give one here or terminationGrace in profile synthetic',
+        ],
+        [
+            'a terminate whose grace is longer than a stopped run waits for its release',
+            {
+                ...card,
+                valves: [{ ...emailWorkerKill, valve: 'role.terminate', dose: { grace: '301s' }, when: edgeAccepted }],
+            },
+            undefined,
+            'valves.0.dose.grace: at most 5m, so a stopped run releases the role within its release window',
+        ],
+        [
+            'a profile whose termination grace is longer than a stopped run waits for its release',
+            { ...card, valves: [{ ...emailWorkerKill, valve: 'role.terminate', when: edgeAccepted }] },
+            { ...profile, terminationGrace: '301s' },
+            'terminationGrace: at most 5m, so a stopped run releases the role within its release window',
         ],
         [
             'a kill aimed at something that is not a role',
@@ -455,6 +493,22 @@ describe('load', () => {
             card,
             { ...profile, traffic: {} },
             'profile.traffic.event_email: ',
+        ],
+        [
+            'a synthetic padding label without a backlog',
+            card,
+            { ...profile, synthetic: ['backlog_padding'] },
+            'profile.synthetic: backlog_padding requires a backlog',
+        ],
+        [
+            'a synthetic transactional parks label without parks',
+            card,
+            {
+                ...profile,
+                traffic: { ...profile.traffic, transactional_email: { ratePerSecond: 1 } },
+                synthetic: ['transactional_email_parks'],
+            },
+            'profile.synthetic: transactional_email_parks requires positive transactional email parks',
         ],
         [
             'a profile the repository does not ship',
@@ -801,6 +855,60 @@ describe('load', () => {
         expect(loadCard(card, { ...profile, name: 'measured-2026-11' }).profile.name).toBe('measured-2026-11')
     })
 
+    it("finds a profile's alert files relative to the profile, wherever the runner starts", () => {
+        const alerts = { rules: 'alerts/rules.yaml', labels: '../labels.yaml', exclude: ['SyntheticLeftOut'] }
+        mkdirSync(path.join(dir, 'runner', 'alerts'), { recursive: true })
+        const rules = write('runner/alerts/rules.yaml', 'groups: []\n')
+        const labels = write('labels.yaml', 'labels: {}\n')
+        const profilePath = write('runner/profile.yaml', { ...profile, alerts })
+
+        expect(load(write('card.yaml', card), { profilePath }).alerts).toEqual({
+            rules,
+            labels,
+            exclude: ['SyntheticLeftOut'],
+        })
+    })
+
+    it.each(['rules', 'labels'] as const)('changes the profile hash when the alert %s file changes', (kind) => {
+        const alerts = { rules: 'rules.yaml', labels: 'labels.yaml' }
+        write(alerts.rules, 'groups: []\n')
+        write(alerts.labels, 'labels: {}\n')
+        const before = loadCard(card, { ...profile, alerts })
+
+        write(alerts[kind], kind === 'rules' ? 'groups: []\n\n' : 'labels: { stage: test }\n')
+        const after = loadCard(card, { ...profile, alerts })
+
+        expect(after.profileHash).not.toBe(before.profileHash)
+        expect(after.cardHash).not.toBe(before.cardHash)
+    })
+
+    it('refuses an alerts profile on the dev target, and one read from text with no directory for its files', () => {
+        const alerts = { rules: 'rules.yaml', labels: 'labels.yaml', exclude: [] }
+        const problemsOfText = (): string[] => {
+            try {
+                loadText('card.yaml', { card: stringify(card), profile: stringify({ ...profile, alerts }) })
+            } catch (error) {
+                if (error instanceof CardError) {
+                    return error.problems
+                }
+                throw error
+            }
+            throw new Error('the card loaded')
+        }
+
+        expect({
+            dev: problemsOf(devCard, { ...devProfile, alerts }, 'dev'),
+            text: problemsOfText(),
+        }).toEqual({
+            dev: [
+                'profile.alerts: the dev target exposes no role metrics to scrape, so only --target local runs alerts',
+            ],
+            text: [
+                'profile.alerts: a profile read from text has no directory to resolve its rules and label map against',
+            ],
+        })
+    })
+
     it.each<[string, Record<string, string>]>([
         [
             'the settings a role reads straight from the process environment',
@@ -912,6 +1020,14 @@ describe('load', () => {
             { ...card, valves: [emailWorkerKill] },
             { ...profile, replicas: { 'cdp-api': 2 } },
         ],
+        [
+            'a terminate armed on edge_accepted while the profile runs one email worker',
+            {
+                ...card,
+                valves: [{ ...emailWorkerKill, valve: 'role.terminate', dose: { grace: '20s' }, when: edgeAccepted }],
+            },
+            profile,
+        ],
     ])('loads %s', (_name, content, profileContent) => {
         expect(loadCard(content, profileContent).card.id).toBe(card.id)
     })
@@ -921,6 +1037,13 @@ describe('load', () => {
     it.each<[string, [object, object], [object, object], boolean]>([
         ['leaves out the gates', [card, profile], [{ ...card, gates: { duplicate_sends: 3 } }, profile], true],
         ['leaves out the cloud pair', [card, profile], [{ ...card, pair: true }, profile], true],
+        ['leaves out the seed opt-in', [card, profile], [{ ...card, seedable: true }, profile], true],
+        [
+            'leaves out why the card runs unpaired',
+            [card, profile],
+            [{ ...card, unpaired: 'it judges no no_loss' }, profile],
+            true,
+        ],
         [
             'ignores the key order of the profile settings',
             [card, { ...profile, settings }],
@@ -950,6 +1073,18 @@ describe('load', () => {
         expect(load(path.join(__dirname, file), { target }).card.id).toBe(path.basename(file, '.yaml'))
     })
 
+    it('runs every shipped card that applies valves as a pair, or names why it runs unpaired', () => {
+        const shipped = readdirSync(__dirname)
+            .filter((file) => file.endsWith('.yaml'))
+            .map((file) => load(path.join(__dirname, file)))
+            .filter(({ card }) => card.valves.length > 0)
+
+        expect(
+            shipped.filter(({ card }) => !card.pair && card.unpaired === undefined).map(({ card }) => card.id)
+        ).toEqual([])
+        expect(shipped.filter(({ card }) => card.pair).flatMap((loaded) => pairProblemsOf(loaded, true))).toEqual([])
+    })
+
     it('admits a chaos card on a full-traffic profile against the targets its own traffic derives', () => {
         const { admission } = loadCard(hogflowChaos, fullTraffic)
         const baseline = {
@@ -964,8 +1099,11 @@ describe('load', () => {
         ])
     })
 
-    it("derives the profile's own targets for a card that drives its full traffic", () => {
-        const { admission } = loadCard(
+    it.each([
+        ['keeps', undefined, 1],
+        ['scales', 0.25, 0.25],
+    ] as const)('%s the offered rates and targets for a card that drives the full profile', (_, scale, factor) => {
+        const { admission, profile } = loadCard(
             {
                 ...card,
                 drive: {
@@ -974,13 +1112,28 @@ describe('load', () => {
                 },
                 invariants: [{ name: 'at_least_once' }, { name: 'refused_at_intake' }],
             },
-            fullTraffic
+            scale === undefined ? fullTraffic : { ...fullTraffic, scale }
         )
 
-        expect(admission.load?.targets).toEqual(fullTraffic.load.targets)
+        expect(profile.traffic).toEqual(
+            Object.fromEntries(
+                Object.entries(fullTraffic.traffic).map(([kind, shape]) => [
+                    kind,
+                    { ...shape, ratePerSecond: shape.ratePerSecond * factor },
+                ])
+            )
+        )
+        const {
+            claimsPerSecond: { hogflow, email },
+            newJobsPerSecond,
+        } = fullTraffic.load.targets
+        expect(admission.load?.targets).toEqual({
+            claimsPerSecond: { hogflow: hogflow * factor, email: email * factor },
+            newJobsPerSecond: newJobsPerSecond * factor,
+        })
     })
 
-    it.each(['ses-ambiguous-send', 'email-worker-killed-after-accept'])(
+    it.each(['ses-ambiguous-send', 'email-worker-killed-after-accept', 'cyclotron-enqueue-replay', 'chaos-under-load'])(
         'loads the chaos card %s on a profile with load and host admission',
         (id) => {
             const admitted = {
@@ -997,4 +1150,24 @@ describe('load', () => {
             expect(load(path.join(__dirname, `${id}.yaml`), { profilePath }).card.id).toBe(id)
         }
     )
+
+    it('admits cyclotron-failover-at-scale on a profile shaped like the US scale profile', () => {
+        const scaleShaped = {
+            name: 'scale-shaped',
+            traffic: {
+                event_email: { ratePerSecond: 20, parks: 1 },
+                event_webhook: { ratePerSecond: 20, parks: 1 },
+                transactional_email: { ratePerSecond: 5, parks: 1 },
+            },
+            replicas: { 'cdp-cyclotron-worker-hogflow': 4, 'cdp-cyclotron-worker-email': 4, 'cdp-api': 4 },
+            settings: { CDP_SES_RATE_LIMIT_REFILL_PER_SECOND: '2000', CDP_SES_RATE_LIMIT_CAPACITY: '5000' },
+            load: { targets: { claimsPerSecond: { hogflow: 40, email: 30 } }, tolerance: 0.1 },
+            host: { cpuCeiling: 0.5 },
+        }
+        const profilePath = write('profile.yaml', scaleShaped)
+
+        expect(load(path.join(__dirname, 'cyclotron-failover-at-scale.yaml'), { profilePath }).card.id).toBe(
+            'cyclotron-failover-at-scale'
+        )
+    })
 })

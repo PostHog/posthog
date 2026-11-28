@@ -89,11 +89,6 @@ capabilities:
         requires: [core_infra]
         docker_profiles: []
 
-    llm_gateway:
-        description: 'LLM gateway for AI features'
-        requires: [core_infra]
-        docker_profiles: []
-
     agent_proxy:
         description: 'Agent proxy streaming service for live task-run streaming (Tasks product)'
         requires: [core_infra]
@@ -302,7 +297,7 @@ intents:
         capabilities:
             [
                 event_ingestion,
-                llm_gateway,
+                ai_gateway,
                 embedding_service,
                 property_definitions,
                 property_values,
@@ -313,7 +308,7 @@ intents:
     mcp_analytics:
         description: 'MCP analytics intent clustering and session summarisation'
         capabilities:
-            [event_ingestion, llm_gateway, embedding_service, property_definitions, property_values, temporal_workflows]
+            [event_ingestion, ai_gateway, embedding_service, property_definitions, property_values, temporal_workflows]
 
     web_analytics:
         description: 'Web analytics, traffic analysis, and heatmaps'
@@ -367,7 +362,7 @@ intents:
         capabilities:
             [
                 event_ingestion,
-                llm_gateway,
+                ai_gateway,
                 embedding_service,
                 opensearch_search,
                 property_definitions,
@@ -378,7 +373,7 @@ intents:
 
     tasks:
         description: 'Tasks: agent task runs and orchestration'
-        capabilities: [event_ingestion, llm_gateway, celery_workers, celery_scheduler, temporal_workflows, agent_proxy]
+        capabilities: [event_ingestion, ai_gateway, celery_workers, celery_scheduler, temporal_workflows, agent_proxy]
 
     logs:
         description: 'Log aggregation and viewing'
@@ -438,7 +433,7 @@ intents:
 
     desktop:
         description: 'PostHog Desktop app (Electron) with local task runs'
-        capabilities: [desktop_app, temporal_workflows, agent_proxy, llm_gateway]
+        capabilities: [desktop_app, temporal_workflows, agent_proxy, ai_gateway]
 
 # Always-required processes regardless of intent
 # This is the core stack needed for any development

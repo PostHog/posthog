@@ -9,10 +9,11 @@ two-tailed test at 95% confidence and 80% power comparing two variants.
 
 import math
 from collections.abc import Sequence
-from dataclasses import dataclass, field
 from statistics import NormalDist
 from typing import Literal
 
+from products.experiments.backend.facade.contracts import BaselineStats
+from products.experiments.backend.facade.enums import RunningTimeMetricType
 from products.experiments.stats.shared.statistics import RatioStatistic, SampleMeanStatistic, StatisticError
 
 VARIANCE_SCALING_FACTOR_TOTAL_COUNT = 2
@@ -24,26 +25,9 @@ _POWER_Z = NormalDist().inv_cdf(0.8)
 
 # Manual calculator only supports these types (ratio/retention require full baseline data).
 ManualCalculatorMetricType = Literal["funnel", "mean_count", "mean_sum_or_avg"]
-# Full calculator supports all metric types.
-CalculatorMetricType = Literal["funnel", "mean_count", "mean_sum_or_avg", "ratio", "retention"]
-
-METRIC_TYPE_CHOICES = ["funnel", "mean_count", "mean_sum_or_avg", "ratio", "retention"]
 
 
-@dataclass
-class BaselineStats:
-    """Sufficient statistics for the control group, mirroring the frontend ``baseline`` object."""
-
-    number_of_samples: int
-    sum: float
-    sum_squares: float = 0.0
-    denominator_sum: float | None = None
-    denominator_sum_squares: float | None = None
-    numerator_denominator_sum_product: float | None = None
-    step_counts: list[float] = field(default_factory=list)
-
-
-def calculate_variance(metric_type: CalculatorMetricType, baseline_value: float) -> float | None:
+def calculate_variance(metric_type: RunningTimeMetricType, baseline_value: float) -> float | None:
     """Variance from a single baseline value.
 
     Only funnel / mean_count / mean_sum_or_avg can be derived from the baseline
@@ -60,7 +44,7 @@ def calculate_variance(metric_type: CalculatorMetricType, baseline_value: float)
 
 def calculate_variance_from_stats(
     baseline_value: float,
-    metric_type: CalculatorMetricType,
+    metric_type: RunningTimeMetricType,
     baseline: BaselineStats | None = None,
 ) -> float | None:
     """Variance from full baseline statistics.
@@ -99,7 +83,7 @@ def calculate_variance_from_stats(
 
 
 def calculate_sample_size(
-    metric_type: CalculatorMetricType,
+    metric_type: RunningTimeMetricType,
     baseline_value: float,
     mde: float,
     number_of_variants: int,
@@ -164,7 +148,7 @@ def calculate_sample_size(
     return sample_size
 
 
-def calculate_baseline_value(baseline: BaselineStats, metric_type: CalculatorMetricType) -> float | None:
+def calculate_baseline_value(baseline: BaselineStats, metric_type: RunningTimeMetricType) -> float | None:
     """Derive the baseline metric value from raw statistics.
 
     Returns: avg events/user (count), avg property value/user (sum), conversion
@@ -174,7 +158,7 @@ def calculate_baseline_value(baseline: BaselineStats, metric_type: CalculatorMet
     return _finite(value) if value is not None else None
 
 
-def _baseline_value(baseline: BaselineStats, metric_type: CalculatorMetricType) -> float | None:
+def _baseline_value(baseline: BaselineStats, metric_type: RunningTimeMetricType) -> float | None:
     if baseline.number_of_samples == 0:
         return None
 
@@ -199,7 +183,7 @@ def _baseline_value(baseline: BaselineStats, metric_type: CalculatorMetricType) 
 
 
 def calculate_detectable_effect(
-    metric_type: CalculatorMetricType,
+    metric_type: RunningTimeMetricType,
     baseline_value: float,
     control_samples: int,
     variant_samples: int,

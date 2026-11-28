@@ -1,6 +1,7 @@
 import type { Meta, StoryObj } from '@storybook/react'
 
 import { FEATURE_FLAGS } from 'lib/constants'
+import { QuillSurfaceContext } from 'lib/ui/QuillSurface/quillSurfaceContext'
 
 import { mswDecorator } from '~/mocks/browser'
 
@@ -118,6 +119,24 @@ export const FirstAnalysis: Story = {
     ],
 }
 export const Ready: Story = { decorators: [withState(completed)] }
+export const ReadyQuill: Story = {
+    decorators: [
+        withState(completed),
+        (Story) => (
+            <QuillSurfaceContext.Provider value={true}>
+                <Story />
+            </QuillSurfaceContext.Provider>
+        ),
+    ],
+    parameters: {
+        featureFlags: [
+            FEATURE_FLAGS.MARKETING_ANALYTICS_CONVERSION_SETUP_AI,
+            FEATURE_FLAGS.MARKETING_ANALYTICS_SETUP,
+            FEATURE_FLAGS.TODAY_RAIL_NAV,
+        ],
+        testOptions: { waitForSelector: '[data-attr="marketing-conversion-use-suggestion"]' },
+    },
+}
 export const Dashboard: Story = {
     render: () => <DashboardConversionRecommendations />,
     decorators: [withState(completed)],

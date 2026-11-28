@@ -6,6 +6,8 @@ import { QuillContextPicker } from 'scenes/max/components/QuillContextPicker'
 import { QuillModeMenu } from 'scenes/max/components/QuillModeMenu'
 import { ContextTags } from 'scenes/max/Context'
 
+import { MAX_MISSING_KEYS_REASON, aiShellLogic } from '~/layout/ai/aiShellLogic'
+
 import { Composer, QuillComposerLayout, QuillComposerSendButton } from 'products/posthog_ai/frontend/api/composer'
 
 import { todayHomeClassicComposerLogic } from './todayHomeClassicComposerLogic'
@@ -14,6 +16,7 @@ import { todayHomeClassicComposerLogic } from './todayHomeClassicComposerLogic'
 export function TodayHomeClassicComposer(): JSX.Element {
     const { prompt, mode } = useValues(todayHomeClassicComposerLogic)
     const { setPrompt, setMode, chatStarted } = useActions(todayHomeClassicComposerLogic)
+    const { isMaxAvailable } = useValues(aiShellLogic)
     const modeChoices = useModeChoices(false)
     const groupRef = useRef<HTMLDivElement>(null)
     const textAreaRef = useRef<HTMLTextAreaElement>(null)
@@ -24,6 +27,7 @@ export function TodayHomeClassicComposer(): JSX.Element {
                 value={prompt}
                 onChange={setPrompt}
                 onSubmit={() => chatStarted(prompt)}
+                disabledReason={isMaxAvailable ? undefined : MAX_MISSING_KEYS_REASON}
                 textAreaRef={textAreaRef}
             >
                 <QuillComposerLayout

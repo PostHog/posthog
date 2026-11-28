@@ -1,6 +1,6 @@
 import uuid
 import datetime as dt
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from typing import Any
 
 import pytest
@@ -10,6 +10,7 @@ from products.warehouse_sources.backend.models.external_data_job import External
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.temporal.data_imports.cdc.activities import cleanup_orphan_slots_activity
+from products.warehouse_sources.backend.temporal.data_imports.cdc.repair import repair_lock
 from products.warehouse_sources.backend.temporal.data_imports.cdc.types import CDCLag
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.config import PostgresCDCConfig
 
@@ -265,6 +266,7 @@ def _restore_case(
     management="self_managed",
     retention_cap_mb=None,
     lag_mb=5000,
+    last_run_minutes_ago=5,
     schedule_state="missing",
     existing_reason=None,
     restored=True,
@@ -275,6 +277,7 @@ def _restore_case(
         management,
         retention_cap_mb,
         lag_mb,
+        last_run_minutes_ago,
         schedule_state,
         existing_reason,
         restored,
@@ -285,7 +288,7 @@ def _restore_case(
 
 
 @pytest.mark.parametrize(
-    "management, retention_cap_mb, lag_mb, schedule_state, existing_reason, restored, dropped, expected_reason",
+    "management, retention_cap_mb, lag_mb, last_run_minutes_ago, schedule_state, existing_reason, restored, dropped, expected_reason",
     [
         _restore_case("missing_schedule_is_restored_without_lag_blame"),
         _restore_case("capped_slot_is_kept_while_capture_catches_up", management="posthog", retention_cap_mb=10000),
@@ -314,14 +317,36 @@ def _restore_case(
             restored=False,
             expected_reason="critical_lag_self_managed",
         ),
-        _restore_case("lag_below_the_warning_threshold_skips_the_lookup", lag_mb=100, restored=False),
+        _restore_case("recent_capture_and_low_lag_skip_the_lookup", lag_mb=100, restored=False),
+        _restore_case("stale_capture_with_low_lag_is_restored", lag_mb=100, last_run_minutes_ago=3 * 24 * 60),
+        _restore_case("capture_that_never_ran_is_restored", lag_mb=100, last_run_minutes_ago=None),
+        _restore_case(
+            "stale_capture_with_an_existing_schedule_is_left_alone",
+            lag_mb=100,
+            last_run_minutes_ago=3 * 24 * 60,
+            schedule_state="present",
+            restored=False,
+        ),
     ],
 )
-def test_lagging_source_restores_a_missing_extraction_schedule(
-    team, management, retention_cap_mb, lag_mb, schedule_state, existing_reason, restored, dropped, expected_reason
+def test_sweeper_restores_a_missing_extraction_schedule(
+    team,
+    management,
+    retention_cap_mb,
+    lag_mb,
+    last_run_minutes_ago,
+    schedule_state,
+    existing_reason,
+    restored,
+    dropped,
+    expected_reason,
 ):
     source = _create_source(team, job_inputs=_cdc_job_inputs(management=management))
     schema = _create_cdc_schema(team, source)
+    if last_run_minutes_ago is not None:
+        last_run_at = dt.datetime.now(tz=dt.UTC) - dt.timedelta(minutes=last_run_minutes_ago)
+        schema.sync_type_config = {**schema.sync_type_config, "cdc_last_run_at": last_run_at.isoformat()}
+        schema.save()
     if existing_reason:
         schema.sync_type_config = {**schema.sync_type_config, "cdc_broken": {"reason": existing_reason}}
         schema.save()
@@ -335,6 +360,50 @@ def test_lagging_source_restores_a_missing_extraction_schedule(
     assert mock_pause.called is dropped
     schema.refresh_from_db()
     assert (schema.sync_type_config.get("cdc_broken") or {}).get("reason") == expected_reason
+
+
+@pytest.mark.parametrize(
+    "management, slot_checks, last_run_minutes_ago, existing_reason, repair_running, expected_reason",
+    [
+        pytest.param(
+            "posthog", [False, False], 3 * 24 * 60, None, False, "slot_missing", id="lost_slot_with_stopped_capture"
+        ),
+        pytest.param("posthog", [False, False], 5, None, False, None, id="running_capture_recreates_the_slot_itself"),
+        pytest.param("posthog", [True], 3 * 24 * 60, None, False, None, id="slot_without_a_confirmed_position"),
+        pytest.param("posthog", [False, True], 3 * 24 * 60, None, False, None, id="slot_recreated_before_the_mark"),
+        pytest.param("posthog", [False, False], 3 * 24 * 60, None, True, None, id="repair_in_progress"),
+        pytest.param("self_managed", [False], 3 * 24 * 60, None, False, None, id="self_managed_slot"),
+        pytest.param(
+            "posthog",
+            [False, False],
+            3 * 24 * 60,
+            "auto_dropped_critical_lag",
+            False,
+            "auto_dropped_critical_lag",
+            id="existing_marker_stays",
+        ),
+    ],
+)
+def test_sweeper_marks_a_lost_posthog_managed_slot_broken(
+    team, management, slot_checks, last_run_minutes_ago, existing_reason, repair_running, expected_reason
+):
+    source = _create_source(team, job_inputs=_cdc_job_inputs(management=management))
+    schema = _create_cdc_schema(team, source)
+    last_run_at = dt.datetime.now(tz=dt.UTC) - dt.timedelta(minutes=last_run_minutes_ago)
+    config = {**schema.sync_type_config, "cdc_last_run_at": last_run_at.isoformat()}
+    if existing_reason:
+        config["cdc_broken"] = {"reason": existing_reason}
+    schema.sync_type_config = config
+    schema.save()
+    adapter = _mock_adapter(lag_bytes=None)
+    adapter.stream_exists.side_effect = slot_checks
+
+    with repair_lock(source) if repair_running else nullcontext():
+        _, _, mock_pause = _run(adapter)
+
+    schema.refresh_from_db()
+    assert (schema.sync_type_config.get("cdc_broken") or {}).get("reason") == expected_reason
+    mock_pause.assert_not_called()
 
 
 def _job(team, source, schema, status, age, workflow_id=None):

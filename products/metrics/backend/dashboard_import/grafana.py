@@ -299,9 +299,12 @@ class GrafanaDashboardParser:
     def _place(packer: GridPacker, panel: dict[str, Any]) -> GridLayout:
         grid = _dict(panel.get("gridPos"))
         min_width, min_height = (1, 1) if panel.get("type") == "text" else (MIN_INSIGHT_WIDTH, MIN_INSIGHT_HEIGHT)
+        # Round both edges, not the width: rounding x and w apart makes neighbours overlap or leaves a gap.
+        left = grafana_columns_to_grid(_int(grid.get("x"), 0))
+        right = grafana_columns_to_grid(_int(grid.get("x"), 0) + _int(grid.get("w"), 12))
         return packer.place(
-            x=grafana_columns_to_grid(_int(grid.get("x"), 0)),
-            w=max(grafana_columns_to_grid(_int(grid.get("w"), 12)), min_width),
+            x=left,
+            w=max(right - left, min_width),
             h=max(grafana_height_to_rows(_int(grid.get("h"), 8)), min_height),
         )
 

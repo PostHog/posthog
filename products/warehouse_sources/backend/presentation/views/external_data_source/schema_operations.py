@@ -24,6 +24,7 @@ from posthog.llm.system_one_client import GATEWAY_MAX_CHOICE_OPTIONS
 from posthog.permissions import is_service_auth
 
 from products.access_control.backend.facade.user_access_control import access_level_satisfied_for_resource
+from products.data_modeling.backend.facade import api as data_modeling_api
 from products.data_warehouse.backend.facade.api import get_direct_query_engine, get_namespaced_resource_adapter
 from products.warehouse_sources.backend.facade.added_tables import added_table_access_refusal
 from products.warehouse_sources.backend.facade.api import webhook_issues
@@ -64,10 +65,12 @@ from products.warehouse_sources.backend.facade.source_management import (
 from products.warehouse_sources.backend.presentation.sync_frequency_field import SYNC_FREQUENCY_HELP_TEXT
 from products.warehouse_sources.backend.presentation.views.external_data_schema import (
     FULL_REFRESH_TIME_OF_DAY_HELP_TEXT,
+    VIEW_CADENCE_SNAPSHOTS_CONTEXT_KEY,
     WEBHOOK_EVENT_RECONCILES_CONTEXT_KEY,
     WEBHOOK_ISSUES_CONTEXT_KEY,
     ExternalDataSchemaSerializer,
     RowFiltersField,
+    xmin_unavailable_errors,
 )
 
 from . import base, credential_store, helpers
@@ -595,6 +598,7 @@ class ExternalDataSourceSchemaOperationsMixin(base.ExternalDataSourceViewSetBase
             return define_added_table_metadata(
                 instance.source_type,
                 source_inputs,
+                instance.team_id,
                 data["name"],
                 data["path"],
                 data["file_format"],
@@ -862,6 +866,25 @@ class ExternalDataSourceSchemaOperationsMixin(base.ExternalDataSourceViewSetBase
             defaulted_schema_ids.add(str(schema.id))
         return failures, defaulted_schema_ids
 
+    def _seed_xmin_checks(
+        self,
+        source: ExternalDataSource,
+        serialized: list[tuple[ExternalDataSchema, ExternalDataSchemaSerializer]],
+    ) -> None:
+        """Check every table that moves to xmin with one discovery call per API version, before the
+        per-schema transactions, so a bulk switch does not connect to the source once per table."""
+        if not base.SourceRegistry.get_source(source.source_type).supports_xmin:
+            return
+        by_api_version: dict[str | None, list[tuple[ExternalDataSchema, ExternalDataSchemaSerializer]]] = {}
+        for schema, schema_serializer in serialized:
+            if schema_serializer.xmin_check_applies():
+                api_version = schema_serializer.xmin_probe_api_version(schema)
+                by_api_version.setdefault(api_version, []).append((schema, schema_serializer))
+        for api_version, group in by_api_version.items():
+            errors = xmin_unavailable_errors(source, [schema for schema, _ in group], api_version)
+            for schema, schema_serializer in group:
+                schema_serializer.seed_xmin_check(errors[str(schema.id)])
+
     @extend_schema(
         request=ExternalDataSourceBulkUpdateSchemasSerializer,
         responses={200: ExternalDataSchemaSerializer(many=True)},
@@ -878,6 +901,7 @@ class ExternalDataSourceSchemaOperationsMixin(base.ExternalDataSourceViewSetBase
         serializer_context = self.get_serializer_context()
         # Shared by every schema's serializer, so a source's provider events are reconciled once per request.
         serializer_context[WEBHOOK_EVENT_RECONCILES_CONTEXT_KEY] = {}
+        serializer_context[VIEW_CADENCE_SNAPSHOTS_CONTEXT_KEY] = []
         updated_schemas = self._apply_schema_updates(source, schema_updates, serializer_context)
         serializer_context[WEBHOOK_ISSUES_CONTEXT_KEY] = webhook_issues(self.team_id, updated_schemas)
         return Response(
@@ -944,12 +968,15 @@ class ExternalDataSourceSchemaOperationsMixin(base.ExternalDataSourceViewSetBase
                 # Defaults discovery already confirmed these tables aren't webhook-only; seed the
                 # cache so the warm step below doesn't re-probe the source once per schema.
                 schema_serializer.seed_webhook_only_check(False)
+            prepared.append((schema, schema_serializer, schema_post_commit_actions))
+
+        self._seed_xmin_checks(source, [(schema, schema_serializer) for schema, schema_serializer, _ in prepared])
+        for schema, schema_serializer, _ in prepared:
             # Do the webhook source-discovery calls (e.g. Google Ads token refresh + field query)
             # here, before the per-schema transaction below. Running it inside update()'s transaction
             # held the DB connection idle-in-transaction long enough for the server to close it.
             # update() reads the cached result, so it still validates and fails per-schema.
             schema_serializer.warm_webhook_only_check(schema)
-            prepared.append((schema, schema_serializer, schema_post_commit_actions))
 
         # Commit each schema in its own transaction. A single atomic block around the whole batch
         # meant one schema's failure rolled back every schema and failed the request, so the user
@@ -1002,6 +1029,10 @@ class ExternalDataSourceSchemaOperationsMixin(base.ExternalDataSourceViewSetBase
                     schema_id=str(action_schema.id),
                     exc_info=e,
                 )
+
+        data_modeling_api.reschedule_views_if_cadence_changed(
+            self.team_id, serializer_context.get(VIEW_CADENCE_SNAPSHOTS_CONTEXT_KEY) or []
+        )
 
         # Report save failures first so a schedule-update failure can't mask which schemas didn't
         # save, then fail the request on the schedule-update failure.

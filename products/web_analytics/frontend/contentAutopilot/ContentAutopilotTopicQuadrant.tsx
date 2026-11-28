@@ -5,11 +5,10 @@ import type { ScatterChartConfig, ScatterSeries } from '@posthog/quill-charts'
 
 import { useChartTheme } from 'lib/charts/hooks'
 import { getColorVar } from 'lib/colors'
-import { percentage } from 'lib/utils/numbers'
 import { pluralize } from 'lib/utils/strings'
-import { PagePerformanceCard } from 'scenes/web-analytics/PagePerformanceCard'
-import { PagePerformanceCardHeader } from 'scenes/web-analytics/PagePerformanceCardHeader'
 
+import { AiVisibilityCard } from './AiVisibilityCard'
+import { formatShare } from './shares'
 import type { TopicQuadrantGroup, TopicQuadrantKey, TopicQuadrantPoint } from './topicQuadrant'
 
 // Groups compare each topic with your own average, so the labels say "above" or "below" rather than claiming a topic
@@ -21,7 +20,7 @@ const LABELS: Record<TopicQuadrantKey, string> = {
     weak: 'Below average on both',
 }
 
-const formatRate = (value: number): string => percentage(value, 0)
+const formatRate = (value: number): string => formatShare(value)
 
 const CONFIG: ScatterChartConfig<TopicQuadrantPoint> = {
     xAxis: { label: 'Visibility', domain: [0, 1], tickFormatter: formatRate },
@@ -77,15 +76,11 @@ export const ContentAutopilotTopicQuadrant = ({
             }))
     }, [groups, colorKey])
     return (
-        <PagePerformanceCard className="min-w-0">
-            <PagePerformanceCardHeader
-                title="Topics at a glance"
-                description="Groups compare each topic with your average visibility and citation rate."
-            />
-            <div
-                className="h-72 min-w-0 flex flex-col p-2"
-                data-attr="content-autopilot-prompts-overview-topic-quadrant"
-            >
+        <AiVisibilityCard
+            title="Topics at a glance"
+            description="Groups compare each topic with your average visibility and citation rate."
+        >
+            <div className="flex h-72 min-w-0 flex-col" data-attr="content-autopilot-prompts-overview-topic-quadrant">
                 <ScatterChart<TopicQuadrantPoint>
                     series={series}
                     theme={theme}
@@ -93,6 +88,6 @@ export const ContentAutopilotTopicQuadrant = ({
                     onPointClick={(point) => point.meta && onSelectTopic(point.meta.topic)}
                 />
             </div>
-        </PagePerformanceCard>
+        </AiVisibilityCard>
     )
 }

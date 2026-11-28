@@ -159,8 +159,7 @@ class CatalogModel:
 
 # Rates a model family lists at. Sources, checked 2026-09-17: Anthropic and OpenAI publish
 # theirs; the models PostHog serves through Cloudflare, Baseten and Modal are quoted at what
-# the gateway bills, pinned in
-# `services/llm-gateway/src/llm_gateway/rate_limiting/model_cost_overrides.py`.
+# the AI gateway (PostHog/ai-gateway) bills.
 _GLM_COST = ModelCost(1.4, 4.4)
 _GLM_FLASH_COST = ModelCost(0.15, 0.5)
 _KIMI_COST = ModelCost(3, 15)
@@ -173,6 +172,9 @@ _OPUS_5_5_COST = ModelCost(4, 20)
 _FABLE_COST = ModelCost(10, 50)
 _FABLE_5_2_COST = ModelCost(8, 40)
 _SONNET_COST = ModelCost(2, 10)
+_HAIKU_5_5_COST = ModelCost(
+    0.1, 0.5, long_context=LongContextCost(above_input_tokens=100_000, input_per_mtok=0.5, output_per_mtok=2.5)
+)
 _SONNET_4_COST = ModelCost(3, 15)
 _GPT_PRO_COST = ModelCost(5, 30)
 _GPT_MID_COST = ModelCost(2.5, 15)
@@ -302,6 +304,7 @@ MODELS: tuple[CatalogModel, ...] = (
     CatalogModel(
         "claude-sonnet-5", CLAUDE, _EXTENDED, cost=_SONNET_COST, supports_1m_context=True, context_window=1_000_000
     ),
+    CatalogModel("claude-haiku-5-5", CLAUDE, _STANDARD, cost=_HAIKU_5_5_COST, context_window=1_000_000),
     CatalogModel(
         "claude-sonnet-4-6",
         CLAUDE,

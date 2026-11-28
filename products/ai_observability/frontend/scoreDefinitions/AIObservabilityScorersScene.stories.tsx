@@ -17,6 +17,8 @@ const definition: ScoreDefinitionApi = {
     kind: 'numeric',
     archived: false,
     current_version: 3,
+    scope: 'item',
+    suite_keys: [],
     calculation: 'reported',
     composition: null,
     input_scorers: [],

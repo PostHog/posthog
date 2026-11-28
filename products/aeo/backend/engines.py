@@ -25,6 +25,7 @@ from urllib.parse import urlparse
 from django.conf import settings
 
 import requests
+import structlog
 
 from posthog.dataclasses import frozen
 from posthog.llm.gateway_client import AIGatewayConfig, ai_gateway_headers, resolve_ai_gateway_config
@@ -37,7 +38,10 @@ from posthog.security.llm_prompt_sanitization import (
 from products.aeo.backend.brand import names_brand
 from products.aeo.backend.facade.contracts import CheckMode
 
+logger = structlog.get_logger(__name__)
+
 GATEWAY_TIMEOUT_SECONDS = 420  # web-search turns routinely take 10-60s, and multi-search answers several minutes
+AI_VISIBILITY_AI_PRODUCT = "ai_visibility"
 # Engine ids are stored on every check, so renaming one splits its history in two.
 CLAUDE_WEB_SEARCH = "claude-web-search"
 OPENAI_WEB_SEARCH = "openai-web-search"
@@ -178,6 +182,30 @@ class _SharedBackoff:
 
 GATEWAY_BACKOFF = _SharedBackoff()
 
+CREDIT_REFUSAL_DENIAL = "credit_bucket_exhausted"
+
+
+class AICreditsExhausted(Exception):
+    pass
+
+
+def gateway_request_headers(
+    gateway: AIGatewayConfig, *, trace_id: str, properties: dict[str, str], anthropic: bool = False
+) -> dict[str, str]:
+    headers = {
+        "Authorization": f"Bearer {gateway.api_key}",
+        **(ai_gateway_headers(ai_product=AI_VISIBILITY_AI_PRODUCT, trace_id=trace_id, properties=properties) or {}),
+    }
+    if anthropic:
+        headers["anthropic-version"] = "2023-06-01"
+    return headers
+
+
+def raise_for_gateway_status(response: requests.Response) -> None:
+    if response.status_code == 402 and response.headers.get("X-PostHog-Denial", "").startswith(CREDIT_REFUSAL_DENIAL):
+        raise AICreditsExhausted(response.headers["X-PostHog-Denial"])
+    response.raise_for_status()
+
 
 def gateway_post_json(
     session: requests.Session,
@@ -187,14 +215,15 @@ def gateway_post_json(
     timeout: int = GATEWAY_TIMEOUT_SECONDS,
 ) -> dict[str, Any]:
     """POST and decode JSON, retrying throttled and transient errors a bounded number of
-    times; raises requests.RequestException once the attempts run out or on any other failure."""
+    times; raises requests.RequestException once the attempts run out or on any other failure,
+    and AICreditsExhausted when the gateway refuses the team for lack of AI credits."""
     for attempt in range(GATEWAY_MAX_ATTEMPTS):
         GATEWAY_BACKOFF.wait()
         response = session.post(url, headers=headers, json=payload, timeout=timeout)
         if response.status_code in RETRYABLE_STATUS_CODES and attempt < GATEWAY_MAX_ATTEMPTS - 1:
             GATEWAY_BACKOFF.pause(_retry_delay_seconds(response, attempt))
             continue
-        response.raise_for_status()
+        raise_for_gateway_status(response)
         return response.json()
     raise AssertionError("unreachable: the last attempt returns or raises")
 
@@ -568,11 +597,9 @@ class ClaudeWebSearchEngine:
                     "allowed_callers": ["direct"],
                 }
             ]
-        headers = {
-            "Authorization": f"Bearer {self._gateway.api_key}",
-            "anthropic-version": "2023-06-01",
-            **(ai_gateway_headers(trace_id=trace_id, properties=custom_properties) or {}),
-        }
+        headers = gateway_request_headers(
+            self._gateway, trace_id=trace_id, properties=custom_properties, anthropic=True
+        )
         try:
             body = gateway_post_json(
                 self._sessions.get(), self._gateway.url.rstrip("/") + "/messages", headers, payload
@@ -596,10 +623,7 @@ def _post_gateway_responses(
     trace_id: str,
     custom_properties: dict[str, str],
 ) -> dict[str, Any]:
-    headers = {
-        "Authorization": f"Bearer {gateway.api_key}",
-        **(ai_gateway_headers(trace_id=trace_id, properties=custom_properties) or {}),
-    }
+    headers = gateway_request_headers(gateway, trace_id=trace_id, properties=custom_properties)
     return gateway_post_json(sessions.get(), gateway.url.rstrip("/") + "/responses", headers, payload)
 
 
@@ -626,6 +650,8 @@ class OpenAIWebSearchEngine:
         }
         if self.mode == CheckMode.WEB_SEARCH:
             payload["tools"] = [{"type": "web_search"}]
+            # The same search budget as the Claude engine's max_uses, so the two engines' citation rates compare.
+            payload["max_tool_calls"] = MAX_WEB_SEARCHES_PER_PROMPT
         try:
             body = _post_gateway_responses(
                 self._gateway, self._sessions, payload, trace_id=trace_id, custom_properties=custom_properties
@@ -634,7 +660,20 @@ class OpenAIWebSearchEngine:
             return self._check(trace_id, error=_request_error(e))
         if (error := openai_response_error(body)) is not None:
             return self._check(trace_id, error=error)
+        self._warn_over_search_cap(body)
         return _answered_check(self, trace_id, parse_openai_responses_citations(body))
+
+    def _warn_over_search_cap(self, body: dict[str, Any]) -> None:
+        # OpenAI does not always enforce max_tool_calls, and each search over the cap is billed.
+        searches = sum(1 for item in body.get("output") or [] if item.get("type") == "web_search_call")
+        if searches > MAX_WEB_SEARCHES_PER_PROMPT:
+            logger.warning(
+                "aeo_openai_search_cap_exceeded",
+                engine=self.name,
+                model=self.model,
+                count=searches,
+                cap=MAX_WEB_SEARCHES_PER_PROMPT,
+            )
 
     def _check(self, trace_id: str, *, error: str) -> CitationCheck:
         return CitationCheck(engine=self.name, model=self.model, mode=self.mode, trace_id=trace_id, error=error)
