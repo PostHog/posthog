@@ -74,4 +74,43 @@ describe('ContextDisplay', () => {
             }),
         ])
     })
+
+    it.each([
+        { showAllProperties: false, shownKeys: [], hiddenKeys: ['$request_params', '$browser_version', '$os_version'] },
+        {
+            showAllProperties: true,
+            shownKeys: ['$request_params', '$os_version'],
+            hiddenKeys: ['$browser', '$browser_version'],
+        },
+    ])(
+        'lists properties outside the built-in and custom sections when showAllProperties is $showAllProperties',
+        ({ showAllProperties, shownKeys, hiddenKeys }) => {
+            render(
+                <Provider>
+                    <ContextDisplay
+                        loading={false}
+                        properties={{
+                            $browser: 'Chrome',
+                            $browser_version: '134',
+                            $os: '',
+                            $os_version: '10.15.7',
+                            $request_params: { page: 2 },
+                            plan: 'business',
+                        }}
+                        additionalProperties={{ plan: 'business' }}
+                        showAllProperties={showAllProperties}
+                    />
+                </Provider>
+            )
+
+            expect(screen.getByText('Chrome 134')).toBeInTheDocument()
+            expect(screen.getByText('plan')).toBeInTheDocument()
+            for (const key of shownKeys) {
+                expect(screen.getByText(key)).toBeInTheDocument()
+            }
+            for (const key of hiddenKeys) {
+                expect(screen.queryByText(key)).not.toBeInTheDocument()
+            }
+        }
+    )
 })

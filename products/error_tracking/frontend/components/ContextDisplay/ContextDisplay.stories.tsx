@@ -45,6 +45,28 @@ export function ContextDisplayMisc(): JSX.Element {
     )
 }
 
+export function ContextDisplayShowAllProperties(): JSX.Element {
+    return (
+        <div className="w-[900px]">
+            <ContextDisplay
+                loading={false}
+                properties={{
+                    $browser: 'Chrome',
+                    $browser_version: '134',
+                    $exception_level: 'error',
+                    $request_params: { page: 2, filters: { status: ['open', 'pending'] } },
+                    $job_metadata: [{ attempt: 1, scheduled_at: '2026-01-01T00:00:00Z' }],
+                    $sdk_debug: false,
+                    plan: 'business',
+                }}
+                additionalProperties={{ plan: 'business' }}
+                showAllProperties
+            />
+        </div>
+    )
+}
+ContextDisplayShowAllProperties.parameters = { testOptions: { snapshotBrowsers: [] } }
+
 //////////////////// Utils
 
 function getProps(event_name: TestEventName): ContextDisplayProps {

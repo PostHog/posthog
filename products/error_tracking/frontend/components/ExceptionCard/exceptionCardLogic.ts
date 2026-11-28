@@ -29,7 +29,7 @@ export interface exceptionCardLogicValues {
     logsScope: ExceptionLogsScope
     onShowOnlyWithRecording: (() => void) | null
     propertyNameFilter: string
-    showJSONProperties: boolean
+    showAllProperties: boolean
     traceTabEnabled: boolean
 }
 
@@ -51,8 +51,8 @@ export interface exceptionCardLogicActions {
     setPropertyNameFilter: (propertyNameFilter: string) => {
         propertyNameFilter: string
     }
-    setShowJSONProperties: (showJSON: boolean) => {
-        showJSON: boolean
+    setShowAllProperties: (showAll: boolean) => {
+        showAll: boolean
     }
 }
 
@@ -84,7 +84,7 @@ export const exceptionCardLogic = kea<exceptionCardLogicType>([
     })),
 
     actions({
-        setShowJSONProperties: (showJSON: boolean) => ({ showJSON }),
+        setShowAllProperties: (showAll: boolean) => ({ showAll }),
         setPropertyNameFilter: (propertyNameFilter: string) => ({ propertyNameFilter }),
         setCurrentTab: (tab: ExceptionCardTab) => ({ tab }),
         setFrameExpanded: (rawId: string, expanded: boolean) => ({ rawId, expanded }),
@@ -110,10 +110,10 @@ export const exceptionCardLogic = kea<exceptionCardLogicType>([
                 },
             },
         ],
-        showJSONProperties: [
+        showAllProperties: [
             false,
             {
-                setShowJSONProperties: (_, { showJSON }) => showJSON,
+                setShowAllProperties: (_, { showAll }) => showAll,
             },
         ],
         propertyNameFilter: [
