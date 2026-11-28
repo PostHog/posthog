@@ -41,6 +41,7 @@ const configs = [
 describe('errorTrackingIssueFiltersModalLogic', () => {
     let logic: ReturnType<typeof errorTrackingIssueFiltersModalLogic.build>
     let patches: { id: string; body: Record<string, any> }[]
+    let previews: unknown[]
     let failingId: string | null
     let onClose: jest.Mock
     let captureSpy: jest.SpyInstance
@@ -49,6 +50,7 @@ describe('errorTrackingIssueFiltersModalLogic', () => {
 
     beforeEach(() => {
         patches = []
+        previews = []
         failingId = null
         captureSpy = jest.spyOn(posthog, 'capture')
         successToast = jest.spyOn(lemonToast, 'success')
@@ -61,6 +63,12 @@ describe('errorTrackingIssueFiltersModalLogic', () => {
                 ],
                 '/api/environments/:team_id/quick_filters/': () => [200, { results: [] }],
                 '/api/projects/:team_id/quick_filters/': () => [200, { results: [] }],
+            },
+            post: {
+                '/api/projects/:team_id/signals/source_configs/issue_filter_preview/': async ({ request }) => {
+                    previews.push(await request.json())
+                    return [200, { status: 'ok', error: null, results: [] }]
+                },
             },
             patch: {
                 '/api/projects/:team_id/signals/source_configs/:id/': async ({ request, params }) => {
@@ -82,6 +90,16 @@ describe('errorTrackingIssueFiltersModalLogic', () => {
     afterEach(() => {
         logic?.unmount()
         jest.restoreAllMocks()
+    })
+
+    it('previews the edited filter before saving any source row', async () => {
+        await expectLogic(logic, () => logic.actions.setSeverity('critical')).toDispatchActions(['setPreview'])
+        expect(previews.at(-1)).toEqual({
+            issue_filters: {
+                properties: [PRODUCTION, { key: 'severity', type: 'event', operator: 'exact', value: ['critical'] }],
+            },
+        })
+        expect(patches).toEqual([])
     })
 
     function filterEvents(): Record<string, any>[] {

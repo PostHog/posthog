@@ -12,6 +12,7 @@ import {
     reducers,
     selectors,
 } from 'kea'
+import { subscriptions } from 'kea-subscriptions'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
@@ -30,8 +31,14 @@ import { AnyPropertyFilter, PropertyFilterType, QuickFilter, QuickFilterOption, 
 
 import { issueFiltersLogic } from 'products/error_tracking/frontend/components/IssueFilters/issueFiltersLogic'
 import type { IssueSeverity } from 'products/error_tracking/frontend/components/IssueSeverityTag'
-import { signalsSourceConfigsPartialUpdate } from 'products/signals/frontend/generated/api'
-import type { PatchedSignalSourceConfigApi } from 'products/signals/frontend/generated/api.schemas'
+import {
+    signalsSourceConfigsIssueFilterPreviewCreate,
+    signalsSourceConfigsPartialUpdate,
+} from 'products/signals/frontend/generated/api'
+import type {
+    IssueFilterPreviewResponseApi,
+    PatchedSignalSourceConfigApi,
+} from 'products/signals/frontend/generated/api.schemas'
 
 import {
     IssueFilterPayload,
@@ -47,6 +54,8 @@ import { SOURCE_ISSUE_FILTERS_KEY, SignalSourceConfig } from '../types'
 // Its own filter state, apart from the Issues screen's, which also writes to the URL.
 export const INBOX_ISSUE_FILTERS_LOGIC_KEY = 'inbox-source-issue-filters'
 export const ISSUE_FILTERS_QUICK_FILTER_CONTEXT = QuickFilterContext.ErrorTrackingIssueFilters
+
+type FilterPreview = IssueFilterPreviewResponseApi | null
 
 export interface ErrorTrackingIssueFiltersModalLogicProps {
     /** Every persisted error tracking row. One filter covers the source, so a save writes all of them. */
@@ -90,6 +99,7 @@ export interface errorTrackingIssueFiltersModalLogicValues {
     quickFilterSelections: Record<string, string | null>
     saveDisabledReason: string | null
     saving: boolean
+    preview: FilterPreview
     severity: IssueSeverity | null
     storedFilterCount: number
 }
@@ -117,6 +127,8 @@ export interface errorTrackingIssueFiltersModalLogicActions {
         filter: QuickFilter
         option: QuickFilterOption | null
     }
+    refreshPreview: () => { value: true }
+    setPreview: (preview: FilterPreview) => { preview: FilterPreview }
     saveFilters: () => {
         value: true
     }
@@ -181,11 +193,20 @@ export const errorTrackingIssueFiltersModalLogic: LogicWrapper<errorTrackingIssu
             setSeverity: (severity: IssueSeverity | null) => ({ severity }),
             setAssignee: (assignee: ErrorTrackingIssueAssignee | null) => ({ assignee }),
             pickQuickFilter: (filter: QuickFilter, option: QuickFilterOption | null) => ({ filter, option }),
+            refreshPreview: true,
+            setPreview: (preview: FilterPreview) => ({ preview }),
             saveFilters: true,
             clearFilters: true,
             setSaving: (saving: boolean) => ({ saving }),
         }),
         reducers({
+            preview: [
+                null as FilterPreview,
+                {
+                    refreshPreview: () => null,
+                    setPreview: (_, { preview }) => preview,
+                },
+            ],
             severity: [
                 null as IssueSeverity | null,
                 {
@@ -294,6 +315,36 @@ export const errorTrackingIssueFiltersModalLogic: LogicWrapper<errorTrackingIssu
                         )
                     )
                 },
+                refreshPreview: async (_, breakpoint) => {
+                    await breakpoint(500)
+                    const { payload, currentTeamId } = values
+                    if (!currentTeamId || 'error' in payload) {
+                        return
+                    }
+                    try {
+                        const response = await signalsSourceConfigsIssueFilterPreviewCreate(String(currentTeamId), {
+                            issue_filters: {
+                                properties: payload.properties.map(({ value, ...leaf }) => ({
+                                    ...leaf,
+                                    value: Array.isArray(value)
+                                        ? value.map((item) => (typeof item === 'bigint' ? String(item) : item))
+                                        : typeof value === 'bigint'
+                                          ? String(value)
+                                          : value,
+                                })),
+                            },
+                        })
+                        breakpoint()
+                        actions.setPreview(response)
+                    } catch {
+                        breakpoint()
+                        actions.setPreview({
+                            status: 'query_failed',
+                            error: "Couldn't load the filter preview.",
+                            results: [],
+                        })
+                    }
+                },
                 saveFilters: async () => {
                     const payload = values.payload
                     if ('error' in payload) {
@@ -313,10 +364,15 @@ export const errorTrackingIssueFiltersModalLogic: LogicWrapper<errorTrackingIssu
                 },
             }
         }),
+        subscriptions(({ actions }) => ({
+            payload: () => actions.refreshPreview(),
+            currentTeamId: () => actions.refreshPreview(),
+        })),
         afterMount(({ actions, props: logicProps }) => {
             const draft = issueFilterDraftFromStored(storedFilters(logicProps.sourceConfigs))
             actions.setFilterGroup(draft.filterGroup)
             actions.setSeverity(draft.severity)
             actions.setAssignee(draft.assignee)
+            actions.refreshPreview()
         }),
     ])
