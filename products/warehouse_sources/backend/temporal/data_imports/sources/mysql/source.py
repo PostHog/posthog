@@ -241,9 +241,24 @@ class MySQLSource(
         resumable_source_manager: ResumableSourceManager[KeysetResumeState],
         inputs: SourceInputs,
     ) -> SourceResponse:
-        # A reset must not resume from a stale checkpoint — the full load restarts from the top.
-        if inputs.reset_pipeline:
+        from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+
+        schema = ExternalDataSchema.objects.select_related("source").get(id=inputs.schema_id)
+        # A streaming CDC schema's changes are consumed from the buffer. One that is not seeded yet takes a
+        # full read below, and capture keeps its changes in the buffer until that completes.
+        if schema.is_cdc and schema.cdc_mode == "streaming" and schema.initial_sync_complete:
+            return self._buffered_cdc_source(schema, inputs)
+
+        # A rebuild empties the Delta table, so a checkpoint left from the previous run would have the read
+        # resume mid-table and append into it. A delta revive wipes the table too, and the pipeline skips its
+        # own reset whenever it can resume.
+        table_rebuild_pending = inputs.reset_pipeline or schema.delta_revive_required is not None
+        if table_rebuild_pending:
             resumable_source_manager.clear_state()
+        if schema.is_cdc:
+            self._record_cdc_snapshot_position(
+                schema, inputs, rebuild=table_rebuild_pending, resuming=resumable_source_manager.can_resume()
+            )
         return self.get_implementation.build_pipeline(config, inputs, resumable_source_manager=resumable_source_manager)
 
     @property
