@@ -708,6 +708,26 @@ describe('processAiToolCallExtraction', () => {
         expect(result.properties!['$ai_tool_call_count']).toBe(2)
     })
 
+    it.each([
+        [
+            'Vercel AI SDK v5 tool-call parts named by toolName',
+            [
+                {
+                    role: 'assistant',
+                    content: [{ type: 'tool-call', toolCallId: 'c1', toolName: 'get_weather', input: {} }],
+                },
+            ],
+        ],
+        [
+            'Gemini functionCall parts',
+            [{ role: 'model', parts: [{ functionCall: { id: 'g1', name: 'get_weather', args: { city: 'NYC' } } }] }],
+        ],
+    ])('extracts %s from stringified JSON', (_, outputChoices) => {
+        const event = createEvent('$ai_generation', { $ai_output_choices: JSON.stringify(outputChoices) })
+
+        expect(processAiToolCallExtraction(event).properties!['$ai_tools_called']).toBe('get_weather')
+    })
+
     it('extracts normalized format with content.type=function', () => {
         const event = createEvent('$ai_generation', {
             $ai_output_choices: [

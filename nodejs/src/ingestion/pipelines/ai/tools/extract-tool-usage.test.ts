@@ -98,6 +98,67 @@ describe('processAiToolUsageExtraction', () => {
                 { count: 1, errorCount: 0, results: 'find_invoice', errors: undefined },
             ],
             [
+                'OpenAI Responses input that interleaves each call with its output',
+                [
+                    { role: 'user', content: 'Reconcile invoice INV-7' },
+                    { type: 'function_call', call_id: 'fc_1', name: 'find_invoice', arguments: '{}' },
+                    { type: 'function_call_output', call_id: 'fc_1', output: 'invoice INV-7' },
+                    { type: 'function_call', call_id: 'fc_2', name: 'find_payment', arguments: '{}' },
+                    { type: 'function_call_output', call_id: 'fc_2', output: 'Error: no payment found' },
+                ],
+                { count: 2, errorCount: 1, results: 'find_invoice,find_payment', errors: 'find_payment' },
+            ],
+            [
+                'an explicit success is not read as an error from its text',
+                [
+                    { type: 'function_call', call_id: 'fc_1', name: 'error_rate', arguments: '{}' },
+                    { type: 'function_call_output', call_id: 'fc_1', output: 'Error rate: 0.2%', status: 'completed' },
+                    {
+                        role: 'tool',
+                        content: [
+                            {
+                                type: 'tool-result',
+                                toolCallId: 'c1',
+                                toolName: 'error_rate',
+                                output: { type: 'text', value: 'Error rate: 0.2%' },
+                            },
+                        ],
+                    },
+                ],
+                { count: 2, errorCount: 0, results: 'error_rate,error_rate', errors: undefined },
+            ],
+            [
+                'Gemini functionResponse parts, named from the earlier functionCall',
+                [
+                    { role: 'model', parts: [{ functionCall: { id: 'g1', name: 'search_tags', args: {} } }] },
+                    { role: 'user', parts: [{ functionResponse: { id: 'g1', response: { output: 'tags: a, b' } } }] },
+                ],
+                { count: 1, errorCount: 0, results: 'search_tags', errors: undefined },
+            ],
+            [
+                'MCP CallToolResult with isError, as Vercel AI SDK v4 sends it',
+                [
+                    {
+                        role: 'assistant',
+                        content: [{ type: 'tool-call', toolCallId: 'm1', toolName: 'query_db', args: {} }],
+                    },
+                    {
+                        role: 'tool',
+                        content: [
+                            {
+                                type: 'tool-result',
+                                toolCallId: 'm1',
+                                result: {
+                                    content: [{ type: 'text', text: 'relation "users" does not exist' }],
+                                    isError: true,
+                                },
+                            },
+                        ],
+                    },
+                ],
+                { count: 1, errorCount: 1, results: 'query_db', errors: 'query_db' },
+            ],
+            [
                 'only the trailing results, so earlier turns are not counted again',
                 [
                     { role: 'assistant', content: [{ type: 'tool_use', id: 'old', name: 'list_files', input: {} }] },
@@ -157,6 +218,15 @@ describe('processAiToolUsageExtraction', () => {
             })
         })
 
+        it.each([true, 'true'])('infers nothing when the generation failed with $ai_is_error %s', (isError) => {
+            expect(
+                resultProperties({
+                    $ai_is_error: isError,
+                    $ai_input: [{ role: 'tool', tool_call_id: 'a', name: 'calc', content: 'Error: x' }],
+                })
+            ).toEqual({ count: undefined, errorCount: undefined, results: undefined, errors: undefined })
+        })
+
         it.each([
             ['$ai_tool_result_count', 5],
             ['$ai_tool_error_count', 2],
@@ -186,6 +256,7 @@ describe('processAiToolUsageExtraction', () => {
             ],
             ['Anthropic definitions', [{ name: 'calc', input_schema: {} }], 'calc', undefined],
             ['a JSON-stringified list of names', JSON.stringify(['search', 'fetch']), 'search,browse,browse', 'browse'],
+            ['client-sent names with spaces after the commas', ['search', 'fetch'], 'search, fetch', undefined],
             ['Vercel AI SDK tool record', { search: { description: 's' } }, 'search,delete_file', 'delete_file'],
             [
                 'Gemini function declarations',
@@ -205,6 +276,14 @@ describe('processAiToolUsageExtraction', () => {
             ).properties!
             expect(out['$ai_tools_unknown']).toEqual(expected)
         })
+    })
+
+    it.each([
+        ['$ai_tool_results', ['search', 'fetch']],
+        ['$ai_tool_errors', JSON.stringify(['search', 'fetch'])],
+        ['$ai_tools_unknown', ['search', 'fetch']],
+    ])('normalizes a client-sent %s list to comma-separated names', (key, value) => {
+        expect(processAiToolUsageExtraction(generation({ [key]: value })).properties![key]).toBe('search,fetch')
     })
 
     it('ignores events that are not generations', () => {

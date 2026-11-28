@@ -1,7 +1,7 @@
 // Agents send tool results back to the model in the next request, so a generation's results are
 // the trailing run of tool-result items in $ai_input. Earlier results were already counted by the
 // generation that received them.
-import { MAX_TOOLS_PER_EVENT, sanitizeToolName } from './extract-tool-calls'
+import { MAX_TOOLS_PER_EVENT, readFlatToolCall, readToolCall, sanitizeToolName } from './extract-tool-calls'
 
 export interface ToolResult {
     name: string | null
@@ -22,11 +22,9 @@ const FLAT_RESULT_TYPES = new Set([
     'function_call_result',
     'computer_call_output',
 ])
-const CALL_PART_TYPES = new Set(['tool_use', 'tool-call', 'tool_call', 'function', 'functionCall'])
-const FLAT_CALL_TYPES = new Set(['function_call', 'custom_tool_call', 'computer_call'])
-
-// Vercel AI SDK v5 tool-result output types that mean the tool failed.
+// Vercel AI SDK v5 tool-result output types.
 const ERROR_OUTPUT_TYPES = new Set(['error-text', 'error-json'])
+const SUCCESS_OUTPUT_TYPES = new Set(['text', 'json'])
 
 // A tool that failed without an explicit error flag usually says so first thing.
 const ERROR_TEXT_PATTERN = /^\s*(error|exception|traceback)\b/i
@@ -85,8 +83,19 @@ function explicitError(result: Item): boolean | undefined {
     if (typeof result.isError === 'boolean') {
         return result.isError
     }
+    // OpenAI Responses output items carry a status.
     if (result.status === 'error') {
         return true
+    }
+    if (result.status === 'completed') {
+        return false
+    }
+    if (
+        isObject(result.output) &&
+        typeof result.output.type === 'string' &&
+        SUCCESS_OUTPUT_TYPES.has(result.output.type)
+    ) {
+        return false
     }
     for (const key of ['output', 'content', 'response', 'result']) {
         const nested = result[key]
@@ -172,37 +181,15 @@ function collectCallNames(item: unknown, names: Map<string, string>): void {
     if (!isObject(item)) {
         return
     }
-    const add = (id: unknown, name: unknown): void => {
-        const callId = asString(id)
-        const toolName = asString(name)
-        if (callId && toolName) {
-            names.set(callId, toolName)
+    const calls = [
+        readFlatToolCall(item),
+        ...(Array.isArray(item.tool_calls) ? item.tool_calls : []).map(readToolCall),
+        ...(partsOf(item) ?? []).map(readToolCall),
+    ]
+    for (const call of calls) {
+        if (call?.id && call.name) {
+            names.set(call.id, call.name)
         }
-    }
-
-    if (typeof item.type === 'string' && FLAT_CALL_TYPES.has(item.type)) {
-        add(item.call_id ?? item.callId ?? item.id, item.name)
-    }
-
-    const toolCalls = Array.isArray(item.tool_calls) ? item.tool_calls : []
-    for (const call of toolCalls) {
-        if (isObject(call)) {
-            add(call.id, isObject(call.function) ? call.function.name : call.name)
-        }
-    }
-
-    for (const part of partsOf(item) ?? []) {
-        if (!isObject(part) || typeof part.type !== 'string' || !CALL_PART_TYPES.has(part.type)) {
-            continue
-        }
-        if (isObject(part.toolInvoke)) {
-            add(part.toolInvoke.id, part.toolInvoke.name)
-            continue
-        }
-        add(
-            part.id ?? part.toolCallId ?? part.tool_call_id,
-            part.name ?? part.toolName ?? (isObject(part.function) ? part.function.name : undefined)
-        )
     }
 }
 
@@ -214,6 +201,10 @@ export function extractToolResults(input: unknown): ToolResult[] {
 
     const trailing: RawResult[] = []
     for (let i = items.length - 1; i >= 0; i--) {
+        // Responses input can interleave each call with its output, as in OpenAI's own agent loop.
+        if (readFlatToolCall(items[i])) {
+            continue
+        }
         const results = resultsOf(items[i])
         if (results === null) {
             break
