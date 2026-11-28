@@ -151,6 +151,12 @@ updating an existing field.
 
 ## ClickHouse
 
+### Concurrency waits
+
+The ClickHouse client concurrency limiter rejects a foreground call immediately when its slots are full.
+The query API returns HTTP 429 with `Retry-After`, so the caller can retry without holding a shared HTTP worker.
+Only Celery and Temporal jobs can use the limiter's configured retry and queue-wait budgets.
+
 #### How-to find slow queries
 
 To find and debug slow queries in production you have several options available

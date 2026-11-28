@@ -169,6 +169,7 @@ class RateLimit:
         Acquire the resource before execution or throw exception.
         Returns None when the limiter let the caller through without taking a slot (bypass).
         With `queue_wait`, a full limiter makes the caller wait for a slot before it throws.
+        Only Celery and Temporal jobs may wait, so foreground requests do not hold shared HTTP workers.
         """
         wait_deadline = self.get_time() + self.retry_timeout
         task_name = self.get_task_name(*args, **kwargs)
@@ -207,6 +208,7 @@ class RateLimit:
         backoff = ExponentialBackoff(delay=self.retry or 0.15, max_delay=1.714, exp=1.5)
         count = 1
         wait_total = 0.0
+        can_wait = bool(current_task) or _is_in_temporal()
         # Atomically check, remove expired if limit hit, and add the new task
         while (
             self.redis_client.eval(
@@ -232,7 +234,7 @@ class RateLimit:
                 ).inc()
                 return None
 
-            if self.retry and self.get_time() < wait_deadline:
+            if can_wait and self.retry and self.get_time() < wait_deadline:
                 CONCURRENT_QUERY_LIMIT_EXCEEDED_COUNTER.labels(
                     task_name=task_name,
                     team_id=str(team_id),
@@ -252,12 +254,16 @@ class RateLimit:
                 count += 1
                 continue
 
-            if queue_wait is not None and self._wait_in_queue(
-                queue_wait,
-                running_tasks_key=running_tasks_key,
-                task_id=task_id,
-                team_id=team_id,
-                max_concurrency=max_concurrency,
+            if (
+                can_wait
+                and queue_wait is not None
+                and self._wait_in_queue(
+                    queue_wait,
+                    running_tasks_key=running_tasks_key,
+                    task_id=task_id,
+                    team_id=team_id,
+                    max_concurrency=max_concurrency,
+                )
             ):
                 return ConcurrencySlot(running_tasks_key=running_tasks_key, task_id=task_id)
 
