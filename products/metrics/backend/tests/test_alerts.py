@@ -44,6 +44,7 @@ from products.alerts_platform.backend.facade.contracts import (
     SourceBatchEvaluation,
     SourceKind,
 )
+from products.alerts_platform.backend.facade.enums import OnMissingData
 from products.metrics.backend.alerts.evaluation import ABSENT_RESOLVE_AFTER, INFLIGHT_KEY, evaluate_metrics_alert_batch
 from products.metrics.backend.alerts.freshness import (
     CHECKPOINT_EVAL_DELAY,
@@ -143,6 +144,47 @@ class TestMetricsAlertCreate(APIBaseTest):
         )
 
         assert response.status_code == expected, response.json()
+
+    @parameterized.expand(
+        [
+            ("breaching_heartbeat", "breaching", {"operator": "lt", "threshold": 1}, None, status.HTTP_201_CREATED),
+            ("breaching_present", "breaching", {"kind": "present"}, None, status.HTTP_400_BAD_REQUEST),
+            (
+                "breaching_grouped",
+                "breaching",
+                {"operator": "lt", "threshold": 1},
+                {"mode": "by_result_labels", "keys": ["group"]},
+                status.HTTP_400_BAD_REQUEST,
+            ),
+            (
+                "keep_last_state_grouped",
+                "keep_last_state",
+                {"kind": "present"},
+                {"mode": "by_result_labels", "keys": ["group"]},
+                status.HTTP_201_CREATED,
+            ),
+        ]
+    )
+    def test_a_missing_data_option_is_stored_only_where_the_alert_can_still_resolve(
+        self,
+        _name: str,
+        on_missing_data: str,
+        condition: dict[str, object],
+        grouping: dict[str, object] | None,
+        expected: int,
+    ) -> None:
+        settings: dict[str, object] = {"on_missing_data": on_missing_data}
+        if grouping is not None:
+            settings["grouping"] = grouping
+
+        response = self._create({"query": _QUERY, "condition": condition}, **settings)
+
+        assert response.status_code == expected, response.json()
+        if expected == status.HTTP_201_CREATED:
+            read = self.client.get(f"/api/projects/{self.team.id}/platform_alerts/{response.json()['id']}/")
+            assert read.json()["on_missing_data"] == on_missing_data
+        else:
+            assert response.json()["attr"] == "on_missing_data"
 
     def test_a_project_without_the_metrics_rollout_flag_cannot_create_one(self) -> None:
         self.enterContext(
@@ -439,6 +481,61 @@ class TestMetricsAlertEvaluation(APIBaseTest):
         )
 
         assert self._kinds(self._evaluate()) == {}
+
+    def _heartbeat(self, *, periods: int = 1, datapoints: int = 1) -> None:
+        with team_scope(self.team.id):
+            platform_testing.set_enabled(self.configuration_id, False)
+            self.configuration_id = create_configuration(
+                team_id=self.team.id,
+                source_kind=SourceKind.METRICS,
+                edit=PlatformAlertConfigurationEdit(
+                    name="Exporter heartbeat",
+                    enabled=True,
+                    source_config={"query": _QUERY, "condition": {"operator": "lt", "threshold": 1}},
+                    grouping=Grouping(),
+                    schedule_restriction=None,
+                    evaluation_periods=periods,
+                    datapoints_to_alarm=datapoints,
+                    cooldown_minutes=0,
+                    on_missing_data=OnMissingData.BREACHING,
+                ),
+                created_by_id=self.user.id,
+            ).id
+            platform_testing.set_due_at(self.configuration_id, self.due_at)
+
+    def test_a_heartbeat_fires_on_an_empty_result_and_resolves_when_its_series_returns(self) -> None:
+        self._heartbeat()
+        self.checkpoint.return_value = self.due_at
+        self.snuffle.return_value = _response(200, _vector())
+
+        fired = self._evaluate()
+
+        assert [(group.grouping_key, group.kind) for group in fired.groups] == [("", AlertEventKind.FIRING)]
+
+        self._next_check(fired)
+        self.checkpoint.return_value = self.due_at
+        self.snuffle.return_value = _response(200, _vector(({}, "5")))
+
+        assert [(group.grouping_key, group.kind) for group in self._evaluate().groups] == [
+            ("", AlertEventKind.RESOLVED)
+        ]
+
+    @parameterized.expand(
+        [
+            ("missing_for_the_whole_window", [], [("", AlertEventKind.FIRING)]),
+            ("healthy_before_it_stopped", [({}, ["5", "5"])], []),
+        ]
+    )
+    def test_a_heartbeat_counts_the_earlier_steps_its_series_was_missing_from(
+        self, _name: str, series: list[tuple[dict[str, str], list[str]]], expected: list[tuple[str, AlertEventKind]]
+    ) -> None:
+        self._heartbeat(periods=3, datapoints=3)
+        self.checkpoint.return_value = self.due_at
+        # Each series ends one step before the check reads, so the newest step has no series at all.
+        newest_with_data = self.due_at - CHECKPOINT_EVAL_DELAY - timedelta(minutes=1)
+        self.snuffle.return_value = _response(200, _matrix(newest_with_data, *series))
+
+        assert [(group.grouping_key, group.kind) for group in self._evaluate().groups] == expected
 
     def test_a_response_over_the_size_budget_records_a_failure(self) -> None:
         self.enterContext(patch("products.metrics.backend.alerts.evaluation.MAX_RESPONSE_BYTES", 1_000))

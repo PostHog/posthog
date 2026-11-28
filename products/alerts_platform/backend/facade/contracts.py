@@ -19,7 +19,12 @@ from uuid import UUID
 from posthog.dataclasses import frozen
 from posthog.enums import LabeledStrEnum
 
-from products.alerts_platform.backend.facade.enums import DeliveryPath, PlatformAlertCheckStatus, PlatformAlertState
+from products.alerts_platform.backend.facade.enums import (
+    DeliveryPath,
+    OnMissingData,
+    PlatformAlertCheckStatus,
+    PlatformAlertState,
+)
 
 if TYPE_CHECKING:
     from pydantic import BaseModel
@@ -287,6 +292,7 @@ class PlatformAlertCheckInput:
     owner_changed_at: datetime | None = None
     # The label names the team's routes match on, which a group keeps first when its labels are cut.
     routed_label_names: frozenset[str] = frozenset()
+    on_missing_data: OnMissingData = OnMissingData.RESOLVE
 
     @property
     def destination_alert_id(self) -> UUID:
@@ -1316,6 +1322,7 @@ class PlatformAlertConfigurationView:
     annotations: dict[str, str] = field(default_factory=dict)
     created_by_id: int | None = None
     first_enabled_at: datetime | None = None
+    on_missing_data: OnMissingData = OnMissingData.RESOLVE
 
     @property
     def destination_alert_id(self) -> UUID:
@@ -1344,6 +1351,7 @@ class PlatformAlertConfigurationEdit:
     annotations: dict[str, str] = field(default_factory=dict)
     # Only a native create reads it, because an edit never moves the schedule. None takes the kind's default.
     check_interval_minutes: int | None = None
+    on_missing_data: OnMissingData = OnMissingData.RESOLVE
 
 
 class InvalidPlatformAlertEdit(ValueError):
@@ -1558,6 +1566,7 @@ class SourceConfigSpec:
     kept_source_config_keys: frozenset[str] = frozenset()
     # What an alert watches, by team and `source_config`, for its activity log entries.
     activity_source: ActivitySourceLookup | None = None
+    on_missing_data_options: frozenset[OnMissingData] = frozenset({OnMissingData.RESOLVE})
 
     @property
     def creatable(self) -> bool:

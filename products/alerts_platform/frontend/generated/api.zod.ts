@@ -232,6 +232,7 @@ export const platformAlertsCreateBodyOneGroupingOneMaxInstancesDefault = 100
 export const platformAlertsCreateBodyOneGroupingOneMaxInstancesMax = 100
 
 export const platformAlertsCreateBodyOneGroupingOneOnOverflowDefault = `degrade_visible`
+export const platformAlertsCreateBodyOneOnMissingDataDefault = `resolve`
 export const platformAlertsCreateBodyOneEvaluationPeriodsDefault = 1
 export const platformAlertsCreateBodyOneEvaluationPeriodsMax = 1441
 
@@ -253,6 +254,7 @@ export const platformAlertsCreateBodyTwoGroupingOneMaxInstancesDefault = 100
 export const platformAlertsCreateBodyTwoGroupingOneMaxInstancesMax = 100
 
 export const platformAlertsCreateBodyTwoGroupingOneOnOverflowDefault = `degrade_visible`
+export const platformAlertsCreateBodyTwoOnMissingDataDefault = `resolve`
 export const platformAlertsCreateBodyTwoEvaluationPeriodsDefault = 1
 export const platformAlertsCreateBodyTwoEvaluationPeriodsMax = 1441
 
@@ -274,6 +276,7 @@ export const platformAlertsCreateBodyThreeGroupingOneMaxInstancesDefault = 100
 export const platformAlertsCreateBodyThreeGroupingOneMaxInstancesMax = 100
 
 export const platformAlertsCreateBodyThreeGroupingOneOnOverflowDefault = `degrade_visible`
+export const platformAlertsCreateBodyThreeOnMissingDataDefault = `resolve`
 export const platformAlertsCreateBodyThreeEvaluationPeriodsDefault = 1
 export const platformAlertsCreateBodyThreeEvaluationPeriodsMax = 1441
 
@@ -294,6 +297,7 @@ export const platformAlertsCreateBodyFourGroupingOneMaxInstancesDefault = 100
 export const platformAlertsCreateBodyFourGroupingOneMaxInstancesMax = 100
 
 export const platformAlertsCreateBodyFourGroupingOneOnOverflowDefault = `degrade_visible`
+export const platformAlertsCreateBodyFourOnMissingDataDefault = `resolve`
 export const platformAlertsCreateBodyFourEvaluationPeriodsDefault = 1
 export const platformAlertsCreateBodyFourEvaluationPeriodsMax = 1441
 
@@ -315,6 +319,7 @@ export const platformAlertsCreateBodyFiveGroupingOneMaxInstancesDefault = 100
 export const platformAlertsCreateBodyFiveGroupingOneMaxInstancesMax = 100
 
 export const platformAlertsCreateBodyFiveGroupingOneOnOverflowDefault = `degrade_visible`
+export const platformAlertsCreateBodyFiveOnMissingDataDefault = `resolve`
 export const platformAlertsCreateBodyFiveEvaluationPeriodsDefault = 1
 export const platformAlertsCreateBodyFiveEvaluationPeriodsMax = 1441
 
@@ -338,6 +343,7 @@ export const platformAlertsCreateBodySixGroupingOneMaxInstancesDefault = 100
 export const platformAlertsCreateBodySixGroupingOneMaxInstancesMax = 100
 
 export const platformAlertsCreateBodySixGroupingOneOnOverflowDefault = `degrade_visible`
+export const platformAlertsCreateBodySixOnMissingDataDefault = `resolve`
 export const platformAlertsCreateBodySixEvaluationPeriodsDefault = 1
 export const platformAlertsCreateBodySixEvaluationPeriodsMax = 1441
 
@@ -420,6 +426,13 @@ export const PlatformAlertsCreateBody = /* @__PURE__ */ zod.union([
                 })
                 .optional()
                 .describe('How the alert splits its results into instances. Defaults to mode single.'),
+            on_missing_data: zod
+                .enum(['resolve', 'keep_last_state', 'breaching'])
+                .describe('\* `resolve` - Resolve\n\* `keep_last_state` - Keep last state\n\* `breaching` - Breaching')
+                .default(platformAlertsCreateBodyOneOnMissingDataDefault)
+                .describe(
+                    "What a group means once the source is sure the check did not return it. resolve counts it as not breaching. keep_last_state keeps the group's state until its data returns. breaching counts it as breaching, which suits a heartbeat alert, and needs an ungrouped alert. Metrics alerts accept every option, and other source kinds accept only resolve. Defaults to resolve.\n\n\* `resolve` - Resolve\n\* `keep_last_state` - Keep last state\n\* `breaching` - Breaching"
+                ),
             schedule_restriction: zod
                 .union([
                     zod.object({
@@ -585,6 +598,13 @@ export const PlatformAlertsCreateBody = /* @__PURE__ */ zod.union([
                 })
                 .optional()
                 .describe('How the alert splits its results into instances. Defaults to mode single.'),
+            on_missing_data: zod
+                .enum(['resolve', 'keep_last_state', 'breaching'])
+                .describe('\* `resolve` - Resolve\n\* `keep_last_state` - Keep last state\n\* `breaching` - Breaching')
+                .default(platformAlertsCreateBodyTwoOnMissingDataDefault)
+                .describe(
+                    "What a group means once the source is sure the check did not return it. resolve counts it as not breaching. keep_last_state keeps the group's state until its data returns. breaching counts it as breaching, which suits a heartbeat alert, and needs an ungrouped alert. Metrics alerts accept every option, and other source kinds accept only resolve. Defaults to resolve.\n\n\* `resolve` - Resolve\n\* `keep_last_state` - Keep last state\n\* `breaching` - Breaching"
+                ),
             schedule_restriction: zod
                 .union([
                     zod.object({
@@ -724,6 +744,13 @@ export const PlatformAlertsCreateBody = /* @__PURE__ */ zod.union([
                 })
                 .optional()
                 .describe('How the alert splits its results into instances. Defaults to mode single.'),
+            on_missing_data: zod
+                .enum(['resolve', 'keep_last_state', 'breaching'])
+                .describe('\* `resolve` - Resolve\n\* `keep_last_state` - Keep last state\n\* `breaching` - Breaching')
+                .default(platformAlertsCreateBodyThreeOnMissingDataDefault)
+                .describe(
+                    "What a group means once the source is sure the check did not return it. resolve counts it as not breaching. keep_last_state keeps the group's state until its data returns. breaching counts it as breaching, which suits a heartbeat alert, and needs an ungrouped alert. Metrics alerts accept every option, and other source kinds accept only resolve. Defaults to resolve.\n\n\* `resolve` - Resolve\n\* `keep_last_state` - Keep last state\n\* `breaching` - Breaching"
+                ),
             schedule_restriction: zod
                 .union([
                     zod.object({
@@ -906,6 +933,13 @@ export const PlatformAlertsCreateBody = /* @__PURE__ */ zod.union([
                 })
                 .optional()
                 .describe('How the alert splits its results into instances. Defaults to mode single.'),
+            on_missing_data: zod
+                .enum(['resolve', 'keep_last_state', 'breaching'])
+                .describe('\* `resolve` - Resolve\n\* `keep_last_state` - Keep last state\n\* `breaching` - Breaching')
+                .default(platformAlertsCreateBodyFourOnMissingDataDefault)
+                .describe(
+                    "What a group means once the source is sure the check did not return it. resolve counts it as not breaching. keep_last_state keeps the group's state until its data returns. breaching counts it as breaching, which suits a heartbeat alert, and needs an ungrouped alert. Metrics alerts accept every option, and other source kinds accept only resolve. Defaults to resolve.\n\n\* `resolve` - Resolve\n\* `keep_last_state` - Keep last state\n\* `breaching` - Breaching"
+                ),
             schedule_restriction: zod
                 .union([
                     zod.object({
@@ -1035,6 +1069,13 @@ export const PlatformAlertsCreateBody = /* @__PURE__ */ zod.union([
                 })
                 .optional()
                 .describe('How the alert splits its results into instances. Defaults to mode single.'),
+            on_missing_data: zod
+                .enum(['resolve', 'keep_last_state', 'breaching'])
+                .describe('\* `resolve` - Resolve\n\* `keep_last_state` - Keep last state\n\* `breaching` - Breaching')
+                .default(platformAlertsCreateBodyFiveOnMissingDataDefault)
+                .describe(
+                    "What a group means once the source is sure the check did not return it. resolve counts it as not breaching. keep_last_state keeps the group's state until its data returns. breaching counts it as breaching, which suits a heartbeat alert, and needs an ungrouped alert. Metrics alerts accept every option, and other source kinds accept only resolve. Defaults to resolve.\n\n\* `resolve` - Resolve\n\* `keep_last_state` - Keep last state\n\* `breaching` - Breaching"
+                ),
             schedule_restriction: zod
                 .union([
                     zod.object({
@@ -1176,6 +1217,13 @@ export const PlatformAlertsCreateBody = /* @__PURE__ */ zod.union([
                 })
                 .optional()
                 .describe('How the alert splits its results into instances. Defaults to mode single.'),
+            on_missing_data: zod
+                .enum(['resolve', 'keep_last_state', 'breaching'])
+                .describe('\* `resolve` - Resolve\n\* `keep_last_state` - Keep last state\n\* `breaching` - Breaching')
+                .default(platformAlertsCreateBodySixOnMissingDataDefault)
+                .describe(
+                    "What a group means once the source is sure the check did not return it. resolve counts it as not breaching. keep_last_state keeps the group's state until its data returns. breaching counts it as breaching, which suits a heartbeat alert, and needs an ungrouped alert. Metrics alerts accept every option, and other source kinds accept only resolve. Defaults to resolve.\n\n\* `resolve` - Resolve\n\* `keep_last_state` - Keep last state\n\* `breaching` - Breaching"
+                ),
             schedule_restriction: zod
                 .union([
                     zod.object({
@@ -1429,6 +1477,13 @@ export const PlatformAlertsUpdateBody = /* @__PURE__ */ zod.union([
                         ),
                 })
                 .describe('How the alert splits its results into instances.'),
+            on_missing_data: zod
+                .enum(['resolve', 'keep_last_state', 'breaching'])
+                .describe('\* `resolve` - Resolve\n\* `keep_last_state` - Keep last state\n\* `breaching` - Breaching')
+                .optional()
+                .describe(
+                    "What a group means once the source is sure the check did not return it. resolve counts it as not breaching. keep_last_state keeps the group's state until its data returns. breaching counts it as breaching, which suits a heartbeat alert, and needs an ungrouped alert. Metrics alerts accept every option, and other source kinds accept only resolve.\n\n\* `resolve` - Resolve\n\* `keep_last_state` - Keep last state\n\* `breaching` - Breaching"
+                ),
             schedule_restriction: zod
                 .union([
                     zod.object({
@@ -1624,6 +1679,13 @@ export const PlatformAlertsUpdateBody = /* @__PURE__ */ zod.union([
                         ),
                 })
                 .describe('How the alert splits its results into instances.'),
+            on_missing_data: zod
+                .enum(['resolve', 'keep_last_state', 'breaching'])
+                .describe('\* `resolve` - Resolve\n\* `keep_last_state` - Keep last state\n\* `breaching` - Breaching')
+                .optional()
+                .describe(
+                    "What a group means once the source is sure the check did not return it. resolve counts it as not breaching. keep_last_state keeps the group's state until its data returns. breaching counts it as breaching, which suits a heartbeat alert, and needs an ungrouped alert. Metrics alerts accept every option, and other source kinds accept only resolve.\n\n\* `resolve` - Resolve\n\* `keep_last_state` - Keep last state\n\* `breaching` - Breaching"
+                ),
             schedule_restriction: zod
                 .union([
                     zod.object({
@@ -1779,6 +1841,13 @@ export const PlatformAlertsUpdateBody = /* @__PURE__ */ zod.union([
                         ),
                 })
                 .describe('How the alert splits its results into instances.'),
+            on_missing_data: zod
+                .enum(['resolve', 'keep_last_state', 'breaching'])
+                .describe('\* `resolve` - Resolve\n\* `keep_last_state` - Keep last state\n\* `breaching` - Breaching')
+                .optional()
+                .describe(
+                    "What a group means once the source is sure the check did not return it. resolve counts it as not breaching. keep_last_state keeps the group's state until its data returns. breaching counts it as breaching, which suits a heartbeat alert, and needs an ungrouped alert. Metrics alerts accept every option, and other source kinds accept only resolve.\n\n\* `resolve` - Resolve\n\* `keep_last_state` - Keep last state\n\* `breaching` - Breaching"
+                ),
             schedule_restriction: zod
                 .union([
                     zod.object({
@@ -1908,6 +1977,13 @@ export const PlatformAlertsUpdateBody = /* @__PURE__ */ zod.union([
                         ),
                 })
                 .describe('How the alert splits its results into instances.'),
+            on_missing_data: zod
+                .enum(['resolve', 'keep_last_state', 'breaching'])
+                .describe('\* `resolve` - Resolve\n\* `keep_last_state` - Keep last state\n\* `breaching` - Breaching')
+                .optional()
+                .describe(
+                    "What a group means once the source is sure the check did not return it. resolve counts it as not breaching. keep_last_state keeps the group's state until its data returns. breaching counts it as breaching, which suits a heartbeat alert, and needs an ungrouped alert. Metrics alerts accept every option, and other source kinds accept only resolve.\n\n\* `resolve` - Resolve\n\* `keep_last_state` - Keep last state\n\* `breaching` - Breaching"
+                ),
             schedule_restriction: zod
                 .union([
                     zod.object({
@@ -2080,6 +2156,13 @@ export const PlatformAlertsUpdateBody = /* @__PURE__ */ zod.union([
                         ),
                 })
                 .describe('How the alert splits its results into instances.'),
+            on_missing_data: zod
+                .enum(['resolve', 'keep_last_state', 'breaching'])
+                .describe('\* `resolve` - Resolve\n\* `keep_last_state` - Keep last state\n\* `breaching` - Breaching')
+                .optional()
+                .describe(
+                    "What a group means once the source is sure the check did not return it. resolve counts it as not breaching. keep_last_state keeps the group's state until its data returns. breaching counts it as breaching, which suits a heartbeat alert, and needs an ungrouped alert. Metrics alerts accept every option, and other source kinds accept only resolve.\n\n\* `resolve` - Resolve\n\* `keep_last_state` - Keep last state\n\* `breaching` - Breaching"
+                ),
             schedule_restriction: zod
                 .union([
                     zod.object({
@@ -2199,6 +2282,13 @@ export const PlatformAlertsUpdateBody = /* @__PURE__ */ zod.union([
                         ),
                 })
                 .describe('How the alert splits its results into instances.'),
+            on_missing_data: zod
+                .enum(['resolve', 'keep_last_state', 'breaching'])
+                .describe('\* `resolve` - Resolve\n\* `keep_last_state` - Keep last state\n\* `breaching` - Breaching')
+                .optional()
+                .describe(
+                    "What a group means once the source is sure the check did not return it. resolve counts it as not breaching. keep_last_state keeps the group's state until its data returns. breaching counts it as breaching, which suits a heartbeat alert, and needs an ungrouped alert. Metrics alerts accept every option, and other source kinds accept only resolve.\n\n\* `resolve` - Resolve\n\* `keep_last_state` - Keep last state\n\* `breaching` - Breaching"
+                ),
             schedule_restriction: zod
                 .union([
                     zod.object({
@@ -2330,6 +2420,13 @@ export const PlatformAlertsUpdateBody = /* @__PURE__ */ zod.union([
                         ),
                 })
                 .describe('How the alert splits its results into instances.'),
+            on_missing_data: zod
+                .enum(['resolve', 'keep_last_state', 'breaching'])
+                .describe('\* `resolve` - Resolve\n\* `keep_last_state` - Keep last state\n\* `breaching` - Breaching')
+                .optional()
+                .describe(
+                    "What a group means once the source is sure the check did not return it. resolve counts it as not breaching. keep_last_state keeps the group's state until its data returns. breaching counts it as breaching, which suits a heartbeat alert, and needs an ungrouped alert. Metrics alerts accept every option, and other source kinds accept only resolve.\n\n\* `resolve` - Resolve\n\* `keep_last_state` - Keep last state\n\* `breaching` - Breaching"
+                ),
             schedule_restriction: zod
                 .union([
                     zod.object({
@@ -2585,6 +2682,13 @@ export const PlatformAlertsPartialUpdateBody = /* @__PURE__ */ zod.union([
                 })
                 .optional()
                 .describe('How the alert splits its results into instances.'),
+            on_missing_data: zod
+                .enum(['resolve', 'keep_last_state', 'breaching'])
+                .describe('\* `resolve` - Resolve\n\* `keep_last_state` - Keep last state\n\* `breaching` - Breaching')
+                .optional()
+                .describe(
+                    "What a group means once the source is sure the check did not return it. resolve counts it as not breaching. keep_last_state keeps the group's state until its data returns. breaching counts it as breaching, which suits a heartbeat alert, and needs an ungrouped alert. Metrics alerts accept every option, and other source kinds accept only resolve.\n\n\* `resolve` - Resolve\n\* `keep_last_state` - Keep last state\n\* `breaching` - Breaching"
+                ),
             schedule_restriction: zod
                 .union([
                     zod.object({
@@ -2794,6 +2898,13 @@ export const PlatformAlertsPartialUpdateBody = /* @__PURE__ */ zod.union([
                 })
                 .optional()
                 .describe('How the alert splits its results into instances.'),
+            on_missing_data: zod
+                .enum(['resolve', 'keep_last_state', 'breaching'])
+                .describe('\* `resolve` - Resolve\n\* `keep_last_state` - Keep last state\n\* `breaching` - Breaching')
+                .optional()
+                .describe(
+                    "What a group means once the source is sure the check did not return it. resolve counts it as not breaching. keep_last_state keeps the group's state until its data returns. breaching counts it as breaching, which suits a heartbeat alert, and needs an ungrouped alert. Metrics alerts accept every option, and other source kinds accept only resolve.\n\n\* `resolve` - Resolve\n\* `keep_last_state` - Keep last state\n\* `breaching` - Breaching"
+                ),
             schedule_restriction: zod
                 .union([
                     zod.object({
@@ -2959,6 +3070,13 @@ export const PlatformAlertsPartialUpdateBody = /* @__PURE__ */ zod.union([
                 })
                 .optional()
                 .describe('How the alert splits its results into instances.'),
+            on_missing_data: zod
+                .enum(['resolve', 'keep_last_state', 'breaching'])
+                .describe('\* `resolve` - Resolve\n\* `keep_last_state` - Keep last state\n\* `breaching` - Breaching')
+                .optional()
+                .describe(
+                    "What a group means once the source is sure the check did not return it. resolve counts it as not breaching. keep_last_state keeps the group's state until its data returns. breaching counts it as breaching, which suits a heartbeat alert, and needs an ungrouped alert. Metrics alerts accept every option, and other source kinds accept only resolve.\n\n\* `resolve` - Resolve\n\* `keep_last_state` - Keep last state\n\* `breaching` - Breaching"
+                ),
             schedule_restriction: zod
                 .union([
                     zod.object({
@@ -3098,6 +3216,13 @@ export const PlatformAlertsPartialUpdateBody = /* @__PURE__ */ zod.union([
                 })
                 .optional()
                 .describe('How the alert splits its results into instances.'),
+            on_missing_data: zod
+                .enum(['resolve', 'keep_last_state', 'breaching'])
+                .describe('\* `resolve` - Resolve\n\* `keep_last_state` - Keep last state\n\* `breaching` - Breaching')
+                .optional()
+                .describe(
+                    "What a group means once the source is sure the check did not return it. resolve counts it as not breaching. keep_last_state keeps the group's state until its data returns. breaching counts it as breaching, which suits a heartbeat alert, and needs an ungrouped alert. Metrics alerts accept every option, and other source kinds accept only resolve.\n\n\* `resolve` - Resolve\n\* `keep_last_state` - Keep last state\n\* `breaching` - Breaching"
+                ),
             schedule_restriction: zod
                 .union([
                     zod.object({
@@ -3280,6 +3405,13 @@ export const PlatformAlertsPartialUpdateBody = /* @__PURE__ */ zod.union([
                 })
                 .optional()
                 .describe('How the alert splits its results into instances.'),
+            on_missing_data: zod
+                .enum(['resolve', 'keep_last_state', 'breaching'])
+                .describe('\* `resolve` - Resolve\n\* `keep_last_state` - Keep last state\n\* `breaching` - Breaching')
+                .optional()
+                .describe(
+                    "What a group means once the source is sure the check did not return it. resolve counts it as not breaching. keep_last_state keeps the group's state until its data returns. breaching counts it as breaching, which suits a heartbeat alert, and needs an ungrouped alert. Metrics alerts accept every option, and other source kinds accept only resolve.\n\n\* `resolve` - Resolve\n\* `keep_last_state` - Keep last state\n\* `breaching` - Breaching"
+                ),
             schedule_restriction: zod
                 .union([
                     zod.object({
@@ -3409,6 +3541,13 @@ export const PlatformAlertsPartialUpdateBody = /* @__PURE__ */ zod.union([
                 })
                 .optional()
                 .describe('How the alert splits its results into instances.'),
+            on_missing_data: zod
+                .enum(['resolve', 'keep_last_state', 'breaching'])
+                .describe('\* `resolve` - Resolve\n\* `keep_last_state` - Keep last state\n\* `breaching` - Breaching')
+                .optional()
+                .describe(
+                    "What a group means once the source is sure the check did not return it. resolve counts it as not breaching. keep_last_state keeps the group's state until its data returns. breaching counts it as breaching, which suits a heartbeat alert, and needs an ungrouped alert. Metrics alerts accept every option, and other source kinds accept only resolve.\n\n\* `resolve` - Resolve\n\* `keep_last_state` - Keep last state\n\* `breaching` - Breaching"
+                ),
             schedule_restriction: zod
                 .union([
                     zod.object({
@@ -3550,6 +3689,13 @@ export const PlatformAlertsPartialUpdateBody = /* @__PURE__ */ zod.union([
                 })
                 .optional()
                 .describe('How the alert splits its results into instances.'),
+            on_missing_data: zod
+                .enum(['resolve', 'keep_last_state', 'breaching'])
+                .describe('\* `resolve` - Resolve\n\* `keep_last_state` - Keep last state\n\* `breaching` - Breaching')
+                .optional()
+                .describe(
+                    "What a group means once the source is sure the check did not return it. resolve counts it as not breaching. keep_last_state keeps the group's state until its data returns. breaching counts it as breaching, which suits a heartbeat alert, and needs an ungrouped alert. Metrics alerts accept every option, and other source kinds accept only resolve.\n\n\* `resolve` - Resolve\n\* `keep_last_state` - Keep last state\n\* `breaching` - Breaching"
+                ),
             schedule_restriction: zod
                 .union([
                     zod.object({

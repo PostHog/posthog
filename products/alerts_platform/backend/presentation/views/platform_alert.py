@@ -61,6 +61,7 @@ from products.alerts_platform.backend.facade.contracts import (
     UnknownPlatformAlertGroup,
 )
 from products.alerts_platform.backend.facade.enums import (
+    OnMissingData,
     PlatformAlertCheckStatus,
     PlatformAlertConfigurationRecurrenceUnit,
     PlatformAlertConfigurationSourceKind,
@@ -93,6 +94,14 @@ RULE_ANNOTATIONS_HELP = (
     'Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use '
     "{{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation "
     "whose name ends in _url must start with https://."
+)
+
+
+ON_MISSING_DATA_HELP = (
+    "What a group means once the source is sure the check did not return it. resolve counts it as not "
+    "breaching. keep_last_state keeps the group's state until its data returns. breaching counts it as "
+    "breaching, which suits a heartbeat alert, and needs an ungrouped alert. Metrics alerts accept every "
+    "option, and other source kinds accept only resolve."
 )
 
 
@@ -234,6 +243,9 @@ class PlatformAlertConfigurationSerializer(serializers.Serializer):
         "Null for alerts created on the platform.",
     )
     grouping = GroupingSerializer(read_only=True, help_text="How the alert splits its results into instances.")
+    on_missing_data = serializers.ChoiceField(
+        choices=OnMissingData.choices, read_only=True, help_text=ON_MISSING_DATA_HELP
+    )
     snooze_until = serializers.DateTimeField(
         read_only=True,
         allow_null=True,
@@ -377,6 +389,10 @@ class PlatformAlertConfigurationEditSerializer(serializers.Serializer):
     enabled = serializers.BooleanField(help_text="Whether the alert is evaluated on schedule.")
     source_config = serializers.JSONField(help_text="Source-specific settings. The shape depends on source_kind.")
     grouping = GroupingSerializer(help_text="How the alert splits its results into instances.")
+    # Optional, so a full update from a client that predates it keeps what is stored.
+    on_missing_data = serializers.ChoiceField(
+        choices=OnMissingData.choices, required=False, help_text=ON_MISSING_DATA_HELP
+    )
     schedule_restriction = ScheduleRestrictionField(
         allow_null=True,
         help_text="Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. "
@@ -410,6 +426,9 @@ class PlatformAlertConfigurationEditSerializer(serializers.Serializer):
         required=False,
         help_text=RULE_ANNOTATIONS_HELP,
     )
+
+    def validate_on_missing_data(self, value: str) -> OnMissingData:
+        return OnMissingData(value)
 
 
 def _typed_edit_serializer(
@@ -459,6 +478,7 @@ CREATE_DEFAULTS: dict[str, tuple[Any, str]] = {
     "name": (DEFAULT_ALERT_NAME, f"Defaults to '{DEFAULT_ALERT_NAME}'."),
     "enabled": (True, "Defaults to true."),
     "grouping": (Grouping, "Defaults to mode single."),
+    "on_missing_data": (OnMissingData.RESOLVE, "Defaults to resolve."),
     "schedule_restriction": (None, "Defaults to null."),
     "evaluation_periods": (1, "Defaults to 1."),
     "datapoints_to_alarm": (1, "Defaults to 1."),

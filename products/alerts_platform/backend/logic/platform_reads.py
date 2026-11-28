@@ -42,6 +42,7 @@ from products.alerts_platform.backend.facade.contracts import (
     RuleMetadata,
 )
 from products.alerts_platform.backend.facade.enums import (
+    OnMissingData,
     PlatformAlertCheckStatus,
     PlatformAlertOwner,
     PlatformAlertState,
@@ -93,6 +94,7 @@ def _configuration_view(configuration: PlatformAlertConfiguration) -> PlatformAl
         consecutive_failures=configuration.consecutive_failures,
         legacy_configuration_id=configuration.legacy_configuration_id,
         grouping=Grouping.from_stored(configuration.grouping),
+        on_missing_data=OnMissingData(configuration.on_missing_data),
         snooze_until=configuration.snooze_until,
         check_status=configuration.check_status,
         overflowed_groups=configuration.overflowed_groups,

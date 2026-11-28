@@ -10,7 +10,7 @@ import json
 import math
 import hashlib
 from collections.abc import Callable, Collection, Sequence
-from dataclasses import field
+from dataclasses import field, replace
 from datetime import datetime
 from typing import Final
 from uuid import UUID
@@ -20,11 +20,13 @@ from posthog.dataclasses import frozen
 from products.alerts_platform.backend.facade.contracts import (
     AlertEventKind,
     Grouping,
+    GroupingMode,
     GroupOutcome,
     InstanceCheckState,
     PlatformAlertCheckInput,
     PlatformAlertOutcome,
 )
+from products.alerts_platform.backend.facade.enums import OnMissingData
 from products.alerts_platform.backend.facade.lifecycle import (
     NOTIFICATION_EVENT_KINDS,
     AlertCheckOutcome,
@@ -141,13 +143,18 @@ def parts_for(transitions: int) -> int:
 
 @frozen
 class GroupObservation:
-    """What a source measured for one group. `prior_breached` is newest first, as the machine reads it."""
+    """What a source measured for one group. `prior_breached` is newest first, as the machine reads it.
+
+    `prior_missing` is aligned with it: True for an earlier check the source is sure returned nothing
+    for the group. A source that cannot tell leaves it empty, and offers no option that reads it.
+    """
 
     grouping_key: str
     current_breached: bool
     prior_breached: tuple[bool, ...] = ()
     value: float | None = None
     labels: dict[str, str] = field(default_factory=dict)
+    prior_missing: tuple[bool, ...] = ()
 
 
 @frozen
@@ -204,6 +211,39 @@ def not_breaching(grouping_key: str) -> GroupObservation:
     return GroupObservation(grouping_key=grouping_key, current_breached=False)
 
 
+def _missing_keys(check: PlatformAlertCheckInput) -> list[str]:
+    """The groups a check judges when it does not return them.
+
+    Under Breaching, an ungrouped alert's one group is judged even with no open instance, because an
+    empty result is exactly what a heartbeat alert fires on.
+    """
+    keys = check.open_keys()
+    if (
+        check.on_missing_data == OnMissingData.BREACHING
+        and check.grouping.mode == GroupingMode.SINGLE
+        and "" not in keys
+    ):
+        keys.append("")
+    return keys
+
+
+def _missing_as_breaching(observation: GroupObservation) -> GroupObservation:
+    """The observation with every earlier check the group was missing from counted as breaching.
+
+    Applied to returned groups as well as missing ones, so an alert that fires on N of M checks reads
+    the same window whether or not the group is back now.
+    """
+    prior = observation.prior_breached
+    missing = observation.prior_missing
+    width = max(len(prior), len(missing))
+    return replace(
+        observation,
+        prior_breached=tuple(
+            (index < len(prior) and prior[index]) or (index < len(missing) and missing[index]) for index in range(width)
+        ),
+    )
+
+
 def _decided_nothing(outcome: AlertCheckOutcome) -> bool:
     return (
         outcome.new_state == AlertState.NOT_FIRING
@@ -227,7 +267,8 @@ def decide_groups(
     A new group that decided nothing is left out, so a quiet group costs no row. An open group the
     check did not return is judged through `absent`, as not breaching unless a source says what it
     measured, so a group that vanished resolves. `absent` returns None for a group the source cannot
-    judge from its absence.
+    judge from its absence yet, which holds it whatever the alert's `on_missing_data` says. Only an
+    observation `absent` returned goes through `on_missing_data`.
     """
     existing = {instance.grouping_key for instance in check.instances}
     # One observation per key. Two results can share a label, and a breaching one must not be lost.
@@ -236,9 +277,16 @@ def decide_groups(
         kept = by_key.get(observation.grouping_key)
         if kept is None or (observation.current_breached and not kept.current_breached):
             by_key[observation.grouping_key] = observation
-    for key in check.open_keys():
-        if key not in by_key and (missing := absent(key)) is not None:
-            by_key[key] = missing
+    for key in _missing_keys(check):
+        if key in by_key or (missing := absent(key)) is None:
+            continue
+        if check.on_missing_data == OnMissingData.KEEP_LAST_STATE:
+            continue
+        if check.on_missing_data == OnMissingData.BREACHING:
+            missing = replace(missing, current_breached=True)
+        by_key[key] = missing
+    if check.on_missing_data == OnMissingData.BREACHING:
+        by_key = {key: _missing_as_breaching(observation) for key, observation in by_key.items()}
     judged: list[tuple[GroupObservation, AlertSnapshot, AlertCheckOutcome]] = []
     for observation in by_key.values():
         snapshot = snapshot_of(check.instance(observation.grouping_key), observation.prior_breached)

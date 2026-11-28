@@ -430,6 +430,7 @@ class TestPlatformAlertAPI(APIBaseTest):
             ("enabled_without_filters", {"source_config": {"filters": {}, "condition": CONDITION}}, "source_config"),
             ("grouped_by_an_attribute", {"grouping": {"mode": "by_result_labels", "keys": ["http.route"]}}, "grouping"),
             ("reserved_label", {"labels": {"alertname": "Checkout"}}, "labels"),
+            ("missing_data_option_the_kind_refuses", {"on_missing_data": "keep_last_state"}, "on_missing_data"),
             ("unencodable_label_name", {"labels": {"te\ud800am": "checkout"}}, "labels"),
             (
                 "annotation_on_an_unknown_label",

@@ -25,6 +25,7 @@ from products.alerts_platform.backend.facade.enums import (
     DeliveryPath,
     HoldRelease,
     HoldReleasedBy,
+    OnMissingData,
     PlatformAlertCheckStatus,
     PlatformAlertConfigurationRecurrenceUnit,
     PlatformAlertConfigurationSourceKind,
@@ -88,6 +89,12 @@ class PlatformAlertConfiguration(ModelActivityMixin, TeamScopedRootMixin, UUIDMo
     source_config = models.JSONField(default=dict)
     # The stored form of the facade's `Grouping`.
     grouping = models.JSONField(default=single_instance_grouping, db_default={"mode": "single", "keys": []})
+    on_missing_data = models.CharField(
+        max_length=32,
+        choices=OnMissingData.choices,
+        default=OnMissingData.RESOLVE.value,
+        db_default=OnMissingData.RESOLVE.value,
+    )
 
     # Retired, because a source keeps its bound in `source_config["condition"]`. Nothing reads these.
     threshold_count = models.PositiveIntegerField(null=True, blank=True)

@@ -9,10 +9,13 @@ from typing import Final, Literal, Self
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from products.alerts_platform.backend.facade.contracts import (
+    InvalidPlatformAlertEdit,
     NativeAlertLifecycle,
     PlatformAlertConfigurationEdit,
     SourceConfigSpec,
+    source_condition,
 )
+from products.alerts_platform.backend.facade.enums import OnMissingData
 from products.metrics.backend.alerts.destinations import EVENT_IDS_BY_INCIDENT_ACTION
 from products.metrics.backend.alerts.wording import alert_url
 
@@ -66,8 +69,14 @@ class MetricsPlatformAlertConfig(BaseModel):
 
 
 def _validate_edit(edit: PlatformAlertConfigurationEdit) -> None:
-    # The model holds every rule, so an edit adds none.
-    return None
+    if (
+        edit.on_missing_data == OnMissingData.BREACHING
+        and source_condition(edit.source_config).get("kind") == "present"
+    ):
+        raise InvalidPlatformAlertEdit(
+            "on_missing_data",
+            "Breaching cannot be used with a present condition, because the alert could never resolve.",
+        )
 
 
 METRICS_ALERT_CONFIG: Final = SourceConfigSpec(
@@ -85,4 +94,5 @@ METRICS_ALERT_CONFIG: Final = SourceConfigSpec(
     # Prometheus fires at the first evaluation a full `for:` after the first breach, so a `for:` of a day
     # at one-minute checks needs a day of checks plus the one that starts it.
     max_evaluation_periods=1441,
+    on_missing_data_options=frozenset(OnMissingData),
 )
