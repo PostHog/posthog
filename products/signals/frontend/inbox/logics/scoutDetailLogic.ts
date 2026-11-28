@@ -47,7 +47,6 @@ export interface ScoutReportRow {
     action: ScoutReportAction
 }
 
-/** The tabs that page back past the polled window, each with its own cursor. */
 export type ScoutHistoryTab = 'runs' | 'reports' | 'signals'
 
 /**
@@ -87,7 +86,6 @@ const MAX_EMITTED_RUNS = 50
 // deleted, or below the report threshold), so we stop polling for them.
 const REPORT_LINK_RETRY_WINDOW_MINUTES = 30
 
-// One page of older history is as deep as the polled window.
 const OLDER_PAGE_SIZE = SCOUT_RUNS_PER_SCOUT
 
 // The Signals tab pages through runs that produced output, and a run that only filed a report has no
@@ -114,7 +112,6 @@ function newestFirst(a: SignalScoutRunSummary, b: SignalScoutRunSummary): number
     return b.created_at.localeCompare(a.created_at) || b.run_id.localeCompare(a.run_id)
 }
 
-/** The page of this scout's runs just older than every run in `loaded`, newest first. */
 async function fetchOlderRuns(
     skillName: string,
     loaded: SignalScoutRunSummary[],
@@ -146,7 +143,6 @@ function touchedReportActions(runs: SignalScoutRunSummary[]): Map<string, ScoutR
     return byId
 }
 
-/** Fetch these reports by id. A report that can't be reached is remembered and left out. */
 async function fetchReports(ids: string[]): Promise<SignalReport[]> {
     // nosemgrep: prefer-codegen-api-namespaced-signals -- the generated retrieve returns `SignalReportApi`, which `ScoutReportCard` does not accept yet
     const settled = await Promise.allSettled(ids.map((id) => api.signalReports.get(id)))
@@ -699,13 +695,11 @@ export const scoutDetailLogic = kea<scoutDetailLogicType>([
             (s) => [s.scoutRunsCoverFleet, s.ownRunsLoaded],
             (scoutRunsCoverFleet: boolean, ownRunsLoaded: boolean): boolean => scoutRunsCoverFleet || ownRunsLoaded,
         ],
-        // This scout's runs in the polled window, oldest first like the rollup.
         liveWindowRuns: [
             (s) => [s.rollups, (_, props) => props.skillName],
             (rollups: Map<string, ScoutRollup>, skillName: string): SignalScoutRunSummary[] =>
                 rollups.get(skillName)?.runs ?? [],
         ],
-        // The window plus the runs it moved past while older pages were open.
         windowRuns: [
             (s) => [s.liveWindowRuns, s.retainedWindowRuns],
             (liveWindowRuns: SignalScoutRunSummary[], retainedWindowRuns: SignalScoutRunSummary[]) =>
@@ -734,7 +728,6 @@ export const scoutDetailLogic = kea<scoutDetailLogicType>([
                 }
             },
         ],
-        // The Runs tab's list: the window and the older pages, newest first.
         historyRuns: [
             (s) => [s.windowRuns, s.olderRuns],
             (windowRuns: SignalScoutRunSummary[], olderRuns: OlderRunPages): SignalScoutRunSummary[] =>
@@ -797,7 +790,6 @@ export const scoutDetailLogic = kea<scoutDetailLogicType>([
                     .sort()
                     .join(','),
         ],
-        // How the scout touched each report across the window and the older pages.
         reportActions: [
             (s) => [s.touchedReports, s.olderReports],
             (
@@ -813,8 +805,6 @@ export const scoutDetailLogic = kea<scoutDetailLogicType>([
                 return actions
             },
         ],
-        // Every report the loaded runs name, which is the Reports tab's count. A report many runs
-        // edited counts once.
         touchedReportCount: [
             (s) => [s.reportActions],
             (reportActions: Map<string, ScoutReportAction>): number => reportActions.size,
@@ -863,7 +853,6 @@ export const scoutDetailLogic = kea<scoutDetailLogicType>([
                     .sort((a, b) => (b.emission.emitted_at ?? '').localeCompare(a.emission.emitted_at ?? ''))
             },
         ],
-        // The Signals tab's list: the window's findings, then the older pages' findings.
         emissionRows: [
             (s) => [s.windowEmissionRows, s.olderSignals],
             (windowEmissionRows: ScoutEmissionRow[], olderSignals: OlderSignalPages): ScoutEmissionRow[] => {

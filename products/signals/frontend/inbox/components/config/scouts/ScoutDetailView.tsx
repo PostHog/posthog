@@ -159,7 +159,6 @@ export function ScoutDetailView({ skillName }: { skillName: string }): JSX.Eleme
 
     const signalCount = emissionRows.length
     const windowEmittedCount = rollup?.emittedCount ?? 0
-    // "+" when the window is full and older pages may hold more, so a count never reads as the total.
     const countLabel = (count: number, mayContinue: boolean): string => `${count}${mayContinue && count > 0 ? '+' : ''}`
 
     const switchTab = (next: ScoutDetailTab): void => {
@@ -172,12 +171,9 @@ export function ScoutDetailView({ skillName }: { skillName: string }): JSX.Eleme
         setScoutDetailTab(next)
     }
 
-    // Signals hides only once a check says this scout never emitted a finding. It asks the runs
-    // window first, not the emissions fetched per run: those land a beat later and can fail
-    // outright, and hiding the tab then would say the scout emitted nothing while its panel is the
-    // only place that reports the failed fetch. A check that failed leaves the tab up. Whichever
-    // pane is open also keeps its tab, so a link naming a pane this scout has none of still has a
-    // tab to select.
+    // Signals hides only once a check says this scout never emitted a finding, so a failed check or
+    // a failed emissions fetch never reads as "no signals". Whichever pane is open also keeps its
+    // tab, so a link naming a pane this scout has none of still has a tab to select.
     const tabs = [
         {
             key: 'reports' as ScoutDetailTab,
