@@ -3,6 +3,7 @@ from dataclasses import field
 from datetime import UTC, date, datetime, timedelta
 from functools import partial
 from typing import Any
+from urllib.parse import quote
 
 from requests import Response
 from requests.exceptions import HTTPError
@@ -28,6 +29,8 @@ from products.warehouse_sources.sources.sdk import (
     SinglePagePaginator,
     SourceInputs,
     SourceResponse,
+    create_auth,
+    create_response_hooks,
     frozen,
     parse_datetime_value,
     rename_parent_fields,
@@ -140,13 +143,53 @@ def _job_endpoint(window: DateWindow, params: dict[str, Any] | None) -> Endpoint
     )
 
 
+def _lead_history_pages(
+    parents: Resource,
+    client: RESTClient,
+    manager: ResumableSourceManager[AcculynxResumeConfig],
+) -> Iterator[list[dict[str, Any]]]:
+    endpoint = ENDPOINTS["lead_history"]
+    hooks = create_response_hooks([{"status_code": 404, "action": "ignore"}], resource_name="lead_history")
+    seen: set[str] = set()
+    for page in parents:
+        for parent in page:
+            lead_id = parent["id"]
+            if lead_id in seen:
+                continue
+            seen.add(lead_id)
+            done = manager.with_namespace(f"lead_history:{lead_id}")
+            if not done.can_resume():
+                history = next(
+                    client.paginate(
+                        path=_bind_path(endpoint.path, {"leadId": quote(lead_id, safe="")}),
+                        paginator=SinglePagePaginator(),
+                        data_selector=endpoint.data_selector,
+                        data_selector_required=True,
+                        hooks=hooks,
+                    ),
+                    [],
+                )
+                rows = [{**action, "lead_id": lead_id} for action in history]
+                done.save_state(AcculynxResumeConfig(finished=True))
+                if rows:
+                    yield rows
+            manager.safe_point()
+
+
+def _save_lead_history_window(
+    manager: ResumableSourceManager[AcculynxResumeConfig], state: AcculynxResumeConfig
+) -> None:
+    manager.save_state(state)
+    manager.safe_point()
+
+
 def _job_pages(
     client: ClientConfig,
     inputs: SourceInputs,
     manager: ResumableSourceManager[AcculynxResumeConfig] | None = None,
     *,
-    name: str = "jobs",
     params: dict[str, Any] | None = None,
+    history_client: RESTClient | None = None,
 ) -> Iterator[list[dict[str, Any]]]:
     saved = manager.load_state() if manager and manager.can_resume() else None
     if saved and saved.finished:
@@ -160,20 +203,24 @@ def _job_pages(
             if manager:
                 manager.save_state(AcculynxResumeConfig(windows=[list(w) for w in pending], paginator_state=state))
 
-        if name == "jobs":
-            config: RESTAPIConfig = {"client": client, "resources": [_resource("jobs", _job_endpoint(window, params))]}
-            resource = rest_api_resource(
-                config,
-                inputs.team_id,
-                inputs.job_id,
-                None,
-                resume_hook=checkpoint,
-                initial_paginator_state=initial_state,
-            ).add_filter(partial(_in_job_window, window=window))
-        else:
-            resource = _fanout_resource(name, client, inputs, {}, checkpoint, initial_state, job_window=window)
+        if history_client is not None:
+            # Lead promotions shift the listing offsets. Resume the window from its start.
+            checkpoint(None)
+        config: RESTAPIConfig = {"client": client, "resources": [_resource("jobs", _job_endpoint(window, params))]}
+        resource = rest_api_resource(
+            config,
+            inputs.team_id,
+            inputs.job_id,
+            None,
+            resume_hook=checkpoint if history_client is None else None,
+            initial_paginator_state=initial_state if history_client is None else None,
+        ).add_filter(partial(_in_job_window, window=window))
         try:
-            yield from resource
+            if history_client is None:
+                yield from resource
+            else:
+                assert manager is not None
+                yield from _lead_history_pages(resource, history_client, manager)
         except JobWindowTooLarge:
             if window.start == window.end:
                 raise ValueError("AccuLynx job date window exceeds the 100,000-record offset limit.") from None
@@ -188,7 +235,11 @@ def _job_pages(
             windows = windows[1:]
         initial_state = None
         if manager:
-            manager.save_state(AcculynxResumeConfig(windows=[list(w) for w in windows], finished=not windows))
+            state = AcculynxResumeConfig(windows=[list(w) for w in windows], finished=not windows)
+            if history_client is None:
+                manager.save_state(state)
+            else:
+                _save_lead_history_window(manager, state)
 
 
 def _payment_rows(row: dict[str, Any]) -> list[dict[str, Any]]:
@@ -216,8 +267,6 @@ def _fanout_resource(
     params: dict[str, Any],
     checkpoint: Callable[[dict[str, Any] | None], None],
     initial_state: dict[str, Any] | None,
-    *,
-    job_window: DateWindow | None = None,
 ) -> Resource:
     resources: list[str | EndpointResource] = []
     chain = _fanout_chain(name)
@@ -227,11 +276,8 @@ def _fanout_resource(
         config = PARENT_ENDPOINTS[level]
         fanout = config.fanout
         if fanout is None:
-            if job_window is not None:
-                parent = _resource(level, _job_endpoint(job_window, root_child.parent_params))
-            else:
-                parent = _resource(level, _endpoint(config, root_child.parent_params))
-            if level == "jobs" and job_window is None:
+            parent = _resource(level, _endpoint(config, root_child.parent_params))
+            if level == "jobs":
                 # Job date windows must also apply to the parent walk, or child tables hit the same offset cap.
                 parent["data_iterator"] = partial(_job_pages, client, inputs, params=root_child.parent_params)
             resources.append(parent)
@@ -255,8 +301,6 @@ def _fanout_resource(
         ]
         child = _resource(level, endpoint)
         child["include_from_parent"] = fanout.include_from_parent
-        if job_window is not None:
-            child["resume_parent_pagination"] = True
         resources.append(child)
     fanout = ENDPOINTS[name].fanout
     assert fanout is not None
@@ -268,10 +312,7 @@ def _fanout_resource(
         resume_hook=checkpoint,
         initial_paginator_state=initial_state,
     )
-    resources_by_name = {resource.name: resource for resource in built}
-    if job_window is not None:
-        resources_by_name["jobs"].add_filter(partial(_in_job_window, window=job_window))
-    resource = resources_by_name[name]
+    resource = next(r for r in built if r.name == name)
     resource.add_map(rename_parent_fields(fanout.parent_name, fanout.parent_field_renames))
     return resource.add_map(_payment_rows) if name == "payments" else resource
 
@@ -283,8 +324,8 @@ def _pages(
     manager: ResumableSourceManager[AcculynxResumeConfig],
     appointments: DateWindow,
 ) -> Iterator[list[dict[str, Any]]]:
-    if name in ("jobs", "lead_history"):
-        yield from _job_pages(client, inputs, manager, name=name)
+    if name == "jobs":
+        yield from _job_pages(client, inputs, manager)
         return
     saved = manager.load_state() if manager.can_resume() else None
     if saved and saved.finished:
@@ -335,9 +376,29 @@ def acculynx_source(
 ) -> SourceResponse:
     config = schema_for_resource(ENDPOINTS, inputs.schema_name)
     client = _client_config(api_key, api_version)
+
+    def items() -> Resource | Iterator[list[dict[str, Any]]]:
+        if inputs.schema_name != "lead_history":
+            return _pages(inputs.schema_name, client, inputs, manager, appointments)
+        fanout = ENDPOINTS["lead_history"].fanout
+        assert fanout is not None
+        history_client = RESTClient(
+            base_url=client.get("base_url"),
+            headers=client.get("headers"),
+            auth=create_auth(client.get("auth")),
+            request_timeout=client.get("request_timeout"),
+            allowed_hosts=client.get("allowed_hosts"),
+            allow_redirects=False,
+        )
+        return Resource(
+            partial(_job_pages, client, inputs, manager, params=fanout.parent_params, history_client=history_client),
+            name="lead_history",
+            hints={},
+        )
+
     return SourceResponse(
         name=inputs.schema_name,
-        items=lambda: _pages(inputs.schema_name, client, inputs, manager, appointments),
+        items=items,
         primary_keys=list(config.primary_keys),
         partition_keys=[config.partition_key] if config.partition_key else None,
         partition_mode="datetime" if config.partition_key else None,
