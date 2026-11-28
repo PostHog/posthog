@@ -1283,9 +1283,10 @@ WARMING_CANCEL_GRACE_SECONDS = 60
 
 # The hourly schedule starts each team at its own offset inside this window, so
 # the pass does not send every team's first queries to the offline ClickHouse
-# pool in the same minute. The window is far below the stall timeout, so a
-# pass that is still releasing teams never looks stalled.
-WARMING_RELEASE_WINDOW_SECONDS = 10 * 60
+# pool in the same minute. Keep the window well below WARMING_STALL_TIMEOUT_SECONDS:
+# a shard whose first team is released later than the stall timeout completes
+# nothing in that time, and the stall guard then kills a healthy pass.
+WARMING_RELEASE_WINDOW_SECONDS = 20 * 60
 
 
 # The warmer shares its per-user ClickHouse query budget with every other
