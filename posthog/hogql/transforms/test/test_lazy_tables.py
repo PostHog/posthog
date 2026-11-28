@@ -137,6 +137,19 @@ class TestNamespacedLazyTables(SimpleTestCase):
     ) -> None:
         self._compile(query, modifiers)
 
+    @pytest.mark.skip(
+        reason="Known bug: the filter reads the events table, not the outer CTE. "
+        "https://github.com/PostHog/posthog/issues/106296"
+    )
+    def test_promoted_persons_filter_reads_a_cte_of_an_outer_select(self) -> None:
+        sql = self._compile(
+            "WITH events AS (SELECT toUUID('00000000-0000-0000-0000-000000000001') AS person_id) "
+            "SELECT id FROM (SELECT p.id AS id FROM person_distinct_ids AS d JOIN persons AS p "
+            "ON d.person_id = p.id AND p.id IN (SELECT person_id FROM events)) AS joined"
+        )
+
+        assert "events.team_id" not in sql
+
     def _compile(self, query: str, modifiers: HogQLQueryModifiers | None = None) -> str:
         context = HogQLContext(
             team_id=1,
