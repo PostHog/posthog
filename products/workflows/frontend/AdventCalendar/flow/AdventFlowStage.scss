@@ -3,6 +3,9 @@
     --advent-flow-dot: color-mix(in oklab, var(--color-black) 43%, var(--color-white));
     --advent-flow-edge: var(--border-bold);
     --advent-flow-edge-walked: var(--color-text-secondary);
+    --advent-flow-peek-red: var(--color-red-900);
+    --advent-flow-peek-deep: color-mix(in oklab, var(--color-red-900) 45%, var(--color-red-950));
+    --advent-flow-peek-rim: var(--color-red-950);
 
     position: relative;
     flex: 1 1 0;
@@ -20,6 +23,7 @@
     --advent-flow-sheet: color-mix(in oklab, var(--color-black) 92%, var(--color-white));
     --advent-flow-dot: color-mix(in oklab, var(--color-black) 53%, var(--color-white));
     --advent-flow-edge: var(--color-text-tertiary);
+    --advent-flow-peek-rim: color-mix(in oklab, var(--color-red-950) 60%, var(--color-black));
 }
 
 .AdventFlowStage__track {
@@ -84,7 +88,10 @@
     border-radius: inherit;
     box-shadow: 0 0 0 5px color-mix(in oklab, var(--advent-gold) 45%, transparent);
     opacity: 0;
-    animation: AdventFlowStep__today 1800ms ease-in-out infinite;
+}
+
+.AdventFlowStage[data-awake='true'] .AdventFlowStep__tile--today::after {
+    animation: AdventFlowStep__today 1800ms ease-in-out 3;
 }
 
 @keyframes AdventFlowStep__today {
@@ -101,7 +108,7 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-    .AdventFlowStep__tile--today::after {
+    .AdventFlowStage[data-awake='true'] .AdventFlowStep__tile--today::after {
         animation: none;
     }
 }
@@ -109,6 +116,169 @@
 .AdventFlowStep__tile:focus-visible {
     outline: 2px solid var(--color-accent);
     outline-offset: 4px;
+}
+
+.AdventFlowStep__tile--open {
+    cursor: pointer;
+    background: none;
+    border: 0;
+}
+
+.AdventFlowPeek {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+}
+
+.AdventFlowPeek__stitch {
+    position: absolute;
+    inset: -6px;
+    border: 1.5px dashed var(--advent-flow-edge);
+    border-radius: 15px;
+}
+
+.AdventFlowPeek__window {
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
+    background: radial-gradient(ellipse 80% 70% at 58% 42%, var(--advent-flow-peek-red), var(--advent-flow-peek-deep));
+    border-radius: 10px;
+}
+
+.AdventFlowPeek__hoggy {
+    position: absolute;
+    display: flex;
+}
+
+.AdventFlowPeek__shade {
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    box-shadow:
+        inset 0 7px 9px -5px color-mix(in oklab, var(--color-black) 55%, transparent),
+        inset 6px 0 8px -6px color-mix(in oklab, var(--color-black) 45%, transparent),
+        inset -3px 0 6px -5px color-mix(in oklab, var(--color-black) 35%, transparent);
+}
+
+.AdventFlowPeek__frame {
+    position: absolute;
+    inset: -1px;
+    border: 2px solid var(--advent-flow-peek-rim);
+    border-radius: 11px;
+}
+
+.AdventFlowPeek__hinge {
+    position: absolute;
+    inset: 0;
+    perspective: 520px;
+}
+
+.AdventFlowPeek__leaf {
+    position: absolute;
+    inset: 0;
+    transform: rotateY(-68deg);
+    transform-origin: 0 50%;
+    transform-style: preserve-3d;
+}
+
+.AdventFlowPeek__face {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.5rem;
+    font-weight: 700;
+    background: var(--color-bg-surface-primary);
+    border-style: solid;
+    border-width: 2px;
+    border-radius: 10px;
+    outline: 1.5px dashed currentColor;
+    outline-offset: -7px;
+    box-shadow: 0 2px 6px color-mix(in oklab, var(--color-black) 25%, transparent);
+    backface-visibility: hidden;
+}
+
+.AdventFlowPeek__face--back {
+    background: var(--advent-flow-peek-red);
+    outline-color: color-mix(in oklab, var(--color-white) 70%, transparent);
+    transform: rotateY(180deg);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+    .AdventFlowPeek--opening {
+        .AdventFlowPeek__stitch,
+        .AdventFlowPeek__window,
+        .AdventFlowPeek__frame {
+            animation: AdventFlowPeek__grow var(--advent-flow-opening) cubic-bezier(0.3, 0.8, 0.3, 1) both;
+        }
+
+        .AdventFlowPeek__leaf {
+            animation: AdventFlowPeek__swing var(--advent-flow-opening) cubic-bezier(0.35, 0.6, 0.3, 1) both;
+        }
+
+        .AdventFlowPeek__hoggy {
+            animation: AdventFlowPeek__rise var(--advent-flow-opening) cubic-bezier(0.25, 0.8, 0.3, 1.15) both;
+        }
+    }
+}
+
+@keyframes AdventFlowPeek__grow {
+    0% {
+        transform: scale(0.74, 0.62) translateY(6px);
+    }
+
+    12%,
+    100% {
+        transform: none;
+    }
+}
+
+@keyframes AdventFlowPeek__swing {
+    0% {
+        transform: scale(0.74, 0.62) translateY(6px) rotateY(0);
+    }
+
+    12%,
+    20% {
+        transform: rotateY(0);
+    }
+
+    24% {
+        transform: rotateY(-8deg);
+    }
+
+    27% {
+        transform: rotateY(-3deg);
+    }
+
+    52% {
+        transform: rotateY(-84deg);
+    }
+
+    62% {
+        transform: rotateY(-62deg);
+    }
+
+    70%,
+    100% {
+        transform: rotateY(-68deg);
+    }
+}
+
+@keyframes AdventFlowPeek__rise {
+    0%,
+    50% {
+        transform: translate(10px, 105%);
+    }
+
+    84% {
+        transform: translate(-1px, -4%);
+    }
+
+    100% {
+        transform: none;
+    }
 }
 
 .AdventFlowStep__end {
