@@ -8,7 +8,7 @@ import type { ContentPanel, SavedPanel } from '../panels/core/panelSchema'
 import { markdownSpec } from '../panels/markdown/markdownSpec'
 import type { PanelQuery } from '../query/querySchema'
 
-export type ImportSource = 'grafana' | 'grafana-v2'
+export type ImportSource = 'grafana' | 'grafana-v2' | 'newrelic'
 
 /**
  * - `mapped`: the tile shows what it showed before.
@@ -127,6 +127,12 @@ export function idMaker(prefix: string): (title: string) => string {
         return id
     }
 }
+
+/** Text from an export, made safe to put inside one line of a note's markdown. */
+export const inline = (value: unknown): string =>
+    String(value)
+        .replace(/[`\r\n]+/g, ' ')
+        .trim()
 
 // Long queries would make a note taller than any tile it replaces.
 const MAX_NOTE_QUERY = 1500
