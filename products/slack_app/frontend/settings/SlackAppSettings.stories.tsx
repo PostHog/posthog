@@ -31,7 +31,7 @@ const PERSONAL = {
     auto_model_choice: false,
     feature_tips_enabled: true,
     inherited_settings: ['untagged_followup_mode', 'untagged_question_mode', 'thread_join_mode'],
-    chatgpt_apps_enabled: null,
+    chatgpt_apps_mode: null,
 }
 
 function settingsDecorator(personal: Record<string, unknown>): ReturnType<typeof mswDecorator> {
@@ -81,5 +81,5 @@ export const NotLinked: Story = {
 }
 
 export const ChatGPTPlanConnected: Story = {
-    decorators: [settingsDecorator({ ...PERSONAL, chatgpt_apps_enabled: false })],
+    decorators: [settingsDecorator({ ...PERSONAL, chatgpt_apps_mode: 'until_join' })],
 }

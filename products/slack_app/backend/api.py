@@ -4369,12 +4369,14 @@ def post_thread_join_prompt(
     joiner_slack_user_id: str,
     opens_thread: bool,
     plan_name: str | None = None,
+    turns_off_chatgpt_apps: bool = False,
 ) -> None:
     """Ask the thread creator whether someone else may join their thread.
 
     ``opens_thread`` says that approving lets anyone join the thread, not only this person.
     ``plan_name`` names the creator's plan when the thread's task runs on it, so the creator
-    knows that people who join spend it.
+    knows that people who join spend it. ``turns_off_chatgpt_apps`` says that the creator's
+    setting turns off their ChatGPT apps for the thread once someone joins.
 
     The whole event is stashed behind a one-off token, so letting them join sends the original
     message rather than a reconstruction of it. The person who asked hears that the creator was
@@ -4384,6 +4386,8 @@ def post_thread_join_prompt(
     plan_note = (
         f"This task runs on your {plan_name}, so messages from people who join use it too. " if plan_name else ""
     )
+    if turns_off_chatgpt_apps:
+        plan_note += "Letting them join turns off your ChatGPT apps for the rest of this thread. "
     pending_key = _thread_join_pending_key(integration.id, channel, thread_ts, joiner_slack_user_id)
     if not cache.add(pending_key, True, timeout=THREAD_JOIN_PROMPT_MAX_AGE_SECONDS):
         return

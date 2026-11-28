@@ -54,6 +54,9 @@ class SlackThreadTaskMapping(UUIDModel):
     # tracked; UNKNOWN when Slack could not tell us. Only PUBLIC_CHANNEL makes the task readable
     # team-wide (see `facade.constants`); every other value, NULL included, keeps it with its creator.
     conversation_type = models.CharField(max_length=16, choices=ConversationType, null=True, blank=True)
+    # Set once, when someone other than the thread's creator is first let into the thread. It never clears,
+    # so the plan owner's ChatGPT apps stay off for the rest of the thread under `ChatGPTAppsMode.UNTIL_JOIN`.
+    others_joined_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -139,6 +142,17 @@ class UntaggedFollowupMode(models.TextChoices):
     AUTO = "auto", "Always pick it up"
     ASK = "ask", "Ask before picking it up"
     NEVER = "never", "Never pick it up"
+
+
+class ChatGPTAppsMode(models.TextChoices):
+    """Whether Slack runs on a user's ChatGPT plan may use the apps connected to that plan.
+
+    Read from the plan owner's settings row. An unset row resolves to ``OFF``.
+    """
+
+    OFF = "off", "Off"
+    UNTIL_JOIN = "until_join", "On until someone else joins"
+    ALWAYS = "always", "Always on"
 
 
 class ThreadJoinMode(models.TextChoices):
@@ -242,11 +256,20 @@ class SlackSettings(UUIDModel):
         blank=True,
         help_text="Let PostHog pick the model for each new task this user starts from Slack.",
     )
-    # Only read on a personal row. NULL means the user never picked, which resolves to off.
+    # Only read on a personal row. Superseded by `chatgpt_apps_mode`, and read only when that is NULL:
+    # True resolves to `ChatGPTAppsMode.ALWAYS`.
     chatgpt_apps_enabled = models.BooleanField(
         null=True,
         blank=True,
         help_text="Let Slack tasks that run on this user's ChatGPT plan use the apps connected to that plan.",
+    )
+    # Only read on a personal row. NULL falls back to `chatgpt_apps_enabled`, then to off.
+    chatgpt_apps_mode = models.CharField(
+        max_length=16,
+        null=True,
+        blank=True,
+        choices=ChatGPTAppsMode.choices,
+        help_text="Whether Slack tasks that run on this user's ChatGPT plan use the apps connected to that plan.",
     )
     # Only read on a personal row. NULL means feature tips never evaluated this user.
     # The shape is ``FeatureTipsState`` in ``logic/feature_tips/state.py``.

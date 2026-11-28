@@ -1,11 +1,14 @@
 import re
 import uuid
 import textwrap
+from collections.abc import Collection
 from dataclasses import field
+from enum import StrEnum
 from functools import partial
 from typing import TYPE_CHECKING, Any
 
 from django.db import models, transaction
+from django.utils import timezone
 
 import structlog
 from temporalio import activity
@@ -17,6 +20,7 @@ from products.slack_app.backend.facade.api import slack_artifact_delivery_state_
 from products.slack_app.backend.logic.politeness import POLITE_REQUEST_REACTION, is_polite_request
 from products.slack_app.backend.logic.reply_suggestions import clear_open_suggestions
 from products.slack_app.backend.logic.thread_join import ThreadJoinDecision, decide_thread_join
+from products.slack_app.backend.models import ChatGPTAppsMode
 from products.slack_app.backend.services.slack_messages import (
     SlackThreadMessage,
     context_block,
@@ -26,7 +30,7 @@ from products.slack_app.backend.services.slack_messages import (
     project_web_url,
     thread_permalink,
 )
-from products.slack_app.backend.services.slack_settings import resolve_chatgpt_apps_enabled
+from products.slack_app.backend.services.slack_settings import resolve_chatgpt_apps_mode
 from products.slack_app.backend.services.slack_user_oauth import linked_slack_user_id
 from products.slack_app.backend.services.workspace_integrations import require_workspace_integration
 from products.slack_app.backend.task_profiles import REPORT_IMPLEMENTATION, SLACK
@@ -96,38 +100,64 @@ def _own_plan_state(
     user: Any,
     *,
     slack_workspace_id: str,
+    thread_slack_user_ids: Collection[str],
+    others_joined: bool,
     runtime_adapter: str | None,
 ) -> dict[str, Any]:
     """The run-state keys that bill a new run to this user's own plan, or none to keep PostHog credits.
 
-    The caller passes the thread creator, whose plan pays for every turn in the thread.
+    The caller passes the thread creator, whose plan pays for every turn in the thread, and the Slack users
+    known to have written in the thread so far.
     A failed check keeps the run on credits rather than blocking the mention.
     """
-    from products.slack_app.backend.feature_flags import (  # noqa: PLC0415
-        is_slack_app_byos_enabled,
-        is_slack_app_chatgpt_apps_setting_enabled,
-    )
+    from products.slack_app.backend.feature_flags import is_slack_app_byos_enabled  # noqa: PLC0415
     from products.tasks.backend.facade import api as tasks_facade  # noqa: PLC0415
 
     try:
         state: dict[str, Any] = tasks_facade.unattended_model_access_state(user, runtime_adapter=runtime_adapter)
         # The flag is a network call, so the local plan checks run first.
         if state and is_slack_app_byos_enabled(integration, user.distinct_id, adapter=str(runtime_adapter)):
-            # Anyone who joins the thread talks to this run, so the plan's apps stay off unless the owner allowed them.
-            # The owner's linked Slack user is read, not the thread's mentioner: a handoff or a workflow thread
-            # splits the two, and the settings page saves the choice under the linked user.
-            if (
-                "codex_model_access" in state
-                and is_slack_app_chatgpt_apps_setting_enabled(integration, user.distinct_id)
-                and not resolve_chatgpt_apps_enabled(
-                    slack_workspace_id, linked_slack_user_id(user=user, slack_team_id=slack_workspace_id)
-                )
+            if "codex_model_access" in state and _codex_apps_disabled(
+                integration,
+                user,
+                slack_workspace_id=slack_workspace_id,
+                thread_slack_user_ids=thread_slack_user_ids,
+                others_joined=others_joined,
             ):
                 state["codex_apps_disabled"] = True
             return state
     except Exception:
         logger.exception("slack_app_own_plan_resolution_failed", user_id=user.id)
     return {}
+
+
+def _codex_apps_disabled(
+    integration: Any,
+    owner: Any,
+    *,
+    slack_workspace_id: str,
+    thread_slack_user_ids: Collection[str],
+    others_joined: bool,
+) -> bool:
+    """Whether a run on the owner's ChatGPT plan must start without the apps connected to that plan.
+
+    Anyone who joins the thread talks to the run, so the apps stay off unless the owner allowed them. Under
+    `UNTIL_JOIN` they stay on only while nobody but the owner has written in the thread. The owner's linked Slack
+    user is read, not the thread's mentioner: a handoff or a workflow thread splits the two, and the settings page
+    saves the choice under the linked user.
+    """
+    from products.slack_app.backend.feature_flags import is_slack_app_chatgpt_apps_setting_enabled  # noqa: PLC0415
+
+    if not is_slack_app_chatgpt_apps_setting_enabled(integration, owner.distinct_id):
+        return False
+    owner_slack_user_id = linked_slack_user_id(user=owner, slack_team_id=slack_workspace_id)
+    mode = resolve_chatgpt_apps_mode(slack_workspace_id, owner_slack_user_id)
+    if mode == ChatGPTAppsMode.ALWAYS:
+        return False
+    if mode == ChatGPTAppsMode.UNTIL_JOIN:
+        only_owner = owner_slack_user_id is not None and set(thread_slack_user_ids) <= {owner_slack_user_id}
+        return others_joined or not only_owner
+    return True
 
 
 def _strip_context_tag(text: str) -> str:
@@ -917,6 +947,8 @@ def create_posthog_code_task_for_repo_activity(
             integration,
             mentioner,
             slack_workspace_id=inputs.slack_team_id,
+            thread_slack_user_ids=(slack_user_id,),
+            others_joined=False,
             runtime_adapter=resolve_effective_runtime_adapter(
                 run_prefs.runtime_adapter, team_id=integration.team_id, user_id=user_id
             ),
@@ -1258,8 +1290,14 @@ def forward_posthog_code_followup_activity(
                 joiner_slack_user_id=slack_user_id,
                 opens_thread=join == ThreadJoinDecision.ASK_FOR_THREAD,
                 plan_name=plan.plan_name if (plan := tasks_facade.get_run_plan(task_run.state)) else None,
+                turns_off_chatgpt_apps=_live_run_has_chatgpt_apps(task_run)
+                and _codex_apps_disabled_after_join(integration, mapping, slack_user_id),
             )
             return True
+        if mapping.others_joined_at is None:
+            mapping.others_joined_at = timezone.now()
+            mapping.save(update_fields=["others_joined_at", "updated_at"])
+            _tell_owner_chatgpt_apps_are_off(integration, slack, channel, thread_ts, mapping=mapping, task_run=task_run)
 
     if block_if_ai_processing_not_approved(
         integration=integration,
@@ -1308,6 +1346,39 @@ def forward_posthog_code_followup_activity(
             actor_user=actor_user,
             user_text_prefix=followup_user_text_prefix,
             model_override=model_override,
+        )
+        clear_open_suggestions(slack.client, integration.id, channel, thread_ts)
+        return handled
+
+    # Decided before any attachment is uploaded to the live run, so the new run gets the files.
+    apps_handoff = _stop_run_for_chatgpt_apps(
+        integration, slack, channel, thread_ts, mapping=mapping, task_run=task_run, slack_user_id=slack_user_id
+    )
+    if apps_handoff == ChatGPTAppsHandoff.FAILED:
+        # Sending the message to the live run would let this person use the owner's apps.
+        _clear_processing_reaction(slack, channel, user_message_ts)
+        post_slack_thread_reply(
+            slack.client,
+            channel=channel,
+            thread_ts=thread_ts,
+            text="I couldn't turn off the ChatGPT apps for this thread, so I didn't pass this message on. Send it again in a minute.",
+        )
+        return True
+    if apps_handoff == ChatGPTAppsHandoff.STOPPED:
+        handled = _resume_task_with_new_run(
+            mapping,
+            task_run,
+            slack,
+            inputs,
+            channel,
+            thread_ts,
+            slack_user_id,
+            event_text,
+            user_message_ts,
+            actor_user=actor_user,
+            user_text_prefix=followup_user_text_prefix,
+            model_override=model_override,
+            runtime_handoff=True,
         )
         clear_open_suggestions(slack.client, integration.id, channel, thread_ts)
         return handled
@@ -1542,6 +1613,110 @@ def forward_posthog_code_followup_activity(
 
 
 _RUNTIME_HANDOFF_CANCEL_SOURCE = "slack_runtime_handoff"
+_CHATGPT_APPS_CANCEL_SOURCE = "slack_chatgpt_apps_handoff"
+
+
+class ChatGPTAppsHandoff(StrEnum):
+    STOPPED = "stopped"
+    FAILED = "failed"
+
+
+def _live_run_has_chatgpt_apps(task_run: Any) -> bool:
+    state = task_run.state or {}
+    return state.get("codex_model_access") == "own-subscription" and not state.get("codex_apps_disabled")
+
+
+def _codex_apps_disabled_after_join(integration: Any, mapping: Any, slack_user_id: str) -> bool:
+    """Whether the owner's ChatGPT apps must be off once this Slack user's message is in the thread."""
+    owner = mapping.task.created_by
+    return owner is not None and _codex_apps_disabled(
+        integration,
+        owner,
+        slack_workspace_id=mapping.slack_workspace_id,
+        thread_slack_user_ids=(mapping.mentioning_slack_user_id, slack_user_id),
+        others_joined=mapping.others_joined_at is not None,
+    )
+
+
+_CHATGPT_APPS_OFF_NOTICE = (
+    "Someone else joined this thread, so your ChatGPT apps are off for the rest of it. "
+    "You can change when this happens in your Slack app settings in PostHog."
+)
+
+
+def _tell_owner_chatgpt_apps_are_off(
+    integration: Any, slack: Any, channel: str, thread_ts: str, *, mapping: Any, task_run: Any
+) -> None:
+    """Tell the plan owner, and nobody else in the thread, that the first join turned their ChatGPT apps off.
+
+    Only under `UNTIL_JOIN`: under `OFF` the thread never had the apps, and under `ALWAYS` it keeps them.
+    Best-effort, because the runs are already safe without the notice.
+    """
+    from products.slack_app.backend.feature_flags import is_slack_app_chatgpt_apps_setting_enabled  # noqa: PLC0415
+
+    owner = mapping.task.created_by
+    if owner is None or (task_run.state or {}).get("codex_model_access") != "own-subscription":
+        return
+    try:
+        owner_slack_user_id = linked_slack_user_id(user=owner, slack_team_id=mapping.slack_workspace_id)
+        if owner_slack_user_id is None:
+            return
+        if resolve_chatgpt_apps_mode(mapping.slack_workspace_id, owner_slack_user_id) != ChatGPTAppsMode.UNTIL_JOIN:
+            return
+        if not is_slack_app_chatgpt_apps_setting_enabled(integration, owner.distinct_id):
+            return
+        slack.client.chat_postEphemeral(
+            channel=channel, user=owner_slack_user_id, thread_ts=thread_ts, text=_CHATGPT_APPS_OFF_NOTICE
+        )
+    except Exception:
+        logger.warning("slack_app_chatgpt_apps_off_notice_failed", channel=channel, thread_ts=thread_ts)
+
+
+def _stop_run_for_chatgpt_apps(
+    integration: Any,
+    slack: Any,
+    channel: str,
+    thread_ts: str,
+    *,
+    mapping: Any,
+    task_run: Any,
+    slack_user_id: str,
+) -> ChatGPTAppsHandoff | None:
+    """Stop a live run that has the owner's ChatGPT apps once someone else is in the thread and the owner's setting
+    turns them off.
+
+    Codex reads the apps once, when it starts, so a live run cannot drop them. A new run on the same task starts
+    without them and continues the conversation. Returns None when the message can stay on the live run: the run
+    has no apps, or only the owner has written in the thread. A run that cannot be stopped returns `FAILED`, and
+    the caller must not send the message to it.
+    """
+    from products.tasks.backend.facade import cancellation as tasks_cancellation
+
+    if not _live_run_has_chatgpt_apps(task_run):
+        return None
+    # The owner's own follow-up in a thread nobody joined leaves a run started before the setting existed as it was.
+    if slack_user_id == mapping.mentioning_slack_user_id and mapping.others_joined_at is None:
+        return None
+    if not _codex_apps_disabled_after_join(integration, mapping, slack_user_id):
+        return None
+    try:
+        outcome, _ = tasks_cancellation.cancel_task_run(
+            task_run.id,
+            task_run.task_id,
+            task_run.team_id,
+            reason="Turned off ChatGPT apps",
+            source=_CHATGPT_APPS_CANCEL_SOURCE,
+            requested_by_user_id=None,
+        )
+    except Exception:
+        logger.exception("slack_app_chatgpt_apps_handoff_cancel_failed", task_run_id=str(task_run.id))
+        return ChatGPTAppsHandoff.FAILED
+    if outcome not in ("accepted", "already_terminal"):
+        logger.warning("slack_app_chatgpt_apps_handoff_cancel_refused", task_run_id=str(task_run.id), outcome=outcome)
+        return ChatGPTAppsHandoff.FAILED
+
+    logger.info("slack_app_chatgpt_apps_handoff_started", task_run_id=str(task_run.id))
+    return ChatGPTAppsHandoff.STOPPED
 
 
 def _stop_run_for_runtime_handoff(
@@ -1874,8 +2049,9 @@ def _resume_task_with_new_run(
 ) -> bool:
     """Create a new run on the same task when a follow-up arrives after the previous run completed.
 
-    ``runtime_handoff`` marks a previous run that this follow-up stopped itself to change runtime. That
-    stop is not a failure or a user cancel, so the new run gets no recovery instructions for it.
+    ``runtime_handoff`` marks a previous run that this follow-up stopped itself, to change runtime or to turn off
+    the owner's ChatGPT apps. That stop is not a failure or a user cancel, so the new run gets no recovery
+    instructions for it.
     """
     from products.signals.backend.facade import (
         report_tasks,  # noqa: PLC0415 - keeps the signals model graph off the webhook import path
@@ -1955,6 +2131,8 @@ def _resume_task_with_new_run(
         integration,
         created_by,
         slack_workspace_id=mapping.slack_workspace_id,
+        thread_slack_user_ids=(mapping.mentioning_slack_user_id, slack_user_id),
+        others_joined=mapping.others_joined_at is not None,
         runtime_adapter=resolve_effective_runtime_adapter(
             extra_state.get("runtime_adapter"), team_id=mapping.task.team_id, user_id=run_actor.id
         ),

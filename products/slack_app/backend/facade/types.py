@@ -87,7 +87,7 @@ class SlackPersonalSettings:
     auto_model_choice: bool
     feature_tips_enabled: bool
     # None when the setting does not apply: the person has no ChatGPT plan that Slack runs can use.
-    chatgpt_apps_enabled: bool | None
+    chatgpt_apps_mode: str | None
 
 
 class Unset(Enum):
@@ -121,7 +121,7 @@ class SlackPersonalSettingsChange:
     thread_join_mode: str | None | Unset = UNSET
     auto_model_choice: bool | Unset = UNSET
     feature_tips_enabled: bool | Unset = UNSET
-    chatgpt_apps_enabled: bool | Unset = UNSET
+    chatgpt_apps_mode: str | Unset = UNSET
 
 
 @frozen
