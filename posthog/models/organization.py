@@ -73,7 +73,7 @@ class OrganizationUsageInfo(TypedDict):
     sandbox_compute_memory_mib_seconds: OrganizationUsageResource | None
     workflow_emails: OrganizationUsageResource | None
     workflow_push: OrganizationUsageResource | None
-    workflow_destinations_dispatched: OrganizationUsageResource | None
+    workflow_destinations: OrganizationUsageResource | None
     logs_mb_ingested: OrganizationUsageResource | None
     replay_vision_credits: OrganizationUsageResource | None
     period: list[str] | None
