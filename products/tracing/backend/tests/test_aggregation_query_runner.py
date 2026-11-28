@@ -6,14 +6,22 @@ from unittest.mock import patch
 
 from parameterized import parameterized
 
-from posthog.schema import CompareFilter, DateRange, TraceSpansAggregationQuery
+from posthog.schema import (
+    CompareFilter,
+    DashboardFilter,
+    DateRange,
+    EventPropertyFilter,
+    PropertyOperator,
+    TraceSpansAggregationQuery,
+    TraceSpansQuery,
+)
 
 from posthog.hogql.timings import HogQLTimings
 
 from posthog.clickhouse.client import sync_execute
 
 from products.tracing.backend.aggregation_query_runner import TraceSpansAggregationQueryRunner
-from products.tracing.backend.logic import run_aggregation_query, run_tree_query
+from products.tracing.backend.logic import TraceSpansQueryRunner, run_aggregation_query, run_tree_query
 from products.tracing.backend.tests.test_keyset_pagination import DATE_FROM, DATE_TO, _b64, _TraceSpansTestBase
 
 # Child starts 40ms after its parent. In nanoseconds that's 40_000_000 — the unit the
@@ -31,6 +39,40 @@ class TestPaginationReachesTheCacheKey(BaseTest):
         first_key = TraceSpansAggregationQueryRunner(query, self.team, **first).get_cache_key()
         second_key = TraceSpansAggregationQueryRunner(query, self.team, **second).get_cache_key()
         assert first_key != second_key
+
+
+class TestDashboardFilters(BaseTest):
+    @parameterized.expand(
+        [
+            ("aggregation", TraceSpansAggregationQueryRunner, TraceSpansAggregationQuery),
+            ("span_list", TraceSpansQueryRunner, TraceSpansQuery),
+        ]
+    )
+    def test_dashboard_date_range_replaces_the_tile_range_and_property_filters_are_ignored(
+        self, _name, runner_class, query_class
+    ):
+        runner = runner_class(query_class(dateRange=DateRange(date_from=DATE_FROM, date_to=DATE_TO)), self.team)
+        key_before = runner.get_cache_key()
+
+        with patch("posthog.hogql_queries.query_runner.capture_exception") as capture:
+            runner.apply_dashboard_filters(
+                DashboardFilter(
+                    date_from="-7d",
+                    properties=[EventPropertyFilter(key="$browser", value="Chrome", operator=PropertyOperator.EXACT)],
+                )
+            )
+
+        assert runner.query.dateRange == DateRange(date_from="-7d", date_to=None)
+        assert runner.get_cache_key() != key_before
+        capture.assert_not_called()
+
+    def test_dashboard_without_a_date_range_keeps_the_tile_range(self):
+        tile_range = DateRange(date_from=DATE_FROM, date_to=DATE_TO)
+        runner = TraceSpansAggregationQueryRunner(TraceSpansAggregationQuery(dateRange=tile_range), self.team)
+
+        runner.apply_dashboard_filters(DashboardFilter())
+
+        assert runner.query.dateRange == tile_range
 
 
 class TestCompareFanOutTimings(BaseTest):
