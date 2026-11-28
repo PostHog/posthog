@@ -92,6 +92,7 @@ class ErrorTrackingIssue(UUIDTModel):
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
     created_at = models.DateTimeField(auto_now_add=True)
     state_updated_at = models.DateTimeField(null=True, blank=True)
+    last_received_at = models.DateTimeField(null=True, blank=True)
     status = models.TextField(choices=Status, default=Status.ACTIVE, null=False)
     severity = models.TextField(choices=Severity, null=True, default=None)
     name = models.TextField(null=True, blank=True)
@@ -981,6 +982,7 @@ class ErrorTrackingSettings(models.Model):
     per_issue_rate_limit_value = models.IntegerField(null=True, blank=True)
     per_issue_rate_limit_bucket_size_minutes = models.IntegerField(null=True, blank=True)
     ai_issue_summaries_enabled = models.BooleanField(default=False, db_default=False)
+    auto_resolve_after_days = models.PositiveSmallIntegerField(null=True, blank=True)
 
     class Meta:
         db_table = "posthog_errortrackingsettings"
