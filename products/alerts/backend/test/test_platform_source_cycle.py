@@ -1385,6 +1385,8 @@ class TestPlatformInsightEvaluation(APIBaseTest):
             )
             assert investigation.evaluated["value"] == 150.0
             assert investigation.evaluated["triggered_dates"] == ["2026-09-16"]
+            # Deleting the insight row must not delete the investigation, so the claim does not link it.
+            assert investigation.alert_configuration_id is None
         assert len(claims.deliveries) == (1 if not claimed and verdict is None else 0)
 
     def test_an_alert_insight_keeps_no_row_for_is_investigated_under_its_own_id(self) -> None:

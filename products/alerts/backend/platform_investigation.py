@@ -41,12 +41,7 @@ from products.alerts.backend.investigation_release import (
 )
 from products.alerts.backend.models.alert import AlertConfiguration, InvestigationStatus
 from products.alerts.backend.models.investigation import InsightAlertInvestigation
-from products.alerts.backend.platform_insight_alert import (
-    evaluation_alert,
-    investigated_alert,
-    is_built_from_platform,
-    show_copy_settings,
-)
+from products.alerts.backend.platform_insight_alert import evaluation_alert, investigated_alert, show_copy_settings
 from products.alerts.backend.platform_investigation_detail import (
     INVESTIGATION_REQUESTED_KEY,
     METRICS_INVESTIGATION_REQUESTED_KEY,
@@ -56,6 +51,7 @@ from products.alerts.backend.platform_investigation_detail import (
     MetricsInvestigationRun,
     requested_investigation,
 )
+from products.alerts_platform.backend.facade.api import get_configuration
 from products.alerts_platform.backend.facade.contracts import (
     AlertDeliveryRequest,
     AlertEventKind,
@@ -64,6 +60,7 @@ from products.alerts_platform.backend.facade.contracts import (
     PlatformAlertCheckInput,
     PlatformAlertOutcome,
     SourceBatchEvaluation,
+    SourceKind,
 )
 from products.alerts_platform.backend.facade.enums import HoldReleasedBy
 from products.alerts_platform.backend.facade.lifecycle import AlertState, NotificationAction
@@ -150,7 +147,6 @@ def claim_investigation(
         refused = rows.filter(refusing_investigations(alert, datetime.now(UTC), status_field="status")).exists()
         investigation = InsightAlertInvestigation.objects.for_team(alert.team_id).create(
             team_id=alert.team_id,
-            alert_configuration=None if is_built_from_platform(alert, configuration_id) else alert,
             configuration_id=configuration_id,
             evaluation_key=evaluation_key,
             episode_started_at=episode_started_at,
@@ -346,6 +342,17 @@ def fail_unstarted_metrics_investigation(run: MetricsInvestigationRun) -> None:
     )
 
 
+def _investigation_alert(team_id: int, configuration_id: UUID) -> AlertConfiguration | None:
+    """The alert an investigation belongs to. Found through its platform alert, because a copy's
+    investigations name only the platform alert, and the copy goes by its row's id."""
+    configuration = get_configuration(
+        team_id=team_id, source_kinds=[SourceKind.INSIGHT.value], configuration_id=configuration_id
+    )
+    if configuration is None:
+        return None
+    return investigated_alert(team_id, configuration.legacy_configuration_id or configuration.id)
+
+
 def run_metrics_investigation(
     run: MetricsInvestigationRun, *, query_slot: Callable[[], AbstractContextManager[None]] = nullcontext
 ) -> None:
@@ -360,8 +367,8 @@ def run_metrics_investigation(
     rows = InsightAlertInvestigation.objects.for_team(run.team_id).filter(id=run.investigation_id)
     if not rows.filter(status=InvestigationStatus.PENDING).update(status=InvestigationStatus.RUNNING):
         return
-    investigation = rows.select_related("alert_configuration__insight", "alert_configuration__team").get()
-    alert = investigation.alert_configuration or investigated_alert(run.team_id, investigation.configuration_id)
+    investigation = rows.get()
+    alert = _investigation_alert(run.team_id, investigation.configuration_id)
     if alert is not None:
         # The investigation's own row is loaded as stored, and a moved alert's edits reach only its copy.
         show_copy_settings([alert])
