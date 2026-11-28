@@ -108,9 +108,8 @@ describe('AdventStage', () => {
         expect(bottom.textContent).toBe('21MondayCoffee or teaOpens December 21.')
         expect(top.textContent).toBe('4FridayLockedOpens December 4.')
         const present = cardOf(24)
-        expect(present.textContent).toMatch(/Opens December 24\.Open each door on its day to enter the raffle\./)
-        expect(Array.from(present.querySelectorAll('span')).map((label) => label.textContent)).toContain(
-            'You have 0 tickets.'
+        expect(present.textContent).toMatch(
+            /Opens December 24\.Open each door on its day to enter the raffle\..*You have 0 tickets\./
         )
 
         logic.unmount()

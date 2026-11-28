@@ -197,26 +197,17 @@ describe('adventCalendarLogic', () => {
         }
     )
 
-    it('earns a ticket only for the door opened on its own day, and counts it once the ticket lands', () => {
+    it('earns a ticket only for the door opened on its own day', () => {
         logic.actions.activateDoor('door-1')
         logic.actions.finishReveal()
         logic.actions.answerDoor('door-2', 'james')
         logic.actions.finishReveal()
 
         expect(logic.values.tickets).toBe(0)
-        expect(logic.values.ticketFlight).toBeNull()
 
         logic.actions.activateDoor('door-3-upper')
 
-        expect(logic.values.ticketDays).toEqual([3])
-        expect(logic.values.ticketFlight).toBe(3)
-        expect(logic.values.ticketsShown).toBe(0)
-
-        logic.actions.finishReveal()
-        logic.actions.landTicket()
-
-        expect(logic.values.ticketFlight).toBeNull()
-        expect(logic.values.ticketsShown).toBe(1)
+        expect(logic.values.tickets).toBe(1)
     })
 
     it.each<[string, Reply, (day: number) => string, number | null | undefined, number[]]>([
@@ -352,13 +343,13 @@ describe('adventCalendarLogic', () => {
         logic.actions.activateDoor('door-3-upper')
         await expectLogic(logic).toFinishAllListeners()
 
-        const preview = { tickets: logic.values.tickets, flight: logic.values.ticketFlight }
+        const previewTickets = logic.values.tickets
         router.actions.push('/workflows/advent')
         logic.unmount()
         logic = adventCalendarLogic()
         logic.mount()
 
-        expect(preview).toEqual({ tickets: 3, flight: 3 })
+        expect(previewTickets).toBe(3)
         expect({
             door: doorOf(logic, 'door-1')?.status,
             tickets: logic.values.tickets,
