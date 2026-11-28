@@ -8092,6 +8092,22 @@
             "readOnlyHint": false
         }
     },
+    "feature-flag-delete-in-projects": {
+        "description": "Soft-delete the feature flag with a given key in several projects of the current organization, up to 50 at a time. Use it when the user wants a flag gone from more than one project. For a single project, use `delete-feature-flag`. Take the project IDs from `projects-get`, and confirm the list of projects with the user before deleting.\n\nEach project is checked and deleted on its own, so the response lists the projects where the flag was deleted and the projects where it was not, each with the reason. A flag is not deleted when the project does not exist or has no flag with that key, when the user cannot edit the flag there, or when the delete is blocked, for example by an early access feature, a running experiment, flags that depend on it, a survey, or a product tour. Name every project that failed and its reason to the user. Use `feature-flag-restore` in each project to undo a delete. A flag whose `filters.version` is 2 cannot be restored yet, so tell the user before deleting one.",
+        "category": "Feature flags",
+        "feature": "flags",
+        "summary": "Delete feature flag in projects",
+        "title": "Delete feature flag in projects",
+        "required_scopes": ["feature_flag:write"],
+        "api_operations": ["POST /api/organizations/{organization_id}/feature_flags/delete_in_projects/"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "feature-flag-delete-in-projects"
+    },
     "feature-flag-disable": {
         "description": "Turn a feature flag off. Requires the flag's numeric ID; use `feature-flag-get-definition-by-key` to get it from a key, or `feature-flag-get-all` to search by key or name.\n\nSets `active` to false and changes nothing else. This tool never accepts or replaces the `filters` object, so targeting, rollout percentages, variants and payloads cannot change.\n\nPass `version` from the flag you read. A flag whose `filters.version` is 2 requires it, so read the flag first and send its current `version`; never guess it. When the call would change the flag, a stale `version` returns 409: read the flag again and decide against its current state. A call that changes nothing succeeds without checking `version`, and the response carries the current `version`.\n\nA disabled flag stops evaluating everywhere, so every caller falls back to its own default. Tell the user what else this affects: linked experiments, surveys, early access features and session replay settings all appear in the flag's full definition. `feature-flag-get-definition-by-key` already returns it, and `feature-flag-get-definition` returns it by ID.\n\nReturns 400 when other active flags depend on this one; `feature-flags-dependent-flags-retrieve` lists them. Returns 409 when an approval policy gates disabling. Disabling an already-disabled flag succeeds and changes nothing, so retrying is safe.\n\n`feature-flag-get-definition-by-key` also finds archived flags, and an archived flag is already disabled. `feature-flag-get-all` hides archived flags unless you pass `{\"archived\":\"true\"}`.\n\nTo turn the flag off at a future time instead, use `scheduled-changes-create` with the `update_status` operation.",
         "category": "Feature flags",

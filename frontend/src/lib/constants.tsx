@@ -361,6 +361,7 @@ export const FEATURE_FLAGS = {
     FEATURE_FLAG_CODE_ANALYSIS: 'feature-flag-code-analysis', // owner: @gustavo #team-feature-flags, flag-page "Code" tab that finds where the repository checks the flag
     FEATURE_FLAG_COHORT_CREATION: 'feature-flag-cohort-creation', // owner: #team-feature-flags
     FEATURE_FLAG_CREATION_INTENTS: 'feature-flag-creation-intents', // owner: #team-feature-flags
+    FEATURE_FLAG_DELETE_IN_PROJECTS: 'feature-flag-delete-in-projects', // owner: @gustavo #team-feature-flags, deletes a flag in several projects from the flag's Projects tab
     FEATURE_FLAG_DRAG_DROP_CONDITIONS: 'feature-flag-drag-drop-conditions', // owner: @gustavo #team-feature-flags
     FEATURE_FLAG_NOTIFICATIONS: 'feature-flag-notifications', // owner: @reecejones #team-platform-features
     FEATURE_FLAG_REQUEST_ALLOWLIST: 'feature-flag-request-allowlist', // owner: @gustavo #team-feature-flags, shows the allowed domains and IP addresses setting. Turn on only where the flags service trusts the edge client IP header, because allowed IPs refuse every request without it
