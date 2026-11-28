@@ -4,8 +4,9 @@ from posthog.models.integration import Integration
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 
-from products.slack_app.backend.models import SlackSettings, UntaggedFollowupMode
+from products.slack_app.backend.models import SlackSettings, ThreadJoinMode, UntaggedFollowupMode
 from products.slack_app.backend.services.slack_settings import (
+    resolve_thread_join_mode,
     resolve_untagged_followup_mode,
     resolve_untagged_question_mode,
 )
@@ -77,3 +78,38 @@ class TestResolveUntaggedQuestionMode:
             untagged_question_mode=question_mode,
         )
         assert resolve_untagged_question_mode("T_WS", "U001") == expected
+
+
+class TestWorkspaceReplyDefaults:
+    @pytest.mark.parametrize(
+        "column,personal,workspace,expected",
+        [
+            ("untagged_followup_mode", None, UntaggedFollowupMode.NEVER, UntaggedFollowupMode.NEVER),
+            (
+                "untagged_followup_mode",
+                UntaggedFollowupMode.AUTO,
+                UntaggedFollowupMode.NEVER,
+                UntaggedFollowupMode.AUTO,
+            ),
+            ("untagged_followup_mode", "no_row", UntaggedFollowupMode.AUTO, UntaggedFollowupMode.AUTO),
+            ("untagged_followup_mode", None, "retired-value", UntaggedFollowupMode.NEVER),
+            ("untagged_question_mode", None, UntaggedFollowupMode.AUTO, UntaggedFollowupMode.AUTO),
+            ("untagged_question_mode", None, None, UntaggedFollowupMode.ASK),
+            ("thread_join_mode", None, ThreadJoinMode.NEVER, ThreadJoinMode.NEVER),
+            ("thread_join_mode", ThreadJoinMode.ALLOW, ThreadJoinMode.NEVER, ThreadJoinMode.ALLOW),
+        ],
+    )
+    def test_a_person_who_never_picked_gets_the_workspace_default(
+        self, slack_setup, column, personal, workspace, expected
+    ):
+        SlackSettings.objects.create(slack_workspace_id="T_WS", slack_user_id=None, **{column: workspace})
+        if personal != "no_row":
+            SlackSettings.objects.create(slack_workspace_id="T_WS", slack_user_id="U001", **{column: personal})
+
+        resolved = {
+            "untagged_followup_mode": lambda: resolve_untagged_followup_mode(slack_setup, "U001"),
+            "untagged_question_mode": lambda: resolve_untagged_question_mode("T_WS", "U001"),
+            "thread_join_mode": lambda: resolve_thread_join_mode(slack_setup, "U001"),
+        }[column]()
+
+        assert resolved == expected

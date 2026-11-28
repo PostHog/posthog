@@ -43,6 +43,23 @@ class SlackThreadJoinMode(LabeledStrEnum):
     ALLOW = "allow", "Allow anyone"
 
 
+class SlackChannelWelcomeMode(LabeledStrEnum):
+    """Where the greeting goes when someone adds the app to a channel. The values match ``ChannelWelcomeMode``, and
+    the labels differ from it for the reason ``SlackUntaggedMode`` gives."""
+
+    CHANNEL = "channel", "Post in the channel"
+    INVITER = "inviter", "Only the person who added the app"
+    OFF = "off", "No greeting"
+
+
+class SlackReplyDefault(LabeledStrEnum):
+    """A personal reply setting that falls back to a workspace default when the person never picked."""
+
+    UNTAGGED_FOLLOWUP_MODE = "untagged_followup_mode", "Untagged replies in a person's threads"
+    UNTAGGED_QUESTION_MODE = "untagged_question_mode", "Untagged questions in channels"
+    THREAD_JOIN_MODE = "thread_join_mode", "Others in a person's threads"
+
+
 class SlackSetupEntry(LabeledStrEnum):
     SLACK_PAGE = "slack_page", "The Slack page in PostHog"
     OTHER = "other", "Another place, such as a channel picker"

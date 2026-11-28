@@ -112,27 +112,39 @@ export const SlackAppSettingsPersonalPartialUpdateBody = /* @__PURE__ */ zod.obj
             "ID of the Slack integration of the project this person's mentions route to. Null uses the workspace default."
         ),
     untagged_followup_mode: zod
-        .enum(['auto', 'ask', 'never'])
-        .describe('\* `auto` - Answer automatically\n\* `ask` - Ask first\n\* `never` - Never answer')
+        .union([
+            zod
+                .enum(['auto', 'ask', 'never'])
+                .describe('\* `auto` - Answer automatically\n\* `ask` - Ask first\n\* `never` - Never answer'),
+            zod.null(),
+        ])
         .optional()
         .describe(
-            'What PostHog does with untagged replies in threads this person started.\n\n\* `auto` - Answer automatically\n\* `ask` - Ask first\n\* `never` - Never answer'
+            'What PostHog does with untagged replies in threads this person started. Null uses the workspace default.\n\n\* `auto` - Answer automatically\n\* `ask` - Ask first\n\* `never` - Never answer'
         ),
     untagged_question_mode: zod
-        .enum(['auto', 'ask', 'never'])
-        .describe('\* `auto` - Answer automatically\n\* `ask` - Ask first\n\* `never` - Never answer')
+        .union([
+            zod
+                .enum(['auto', 'ask', 'never'])
+                .describe('\* `auto` - Answer automatically\n\* `ask` - Ask first\n\* `never` - Never answer'),
+            zod.null(),
+        ])
         .optional()
         .describe(
-            "What PostHog does with this person's top-level channel questions that do not tag it.\n\n\* `auto` - Answer automatically\n\* `ask` - Ask first\n\* `never` - Never answer"
+            "What PostHog does with this person's top-level channel questions that do not tag it. Null uses the workspace default.\n\n\* `auto` - Answer automatically\n\* `ask` - Ask first\n\* `never` - Never answer"
         ),
     thread_join_mode: zod
-        .enum(['never', 'ask_per_person', 'ask_per_thread', 'allow'])
-        .describe(
-            '\* `never` - Ignore others\n\* `ask_per_person` - Ask for each person\n\* `ask_per_thread` - Ask once for each thread\n\* `allow` - Allow anyone'
-        )
+        .union([
+            zod
+                .enum(['never', 'ask_per_person', 'ask_per_thread', 'allow'])
+                .describe(
+                    '\* `never` - Ignore others\n\* `ask_per_person` - Ask for each person\n\* `ask_per_thread` - Ask once for each thread\n\* `allow` - Allow anyone'
+                ),
+            zod.null(),
+        ])
         .optional()
         .describe(
-            'What PostHog does when someone else tags it in a thread this person started.\n\n\* `never` - Ignore others\n\* `ask_per_person` - Ask for each person\n\* `ask_per_thread` - Ask once for each thread\n\* `allow` - Allow anyone'
+            'What PostHog does when someone else tags it in a thread this person started. Null uses the workspace default.\n\n\* `never` - Ignore others\n\* `ask_per_person` - Ask for each person\n\* `ask_per_thread` - Ask once for each thread\n\* `allow` - Allow anyone'
         ),
     auto_model_choice: zod
         .boolean()
@@ -223,6 +235,58 @@ export const SlackAppSettingsWorkspacePartialUpdateBody = /* @__PURE__ */ zod.ob
         .boolean()
         .optional()
         .describe('Whether PostHog works in Slack channels shared with other organizations.'),
+    default_integration_id: zod
+        .number()
+        .nullish()
+        .describe("ID of the Slack integration of the workspace's default project. Null removes the default."),
+    channel_welcome_mode: zod
+        .union([
+            zod
+                .enum(['channel', 'inviter', 'off'])
+                .describe(
+                    '\* `channel` - Post in the channel\n\* `inviter` - Only the person who added the app\n\* `off` - No greeting'
+                ),
+            zod.null(),
+        ])
+        .optional()
+        .describe(
+            'Where PostHog sends its greeting when someone adds the app to a channel. Null restores posting in the channel.\n\n\* `channel` - Post in the channel\n\* `inviter` - Only the person who added the app\n\* `off` - No greeting'
+        ),
+    untagged_followup_mode: zod
+        .union([
+            zod
+                .enum(['auto', 'ask', 'never'])
+                .describe('\* `auto` - Answer automatically\n\* `ask` - Ask first\n\* `never` - Never answer'),
+            zod.null(),
+        ])
+        .optional()
+        .describe(
+            "The default for untagged replies in a person's threads. Null uses PostHog's default.\n\n\* `auto` - Answer automatically\n\* `ask` - Ask first\n\* `never` - Never answer"
+        ),
+    untagged_question_mode: zod
+        .union([
+            zod
+                .enum(['auto', 'ask', 'never'])
+                .describe('\* `auto` - Answer automatically\n\* `ask` - Ask first\n\* `never` - Never answer'),
+            zod.null(),
+        ])
+        .optional()
+        .describe(
+            "The default for a person's untagged channel questions. Null uses PostHog's default.\n\n\* `auto` - Answer automatically\n\* `ask` - Ask first\n\* `never` - Never answer"
+        ),
+    thread_join_mode: zod
+        .union([
+            zod
+                .enum(['never', 'ask_per_person', 'ask_per_thread', 'allow'])
+                .describe(
+                    '\* `never` - Ignore others\n\* `ask_per_person` - Ask for each person\n\* `ask_per_thread` - Ask once for each thread\n\* `allow` - Allow anyone'
+                ),
+            zod.null(),
+        ])
+        .optional()
+        .describe(
+            "The default for others tagging PostHog in a person's thread. Null uses PostHog's default.\n\n\* `never` - Ignore others\n\* `ask_per_person` - Ask for each person\n\* `ask_per_thread` - Ask once for each thread\n\* `allow` - Allow anyone"
+        ),
 })
 
 /**

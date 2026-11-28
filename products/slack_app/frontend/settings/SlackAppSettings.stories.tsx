@@ -30,6 +30,7 @@ const PERSONAL = {
     thread_join_mode: 'allow',
     auto_model_choice: false,
     feature_tips_enabled: true,
+    inherited_settings: ['untagged_followup_mode', 'untagged_question_mode', 'thread_join_mode'],
     chatgpt_apps_enabled: null,
 }
 
@@ -42,7 +43,15 @@ function settingsDecorator(personal: Record<string, unknown>): ReturnType<typeof
                 integration_id: 7,
                 slack_workspace_name: 'Hedgebox',
                 can_edit_workspace: true,
-                workspace: { reactions: REACTIONS, external_channels_enabled: false },
+                workspace: {
+                    reactions: REACTIONS,
+                    external_channels_enabled: false,
+                    default_integration_id: null,
+                    channel_welcome_mode: 'channel',
+                    untagged_followup_mode: null,
+                    untagged_question_mode: null,
+                    thread_join_mode: null,
+                },
                 personal,
             },
             '/api/projects/:team_id/slack_app_settings/:id/channels/': { channels: [] },

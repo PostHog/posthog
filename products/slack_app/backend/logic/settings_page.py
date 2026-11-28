@@ -16,7 +16,7 @@ from posthog.models import User
 from posthog.models.user_integration import UserIntegration
 
 from products.slack_app.backend.analytics import capture_slack_event
-from products.slack_app.backend.facade.enums import SlackChannelQuestionMode
+from products.slack_app.backend.facade.enums import SlackChannelQuestionMode, SlackReplyDefault
 from products.slack_app.backend.facade.types import (
     UNSET,
     ProjectOption,
@@ -27,6 +27,7 @@ from products.slack_app.backend.facade.types import (
     SlackReactionChoice,
     SlackRepositoryOptions,
     SlackSettingsInvalid,
+    SlackWorkspaceDefaultsChange,
     SlackWorkspaceSettings,
     WorkspaceSettingsError,
 )
@@ -37,6 +38,7 @@ from products.slack_app.backend.feature_flags import (
 from products.slack_app.backend.logic.feature_tips.state import parse_state, set_tips_enabled
 from products.slack_app.backend.logic.workspace_setup import can_change_workspace_settings
 from products.slack_app.backend.models import (
+    ChannelWelcomeMode,
     SlackChannelSettings as SlackChannelSettingsRow,
     SlackSettings as SlackSettingsRow,
     ThreadJoinMode,
@@ -57,12 +59,14 @@ from products.slack_app.backend.services.slack_settings import (
     mode_from_stored,
     resolve_external_channels_enabled,
     set_auto_model_choice,
+    set_channel_welcome_mode,
     set_chatgpt_apps_enabled,
     set_external_channels_enabled,
     set_personal_default_integration,
     set_thread_join_mode,
     set_untagged_followup_mode,
     set_untagged_question_mode,
+    set_workspace_default_integration,
 )
 from products.slack_app.backend.services.slack_user_oauth import linked_slack_user_id
 from products.slack_app.backend.services.workspace_integrations import WorkspaceIntegration, workspace_integrations
@@ -123,6 +127,7 @@ _SETTINGS_COLUMNS = (
     "auto_model_choice",
     "feature_tips",
     "chatgpt_apps_enabled",
+    "channel_welcome_mode",
 )
 
 
@@ -145,15 +150,21 @@ def _personal_settings(
     slack_user_id: str | None,
     workspace_reactions: ReactionSettings,
     personal_row: dict[str, Any],
+    workspace_row: dict[str, Any],
 ) -> SlackPersonalSettings:
-    """Resolves each value the way the Slack resolvers in `slack_settings` do, from a row read once."""
+    """Resolves each value the way the Slack resolvers in `slack_settings` do, from rows read once."""
     personal_reactions = parse_reactions(personal_row.get("reactions"))
 
-    def untagged_mode(column: str) -> UntaggedFollowupMode:
+    def stored_reply_mode(setting: SlackReplyDefault) -> str | None:
+        # A person who never picked gets the workspace default, as `_resolve_personal_mode` does.
+        own = personal_row.get(setting.value)
+        return own if own is not None else workspace_row.get(setting.value)
+
+    def untagged_mode(setting: SlackReplyDefault) -> UntaggedFollowupMode:
         if not slack_user_id:
             return UntaggedFollowupMode.NEVER
         return mode_from_stored(
-            personal_row.get(column),
+            stored_reply_mode(setting),
             UntaggedFollowupMode,
             unset=UntaggedFollowupMode.ASK,
             unknown=UntaggedFollowupMode.NEVER,
@@ -161,7 +172,7 @@ def _personal_settings(
 
     thread_join_mode = (
         mode_from_stored(
-            personal_row.get("thread_join_mode"),
+            stored_reply_mode(SlackReplyDefault.THREAD_JOIN_MODE),
             ThreadJoinMode,
             unset=ThreadJoinMode.ALLOW,
             unknown=ThreadJoinMode.NEVER,
@@ -182,9 +193,10 @@ def _personal_settings(
             )
             for option in _project_options(integration, user)
         ),
-        untagged_followup_mode=untagged_mode("untagged_followup_mode").value,
-        untagged_question_mode=untagged_mode("untagged_question_mode").value,
+        untagged_followup_mode=untagged_mode(SlackReplyDefault.UNTAGGED_FOLLOWUP_MODE).value,
+        untagged_question_mode=untagged_mode(SlackReplyDefault.UNTAGGED_QUESTION_MODE).value,
         thread_join_mode=thread_join_mode.value,
+        inherited_settings=tuple(setting for setting in SlackReplyDefault if personal_row.get(setting.value) is None),
         auto_model_choice=bool(personal_row.get("auto_model_choice")),
         feature_tips_enabled=parse_state(personal_row.get("feature_tips")).opted_out_at is None,
         chatgpt_apps_enabled=(
@@ -210,7 +222,8 @@ def get_settings(integration: WorkspaceIntegration, user: User) -> SlackAppSetti
     slack_workspace_id = _workspace_id(integration)
     slack_user_id = linked_slack_user_id(user=user, slack_team_id=slack_workspace_id)
     rows = _settings_rows(slack_workspace_id, slack_user_id)
-    workspace_reactions = parse_reactions(rows.get(None, {}).get("reactions"))
+    workspace_row = rows.get(None, {})
+    workspace_reactions = parse_reactions(workspace_row.get("reactions"))
     personal_row = rows.get(slack_user_id, {}) if slack_user_id else {}
     return SlackAppSettings(
         integration_id=integration.id,
@@ -219,8 +232,18 @@ def get_settings(integration: WorkspaceIntegration, user: User) -> SlackAppSetti
         workspace=SlackWorkspaceSettings(
             reactions=with_every_kind(workspace_reactions),
             external_channels_enabled=resolve_external_channels_enabled(slack_workspace_id),
+            default_integration_id=workspace_row.get("default_integration_id"),
+            channel_welcome_mode=mode_from_stored(
+                workspace_row.get("channel_welcome_mode"),
+                ChannelWelcomeMode,
+                unset=ChannelWelcomeMode.CHANNEL,
+                unknown=ChannelWelcomeMode.OFF,
+            ).value,
+            untagged_followup_mode=workspace_row.get("untagged_followup_mode"),
+            untagged_question_mode=workspace_row.get("untagged_question_mode"),
+            thread_join_mode=workspace_row.get("thread_join_mode"),
         ),
-        personal=_personal_settings(integration, user, slack_user_id, workspace_reactions, personal_row),
+        personal=_personal_settings(integration, user, slack_user_id, workspace_reactions, personal_row, workspace_row),
     )
 
 
@@ -230,6 +253,7 @@ def update_workspace_settings(
     *,
     reactions: ReactionSettings | None,
     external_channels_enabled: bool | None,
+    defaults: SlackWorkspaceDefaultsChange | None = None,
 ) -> None:
     if not _can_change_workspace_row(integration, user):
         raise WorkspaceSettingsError(
@@ -245,6 +269,58 @@ def update_workspace_settings(
         _capture_change(
             integration, user, scope="workspace", setting="external_channels", enabled=external_channels_enabled
         )
+    if defaults is not None:
+        _update_workspace_defaults(integration, user, defaults)
+
+
+def _update_workspace_defaults(
+    integration: WorkspaceIntegration, user: User, defaults: SlackWorkspaceDefaultsChange
+) -> None:
+    slack_workspace_id = _workspace_id(integration)
+    if defaults.default_integration_id is not UNSET and defaults.default_integration_id is not None:
+        if all(option.id != defaults.default_integration_id for option in _project_options(integration, user)):
+            raise SlackSettingsInvalid("This project is not connected to this Slack workspace, or you can't open it.")
+
+    if defaults.default_integration_id is not UNSET:
+        set_workspace_default_integration(slack_workspace_id, defaults.default_integration_id)
+        _capture_change(
+            integration,
+            user,
+            scope="workspace",
+            setting="default_project",
+            has_default=defaults.default_integration_id is not None,
+        )
+    if defaults.channel_welcome_mode is not UNSET:
+        set_channel_welcome_mode(
+            slack_workspace_id,
+            ChannelWelcomeMode(defaults.channel_welcome_mode)
+            if defaults.channel_welcome_mode is not None
+            else ChannelWelcomeMode.CHANNEL,
+        )
+        _capture_change(
+            integration, user, scope="workspace", setting="channel_welcome", value=defaults.channel_welcome_mode
+        )
+    if defaults.untagged_followup_mode is not UNSET:
+        set_untagged_followup_mode(slack_workspace_id, None, _untagged_mode_or_none(defaults.untagged_followup_mode))
+        _capture_change(
+            integration, user, scope="workspace", setting="untagged_replies", value=defaults.untagged_followup_mode
+        )
+    if defaults.untagged_question_mode is not UNSET:
+        set_untagged_question_mode(slack_workspace_id, None, _untagged_mode_or_none(defaults.untagged_question_mode))
+        _capture_change(
+            integration, user, scope="workspace", setting="untagged_questions", value=defaults.untagged_question_mode
+        )
+    if defaults.thread_join_mode is not UNSET:
+        set_thread_join_mode(
+            slack_workspace_id,
+            None,
+            ThreadJoinMode(defaults.thread_join_mode) if defaults.thread_join_mode is not None else None,
+        )
+        _capture_change(integration, user, scope="workspace", setting="thread_join", value=defaults.thread_join_mode)
+
+
+def _untagged_mode_or_none(value: str | None) -> UntaggedFollowupMode | None:
+    return UntaggedFollowupMode(value) if value is not None else None
 
 
 def update_personal_settings(
@@ -272,20 +348,24 @@ def update_personal_settings(
         )
     if change.untagged_followup_mode is not UNSET:
         set_untagged_followup_mode(
-            slack_workspace_id, slack_user_id, UntaggedFollowupMode(change.untagged_followup_mode)
+            slack_workspace_id, slack_user_id, _untagged_mode_or_none(change.untagged_followup_mode)
         )
         _capture_change(
             integration, user, scope="personal", setting="untagged_replies", value=change.untagged_followup_mode
         )
     if change.untagged_question_mode is not UNSET:
         set_untagged_question_mode(
-            slack_workspace_id, slack_user_id, UntaggedFollowupMode(change.untagged_question_mode)
+            slack_workspace_id, slack_user_id, _untagged_mode_or_none(change.untagged_question_mode)
         )
         _capture_change(
             integration, user, scope="personal", setting="untagged_questions", value=change.untagged_question_mode
         )
     if change.thread_join_mode is not UNSET:
-        set_thread_join_mode(slack_workspace_id, slack_user_id, ThreadJoinMode(change.thread_join_mode))
+        set_thread_join_mode(
+            slack_workspace_id,
+            slack_user_id,
+            ThreadJoinMode(change.thread_join_mode) if change.thread_join_mode is not None else None,
+        )
         _capture_change(integration, user, scope="personal", setting="thread_join", value=change.thread_join_mode)
     if change.auto_model_choice is not UNSET:
         set_auto_model_choice(slack_workspace_id, slack_user_id, change.auto_model_choice)

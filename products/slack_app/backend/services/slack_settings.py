@@ -15,6 +15,7 @@ from typing import Literal, TypeVar
 from uuid import UUID
 
 from django.db import models, transaction
+from django.db.models import Q
 from django.utils import timezone
 
 from posthog.dataclasses import frozen
@@ -78,14 +79,21 @@ def _resolve_untagged_mode(slack_workspace_id: str, slack_user_id: str | None, c
 def _resolve_personal_mode(
     slack_workspace_id: str, slack_user_id: str, column: str, mode_type: type[_Mode], *, unset: _Mode, unknown: _Mode
 ) -> _Mode:
-    """One choice from a Slack user's personal settings row, as `mode_type`."""
+    """One choice from a Slack user's personal settings row, as `mode_type`.
+
+    A person who never picked gets the workspace default an admin set, and the built-in `unset` without one.
+    Both rows come back in one query.
+    """
     from products.slack_app.backend.models import SlackSettings
 
-    stored = (
-        SlackSettings.objects.filter(slack_workspace_id=slack_workspace_id, slack_user_id=slack_user_id)
-        .values_list(column, flat=True)
-        .first()
+    stored_by_row = dict(
+        SlackSettings.objects.filter(slack_workspace_id=slack_workspace_id)
+        .filter(Q(slack_user_id=slack_user_id) | Q(slack_user_id__isnull=True))
+        .values_list("slack_user_id", column)
     )
+    stored = stored_by_row.get(slack_user_id)
+    if stored is None:
+        stored = stored_by_row.get(None)
     return mode_from_stored(stored, mode_type, unset=unset, unknown=unknown)
 
 
@@ -98,25 +106,33 @@ def mode_from_stored(stored: str | None, mode_type: type[_Mode], *, unset: _Mode
     return unknown
 
 
-def set_untagged_followup_mode(slack_workspace_id: str, slack_user_id: str, mode: UntaggedFollowupMode) -> None:
+# None clears a choice. On a personal row the workspace default then applies, and on the workspace row the
+# built-in default.
+def set_untagged_followup_mode(
+    slack_workspace_id: str, slack_user_id: str | None, mode: UntaggedFollowupMode | None
+) -> None:
     _set_untagged_mode(slack_workspace_id, slack_user_id, "untagged_followup_mode", mode)
 
 
-def set_untagged_question_mode(slack_workspace_id: str, slack_user_id: str, mode: UntaggedFollowupMode) -> None:
+def set_untagged_question_mode(
+    slack_workspace_id: str, slack_user_id: str | None, mode: UntaggedFollowupMode | None
+) -> None:
     _set_untagged_mode(slack_workspace_id, slack_user_id, "untagged_question_mode", mode)
 
 
-def set_thread_join_mode(slack_workspace_id: str, slack_user_id: str, mode: ThreadJoinMode) -> None:
+def set_thread_join_mode(slack_workspace_id: str, slack_user_id: str | None, mode: ThreadJoinMode | None) -> None:
     _set_untagged_mode(slack_workspace_id, slack_user_id, "thread_join_mode", mode)
 
 
-def _set_untagged_mode(slack_workspace_id: str, slack_user_id: str, column: str, mode: models.TextChoices) -> None:
+def _set_untagged_mode(
+    slack_workspace_id: str, slack_user_id: str | None, column: str, mode: models.TextChoices | None
+) -> None:
     from products.slack_app.backend.models import SlackSettings
 
     SlackSettings.objects.update_or_create(
         slack_workspace_id=slack_workspace_id,
         slack_user_id=slack_user_id,
-        defaults={column: mode.value},
+        defaults={column: mode.value if mode is not None else None},
     )
 
 
@@ -405,7 +421,7 @@ def resolve_workspace_default_integration_id(slack_workspace_id: str) -> int | N
     )
 
 
-def set_workspace_default_integration(slack_workspace_id: str, integration_id: int) -> None:
+def set_workspace_default_integration(slack_workspace_id: str, integration_id: int | None) -> None:
     """The caller checks that the actor may set the default."""
 
     from products.slack_app.backend.models import SlackSettings

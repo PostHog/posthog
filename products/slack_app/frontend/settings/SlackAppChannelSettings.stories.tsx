@@ -15,7 +15,15 @@ const SETTINGS = {
     integration_id: 7,
     slack_workspace_name: 'Hedgebox',
     can_edit_workspace: false,
-    workspace: { reactions: REACTIONS, external_channels_enabled: false },
+    workspace: {
+        reactions: REACTIONS,
+        external_channels_enabled: false,
+        default_integration_id: null,
+        channel_welcome_mode: 'channel',
+        untagged_followup_mode: null,
+        untagged_question_mode: null,
+        thread_join_mode: null,
+    },
     personal: {
         slack_user_id: 'U123',
         reactions: REACTIONS,
@@ -35,6 +43,7 @@ const SETTINGS = {
         thread_join_mode: 'allow',
         auto_model_choice: false,
         feature_tips_enabled: true,
+        inherited_settings: ['untagged_followup_mode', 'untagged_question_mode', 'thread_join_mode'],
     },
 }
 

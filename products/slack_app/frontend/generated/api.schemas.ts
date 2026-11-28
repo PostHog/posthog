@@ -32,11 +32,83 @@ export interface SlackAppReactionChoicesApi {
     polite?: SlackAppReactionChoiceApi
 }
 
+/**
+ * * `channel` - Post in the channel
+ * * `inviter` - Only the person who added the app
+ * * `off` - No greeting
+ */
+export type SlackChannelWelcomeModeEnumApi =
+    (typeof SlackChannelWelcomeModeEnumApi)[keyof typeof SlackChannelWelcomeModeEnumApi]
+
+export const SlackChannelWelcomeModeEnumApi = {
+    Channel: 'channel',
+    Inviter: 'inviter',
+    Off: 'off',
+} as const
+
+/**
+ * * `auto` - Answer automatically
+ * * `ask` - Ask first
+ * * `never` - Never answer
+ */
+export type SlackUntaggedModeEnumApi = (typeof SlackUntaggedModeEnumApi)[keyof typeof SlackUntaggedModeEnumApi]
+
+export const SlackUntaggedModeEnumApi = {
+    Auto: 'auto',
+    Ask: 'ask',
+    Never: 'never',
+} as const
+
+/**
+ * * `never` - Ignore others
+ * * `ask_per_person` - Ask for each person
+ * * `ask_per_thread` - Ask once for each thread
+ * * `allow` - Allow anyone
+ */
+export type SlackThreadJoinModeEnumApi = (typeof SlackThreadJoinModeEnumApi)[keyof typeof SlackThreadJoinModeEnumApi]
+
+export const SlackThreadJoinModeEnumApi = {
+    Never: 'never',
+    AskPerPerson: 'ask_per_person',
+    AskPerThread: 'ask_per_thread',
+    Allow: 'allow',
+} as const
+
 export interface SlackAppWorkspaceSettingsApi {
     /** The workspace's reaction choices. Null fields use PostHog's defaults. */
     reactions: SlackAppReactionChoicesApi
     /** Whether PostHog works in Slack channels shared with other organizations. */
     external_channels_enabled: boolean
+    /**
+     * ID of the Slack integration of the workspace's default project. Null when there is none: PostHog then uses the only connected project, or asks.
+     * @nullable
+     */
+    default_integration_id: number | null
+    /** Where PostHog sends its greeting when someone adds the app to a channel.
+     *
+     * * `channel` - Post in the channel
+     * * `inviter` - Only the person who added the app
+     * * `off` - No greeting */
+    channel_welcome_mode: SlackChannelWelcomeModeEnumApi
+    /** The default for untagged replies in a person's threads, for people who never picked. Null uses PostHog's default, ask first.
+     *
+     * * `auto` - Answer automatically
+     * * `ask` - Ask first
+     * * `never` - Never answer */
+    untagged_followup_mode: SlackUntaggedModeEnumApi | null
+    /** The default for a person's untagged channel questions, for people who never picked. Null uses PostHog's default, ask first.
+     *
+     * * `auto` - Answer automatically
+     * * `ask` - Ask first
+     * * `never` - Never answer */
+    untagged_question_mode: SlackUntaggedModeEnumApi | null
+    /** The default for others tagging PostHog in a person's thread, for people who never picked. Null uses PostHog's default, allow anyone.
+     *
+     * * `never` - Ignore others
+     * * `ask_per_person` - Ask for each person
+     * * `ask_per_thread` - Ask once for each thread
+     * * `allow` - Allow anyone */
+    thread_join_mode: SlackThreadJoinModeEnumApi | null
 }
 
 export interface SlackAppResolvedReactionApi {
@@ -67,31 +139,16 @@ export interface SlackAppProjectOptionApi {
 }
 
 /**
- * * `auto` - Answer automatically
- * * `ask` - Ask first
- * * `never` - Never answer
+ * * `untagged_followup_mode` - Untagged replies in a person's threads
+ * * `untagged_question_mode` - Untagged questions in channels
+ * * `thread_join_mode` - Others in a person's threads
  */
-export type SlackUntaggedModeEnumApi = (typeof SlackUntaggedModeEnumApi)[keyof typeof SlackUntaggedModeEnumApi]
+export type SlackReplyDefaultEnumApi = (typeof SlackReplyDefaultEnumApi)[keyof typeof SlackReplyDefaultEnumApi]
 
-export const SlackUntaggedModeEnumApi = {
-    Auto: 'auto',
-    Ask: 'ask',
-    Never: 'never',
-} as const
-
-/**
- * * `never` - Ignore others
- * * `ask_per_person` - Ask for each person
- * * `ask_per_thread` - Ask once for each thread
- * * `allow` - Allow anyone
- */
-export type SlackThreadJoinModeEnumApi = (typeof SlackThreadJoinModeEnumApi)[keyof typeof SlackThreadJoinModeEnumApi]
-
-export const SlackThreadJoinModeEnumApi = {
-    Never: 'never',
-    AskPerPerson: 'ask_per_person',
-    AskPerThread: 'ask_per_thread',
-    Allow: 'allow',
+export const SlackReplyDefaultEnumApi = {
+    UntaggedFollowupMode: 'untagged_followup_mode',
+    UntaggedQuestionMode: 'untagged_question_mode',
+    ThreadJoinMode: 'thread_join_mode',
 } as const
 
 export interface SlackAppPersonalSettingsApi {
@@ -130,6 +187,8 @@ export interface SlackAppPersonalSettingsApi {
      * * `ask_per_thread` - Ask once for each thread
      * * `allow` - Allow anyone */
     thread_join_mode: SlackThreadJoinModeEnumApi
+    /** The reply settings this person never picked, so their value comes from the workspace default or PostHog's default. */
+    inherited_settings: SlackReplyDefaultEnumApi[]
     /** Whether PostHog picks the model for each task this person starts from Slack. */
     auto_model_choice: boolean
     /** Whether PostHog sends this person short tips about Slack app features. */
@@ -231,25 +290,25 @@ export interface PatchedSlackAppPersonalSettingsUpdateApi {
      * @nullable
      */
     default_integration_id?: number | null
-    /** What PostHog does with untagged replies in threads this person started.
+    /** What PostHog does with untagged replies in threads this person started. Null uses the workspace default.
      *
      * * `auto` - Answer automatically
      * * `ask` - Ask first
      * * `never` - Never answer */
-    untagged_followup_mode?: SlackUntaggedModeEnumApi
-    /** What PostHog does with this person's top-level channel questions that do not tag it.
+    untagged_followup_mode?: SlackUntaggedModeEnumApi | null
+    /** What PostHog does with this person's top-level channel questions that do not tag it. Null uses the workspace default.
      *
      * * `auto` - Answer automatically
      * * `ask` - Ask first
      * * `never` - Never answer */
-    untagged_question_mode?: SlackUntaggedModeEnumApi
-    /** What PostHog does when someone else tags it in a thread this person started.
+    untagged_question_mode?: SlackUntaggedModeEnumApi | null
+    /** What PostHog does when someone else tags it in a thread this person started. Null uses the workspace default.
      *
      * * `never` - Ignore others
      * * `ask_per_person` - Ask for each person
      * * `ask_per_thread` - Ask once for each thread
      * * `allow` - Allow anyone */
-    thread_join_mode?: SlackThreadJoinModeEnumApi
+    thread_join_mode?: SlackThreadJoinModeEnumApi | null
     /** Whether PostHog picks the model for each task this person starts from Slack. */
     auto_model_choice?: boolean
     /** Whether PostHog sends this person short tips about Slack app features. */
@@ -270,6 +329,36 @@ export interface PatchedSlackAppWorkspaceSettingsUpdateApi {
     reactions?: SlackAppReactionChoicesApi
     /** Whether PostHog works in Slack channels shared with other organizations. */
     external_channels_enabled?: boolean
+    /**
+     * ID of the Slack integration of the workspace's default project. Null removes the default.
+     * @nullable
+     */
+    default_integration_id?: number | null
+    /** Where PostHog sends its greeting when someone adds the app to a channel. Null restores posting in the channel.
+     *
+     * * `channel` - Post in the channel
+     * * `inviter` - Only the person who added the app
+     * * `off` - No greeting */
+    channel_welcome_mode?: SlackChannelWelcomeModeEnumApi | null
+    /** The default for untagged replies in a person's threads. Null uses PostHog's default.
+     *
+     * * `auto` - Answer automatically
+     * * `ask` - Ask first
+     * * `never` - Never answer */
+    untagged_followup_mode?: SlackUntaggedModeEnumApi | null
+    /** The default for a person's untagged channel questions. Null uses PostHog's default.
+     *
+     * * `auto` - Answer automatically
+     * * `ask` - Ask first
+     * * `never` - Never answer */
+    untagged_question_mode?: SlackUntaggedModeEnumApi | null
+    /** The default for others tagging PostHog in a person's thread. Null uses PostHog's default.
+     *
+     * * `never` - Ignore others
+     * * `ask_per_person` - Ask for each person
+     * * `ask_per_thread` - Ask once for each thread
+     * * `allow` - Allow anyone */
+    thread_join_mode?: SlackThreadJoinModeEnumApi | null
 }
 
 /**
