@@ -28,6 +28,7 @@ from products.warehouse_sources.sources.unity_ads.settings import (
 )
 from products.warehouse_sources.sources.unity_ads.unity_ads import (
     INVALID_ORGANIZATION_ID,
+    MANAGEMENT_PERMISSION_ERROR,
     UnityAdsResumeConfig,
     unity_ads_source,
     validate_credentials as validate_unity_credentials,
@@ -52,10 +53,7 @@ class UnityAdsSource(ResumableSource[UnityAdsSourceConfig, UnityAdsResumeConfig]
             "401 Client Error: Unauthorized for url: https://services.api.unity.com": (
                 "Unity rejected the service account key. Create a new key and update the source."
             ),
-            "403 Client Error: Forbidden for url: https://services.api.unity.com/advertise/v1/": (
-                "Enable the Advertising Management API for your organization. "
-                "Give the service account the Advertise API Viewer role."
-            ),
+            "403 Client Error: Forbidden for url: https://services.api.unity.com/advertise/v1/": MANAGEMENT_PERMISSION_ERROR,
             "403 Client Error: Forbidden for url: https://services.api.unity.com": (
                 "The service account cannot read statistics. Give it the Advertise Stats API Viewer role in Unity."
             ),
@@ -95,7 +93,7 @@ class UnityAdsSource(ResumableSource[UnityAdsSourceConfig, UnityAdsResumeConfig]
         schema_name: Optional[str] = None,
         api_version: str | None = None,
     ) -> tuple[bool, str | None]:
-        return validate_unity_credentials(config.organization_id, config.key_id, config.secret_key)
+        return validate_unity_credentials(config.organization_id, config.key_id, config.secret_key, schema_name)
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[UnityAdsResumeConfig]:
         return ResumableSourceManager[UnityAdsResumeConfig](inputs, UnityAdsResumeConfig)
@@ -145,7 +143,7 @@ class UnityAdsSource(ResumableSource[UnityAdsSourceConfig, UnityAdsResumeConfig]
                         name="key_id",
                         label="Key ID",
                         caption=(
-                            "Create a service account key with the Advertise Stats API Viewer role. "
+                            "To sync statistics, give the service account the Advertise Stats API Viewer role. "
                             "To sync apps, campaigns, or bids, enable the Advertising Management API "
                             "and add the Advertise API Viewer role."
                         ),

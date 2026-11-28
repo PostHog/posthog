@@ -221,6 +221,58 @@ class TestManagementTables:
         assert isinstance(result.raised, ValueError)
         assert result.paths == ["/advertise/v1/organizations/5772916123937/apps"]
 
+    @pytest.mark.parametrize("endpoint", ["cpi_bids", "source_bids"])
+    def test_empty_apps_checkpoint_without_yielding_rows(self, endpoint: str) -> None:
+        app_ids = [f"{index:024x}" for index in range(5)]
+        result = _run(endpoint, [_results(*({"id": app_id} for app_id in app_ids)), *[_results()] * 5])
+
+        assert result.raised is None
+        assert result.items == []
+        assert result.committed_states == [
+            *(UnityAdsResumeConfig(next_app_id=app_id) for app_id in app_ids[1:]),
+            UnityAdsResumeConfig(apps_offset=1000),
+        ]
+
+    def test_bid_sync_resumes_at_the_next_campaign_after_a_failed_request(self) -> None:
+        completed_app = "a" * 24
+        current_app = "b" * 24
+        first_campaign = "c" * 24
+        next_campaign = "d" * 24
+        campaign_path = f"/advertise/v1/organizations/5772916123937/apps/{current_app}/campaigns"
+        first = _run(
+            "cpi_bids",
+            [
+                _results({"id": completed_app}, {"id": current_app}),
+                _results(),
+                _results({"id": first_campaign}, {"id": next_campaign}),
+                _results({"country": "US", "bid": "0.201"}),
+                ScriptedResponse(status=401),
+            ],
+            resume_state=UnityAdsResumeConfig(apps_offset=1000),
+        )
+
+        assert first.raised is not None
+        assert first.rows == [
+            {"country": "US", "bid": "0.201", "campaignSetId": current_app, "campaignId": first_campaign}
+        ]
+
+        resumed = _run(
+            "cpi_bids",
+            [
+                _results({"id": current_app}, {"id": completed_app}),
+                _results({"id": next_campaign}, {"id": first_campaign}),
+                _results({"country": "CA", "bid": "0.304"}),
+            ],
+            resume_state=first.final_state,
+        )
+
+        assert resumed.raised is None
+        assert resumed.params("offset")[0] == "1000"
+        assert resumed.paths[1:] == [campaign_path, f"{campaign_path}/{next_campaign}/cpi-bids"]
+        assert resumed.rows == [
+            {"country": "CA", "bid": "0.304", "campaignSetId": current_app, "campaignId": next_campaign}
+        ]
+
 
 class TestValidateCredentials:
     @pytest.mark.parametrize(
@@ -242,6 +294,37 @@ class TestValidateCredentials:
             assert message is not None and message_fragment in message
         # Setup waits on the probe, so a failed request gets no retry.
         assert len(network.requests_log) == 1
+
+    def test_source_creation_accepts_a_management_only_key(self) -> None:
+        with scripted_network([ScriptedResponse(status=403), _results()]) as network:
+            result = validate_credentials("5772916123937", "kid", "ksecret")
+
+        assert result == (True, None)
+        assert [request.path for request in network.requests_log] == [
+            "/advertise/stats/v2/organizations/5772916123937/reports/acquisitions",
+            "/advertise/v1/organizations/5772916123937/apps",
+        ]
+        assert network.requests_log[1].param("limit") == "1"
+
+    @pytest.mark.parametrize(
+        ("schema_name", "path", "role"),
+        [
+            ("source_bids", "/advertise/v1/organizations/5772916123937/apps", "Advertise API Viewer"),
+            (
+                "skan_daily",
+                "/advertise/stats/v2/organizations/5772916123937/reports/skan",
+                "Advertise Stats API Viewer",
+            ),
+        ],
+    )
+    def test_table_validation_checks_the_requested_api(self, schema_name: str, path: str, role: str) -> None:
+        config = UnityAdsSourceConfig(organization_id="5772916123937", key_id="kid", secret_key="ksecret")
+        with scripted_network([ScriptedResponse(status=403)]) as network:
+            valid, message = UnityAdsSource().validate_credentials(config, team_id=1, schema_name=schema_name)
+
+        assert not valid
+        assert message is not None and role in message
+        assert [request.path for request in network.requests_log] == [path]
 
     def test_a_non_numeric_organization_id_is_refused_without_a_request(self) -> None:
         with scripted_network([]) as network:
