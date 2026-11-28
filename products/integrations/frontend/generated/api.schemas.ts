@@ -234,6 +234,7 @@ export interface PaginatedIntegrationConfigListApi {
  * * `firebase` - Firebase
  * * `github` - Github
  * * `gitlab` - Gitlab
+ * * `google-admob` - Google Admob
  * * `google-ads` - Google Ads
  * * `google-analytics` - Google Analytics
  * * `google-calendar` - Google Calendar
@@ -291,6 +292,7 @@ export const IntegrationKindEnumApi = {
     Firebase: 'firebase',
     Github: 'github',
     Gitlab: 'gitlab',
+    GoogleAdmob: 'google-admob',
     GoogleAds: 'google-ads',
     GoogleAnalytics: 'google-analytics',
     GoogleCalendar: 'google-calendar',
@@ -353,6 +355,7 @@ export interface IntegrationConfigCreateApi {
      * * `firebase` - Firebase
      * * `github` - Github
      * * `gitlab` - Gitlab
+     * * `google-admob` - Google Admob
      * * `google-ads` - Google Ads
      * * `google-analytics` - Google Analytics
      * * `google-calendar` - Google Calendar
@@ -1212,6 +1215,7 @@ export interface IntegrationAccessRequestApi {
      * * `firebase` - Firebase
      * * `github` - Github
      * * `gitlab` - Gitlab
+     * * `google-admob` - Google Admob
      * * `google-ads` - Google Ads
      * * `google-analytics` - Google Analytics
      * * `google-calendar` - Google Calendar
@@ -1383,6 +1387,7 @@ export type IntegrationsListParams = {
      * * `firebase` - Firebase
      * * `github` - Github
      * * `gitlab` - Gitlab
+     * * `google-admob` - Google Admob
      * * `google-ads` - Google Ads
      * * `google-analytics` - Google Analytics
      * * `google-calendar` - Google Calendar
@@ -1451,6 +1456,7 @@ export const IntegrationsListKind = {
     Firebase: 'firebase',
     Github: 'github',
     Gitlab: 'gitlab',
+    GoogleAdmob: 'google-admob',
     GoogleAds: 'google-ads',
     GoogleAnalytics: 'google-analytics',
     GoogleCalendar: 'google-calendar',

@@ -559,7 +559,7 @@ Gojiberry,,,,,,gojiberry
 Goldcast,access_key,,,,,goldcast
 Gong,access_key access_key_secret,,,,,gong
 GoogleAdManager,,,,,,google-ad-manager
-GoogleAdMob,,,,,,google-ad-mob
+GoogleAdMob,,google_admob_integration_id,publisher_id,start_date,,google-admob
 GoogleAdSense,,,,,,google-ad-sense
 GoogleAds,,google_ads_integration_id,customer_id is_mcc_account,start_date skip_removed_keywords,,google-ads
 GoogleAnalytics,,google_analytics_integration_id,property_id,custom_reports history_days,,google-analytics

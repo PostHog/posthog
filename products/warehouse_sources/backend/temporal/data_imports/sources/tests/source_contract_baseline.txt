@@ -32,6 +32,7 @@ Framer not-checkable:no-request
 GcpCloudBilling not-checkable:no-request
 Ghost not-checkable:no-request
 Github not-checkable:schemas
+GoogleAdMob not-checkable:database
 GoogleAds not-checkable:driver:google.ads
 GoogleAnalytics not-checkable:database
 GoogleCloudStorage not-checkable:schemas

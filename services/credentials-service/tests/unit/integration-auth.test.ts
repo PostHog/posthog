@@ -476,7 +476,7 @@ describe('integration policy', () => {
               "sourceRows": false,
             },
             "temporal-worker-data-warehouse": {
-              "kinds": "apple-ads,aws-redshift,aws-s3,azure-blob,bing-ads,databricks,github,google-ads,google-analytics,google-cloud-service-account,google-search-console,google-sheets,helpscout,hubspot,instagram,intercom,linear,linkedin-ads,meta-ads,pardot,pinterest-ads,postgresql,reddit-ads,resend,s3-compatible,salesforce,snapchat,snowflake,stripe,tiktok-ads,twitter-ads,youtube-analytics",
+              "kinds": "apple-ads,aws-redshift,aws-s3,azure-blob,bing-ads,databricks,github,google-admob,google-ads,google-analytics,google-cloud-service-account,google-search-console,google-sheets,helpscout,hubspot,instagram,intercom,linear,linkedin-ads,meta-ads,pardot,pinterest-ads,postgresql,reddit-ads,resend,s3-compatible,salesforce,snapchat,snowflake,stripe,tiktok-ads,twitter-ads,youtube-analytics",
               "opKinds": {},
               "ops": "list_across_teams,read,refresh,resolve,write",
               "sourceRows": true,
@@ -514,7 +514,7 @@ describe('integration policy', () => {
               "sourceRows": false,
             },
             "warehouse-sources-load": {
-              "kinds": "apple-ads,aws-redshift,aws-s3,azure-blob,bing-ads,databricks,github,google-ads,google-analytics,google-cloud-service-account,google-search-console,google-sheets,helpscout,hubspot,instagram,intercom,linear,linkedin-ads,meta-ads,pardot,pinterest-ads,postgresql,reddit-ads,resend,s3-compatible,salesforce,snapchat,snowflake,stripe,tiktok-ads,twitter-ads,youtube-analytics",
+              "kinds": "apple-ads,aws-redshift,aws-s3,azure-blob,bing-ads,databricks,github,google-admob,google-ads,google-analytics,google-cloud-service-account,google-search-console,google-sheets,helpscout,hubspot,instagram,intercom,linear,linkedin-ads,meta-ads,pardot,pinterest-ads,postgresql,reddit-ads,resend,s3-compatible,salesforce,snapchat,snowflake,stripe,tiktok-ads,twitter-ads,youtube-analytics",
               "opKinds": {},
               "ops": "list_across_teams,read,refresh,resolve,write",
               "sourceRows": true,

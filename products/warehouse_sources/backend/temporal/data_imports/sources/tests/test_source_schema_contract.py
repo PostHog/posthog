@@ -129,6 +129,7 @@ UNKNOWN_SCHEMA_NOT_CHECKABLE: dict[str, str] = {
     "FileUpload": "config",
     "FullStory": "request",
     "Github": "config",
+    "GoogleAdMob": "database",
     "GoogleAds": "driver",
     "GoogleCloudStorage": "request",
     "GoogleSheets": "config",

@@ -209,6 +209,7 @@ class Integration(models.Model):
         FIREBASE = "firebase"
         GITHUB = "github"
         GITLAB = "gitlab"
+        GOOGLE_ADMOB = "google-admob"
         GOOGLE_ADS = "google-ads"
         GOOGLE_ANALYTICS = "google-analytics"
         GOOGLE_CALENDAR = "google-calendar"

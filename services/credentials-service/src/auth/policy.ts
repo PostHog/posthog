@@ -102,6 +102,7 @@ const WAREHOUSE_KINDS = [
     'bing-ads',
     'databricks',
     'github',
+    'google-admob',
     'google-ads',
     'google-analytics',
     'google-cloud-service-account',

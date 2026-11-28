@@ -567,7 +567,7 @@ CREDENTIAL_KINDS: Mapping[str, str] = {
     "Goldcast": "goldcast",
     "Gong": "gong",
     "GoogleAdManager": "google-ad-manager",
-    "GoogleAdMob": "google-ad-mob",
+    "GoogleAdMob": "google-admob",
     "GoogleAdSense": "google-ad-sense",
     "GoogleAds": "google-ads",
     "GoogleAnalytics": "google-analytics",
