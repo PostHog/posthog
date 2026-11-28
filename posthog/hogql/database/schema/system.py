@@ -43,13 +43,12 @@ from posthog.hogql.database.schema.information_schema import information_schema_
 from posthog.hogql.database.schema.integrations import integrations
 from posthog.hogql.database.schema.tagged_items import TaggedItemsTable
 from posthog.hogql.database.scoped_lazy_table import ScopedLazyTable
-from posthog.hogql.errors import QueryError, ResolutionError
+from posthog.hogql.errors import ResolutionError
 from posthog.hogql.escape_sql import escape_clickhouse_string
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.property_access_types import RestrictedProperty
 
 from posthog.constants import AvailableFeature
-from posthog.ph_client import feature_enabled_or_false
 from posthog.scopes.catalog import APIScopeObject
 
 if TYPE_CHECKING:
@@ -4776,9 +4775,6 @@ def _definition_tags_lazy_join(tagged_items_table: TaggedItemsTable) -> LazyJoin
     )
 
 
-DEFINITION_METADATA_FLAG = "hogql-definition-metadata"
-
-
 def _definition_metadata_columns(subject: str, *, with_owner: bool) -> dict[str, DatabaseField]:
     """The metadata columns as the definition tables show them."""
     columns: dict[str, DatabaseField] = {
@@ -4935,22 +4931,6 @@ def _definition_metadata_select(metadata_table: str, fields: Iterable[str]) -> a
     )
 
 
-def _definition_metadata_enabled(context: HogQLContext) -> bool:
-    # Evaluated only when a query reads the metadata columns, so other queries never pay for it.
-    team = context.team
-    if team is None:
-        return False
-    organization_id = str(team.organization_id)
-    return feature_enabled_or_false(
-        DEFINITION_METADATA_FLAG,
-        str(team.uuid),
-        groups={"organization": organization_id},
-        group_properties={"organization": {"id": organization_id}},
-        only_evaluate_locally=True,
-        send_feature_flag_events=False,
-    )
-
-
 class _DefinitionMetadataTable(LazyTable):
     metadata_table: str
     description: str = "Internal table backing the metadata columns of the definition tables: one row per definition that a person opened or edited in PostHog."
@@ -4970,8 +4950,6 @@ class _DefinitionMetadataTable(LazyTable):
 def definition_metadata_join(join_to_add: LazyJoinToAdd, context: HogQLContext, node: ast.SelectQuery) -> ast.JoinExpr:
     if not join_to_add.fields_accessed:
         raise ResolutionError(f"No fields requested from `{join_to_add.to_table}`")
-    if not _definition_metadata_enabled(context):
-        raise QueryError("The definition metadata columns are not available for this project yet.")
     return ast.JoinExpr(
         alias=join_to_add.to_table,
         table=_definition_metadata_select(
@@ -5016,6 +4994,7 @@ event_definitions: PostgresTable = PostgresTable(
     postgres_table_name="posthog_eventdefinition",
     access_scope="event_definition",
     description="Events known to the project, from ingestion or defined ahead of time; one row per event name.",
+    asterisk_traversers=list(_EVENT_DEFINITION_METADATA_COLUMNS),
     fields={
         "id": UUIDDatabaseField(name="id", description="Event definition UUID."),
         "team_id": IntegerDatabaseField(name="team_id", hidden=True),
@@ -5069,6 +5048,7 @@ property_definitions: _PropertyDefinitionsTable = _PropertyDefinitionsTable(
     access_scope="property_definition",
     push_team_guard_with_predicates=True,
     description="Properties known to the project for events, persons, groups, and sessions; one row per property name and type.",
+    asterisk_traversers=list(_PROPERTY_DEFINITION_METADATA_COLUMNS),
     fields={
         "id": UUIDDatabaseField(name="id", description="Property definition UUID."),
         "team_id": IntegerDatabaseField(name="team_id", hidden=True),

@@ -18,6 +18,7 @@ from posthog.hogql.database.direct_clickhouse_table import DirectClickHouseTable
 from posthog.hogql.database.models import (
     DateDatabaseField,
     DateTimeDatabaseField,
+    FieldTraverser,
     FunctionCallTable,
     LazyTable,
     SavedQuery,
@@ -1728,7 +1729,10 @@ class Resolver(CloningVisitor):
             # `select table.* from something() as table`, and not with `select something().* from something()`.
             if node.column_aliases:
                 # Build alias→original mapping from the table's visible columns
-                asterisk_fields = list(database_table.get_asterisk().keys())
+                # A column-aliased table cannot resolve a join, so traversers stay out of the mapping.
+                asterisk_fields = [
+                    key for key, field in database_table.get_asterisk().items() if not isinstance(field, FieldTraverser)
+                ]
                 if len(node.column_aliases) > len(asterisk_fields):
                     raise QueryError(
                         f"Table has {len(asterisk_fields)} column(s) available for aliasing "

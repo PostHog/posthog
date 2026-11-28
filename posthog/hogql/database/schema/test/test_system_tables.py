@@ -5,8 +5,8 @@ from types import SimpleNamespace
 
 import time_machine
 from posthog.test.base import BaseTest, NonAtomicBaseTest
-from unittest.mock import patch
 
+from django.test import SimpleTestCase
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -16,12 +16,13 @@ from posthog.schema import HogQLQuery
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database, _compute_system_table_access_decision, system_table_denials
-from posthog.hogql.database.models import Table
+from posthog.hogql.database.models import FieldTraverser, IntegerDatabaseField, Table
 from posthog.hogql.database.schema.system import SystemTables
 from posthog.hogql.errors import QueryError
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.query import execute_hogql_query
+from posthog.hogql.resolver import resolve_types
 
 from posthog.auth import ProjectSecretAPIKeyUser
 from posthog.constants import AvailableFeature
@@ -2786,42 +2787,34 @@ class TestSystemDefinitionTables(NonAtomicBaseTest):
         theirs = factory(self.other_team, "theirs")
         self._add_metadata(theirs, self.other_team, description="Their plan", verified=True)
 
-        with patch("posthoganalytics.feature_enabled", return_value=True):
-            joined = execute_hogql_query(
-                f"SELECT id, description, verified, verified_at, verified_by_id, hidden, updated_by_id FROM system.{table_name}",
-                team=self.team,
-                user=self.user,
-            )
-            direct = execute_hogql_query(
-                f"SELECT definition_id FROM system._{table_name[:-1]}_metadata", team=self.team, user=self.user
-            )
+        joined = execute_hogql_query(
+            f"SELECT id, description, verified, verified_at, verified_by_id, hidden, updated_by_id FROM system.{table_name}",
+            team=self.team,
+            user=self.user,
+        )
+        star = execute_hogql_query(f"SELECT * FROM system.{table_name}", team=self.team, user=self.user)
+        direct = execute_hogql_query(
+            f"SELECT definition_id FROM system._{table_name[:-1]}_metadata", team=self.team, user=self.user
+        )
 
-        assert {str(row[0]): row[1:] for row in joined.results} == {
+        expected = {
             str(edited.pk): ("Billing plan", 1, verified_at, self.user.pk, 1, self.user.pk),
             str(unedited.pk): (None, 0, None, None, 0, None),
         }
+        assert {str(row[0]): row[1:] for row in joined.results} == expected
+        star_rows = [dict(zip(star.columns or [], row)) for row in star.results]
+        assert {
+            str(row["id"]): tuple(row[column] for column in (joined.columns or [])[1:]) for row in star_rows
+        } == expected
         assert [str(row[0]) for row in direct.results] == [str(edited.pk)]
 
     def test_event_metadata_includes_the_owner(self):
         definition = _create_event_definition(self.team, "owned")
         self._add_metadata(definition, self.team, owner=self.user)
 
-        with patch("posthoganalytics.feature_enabled", return_value=True):
-            response = execute_hogql_query(
-                "SELECT owner_id FROM system.event_definitions", team=self.team, user=self.user
-            )
+        response = execute_hogql_query("SELECT owner_id FROM system.event_definitions", team=self.team, user=self.user)
 
         assert response.results == [(self.user.pk,)]
-
-    def test_metadata_columns_are_off_without_the_flag(self):
-        _create_event_definition(self.team, "any")
-
-        with patch("posthoganalytics.feature_enabled", return_value=False):
-            assert execute_hogql_query(
-                "SELECT name FROM system.event_definitions", team=self.team, user=self.user
-            ).results == [("event_any",)]
-            with self.assertRaisesRegex(QueryError, "metadata columns are not available"):
-                execute_hogql_query("SELECT description FROM system.event_definitions", team=self.team, user=self.user)
 
     def test_property_definitions_hide_restricted_properties(self):
         self.organization.available_product_features = [
@@ -2850,14 +2843,51 @@ class TestSystemDefinitionTables(NonAtomicBaseTest):
         response = execute_hogql_query(
             "SELECT name, type, group_type_index FROM system.property_definitions", team=self.team, user=self.user
         )
+        star = execute_hogql_query("SELECT * FROM system.property_definitions", team=self.team, user=self.user)
         metadata = execute_hogql_query(
             "SELECT description FROM system._property_definition_metadata", team=self.team, user=self.user
         )
 
         assert sorted(response.results, key=str) == [("plan", "person", None), ("tier", "group", 0)]
+        star_rows = [dict(zip(star.columns or [], row)) for row in star.results]
+        assert sorted(
+            ((row["name"], row["type"], row["group_type_index"], row["description"]) for row in star_rows), key=str
+        ) == [("plan", "person", None, "Readable"), ("tier", "group", 0, "Readable")]
         assert metadata.results == [("Readable",), ("Readable",)]
         # The metadata query filters by the ids of the hidden definitions, not by a read of every definition
         assert "posthog_propertydefinition" not in (metadata.clickhouse or "")
+
+
+class TestAsteriskTraversers(SimpleTestCase):
+    @parameterized.expand([("without_opt_in", [], ["id"]), ("with_opt_in", ["label"], ["id", "label"])])
+    def test_get_asterisk_returns_only_the_opted_in_traversers(self, _name, asterisk_traversers, expected):
+        table = Table(
+            fields={
+                "id": IntegerDatabaseField(name="id"),
+                "label": FieldTraverser(chain=["joined", "label"]),
+                "other": FieldTraverser(chain=["joined", "other"]),
+            },
+            asterisk_traversers=asterisk_traversers,
+        )
+
+        assert list(table.get_asterisk()) == expected
+
+    @parameterized.expand(
+        [
+            ("renamed_traverser", {"label": FieldTraverser(chain=["joined", "label_id"])}),
+            ("missing_key", {}),
+        ]
+    )
+    def test_asterisk_traversers_reject_a_key_star_cannot_name(self, _name, label_fields):
+        with self.assertRaisesRegex(ValueError, "asterisk_traversers: 'label'"):
+            Table(fields={"id": IntegerDatabaseField(name="id"), **label_fields}, asterisk_traversers=["label"])
+
+    def test_column_aliased_star_leaves_out_the_traversers(self):
+        context = HogQLContext(database=Database(), enable_select_queries=True)
+        query = resolve_types(parse_select("SELECT * FROM system.event_definitions AS d (a, b)"), context, "clickhouse")
+
+        assert isinstance(query.type, ast.SelectQueryType)
+        assert list(query.type.columns) == ["a", "b", "created_at", "last_seen_at"]
 
 
 class TestSystemAccountsLazyJoins(NonAtomicBaseTest):

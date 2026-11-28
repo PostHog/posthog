@@ -1,13 +1,14 @@
 import re
 import datetime
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Literal, Optional, cast
+from typing import TYPE_CHECKING, Any, Literal, Optional, Self, cast
 from uuid import UUID
 
 from pydantic import (
     BaseModel,
     ConfigDict,
     Field as PydanticField,
+    model_validator,
 )
 
 from posthog.hogql.base import Expr
@@ -268,7 +269,20 @@ class Table(FieldOrTable):
     # When True, a persons join from this table applies personIdPushdown when the modifier is unset.
     person_id_pushdown_default: bool = False
     workload: Optional[Workload] = None
+    # `FieldTraverser` keys that `SELECT *` returns. Each one makes every `SELECT *` on the table run its join.
+    asterisk_traversers: list[str] = []
     model_config = ConfigDict(extra="forbid")
+
+    @model_validator(mode="after")
+    def _check_asterisk_traversers(self) -> Self:
+        for key in self.asterisk_traversers:
+            field_ = self.fields.get(key)
+            if not isinstance(field_, FieldTraverser) or str(field_.chain[-1]) != key:
+                raise ValueError(
+                    f"asterisk_traversers: {key!r} must be a FieldTraverser to a column also named {key!r}, "
+                    "because HogQL names a traversed column after its target"
+                )
+        return self
 
     def has_field(self, name: str | int) -> bool:
         return str(name) in self.fields
@@ -306,7 +320,9 @@ class Table(FieldOrTable):
         for key, field_ in self.fields.items():
             if key in fields_to_avoid:
                 continue
-            if isinstance(field_, Table) or isinstance(field_, LazyJoin) or isinstance(field_, FieldTraverser):
+            if isinstance(field_, FieldTraverser) and key in self.asterisk_traversers:
+                asterisk[key] = field_
+            elif isinstance(field_, Table) or isinstance(field_, LazyJoin) or isinstance(field_, FieldTraverser):
                 pass  # ignore virtual tables and columns for now
             elif isinstance(field_, DatabaseField):
                 if not field_.hidden:  # Skip over hidden field
