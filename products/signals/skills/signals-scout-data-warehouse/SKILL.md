@@ -79,10 +79,10 @@ WHERE should_sync AND deleted = 0
 ORDER BY status, hours_since_check DESC
 ```
 
-`system.source_schemas` carries `should_sync`, `status`, `sync_type`, `last_synced_at`, `last_checked_at`, `latest_error`, `source_id` — the fields you triage on. **Judge freshness by `last_checked_at`, never `last_synced_at`.** `last_checked_at` moves on every successful run, including one that found no new rows. `last_synced_at` moves only when a run loads rows, so a healthy table whose source is quiet keeps an old (or null) `last_synced_at` while every run succeeds. An old `last_synced_at` with a recent `last_checked_at` is a quiet source, not a stall. Group the `Failed` rows by `source_id` to find cascades (one source whose tables all fail at once is **one source-level finding**, not N). What the system table does **not** have: `sync_frequency` (the promised cadence) and the **source-level** `status` / `latest_error`. Get those from REST, but only for the handful of candidates the SQL sweep surfaced:
+`system.source_schemas` carries `should_sync`, `status`, `sync_type`, `last_synced_at`, `last_checked_at`, `latest_error`, `source_id` — the fields you triage on. **Judge freshness by `last_checked_at`, never `last_synced_at`.** `last_checked_at` moves on every successful run, including one that found no new rows. `last_synced_at` moves only when a run loads rows, so a healthy table whose source is quiet keeps an old (or null) `last_synced_at` while every run succeeds. An old `last_synced_at` with a recent `last_checked_at` is a quiet source, not a stall. Group the `Failed` rows by `source_id` to find cascades (one source whose tables all fail at once is **one source-level finding**, not N). What the system table does **not** have: `sync_frequency` (the promised cadence) and the **source-level** `latest_error`. Get those from REST, but only for the handful of candidates the SQL sweep surfaced:
 
 - `external-data-schemas-list` (`search=<schema name>`) — the one candidate's `sync_frequency`, `incremental_field`, full `latest_error`. **Footgun: never call it unfiltered to page the whole project, and never use `external-data-sources-list` for the schema sweep — each source there embeds all its schemas, so the response is many MB on a large project.**
-- `external-data-sources-retrieve {id}` (pass the `source_id` value from `system.source_schemas` as `id`) — the source's connection-level `status` (`Error`/`Running`/…) and `latest_error`, to confirm a cascade is a broken _connection_ rather than N independent table failures.
+- `external-data-sources-retrieve {id}` (pass the `source_id` value from `system.source_schemas` as `id`) — the source's `latest_error` (the newest error among its enabled tables), to confirm a cascade is a broken _connection_ rather than N independent table failures. Its `status` is a rollup of the enabled tables, so `Failed` means at least one enabled table failed, not that the connection is down.
 
 If `Failed` schemas span _many_ sources in the same window, suspect a platform/warehouse incident — one finding naming the shared cause.
 
@@ -90,7 +90,7 @@ If `Failed` schemas span _many_ sources in the same window, suspect a platform/w
 
 | Pattern                                                            | What it usually means                                                          |
 | ------------------------------------------------------------------ | ------------------------------------------------------------------------------ |
-| Source `status: Error` (or `Failed`)                               | Connection broken (creds, host, account) — every armed schema under it is dead |
+| Every armed schema of one source `Failed`, same error              | Connection broken (creds, host, account) — every armed schema under it is dead |
 | Armed schema `Failed` with `latest_error`                          | One table broken — schema drift, PK/incremental misconfig, CDC slot, quota     |
 | Armed schema `Running`, `last_checked_at` hours old                | Orphaned/stuck job — not "healthy", a stalled sync                             |
 | Armed schema `Completed` but `last_checked_at` ≫ `sync_frequency`  | **Silent staleness** — green status hiding a growing gap; the scout's edge     |
@@ -107,7 +107,7 @@ Patterns to watch — starting points, not a checklist.
 
 #### Source-level Error (the cascade)
 
-A source at `status: Error`/`Failed` breaks every armed schema under it — credentials expired/rotated, host unreachable, SSH gateway down, integration deleted. This is the highest-blast-radius shape: report it **once** at the source level, name the affected armed schemas as the blast radius, and quote the source `latest_error` (an auth `401`/`403`, an SSH error, a "matching query does not exist"). `external-data-sources-retrieve {id}` gives the full per-source picture when you need it.
+A broken connection fails every armed schema of a source at once — credentials expired/rotated, host unreachable, SSH gateway down, integration deleted. This is the highest-blast-radius shape: report it **once** at the source level, name the affected armed schemas as the blast radius, and quote the source `latest_error` (an auth `401`/`403`, an SSH error, a "matching query does not exist"). `external-data-sources-retrieve {id}` gives the full per-source picture when you need it.
 
 #### Schema failures and stalls (the growing gap)
 
@@ -261,7 +261,7 @@ The sweep is SQL over the metadata system tables; REST is per-candidate drill-do
 `execute-sql` over the warehouse metadata tables (the bulk scan — one query, no pagination):
 
 - `system.source_schemas` — one row per armed/unarmed import table: `should_sync`, `status`, `sync_type`, `last_synced_at` (last run that loaded rows), `last_checked_at` (last successful run, the freshness field), `latest_error`, `source_id`. Both timestamps are real `DateTime`s. The schema sweep and the staleness scan both run off this. **HogQL footguns:** `should_sync` is a `Boolean` (use it bare, `WHERE should_sync` — no `= 1`), but `deleted` is an `Integer` (`deleted = 0`). It has **no** `sync_frequency` column — pull cadence from REST.
-- `system.data_warehouse_sources` — one row per source (`source_type`, `prefix`, `created_at`); has **no** `status` / `latest_error` (those are REST-only — use `-sources-retrieve`).
+- `system.data_warehouse_sources` — one row per source (`source_type`, `prefix`, `created_at`, `status`). `status` rolls up the source's enabled tables, the same as REST: `Failed` means at least one enabled table failed, so confirm a cascade with the `source_schemas` group-by. It has **no** `latest_error` (REST-only — use `-sources-retrieve`).
 - `system.data_modeling_views` — saved queries / materialized views: `status`, `is_materialized`, `last_run_at`, `query` (the JSON HogQL definition — the downstream-consumer check searches it). The materialized-view sweep.
 - `system.data_modeling_jobs` — one row per materialization run: `data_modeling_view_id`, `status`, `created_at`. `min(created_at)` per view dates materialization activation for the waste gate.
 - `system.data_warehouse_tables` — queryable warehouse tables: `name` (the **storage** name; synced tables are queried by the dotted HogQL form instead — see the roster step), `row_count` (nullable — direct-access tables have none), `external_data_source_id`. The optimization-lane candidate roster.
@@ -271,7 +271,7 @@ The sweep is SQL over the metadata system tables; REST is per-candidate drill-do
 REST (per-candidate detail the system tables don't carry):
 
 - `external-data-schemas-list` (`search=<name>`) — one schema's `sync_frequency`, `incremental_field`, full `latest_error`. **Never page it unfiltered; never use `external-data-sources-list` for the schema sweep (embeds all schemas, many MB).**
-- `external-data-sources-retrieve {id}` — the source's connection-level `status` (`Error`/…) and `latest_error`, to confirm a cascade is a broken connection.
+- `external-data-sources-retrieve {id}` — the source's `latest_error` (newest among its enabled tables) and its rolled-up `status`, to confirm a cascade is a broken connection.
 - `external-data-schemas-retrieve` — one schema's columns / `sync_type_config` when the sweep's `latest_error` is null but the schema is `Failed`.
 - `external-data-sources-webhook-info-retrieve` — per-source webhook registration + remote status for `sync_type: webhook` schemas; the only place push-channel health shows.
 - `view-list` / `view-run-history` — materialized-view `latest_error` and the run trail when a `system.data_modeling_views` row is `Failed`.

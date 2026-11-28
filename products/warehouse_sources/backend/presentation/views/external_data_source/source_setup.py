@@ -40,6 +40,7 @@ from products.data_warehouse.backend.facade.api import (
 )
 from products.warehouse_sources.backend.facade.api import (
     effective_source_status,
+    latest_source_error,
     schema_needs_webhook,
     sources_missing_webhook,
     validate_source_prefix,
@@ -218,8 +219,18 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
     client_secret = serializers.CharField(write_only=True)
     last_run_at = serializers.SerializerMethodField(read_only=True)
     created_by = serializers.SerializerMethodField(read_only=True)
-    latest_error = serializers.SerializerMethodField(read_only=True)
-    status = serializers.SerializerMethodField(read_only=True)
+    latest_error = serializers.SerializerMethodField(
+        read_only=True,
+        help_text="The newest error among the source's enabled tables, with secrets redacted. Null when none has one.",
+    )
+    status = serializers.SerializerMethodField(
+        read_only=True,
+        help_text=(
+            "Sync status rolled up from the enabled tables: Failed, Billing limits, Billing limits too low, Paused, "
+            "Running or Completed, strongest first. Paused when every table is disabled. Disabled tables never "
+            "count. `system.data_warehouse_sources.status` applies the same rule."
+        ),
+    )
     schemas = serializers.SerializerMethodField(read_only=True)
     engine = serializers.ChoiceField(
         source="connection_metadata.engine",
@@ -565,30 +576,35 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             return None
         return [schema for schema in prefetched if not schema.deleted]
 
-    def _active_schemas(self, instance: ExternalDataSource) -> list[ExternalDataSchema]:
-        """Schemas that are syncing or carry an error — derived in Python from the single `schemas`
-        prefetch rather than a second DB scan of the same (potentially huge) table."""
+    def _enabled_schemas(self, instance: ExternalDataSource) -> tuple[list[ExternalDataSchema], bool]:
+        """The enabled live schemas and whether the source has any live schema at all.
+
+        Read from the `schemas` prefetch when the list loaded it. Otherwise only the enabled rows are
+        loaded, once for both the status and the error, since a source can discover thousands of tables.
+        """
+        cached = getattr(instance, "_enabled_schemas", None)
+        if cached is not None:
+            return cached
         prefetched = self._prefetched_schemas(instance)
         if prefetched is not None:
-            return [schema for schema in prefetched if schema.should_sync or schema.latest_error is not None]
-        return list(instance.schemas.exclude(deleted=True).filter(Q(should_sync=True) | Q(latest_error__isnull=False)))
+            result = ([schema for schema in prefetched if schema.should_sync], bool(prefetched))
+        else:
+            live = instance.schemas.exclude(deleted=True)
+            enabled = list(live.filter(should_sync=True).only("status", "should_sync", "latest_error", "updated_at"))
+            result = (enabled, bool(enabled) or live.exists())
+        instance._enabled_schemas = result  # type: ignore[attr-defined]
+        return result
 
     def get_status(self, instance: ExternalDataSource) -> str:
-        return effective_source_status(self._active_schemas(instance), fallback=instance.status)
+        enabled, has_schemas = self._enabled_schemas(instance)
+        return effective_source_status(enabled, has_schemas=has_schemas, fallback=instance.status)
 
     @extend_schema_field(serializers.CharField(allow_null=True))
     def get_latest_error(self, instance: ExternalDataSource):
-        prefetched_schemas = self._prefetched_schemas(instance)
-        if prefetched_schemas is not None:
-            schema_with_error = next(
-                (schema for schema in prefetched_schemas if schema.latest_error is not None),
-                None,
-            )
-        else:
-            schema_with_error = instance.schemas.filter(latest_error__isnull=False).first()
-        if schema_with_error is None:
+        latest_error = latest_source_error(self._enabled_schemas(instance)[0])
+        if latest_error is None:
             return None
-        redacted = helpers.redact_error_message(schema_with_error.latest_error, self._error_redaction_values(instance))
+        redacted = helpers.redact_error_message(latest_error, self._error_redaction_values(instance))
         return truncate_error(redacted) if self.context.get(COMPACT_CONTEXT_KEY) else redacted
 
     def _error_redaction_values(self, instance: ExternalDataSource) -> frozenset[str]:

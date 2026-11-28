@@ -119,6 +119,13 @@ class TestWarehouseSourcesFacade(BaseTest):
                 "Paused",
             ),
             ("no_schema_state", [(None, True)], "Running"),
+            # A disabled table keeps the state it stopped in, and that must not leak into the source.
+            (
+                "running_but_disabled",
+                [(ExternalDataSchema.Status.COMPLETED, True), (ExternalDataSchema.Status.RUNNING, False)],
+                "Completed",
+            ),
+            ("all_disabled", [(ExternalDataSchema.Status.COMPLETED, False)], "Paused"),
         ]
     )
     def test_list_source_health_status_matches_source_list(
@@ -138,12 +145,34 @@ class TestWarehouseSourcesFacade(BaseTest):
             )
 
         [health] = api.list_source_health(self.team.pk)
-        serializer_status = ExternalDataSourceSerializers(context={"get_team": lambda: self.team}).get_status(
-            self.source
-        )
+        serializer = ExternalDataSourceSerializers(context={"get_team": lambda: self.team})
 
         assert health.status == expected
-        assert serializer_status == expected
+        assert serializer.get_status(self.source) == expected
+        # Only the disabled tables carry an error, so neither reader reports one.
+        assert health.latest_error is None
+        assert serializer.get_latest_error(self.source) is None
+
+    def test_list_source_health_error_matches_source_list(self) -> None:
+        # The profile picks the newest error in SQL and the API in Python; both must name the same one.
+        self.schema.delete()
+        older = timezone.now() - timedelta(hours=2)
+        for name, error, updated_at in (("older", "older error", older), ("newer", "newer error", timezone.now())):
+            schema = ExternalDataSchema.objects.create(
+                team_id=self.team.pk,
+                source=self.source,
+                name=name,
+                should_sync=True,
+                status=ExternalDataSchema.Status.FAILED,
+                latest_error=error,
+            )
+            ExternalDataSchema.objects.filter(pk=schema.pk).update(updated_at=updated_at)
+
+        [health] = api.list_source_health(self.team.pk)
+        serializer = ExternalDataSourceSerializers(context={"get_team": lambda: self.team})
+
+        assert health.latest_error == "newer error"
+        assert serializer.get_latest_error(self.source) == "newer error"
 
     def test_list_revenue_sources_maps_settings_schemas_and_tables(self) -> None:
         other_source = ExternalDataSource.objects.create(

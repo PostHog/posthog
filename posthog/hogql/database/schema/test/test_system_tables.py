@@ -148,6 +148,7 @@ from products.slack_app.backend.models import SlackThreadTaskMapping
 from products.surveys.backend.models import Survey, SurveyResponseArchive
 from products.tasks.backend.facade import testing as tasks_testing
 from products.tasks.backend.models import Channel, SandboxEnvironment, Task, TaskRun
+from products.warehouse_sources.backend.facade.api import effective_source_status
 from products.warehouse_sources.backend.facade.models import (
     DataWarehouseTable as DataWarehouseTableModel,
     ExternalDataJob,
@@ -1401,6 +1402,52 @@ class TestSystemTablesTeamIsolation(NonAtomicBaseTest):
         )
 
         assert response.results == [("high",)]
+
+    @parameterized.expand(
+        [
+            ("no_schemas", []),
+            ("never_ran", [(None, True)]),
+            ("all_completed", [("Completed", True)]),
+            ("one_failed", [("Completed", True), ("Failed", True)]),
+            ("failed_but_disabled", [("Completed", True), ("Failed", False)]),
+            ("running_but_disabled", [("Completed", True), ("Running", False)]),
+            ("billing_limit", [("Completed", True), ("BillingLimitReached", True)]),
+            ("all_disabled", [("Completed", False)]),
+            ("failed_but_deleted", [("Completed", True), ("Failed", True, True)]),
+        ]
+    )
+    def test_data_warehouse_sources_status_matches_the_source_api(self, _name, schema_states):
+        source = ExternalDataSource.objects.create(
+            team=self.team, source_id="status", connection_id="status", status="Running", source_type="Stripe"
+        )
+        schemas = [
+            ExternalDataSchema.objects.create(
+                team=self.team,
+                source=source,
+                name=f"schema_{index}",
+                should_sync=state[1],
+                status=state[0],
+                deleted=state[2] if len(state) > 2 else False,
+            )
+            for index, state in enumerate(schema_states)
+        ]
+        # A second source keeps its own rollup: the join must not mix schemas across sources.
+        other = ExternalDataSource.objects.create(
+            team=self.team, source_id="other", connection_id="other", status="Running", source_type="Stripe"
+        )
+        ExternalDataSchema.objects.create(team=self.team, source=other, name="other", should_sync=True, status="Failed")
+        live = [schema for schema in schemas if not schema.deleted]
+
+        response = execute_hogql_query(
+            "SELECT id, status FROM system.data_warehouse_sources", team=self.team, user=self.user
+        )
+
+        assert {str(source_id): status for source_id, status in response.results} == {
+            str(source.id): effective_source_status(
+                [schema for schema in live if schema.should_sync], has_schemas=bool(live), fallback=source.status
+            ),
+            str(other.id): "Failed",
+        }
 
     @parameterized.expand(
         [
