@@ -70,10 +70,10 @@ RUN_SUMMARY_FIELDS = (
     "task_run__error_message",
 )
 
-# The per-scout run window backing the inbox scout surfaces. 25 runs covers a day for an hourly
-# scout and a month for a daily one — the point being that both get enough history to judge, which
-# a single fleet-wide time window can't do.
-DEFAULT_RUNS_PER_SCOUT = 25
+# The per-scout run window backing the inbox scout surfaces. 50 runs covers two days for an hourly
+# scout and the whole staleness guard for a daily one — the point being that both get enough history
+# to judge, which a single fleet-wide time window can't do.
+DEFAULT_RUNS_PER_SCOUT = 50
 MAX_RUNS_PER_SCOUT = 100
 
 # The staleness guard, so a scout that stopped running doesn't render its last runs as current.

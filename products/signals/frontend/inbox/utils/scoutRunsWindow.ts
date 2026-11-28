@@ -37,14 +37,14 @@ export {
  * that gets shorter the busier the rest of the fleet is. Counting per scout gives each the same
  * depth whatever its cadence.
  */
-export const SCOUT_RUNS_PER_SCOUT = 25
+export const SCOUT_RUNS_PER_SCOUT = 50
 
-/** Label for per-scout stats, e.g. "last 25 runs". */
+/** Label for per-scout stats, e.g. "last 50 runs". */
 export const SCOUT_RUNS_PER_SCOUT_LABEL = `last ${SCOUT_RUNS_PER_SCOUT} runs`
 
 /**
  * The span every fleet-level number on the roster describes: runs, reports filed and edited, and
- * scratchpad entries learned. Per-scout depth is a run count, but summing "last 25 each" across a
+ * scratchpad entries learned. Per-scout depth is a run count, but summing "last 50 each" across a
  * fleet is bounded by fleet size, so the fleet headline needs a common time span - and a week is
  * the shortest one that gives a daily scout enough runs to say anything.
  */

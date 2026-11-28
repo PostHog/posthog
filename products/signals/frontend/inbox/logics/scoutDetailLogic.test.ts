@@ -12,6 +12,7 @@ import {
 } from 'products/signals/frontend/generated/api'
 
 import { SignalReport, SignalScoutRunSummary } from '../types'
+import { SCOUT_RUNS_PER_SCOUT } from '../utils/scoutRunsWindow'
 import { scoutDetailLogic } from './scoutDetailLogic'
 import { scoutFleetLogic } from './scoutFleetLogic'
 
@@ -70,7 +71,7 @@ function makeRuns(prefix: string, count: number, startHoursAgo: number): SignalS
 
 describe('scoutDetailLogic', () => {
     let logic: ReturnType<typeof scoutDetailLogic.build>
-    const windowRuns = makeRuns('window', 25, 1)
+    const windowRuns = makeRuns('window', SCOUT_RUNS_PER_SCOUT, 1)
     const oldestWindowRun = windowRuns[windowRuns.length - 1]
 
     async function mountWith(window: SignalScoutRunSummary[]): Promise<void> {
@@ -96,14 +97,14 @@ describe('scoutDetailLogic', () => {
 
     it('pages older runs from the oldest loaded run and stops at a short page', async () => {
         await mountWith(windowRuns)
-        const firstPage = makeRuns('older', 25, 30)
-        const lastPage = makeRuns('oldest', 3, 60)
+        const firstPage = makeRuns('older', SCOUT_RUNS_PER_SCOUT, SCOUT_RUNS_PER_SCOUT + 5)
+        const lastPage = makeRuns('oldest', 3, 2 * SCOUT_RUNS_PER_SCOUT + 10)
         mockRunsList.mockResolvedValueOnce(firstPage).mockResolvedValueOnce(lastPage)
 
         await expectLogic(logic, () => logic.actions.loadOlder('runs')).toDispatchActions(['loadOlderRunsSuccess'])
         expect(mockRunsList).toHaveBeenLastCalledWith(expect.any(String), {
             skill_name: SKILL,
-            limit: 25,
+            limit: SCOUT_RUNS_PER_SCOUT,
             date_to: oldestWindowRun.created_at,
             before_id: oldestWindowRun.run_id,
         })
@@ -112,13 +113,16 @@ describe('scoutDetailLogic', () => {
         await expectLogic(logic, () => logic.actions.loadOlder('runs')).toDispatchActions(['loadOlderRunsSuccess'])
         expect(mockRunsList).toHaveBeenLastCalledWith(
             expect.any(String),
-            expect.objectContaining({ date_to: firstPage[24].created_at, before_id: firstPage[24].run_id })
+            expect.objectContaining({
+                date_to: firstPage[firstPage.length - 1].created_at,
+                before_id: firstPage[firstPage.length - 1].run_id,
+            })
         )
 
         const history = logic.values.historyRuns.map((run) => run.run_id)
-        expect(history).toHaveLength(53)
+        expect(history).toHaveLength(2 * SCOUT_RUNS_PER_SCOUT + 3)
         expect(history[0]).toBe('window-00')
-        expect(history[52]).toBe('oldest-02')
+        expect(history[history.length - 1]).toBe('oldest-02')
         expect(logic.values.olderRuns.exhausted).toBe(true)
         expect(logic.values.olderHistoryMayExist.runs).toBe(false)
         expect(jest.mocked(posthog.capture).mock.lastCall?.[1]).toMatchObject({
@@ -140,22 +144,22 @@ describe('scoutDetailLogic', () => {
 
         logic.actions.setRunFilter('all')
         expect(logic.values.olderRuns.runs).toEqual([])
-        expect(logic.values.historyRuns).toHaveLength(25)
+        expect(logic.values.historyRuns).toHaveLength(SCOUT_RUNS_PER_SCOUT)
     })
 
     it('keeps a run the poll moves out of the window once older pages are open', async () => {
         await mountWith(windowRuns)
-        mockRunsList.mockResolvedValue(makeRuns('older', 25, 30))
+        mockRunsList.mockResolvedValue(makeRuns('older', SCOUT_RUNS_PER_SCOUT, SCOUT_RUNS_PER_SCOUT + 5))
         await expectLogic(logic, () => logic.actions.loadOlder('runs')).toDispatchActions(['loadOlderRunsSuccess'])
 
-        mockRecentPerScout.mockResolvedValue([makeRun('newest', 0), ...windowRuns.slice(0, 24)])
+        mockRecentPerScout.mockResolvedValue([makeRun('newest', 0), ...windowRuns.slice(0, SCOUT_RUNS_PER_SCOUT - 1)])
         await expectLogic(logic, () => scoutFleetLogic.actions.loadScoutRunsForSkill(SKILL)).toDispatchActions([
             scoutFleetLogic.actionTypes.loadScoutRunsForSkillSuccess,
         ])
 
         const history = logic.values.historyRuns.map((run) => run.run_id)
         expect(history).toContain(oldestWindowRun.run_id)
-        expect(history).toHaveLength(51)
+        expect(history).toHaveLength(SCOUT_RUNS_PER_SCOUT + 1)
     })
 
     it('adds older reports once each, and reads an older authoring over a newer edit', async () => {

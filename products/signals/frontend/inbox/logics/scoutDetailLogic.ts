@@ -528,7 +528,7 @@ export const scoutDetailLogic = kea<scoutDetailLogicType>([
             },
         ],
         // Older runs for the Runs tab, asked for with the open filter pill so a page of the
-        // "Failed" pill holds failed runs rather than whatever 25 runs came before the window.
+        // "Failed" pill holds failed runs rather than whatever 50 runs came before the window.
         olderRuns: [
             NO_OLDER_PAGES,
             {
