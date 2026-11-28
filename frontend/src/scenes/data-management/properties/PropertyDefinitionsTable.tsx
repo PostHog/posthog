@@ -8,6 +8,7 @@ import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { EVENT_PROPERTY_DEFINITIONS_PER_PAGE } from 'lib/constants'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
+import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { cn } from 'lib/utils/css-classes'
 import { DefinitionsSceneTabs } from 'scenes/data-management/DefinitionsSceneTabs'
@@ -23,8 +24,17 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { PropertyDefinition } from '~/types'
 
 export function PropertyDefinitionsTable(): JSX.Element {
-    const { propertyDefinitions, propertyDefinitionsLoading, filters, propertyTypeOptions, showVerifiedFilter } =
-        useValues(propertyDefinitionsTableLogic)
+    const {
+        propertyDefinitions,
+        propertyDefinitionsLoading,
+        filters,
+        propertyTypeOptions,
+        showVerifiedFilter,
+        showQueryUsage,
+        queryUsage,
+        queryUsageLoading,
+        queryUsageFailed,
+    } = useValues(propertyDefinitionsTableLogic)
     const { loadPropertyDefinitions, setFilters, setPropertyType } = useActions(propertyDefinitionsTableLogic)
 
     const columns: LemonTableColumns<PropertyDefinition> = [
@@ -79,6 +89,33 @@ export function PropertyDefinitionsTable(): JSX.Element {
                 )
             },
         },
+        ...(showQueryUsage
+            ? [
+                  {
+                      title: 'Queries',
+                      key: 'queries',
+                      tooltip: 'How many times a query used this property in the last 30 days',
+                      align: 'right',
+                      render: function RenderQueries(_, definition: PropertyDefinition) {
+                          const count = queryUsage?.[definition.id]
+                          if (count !== undefined) {
+                              return <span data-attr="property-definition-query-count">{count.toLocaleString()}</span>
+                          }
+                          if (queryUsageLoading) {
+                              return <LemonSkeleton className="h-4 w-8 ml-auto" />
+                          }
+                          if (queryUsageFailed) {
+                              return (
+                                  <Tooltip title="Couldn't load query counts. Refresh the page to try again.">
+                                      <span className="text-secondary">—</span>
+                                  </Tooltip>
+                              )
+                          }
+                          return <span className="text-secondary">—</span>
+                      },
+                  } as LemonTableColumn<PropertyDefinition, keyof PropertyDefinition | undefined>,
+              ]
+            : []),
         {
             title: 'Tags',
             key: 'tags',
