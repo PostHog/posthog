@@ -83,6 +83,7 @@ function openFreshPageLoad(replayArm: string | boolean | undefined, sendsFromCod
 
 describe('MessagingCtaChip', () => {
     let page: Page | undefined
+    let otherTab: Page | undefined
 
     function open(replayArm: string | boolean | undefined, sendsFromCode = true): Page {
         page?.close()
@@ -98,6 +99,8 @@ describe('MessagingCtaChip', () => {
     afterEach(() => {
         page?.close()
         page = undefined
+        otherTab?.close()
+        otherTab = undefined
         jest.useRealTimers()
     })
 
@@ -201,18 +204,21 @@ describe('MessagingCtaChip', () => {
 
     it('keeps a newer dismissal that another tab saved over its own', () => {
         jest.useFakeTimers({ now: new Date('2026-03-01T12:00:00Z') })
-        const { renderChip, chip, click } = open('player_chip')
-        renderChip()
-        click(chip()!.querySelector<HTMLElement>('[aria-label="Hide for 90 days"]')!)
+        const first = open('player_chip')
+        first.renderChip()
+        otherTab = openFreshPageLoad('player_chip', true)
+        otherTab.renderChip()
+        const hide = (): HTMLElement => document.querySelector<HTMLElement>('[aria-label="Hide for 90 days"]')!
+        first.click(hide())
 
         jest.setSystemTime(Date.now() + 30 * DAY_MS)
-        localStorage.setItem(
-            `messaging-cta-dismissed:${MOCK_DEFAULT_USER.uuid}:replay.player_chip`,
-            new Date().toISOString()
-        )
+        otherTab.click(hide())
+        otherTab.close()
+        otherTab = undefined
+
         jest.setSystemTime(Date.now() + 61 * DAY_MS)
-        renderChip()
-        expect(chip()).toBeNull()
+        first.renderChip()
+        expect(first.chip()).toBeNull()
     })
 
     it('stays hidden and silent for 90 days after its × is clicked, for that viewer only', () => {
