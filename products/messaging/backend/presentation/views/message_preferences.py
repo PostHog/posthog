@@ -159,6 +159,7 @@ class BulkAddOptOutsResultSerializer(serializers.Serializer):
     )
 
 
+@extend_schema(extensions={"x-swagger-tag": "email_subscriptions"})
 class MessagePreferencesViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     """
     Per-team messaging preferences for recipients.

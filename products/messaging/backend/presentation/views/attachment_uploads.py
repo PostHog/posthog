@@ -5,7 +5,7 @@ from django.core.exceptions import RequestDataTooBig
 
 import structlog
 import posthoganalytics
-from drf_spectacular.utils import OpenApiResponse
+from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import exceptions, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import ErrorDetail
@@ -268,6 +268,7 @@ class AttachmentUploadTeamSustainedThrottle(ProjectSecretApiKeyTeamRateThrottle)
     rate = "20000/hour"
 
 
+@extend_schema(extensions={"x-swagger-tag": "transactional_email"})
 class MessagingAttachmentsViewSet(RequestBodyCapMixin, TeamAndOrgViewSetMixin, viewsets.ViewSet):
     schema_docs_order = MessagingDocsOrder.ATTACHMENTS
     scope_object = "hog_flow"

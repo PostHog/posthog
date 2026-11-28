@@ -142,6 +142,7 @@ class CodeEmailSourceSearchUnavailableError(exceptions.APIException):
     default_code = "source_search_unavailable"
 
 
+@extend_schema(extensions={"x-swagger-tag": "transactional_email"})
 class TransactionalCodeEmailViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     scope_object = "hog_flow"
     scope_object_read_actions = ["list", "retrieve"]

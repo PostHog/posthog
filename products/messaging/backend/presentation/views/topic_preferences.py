@@ -1,7 +1,7 @@
 from typing import Any
 
 import structlog
-from drf_spectacular.utils import OpenApiResponse
+from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import exceptions, serializers, viewsets
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -83,6 +83,7 @@ class TopicPreferencesTeamSustainedThrottle(ProjectSecretApiKeyTeamRateThrottle)
     rate = "20000/hour"
 
 
+@extend_schema(extensions={"x-swagger-tag": "transactional_email"})
 class TopicPreferencesViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     schema_docs_order = MessagingDocsOrder.PREFERENCES
     # LEGACY_SCOPE_FALLBACKS lets `hog_flow:write` satisfy this scope too, with no end date.

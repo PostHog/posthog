@@ -394,6 +394,7 @@ class _PageSchema(AutoSchema):
         return False
 
 
+@extend_schema(extensions={"x-swagger-tag": "email_logs"})
 class TransactionalEmailLogViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     schema = _PageSchema()
     permission_classes = [CDPLogPropertyAccessPermission]

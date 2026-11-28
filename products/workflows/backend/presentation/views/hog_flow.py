@@ -5876,9 +5876,20 @@ class HogFlowVersionMetricsRequestSerializer(AppMetricsRequestSerializer):
     )
 
 
-@extend_schema(extensions={"x-product": "workflows"})
+# Broadcasts are hog flows too, so these operations also show on the broadcasts API docs page.
+_BROADCAST_DOCS = {"x-product": "workflows", "x-swagger-tag": ["workflows", "broadcasts"]}
+
+
+@extend_schema(extensions={"x-product": "workflows", "x-swagger-tag": "workflows"})
 @extend_schema_view(
-    metrics=extend_schema(parameters=[AppMetricsRequestSerializer], responses=AppMetricResponseSerializer),
+    metrics=extend_schema(
+        parameters=[AppMetricsRequestSerializer], responses=AppMetricResponseSerializer, extensions=_BROADCAST_DOCS
+    ),
+    create=extend_schema(extensions=_BROADCAST_DOCS),
+    retrieve=extend_schema(extensions=_BROADCAST_DOCS),
+    update=extend_schema(extensions=_BROADCAST_DOCS),
+    partial_update=extend_schema(extensions=_BROADCAST_DOCS),
+    destroy=extend_schema(extensions=_BROADCAST_DOCS),
     metrics_totals=extend_schema(
         parameters=[AppMetricsRequestSerializer], responses=AppMetricsTotalsResponseSerializer
     ),
@@ -5960,7 +5971,8 @@ class HogFlowVersionMetricsRequestSerializer(AppMetricsRequestSerializer):
                 OpenApiTypes.BOOL,
                 description="Pass `true` to order by when each workflow's newest completed or partially_failed run finished, newest first. Workflows that never finished such a run come last.",
             ),
-        ]
+        ],
+        extensions=_BROADCAST_DOCS,
     ),
     # The mixin action's default schema documents integer ids; workflows are keyed by UUID.
     bulk_update_tags=extend_schema(
@@ -7027,7 +7039,11 @@ class HogFlowViewSet(
             position_unknown=counts.get("position_unknown") if counts else None,
         )
 
-    @extend_schema(request=HogFlowPublishRequestSerializer, responses={200: HogFlowPublishResponseSerializer})
+    @extend_schema(
+        request=HogFlowPublishRequestSerializer,
+        responses={200: HogFlowPublishResponseSerializer},
+        extensions=_BROADCAST_DOCS,
+    )
     @action(detail=True, methods=["POST"])
     def publish(self, request: Request, *args, **kwargs):
         # Promote the staged draft to the live config. Two-step by design: a call without confirm only
@@ -7958,7 +7974,7 @@ class HogFlowViewSet(
                 "Failed to capture workflow usage event", event="workflow utm defaults applied", error=str(e)
             )
 
-    @extend_schema(request=BlastRadiusRequestSerializer, responses=BlastRadiusSerializer)
+    @extend_schema(request=BlastRadiusRequestSerializer, responses=BlastRadiusSerializer, extensions=_BROADCAST_DOCS)
     @action(methods=["POST"], detail=False)
     def user_blast_radius(self, request: Request, **kwargs):
         # detail=False, so there's no workflow object for AccessControlPermission to check — it falls back to
@@ -8560,8 +8576,13 @@ class HogFlowViewSet(
             ).data
         )
 
-    @extend_schema(methods=["GET"], responses=HogFlowBatchJobSerializer(many=True))
-    @extend_schema(methods=["POST"], request=HogFlowBatchJobSerializer, responses=HogFlowBatchJobSerializer)
+    @extend_schema(methods=["GET"], responses=HogFlowBatchJobSerializer(many=True), extensions=_BROADCAST_DOCS)
+    @extend_schema(
+        methods=["POST"],
+        request=HogFlowBatchJobSerializer,
+        responses=HogFlowBatchJobSerializer,
+        extensions=_BROADCAST_DOCS,
+    )
     # GET returns a bare list (no pagination) and ignores the viewset's HogFlow filterset; disable both so the
     # generated schema matches the actual response shape.
     @action(detail=True, methods=["GET", "POST"], pagination_class=None, filter_backends=[])
@@ -8647,6 +8668,7 @@ class HogFlowViewSet(
             ),
         ],
         responses={200: HogFlowBatchJobCancelResponseSerializer},
+        extensions=_BROADCAST_DOCS,
     )
     @action(detail=True, methods=["POST"], url_path="batch_jobs/(?P<batch_job_id>[^/.]+)/cancel")
     def cancel_batch_job(self, request: Request, *args, **kwargs) -> Response:
@@ -8720,8 +8742,13 @@ class HogFlowViewSet(
         )
         return Response({"status": batch_job.status, **data})
 
-    @extend_schema(methods=["GET"], responses=HogFlowScheduleSerializer(many=True))
-    @extend_schema(methods=["POST"], request=HogFlowScheduleSerializer, responses=HogFlowScheduleSerializer)
+    @extend_schema(methods=["GET"], responses=HogFlowScheduleSerializer(many=True), extensions=_BROADCAST_DOCS)
+    @extend_schema(
+        methods=["POST"],
+        request=HogFlowScheduleSerializer,
+        responses=HogFlowScheduleSerializer,
+        extensions=_BROADCAST_DOCS,
+    )
     # GET returns a bare list (no pagination) and ignores the viewset's HogFlow filterset; disable both so the
     # generated schema matches the actual response shape.
     @action(detail=True, methods=["GET", "POST"], pagination_class=None, filter_backends=[])
@@ -8764,11 +8791,13 @@ class HogFlowViewSet(
         request=HogFlowScheduleSerializer,
         responses=HogFlowScheduleSerializer,
         parameters=[OpenApiParameter("schedule_id", str, OpenApiParameter.PATH)],
+        extensions=_BROADCAST_DOCS,
     )
     @extend_schema(
         methods=["DELETE"],
         responses={204: None},
         parameters=[OpenApiParameter("schedule_id", str, OpenApiParameter.PATH)],
+        extensions=_BROADCAST_DOCS,
     )
     @action(detail=True, methods=["PATCH", "DELETE"], url_path="schedules/(?P<schedule_id>[^/.]+)")
     def schedule_detail(self, request: Request, schedule_id=None, *args, **kwargs):

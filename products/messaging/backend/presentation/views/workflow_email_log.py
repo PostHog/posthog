@@ -4,7 +4,7 @@ from uuid import UUID
 
 import posthoganalytics
 from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import OpenApiParameter, OpenApiResponse
+from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
 from rest_framework import serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound, PermissionDenied
@@ -110,6 +110,7 @@ def _send_data(send: WorkflowEmailSend) -> dict[str, Any]:
     return {**asdict(send), "status": send.status.value}
 
 
+@extend_schema(extensions={"x-swagger-tag": "email_logs"})
 class WorkflowEmailLogViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     schema = _PageSchema()
     permission_classes = [CDPLogPropertyAccessPermission]
