@@ -831,6 +831,9 @@ def _set_link_post_reactions(card: BroadcastRequestCard, delivery: BroadcastRequ
             deliveries__kind=BroadcastRequestDeliveryKind.SLACK_MESSAGE,
             deliveries__channel_id=delivery.channel_id,
             deliveries__thread_ts=delivery.thread_ts,
+            # A repository that turned Broadcast off or moved it to another channel shares nothing more here.
+            pull_request__repo_config__broadcast_enabled=True,
+            pull_request__repo_config__broadcast_slack_channel_id=delivery.channel_id,
         )
     )
     statuses = set(requests.values_list("status", flat=True))
@@ -840,7 +843,7 @@ def _set_link_post_reactions(card: BroadcastRequestCard, delivery: BroadcastRequ
         .filter(broadcast_request__in=requests, looking=True)
         .exists()
     )
-    approved = statuses <= _LINK_POST_DONE_STATUSES
+    approved = bool(statuses) and statuses <= _LINK_POST_DONE_STATUSES
     set_reactions(card, delivery.channel_id, delivery.thread_ts, looking=looking, approved=approved)
 
 
