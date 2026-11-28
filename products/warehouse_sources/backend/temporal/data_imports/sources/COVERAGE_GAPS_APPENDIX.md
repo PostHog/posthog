@@ -5929,8 +5929,8 @@ Re-audited 2026-11-19 against: <https://developer.fleetio.com/sitemap.xml>
 - [x] `Inspection forms (GET /v3/inspection_forms)` — Inspection form definitions that submitted inspections are built from (medium)
 - [x] `Inventory adjustment reasons (GET /v1/inventory_adjustment_reasons)` — Lookup that decodes the reason on synced inventory journal entries (medium)
 - [x] `Fault rules (GET /v1/fault_rules)` — Rules that decide which diagnostic codes raise faults, to explain synced faults (low)
-- [ ] `Inspection schedules (GET /v1/inspection_schedules)` — Recurring inspection schedules per vehicle, for compliance tracking (low)
-- [ ] `Purchase details (GET /v1/purchase_details)` — Vehicle purchase cost and date records for ownership cost analysis (low)
+- [x] `Inspection schedules (GET /v1/inspection_schedules)` — Recurring inspection schedules per vehicle, for compliance tracking (low)
+- [x] `Purchase details (GET /v1/purchase_details)` — Vehicle purchase cost and date records for ownership cost analysis (low)
 
 Note (2026-11-19): Parsed the Docusaurus sitemap and confirmed each path on its index page. Items the earlier note already listed (equipment, submitted inspection forms, labels, groups, places, renewal reminders, comments) were not repeated. Work order line items fan out by work order ID. No OpenAPI file is published.
 

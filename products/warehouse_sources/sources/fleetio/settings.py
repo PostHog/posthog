@@ -79,6 +79,8 @@ FLEETIO_ENDPOINTS: dict[str, FleetioEndpointConfig] = {
     ),
     "fault_rules": FleetioEndpointConfig(name="fault_rules", path="/fault_rules"),
     "inspection_forms": FleetioEndpointConfig(name="inspection_forms", path="/inspection_forms", path_version="v3"),
+    "inspection_schedules": FleetioEndpointConfig(name="inspection_schedules", path="/inspection_schedules"),
+    "purchase_details": FleetioEndpointConfig(name="purchase_details", path="/purchase_details"),
     # From 2024-06-30 Fleetio only lists location entries per vehicle, so fan out over vehicles.
     # The list action takes a `filter[updated_at]`, but fan-out rows arrive grouped by vehicle, so
     # no ascending watermark holds across the table: full refresh only.
