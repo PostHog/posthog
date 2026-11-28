@@ -13,11 +13,13 @@ export interface AdventDoorFaceProps {
     size: number
     zoom: number
     style?: CSSProperties
+    tint?: string
+    tabIndex?: number
     onClick: () => void
 }
 
-export function AdventDoorFace({ door, size, zoom, style, onClick }: AdventDoorFaceProps): JSX.Element {
-    const color = adventDoorColor(door)
+export function AdventDoorFace({ door, size, zoom, style, tint, tabIndex, onClick }: AdventDoorFaceProps): JSX.Element {
+    const color = tint ?? adventDoorColor(door)
     const isExit = door.day === ADVENT_LAST_DAY
     return (
         <button
@@ -25,6 +27,7 @@ export function AdventDoorFace({ door, size, zoom, style, onClick }: AdventDoorF
             className="AdventCard__face"
             style={{ ...style, width: size, height: size }}
             aria-label={`Door ${door.day}`}
+            tabIndex={tabIndex}
             onClick={onClick}
         >
             {door.status === 'open' && door.reward ? (
@@ -37,11 +40,11 @@ export function AdventDoorFace({ door, size, zoom, style, onClick }: AdventDoorF
                         height: ADVENT_DOOR_SIZE,
                         transform: `scale(${zoom})`,
                         borderColor: color,
-                        color: door.status === 'ready' ? color : 'var(--color-text-tertiary)',
+                        color: tint || door.status === 'ready' ? color : 'var(--color-text-tertiary)',
                     }}
                 >
                     {door.day}
-                    {door.status === 'locked' && (
+                    {door.status === 'locked' && !tint && (
                         <IconLock className={cn('absolute top-1 text-sm', isExit ? 'left-1' : 'right-1')} />
                     )}
                 </span>
