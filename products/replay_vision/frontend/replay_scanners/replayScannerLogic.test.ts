@@ -1415,7 +1415,8 @@ describe('replayScannerLogic', () => {
                         {
                             ...loadedScanner,
                             enabled: true,
-                            disabled_reason: null,
+                            status: 'starting',
+                            status_reason: null,
                             created_by: newCreator,
                             free_only: false,
                         },
@@ -1425,13 +1426,20 @@ describe('replayScannerLogic', () => {
             await expectLogic(editLogic, () => editLogic.actions.loadScanner()).toFinishAllListeners()
             editLogic.actions.setScannerValues({
                 enabled: false,
-                disabled_reason: 'creator_lost_access',
+                status: 'off',
+                status_reason: 'creator_lost_access',
                 free_only: true,
             })
             await expectLogic(editLogic, () => editLogic.actions.toggleEnabled()).toDispatchActions([
                 'toggleEnabledSuccess',
             ])
-            const runnable = { enabled: true, disabled_reason: null, created_by: newCreator, free_only: false }
+            const runnable = {
+                enabled: true,
+                status: 'starting',
+                status_reason: null,
+                created_by: newCreator,
+                free_only: false,
+            }
             expect(editLogic.values.scanner).toMatchObject(runnable)
             expect(editLogic.values.originalScanner).toMatchObject(runnable)
         })

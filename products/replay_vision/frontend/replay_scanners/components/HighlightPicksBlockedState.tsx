@@ -55,7 +55,7 @@ export function HighlightPicksBlockedState({
                             <div className="min-w-0">
                                 <div className="truncate text-xs font-semibold text-default">{scanner.name}</div>
                                 <div className="text-xs text-secondary">
-                                    {scanner.disabled_reason === 'free_credits_used' ? 'Out of free credits' : 'Off'}{' '}
+                                    {scanner.status_reason === 'free_credits_used' ? 'Out of free credits' : 'Off'}{' '}
                                     since <TZLabel time={scanner.updated_at} showPopover={false} noStyles />
                                 </div>
                             </div>

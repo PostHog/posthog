@@ -132,11 +132,11 @@ describe('scannerStatus', () => {
     })
 
     test.each([
-        ['never turned on', { enabled: false, disabled_reason: null }, true],
-        ['turned off by hand', { enabled: false, disabled_reason: 'manual' }, true],
-        ['already scheduled', { enabled: true, disabled_reason: null }, false],
-        ['out of free credits', { enabled: false, disabled_reason: 'free_credits_used' }, false],
-        ['no AI consent', { enabled: false, disabled_reason: 'no_ai_consent' }, false],
+        ['never turned on', { status: 'off', status_reason: null }, true],
+        ['turned off by hand', { status: 'off', status_reason: 'manual' }, true],
+        ['already scheduled', { status: 'running', status_reason: null }, false],
+        ['out of free credits', { status: 'off', status_reason: 'free_credits_used' }, false],
+        ['no AI consent', { status: 'off', status_reason: 'no_ai_consent' }, false],
         ['not loaded', null, false],
     ] as const)('isOffByChoice: %s', (_, scanner, expected) => {
         expect(isOffByChoice(scanner)).toBe(expected)

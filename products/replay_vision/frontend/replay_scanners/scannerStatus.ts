@@ -1,11 +1,6 @@
 import { Dayjs, dayjs } from 'lib/dayjs'
 
-import {
-    type ReplayScannerApi,
-    ScannerDisabledReasonEnumApi,
-    type ScannerStatusReasonEnumApi,
-    type VisionQuotaApi,
-} from '../generated/api.schemas'
+import { type ReplayScannerApi, type ScannerStatusReasonEnumApi, type VisionQuotaApi } from '../generated/api.schemas'
 import type { RecordingsBlock } from '../logics/replayRecordingsLogic'
 import { freeCreditsAllowance } from '../utils/quotaProjection'
 import type { ScanDrought } from './scanDrought'
@@ -17,7 +12,7 @@ export const SWEEP_INTERVAL_MINUTES = 5
 const SWEEP_SETTLE_MINUTES = 35
 
 export type ScannerStatus =
-    | { kind: 'off'; reason: ScannerDisabledReasonEnumApi | null }
+    | { kind: 'off'; reason: ScannerOffReason | null }
     | { kind: 'no_sampling' }
     | { kind: 'replay_off' }
     | { kind: 'no_recordings' }
@@ -36,12 +31,23 @@ export type ScannerStatusFields = Pick<
     'status' | 'status_reason' | 'filter_error' | 'sweep_interval_minutes' | 'last_swept_at'
 >
 
-const OFF_REASONS: ReadonlySet<string> = new Set(Object.values(ScannerDisabledReasonEnumApi))
+const OFF_REASONS = [
+    'manual',
+    'free_credits_used',
+    'no_ai_consent',
+    'creator_lost_access',
+    'experiment_deleted',
+] as const
 
-export function isOffByChoice(
-    scanner: Pick<ReplayScannerApi, 'enabled' | 'disabled_reason'> | null | undefined
-): boolean {
-    return !!scanner && scanner.enabled === false && (!scanner.disabled_reason || scanner.disabled_reason === 'manual')
+/** The `status_reason` values an `off` scanner can carry. */
+export type ScannerOffReason = Extract<ScannerStatusReasonEnumApi, (typeof OFF_REASONS)[number]>
+
+function isOffReason(reason: ScannerStatusReasonEnumApi | null): reason is ScannerOffReason {
+    return reason !== null && (OFF_REASONS as readonly string[]).includes(reason)
+}
+
+export function isOffByChoice(scanner: Pick<ReplayScannerApi, 'status' | 'status_reason'> | null | undefined): boolean {
+    return !!scanner && scanner.status === 'off' && (!scanner.status_reason || scanner.status_reason === 'manual')
 }
 
 // A sweep tick runs every few minutes, so checking once a minute keeps a status close without a request storm.
@@ -68,7 +74,7 @@ export function scannerStatus(
     if (scanner.status === 'off') {
         return {
             kind: 'off',
-            reason: reason && OFF_REASONS.has(reason) ? (reason as ScannerDisabledReasonEnumApi) : null,
+            reason: isOffReason(reason) ? reason : null,
         }
     }
     if (scanner.status === 'no_sampling') {

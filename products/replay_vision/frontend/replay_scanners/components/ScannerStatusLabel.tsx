@@ -1,5 +1,4 @@
-import type { ScannerDisabledReasonEnumApi } from '../../generated/api.schemas'
-import type { ScannerStatus } from '../scannerStatus'
+import type { ScannerOffReason, ScannerStatus } from '../scannerStatus'
 
 export type StatusTone = 'success' | 'warning' | 'danger' | 'muted'
 
@@ -17,7 +16,7 @@ export const TONE_DOT: Record<StatusTone, string> = {
 type StatusLabel = { label: string; tone: StatusTone }
 
 // A person's own turn-off stays a quiet "Off"; one PostHog made names its cause so it isn't mistaken for a choice.
-const OFF_LABEL: Record<ScannerDisabledReasonEnumApi, StatusLabel> = {
+const OFF_LABEL: Record<ScannerOffReason, StatusLabel> = {
     manual: { label: 'Off', tone: 'muted' },
     free_credits_used: { label: 'Stopped', tone: 'danger' },
     no_ai_consent: { label: 'Needs AI consent', tone: 'danger' },

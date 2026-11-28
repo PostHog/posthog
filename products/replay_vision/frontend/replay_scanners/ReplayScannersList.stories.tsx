@@ -58,7 +58,6 @@ export const HomeScannerNeedsAiConsent: StoryObj = {
                         {
                             ...scanners.results[0],
                             enabled: false,
-                            disabled_reason: 'no_ai_consent',
                             status: 'off',
                             status_reason: 'no_ai_consent',
                         },

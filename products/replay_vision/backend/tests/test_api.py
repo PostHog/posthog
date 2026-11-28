@@ -2216,7 +2216,7 @@ class TestScannerLifecycleTelemetry(_VisionAPITestCase):
         scanner.refresh_from_db()
         self.assertEqual((scanner.enabled, scanner.disabled_reason), (enabled_after, reason_after))
         if status == 200:
-            self.assertEqual(resp.json()["disabled_reason"], reason_after)
+            self.assertEqual(resp.json()["status_reason"], reason_after)
 
     @parameterized.expand(
         [

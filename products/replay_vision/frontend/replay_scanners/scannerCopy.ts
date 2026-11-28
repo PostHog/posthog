@@ -1,4 +1,4 @@
-import type { ScannerDisabledReasonEnumApi } from '../generated/api.schemas'
+import type { ScannerOffReason } from './scannerStatus'
 
 /** Shared by every "Limit reached" badge so the surfaces tell one story. */
 export const LIMIT_REACHED_TOOLTIP =
@@ -22,7 +22,7 @@ export function limitReachedTooltip(scanner: LimitFields): string {
     return stoppedByFreeCredits(scanner) ? FREE_CREDITS_USED_TOOLTIP : LIMIT_REACHED_TOOLTIP
 }
 
-const DISABLED_REASON_DETAIL: Record<ScannerDisabledReasonEnumApi, string> = {
+const DISABLED_REASON_DETAIL: Record<ScannerOffReason, string> = {
     manual: 'Someone turned this scanner off.',
     free_credits_used: 'Your free credits ran out.',
     no_ai_consent: "Your organization hasn't allowed AI analysis of recordings.",
@@ -32,6 +32,6 @@ const DISABLED_REASON_DETAIL: Record<ScannerDisabledReasonEnumApi, string> = {
 }
 
 // Null when it was created off, or turned off before reasons were recorded.
-export function disabledReasonDetail(reason: ScannerDisabledReasonEnumApi | null): string {
+export function disabledReasonDetail(reason: ScannerOffReason | null): string {
     return reason ? DISABLED_REASON_DETAIL[reason] : "This scanner doesn't scan new recordings."
 }

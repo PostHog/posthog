@@ -35,7 +35,6 @@ export const ScannerCreatorLostAccess: StoryObj = {
             {
                 ...summarizerScanner,
                 enabled: false,
-                disabled_reason: 'creator_lost_access',
                 status: 'off',
                 status_reason: 'creator_lost_access',
             },
@@ -222,7 +221,6 @@ export const ScannerTurnedOffByFreeCredits: StoryObj = {
                 ...freeOnlyLimitReachedScanner,
                 id: summarizerScanner.id,
                 enabled: false,
-                disabled_reason: 'free_credits_used',
                 status: 'off',
                 status_reason: 'free_credits_used',
             },

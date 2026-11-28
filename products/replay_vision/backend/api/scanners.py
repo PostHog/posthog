@@ -105,7 +105,6 @@ from products.replay_vision.backend.models.replay_observation import (
 from products.replay_vision.backend.models.replay_observation_feed_dismissal import ReplayObservationFeedDismissal
 from products.replay_vision.backend.models.replay_scanner import (
     ReplayScanner,
-    ScannerDisabledReason,
     ScannerModel,
     ScannerProvider,
     ScannerType,
@@ -829,9 +828,11 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
     )
     status_reason = serializers.SerializerMethodField(
         help_text=(
-            "Why the scanner has its `status`, or null when no reason applies. For `off`: `manual`, "
-            "`free_credits_used`, `no_ai_consent`, `creator_lost_access` (turning it on requires "
-            "`take_over_as_creator`), or `experiment_deleted`. For `limit_reached`: `free_credits_used` when the "
+            "Why the scanner has its `status`, or null when no reason applies. For `off`: `manual` (a person turned "
+            "it off), `free_credits_used` (a `free_only` scanner stopped when the free credits ran out), "
+            "`no_ai_consent` (the organization has not approved AI data processing), `creator_lost_access` (the "
+            "creator can no longer view recordings, or an experiment scanner has no creator, so turning it on "
+            "requires `take_over_as_creator`), or `experiment_deleted`; null when it was created off. For `limit_reached`: `free_credits_used` when the "
             "organization's free credits stopped a free-only scanner, otherwise `credit_limit`. For `paused`: "
             "`experiment_not_running` (its experiment is paused, ended, or archived), `credit_limit`, "
             "`filter_error`, or `no_principal`."
@@ -848,18 +849,6 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
             f"Whether to offer the user a dashboard for this scanner: true when the scanner has no dashboard and at "
             f"least {DASHBOARD_SUGGESTION_MIN_OBSERVATIONS} succeeded observations to chart. Offer it once and do not "
             "repeat the offer if the user declines."
-        ),
-    )
-    disabled_reason = serializers.ChoiceField(
-        choices=ScannerDisabledReason.choices,
-        read_only=True,
-        allow_null=True,
-        help_text=(
-            "Why the scanner is off, or null when it is on or was created off. `manual`: a person turned it off. "
-            "`free_credits_used`: a `free_only` scanner stopped when the free credits ran out. `no_ai_consent`: the "
-            "organization has not approved AI data processing. `creator_lost_access`: the creator can no longer "
-            "view recordings, or an experiment scanner has no creator, and the sweep reads recordings as them, so turning the scanner on requires "
-            "`take_over_as_creator`. `experiment_deleted`: its experiment was deleted."
         ),
     )
     last_swept_at = serializers.DateTimeField(
@@ -915,7 +904,6 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
             "dashboard_suggested",
             "last_swept_at",
             "filter_error",
-            "disabled_reason",
             "created_at",
             "created_by",
             "updated_at",

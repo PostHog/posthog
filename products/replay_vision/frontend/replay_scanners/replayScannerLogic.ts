@@ -124,7 +124,6 @@ type ServerStatusFields = Pick<
     ReplayScanner,
     | 'last_swept_at'
     | 'enabled'
-    | 'disabled_reason'
     | 'filter_error'
     | 'limit_reached'
     | 'limit_from_free_credits'
@@ -140,7 +139,6 @@ function serverStatusFields(scanner: ServerStatusFields): ServerStatusFields {
     return {
         last_swept_at: scanner.last_swept_at,
         enabled: scanner.enabled,
-        disabled_reason: scanner.disabled_reason,
         filter_error: scanner.filter_error,
         limit_reached: scanner.limit_reached,
         limit_from_free_credits: scanner.limit_from_free_credits,
@@ -547,8 +545,15 @@ export interface CreditLimitState {
 }
 
 /** The fields a toggle moves, copied from the saved scanner so the status updates without a reload. */
-function enabledFields(saved: ReplayScannerApi): Pick<ReplayScannerApi, 'enabled' | 'disabled_reason' | 'created_by'> {
-    return { enabled: saved.enabled, disabled_reason: saved.disabled_reason, created_by: saved.created_by }
+function enabledFields(
+    saved: ReplayScannerApi
+): Pick<ReplayScannerApi, 'enabled' | 'status' | 'status_reason' | 'created_by'> {
+    return {
+        enabled: saved.enabled,
+        status: saved.status,
+        status_reason: saved.status_reason,
+        created_by: saved.created_by,
+    }
 }
 
 function freeOnlyFields(
