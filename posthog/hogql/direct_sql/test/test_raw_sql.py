@@ -11,7 +11,11 @@ from posthog.hogql.direct_sql.bigquery_adapter import ensure_read_only_raw_bigqu
 from posthog.hogql.direct_sql.clickhouse_adapter import ensure_read_only_raw_clickhouse_statement
 from posthog.hogql.direct_sql.motherduck_adapter import ensure_read_only_raw_motherduck_statement
 from posthog.hogql.direct_sql.mysql_adapter import ensure_read_only_raw_mysql_statement
-from posthog.hogql.direct_sql.raw_sql import ensure_single_direct_statement, nestable_direct_statement
+from posthog.hogql.direct_sql.raw_sql import (
+    MAX_DIRECT_SQL_NESTING_DEPTH,
+    ensure_single_direct_statement,
+    nestable_direct_statement,
+)
 from posthog.hogql.direct_sql.redshift_adapter import ensure_read_only_raw_redshift_statement
 from posthog.hogql.direct_sql.snowflake_adapter import ensure_read_only_raw_snowflake_statement
 from posthog.hogql.direct_sql.trino_adapter import ensure_read_only_raw_trino_statement
@@ -104,6 +108,54 @@ class TestDirectSQLQuoting(SimpleTestCase):
         with patch("posthog.hogql.direct_sql.raw_sql.group", side_effect=error("limit reached")):
             with self.assertRaisesMessage(ExposedHogQLError, "too complex to validate"):
                 ensure_read_only_raw_motherduck_statement("SELECT 17")
+
+    @parameterized.expand(
+        [
+            ("parentheses", lambda depth: "SELECT 17 + " + "(" * depth + "17" + ")" * depth),
+            ("brackets", lambda depth: "SELECT " + "[" * depth + "17" + "]" * depth),
+            ("calls", lambda depth: "SELECT " + "abs(" * depth + "17" + ")" * depth),
+            ("case", lambda depth: "SELECT " + "CASE WHEN 1 THEN " * depth + "17" + " END" * depth),
+            ("mixed", lambda depth: "SELECT 17 + " + "([" * (depth // 2) + "17" + "])" * (depth // 2)),
+            ("subqueries", lambda depth: "SELECT * FROM " + "(SELECT * FROM " * depth + "events" + ")" * depth),
+        ]
+    )
+    def test_limits_nesting_depth(self, _name: str, build: Callable[[int], str]) -> None:
+        at_limit = build(MAX_DIRECT_SQL_NESTING_DEPTH)
+        self.assertEqual(ensure_read_only_raw_clickhouse_statement(at_limit), at_limit)
+        with self.assertRaisesMessage(ExposedHogQLError, "too complex to validate"):
+            ensure_read_only_raw_clickhouse_statement(build(MAX_DIRECT_SQL_NESTING_DEPTH + 2))
+
+    @parameterized.expand(
+        [
+            ("leading", "clickhouse", lambda depth: "SELECT " + ") END ]" * 50 + "(" * depth),
+            ("interleaved", "clickhouse", lambda depth: "SELECT 17 + " + "(END " * depth + "17" + ")" * depth),
+            ("wrong_kind", "clickhouse", lambda depth: "SELECT 17 + " + "(]" * depth + "17" + ")" * depth),
+            (
+                "qualified_end",
+                "clickhouse",
+                lambda depth: "SELECT " + "CASE WHEN t.end THEN " * depth + "17" + " END" * depth,
+            ),
+            ("begin_blocks", "clickhouse", lambda depth: "SELECT 17 " + "BEGIN " * depth + "17" + " END" * depth),
+            (
+                "bigquery_begin_blocks",
+                "bigquery",
+                lambda depth: "SELECT 17 " + "BEGIN " * depth + "17" + " END" * depth,
+            ),
+        ]
+    )
+    def test_unmatched_closers_do_not_raise_the_nesting_allowance(
+        self, _name: str, dialect: str, build: Callable[[int], str]
+    ) -> None:
+        check = {
+            "clickhouse": ensure_read_only_raw_clickhouse_statement,
+            "bigquery": ensure_read_only_raw_bigquery_statement,
+        }[dialect]
+        with self.assertRaisesMessage(ExposedHogQLError, "too complex to validate"):
+            check(build(MAX_DIRECT_SQL_NESTING_DEPTH + 1))
+
+    def test_qualified_case_columns_do_not_count_as_nesting(self) -> None:
+        sql = "SELECT " + ", ".join(["t.case"] * (MAX_DIRECT_SQL_NESTING_DEPTH + 1)) + " FROM events AS t"
+        self.assertEqual(ensure_read_only_raw_clickhouse_statement(sql), sql)
 
     @parameterized.expand(
         [

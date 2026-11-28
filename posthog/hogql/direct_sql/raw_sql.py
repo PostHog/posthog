@@ -15,6 +15,9 @@ if TYPE_CHECKING:
         Tokenizer,
     )
 
+MAX_DIRECT_SQL_NESTING_DEPTH = 100
+_TOO_COMPLEX_ERROR = "Raw query is too complex to validate. Simplify the query and try again."
+
 
 @lru_cache(maxsize=16)
 def _tokenizer_class(dialect: str, alternate_escapes: bool = False) -> type["Tokenizer"]:
@@ -83,6 +86,22 @@ def _guard_tokens(token: "DialectToken", *, is_call: bool, is_qualified: bool, s
     return [Token(kind, value) for kind, value in (classified[:-1] if is_call else classified)]
 
 
+def _ensure_nesting_within_limit(tokens: list[Token]) -> None:
+    # Grouping cost grows superlinearly with depth, so input deeper than sqlparse's MAX_GROUPING_DEPTH fails
+    # first. Dialects lex BEGIN differently, so the count uses sqlparse tokens: what group() nests on.
+    closer_for = {"(": ")", "[": "]", "{": "}", "CASE": "END", "BEGIN": "END"}
+    open_blocks: list[str] = []
+    for token in tokens:
+        if token.ttype not in sqlparse_tokens.Punctuation and token.ttype not in sqlparse_tokens.Keyword:
+            continue
+        if token.normalized in closer_for:
+            open_blocks.append(token.normalized)
+            if len(open_blocks) > MAX_DIRECT_SQL_NESTING_DEPTH:
+                raise ExposedHogQLError(_TOO_COMPLEX_ERROR)
+        elif open_blocks and token.normalized == closer_for[open_blocks[-1]]:
+            open_blocks.pop()
+
+
 def _single_statement_tokens(sql: str, dialect: str) -> list["DialectToken"]:
     from sqlglot.tokens import TokenType  # noqa: PLC0415 -- load dialect grammars only for direct queries
 
@@ -115,10 +134,11 @@ def parse_direct_statements(sql: str, *, dialect: str) -> list[Statement]:
         )
         tokens.extend(_guard_tokens(token, is_call=is_call, is_qualified=is_qualified, sql=sql, dialect=dialect))
         tokens.append(Token(sqlparse_tokens.Whitespace, " "))
+    _ensure_nesting_within_limit(tokens)
     try:
         return [group(Statement(tokens))] if tokens else []
     except (SQLParseError, RecursionError) as error:
-        raise ExposedHogQLError("Raw query is too complex to validate. Simplify the query and try again.") from error
+        raise ExposedHogQLError(_TOO_COMPLEX_ERROR) from error
 
 
 def ensure_single_direct_statement(sql: str, *, dialect: str) -> str:
