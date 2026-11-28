@@ -46,6 +46,7 @@ from .broadcast_request_slack import (
     find_card_integration,
     ping_lookers,
     post_card,
+    sync_reactions,
     update_card,
 )
 from .github_client import StamphogGitHubClient, expected_app_bot_login
@@ -791,6 +792,8 @@ def _refresh_locked(request: BroadcastRequest, *, decided_head_sha: str, using: 
     except BroadcastRequestSlackError as e:
         logger.warning("stamphog_broadcast_request_update_refused", broadcast_request_id=str(request.id), error=str(e))
         return
+    # A card in a thread also marks the post that asked, because the channel shows that post and not the card.
+    sync_reactions(card, delivery.channel_id, [ts for ts in (delivery.message_ts, delivery.thread_ts) if ts])
     if head_sha == request.pinged_head_sha:
         return
     # Recorded before the reply, so a failed reply is not sent again.

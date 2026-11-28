@@ -203,6 +203,7 @@ A manager turns it on per repository with `broadcast_enabled` and a Slack channe
 If Stamphog approves, or approval retention keeps its approval over a push, nothing is posted.
 If Stamphog refuses, escalates, is gated or fails, one message goes to the channel, with an "I'll take a look" button.
 That message changes as the pull request does: a person's approval of the current head, a push that makes it stale, a later Stamphog approval, a merge or a close.
+The message also carries 👀 while somebody is looking and ✅ while the request is approved. A merge or a close keeps the reactions it had.
 Each pull request has at most one active request, so asking again returns it.
 When the requester caused two or more messages in the last 7 days, the message says so, such as "5th this week". It matches the requester by PostHog account, Slack user or GitHub login, counts only messages that were posted, and keeps the number it was posted with.
 The note is shown in Slack only, because pull request comments are public.
@@ -210,6 +211,7 @@ The note is shown in Slack only, because pull request comments are public.
 A person can also post a pull request link as a new message in the repository's Broadcast channel, for example when the pull request is too big for Stamphog.
 Stamphog starts no review for it.
 The PostHog Slack app posts the request's message, with its "I'll take a look" button, as a reply in the thread of that post, and the reply follows the pull request like any other request's message.
+The post itself gets the same 👀 and ✅ reactions, because the channel shows the post and not its thread.
 Each distinct pull request link counts, up to five per post, and only a member of the project who could ask with `@posthog stamp` gets an answer.
 If the pull request already has an active request, the reply links to that request's message.
 If Stamphog already approved the current commit, the reply says so and nobody is asked.

@@ -4506,6 +4506,10 @@ def _ask_people(team_id: int, number: int, sandbox: Any, ask: BroadcastRequestAs
     return BroadcastRequest.objects.for_team(team_id).get(id=queued.broadcast_request.id)
 
 
+def _reactions(ts: str) -> set[str]:
+    return fakes.FakeSlackIntegration.reactions.get((BROADCAST_CHANNEL, ts), set())
+
+
 def _cards() -> list[dict]:
     return [
         m
@@ -5054,11 +5058,13 @@ def test_a_click_on_the_card_marks_who_is_looking(
     assert [(p.slack_user_id, p.looking) for p in participants] == ([("U0LOOKER", True)] if looking else [])
     updates = fakes.FakeSlackIntegration.updated_messages[updates_before:]
     assert len(updates) == int(looking)
+    assert _reactions(card["ts"]) == ({"eyes"} if looking else set())
     if looking:
         assert "<@U0LOOKER> is looking" in _rendered(updates[0]["blocks"])
         _click(card, "stamphog_broadcast.stop_looking", **click)
         assert [p.looking for p in participants.all()] == [False]
         assert "is looking" not in _rendered(fakes.FakeSlackIntegration.updated_messages[-1]["blocks"])
+        assert _reactions(card["ts"]) == set()
 
 
 LINK_WORKSPACE = "T0CARD"
@@ -5144,6 +5150,7 @@ def test_a_pull_request_link_in_the_broadcast_channel_asks_people_without_a_revi
     (ping,) = _link_replies()
     assert ping == "<@U0LOOKER> new commits were pushed."
     assert fakes.FakeSlackIntegration.posted_messages[-1]["thread_ts"] == LINK_TS
+    assert _reactions(card["ts"]) == _reactions(LINK_TS) == {"eyes"}
 
     ReviewRun.objects.for_team(team.id).filter(head_sha="sha190b").update(
         status=ReviewRunStatus.COMPLETED, verdict=ReviewVerdict.APPROVED, verdict_posted_at=VERDICT_POSTED_AT
@@ -5154,6 +5161,7 @@ def test_a_pull_request_link_in_the_broadcast_channel_asks_people_without_a_revi
     with override_settings(STAMPHOG_GITHUB_APP_SLUG="stamphog"):
         assert _refresh(request).status == BroadcastRequestStatus.STAMPHOG_APPROVED
     assert fakes.FakeSlackIntegration.updated_messages[-1]["ts"] == card["ts"]
+    assert _reactions(card["ts"]) == _reactions(LINK_TS) == {"eyes", "white_check_mark"}
     assert len(_link_cards()) == 1
 
 
