@@ -118,6 +118,7 @@ export interface sourceFilterPreviewLogicValues {
     previewLoading: boolean
     previewRequestError: SourceFilterPreviewRequestError | null
     previewResult: SourceFilterPreviewResponseApi | null
+    validatedExpression: string | null
     validation: SourceFilterValidateResponseApi | null
 }
 
@@ -144,7 +145,11 @@ export interface sourceFilterPreviewLogicActions {
     validatePreviewInput: (immediate: boolean) => {
         immediate: boolean
     }
-    validationLoaded: (validation: SourceFilterValidateResponseApi) => {
+    validationLoaded: (
+        validation: SourceFilterValidateResponseApi,
+        expression: string
+    ) => {
+        expression: string
         validation: SourceFilterValidateResponseApi
     }
 }
@@ -180,7 +185,10 @@ export const sourceFilterPreviewLogic: LogicWrapper<sourceFilterPreviewLogicType
         previewInputChanged: (input: SourceFilterPreviewInput) => ({ input }),
         validatePreviewInput: (immediate: boolean) => ({ immediate }),
         loadPreview: true,
-        validationLoaded: (validation: SourceFilterValidateResponseApi) => ({ validation }),
+        validationLoaded: (validation: SourceFilterValidateResponseApi, expression: string) => ({
+            validation,
+            expression,
+        }),
         previewLoaded: (preview: SourceFilterPreviewResponseApi) => ({ preview }),
         previewRequestFailed: (error: SourceFilterPreviewRequestError) => ({ error }),
     }),
@@ -197,6 +205,7 @@ export const sourceFilterPreviewLogic: LogicWrapper<sourceFilterPreviewLogicType
             null as SourceFilterValidateResponseApi | null,
             { validationLoaded: (_, { validation }) => validation },
         ],
+        validatedExpression: [null as string | null, { validationLoaded: (_, { expression }) => expression }],
         lastPreview: [null as SourceFilterPreviewResponseApi | null, { previewLoaded: (_, { preview }) => preview }],
         previewLoading: [
             false,
@@ -314,7 +323,7 @@ export const sourceFilterPreviewLogic: LogicWrapper<sourceFilterPreviewLogicType
                 if (!isLatest(input, breakpoint)) {
                     return
                 }
-                actions.validationLoaded(validation)
+                actions.validationLoaded(validation, input.expression)
                 if (!validation.valid) {
                     return
                 }

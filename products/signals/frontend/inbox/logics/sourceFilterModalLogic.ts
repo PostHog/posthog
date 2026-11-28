@@ -29,8 +29,10 @@ import type {
     SignalSourceConfigApi,
     SourceFilterCatalogApi,
     SourceFilterCatalogFieldApi,
+    SourceFilterValidateResponseApi,
 } from 'products/signals/frontend/generated/api.schemas'
 
+import type { SourceFilterErrorSpan } from '../components/config/sourceFilterErrorSpan'
 import {
     captureSignalSourceFilterEditorOpened,
     captureSignalSourceFilterExpressionChanged,
@@ -126,9 +128,12 @@ export interface sourceFilterModalLogicValues {
     integrationsLoading: boolean // integrationsLogic
     linearIntegrations: IntegrationType[] // integrationsLogic
     dataWarehouseSources: PaginatedResponse<ExternalDataSource> | null // signalSourcesLogic
+    validatedExpression: string | null // sourceFilterPreviewLogic
+    validation: SourceFilterValidateResponseApi | null // sourceFilterPreviewLogic
     currentTeamId: number | null // teamLogic
     integrationsLoadFailed: boolean
     integrationsUnknown: boolean
+    invalidExpressionSpan: SourceFilterErrorSpan | null
     isRemovingFilter: boolean
     isSourceFilterSubmitting: boolean
     isSourceFilterValid: boolean
@@ -242,6 +247,11 @@ export interface sourceFilterModalLogicMeta {
             savedFilter: SavedSourceFilter | null,
             sourceFilter: SourceFilterFormValues
         ) => boolean
+        invalidExpressionSpan: (
+            validation: SourceFilterValidateResponseApi | null,
+            validatedExpression: string | null,
+            sourceFilter: SourceFilterFormValues
+        ) => SourceFilterErrorSpan | null
     }
 }
 
@@ -357,6 +367,8 @@ export const sourceFilterModalLogic: LogicWrapper<sourceFilterModalLogicType> = 
             ['linearIntegrations', 'integrations', 'integrationsLoading'],
             signalSourcesLogic,
             ['dataWarehouseSources'],
+            sourceFilterPreviewLogic({ sourceConfig: logicProps.sourceConfig, catalog: logicProps.catalog }),
+            ['validation', 'validatedExpression'],
         ],
         actions: [
             signalSourcesLogic,
@@ -449,6 +461,21 @@ export const sourceFilterModalLogic: LogicWrapper<sourceFilterModalLogicType> = 
                 savedFilter: SavedSourceFilter | null,
                 sourceFilter: SourceFilterFormValues
             ): boolean => savedOnOlderCatalog && sourceFilter.expression.trim() === savedFilter?.expression.trim(),
+        ],
+        // The offsets index the text that was checked, so they apply only while the box holds that exact text.
+        invalidExpressionSpan: [
+            (s) => [s.validation, s.validatedExpression, s.sourceFilter],
+            (
+                validation: SourceFilterValidateResponseApi | null,
+                validatedExpression: string | null,
+                sourceFilter: SourceFilterFormValues
+            ): SourceFilterErrorSpan | null => {
+                if (!validation || validation.valid || validatedExpression !== sourceFilter.expression) {
+                    return null
+                }
+                const { error_start: start, error_end: end } = validation
+                return start === null || end === null ? null : { start, end }
+            },
         ],
     }),
     listeners((logic) => ({

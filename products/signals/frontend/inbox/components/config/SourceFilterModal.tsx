@@ -11,6 +11,7 @@ import type { SourceFilterCatalogApi } from 'products/signals/frontend/generated
 import { SourceFilterModalLogicProps, sourceFilterModalLogic } from '../../logics/sourceFilterModalLogic'
 import { sourceFilterPreviewLogic } from '../../logics/sourceFilterPreviewLogic'
 import { SignalSourceConfig } from '../../types'
+import { SourceFilterErrorLocation } from './SourceFilterErrorLocation'
 import { SourceFilterFieldList } from './SourceFilterFieldList'
 import { SourceFilterFieldSnippets } from './SourceFilterFieldSnippets'
 import { SourceFilterLinearTeams } from './SourceFilterLinearTeams'
@@ -48,6 +49,7 @@ export function SourceFilterModal({
         linearIntegration,
         integrationsUnknown,
         integrationsLoadFailed,
+        invalidExpressionSpan,
     } = useValues(logic)
     const { setSourceFilterValue, selectField, removeFilter, loadIntegrations } = useActions(logic)
     const previewLogic = sourceFilterPreviewLogic({ sourceConfig, catalog })
@@ -177,17 +179,25 @@ export function SourceFilterModal({
                                 help="Applies from the next sync. Reports already in your inbox stay."
                             >
                                 {({ value, onChange }) => (
-                                    <LemonTextArea
-                                        ref={textAreaRef}
-                                        className="font-mono text-xs"
-                                        value={value}
-                                        onChange={onChange}
-                                        minRows={5}
-                                        maxRows={12}
-                                        disabled={busy}
-                                        placeholder={catalog.starter_expressions[0]}
-                                        data-attr="signal-source-filter-expression"
-                                    />
+                                    <>
+                                        <LemonTextArea
+                                            ref={textAreaRef}
+                                            className="font-mono text-xs"
+                                            value={value}
+                                            onChange={onChange}
+                                            minRows={5}
+                                            maxRows={12}
+                                            disabled={busy}
+                                            placeholder={catalog.starter_expressions[0]}
+                                            data-attr="signal-source-filter-expression"
+                                        />
+                                        {invalidExpressionSpan && (
+                                            <SourceFilterErrorLocation
+                                                expression={sourceFilter.expression}
+                                                span={invalidExpressionSpan}
+                                            />
+                                        )}
+                                    </>
                                 )}
                             </LemonField>
                         </div>
