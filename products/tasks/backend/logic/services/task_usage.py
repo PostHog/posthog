@@ -9,6 +9,7 @@ from uuid import UUID
 
 from django.conf import settings
 from django.core.cache import cache
+from django.db.models import Q
 from django.utils import timezone
 
 import structlog
@@ -21,6 +22,8 @@ from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.dataclasses import frozen
 from posthog.models import Team
 
+from products.tasks.backend.facade.contracts import ComputeBillingMeter
+from products.tasks.backend.logic.services.compute_quota import ai_credits_compute_origins
 from products.tasks.backend.logic.services.sandbox_pricing import (
     COMPUTE_RATE_CARDS,
     calculate_sandbox_compute_cost,
@@ -46,10 +49,29 @@ class TaskUsage:
         return self.token_cost_usd + self.compute_cost_usd
 
 
+@frozen
+class TaskComputeCost:
+    """Billed sandbox compute. Every session copies its task's origin and client, so one meter bills all of it."""
+
+    cost_usd: Decimal
+    # None when no meter bills the task's compute.
+    billing_meter: ComputeBillingMeter | None
+
+    def __post_init__(self) -> None:
+        if self.billing_meter is None and self.cost_usd:
+            raise ValueError("Compute that no meter bills has no cost")
+
+
+_NO_COMPUTE_COST = TaskComputeCost(cost_usd=Decimal(0), billing_meter=None)
+
+
 def get_task_usage(*, team_id: int, task_id: UUID, task_created_at: datetime) -> TaskUsage:
+    token_cost = get_task_token_cost(team_id=team_id, task_id=task_id, task_created_at=task_created_at)
+    compute = get_task_compute_cost(team_id=team_id, task_id=task_id)
     return TaskUsage(
-        token_cost_usd=_get_task_token_cost(team_id=team_id, task_id=task_id, task_created_at=task_created_at),
-        compute_cost_usd=_get_task_compute_cost(team_id=team_id, task_id=task_id),
+        token_cost_usd=token_cost,
+        # PostHog Desktop reads this, so it shows only the compute that its own meter bills.
+        compute_cost_usd=compute.cost_usd if compute.billing_meter == ComputeBillingMeter.POSTHOG_CODE else Decimal(0),
     )
 
 
@@ -70,7 +92,8 @@ def sign_task_usage_request(body: bytes, secret: str, *, timestamp: int | None =
     return TaskUsageRequestSignature(signature=signature, timestamp=request_timestamp)
 
 
-def _get_task_token_cost(*, team_id: int, task_id: UUID, task_created_at: datetime) -> Decimal:
+def get_task_token_cost(*, team_id: int, task_id: UUID, task_created_at: datetime) -> Decimal:
+    """The task's model spend, cached for a minute because it is a ClickHouse query over `$ai_generation` events."""
     cache_key = _task_token_cost_cache_key(team_id=team_id, task_id=task_id, task_created_at=task_created_at)
     cached = cache.get(cache_key)
     if cached is not None:
@@ -230,33 +253,45 @@ def get_local_task_run_token_costs(
     return {str(row[0]): Decimal(str(row[1])) for row in rows if row[0] and row[1] is not None}
 
 
-def _get_task_compute_cost(*, team_id: int, task_id: UUID) -> Decimal:
+def get_task_compute_cost(*, team_id: int, task_id: UUID, run_id: UUID | None = None) -> TaskComputeCost:
+    """The billed sandbox compute of a task, or of one of its runs. It reads only Postgres, unlike the token cost."""
     if not COMPUTE_RATE_CARDS:
-        return Decimal(0)
+        return _NO_COMPUTE_COST
 
     rate_cards = validate_compute_rate_cards(COMPUTE_RATE_CARDS)
     calculated_at = timezone.now()
     pricing_start = rate_cards[0].effective_at
     # Rates are published ahead of the date they take effect, so until then nothing is priced.
     if calculated_at <= pricing_start:
-        return Decimal(0)
+        return _NO_COMPUTE_COST
 
+    # The same sessions the usage report bills: PostHog Desktop's into `posthog_code` credits when a
+    # first-party client created the task, and the origins AI_CREDITS_COMPUTE_BILLED_ORIGINS lists
+    # into `ai_credits`, whatever their client.
+    task = Task.objects.filter(team_id=team_id, id=task_id).values_list("origin_product", "client_provenance").first()
+    if task is None:
+        return _NO_COMPUTE_COST
+    origin, client_provenance = task
+    if origin in ai_credits_compute_origins():
+        meter = ComputeBillingMeter.AI_CREDITS
+        billed = Q(origin_product=origin)
+    elif origin == Task.OriginProduct.USER_CREATED and client_provenance in TaskClientProvenance.values:
+        meter = ComputeBillingMeter.POSTHOG_CODE
+        billed = Q(origin_product=origin, client_provenance__in=TaskClientProvenance.values)
+    else:
+        return _NO_COMPUTE_COST
     sessions = SandboxSession.objects.for_team(team_id).filter(
-        task_run__task_id=task_id,
-        client_provenance__in=TaskClientProvenance.values,
-        user_attributed_at__isnull=False,
-        origin_product=Task.OriginProduct.USER_CREATED,
+        billed, task_run__task_id=task_id, user_attributed_at__isnull=False
     )
-    return sum(
+    if run_id is not None:
+        sessions = sessions.filter(task_run_id=run_id)
+    cost = sum(
         (
             calculate_sandbox_compute_cost(
-                session,
-                pricing_start,
-                calculated_at,
-                calculated_at=calculated_at,
-                rate_cards=rate_cards,
+                session, pricing_start, calculated_at, calculated_at=calculated_at, rate_cards=rate_cards
             ).total_cost_usd
             for session in sessions.iterator()
         ),
         Decimal(0),
     )
+    return TaskComputeCost(cost_usd=cost, billing_meter=meter)

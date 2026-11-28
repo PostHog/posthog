@@ -91,7 +91,7 @@ from products.tasks.backend.facade.access import (
     usage_limit_response,
 )
 from products.tasks.backend.facade.api import asks_for_run, idempotent_request, uses_public_create
-from products.tasks.backend.facade.billing import TaskTokenUsageUnavailable, get_task_usage
+from products.tasks.backend.facade.billing import TaskTokenUsageUnavailable, get_task_compute_cost, get_task_usage
 from products.tasks.backend.facade.client_provenance import (
     TASK_CLIENT_PROVENANCE_HEADER,
     get_oauth_access_token,
@@ -203,6 +203,7 @@ from products.tasks.backend.presentation.serializers import (
     TaskRunCancelRequestSerializer,
     TaskRunCommandRequestSerializer,
     TaskRunCommandResponseSerializer,
+    TaskRunComputeUsageResponseSerializer,
     TaskRunCreateRequestSchemaSerializer,
     TaskRunCreateRequestSerializer,
     TaskRunDetailSerializer,
@@ -504,6 +505,14 @@ def _requests_signal_report_origin(data: dict) -> bool:
 
 
 _REPORT_RUN_REFUSING_THROTTLE_ATTR = "report_task_run_refusing_throttle"
+
+
+class TaskRunComputeUsageThrottle(UserRateThrottle):
+    """Bounds reads of a run's compute cost per user, session and OAuth callers included, which
+    the default personal-API-key throttles skip. Each read prices the run's sandbox sessions again."""
+
+    scope = "task_run_compute_usage"
+    rate = "120/minute"
 
 
 class _SignalReportTaskThrottle(UserRateThrottle):
@@ -2406,6 +2415,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         "log_entries",
         "session_logs",
         "task_session",
+        "compute_usage",
         "stream",
         "stream_token",
         "artifacts_presign",
@@ -3004,6 +3014,34 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     "id": session_id,
                     "download_url": download_url,
                     "content_sha256": content_sha256,
+                }
+            ).data
+        )
+
+    @extend_schema(
+        responses={
+            200: TaskRunComputeUsageResponseSerializer,
+            404: OpenApiResponse(description="Task run not found"),
+        },
+        summary="Get task run compute usage",
+        description="Return the estimated sandbox compute cost of a task run and the credits meter that bills it. "
+        "Unlike the task usage endpoint, it does not read model spend.",
+    )
+    @action(
+        detail=True,
+        methods=["get"],
+        url_path="compute_usage",
+        required_scopes=["task:read"],
+        throttle_classes=[TaskRunComputeUsageThrottle],
+    )
+    def compute_usage(self, request, pk=None, **kwargs):
+        run = self._get_run_or_404(pk)
+        compute = get_task_compute_cost(team_id=self.team_id, task_id=run.task, run_id=run.id)
+        return Response(
+            TaskRunComputeUsageResponseSerializer(
+                {
+                    "compute_cost_usd": compute.cost_usd,
+                    "billing_meter": compute.billing_meter,
                 }
             ).data
         )

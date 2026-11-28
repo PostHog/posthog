@@ -3714,6 +3714,12 @@ class TestFileSystemReadsAtScale(APIBaseTest):
             cursor.execute("ANALYZE posthog_filesystem, posthog_filesystemviewlog, posthog_dashboarditem")
 
     def _tree_rows_read(self, action: str, params: dict[str, str]) -> int:
+        # The planner must see the rows this transaction inserted. When autoanalyze last saw the tree
+        # empty, it scans the whole table however large the project has grown, and the read count then
+        # says nothing about the query. Fresh statistics make the measurement independent of the tests
+        # that ran before.
+        with connection.cursor() as cursor:
+            cursor.execute("ANALYZE posthog_filesystem, posthog_filesystemviewlog")
         before = self._tree_rows_read_in_this_transaction()
         response = self.client.get(f"/api/projects/{self.team.id}/file_system/{action}", params)
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)

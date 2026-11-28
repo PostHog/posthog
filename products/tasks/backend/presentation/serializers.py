@@ -48,6 +48,7 @@ from products.tasks.backend.facade.contracts import (
     ChannelDTO,
     ChannelFeedMessageDTO,
     ChannelInstructionsDTO,
+    ComputeBillingMeter,
     DesktopAccessReason,
     SandboxCustomImageDTO,
     SandboxEnvironmentDTO,
@@ -3499,6 +3500,19 @@ class TaskUsageResponseSerializer(serializers.Serializer):
         help_text="Estimated cloud compute cost attributed to this task in US dollars."
     )
     total_cost_usd = serializers.FloatField(help_text="Estimated total cost attributed to this task in US dollars.")
+
+
+class TaskRunComputeUsageResponseSerializer(serializers.Serializer):
+    compute_cost_usd = serializers.FloatField(
+        help_text="Estimated sandbox compute cost of this run that billing_meter bills, in US dollars. "
+        "Zero when billing_meter is null."
+    )
+    billing_meter = serializers.ChoiceField(
+        choices=ComputeBillingMeter.choices,
+        allow_null=True,
+        help_text="Credits meter that bills this run's compute: posthog_code is PostHog Desktop credits, ai_credits is "
+        "PostHog AI credits. Null when no meter bills compute for the task's origin.",
+    )
 
 
 class InternalTaskUsageRequestSerializer(serializers.Serializer):

@@ -32633,6 +32633,18 @@ export namespace Schemas {
       valid: boolean;
     }
 
+    /**
+     * * `posthog_code` - PostHog Desktop credits
+     * * `ai_credits` - PostHog AI credits
+     */
+    export type ComputeBillingMeterEnum = typeof ComputeBillingMeterEnum[keyof typeof ComputeBillingMeterEnum];
+
+
+    export const ComputeBillingMeterEnum = {
+      PosthogCode: 'posthog_code',
+      AiCredits: 'ai_credits',
+    } as const;
+
     export interface ComputeRateCard {
       /** Stable identifier for this rate card. */
       version: string;
@@ -128736,6 +128748,16 @@ export namespace Schemas {
       result?: unknown;
       /** JSON-RPC error details, including failures returned with HTTP 200 */
       error?: TaskRunCommandResponseError;
+    }
+
+    export interface TaskRunComputeUsageResponse {
+      /** Estimated sandbox compute cost of this run that billing_meter bills, in US dollars. Zero when billing_meter is null. */
+      compute_cost_usd: number;
+      /** Credits meter that bills this run's compute: posthog_code is PostHog Desktop credits, ai_credits is PostHog AI credits. Null when no meter bills compute for the task's origin.
+       *
+       * * `posthog_code` - PostHog Desktop credits
+       * * `ai_credits` - PostHog AI credits */
+      billing_meter: ComputeBillingMeterEnum | null;
     }
 
     export interface TaskRunResumeRequestSchema {

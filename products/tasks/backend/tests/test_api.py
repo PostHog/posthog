@@ -100,6 +100,7 @@ from products.tasks.backend.logic.services.connection_token import (
     get_sandbox_jwt_public_key,
     reset_sandbox_jwt_key_cache,
 )
+from products.tasks.backend.logic.services.sandbox_pricing import ComputeRateCard
 from products.tasks.backend.logic.services.staged_artifacts import (
     RUN_ARTIFACT_TTL_DAYS,
     build_task_artifact_entry,
@@ -15114,6 +15115,7 @@ class TestTaskHandoffAPI(BaseTaskAPITest):
         recipient_client.force_authenticate(recipient)
         run_url = f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/"
         self.assertEqual(recipient_client.get(run_url).status_code, status.HTTP_200_OK)
+        self.assertEqual(recipient_client.get(f"{run_url}compute_usage/").status_code, status.HTTP_200_OK)
         self.assertEqual(
             recipient_client.patch(run_url, {"stage": "build"}, format="json").status_code,
             status.HTTP_404_NOT_FOUND,
@@ -16557,6 +16559,44 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
         self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
         self.assertEqual(response.json()["code"], "usage_limit_exceeded")
         mock_post.assert_not_called()
+
+    @override_settings(AI_CREDITS_COMPUTE_BILLED_ORIGINS=["slack"])
+    def test_compute_usage_returns_only_the_requested_runs_compute_and_its_meter(self):
+        rate_start = datetime(2026, 8, 1, tzinfo=UTC)
+        rate_card = ComputeRateCard(
+            version="test",
+            effective_at=rate_start,
+            expires_at=None,
+            cpu_core_second_usd=Decimal("0.01"),
+            memory_gib_second_usd=Decimal("0.01"),
+        )
+        task = Task.objects.create(
+            team=self.team, created_by=self.user, title="Slack task", origin_product=Task.OriginProduct.SLACK
+        )
+        runs = [TaskRun.objects.create(task=task, team=self.team) for _ in range(2)]
+        for run, seconds in zip(runs, (10, 50)):
+            SandboxSession.objects.unscoped().create(
+                team=self.team,
+                task_run=run,
+                sandbox_id=f"sandbox-{seconds}",
+                origin_product=Task.OriginProduct.SLACK,
+                cpu_cores=1,
+                memory_gb=1,
+                ttl_seconds=3600,
+                created_at=rate_start,
+                ttl_expires_at=rate_start + timedelta(hours=1),
+                user_attributed_at=rate_start,
+                ended_at=rate_start + timedelta(seconds=seconds),
+            )
+
+        with (
+            patch("products.tasks.backend.logic.services.task_usage.COMPUTE_RATE_CARDS", (rate_card,)),
+            time_machine.travel(rate_start + timedelta(minutes=5), tick=False),
+        ):
+            response = self.client.get(f"/api/projects/@current/tasks/{task.id}/runs/{runs[0].id}/compute_usage/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), {"compute_cost_usd": 0.2, "billing_meter": "ai_credits"})
 
     def test_empty_task_session_returns_read_only_storage_access(self):
         task = self.create_task(runtime=Task.Runtime.PI)

@@ -1,7 +1,7 @@
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from types import SimpleNamespace
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 from unittest.mock import patch
@@ -13,6 +13,7 @@ from parameterized import parameterized
 
 from posthog.clickhouse.query_tagging import Feature, Product, get_query_tags
 
+from products.tasks.backend.facade.contracts import ComputeBillingMeter
 from products.tasks.backend.logic.services import task_usage
 from products.tasks.backend.logic.services.sandbox_pricing import ComputeRateCard
 from products.tasks.backend.models import SandboxSession, Task, TaskClientProvenance, TaskRun
@@ -59,7 +60,7 @@ class TestTaskUsageQueryTagging(SimpleTestCase):
                 generated_after=datetime(2026, 8, 1, tzinfo=UTC),
                 product=Product.SIGNALS,
             )
-            task_usage._get_task_token_cost(
+            task_usage.get_task_token_cost(
                 team_id=1,
                 task_id=UUID("00000000-0000-0000-0000-000000000002"),
                 task_created_at=datetime(2026, 8, 1, tzinfo=UTC),
@@ -323,7 +324,7 @@ class TestTaskUsage(ClickhouseTestMixin, APIBaseTest):
 
         with (
             patch.object(task_usage, "COMPUTE_RATE_CARDS", (rate_card,)),
-            patch.object(task_usage, "_get_task_token_cost", return_value=Decimal(0)),
+            patch.object(task_usage, "get_task_token_cost", return_value=Decimal(0)),
             patch.object(task_usage.timezone, "now", return_value=rate_start + timedelta(minutes=1)),
         ):
             usage = task_usage.get_task_usage(
@@ -331,8 +332,69 @@ class TestTaskUsage(ClickhouseTestMixin, APIBaseTest):
                 task_id=self.task.id,
                 task_created_at=self.task.created_at,
             )
+            compute = task_usage.get_task_compute_cost(team_id=self.team.id, task_id=self.task.id)
 
         assert usage.compute_cost_usd == Decimal("0.60")
+        assert compute == task_usage.TaskComputeCost(
+            cost_usd=Decimal("0.60"), billing_meter=ComputeBillingMeter.POSTHOG_CODE
+        )
+
+    @parameterized.expand(
+        [
+            ("posthog_ai_billed", Task.OriginProduct.POSTHOG_AI, ["posthog_ai", "slack"], Decimal("0.20")),
+            ("slack_billed", Task.OriginProduct.SLACK, ["posthog_ai", "slack"], Decimal("0.20")),
+            ("posthog_ai_unbilled", Task.OriginProduct.POSTHOG_AI, [], Decimal(0)),
+            # PostHog Desktop credits bill only tasks that a first-party client created.
+            ("user_created_without_a_first_party_client", Task.OriginProduct.USER_CREATED, [], Decimal(0)),
+        ]
+    )
+    def test_compute_cost_includes_ai_credits_origins_only_while_they_are_billed(
+        self, _name: str, origin: str, billed_origins: list[str], expected: Decimal
+    ) -> None:
+        rate_start = datetime(2026, 8, 1, tzinfo=UTC)
+        rate_card = ComputeRateCard(
+            version="test",
+            effective_at=rate_start,
+            expires_at=None,
+            cpu_core_second_usd=Decimal("0.01"),
+            memory_gib_second_usd=Decimal("0.01"),
+        )
+        task = Task.objects.create(
+            team=self.team, created_by=self.user, title="AI task", description="", origin_product=origin
+        )
+        run = TaskRun.objects.create(task=task, team=self.team)
+        SandboxSession.objects.unscoped().create(
+            team=self.team,
+            task_run=run,
+            sandbox_id="sandbox-ai",
+            origin_product=origin,
+            client_provenance=None,
+            cpu_cores=1,
+            memory_gb=1,
+            ttl_seconds=3600,
+            burstable=False,
+            created_at=rate_start,
+            ttl_expires_at=rate_start + timedelta(hours=1),
+            user_attributed_at=rate_start,
+            ended_at=rate_start + timedelta(seconds=10),
+        )
+
+        with (
+            self.settings(AI_CREDITS_COMPUTE_BILLED_ORIGINS=billed_origins),
+            patch.object(task_usage, "COMPUTE_RATE_CARDS", (rate_card,)),
+            patch.object(task_usage, "get_task_token_cost", return_value=Decimal(0)),
+            patch.object(task_usage.timezone, "now", return_value=rate_start + timedelta(minutes=1)),
+        ):
+            usage = task_usage.get_task_usage(team_id=self.team.id, task_id=task.id, task_created_at=task.created_at)
+            run_compute = task_usage.get_task_compute_cost(team_id=self.team.id, task_id=task.id, run_id=run.id)
+            other_run_compute = task_usage.get_task_compute_cost(team_id=self.team.id, task_id=task.id, run_id=uuid4())
+
+        assert run_compute == task_usage.TaskComputeCost(
+            cost_usd=expected, billing_meter=ComputeBillingMeter.AI_CREDITS if billed_origins else None
+        )
+        assert other_run_compute.cost_usd == 0
+        # PostHog Desktop reads the task usage, so it must not show compute that the AI credits meter bills.
+        assert usage.compute_cost_usd == 0
 
     def test_usage_is_reported_before_the_first_rate_card_takes_effect(self) -> None:
         rate_start = datetime(2026, 8, 1, tzinfo=UTC)
@@ -362,7 +424,7 @@ class TestTaskUsage(ClickhouseTestMixin, APIBaseTest):
 
         with (
             patch.object(task_usage, "COMPUTE_RATE_CARDS", (rate_card,)),
-            patch.object(task_usage, "_get_task_token_cost", return_value=Decimal("2.5")),
+            patch.object(task_usage, "get_task_token_cost", return_value=Decimal("2.5")),
             patch.object(task_usage.timezone, "now", return_value=rate_start - timedelta(days=1)),
         ):
             usage = task_usage.get_task_usage(
@@ -376,10 +438,10 @@ class TestTaskUsage(ClickhouseTestMixin, APIBaseTest):
 
     def test_token_cost_is_cached(self) -> None:
         with patch.object(task_usage, "get_local_task_token_cost", return_value=Decimal("1.25")) as get_cost:
-            first = task_usage._get_task_token_cost(
+            first = task_usage.get_task_token_cost(
                 team_id=self.team.id, task_id=self.task.id, task_created_at=self.task.created_at
             )
-            second = task_usage._get_task_token_cost(
+            second = task_usage.get_task_token_cost(
                 team_id=self.team.id, task_id=self.task.id, task_created_at=self.task.created_at
             )
 
