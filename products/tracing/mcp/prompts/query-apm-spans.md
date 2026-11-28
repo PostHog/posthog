@@ -94,7 +94,7 @@ Maximum number of results (1-1000). Defaults to 100.
 
 ## query.after
 
-Cursor for pagination. Use the `nextCursor` value from the previous response.
+Cursor for pagination. Use the `nextCursor` value from the previous response. `hasMore: false` marks the last page, where `nextCursor` is null. With `orderBy: duration`, `nextCursor` is always null: page with `offset` instead.
 
 ## query.prefetchSpans
 
