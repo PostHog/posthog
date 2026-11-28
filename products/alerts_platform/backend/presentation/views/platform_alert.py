@@ -17,6 +17,8 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from posthog.hogql.database.schema.logs import PIPELINE_LOG_SERVICE_NAMES
+
 from posthog import permissions
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.pagination import PrecountedLimitOffsetPagination
@@ -36,6 +38,7 @@ from posthog.permissions import (
 from posthog.scopes.catalog import APIScopeObject
 from posthog.scopes.checks import scopes_not_covered
 
+from products.access_control.backend.facade import api as access_control_api
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.alerts_platform.backend.facade import api as platform_api
 from products.alerts_platform.backend.facade.contracts import (
@@ -46,6 +49,7 @@ from products.alerts_platform.backend.facade.contracts import (
     AlertDestinationData,
     AlertDestinationValidationError,
     AlertEventKind,
+    ControlChangeKind,
     DestinationType,
     Grouping,
     GroupingMode,
@@ -648,6 +652,19 @@ class PlatformAlertsFlagPermission(BasePermission):
         return bool(view.open_source_kinds)
 
 
+_TIMING_AND_NAME_FIELDS = frozenset(
+    {
+        "name",
+        "enabled",
+        "schedule_restriction",
+        "evaluation_periods",
+        "datapoints_to_alarm",
+        "cooldown_minutes",
+        "check_interval_minutes",
+    }
+)
+
+
 class PlatformAlertConfigurationViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     scope_object = "alert"
     scope_object_read_actions = ["list", "retrieve", "destinations", "events"]
@@ -731,6 +748,30 @@ class PlatformAlertConfigurationViewSet(TeamAndOrgViewSetMixin, viewsets.Generic
             and resource_permitted(self.request, self.user_access_control, resource, access_level, scope_action)
         ]
 
+    def _pipeline_logs_hidden(self, source_kind: str, source_config: dict[str, Any]) -> bool:
+        # A malformed config is refused by the source's own validation later.
+        if source_kind != PlatformAlertConfigurationSourceKind.LOGS.value or not isinstance(source_config, dict):
+            return False
+        filters = source_config.get("filters")
+        names = filters.get("serviceNames") if isinstance(filters, dict) else None
+        if names is not None and not (isinstance(names, list) and all(isinstance(name, str) for name in names)):
+            return False
+        services = set(names or [])
+        if services and not services & PIPELINE_LOG_SERVICE_NAMES:
+            return False
+        return bool(
+            access_control_api.get_restricted_properties_with_group_type_index_for_team(
+                team_id=self._canonical_team_id(), user=cast(User, self.request.user)
+            )
+        )
+
+    def _require_pipeline_log_access(self, source_kind: str, source_config: dict[str, Any]) -> None:
+        if self._pipeline_logs_hidden(source_kind, source_config):
+            raise PermissionDenied(
+                "Your property access permissions do not allow alerts on pipeline logs. "
+                "Pick the services this alert watches, without PostHog pipeline services."
+            )
+
     def _readable_source_kinds(self) -> list[str]:
         return self._source_kinds_with("viewer", "read")
 
@@ -753,6 +794,17 @@ class PlatformAlertConfigurationViewSet(TeamAndOrgViewSetMixin, viewsets.Generic
         if current.source_kind not in self._writable_source_kinds:
             raise PermissionDenied(f"You cannot {verb} {current.source_kind} alerts.")
         return current
+
+    def _checked_edit(
+        self, source_kind: str, stored: PlatformAlertConfigurationEdit, fields: dict[str, Any]
+    ) -> PlatformAlertConfigurationEdit:
+        edited = replace(stored, **fields)
+        # An edit form sends unchanged settings back, so compare values, not keys.
+        changed = {name for name, value in fields.items() if getattr(stored, name) != value}
+        if (edited.enabled and not stored.enabled) or changed - _TIMING_AND_NAME_FIELDS:
+            self._require_pipeline_log_access(source_kind, edited.source_config)
+            self._require_pipeline_log_access(source_kind, stored.source_config)
+        return edited
 
     def _edit(self, request: Request, pk: str, *, partial: bool) -> Response:
         configuration_id = serializers.UUIDField().run_validation(pk)
@@ -780,7 +832,7 @@ class PlatformAlertConfigurationViewSet(TeamAndOrgViewSetMixin, viewsets.Generic
                 source_kinds=self._writable_source_kinds,
                 configuration_id=configuration_id,
                 # A partial update names only the fields it changes. The rest keep what is stored.
-                change=lambda stored: replace(stored, **fields),
+                change=lambda stored: self._checked_edit(current.source_kind, stored, fields),
                 check_interval_minutes=check_interval_minutes,
             )
         except PlatformAlertNotEditable as error:
@@ -820,6 +872,7 @@ class PlatformAlertConfigurationViewSet(TeamAndOrgViewSetMixin, viewsets.Generic
         serializer.is_valid(raise_exception=True)
         fields = dict(serializer.validated_data)
         fields.pop("source_kind")
+        self._require_pipeline_log_access(source_kind, fields["source_config"])
         try:
             created = platform_api.create_configuration(
                 team_id=self._canonical_team_id(),
@@ -1004,6 +1057,8 @@ class PlatformAlertConfigurationViewSet(TeamAndOrgViewSetMixin, viewsets.Generic
         configuration_id = serializers.UUIDField().run_validation(pk)
         team_id = self._canonical_team_id()
         current = self._writable_configuration(team_id, configuration_id, "reset")
+        # A reset restarts the checks, like turning the alert on.
+        self._require_pipeline_log_access(current.source_kind, current.source_config)
         if current.owner != PlatformAlertOwner.PLATFORM:
             raise Conflict(f"This alert is managed by the {current.source_kind} product. Reset it there.")
         # The facade looks an alert up by its public id, which a migrated copy keeps from its source row.
@@ -1061,9 +1116,24 @@ class PlatformAlertConfigurationViewSet(TeamAndOrgViewSetMixin, viewsets.Generic
         limit = query.validated_data["limit"]
         configuration_id = serializers.UUIDField().run_validation(pk)
         team_id = self._canonical_team_id()
-        self._readable_configuration(team_id, configuration_id)
+        current = self._readable_configuration(team_id, configuration_id)
+        # Checks count every log, so a member who cannot see pipeline logs gets the state changes without the values.
+        # A check from before the last change to its settings may have read pipeline logs.
+        hide_values = self._pipeline_logs_hidden(current.source_kind, current.source_config)
         read = platform_api.alert_events(
             team_id=team_id, configuration_id=configuration_id, since=timezone.now() - EVENTS_LOOKBACK, limit=limit
+        )
+        hide_before = (
+            max(
+                (
+                    change.occurred_at
+                    for change in read.changes.changes
+                    if change.kind == ControlChangeKind.CONFIG_CHANGE
+                ),
+                default=None,
+            )
+            if not hide_values and self._pipeline_logs_hidden(current.source_kind, {})
+            else None
         )
         events: list[dict[str, Any]] = [
             *(
@@ -1072,7 +1142,9 @@ class PlatformAlertConfigurationViewSet(TeamAndOrgViewSetMixin, viewsets.Generic
                     "kind": PlatformAlertEventKind.CHECK,
                     "previous_state": check.previous_state,
                     "state": check.state,
-                    "value": check.value,
+                    "value": None
+                    if hide_values or (hide_before is not None and check.occurred_at < hide_before)
+                    else check.value,
                     "error_message": check.error_message,
                     "grouping_key": check.grouping_key,
                     "condition": check.condition,
