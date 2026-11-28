@@ -17,6 +17,7 @@ import {
     hasNegatedEventFilter,
     isDefaultExposureConfig,
     resolvedExposureEvent,
+    ruleExposureCriteriaError,
 } from './exposureContract'
 
 describe('exposureContract', () => {
@@ -197,6 +198,37 @@ describe('exposureContract', () => {
         ],
     ])('resolves the activation config for %s', (_name, exposureCriteria, expectActive) => {
         expect(getActivationConfig(exposureCriteria)).toEqual(expectActive ? activationConfig : undefined)
+    })
+
+    it.each<[string, ExperimentExposureCriteria | null, unknown]>([
+        ['no criteria', null, null],
+        ['test account filtering only', { filterTestAccounts: true }, null],
+        [
+            'the default event with property filters',
+            {
+                exposure_config: {
+                    kind: NodeKind.ExperimentEventExposureConfig,
+                    event: '$feature_flag_called',
+                    properties: [
+                        { type: PropertyFilterType.Event, key: 'plan', operator: PropertyOperator.Exact, value: 'pro' },
+                    ],
+                },
+            },
+            null,
+        ],
+        [
+            'a custom event',
+            { exposure_config: { kind: NodeKind.ExperimentEventExposureConfig, event: '$pageview', properties: [] } },
+            expect.stringContaining('custom exposure'),
+        ],
+        [
+            'an action',
+            { exposure_config: { kind: NodeKind.ActionsNode, id: 42 } },
+            expect.stringContaining('custom exposure'),
+        ],
+        ['an activation event', { activation_config: activationConfig }, expect.stringContaining('activation event')],
+    ])('checks %s against an experiment on a flag rule', (_name, exposureCriteria, expectedError) => {
+        expect(ruleExposureCriteriaError(exposureCriteria)).toEqual(expectedError)
     })
 
     const eventConfig = (...properties: AnyPropertyFilter[]): ExperimentEventExposureConfig => ({

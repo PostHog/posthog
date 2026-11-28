@@ -1692,7 +1692,10 @@ class FeatureFlagSerializer(
     is_used_in_replay_settings = serializers.SerializerMethodField()
     is_eligible_for_experiment = serializers.BooleanField(
         read_only=True,
-        help_text="Whether this flag can back an experiment: multivariate with 2 to 20 variants.",
+        help_text=(
+            "Whether this flag can back an experiment: multivariate with 2 to 20 variants, or, for a flag "
+            "with rules, an experiment rule with 2 to 20 variants."
+        ),
     )
 
     name = serializers.CharField(
@@ -4672,7 +4675,7 @@ class FeatureFlagViewSet(
                 location=OpenApiParameter.QUERY,
                 required=False,
                 enum=["true"],
-                description="When 'true', only return flags that can back an experiment: multivariate with 2-20 variants. Any other value is ignored.",
+                description="When 'true', only return flags that can back an experiment: multivariate with 2-20 variants, or, for a flag with rules, an experiment rule with 2-20 variants. Any other value is ignored.",
             ),
         ]
     )

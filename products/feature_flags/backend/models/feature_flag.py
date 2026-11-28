@@ -5,7 +5,7 @@ from django.contrib.auth.base_user import AbstractBaseUser
 from django.contrib.postgres.aggregates import ArrayAgg
 from django.core.exceptions import ValidationError
 from django.db import DatabaseError, models, router
-from django.db.models import Func, IntegerField, Q, QuerySet
+from django.db.models import BooleanField, F, Func, IntegerField, Q, QuerySet, Value
 from django.db.models.fields.json import KeyTransform
 from django.http import HttpRequest
 from django.utils import timezone
@@ -30,6 +30,11 @@ from products.feature_flags.backend.facade.config import (
     v2_config_lookup,
 )
 from products.feature_flags.backend.facade.references import InvalidIds, references
+from products.feature_flags.backend.facade.rules import (
+    ExperimentRuleError,
+    experiment_rule_variant_count_jsonpath,
+    experiment_rule_variant_counts,
+)
 from products.feature_flags.backend.reserved_variant_keys import non_string_variants, unheld_non_string_variant
 from products.feature_flags.backend.variant_rollout import format_variant_rollout_sum, variant_rollout_sum_is_100
 
@@ -115,6 +120,7 @@ def build_scheduled_change_serializer_data(flag: "FeatureFlag", payload: dict[st
 
 
 # The single flag-side rule for "this flag can back an experiment": multivariate with
+# 2-20 variants, or for a flag with rules (config version 2) an experiment rule with
 # 2-20 variants. No variant key is required — the baseline defaults to 'control' when
 # present, else the first variant (see get_baseline_variant_key). Enforced in three
 # matching shapes — experiment_eligibility_error (in-memory), FeatureFlagQuerySet.
@@ -135,16 +141,25 @@ def experiment_eligibility_error(variants: list[dict[str, Any]] | None) -> str |
 
 class FeatureFlagQuerySet(RootTeamQuerySet):
     def eligible_for_experiment(self) -> "FeatureFlagQuerySet":
-        """JSONB twin of experiment_eligibility_error: multivariate with 2-20 variants."""
+        """JSONB twin of FeatureFlag.is_eligible_for_experiment."""
         return self.annotate(
             _experiment_variant_count=Func(
                 KeyTransform("variants", KeyTransform("multivariate", "filters")),
                 function="jsonb_array_length",
                 output_field=IntegerField(),
-            )
+            ),
+            _has_eligible_experiment_rule=Func(
+                F("filters"),
+                Value(experiment_rule_variant_count_jsonpath(EXPERIMENT_MIN_VARIANTS, EXPERIMENT_MAX_VARIANTS)),
+                function="jsonb_path_exists",
+                output_field=BooleanField(),
+            ),
         ).filter(
-            _experiment_variant_count__gte=EXPERIMENT_MIN_VARIANTS,
-            _experiment_variant_count__lte=EXPERIMENT_MAX_VARIANTS,
+            Q(
+                _experiment_variant_count__gte=EXPERIMENT_MIN_VARIANTS,
+                _experiment_variant_count__lte=EXPERIMENT_MAX_VARIANTS,
+            )
+            | Q(_has_eligible_experiment_rule=True, **v2_config_lookup())
         )
 
 
@@ -446,11 +461,15 @@ class FeatureFlag(Taggable, FileSystemSyncMixin, ModelActivityMixin, RootTeamMix
     @property
     def is_eligible_for_experiment(self) -> bool:
         try:
-            variants = self.variants
+            return experiment_eligibility_error(self.variants) is None
         except ConfigFormatError:
-            # Only a v1 document carries the variants an experiment reads.
+            pass
+        # A flag with rules backs an experiment through one of its experiment rules.
+        try:
+            variant_counts = experiment_rule_variant_counts(self.filters or {})
+        except (ConfigFormatError, ExperimentRuleError):
             return False
-        return experiment_eligibility_error(variants) is None
+        return any(EXPERIMENT_MIN_VARIANTS <= count <= EXPERIMENT_MAX_VARIANTS for count in variant_counts)
 
     @property
     def usage_dashboard_has_enriched_insights(self) -> bool:

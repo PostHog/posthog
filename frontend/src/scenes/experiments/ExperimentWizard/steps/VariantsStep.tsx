@@ -10,12 +10,13 @@ import type { FeatureFlagType } from '~/types'
 
 import { TrafficPreview } from '../../ExperimentForm/VariantDistributionEditor'
 import { VariantsPanelCreateFeatureFlag } from '../../ExperimentForm/VariantsPanelCreateFeatureFlag'
-import { getFlagVariants } from '../../utils'
+import { getFlagExperimentRule, getFlagVariants } from '../../utils'
 import { experimentWizardLogic } from '../experimentWizardLogic'
 
-const ReadOnlyVariantsStep = ({ flag }: { flag: FeatureFlagType }): JSX.Element => {
-    const variants = getFlagVariants(flag)
-    const rolloutPercentage = flag.filters.groups?.[0]?.rollout_percentage ?? 100
+const ReadOnlyVariantsStep = ({ flag, ruleId }: { flag: FeatureFlagType; ruleId?: string | null }): JSX.Element => {
+    const rule = getFlagExperimentRule(flag, ruleId)
+    const variants = getFlagVariants(flag, rule?.id)
+    const rolloutPercentage = rule?.rollout_percentage ?? flag.filters.groups?.[0]?.rollout_percentage ?? 100
     const variantRolloutSum = variants.reduce((sum, { rollout_percentage }) => sum + rollout_percentage, 0)
 
     return (
@@ -95,7 +96,7 @@ export function VariantsStep(): JSX.Element {
                 <h3 className="text-lg font-semibold">Who sees which variant?</h3>
             </div>
             {linkedFeatureFlag ? (
-                <ReadOnlyVariantsStep flag={linkedFeatureFlag} />
+                <ReadOnlyVariantsStep flag={linkedFeatureFlag} ruleId={experiment.feature_flag_rule_id} />
             ) : (
                 <VariantsPanelCreateFeatureFlag
                     experiment={experiment}

@@ -19,8 +19,8 @@ import type { FeatureFlagFilters, MultivariateFlagVariant } from '../../../types
 import { createExperimentLogic } from '../ExperimentForm/createExperimentLogic'
 import type { FeatureFlagKeyValidation } from '../ExperimentForm/variantsPanelLogic'
 import { variantsPanelLogic } from '../ExperimentForm/variantsPanelLogic'
-import { type ExposureSource, getExposureSource } from '../exposureContract'
-import { getExperimentVariants, getFlagVariants } from '../utils'
+import { type ExposureSource, getExposureSource, ruleExposureCriteriaError } from '../exposureContract'
+import { getExperimentVariants, linkedFlagConfig } from '../utils'
 
 export type ExperimentWizardStep = 'about' | 'variants' | 'analytics'
 
@@ -108,12 +108,14 @@ export interface experimentWizardLogicActions {
     setFeatureFlagConfig: (config: {
         ensure_experience_continuity?: boolean
         feature_flag_key?: string
+        feature_flag_rule_id?: string | null
         rollout_percentage?: number
         variants?: MultivariateFlagVariant[]
     }) => {
         config: {
             ensure_experience_continuity?: boolean
             feature_flag_key?: string
+            feature_flag_rule_id?: string | null
             rollout_percentage?: number
             variants?: MultivariateFlagVariant[]
         }
@@ -419,6 +421,12 @@ export const experimentWizardLogic = kea<experimentWizardLogicType>([
                 }
 
                 // Active validation errors — always shown once triggered
+                const ruleExposureError = experiment.feature_flag_rule_id
+                    ? ruleExposureCriteriaError(experiment.exposure_criteria)
+                    : null
+                if (ruleExposureError) {
+                    errors.analytics.push(ruleExposureError)
+                }
                 if (!linkedFeatureFlag && featureFlagKeyValidation?.valid === false && featureFlagKeyValidation.error) {
                     errors.about.push(featureFlagKeyValidation.error)
                 }
@@ -513,10 +521,7 @@ export const experimentWizardLogic = kea<experimentWizardLogicType>([
                 const match = featureFlags.results.find((f) => f.key === key)
                 if (match) {
                     actions.setLinkedFeatureFlag(match)
-                    actions.setFeatureFlagConfig({
-                        feature_flag_key: match.key,
-                        variants: getFlagVariants(match),
-                    })
+                    actions.setFeatureFlagConfig(linkedFlagConfig(match))
                 }
             }
         },

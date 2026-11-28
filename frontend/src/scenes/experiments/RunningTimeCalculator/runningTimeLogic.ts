@@ -394,7 +394,8 @@ export const runningTimeLogic = kea<runningTimeLogicType>([
     selectors({
         numberOfVariants: [
             (s) => [s.experiment],
-            (experiment: Experiment): number => getFlagVariants(experiment?.feature_flag).length || 2,
+            (experiment: Experiment): number =>
+                getFlagVariants(experiment?.feature_flag, experiment?.feature_flag_rule_id).length || 2,
         ],
 
         isManualMode: [

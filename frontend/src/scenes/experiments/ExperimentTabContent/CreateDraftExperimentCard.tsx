@@ -1,10 +1,13 @@
 import { useActions, useValues } from 'kea'
+import { useState } from 'react'
 
 import { IconFlask } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonTextArea } from '@posthog/lemon-ui'
 
 import type { FeatureFlagType } from '~/types'
 
+import { ExperimentRuleSelect } from '../ExperimentRuleSelect'
+import { getFlagExperimentRule } from '../utils'
 import { createDraftExperimentFromFlagLogic } from './createDraftExperimentFromFlagLogic'
 
 export interface CreateDraftExperimentCardProps {
@@ -18,6 +21,7 @@ export function CreateDraftExperimentCard({ featureFlag }: CreateDraftExperiment
 
     const { experimentName, experimentDescription, isLoading, error } = useValues(logic)
     const { setExperimentName, setExperimentDescription, createDraftExperiment } = useActions(logic)
+    const [ruleId, setRuleId] = useState(() => getFlagExperimentRule(featureFlag)?.id ?? null)
 
     return (
         <div className="border rounded p-4 bg-bg-light">
@@ -56,12 +60,19 @@ export function CreateDraftExperimentCard({ featureFlag }: CreateDraftExperiment
                     />
                 </div>
 
+                <ExperimentRuleSelect
+                    flag={featureFlag}
+                    ruleId={ruleId}
+                    onChange={setRuleId}
+                    disabledReason={isLoading ? 'Creating the experiment' : undefined}
+                />
+
                 {error && <div className="text-danger text-sm">{error}</div>}
 
                 <div className="flex gap-2">
                     <LemonButton
                         type="primary"
-                        onClick={createDraftExperiment}
+                        onClick={() => createDraftExperiment(ruleId)}
                         loading={isLoading}
                         disabledReason={!experimentName.trim() ? 'Name is required' : undefined}
                     >
