@@ -557,7 +557,21 @@ class TransactionalEmailImpact:
     after_click: TransactionalEmailConversions | None
     without_click: TransactionalEmailConversions | None
     sessions: int | None
+    sessions_capped_at: int | None
     link_tagging_enabled: bool
+
+
+@frozen
+class TransactionalEmailImpactSession:
+    session_id: str
+    message_id: str
+    first_pageview_at: datetime
+
+
+@frozen
+class TransactionalEmailImpactSessions:
+    sessions: tuple[TransactionalEmailImpactSession, ...]
+    has_more: bool
 
 
 class CodeEmailSourceOrigin(LabeledStrEnum):
