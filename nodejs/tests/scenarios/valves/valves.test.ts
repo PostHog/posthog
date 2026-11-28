@@ -2,10 +2,12 @@ import { SESv2Client, SendEmailCommand } from '@aws-sdk/client-sesv2'
 import { randomUUID } from 'crypto'
 import { once } from 'events'
 import { mkdtempSync, rmSync } from 'fs'
+import http from 'http'
 import os from 'os'
 import path from 'path'
 import { setTimeout as sleep } from 'timers/promises'
 
+import { getDefaultCdpConfig } from '~/cdp/config'
 import { parseJSON } from '~/common/utils/json-parse'
 import { internalFetch } from '~/common/utils/request'
 import { waitForExpect } from '~/tests/helpers/expectations'
@@ -25,6 +27,7 @@ import { Truth } from '../provider-edge/truth'
 import { ValveContext, createValves } from './valves'
 
 const EMAIL_WORKER = 'cdp-cyclotron-worker-email'
+const OBJECT_STORE = getDefaultCdpConfig().CDP_EMAIL_ATTACHMENTS_S3_ENDPOINT
 const OUR_TEAM = 7
 
 type Job = { team: number; queue: Queue; status: 'available' | 'running' }
@@ -759,6 +762,16 @@ describe('valves', () => {
             }
         }
 
+        const objectGet = async (key = 'missing-key', signal?: AbortSignal): Promise<number | string> => {
+            const url = `${await edge.s3ProxyOf(OBJECT_STORE)}/scenario-valves-missing-bucket/${key}`
+            return await new Promise((resolve) => {
+                http.get(url, { signal }, (answer) => {
+                    resolve(answer.statusCode ?? 0)
+                    answer.destroy()
+                }).on('error', (error) => resolve(error.name))
+            })
+        }
+
         const send = (abortSignal?: AbortSignal, to = 'run-1-1@www.example.com'): Promise<string> =>
             ses
                 .send(
@@ -988,6 +1001,82 @@ describe('valves', () => {
                 faults: ['ses.reject', 'ses.reject'],
                 dose: { type, share: 1 },
             })
+        })
+
+        const abortedOnceObserved = async (observed: () => Promise<unknown>): Promise<number | string> => {
+            const caller = new AbortController()
+            const answered = objectGet('missing-key', caller.signal)
+            await observed()
+            caller.abort()
+            return await answered
+        }
+
+        it.each<
+            [
+                string,
+                string,
+                Record<string, unknown>,
+                (observed: () => Promise<unknown>) => Promise<number | string>,
+                number | string,
+            ]
+        >([
+            ['ses.status', 'ses', { code: 503, share: 1 }, () => send(), 'ServiceUnavailable'],
+            ['s3.status', 's3', { code: 503, op: 'get', share: 1 }, () => objectGet(), 503],
+            ['s3.stall', 's3', { op: 'get', count: 1 }, abortedOnceObserved, 'AbortError'],
+            ['s3.slow', 's3', { op: 'get', bytesPerSecond: 1 }, abortedOnceObserved, 'AbortError'],
+        ])(
+            'applies %s on %s with %j while it holds, and observes it',
+            async (valve, target, dose, request, outcome) => {
+                const valves = createValves({ pollMs: 5 })
+                const edgeHeld = onEdgeHeld()
+                const observed = (): Promise<unknown> =>
+                    waitForExpect(() => expect(valves.timeline()[0].observedAt).toBeDefined(), 2000, 5)
+
+                await valves.start([{ valve, target, dose, at: '0ms', for: '1m' }], edgeHeld.context)
+                await edgeHeld.held
+                const answered = await request(observed)
+                await observed()
+                await valves.releaseAll()
+
+                expect({ answered, error: valves.timeline()[0].error }).toEqual({ answered: outcome, error: undefined })
+            }
+        )
+
+        it('picks the objects an s3.status share takes from the seed, whatever order they arrive in', async () => {
+            const keys = Array.from({ length: 20 }, (_, index) => `object-${index}`)
+            const failedIn = async (seed: number, arriving: string[]): Promise<string[]> => {
+                const valves = createValves({ pollMs: 5 })
+                await valves.start(
+                    [
+                        {
+                            valve: 's3.status',
+                            target: 's3',
+                            dose: { code: 503, op: 'get', share: 0.5 },
+                            at: '0ms',
+                            for: '1m',
+                        },
+                    ],
+                    { ...onEdge(), seed }
+                )
+                await waitForExpect(() => expect(valves.timeline()[0].appliedAt).toBeDefined(), 2000, 5)
+                const failed: string[] = []
+                for (const key of arriving) {
+                    if ((await objectGet(key)) === 503) {
+                        failed.push(key)
+                    }
+                }
+                await valves.releaseAll()
+                return failed.sort()
+            }
+
+            const first = await failedIn(6, keys)
+            const reordered = await failedIn(6, [...keys].reverse())
+            const otherSeed = await failedIn(7, keys)
+
+            expect(first.length).toBeGreaterThan(0)
+            expect(first.length).toBeLessThan(keys.length)
+            expect(reordered).toEqual(first)
+            expect(otherSeed).not.toEqual(first)
         })
 
         it.each<[boolean, (number | string | undefined)[][]]>([

@@ -10,7 +10,16 @@ import type { Observation } from '../environment/failover'
 import type { RoleTermination } from '../environment/supervisor'
 import type { CyclotronProbe, Queue } from '../probe/cyclotron-probe'
 import type { WriterSample } from '../probe/writer-probe'
-import { AmbiguousParams, FaultRule, SesRejectParams, SesThrottleParams, WEBHOOK_HOST } from '../provider-edge'
+import {
+    AmbiguousParams,
+    FaultRule,
+    S3BodylessOp,
+    S3Op,
+    S3SlowParams,
+    SesRejectParams,
+    SesThrottleParams,
+    WEBHOOK_HOST,
+} from '../provider-edge'
 import { heldAnswerRule, ruleOf } from '../provider-edge/faults'
 
 export type ValveContext = {
@@ -164,6 +173,78 @@ export const sesReject: ValveDefinition = {
     },
 }
 
+const ServerErrorCode = z.number().int().min(500).max(599)
+const ServerErrorDose = z.union([
+    z.object({ code: ServerErrorCode, count: z.number().int().min(1) }).strict(),
+    z.object({ code: ServerErrorCode, share: z.number().gt(0).max(1) }).strict(),
+])
+
+export const sesStatus: ValveDefinition = {
+    name: 'ses.status',
+    params: ServerErrorDose,
+    target: z.literal('ses'),
+    strandsRunningJobs: false,
+    apply: (context, _target, dose) => {
+        const { code, ...amount } = ServerErrorDose.parse(dose)
+        const rule = ruleOf({ name: 'ses.status', params: { code }, dose: amount })
+        return context.environment.actuate({ kind: 'edge.fault', rule: picking(rule, context) })
+    },
+}
+
+const S3_TARGET = z.literal('s3')
+
+const S3StatusDose = z.union([
+    z.object({ code: ServerErrorCode, op: S3BodylessOp.optional(), count: z.number().int().min(1) }).strict(),
+    z.object({ code: ServerErrorCode, op: S3BodylessOp.optional(), share: z.number().gt(0).max(1) }).strict(),
+])
+
+export const s3Status: ValveDefinition = {
+    name: 's3.status',
+    params: S3StatusDose,
+    target: S3_TARGET,
+    strandsRunningJobs: false,
+    apply: (context, _target, dose) => {
+        const { code, op, ...amount } = S3StatusDose.parse(dose)
+        const rule = ruleOf({ name: 's3.status', params: { code }, match: { op }, dose: amount })
+        return context.environment.actuate({ kind: 'edge.fault', rule: picking(rule, context) })
+    },
+}
+
+const S3StallDose = z.union([
+    z.object({ op: S3BodylessOp.optional(), count: z.number().int().min(1) }).strict(),
+    z.object({ op: S3BodylessOp.optional(), share: z.number().gt(0).max(1) }).strict(),
+])
+
+export const s3Stall: ValveDefinition = {
+    name: 's3.stall',
+    params: S3StallDose,
+    target: S3_TARGET,
+    strandsRunningJobs: false,
+    apply: (context, _target, dose) => {
+        const { op, ...amount } = S3StallDose.parse(dose)
+        return context.environment.actuate({
+            kind: 'edge.fault',
+            rule: picking(ruleOf({ name: 's3.stall', match: { op }, dose: amount }), context),
+        })
+    },
+}
+
+const S3SlowDose = S3SlowParams.extend({ op: S3Op.exclude(['head']).optional() }).strict()
+
+export const s3Slow: ValveDefinition = {
+    name: 's3.slow',
+    params: S3SlowDose,
+    target: S3_TARGET,
+    strandsRunningJobs: false,
+    apply: (context, _target, dose) => {
+        const { op, bytesPerSecond } = S3SlowDose.parse(dose)
+        return context.environment.actuate({
+            kind: 'edge.fault',
+            rule: ruleOf({ name: 's3.slow', params: { bytesPerSecond }, match: { op } }),
+        })
+    },
+}
+
 const AmbiguousDose = z.union([
     z.object({ accepted: AmbiguousParams.shape.accepted, count: z.number().int().min(1) }).strict(),
     z.object({ accepted: AmbiguousParams.shape.accepted, share: z.number().gt(0).max(1) }).strict(),
@@ -258,6 +339,10 @@ export const VALVES: ValveDefinition[] = [
     sesThrottle,
     sesReject,
     sesAmbiguous,
+    sesStatus,
+    s3Status,
+    s3Stall,
+    s3Slow,
     destAmbiguous,
     pgEnqueueRefused,
     pgCommitReplyLost,

@@ -647,7 +647,7 @@ describe('provider edge', () => {
     })
 
     it.each([
-        ['a fault no card can name', { name: 'ses.status', params: { status: 500 }, dose: { count: 1 } }, 'name'],
+        ['a fault no card can name', { name: 'ses.drop_connection', dose: { count: 1 } }, 'name'],
         ['a fault without a dose', { name: 'ses.reject', params: { type: 'rejected' } }, 'dose'],
         ['a share above one', { name: 'ses.reject', params: { type: 'rejected' }, dose: { share: 2 } }, 'dose'],
         ['a throttle rate below one per second', { name: 'ses.throttle', params: { rate: 0.5 } }, 'params.rate'],

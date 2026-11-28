@@ -40,6 +40,7 @@ import {
     MODES_WITHOUT_A_ROLE,
     ROLE_PORTS,
     Role,
+    attachmentStoreUpstreamOf,
     configHashOf,
     consumerGroupsOf,
     fetchRetriesOf,
@@ -71,7 +72,11 @@ const REPO = '/work/posthog'
 const NODEJS = `${REPO}/nodejs`
 const STATE_DIR = '/home/dev/.cache/posthog-scenarios'
 const NEVER_ABORTED = new AbortController().signal
-const EDGE = { url: 'http://127.0.0.1:4566', caCertPath: `${STATE_DIR}/edge-ca/ca.pem` }
+const EDGE = {
+    url: 'http://127.0.0.1:4566',
+    caCertPath: `${STATE_DIR}/edge-ca/ca.pem`,
+    attachmentStoreUrl: 'http://127.0.0.1:4567',
+}
 const MARKED_ENV = ['PATH=/usr/bin', `SCENARIO_RUNNER=${STATE_DIR}`]
 const PLAIN_ENV = ['PATH=/usr/bin']
 const OTHER_CHECKOUT = '/work/posthog-other/nodejs'
@@ -356,6 +361,37 @@ describe('scenario environment', () => {
         expect(error.message).toContain('Run `kill 41 42`, then run the scenario again.')
     })
 
+    it.each<[string, NodeJS.ProcessEnv, Record<string, string>, string]>([
+        ['nothing names a store, as on a cloud launcher', {}, {}, 'http://localhost:19000'],
+        [
+            'the environment names one',
+            { CDP_EMAIL_ATTACHMENTS_S3_ENDPOINT: 'http://env.example' },
+            {},
+            'http://env.example',
+        ],
+        [
+            'the profile names one over the environment',
+            { CDP_EMAIL_ATTACHMENTS_S3_ENDPOINT: 'http://env.example' },
+            { CDP_EMAIL_ATTACHMENTS_S3_ENDPOINT: 'http://profile.example' },
+            'http://profile.example',
+        ],
+    ])(
+        'puts the S3 edge in front of the store when %s, outside a dev or test environment',
+        (_, base, settings, store) => {
+            const { NODE_ENV, DEBUG } = process.env
+            process.env.NODE_ENV = 'production'
+            delete process.env.DEBUG
+            try {
+                expect(attachmentStoreUpstreamOf(base, settings)).toBe(store)
+            } finally {
+                process.env.NODE_ENV = NODE_ENV
+                if (DEBUG !== undefined) {
+                    process.env.DEBUG = DEBUG
+                }
+            }
+        }
+    )
+
     describe('roleSpecs', () => {
         const base = {
             PATH: '/usr/bin',
@@ -630,6 +666,9 @@ describe('scenario environment', () => {
                     SES_ENDPOINT: EDGE.url,
                     HTTPS_PROXY: EDGE.url,
                     NODE_EXTRA_CA_CERTS: EDGE.caCertPath,
+                    CDP_EMAIL_ATTACHMENTS_S3_ENDPOINT: EDGE.attachmentStoreUrl,
+                    CDP_EMAIL_ATTACHMENTS_S3_PUBLIC_ENDPOINT: EDGE.attachmentStoreUrl,
+                    CDP_EMAIL_ATTACHMENTS_TEAMS: '*',
                     SCENARIO_RUNNER: STATE_DIR,
                 })
             }
@@ -642,6 +681,9 @@ describe('scenario environment', () => {
                 SES_ENDPOINT: 'http://elsewhere',
                 HTTPS_PROXY: 'http://elsewhere',
                 NODE_EXTRA_CA_CERTS: '/elsewhere/ca.pem',
+                CDP_EMAIL_ATTACHMENTS_S3_ENDPOINT: 'http://elsewhere',
+                CDP_EMAIL_ATTACHMENTS_S3_PUBLIC_ENDPOINT: 'http://elsewhere',
+                CDP_EMAIL_ATTACHMENTS_TEAMS: '2',
                 EXTERNAL_REQUEST_PROXY_TEAMS: '*:0.5',
                 PERSONHOG_ADDR: '127.0.0.1:1',
                 SES_RATE_LIMITER_VALKEY_HOST: 'elsewhere',
@@ -664,6 +706,9 @@ describe('scenario environment', () => {
                 SES_ENDPOINT: EDGE.url,
                 HTTPS_PROXY: EDGE.url,
                 NODE_EXTRA_CA_CERTS: EDGE.caCertPath,
+                CDP_EMAIL_ATTACHMENTS_S3_ENDPOINT: EDGE.attachmentStoreUrl,
+                CDP_EMAIL_ATTACHMENTS_S3_PUBLIC_ENDPOINT: EDGE.attachmentStoreUrl,
+                CDP_EMAIL_ATTACHMENTS_TEAMS: '2',
                 PERSONHOG_ADDR: '127.0.0.1:50052',
                 SES_RATE_LIMITER_VALKEY_HOST: '127.0.0.1',
                 SES_RATE_LIMITER_VALKEY_PORT: '6390',

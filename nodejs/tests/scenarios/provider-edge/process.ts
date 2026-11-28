@@ -6,7 +6,7 @@ import { FaultHold, ProviderEdge, ProviderEdgeOptions, holdOf, startProviderEdge
 
 export type EdgeProcessOptions = Pick<ProviderEdgeOptions, 'port' | 'trackingKeys' | 'caDir' | 'feedbackUrl'>
 
-export type EdgeProcess = Pick<ProviderEdge, 'url' | 'caCertPath' | 'pgProxyOf'> & {
+export type EdgeProcess = Pick<ProviderEdge, 'url' | 'caCertPath' | 'pgProxyOf' | 's3ProxyOf'> & {
     hold(rule: FaultRule): Promise<FaultHold>
     clearFaults(): Promise<void>
     close(): Promise<void>
@@ -20,6 +20,7 @@ type Call =
     | { op: 'remove'; faultId: string }
     | { op: 'clear' }
     | { op: 'pg-proxy'; upstream: string }
+    | { op: 's3-proxy'; upstream: string }
 
 type Request = Call & { id: number }
 
@@ -56,6 +57,8 @@ async function serveEdge(options: EdgeProcessOptions): Promise<void> {
                 return edge.clearFaults()
             case 'pg-proxy':
                 return edge.pgProxyOf(call.upstream)
+            case 's3-proxy':
+                return edge.s3ProxyOf(call.upstream)
         }
     }
     process.on('message', (request: Request) => {
@@ -217,6 +220,7 @@ export async function startEdgeProcess(
         url,
         caCertPath,
         pgProxyOf: (upstream) => call<string>({ op: 'pg-proxy', upstream }),
+        s3ProxyOf: (upstream) => call<string>({ op: 's3-proxy', upstream }),
         hold: async (rule) => {
             const faultId = await call<string>({ op: 'add', rule })
             return holdOf({
