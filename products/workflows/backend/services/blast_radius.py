@@ -3,9 +3,16 @@ batch resolver walks when it sends."""
 
 import json
 import hashlib
-from typing import Any
+from collections.abc import Callable
+from time import monotonic, sleep
+from typing import Any, TypeVar
+from uuid import uuid4
 
-from django.core.cache import cache
+from django.core.cache import caches
+
+import structlog
+from rest_framework import status
+from rest_framework.exceptions import APIException
 
 from posthog.models.property import GroupTypeIndex
 from posthog.models.team.team import Team
@@ -18,7 +25,11 @@ from products.workflows.backend.services.account_audience import (
     get_account_audience_page,
     get_account_group_type_name as _get_account_group_type_name,
 )
-from products.workflows.backend.services.audience_v2 import get_dedupe_audience_count_v2, get_person_audience_count_v2
+from products.workflows.backend.services.audience_v2 import (
+    count_person_total,
+    get_dedupe_audience_count_v2,
+    get_person_audience_count_v2,
+)
 from products.workflows.backend.services.batch_audience_cohorts import (
     find_realtime_behavioral_cohort,
     realtime_audience_cohort,
@@ -29,47 +40,131 @@ from products.workflows.backend.services.batch_audience_cohorts import (
 from products.workflows.backend.services.batch_audience_test_accounts import skipped_test_account_filter_keys
 from products.workflows.backend.utils.batch_trigger_limit import resolve_batch_audience_limit
 
-# An open send screen re-sizes a realtime cohort audience every few seconds while the cohort calculates. The
-# project's person total only gives the count context, so it is counted once per window, not on every check.
-REALTIME_AUDIENCE_TOTAL_CACHE_SECONDS = 600
+logger = structlog.get_logger(__name__)
+counts_cache = caches["workflows_audience_counts"]
+
 # The editor re-sizes the audience on every open and every filter edit, so the same audience is counted again and
 # again within minutes, and each count reads the team's whole person table. The preview is a sampled estimate, so a
-# few minutes of staleness doesn't change what it tells the user.
+# few minutes of staleness doesn't change what it tells the user. The person total is cached on its own.
 AUDIENCE_COUNT_CACHE_SECONDS = 600
+COUNTING_LOCK_SECONDS = 200
+# Below the 120s ingress timeout, so a waiter whose leader died still answers before the client gives up.
+COUNTING_WAIT_SECONDS = 60
+COUNTING_POLL_SECONDS = 0.5
+
+# A small team's total is cheap to count, and a cached total of zero or close to it would cap every new audience's count
+# until it expired.
+MIN_PERSON_TOTAL_TO_CACHE = 10_000
+
+T = TypeVar("T")
 
 
-def _realtime_audience_total(team: Team) -> int:
-    cache_key = f"workflows:realtime_audience_person_total:{team.pk}"
-    total = cache.get(cache_key)
-    if not isinstance(total, int):
-        total = get_person_audience_count_v2(team, {"properties": []}).total
-        cache.set(cache_key, total, REALTIME_AUDIENCE_TOTAL_CACHE_SECONDS)
-    return total
+class AudienceCountInProgress(APIException):
+    status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+    default_detail = "This audience is still being counted. Try again in a minute."
+    default_code = "audience_count_in_progress"
+
+
+def _release_lock(key: str, token: str | None) -> None:
+    if token is None:
+        return
+    try:
+        if counts_cache.get(key) == token:
+            counts_cache.delete(key)
+    except Exception:
+        logger.warning("workflows_audience_count_lock_release_failed", lock_key=key, exc_info=True)
+
+
+def _shared_count(
+    cache_key: str,
+    count: Callable[[], T],
+    *,
+    refresh: bool,
+    wait_until: float,
+    should_store: Callable[[T], bool] = lambda _: True,
+) -> T:
+    """Reuse a recent count, wait until `wait_until` for the same count already in flight, or count and store it for
+    the next caller. `refresh` always counts again, and its result still replaces the stored one."""
+    lock_key = f"{cache_key}:counting"
+    takeover_key = f"{cache_key}:takeover"
+    lock_token: str | None = None
+    takeover_token: str | None = None
+    if not refresh:
+        while True:
+            cached = counts_cache.get(cache_key)
+            if cached is not None:
+                return cached
+            token = str(uuid4())
+            if counts_cache.add(lock_key, token, COUNTING_LOCK_SECONDS):
+                lock_token = token
+                # The previous holder can store its result and release between the read above and this add.
+                cached = counts_cache.get(cache_key)
+                if cached is not None:
+                    _release_lock(lock_key, lock_token)
+                    return cached
+                break
+            if monotonic() >= wait_until:
+                # The holder is slow or died. One waiter takes over, so a dead holder's lock doesn't block the
+                # audience until it expires, and the other waiters answer at once instead of repeating the scan.
+                if not counts_cache.add(takeover_key, token, COUNTING_LOCK_SECONDS):
+                    raise AudienceCountInProgress()
+                takeover_token = token
+                break
+            sleep(COUNTING_POLL_SECONDS)
+    try:
+        result = count()
+        if should_store(result):
+            try:
+                counts_cache.set(cache_key, result, AUDIENCE_COUNT_CACHE_SECONDS)
+            except Exception:
+                logger.warning("workflows_audience_count_cache_write_failed", cache_key=cache_key, exc_info=True)
+        return result
+    finally:
+        _release_lock(lock_key, lock_token)
+        _release_lock(takeover_key, takeover_token)
+
+
+def _person_total(team: Team, *, refresh: bool, wait_until: float) -> int:
+    return _shared_count(
+        f"workflows:audience_person_total:{team.pk}",
+        lambda: count_person_total(team),
+        refresh=refresh,
+        wait_until=wait_until,
+        should_store=lambda total: total >= MIN_PERSON_TOTAL_TO_CACHE,
+    )
 
 
 def _count_audience(
-    team: Team, filters: dict, group_type_index: GroupTypeIndex | None, dedupe_key: str | None
+    team: Team,
+    filters: dict,
+    group_type_index: GroupTypeIndex | None,
+    dedupe_key: str | None,
+    *,
+    refresh: bool,
+    wait_until: float,
 ) -> BlastRadiusResult:
     if group_type_index is not None:
         return get_user_blast_radius(team, filters, group_type_index)
+    total = _person_total(team, refresh=refresh, wait_until=wait_until)
     if dedupe_key is not None:
-        return get_dedupe_audience_count_v2(team, filters, dedupe_key)
-    return get_person_audience_count_v2(team, filters)
+        return get_dedupe_audience_count_v2(team, filters, dedupe_key, total=total)
+    return get_person_audience_count_v2(team, filters, total=total)
 
 
 def _cached_count_audience(
-    team: Team, filters: dict, group_type_index: GroupTypeIndex | None, dedupe_key: str | None
+    team: Team, filters: dict, group_type_index: GroupTypeIndex | None, dedupe_key: str | None, *, refresh: bool
 ) -> BlastRadiusResult:
     audience = json.dumps(
         [filters, group_type_index, dedupe_key, team.test_account_filters], sort_keys=True, default=str
     )
-    cache_key = f"workflows:audience_count:{team.pk}:{hashlib.sha256(audience.encode()).hexdigest()}"
-    cached = cache.get(cache_key)
-    if isinstance(cached, tuple) and len(cached) == 2:
-        return BlastRadiusResult(affected=cached[0], total=cached[1])
-    result = _count_audience(team, filters, group_type_index, dedupe_key)
-    cache.set(cache_key, (result.affected, result.total), AUDIENCE_COUNT_CACHE_SECONDS)
-    return result
+    # One deadline for the audience lock and the person-total lock inside it, so a request never waits on both in turn.
+    wait_until = monotonic() + COUNTING_WAIT_SECONDS
+    return _shared_count(
+        f"workflows:audience_count:v2:{team.pk}:{hashlib.sha256(audience.encode()).hexdigest()}",
+        lambda: _count_audience(team, filters, group_type_index, dedupe_key, refresh=refresh, wait_until=wait_until),
+        refresh=refresh,
+        wait_until=wait_until,
+    )
 
 
 def _top_level_cohort_ids(filters: dict) -> list[int | str]:
@@ -94,7 +189,7 @@ def get_audience_size(
     dedupe_key: str | None,
     sends_email: bool,
     email_rate_limit: dict[str, Any] | None = None,
-    use_cached_counts: bool = False,
+    refresh: bool = True,
 ) -> AudienceSize:
     team = Team.objects.get(id=team_id)
     audience_limit = resolve_batch_audience_limit(team_id, sends_email=sends_email, email_rate_limit=email_rate_limit)
@@ -110,7 +205,8 @@ def get_audience_size(
         # email dedupe.
         return AudienceSize(
             affected=realtime_cohort.count or 0,
-            total=_realtime_audience_total(team),
+            # A send screen re-sizes a calculating realtime cohort every few seconds, so even a refresh reuses the total.
+            total=_person_total(team, refresh=False, wait_until=monotonic() + COUNTING_WAIT_SECONDS),
             limit=audience_limit.limit,
             dedupe_key=None,
             realtime_cohort=realtime_cohort_status(realtime_cohort),
@@ -118,8 +214,7 @@ def get_audience_size(
         )
     if group_type_index is None:
         applied_dedupe_key = dedupe_key
-    count = _cached_count_audience if use_cached_counts else _count_audience
-    blast_radius = count(team, filters, group_type_index, applied_dedupe_key)
+    blast_radius = _cached_count_audience(team, filters, group_type_index, applied_dedupe_key, refresh=refresh)
 
     mixed_realtime_cohort = (
         find_realtime_behavioral_cohort(team.project_id, _top_level_cohort_ids(filters))

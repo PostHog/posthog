@@ -39,17 +39,18 @@ function triggerFilters(trigger: WorkflowTrigger): unknown {
     return trigger.filters ?? { properties: [] }
 }
 
+// The run tools check the user's acknowledged count against this, so they pass refresh to skip a cached count.
 async function sizeAudience(
     context: Context,
     projectId: string,
     filters: unknown,
-    sendsEmail: boolean
+    sendsEmail: boolean,
+    refresh: boolean
 ): Promise<BlastRadius> {
     return await context.api.request<BlastRadius>({
         method: 'POST',
         path: `/api/projects/${encodeURIComponent(String(projectId))}/hog_flows/user_blast_radius/`,
-        // The run tools check the user's acknowledged count against this, so it must not reuse a cached count.
-        body: { filters, sends_email: sendsEmail, refresh: true },
+        body: { filters, sends_email: sendsEmail, refresh },
     })
 }
 
@@ -109,7 +110,7 @@ export const workflowsBlastRadius = (): ToolBase<typeof BlastRadiusSchema, Blast
     handler: async (context, params) => {
         const projectId = await context.stateManager.getProjectId()
         const { trigger, sendsEmail } = await fetchWorkflow(context, projectId, params.workflow_id)
-        return await sizeAudience(context, projectId, triggerFilters(trigger), sendsEmail)
+        return await sizeAudience(context, projectId, triggerFilters(trigger), sendsEmail, false)
     },
 })
 
@@ -158,7 +159,7 @@ export const workflowsRunBatch = (): ToolBase<typeof RunBatchSchema, unknown> =>
         }
 
         const filters = triggerFilters(trigger)
-        const { affected, limit } = await sizeAudience(context, projectId, filters, sendsEmail)
+        const { affected, limit } = await sizeAudience(context, projectId, filters, sendsEmail, true)
         await assertAcknowledged(context, affected, params.acknowledged_affected_count, limit, sendsEmail)
 
         return await context.api.request({
@@ -239,7 +240,13 @@ export const workflowsScheduleCreate = (): ToolBase<typeof ScheduleCreateSchema,
                         'confirm the count with the user, then pass acknowledged_affected_count and confirm_token.'
                 )
             }
-            const { affected, limit } = await sizeAudience(context, projectId, triggerFilters(trigger), sendsEmail)
+            const { affected, limit } = await sizeAudience(
+                context,
+                projectId,
+                triggerFilters(trigger),
+                sendsEmail,
+                true
+            )
             await assertAcknowledged(context, affected, params.acknowledged_affected_count, limit, sendsEmail)
             confirmToken = params.confirm_token
         }

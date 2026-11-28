@@ -5631,9 +5631,12 @@ class TestHogFlowAPI(APIBaseTest):
     def test_hog_flow_user_blast_radius_refresh_skips_recent_count(self, _name, refresh, expected_affected):
         url = f"/api/projects/{self.team.id}/hog_flows/user_blast_radius"
         filters = {"properties": [{"key": "subscribed", "value": "true", "type": "person", "operator": "exact"}]}
-        with patch(
-            "products.workflows.backend.services.blast_radius.get_person_audience_count_v2",
-            side_effect=[BlastRadiusResult(affected=4, total=10), BlastRadiusResult(affected=5, total=10)],
+        with (
+            patch(
+                "products.workflows.backend.services.blast_radius.get_person_audience_count_v2",
+                side_effect=[BlastRadiusResult(affected=4, total=10), BlastRadiusResult(affected=5, total=10)],
+            ),
+            patch("products.workflows.backend.services.blast_radius.count_person_total", return_value=10),
         ):
             self.client.post(url, {"filters": filters}, format="json")
             response = self.client.post(url, {"filters": filters, "refresh": refresh}, format="json")
@@ -5673,7 +5676,8 @@ class TestHogFlowAPI(APIBaseTest):
             body = response.json()
             assert body["affected"] == 3200
             assert body["dedupe_key"] == "email"
-            mock_dedupe_v2.assert_called_once_with(self.team, {"properties": []}, "email")
+            mock_dedupe_v2.assert_called_once()
+            assert mock_dedupe_v2.call_args.args == (self.team, {"properties": []}, "email")
             mock_v1.assert_not_called()
 
             # Group audiences stay on the exact query: the sampled count only covers person audiences.
@@ -5782,15 +5786,14 @@ class TestHogFlowAPI(APIBaseTest):
         cohort = self._create_behavioral_cohort(CohortType.REALTIME, backfilled=False)
         audience = {"properties": [{"key": "id", "type": "cohort", "value": cohort.pk, "operator": "in"}]}
         with patch(
-            "products.workflows.backend.services.blast_radius.get_person_audience_count_v2",
-            return_value=BlastRadiusResult(affected=500, total=500),
+            "products.workflows.backend.services.blast_radius.count_person_total", return_value=50_000
         ) as mock_count:
             for _ in range(3):
                 response = self.client.post(
                     f"/api/projects/{self.team.id}/hog_flows/user_blast_radius", {"filters": audience}
                 )
                 assert response.status_code == 200, response.json()
-                assert response.json()["total"] == 500
+                assert response.json()["total"] == 50_000
 
         assert mock_count.call_count == 1
 
@@ -6047,7 +6050,8 @@ class TestHogFlowAPI(APIBaseTest):
         assert response.json()["dedupe_key"] == dedupe_key
         if dedupe_key is not None:
             # The person-count query is skipped — only the deduped count runs
-            mock_deduped_count.assert_called_once_with(self.team, {"properties": []}, "email")
+            mock_deduped_count.assert_called_once()
+            assert mock_deduped_count.call_args.args == (self.team, {"properties": []}, "email")
             mock_person_count.assert_not_called()
         else:
             mock_deduped_count.assert_not_called()

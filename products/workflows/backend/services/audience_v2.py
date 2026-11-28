@@ -33,22 +33,31 @@ from products.workflows.backend.services.batch_audience_test_accounts import wit
 QUERY_TYPE = "workflows_audience_count_v2"
 
 
-def get_person_audience_count_v2(team: Team, filters: dict) -> BlastRadiusResult:
+def count_person_total(team: Team) -> int:
+    """Every person on the team, sampled the same way the audience counts are."""
+    tag_queries(product=Product.WORKFLOWS, feature=Feature.QUERY)
+    return count_matching_persons(team, None, Database.create_for(team=team), query_type=QUERY_TYPE)
+
+
+def get_person_audience_count_v2(team: Team, filters: dict, total: Optional[int] = None) -> BlastRadiusResult:
     """
     Person-audience blast radius sized from a sample of the person keyspace.
 
     Counts run on a sample of the persons and extrapolate, so cost is bounded on teams
-    where the exact dedup count exceeds the query memory limit.
+    where the exact dedup count exceeds the query memory limit. `total` skips counting the team's
+    persons when the caller already has that number.
     """
     with unevaluable_filters_as_validation_errors():
         cleaned_filter = replace_proxy_properties(team, with_person_test_account_filters(team, filters))
         reject_excluded_cohort_without_members(team.project_id, cleaned_filter)
 
         tag_queries(product=Product.WORKFLOWS, feature=Feature.QUERY)
-        return sampled_person_blast_radius(team, cleaned_filter, query_type=QUERY_TYPE)
+        return sampled_person_blast_radius(team, cleaned_filter, query_type=QUERY_TYPE, total=total)
 
 
-def get_dedupe_audience_count_v2(team: Team, filters: dict, dedupe_key: str) -> BlastRadiusResult:
+def get_dedupe_audience_count_v2(
+    team: Team, filters: dict, dedupe_key: str, total: Optional[int] = None
+) -> BlastRadiusResult:
     """
     Send count for a dedupe-enabled batch workflow, sized from a sample of the dedupe groups.
 
@@ -69,7 +78,8 @@ def get_dedupe_audience_count_v2(team: Team, filters: dict, dedupe_key: str) -> 
         tag_queries(product=Product.WORKFLOWS, feature=Feature.QUERY)
         database = Database.create_for(team=team)
 
-        total = count_matching_persons(team, None, database, query_type=QUERY_TYPE)
+        if total is None:
+            total = count_matching_persons(team, None, database, query_type=QUERY_TYPE)
         affected = sampled_or_exact_count(
             lambda sample_modulus: _run_dedupe_count(team, cleaned_filter, database, sample_modulus)
         )
