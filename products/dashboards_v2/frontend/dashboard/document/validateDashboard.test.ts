@@ -14,7 +14,7 @@ import { MAX_SECTION_DEPTH, validateDashboard } from './validateDashboard'
 const SPECS = [
     definePanelSpec(chartSpec(BUILT_IN_VIZ_SPECS)),
     definePanelSpec(markdownSpec),
-    definePanelSpec(customSpec([kitchenSinkContents], [])),
+    definePanelSpec(customSpec([kitchenSinkContents])),
 ]
 const FILTER_SPECS = [selectFilterSpec([]), propertyFilterSpec([])]
 const withTiles = (tiles: unknown[]): unknown => ({

@@ -51,8 +51,17 @@ describe('showAction', () => {
         expect(findTile(board, 'other')?.panel).not.toHaveProperty('appearance')
     })
 
-    it('tints a tile and clears the tint again, ticking the current color', () => {
-        let board: Dashboard = { version: 2, title: 'Test', tabs: [{ id: 'tab', title: 'Tab', tiles: [text('a')] }] }
+    const section: Tile = {
+        id: 'a',
+        place: { x: 0, y: 0, w: 24, h: 8 },
+        panel: { type: 'section', title: 'a', tiles: [] },
+    }
+
+    it.each([
+        { kind: 'tile', tile: text('a') },
+        { kind: 'section', tile: section },
+    ])('tints a $kind and clears the tint again, ticking the current color', ({ tile: start }) => {
+        let board: Dashboard = { version: 2, title: 'Test', tabs: [{ id: 'tab', title: 'Tab', tiles: [start] }] }
         const pick = (color: string): MenuAction => {
             const tile = findTile(board, 'a')!
             const menu = { key: 'background-color', label: 'Background color', dataAttr: 'background-color' }

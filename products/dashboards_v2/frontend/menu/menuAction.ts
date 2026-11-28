@@ -1,10 +1,10 @@
 type MenuActionBase = {
     /**
      * Stable, so a panel type's `menuActions` or a host's `tileActions`, `tilePlacementActions` and `dashboardActions` can
-     * find an action by it. Built in for a content tile: `download-image`, `copy-image`, `parts`, `background-color`, plus a chart's
-     * `chart-type` and `chart-options`. Built in for a section: `rename`, `download-image`, `copy-image`, `auto-layout`, `parts`. Built
+     * find an action by it. Built in for a content tile: `download`, `copy`, `parts`, `background-color`, plus a chart's
+     * `chart-type` and `chart-options`. Built in for a section: `rename`, `download`, `copy`, `auto-layout`, `parts`, `background-color`. Built
      * in for where a tile sits: `slideshow`, `move`, `add-to-tab`, `duplicate`, `remove`, and `duplicate` and `remove` for a section. Built in for the
-     * dashboard: `download-image`, `copy-image`, `tab-appearance`, `allow-filters`.
+     * dashboard: `download`, `copy`, `tab-appearance`, `allow-filters`.
      */
     key: string
     label: string
@@ -23,6 +23,8 @@ type MenuActionBase = {
      * always sits last, on its own.
      */
     group?: MenuGroup
+    /** Set on a submenu's entries to split them under headings, such as `Image` and `Data`. One heading alone is not shown. */
+    section?: string
     /** Makes a picture of what the tile holds, so a tile's menu disables it while the tile is still loading. */
     needsLoaded?: boolean
     /** Picking it leaves the menu open, for a choice someone may want to compare with the next one. */
@@ -37,7 +39,7 @@ export type MenuAction = MenuActionBase & ({ loading?: false } | { loading: true
 
 /** In menu order, after the ungrouped actions. */
 export const MENU_GROUPS = [
-    { group: 'dashboard', label: 'Dashboard' },
+    { group: 'dashboard', label: 'Tile' },
     { group: 'view', label: 'View & share' },
     { group: 'display', label: 'Display' },
 ] as const
