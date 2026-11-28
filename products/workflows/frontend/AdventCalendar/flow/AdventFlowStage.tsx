@@ -1,44 +1,28 @@
 import './AdventFlowStage.scss'
 
 import { useActions, useValues } from 'kea'
-import {
-    CSSProperties,
-    Fragment,
-    MouseEvent,
-    ReactNode,
-    RefObject,
-    useCallback,
-    useEffect,
-    useLayoutEffect,
-    useMemo,
-    useRef,
-} from 'react'
+import { CSSProperties, Fragment, MouseEvent, ReactNode, useCallback, useEffect, useMemo } from 'react'
 
 import { cn } from 'lib/utils/css-classes'
 
 import { adventCalendarLogic } from '../adventCalendarLogic'
 import { ADVENT_LAST_DAY } from '../adventContent'
-import { AdventCardFace, AdventDoorCard } from '../AdventDoorCard'
-import { AdventDoor, adventDayColor } from '../adventGraph'
+import { AdventDoor } from '../adventGraph'
 import { adventPaletteStyle } from '../adventPalette'
-import { useAdventCard } from '../useAdventCard'
 import { useAdventEscape } from '../useAdventEscape'
 import { useAdventStageSize } from '../useAdventStageSize'
+import { AdventFlowCard } from './AdventFlowCard'
 import { AdventFlowEdges } from './AdventFlowEdges'
-import { AdventFlowFit, adventFlowFit, adventFlowOrientation } from './adventFlowFit'
-import {
-    ADVENT_FLOW_DOOR,
-    AdventFlowEdge,
-    AdventFlowLayout,
-    adventFlowLayout,
-    AdventFlowNode,
-} from './adventFlowLayout'
+import { AdventFlowFit, adventFlowOrientation } from './adventFlowFit'
+import { AdventFlowEdge, adventFlowLayout, AdventFlowNode } from './adventFlowLayout'
 import { AdventFlowStep, AdventFlowStepProps } from './AdventFlowStep'
-import { useAdventCardFocus } from './useAdventCardFocus'
 import { useAdventFlowHover } from './useAdventFlowHover'
+import { useAdventFlowViewport } from './useAdventFlowViewport'
+import { useAdventFlowWake } from './useAdventFlowWake'
 
-const FACE_DOOR_SIZE = 56
 const DOT_GAP = 36
+const OPENING_MS = 2400
+const OPENING_STYLE = { '--advent-flow-opening': `${OPENING_MS}ms` } as CSSProperties
 
 export interface AdventFlowStageProps {
     renderLastDoor?: (step: AdventFlowStepProps) => ReactNode
@@ -46,21 +30,7 @@ export interface AdventFlowStageProps {
 }
 
 const noEmphasis = (): boolean => false
-
-function faceOf(node: AdventFlowNode, { zoom, box }: AdventFlowFit, scrollTop: number): AdventCardFace {
-    return {
-        left: box.left + node.tile.x * zoom,
-        top: box.top + node.tile.y * zoom - scrollTop,
-        size: ADVENT_FLOW_DOOR.width * zoom,
-        zoom: (zoom * ADVENT_FLOW_DOOR.width) / FACE_DOOR_SIZE,
-        tint: node.door ? adventDayColor(node.door.day) : undefined,
-    }
-}
-
-function cardDoorOf(node: AdventFlowNode, face: AdventCardFace, stageHeight: number, isRows: boolean): AdventDoor {
-    const row = isRows ? node.row : face.top > stageHeight / 2 ? 2 : 0
-    return { ...(node.door as AdventDoor), row }
-}
+const ignoreClick = (): void => undefined
 
 function gridOf({ zoom, box }: AdventFlowFit): CSSProperties {
     return {
@@ -70,57 +40,44 @@ function gridOf({ zoom, box }: AdventFlowFit): CSSProperties {
     } as CSSProperties
 }
 
-function useTodayInView(
-    layout: AdventFlowLayout,
-    today: number,
-    zoom: number,
-    stageHeight: number
-): RefObject<HTMLDivElement> {
-    const track = useRef<HTMLDivElement>(null)
-    const todayTop = layout.nodes.find((node) => node.door?.day === today)?.tile.y ?? 0
-    const isColumn = layout.orientation === 'column'
-    useLayoutEffect(() => {
-        if (isColumn && track.current) {
-            track.current.scrollTop = todayTop * zoom - stageHeight / 2
+function useOpening(revealingDoor: AdventDoor | null, drawsLastDoor: boolean, finishReveal: () => void): void {
+    const revealingDoorId = revealingDoor?.id ?? null
+    const isHandedOff = drawsLastDoor && revealingDoor?.day === ADVENT_LAST_DAY
+    useEffect(() => {
+        if (!revealingDoorId || isHandedOff) {
+            return
         }
-    }, [isColumn, todayTop, zoom, stageHeight])
-    return track
+        const timer = window.setTimeout(finishReveal, OPENING_MS)
+        return () => window.clearTimeout(timer)
+    }, [revealingDoorId, isHandedOff, finishReveal])
 }
-
-const nodeOfDoor = (layout: AdventFlowLayout, doorId: string | null): AdventFlowNode | null =>
-    layout.nodes.find((node) => !!node.door && node.door.id === doorId) ?? null
 
 export function AdventFlowStage({ renderLastDoor, isEdgeEmphasized = noEmphasis }: AdventFlowStageProps): JSX.Element {
     const { graph, today, selectedDoorId, revealingDoor, pollShares } = useValues(adventCalendarLogic)
-    const { activateDoor, pinDoor, answerDoor, clearSelection, finishReveal, clickTip } =
-        useActions(adventCalendarLogic)
+    const { activateDoor, clearSelection, finishReveal } = useActions(adventCalendarLogic)
     const { ref, stage } = useAdventStageSize()
     const orientation = adventFlowOrientation(stage)
     const layout = useMemo(() => adventFlowLayout(graph, pollShares, orientation), [graph, pollShares, orientation])
-    const fit = adventFlowFit(stage, layout)
+    const { fit, track, rectOnStage } = useAdventFlowViewport(stage, layout, today)
     const { zoom, box } = fit
     const isRows = orientation === 'rows'
-    const track = useTodayInView(layout, today, zoom, stage.height)
+    useOpening(revealingDoor, !!renderLastDoor, finishReveal)
 
-    useEffect(() => {
-        if (revealingDoor) {
-            finishReveal()
-        }
-    }, [revealingDoor, finishReveal])
-
-    const card = useAdventCard(selectedDoorId, !revealingDoor)
-    const cardNode = nodeOfDoor(layout, card.doorId)
-    const { clearHover } = card
+    const hover = useAdventFlowHover()
     const dismiss = useCallback((): void => {
         clearSelection()
-        clearHover()
-    }, [clearSelection, clearHover])
+        hover.clearHover()
+    }, [clearSelection, hover])
     useAdventEscape(!!revealingDoor, finishReveal, dismiss)
-    const guards = useAdventCardFocus(ref, card.isPinned, cardNode, pinDoor)
-    const hover = useAdventFlowHover(card)
+    useAdventFlowWake(ref)
 
     const onTrackClick = (event: MouseEvent): void => {
         if (!(event.target as Element).closest('button')) {
+            dismiss()
+        }
+    }
+    const onColumnScroll = (): void => {
+        if (revealingDoor || hover.card.current?.doorId) {
             dismiss()
         }
     }
@@ -129,19 +86,18 @@ export function AdventFlowStage({ renderLastDoor, isEdgeEmphasized = noEmphasis 
         orientation,
         today,
         isSelected: node.door?.id === selectedDoorId,
-        onActivate: activateDoor,
+        isOpening: !!revealingDoor && node.door?.id === revealingDoor.id,
+        onOpened: finishReveal,
+        onActivate: revealingDoor ? ignoreClick : activateDoor,
         onEnter: hover.onEnter,
         onLeave: hover.onLeave,
     })
-    const face = cardNode ? faceOf(cardNode, fit, track.current?.scrollTop ?? 0) : null
-    const focusGuard = (onFocus: () => void): ReactNode =>
-        card.isPinned && <span tabIndex={0} aria-hidden onFocus={onFocus} />
 
     return (
         <div
             ref={ref}
             className="AdventFlowStage"
-            style={{ ...adventPaletteStyle(), ...gridOf(fit) }}
+            style={{ ...adventPaletteStyle(), ...gridOf(fit), ...OPENING_STYLE }}
             data-attr="advent-stage"
         >
             {zoom > 0 && (
@@ -149,7 +105,7 @@ export function AdventFlowStage({ renderLastDoor, isEdgeEmphasized = noEmphasis 
                     <div
                         ref={track}
                         className={cn('AdventFlowStage__track', !isRows && 'AdventFlowStage__track--column')}
-                        onScroll={!isRows && cardNode ? dismiss : undefined}
+                        onScroll={isRows ? undefined : onColumnScroll}
                         onClick={onTrackClick}
                     >
                         <div className="relative" style={fit.content}>
@@ -176,27 +132,16 @@ export function AdventFlowStage({ renderLastDoor, isEdgeEmphasized = noEmphasis 
                             </div>
                         </div>
                     </div>
-                    {focusGuard(guards.onFocusStart)}
-                    {cardNode && face && (
-                        <AdventDoorCard
-                            key={cardNode.id}
-                            door={cardDoorOf(cardNode, face, stage.height, isRows)}
-                            shares={pollShares[cardNode.door?.day ?? 0]}
-                            face={face}
-                            stage={stage}
-                            isOpen={card.isOpen}
-                            isPinned={card.isPinned}
-                            isDialog
-                            isClosing={card.isClosing}
-                            onPin={activateDoor}
-                            onAnswer={answerDoor}
-                            onTipClick={clickTip}
-                            onClose={dismiss}
-                            onMouseEnter={card.onEnterCard}
-                            onMouseLeave={card.onLeaveDoor}
-                        />
-                    )}
-                    {focusGuard(guards.onFocusEnd)}
+                    <AdventFlowCard
+                        stageRef={ref}
+                        stage={stage}
+                        layout={layout}
+                        zoom={zoom}
+                        isRows={isRows}
+                        rectOnStage={rectOnStage}
+                        hover={hover}
+                        onDismiss={dismiss}
+                    />
                 </>
             )}
         </div>
