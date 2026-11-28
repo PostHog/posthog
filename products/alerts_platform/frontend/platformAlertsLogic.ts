@@ -24,7 +24,7 @@ import {
     PlatformAlertApi,
     PlatformAlertConfigurationApi,
 } from './generated/api.schemas'
-import { PlatformAlertListRow, configurationListRows } from './platformAlertFormat'
+import { PlatformAlertListRow, configurationListRows, editableSourceKind } from './platformAlertFormat'
 import type { GroupSnoozeDuration } from './platformAlertLogic'
 
 export const PLATFORM_ALERTS_PAGE_SIZE = 50
@@ -320,7 +320,7 @@ export const platformAlertsLogic = kea<platformAlertsLogicType>([
                     configuration,
                     (projectId) =>
                         platformAlertsPartialUpdate(projectId, configuration.id, {
-                            source_kind: configuration.source_kind,
+                            source_kind: editableSourceKind(configuration),
                             enabled,
                         }),
                     'platform alert enabled toggled',

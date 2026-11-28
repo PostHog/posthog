@@ -18,6 +18,7 @@ class PlatformAlertConfigurationSourceKind(LabeledStrEnum):
     METRICS = "metrics", "Metrics"
     TRACES = "traces", "Traces"
     ERROR_TRACKING = "error_tracking", "Error tracking"
+    BILLING = "billing", "Billing"
 
 
 class PlatformAlertOwner(LabeledStrEnum):

@@ -363,6 +363,16 @@ class TestDestinationHandoff(ClickhouseTestMixin, APIBaseTest):
 
         assert self._sends() == []
 
+    def test_an_organization_alert_is_not_handed_to_a_project_route(self) -> None:
+        with team_scope(self.team.id):
+            PlatformAlertConfiguration.objects.filter(id=self.configuration_id).update(source_kind=SourceKind.BILLING)
+        receiver = self._receiver("pagerduty", "new", None)
+
+        with self.captureOnCommitCallbacks(execute=True):
+            alert_routing.create_route(team_id=self.team.id, edit=AlertRouteEdit(receiver_id=receiver.id, matchers=()))
+
+        assert RecordingTransport.sends == []
+
     def test_a_route_on_a_group_label_hands_over_only_the_groups_it_matches(self) -> None:
         PlatformAlert.objects.for_team(self.team.id).filter(grouping_key="").update(labels={"service": "api"})
         self._fire("web", {"service": "web"})

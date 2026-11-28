@@ -35,6 +35,7 @@ import {
     ruleMetadataEntriesError,
     ruleMetadataRecord,
     canSnoozeGroups,
+    editableSourceKind,
 } from './platformAlertFormat'
 import { PLATFORM_ALERTS_BREADCRUMB, reloadWhenSnoozeEnds } from './platformAlertsLogic'
 
@@ -243,7 +244,7 @@ export const platformAlertLogic: LogicWrapper<platformAlertLogicType> = kea<plat
             submit: async ({ labels, annotations }: RuleMetadataForm) => {
                 try {
                     const updated = await platformAlertsPartialUpdate(String(values.currentTeamId), props.id, {
-                        source_kind: values.configuration!.source_kind,
+                        source_kind: editableSourceKind(values.configuration!),
                         labels: ruleMetadataRecord(labels),
                         annotations: ruleMetadataRecord(annotations),
                     })

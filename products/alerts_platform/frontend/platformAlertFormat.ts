@@ -73,6 +73,25 @@ export const SOURCE_KINDS: Record<PlatformAlertConfigurationSourceKindEnumApi, S
         iconType: 'error_tracking',
         alertUrl: () => urls.errorTracking(),
     },
+    // The project API never serves billing alerts. The entry keeps this map exhaustive.
+    [PlatformAlertConfigurationSourceKindEnumApi.Billing]: {
+        label: 'Billing',
+        iconType: 'default_icon_type',
+        alertUrl: () => urls.organizationBilling(),
+    },
+}
+
+type EditableSourceKind = Exclude<
+    PlatformAlertConfigurationSourceKindEnumApi,
+    typeof PlatformAlertConfigurationSourceKindEnumApi.Billing
+>
+
+// An edit names the alert's kind, and the edit schema has no billing kind because the project API never serves one.
+export function editableSourceKind(configuration: PlatformAlertConfigurationApi): EditableSourceKind {
+    if (configuration.source_kind === PlatformAlertConfigurationSourceKindEnumApi.Billing) {
+        throw new Error('Billing alerts are edited on the billing page.')
+    }
+    return configuration.source_kind
 }
 
 export function sourceAlertUrl(configuration: PlatformAlertConfigurationApi): string | null {

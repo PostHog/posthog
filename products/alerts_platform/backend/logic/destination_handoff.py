@@ -29,6 +29,7 @@ from posthog.models import Team
 from products.alerts_platform.backend.delivery.destinations import copies_of_live_hog_functions
 from products.alerts_platform.backend.delivery.team_flags import team_flag_enabled
 from products.alerts_platform.backend.facade.contracts import (
+    ORGANIZATION_SOURCE_KINDS,
     ROUTING_FLAG,
     AlertDeliveryRequest,
     AlertDestinationData,
@@ -456,22 +457,32 @@ def _endpoints_by_configuration(
                 address(data), _Endpoint(destination_id=str(destination_id), routed=False, data=data)
             )
     keys = [(configuration_id, key) for configuration_id, (_, group_labels) in groups.items() for key in group_labels]
-    routed = (
-        routed_receivers_for_label_sets(
-            team_id=team_id,
-            label_sets=[
-                routing_labels(
-                    group_labels=groups[configuration_id][1][key],
-                    rule_labels=groups[configuration_id][0].labels or {},
-                )
-                for configuration_id, key in keys
-            ],
+    # Routes belong to a project, and an organization's alerts are for its admins only.
+    routable = [
+        (configuration_id, key)
+        for configuration_id, key in keys
+        if SourceKind(groups[configuration_id][0].source_kind) not in ORGANIZATION_SOURCE_KINDS
+    ]
+    routed = dict(
+        zip(
+            routable,
+            routed_receivers_for_label_sets(
+                team_id=team_id,
+                label_sets=[
+                    routing_labels(
+                        group_labels=groups[configuration_id][1][key],
+                        rule_labels=groups[configuration_id][0].labels or {},
+                    )
+                    for configuration_id, key in routable
+                ],
+            )
+            if routing and routable
+            else [() for _ in routable],
         )
-        if routing and keys
-        else [() for _ in keys]
     )
     found: dict[UUID, dict[str, dict[str, _Endpoint]]] = {configuration_id: {} for configuration_id in groups}
-    for (configuration_id, key), receivers in zip(keys, routed):
+    for configuration_id, key in keys:
+        receivers = routed.get((configuration_id, key), ())
         endpoints = dict(own[configuration_id])
         for receiver in receivers:
             if receiver.data.get("type") in INCIDENT_DESTINATION_TYPES:

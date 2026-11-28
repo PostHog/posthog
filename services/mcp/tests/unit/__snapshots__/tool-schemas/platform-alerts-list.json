@@ -19,7 +19,7 @@
             "type": "number"
         },
         "source_kind": {
-            "description": "Only alerts of this source kind, such as metrics. A kind the caller cannot read returns no alerts.\n\n* `logs` - Logs\n* `insight` - Insight\n* `warehouse_source` - Warehouse source\n* `warehouse_destination` - Warehouse destination\n* `metrics` - Metrics\n* `traces` - Traces\n* `error_tracking` - Error tracking",
+            "description": "Only alerts of this source kind, such as metrics. A kind the caller cannot read returns no alerts.\n\n* `logs` - Logs\n* `insight` - Insight\n* `warehouse_source` - Warehouse source\n* `warehouse_destination` - Warehouse destination\n* `metrics` - Metrics\n* `traces` - Traces\n* `error_tracking` - Error tracking\n* `billing` - Billing",
             "enum": [
                 "logs",
                 "insight",
@@ -27,7 +27,8 @@
                 "warehouse_destination",
                 "metrics",
                 "traces",
-                "error_tracking"
+                "error_tracking",
+                "billing"
             ],
             "type": "string"
         }

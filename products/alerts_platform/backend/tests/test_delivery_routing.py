@@ -83,6 +83,7 @@ class TestDeliverRoutes(APIBaseTest):
         sends_messages: bool = True,
         incident_actions: dict[str, IncidentAction] | None = None,
         inline: bool = False,
+        source: SourceKind = SourceKind.LOGS,
         event_ids_by_kind: dict[str, str] | None = None,
     ) -> int:
         def feature_enabled(key: str, *args: Any, **kwargs: Any) -> Any:
@@ -90,8 +91,11 @@ class TestDeliverRoutes(APIBaseTest):
                 raise flag
             return flag if key == ROUTING_FLAG else False
 
-        request = _request(
-            self.team.id, owned_by_platform=True, sends_messages=sends_messages, incident_actions=incident_actions
+        request = replace(
+            _request(
+                self.team.id, owned_by_platform=True, sends_messages=sends_messages, incident_actions=incident_actions
+            ),
+            source=source,
         )
         if event_ids_by_kind is not None:
             request = replace(request, event_ids_by_kind=event_ids_by_kind)
@@ -139,6 +143,11 @@ class TestDeliverRoutes(APIBaseTest):
                 MessageDetail(label="team", value="infra"),
                 MessageDetail(label="runbook", value="https://example.com/runbook"),
             )
+
+    def test_an_organization_alert_reaches_no_project_route(self) -> None:
+        sent = self._deliver(source=SourceKind.BILLING)
+
+        assert (sent, RecordingTransport.sends) == (0, [])
 
     def test_a_verdict_follow_up_reaches_the_routes_that_hear_the_alert_fire(self) -> None:
         self._deliver(

@@ -43,6 +43,7 @@ from products.alerts_platform.backend.facade.contracts import (
     MAX_INSTANCES_CEILING,
     MAX_SOURCE_EVALUATION_PERIODS,
     MAX_STORED_INTEGER,
+    ORGANIZATION_SOURCE_KINDS,
     AlertDestinationData,
     AlertDestinationValidationError,
     AlertEventKind,
@@ -362,8 +363,11 @@ SOURCE_KIND_RESOURCE: dict[str, APIScopeObject] = {
 
 # Kinds the read API does not serve. An insight copy shows its insight's bound and firing state,
 # and a reader can hold access to insights in general but not to that insight. This product
-# cannot check access to one insight, so the copies stay out of the API until it can.
-UNSERVED_SOURCE_KINDS: frozenset[str] = frozenset({PlatformAlertConfigurationSourceKind.INSIGHT.value})
+# cannot check access to one insight, so the copies stay out of the API until it can. An
+# organization's alerts are for its admins, and this API checks a project's `alert` scope instead.
+UNSERVED_SOURCE_KINDS: frozenset[str] = frozenset(
+    {PlatformAlertConfigurationSourceKind.INSIGHT.value, *(kind.value for kind in ORGANIZATION_SOURCE_KINDS)}
+)
 
 
 class PlatformAlertConfigurationEditSerializer(serializers.Serializer):

@@ -16,7 +16,7 @@ from posthog.models.activity_logging.activity_log import (
 from posthog.models.signals import model_activity_signal, mutable_receiver
 from posthog.models.user import User
 
-from products.alerts_platform.backend.facade.contracts import SourceKind
+from products.alerts_platform.backend.facade.contracts import ORGANIZATION_SOURCE_KINDS, SourceKind
 from products.alerts_platform.backend.facade.enums import PlatformAlertOwner
 from products.alerts_platform.backend.logic import source_configs
 from products.alerts_platform.backend.models import PlatformAlertConfiguration
@@ -58,6 +58,10 @@ def handle_platform_alert_configuration_activity(
     instance = after_update or before_update
     # A copy its source owns repeats the source's row, which the source logs on its own scope.
     if instance is None or instance.owner != PlatformAlertOwner.PLATFORM:
+        return
+    # Members who are not admins can read every activity log entry of the organization, and an
+    # organization's alerts are for its admins only.
+    if SourceKind(instance.source_kind) in ORGANIZATION_SOURCE_KINDS:
         return
     log_activity(
         organization_id=instance.team.organization_id,

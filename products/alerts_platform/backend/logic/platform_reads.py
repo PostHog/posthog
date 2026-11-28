@@ -117,12 +117,27 @@ def _readable(team_id: int, source_kinds: Sequence[str]) -> QuerySet[PlatformAle
     The caller resolves which kinds it may read, because that depends on the caller's grants
     rather than on anything this product knows.
     """
-    instances = PlatformAlert.objects.for_team(team_id, canonical=True).order_by("grouping_key")
-    return (
-        PlatformAlertConfiguration.objects.for_team(team_id, canonical=True)
-        .filter(source_kind__in=list(source_kinds))
-        .prefetch_related(Prefetch("alerts", queryset=instances))
-        .order_by("-created_at", "-id")
+    return _newest_first_with_instances(
+        PlatformAlertConfiguration.objects.for_team(team_id, canonical=True).filter(source_kind__in=list(source_kinds)),
+        PlatformAlert.objects.for_team(team_id, canonical=True),
+    )
+
+
+def _newest_first_with_instances(
+    configurations: QuerySet[PlatformAlertConfiguration], instances: QuerySet[PlatformAlert]
+) -> QuerySet[PlatformAlertConfiguration]:
+    return configurations.prefetch_related(Prefetch("alerts", queryset=instances.order_by("grouping_key"))).order_by(
+        "-created_at", "-id"
+    )
+
+
+def _page(readable: QuerySet[PlatformAlertConfiguration], *, limit: int, offset: int) -> PlatformAlertConfigurationPage:
+    """The page is taken in the database rather than in the caller, so a team with many alerts
+    costs one page rather than all of them. Slicing keeps the prefetch, which resolves over the
+    page's rows alone."""
+    return PlatformAlertConfigurationPage(
+        configurations=tuple(_configuration_view(row) for row in readable[offset : offset + limit]),
+        total=readable.count(),
     )
 
 
@@ -140,12 +155,7 @@ def list_configurations(
     """One page of configurations, newest first, with the total behind it. With a
     `legacy_configuration_id`, only the copy of that source row. With `configuration_ids`, only those.
     With `created_by_uuid`, only the ones that user created. With `held_only`, only the ones whose
-    settings the platform holds: those with no source row, and the copies it owns.
-
-    The page is taken in the database rather than in the caller, so a team with many alerts
-    costs one page rather than all of them. Slicing keeps the prefetch, which resolves over the
-    page's rows alone.
-    """
+    settings the platform holds: those with no source row, and the copies it owns."""
     readable = _readable(team_id, source_kinds)
     if legacy_configuration_id is not None:
         readable = readable.filter(legacy_configuration_id=legacy_configuration_id)
@@ -155,10 +165,21 @@ def list_configurations(
         readable = readable.filter(created_by__uuid=created_by_uuid)
     if held_only:
         readable = readable.filter(_HELD)
-    return PlatformAlertConfigurationPage(
-        configurations=tuple(_configuration_view(row) for row in readable[offset : offset + limit]),
-        total=readable.count(),
+    return _page(readable, limit=limit, offset=offset)
+
+
+def list_organization_configurations(
+    *, organization_id: UUID, source_kind: str, limit: int, offset: int
+) -> PlatformAlertConfigurationPage:
+    """One page of an organization's configurations of `source_kind` across its teams, newest first,
+    with the total behind it."""
+    readable = _newest_first_with_instances(
+        PlatformAlertConfiguration.objects.unscoped().filter(
+            team__organization_id=organization_id, source_kind=source_kind
+        ),
+        PlatformAlert.objects.unscoped(),
     )
+    return _page(readable, limit=limit, offset=offset)
 
 
 def owned_copies_by_legacy_id(

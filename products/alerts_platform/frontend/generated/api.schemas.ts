@@ -283,6 +283,7 @@ export interface AlertRouteMatchApi {
  * * `metrics` - Metrics
  * * `traces` - Traces
  * * `error_tracking` - Error tracking
+ * * `billing` - Billing
  */
 export type PlatformAlertConfigurationSourceKindEnumApi =
     (typeof PlatformAlertConfigurationSourceKindEnumApi)[keyof typeof PlatformAlertConfigurationSourceKindEnumApi]
@@ -295,6 +296,7 @@ export const PlatformAlertConfigurationSourceKindEnumApi = {
     Metrics: 'metrics',
     Traces: 'traces',
     ErrorTracking: 'error_tracking',
+    Billing: 'billing',
 } as const
 
 /**
@@ -569,7 +571,8 @@ export interface PlatformAlertConfigurationApi {
      * * `warehouse_destination` - Warehouse destination
      * * `metrics` - Metrics
      * * `traces` - Traces
-     * * `error_tracking` - Error tracking */
+     * * `error_tracking` - Error tracking
+     * * `billing` - Billing */
     readonly source_kind: PlatformAlertConfigurationSourceKindEnumApi
     /** Source-specific settings. The shape depends on source_kind. The bound the alert is evaluated against is under the condition key. */
     readonly source_config: PlatformAlertConfigurationApiSourceConfig
@@ -2881,6 +2884,7 @@ export type PlatformAlertsListParams = {
      * * `metrics` - Metrics
      * * `traces` - Traces
      * * `error_tracking` - Error tracking
+     * * `billing` - Billing
      * @minLength 1
      */
     source_kind?: PlatformAlertsListSourceKind
@@ -2897,6 +2901,7 @@ export const PlatformAlertsListSourceKind = {
     Metrics: 'metrics',
     Traces: 'traces',
     ErrorTracking: 'error_tracking',
+    Billing: 'billing',
 } as const
 
 export type PlatformAlertsEventsListParams = {
