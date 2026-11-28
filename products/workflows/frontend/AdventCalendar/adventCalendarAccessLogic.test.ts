@@ -38,7 +38,7 @@ type FlagsReply =
     | 'unrelated error, answers off'
 
 type DecisionRow = {
-    page: 'on' | 'off' | 'absent'
+    page: 'on' | 'off' | 'left out' | 'absent'
     persisted: 'persisted' | 'not persisted'
     cached: 'first visit' | 'stored without it' | 'stored on' | 'stored off'
     load: 'not yet' | FlagsReply | `${FlagsReply}, then ${FlagsReply}`
@@ -160,6 +160,46 @@ const DECISION_TABLE: DecisionTableRow[] = [
     ['off', 'not persisted', 'stored off', 'blocked, then answers on', 'flags arrived', 'calendar'],
     ['off', 'not persisted', 'stored off', 'blocked, then answers off', 'flags arrived', 'not found'],
     ['off', 'not persisted', 'stored off', 'answers off, then blocked', 'flags arrived', 'not found'],
+    ['left out', 'not persisted', 'first visit', 'not yet', 'before timeout', 'waiting'],
+    ['left out', 'not persisted', 'first visit', 'not yet', 'after timeout', 'not found'],
+    ['left out', 'not persisted', 'first visit', 'blocked', 'flags arrived', 'not found'],
+    ['left out', 'not persisted', 'first visit', 'answers on', 'flags arrived', 'calendar'],
+    ['left out', 'not persisted', 'first visit', 'answers off', 'flags arrived', 'not found'],
+    ['left out', 'not persisted', 'first visit', 'unrelated error, answers on', 'flags arrived', 'calendar'],
+    ['left out', 'not persisted', 'first visit', 'unrelated error, answers off', 'flags arrived', 'not found'],
+    ['left out', 'not persisted', 'first visit', 'blocked, then answers on', 'flags arrived', 'calendar'],
+    ['left out', 'not persisted', 'first visit', 'blocked, then answers off', 'flags arrived', 'not found'],
+    ['left out', 'not persisted', 'first visit', 'answers off, then blocked', 'flags arrived', 'not found'],
+    ['left out', 'not persisted', 'stored without it', 'not yet', 'before timeout', 'waiting'],
+    ['left out', 'not persisted', 'stored without it', 'not yet', 'after timeout', 'not found'],
+    ['left out', 'not persisted', 'stored without it', 'blocked', 'flags arrived', 'not found'],
+    ['left out', 'not persisted', 'stored without it', 'answers on', 'flags arrived', 'calendar'],
+    ['left out', 'not persisted', 'stored without it', 'answers off', 'flags arrived', 'not found'],
+    ['left out', 'not persisted', 'stored without it', 'unrelated error, answers on', 'flags arrived', 'calendar'],
+    ['left out', 'not persisted', 'stored without it', 'unrelated error, answers off', 'flags arrived', 'not found'],
+    ['left out', 'not persisted', 'stored without it', 'blocked, then answers on', 'flags arrived', 'calendar'],
+    ['left out', 'not persisted', 'stored without it', 'blocked, then answers off', 'flags arrived', 'not found'],
+    ['left out', 'not persisted', 'stored without it', 'answers off, then blocked', 'flags arrived', 'not found'],
+    ['left out', 'not persisted', 'stored on', 'not yet', 'before timeout', 'waiting'],
+    ['left out', 'not persisted', 'stored on', 'not yet', 'after timeout', 'calendar'],
+    ['left out', 'not persisted', 'stored on', 'blocked', 'flags arrived', 'not found'],
+    ['left out', 'not persisted', 'stored on', 'answers on', 'flags arrived', 'calendar'],
+    ['left out', 'not persisted', 'stored on', 'answers off', 'flags arrived', 'not found'],
+    ['left out', 'not persisted', 'stored on', 'unrelated error, answers on', 'flags arrived', 'calendar'],
+    ['left out', 'not persisted', 'stored on', 'unrelated error, answers off', 'flags arrived', 'not found'],
+    ['left out', 'not persisted', 'stored on', 'blocked, then answers on', 'flags arrived', 'calendar'],
+    ['left out', 'not persisted', 'stored on', 'blocked, then answers off', 'flags arrived', 'not found'],
+    ['left out', 'not persisted', 'stored on', 'answers off, then blocked', 'flags arrived', 'not found'],
+    ['left out', 'not persisted', 'stored off', 'not yet', 'before timeout', 'waiting'],
+    ['left out', 'not persisted', 'stored off', 'not yet', 'after timeout', 'not found'],
+    ['left out', 'not persisted', 'stored off', 'blocked', 'flags arrived', 'not found'],
+    ['left out', 'not persisted', 'stored off', 'answers on', 'flags arrived', 'calendar'],
+    ['left out', 'not persisted', 'stored off', 'answers off', 'flags arrived', 'not found'],
+    ['left out', 'not persisted', 'stored off', 'unrelated error, answers on', 'flags arrived', 'calendar'],
+    ['left out', 'not persisted', 'stored off', 'unrelated error, answers off', 'flags arrived', 'not found'],
+    ['left out', 'not persisted', 'stored off', 'blocked, then answers on', 'flags arrived', 'calendar'],
+    ['left out', 'not persisted', 'stored off', 'blocked, then answers off', 'flags arrived', 'not found'],
+    ['left out', 'not persisted', 'stored off', 'answers off, then blocked', 'flags arrived', 'not found'],
     ['absent', 'not persisted', 'first visit', 'not yet', 'before timeout', 'waiting'],
     ['absent', 'not persisted', 'first visit', 'not yet', 'after timeout', 'not found'],
     ['absent', 'not persisted', 'first visit', 'blocked', 'flags arrived', 'not found'],
@@ -239,7 +279,7 @@ function masterView(): View {
 
 function sdkValueBeforeLoad({ page, cached }: DecisionRow): 'on' | 'off' | 'none' {
     if (cached === 'first visit') {
-        return page === 'absent' ? 'none' : page
+        return page === 'on' || page === 'off' ? page : 'none'
     }
     return cached === 'stored on' ? 'on' : cached === 'stored off' ? 'off' : 'none'
 }
@@ -253,7 +293,7 @@ function servePage(row: DecisionRow): void {
     } else {
         window.POSTHOG_USER_IDENTITY_WITH_FLAGS = {
             distinctID: 'person-1',
-            featureFlags: { [FLAG]: row.page === 'on' },
+            featureFlags: row.page === 'left out' ? { 'other-flag': true } : { [FLAG]: row.page === 'on' },
         }
     }
     const storedOn = row.cached === 'stored on' || (row.cached === 'first visit' && row.persisted === 'persisted')
@@ -464,8 +504,8 @@ describe('adventCalendarAccessLogic', () => {
             [true],
         ],
         [
-            'a failed load on a page that left the flag out keeps the stored flag',
-            { pageFlags: { 'other-flag': true }, steps: [failed()] },
+            'a failed load on a page that left the switched-off flag out hides the stored flag',
+            { pageFlags: { 'other-flag': true }, steps: [failed({ [FLAG]: true })] },
             [false],
         ],
         [
