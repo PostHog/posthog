@@ -1,14 +1,66 @@
+from types import SimpleNamespace
+from uuid import UUID
+
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from django.test import SimpleTestCase, override_settings
+
 from parameterized import parameterized
 
-from products.signals.backend.models import SignalReport
+from products.error_tracking.backend.facade.testing import create_issue
+from products.signals.backend.error_tracking_reports import cites_error_tracking_issue, references_error_tracking_issue
+from products.signals.backend.facade.reports import inbox_report_ids_for_error_tracking_issue
+from products.signals.backend.models import ArtefactAttribution, SignalReport
+from products.signals.backend.report_merge import merge_reports, merge_survivor_ids
 from products.signals.backend.temporal.signal_queries import fetch_live_report_ids_for_source_ids
 
 VIEWS_FETCH = "products.signals.backend.views.fetch_live_report_ids_for_source_ids"
 VIEWS_FETCH_BY_PRODUCT = "products.signals.backend.views.fetch_report_ids_for_source_products"
 TICKET_ID = "019f9373-1e60-0000-3928-d8b21e6e8cb0"
+
+
+@override_settings(SITE_URL="https://us.posthog.com")
+class TestErrorTrackingIssueReferences(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("canonical", f"[error](https://us.posthog.com/project/2/error-tracking/{TICKET_ID})", True),
+            ("legacy", f"[error](https://app.posthog.com/project/2/error_tracking/{TICKET_ID}?x=1#events)", True),
+            ("relative", f"[error](/error-tracking/{TICKET_ID}/)", True),
+            ("inline code", f"`https://us.posthog.com/project/2/error-tracking/{TICKET_ID}`", True),
+            ("code block", f"```\n/error_tracking/{TICKET_ID}\n```", True),
+            ("bare id", TICKET_ID, False),
+            ("other project", f"https://us.posthog.com/project/3/error-tracking/{TICKET_ID}", False),
+            ("other host", f"https://example.com/project/2/error-tracking/{TICKET_ID}", False),
+            ("other product", f"https://us.posthog.com/project/2/insights/{TICKET_ID}", False),
+            ("suffix", f"https://us.posthog.com/project/2/error-tracking/{TICKET_ID}a", False),
+            ("nested url", f"https://example.com/?next=/project/2/error-tracking/{TICKET_ID}", False),
+            ("userinfo", f"https://us.posthog.com@example.com/project/2/error-tracking/{TICKET_ID}", False),
+            ("other scheme", f"javascript:https://us.posthog.com/project/2/error-tracking/{TICKET_ID}", False),
+        ]
+    )
+    def test_accepts_only_exact_issue_urls(self, _name: str, text: str, expected: bool) -> None:
+        assert references_error_tracking_issue(text, issue_id=UUID(TICKET_ID), team_id=2) is expected
+
+
+class TestErrorTrackingIssueEvidence(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("cited", [{"source_product": "error_tracking", "entity_id": TICKET_ID}], True),
+            ("uppercase", [{"source_product": "error_tracking", "entity_id": f" {TICKET_ID.upper()} "}], True),
+            ("other product", [{"source_product": "session_replay", "entity_id": TICKET_ID}], False),
+            ("other issue", [{"source_product": "error_tracking", "entity_id": str(UUID(int=1))}], False),
+            ("malformed id", [{"source_product": "error_tracking", "entity_id": "issue-42"}], False),
+            ("non-string id", [{"source_product": "error_tracking", "entity_id": 42}], False),
+            ("no id", [{"source_product": "error_tracking", "entity_id": None}], False),
+            ("non-dict entry", ["error_tracking", TICKET_ID], False),
+            ("not a list", {"source_product": "error_tracking", "entity_id": TICKET_ID}, False),
+        ]
+    )
+    def test_matches_only_error_tracking_evidence_for_the_issue(
+        self, _name: str, evidence: object, expected: bool
+    ) -> None:
+        assert cites_error_tracking_issue(evidence, issue_id=UUID(TICKET_ID)) is expected
 
 
 class TestLiveReportIdsForSourceIds(APIBaseTest):
@@ -81,3 +133,63 @@ class TestReportsSourceIdFilter(APIBaseTest):
 
         assert response.status_code == 200
         fetch.assert_not_called()
+
+    def test_issue_reports_keep_visible_reports_and_ignore_untrusted_report_ids(self) -> None:
+        issue_id = create_issue(team_id=self.team.id, name="Example error")
+        suppressed = SignalReport.objects.create(team=self.team, status=SignalReport.Status.SUPPRESSED)
+        deleted = SignalReport.objects.create(team=self.team, status=SignalReport.Status.DELETED)
+        with patch(
+            "products.signals.backend.error_tracking_reports.execute_hogql_query",
+            return_value=SimpleNamespace(
+                results=[
+                    [str(self.linked.id), str(issue_id), "error_tracking", "", "evidence"],
+                    [str(suppressed.id), str(issue_id), "error_tracking", "", "evidence"],
+                    [str(deleted.id), str(issue_id), "error_tracking", "", "evidence"],
+                    ["invalid-report-id", str(issue_id), "error_tracking", "", "evidence"],
+                ]
+            ),
+        ):
+            report_ids = inbox_report_ids_for_error_tracking_issue(team=self.team, issue_id=issue_id)
+
+        assert report_ids == [str(self.linked.id)]
+
+    def test_issue_reports_return_merge_survivor_before_signal_move(self) -> None:
+        issue_id = create_issue(team_id=self.team.id, name="Example error")
+        merge_reports(
+            team=self.team,
+            survivor=self.linked,
+            source_ids=[str(self.unlinked.id)],
+            attribution=ArtefactAttribution.from_user(self.user.id),
+        )
+        with patch(
+            "products.signals.backend.error_tracking_reports.execute_hogql_query",
+            return_value=SimpleNamespace(
+                results=[[str(self.unlinked.id), str(issue_id), "error_tracking", "", "evidence"]]
+            ),
+        ):
+            report_ids = inbox_report_ids_for_error_tracking_issue(team=self.team, issue_id=issue_id)
+
+        assert report_ids == [str(self.linked.id)]
+
+    def test_merge_resolution_queries_each_shared_level_once(self) -> None:
+        sources = SignalReport.objects.bulk_create(
+            [SignalReport(team=self.team, status=SignalReport.Status.READY) for _ in range(20)]
+        )
+        for offset in (0, 10):
+            merge_reports(
+                team=self.team,
+                survivor=self.unlinked,
+                source_ids=[str(report.id) for report in sources[offset : offset + 10]],
+                attribution=ArtefactAttribution.from_user(self.user.id),
+            )
+        merge_reports(
+            team=self.team,
+            survivor=self.linked,
+            source_ids=[str(self.unlinked.id)],
+            attribution=ArtefactAttribution.from_user(self.user.id),
+        )
+
+        with self.assertNumQueries(5):
+            survivors = merge_survivor_ids(team_id=self.team.id, report_ids=[str(report.id) for report in sources])
+
+        assert survivors == {str(self.linked.id)}

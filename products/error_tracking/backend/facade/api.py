@@ -324,6 +324,18 @@ def available_ai_features(team_id: int) -> list[contracts.ErrorTrackingAIFeature
     ]
 
 
+# Gates the inbox report lookup on the issue read while its latency and hit rate are measured.
+INBOX_REPORTS_ON_ISSUE_READ_FLAG = "error-tracking-issue-inbox-reports"
+
+
+def inbox_reports_on_issue_read_enabled(team_id: int) -> bool:
+    """Whether the issue read lists the inbox reports that reference the issue.
+
+    Local evaluation only, so that the flag never adds a remote call to the issue read.
+    """
+    return team_flags.team_flag_enabled(INBOX_REPORTS_ON_ISSUE_READ_FLAG, team_id, only_evaluate_locally=True)
+
+
 def update_settings(team_id: int, fields: dict[str, int | bool | None]) -> contracts.ErrorTrackingSettings:
     ingestion_enabled = fields.get("ingestion_enabled")
     with transaction.atomic():

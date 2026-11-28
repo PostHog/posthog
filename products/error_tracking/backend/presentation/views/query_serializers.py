@@ -463,6 +463,23 @@ class ErrorTrackingIssueSummarySerializer(serializers.Serializer):
     generated_at = serializers.DateTimeField(help_text="When the summary was written.")
 
 
+INBOX_REPORT_IDS_HELP_TEXT = (
+    "Ids of the Self-driving inbox reports that reference this issue, most recently updated first, at "
+    "most 10. A report references the issue when its signals came from the issue, when a scout cited the "
+    "issue as evidence, or when its evidence or summary links the issue. Read one with "
+    "inbox-reports-retrieve. An empty list means no report references the issue. Absent when the lookup "
+    "is not available for this project or the caller, or when it failed or timed out."
+)
+
+
+def inbox_report_ids_field(*, extra_help_text: str = "") -> serializers.ListField:
+    return serializers.ListField(
+        child=serializers.UUIDField(),
+        required=False,
+        help_text=f"{INBOX_REPORT_IDS_HELP_TEXT}{extra_help_text}",
+    )
+
+
 class ErrorTrackingIssueDetailSerializer(ErrorTrackingIssueListItemSerializer):
     function = serializers.CharField(
         required=False, allow_null=True, help_text="Top function associated with the issue."
@@ -499,6 +516,7 @@ class ErrorTrackingIssueDetailSerializer(ErrorTrackingIssueListItemSerializer):
             "requests, oldest first. An empty list means nothing is linked. Absent when the lookup failed."
         ),
     )
+    inbox_report_ids = inbox_report_ids_field()
     summary = ErrorTrackingIssueSummarySerializer(
         required=False,
         help_text=(
@@ -541,3 +559,4 @@ class ErrorTrackingIssueEventsResponseSerializer(serializers.Serializer):
     nextOffset = serializers.IntegerField(
         required=False, help_text="Offset to fetch the next page when hasMore is true."
     )
+    inbox_report_ids = inbox_report_ids_field(extra_help_text=" Present only on the first page, when offset is 0.")

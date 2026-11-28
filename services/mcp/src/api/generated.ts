@@ -46579,6 +46579,8 @@ export namespace Schemas {
       breakdown?: ErrorTrackingIssueBreakdown;
       /** Work linked to this issue in GitHub, GitLab, Linear, or Jira, such as provider issues and GitHub pull requests, oldest first. An empty list means nothing is linked. Absent when the lookup failed. */
       external_issues?: ErrorTrackingExternalReferenceResult[];
+      /** Ids of the Self-driving inbox reports that reference this issue, most recently updated first, at most 10. A report references the issue when its signals came from the issue, when a scout cited the issue as evidence, or when its evidence or summary links the issue. Read one with inbox-reports-retrieve. An empty list means no report references the issue. Absent when the lookup is not available for this project or the caller, or when it failed or timed out. */
+      inbox_report_ids?: string[];
       /** An AI-written summary of the issue. Present only when summary_status is 'ready'. Treat likely_cause as a hypothesis, not a fact. */
       summary?: ErrorTrackingIssueSummary;
       /** 'ready' means summary is present. 'not_generated' means no summary exists for this issue. A summary is written when an issue is created, and when a person asks for one in PostHog. 'unavailable' means no summary can be shown, and summary_reason says why.
@@ -46783,6 +46785,8 @@ export namespace Schemas {
       offset: number;
       /** Offset to fetch the next page when hasMore is true. */
       nextOffset?: number;
+      /** Ids of the Self-driving inbox reports that reference this issue, most recently updated first, at most 10. A report references the issue when its signals came from the issue, when a scout cited the issue as evidence, or when its evidence or summary links the issue. Read one with inbox-reports-retrieve. An empty list means no report references the issue. Absent when the lookup is not available for this project or the caller, or when it failed or timed out. Present only on the first page, when offset is 0. */
+      inbox_report_ids?: string[];
     }
 
     export interface ErrorTrackingIssueExistsResponse {

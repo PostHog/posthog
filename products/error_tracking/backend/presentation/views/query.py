@@ -26,6 +26,7 @@ from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
+from posthog.errors import ClickHouseQueryTimeOut
 from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.events_query_runner import EventsQueryRunner
@@ -79,8 +80,12 @@ from products.error_tracking.backend.presentation.views.query_serializers import
     ErrorTrackingIssuesListQueryRequestSerializer,
     ErrorTrackingIssuesListResponseSerializer,
 )
+from products.signals.backend.facade import reports as inbox_reports_facade
 
 logger = structlog.get_logger(__name__)
+
+# The lookup scans the team's signal history in ClickHouse, so a slow scan drops the field rather than delaying the issue.
+INBOX_REPORTS_TIMEOUT_SECONDS = 1
 
 
 def summary_payload(summary: contracts.ErrorTrackingIssueSummary) -> dict[str, object]:
@@ -331,6 +336,7 @@ class ErrorTrackingQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             external_issues = None
         if external_issues is not None:
             payload["external_issues"] = [external_issue_payload(reference) for reference in external_issues]
+        inbox_report_properties = self._add_inbox_report_ids(request, issue_basics, payload)
         if summary_read.summary is not None:
             payload["summary"] = summary_payload(summary_read.summary)
         payload["summary_status"] = summary_read.status.value
@@ -345,10 +351,48 @@ class ErrorTrackingQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             summary_status=summary_read.status.value,
             summary_reason=summary_read.reason.value if summary_read.reason is not None else None,
             external_issue_count=len(external_issues) if external_issues is not None else None,
+            **inbox_report_properties,
             facts_ms=round((summary_started_at - started_at) * 1000),
             summary_wait_ms=round((summary_finished_at - summary_started_at) * 1000),
         )
         return Response(payload)
+
+    def _add_inbox_report_ids(
+        self,
+        request: ValidatedRequest,
+        issue_basics: contracts.ErrorTrackingIssueBasics,
+        payload: dict[str, object],
+    ) -> dict[str, object]:
+        """Add `inbox_report_ids` to the payload, and return the lookup's properties for the issue read event."""
+        started_at = time.monotonic()
+        report_ids = self._inbox_report_ids(request, issue_basics)
+        if report_ids is None:
+            return {"inbox_report_count": None, "inbox_reports_ms": None}
+        payload["inbox_report_ids"] = report_ids
+        return {
+            "inbox_report_count": len(report_ids),
+            "inbox_reports_ms": round((time.monotonic() - started_at) * 1000),
+        }
+
+    def _inbox_report_ids(
+        self, request: ValidatedRequest, issue_basics: contracts.ErrorTrackingIssueBasics
+    ) -> list[str] | None:
+        """The inbox reports that reference the issue, or None to leave the field out."""
+        if not facade_api.inbox_reports_on_issue_read_enabled(self.team.id):
+            return None
+        # The endpoint asks only for error tracking access, so the reports' own access level decides here.
+        if not inbox_reports_facade.may_read_reports(user=cast(User, request.user), team=self.team):
+            return None
+        try:
+            return inbox_reports_facade.inbox_report_ids_for_error_tracking_issue(
+                team=self.team, issue_id=issue_basics.id, max_execution_time=INBOX_REPORTS_TIMEOUT_SECONDS
+            )
+        except ClickHouseQueryTimeOut:
+            logger.warning("error_tracking_issue_inbox_reports_timed_out", issue_id=str(issue_basics.id))
+            return None
+        except Exception as error:
+            capture_exception(error, {"team_id": self.team.id, "issue_id": str(issue_basics.id)})
+            return None
 
     def _issue_event_properties(
         self,
@@ -500,5 +544,7 @@ class ErrorTrackingQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         payload: dict[str, object] = {"results": results, "hasMore": has_more, "limit": limit, "offset": offset}
         if next_offset is not None:
             payload["nextOffset"] = next_offset
-        self._report_issue_read(request, issue_basics, "issue_events")
+        # Only the first page carries the reports, so an agent that pages through events runs the lookup once.
+        inbox_report_properties = self._add_inbox_report_ids(request, issue_basics, payload) if offset == 0 else {}
+        self._report_issue_read(request, issue_basics, "issue_events", **inbox_report_properties)
         return Response(payload)

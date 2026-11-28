@@ -1,18 +1,21 @@
 """Report reads for surfaces outside signals that show or announce a single report."""
 
 from datetime import datetime
+from uuid import UUID
 
 from posthog.dataclasses import frozen
-from posthog.models import User
+from posthog.models import Team, User
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.signals.backend.error_tracking_reports import reports_referencing_error_tracking_issue
 from products.signals.backend.models import SignalReport
 from products.signals.backend.report_access import may_read_reports
-from products.signals.backend.scout_authorship import report_is_hidden_from_inbox
+from products.signals.backend.scout_authorship import inbox_hidden_report_filter, report_is_hidden_from_inbox
 
 __all__ = [
     "ReportCard",
     "get_report_card",
+    "inbox_report_ids_for_error_tracking_issue",
     "may_read_reports",
     "user_may_receive_report_push",
 ]
@@ -64,3 +67,29 @@ def user_may_receive_report_push(*, user: User, team_id: int | str, report_id: s
         and UserAccessControl(user=user, team=report.team).has_project_access
         and may_read_reports(user=user, team=report.team)
     )
+
+
+INBOX_REPORT_IDS_LIMIT = 10
+
+
+def inbox_report_ids_for_error_tracking_issue(
+    *, team: Team, issue_id: UUID, max_execution_time: int | None = None
+) -> list[str]:
+    """Ids of the inbox reports that reference an error tracking issue, most recently updated first.
+
+    The caller must already have loaded the issue for this team. The ids are the reports the inbox
+    list shows: suppressed and deleted reports, and reports a scout kept out of the inbox, are left out.
+    """
+    report_ids = reports_referencing_error_tracking_issue(
+        team=team, issue_id=issue_id, max_execution_time=max_execution_time
+    )
+    if not report_ids:
+        return []
+    return [
+        str(report_id)
+        for report_id in SignalReport.objects.filter(team_id=team.id, id__in=report_ids)
+        .exclude(status__in=[SignalReport.Status.SUPPRESSED, SignalReport.Status.DELETED])
+        .filter(inbox_hidden_report_filter(team.id))
+        .order_by("-updated_at", "id")
+        .values_list("id", flat=True)[:INBOX_REPORT_IDS_LIMIT]
+    ]

@@ -15,6 +15,7 @@ from parameterized import parameterized
 
 from posthog.clickhouse.query_tagging import Feature, Product, get_query_tags
 from posthog.constants import AvailableFeature
+from posthog.errors import ClickHouseQueryTimeOut
 from posthog.models.integration import Integration
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
@@ -948,6 +949,53 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
                 "title": "Checkout TypeError",
             }
         ]
+
+    @parameterized.expand(
+        [
+            ("flag_on", "issue", {}, True, True, None, True),
+            ("flag_off", "issue", {}, False, True, None, False),
+            ("no_report_access", "issue", {}, True, False, None, False),
+            ("lookup_fails", "issue", {}, True, True, RuntimeError("boom"), False),
+            ("lookup_times_out", "issue", {}, True, True, ClickHouseQueryTimeOut(), False),
+            ("events_first_page", "issue_events", {}, True, True, None, True),
+            ("events_later_page", "issue_events", {"offset": 1}, True, True, None, False),
+            ("events_flag_off", "issue_events", {}, False, True, None, False),
+        ]
+    )
+    @time_machine.travel("2026-04-24T12:00:00Z", tick=False)
+    def test_issue_reads_return_inbox_report_ids_only_behind_the_flag_and_report_access(
+        self,
+        _name: str,
+        endpoint: str,
+        extra_data: dict[str, object],
+        flag_on: bool,
+        may_read_reports: bool,
+        lookup_error: Exception | None,
+        returns_ids: bool,
+    ) -> None:
+        self.create_issue()
+        report_ids = ["01a2186b-0000-0000-0000-000000000001"]
+        view = "products.error_tracking.backend.presentation.views.query"
+
+        with (
+            patch(f"{view}.facade_api.inbox_reports_on_issue_read_enabled", return_value=flag_on),
+            patch(f"{view}.inbox_reports_facade.may_read_reports", return_value=may_read_reports),
+            patch(
+                f"{view}.inbox_reports_facade.inbox_report_ids_for_error_tracking_issue",
+                return_value=report_ids,
+                side_effect=lookup_error,
+            ) as lookup,
+        ):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/error_tracking/query/{endpoint}",
+                data={"issueId": self.issue_id, **extra_data},
+                format="json",
+            )
+
+        assert response.status_code == 200
+        assert response.json().get("inbox_report_ids") == (report_ids if returns_ids else None)
+        if extra_data.get("offset"):
+            lookup.assert_not_called()
 
     @time_machine.travel("2026-04-24T12:00:00Z", tick=False)
     def test_issue_detail_distinguishes_missing_issue_from_empty_date_range(self) -> None:
