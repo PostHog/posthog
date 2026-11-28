@@ -1,5 +1,7 @@
 import { ProviderEdge, startProviderEdge } from '.'
 import { createHash, randomBytes } from 'node:crypto'
+import http from 'node:http'
+import { AddressInfo } from 'node:net'
 
 import { getDefaultCdpConfig } from '~/cdp/config'
 import {
@@ -128,6 +130,32 @@ describe('the edge in front of the attachment store', () => {
             settledBeforeAbort: false,
         })
         expect(await load(uploaded)).toEqual(uploaded.bytes)
+    })
+
+    test('drops its call to the store when the caller hangs up first, and passes the next call', async () => {
+        const held: http.IncomingMessage[] = []
+        const slowStore = http.createServer((req, res) => {
+            if (req.url === '/held') {
+                held.push(req)
+                return
+            }
+            res.end('next')
+        })
+        await new Promise<void>((resolve) => slowStore.listen(0, '127.0.0.1', resolve))
+        try {
+            const proxy = await edge.s3ProxyOf(`http://127.0.0.1:${(slowStore.address() as AddressInfo).port}/`)
+
+            const hungUp = await internalFetch(`${proxy}/held`, { timeoutMs: CALL_TIMEOUT_MS }).catch(
+                (error: Error) => error.name
+            )
+            await waitForExpect(() => expect(held.map((call) => call.destroyed)).toEqual([true]), 5000, 5)
+            const next = await internalFetch(`${proxy}/next`)
+
+            expect({ hungUp, next: await next.text() }).toEqual({ hungUp: 'TimeoutError', next: 'next' })
+        } finally {
+            slowStore.closeAllConnections()
+            await new Promise((resolve) => slowStore.close(resolve))
+        }
     })
 
     test('holds one download for edge_accepted, says the store took it, and passes uploads and the next download', async () => {
