@@ -692,7 +692,6 @@ class FakeSlackIntegration:
     fail_thread_replies: bool = False
     # Makes every permalink lookup fail, as Slack does when it rate limits the call.
     fail_permalinks: bool = False
-    # The app's own reactions, by channel and message ts.
     reactions: dict[tuple[str, str], set[str]] = {}
 
     def __init__(self, integration: Any, *, source: str = "integration") -> None:

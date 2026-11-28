@@ -201,7 +201,7 @@ It is read from the default branch too, so a PR cannot redirect its own digest.
 `@posthog stamp --allow-broadcast [note]`, or a review request with `allow_broadcast: true`, asks Stamphog for a review and opens a broadcast request for the pull request.
 A manager turns it on per repository with `broadcast_enabled` and a Slack channel on the repo config API (`manager` level to change, reset when a placeholder row binds).
 If Stamphog approves, or approval retention keeps its approval over a push, nothing is posted.
-If Stamphog refuses, escalates, is gated or fails, one message goes to the channel, with an "I'll take a look" button.
+If Stamphog refuses, escalates, is gated or fails, one message goes to the channel, with an "I'll take a look" button that also opens the pull request.
 That message changes as the pull request does: a person's approval of the current head, a push that makes it stale, a later Stamphog approval, a merge or a close.
 The message also carries 👀 while somebody is looking and ✅ while the request is approved. A merge or a close keeps the reactions it had.
 Each pull request has at most one active request, so asking again returns it.
@@ -211,7 +211,7 @@ The note is shown in Slack only, because pull request comments are public.
 A person can also post a pull request link as a new message in the repository's Broadcast channel, for example when the pull request is too big for Stamphog.
 Stamphog starts no review for it.
 The PostHog Slack app posts the request's message, with its "I'll take a look" button, as a reply in the thread of that post, and the reply follows the pull request like any other request's message.
-The post itself gets the same 👀 and ✅ reactions, because the channel shows the post and not its thread.
+The post itself carries 👀 while somebody looks at one of its pull requests, and ✅ only once every one is approved or merged, because the channel shows the post and not its thread.
 Each distinct pull request link counts, up to five per post, and only a member of the project who could ask with `@posthog stamp` gets an answer.
 If the pull request already has an active request, the reply links to that request's message.
 If Stamphog already approved the current commit, the reply says so and nobody is asked.

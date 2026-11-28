@@ -76,10 +76,6 @@ _STATUSES_WITH_BUTTONS = frozenset({BroadcastRequestStatus.OPEN, BroadcastReques
 
 LOOKING_REACTION = "eyes"
 APPROVED_REACTION = "white_check_mark"
-_APPROVED_STATUSES = frozenset({BroadcastRequestStatus.APPROVED, BroadcastRequestStatus.STAMPHOG_APPROVED})
-# A merged or closed request keeps the reactions it had, so a merge after an approval does not remove the ✅.
-_STATUSES_WITH_FIXED_REACTIONS = frozenset({BroadcastRequestStatus.MERGED, BroadcastRequestStatus.CLOSED})
-# Slack answers these when the reaction is already in the state the sync asks for.
 _REACTION_ALREADY_SET_ERRORS = frozenset({"already_reacted", "no_reaction"})
 
 
@@ -224,7 +220,7 @@ def button_value(card: BroadcastRequestCard) -> str:
     )
 
 
-def _button(text: str, action_id: str, value: str, *, primary: bool = False) -> dict[str, Any]:
+def _button(text: str, action_id: str, value: str, *, primary: bool = False, url: str = "") -> dict[str, Any]:
     # posthog.slack.channels builds link buttons only, and these carry an action id and a value instead.
     element: dict[str, Any] = {
         "type": "button",
@@ -234,6 +230,9 @@ def _button(text: str, action_id: str, value: str, *, primary: bool = False) -> 
     }
     if primary:
         element["style"] = "primary"
+    if url:
+        # Slack opens the link and still sends the click, so the person lands on the pull request.
+        element["url"] = url
     return element
 
 
@@ -263,7 +262,7 @@ def card_blocks(card: BroadcastRequestCard) -> list[dict[str, Any]]:
     blocks.extend(context_block(line) for line in context)
     if card.status in _STATUSES_WITH_BUTTONS:
         value = button_value(card)
-        buttons = [_button("I'll take a look", LOOK_ACTION_ID, value, primary=True)]
+        buttons = [_button("I'll take a look", LOOK_ACTION_ID, value, primary=True, url=card.pr_url)]
         if card.lookers:
             buttons.append(_button("Stop looking", STOP_LOOKING_ACTION_ID, value))
         blocks.append({"type": "actions", "block_id": ACTIONS_BLOCK_ID, "elements": buttons})
@@ -433,31 +432,27 @@ def update_card(card: BroadcastRequestCard, channel_id: str, ts: str) -> None:
         raise
 
 
-def sync_reactions(card: BroadcastRequestCard, channel_id: str, message_ts: Sequence[str]) -> None:
-    """Show 👀 while a person is looking and ✅ while the request is approved, on each message. Never raises.
+def set_reactions(card: BroadcastRequestCard, channel_id: str, ts: str, *, looking: bool, approved: bool) -> None:
+    """Show or hide 👀 and ✅ on one message. Never raises.
 
-    The reactions only repeat what the card says, so a failure is logged and the next refresh sets them again.
+    The reactions only repeat what the cards say, so a failure is logged and the next refresh sets them again.
     Slack removes only the app's own reaction, so a reaction that a person added stays.
     """
-    if card.status in _STATUSES_WITH_FIXED_REACTIONS:
-        return
-    wanted = {LOOKING_REACTION: bool(card.lookers), APPROVED_REACTION: card.status in _APPROVED_STATUSES}
     try:
         client = _slack(card.team_id, card.integration_id).client
     except BroadcastRequestSlackError:
         return
-    for ts in message_ts:
-        for name, show in wanted.items():
-            try:
-                if show:
-                    client.reactions_add(channel=channel_id, timestamp=ts, name=name)
-                else:
-                    client.reactions_remove(channel=channel_id, timestamp=ts, name=name)
-            except SlackApiError as e:
-                if str(e.response.get("error") or "") not in _REACTION_ALREADY_SET_ERRORS:
-                    logger.warning("stamphog_broadcast_reaction_failed", slack_channel_id=channel_id, error=str(e))
-            except Exception as e:
+    for name, show in ((LOOKING_REACTION, looking), (APPROVED_REACTION, approved)):
+        try:
+            if show:
+                client.reactions_add(channel=channel_id, timestamp=ts, name=name)
+            else:
+                client.reactions_remove(channel=channel_id, timestamp=ts, name=name)
+        except SlackApiError as e:
+            if str(e.response.get("error") or "") not in _REACTION_ALREADY_SET_ERRORS:
                 logger.warning("stamphog_broadcast_reaction_failed", slack_channel_id=channel_id, error=str(e))
+        except Exception as e:
+            logger.warning("stamphog_broadcast_reaction_failed", slack_channel_id=channel_id, error=str(e))
 
 
 def ping_lookers(card: BroadcastRequestCard, channel_id: str, ts: str, *, reviewing: bool) -> None:

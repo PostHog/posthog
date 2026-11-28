@@ -46,7 +46,7 @@ from .broadcast_request_slack import (
     find_card_integration,
     ping_lookers,
     post_card,
-    sync_reactions,
+    set_reactions,
     update_card,
 )
 from .github_client import StamphogGitHubClient, expected_app_bot_login
@@ -333,6 +333,8 @@ def open_link_request(
 # The review states that replace a person's earlier review. A COMMENTED review leaves an approval standing.
 _DECIDING_REVIEW_STATES = frozenset({"APPROVED", "CHANGES_REQUESTED", "DISMISSED"})
 _REVIEWABLE_STATUSES = frozenset({BroadcastRequestStatus.OPEN, BroadcastRequestStatus.PENDING})
+_APPROVED_STATUSES = frozenset({BroadcastRequestStatus.APPROVED, BroadcastRequestStatus.STAMPHOG_APPROVED})
+_LINK_POST_DONE_STATUSES = _APPROVED_STATUSES | {BroadcastRequestStatus.MERGED}
 
 
 def stamphog_status_at_head(
@@ -792,8 +794,19 @@ def _refresh_locked(request: BroadcastRequest, *, decided_head_sha: str, using: 
     except BroadcastRequestSlackError as e:
         logger.warning("stamphog_broadcast_request_update_refused", broadcast_request_id=str(request.id), error=str(e))
         return
-    # A card in a thread also marks the post that asked, because the channel shows that post and not the card.
-    sync_reactions(card, delivery.channel_id, [ts for ts in (delivery.message_ts, delivery.thread_ts) if ts])
+    # A merged or closed request keeps the reactions it had, so a merge after an approval does not remove the ✅.
+    if state.status not in (BroadcastRequestStatus.MERGED, BroadcastRequestStatus.CLOSED):
+        set_reactions(
+            card,
+            delivery.channel_id,
+            delivery.message_ts,
+            looking=bool(lookers),
+            approved=state.status in _APPROVED_STATUSES,
+        )
+    if delivery.thread_ts:
+        # The channel shows the post that asked and not its thread, so the post carries the reactions of all its cards.
+        looking, approved = _link_post_reactions(team_id, delivery, using=using)
+        set_reactions(card, delivery.channel_id, delivery.thread_ts, looking=looking, approved=approved)
     if head_sha == request.pinged_head_sha:
         return
     # Recorded before the reply, so a failed reply is not sent again.
@@ -808,6 +821,27 @@ def _refresh_locked(request: BroadcastRequest, *, decided_head_sha: str, using: 
             delivery.thread_ts or delivery.message_ts,
             reviewing=state.status == BroadcastRequestStatus.PENDING,
         )
+
+
+def _link_post_reactions(team_id: int, delivery: BroadcastRequestDelivery, *, using: str) -> tuple[bool, bool]:
+    """👀 while anybody looks at one of the post's pull requests, and ✅ only when every one is approved or merged."""
+    requests = (
+        BroadcastRequest.objects.for_team(team_id)
+        .using(using)
+        .filter(
+            deliveries__kind=BroadcastRequestDeliveryKind.SLACK_MESSAGE,
+            deliveries__channel_id=delivery.channel_id,
+            deliveries__thread_ts=delivery.thread_ts,
+        )
+    )
+    statuses = set(requests.values_list("status", flat=True))
+    looking = (
+        BroadcastRequestParticipant.objects.for_team(team_id)
+        .using(using)
+        .filter(broadcast_request__in=requests, looking=True)
+        .exists()
+    )
+    return looking, statuses <= _LINK_POST_DONE_STATUSES
 
 
 def record_look(click: LookClick) -> bool:
