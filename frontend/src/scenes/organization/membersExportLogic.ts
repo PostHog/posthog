@@ -15,6 +15,10 @@ import { OrganizationMemberType } from '~/types'
 import type { OrganizationType } from '../../types'
 
 function escapeCsvField(value: string): string {
+    // A leading ' makes spreadsheets read the cell as text. This matches Papa's escapeFormulae option.
+    if (/^[=+\-@\t\r]/.test(value)) {
+        return `"'${value.replace(/"/g, '""')}"`
+    }
     if (/[",\n\r]/.test(value)) {
         return `"${value.replace(/"/g, '""')}"`
     }
@@ -25,7 +29,7 @@ function yesNo(condition: boolean): string {
     return condition ? 'Yes' : 'No'
 }
 
-function buildOrganizationMembersCsv(members: OrganizationMemberType[]): string {
+export function buildOrganizationMembersCsv(members: OrganizationMemberType[]): string {
     const headers = [
         'Name',
         'Email',

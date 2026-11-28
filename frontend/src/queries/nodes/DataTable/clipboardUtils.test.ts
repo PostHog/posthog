@@ -24,12 +24,14 @@ jest.mock('@posthog/lemon-ui', () => ({
         error: jest.fn(),
     },
 }))
-jest.mock('papaparse', () => ({
-    unparse: jest.fn((data: unknown[][], options: { delimiter?: string } = {}) => {
-        const delimiter = options.delimiter || ','
-        return data.map((row: unknown[]) => row.join(delimiter)).join('\n')
-    }),
-}))
+jest.mock('papaparse', () => {
+    const actualPapa = jest.requireActual('papaparse')
+    return {
+        unparse: jest.fn((data: unknown[][], options: Record<string, unknown> = {}) =>
+            actualPapa.unparse(data, { ...options, newline: '\n' })
+        ),
+    }
+})
 
 const mockCopyToClipboard = copyToClipboard as jest.MockedFunction<typeof copyToClipboard>
 const mockLemonToastError = lemonToast.error as jest.MockedFunction<typeof lemonToast.error>
@@ -312,6 +314,17 @@ describe('clipboardUtils', () => {
             expect(mockCopyToClipboard).toHaveBeenNthCalledWith(2, 'pageview', 'table')
         })
 
+        it.each([
+            ['CSV', copyTableToCsv, `event,count\n"'=1+1","'-2"`],
+            ['TSV', copyTableToExcel, `event\tcount\n"'=1+1"\t"'-2"`],
+        ])('prefixes %s cells starting with a formula character', (_format, copyTable, expected) => {
+            const query = createMockQuery(NodeKind.HogQLQuery, { query: 'SELECT * FROM events' })
+
+            copyTable([{ result: ['=1+1', '-2'] }], ['event', 'count'], query)
+
+            expect(mockCopyToClipboard).toHaveBeenCalledWith(expected, 'table')
+        })
+
         it('shows error on copy failure', () => {
             mockCopyToClipboard.mockImplementation(() => {
                 throw new Error('Copy failed')
@@ -364,7 +377,7 @@ describe('clipboardUtils', () => {
                 ['pageview', '2023-01-01T00:00:00Z', 'user123'],
                 ['click', '2023-01-01T00:01:00Z', 'user456'],
             ]
-            expect(mockPapaUnparse).toHaveBeenCalledWith(expectedData, { delimiter: '\t' })
+            expect(mockPapaUnparse).toHaveBeenCalledWith(expectedData, expect.objectContaining({ delimiter: '\t' }))
 
             const expectedOutput =
                 'event\ttimestamp\tuser_id\npageview\t2023-01-01T00:00:00Z\tuser123\nclick\t2023-01-01T00:01:00Z\tuser456'

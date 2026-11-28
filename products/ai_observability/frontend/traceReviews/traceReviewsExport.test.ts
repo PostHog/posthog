@@ -214,8 +214,8 @@ describe('traceReviewsExport', () => {
 
     describe('formatReviewsForClipboard', () => {
         it.each([
-            ['csv', undefined, 'mock-papa-unparse:,:'],
-            ['tsv', { delimiter: '\t' }, 'mock-papa-unparse:\t:'],
+            ['csv', { escapeFormulae: true }, 'mock-papa-unparse:,:'],
+            ['tsv', { delimiter: '\t', escapeFormulae: true }, 'mock-papa-unparse:\t:'],
         ] as const)(
             'formats %s via Papa.unparse with the matching options',
             (format, expectedOptions, expectedPrefix) => {
