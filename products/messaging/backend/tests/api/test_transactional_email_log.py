@@ -45,7 +45,6 @@ from products.messaging.backend.models.email_status_sql import EMAIL_STATUS_DATA
 from products.messaging.backend.models.message_template import MessageTemplate
 from products.messaging.backend.models.transactional_email_key import TransactionalEmailKey
 from products.messaging.backend.services.transactional_email_log import _bucket_starts
-from products.workflows.backend.facade.api import get_workflow_names
 from products.workflows.backend.facade.team_extension import TeamWorkflowsConfig
 from products.workflows.backend.facade.testing import create_workflow_for_test
 from products.workflows.backend.facade.transactional_emails import create_code_email_workflow
@@ -1668,17 +1667,18 @@ class TestPersonEmailsWhenTheWorkflowLookupFails(
         url = self._record_person_emails({"a send": (10, message_id, self.workflow_id)})
         holder = connection.get_new_connection(connection.get_connection_params())
 
-        def lock_the_workflows_after_naming_them(**kwargs):
-            names = get_workflow_names(**kwargs)
-            with holder.cursor() as cursor:
-                # A row lock never blocks a plain read, so only a table lock makes the lookup's read fail.
-                cursor.execute("LOCK TABLE posthog_hogflow IN ACCESS EXCLUSIVE MODE")
-            return names
+        def lock_the_workflows_before_reading_their_ids(execute, sql, params, many, context):
+            # The list's name read selects each workflow's name, and the lookup's reads select only their ids.
+            if '"posthog_hogflow"' in sql and '"posthog_hogflow"."name"' not in sql:
+                with holder.cursor() as cursor:
+                    # A row lock never blocks a plain read, so only a table lock makes the lookup's read fail.
+                    cursor.execute("LOCK TABLE posthog_hogflow IN ACCESS EXCLUSIVE MODE")
+            return execute(sql, params, many, context)
 
         try:
             with connection.cursor() as cursor:
                 cursor.execute("SET lock_timeout = '100ms'")
-            with patch("posthog.api.person.get_workflow_names", side_effect=lock_the_workflows_after_naming_them):
+            with connection.execute_wrapper(lock_the_workflows_before_reading_their_ids):
                 response = self.client.get(url)
         finally:
             holder.rollback()
