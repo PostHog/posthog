@@ -166,6 +166,10 @@ HOGQL_MATERIALIZED_CTE_SUPPORTED: bool = get_from_env("HOGQL_MATERIALIZED_CTE_SU
 
 HOGQL_INCREASED_MAX_EXECUTION_TIME: int = get_from_env("HOGQL_INCREASED_MAX_EXECUTION_TIME", 600, type_cast=int)
 
+HOGQL_EXECUTE_THROUGH_REQUEST: bool = TEST and get_from_env(
+    "HOGQL_EXECUTE_THROUGH_REQUEST", False, type_cast=str_to_bool
+)
+
 # Extend and override these settings with EE's ones
 if "ee.apps.EnterpriseConfig" in INSTALLED_APPS:
     from ee.settings import *  # noqa: F401, F403

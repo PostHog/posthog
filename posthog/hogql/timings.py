@@ -49,6 +49,12 @@ class HogQLTimings:
             del self._timing_starts[full_key]
             self._timing_pointer = last_key
 
+    def include(self, measured_from_the_root: list["QueryTiming"]) -> None:
+        for timing in measured_from_the_root:
+            if timing.k != ".":
+                key = f"{self._timing_pointer}{timing.k[1:]}"
+                self.timings[key] = self.timings.get(key, 0.0) + timing.t
+
     def to_dict(self) -> dict[str, float]:
         timings = {**self.timings}
         for key, start in reversed(self._timing_starts.items()):
