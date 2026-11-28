@@ -33,6 +33,7 @@ from posthog.tasks.alerts.utils import (
 )
 from posthog.temporal.ai.anomaly_investigation.evaluated import EvaluatedCheck
 from posthog.temporal.ai.anomaly_investigation.event_provenance import alerted_series_event, describe_event_provenance
+from posthog.temporal.ai.anomaly_investigation.ingestion_freshness import describe_ingestion_freshness
 from posthog.temporal.ai.anomaly_investigation.notebook import NotebookRenderContext, build_investigation_markdown
 from posthog.temporal.ai.anomaly_investigation.prompts import build_anomaly_context
 from posthog.temporal.ai.anomaly_investigation.report import InvestigationReport
@@ -189,11 +190,14 @@ async def investigate_anomaly_activity(inputs: AnomalyInvestigationWorkflowInput
     # Measured up front rather than left to a tool call: without it the agent has only the
     # event's name to go on, and an opaque name invites it to invent the machinery behind it.
     event = alerted_series_event(insight.query, series_index=alerted.series_index)
-    event_provenance = ""
-    if event:
-        event_provenance = await sync_to_async(describe_event_provenance, thread_sensitive=False)(
-            team=team, event=event
-        )
+    event_provenance, ingestion_freshness = await asyncio.gather(
+        sync_to_async(describe_event_provenance, thread_sensitive=False)(team=team, event=event)
+        if event
+        else asyncio.sleep(0, result=""),
+        sync_to_async(describe_ingestion_freshness, thread_sensitive=False)(
+            team=team, event=event, evaluation_delay_intervals=alert.evaluation_delay_intervals
+        ),
+    )
 
     anomaly_context_text = build_anomaly_context(
         alert_name=alert.name or "Unnamed alert",
@@ -208,6 +212,7 @@ async def investigate_anomaly_activity(inputs: AnomalyInvestigationWorkflowInput
             insight.query, series_index=alerted.series_index, alert_config=alert.config
         ),
         event_provenance=event_provenance,
+        ingestion_freshness=ingestion_freshness,
     )
 
     # Render a chart of the metric with the detector's anomaly points marked and
