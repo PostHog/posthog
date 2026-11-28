@@ -69,7 +69,6 @@ pub async fn process_batch(
     context: &mut Context,
     batch: Batch,
 ) -> Result<BatchResponse, Error> {
-    context.legacy_property_splice = state.capture_v1_legacy_property_splice;
     let (batch, duplicates_dropped) = drop_duplicate_uuids(batch);
     if !duplicates_dropped.is_empty() {
         observe_duplicate_drops(state, context, &duplicates_dropped);
@@ -1998,7 +1997,6 @@ mod tests {
             capture_internal: false,
             historical_migration: false,
             gateway_signature: None,
-            legacy_property_splice: true,
         }
     }
 
@@ -4002,68 +4000,53 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn process_batch_applies_legacy_property_splice_switch() {
-        for splice in [true, false] {
-            let ts = TestStateBuilder::new()
-                .with_legacy_property_splice(splice)
-                .build();
-            let mut ctx = test_utils::test_analytics_context();
-            let mut events: Vec<Event> = (0..8)
-                .map(|_| Event {
-                    session_id: Some("sess-1".to_string()),
-                    properties: test_utils::raw_obj(r#"{"custom":1}"#),
-                    ..valid_event()
-                })
-                .collect();
-            let non_objects: Vec<Event> = ["null", "[1]", r#""s""#, "0", "true"]
-                .into_iter()
-                .map(|p| Event {
-                    properties: test_utils::raw_obj(p),
-                    ..valid_event()
-                })
-                .collect();
-            let non_object_uuids: HashSet<Uuid> = non_objects
-                .iter()
-                .map(|e| Uuid::parse_str(&e.uuid).unwrap())
-                .collect();
-            events.extend(non_objects);
+    async fn process_batch_publishes_client_properties_untouched() {
+        let ts = TestStateBuilder::new().build();
+        let mut ctx = test_utils::test_analytics_context();
+        let mut events: Vec<Event> = (0..8)
+            .map(|_| Event {
+                session_id: Some("sess-1".to_string()),
+                properties: test_utils::raw_obj(r#"{"custom":1}"#),
+                ..valid_event()
+            })
+            .collect();
+        let non_objects: Vec<Event> = ["null", "[1]", r#""s""#, "0", "true"]
+            .into_iter()
+            .map(|p| Event {
+                properties: test_utils::raw_obj(p),
+                ..valid_event()
+            })
+            .collect();
+        let non_object_uuids: HashSet<Uuid> = non_objects
+            .iter()
+            .map(|e| Uuid::parse_str(&e.uuid).unwrap())
+            .collect();
+        events.extend(non_objects);
 
-            let resp = process_batch(&ts.state, &mut ctx, valid_batch(events))
-                .await
-                .unwrap();
+        let resp = process_batch(&ts.state, &mut ctx, valid_batch(events))
+            .await
+            .unwrap();
 
-            let dropped: Vec<_> = resp
-                .entries()
-                .iter()
-                .filter(|(uuid, _)| non_object_uuids.contains(uuid))
-                .collect();
-            assert_eq!(dropped.len(), non_object_uuids.len(), "splice={splice}");
-            for (_, entry) in dropped {
-                assert_eq!(entry.result, EventResult::Drop, "splice={splice}");
-                assert_eq!(
-                    entry.details,
-                    Some("malformed_event_properties"),
-                    "splice={splice}"
-                );
-            }
-            let records = ts.mock_producer.get_records();
-            assert_eq!(records.len(), 8, "splice={splice}");
-            for record in records {
-                let captured: common_types::CapturedEvent =
-                    serde_json::from_slice(&record.payload).unwrap();
-                let data: serde_json::Value = serde_json::from_str(&captured.data).unwrap();
-                assert_eq!(
-                    data["properties"].get("$session_id").is_some(),
-                    splice,
-                    "splice={splice}"
-                );
-                assert_eq!(captured.options.unwrap()["session_id"], "sess-1");
-                assert_eq!(
-                    record.headers.legacy_property_splice,
-                    splice.then_some(true),
-                    "splice={splice}"
-                );
-            }
+        // Properties that are not a JSON object never reach the serializer.
+        let dropped: Vec<_> = resp
+            .entries()
+            .iter()
+            .filter(|(uuid, _)| non_object_uuids.contains(uuid))
+            .collect();
+        assert_eq!(dropped.len(), non_object_uuids.len());
+        for (_, entry) in dropped {
+            assert_eq!(entry.result, EventResult::Drop);
+            assert_eq!(entry.details, Some("malformed_event_properties"));
+        }
+        let records = ts.mock_producer.get_records();
+        assert_eq!(records.len(), 8);
+        for record in records {
+            let captured: common_types::CapturedEvent =
+                serde_json::from_slice(&record.payload).unwrap();
+            let data: serde_json::Value = serde_json::from_str(&captured.data).unwrap();
+            assert_eq!(data["properties"], serde_json::json!({"custom": 1}));
+            assert_eq!(captured.options.unwrap()["session_id"], "sess-1");
+            assert_eq!(record.headers.legacy_property_splice, None);
         }
     }
 

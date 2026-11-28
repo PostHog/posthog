@@ -133,7 +133,6 @@ async fn setup_recordings_router_with_restriction(
         None,             // ai_byte_rate_limiter
         None,             // replay_overflow_limiter
         8,                // capture_v1_scatter_gather_min_batch
-        true,             // capture_v1_legacy_property_splice
         None,             // ai_gateway_signing_secret
         None,             // ingestion_warning_emitter
     );
@@ -505,7 +504,6 @@ async fn setup_recordings_router_with_redirect_to_topic(
         None,             // ai_byte_rate_limiter
         None,             // replay_overflow_limiter
         8,                // capture_v1_scatter_gather_min_batch
-        true,             // capture_v1_legacy_property_splice
         None,             // ai_gateway_signing_secret
         None,             // ingestion_warning_emitter
     );
