@@ -35,7 +35,7 @@ import { EventDefinitionInsights } from 'scenes/data-management/events/EventDefi
 import { EventDefinitionProperties } from 'scenes/data-management/events/EventDefinitionProperties'
 import { EventDefinitionSchema } from 'scenes/data-management/events/EventDefinitionSchema'
 import { LinkedHogFunctions } from 'scenes/hog-functions/list/LinkedHogFunctions'
-import { SceneExport } from 'scenes/sceneTypes'
+import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import type { EnterprisePropertyDefinitionApi } from '~/generated/core/api.schemas'
@@ -45,7 +45,7 @@ import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { Query } from '~/queries/Query/Query'
-import { NodeKind } from '~/queries/schema/schema-general'
+import { NodeKind, ProductKey } from '~/queries/schema/schema-general'
 import { getCoreFilterDefinition, getFilterLabel, getVirtualPropertyDefinition } from '~/taxonomy/helpers'
 import {
     EventDefinition,
@@ -170,6 +170,11 @@ export function DefinitionView(rawProps: DefinitionLogicProps): JSX.Element {
                 select: columnsToUse,
                 event: definition.name,
                 after: '-24h',
+                tags: {
+                    productKey: ProductKey.PRODUCT_ANALYTICS,
+                    scene: Scene.EventDefinition,
+                    name: 'definition_matching_events',
+                },
             },
             full: true,
             showEventFilter: false,

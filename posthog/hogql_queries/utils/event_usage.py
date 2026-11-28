@@ -24,6 +24,9 @@ PROPERTY_USAGE_TRACKING_FLAG = "property-usage-tracking"
 MAX_EVENTS_LOGGED_PER_QUERY = 50
 MAX_PROPERTIES_LOGGED_PER_QUERY = 50
 
+# A definition page's own queries describe that definition, so logging them would count page views as usage.
+USAGE_UNTRACKED_SCENES = frozenset({"EventDefinition", "PropertyDefinition"})
+
 
 def event_usage_instance_id(event_name: str) -> str:
     """The app_metrics2 identity of one event definition. Rows keep it forever, so the shape must not change."""

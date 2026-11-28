@@ -7,6 +7,7 @@ from django.core.cache import cache
 from rest_framework import serializers
 
 from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.query_tagging import tags_context
 from posthog.clickhouse.workload import Workload
 from posthog.dataclasses import frozen
 from posthog.models import Team
@@ -77,8 +78,11 @@ def summarize_query_usage(
 
 
 def fetch_query_usage(team: Team, app_source: str, instance_ids: list[str]) -> dict[str, QueryUsage]:
-    """Query usage for each app_metrics2 instance id, cached for a day per instance id."""
-    cache_keys = {instance_id: _cache_key(team.pk, app_source, instance_id) for instance_id in set(instance_ids)}
+    """Query usage for each app_metrics2 instance id, cached per instance id until the window moves at midnight."""
+    windows = query_usage_windows(datetime.now(UTC), team.timezone_info)
+    cache_keys = {
+        instance_id: _cache_key(team.pk, app_source, windows, instance_id) for instance_id in set(instance_ids)
+    }
     cached = cache.get_many(list(cache_keys.values()))
     usage: dict[str, QueryUsage] = {}
     missing: list[str] = []
@@ -90,7 +94,6 @@ def fetch_query_usage(team: Team, app_source: str, instance_ids: list[str]) -> d
             missing.append(instance_id)
 
     if missing:
-        windows = query_usage_windows(datetime.now(UTC), team.timezone_info)
         fresh = _fetch_uncached_query_usage(team, app_source, missing, windows)
         cache.set_many(
             {cache_keys[instance_id]: fresh[instance_id] for instance_id in missing},
@@ -100,10 +103,11 @@ def fetch_query_usage(team: Team, app_source: str, instance_ids: list[str]) -> d
     return usage
 
 
-def _cache_key(team_id: int, app_source: str, instance_id: str) -> str:
+def _cache_key(team_id: int, app_source: str, windows: QueryUsageWindows, instance_id: str) -> str:
     # Definition names can contain characters that are invalid in cache keys, so hash the instance id.
     digest = hashlib.sha256(instance_id.encode()).hexdigest()[:32]
-    return f"query_usage:v1:{team_id}:{app_source}:{digest}"
+    # The window moves at midnight in the team's timezone, so the key includes its start.
+    return f"query_usage:v1:{team_id}:{app_source}:{windows.current_start.isoformat()}:{digest}"
 
 
 def _clickhouse_datetime(value: datetime) -> str:
@@ -113,33 +117,34 @@ def _clickhouse_datetime(value: datetime) -> str:
 def _fetch_uncached_query_usage(
     team: Team, app_source: str, instance_ids: list[str], windows: QueryUsageWindows
 ) -> dict[str, QueryUsage]:
-    rows = sync_execute(
-        """
-        SELECT instance_id, toDate(timestamp, %(timezone)s) AS day, sum(count)
-        FROM app_metrics2
-        WHERE team_id = %(team_id)s
-          AND app_source = %(app_source)s
-          AND metric_name = 'viewed'
-          AND instance_id IN %(instance_ids)s
-          AND timestamp >= toDateTime64(%(previous_start)s, 6, 'UTC')
-          AND (
-            timestamp < toDateTime64(%(previous_end)s, 6, 'UTC')
-            OR timestamp >= toDateTime64(%(current_start)s, 6, 'UTC')
-          )
-        GROUP BY instance_id, day
-        """,
-        {
-            "team_id": team.pk,
-            "app_source": app_source,
-            "instance_ids": instance_ids,
-            "timezone": str(windows.current_start.tzinfo),
-            "previous_start": _clickhouse_datetime(windows.previous_start),
-            "previous_end": _clickhouse_datetime(windows.previous_end),
-            "current_start": _clickhouse_datetime(windows.current_start),
-        },
-        team_id=team.pk,
-        workload=Workload.ONLINE,
-    )
+    with tags_context(name="definition_query_usage"):
+        rows = sync_execute(
+            """
+            SELECT instance_id, toDate(timestamp, %(timezone)s) AS day, sum(count)
+            FROM app_metrics2
+            WHERE team_id = %(team_id)s
+              AND app_source = %(app_source)s
+              AND metric_name = 'viewed'
+              AND instance_id IN %(instance_ids)s
+              AND timestamp >= toDateTime64(%(previous_start)s, 6, 'UTC')
+              AND (
+                timestamp < toDateTime64(%(previous_end)s, 6, 'UTC')
+                OR timestamp >= toDateTime64(%(current_start)s, 6, 'UTC')
+              )
+            GROUP BY instance_id, day
+            """,
+            {
+                "team_id": team.pk,
+                "app_source": app_source,
+                "instance_ids": instance_ids,
+                "timezone": str(windows.current_start.tzinfo),
+                "previous_start": _clickhouse_datetime(windows.previous_start),
+                "previous_end": _clickhouse_datetime(windows.previous_end),
+                "current_start": _clickhouse_datetime(windows.current_start),
+            },
+            team_id=team.pk,
+            workload=Workload.ONLINE,
+        )
     daily_counts: dict[str, list[tuple[date, int]]] = {instance_id: [] for instance_id in instance_ids}
     for instance_id, day, count in rows or []:
         if instance_id in daily_counts:
@@ -164,26 +169,27 @@ def _previous_window_covered(team: Team, app_source: str, windows: QueryUsageWin
 
 
 def _query_previous_window_covered(team: Team, app_source: str, windows: QueryUsageWindows) -> bool:
-    rows = sync_execute(
-        """
-        SELECT 1
-        FROM app_metrics2
-        WHERE team_id = %(team_id)s
-          AND app_source = %(app_source)s
-          AND metric_name = 'viewed'
-          AND timestamp >= toDateTime64(%(coverage_start)s, 6, 'UTC')
-          AND timestamp < toDateTime64(%(previous_start)s, 6, 'UTC')
-        LIMIT 1
-        """,
-        {
-            "team_id": team.pk,
-            "app_source": app_source,
-            "coverage_start": _clickhouse_datetime(windows.coverage_start),
-            "previous_start": _clickhouse_datetime(windows.previous_start),
-        },
-        team_id=team.pk,
-        workload=Workload.ONLINE,
-    )
+    with tags_context(name="definition_query_usage_coverage"):
+        rows = sync_execute(
+            """
+            SELECT 1
+            FROM app_metrics2
+            WHERE team_id = %(team_id)s
+              AND app_source = %(app_source)s
+              AND metric_name = 'viewed'
+              AND timestamp >= toDateTime64(%(coverage_start)s, 6, 'UTC')
+              AND timestamp < toDateTime64(%(previous_start)s, 6, 'UTC')
+            LIMIT 1
+            """,
+            {
+                "team_id": team.pk,
+                "app_source": app_source,
+                "coverage_start": _clickhouse_datetime(windows.coverage_start),
+                "previous_start": _clickhouse_datetime(windows.previous_start),
+            },
+            team_id=team.pk,
+            workload=Workload.ONLINE,
+        )
     return bool(rows)
 
 

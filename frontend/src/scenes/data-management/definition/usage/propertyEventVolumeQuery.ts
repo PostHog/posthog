@@ -1,6 +1,7 @@
 import { dayjsNowInTimezone } from 'lib/dayjs'
+import { Scene } from 'scenes/sceneTypes'
 
-import { NodeKind, TrendsQuery } from '~/queries/schema/schema-general'
+import { NodeKind, ProductKey, TrendsQuery } from '~/queries/schema/schema-general'
 import { BaseMathType, PropertyFilterType, PropertyOperator } from '~/types'
 
 /** Daily count of all events that carry the property, over the same 30 days as the query usage card. */
@@ -25,5 +26,10 @@ export function propertyEventVolumeQuery(propertyName: string, timezone: string)
         interval: 'day',
         compareFilter: { compare: true },
         filterTestAccounts: false,
+        tags: {
+            productKey: ProductKey.PRODUCT_ANALYTICS,
+            scene: Scene.PropertyDefinition,
+            name: 'definition_property_event_volume',
+        },
     }
 }
