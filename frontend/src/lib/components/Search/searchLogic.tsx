@@ -463,7 +463,11 @@ export const searchLogic = kea<searchLogicType>([
                         )
                         breakpoint()
 
-                        return response
+                        // Canvases are searchable for everyone, but only people who see them in the project tree should get them here.
+                        if (isFileSystemEntryTypeEnabled({ type: 'canvas' }, values.featureFlags)) {
+                            return response
+                        }
+                        return { ...response, results: response.results.filter((result) => result.type !== 'canvas') }
                     } catch (error) {
                         return rethrowSearchError(error, breakpoint)
                     }
@@ -1026,6 +1030,7 @@ export const searchLogic = kea<searchLogicType>([
                         'event_definition',
                         'property_definition',
                         'hog_flow',
+                        'canvas',
                     ]
 
                     for (const category of categoryOrder) {

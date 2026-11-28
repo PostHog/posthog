@@ -1768,6 +1768,7 @@ export interface PersonListParams {
 
 export type SearchableEntity =
     | 'action'
+    | 'canvas'
     | 'cohort'
     | 'data_warehouse_view'
     | 'insight'
