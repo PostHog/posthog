@@ -1638,11 +1638,11 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'replay-masking',
                 title: 'Privacy and masking',
                 description:
-                    'Choose what data gets masked in your session recordings. For more control, configure masking directly in your code.',
+                    'Choose what data gets masked in your session recordings, on the web and in mobile apps. For more control, configure masking directly in your code.',
                 docsUrl: 'https://posthog.com/docs/session-replay/privacy',
                 platformSupport: FEATURE_SUPPORT.sessionReplayMasking,
                 component: <ReplayMaskingSettings />,
-                keywords: ['redact', 'sensitive', 'pii', 'hide', 'mask', 'privacy', 'gdpr'],
+                keywords: ['redact', 'sensitive', 'pii', 'hide', 'mask', 'privacy', 'gdpr', 'mobile'],
             },
             {
                 id: 'replay-network',
