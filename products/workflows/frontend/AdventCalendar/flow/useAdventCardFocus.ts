@@ -59,6 +59,7 @@ export function useAdventCardFocus(
             return
         }
         if (pinnedNodeId) {
+            markScrollStop(root.querySelector(CARD))
             if (lastPinned.current !== pinnedNodeId || document.activeElement === document.body) {
                 root.querySelector<HTMLElement>('[data-attr="advent-door-card-close"]')?.focus({ preventScroll: true })
             }
