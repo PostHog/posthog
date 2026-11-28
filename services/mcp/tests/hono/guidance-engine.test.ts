@@ -10,6 +10,7 @@ import { MCPClientProfile } from '@/lib/client-detection'
 
 import { makeToolExecutorState } from '../shared/test-utils'
 import { makeGuidanceRedis } from './helpers/guidance-redis-stubs'
+import { inboxStatusReads, stubSelfDrivingRequests } from './helpers/self-driving-api-stubs'
 
 const rule: GuidanceRule = {
     id: 'test-rule',
@@ -546,6 +547,13 @@ describe('Self-driving activation guidance', () => {
 
     const listCall: GuidanceCall = { toolName: 'query-error-tracking-issues-list', args: {}, isError: false }
 
+    const evalHarnessRun: Partial<ResolvedState> = {
+        clientProfile: new MCPClientProfile({ consumer: 'eval' }),
+        isTaskBound: true,
+        sandboxTaskId: 'synthetic-task',
+        apiKeyScopes: ['task:write', 'internal_run:read'],
+    }
+
     function activationState(overrides: Partial<ResolvedState> = {}): ResolvedState {
         const state = makeToolExecutorState(
             [
@@ -568,7 +576,7 @@ describe('Self-driving activation guidance', () => {
             baseUrl: 'https://api.example.com',
             publicBaseUrl: 'https://example.com',
         })
-        state.context.api.request = vi.fn().mockResolvedValue({ completed_at: null, draft: null })
+        state.context.api.request = stubSelfDrivingRequests() as ApiClient['request']
         state.context.stateManager.getProjectId = vi.fn().mockResolvedValue('2')
         return state
     }
@@ -579,51 +587,56 @@ describe('Self-driving activation guidance', () => {
     })
 
     it.each([
-        [issueCall, true, false],
-        [issueCall, true, true],
-        [issueCall, true, undefined],
-        [issueCall, false, true],
-        [listCall, true, false],
-        [listCall, true, true],
-        [listCall, false, true],
-    ] as const)(
-        'records exposure for %j with experiment flag %s and GitHub-optional setup %s',
-        async (call, enabled, githubOptional) => {
-            const state = activationState({
-                toolFeatureFlags: { [MCP_GUIDANCE_SELF_DRIVING_ACTIVATION_FLAG]: enabled },
-            })
-            vi.mocked(state.context.api.request).mockResolvedValue({
-                completed_at: null,
-                draft: null,
-                github_optional_available: githubOptional,
-            })
-            const notice = await new GuidanceEngine(makeGuidanceRedis()).evaluate(state, call)
+        [issueCall, true],
+        [issueCall, false],
+        [listCall, true],
+        [listCall, false],
+    ] as const)('records exposure for %j with experiment flag %s', async (call, enabled) => {
+        const state = activationState({
+            toolFeatureFlags: { [MCP_GUIDANCE_SELF_DRIVING_ACTIVATION_FLAG]: enabled },
+        })
+        const notice = await new GuidanceEngine(makeGuidanceRedis()).evaluate(state, call)
 
-            expect(notice).toMatchObject({
-                ruleId: 'error-tracking-sd-activation',
-                outcome: enabled ? 'shown' : 'flag_off',
-            })
-            expect(notice?.text).toEqual(
-                enabled ? expect.stringContaining('https://example.com/project/2/inbox/activate') : undefined
-            )
-            if (enabled) {
-                expect(notice?.text).toContain(
-                    'poll `self-driving-status-get` for the same project every 10 seconds for up to five minutes'
-                )
-                expect(notice?.text).toContain('Continue helping with the current task')
-                expect(notice?.text?.includes('https://example.com/project/2/inbox/activate/without-github')).toBe(
-                    githubOptional === true
-                )
-                expect(notice?.text).not.toContain('api.example.com')
-                expect(notice?.text).not.toContain('self-driving-activate')
-            }
-            expect(state.context.api.request).toHaveBeenCalledWith({
-                method: 'GET',
-                path: '/api/projects/2/signals/onboarding/',
-                signal: expect.any(AbortSignal),
-            })
+        expect(notice).toMatchObject({
+            ruleId: 'error-tracking-sd-activation',
+            outcome: enabled ? 'shown' : 'flag_off',
+        })
+        expect(notice?.text).toEqual(
+            enabled ? expect.stringContaining('https://example.com/project/2/inbox/activate') : undefined
+        )
+        if (enabled) {
+            expect(notice?.text).toContain('`self-driving-status-get` returns its setup state')
+            expect(notice?.text).toContain('Agents regularly triage errors in this project via the MCP.')
+            expect(notice?.text).toContain("Answer the user's current question first")
+            expect(notice?.text).toContain('PostHog Self-driving can investigate new errors in the background')
+            expect(notice?.text).not.toContain('poll')
+            expect(notice?.text).not.toContain('inbox-reports-list')
+            // The start-without-GitHub page comes from self-driving-status-get, not from the notice.
+            expect(notice?.text).not.toContain('/inbox/activate/without-github')
+            expect(notice?.text).not.toContain('api.example.com')
+            expect(notice?.text).not.toContain('self-driving-activate')
         }
-    )
+        expect(state.context.api.request).toHaveBeenCalledWith({
+            method: 'GET',
+            path: '/api/projects/2/signals/inbox_status/',
+            signal: expect.any(AbortSignal),
+        })
+        expect(state.context.api.request).not.toHaveBeenCalledWith(
+            expect.objectContaining({ path: '/api/projects/2/signals/onboarding/' })
+        )
+    })
+
+    it.each(['production', 'staging', undefined])('does not offer simulated guidance in %s', async (environment) => {
+        vi.stubEnv('NODE_ENV', environment)
+        try {
+            const state = activationState()
+            const notice = await new GuidanceEngine(makeGuidanceRedis()).evaluate(state, issueCall)
+            expect(notice).toBeUndefined()
+            expect(state.context.api.request).not.toHaveBeenCalled()
+        } finally {
+            vi.unstubAllEnvs()
+        }
+    })
 
     it.each([
         [true, 'error-tracking-sd-activation:shown'],
@@ -669,10 +682,21 @@ describe('Self-driving activation guidance', () => {
         ['unavailable reports tools', { allTools: [] }],
         ['a first-party assistant', { oauthClientId: 'N6UgOECSl98ag1xajxPphGApQXYEVvJIwzCXotKu' }],
         ['a first-party app that declares no consumer', { oauthClientId: 'HCWoE0aRFMYxIxFNTTwkOORn5LBjOt2GVDzwSw5W' }],
+        ['an eval run without consent', { ...evalHarnessRun, aiConsentGiven: false }],
+        ['an eval run without the experiment flag', { ...evalHarnessRun, toolFeatureFlags: {} }],
+        ['an eval run without reports tools', { ...evalHarnessRun, allTools: [] }],
     ] satisfies [string, Partial<ResolvedState>][])('does not fetch readiness for %s', async (_label, overrides) => {
         const state = activationState(overrides)
         expect(await new GuidanceEngine(makeGuidanceRedis()).evaluate(state, issueCall)).toBeUndefined()
         expect(state.context.api.request).not.toHaveBeenCalled()
+    })
+
+    it('offers the notice to an eval harness run despite its sandbox task token', async () => {
+        const state = activationState(evalHarnessRun)
+        expect(await new GuidanceEngine(makeGuidanceRedis()).evaluate(state, listCall)).toMatchObject({
+            ruleId: 'error-tracking-sd-activation',
+            outcome: 'shown',
+        })
     })
 
     it.each([
@@ -686,23 +710,28 @@ describe('Self-driving activation guidance', () => {
         expect(state.context.api.request).not.toHaveBeenCalled()
     })
 
-    it.each([
-        { completed_at: '2026-01-01T00:00:00Z', draft: null },
-        { completed_at: null, draft: { setup_mode: 'guided' } },
-    ])('briefly caches existing setup without consuming the session allowance: %j', async (preview) => {
-        vi.useFakeTimers({ toFake: ['Date'] })
-        const state = activationState()
-        vi.mocked(state.context.api.request).mockResolvedValueOnce(preview)
-        const engine = new GuidanceEngine(makeGuidanceRedis())
-        expect(await engine.evaluate(state, issueCall)).toBeUndefined()
-        expect(await engine.evaluate(state, issueCall)).toBeUndefined()
-        vi.advanceTimersByTime(29_999)
-        expect(await engine.evaluate(state, issueCall)).toBeUndefined()
-        expect(state.context.api.request).toHaveBeenCalledTimes(1)
-        vi.advanceTimersByTime(1)
-        expect(await engine.evaluate(state, issueCall)).toMatchObject({ outcome: 'shown' })
-        expect(state.context.api.request).toHaveBeenCalledTimes(2)
-    })
+    it.each(['active', 'in_progress'])(
+        'briefly caches existing setup without consuming the session allowance: %s',
+        async (setupState) => {
+            vi.useFakeTimers({ toFake: ['Date'] })
+            const state = activationState()
+            state.context.api.request = stubSelfDrivingRequests({
+                status: vi
+                    .fn()
+                    .mockReturnValueOnce({ setup_state: setupState })
+                    .mockReturnValue({ setup_state: 'not_started' }),
+            }) as ApiClient['request']
+            const engine = new GuidanceEngine(makeGuidanceRedis())
+            expect(await engine.evaluate(state, issueCall)).toBeUndefined()
+            expect(await engine.evaluate(state, issueCall)).toBeUndefined()
+            vi.advanceTimersByTime(29_999)
+            expect(await engine.evaluate(state, issueCall)).toBeUndefined()
+            expect(inboxStatusReads(state.context.api.request)).toBe(1)
+            vi.advanceTimersByTime(1)
+            expect(await engine.evaluate(state, issueCall)).toMatchObject({ outcome: 'shown' })
+            expect(inboxStatusReads(state.context.api.request)).toBe(2)
+        }
+    )
 
     it.each([
         [
@@ -718,7 +747,9 @@ describe('Self-driving activation guidance', () => {
         async (_label, change) => {
             const engine = new GuidanceEngine(makeGuidanceRedis())
             const blocked = activationState()
-            vi.mocked(blocked.context.api.request).mockResolvedValue({ completed_at: null, draft: {} })
+            blocked.context.api.request = stubSelfDrivingRequests({
+                status: () => ({ setup_state: 'in_progress' }),
+            }) as ApiClient['request']
             expect(await engine.evaluate(blocked, issueCall)).toBeUndefined()
 
             const eligible = activationState()
@@ -727,18 +758,18 @@ describe('Self-driving activation guidance', () => {
         }
     )
 
-    it.each([
-        undefined,
-        {},
-        { completed_at: null },
-        { completed_at: null, draft: null, github_optional_available: 'true' },
-    ])('does not cache malformed readiness: %j', async (preview) => {
-        const state = activationState()
-        vi.mocked(state.context.api.request).mockResolvedValueOnce(preview)
-        const engine = new GuidanceEngine(makeGuidanceRedis())
-        expect(await engine.evaluate(state, issueCall)).toBeUndefined()
-        expect(await engine.evaluate(state, issueCall)).toMatchObject({ outcome: 'shown' })
-    })
+    it.each([{ status: undefined }, { status: {} }, { status: { setup_state: null } }])(
+        'does not cache malformed readiness: %j',
+        async ({ status }) => {
+            const state = activationState()
+            state.context.api.request = stubSelfDrivingRequests({
+                status: vi.fn().mockReturnValueOnce(status).mockReturnValue({ setup_state: 'not_started' }),
+            }) as ApiClient['request']
+            const engine = new GuidanceEngine(makeGuidanceRedis())
+            expect(await engine.evaluate(state, issueCall)).toBeUndefined()
+            expect(await engine.evaluate(state, issueCall)).toMatchObject({ outcome: 'shown' })
+        }
+    )
 
     it('offers once across list/detail tools and projects, reserving concurrent eligible calls atomically', async () => {
         const state = activationState()
@@ -784,14 +815,14 @@ describe('Self-driving activation guidance', () => {
         expect(await engine.evaluate(state, issueCall)).toMatchObject({ outcome: 'shown' })
         state.requestContext.mcpConversationId = 'minted-2'
         expect(await engine.evaluate(state, issueCall)).toBeUndefined()
-        expect(state.context.api.request).toHaveBeenCalledTimes(1)
+        expect(inboxStatusReads(state.context.api.request)).toBe(1)
         state.carriedContextHandle = true
         state.carriedContextSessionKey = 'minted-1'
         expect(await engine.evaluate(state, issueCall)).toBeUndefined()
         state.carriedContextSessionKey = 'minted-2'
         expect(await engine.evaluate(state, issueCall)).toMatchObject({ outcome: 'shown' })
         expect(await engine.evaluate(state, issueCall)).toBeUndefined()
-        expect(state.context.api.request).toHaveBeenCalledTimes(2)
+        expect(inboxStatusReads(state.context.api.request)).toBe(2)
     })
 
     it('refreshes the handleless caller cap until thirty minutes of inactivity', async () => {
@@ -807,15 +838,20 @@ describe('Self-driving activation guidance', () => {
         expect(await engine.evaluate(state, listCall)).toMatchObject({ outcome: 'shown' })
     })
 
-    it.each(['readiness', 'redis'])('silently leaves the tool result alone after %s fails', async (failure) => {
+    it.each(['status', 'redis'] as const)('silently leaves the tool result alone after %s fails', async (failure) => {
         vi.spyOn(console, 'warn').mockImplementation(() => {})
         const state = activationState()
-        if (failure === 'readiness') {
-            vi.mocked(state.context.api.request).mockRejectedValueOnce(new Error('readiness unavailable'))
+        if (failure === 'status') {
+            state.context.api.request = stubSelfDrivingRequests({
+                status: vi
+                    .fn()
+                    .mockRejectedValueOnce(new Error('status unavailable'))
+                    .mockReturnValue({ setup_state: 'not_started' }),
+            }) as ApiClient['request']
         }
         const engine = new GuidanceEngine(makeGuidanceRedis(failure === 'redis'))
         expect(await engine.evaluate(state, issueCall)).toBeUndefined()
-        if (failure === 'readiness') {
+        if (failure !== 'redis') {
             expect(await engine.evaluate(state, issueCall)).toMatchObject({ outcome: 'shown' })
         }
     })
@@ -852,10 +888,12 @@ describe('Self-driving activation guidance', () => {
                 return '2'
             })
         } else if (phase === 'readiness') {
-            vi.mocked(state.context.api.request).mockImplementationOnce(async () => {
-                await stalled
-                return { completed_at: null, draft: null }
-            })
+            state.context.api.request = stubSelfDrivingRequests({
+                status: async () => {
+                    await stalled
+                    return { setup_state: 'not_started' }
+                },
+            }) as ApiClient['request']
         } else {
             if (phase === 'mirror') {
                 state.carriedContextHandle = false

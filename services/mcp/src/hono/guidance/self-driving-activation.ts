@@ -5,8 +5,8 @@ import type { Schemas } from '@/api/generated'
 import { isCustomerAgentCaller } from '@/lib/event-source'
 import { resolveScopePreset } from '@/lib/scope-preset'
 import { formatPrompt } from '@/lib/utils'
-import WITHOUT_GITHUB_OFFER from '@/templates/guidance/self-driving-activation-without-github.md'
 import ACTIVATION_PROMPT from '@/templates/guidance/self-driving-activation.md'
+import type { Context } from '@/tools/types'
 
 import type { RedisLike } from '../cache/RedisCache'
 import type { ResolvedState } from '../request-state-resolver'
@@ -24,11 +24,46 @@ const REQUIRED_TOOLS = [
     'inbox-reports-retrieve',
     'inbox-report-artefacts-list',
 ]
-const onboardingSchema = z.object({
-    completed_at: z.string().nullable(),
-    draft: z.record(z.string(), z.unknown()).nullable(),
-    github_optional_available: z.boolean().optional().default(false),
-})
+const SETUP_NOT_STARTED: Schemas.InboxSetupStateEnum = 'not_started'
+const inboxStatusSchema = z.object({ setup_state: z.string() })
+
+/**
+ * Reads the inbox status rather than onboarding progress, because a project can watch through an enabled source, a scout or a replay scanner without ever completing onboarding.
+ * Undefined when the response does not parse. A failed request throws.
+ */
+export async function fetchSelfDrivingSetupNotStarted(
+    context: Context,
+    projectId: string,
+    signal: AbortSignal
+): Promise<boolean | undefined> {
+    const status = inboxStatusSchema.safeParse(
+        await context.api.request<Schemas.InboxStatus>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(projectId)}/signals/inbox_status/`,
+            signal,
+        })
+    )
+    return status.success ? status.data.setup_state === SETUP_NOT_STARTED : undefined
+}
+
+// Mirrors EVAL_INTERACTION_ORIGIN in products/tasks/backend/constants.py. The eval harness runs the agent as a
+// sandboxed task, so its token and headers fail the customer-caller checks below. The caller can set this header
+// itself, which is safe only because the rule runs in development and test alone.
+const EVAL_HARNESS_CONSUMER = 'eval'
+
+function isCustomerCaller(state: ResolvedState): boolean {
+    return (
+        !state.isTaskBound &&
+        !state.sandboxTaskId &&
+        resolveScopePreset(state.apiKeyScopes) === 'user' &&
+        isCustomerAgentCaller({
+            mcpConsumer: state.clientProfile.consumer,
+            clientUserAgent: state.requestContext.clientUserAgent,
+            apiKeyScopes: state.apiKeyScopes,
+            oauthClientId: state.oauthClientId,
+        })
+    )
+}
 
 function isEligibleCall(state: ResolvedState, call: GuidanceCall): boolean {
     return (
@@ -37,16 +72,8 @@ function isEligibleCall(state: ResolvedState, call: GuidanceCall): boolean {
         !call.isError &&
         !state.isImpersonated &&
         !state.suppressAnalytics &&
-        !state.isTaskBound &&
-        !state.sandboxTaskId &&
         state.aiConsentGiven === true &&
-        resolveScopePreset(state.apiKeyScopes) === 'user' &&
-        isCustomerAgentCaller({
-            mcpConsumer: state.clientProfile.consumer,
-            clientUserAgent: state.requestContext.clientUserAgent,
-            apiKeyScopes: state.apiKeyScopes,
-            oauthClientId: state.oauthClientId,
-        }) &&
+        (state.clientProfile.consumer === EVAL_HARNESS_CONSUMER || isCustomerCaller(state)) &&
         typeof state.toolFeatureFlags?.[MCP_GUIDANCE_SELF_DRIVING_ACTIVATION_FLAG] === 'boolean' &&
         REQUIRED_TOOLS.every((name) => state.allTools.some((tool) => tool.name === name))
     )
@@ -72,12 +99,8 @@ function ineligibleKey(state: ResolvedState, projectId: string): string {
     return `mcp:guidance:sd-activation:ineligible:{${identity}}`
 }
 
-function activationText(projectUrl: string, githubOptional: boolean): string {
-    const vars = { project_url: projectUrl }
-    return formatPrompt(ACTIVATION_PROMPT, {
-        ...vars,
-        github_optional_offer: githubOptional ? formatPrompt(WITHOUT_GITHUB_OFFER, vars) : '',
-    }).replace(/\n{3,}/g, '\n\n')
+function activationText(projectUrl: string): string {
+    return formatPrompt(ACTIVATION_PROMPT, { project_url: projectUrl }).replace(/\n{3,}/g, '\n\n')
 }
 
 async function lookupActivationGuidance(
@@ -107,21 +130,19 @@ async function lookupActivationGuidance(
     if (ineligible || !productState.hasBudgetLeft()) {
         return undefined
     }
-    const onboarding = onboardingSchema.safeParse(
-        await state.context.api.request<Schemas.InboxOnboardingState>({
-            method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/onboarding/`,
-            signal: AbortSignal.timeout(1000),
-        })
+    // Let a failed request throw, because the product-state budget records the rejection as a lookup error.
+    const notStarted = await fetchSelfDrivingSetupNotStarted(
+        state.context,
+        String(projectId),
+        AbortSignal.timeout(1000)
     )
-    if (!onboarding.success || !productState.hasBudgetLeft()) {
+    if (notStarted === undefined || !productState.hasBudgetLeft()) {
         return undefined
     }
-    if (onboarding.data.completed_at !== null || onboarding.data.draft !== null) {
+    if (!notStarted) {
         await redis.set(negativeKey, '1', 'EX', INELIGIBLE_TTL_SECONDS)
         return undefined
     }
-
     const reserved = await redis.set(countingKey, '1', 'EX', ttl, 'NX')
     if (reserved !== 'OK') {
         return undefined
@@ -155,9 +176,7 @@ async function lookupActivationGuidance(
         const notice: GuidanceNotice = {
             ruleId: RULE_ID,
             outcome,
-            ...(outcome === 'shown'
-                ? { text: activationText(projectUrl, onboarding.data.github_optional_available) }
-                : {}),
+            ...(outcome === 'shown' ? { text: activationText(projectUrl) } : {}),
         }
         keepReservation = true
         return notice
@@ -175,6 +194,9 @@ export async function selfDrivingActivationGuidance(
     productState: GuidanceProductState,
     firstSessionCall: boolean
 ): Promise<GuidanceNotice | undefined> {
+    if (process.env.NODE_ENV !== 'development' && process.env.NODE_ENV !== 'test') {
+        return undefined
+    }
     if (!isEligibleCall(state, call)) {
         return undefined
     }

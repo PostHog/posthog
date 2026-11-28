@@ -12,11 +12,16 @@ const {
     mockAnalyticsContext,
     mockDistinctId,
     flagsBoundary,
+    mockContextApi,
 } = vi.hoisted(() => ({
     flagsBoundary: {
         response: {} as Record<string, unknown>,
         flagsRequests: [] as Record<string, unknown>[],
         events: [] as { event: string; properties: Record<string, unknown> }[],
+    },
+    mockContextApi: {
+        config: { baseUrl: 'https://example.com', apiToken: 'phx_test' },
+        request: vi.fn(),
     },
     mockGetApiKey: vi.fn(),
     mockAnalyticsContext: { current: undefined as MCPAnalyticsContext | undefined },
@@ -164,8 +169,10 @@ vi.mock('@/hono/request-context', async () => {
                         throw mockRedisFailures.contextError
                     }
                     return {
+                        api: mockContextApi,
                         stateManager: {
                             setDefaultOrganizationAndProject: vi.fn(async () => {}),
+                            getProjectId: vi.fn(async () => '1'),
                             getApiKey: mockGetApiKey,
                             getAiConsentGiven: vi.fn(async () => undefined),
                             getAvailableFeatures: vi.fn(async () => undefined),
@@ -186,6 +193,7 @@ vi.mock('@/hono/request-context', async () => {
 import type { RedisLike } from '@/hono/cache/RedisCache'
 import { MCP_CURSOR_EXEC_MODE_FLAG, MCP_EXEC_SKILLS_FEATURE_FLAG } from '@/hono/constants'
 import { GUIDANCE_RULE_FLAGS } from '@/hono/guidance/rules'
+import { MCP_GUIDANCE_SELF_DRIVING_ACTIVATION_FLAG } from '@/hono/guidance/rules'
 import { MCP_INTENT_PROMPT_FLAG } from '@/hono/intent-prompt'
 import { MCP_INTERVIEW_RECRUITMENT_FLAG } from '@/hono/interview-recruitment'
 import { RequestStateResolver } from '@/hono/request-state-resolver'
@@ -199,6 +207,9 @@ import { parseRequestProperties, type RequestProperties } from '@/lib/request-pr
 import { TASKS_CONTEXT_TOOL_NAMES } from '@/tools/tasksContext'
 import * as toolDefinitions from '@/tools/toolDefinitions'
 import type { Env } from '@/tools/types'
+
+import { makeGuidanceRedis } from './helpers/guidance-redis-stubs'
+import { inboxStatusReads, stubSelfDrivingRequests } from './helpers/self-driving-api-stubs'
 
 function makeProps(overrides: Partial<RequestProperties> = {}): RequestProperties {
     return {
@@ -894,6 +905,30 @@ describe('RequestStateResolver MCP client contexts', () => {
         const state = await makeResolver().resolve(makeProps({ mcpConsumer: input.consumer }))
 
         expect(state.intentPrompt).toEqual(input.enabled ? prompt.prompt : undefined)
+    })
+
+    it('appends the Self-driving status note to the resolved tools of a project that has not activated it', async () => {
+        vi.mocked(resolveFeatureFlagOverrides)
+            .mockReturnValueOnce({ [MCP_GUIDANCE_SELF_DRIVING_ACTIVATION_FLAG]: true })
+            .mockReturnValueOnce({ [MCP_GUIDANCE_SELF_DRIVING_ACTIVATION_FLAG]: true })
+        mockContextApi.request.mockReset().mockImplementation(stubSelfDrivingRequests())
+        const tools = ['query-error-tracking-issue', 'self-driving-status-get'].map((name) => ({
+            name,
+            description: `Synthetic ${name}`,
+            scopes: [],
+        }))
+        const catalog = { getFilteredTools: vi.fn(() => tools) }
+        const resolver = new RequestStateResolver(catalog as any, makeGuidanceRedis(), {} as Env)
+
+        await resolver.resolve(makeProps())
+        const state = await resolver.resolve(makeProps())
+
+        expect(state.allTools.map((tool) => tool.description)).toEqual([
+            expect.stringContaining('reports from agents on this issue. Call `self-driving-status-get` once'),
+            'Synthetic self-driving-status-get',
+        ])
+        expect(mockContextApi.request).toHaveBeenCalledTimes(1)
+        expect(inboxStatusReads(mockContextApi.request)).toBe(1)
     })
 
     it('honors a dev/test flag override even when evaluation returns nothing', async () => {

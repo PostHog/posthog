@@ -45,6 +45,7 @@ import {
     MCP_TIME_SERIES_CHARTS_FLAG,
 } from './constants'
 import { GUIDANCE_RULE_FLAGS } from './guidance/rules'
+import { withSelfDrivingStatusNotes } from './guidance/self-driving-status-note'
 import { MCP_INTENT_PROMPT_FLAG, resolveIntentPrompt } from './intent-prompt'
 import {
     type InterviewRecruitmentConfig,
@@ -415,7 +416,7 @@ export class RequestStateResolver {
 
         // Staff-only tools (OAuth-hidden scopes) need the extra explicit-scope +
         // is_staff gate on top of the catalog's plain scope filter.
-        const allTools = (
+        const filteredTools = (
             await timed('tool_filter', () =>
                 filterStaffOnlyTools(
                     this.catalog.getFilteredTools({ ...filterOptions, scopes: apiKeyScopes }),
@@ -424,11 +425,13 @@ export class RequestStateResolver {
                 )
             )
         ).filter(isHeld)
-        const [businessKnowledgeContent, metricCatalog] = await Promise.all([
-            allTools.some(({ name }) => BUSINESS_KNOWLEDGE_SEARCH_TOOLS.has(name))
+        // Every surface that shows a tool description reads it from `allTools`, so the note reaches tools mode and exec `info` and `search` alike.
+        const [allTools, businessKnowledgeContent, metricCatalog] = await Promise.all([
+            withSelfDrivingStatusNotes(this.redis, context, toolFeatureFlags, filteredTools),
+            filteredTools.some(({ name }) => BUSINESS_KNOWLEDGE_SEARCH_TOOLS.has(name))
                 ? timed('business_knowledge', () => this.resolveBusinessKnowledgeContent(context))
                 : undefined,
-            allTools.some(({ name }) => name === METRIC_LIST_TOOL)
+            filteredTools.some(({ name }) => name === METRIC_LIST_TOOL)
                 ? timed('metric_catalog', () => this.resolveMetricCatalog(context))
                 : undefined,
         ])

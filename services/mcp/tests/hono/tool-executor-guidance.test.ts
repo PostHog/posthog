@@ -21,6 +21,7 @@ import { GuidanceEngine } from '@/hono/guidance/engine'
 import type { GuidanceRule } from '@/hono/guidance/rule-schema'
 import { MCP_GUIDANCE_SELF_DRIVING_ACTIVATION_FLAG } from '@/hono/guidance/rules'
 import { MCP_GUIDANCE_REPLAY_VISION_FLAG, MCP_GUIDANCE_SQL_SCHEMA_FLAG } from '@/hono/guidance/rules/sql'
+import { withSelfDrivingStatusNotes } from '@/hono/guidance/self-driving-status-note'
 import { InstructionsBuilder } from '@/hono/instructions'
 import { ToolCatalog } from '@/hono/tool-catalog'
 import { ToolExecutor } from '@/hono/tool-executor'
@@ -28,6 +29,7 @@ import { getPostHogClient } from '@/lib/posthog'
 
 import { makeToolExecutorState } from '../shared/test-utils'
 import { makeGuidanceRedis } from './helpers/guidance-redis-stubs'
+import { inboxStatusReads, stubSelfDrivingRequests } from './helpers/self-driving-api-stubs'
 
 function makeTool(name: string, handler: (args: unknown) => unknown): any {
     return {
@@ -276,12 +278,13 @@ describe('ToolExecutor guidance notices', () => {
                 aiConsentGiven: true,
                 toolFeatureFlags: { [MCP_GUIDANCE_SELF_DRIVING_ACTIVATION_FLAG]: true },
             })
-            const readiness = vi.fn().mockResolvedValue({ completed_at: null, draft: null })
             if (fails) {
                 vi.spyOn(console, 'warn').mockImplementation(() => {})
-                readiness.mockRejectedValue(new Error('readiness unavailable'))
             }
-            state.context.api.request = readiness
+            const readiness = stubSelfDrivingRequests(
+                fails ? { status: () => Promise.reject(new Error('inbox status unavailable')) } : {}
+            )
+            state.context.api.request = readiness as typeof state.context.api.request
             state.context.api.getProjectBaseUrl = vi.fn().mockReturnValue('https://example.com/project/2')
             state.context.stateManager.getProjectId = vi.fn().mockResolvedValue('2')
             const capture = vi.spyOn(getPostHogClient(), 'captureToolCall').mockImplementation(() => {})
@@ -300,23 +303,101 @@ describe('ToolExecutor guidance notices', () => {
                 expect(first.isError).not.toBe(true)
                 expect(first.content).toEqual(second.content)
                 expect(
-                    first.content.some((item) => item.text?.includes('[Connect GitHub and activate Self-driving]'))
+                    first.content.some((item) => item.text?.includes('Self-driving is not active in this project'))
                 ).toBe(false)
                 expect(capture.mock.calls[0]?.[0].properties?.mcp_guidance_rule).toBeUndefined()
                 return
             }
-            expect(first.content[json ? 1 : 0]?.text).toContain('[Connect GitHub and activate Self-driving]')
+            expect(first.content[json ? 1 : 0]?.text).toContain('Self-driving is not active in this project')
             expect(first.content).toHaveLength(second.content.length + 1)
             expect(first.content[json ? 0 : 1]).toEqual(second.content[0])
             if (json) {
                 expect(JSON.parse(first.content[0]?.text ?? '')).toEqual(result)
             }
-            expect(readiness).toHaveBeenCalledTimes(1)
+            expect(inboxStatusReads(readiness)).toBe(1)
             expect(capture.mock.calls[0]?.[0].properties).toMatchObject({
                 mcp_guidance_rule: 'error-tracking-sd-activation',
                 mcp_guidance_outcome: 'shown',
             })
             expect(capture.mock.calls[1]?.[0].properties?.mcp_guidance_rule).toBeUndefined()
+        }
+    )
+
+    it.each([
+        { status: 'not_started', mode: 'exec', flag: true, request: () => ({ setup_state: 'not_started' }) },
+        { status: 'not_started', mode: 'tools', flag: true, request: () => ({ setup_state: 'not_started' }) },
+        { status: 'active', mode: 'exec', flag: true, request: () => ({ setup_state: 'active' }) },
+        { status: 'in_progress', mode: 'exec', flag: true, request: () => ({ setup_state: 'in_progress' }) },
+        {
+            status: 'unreadable',
+            mode: 'exec',
+            flag: true,
+            request: () => Promise.reject(new Error('inbox status unavailable')),
+        },
+        { status: 'slow', mode: 'exec', flag: true, request: () => new Promise<never>(() => {}) },
+        { status: 'not_started', mode: 'exec', flag: false, request: () => ({ setup_state: 'not_started' }) },
+        {
+            status: 'not_started',
+            mode: 'exec',
+            flag: true,
+            nodeEnv: 'production',
+            request: () => ({ setup_state: 'not_started' }),
+        },
+    ] as const)(
+        'shows the Self-driving status note in $mode mode when the project is $status, the flag is $flag and NODE_ENV is $nodeEnv',
+        async ({ status, mode, flag, request, ...row }) => {
+            const nodeEnv = 'nodeEnv' in row ? row.nodeEnv : 'test'
+            const expectNote = status === 'not_started' && flag && nodeEnv === 'test'
+            const issueTools = ['query-error-tracking-issues-list', 'query-error-tracking-issue']
+            const baseTools = [...issueTools, 'self-driving-status-get'].map((name) => makeTool(name, () => ({})))
+            const state = makeToolExecutorState(baseTools, {
+                useSingleExec: mode === 'exec',
+                toolFeatureFlags: { [MCP_GUIDANCE_SELF_DRIVING_ACTIVATION_FLAG]: flag },
+            })
+            state.context.api.request = stubSelfDrivingRequests({ status: request }) as typeof state.context.api.request
+            state.context.api.config = { baseUrl: 'https://example.com', apiToken: 'phx_test' } as any
+            state.context.stateManager.getProjectId = vi.fn().mockResolvedValue('2')
+            const executor = new ToolExecutor(catalog, new InstructionsBuilder(''))
+
+            vi.stubEnv('NODE_ENV', nodeEnv)
+            if (status === 'slow') {
+                vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+            }
+            try {
+                const pending = withSelfDrivingStatusNotes(
+                    makeGuidanceRedis(),
+                    state.context,
+                    state.toolFeatureFlags,
+                    baseTools
+                )
+                if (status === 'slow') {
+                    await vi.runAllTimersAsync()
+                }
+                state.allTools = await pending
+            } finally {
+                vi.useRealTimers()
+                vi.unstubAllEnvs()
+            }
+
+            const descriptions = await Promise.all(
+                issueTools.map(async (name) => {
+                    if (mode === 'tools') {
+                        const { tools } = await executor.handleToolsList(state)
+                        return tools.find((tool) => tool.name === name)?.description
+                    }
+                    const result = (await executor.handleToolCall(
+                        { name: 'exec', arguments: { command: `info --json ${name}` } },
+                        state
+                    )) as SqlResult
+                    return JSON.parse(result.content[0]?.text ?? '{}').description
+                })
+            )
+            expect(descriptions.map((text) => text?.includes('Call `self-driving-status-get` once'))).toEqual([
+                expectNote,
+                expectNote,
+            ])
+            expect(descriptions[0]).toContain(expectNote ? 'reports from agents on these issues' : 'Synthetic')
+            expect(descriptions[1]).toContain(expectNote ? 'reports from agents on this issue' : 'Synthetic')
         }
     )
 })

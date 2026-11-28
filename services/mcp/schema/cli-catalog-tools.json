@@ -46055,7 +46055,7 @@
             },
             "stripNulls": false,
             "enrich": null,
-            "agentNote": null,
+            "agentNote": "When completed_at is null, Self-driving is not active in this project. Tell the user in your answer and link them to this project's /inbox/activate page.",
             "informational": null,
             "textInclude": []
         },
