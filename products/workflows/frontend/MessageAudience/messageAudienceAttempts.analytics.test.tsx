@@ -25,6 +25,7 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 const TEST_SENDER_FOR_WORKFLOW =
     "You don't have a verified email sender yet. You can send a test from the PostHog test sender to verified members of your organization. To email your users, set up your own domain."
 const NO_SENDER = 'Set up an email sender before sending'
+const UNVERIFIED_SENDER = "Verify the sender's domain before sending"
 
 type SentEvent = { event: string; properties: Record<string, any> }
 
@@ -173,10 +174,18 @@ describe('message audience attempts', () => {
 
     const projectId = (): number => app.ApiConfig.getCurrentProjectId()
 
-    const useSendMocks = ({ senders, sandbox }: { senders: object[]; sandbox?: object }): void => {
+    const useSendMocks = ({
+        senders,
+        sandbox,
+        suspended = false,
+    }: {
+        senders: object[]
+        sandbox?: object
+        suspended?: boolean
+    }): void => {
         useMocks({
             get: {
-                '/api/projects/:team_id/hog_flows/email_sending_suspension/': { email_sending_suspended: false },
+                '/api/projects/:team_id/hog_flows/email_sending_suspension/': { email_sending_suspended: suspended },
                 '/api/projects/:team_id/workflow_email_sandbox/status/': sandbox ?? {
                     ...testSender,
                     adoption_enabled: false,
@@ -267,7 +276,15 @@ describe('message audience attempts', () => {
         },
     }
 
-    it.each<{ destination: MessageAudienceDestination; label: string; how: string; warning?: string; kind?: string }>([
+    it.each<{
+        destination: MessageAudienceDestination
+        label: string
+        how: string
+        warning?: string
+        kinds?: string[]
+        senders?: object[]
+        suspended?: boolean
+    }>([
         { destination: 'workflow', label: 'Build a custom workflow', how: 'directly' },
         { destination: 'broadcast', label: 'Send a one-time email', how: 'directly' },
         {
@@ -275,19 +292,35 @@ describe('message audience attempts', () => {
             label: 'Build a custom workflow',
             how: 'through Continue',
             warning: TEST_SENDER_FOR_WORKFLOW,
-            kind: 'test_sender_only',
+            kinds: ['test_sender_only'],
         },
         {
             destination: 'broadcast',
             label: 'Send a one-time email',
             how: 'through Continue',
             warning: NO_SENDER,
-            kind: 'no_sender',
+            kinds: ['no_sender'],
+        },
+        {
+            destination: 'broadcast',
+            label: 'Send a one-time email',
+            how: 'through Continue past an unverified sender',
+            warning: UNVERIFIED_SENDER,
+            kinds: ['unverified_sender'],
+            senders: [{ ...verified, config: { verified: false } }],
+        },
+        {
+            destination: 'broadcast',
+            label: 'Send a one-time email',
+            how: 'through Continue past a sending suspension',
+            warning: NO_SENDER,
+            kinds: ['email_sending_suspended', 'no_sender'],
+            suspended: true,
         },
     ])(
         'saves the attempt of the sent click event in the $destination opened $how',
-        async ({ destination, label, warning, kind }) => {
-            useSendMocks(warning ? { senders: [], sandbox: testSender } : { senders: [verified] })
+        async ({ destination, label, warning, kinds, senders, suspended }) => {
+            useSendMocks(warning ? { senders: senders ?? [], sandbox: testSender, suspended } : { senders: [verified] })
             app.router.actions.push('/project/997/early_access_features/1')
             const { fireEvent, render, screen, waitFor } = app.rtl
             render(
@@ -313,13 +346,13 @@ describe('message audience attempts', () => {
             expect(attempt).toMatch(UUID)
             if (warning) {
                 expect(await screen.findByText(warning)).toBeInTheDocument()
-                await waitFor(() => expect(warningsShown()).toEqual([['early_access', destination, attempt, [kind]]]))
+                await waitFor(() => expect(warningsShown()).toEqual([['early_access', destination, attempt, kinds]]))
                 fireEvent.click(screen.getByText('Continue'))
                 await waitFor(() => expect(screen.queryByText('Before you send')).not.toBeInTheDocument())
             }
             await opened(destination === 'workflow' ? app.urls.workflowNew() : app.urls.broadcastNew())
 
-            expect(warningsShown()).toEqual(kind ? [['early_access', destination, attempt, [kind]]] : [])
+            expect(warningsShown()).toEqual(kinds ? [['early_access', destination, attempt, kinds]] : [])
             expect(await savedAttempt[destination]()).toEqual(attempt)
         }
     )
