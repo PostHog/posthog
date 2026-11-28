@@ -48,6 +48,7 @@ class TestRowsSyncedQuotaRedis(SimpleTestCase):
         return key
 
     def test_reconciliation_honors_clears_at_or_after_the_snapshot(self) -> None:
+        self.enterContext(patch.object(quota_redis, "monotonic", return_value=100))
         removed_key = self._marker_key("removed")
         absent_key = self._marker_key("absent")
         cutoff = quota_redis.rows_synced_snapshot_cutoff(self.redis, {self.key: ["removed"]})

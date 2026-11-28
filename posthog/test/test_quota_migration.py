@@ -111,6 +111,8 @@ class TestQuotaMigration(SimpleTestCase):
     def test_rows_synced_reconcile_does_not_restore_a_cleared_limit(
         self, _name: str, clear_after_shared_reconcile: bool, in_shared: bool, in_secondary: bool
     ) -> None:
+        self.enterContext(patch("posthog.quota_migration.monotonic", return_value=100))
+        self.enterContext(patch.object(quota_redis, "monotonic", return_value=100))
         resource = QuotaResource.ROWS_SYNCED
         key = f"{self.cache.value}{resource.value}"
         original = {"removed": 1900000000, "renewed": 1794484801, "stale": 1900000000}
