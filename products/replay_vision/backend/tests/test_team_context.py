@@ -4,6 +4,7 @@ from posthog.test.base import BaseTest
 
 from posthog.models import Team
 
+from products.event_definitions.backend.facade.api import copy_definition_metadata
 from products.posthog_ai.backend.models.assistant import CoreMemory
 from products.replay_vision.backend.temporal.team_context import (
     _MAX_EVENT_DESCRIPTION_LEN,
@@ -45,8 +46,14 @@ class TestFetchProductContext(BaseTest):
 
 
 class TestFetchEventDescriptions(BaseTest):
-    def _define(self, name: str, description: str | None, team: Team | None = None) -> None:
-        EnterpriseEventDefinition.objects.create(team=team or self.team, name=name, description=description)
+    def _define(
+        self, name: str, description: str | None, team: Team | None = None, project_id: int | None = None
+    ) -> None:
+        definition = EnterpriseEventDefinition.objects.create(
+            team=team or self.team, project_id=project_id, name=name, description=description
+        )
+        copy_definition_metadata("event", [definition.pk])
+        EnterpriseEventDefinition.objects.filter(pk=definition.pk).update(description="stale")
 
     def test_returns_described_custom_events_ordered_by_session_frequency(self):
         self._define("checkout_completed", "User paid for their cart.")
@@ -72,9 +79,7 @@ class TestFetchEventDescriptions(BaseTest):
 
     def test_finds_definitions_scoped_to_a_sibling_environment_of_the_project(self):
         sibling = Team.objects.create(organization=self.organization, project=self.project, name="staging")
-        EnterpriseEventDefinition.objects.create(
-            team=sibling, project=self.project, name="quote_expired", description="Defined in the sibling environment."
-        )
+        self._define("quote_expired", "Defined in the sibling environment.", team=sibling, project_id=self.project.id)
         columns, rows = _rows("quote_expired")
         assert fetch_event_descriptions(self.team, columns, rows) == {
             "quote_expired": "Defined in the sibling environment."

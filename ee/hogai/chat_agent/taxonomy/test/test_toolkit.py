@@ -10,7 +10,9 @@ from pydantic import BaseModel
 from posthog.schema import ActorsPropertyTaxonomyQuery, AssistantToolCall
 
 from posthog.models import Team
+from posthog.sync import database_sync_to_async
 
+from products.event_definitions.backend.facade.api import copy_definition_metadata
 from products.event_definitions.backend.models.property_definition import PropertyDefinition
 
 from ee.hogai.chat_agent.taxonomy.toolkit import TaxonomyAgentToolkit, TaxonomyToolNotFoundError
@@ -314,13 +316,15 @@ class TestTaxonomyAgentToolkit(BaseTest):
 
         # An EnterprisePropertyDefinition also creates the base PropertyDefinition row the person path
         # discovers, so its user-authored description should ride along on the surfaced property.
-        await EnterprisePropertyDefinition.objects.acreate(
+        definition = await EnterprisePropertyDefinition.objects.acreate(
             team=self.team,
             type=PropertyDefinition.Type.PERSON,
             name="plan_tier",
             property_type="String",
             description="Subscription tier\nof the account",
         )
+        await database_sync_to_async(copy_definition_metadata)("property", [definition.pk])
+        await EnterprisePropertyDefinition.objects.filter(pk=definition.pk).aupdate(description="stale")
         task = AssistantToolCall(id="1", name="retrieve_entity_properties", args={"entity": "person"})
         result = await self.toolkit._handle_entity_properties_task({"task": task})
 

@@ -33,6 +33,7 @@ from posthog.test.test_journeys import journeys_for
 
 from products.actions.backend.facade.testing import create_action
 from products.cohorts.backend.models.cohort import Cohort
+from products.event_definitions.backend.facade.api import copy_definition_metadata
 from products.event_definitions.backend.models import PropertyDefinition
 
 
@@ -586,9 +587,12 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
             from ee.models.property_definition import EnterprisePropertyDefinition
 
             # Create hidden property definition - this should hide all values for this property
-            EnterprisePropertyDefinition.objects.create(
+            definition = EnterprisePropertyDefinition.objects.create(
                 team=self.team, name="hidden_prop", type=PropertyDefinition.Type.EVENT, hidden=True
             )
+            copy_definition_metadata("property", [definition.pk])
+            # A stale ee row makes the test fail if the check reads the ee table again
+            EnterprisePropertyDefinition.objects.filter(pk=definition.pk).update(hidden=False)
         except ImportError:
             self.skipTest("Enterprise features not available")
 

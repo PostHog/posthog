@@ -44,9 +44,9 @@ from posthog.hogql_queries.ai.team_taxonomy_query_runner import LOOKBACK_DAYS, T
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import Team, User
 from posthog.security.llm_prompt_sanitization import sanitize_user_text
-from posthog.settings import EE_AVAILABLE
 from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP, is_hidden_from_assistant
 
+from products.event_definitions.backend.models.event_definition import EventDefinition
 from products.event_definitions.backend.models.property_definition import effective_project_id_expr
 
 from ee.hogai.utils.anthropic import SUPPORTED_ANTHROPIC_BLOCKS
@@ -341,21 +341,13 @@ def get_event_description(team: Team, event_name: str) -> str | None:
 def get_event_owner(team: Team, event_name: str) -> str | None:
     """Return the owner of a single event as "Name (email)", or None if the event has no owner.
 
-    Only the enterprise `EventDefinition` model carries an `owner`, so this is a no-op on non-EE builds.
     Core taxonomy events are looked up too: an owner only ever comes from the event definition.
     """
-    if not EE_AVAILABLE:
-        return None
-
-    from ee.models.event_definition import (
-        EnterpriseEventDefinition,  # noqa: PLC0415 — EE-only model, keep off the OSS import path
-    )
-
     # Event definitions belong to the project, so an environment sees the owner set from any other one.
     owner = (
-        EnterpriseEventDefinition.objects.alias(effective_project_id=effective_project_id_expr())
-        .filter(effective_project_id=team.project_id, name=event_name, owner__isnull=False)
-        .values_list("owner__first_name", "owner__last_name", "owner__email")
+        EventDefinition.objects.alias(effective_project_id=effective_project_id_expr())
+        .filter(effective_project_id=team.project_id, name=event_name, metadata__owner__isnull=False)
+        .values_list("metadata__owner__first_name", "metadata__owner__last_name", "metadata__owner__email")
         .first()
     )
     if owner is None:
@@ -372,17 +364,9 @@ def _get_event_definition_descriptions(
 ) -> dict[str, str]:
     """Map event name -> user-authored description from the team's event definitions.
 
-    Only the enterprise `EventDefinition` model carries a `description` field, so this is a no-op
-    on non-EE builds. Skips core taxonomy events and events already described via context, and
-    runs a single batched query rather than one per event.
+    Skips core taxonomy events and events already described via context, and runs a single batched
+    query rather than one per event.
     """
-    if not EE_AVAILABLE:
-        return {}
-
-    from ee.models.event_definition import (
-        EnterpriseEventDefinition,  # noqa: PLC0415 — EE-only model, keep off the OSS import path
-    )
-
     names_to_fetch = [
         name
         for name in event_names
@@ -394,10 +378,10 @@ def _get_event_definition_descriptions(
         return {}
 
     rows = (
-        EnterpriseEventDefinition.objects.filter(team_id=team.pk, name__in=names_to_fetch)
-        .exclude(description__isnull=True)
-        .exclude(description="")
-        .values_list("name", "description")
+        EventDefinition.objects.filter(team_id=team.pk, name__in=names_to_fetch)
+        .exclude(metadata__description__isnull=True)
+        .exclude(metadata__description="")
+        .values_list("name", "metadata__description")
     )
     return {name: description for name, description in rows if description}
 

@@ -4,7 +4,6 @@ from typing import Literal, TypeVar
 
 from django.db import transaction
 from django.db.models import Q
-from django.db.models.functions import Substr
 from django.utils import timezone
 
 import structlog
@@ -21,13 +20,13 @@ from posthog.models import Team, User
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.team.team_marketing_analytics_config import TeamMarketingAnalyticsConfig
 from posthog.ph_client import feature_enabled_or_false
-from posthog.settings import EE_AVAILABLE
 from posthog.taxonomy.definition_listing import DefinitionListTimedOut, definition_read_db_alias
 from posthog.taxonomy.property_access import restricted_property_names
 from posthog.user_permissions import UserPermissions
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.actions.backend.facade import api as actions_facade
+from products.event_definitions.backend.facade import api as event_definitions_facade
 from products.event_definitions.backend.models.event_definition import EventDefinition
 from products.event_definitions.backend.models.event_property import EventProperty
 from products.event_definitions.backend.models.property_definition import PropertyDefinition, effective_project_id_expr
@@ -277,23 +276,14 @@ class ConversionRecommendationService:
                 *used,
                 *unused.order_by("name").values_list("pk", "name")[: MAX_CATALOG_EVENTS - len(used)],
             ]
-            descriptions: dict[str, str] = {}
-            hidden: set[str] = set()
-            if EE_AVAILABLE:
-                from ee.models.event_definition import (  # noqa: PLC0415 — EE-only metadata is optional in OSS builds
-                    EnterpriseEventDefinition,
-                )
-
-                for name, description, is_hidden in (
-                    EnterpriseEventDefinition.objects.using(alias)
-                    .alias(effective_project_id=effective_project_id_expr())
-                    .filter(effective_project_id=self.team.project_id, pk__in=[pk for pk, _ in definitions])
-                    .annotate(short_description=Substr("description", 1, 200))
-                    .values_list("name", "short_description", "hidden")
-                ):
-                    descriptions[name] = description or ""
-                    if is_hidden:
-                        hidden.add(name)
+            summaries = event_definitions_facade.get_event_metadata_summaries(
+                project_id=self.team.project_id,
+                definition_ids=[pk for pk, _ in definitions],
+                description_length=200,
+                using=alias,
+            )
+            descriptions = {summary.name: summary.description for summary in summaries}
+            hidden = {summary.name for summary in summaries if summary.hidden}
         return [
             ConversionCandidate(
                 source_ref=f"event:{name}",

@@ -1,5 +1,7 @@
 """Property definition reads and writes that callers outside the product need."""
 
+from collections.abc import Sequence
+
 from products.event_definitions.backend.facade.enums import PropertyDefinitionType, PropertyType
 from products.event_definitions.backend.models.property_definition import (
     PropertyDefinition,
@@ -52,3 +54,21 @@ def get_property_type(
     except PropertyDefinition.DoesNotExist:
         return None
     return PropertyType(property_type) if property_type else None
+
+
+def get_property_descriptions(
+    *, project_id: int, type: PropertyDefinitionType, names: Sequence[str], group_type_index: int | None
+) -> dict[str, str]:
+    definitions = (
+        PropertyDefinition.objects.alias(effective_project_id=effective_project_id_expr())
+        .filter(effective_project_id=project_id, type=type, name__in=names)
+        .exclude(metadata__description__isnull=True)
+        .exclude(metadata__description="")
+    )
+    if group_type_index is not None:
+        definitions = definitions.filter(group_type_index=group_type_index)
+    return {
+        name: description
+        for name, description in definitions.values_list("name", "metadata__description")
+        if description
+    }

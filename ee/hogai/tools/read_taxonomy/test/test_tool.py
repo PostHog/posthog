@@ -202,7 +202,10 @@ class TestReadTaxonomyTool(NonAtomicBaseTest):
         owner = User.objects.create_and_join(
             self.organization, "ada@example.com", None, first_name=first_name, last_name=last_name
         )
-        EnterpriseEventDefinition.objects.create(team=self.team, name=event_name, owner=owner)
+        definition = EnterpriseEventDefinition.objects.create(team=self.team, name=event_name, owner=owner)
+        # The save copied the owner to the metadata table. A stale ee row makes the test fail if the
+        # read goes back to the ee table.
+        EnterpriseEventDefinition.objects.filter(pk=definition.pk).update(owner=None)
 
         result = execute_taxonomy_query(ReadEventProperties(event_name=event_name), mock_toolkit, self.team, self.user)
 

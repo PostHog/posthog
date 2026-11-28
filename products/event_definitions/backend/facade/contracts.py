@@ -33,3 +33,12 @@ class PropertyDefinition:
     group_type_index: int | None
     property_type: PropertyType | None
     is_numerical: bool
+
+
+@dataclass(frozen=True)
+class EventMetadataSummary:
+    """What people wrote about an event definition."""
+
+    name: str
+    description: str
+    hidden: bool
