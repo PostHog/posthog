@@ -2,6 +2,7 @@ import { type Tile, isSectionPanel } from '../../dashboard/document/dashboardTyp
 import type { PresentationEdit } from '../../dashboard/edits/presentationEdits'
 import type { MenuAction } from '../../menu/menuAction'
 import { type PanelType, panelSlots } from '../../panels/core/panelDefinition'
+import { type TileDescriptionMode, shownDescription } from '../../panels/core/panelSchema'
 import { findPanel } from '../../panels/core/panelSpec'
 import { TILE_BACKGROUND_COLORS } from '../../panels/core/tileBackground'
 import { NO_BACKGROUND, showsBorder } from '../core/tileAppearance'
@@ -43,7 +44,7 @@ function settingEdit(ids: string[], setting: TileSetting, shown: boolean): Prese
     return { edit: 'setTilesAppearance', ids, appearance: { [setting]: shown } }
 }
 
-/** Each setting is ticked while it is on for every tile it applies to. */
+/** Each setting is ticked while it is on for every tile it applies to. A tile's description choices follow under their own heading. */
 export function showAction(
     menu: MenuHead,
     tiles: Pick<Tile, 'id' | 'panel'>[],
@@ -78,10 +79,11 @@ export function showAction(
             },
         ]
     })
-    if (submenu.length === 0) {
+    const entries = [...submenu, ...descriptionChoices(menu, tiles, disabledReason, onEdit)]
+    if (entries.length === 0) {
         return null
     }
-    return { ...menu, group: 'display', disabledReason, submenu }
+    return { ...menu, group: 'display', disabledReason, submenu: entries }
 }
 
 export function backgroundColorAction(
@@ -121,4 +123,44 @@ export function backgroundColorAction(
             onSelect: () => onEdit({ edit: 'setTilesAppearance', ids, appearance: { backgroundColor: color } }),
         })),
     }
+}
+
+const DESCRIPTION_MODES: { mode: TileDescriptionMode; label: string }[] = [
+    { mode: 'icon', label: 'In an icon' },
+    { mode: 'below', label: 'Below the title' },
+    { mode: 'hidden', label: 'Hidden' },
+]
+
+/** One exclusive group in the Show submenu, for the tiles and sections that have a description. */
+function descriptionChoices(
+    menu: MenuHead,
+    tiles: Pick<Tile, 'id' | 'panel'>[],
+    disabledReason: string | null,
+    onEdit: (edit: PresentationEdit) => void
+): MenuAction[] {
+    const applies = tiles.flatMap(({ id, panel }) => {
+        if (!panel.description) {
+            return []
+        }
+        // A section always shows its header.
+        const header = isSectionPanel(panel) || showsPart(panel, 'header')
+        return [{ id, mode: shownDescription(panel).mode, header }]
+    })
+    if (applies.length === 0) {
+        return []
+    }
+    const ids = applies.map(({ id }) => id)
+    // The description sits in the header, so no choice changes anything while the header is off.
+    const headerOff = applies.every(({ header }) => !header) ? 'The header is off' : null
+    return DESCRIPTION_MODES.map(({ mode, label }) => ({
+        key: `description-${mode}`,
+        label,
+        section: 'Description',
+        exclusive: true,
+        dataAttr: `${menu.dataAttr}-description`,
+        disabledReason: disabledReason ?? headerOff,
+        checked: applies.every((tile) => tile.mode === mode),
+        onSelect: () =>
+            onEdit({ edit: 'setTilesAppearance', ids, appearance: { description: mode === 'icon' ? null : mode } }),
+    }))
 }

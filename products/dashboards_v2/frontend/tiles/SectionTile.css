@@ -7,6 +7,19 @@
     width: 100%;
     height: 100%;
     padding-block: 0;
+
+    /* The grid takes 200ms to change the section's height, so the space above a closed header arrives with it. */
+    transition: padding-top 200ms;
+
+    @media (prefers-reduced-motion: reduce) {
+        transition: none;
+    }
+}
+
+/* A closed section's rows are 10px taller than its header, so half of that goes above the header. A fixed space, not
+   centering, because the section is still tall while it closes and centering would drop the header into its middle. */
+.SectionTile:not(:has(> .SectionTile__body)) {
+    padding-top: 5px;
 }
 
 /* The header's title row and its actions share one line, centered on it, so the chevron, title and buttons line up. */
@@ -26,6 +39,27 @@
     > .quill-card__action {
         place-self: center end;
     }
+}
+
+/* One grid row and gap (22px) more than the header's 44px, which `sectionDescriptionRows` adds to the section's rows. */
+.SectionTile__header--described {
+    /* The title row keeps the place it has in a 44px header, so titles of sections side by side line up. */
+    align-content: start;
+    height: 66px;
+    padding-top: 12px;
+
+    /* Quill spans the actions over both rows, which would drop them below the title's line. */
+    > .quill-card__action {
+        grid-row: 1;
+    }
+}
+
+/* Starts under the title's text, past the toggle and the title's own padding. */
+.SectionTile__description {
+    grid-row: 2;
+    grid-column: 1;
+    min-width: 0;
+    padding-left: 32px;
 }
 
 /* Quill shades an expanded button as an open menu's trigger. The toggle's chevron already shows its state. */

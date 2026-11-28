@@ -79,4 +79,26 @@ describe('showAction', () => {
         expect(pick('default').checked).toBe(true)
         expect(findTile(board, 'a')?.panel.appearance).not.toHaveProperty('backgroundColor')
     })
+
+    it('moves a description below the title and back to the icon, and offers nothing without a description', () => {
+        const start = text('a')
+        const described = { ...start, panel: { ...start.panel, description: 'What it counts' } }
+        let board: Dashboard = { version: 2, title: 'Test', tabs: [{ id: 'tab', title: 'Tab', tiles: [described] }] }
+        const menu = { key: 'parts', label: 'Show', dataAttr: 'parts' }
+        const choices = (tile: Tile): MenuAction[] =>
+            showAction(menu, [tile], DEFAULT_PANELS, null, (edit: PresentationEdit) => {
+                board = applyPresentationEdit(board, edit)
+            })!.submenu!.filter((item) => item.section === 'Description')
+        const pick = (mode: string): MenuAction =>
+            choices(findTile(board, 'a')!).find((item) => item.key === `description-${mode}`)!
+
+        expect(pick('icon').checked).toBe(true)
+        pick('below').onSelect!()
+        expect(pick('below').checked).toBe(true)
+        pick('icon').onSelect!()
+        expect(findTile(board, 'a')?.panel.appearance).not.toHaveProperty('description')
+        expect(choices(start)).toEqual([])
+        const describedSection = { ...section, panel: { ...section.panel, description: 'What it groups' } }
+        expect(choices(describedSection).map((item) => item.label)).toEqual(['In an icon', 'Below the title', 'Hidden'])
+    })
 })

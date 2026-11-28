@@ -1,6 +1,6 @@
 import type { z } from 'zod'
 
-import type { SavedPanel } from '../../panels/core/panelSchema'
+import { type SavedPanel, shownDescription } from '../../panels/core/panelSchema'
 import type { PanelSize, SizeOf } from '../../panels/core/panelSpec'
 import type {
     dashboardFilterSchema,
@@ -58,6 +58,12 @@ export const SECTION_SIZE: PanelSize = { w: 24, h: 6, minW: 8, minH: 3 }
 
 export function isSectionPanel(panel: Panel): panel is SectionPanel {
     return panel.type === 'section'
+}
+
+/** A description shown under a section's title makes its header one grid row and gap (22px) taller. */
+export function sectionDescriptionRows(panel: SectionPanel): number {
+    const { mode, text } = shownDescription(panel)
+    return text && mode === 'below' ? 1 : 0
 }
 
 export function panelSize(panel: Panel, sizeOf: SizeOf): PanelSize {

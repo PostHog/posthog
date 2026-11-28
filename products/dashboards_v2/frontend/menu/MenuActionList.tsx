@@ -62,32 +62,38 @@ function sectionsOf(actions: MenuAction[]): { label?: string; actions: MenuActio
     return labels.map((label) => ({ label, actions: actions.filter((action) => action.section === label) }))
 }
 
+function RadioChoices({ choices, parts }: { choices: MenuAction[]; parts: MenuParts }): JSX.Element {
+    const { RadioGroup, RadioItem } = parts
+    return (
+        <RadioGroup
+            value={choices.find((choice) => choice.checked)?.key ?? null}
+            onValueChange={(value) => choices.find((choice) => choice.key === value)?.onSelect?.()}
+        >
+            {choices.map((choice) => (
+                <RadioItem
+                    key={choice.key}
+                    value={choice.key}
+                    data-attr={choice.dataAttr}
+                    className={rowClass(choice)}
+                    disabled={!!choice.disabledReason}
+                >
+                    <EntryLabel action={choice} />
+                </RadioItem>
+            ))}
+        </RadioGroup>
+    )
+}
+
 function MenuEntry({ action, parts }: { action: MenuAction; parts: MenuParts }): JSX.Element {
-    const { Group, Label, Separator, Item, CheckboxItem, Sub, SubTrigger, SubContent, RadioGroup, RadioItem } = parts
+    const { Group, Label, Separator, Item, CheckboxItem, Sub, SubTrigger, SubContent } = parts
     if (action.submenu && action.choice) {
-        const selected = action.submenu.find((child) => child.checked)?.key ?? null
         return (
             <Sub>
                 <SubTrigger data-attr={action.dataAttr} className={rowClass(action)} disabled={!!action.disabledReason}>
                     <EntryLabel action={action} />
                 </SubTrigger>
                 <SubContent>
-                    <RadioGroup
-                        value={selected}
-                        onValueChange={(value) => action.submenu?.find((child) => child.key === value)?.onSelect?.()}
-                    >
-                        {action.submenu.map((child) => (
-                            <RadioItem
-                                key={child.key}
-                                value={child.key}
-                                data-attr={child.dataAttr}
-                                className={rowClass(child)}
-                                disabled={!!child.disabledReason}
-                            >
-                                <EntryLabel action={child} />
-                            </RadioItem>
-                        ))}
-                    </RadioGroup>
+                    <RadioChoices choices={action.submenu} parts={parts} />
                 </SubContent>
             </Sub>
         )
@@ -103,9 +109,13 @@ function MenuEntry({ action, parts }: { action: MenuAction; parts: MenuParts }):
                         <Group key={section.label ?? index}>
                             {index > 0 && <Separator />}
                             {section.label && <Label>{section.label}</Label>}
-                            {section.actions.map((child) => (
-                                <MenuEntry key={child.key} action={child} parts={parts} />
-                            ))}
+                            {section.actions.every((child) => child.exclusive) ? (
+                                <RadioChoices choices={section.actions} parts={parts} />
+                            ) : (
+                                section.actions.map((child) => (
+                                    <MenuEntry key={child.key} action={child} parts={parts} />
+                                ))
+                            )}
                         </Group>
                     ))}
                 </SubContent>

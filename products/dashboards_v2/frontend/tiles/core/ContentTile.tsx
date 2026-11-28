@@ -3,25 +3,16 @@ import './ContentTile.css'
 import clsx from 'clsx'
 import { type CSSProperties, useMemo, useState } from 'react'
 
-import { IconInfo } from '@posthog/icons'
-import {
-    Card,
-    CardContent,
-    CardFooter,
-    CardHeader,
-    CardTitle,
-    Tooltip,
-    TooltipContent,
-    TooltipTrigger,
-} from '@posthog/quill'
+import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@posthog/quill'
 
 import type { MenuAction } from '../../menu/menuAction'
 import { type PanelType, panelSlots } from '../../panels/core/panelDefinition'
 import { PanelErrorBoundary } from '../../panels/core/PanelErrorBoundary'
-import { type SavedPanel } from '../../panels/core/panelSchema'
+import { type SavedPanel, shownDescription } from '../../panels/core/panelSchema'
 import { type TileCustomization, findPanel } from '../../panels/core/panelSpec'
 import { PanelView } from '../../panels/core/PanelView'
 import { TileBackgroundContext } from '../../panels/core/tileBackground'
+import { DESCRIPTION_IMAGE_ONLY_CLASS, DescriptionIcon } from './DescriptionIcon'
 import { TileActions } from './TileActions'
 import { NO_BACKGROUND, showsBorder, tileBackgroundColor, tileBackgroundStyle } from './tileAppearance'
 import { TileContextMenu, hasTileMenu } from './TileContextMenu'
@@ -44,29 +35,6 @@ function cardLook(
         ),
         style: tileBackgroundStyle(color),
     }
-}
-
-function DescriptionInfo({ description }: { description: string }): JSX.Element {
-    const [open, setOpen] = useState(false)
-    return (
-        <Tooltip open={open} onOpenChange={setOpen}>
-            <TooltipTrigger
-                // A touch screen has no hover, so a click opens the description and must not close it again.
-                closeOnClick={false}
-                render={
-                    <button
-                        type="button"
-                        className="inline-flex shrink-0 text-muted-foreground"
-                        aria-label={description}
-                        onClick={() => setOpen(true)}
-                    />
-                }
-            >
-                <IconInfo />
-            </TooltipTrigger>
-            <TooltipContent className="max-w-80">{description}</TooltipContent>
-        </Tooltip>
-    )
 }
 
 /**
@@ -98,6 +66,7 @@ export function ContentTile({
     const showFooter = isPartShown(panel, 'footer', slots)
     const [backgroundFromPanel, setBackgroundFromPanel] = useState<string | null>(null)
     const look = cardLook(panel, definition?.allowedCustomizations ?? [], backgroundFromPanel)
+    const { mode: descriptionMode, text: description } = shownDescription(panel)
     const HeaderExtra = definition?.HeaderExtra
     const Footer = definition?.Footer
     // Placement goes first so the slideshow stays above the image download in the shared view group.
@@ -121,8 +90,19 @@ export function ContentTile({
                     <CardHeader className={clsx(editable && 'TileGrid__handle')}>
                         <CardTitle className="flex items-center gap-1 min-w-0">
                             <span className="TileGrid__text truncate">{panel.title}</span>
-                            {panel.description && <DescriptionInfo description={panel.description} />}
+                            {description && descriptionMode === 'icon' && <DescriptionIcon description={description} />}
                         </CardTitle>
+                        {description && (
+                            <CardDescription
+                                className={clsx(
+                                    'dash-ContentTile__description TileGrid__text',
+                                    descriptionMode === 'icon' && DESCRIPTION_IMAGE_ONLY_CLASS
+                                )}
+                                title={description}
+                            >
+                                {description}
+                            </CardDescription>
+                        )}
                         {(HeaderExtra || hasMenu) && (
                             <TileActions menu={hasMenu}>
                                 {HeaderExtra && (

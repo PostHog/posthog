@@ -16,14 +16,23 @@ import {
     Card,
     CardContent,
     CardHeader,
-    CardTitle,
     Input,
 } from '@posthog/quill'
 
 import { useDashboard } from '../dashboard/core/dashboardContext'
-import { GRID, type SectionPanel, type Tile, isSection, spanPx } from '../dashboard/document/dashboardTypes'
+import {
+    GRID,
+    type SectionPanel,
+    type Tile,
+    isSection,
+    sectionDescriptionRows,
+    spanPx,
+} from '../dashboard/document/dashboardTypes'
 import { everyTile } from '../dashboard/document/tileTree'
 import type { OnSectionRows } from '../grid/TileGrid'
+import { shownDescription } from '../panels/core/panelSchema'
+import { DESCRIPTION_IMAGE_ONLY_CLASS, DescriptionIcon } from './core/DescriptionIcon'
+import { TapTooltip } from './core/TapTooltip'
 import { TileActions } from './core/TileActions'
 import { showsBorder, tileBackgroundStyle } from './core/tileAppearance'
 import { TileContextMenu, hasTileMenu } from './core/TileContextMenu'
@@ -58,6 +67,7 @@ export function SectionTile({
 }): JSX.Element {
     const { onEdit, onSectionFoldedChange, can } = useDashboard()
     const collapsed = !!panel.collapsed
+    const { mode: descriptionMode, text: description } = shownDescription(panel)
     const [draft, setDraft] = useState<string | null>(null)
     const ownActions = useSectionActions(id, panel, () => setDraft(panel.title))
     const [confirmingRemove, setConfirmingRemove] = useState(false)
@@ -66,15 +76,19 @@ export function SectionTile({
     const hasMenu = hasTileMenu(actions)
     const showAdd = can('addTile')
 
+    const descriptionRows = sectionDescriptionRows(panel)
     const onLiveRows = useCallback(
         (rows: number | null): void =>
             onSectionRows(
                 id,
                 rows === null
                     ? null
-                    : Math.max(panel.minRows ?? 0, GRID.sectionChromeRows + Math.max(GRID.emptySectionRows, rows))
+                    : Math.max(
+                          panel.minRows ?? 0,
+                          GRID.sectionChromeRows + descriptionRows + Math.max(GRID.emptySectionRows, rows)
+                      )
             ),
-        [id, onSectionRows, panel.minRows]
+        [id, onSectionRows, panel.minRows, descriptionRows]
     )
 
     const emptyLabel = editable ? 'Drag tiles here' : 'No tiles'
@@ -103,6 +117,17 @@ export function SectionTile({
             <TileContextMenu actions={actions}>
                 <Section border={showsBorder(panel)} backgroundColor={panel.appearance?.backgroundColor}>
                     <SectionHeader
+                        description={
+                            description &&
+                            descriptionMode === 'below' && (
+                                <TapTooltip
+                                    text={description}
+                                    className="SectionTile__description TileGrid__text truncate text-left text-xs text-muted-foreground"
+                                >
+                                    {description}
+                                </TapTooltip>
+                            )
+                        }
                         actions={
                             (showAdd || hasMenu) && (
                                 <TileActions menu={hasMenu}>{showAdd && <AddTileMenu gridId={id} />}</TileActions>
@@ -118,7 +143,14 @@ export function SectionTile({
                             draft={draft}
                             onDraftChange={setDraft}
                         />
-                        <SectionCount count={panel.tiles.length} />
+                        {description && descriptionMode === 'icon' && (
+                            <>
+                                <DescriptionIcon description={description} />
+                                <span className={clsx(DESCRIPTION_IMAGE_ONLY_CLASS, DESCRIPTION_TEXT)}>
+                                    {description}
+                                </span>
+                            </>
+                        )}
                     </SectionHeader>
                     {!collapsed && (
                         <SectionBody emptyLabel={panel.tiles.length === 0 ? emptyLabel : null}>
@@ -167,11 +199,29 @@ export function Section({
     )
 }
 
+// A long title stops here, so the description and the actions keep their room in the header.
+const TITLE_MAX_WIDTH = 'max-w-96'
+
+// It starts from no width and takes what the title leaves, so a long description never cuts the title short.
+const DESCRIPTION_TEXT = 'TileGrid__text min-w-0 flex-1 basis-0 truncate text-xs text-muted-foreground'
+
 /** The section's title bar, which is also what the section is dragged by. */
-export function SectionHeader({ actions, children }: { actions?: ReactNode; children: ReactNode }): JSX.Element {
+export function SectionHeader({
+    actions,
+    description,
+    children,
+}: {
+    actions?: ReactNode
+    /** Shown on its own line under the title. The header is one grid row and gap taller with it. */
+    description?: ReactNode
+    children: ReactNode
+}): JSX.Element {
     return (
-        <CardHeader className="SectionTile__header TileGrid__handle">
+        <CardHeader
+            className={clsx('SectionTile__header TileGrid__handle', description && 'SectionTile__header--described')}
+        >
             <div className="flex items-center gap-1 min-w-0">{children}</div>
+            {description}
             {actions}
         </CardHeader>
     )
@@ -224,8 +274,9 @@ export function SectionTitle({
         label = (
             <Button
                 size="xs"
-                className="quill-card__title min-w-0 max-w-full shrink"
-                tooltip="Rename"
+                className={clsx('quill-card__title min-w-0 shrink', TITLE_MAX_WIDTH)}
+                // The title is cut off past its width, so the tooltip is where the whole of it shows.
+                tooltip={`Rename "${title}"`}
                 data-attr="dashboard-v2-section-rename"
                 onClick={() => setDraft(title)}
             >
@@ -233,7 +284,15 @@ export function SectionTitle({
             </Button>
         )
     } else {
-        label = <CardTitle className="TileGrid__text truncate">{title}</CardTitle>
+        label = (
+            // A tap opens the whole title, because a touch screen has no hover to show what the header cuts off.
+            <TapTooltip
+                text={title}
+                className={clsx('quill-card__title TileGrid__text truncate text-left', TITLE_MAX_WIDTH)}
+            >
+                {title}
+            </TapTooltip>
+        )
     }
 
     return (
@@ -254,10 +313,6 @@ export function SectionTitle({
             {label}
         </div>
     )
-}
-
-export function SectionCount({ count }: { count: number }): JSX.Element {
-    return <span className="shrink-0 text-xs text-muted-foreground tabular-nums">{count}</span>
 }
 
 export function SectionBody({ emptyLabel, children }: { emptyLabel: string | null; children: ReactNode }): JSX.Element {

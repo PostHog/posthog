@@ -6,9 +6,13 @@ export const contentPanelPartsSchema = z.object({
     footer: z.boolean().optional(),
 })
 
+export const TILE_DESCRIPTION_MODES = ['icon', 'below', 'hidden'] as const
+
 /** How a tile looks. A setting that is missing is on. */
 export const tileAppearanceSchema = z.object({
     border: z.boolean().optional(),
+    /** Where a tile shows its description. Missing means `icon`, which an image of the tile shows as `below`. */
+    description: z.enum(TILE_DESCRIPTION_MODES).optional(),
     /** Any CSS color. The tile mixes it into its background as a tint, and `transparent` removes the background. */
     backgroundColor: z.string().min(1).optional(),
 })
@@ -36,6 +40,17 @@ export const sharedPanelSchema = contentPanelSchema.omit({ parts: true, appearan
 export type ContentPanelParts = z.infer<typeof contentPanelPartsSchema>
 
 export type TileAppearance = z.infer<typeof tileAppearanceSchema>
+
+export type TileDescriptionMode = (typeof TILE_DESCRIPTION_MODES)[number]
+
+/** Where a tile or a section shows its description, and the text to show: none when it has no description or hides it. */
+export function shownDescription(panel: { description?: string; appearance?: TileAppearance }): {
+    mode: TileDescriptionMode
+    text: string | undefined
+} {
+    const mode = panel.appearance?.description ?? 'icon'
+    return { mode, text: mode === 'hidden' ? undefined : panel.description || undefined }
+}
 
 export type ContentPanel<Config> = Omit<z.infer<typeof contentPanelSchema>, 'config'> & { config: Config }
 

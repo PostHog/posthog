@@ -12,6 +12,6 @@ export const metricSpec: VizSpec<MetricOptions> = {
     type: 'metric',
     label: 'Metric',
     // Eight rows fit the title, the number and the footer.
-    size: { w: 6, h: 8, minW: 3, minH: 4 },
+    size: { w: 6, h: 8, minW: 4, minH: 4 },
     optionsSchema: metricOptionsSchema,
 }

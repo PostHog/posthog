@@ -34,7 +34,8 @@ export function MetricViz({ frames, options }: { frames: DataFrame[]; options: M
             // The tile already pads its content, so the card's own padding would inset the number past the title.
             className="flex min-h-0 w-full flex-1 flex-col px-0"
         >
-            <div className="flex items-center gap-2">
+            {/* The change wraps under the value when both do not fit, so a narrow tile cuts the value off last. */}
+            <div className="flex flex-wrap items-center gap-x-2">
                 <MetricValue />
                 {trend && <MetricDelta />}
             </div>

@@ -15,14 +15,20 @@ function squeeze(overshootPx: number): number {
     return MAX_SQUEEZE_PX * (1 - Math.exp(-Math.max(0, overshootPx) / SQUEEZE_SCALE_PX))
 }
 
+/** A tile of one fixed height, such as a closed section, also gives way outward, because it cannot grow either. */
+function give(overshootPx: number, bothWays: boolean): number {
+    return bothWays ? Math.sign(overshootPx) * squeeze(Math.abs(overshootPx)) : squeeze(overshootPx)
+}
+
 /**
- * Shows that a tile being resized has reached its minimum size. An overlay over the tile is outlined, and while the
- * pointer keeps pushing past the edge, it gives way a little toward the pointer, like a rubber band. The overlay is
- * drawn over the tile, so the tile and the layout never move.
+ * Shows that a tile being resized has reached its minimum size, or cannot change height at all. An overlay over the
+ * tile is outlined, and while the pointer keeps pushing past the edge, it gives way a little toward the pointer, like
+ * a rubber band. The overlay is drawn over the tile, so the tile and the layout never move.
  */
 export function showResizeFeedback(tile: HTMLElement, item: LayoutItem, handle: string, event: Event): void {
     const atMinWidth = item.w <= (item.minW ?? 1)
-    const atMinHeight = item.maxH === undefined && item.h <= (item.minH ?? 1)
+    const atMinHeight = item.h <= (item.minH ?? 1)
+    const fixedHeight = atMinHeight && item.maxH !== undefined && item.h >= item.maxH
     const pushingWidth = atMinWidth && /[ew]/.test(handle)
     const pushingHeight = atMinHeight && /[ns]/.test(handle)
     // An attribute, not a class, because the grid rewrites the tile's classes when the resize ends, which would cut
@@ -41,9 +47,9 @@ export function showResizeFeedback(tile: HTMLElement, item: LayoutItem, handle: 
     }
     if (pointer && pushingHeight) {
         if (handle.includes('s')) {
-            band.bottom = squeeze(rect.bottom - pointer.clientY)
+            band.bottom = give(rect.bottom - pointer.clientY, fixedHeight)
         } else {
-            band.top = squeeze(pointer.clientY - rect.top)
+            band.top = give(pointer.clientY - rect.top, fixedHeight)
         }
     }
     for (const [side, px] of Object.entries(band)) {
@@ -55,7 +61,7 @@ export function showResizeFeedback(tile: HTMLElement, item: LayoutItem, handle: 
     tile.style.setProperty('--dv2-squeeze-y', String((rect.height - band.top - band.bottom) / rect.height))
     tile.style.setProperty(
         '--dv2-squeeze-origin',
-        `${band.left > 0 ? 'right' : 'left'} ${band.top > 0 ? 'bottom' : 'top'}`
+        `${band.left > 0 ? 'right' : 'left'} ${band.top !== 0 ? 'bottom' : 'top'}`
     )
 }
 
