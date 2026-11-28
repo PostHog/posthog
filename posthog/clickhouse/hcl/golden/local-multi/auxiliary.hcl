@@ -3809,6 +3809,136 @@ database "posthog" {
     }
   }
 
+  table "sharded_web_bounces_dimensional_preaggregated_by_day" {
+    primary_key  = ["team_id", "period_bucket", "job_id", "host", "device_type", "entry_pathname", "end_pathname", "browser", "os", "viewport_width", "viewport_height", "referring_domain", "utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content", "country_code", "city_name", "region_code", "region_name", "has_gclid", "has_gad_source_paid_search", "has_fbclid", "mat_metadata_backend", "mat_metadata_loggedIn"]
+    order_by     = ["team_id", "period_bucket", "job_id", "host", "device_type", "entry_pathname", "end_pathname", "browser", "os", "viewport_width", "viewport_height", "referring_domain", "utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content", "country_code", "city_name", "region_code", "region_name", "has_gclid", "has_gad_source_paid_search", "has_fbclid", "mat_metadata_backend", "mat_metadata_loggedIn", "channel_type", "session_hosts"]
+    partition_by = "toYYYYMMDD(period_bucket)"
+    ttl          = "toDateTime(expires_at)"
+    settings = {
+      allow_nullable_key     = "1"
+      index_granularity      = "8192"
+      merge_with_ttl_timeout = "3600"
+    }
+    column "team_id" {
+      type = "Int64"
+    }
+    column "job_id" {
+      type = "UUID"
+    }
+    column "period_bucket" {
+      type = "DateTime"
+    }
+    column "host" {
+      type = "String"
+    }
+    column "device_type" {
+      type = "String"
+    }
+    column "entry_pathname" {
+      type = "String"
+    }
+    column "end_pathname" {
+      type = "String"
+    }
+    column "browser" {
+      type = "String"
+    }
+    column "os" {
+      type = "String"
+    }
+    column "viewport_width" {
+      type = "Int64"
+    }
+    column "viewport_height" {
+      type = "Int64"
+    }
+    column "referring_domain" {
+      type = "String"
+    }
+    column "utm_source" {
+      type = "String"
+    }
+    column "utm_medium" {
+      type = "String"
+    }
+    column "utm_campaign" {
+      type = "String"
+    }
+    column "utm_term" {
+      type = "String"
+    }
+    column "utm_content" {
+      type = "String"
+    }
+    column "country_code" {
+      type = "String"
+    }
+    column "city_name" {
+      type = "String"
+    }
+    column "region_code" {
+      type = "String"
+    }
+    column "region_name" {
+      type = "String"
+    }
+    column "has_gclid" {
+      type = "Bool"
+    }
+    column "has_gad_source_paid_search" {
+      type = "Bool"
+    }
+    column "has_fbclid" {
+      type = "Bool"
+    }
+    column "mat_metadata_backend" {
+      type = "Nullable(String)"
+    }
+    column "mat_metadata_loggedIn" {
+      type = "Nullable(Bool)"
+    }
+    column "channel_type" {
+      type = "LowCardinality(String)"
+    }
+    column "session_hosts" {
+      type = "Array(String)"
+    }
+    column "persons_uniq_state" {
+      type = "AggregateFunction(uniq, UUID)"
+    }
+    column "sessions_uniq_state" {
+      type = "AggregateFunction(uniq, String)"
+    }
+    column "pageviews_count_state" {
+      type = "AggregateFunction(sum, Int64)"
+    }
+    column "bounces_count_state" {
+      type = "AggregateFunction(sum, Int64)"
+    }
+    column "total_session_duration_state" {
+      type = "AggregateFunction(sum, Int64)"
+    }
+    column "total_session_count_state" {
+      type = "AggregateFunction(sum, Int64)"
+    }
+    column "bounce_eligible_sessions_state" {
+      type = "AggregateFunction(sum, Int64)"
+    }
+    column "computed_at" {
+      type    = "DateTime64(6, 'UTC')"
+      default = "now()"
+    }
+    column "expires_at" {
+      type    = "DateTime64(6, 'UTC')"
+      default = "now() + toIntervalDay(7)"
+    }
+    engine "replicated_replacing_merge_tree" {
+      zoo_path       = "/clickhouse/tables/{shard}/posthog.web_bounces_dimensional_preaggregated_by_day"
+      replica_name   = "{replica}"
+      version_column = "computed_at"
+    }
+  }
+
   table "sharded_web_goals_preaggregated" {
     order_by     = ["team_id", "job_id", "action_id", "time_window_start"]
     partition_by = "toYYYYMMDD(expires_at)"
@@ -4084,6 +4214,124 @@ database "posthog" {
     }
     engine "replicated_replacing_merge_tree" {
       zoo_path       = "/clickhouse/tables/{shard}/posthog.web_stats_dimensional_preaggregated"
+      replica_name   = "{replica}"
+      version_column = "computed_at"
+    }
+  }
+
+  table "sharded_web_stats_dimensional_preaggregated_by_day" {
+    primary_key  = ["team_id", "period_bucket", "job_id", "host", "device_type", "pathname", "entry_pathname", "end_pathname", "browser", "os", "viewport_width", "viewport_height", "referring_domain", "utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content", "country_code", "city_name", "region_code", "region_name", "has_gclid", "has_gad_source_paid_search", "has_fbclid", "mat_metadata_backend", "mat_metadata_loggedIn"]
+    order_by     = ["team_id", "period_bucket", "job_id", "host", "device_type", "pathname", "entry_pathname", "end_pathname", "browser", "os", "viewport_width", "viewport_height", "referring_domain", "utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content", "country_code", "city_name", "region_code", "region_name", "has_gclid", "has_gad_source_paid_search", "has_fbclid", "mat_metadata_backend", "mat_metadata_loggedIn", "channel_type"]
+    partition_by = "toYYYYMMDD(period_bucket)"
+    ttl          = "toDateTime(expires_at)"
+    settings = {
+      allow_nullable_key     = "1"
+      index_granularity      = "8192"
+      merge_with_ttl_timeout = "3600"
+    }
+    column "team_id" {
+      type = "Int64"
+    }
+    column "job_id" {
+      type = "UUID"
+    }
+    column "period_bucket" {
+      type = "DateTime"
+    }
+    column "host" {
+      type = "String"
+    }
+    column "device_type" {
+      type = "String"
+    }
+    column "pathname" {
+      type = "String"
+    }
+    column "entry_pathname" {
+      type = "String"
+    }
+    column "end_pathname" {
+      type = "String"
+    }
+    column "browser" {
+      type = "String"
+    }
+    column "os" {
+      type = "String"
+    }
+    column "viewport_width" {
+      type = "Int64"
+    }
+    column "viewport_height" {
+      type = "Int64"
+    }
+    column "referring_domain" {
+      type = "String"
+    }
+    column "utm_source" {
+      type = "String"
+    }
+    column "utm_medium" {
+      type = "String"
+    }
+    column "utm_campaign" {
+      type = "String"
+    }
+    column "utm_term" {
+      type = "String"
+    }
+    column "utm_content" {
+      type = "String"
+    }
+    column "country_code" {
+      type = "String"
+    }
+    column "city_name" {
+      type = "String"
+    }
+    column "region_code" {
+      type = "String"
+    }
+    column "region_name" {
+      type = "String"
+    }
+    column "has_gclid" {
+      type = "Bool"
+    }
+    column "has_gad_source_paid_search" {
+      type = "Bool"
+    }
+    column "has_fbclid" {
+      type = "Bool"
+    }
+    column "mat_metadata_backend" {
+      type = "Nullable(String)"
+    }
+    column "mat_metadata_loggedIn" {
+      type = "Nullable(Bool)"
+    }
+    column "channel_type" {
+      type = "LowCardinality(String)"
+    }
+    column "persons_uniq_state" {
+      type = "AggregateFunction(uniq, UUID)"
+    }
+    column "sessions_uniq_state" {
+      type = "AggregateFunction(uniq, String)"
+    }
+    column "pageviews_count_state" {
+      type = "AggregateFunction(sum, Int64)"
+    }
+    column "computed_at" {
+      type    = "DateTime64(6, 'UTC')"
+      default = "now()"
+    }
+    column "expires_at" {
+      type    = "DateTime64(6, 'UTC')"
+      default = "now() + toIntervalDay(7)"
+    }
+    engine "replicated_replacing_merge_tree" {
+      zoo_path       = "/clickhouse/tables/{shard}/posthog.web_stats_dimensional_preaggregated_by_day"
       replica_name   = "{replica}"
       version_column = "computed_at"
     }
@@ -4532,6 +4780,128 @@ database "posthog" {
     }
   }
 
+  table "web_bounces_dimensional_preaggregated_by_day" {
+    column "team_id" {
+      type = "Int64"
+    }
+    column "job_id" {
+      type = "UUID"
+    }
+    column "period_bucket" {
+      type = "DateTime"
+    }
+    column "host" {
+      type = "String"
+    }
+    column "device_type" {
+      type = "String"
+    }
+    column "entry_pathname" {
+      type = "String"
+    }
+    column "end_pathname" {
+      type = "String"
+    }
+    column "browser" {
+      type = "String"
+    }
+    column "os" {
+      type = "String"
+    }
+    column "viewport_width" {
+      type = "Int64"
+    }
+    column "viewport_height" {
+      type = "Int64"
+    }
+    column "referring_domain" {
+      type = "String"
+    }
+    column "utm_source" {
+      type = "String"
+    }
+    column "utm_medium" {
+      type = "String"
+    }
+    column "utm_campaign" {
+      type = "String"
+    }
+    column "utm_term" {
+      type = "String"
+    }
+    column "utm_content" {
+      type = "String"
+    }
+    column "country_code" {
+      type = "String"
+    }
+    column "city_name" {
+      type = "String"
+    }
+    column "region_code" {
+      type = "String"
+    }
+    column "region_name" {
+      type = "String"
+    }
+    column "has_gclid" {
+      type = "Bool"
+    }
+    column "has_gad_source_paid_search" {
+      type = "Bool"
+    }
+    column "has_fbclid" {
+      type = "Bool"
+    }
+    column "mat_metadata_backend" {
+      type = "Nullable(String)"
+    }
+    column "mat_metadata_loggedIn" {
+      type = "Nullable(Bool)"
+    }
+    column "channel_type" {
+      type = "LowCardinality(String)"
+    }
+    column "session_hosts" {
+      type = "Array(String)"
+    }
+    column "persons_uniq_state" {
+      type = "AggregateFunction(uniq, UUID)"
+    }
+    column "sessions_uniq_state" {
+      type = "AggregateFunction(uniq, String)"
+    }
+    column "pageviews_count_state" {
+      type = "AggregateFunction(sum, Int64)"
+    }
+    column "bounces_count_state" {
+      type = "AggregateFunction(sum, Int64)"
+    }
+    column "total_session_duration_state" {
+      type = "AggregateFunction(sum, Int64)"
+    }
+    column "total_session_count_state" {
+      type = "AggregateFunction(sum, Int64)"
+    }
+    column "bounce_eligible_sessions_state" {
+      type = "AggregateFunction(sum, Int64)"
+    }
+    column "computed_at" {
+      type    = "DateTime64(6, 'UTC')"
+      default = "now()"
+    }
+    column "expires_at" {
+      type    = "DateTime64(6, 'UTC')"
+      default = "now() + toIntervalDay(7)"
+    }
+    engine "distributed" {
+      cluster_name    = "aux"
+      remote_database = "posthog"
+      remote_table    = "sharded_web_bounces_dimensional_preaggregated_by_day"
+      sharding_key    = "sipHash64(job_id)"
+    }
+  }
+
   table "web_goals_preaggregated" {
     column "team_id" {
       type = "Int64"
@@ -4741,6 +5111,116 @@ database "posthog" {
       cluster_name    = "aux"
       remote_database = "posthog"
       remote_table    = "sharded_web_stats_dimensional_preaggregated"
+      sharding_key    = "sipHash64(job_id)"
+    }
+  }
+
+  table "web_stats_dimensional_preaggregated_by_day" {
+    column "team_id" {
+      type = "Int64"
+    }
+    column "job_id" {
+      type = "UUID"
+    }
+    column "period_bucket" {
+      type = "DateTime"
+    }
+    column "host" {
+      type = "String"
+    }
+    column "device_type" {
+      type = "String"
+    }
+    column "pathname" {
+      type = "String"
+    }
+    column "entry_pathname" {
+      type = "String"
+    }
+    column "end_pathname" {
+      type = "String"
+    }
+    column "browser" {
+      type = "String"
+    }
+    column "os" {
+      type = "String"
+    }
+    column "viewport_width" {
+      type = "Int64"
+    }
+    column "viewport_height" {
+      type = "Int64"
+    }
+    column "referring_domain" {
+      type = "String"
+    }
+    column "utm_source" {
+      type = "String"
+    }
+    column "utm_medium" {
+      type = "String"
+    }
+    column "utm_campaign" {
+      type = "String"
+    }
+    column "utm_term" {
+      type = "String"
+    }
+    column "utm_content" {
+      type = "String"
+    }
+    column "country_code" {
+      type = "String"
+    }
+    column "city_name" {
+      type = "String"
+    }
+    column "region_code" {
+      type = "String"
+    }
+    column "region_name" {
+      type = "String"
+    }
+    column "has_gclid" {
+      type = "Bool"
+    }
+    column "has_gad_source_paid_search" {
+      type = "Bool"
+    }
+    column "has_fbclid" {
+      type = "Bool"
+    }
+    column "mat_metadata_backend" {
+      type = "Nullable(String)"
+    }
+    column "mat_metadata_loggedIn" {
+      type = "Nullable(Bool)"
+    }
+    column "channel_type" {
+      type = "LowCardinality(String)"
+    }
+    column "persons_uniq_state" {
+      type = "AggregateFunction(uniq, UUID)"
+    }
+    column "sessions_uniq_state" {
+      type = "AggregateFunction(uniq, String)"
+    }
+    column "pageviews_count_state" {
+      type = "AggregateFunction(sum, Int64)"
+    }
+    column "computed_at" {
+      type    = "DateTime64(6, 'UTC')"
+      default = "now()"
+    }
+    column "expires_at" {
+      type    = "DateTime64(6, 'UTC')"
+      default = "now() + toIntervalDay(7)"
+    }
+    engine "distributed" {
+      cluster_name    = "aux"
+      remote_database = "posthog"
+      remote_table    = "sharded_web_stats_dimensional_preaggregated_by_day"
       sharding_key    = "sipHash64(job_id)"
     }
   }

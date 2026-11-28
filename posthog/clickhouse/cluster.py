@@ -84,6 +84,8 @@ _MULTINODE_HOST_PORT_OVERRIDES: dict[str, tuple[str, int]] = {
     "clickhouse-ingestion-events": ("localhost", 9600),
     "clickhouse-ingestion-small": ("localhost", 9700),
     "clickhouse-ingestion-medium": ("localhost", 9800),
+    "clickhouse-events": ("localhost", 9900),
+    "clickhouse-flags": ("localhost", 10000),
 }
 
 
