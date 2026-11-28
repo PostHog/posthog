@@ -33,20 +33,16 @@ function EmptyEmails(): JSX.Element {
 
 export function PersonEmailsTab({ teamId, personId }: PersonEmailsTabProps): JSX.Element {
     const logic = personEmailsLogic({ teamId, personId })
-    const { emails, emailsLoading, previewedEmail: selected, openingEmail } = useValues(logic)
+    const { emails, emailsLoading, previewedEmail: selected } = useValues(logic)
     const { openEmail, previewEmail } = useActions(logic)
 
     return (
         <>
             <LemonTable
-                loading={emailsLoading || openingEmail}
+                loading={emailsLoading}
                 dataSource={emails}
                 onRow={(asset: MessageAsset) => ({
-                    onClick: () => {
-                        if (!openingEmail) {
-                            openEmail(asset)
-                        }
-                    },
+                    onClick: () => openEmail(asset),
                     className: 'cursor-pointer',
                 })}
                 emptyState={<EmptyEmails />}

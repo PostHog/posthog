@@ -3,7 +3,7 @@ import json
 import uuid
 import builtins
 import dataclasses
-from collections.abc import Collection, Mapping
+from collections.abc import Collection, Mapping, Sequence
 from datetime import UTC, datetime
 from typing import Any, Optional, Union, cast  # noqa: UP035
 
@@ -96,15 +96,19 @@ from posthog.utils import (
     relative_date_parse_with_delta_mapping,
     str_to_bool,
 )
+from posthog.uuidt import UUIDT
 
 from products.access_control.backend.facade.api import property_key_overlaps_restriction, redact_restricted_properties
 from products.ai_training.backend.facade.api import queue_person_training_deletion
 from products.cohorts.backend.models.cohort import Cohort
 from products.cohorts.backend.models.util import get_all_cohort_ids_by_person_uuid
-from products.workflows.backend.facade.api import get_workflow_names
+from products.messaging.backend.facade.transactional_email_log import transactional_emails_in_log
+from products.workflows.backend.facade.api import get_workflow_names, get_workflow_view_access
+from products.workflows.backend.facade.contracts import TRANSACTIONAL_EMAIL_ACTION_ID, MessageAsset
 from products.workflows.backend.facade.message_assets import fetch_message_assets_for_person
 from products.workflows.backend.presentation.views.message_assets import (
     MessageAssetSerializer,
+    PersonEmailSerializer,
     PersonMessageAssetsRequestSerializer,
 )
 
@@ -1814,7 +1818,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     @extend_schema(
         parameters=[PersonMessageAssetsRequestSerializer],
-        responses=MessageAssetSerializer(many=True),
+        responses=PersonEmailSerializer(many=True),
     )
     @action(
         methods=["GET"],
@@ -1892,7 +1896,30 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # back keyed by the string id.
         name_by_id = get_workflow_names(team_id=self.team_id, workflow_ids={row.function_id for row in data})
         enriched = [dataclasses.replace(row, function_name=name_by_id.get(row.function_id, "")) for row in data]
-        return response.Response(MessageAssetSerializer(enriched, many=True).data)
+        if kind != "email":
+            return response.Response(MessageAssetSerializer(enriched, many=True).data)
+        return response.Response(PersonEmailSerializer(self._with_transactional_log(enriched), many=True).data)
+
+    def _with_transactional_log(self, rows: Sequence[MessageAsset]) -> Sequence[MessageAsset]:
+        sends = {
+            uuid.UUID(row.invocation_id): row.function_id
+            for row in rows
+            if row.action_id == TRANSACTIONAL_EMAIL_ACTION_ID and UUIDT.is_valid_uuid(row.invocation_id)
+        }
+        if not sends:
+            return rows
+        try:
+            access = get_workflow_view_access(team_id=self.team_id, user_access_control=self.user_access_control)
+            kept = transactional_emails_in_log(self.team_id, list(sends.items()), access=access)
+        except Exception as error:
+            capture_exception(error)
+            return rows
+        return [
+            dataclasses.replace(row, in_transactional_email_log=uuid.UUID(row.invocation_id) in kept)
+            if row.action_id == TRANSACTIONAL_EMAIL_ACTION_ID and UUIDT.is_valid_uuid(row.invocation_id)
+            else row
+            for row in rows
+        ]
 
     @extend_schema(
         exclude=True,  # NOTE: We exclude as we want to push people to use the more powerful bulk_delete endpoint

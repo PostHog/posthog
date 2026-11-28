@@ -26,6 +26,7 @@ export interface MessageAsset {
     subject: string
     status: string
     sent_at: string
+    in_transactional_email_log?: boolean | null
 }
 
 export interface MessageAssetsParams {

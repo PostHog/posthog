@@ -5,6 +5,7 @@ The send API writes `queued`, or `scheduled` for a send that waits for its time,
 """
 
 import json
+from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 from typing import cast
 from uuid import UUID, uuid5
@@ -55,6 +56,15 @@ LIMIT 1
 """
 
 
+_KEPT_QUERY = """
+SELECT DISTINCT message_id
+FROM {table}
+WHERE team_id = %(team_id)s
+  AND message_id IN %(message_ids)s
+  AND created_at >= %(start)s
+"""
+
+
 def is_keyed_message_id(message_id: UUID) -> bool:
     """A keyed send's ID is uuid5(team, scope, key), so every retry of the key gets the same ID.
 
@@ -88,6 +98,34 @@ def message_created_at(
         # minutes, so a short window keeps a missing ID cheap.
         found = _keyed_created_at(team_id, message_id, workload, lag_fallback_table, since=now - _CONSUMER_LAG)
     return found
+
+
+def kept_message_ids(
+    team_id: int, message_ids: Sequence[UUID], workload: Workload, lag_fallback_table: str | None = None
+) -> set[UUID]:
+    """The sends among `message_ids` that the tables still keep, found the way `message_created_at` finds one."""
+    if not message_ids:
+        return set()
+    now = datetime.now(UTC)
+    kept = _kept_in(team_id, message_ids, workload, EMAIL_STATUS_TABLE, since=now - _RETENTION)
+    missing = [message_id for message_id in message_ids if message_id not in kept]
+    if missing and lag_fallback_table is not None:
+        kept |= _kept_in(team_id, missing, workload, lag_fallback_table, since=now - _CONSUMER_LAG)
+    return kept
+
+
+def _kept_in(team_id: int, message_ids: Sequence[UUID], workload: Workload, table: str, since: datetime) -> set[UUID]:
+    tag_queries(product=Product.MESSAGING, feature=Feature.QUERY)
+    rows = cast(
+        list,
+        sync_execute(
+            _KEPT_QUERY.format(table=table),
+            {"team_id": team_id, "message_ids": [str(message_id) for message_id in message_ids], "start": since},
+            workload=workload,
+            team_id=team_id,
+        ),
+    )
+    return {UUID(str(message_id)) for (message_id,) in rows}
 
 
 def _keyed_created_at(

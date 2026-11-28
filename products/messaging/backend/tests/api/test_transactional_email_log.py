@@ -161,7 +161,17 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
         )
         return message_id
 
-    def _record_distinct_id(self, message_id: str, distinct_id: str, recipient: str, sent_at: datetime) -> None:
+    def _record_distinct_id(
+        self,
+        message_id: str,
+        distinct_id: str,
+        recipient: str,
+        sent_at: datetime,
+        *,
+        person_id: str = "",
+        action_id: str = "transactional_email",
+        workflow_id: str | None = None,
+    ) -> None:
         sync_execute(
             """
             INSERT INTO message_assets_data
@@ -173,13 +183,13 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
                 {
                     "team_id": self.team.id,
                     "function_kind": "hog_flow",
-                    "function_id": self.workflow_id,
+                    "function_id": workflow_id or self.workflow_id,
                     "parent_run_id": "",
                     "invocation_id": message_id,
-                    "action_id": "transactional_email",
+                    "action_id": action_id,
                     "kind": "email",
                     "distinct_id": distinct_id,
-                    "person_id": "",
+                    "person_id": person_id,
                     "recipient": recipient,
                     "subject": "Reset",
                     "status": "sent",
@@ -315,6 +325,40 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
             ("queued", None),
             ("failed", "provider_error"),
         ]
+
+    def test_a_persons_emails_say_which_sends_the_log_keeps(self, _flag):
+        person = create_person(team=self.team, distinct_ids=["jane"])
+        restricted = create_workflow_for_test(team_id=self.team.id, name="Payroll").id
+        sends = {
+            "kept a week": self._send(7 * 24 * 60, "jane@example.com", [("sent", 1, "")], keyed=True),
+            "not in email_status yet": self._send(10, "jane@example.com", [("sent", 1, "")]),
+            "of a denied workflow": self._send(20, "jane@example.com", [("sent", 1, "")], workflow_id=restricted),
+            "gone from the log": str(UUIDT(unix_time_ms=int((NOW - timedelta(days=2)).timestamp() * 1000))),
+            "workflow email": str(UUIDT(unix_time_ms=int((NOW - timedelta(days=3)).timestamp() * 1000))),
+        }
+        for name, message_id in sends.items():
+            self._record_distinct_id(
+                message_id,
+                "jane",
+                "jane@example.com",
+                NOW - timedelta(days=1),
+                person_id=str(person.uuid),
+                action_id="email-step" if name == "workflow email" else "transactional_email",
+                workflow_id=restricted if name == "of a denied workflow" else None,
+            )
+        self._deny_member("hog_flow", resource_id=restricted)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/persons/{person.uuid}/emails/")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        kept = {row["invocation_id"]: row["in_transactional_email_log"] for row in response.json()}
+        assert {name: kept[message_id] for name, message_id in sends.items()} == {
+            "kept a week": True,
+            "not in email_status yet": True,
+            "of a denied workflow": False,
+            "gone from the log": False,
+            "workflow email": None,
+        }
 
     def test_shows_the_latest_attempt_of_a_key_refused_the_day_before(self, _flag):
         message_id = self._send(60 * 24, "jane@example.com", [("failed", 1, "recipient_suppressed")], keyed=True)
@@ -1169,7 +1213,7 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
         assert self.client.get(self._url(f"{deleted_id}/")).json()["recipient"] == "old@example.com"
         assert self.client.get(self._url(f"{denied_then_deleted_id}/")).status_code == status.HTTP_404_NOT_FOUND
 
-    def _deny_member(self, resource: str) -> None:
+    def _deny_member(self, resource: str, resource_id: str | None = None) -> None:
         self.organization.available_product_features = [
             {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
             {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
@@ -1180,6 +1224,7 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
         create_access_control(
             team_id=self.team.id,
             resource=resource,
+            resource_id=resource_id,
             access_level="none",
             organization_member_id=self.organization_membership.id,
         )

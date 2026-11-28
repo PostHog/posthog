@@ -102894,6 +102894,38 @@ export namespace Schemas {
       $unset: string | string[];
     }
 
+    export interface PersonEmail {
+      /** The workflow run this email was sent in. */
+      invocation_id: string;
+      /** The email step (action node) within the workflow that sent this email. */
+      action_id: string;
+      /** The workflow id that sent this email — used to navigate from a person's Emails tab back into the originating workflow. */
+      function_id: string;
+      /** Human-readable workflow name for display. Empty when the workflow has been deleted; clients should fall back to function_id in that case. */
+      function_name: string;
+      /** The batch run this email belongs to, for batch-triggered workflows. Empty for event-triggered runs. */
+      parent_run_id: string;
+      /** Message channel this asset was sent on: 'email' or 'push'. The per-person endpoints return one channel each. */
+      kind: string;
+      /** The recipient's distinct_id. */
+      distinct_id: string;
+      /** The recipient's person UUID, if resolved. */
+      person_id: string;
+      /** Who the message went to: the email address for 'email', or the recipient's distinct ID for 'push'. */
+      recipient: string;
+      /** The email subject line, or the push notification title. */
+      subject: string;
+      /** Delivery status at capture time. Currently always 'sent' - only delivered messages are captured. */
+      status: string;
+      /** When the message was sent. */
+      sent_at: string;
+      /**
+         * For a transactional email: true when the transactional email log still keeps the send and the user may view it, so its send page opens. Null for a workflow email, or when the log could not be checked.
+         * @nullable
+         */
+      in_transactional_email_log: boolean | null;
+    }
+
     /**
      * Serializer for the point-in-time query metadata.
      */

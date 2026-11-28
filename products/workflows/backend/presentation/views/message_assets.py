@@ -34,6 +34,14 @@ class MessageAssetSerializer(serializers.Serializer):
     sent_at = serializers.DateTimeField(help_text="When the message was sent.")
 
 
+class PersonEmailSerializer(MessageAssetSerializer):
+    in_transactional_email_log = serializers.BooleanField(
+        allow_null=True,
+        help_text="For a transactional email: true when the transactional email log still keeps the send and the "
+        "user may view it, so its send page opens. Null for a workflow email, or when the log could not be checked.",
+    )
+
+
 class MessageAssetsRequestSerializer(serializers.Serializer):
     parent_run_id = serializers.CharField(
         required=False,

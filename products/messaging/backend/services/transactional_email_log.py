@@ -54,7 +54,7 @@ from products.messaging.backend.models.email_status_sql import (
 from products.messaging.backend.models.message_template import MessageTemplate
 from products.messaging.backend.models.transactional_email_key import TransactionalEmailKey
 from products.messaging.backend.services.code_emails import code_emails_by_workflow
-from products.messaging.backend.services.transactional_email_status import message_created_at
+from products.messaging.backend.services.transactional_email_status import kept_message_ids, message_created_at
 from products.workflows.backend.facade.api import is_email_workflow_run_link_tag_enabled
 from products.workflows.backend.facade.contracts import WorkflowViewAccess
 from products.workflows.backend.facade.message_assets import (
@@ -386,6 +386,14 @@ def get_transactional_email(
             clicks=not any(clicks_off for *_, clicks_off in events),
         ),
     )
+
+
+def transactional_emails_in_log(
+    team_id: int, sends: Sequence[tuple[UUID, str]], *, access: WorkflowViewAccess
+) -> set[UUID]:
+    """The sends, given as message ID and workflow ID, that the log still keeps and the reader may view."""
+    viewable = [message_id for message_id, workflow_id in sends if access.allows(workflow_id)]
+    return kept_message_ids(team_id, viewable, Workload.ONLINE, lag_fallback_table=EMAIL_STATUS_EVENTS_TABLE)
 
 
 def transactional_email_stats(
