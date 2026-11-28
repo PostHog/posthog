@@ -1,22 +1,22 @@
 import './ContentTile.css'
 
 import clsx from 'clsx'
-import { type CSSProperties, useMemo, useState } from 'react'
+import { type CSSProperties, useEffect, useMemo, useState } from 'react'
 
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@posthog/quill'
 
 import type { MenuAction } from '../../menu/menuAction'
+import { ErrorBoundary, PANEL_ERROR_TAG } from '../../panels/core/ErrorBoundary'
 import { type PanelType, panelSlots } from '../../panels/core/panelDefinition'
-import { PanelErrorBoundary } from '../../panels/core/PanelErrorBoundary'
 import { type SavedPanel, shownDescription } from '../../panels/core/panelSchema'
 import { type TileCustomization, findPanel } from '../../panels/core/panelSpec'
 import { PanelView } from '../../panels/core/PanelView'
 import { TileBackgroundContext } from '../../panels/core/tileBackground'
 import { DESCRIPTION_IMAGE_ONLY_CLASS, DescriptionIcon } from './DescriptionIcon'
 import { TileActions } from './TileActions'
-import { NO_BACKGROUND, showsBorder, tileBackgroundColor, tileBackgroundStyle } from './tileAppearance'
+import { showsBorder, tileBackgroundColor, tileBackgroundStyle } from './tileAppearance'
 import { TileContextMenu, hasTileMenu } from './TileContextMenu'
-import { isPartShown } from './tileParts'
+import { hasPart, isPartShown, showsPart } from './tileParts'
 
 export const INTERACTIVE_ONLY_CLASS = 'dash-ContentTile--interactive-only'
 
@@ -29,10 +29,7 @@ function cardLook(
 ): { className: string; style: CSSProperties | undefined } {
     const color = fromPanel ?? tileBackgroundColor(panel, customizations)
     return {
-        className: clsx(
-            color === NO_BACKGROUND && 'dash-ContentTile--no-background',
-            !showsBorder(panel) && 'dash-ContentTile--no-border'
-        ),
+        className: clsx(!showsBorder(panel) && 'dash-ContentTile--no-border'),
         style: tileBackgroundStyle(color),
     }
 }
@@ -41,6 +38,14 @@ function cardLook(
  * One panel in its card: header, body and footer. It reads no dashboard, so a page can render a single panel on
  * its own. Inside a dashboard, `DashboardContentTile` passes both kinds of actions.
  */
+function heightAnimates(): boolean {
+    return (
+        typeof CSS !== 'undefined' &&
+        CSS.supports?.('interpolate-size', 'allow-keywords') === true &&
+        !window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    )
+}
+
 export function ContentTile({
     panel,
     panels,
@@ -62,7 +67,22 @@ export function ContentTile({
 }): JSX.Element {
     const definition = findPanel(panels, panel.type)
     const slots = panelSlots(definition)
-    const showHeader = isPartShown(panel, 'header', slots)
+    const hasHeader = hasPart(panel, 'header', slots)
+    const showHeader = hasHeader && showsPart(panel, 'header')
+    // A hidden header unmounts once its animation ends, so a dashboard of headerless tiles carries no header markup.
+    const [headerMounted, setHeaderMounted] = useState(showHeader)
+    const [headerEntering, setHeaderEntering] = useState(false)
+    if (showHeader && !headerMounted) {
+        setHeaderMounted(true)
+        setHeaderEntering(true)
+    }
+    // Without a height transition no transitionend fires, so the header unmounts straight away.
+    useEffect(() => {
+        if (!showHeader && headerMounted && !heightAnimates()) {
+            setHeaderMounted(false)
+            setHeaderEntering(false)
+        }
+    }, [showHeader, headerMounted])
     const showFooter = isPartShown(panel, 'footer', slots)
     const [backgroundFromPanel, setBackgroundFromPanel] = useState<string | null>(null)
     const look = cardLook(panel, definition?.allowedCustomizations ?? [], backgroundFromPanel)
@@ -86,8 +106,24 @@ export function ContentTile({
                 )}
                 style={look.style}
             >
-                {showHeader && (
-                    <CardHeader className={clsx(editable && 'TileGrid__handle')}>
+                {hasHeader && (showHeader || headerMounted) && (
+                    <CardHeader
+                        className={clsx(
+                            editable && showHeader && 'TileGrid__handle',
+                            headerEntering && 'dash-ContentTile__header--entering',
+                            !showHeader && 'dash-ContentTile__header--hidden'
+                        )}
+                        onTransitionEnd={(event) => {
+                            if (
+                                !showHeader &&
+                                event.target === event.currentTarget &&
+                                event.propertyName === 'height'
+                            ) {
+                                setHeaderMounted(false)
+                                setHeaderEntering(false)
+                            }
+                        }}
+                    >
                         <CardTitle className="flex items-center gap-1 min-w-0">
                             <span className="TileGrid__text truncate">{panel.title}</span>
                             {description && descriptionMode === 'icon' && <DescriptionIcon description={description} />}
@@ -106,9 +142,9 @@ export function ContentTile({
                         {(HeaderExtra || hasMenu) && (
                             <TileActions menu={hasMenu}>
                                 {HeaderExtra && (
-                                    <PanelErrorBoundary panel={panel} fallback={null}>
+                                    <ErrorBoundary resetKey={panel} tag={PANEL_ERROR_TAG} fallback={null}>
                                         <HeaderExtra panel={panel} />
-                                    </PanelErrorBoundary>
+                                    </ErrorBoundary>
                                 )}
                             </TileActions>
                         )}
@@ -124,9 +160,9 @@ export function ContentTile({
                     // The grid's drag cancel selector lists this class, so a tile dragged by its body never starts a drag here.
                     <CardFooter className="dash-ContentTile__footer flex shrink-0 items-center gap-2 min-w-0 text-xs text-secondary">
                         {Footer && (
-                            <PanelErrorBoundary panel={panel} fallback={null}>
+                            <ErrorBoundary resetKey={panel} tag={PANEL_ERROR_TAG} fallback={null}>
                                 <Footer panel={panel} />
-                            </PanelErrorBoundary>
+                            </ErrorBoundary>
                         )}
                     </CardFooter>
                 )}

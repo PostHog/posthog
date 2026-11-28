@@ -26,7 +26,11 @@ export const markdownPanel = definePanel({
     addTileOptions: [
         {
             label: 'Text',
-            create: () => ({ type: 'markdown', config: { text: '' }, appearance: { backgroundColor: 'transparent' } }),
+            create: () => ({
+                type: 'markdown',
+                config: { text: '' },
+                appearance: { backgroundColor: 'transparent', border: false },
+            }),
         },
     ],
     Component: MarkdownPanel,

@@ -1,15 +1,24 @@
 .dash-ContentTile {
+    /* Set here rather than taken from quill's card, so a hidden header can take back exactly this gap. */
+    --dash-tile-gap: 0.75rem;
+
     /* Anchors the menu button of a tile without a header. */
     position: relative;
+    gap: var(--dash-tile-gap);
     width: 100%;
     height: 100%;
+    transition: box-shadow 200ms;
+
+    @media (prefers-reduced-motion: reduce) {
+        transition: none;
+    }
 }
 
 .dash-ContentTile--no-border > .quill-card__footer {
     border-top: 0;
 }
 
-:is(.dash-ContentTile--no-background, .dash-ContentTile--no-border) {
+.dash-ContentTile--no-border {
     box-shadow: none;
 
     /* Without an outline the tile is hard to find while editing, so it shows one on hover. */
@@ -28,13 +37,50 @@
 
 /* A tile's title sits on its content without quill's divider, so a dashboard of small tiles reads as less boxed in. */
 .dash-ContentTile > .quill-card__header {
+    /* A flex item cannot go under its content's height while it animates, unless its minimum is zero. Without
+       shrinking, a short tile still cannot squash a shown header. */
+    flex-shrink: 0;
+    min-height: 0;
     padding-bottom: 0;
     border-bottom: 0;
+    transition:
+        height 200ms,
+        margin-bottom 200ms,
+        opacity 200ms,
+        visibility 200ms;
+
+    /* Lets the height animate between its content's size and zero. A browser without it changes the height at once. */
+    /* stylelint-disable-next-line property-no-unknown -- interpolate-size is a valid CSS property */
+    interpolate-size: allow-keywords;
+
+    @media (prefers-reduced-motion: reduce) {
+        transition: none;
+    }
 }
 
-/* A touch screen has no hover, so a tile without a background always shows its outline while editing. */
+/* A header that appears animates in from its hidden look. Only a header turned back on gets this, not one on load. */
+.dash-ContentTile > .dash-ContentTile__header--entering {
+    @starting-style {
+        height: 0;
+        margin-bottom: calc(-1 * var(--dash-tile-gap));
+        visibility: hidden;
+        opacity: 0;
+    }
+}
+
+.dash-ContentTile > .dash-ContentTile__header--hidden {
+    height: 0;
+
+    /* Takes back the card's gap, so the content sits where it does with no header at all. */
+    margin-bottom: calc(-1 * var(--dash-tile-gap));
+    overflow: clip;
+    visibility: hidden;
+    opacity: 0;
+}
+
+/* A touch screen has no hover, so a tile without a border always shows its outline while editing. */
 @media (hover: none) {
-    .TileGrid--editable :is(.dash-ContentTile--no-background, .dash-ContentTile--no-border) {
+    .TileGrid--editable .dash-ContentTile--no-border {
         box-shadow: 0 0 0 1px var(--color-border-primary);
     }
 }

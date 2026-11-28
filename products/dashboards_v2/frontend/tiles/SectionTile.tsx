@@ -30,7 +30,9 @@ import {
 } from '../dashboard/document/dashboardTypes'
 import { everyTile } from '../dashboard/document/tileTree'
 import type { OnSectionRows } from '../grid/TileGrid'
+import { ErrorBoundary } from '../panels/core/ErrorBoundary'
 import { shownDescription } from '../panels/core/panelSchema'
+import { PanelMessage } from '../panels/core/PanelView'
 import { DESCRIPTION_IMAGE_ONLY_CLASS, DescriptionIcon } from './core/DescriptionIcon'
 import { TapTooltip } from './core/TapTooltip'
 import { TileActions } from './core/TileActions'
@@ -153,16 +155,32 @@ export function SectionTile({
                         )}
                     </SectionHeader>
                     {!collapsed && (
-                        <SectionBody emptyLabel={panel.tiles.length === 0 ? emptyLabel : null}>
-                            {renderGrid({
-                                gridId: id,
-                                tiles: panel.tiles,
-                                cols: layout.columns,
-                                width: spanPx(layout.columns, layout.columnPx) - 2 * GRID.sectionInsetPx,
-                                editable,
-                                onLiveRows,
-                            })}
-                        </SectionBody>
+                        <ErrorBoundary
+                            resetKey={panel}
+                            tag="dashboards-v2-section"
+                            fallback={
+                                <CardContent className="SectionTile__body">
+                                    <div className="SectionTile__error">
+                                        <PanelMessage
+                                            problem="error"
+                                            title="This section hit an error"
+                                            description="Refresh the page, and if it keeps happening contact support."
+                                        />
+                                    </div>
+                                </CardContent>
+                            }
+                        >
+                            <SectionBody emptyLabel={panel.tiles.length === 0 ? emptyLabel : null}>
+                                {renderGrid({
+                                    gridId: id,
+                                    tiles: panel.tiles,
+                                    cols: layout.columns,
+                                    width: spanPx(layout.columns, layout.columnPx) - 2 * GRID.sectionInsetPx,
+                                    editable,
+                                    onLiveRows,
+                                })}
+                            </SectionBody>
+                        </ErrorBoundary>
                     )}
                 </Section>
             </TileContextMenu>

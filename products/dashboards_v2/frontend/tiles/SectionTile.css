@@ -85,6 +85,19 @@
     border-radius: var(--radius);
 }
 
+.SectionTile__error {
+    position: absolute;
+    inset: var(--section-inset);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+
+    /* A short section has less room than the message, so the message fits the body and clips instead of spilling out. */
+    > [data-slot='empty'] {
+        max-height: 100%;
+    }
+}
+
 /* Without its outline, a section reads as a heading over its tiles. */
 .SectionTile--no-border {
     box-shadow: none;
