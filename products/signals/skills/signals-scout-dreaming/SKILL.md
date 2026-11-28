@@ -95,11 +95,14 @@ Keep two cursors, and overwrite both each run:
 ### Readers' verdicts on learnings
 
 The other scouts name in their run summaries each learning they used or overruled.
-An overrule is evidence against a learning, and it reaches you nowhere else.
+The run prompt also tells a scout that disagrees with a learning to record why in an entry of its own.
+An overrule is evidence against a learning, and it reaches you only in those two places.
 
-1. List the run summaries since the date of your last pass in `dream:feedback-cursor`: `scout-runs-list` without `skill_name`, with `exclude_skill_name` set to your own skill, `text="overrul"` and `date_from` set. If a page is full, walk back with `date_to`.
-2. For each summary that names a `learned:` key as overruled, add a line to that subject's evidence key: the date, the run id, the scout, and its reason in a few words.
-3. Decide what the learning still says (_When readers overrule a learning_).
+1. List the run summaries since the date of your last pass in `dream:feedback-cursor`: `scout-runs-list` without `skill_name`, with `exclude_skill_name` set to your own skill, `text="learned:"`, `limit=100` and `date_from` set. Search for the key prefix and not for a verb: readers name each learning by key, and they do not all say "overruled". If a page is full, walk back with `date_to`.
+2. Sort what each summary says about a `learned:` key into used or overruled. Count the uses per learning for your summary, and write no entry for them.
+3. List the entries in which a scout recorded a disagreement: `scout-scratchpad-search` with `text="learned:"`, `keys_only=true` and `date_from` set to the same date. The search matches keys as well as content, so it returns your own `learned:` keys too: skip those, and read the rest by exact `key`.
+4. For each overrule, add a line to that subject's evidence key: the date, the run id or the entry's key, the scout, and its reason in a few words. An entry persists, so later passes find the same one again.
+5. Decide what the learning still says (_When readers overrule a learning_).
 
 ### Evidence keys
 
@@ -158,9 +161,11 @@ A conflict means another writer changed the entry after you read it: skip that e
 
 Write one entry per subject, under `learned:<kind>:<subject>`:
 
-- `learned:person:<github-login>`: how one person prefers work to be routed to them, and nothing else about them.
+- `learned:person:<github-login>`: what one person's feedback shows about the work they want: what they act on, dismiss and ask for, in which areas and in what form, and what to route to them. Draw it from what they said or did about reports, not from what they work on, and keep it to work on this project: nothing personal goes in.
 - `learned:area:<area>`: what feedback on one product area or surface keeps saying, such as which findings there get acted on and which get dismissed.
 - `learned:shape:<shape>`: what feedback on one kind of finding keeps saying, across areas.
+
+`scout-notes-list` with `text` set to a login returns every note that names that person, expired ones included with `include_expired=true`.
 
 Name the subject narrowly.
 Readers choose from a list of keys without bodies, so the key alone tells a scout whether the learning bears on its work.
@@ -178,7 +183,7 @@ A reader sees it among many entries and has no time to draw the conclusion again
 
 Each kind answers one question:
 
-- `person`: what should a scout route to this person, and what not?
+- `person`: what does this person want to see and act on, what do they not, and what should a scout route to them?
 - `area`: what gets acted on or dismissed here, and what should a scout check first?
 - `shape`: when a scout sees this kind of finding, what is usually true?
 
@@ -215,12 +220,12 @@ Write one entry per subject under `dream:evidence:<kind>:<subject>`, with the sa
 A subject with no learning yet has only its evidence key.
 Writing the learning leaves the evidence key in place, so a reader that doubts a learning can read the reports behind it.
 
-- Each line is one report: the date, the outcome, the reason in a few words, and the report id. Count a report once. A series of near-identical reports is one line with a count.
-- Evidence against the learning goes here too, including the runs that overruled it.
-- It names no person. A person evidence key is keyed by the person already, and holds routing verdicts only, as a person learning does.
+- Each line is one report: the date, the outcome, the reviewer, the reason in a few words, and the report id. Name the reviewer, because confidence rests on how many separate reviewers agree. Count a report once. A series of near-identical reports is one line with a count.
+- A run or an entry that overruled the learning gets a line too: the date, the run id or the entry's key, the scout, and its reason in a few words. It is not a report.
+- A person evidence key holds that person's verdicts and stated preferences about work on this project, as a person learning does.
 - Read the existing entry by exact `key` before you write, and extend it.
 - Only verdicts from the last 90 days count toward the bar. When you extend an evidence key, drop the lines older than that.
-- With no learning, give it an `expires_at` 90 days ahead, and move it out when you add evidence, so a quiet subject lapses. With a learning, give it the learning's `expires_at`, so the two lapse together.
+- With no learning, give it an `expires_at` 90 days ahead, and move it out when you add evidence, so a quiet subject lapses. With a learning, give it the learning's `expires_at`, so the two lapse together. When you move a learning's expiry, rewrite its evidence key with the same expiry in that run.
 
 Older runs wrote evidence under `dream:candidate:<kind>:<subject>`.
 When you add evidence to such a subject, write its lines under the `dream:evidence:` key, then retire the `dream:candidate:` key.
