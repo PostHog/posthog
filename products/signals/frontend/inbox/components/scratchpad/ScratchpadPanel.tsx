@@ -59,6 +59,7 @@ export function ScratchpadPanel(): JSX.Element {
         olderEntriesFailed,
         olderEntriesLoading,
         searchText,
+        searchTextTooShort,
         scoutFilter,
         kindFilter,
         topicFilter,
@@ -82,7 +83,9 @@ export function ScratchpadPanel(): JSX.Element {
     const isSearching = searchText.trim().length > 0
     // The window loads once on mount; a search loads its own result set on top of it. Either
     // list shows a skeleton until its first response, and its own retry when that response fails.
-    const isInitialLoad = isSearching ? visibleEntries === null && !searchFailed : entriesLoading && entries === null
+    const isInitialLoad = isSearching
+        ? !searchTextTooShort && visibleEntries === null && !searchFailed
+        : entriesLoading && entries === null
     const listFailed = isSearching ? searchFailed : loadFailed
     const retry = isSearching ? loadSearchResults : loadEntries
     const retryLoading = isSearching ? searchResultsLoading : entriesLoading
@@ -142,7 +145,11 @@ export function ScratchpadPanel(): JSX.Element {
                 </Tooltip>
             </div>
 
-            {isInitialLoad ? (
+            {searchTextTooShort ? (
+                <div className="rounded border border-dashed border-primary bg-bg-light px-4 py-8 text-center text-sm text-muted">
+                    Type 3 letters or digits in a row to search, or 2 next to a symbol such as <code>ai_</code>.
+                </div>
+            ) : isInitialLoad ? (
                 <LemonSkeleton className="h-64 w-full rounded" />
             ) : listFailed && (!filteredEntries || filteredEntries.length === 0) ? (
                 <ScratchpadErrorState onRetry={() => retry()} loading={retryLoading} />
