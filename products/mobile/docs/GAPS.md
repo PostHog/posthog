@@ -52,8 +52,8 @@ Known gaps and behavior that stays on the device.
 - **No harness switch on a live run.** A chat started on Claude Code stays on it, and one on Codex stays on Codex. Start a new chat to switch.
 - **`set_config_option` result shape is unverified.** The app treats a 2xx without a JSON-RPC `error` as applied.
   The agent server source is not in this repo; its built dist answers `{ configOptions }`.
-- **In-progress reopen relies on the server backlog.** A live run is followed without a cursor and without reading `logs/`,
-  which shows the whole thread only on thin-tail runs. The web reads `logs/` and reconciles on every connect.
+- **In-progress reopen relies on the server backlog.** A live run is followed without a cursor and without reading `log_entries/`,
+  which shows the whole thread only on thin-tail runs. The web reads `log_entries/` and reconciles on every connect.
 - **Unsupported chart and notebook content opens on the web.** Classic approvals and clarification forms work in the app.
   Supported charts and notebook Markdown render inline; other notebook blocks and chart types keep a web fallback.
 - **Files from history show by name only.** A picked image draws from the file on the device.

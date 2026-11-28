@@ -332,7 +332,7 @@ export function getTaskRun(
 /** The stored run log, one JSON record per line. A resumed run's log starts with its ancestors' logs, oldest first. */
 export async function getTaskRunLogs(taskId: string, runId: string, signal?: AbortSignal): Promise<unknown[]> {
     return apiReadResponse(
-        projectPath(`tasks/${encodeURIComponent(taskId)}/runs/${encodeURIComponent(runId)}/logs/`),
+        projectPath(`tasks/${encodeURIComponent(taskId)}/runs/${encodeURIComponent(runId)}/log_entries/`),
         { signal },
         async (response) => {
             const text = await transport(() => response.text())
