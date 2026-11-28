@@ -1191,9 +1191,37 @@ function LemonOutputError({
     )
 }
 
+function LemonAgentHint(): JSX.Element | null {
+    const { showAgentHints } = useValues(sqlEditorLogic)
+    return showAgentHints ? (
+        <WarehouseWizardHint
+            className="max-w-140"
+            fallback={
+                <MCPUseCaseCard
+                    surfaceKey="sql.execute"
+                    expiresAfterMs={ONE_DAY_IN_MILLISECONDS}
+                    className="max-w-140"
+                />
+            }
+        />
+    ) : null
+}
+
 function LemonOutputEmpty({ kind }: { kind: 'results' | 'chart' }): JSX.Element {
-    const { singleStatement, showAgentHints } = useValues(sqlEditorLogic)
-    const msg = kind === 'results' ? 'Query results will appear here.' : 'Query results will be visualized here.'
+    const { singleStatement } = useValues(sqlEditorLogic)
+    if (kind === 'chart') {
+        return (
+            <div
+                className="flex min-w-0 flex-1 flex-col justify-center items-center border-t gap-4 p-4"
+                data-attr="sql-editor-output-pane-empty-state"
+            >
+                <span className="text-secondary">
+                    Query results will be visualized here. Press <KeyboardShortcut command enter /> to run the query.
+                </span>
+                <LemonAgentHint />
+            </div>
+        )
+    }
     return (
         <div
             className="flex flex-1 flex-col justify-center items-center border-t px-4 py-6 gap-4 text-center"
@@ -1201,26 +1229,15 @@ function LemonOutputEmpty({ kind }: { kind: 'results' | 'chart' }): JSX.Element 
         >
             {singleStatement ? (
                 <span className="text-secondary max-w-xl">
-                    {msg} Press <KeyboardShortcut command enter /> to run the query.
+                    Query results will appear here. Press <KeyboardShortcut command enter /> to run the query.
                 </span>
             ) : (
                 <span className="text-secondary max-w-xl">
-                    {msg} Press <KeyboardShortcut command enter /> to run the query at your cursor. Separate multiple
-                    statements with <code>;</code> to run them independently.
+                    Query results will appear here. Press <KeyboardShortcut command enter /> to run the query at your
+                    cursor. Separate multiple statements with <code>;</code> to run them independently.
                 </span>
             )}
-            {showAgentHints ? (
-                <WarehouseWizardHint
-                    className="max-w-140"
-                    fallback={
-                        <MCPUseCaseCard
-                            surfaceKey="sql.execute"
-                            expiresAfterMs={ONE_DAY_IN_MILLISECONDS}
-                            className="max-w-140"
-                        />
-                    }
-                />
-            ) : null}
+            <LemonAgentHint />
         </div>
     )
 }
