@@ -296,6 +296,10 @@ export function loadPostHogJS(): void {
         })
 
         posthog.onFeatureFlags((_flags, variants, context) => {
+            if (context?.errorsLoading === false) {
+                window.POSTHOG_FEATURE_FLAGS_LOADED = true
+            }
+
             if (!context?.errorsLoading) {
                 writeLastSeenFeatureFlags({ distinctId: posthog.get_distinct_id(), featureFlags: variants })
             }

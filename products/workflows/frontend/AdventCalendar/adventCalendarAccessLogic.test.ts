@@ -65,7 +65,8 @@ const DECISION_TABLE: DecisionTableRow[] = [
     ['on', 'not persisted', 'first visit', 'unrelated error, answers off', 'flags arrived', 'not found'],
     ['on', 'not persisted', 'first visit', 'blocked, then answers on', 'flags arrived', 'calendar'],
     ['on', 'not persisted', 'first visit', 'blocked, then answers off', 'flags arrived', 'not found'],
-    ['on', 'not persisted', 'first visit', 'answers off, then blocked', 'flags arrived', 'calendar'],
+    ['on', 'not persisted', 'first visit', 'answers off, then blocked', 'flags arrived', 'not found'],
+    ['on', 'not persisted', 'first visit', 'answers on, then blocked', 'flags arrived', 'calendar'],
     ['on', 'not persisted', 'stored without it', 'not yet', 'before timeout', 'waiting'],
     ['on', 'not persisted', 'stored without it', 'not yet', 'after timeout', 'not found'],
     ['on', 'not persisted', 'stored without it', 'blocked', 'flags arrived', 'calendar'],
@@ -75,7 +76,8 @@ const DECISION_TABLE: DecisionTableRow[] = [
     ['on', 'not persisted', 'stored without it', 'unrelated error, answers off', 'flags arrived', 'not found'],
     ['on', 'not persisted', 'stored without it', 'blocked, then answers on', 'flags arrived', 'calendar'],
     ['on', 'not persisted', 'stored without it', 'blocked, then answers off', 'flags arrived', 'not found'],
-    ['on', 'not persisted', 'stored without it', 'answers off, then blocked', 'flags arrived', 'calendar'],
+    ['on', 'not persisted', 'stored without it', 'answers off, then blocked', 'flags arrived', 'not found'],
+    ['on', 'not persisted', 'stored without it', 'answers on, then blocked', 'flags arrived', 'calendar'],
     ['on', 'not persisted', 'stored on', 'not yet', 'before timeout', 'waiting'],
     ['on', 'not persisted', 'stored on', 'not yet', 'after timeout', 'calendar'],
     ['on', 'not persisted', 'stored on', 'blocked', 'flags arrived', 'calendar'],
@@ -85,7 +87,8 @@ const DECISION_TABLE: DecisionTableRow[] = [
     ['on', 'not persisted', 'stored on', 'unrelated error, answers off', 'flags arrived', 'not found'],
     ['on', 'not persisted', 'stored on', 'blocked, then answers on', 'flags arrived', 'calendar'],
     ['on', 'not persisted', 'stored on', 'blocked, then answers off', 'flags arrived', 'not found'],
-    ['on', 'not persisted', 'stored on', 'answers off, then blocked', 'flags arrived', 'calendar'],
+    ['on', 'not persisted', 'stored on', 'answers off, then blocked', 'flags arrived', 'not found'],
+    ['on', 'not persisted', 'stored on', 'answers on, then blocked', 'flags arrived', 'calendar'],
     ['on', 'not persisted', 'stored off', 'not yet', 'before timeout', 'waiting'],
     ['on', 'not persisted', 'stored off', 'not yet', 'after timeout', 'not found'],
     ['on', 'not persisted', 'stored off', 'blocked', 'flags arrived', 'calendar'],
@@ -95,31 +98,36 @@ const DECISION_TABLE: DecisionTableRow[] = [
     ['on', 'not persisted', 'stored off', 'unrelated error, answers off', 'flags arrived', 'not found'],
     ['on', 'not persisted', 'stored off', 'blocked, then answers on', 'flags arrived', 'calendar'],
     ['on', 'not persisted', 'stored off', 'blocked, then answers off', 'flags arrived', 'not found'],
-    ['on', 'not persisted', 'stored off', 'answers off, then blocked', 'flags arrived', 'calendar'],
+    ['on', 'not persisted', 'stored off', 'answers off, then blocked', 'flags arrived', 'not found'],
+    ['on', 'not persisted', 'stored off', 'answers on, then blocked', 'flags arrived', 'calendar'],
     ['on', 'persisted', 'first visit', 'not yet', 'before timeout', 'waiting'],
     ['on', 'persisted', 'first visit', 'not yet', 'after timeout', 'calendar'],
     ['on', 'persisted', 'first visit', 'blocked', 'flags arrived', 'calendar'],
     ['on', 'persisted', 'first visit', 'answers on', 'flags arrived', 'calendar'],
     ['on', 'persisted', 'first visit', 'unrelated error, answers on', 'flags arrived', 'calendar'],
     ['on', 'persisted', 'first visit', 'blocked, then answers on', 'flags arrived', 'calendar'],
+    ['on', 'persisted', 'first visit', 'answers on, then blocked', 'flags arrived', 'calendar'],
     ['on', 'persisted', 'stored without it', 'not yet', 'before timeout', 'waiting'],
     ['on', 'persisted', 'stored without it', 'not yet', 'after timeout', 'not found'],
     ['on', 'persisted', 'stored without it', 'blocked', 'flags arrived', 'calendar'],
     ['on', 'persisted', 'stored without it', 'answers on', 'flags arrived', 'calendar'],
     ['on', 'persisted', 'stored without it', 'unrelated error, answers on', 'flags arrived', 'calendar'],
     ['on', 'persisted', 'stored without it', 'blocked, then answers on', 'flags arrived', 'calendar'],
+    ['on', 'persisted', 'stored without it', 'answers on, then blocked', 'flags arrived', 'calendar'],
     ['on', 'persisted', 'stored on', 'not yet', 'before timeout', 'waiting'],
     ['on', 'persisted', 'stored on', 'not yet', 'after timeout', 'calendar'],
     ['on', 'persisted', 'stored on', 'blocked', 'flags arrived', 'calendar'],
     ['on', 'persisted', 'stored on', 'answers on', 'flags arrived', 'calendar'],
     ['on', 'persisted', 'stored on', 'unrelated error, answers on', 'flags arrived', 'calendar'],
     ['on', 'persisted', 'stored on', 'blocked, then answers on', 'flags arrived', 'calendar'],
+    ['on', 'persisted', 'stored on', 'answers on, then blocked', 'flags arrived', 'calendar'],
     ['on', 'persisted', 'stored off', 'not yet', 'before timeout', 'waiting'],
     ['on', 'persisted', 'stored off', 'not yet', 'after timeout', 'not found'],
     ['on', 'persisted', 'stored off', 'blocked', 'flags arrived', 'calendar'],
     ['on', 'persisted', 'stored off', 'answers on', 'flags arrived', 'calendar'],
     ['on', 'persisted', 'stored off', 'unrelated error, answers on', 'flags arrived', 'calendar'],
     ['on', 'persisted', 'stored off', 'blocked, then answers on', 'flags arrived', 'calendar'],
+    ['on', 'persisted', 'stored off', 'answers on, then blocked', 'flags arrived', 'calendar'],
     ['off', 'not persisted', 'first visit', 'not yet', 'before timeout', 'waiting'],
     ['off', 'not persisted', 'first visit', 'not yet', 'after timeout', 'not found'],
     ['off', 'not persisted', 'first visit', 'blocked', 'flags arrived', 'not found'],
@@ -130,6 +138,7 @@ const DECISION_TABLE: DecisionTableRow[] = [
     ['off', 'not persisted', 'first visit', 'blocked, then answers on', 'flags arrived', 'calendar'],
     ['off', 'not persisted', 'first visit', 'blocked, then answers off', 'flags arrived', 'not found'],
     ['off', 'not persisted', 'first visit', 'answers off, then blocked', 'flags arrived', 'not found'],
+    ['off', 'not persisted', 'first visit', 'answers on, then blocked', 'flags arrived', 'calendar'],
     ['off', 'not persisted', 'stored without it', 'not yet', 'before timeout', 'waiting'],
     ['off', 'not persisted', 'stored without it', 'not yet', 'after timeout', 'not found'],
     ['off', 'not persisted', 'stored without it', 'blocked', 'flags arrived', 'not found'],
@@ -140,6 +149,7 @@ const DECISION_TABLE: DecisionTableRow[] = [
     ['off', 'not persisted', 'stored without it', 'blocked, then answers on', 'flags arrived', 'calendar'],
     ['off', 'not persisted', 'stored without it', 'blocked, then answers off', 'flags arrived', 'not found'],
     ['off', 'not persisted', 'stored without it', 'answers off, then blocked', 'flags arrived', 'not found'],
+    ['off', 'not persisted', 'stored without it', 'answers on, then blocked', 'flags arrived', 'calendar'],
     ['off', 'not persisted', 'stored on', 'not yet', 'before timeout', 'waiting'],
     ['off', 'not persisted', 'stored on', 'not yet', 'after timeout', 'calendar'],
     ['off', 'not persisted', 'stored on', 'blocked', 'flags arrived', 'not found'],
@@ -150,6 +160,7 @@ const DECISION_TABLE: DecisionTableRow[] = [
     ['off', 'not persisted', 'stored on', 'blocked, then answers on', 'flags arrived', 'calendar'],
     ['off', 'not persisted', 'stored on', 'blocked, then answers off', 'flags arrived', 'not found'],
     ['off', 'not persisted', 'stored on', 'answers off, then blocked', 'flags arrived', 'not found'],
+    ['off', 'not persisted', 'stored on', 'answers on, then blocked', 'flags arrived', 'calendar'],
     ['off', 'not persisted', 'stored off', 'not yet', 'before timeout', 'waiting'],
     ['off', 'not persisted', 'stored off', 'not yet', 'after timeout', 'not found'],
     ['off', 'not persisted', 'stored off', 'blocked', 'flags arrived', 'not found'],
@@ -160,6 +171,7 @@ const DECISION_TABLE: DecisionTableRow[] = [
     ['off', 'not persisted', 'stored off', 'blocked, then answers on', 'flags arrived', 'calendar'],
     ['off', 'not persisted', 'stored off', 'blocked, then answers off', 'flags arrived', 'not found'],
     ['off', 'not persisted', 'stored off', 'answers off, then blocked', 'flags arrived', 'not found'],
+    ['off', 'not persisted', 'stored off', 'answers on, then blocked', 'flags arrived', 'calendar'],
     ['left out', 'not persisted', 'first visit', 'not yet', 'before timeout', 'waiting'],
     ['left out', 'not persisted', 'first visit', 'not yet', 'after timeout', 'not found'],
     ['left out', 'not persisted', 'first visit', 'blocked', 'flags arrived', 'not found'],
@@ -170,6 +182,7 @@ const DECISION_TABLE: DecisionTableRow[] = [
     ['left out', 'not persisted', 'first visit', 'blocked, then answers on', 'flags arrived', 'calendar'],
     ['left out', 'not persisted', 'first visit', 'blocked, then answers off', 'flags arrived', 'not found'],
     ['left out', 'not persisted', 'first visit', 'answers off, then blocked', 'flags arrived', 'not found'],
+    ['left out', 'not persisted', 'first visit', 'answers on, then blocked', 'flags arrived', 'calendar'],
     ['left out', 'not persisted', 'stored without it', 'not yet', 'before timeout', 'waiting'],
     ['left out', 'not persisted', 'stored without it', 'not yet', 'after timeout', 'not found'],
     ['left out', 'not persisted', 'stored without it', 'blocked', 'flags arrived', 'not found'],
@@ -180,6 +193,7 @@ const DECISION_TABLE: DecisionTableRow[] = [
     ['left out', 'not persisted', 'stored without it', 'blocked, then answers on', 'flags arrived', 'calendar'],
     ['left out', 'not persisted', 'stored without it', 'blocked, then answers off', 'flags arrived', 'not found'],
     ['left out', 'not persisted', 'stored without it', 'answers off, then blocked', 'flags arrived', 'not found'],
+    ['left out', 'not persisted', 'stored without it', 'answers on, then blocked', 'flags arrived', 'calendar'],
     ['left out', 'not persisted', 'stored on', 'not yet', 'before timeout', 'waiting'],
     ['left out', 'not persisted', 'stored on', 'not yet', 'after timeout', 'calendar'],
     ['left out', 'not persisted', 'stored on', 'blocked', 'flags arrived', 'not found'],
@@ -190,6 +204,7 @@ const DECISION_TABLE: DecisionTableRow[] = [
     ['left out', 'not persisted', 'stored on', 'blocked, then answers on', 'flags arrived', 'calendar'],
     ['left out', 'not persisted', 'stored on', 'blocked, then answers off', 'flags arrived', 'not found'],
     ['left out', 'not persisted', 'stored on', 'answers off, then blocked', 'flags arrived', 'not found'],
+    ['left out', 'not persisted', 'stored on', 'answers on, then blocked', 'flags arrived', 'calendar'],
     ['left out', 'not persisted', 'stored off', 'not yet', 'before timeout', 'waiting'],
     ['left out', 'not persisted', 'stored off', 'not yet', 'after timeout', 'not found'],
     ['left out', 'not persisted', 'stored off', 'blocked', 'flags arrived', 'not found'],
@@ -200,6 +215,7 @@ const DECISION_TABLE: DecisionTableRow[] = [
     ['left out', 'not persisted', 'stored off', 'blocked, then answers on', 'flags arrived', 'calendar'],
     ['left out', 'not persisted', 'stored off', 'blocked, then answers off', 'flags arrived', 'not found'],
     ['left out', 'not persisted', 'stored off', 'answers off, then blocked', 'flags arrived', 'not found'],
+    ['left out', 'not persisted', 'stored off', 'answers on, then blocked', 'flags arrived', 'calendar'],
     ['absent', 'not persisted', 'first visit', 'not yet', 'before timeout', 'waiting'],
     ['absent', 'not persisted', 'first visit', 'not yet', 'after timeout', 'not found'],
     ['absent', 'not persisted', 'first visit', 'blocked', 'flags arrived', 'not found'],
@@ -210,6 +226,7 @@ const DECISION_TABLE: DecisionTableRow[] = [
     ['absent', 'not persisted', 'first visit', 'blocked, then answers on', 'flags arrived', 'calendar'],
     ['absent', 'not persisted', 'first visit', 'blocked, then answers off', 'flags arrived', 'not found'],
     ['absent', 'not persisted', 'first visit', 'answers off, then blocked', 'flags arrived', 'not found'],
+    ['absent', 'not persisted', 'first visit', 'answers on, then blocked', 'flags arrived', 'calendar'],
     ['absent', 'not persisted', 'stored without it', 'not yet', 'before timeout', 'waiting'],
     ['absent', 'not persisted', 'stored without it', 'not yet', 'after timeout', 'not found'],
     ['absent', 'not persisted', 'stored without it', 'blocked', 'flags arrived', 'not found'],
@@ -220,6 +237,7 @@ const DECISION_TABLE: DecisionTableRow[] = [
     ['absent', 'not persisted', 'stored without it', 'blocked, then answers on', 'flags arrived', 'calendar'],
     ['absent', 'not persisted', 'stored without it', 'blocked, then answers off', 'flags arrived', 'not found'],
     ['absent', 'not persisted', 'stored without it', 'answers off, then blocked', 'flags arrived', 'not found'],
+    ['absent', 'not persisted', 'stored without it', 'answers on, then blocked', 'flags arrived', 'calendar'],
     ['absent', 'not persisted', 'stored on', 'not yet', 'before timeout', 'waiting'],
     ['absent', 'not persisted', 'stored on', 'not yet', 'after timeout', 'calendar'],
     ['absent', 'not persisted', 'stored on', 'blocked', 'flags arrived', 'calendar'],
@@ -230,6 +248,7 @@ const DECISION_TABLE: DecisionTableRow[] = [
     ['absent', 'not persisted', 'stored on', 'blocked, then answers on', 'flags arrived', 'calendar'],
     ['absent', 'not persisted', 'stored on', 'blocked, then answers off', 'flags arrived', 'not found'],
     ['absent', 'not persisted', 'stored on', 'answers off, then blocked', 'flags arrived', 'not found'],
+    ['absent', 'not persisted', 'stored on', 'answers on, then blocked', 'flags arrived', 'calendar'],
     ['absent', 'not persisted', 'stored off', 'not yet', 'before timeout', 'waiting'],
     ['absent', 'not persisted', 'stored off', 'not yet', 'after timeout', 'not found'],
     ['absent', 'not persisted', 'stored off', 'blocked', 'flags arrived', 'not found'],
@@ -240,30 +259,35 @@ const DECISION_TABLE: DecisionTableRow[] = [
     ['absent', 'not persisted', 'stored off', 'blocked, then answers on', 'flags arrived', 'calendar'],
     ['absent', 'not persisted', 'stored off', 'blocked, then answers off', 'flags arrived', 'not found'],
     ['absent', 'not persisted', 'stored off', 'answers off, then blocked', 'flags arrived', 'not found'],
+    ['absent', 'not persisted', 'stored off', 'answers on, then blocked', 'flags arrived', 'calendar'],
     ['absent', 'persisted', 'first visit', 'not yet', 'before timeout', 'waiting'],
     ['absent', 'persisted', 'first visit', 'not yet', 'after timeout', 'calendar'],
     ['absent', 'persisted', 'first visit', 'blocked', 'flags arrived', 'calendar'],
     ['absent', 'persisted', 'first visit', 'answers on', 'flags arrived', 'calendar'],
     ['absent', 'persisted', 'first visit', 'unrelated error, answers on', 'flags arrived', 'calendar'],
     ['absent', 'persisted', 'first visit', 'blocked, then answers on', 'flags arrived', 'calendar'],
+    ['absent', 'persisted', 'first visit', 'answers on, then blocked', 'flags arrived', 'calendar'],
     ['absent', 'persisted', 'stored without it', 'not yet', 'before timeout', 'waiting'],
     ['absent', 'persisted', 'stored without it', 'not yet', 'after timeout', 'not found'],
     ['absent', 'persisted', 'stored without it', 'blocked', 'flags arrived', 'calendar'],
     ['absent', 'persisted', 'stored without it', 'answers on', 'flags arrived', 'calendar'],
     ['absent', 'persisted', 'stored without it', 'unrelated error, answers on', 'flags arrived', 'calendar'],
     ['absent', 'persisted', 'stored without it', 'blocked, then answers on', 'flags arrived', 'calendar'],
+    ['absent', 'persisted', 'stored without it', 'answers on, then blocked', 'flags arrived', 'calendar'],
     ['absent', 'persisted', 'stored on', 'not yet', 'before timeout', 'waiting'],
     ['absent', 'persisted', 'stored on', 'not yet', 'after timeout', 'calendar'],
     ['absent', 'persisted', 'stored on', 'blocked', 'flags arrived', 'calendar'],
     ['absent', 'persisted', 'stored on', 'answers on', 'flags arrived', 'calendar'],
     ['absent', 'persisted', 'stored on', 'unrelated error, answers on', 'flags arrived', 'calendar'],
     ['absent', 'persisted', 'stored on', 'blocked, then answers on', 'flags arrived', 'calendar'],
+    ['absent', 'persisted', 'stored on', 'answers on, then blocked', 'flags arrived', 'calendar'],
     ['absent', 'persisted', 'stored off', 'not yet', 'before timeout', 'waiting'],
     ['absent', 'persisted', 'stored off', 'not yet', 'after timeout', 'not found'],
     ['absent', 'persisted', 'stored off', 'blocked', 'flags arrived', 'calendar'],
     ['absent', 'persisted', 'stored off', 'answers on', 'flags arrived', 'calendar'],
     ['absent', 'persisted', 'stored off', 'unrelated error, answers on', 'flags arrived', 'calendar'],
     ['absent', 'persisted', 'stored off', 'blocked, then answers on', 'flags arrived', 'calendar'],
+    ['absent', 'persisted', 'stored off', 'answers on, then blocked', 'flags arrived', 'calendar'],
 ]
 
 function toView(calendarOn: boolean | undefined): View {
@@ -344,6 +368,7 @@ describe('adventCalendarAccessLogic', () => {
     afterEach(() => {
         setTabHidden(false)
         delete window.POSTHOG_GLOBAL_ERRORS
+        delete window.POSTHOG_FEATURE_FLAGS_LOADED
         delete window.POSTHOG_USER_IDENTITY_WITH_FLAGS
         delete window.POSTHOG_APP_CONTEXT
         jest.mocked(posthog.get_property).mockReset()
@@ -357,6 +382,7 @@ describe('adventCalendarAccessLogic', () => {
         flagCallbacks.clear()
         loadedFlags = null
         delete window.POSTHOG_GLOBAL_ERRORS
+        delete window.POSTHOG_FEATURE_FLAGS_LOADED
         jest.mocked(posthog.get_property).mockReset()
         servePage(row)
         initKeaTests()
@@ -372,6 +398,8 @@ describe('adventCalendarAccessLogic', () => {
         const answer = (reply: FlagsReply): void => {
             if (reply === 'blocked') {
                 window.POSTHOG_GLOBAL_ERRORS = { onFeatureFlagsLoadError: true }
+            } else {
+                window.POSTHOG_FEATURE_FLAGS_LOADED = true
             }
             errors = replyErrors(reply)
             value = replyValue(reply, value)
@@ -405,7 +433,8 @@ describe('adventCalendarAccessLogic', () => {
             'page %s, %s, %s, flags %s, %s: sees %s',
             (page, persisted, cached, load, timeout, expected) => {
                 const row: DecisionRow = { page, persisted, cached, load, timeout, sees: expected }
-                const lastReplyBlocked = load.endsWith('blocked')
+                const onlyBlockedReplies =
+                    load !== 'not yet' && load.split(', then ').every((reply) => reply === 'blocked')
                 const pageView: View | null = page === 'absent' ? null : page === 'on' ? 'calendar' : 'not found'
                 const openings =
                     load === 'not yet'
@@ -418,9 +447,9 @@ describe('adventCalendarAccessLogic', () => {
                         opened,
                         sees,
                         master,
-                        sameAsMasterOrPageAfterABlockedReply:
-                            sees === master || (lastReplyBlocked && sees === pageView),
-                    }).toMatchObject({ sameAsMasterOrPageAfterABlockedReply: true })
+                        sameAsMasterOrPageAfterOnlyBlockedReplies:
+                            sees === master || (onlyBlockedReplies && sees === pageView),
+                    }).toMatchObject({ sameAsMasterOrPageAfterOnlyBlockedReplies: true })
                 }
             }
         )
@@ -452,6 +481,11 @@ describe('adventCalendarAccessLogic', () => {
             'a 200 after a failed load switches the tab off when the flag is off',
             { pageFlags: { [FLAG]: true }, steps: [failed({ [FLAG]: true }), succeeded()] },
             [true, false],
+        ],
+        [
+            'a failed refresh after a successful load keeps the loaded flag over a page decision off',
+            { pageFlags: { [FLAG]: false }, steps: [succeeded({ [FLAG]: true }), failed({ [FLAG]: true })] },
+            [true, true],
         ],
         [
             'a successful retry while the tab is hidden shows the flag',
@@ -532,6 +566,9 @@ describe('adventCalendarAccessLogic', () => {
             if (step.outcome === 'tab hidden') {
                 setTabHidden(true)
             } else {
+                if (step.outcome === 'succeeded') {
+                    window.POSTHOG_FEATURE_FLAGS_LOADED = true
+                }
                 for (const callback of flagCallbacks) {
                     if (step.outcome === 'no outcome') {
                         callback(Object.keys(step.enabledFlags), step.enabledFlags)
