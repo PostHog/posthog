@@ -127,6 +127,12 @@ export const HogFunctionsCreateBody = () => zod.object({
                 hidden: zod.boolean().default(hogFunctionsCreateBodyInputsSchemaItemHiddenDefault),
                 description: zod.string().optional(),
                 templating: zod.union([zod.boolean(), zod.enum(['hog', 'liquid'])]).optional(),
+                auth: zod
+                    .boolean()
+                    .optional()
+                    .describe(
+                        "Integration inputs only. True marks a connection whose credential the worker applies when code passes the input to fetch as `auth`. Placement and allowed origins come from the connection's kind."
+                    ),
             })
         )
         .optional()
@@ -229,6 +235,12 @@ export const HogFunctionsCreateBody = () => zod.object({
                                 .default(hogFunctionsCreateBodyMappingsItemInputsSchemaItemHiddenDefault),
                             description: zod.string().optional(),
                             templating: zod.union([zod.boolean(), zod.enum(['hog', 'liquid'])]).optional(),
+                            auth: zod
+                                .boolean()
+                                .optional()
+                                .describe(
+                                    "Integration inputs only. True marks a connection whose credential the worker applies when code passes the input to fetch as `auth`. Placement and allowed origins come from the connection's kind."
+                                ),
                         })
                     )
                     .optional(),
@@ -390,6 +402,12 @@ export const HogFunctionsPartialUpdateBody = () => zod.object({
                 hidden: zod.boolean().default(hogFunctionsPartialUpdateBodyInputsSchemaItemHiddenDefault),
                 description: zod.string().optional(),
                 templating: zod.union([zod.boolean(), zod.enum(['hog', 'liquid'])]).optional(),
+                auth: zod
+                    .boolean()
+                    .optional()
+                    .describe(
+                        "Integration inputs only. True marks a connection whose credential the worker applies when code passes the input to fetch as `auth`. Placement and allowed origins come from the connection's kind."
+                    ),
             })
         )
         .optional()
@@ -492,6 +510,12 @@ export const HogFunctionsPartialUpdateBody = () => zod.object({
                                 .default(hogFunctionsPartialUpdateBodyMappingsItemInputsSchemaItemHiddenDefault),
                             description: zod.string().optional(),
                             templating: zod.union([zod.boolean(), zod.enum(['hog', 'liquid'])]).optional(),
+                            auth: zod
+                                .boolean()
+                                .optional()
+                                .describe(
+                                    "Integration inputs only. True marks a connection whose credential the worker applies when code passes the input to fetch as `auth`. Placement and allowed origins come from the connection's kind."
+                                ),
                         })
                     )
                     .optional(),
