@@ -100,6 +100,7 @@ import {
 import { InvocationResultsService } from './services/invocation-results.service'
 import { IdempotentJobQueue, JobQueue } from './services/job-queue/job-queue.interface'
 import { createInvocationSanitizer } from './services/job-queue/shared'
+import { isTeamOrganizationInactive } from './services/managers/deactivated-organizations'
 import { GroupsManagerService, GroupsMap } from './services/managers/groups-manager.service'
 import { HogFunctionManagerService } from './services/managers/hog-function-manager.service'
 import { PersonsManagerService } from './services/managers/persons-manager.service'
@@ -798,6 +799,18 @@ export class CdpApi {
             }
         }
 
+    // A test run of an unsaved function or workflow carries its config in the request, so no manager filter sees it.
+    private async rejectsDeactivatedOrganization(teamId: number, res: express.Response): Promise<boolean> {
+        if (
+            !this.config.CDP_SKIP_DEACTIVATED_ORGANIZATIONS ||
+            !(await isTeamOrganizationInactive(this.deps.postgres, teamId))
+        ) {
+            return false
+        }
+        res.status(403).json({ error: 'The organization is deactivated' })
+        return true
+    }
+
     private postFunctionInvocation = async (req: ModifiedRequest, res: express.Response): Promise<any> => {
         const requestOrigins = new Set<string>()
         try {
@@ -831,12 +844,17 @@ export class CdpApi {
             if (!team) {
                 return res.status(404).json({ error: 'Team not found' })
             }
-
             globals = isConvertibleClickHouseEvent(clickhouse_event)
                 ? convertToHogFunctionInvocationGlobals(clickhouse_event, team, this.config.SITE_URL)
                 : globals
 
             const functionType: string | undefined = configuration?.type ?? hogFunction?.type
+
+            // Transformations keep running for a deactivated organization, so their previews do too.
+            const isTransformation = functionType === 'transformation' || functionType === 'transformation_log'
+            if (!isTransformation && (await this.rejectsDeactivatedOrganization(team.id, res))) {
+                return
+            }
 
             if (functionType === 'transformation_log') {
                 // Log transformations run against a log record, not an event
@@ -1118,6 +1136,9 @@ export class CdpApi {
 
             if (!team) {
                 return res.status(404).json({ error: 'Team not found' })
+            }
+            if (await this.rejectsDeactivatedOrganization(team.id, res)) {
+                return
             }
 
             // NOTE: We allow the hog flow to be null if it is a "new" hog flow

@@ -6,6 +6,7 @@ import { logger } from '~/common/utils/logger'
 import { PubSub } from '~/common/utils/pubsub'
 
 import { Action, Hook, RawAction, Team } from '../../types'
+import { organizationInactiveCondition } from '../services/managers/deactivated-organizations'
 
 export type ActionMap = Record<Action['id'], Action>
 type ActionCache = Record<Team['id'], ActionMap>
@@ -18,7 +19,8 @@ export class ActionManager {
 
     constructor(
         private postgres: PostgresRouter,
-        private pubSub: PubSub
+        private pubSub: PubSub,
+        private skipDeactivatedOrganizations = false
     ) {
         this.started = false
         this.ready = false
@@ -69,12 +71,12 @@ export class ActionManager {
     }
 
     public async reloadAllActions(): Promise<void> {
-        this.actionCache = await fetchAllActionsGroupedByTeam(this.postgres)
+        this.actionCache = await fetchAllActionsGroupedByTeam(this.postgres, this.skipDeactivatedOrganizations)
         logger.info('🍿', 'Fetched all actions from DB anew')
     }
 
     public async reloadAction(teamId: Team['id'], actionId: Action['id']): Promise<void> {
-        const refetchedAction = await fetchAction(this.postgres, actionId)
+        const refetchedAction = await fetchAction(this.postgres, actionId, this.skipDeactivatedOrganizations)
 
         let wasCachedAlready = true
         if (!this.actionCache[teamId]) {
@@ -129,9 +131,10 @@ const ACTION_SELECT_FIELDS = [
 ] as const
 
 export async function fetchAllActionsGroupedByTeam(
-    client: PostgresRouter
+    client: PostgresRouter,
+    skipDeactivatedOrganizations = false
 ): Promise<Record<Team['id'], Record<Action['id'], Action>>> {
-    const restHooks = await fetchActionRestHooks(client)
+    const restHooks = await fetchActionRestHooks(client, undefined, skipDeactivatedOrganizations)
     const restHookActionIds = restHooks.map(({ resource_id }) => resource_id)
     const additionalActionIds = [...restHookActionIds]
 
@@ -170,7 +173,11 @@ export async function fetchAllActionsGroupedByTeam(
     return actions
 }
 
-export async function fetchActionRestHooks(client: PostgresRouter, actionId?: Hook['resource_id']): Promise<Hook[]> {
+export async function fetchActionRestHooks(
+    client: PostgresRouter,
+    actionId?: Hook['resource_id'],
+    skipDeactivatedOrganizations = false
+): Promise<Hook[]> {
     try {
         const { rows } = await client.query<Hook>(
             PostgresUse.COMMON_READ,
@@ -179,6 +186,7 @@ export async function fetchActionRestHooks(client: PostgresRouter, actionId?: Ho
             FROM ee_hook
             WHERE event = 'action_performed'
             ${actionId !== undefined ? 'AND resource_id = $1' : ''}
+            ${skipDeactivatedOrganizations ? `AND NOT ${organizationInactiveCondition('ee_hook')}` : ''}
             `,
             actionId !== undefined ? [actionId] : [],
             'fetchActionRestHooks'
@@ -194,7 +202,11 @@ export async function fetchActionRestHooks(client: PostgresRouter, actionId?: Ho
     }
 }
 
-export async function fetchAction(client: PostgresRouter, id: Action['id']): Promise<Action | null> {
+export async function fetchAction(
+    client: PostgresRouter,
+    id: Action['id'],
+    skipDeactivatedOrganizations = false
+): Promise<Action | null> {
     const rawActions: RawAction[] = (
         await client.query(
             PostgresUse.COMMON_READ,
@@ -209,7 +221,7 @@ export async function fetchAction(client: PostgresRouter, id: Action['id']): Pro
 
     coerceActionIds(rawActions[0])
 
-    const hooks = await fetchActionRestHooks(client, id)
+    const hooks = await fetchActionRestHooks(client, id, skipDeactivatedOrganizations)
 
     const action: Action = { ...rawActions[0], steps: rawActions[0].steps_json ?? [], hooks }
     return action.post_to_slack || action.hooks.length > 0 ? action : null

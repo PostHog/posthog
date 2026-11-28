@@ -299,6 +299,74 @@ describe('HogFunctionManager', () => {
     })
 })
 
+describe('HogFunctionManager - deactivated organizations', () => {
+    jest.setTimeout(2000)
+    let hub: Hub
+    let teamId: number
+    let destination: HogFunctionType
+
+    beforeEach(async () => {
+        hub = await createHub()
+        teamId = (await createTestTeamFixture(hub.postgres)).team.id
+        destination = await insertHogFunction(hub.postgres, teamId, { name: 'Destination' })
+        await insertHogFunction(hub.postgres, teamId, {
+            name: 'Transformation',
+            type: 'transformation',
+            hog: 'return event',
+        })
+        await insertHogFunction(hub.postgres, teamId, {
+            name: 'Log transformation',
+            type: 'transformation_log',
+            hog: 'return record',
+        })
+    })
+
+    afterEach(async () => {
+        await closeHub(hub)
+    })
+
+    const setOrganizationActive = async (manager: HogFunctionManagerService, isActive: boolean): Promise<void> => {
+        await hub.postgres.query(
+            PostgresUse.COMMON_WRITE,
+            'UPDATE posthog_organization SET is_active = $1 WHERE id = (SELECT organization_id FROM posthog_team WHERE id = $2)',
+            [isActive, teamId],
+            'setOrganizationActive'
+        )
+        // This is normally dispatched by django
+        manager['onHogFunctionsReloaded'](teamId, [destination.id])
+    }
+
+    it.each([
+        ['on', true, ['transformation', 'transformation_log']],
+        ['off', false, ['destination', 'transformation', 'transformation_log']],
+    ])('loads only the functions that still run with the switch %s', async (_name, skip, types) => {
+        const manager = new HogFunctionManagerService(hub.postgres, hub.pubSub, hub.encryptedFields, skip)
+        await setOrganizationActive(manager, false)
+
+        const items = await manager.getHogFunctionsForTeam(teamId, [
+            'destination',
+            'transformation',
+            'transformation_log',
+        ])
+
+        expect(items.map((item) => item.type).sort()).toEqual(types)
+        items.forEach((item) => expect(item).not.toHaveProperty('organization_inactive'))
+    })
+
+    it('loads a destination again once its organization is reactivated', async () => {
+        const manager = new HogFunctionManagerService(hub.postgres, hub.pubSub, hub.encryptedFields, true)
+        await setOrganizationActive(manager, false)
+        expect(await manager.getHogFunction(destination.id)).toBeNull()
+        expect(await manager.fetchHogFunction(destination.id)).toBeNull()
+
+        await setOrganizationActive(manager, true)
+
+        expect(await manager.getHogFunction(destination.id)).toMatchObject({ id: destination.id })
+        expect(await manager.fetchHogFunction(destination.id)).toMatchObject({ id: destination.id })
+        expect(await manager.getHogFunctionsForTeam(teamId, ['destination'])).toMatchObject([{ id: destination.id }])
+    })
+})
+
 describe('Hogfunction Manager - Execution Order', () => {
     let hub: Hub
     let manager: HogFunctionManagerService

@@ -130,8 +130,17 @@ describe('LegacyWebhookService', () => {
         return { events, requests: sentRequests() }
     }
 
-    const startService = async (skipByTeamHeader = true): Promise<void> => {
-        const started = new LegacyWebhookService(hub.postgres, hub.teamManager, hub.pubSub, skipByTeamHeader)
+    const startService = async ({
+        skipByTeamHeader = true,
+        skipDeactivatedOrganizations = false,
+    }: { skipByTeamHeader?: boolean; skipDeactivatedOrganizations?: boolean } = {}): Promise<void> => {
+        const started = new LegacyWebhookService(
+            hub.postgres,
+            hub.teamManager,
+            hub.pubSub,
+            skipByTeamHeader,
+            skipDeactivatedOrganizations
+        )
         await started.start()
         service = started
         stopService = () => started.stop()
@@ -159,12 +168,31 @@ describe('LegacyWebhookService', () => {
 
     describe('parseBatch and processEvents', () => {
         it.each([
-            { teamHas: 'zapier but no webhook', features: [ZAPIER], targets: [] },
-            { teamHas: 'a webhook but no zapier', features: [], targets: ['https://hooks.zapier.com/team'] },
-        ])('drops the events of a team with $teamHas', async ({ features, targets }) => {
+            { teamHas: 'zapier but no webhook', features: [ZAPIER], targets: [], deactivated: false },
+            {
+                teamHas: 'a webhook but no zapier',
+                features: [],
+                targets: ['https://hooks.zapier.com/team'],
+                deactivated: false,
+            },
+            {
+                teamHas: 'a webhook and zapier in a deactivated organization',
+                features: [ZAPIER],
+                targets: ['https://hooks.zapier.com/team'],
+                deactivated: true,
+            },
+        ])('drops the events of a team with $teamHas', async ({ features, targets, deactivated }) => {
             await updateOrganizationAvailableFeatures(hub.postgres, organizationId, features)
             await Promise.all(targets.map((target) => createPageviewHook(team.id, target)))
-            await startService()
+            if (deactivated) {
+                await hub.postgres.query(
+                    PostgresUse.COMMON_WRITE,
+                    'UPDATE posthog_organization SET is_active = false WHERE id = $1',
+                    [organizationId],
+                    'deactivateOrganization'
+                )
+            }
+            await startService({ skipDeactivatedOrganizations: true })
 
             const { events, requests } = await parseAndSend([pageview(team.id)])
 
@@ -216,7 +244,7 @@ describe('LegacyWebhookService', () => {
                 await updateOrganizationAvailableFeatures(hub.postgres, otherOrganizationId, [ZAPIER])
                 await createPageviewHook(team.id, 'https://hooks.zapier.com/team')
                 await createPageviewHook(team2.id, 'https://hooks.zapier.com/other-team')
-                await startService(on === 'on')
+                await startService({ skipByTeamHeader: on === 'on' })
 
                 const { requests } = await parseAndSend([
                     createKafkaMessage(createIncomingEvent(team2.id, { event: '$pageview' }), {

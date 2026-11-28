@@ -350,6 +350,30 @@ describe('HogFlowManager', () => {
         })
     })
 
+    it('loads no workflow of a deactivated organization, and loads them again once it is reactivated', async () => {
+        manager = new HogFlowManagerService(hub.postgres, hub.pubSub, hub.encryptedFields, true)
+        const setOrganizationActive = async (isActive: boolean): Promise<void> => {
+            await hub.postgres.query(
+                PostgresUse.COMMON_WRITE,
+                'UPDATE posthog_organization SET is_active = $1 WHERE id = (SELECT organization_id FROM posthog_team WHERE id = $2)',
+                [isActive, teamId1],
+                'setOrganizationActive'
+            )
+            // This is normally dispatched by django
+            manager['onHogFlowsReloaded'](teamId1, [hogFlows[0].id, hogFlows[1].id])
+        }
+
+        await setOrganizationActive(false)
+        expect(await manager.getHogFlowsForTeam(teamId1)).toEqual([])
+        expect(await manager.getHogFlow(hogFlows[0].id)).toBeNull()
+
+        await setOrganizationActive(true)
+        expect((await manager.getHogFlowsForTeam(teamId1)).map((flow) => flow.id).sort()).toEqual(
+            [hogFlows[0].id, hogFlows[1].id].sort()
+        )
+        expect(await manager.getHogFlow(hogFlows[0].id)).toMatchObject({ id: hogFlows[0].id })
+    })
+
     describe('encrypted inputs', () => {
         it('decrypts and merges secret inputs into the matching action before execution', async () => {
             const flow = await insertHogFlow(
