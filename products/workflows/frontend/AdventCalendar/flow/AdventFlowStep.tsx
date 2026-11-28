@@ -96,7 +96,7 @@ function ExitTile({
                 delay={0}
                 className={cn(endTileClass(orientation, true), 'p-0')}
                 style={at(node.tile)}
-                aria-describedby={captionId(node)}
+                aria-labelledby={captionId(node)}
                 data-attr="advent-exit"
             >
                 <IconLeave />

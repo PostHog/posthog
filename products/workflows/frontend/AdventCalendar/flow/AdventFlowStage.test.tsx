@@ -1,4 +1,4 @@
-import { act, fireEvent, render, RenderResult } from '@testing-library/react'
+import { act, fireEvent, render, RenderResult, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
@@ -508,22 +508,22 @@ describe('AdventFlowStage', () => {
     const exitNote = { caption: 'Raffle draw', body: 'Drawn after the 24th.' }
 
     it.each([
-        ['without a note', { width: 1200, height: 830 }, undefined, 'ExitDecember 25', false],
-        ['with a note', { width: 1200, height: 830 }, exitNote, 'ExitRaffle draw', true],
+        ['without a note', { width: 1200, height: 830 }, undefined, ['December 25'], false],
+        ['with a note', { width: 1200, height: 830 }, exitNote, ['Raffle draw'], true],
         [
             'with a note in the phone column',
             { width: 375, height: 700 },
             exitNote,
-            'ExitRaffle drawDrawn after the 24th.',
+            ['Raffle draw', 'Drawn after the 24th.'],
             false,
         ],
-    ])('captions the exit %s', (_, size, note, caption, isButton) => {
+    ])('captions the exit %s', (_, size, note, lines, isButton) => {
         renderStage(size, { exitNote: note })
 
         expect([
-            document.getElementById('advent-flow-caption-exit')?.textContent,
-            !!document.querySelector('[data-attr="advent-exit"]'),
-        ]).toEqual([caption, isButton])
+            lines.map((line) => !!screen.queryByText(line)),
+            !!screen.queryByRole('button', { name: /^Exit\s*Raffle draw$/ }),
+        ]).toEqual([lines.map(() => true), isButton])
     })
 
     it('opens the exit note on a click', () => {
