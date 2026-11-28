@@ -24,6 +24,7 @@ from posthog.models.remote_config import (
     RemoteConfigTokenChangeSyncError,
     UnreadableTriggerGroupsError,
 )
+from posthog.redis import get_client
 
 from products.actions.backend.facade.testing import create_action
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
@@ -483,24 +484,33 @@ class TestRemoteConfig(_RemoteConfigBase):
             self.sync_remote_config()
             assert self.remote_config.config["sessionRecording"]["scriptConfig"] == expected_script_config
 
-    def test_build_config_bypass_recordings_quota_cache_reads_fresh_redis(self):
+    @parameterized.expand([("reads_on_shared", "disabled"), ("reads_on_copy", "live")])
+    def test_build_config_bypass_recordings_quota_cache_reads_fresh_redis(self, _name: str, read_mode: str):
         """Pairs the bypass-True / bypass-False paths against a stale in-process cache so a
         regression that drops the kwarg (and reverts to cache-on-by-default in prod) fails
         the bypass-True case."""
         from ee.billing.quota_limiting import (
             QuotaLimitingCaches,
             QuotaResource,
-            list_limited_team_attributes,
+            list_shared_limited_team_attributes,
             replace_limited_team_tokens,
         )
 
-        list_limited_team_attributes.clear_cache()
+        get_client("redis://quota-secondary.test:6379/0").flushdb()
+        self.enterContext(
+            override_settings(
+                QUOTA_LIMITING_REDIS_URL="redis://quota-secondary.test:6379/0",
+                QUOTA_LIMITING_REDIS_CLUSTER_ENABLED=False,
+                QUOTA_LIMITING_REDIS_READ_MODE=read_mode,
+            )
+        )
+        list_shared_limited_team_attributes.clear_cache()
 
         replace_limited_team_tokens(QuotaResource.RECORDINGS, {}, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY)
         # Force-prime the cache: `cache_for` defaults `use_cache=not TEST`, so without an
         # explicit `use_cache=True` the call would bypass caching in tests and the assertion
         # below would lose its meaning.
-        primed = list_limited_team_attributes(
+        primed = list_shared_limited_team_attributes(
             QuotaResource.RECORDINGS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY, use_cache=True
         )
         assert primed == []
@@ -520,7 +530,7 @@ class TestRemoteConfig(_RemoteConfigBase):
         assert fresh_config["quotaLimited"] == ["recordings"]
         assert fresh_config["sessionRecording"] is False
 
-        list_limited_team_attributes.clear_cache()
+        list_shared_limited_team_attributes.clear_cache()
 
     def test_site_functions_query_failure_degrades_to_empty_list(self):
         with patch(

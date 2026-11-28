@@ -1,14 +1,15 @@
+import random
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import field
 from functools import partial
 from math import inf
-from time import monotonic, sleep, time
+from time import monotonic, perf_counter, sleep, time
 
 from django.conf import settings
 from django.utils import timezone
 
 import structlog
-from prometheus_client import Counter, Gauge
+from prometheus_client import Counter, Gauge, Histogram
 from redis.exceptions import (
     ConnectionError as RedisConnectionError,
     RedisClusterException,
@@ -24,7 +25,19 @@ logger = structlog.get_logger(__name__)
 QUOTA_SECONDARY_OPERATIONS = Counter(
     "billing_quota_secondary_operations_total", "Optional quota Redis operations", ["operation", "result"]
 )
+QUOTA_SHADOW_READ_COMPARISONS = Counter(
+    "billing_quota_shadow_read_comparisons_total",
+    "Sampled quota reads compared between shared Redis and the optional store",
+    ["function", "resource", "result"],
+)
+QUOTA_SHADOW_READ_DURATION = Histogram(
+    "billing_quota_shadow_read_duration_seconds",
+    "Client-side duration of sampled quota reads that the optional store answered",
+    ["function"],
+    buckets=(0.0005, 0.001, 0.0025, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0),
+)
 SECONDARY_RETRY_DELAY_SECONDS = 30
+SECONDARY_READ_RETRY_DELAY_SECONDS = 5
 # Covers the optional store's snapshot and reconcile in one quota run, not the time between them.
 QUOTA_SECONDARY_RUN_BUDGET_SECONDS = 300.0
 QUOTA_READ_PAGE_SIZE = 5_000
@@ -32,6 +45,8 @@ QUOTA_READ_RETRY_DELAYS_SECONDS = (1.0, 2.0)
 # A cluster client that times out drops its only seed node, so redis-py raises RedisClusterException, not the timeout.
 _QUOTA_READ_RETRY_ERRORS = (RedisClusterException, RedisConnectionError, RedisTimeoutError)
 _retry_after: dict[str, float] = {}
+# Reads keep their own cooldown so a slow read never stops the dual writes that keep the copy correct.
+_read_retry_after: dict[str, float] = {}
 
 QUOTA_MIGRATION_ENABLED = Gauge(
     "billing_quota_migration_enabled",
@@ -58,32 +73,106 @@ QUOTA_COMPARE_LAST_SUCCESS = Gauge(
 QUOTA_COMPARE_FAILURES = Counter("billing_quota_compare_failures_total", "Failed quota Redis comparisons")
 
 
-def run_secondary_quota_operation[T](
-    operation: str, callback: Callable[[QuotaRedisClient], T], *, resource: str, maintenance: bool = False
-) -> T | None:
-    """Best-effort migration work must never fail a successful shared Redis write."""
+class SecondaryQuotaStoreUnavailable(Exception):
+    pass
+
+
+def _run_with_cooldown[T](
+    operation: str,
+    callback: Callable[[QuotaRedisClient], T],
+    *,
+    resource: str,
+    maintenance: bool,
+    retry_after: dict[str, float],
+    retry_delay: float,
+) -> T:
     url = settings.QUOTA_LIMITING_REDIS_URL
     if not url:
-        return None
-    if monotonic() < _retry_after.get(url, 0):
+        raise SecondaryQuotaStoreUnavailable
+    if monotonic() < retry_after.get(url, 0):
         QUOTA_SECONDARY_OPERATIONS.labels(operation=operation, result="cooldown").inc()
-        return None
+        raise SecondaryQuotaStoreUnavailable
     try:
         client = get_secondary_quota_redis_client(maintenance=maintenance)
         if client is None:
-            return None
+            raise SecondaryQuotaStoreUnavailable
         result = callback(client)
+    except SecondaryQuotaStoreUnavailable:
+        raise
     except Exception as error:
         # Include configuration/discovery failures: even an invalid optional URL must
         # leave shared Redis authoritative. A dead store costs one timeout per cooldown.
-        _retry_after[url] = monotonic() + SECONDARY_RETRY_DELAY_SECONDS
+        retry_after[url] = monotonic() + retry_delay
         QUOTA_SECONDARY_OPERATIONS.labels(operation=operation, result="failure").inc()
         logger.warning(
             "quota_secondary_operation_failed", operation=operation, resource=resource, error_type=type(error).__name__
         )
-        return None
+        raise SecondaryQuotaStoreUnavailable from error
     QUOTA_SECONDARY_OPERATIONS.labels(operation=operation, result="success").inc()
     return result
+
+
+def run_secondary_quota_operation[T](
+    operation: str, callback: Callable[[QuotaRedisClient], T], *, resource: str, maintenance: bool = False
+) -> T | None:
+    """Best-effort migration work must never fail a successful shared Redis write."""
+    try:
+        return _run_with_cooldown(
+            operation,
+            callback,
+            resource=resource,
+            maintenance=maintenance,
+            retry_after=_retry_after,
+            retry_delay=SECONDARY_RETRY_DELAY_SECONDS,
+        )
+    except SecondaryQuotaStoreUnavailable:
+        return None
+
+
+def quota_reads_use_secondary() -> bool:
+    return bool(settings.QUOTA_LIMITING_REDIS_URL) and settings.QUOTA_LIMITING_REDIS_READ_MODE == "live"
+
+
+def quota_shadow_read_sampled() -> bool:
+    return (
+        bool(settings.QUOTA_LIMITING_REDIS_URL)
+        and settings.QUOTA_LIMITING_REDIS_READ_MODE == "shadow"
+        and random.random() < settings.QUOTA_LIMITING_REDIS_SHADOW_READ_RATE
+    )
+
+
+def read_secondary_quota_store[T](operation: str, callback: Callable[[QuotaRedisClient], T], *, resource: str) -> T:
+    """Raises SecondaryQuotaStoreUnavailable and never reads shared Redis instead, so the caller decides the answer."""
+    return _run_with_cooldown(
+        operation,
+        callback,
+        resource=resource,
+        maintenance=False,
+        retry_after=_read_retry_after,
+        retry_delay=SECONDARY_READ_RETRY_DELAY_SECONDS,
+    )
+
+
+def shadow_read_secondary_quota_store[T](
+    operation: str,
+    callback: Callable[[QuotaRedisClient], T],
+    differs: Callable[[T], bool],
+    *,
+    function: str,
+    resource: str,
+    key: str,
+) -> None:
+    """Counts how the copy compares with the shared answer the caller returns. A copy failure counts as an error
+    and never raises into the caller."""
+    started = perf_counter()
+    try:
+        copy_answer = read_secondary_quota_store(operation, callback, resource=key)
+    except SecondaryQuotaStoreUnavailable:
+        QUOTA_SHADOW_READ_COMPARISONS.labels(function=function, resource=resource, result="error").inc()
+        return
+    QUOTA_SHADOW_READ_DURATION.labels(function=function).observe(perf_counter() - started)
+    result = "mismatch" if differs(copy_answer) else "match"
+    QUOTA_SHADOW_READ_COMPARISONS.labels(function=function, resource=resource, result=result).inc()
 
 
 def _read_retries() -> Iterator[tuple[int, float]]:
