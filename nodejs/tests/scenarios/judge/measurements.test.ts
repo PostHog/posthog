@@ -284,9 +284,17 @@ describe('measurements', () => {
             byValve,
         })
         const samples = [sample(0, -60, 1), sample(5, 3, 1), { ...sample(5, -60, 1), role: 'cdp-api' }]
-        const exits = [exit(ROLE, 0, false), exit(ROLE, 0, false), exit(ROLE, 1, false), exit('cdp-api', 0, true)]
+        const exits = [
+            exit(ROLE, 0, false),
+            exit(ROLE, 0, false),
+            exit(ROLE, 1, false),
+            exit('cdp-api', 0, true),
+            { ...exit(ROLE, 1, false), at: isoAt(1103), code: 1, signal: null },
+        ]
 
-        expect(measure([{ name: 'role_restarts', params: {} }], evidence({ samples, exits }))).toEqual([
+        expect(
+            measure([{ name: 'role_restarts', params: {} }], evidence({ samples, exits, timeline: [FAILOVER] }))
+        ).toEqual([
             { name: 'role_restarts', key: 'cdp-api', value: 0, unit: 'restarts' },
             { name: 'role_restarts', key: ROLE, value: 3, unit: 'restarts' },
         ])
@@ -467,6 +475,12 @@ describe('measurements', () => {
             [record(1, 'run-a-1', 0)],
             { converged: false },
             [{ value: 1, incomplete: true }],
+        ],
+        [
+            'leaves the maximum unmeasured when no accepted send was read and the truth read failed',
+            [],
+            { unread: 'the edge did not answer' },
+            [{ value: null, censored: true, unmeasured: 'no accepted SES send was read' }],
         ],
     ])('sends_per_message_max %s', (_story, truth, partial, measured) => {
         expect(

@@ -8,7 +8,7 @@ import type { Convergence, InvariantResult } from '../judge/judge'
 import { Baseline, DriveWindow, MIN_BASELINE_SECONDS } from '../judge/measurements'
 import { type Ramp, ratesReasonOf } from '../judge/ramp'
 import type { WriterSample } from '../probe/writer-probe'
-import { VALVES, ValveTimelineEntry } from '../valves/valves'
+import { ValveTimelineEntry, appliedWithin, exitedByValve } from '../valves/valves'
 import { DependencyLoss, dependencyReasonOf } from './dependency-watch'
 
 export type Status = 'passed' | 'failed' | 'invalid'
@@ -127,35 +127,6 @@ export type Verdict = {
 const DATABASE_TARGETS = new Set(['postgres', 'cyclotron'])
 const SUSTAINED_FAILURES = 5
 const CONNECTION_LOST = /^(08...|57P01)$/
-
-const appliedWithin = (
-    { intentAt, appliedAt, releasedAt }: ValveTimelineEntry,
-    at: string,
-    graceMs: number
-): boolean => {
-    const from = intentAt ?? appliedAt
-    const time = Date.parse(at)
-    return (
-        from !== undefined &&
-        appliedAt !== undefined &&
-        Date.parse(from) <= time &&
-        (releasedAt === undefined || time <= Date.parse(releasedAt) + graceMs)
-    )
-}
-
-const exitedByValve = (exit: RoleExit, timeline: ValveTimelineEntry[]): boolean =>
-    exit.byValve ||
-    (exit.code !== null &&
-        exit.code < 128 &&
-        exit.signal === null &&
-        timeline.some((entry) => {
-            const valve = VALVES.find(({ name }) => name === entry.valve)
-            return (
-                valve?.roleExitGraceMs !== undefined &&
-                (valve.restarts?.includes(exit.role) ?? true) &&
-                appliedWithin(entry, exit.at, valve.roleExitGraceMs)
-            )
-        }))
 
 function unexpectedExit(exit: RoleExit, timeline: ValveTimelineEntry[]): string {
     const applied = timeline.filter((entry) => DATABASE_TARGETS.has(entry.target) && appliedWithin(entry, exit.at, 0))
