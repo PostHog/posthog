@@ -374,7 +374,7 @@ filters:
         - posthog/queryset_paging.py
         - posthog/sync.py
         - 'common/hogvm/**'
-    alertsPlatformSharedOrchestration:
+    alertsPlatformSharedOrchestration: &alertsPlatformSharedOrchestration
         - *sharedWorkerBase
         - 'products/alerts_platform/backend/**'
         - products/warehouse_sources/backend/temporal/__init__.py
@@ -467,7 +467,7 @@ filters:
         - posthog/workload_identity/providers.py
         - posthog/workload_identity/resolvers.py
         - posthog/workload_identity/subjects.py
-    alertsPlatformEvaluation:
+    alertsPlatformEvaluation: &alertsPlatformEvaluation
         - *sharedWorkerBase
         - 'products/alerts_platform/backend/**'
         - 'products/alerts/backend/**'
@@ -756,6 +756,18 @@ filters:
         - posthog/workload_identity/subjects.py
         - 'common/hogvm/**'
         - common/__init__.py
+        - products/batch_exports/backend/temporal/batch_exports.py
+        - products/batch_exports/backend/temporal/errors.py
+        - products/batch_exports/backend/temporal/queue.py
+        - 'products/batch_exports/backend/temporal/pipeline/**'
+        - products/batch_exports/backend/service.py
+        - products/batch_exports/backend/models/batch_export.py
+        - products/batch_exports/backend/custom_events_schema.py
+        - ee/billing/quota_limiting.py
+        - posthog/tasks/exporter.py
+        - 'products/security/backend/facade/**'
+        - posthog/llm/wizard_blocklist.py
+        - 'products/signals/backend/temporal/**'
     alertsPlatformDelivery:
         - *sharedWorkerBase
         - 'products/alerts_platform/backend/**'
@@ -1925,6 +1937,12 @@ filters:
         - 'posthog/egress/transport/**'
         - 'posthog/egress/observability/**'
 
+    alertsPlatformRegistrar:
+        # The registrar reads what logs saw from ClickHouse with HogQL and records it for the platform,
+        # which is the work evaluation did for it before. It starts like the shared orchestration worker
+        # and runs the evaluation code, so it reuses both filters.
+        - *alertsPlatformSharedOrchestration
+        - *alertsPlatformEvaluation
 images:
     posthog-cloud:
         channels:
@@ -1960,6 +1978,10 @@ images:
                 repository: posthog-temporal-workers/alerts-platform-delivery
                 filter: alertsPlatformDelivery
                 bootstrapPolicyDigest: 6ce2fa35731a158c6d014e28363230a4accc537fa478681d29fd3ca1bec38d57
+            alerts-platform-registrar:
+                repository: posthog-temporal-workers/alerts-platform-registrar
+                filter: alertsPlatformRegistrar
+                bootstrapPolicyDigest: 02654849d6bb3107aecbd7111cd4147ee28d49a4f390ff689ada6087a446df04
             web-analytics:
                 repository: posthog-temporal-workers/web-analytics
                 filter: webAnalyticsWorker
