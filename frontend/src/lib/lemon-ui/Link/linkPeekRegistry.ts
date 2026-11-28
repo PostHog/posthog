@@ -1,8 +1,4 @@
-/**
- * Lets the app shell claim a plain click on an in-app link before the router navigates.
- * `Link` sits in the kernel layer and cannot import the shell, so the shell registers the handler here.
- * The handler returns true when it took the click, for example to open the item in a peek drawer.
- */
+// `Link` sits in the kernel layer and cannot import the shell, so the shell registers its click handler here.
 export type LinkPeekHandler = (href: string, element: HTMLElement) => boolean
 
 let handler: LinkPeekHandler | null = null

@@ -8,10 +8,7 @@ interface InsightItemPeekProps {
     shortId: InsightShortId
 }
 
-/**
- * The insight as the item peek drawer shows it. The insight scene reads its insight from the URL through a
- * single unkeyed logic, so the drawer renders the saved insight read-only instead of a second scene.
- */
+// The insight scene reads its insight from the URL through one unkeyed logic, so it cannot render a second time.
 export function InsightItemPeek({ shortId }: InsightItemPeekProps): JSX.Element {
     return <Query query={{ kind: NodeKind.SavedInsightNode, shortId }} readOnly embedded />
 }

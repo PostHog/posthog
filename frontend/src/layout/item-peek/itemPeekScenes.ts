@@ -10,12 +10,7 @@ export interface ItemPeekSceneConfig {
     nestedRoutes?: boolean
 }
 
-/**
- * The detail scenes a link can open in the peek drawer, keyed by scene id.
- * A scene here renders through its own `SceneExport`, so its logic must be keyed by the props
- * `paramsToProps` builds and must not take its item from the URL. Scenes that create, edit or
- * configure something stay out: a peek is for looking at an item, not changing it.
- */
+// A scene here renders through its own export, so its logic must be keyed by its props, never by the URL.
 export const ITEM_PEEK_SCENES: Record<string, ItemPeekSceneConfig> = {
     Action: {},
     AIObservabilityDataset: {},
