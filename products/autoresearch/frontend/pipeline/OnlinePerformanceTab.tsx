@@ -7,6 +7,7 @@ import { dayjs } from 'lib/dayjs'
 import { pluralize } from 'lib/utils/strings'
 
 import { autoresearchPipelineLogic } from '../autoresearchPipelineLogic'
+import { hasLiveModel } from '../modelCardState'
 import { isLiftAtCeiling, liftCeilingNote } from '../modelQuality'
 import { accuracyStats, accuracySummary, percent } from '../onlinePerformance'
 import { eventName } from '../pipelineQuestion'
@@ -46,6 +47,9 @@ function fmtPercent(value: number | null | undefined): string {
 
 function NotCheckedYet(): JSX.Element {
     const { pipeline, firstCheck } = useValues(autoresearchPipelineLogic)
+    if (pipeline && !hasLiveModel(pipeline)) {
+        return <NothingToCheckYet />
+    }
     const horizon = pluralize(pipeline?.horizon_days ?? 0, 'day')
     return (
         <EmptyTab icon={<IconGraph />} title="Not checked against real outcomes yet" cta={<ScoreNowButton />}>
@@ -55,6 +59,17 @@ function NotCheckedYet(): JSX.Element {
                 : firstCheck.isAfter(dayjs())
                   ? `The first check is due on ${firstCheck.format('MMM D, YYYY')}.`
                   : `The first scored date matured on ${firstCheck.format('MMM D, YYYY')}. The first check runs on the next daily schedule.`}
+        </EmptyTab>
+    )
+}
+
+function NothingToCheckYet(): JSX.Element {
+    const { pipeline } = useValues(autoresearchPipelineLogic)
+    const horizon = pluralize(pipeline?.horizon_days ?? 0, 'day')
+    return (
+        <EmptyTab icon={<IconGraph />} title="Nothing to check yet">
+            This model has no live version, so there are no predictions to check. Once a model goes live, the first
+            check comes {horizon} after its first scoring run.
         </EmptyTab>
     )
 }

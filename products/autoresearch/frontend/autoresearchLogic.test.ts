@@ -25,6 +25,7 @@ import { AutoresearchPipelineApi } from './generated/api.schemas'
 jest.mock('./generated/api', () => ({
     autoresearchList: jest.fn(),
     autoresearchDestroy: jest.fn(),
+    autoresearchLimitsRetrieve: jest.fn().mockResolvedValue(null),
     autoresearchPauseCreate: jest.fn(),
     autoresearchResumeCreate: jest.fn(),
     autoresearchTrainCreate: jest.fn(),
