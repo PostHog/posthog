@@ -1,4 +1,4 @@
-import { adventOpenedOnItsDay, adventTicketDays } from './adventTickets'
+import { adventOpenedOnItsDay } from './adventTickets'
 
 const BERLIN = 60
 const LOS_ANGELES = -480
@@ -16,9 +16,5 @@ describe('advent tickets', () => {
         ['the same date a year early', 3, '2025-12-03T09:00:00Z', 0, false],
     ])('counts a door opened %s', (_, day, openedAt, offset, isOnTime) => {
         expect(adventOpenedOnItsDay(day, new Date(openedAt), offset)).toBe(isOnTime)
-    })
-
-    it('counts each opened door once and ignores on-time days that are not opened or out of range', () => {
-        expect(adventTicketDays([1, 2, 3, 24], [3, 3, 1, 5, 0, 25, 24])).toEqual([3, 1, 24])
     })
 })

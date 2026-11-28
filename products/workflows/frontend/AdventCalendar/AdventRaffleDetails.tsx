@@ -20,10 +20,12 @@ export function AdventRaffleDetails(): JSX.Element {
                 </Link>{' '}
                 or any merch you like.
             </p>
-            <p className="m-0 flex items-center gap-1.5 font-semibold">
-                <AdventTicketIcon className="h-3 w-5 shrink-0" />
-                <span>{`You have ${adventTicketsLabel(tickets)}.`}</span>
-            </p>
+            {tickets !== null && (
+                <p className="m-0 flex items-center gap-1.5 font-semibold" data-attr="advent-raffle-tickets">
+                    <AdventTicketIcon className="h-3 w-5 shrink-0" />
+                    <span>{`You have ${adventTicketsLabel(tickets)}.`}</span>
+                </p>
+            )}
             <p className="m-0 text-secondary">
                 Free to enter for every PostHog user. Winners are drawn after December 24 and get an email.
             </p>

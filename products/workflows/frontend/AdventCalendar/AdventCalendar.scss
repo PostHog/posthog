@@ -171,97 +171,10 @@
     font-size: 0.8125rem;
 }
 
-.AdventTicketCount {
-    display: flex;
-    gap: 4px;
-    align-items: center;
-    padding: 0 6px 0 4px;
-    font-size: 11px;
-    font-weight: 700;
-    line-height: 16px;
-    color: var(--advent-ink);
-    white-space: nowrap;
-    background: var(--advent-paper);
-    border-radius: 4px;
-}
-
-.AdventTicketFlight {
-    position: absolute;
-    z-index: 11;
-    pointer-events: none;
-    animation: AdventTicketFlight__x 820ms cubic-bezier(0.45, 0, 0.55, 1) both;
-}
-
-.AdventTicketFlight__arc {
-    display: block;
-    animation: AdventTicketFlight__rise 820ms cubic-bezier(0.2, 0.6, 0.4, 1) both;
-}
-
-.AdventTicketFlight__fall {
-    position: relative;
-    display: block;
-    animation: AdventTicketFlight__fall 820ms cubic-bezier(0.6, 0, 0.8, 0.4) both;
-
-    &::before {
-        position: absolute;
-        top: -13px;
-        left: -22px;
-        width: 44px;
-        height: 26px;
-        content: '';
-        background: color-mix(in oklab, var(--advent-gold) 48%, transparent);
-        border-radius: 3px;
-        box-shadow: 0 0 16px var(--advent-gold);
-    }
-
-    .AdventTicketIcon {
-        display: block;
-        transform: translate(-50%, -50%);
-    }
-}
-
-@keyframes AdventTicketFlight__x {
-    from {
-        transform: translateX(var(--advent-fly-dx));
-    }
-
-    to {
-        transform: translateX(0);
-    }
-}
-
-@keyframes AdventTicketFlight__rise {
-    0% {
-        transform: translateY(var(--advent-fly-dy)) scale(1);
-    }
-
-    40%,
-    100% {
-        transform: translateY(var(--advent-fly-peak)) scale(0.9);
-    }
-}
-
-@keyframes AdventTicketFlight__fall {
-    0%,
-    40% {
-        transform: translateY(0) scale(1);
-    }
-
-    100% {
-        transform: translateY(calc(var(--advent-fly-peak) / -0.9)) scale(calc(0.5 / 0.9));
-    }
-}
-
 @media (prefers-reduced-motion: reduce) {
     .AdventStage__workflow,
     .AdventCard,
     .AdventCard__fade {
         transition: none;
-    }
-
-    .AdventTicketFlight,
-    .AdventTicketFlight__arc,
-    .AdventTicketFlight__fall {
-        animation-duration: 1ms;
     }
 }
