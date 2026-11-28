@@ -14,13 +14,15 @@ import {
 import { loaders } from 'kea-loaders'
 
 import { ApiError } from 'lib/api-error'
+// TODO(2026-11-27): Replace with quill once it can; the app does not mount quill's ToastProvider yet.
+// oxlint-disable-next-line no-restricted-imports
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import type { PanelType } from '../../panels/core/panelDefinition'
-import { sizeOfPanels } from '../../panels/core/panelSpec'
-import { type SizeOf } from '../../panels/core/panelSpec'
+import { type SizeOf, sizeOfPanels } from '../../panels/core/panelSpec'
 import { DEFAULT_PANELS } from '../../panels/defaultPanels'
 import type { DashboardAction } from '../core/dashboardContext'
 import type { UnavailableReason } from '../core/DashboardUnavailable'
@@ -373,7 +375,7 @@ export const savedDashboardLogic = kea<savedDashboardLogicType>([
                 },
         ],
     }),
-    listeners(({ actions, values, props }) => ({
+    listeners(({ actions, values, props, cache }) => ({
         applyDashboardEdit: ({ edit, view }) => {
             const { dashboard, history } = values
             if (!dashboard || !history || values.disabledReasonFor(edit.edit)) {
@@ -411,9 +413,19 @@ export const savedDashboardLogic = kea<savedDashboardLogicType>([
                 return
             }
             actions.saveStarted()
+            const request = updateBoard(props.uid, saveDashboard(dashboard), board.version)
+            cache.inFlightSave = { request, dashboard }
             try {
-                actions.boardSaved(await updateBoard(props.uid, saveDashboard(dashboard), board.version), dashboard)
+                const saved = await request
+                // After the scene closes, `beforeUnmount` sends what is left, and the logic has no values to read.
+                if (cache.left) {
+                    return
+                }
+                actions.boardSaved(saved, dashboard)
             } catch (error) {
+                if (cache.left) {
+                    return
+                }
                 if (!(error instanceof ApiError) || error.status !== 409) {
                     actions.saveFailed()
                     return
@@ -446,6 +458,7 @@ export const savedDashboardLogic = kea<savedDashboardLogicType>([
         },
     })),
     afterMount(({ actions, props, values, cache }) => {
+        cache.left = false
         if (props.uid) {
             actions.loadBoard()
         }
@@ -464,12 +477,27 @@ export const savedDashboardLogic = kea<savedDashboardLogicType>([
             { pauseOnPageHidden: false }
         )
     }),
-    beforeUnmount(({ props, values }) => {
-        // Leaving the scene cancels the save that waits out `SAVE_DELAY_MS`, so it is sent now. Nothing is left to show
-        // whether it worked.
+    beforeUnmount(({ props, values, cache }) => {
+        cache.left = true
+        const { uid } = props
         const { board, dashboard, saveState } = values
-        if (props.uid && board && dashboard && (saveState === 'unsaved' || saveState === 'failed')) {
-            void updateBoard(props.uid, saveDashboard(dashboard), board.version).catch(() => {})
+        if (!uid || !board || !dashboard) {
+            return
+        }
+        const save = (version: number): Promise<unknown> => updateBoard(uid, saveDashboard(dashboard), version)
+        const warn = (): void => {
+            lemonToast.error(
+                "Couldn't save your last changes to this dashboard. Open it again to check what was saved."
+            )
+        }
+        if (saveState === 'unsaved' || saveState === 'failed') {
+            // Leaving the scene cancels the save that waits out `SAVE_DELAY_MS`, so it is sent now.
+            void save(board.version).catch(warn)
+            return
+        }
+        const inFlight = cache.inFlightSave as { request: Promise<Board>; dashboard: Dashboard } | undefined
+        if (saveState === 'saving' && inFlight && inFlight.dashboard !== dashboard) {
+            void inFlight.request.then((saved) => save(saved.version)).catch(warn)
         }
     }),
 ])

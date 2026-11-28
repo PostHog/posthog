@@ -5,6 +5,7 @@ import {
     categoriesFromFrames,
     flameFromFrames,
     flowsFromFrames,
+    scatterFromFrames,
     slopeFromFrames,
 } from './frameShapes'
 
@@ -36,6 +37,20 @@ describe('frameShapes', () => {
         { shape: 'rows from every target', frames: [rows(['a'], [1]), rows(['a'], [2])], expected: [1, 2] },
     ])('values each category from $shape without a NaN', ({ frames, expected }) => {
         expect(categoriesFromFrames(frames).map((one) => one.data[0])).toEqual(expected)
+    })
+
+    it('plots a series over times given as epoch numbers', () => {
+        const frame: DataFrame = {
+            fields: [
+                { name: 'time', type: 'time', values: [1000, 2000] },
+                { name: 'value', type: 'number', values: [3, 4] },
+            ],
+        }
+
+        expect(scatterFromFrames([frame]).series[0].points).toEqual([
+            { x: 1000, y: 3 },
+            { x: 2000, y: 4 },
+        ])
     })
 
     it('summarizes each frame into interpolated quartiles, and an empty frame into no box', () => {

@@ -12,7 +12,7 @@ import { type PanelType, type PanelMenuContext, definePanel } from '../core/pane
 import { type ContentPanel } from '../core/panelSchema'
 import { PanelLoading } from '../core/PanelView'
 import { chartMenuActions } from './chartMenuActions'
-import { type ChartBackgroundColor, ChartPanel, hasNoValues, shownFramesOf } from './ChartPanel'
+import { type ChartBackgroundColor, ChartPanel, hasNoTimes, hasNoValues, shownFramesOf } from './ChartPanel'
 import { ChartSampleData } from './ChartSampleData'
 import { type ChartConfig, chartSpec } from './chartSpec'
 import { framesToCsv } from './data/framesToCsv'
@@ -88,10 +88,10 @@ const FlameGraphViz = lazyWithRetry(() =>
 /** The kinds of chart that ship with dashboards v2, in add menu order. Every chart panel can draw them. */
 export const DEFAULT_VIZ_TYPES: VizDefinition[] = [
     defineViz({ ...metricSpec, Component: MetricViz, Loading: MetricLoading }),
-    defineViz({ ...lineSpec, Component: LineViz, Loading: LineLoading }),
-    defineViz({ ...barSpec, Component: BarViz, Loading: BarLoading }),
-    defineViz({ ...areaSpec, Component: AreaViz, Loading: AreaLoading }),
-    defineViz({ ...comboSpec, Component: ComboViz, Loading: BarLoading }),
+    defineViz({ ...lineSpec, Component: LineViz, Loading: LineLoading, isEmpty: hasNoTimes }),
+    defineViz({ ...barSpec, Component: BarViz, Loading: BarLoading, isEmpty: hasNoTimes }),
+    defineViz({ ...areaSpec, Component: AreaViz, Loading: AreaLoading, isEmpty: hasNoTimes }),
+    defineViz({ ...comboSpec, Component: ComboViz, Loading: BarLoading, isEmpty: hasNoTimes }),
     defineViz({ ...pieSpec, Component: PieViz, Loading: PieLoading }),
     defineViz({ ...barListSpec, Component: BarListViz, Loading: BarListLoading }),
     defineViz({ ...proportionSpec, Component: ProportionViz, Loading: ProportionLoading }),

@@ -18,6 +18,7 @@ import {
     panelSize,
 } from '../document/dashboardTypes'
 import { allTiles, changeTileEverywhere, changeTilesWhere, findTile } from '../document/tileTree'
+import { MAX_SECTION_DEPTH } from '../document/validateDashboard'
 import { type PresentationEdit, applyPresentationEdit } from './presentationEdits'
 
 export type LayoutEdit =
@@ -148,6 +149,9 @@ function moveTile(
     const y = edit.y ?? bottomOf(shown.tiles.map((other) => other.place))
     const landed = dropIntoGrid(shown.tiles, shown.cols, tile, edit.x ?? 0, y, sizeOf)
     const places = new Map(landed.map((placed) => [placed.id, placed.place]))
+    if (!places.has(tile.id)) {
+        return dashboard
+    }
     // Only where each tile sits is saved. Heights stay as saved, and settling makes room for a folded section.
     return changeGrid(without, edit.grid, (tiles) =>
         [...tiles, tile].map((placed) => {
@@ -361,6 +365,12 @@ function applyOnce(dashboard: Dashboard, edit: DashboardEdit, view: View, sizeOf
     }
 }
 
+function nestsTooDeep(tiles: Tile[], depth: number): boolean {
+    return tiles.some(
+        (tile) => isSection(tile) && (depth >= MAX_SECTION_DEPTH || nestsTooDeep(tile.panel.tiles, depth + 1))
+    )
+}
+
 /** How the person sees a dashboard, such as `withFolds`. An edit made on screen is placed against that view. */
 export type View = (dashboard: Dashboard) => Dashboard
 
@@ -370,5 +380,7 @@ export function applyEdit(
     sizeOf: SizeOf,
     view: View = (shown) => shown
 ): Dashboard {
-    return settleDashboard(applyOnce(dashboard, edit, view, sizeOf), sizeOf)
+    const next = settleDashboard(applyOnce(dashboard, edit, view, sizeOf), sizeOf)
+    // `isDashboardDocument` rejects deeper nesting, so a board saved with it could never be opened again.
+    return gridTabs(next).some((tab) => nestsTooDeep(tab.tiles, 0)) ? dashboard : next
 }

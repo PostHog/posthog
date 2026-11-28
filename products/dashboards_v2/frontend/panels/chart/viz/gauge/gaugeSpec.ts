@@ -1,5 +1,6 @@
 import { z } from 'zod'
 
+import { BREAKDOWN_FILTER_TYPE } from '../../../../filters/breakdown/breakdownFilterSpec'
 import type { VizSpec } from '../../vizTypes'
 
 export const gaugeOptionsSchema = z.strictObject({
@@ -14,4 +15,5 @@ export const gaugeSpec: VizSpec<GaugeOptions> = {
     label: 'Gauge',
     size: { w: 6, h: 10, minW: 3, minH: 6 },
     optionsSchema: gaugeOptionsSchema,
+    ignoredFilterTypes: [BREAKDOWN_FILTER_TYPE],
 }

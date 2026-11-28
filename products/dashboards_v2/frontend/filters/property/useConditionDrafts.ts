@@ -12,6 +12,10 @@ function firstIncomplete(drafts: Draft[]): number | null {
     return drafts.find((draft) => !isCompleteCondition(draft))?.id ?? null
 }
 
+function completeOf(drafts: Draft[]): PropertyCondition[] {
+    return drafts.filter(isCompleteCondition).map(({ operator, value }) => ({ operator, value }))
+}
+
 /**
  * The conditions a person is editing, including ones still missing a value, which do not apply yet. `onChange` gets
  * only the complete ones, or undefined when there are none. One condition is open for editing at a time.
@@ -29,16 +33,29 @@ export function useConditionDrafts(
     add: () => void
     remove: (id: number) => void
 } {
-    const nextId = useRef(value.length)
+    const nextId = useRef(0)
     const blank = (): Draft => ({ id: nextId.current++, operator: blankOperator })
-    const [drafts, setDrafts] = useState<Draft[]>(() =>
-        value.length > 0 ? value.map((condition, index) => ({ ...condition, id: index })) : [blank()]
-    )
+    const draftsOf = (conditions: PropertyCondition[]): Draft[] =>
+        conditions.length > 0 ? conditions.map((condition) => ({ ...condition, id: nextId.current++ })) : [blank()]
+    const [drafts, setDrafts] = useState<Draft[]>(() => draftsOf(value))
     const [editing, edit] = useState<number | null>(drafts[drafts.length - 1].id)
+
+    // A value changed from outside the editor, such as by another control, replaces the drafts. Otherwise the next
+    // edit here would write the old conditions back over it.
+    const valueKey = JSON.stringify(value)
+    const [seenValueKey, setSeenValueKey] = useState(valueKey)
+    if (valueKey !== seenValueKey) {
+        setSeenValueKey(valueKey)
+        if (valueKey !== JSON.stringify(completeOf(drafts))) {
+            const next = draftsOf(value)
+            setDrafts(next)
+            edit(firstIncomplete(next))
+        }
+    }
 
     const update = (next: Draft[]): void => {
         setDrafts(next)
-        const complete = next.filter(isCompleteCondition).map(({ operator, value }) => ({ operator, value }))
+        const complete = completeOf(next)
         onChange(complete.length > 0 ? complete : undefined)
     }
 

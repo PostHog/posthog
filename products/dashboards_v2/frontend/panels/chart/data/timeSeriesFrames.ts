@@ -76,7 +76,7 @@ export function stableSeriesColors(
     return colors
 }
 
-function timeOf(label: string): number {
+export function timeOf(label: string): number {
     return label.trim() !== '' && Number.isFinite(Number(label)) ? Number(label) : Date.parse(label)
 }
 

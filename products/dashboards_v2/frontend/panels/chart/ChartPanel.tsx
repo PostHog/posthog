@@ -4,8 +4,9 @@ import { Suspense, useContext, useEffect, useMemo, useRef } from 'react'
 import { FilterControlsContext, FiltersContext } from '../../filters/filtersContext'
 import type { DataFrame, RunQuery } from '../../query/queryTypes'
 import { useQueryFrames } from '../../query/useQueryFrames'
+import { ErrorBoundary, PANEL_ERROR_TAG } from '../core/ErrorBoundary'
 import { type ContentPanel } from '../core/panelSchema'
-import { PanelLoading, PanelMessage } from '../core/PanelView'
+import { HoldsLoad, PanelCrashed, PanelLoading, PanelMessage } from '../core/PanelView'
 import { useTileBackground } from '../core/tileBackground'
 import { type ChartConfig, chartTargets, hasNoOwnRange } from './chartSpec'
 import { type TargetFailure, combineTargetResults } from './data/targetResults'
@@ -57,6 +58,11 @@ export function hasNoValues(frames: DataFrame[]): boolean {
     return frames.every((frame) => frame.fields.every((field) => field.values.length === 0))
 }
 
+/** Whether a result has nothing to draw over time, such as a total, which has no time field. */
+export function hasNoTimes(frames: DataFrame[]): boolean {
+    return frames.every((frame) => !frame.fields.some((field) => field.type === 'time' && field.values.length > 0))
+}
+
 function ChartData({
     panel,
     viz,
@@ -71,8 +77,12 @@ function ChartData({
     backgroundColor?: ChartBackgroundColor
 }): JSX.Element {
     const { time: surroundingTime, filters: surroundingFilters } = useContext(FiltersContext)
-    const ignored = panel.config.ignoredFilterTypes
-    const filters = ignored ? surroundingFilters.filter((filter) => !ignored.includes(filter.type)) : surroundingFilters
+    const filters = useMemo(() => {
+        const ignored = [...(panel.config.ignoredFilterTypes ?? []), ...(viz.ignoredFilterTypes ?? [])]
+        return ignored.length > 0
+            ? surroundingFilters.filter((filter) => !ignored.includes(filter.type))
+            : surroundingFilters
+    }, [surroundingFilters, panel.config.ignoredFilterTypes, viz.ignoredFilterTypes])
     const time = panel.config.time ?? surroundingTime
     const targets = chartTargets(panel.config)
     // Filters are left out when empty, so a chart's cached result from before any filter existed still matches.
@@ -141,9 +151,18 @@ function ChartData({
                 <Empty options={options} />
             ) : (
                 <FilterControlsContext.Provider value={vizControls}>
-                    <Suspense fallback={<Loading options={options} />}>
-                        <viz.Component frames={result.frames} options={options} />
-                    </Suspense>
+                    <ErrorBoundary resetKey={result.frames} tag={PANEL_ERROR_TAG} fallback={<PanelCrashed />}>
+                        <Suspense
+                            fallback={
+                                <>
+                                    <HoldsLoad />
+                                    <Loading options={options} />
+                                </>
+                            }
+                        >
+                            <viz.Component frames={result.frames} options={options} />
+                        </Suspense>
+                    </ErrorBoundary>
                 </FilterControlsContext.Provider>
             )}
         </div>

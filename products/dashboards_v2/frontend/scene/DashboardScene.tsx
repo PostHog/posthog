@@ -55,7 +55,8 @@ export function DashboardScene({ uid }: DashboardSceneLogicProps): JSX.Element {
     return (
         <FlaggedFeature flag={FEATURE_FLAGS.DASHBOARDS_V2} fallback={<NotFound object="page" />}>
             <BindLogic logic={savedDashboardLogic} props={savedDashboardLogicProps({ uid })}>
-                <DashboardV2 />
+                {/* Keyed, so one board's closed sections and open slideshow do not carry over to the next. */}
+                <DashboardV2 key={uid} />
             </BindLogic>
         </FlaggedFeature>
     )
@@ -64,14 +65,16 @@ export function DashboardScene({ uid }: DashboardSceneLogicProps): JSX.Element {
 function DashboardV2(): JSX.Element {
     const { dashboard, disabledReasonFor, canUndo, canRedo, unavailable } = useValues(savedDashboardLogic)
     const { undo, redo, loadBoard } = useActions(savedDashboardLogic)
-    const { activeTabId } = useValues(dashboardSceneLogic)
+    const { activeTabId, activeTab } = useValues(dashboardSceneLogic)
     const { applyDashboardEdit, setActiveTab } = useActions(dashboardSceneLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     // The app theme adds the tooltip z-index above app overlays and the Storybook snapshot switch.
     const chartTheme = useChartTheme()
     const { currentTeamId, timezone } = useValues(teamLogic)
-    const tabRef = useRef(activeTabId)
-    tabRef.current = activeTabId
+    // With no tab in the URL the first tab shows, so queries are tagged with the tab on screen.
+    const shownTabId = activeTab?.id ?? activeTabId
+    const tabRef = useRef(shownTabId)
+    tabRef.current = shownTabId
     const { currentOrganization } = useValues(organizationLogic)
     const organizationRef = useRef(currentOrganization)
     organizationRef.current = currentOrganization

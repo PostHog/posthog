@@ -152,8 +152,12 @@ function stackSection(tile: SectionTile, cols: number, y: number, sizeOf: SizeOf
 /**
  * Puts `tile` into a grid at a cell, by the same rules a drag inside that grid follows. The grid shows this
  * result as its preview while a tile from elsewhere hovers over it, so the preview and the drop cannot differ.
+ * A grid narrower than the tile's minimum width does not take it, and comes back unchanged.
  */
 export function dropIntoGrid(tiles: Tile[], cols: number, tile: Tile, x: number, y: number, sizeOf: SizeOf): Tile[] {
+    if (minWidthOf(tile, sizeOf) > cols) {
+        return tiles
+    }
     const w = Math.min(tile.place.w, cols)
     // A section that lands narrower reflows its own tiles, which changes its height, so the preview uses the result.
     const [sized] = settleGrid([{ ...tile, place: { ...tile.place, w } }], w, sizeOf)

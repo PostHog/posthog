@@ -178,9 +178,10 @@ export function createDashboardTiming({
                 const endedAt = now()
                 current.pending--
                 current.lastEndedAt = endedAt
-                current.firstResultAt ??= endedAt
                 current.slowestQueryMs = Math.max(current.slowestQueryMs ?? 0, endedAt - startedAt)
-                if (outcome === 'error') {
+                if (outcome === 'success') {
+                    current.firstResultAt ??= endedAt
+                } else if (outcome === 'error') {
                     current.failedQueryCount++
                 }
                 if (current.pending === 0) {

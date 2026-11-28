@@ -66,6 +66,12 @@ describe('timeRanges', () => {
             label: 'Jan 5 – Jan 7',
         },
         {
+            name: 'dates through the end of the last one',
+            time: { from: '2026-01-05', to: '2026-01-07' },
+            label: 'Jan 5 – Jan 7',
+        },
+        { name: 'one date', time: { from: '2026-01-05', to: '2026-01-05' }, label: 'Jan 5' },
+        {
             name: 'hours within one day',
             time: { from: '2026-01-05T09:00:00Z', to: '2026-01-05T13:30:00Z' },
             label: 'Jan 5, 09:00 – 13:30',

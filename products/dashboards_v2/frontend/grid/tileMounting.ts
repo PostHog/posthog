@@ -108,9 +108,10 @@ export function createTileMountScheduler(): TileMountScheduler {
                 }
             } else {
                 waiting.delete(target)
-                if (mounted.delete(target)) {
-                    listeners.get(target)?.(false)
-                }
+                mounted.delete(target)
+                // Told even when this scheduler never mounted it: a tile observed again, such as after an image
+                // capture, can still hold content from before.
+                listeners.get(target)?.(false)
             }
         }
         schedule()

@@ -9,7 +9,7 @@ import type {
 } from '@posthog/quill-charts'
 
 import type { DataFrame } from '../../../query/queryTypes'
-import { fieldValues, timeSeriesFromFrames } from './timeSeriesFrames'
+import { fieldValues, timeOf, timeSeriesFromFrames } from './timeSeriesFrames'
 
 type FieldType = DataFrame['fields'][number]['type']
 
@@ -88,7 +88,7 @@ export function scatterFromFrames(frames: DataFrame[]): { series: ScatterSeries[
     const overTime = frames.some((frame) => fieldsOf(frame, 'number').length < 2)
     const series = frames.map((frame, index) => {
         const [first, second] = fieldsOf(frame, 'number')
-        const xs = overTime ? fieldValues(frame, 'time').map((time) => Date.parse(String(time))) : first.values
+        const xs = overTime ? fieldValues(frame, 'time').map((time) => timeOf(String(time))) : first.values
         const ys = (overTime ? first : second)?.values ?? []
         return {
             key: frame.name ?? `series-${index}`,

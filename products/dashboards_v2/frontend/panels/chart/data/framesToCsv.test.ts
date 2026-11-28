@@ -43,6 +43,11 @@ describe('framesToCsv', () => {
             csv: ['path', `"'=1+1"`, `"'=1+1"`],
         },
         {
+            name: 'stops a cell that starts a formula without an equals sign',
+            frames: [{ fields: [{ name: 'path', type: 'string', values: ['@SUM(1)', '+1', '-1', '\tx'] }] }],
+            csv: ['path', `"'@SUM(1)"`, `"'+1"`, `"'-1"`, `"'\tx"`],
+        },
+        {
             name: 'writes a list cell as JSON, so it cannot run as a formula',
             frames: [{ fields: [{ name: 'paths', type: 'other', values: [['=1+1'], ['=1+1']] }] }],
             csv: ['paths', '"[""=1+1""]"', '"[""=1+1""]"'],

@@ -114,7 +114,9 @@ function sampleFrames({ query, time, legend, filters = [] }: Parameters<RunQuery
     })
     const base = 200 + Math.round(random() * 2000)
     const breakdown = analyticsBreakdownFilter(filters, sampleKind(query))?.breakdown
-    const names = typeof breakdown === 'string' ? (Object.hasOwn(SAMPLE_BREAKDOWN_VALUES, breakdown) ? SAMPLE_BREAKDOWN_VALUES[breakdown] : ['Other']) : seriesNames(query)
+    const breakdownNames = (key: string): string[] =>
+        Object.hasOwn(SAMPLE_BREAKDOWN_VALUES, key) ? SAMPLE_BREAKDOWN_VALUES[key] : ['Other']
+    const names = typeof breakdown === 'string' ? breakdownNames(breakdown) : seriesNames(query)
     const splitByBrowser = breakdown === undefined || breakdown === '$browser'
     const shown = names.length > 1 && splitByBrowser ? names.filter((name) => browser.every((filter) => keepsSeries(filter, name))) : names
     const frames = shown.map(

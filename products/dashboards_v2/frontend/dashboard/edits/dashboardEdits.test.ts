@@ -2,6 +2,7 @@ import { dropIntoGrid, stackTiles } from '../../grid/layout/gridTiles'
 import { type SizeOf, type PanelSize } from '../../panels/core/panelSpec'
 import { type Dashboard, type Tile, gridTabs, isSection } from '../document/dashboardTypes'
 import { allTiles, findTile } from '../document/tileTree'
+import { MAX_SECTION_DEPTH, isDashboardDocument } from '../document/validateDashboard'
 import { applyEdit, settleDashboard, withFolds, withoutTiles } from './dashboardEdits'
 
 const SIZES: Record<string, PanelSize> = {
@@ -75,6 +76,28 @@ describe('dashboardEdits', () => {
         },
     ])('$name', ({ edit, expected }) => {
         expect(allPlaces(applyEdit(nested, edit, sizeOf))).toEqual(expected)
+    })
+
+    it('refuses a section nested deeper than a dashboard can be loaded with', () => {
+        const deepest = Array.from({ length: MAX_SECTION_DEPTH - 1 }, (_, depth) => `s${depth}`).reduceRight<Tile[]>(
+            (tiles, id) => [section(id, 0, 0, 24, tiles)],
+            []
+        )
+        const board = dashboard(deepest)
+        const panel = { type: 'section' as const, title: 'Deeper', tiles: [] }
+        const full = applyEdit(board, { edit: 'addTile', grid: `s${MAX_SECTION_DEPTH - 2}`, panel }, sizeOf)
+        const added = allTiles(full).find((tile) => !allTiles(board).some((other) => other.id === tile.id))
+
+        expect(isDashboardDocument(full)).toBe(true)
+        expect(applyEdit(full, { edit: 'addTile', grid: added!.id, panel }, sizeOf)).toBe(full)
+    })
+
+    it('leaves a tile where it is when dropped on a grid narrower than its minimum width', () => {
+        const chart: Tile = { id: 'chart', place: { x: 0, y: 0, w: 6, h: 8 }, panel: { type: 'line', config: {} } }
+        const board = dashboard([chart, section('narrow', 12, 0, 3, [])])
+        const edit = { edit: 'moveTile' as const, id: 'chart', grid: 'narrow', x: 0, y: 0 }
+
+        expect(allPlaces(applyEdit(board, edit, sizeOf))).toEqual(allPlaces(board))
     })
 
     it('keeps fields of a place it does not know when it settles the grid', () => {

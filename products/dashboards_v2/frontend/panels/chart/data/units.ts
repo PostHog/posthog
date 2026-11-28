@@ -48,6 +48,8 @@ const fitsPercent = (value: number): boolean => Math.abs(value) <= RATIO_AS_PERC
 
 const ratio = (value: number, asPercent: boolean): string => (asPercent ? `${compact(value * 100)}%` : compact(value))
 
+const BINARY_UNIT_BYTES: Record<string, number> = { KiBy: 1024, MiBy: 1024 ** 2, GiBy: 1024 ** 3 }
+
 /** Format one value with a UCUM unit. `unit` is the raw OTel string; `undefined`
  * or an unknown unit falls back to a compact number. */
 export function formatUnitValue(value: number, unit: string | undefined): string {
@@ -57,10 +59,9 @@ export function formatUnitValue(value: number, unit: string | undefined): string
     if (unit === 'By') {
         return bytes(value, 1024)
     }
-    if (unit === 'KiBy' || unit === 'MiBy' || unit === 'GiBy') {
+    if (unit in BINARY_UNIT_BYTES) {
         // OTel sometimes prefixes a binary unit directly; normalise through bytes.
-        const factor = unit === 'KiBy' ? 1024 : unit === 'MiBy' ? 1024 ** 2 : 1024 ** 3
-        return bytes(value * factor, 1024)
+        return bytes(value * BINARY_UNIT_BYTES[unit], 1024)
     }
     if (unit === 's') {
         return seconds(value)

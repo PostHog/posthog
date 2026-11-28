@@ -44,7 +44,7 @@ import { TileSlideshow } from '../../tiles/TileSlideshow'
 import { useDashboardImage } from '../actions/useDashboardImage'
 import { useDashboardRefresh } from '../actions/useDashboardRefresh'
 import { type Dashboard, GRID, activeGridTab } from '../document/dashboardTypes'
-import { everyTile } from '../document/tileTree'
+import { allTiles, everyTile } from '../document/tileTree'
 import { withFolds } from '../edits/dashboardEdits'
 import { useUndoShortcut } from '../edits/useUndoShortcut'
 import { type DashboardLoadTrigger, createDashboardTiming } from '../timing/dashboardTiming'
@@ -140,6 +140,14 @@ function DashboardViewContent({ header, surface, ...props }: DashboardViewProps)
         (id: string, collapsed: boolean) => setFolds((previous) => ({ ...previous, [id]: collapsed })),
         []
     )
+    // A new section can get the id of a removed one, and must not take over its fold.
+    useEffect(() => {
+        setFolds((previous) => {
+            const ids = new Set(allTiles(controller.dashboard).map((tile) => tile.id))
+            const kept = Object.entries(previous).filter(([id]) => ids.has(id))
+            return kept.length === Object.keys(previous).length ? previous : Object.fromEntries(kept)
+        })
+    }, [controller.dashboard])
     const rootRef = useRef<HTMLDivElement>(null)
     const [slideshowTileId, showSlideshow] = useState<string | null>(null)
     const refresh = useDashboardRefresh(controller.refresh)

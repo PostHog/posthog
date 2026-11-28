@@ -8,8 +8,18 @@ import type { PanelType } from './panelDefinition'
 import { PanelHostContext } from './panelHostContext'
 import { type SavedPanel } from './panelSchema'
 
-// A panel that suspends before its query starts would otherwise let the load end without it.
-function HoldsLoad(): null {
+export function PanelCrashed(): JSX.Element {
+    return (
+        <PanelMessage
+            problem="error"
+            title="This panel hit an error"
+            description="Refresh the page, and if it keeps happening contact support."
+        />
+    )
+}
+
+/** Keeps the dashboard load open while code downloads. A fallback that suspends would otherwise let the load end without its panel. */
+export function HoldsLoad(): null {
     const { timing } = useContext(PanelHostContext)
     useLayoutEffect(() => timing?.hold(), [timing])
     return null
@@ -113,17 +123,7 @@ export const PanelView = memo(function PanelView({
     const Loading: ComponentType<{ panel: SavedPanel }> = definition.Loading ?? PanelLoading
     // One panel that throws or suspends shows its own state, and the rest of the dashboard keeps working.
     return (
-        <ErrorBoundary
-            resetKey={panel}
-            tag={PANEL_ERROR_TAG}
-            fallback={
-                <PanelMessage
-                    problem="error"
-                    title="This panel hit an error"
-                    description="Refresh the page, and if it keeps happening contact support."
-                />
-            }
-        >
+        <ErrorBoundary resetKey={panel} tag={PANEL_ERROR_TAG} fallback={<PanelCrashed />}>
             <Suspense
                 fallback={
                     <>

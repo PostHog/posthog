@@ -67,9 +67,8 @@ export function zoomedTimeRange(
     }
     const next = Date.parse(labels[endIndex + 1] ?? '')
     const previous = Date.parse(labels[endIndex - 1] ?? '')
-    const end =
-        bucketEnd(lastStart, interval) ??
-        (Number.isNaN(next) ? lastStart + (Number.isNaN(previous) ? DAY_MS : lastStart - previous) : next)
+    const lastBucketMs = Number.isNaN(previous) ? DAY_MS : lastStart - previous
+    const end = bucketEnd(lastStart, interval) ?? (Number.isNaN(next) ? lastStart + lastBucketMs : next)
     // Date labels stay dates, so the range reads in the project's timezone rather than as UTC midnight.
     if (!labels[startIndex].includes('T')) {
         return { from: labels[startIndex], to: new Date(end - DAY_MS).toISOString().slice(0, 10) }

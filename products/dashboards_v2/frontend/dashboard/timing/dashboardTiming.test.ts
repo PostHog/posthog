@@ -21,11 +21,11 @@ describe('createDashboardTiming', () => {
         t.begin('load')
         const first = t.started(false)
         const second = t.started(true)
-        clock = 40
-        first('success')
+        clock = 20
+        first('error')
         settled = false
-        clock = 90
-        second('error')
+        clock = 40
+        second('success')
         jest.advanceTimersByTime(500)
         expect(reports).toEqual([])
 

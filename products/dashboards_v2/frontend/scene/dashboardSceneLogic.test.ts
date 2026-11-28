@@ -56,5 +56,9 @@ describe('dashboardSceneLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
 
         expect(router.values.searchParams.tab).toBe('main')
+
+        router.actions.push('/dashboard-v2/b1')
+
+        expect(logic.values.activeTabId).toBeNull()
     })
 })

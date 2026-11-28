@@ -55,17 +55,14 @@ function batchTarget(request: QueryRequest, index: number): QueryBatchRequestApi
     const { query, legend } = request
     const time = request.time ?? UNTIL_BATCH_ACCEPTS_NO_TIME
     const refId = String(index)
-    const target: QueryBatchRequestApi['queries'][number]['target'] =
-        query.language === 'query'
-            ? {
-                  refId,
-                  language: 'query',
-                  // A `date_from` in its filters, even null, keeps the range saved in the query instead of `time`.
-                  query: JSON.stringify(
-                      request.time ? query.query : { query: query.query, filters: { date_from: null } }
-                  ),
-              }
-            : { refId, language: query.language, query: query.query }
+    let target: QueryBatchRequestApi['queries'][number]['target']
+    if (query.language === 'query') {
+        // A `date_from` in its filters, even null, keeps the range saved in the query instead of `time`.
+        const node = request.time ? query.query : { query: query.query, filters: { date_from: null } }
+        target = { refId, language: 'query', query: JSON.stringify(node) }
+    } else {
+        target = { refId, language: query.language, query: query.query }
+    }
     return {
         target: legend ? { ...target, legend } : target,
         time: { from: time.from, to: time.to },

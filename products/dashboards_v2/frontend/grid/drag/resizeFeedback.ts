@@ -20,12 +20,16 @@ function give(overshootPx: number, bothWays: boolean): number {
     return bothWays ? Math.sign(overshootPx) * squeeze(Math.abs(overshootPx)) : squeeze(overshootPx)
 }
 
+const pendingResets = new WeakMap<HTMLElement, () => void>()
+
 /**
  * Shows that a tile being resized has reached its minimum size, or cannot change height at all. An overlay over the
  * tile is outlined, and while the pointer keeps pushing past the edge, it gives way a little toward the pointer, like
  * a rubber band. The overlay is drawn over the tile, so the tile and the layout never move.
  */
 export function showResizeFeedback(tile: HTMLElement, item: LayoutItem, handle: string, event: Event): void {
+    // A reset still pending from the last resize would clear this one's feedback partway through.
+    pendingResets.get(tile)?.()
     const atMinWidth = item.w <= (item.minW ?? 1)
     const atMinHeight = item.h <= (item.minH ?? 1)
     const fixedHeight = atMinHeight && item.maxH !== undefined && item.h >= item.maxH
@@ -72,15 +76,20 @@ export function endResizeFeedback(tile: HTMLElement | null): void {
     }
     // The tile has no transition while it is resizing. Waiting two frames lets the grid drop its resizing class first,
     // so the reset animates instead of jumping.
-    requestAnimationFrame(() =>
-        requestAnimationFrame(() => {
+    let handle = requestAnimationFrame(() => {
+        handle = requestAnimationFrame(() => {
             for (const side of ['top', 'right', 'bottom', 'left']) {
                 tile.style.setProperty(`--dv2-band-${side}`, '0px')
             }
             tile.style.setProperty('--dv2-squeeze-x', '1')
             tile.style.setProperty('--dv2-squeeze-y', '1')
             // The spring back takes 300ms in TileGrid.css, so the overlay stays until then.
-            setTimeout(() => tile.removeAttribute('data-dv2-at-minimum'), 300)
+            const timer = setTimeout(() => {
+                pendingResets.delete(tile)
+                tile.removeAttribute('data-dv2-at-minimum')
+            }, 300)
+            pendingResets.set(tile, () => clearTimeout(timer))
         })
-    )
+    })
+    pendingResets.set(tile, () => cancelAnimationFrame(handle))
 }

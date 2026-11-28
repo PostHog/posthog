@@ -51,8 +51,8 @@ export interface dashboardSceneLogicActions {
         edit: DashboardEdit
         view: View | undefined
     }
-    setActiveTab: (tabId: string) => {
-        tabId: string
+    setActiveTab: (tabId: string | null) => {
+        tabId: string | null
     }
 }
 
@@ -82,7 +82,7 @@ export const dashboardSceneLogic = kea<dashboardSceneLogicType>([
     }),
     actions({
         applyDashboardEdit: (edit: DashboardEdit, view?: View) => ({ edit, view }),
-        setActiveTab: (tabId: string) => ({ tabId }),
+        setActiveTab: (tabId: string | null) => ({ tabId }),
     }),
     reducers({
         activeTabId: [null as string | null, { setActiveTab: (_, { tabId }) => tabId }],
@@ -112,18 +112,25 @@ export const dashboardSceneLogic = kea<dashboardSceneLogicType>([
         },
     })),
     actionToUrl(({ values }) => ({
-        setActiveTab: ({ tabId }) => [
-            router.values.location.pathname,
-            // While the board loads there is no tab to check the id against, so the requested one stays in the URL.
-            { ...router.values.searchParams, tab: values.dashboard ? values.activeTab?.id : tabId },
-            router.values.hashParams,
-            { replace: true },
-        ],
+        setActiveTab: ({ tabId }) => {
+            if (tabId === null) {
+                return
+            }
+            return [
+                router.values.location.pathname,
+                // While the board loads there is no tab to check the id against, so the requested one stays in the URL.
+                { ...router.values.searchParams, tab: values.dashboard ? values.activeTab?.id : tabId },
+                router.values.hashParams,
+                { replace: true },
+            ]
+        },
     })),
     urlToAction(({ actions, values }) => ({
         '*': (_, searchParams) => {
-            if (searchParams.tab && searchParams.tab !== values.activeTabId) {
-                actions.setActiveTab(searchParams.tab)
+            // A link to the board with no tab shows its first tab, not the one that was open.
+            const tabId = searchParams.tab ?? null
+            if (tabId !== values.activeTabId) {
+                actions.setActiveTab(tabId)
             }
         },
     })),

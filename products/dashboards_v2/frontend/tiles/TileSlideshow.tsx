@@ -32,6 +32,10 @@ export function TileSlideshow(): JSX.Element {
             return
         }
         const onKeyDown = (event: KeyboardEvent): void => {
+            const { target } = event
+            if (target instanceof HTMLElement && (target.isContentEditable || target.matches('input, textarea'))) {
+                return
+            }
             if (event.key === 'ArrowLeft' && previous) {
                 showSlideshow(previous)
             } else if (event.key === 'ArrowRight' && next) {

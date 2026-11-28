@@ -17,6 +17,8 @@ export type VizSpec<Options = unknown> = {
     size: PanelSize
     /** The shape of `config.viz.options`. Missing options are `{}`. */
     optionsSchema: z.ZodType<Options>
+    /** Filter types this kind of chart never takes, such as a breakdown on a chart of one number. */
+    ignoredFilterTypes?: string[]
 }
 
 /**

@@ -34,10 +34,6 @@ function cardLook(
     }
 }
 
-/**
- * One panel in its card: header, body and footer. It reads no dashboard, so a page can render a single panel on
- * its own. Inside a dashboard, `DashboardContentTile` passes both kinds of actions.
- */
 function heightAnimates(): boolean {
     return (
         typeof CSS !== 'undefined' &&
@@ -46,6 +42,10 @@ function heightAnimates(): boolean {
     )
 }
 
+/**
+ * One panel in its card: header, body and footer. It reads no dashboard, so a page can render a single panel on
+ * its own. Inside a dashboard, `DashboardContentTile` passes both kinds of actions.
+ */
 export function ContentTile({
     panel,
     panels,

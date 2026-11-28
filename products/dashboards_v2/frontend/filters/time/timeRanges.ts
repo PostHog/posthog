@@ -20,6 +20,7 @@ export const DEFAULT_QUICK_RANGES: QuickRange[] = [
 
 const UNIT_SECONDS: Record<string, number> = { s: 1, m: 60, h: 3600, d: 86_400, w: 604_800 }
 const HAS_OFFSET = /(Z|[+-]\d{2}:?\d{2})$/i
+const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/
 
 /**
  * A point of a saved range as a date, resolved the way the query batch API resolves it: `now-` minus a fixed span,
@@ -43,6 +44,12 @@ function resolve(point: string, timezone?: string): Dayjs {
     return timezone && !HAS_OFFSET.test(point) ? dayjs.tz(point, timezone) : dayjs(point)
 }
 
+// The query batch API reads a date `to` through the end of that day, so the range ends at the next midnight.
+function resolveEnd(point: string, timezone?: string): Dayjs {
+    const end = resolve(point, timezone)
+    return DATE_ONLY.test(point) ? end.add(1, 'day') : end
+}
+
 /** The presets as quill's picker takes them. Ids start at 1, because 0 is the picker's custom range. */
 export function pickerRanges(quick: QuickRange[], timezone?: string): DateTimeRange[] {
     return quick.map(({ label, from }, index) => ({
@@ -56,7 +63,7 @@ export function toPickerValue(time: TimeRange, quick: QuickRange[], timezone?: s
     const index = time.to === 'now' ? quick.findIndex((range) => range.from === time.from) : -1
     return {
         start: resolve(time.from, timezone).toDate(),
-        end: resolve(time.to, timezone).toDate(),
+        end: resolveEnd(time.to, timezone).toDate(),
         range: index >= 0 ? pickerRanges(quick, timezone)[index] : CUSTOM_RANGE,
     }
 }
@@ -93,7 +100,7 @@ export function describeTimeRange(time: TimeRange, quick: QuickRange[], timezone
         return `Last ${amount} ${UNIT_NAMES[relative[2]]}${amount === 1 ? '' : 's'}`
     }
     const start = resolve(time.from, timezone)
-    const end = resolve(time.to, timezone)
+    const end = resolveEnd(time.to, timezone)
     // An end at midnight closes the day before, so a range of whole days names its last day.
     if (isMidnight(start) && isMidnight(end)) {
         const lastDay = end.subtract(1, 'day')

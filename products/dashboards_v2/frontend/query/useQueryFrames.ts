@@ -59,7 +59,8 @@ export function carryOverResults(
 ): QueryFrames[] {
     return keys.map((key, index) => {
         const at = previousKeys.indexOf(key)
-        const match = at >= 0 ? previous[at] : keys.length === previousKeys.length ? previous[index] : undefined
+        const atSamePosition = keys.length === previousKeys.length ? previous[index] : undefined
+        const match = at >= 0 ? previous[at] : atSamePosition
         return match ? afterRequestChange(match, fresh(key)) : fresh(key)
     })
 }

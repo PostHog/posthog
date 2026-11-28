@@ -52,6 +52,12 @@ describe('savedDashboardLogic', () => {
 
     afterEach(() => logic?.unmount())
 
+    const until = async (done: () => boolean): Promise<void> => {
+        while (!done()) {
+            await new Promise((resolve) => setTimeout(resolve, 0))
+        }
+    }
+
     const useBoard = (respond: (save: Save) => [number, unknown]): void => {
         let stored: Board = {
             ...board(1, 'Mine'),
@@ -178,9 +184,25 @@ describe('savedDashboardLogic', () => {
 
         retitle('Mine, edited')
         logic.unmount()
-        await new Promise((resolve) => setTimeout(resolve, 0))
+        await until(() => saves.length === 1)
 
         expect(saves.map((save) => save.spec.title)).toEqual(['Mine, edited'])
+    })
+
+    it('saves an edit made during a save when the scene closes before that save returns', async () => {
+        useBoard((save) => [200, { ...board(save.base_version + 1, save.spec.title), spec: save.spec }])
+        await expectLogic(logic).toFinishAllListeners()
+
+        retitle('First')
+        await expectLogic(logic).toDispatchActions(['saveStarted'])
+        retitle('Second')
+        logic.unmount()
+        await until(() => saves.length === 2)
+
+        expect(saves.map((save) => [save.base_version, save.spec.title])).toEqual([
+            [1, 'First'],
+            [2, 'Second'],
+        ])
     })
 
     it('makes a board managed outside PostHog read-only', async () => {
