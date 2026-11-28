@@ -22,6 +22,7 @@ from products.error_tracking.backend.facade.contracts import LifecycleFilterOutc
 from products.error_tracking.backend.logic.assignees import resolve_current_assignee
 from products.error_tracking.backend.temporal.alerts.dispatch import start_alert_delivery_workflow
 from products.error_tracking.backend.temporal.alerts.filter_evaluation import evaluate_lifecycle_filters
+from products.error_tracking.backend.temporal.alerts.lifecycle_extras import FORWARDED_EXTRA_KEYS
 from products.error_tracking.backend.temporal.alerts.types import AlertDeliveryWorkflowInputs
 from products.error_tracking.backend.temporal.lifecycle.event_properties import (
     EventPropertiesIssueSnapshot,
@@ -130,7 +131,7 @@ def alert_delivery_inputs(
     extra = {
         key: str(value)
         for key, value in (extra_properties or {}).items()
-        if key in ("computed_baseline", "current_bucket_value") and value is not None
+        if key in FORWARDED_EXTRA_KEYS and value is not None
     }
     return AlertDeliveryWorkflowInputs.build(
         notification_id=inputs.notification_id,

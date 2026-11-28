@@ -17,6 +17,7 @@ from typing import Any
 import structlog
 
 from products.error_tracking.backend.facade.contracts import LifecycleFilterOutcome
+from products.error_tracking.backend.temporal.alerts.lifecycle_extras import EVENT_EXTRA_KEYS, NUMERIC_EXTRA_KEYS
 from products.error_tracking.backend.temporal.alerts.types import AlertDeliveryWorkflowInputs
 
 from common.hogvm.python.execute import execute_bytecode
@@ -95,8 +96,13 @@ def evaluate_lifecycle_filters(
 
     # The producers always emit these keys, null included, and on the CDP plane a null
     # lifecycle value shadows the exception's own property; mirror that so both planes agree.
+    event_extra_keys = EVENT_EXTRA_KEYS.get(inputs.event, ())
     lifecycle_properties: dict[str, object] = {
-        **{key: _coerce_numeric(value) for key, value in (inputs.extra or {}).items()},
+        **dict.fromkeys(event_extra_keys),
+        **{
+            key: _coerce_numeric(value) if key in NUMERIC_EXTRA_KEYS else value
+            for key, value in (inputs.extra or {}).items()
+        },
         "name": inputs.issue_name,
         "description": inputs.issue_description,
         "issue_description": inputs.issue_description,
@@ -116,7 +122,7 @@ def evaluate_lifecycle_filters(
     if exception_properties is None:
         # Conservative on purpose: one OR'd branch that needs the exception makes the
         # whole filter undecidable, even if a sibling branch would match on its own.
-        decidable_keys = LIFECYCLE_PROPERTY_KEYS | (inputs.extra or {}).keys()
+        decidable_keys = LIFECYCLE_PROPERTY_KEYS | (inputs.extra or {}).keys() | set(event_extra_keys)
         unavailable_keys = _filter_property_keys(filters, inputs.event) - decidable_keys
         if unavailable_keys:
             logger.info(
