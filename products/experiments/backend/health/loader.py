@@ -1,5 +1,5 @@
 from dataclasses import replace
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 
 from django.utils import timezone
@@ -31,7 +31,6 @@ from products.experiments.backend.health.pause_history import load_pause_history
 from products.experiments.backend.health.primary_metric import load_primary_metric
 from products.experiments.backend.health.registry import EXPERIMENT_HEALTH_CHECKS, evaluate, not_checked_health
 from products.experiments.backend.health.skips import NOT_ON_FLAG_RULE
-from products.experiments.backend.hogql_queries.base_query_utils import experiment_window_end
 from products.experiments.backend.hogql_queries.cuped_config import activation_blocks_cuped, metric_supports_cuped
 from products.experiments.backend.hogql_queries.utils import FrequentistSettings
 from products.experiments.backend.metric_calculation.config import (
@@ -42,12 +41,19 @@ from products.experiments.backend.metric_calculation.config import (
 from products.experiments.backend.metric_resolution import build_metric, get_metrics_for_calculation
 from products.experiments.backend.models.experiment import Experiment
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
-from products.experiments.backend.recalculation.admission import STALE_REFRESH_MIN_RESULT_AGE
+from products.experiments.backend.recalculation.admission import results_stale_before
 from products.feature_flags.backend.facade.filters import (
     condition_aggregation,
     condition_rollout_percentage,
     pinned_variant,
 )
+
+# The exposure answer and the scan of the flag's calls are cached for up to a day, and the scheduled recalculation
+# refreshes results once a day. A check is out of date only when its data is older than the stale-results rule allows
+# by more than this, so an input that waits for its next refresh doesn't count as out of date. The help text of
+# `stale_before` in presentation/serializers.py states the sum of this and STALE_REFRESH_MIN_RESULT_AGE, so change it
+# with this.
+_REFRESH_INTERVAL = timedelta(days=1)
 
 
 def evaluate_experiment_health(
@@ -78,12 +84,13 @@ def evaluate_experiment_health(
 
 
 def _stale_before(experiment: Experiment, now: datetime) -> datetime | None:
-    """The `as_of` before which a check is out of date: STALE_REFRESH_MIN_RESULT_AGE before the end of the window, the
-    rule that refreshes stale results on the results page. None before launch and while paused, because no new data
-    arrives then."""
+    """The `as_of` before which a check is out of date: _REFRESH_INTERVAL before the time before which results are
+    stale. None for a draft, which has no data yet, and while paused, because neither the results page nor the
+    scheduled recalculation refreshes a paused experiment. The results page skips the same statuses in
+    STALE_REFRESH_STATUSES."""
     if experiment.is_draft or experiment.is_paused:
         return None
-    return experiment_window_end(experiment, now) - STALE_REFRESH_MIN_RESULT_AGE
+    return results_stale_before(experiment, now) - _REFRESH_INTERVAL
 
 
 def _launched_now(experiment: Experiment, ctx: HealthContext) -> HealthContext:

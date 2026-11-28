@@ -1316,12 +1316,12 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
 
     @parameterized.expand(
         [
-            ("running", {"start_date": datetime(2026, 1, 2, tzinfo=UTC)}, True, "2026-01-05T00:00:00Z"),
+            ("running", {"start_date": datetime(2026, 1, 2, tzinfo=UTC)}, True, "2026-01-04T00:00:00Z"),
             (
                 "stopped",
                 {"start_date": datetime(2025, 12, 20, tzinfo=UTC), "end_date": datetime(2026, 1, 2, 12, tzinfo=UTC)},
                 True,
-                "2026-01-02T00:00:00Z",
+                "2026-01-01T00:00:00Z",
             ),
             ("draft", {}, True, None),
             ("paused", {"start_date": datetime(2026, 1, 2, tzinfo=UTC)}, False, None),

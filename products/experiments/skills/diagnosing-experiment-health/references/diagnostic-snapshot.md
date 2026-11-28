@@ -76,6 +76,9 @@ Read its health before the values below:
   A check that is `not_applicable` or `not_checked` carries a `reason` and did not judge the experiment: do not report it as passed.
   The list holds the checks that read the exposures once the experiment has started, and it can hold checks of the configuration too.
   A check that is not in the list did not run.
+- **`as_of`** on each check — the end of the data that the check read: the end of the counted exposures, the window end of the stored metric results, the time of the scan of the flag calls, or the time of the request for a check that reads only settings.
+  A check whose `as_of` is earlier than the top-level `stale_before` is out of date: say how old its data is before you rely on its status.
+  `stale_before` is absent for a draft and for a paused experiment.
 
 Call it when the diagnosis needs one of the values below.
 A split that the stored results already show as close to the configured one, on a complaint that is not about bias, does not need it.

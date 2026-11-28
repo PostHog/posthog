@@ -91,7 +91,8 @@ const POLL_REQUEST_TIMEOUT_MS = 15 * 1000
 const STALE_RESULTS_THRESHOLD_HOURS = 12
 /**
  * A paused experiment collects no new data. An exposure-frozen one still collects metric events. A stopped one needs
- * one more run when its results stop well before the end date.
+ * one more run when its results stop well before the end date. `_stale_before` in
+ * products/experiments/backend/health/loader.py skips the same statuses, so change both.
  */
 const STALE_REFRESH_STATUSES: ReadonlySet<ExperimentStatus> = new Set([
     ExperimentStatus.Running,
@@ -231,7 +232,7 @@ const recalculationHasGap = (experiment: Experiment, recalculation: Recalculatio
 
 /**
  * Results that stop more than the threshold before the window end: now for a running experiment, the end date for a
- * stopped one. `_results_are_stale` in products/experiments/backend/recalculation/admission.py repeats this rule, so change both.
+ * stopped one. `results_stale_before` in products/experiments/backend/recalculation/admission.py repeats this rule, so change both.
  */
 const resultsAreStale = (experiment: Experiment, recalculation: RecalculationPayload): boolean => {
     if (

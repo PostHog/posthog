@@ -110,6 +110,8 @@ class RecalculationWorkflowNotStarted(Exception):
 
 # Mirrors STALE_RESULTS_THRESHOLD_HOURS in experimentMetricsLogic.ts. The frontend judges staleness with the
 # browser clock, so this server-side check stops a client clock that runs ahead from recalculating on every visit.
+# The help text of `stale_before` in presentation/serializers.py states the sum of this and _REFRESH_INTERVAL in
+# health/loader.py, so change it with this.
 STALE_REFRESH_MIN_RESULT_AGE = timedelta(hours=12)
 
 # `is_existing=True` reuse path — counts how often the idempotency guard saves us a workflow start.
@@ -403,7 +405,12 @@ def _request_recalculation(
         return payloads.build_job_payload(recalc, is_existing=False)
 
 
+def results_stale_before(experiment: Experiment, now: datetime) -> datetime:
+    """The end of the data before which results are stale: STALE_REFRESH_MIN_RESULT_AGE before the window end, which is
+    now for a running experiment and the end date for a stopped one. Mirrors resultsAreStale in
+    experimentMetricsLogic.ts. The health endpoint's `stale_before` starts from it."""
+    return experiment_window_end(experiment, now) - STALE_REFRESH_MIN_RESULT_AGE
+
+
 def _results_are_stale(experiment: Experiment, query_to: datetime) -> bool:
-    """Whether results stop at least STALE_REFRESH_MIN_RESULT_AGE before the window end, which is now for a running
-    experiment and the end date for a stopped one. Mirrors resultsAreStale in experimentMetricsLogic.ts."""
-    return experiment_window_end(experiment, timezone.now()) - query_to >= STALE_REFRESH_MIN_RESULT_AGE
+    return query_to <= results_stale_before(experiment, timezone.now())

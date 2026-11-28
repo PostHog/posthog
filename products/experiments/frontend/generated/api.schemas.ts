@@ -3255,7 +3255,7 @@ export interface ExperimentHealthApi {
     /** The settings of the experiment's flag that decide which variant a user gets. Null when the experiment has no flag. */
     setup?: ExperimentHealthSetupApi | null
     /**
-     * A check whose `as_of` is earlier than this time is out of date: its data ends more than 12 hours before the end of the experiment's window, which is now, or the end date of an ended experiment. It applies to the checks here and to the exposure query's `health_checks`. Null for a draft and a paused experiment, which collect no new data.
+     * A check whose `as_of` is earlier than this time is out of date: its data ends more than 36 hours before the end of the experiment's window, which is now, or the end date of an ended experiment. That is the 12 hours after which the results page refreshes results, plus a day, because the exposure counts and the scan of the flag's calls are cached for up to a day. It applies to the checks here and to the exposure query's `health_checks`. Null for a draft, which has no data yet, and for a paused experiment, whose results don't refresh on their own while it's paused.
      * @nullable
      */
     stale_before?: string | null
