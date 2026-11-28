@@ -12,6 +12,7 @@ from products.messaging.backend.models import message_preferences as preference_
 from products.messaging.backend.models.message_preferences import MessageRecipientPreference
 from products.messaging.backend.services import (
     customerio_sync_service,
+    erasure as erasure_service,
     preferences as preferences_service,
     unsubscribe_metrics,
 )
@@ -102,6 +103,19 @@ def remove_opt_out(
     except preferences_service.CategoryNotFound as e:
         raise MessageCategoryNotFound("Category not found") from e
     return ChangedPreferences(preferences=_to_contract(row), created=created)
+
+
+ErasedRecipient = erasure_service.ErasedRecipient
+PreferenceLinkRevoked = erasure_service.PreferenceLinkRevoked
+
+
+def erase_recipient(team_id: int, identifier: str, confirm_complaints: bool) -> ErasedRecipient:
+    """Hard-delete the address's preference and suppression rows, in any case, and revoke its older preference links.
+
+    Raises the suppression facade's ComplaintConfirmationRequired, and deletes nothing, when the address is
+    suppressed for a spam complaint and `confirm_complaints` is false. Customer.io is not told.
+    """
+    return erasure_service.erase_recipient(team_id, identifier, confirm_complaints)
 
 
 class TopicsNotFound(Exception):
@@ -204,8 +218,15 @@ def marketing_categories(team_id: int) -> list[CategoryOption]:
     ]
 
 
-def get_or_create_recipient(team_id: int, identifier: str) -> RecipientPreferences:
-    return _to_contract(preferences_service.get_or_create_recipient(team_id, identifier))
+def get_or_create_recipient(team_id: int, identifier: str, *, link_issued_at: datetime | None) -> RecipientPreferences:
+    """The recipient a preference link minted at `link_issued_at` names, created when missing.
+
+    Raises PreferenceLinkRevoked, and creates nothing, when the team erased the address after the link was minted.
+    """
+    row = erasure_service.write_through_link(
+        team_id, identifier, link_issued_at, lambda: preferences_service.get_or_create_recipient(team_id, identifier)
+    )
+    return _to_contract(row)
 
 
 def recipient_preferences(team_id: int, identifier: str) -> dict[str, Any] | None:
@@ -220,12 +241,22 @@ def transition_preferences(
     build: Callable[[dict[str, Any]], dict[str, Any]],
     *,
     touch_updated_at: bool,
+    link_issued_at: datetime | None,
 ) -> dict[str, Any]:
     """Replace the recipient's preferences with `build(stored)` under a row lock, creating the row when it is missing.
 
     Returns the stored preferences it replaced. `touch_updated_at=False` writes only the preferences column.
+    Raises PreferenceLinkRevoked, and writes nothing, when the team erased the address after the preference link
+    asking for the change was minted at `link_issued_at`.
     """
-    return preferences_service.transition_preferences(team_id, identifier, build, touch_updated_at=touch_updated_at)
+    return erasure_service.write_through_link(
+        team_id,
+        identifier,
+        link_issued_at,
+        lambda: preferences_service.transition_preferences(
+            team_id, identifier, build, touch_updated_at=touch_updated_at
+        ),
+    )
 
 
 def sync_to_customerio(team_id: int, identifier: str, preferences: dict[str, Any]) -> None:

@@ -130,7 +130,7 @@ from products.feature_flags.backend.tasks import (
 from products.legal_documents.backend.facade.tasks import reconcile_pending_legal_documents
 from products.logs.backend.facade.tasks import logs_alert_events_cleanup_task
 from products.managed_warehouse.backend.facade.tasks import push_all_warehouse_member_teams
-from products.messaging.backend.facade.tasks import close_stale_provider_import_runs
+from products.messaging.backend.facade.tasks import close_stale_provider_import_runs, delete_expired_recipient_erasures
 from products.metrics.backend.facade.tasks import schedule_metrics_precompute_fills
 from products.notebooks.backend.facade.tasks import cleanup_widget_snapshots
 from products.product_analytics.backend.facade.tasks import expire_agent_insight_reads
@@ -309,6 +309,12 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
     add_periodic_task_with_expiry(sender, crontab(minute="37"), expire_datasets.s(), name="expire unused datasets")
     add_periodic_task_with_expiry(
         sender, crontab(minute="41"), close_stale_provider_import_runs.s(), name="close stale provider import runs"
+    )
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(hour="4", minute="23"),
+        delete_expired_recipient_erasures.s(),
+        name="delete expired recipient erasures",
     )
     # Precomputed metrics for dashboard tiles: fill forward, backfill a day, drop what is past retention.
     add_periodic_task_with_expiry(

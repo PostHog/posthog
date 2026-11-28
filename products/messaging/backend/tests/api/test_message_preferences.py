@@ -1,12 +1,16 @@
 import json
+import time
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
+import time_machine
 from posthog.test.base import APIBaseTest, BaseTest
 from unittest.mock import patch
 
 from django.test import Client, override_settings
 from django.urls import reverse
 
+import jwt
 import responses
 from bs4 import BeautifulSoup
 from parameterized import parameterized
@@ -21,6 +25,7 @@ from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.settings.ingestion import CAPTURE_INTERNAL_URL, CAPTURE_V1_INTERNAL_ENDPOINT
 
+from products.messaging.backend.facade.preferences import erase_recipient
 from products.messaging.backend.models.message_category import MessageCategory, MessageCategoryType
 from products.messaging.backend.models.message_preferences import (
     ALL_MESSAGE_PREFERENCE_CATEGORY_ID,
@@ -28,6 +33,7 @@ from products.messaging.backend.models.message_preferences import (
     MessageRecipientPreference,
     PreferenceStatus,
 )
+from products.messaging.backend.models.message_suppression import MessageSuppression, SuppressionSource
 
 SEND_CLAIMS = {
     "app_source_id": "flow-1",
@@ -480,6 +486,63 @@ class TestMessagePreferencesViews(BaseTest):
         self.assertEqual(
             self.recipient.get_all_preferences()[ALL_MESSAGE_PREFERENCE_CATEGORY_ID], PreferenceStatus.OPTED_OUT
         )
+
+    @parameterized.expand(
+        [
+            (entry_point, minted, iat_offset_seconds, expected_status)
+            for entry_point in ("page_view", "one_click_unsubscribe", "save")
+            for minted, iat_offset_seconds, expected_status in (
+                ("before_erase", -60, 400),
+                ("same_second_as_erase", 0, 400),
+                ("after_erase", 60, 200),
+            )
+        ]
+    )
+    @patch("posthog.plugins.plugin_server_api.internal_requests.get")
+    def test_erase_revokes_links_minted_before_it(
+        self, entry_point, _minted, iat_offset_seconds, expected_status, mock_plugin_server_get
+    ):
+        erased_at = datetime(2026, 3, 2, 12, 0, 0, tzinfo=UTC)
+        token = jwt.encode(
+            {
+                "team_id": self.team.id,
+                "identifier": f"\u00a0{self.recipient.identifier}",
+                "aud": "posthog:messaging:subscription_preferences",
+                "iat": int(erased_at.timestamp()) + iat_offset_seconds,
+            },
+            "test-signing-key",
+            algorithm="HS256",
+        )
+
+        def plugin_server_verdict(url: str, **_kwargs):
+            submitted = url.rsplit("/", 1)[-1]
+            if submitted != token:
+                return mock_response(400, {"error": "Invalid token"})
+            claims = jwt.decode(submitted, options={"verify_signature": False})
+            if time.time() - claims["iat"] >= 60 * 24 * 3600:
+                return mock_response(400, {"error": "Invalid token"})
+            return mock_response(200, {"valid": True, "team_id": claims["team_id"], "identifier": claims["identifier"]})
+
+        mock_plugin_server_get.side_effect = plugin_server_verdict
+        with time_machine.travel(erased_at, tick=False):
+            erase_recipient(self.team.id, self.recipient.identifier.upper(), confirm_complaints=False)
+
+        page_url = reverse("message_preferences", kwargs={"token": token})
+        with time_machine.travel(erased_at + timedelta(minutes=5), tick=False):
+            if entry_point == "page_view":
+                response = self.client.get(page_url)
+            elif entry_point == "one_click_unsubscribe":
+                response = self.client.post(page_url + "?one_click_unsubscribe=1", {"List-Unsubscribe": "One-Click"})
+            else:
+                response = self.client.post(
+                    reverse("message_preferences_update"),
+                    {"token": token, "preferences[]": [f"{self.category.id}:true"]},
+                )
+
+        self.assertEqual(response.status_code, expected_status)
+        if expected_status == 400:
+            self.assertContains(response, "This link no longer works", status_code=400)
+        self.assertEqual(MessageRecipientPreference.objects.filter(team=self.team).exists(), expected_status == 200)
 
     def _set_engagement_events(self, enabled: bool):
         config = self.team.workflows_config
@@ -1149,6 +1212,65 @@ class TestMessagePreferencesAPIViewSet(APIBaseTest):
             {ALL_MESSAGE_PREFERENCE_CATEGORY_ID: expected_status.value},
         )
 
+    def _erase_recipient(self, payload: dict):
+        return self.client.post(
+            f"/api/projects/{self.team.id}/messaging_preferences/erase_recipient/",
+            payload,
+            content_type="application/json",
+        )
+
+    def test_erase_recipient_deletes_the_address_in_any_case(self):
+        for identifier in (
+            "Erased@Example.com",
+            "erased@example.com",
+            " erased@example.com ",
+            "\terased@example.com\n",
+            "\u2003erased@example.com\u00a0",
+            "kept@example.com",
+        ):
+            MessageRecipientPreference.objects.create(
+                team=self.team,
+                identifier=identifier,
+                preferences={ALL_MESSAGE_PREFERENCE_CATEGORY_ID: PreferenceStatus.OPTED_OUT.value},
+            )
+        MessageSuppression.objects.for_team(self.team.id).create(
+            team_id=self.team.id, identifier="erased@example.com", suppressed=True
+        )
+        MessageSuppression.objects.for_team(self.team.id).create(
+            team_id=self.team.id, identifier=" Erased@example.com\u00a0", suppressed=False, deleted=True
+        )
+        other_team = self.create_team_with_organization(organization=self.organization)
+        MessageRecipientPreference.objects.create(team=other_team, identifier="erased@example.com")
+
+        first = self._erase_recipient({"identifier": " ERASED@example.com "})
+        repeat = self._erase_recipient({"identifier": "erased@example.com"})
+
+        self.assertEqual(first.status_code, 200)
+        self.assertEqual(first.json(), {"preferences_deleted": 5, "suppressions_deleted": 2})
+        self.assertEqual(repeat.json(), {"preferences_deleted": 0, "suppressions_deleted": 0})
+        self.assertEqual(
+            sorted(MessageRecipientPreference.objects.values_list("team_id", "identifier")),
+            sorted([(self.team.id, "kept@example.com"), (other_team.id, "erased@example.com")]),
+        )
+        self.assertFalse(MessageSuppression.objects.for_team(self.team.id).exists())
+
+    @parameterized.expand([("unconfirmed", False, 400), ("confirmed", True, 200)])
+    def test_erase_recipient_needs_confirmation_for_a_spam_complaint(self, _name, confirm, expected_status):
+        MessageRecipientPreference.objects.create(team=self.team, identifier="reported@example.com")
+        MessageSuppression.objects.for_team(self.team.id).create(
+            team_id=self.team.id,
+            identifier=" Reported@example.com",
+            source=SuppressionSource.COMPLAINT,
+            suppressed=True,
+        )
+
+        response = self._erase_recipient({"identifier": "reported@example.com", "confirm_complaints": confirm})
+
+        self.assertEqual(response.status_code, expected_status)
+        kept = expected_status == 400
+        self.assertEqual(MessageSuppression.objects.for_team(self.team.id).exists(), kept)
+        self.assertEqual(MessageRecipientPreference.objects.filter(team=self.team).exists(), kept)
+
     @patch("posthog.plugins.plugin_server_api.generate_messaging_preferences_token", return_value="tok-123")
     def test_generate_link_defaults_to_the_callers_email(self, mock_token):
         response = self.client.post(
@@ -1202,6 +1324,8 @@ class TestMessagePreferencesAPIKeyAccess(APIBaseTest):
             (["hog_flow:read"], "post", "remove_opt_out", status.HTTP_403_FORBIDDEN),
             (["hog_flow:write"], "post", "add_opt_out", status.HTTP_201_CREATED),
             (["hog_flow:write"], "post", "remove_opt_out", status.HTTP_201_CREATED),
+            (["hog_flow:write"], "post", "erase_recipient", status.HTTP_403_FORBIDDEN),
+            (["hog_flow:write", "person:read"], "post", "erase_recipient", status.HTTP_200_OK),
         ]
     )
     def test_personal_api_key_access(self, scopes, http_method, endpoint, expected_status):

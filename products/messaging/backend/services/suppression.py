@@ -1,3 +1,5 @@
+from uuid import UUID
+
 from django.db import transaction
 from django.db.models import Case, F, Q, QuerySet, TextField, Value, When
 from django.db.models.functions import Coalesce, Greatest, Least, Now
@@ -11,6 +13,7 @@ from products.messaging.backend.models.email_hard_bounce import (
     EmailHardBounce,
 )
 from products.messaging.backend.models.message_suppression import MessageSuppression, SuppressionSource
+from products.messaging.backend.services.recipient_identifier import normalized_identifier
 
 
 def active_suppressions(team_id: int, search: str | None) -> QuerySet[MessageSuppression]:
@@ -152,19 +155,47 @@ def remove_suppressions(team_id: int, identifiers: list[str], confirm_complaints
     """
     with transaction.atomic():
         rows = MessageSuppression.objects.for_team(team_id)
-        # The lock stops a complaint that lands during the check from being removed unconfirmed. A row inserted after
-        # the lock is not checked, so only the locked rows are removed.
-        locked = list(
-            rows.filter(identifier__in=identifiers, suppressed=True, deleted=False)
-            .order_by("identifier")
-            .select_for_update()
-            .values_list("id", "identifier", "source")
+        locked = _lock_confirming_complaints(
+            rows.filter(identifier__in=identifiers, suppressed=True, deleted=False), confirm_complaints
         )
-        complaints = sorted(identifier for _, identifier, source in locked if source == SuppressionSource.COMPLAINT)
-        if complaints and not confirm_complaints:
-            raise ComplaintConfirmationRequired(complaints)
-        _remove(rows.filter(id__in=[row_id for row_id, *_ in locked]))
-    return sorted(identifier for _, identifier, *_ in locked)
+        _remove(rows.filter(id__in=[row_id for row_id, _ in locked]))
+    return sorted(identifier for _, identifier in locked)
+
+
+def hard_delete_suppressions(team_id: int, normalized_address: str, confirm_complaints: bool) -> int:
+    """Delete every row the team holds for the address, removed ones included, and return how many.
+
+    `normalized_address` comes from `recipient_identifier.normalize`.
+
+    Raises `ComplaintConfirmationRequired`, and deletes nothing, when the address is actively suppressed for a spam
+    complaint and `confirm_complaints` is false.
+    """
+    with transaction.atomic():
+        rows = MessageSuppression.objects.for_team(team_id)
+        matching = rows.annotate(normalized_identifier=normalized_identifier()).filter(
+            normalized_identifier=normalized_address
+        )
+        locked = _lock_confirming_complaints(matching, confirm_complaints)
+        deleted, _ = rows.filter(id__in=[row_id for row_id, _ in locked]).delete()
+    return deleted
+
+
+def _lock_confirming_complaints(rows: QuerySet[MessageSuppression], confirm_complaints: bool) -> list[tuple[UUID, str]]:
+    # The lock stops a complaint that lands during the check from being changed unconfirmed. A row inserted after
+    # the lock is not checked, so callers change only the rows returned.
+    locked = list(
+        rows.order_by("identifier")
+        .select_for_update()
+        .values_list("id", "identifier", "source", "suppressed", "deleted")
+    )
+    complaints = sorted(
+        identifier
+        for _, identifier, source, suppressed, deleted in locked
+        if source == SuppressionSource.COMPLAINT and suppressed and not deleted
+    )
+    if complaints and not confirm_complaints:
+        raise ComplaintConfirmationRequired(complaints)
+    return [(row_id, identifier) for row_id, identifier, *_ in locked]
 
 
 def _remove(rows: QuerySet[MessageSuppression]) -> None:

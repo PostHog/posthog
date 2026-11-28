@@ -1,3 +1,4 @@
+from datetime import UTC, datetime
 from typing import Any
 
 from django.http import HttpRequest, HttpResponse, JsonResponse
@@ -5,6 +6,7 @@ from django.shortcuts import render
 from django.views.decorators.csrf import csrf_exempt, csrf_protect
 from django.views.decorators.http import require_http_methods
 
+import jwt
 import structlog
 
 from posthog.api.capture import capture_internal
@@ -17,6 +19,7 @@ from products.messaging.backend.facade.preferences import (
     ALL_MESSAGE_PREFERENCE_CATEGORY_ID,
     EMAIL_TRACKING_PREFERENCE_ID,
     EmailSendReference,
+    PreferenceLinkRevoked,
     PreferenceStatus,
     all_preference_statuses,
     category_ids as team_category_ids,
@@ -119,6 +122,24 @@ def _is_live_recipient(team_id: int | None, identifier: str | None) -> bool:
     return bool(team_id and identifier) and Team.objects.filter(id=team_id).exists()
 
 
+REVOKED_LINK_ERROR = "This link no longer works. Use the link in a more recent email to manage your preferences."
+
+
+def _revoked_link_page(request: HttpRequest) -> HttpResponse:
+    return render(request, "message_preferences/error.html", {"error": REVOKED_LINK_ERROR}, status=400)
+
+
+def _issued_at(token: str) -> datetime | None:
+    # The plugin server verified this exact token, signature and age included, before any caller gets here, so its
+    # claims can be read without the key. Django does not hold the key, which belongs to the plugin server.
+    try:
+        # nosemgrep: python.jwt.security.unverified-jwt-decode.unverified-jwt-decode
+        issued_at = jwt.decode(token, options={"verify_signature": False}).get("iat")
+    except jwt.InvalidTokenError:
+        return None
+    return datetime.fromtimestamp(issued_at, tz=UTC) if isinstance(issued_at, int | float) else None
+
+
 @ip_restrictions_exempt
 @csrf_exempt
 @require_http_methods(["GET", "POST"])
@@ -137,8 +158,11 @@ def preferences_page(request: HttpRequest, token: str) -> HttpResponse:
     identifier = data.get("identifier")
     if not _is_live_recipient(team_id, identifier):
         return render(request, "message_preferences/error.html", {"error": "Invalid recipient"}, status=400)
-
-    recipient = get_or_create_recipient(team_id, identifier)
+    issued_at = _issued_at(token)
+    try:
+        recipient = get_or_create_recipient(team_id, identifier, link_issued_at=issued_at)
+    except PreferenceLinkRevoked:
+        return _revoked_link_page(request)
     current_preferences = recipient.preferences
     categories = marketing_categories(team_id)
 
@@ -166,7 +190,12 @@ def preferences_page(request: HttpRequest, token: str) -> HttpResponse:
                 opted_out[EMAIL_TRACKING_PREFERENCE_ID] = tracking_pref
             return opted_out
 
-        prior_preferences = transition_preferences(team_id, identifier, opt_out_of_everything, touch_updated_at=False)
+        try:
+            prior_preferences = transition_preferences(
+                team_id, identifier, opt_out_of_everything, touch_updated_at=False, link_issued_at=issued_at
+            )
+        except PreferenceLinkRevoked:
+            return _revoked_link_page(request)
         was_fully_opted_out = (
             preference_status(prior_preferences, ALL_MESSAGE_PREFERENCE_CATEGORY_ID) == PreferenceStatus.OPTED_OUT
         )
@@ -299,7 +328,12 @@ def update_preferences(request: HttpRequest) -> JsonResponse:
                 updated = {**stored, **updated}
             return updated
 
-        prior_preferences = transition_preferences(team_id, identifier, apply_submitted, touch_updated_at=True)
+        try:
+            prior_preferences = transition_preferences(
+                team_id, identifier, apply_submitted, touch_updated_at=True, link_issued_at=_issued_at(token)
+            )
+        except PreferenceLinkRevoked:
+            return JsonResponse({"error": REVOKED_LINK_ERROR}, status=400)
         preferences_dict = apply_submitted(prior_preferences)
 
         sync_to_customerio(team_id, identifier, preferences_dict)

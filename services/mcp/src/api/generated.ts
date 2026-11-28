@@ -45689,6 +45689,23 @@ export namespace Schemas {
       readonly group_type_index: number | null;
     }
 
+    export interface EraseRecipientRequest {
+      /**
+         * The email address to erase. Matches stored addresses in any case and ignores surrounding whitespace.
+         * @maxLength 512
+         */
+      identifier: string;
+      /** Set to true to erase an address that is suppressed because the recipient reported a message as spam. Without it, a request for such an address erases nothing and returns 400. */
+      confirm_complaints?: boolean;
+    }
+
+    export interface ErasedRecipient {
+      /** Number of preference records deleted for the address. 0 when there were none. */
+      preferences_deleted: number;
+      /** Number of suppression records deleted for the address, including removed ones. 0 when there were none. */
+      suppressions_deleted: number;
+    }
+
     export interface ErrorDetail {
       /** What went wrong and what to do next. */
       detail: string;
