@@ -7520,6 +7520,7 @@ export namespace Schemas {
         | "google-pubsub"
         | "google-cloud-service-account"
         | "google-cloud-storage"
+        | "google-admob"
         | "google-ads"
         | "google-analytics"
         | "google-calendar"
