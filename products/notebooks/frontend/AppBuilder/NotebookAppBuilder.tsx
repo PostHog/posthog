@@ -1,7 +1,7 @@
 import './NotebookAppBuilder.scss'
 
 import { useActions, useValues } from 'kea'
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 
 import { IconPlus } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonDialog, LemonInput, LemonMenu, LemonTabs, Spinner } from '@posthog/lemon-ui'
@@ -21,11 +21,14 @@ import { SidePanelTab } from '~/types'
 import { NotebookAppEditorAgentContext } from './NotebookAppAgentIntegration'
 import { NotebookAppCanvas } from './NotebookAppCanvas'
 import { NotebookAppInspector } from './NotebookAppInspector'
+import { isEmptyAppLayout } from './notebookAppLayout'
 import { notebookAppLogic } from './notebookAppLogic'
 import { NotebookAppPalette } from './NotebookAppPalette'
+import { NotebookAppTemplateModal } from './NotebookAppTemplateModal'
 
 export function NotebookAppBuilder({ shortId }: { shortId: string }): JSX.Element {
     const logic = notebookAppLogic({ shortId })
+    const [templateModalOpen, setTemplateModalOpen] = useState(false)
     const { staleNodeIds } = useValues(notebookNodeStalenessLogic({ shortId }))
     const { isRunning, progressLabel } = useValues(notebookRunLogic({ shortId }))
     const { isPhaiSandboxFlagOn } = useValues(aiShellLogic)
@@ -86,6 +89,7 @@ export function NotebookAppBuilder({ shortId }: { shortId: string }): JSX.Elemen
         }
     }, [checkRelease, preview, isRunning, sourceSavingReason, layout, savedNotebook?.version])
     const editing = !preview && canEditNotebook && !isTemplate
+    const emptyApp = isEmptyAppLayout(layout)
     const selectedTab = layout.tabs.some((tab) => tab.id === activeTabId) ? activeTabId : (layout.tabs[0]?.id ?? '')
     if (!savedNotebook && savedNotebookLoading) {
         return (
@@ -104,6 +108,13 @@ export function NotebookAppBuilder({ shortId }: { shortId: string }): JSX.Elemen
     return (
         <div className="NotebookAppBuilder mt-4" data-attr="notebook-app-builder">
             <NotebookAppEditorAgentContext shortId={shortId} />
+            {editing && templateModalOpen && (
+                <NotebookAppTemplateModal
+                    shortId={shortId}
+                    emptyApp={emptyApp}
+                    onClose={() => setTemplateModalOpen(false)}
+                />
+            )}
             <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
                 <div className="flex flex-wrap items-center gap-2">
                     <h2 className="m-0">App builder</h2>
@@ -176,6 +187,15 @@ export function NotebookAppBuilder({ shortId }: { shortId: string }): JSX.Elemen
                     <LemonMenu
                         items={[
                             { label: 'Open notebook', to: urls.notebook(shortId) },
+                            editing &&
+                                !emptyApp && {
+                                    label: 'Add from template…',
+                                    'data-attr': 'notebook-app-add-from-template',
+                                    disabledReason: savedNotebookLoading
+                                        ? 'Wait for the draft to finish saving.'
+                                        : undefined,
+                                    onClick: () => setTemplateModalOpen(true),
+                                },
                             ...(savedNotebook.app_published
                                 ? [{ label: 'View published app', to: `${urls.notebook(shortId)}?view=app` }]
                                 : []),
@@ -191,20 +211,25 @@ export function NotebookAppBuilder({ shortId }: { shortId: string }): JSX.Elemen
                             ...(canEditNotebook && !isTemplate
                                 ? [
                                       {
-                                          label: 'Undo',
-                                          disabledReason:
-                                              !history.past.length || savedNotebookLoading
-                                                  ? 'Nothing to undo'
-                                                  : undefined,
-                                          onClick: undo,
-                                      },
-                                      {
-                                          label: 'Redo',
-                                          disabledReason:
-                                              !history.future.length || savedNotebookLoading
-                                                  ? 'Nothing to redo'
-                                                  : undefined,
-                                          onClick: redo,
+                                          label: 'Edit history',
+                                          items: [
+                                              {
+                                                  label: 'Undo',
+                                                  disabledReason:
+                                                      !history.past.length || savedNotebookLoading
+                                                          ? 'Nothing to undo'
+                                                          : undefined,
+                                                  onClick: undo,
+                                              },
+                                              {
+                                                  label: 'Redo',
+                                                  disabledReason:
+                                                      !history.future.length || savedNotebookLoading
+                                                          ? 'Nothing to redo'
+                                                          : undefined,
+                                                  onClick: redo,
+                                              },
+                                          ],
                                       },
                                       { label: 'App settings', onClick: () => selectBlock(null) },
                                       {
@@ -395,6 +420,7 @@ export function NotebookAppBuilder({ shortId }: { shortId: string }): JSX.Elemen
                             onDuplicate={duplicateBlock}
                             onRemove={removeBlock}
                             onSource={openSource}
+                            onChooseTemplate={editing && emptyApp ? () => setTemplateModalOpen(true) : undefined}
                             onInput={setInputValue}
                             onCellOutput={updateCellOutput}
                         />

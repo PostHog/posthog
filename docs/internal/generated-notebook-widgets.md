@@ -26,6 +26,14 @@ Python cells can look up any notebook variable at runtime. Changing any default 
 
 The app builder requires `notebook-app-builder`. When the notebook API cannot resolve the flag locally, it checks the flag service and reuses the result for that user and project for 30 seconds. An app can display the notebook's generated Widget cells alongside standard charts, calculated metrics, text, and variable inputs.
 
+Choose **Create app** beside the notebook title to build a layout from text, inputs, and notebook cells. Choose **App builder** to edit an existing app.
+
+To review a rollout, choose **Start from a template** in an empty app, or **Add from template…** under **More app actions** in a populated app. Choose **Feature launch review**, a project flag and value, and either two events or a funnel from the notebook. **Save to draft** adds the flag, an adoption funnel, and a recordings playlist. In a populated app they appear on a new tab.
+
+The built-in template produces ordinary app components linked to notebook cells. Select a component in the builder to change its title, width, or tab. Choose **Open source cell** to edit the underlying notebook content. Editors can also refine the draft with **Ask AI**. Choose **Review and publish** when it is ready for viewers.
+
+The first funnel step requires the selected flag value on the event. When you reuse a funnel, that value replaces any existing event filter for the same flag on its first step. Funnels that count people, groups, or unique sessions offer **View drop-off recordings** for actors who dropped off at the last step. The separate playlist shows recordings with the flag value over the funnel's date range, including for funnels with custom aggregations. A funnel built from two events uses the last 30 days. An existing funnel without a start date uses the last seven days.
+
 Generated code reads approved dataframe snapshots through `ph.readFrame`. It has no direct notebook-variable API. To expose control values, create a one-row SQL dataframe, for example `SELECT {region} AS region, {weeks} AS weeks, {target} AS target`, and ask the widget to read that frame alongside the analytical results. The analytical cells must use the same variables for filtering and calculations. Run these cells before generation so their schemas are available.
 
 SQL inputs read the completed query's cached rows, rather than only its saved preview. Follow `nextOffset` to read subsequent pages and check `truncated` before presenting totals. Reaching the SQL result-cache ceiling marks the frame as truncated; aggregate large datasets in the notebook before passing them to a widget. Expired SQL results require rerunning the source cell.

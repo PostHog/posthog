@@ -139,6 +139,9 @@ export function NotebookAppInspector({
                             <LemonButton size="small" type="secondary" onClick={() => onSource(block.node_id || '')}>
                                 Open source cell
                             </LemonButton>
+                            <p className="text-xs text-secondary m-0">
+                                Change the component’s title and layout here. Open the notebook to edit its source.
+                            </p>
                         </>
                     )}
                     {block.kind === 'input' && (

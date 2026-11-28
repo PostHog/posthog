@@ -27,6 +27,7 @@ export function NotebookAppCanvas({
     onDuplicate,
     onRemove,
     onSource,
+    onChooseTemplate,
     onInput,
     onCellOutput,
     renderOutput,
@@ -46,6 +47,7 @@ export function NotebookAppCanvas({
     onDuplicate?: (id: string) => void
     onRemove?: (id: string) => void
     onSource?: (id: string) => void
+    onChooseTemplate?: () => void
     onInput: (name: string, value: NotebookVariableValue) => void
     onCellOutput?: (nodeId: string, markdown: string) => void
     renderOutput?: (cell: NotebookBlockNode) => JSX.Element | undefined
@@ -175,6 +177,17 @@ export function NotebookAppCanvas({
                             ? 'Add notebook cells, text, and inputs from the component panel.'
                             : 'Choose another tab or ask an editor to add components.'}
                     </p>
+                    {editing && onChooseTemplate && (
+                        <LemonButton
+                            type="tertiary"
+                            size="small"
+                            className="mx-auto"
+                            data-attr="notebook-app-start-from-template"
+                            onClick={onChooseTemplate}
+                        >
+                            Start from a template
+                        </LemonButton>
+                    )}
                 </div>
             )}
         </div>

@@ -596,7 +596,7 @@ function normalizeArtifactTitle(title: string | null | undefined): string | null
     return normalizedTitle || null
 }
 
-function toNotebookPropValue(value: unknown): NotebookPropValue | null {
+export function toNotebookPropValue(value: unknown): NotebookPropValue | null {
     const serializedValue = JSON.stringify(value)
     if (serializedValue === undefined) {
         return null

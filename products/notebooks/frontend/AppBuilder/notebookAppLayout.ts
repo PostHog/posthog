@@ -41,6 +41,10 @@ export function emptyAppLayout(): NotebookAppLayoutApi {
     return { title: '', description: '', full_width: false, tabs: [{ id: 'overview', title: 'Overview' }], blocks: [] }
 }
 
+export function isEmptyAppLayout(layout: NotebookAppLayoutApi): boolean {
+    return layout.blocks.length === 0 && layout.tabs.length === 1
+}
+
 export function newAppBlock(
     kind: NotebookAppBlockApi['kind'],
     tabId: string,

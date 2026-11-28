@@ -23,6 +23,7 @@ import { ApiConfig } from 'lib/api'
 import { serializeNode } from 'lib/components/MarkdownNotebook/markdown'
 import type { JSONContent } from 'lib/components/RichContentEditor/types'
 import { uuid } from 'lib/utils/dom'
+import { buildMarkdownNotebookContent } from 'scenes/notebooks/Notebook/markdownNotebookV2'
 import { notebookLogic } from 'scenes/notebooks/Notebook/notebookLogic'
 import { notebookNodeStalenessLogic } from 'scenes/notebooks/Notebook/notebookNodeStalenessLogic'
 import type { NotebookNodeRunTerminalStatus } from 'scenes/notebooks/Notebook/notebookNodeStalenessLogic'
@@ -42,6 +43,7 @@ import type {
     NotebookRunStatusResponseApi,
 } from '../generated/api.schemas'
 import type { NotebookAppBlockKindEnumApi } from '../generated/api.schemas'
+import { buildLaunchReview, type LaunchReviewSources } from './launchReview'
 import {
     appCellTitle,
     appSourceCells,
@@ -143,6 +145,21 @@ export interface notebookAppLogicActions {
     ) => {
         releaseReview: NotebookAppReleaseReviewApi
         payload?: NotebookAppLayoutApi
+    }
+    createLaunchReview: (sources: LaunchReviewSources) => LaunchReviewSources
+    createLaunchReviewFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    createLaunchReviewSuccess: (
+        savedNotebook: NotebookApi,
+        payload?: LaunchReviewSources
+    ) => {
+        savedNotebook: NotebookApi
+        payload?: LaunchReviewSources
     }
     duplicateBlock: (id: string) => {
         id: string
@@ -343,7 +360,7 @@ export const notebookAppLogic: LogicWrapper<notebookAppLogicType> = kea<notebook
         updateCellOutput: (nodeId: string, markdown: string) => ({ nodeId, markdown }),
         openSource: (nodeId: string) => ({ nodeId }),
     }),
-    loaders(({ props, values }) => ({
+    loaders(({ props, values, actions }) => ({
         releaseReview: [
             null as NotebookAppReleaseReviewApi | null,
             {
@@ -368,6 +385,30 @@ export const notebookAppLogic: LogicWrapper<notebookAppLogicType> = kea<notebook
                         throw new Error('The app changed while loading. Save your changes or reload the saved draft.')
                     }
                     return result
+                },
+                createLaunchReview: async (sources: LaunchReviewSources) => {
+                    const source = notebookLogic({ shortId: props.shortId })
+                    const { notebook, notebookLoading, localContent, markdownEditorNodeId, markdownEditorValue } =
+                        source.values
+                    if (!notebook || !values.canEditNotebook || values.isTemplate) {
+                        throw new Error('This notebook is read-only.')
+                    }
+                    if (notebookLoading || localContent !== null) {
+                        throw new Error('Wait for the notebook to finish saving, then try again.')
+                    }
+                    const review = buildLaunchReview(markdownEditorValue, values.layout, sources)
+                    const saved = await notebooksPartialUpdate(String(ApiConfig.getCurrentTeamId()), props.shortId, {
+                        version: notebook.version,
+                        content: buildMarkdownNotebookContent(review.markdown, markdownEditorNodeId),
+                        app_revision: values.savedNotebook?.app_revision ?? 0,
+                        app_draft: normalizeAppLayout(review.layout),
+                    })
+                    actions.loadAppSuccess(saved)
+                    actions.selectTab(review.tabId)
+                    source.actions.loadNotebook()
+                    posthog.capture('notebook app launch review created', { short_id: props.shortId })
+                    lemonToast.success('Launch review draft saved')
+                    return saved
                 },
                 saveApp: async (publish: boolean = false) => {
                     if (!values.canEditNotebook || values.isTemplate) {
@@ -477,6 +518,8 @@ export const notebookAppLogic: LogicWrapper<notebookAppLogicType> = kea<notebook
             null as string | null,
             {
                 loadApp: () => null,
+                createLaunchReview: () => null,
+                createLaunchReviewFailure: (_, { error }) => error,
                 saveApp: () => null,
                 loadAppFailure: (_, { error }) => error,
                 saveAppFailure: (_, { error }) => error,

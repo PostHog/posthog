@@ -14,6 +14,7 @@ import type { NotebookVariable } from 'scenes/notebooks/Notebook/notebookVariabl
 import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
+import { ActorsQuery, FunnelsQuery, NodeKind } from '~/queries/schema/schema-general'
 import { AccessControlLevel } from '~/types'
 
 import { expect, userEvent } from 'storybook/test'
@@ -58,15 +59,26 @@ const notebook = {
 }
 let runNumber = 0
 let results = appBuilderDemoResults(appBuilderDemoVariables)
+type NotebookFixture = Omit<typeof notebook, 'app_draft' | 'app_published'> & {
+    app_draft: typeof layout | null
+    app_published: typeof layout | null
+}
 let saved = structuredClone(notebook)
+let launchNotebook: NotebookFixture | null = null
+function currentNotebook(): NotebookFixture {
+    return launchNotebook ?? saved
+}
 let failNextQuery = false
+let failNextDraftSave = false
 
 const meta: Meta = {
     component: App,
     title: 'Scenes-App/Notebooks/App builder',
     beforeEach: () => {
         saved = structuredClone(notebook)
+        launchNotebook = null
         failNextQuery = false
+        failNextDraftSave = false
         runNumber = 0
         results = appBuilderDemoResults(appBuilderDemoVariables)
     },
@@ -94,7 +106,7 @@ const meta: Meta = {
                 '/api/projects/:team_id/health_issues/summary': { results: [] },
                 '/api/oauth/connected-apps': [],
                 '/api/organizations/:id/product_push_campaign/active': () => [204, null],
-                '/api/projects/:team_id/notebooks/app-builder-demo': () => [200, saved],
+                '/api/projects/:team_id/notebooks/app-builder-demo': () => [200, currentNotebook()],
                 '/api/projects/:team_id/notebooks/app-builder-demo/app_release': () => [
                     200,
                     {
@@ -145,8 +157,13 @@ const meta: Meta = {
             patch: {
                 '/api/projects/:team_id/notebooks/app-builder-demo': async ({ request }) => {
                     const body = (await request.json()) as Partial<typeof notebook>
-                    saved = { ...saved, ...body, app_revision: saved.app_revision + 1 }
-                    return [200, saved]
+                    if (failNextDraftSave) {
+                        failNextDraftSave = false
+                        return [409, { detail: 'The notebook changed. Try saving the draft again.' }]
+                    }
+                    const fixture = currentNotebook()
+                    Object.assign(fixture, body, { app_revision: fixture.app_revision + 1 })
+                    return [200, fixture]
                 },
             },
             post: {
@@ -182,7 +199,10 @@ const meta: Meta = {
                 },
                 '/api/projects/:team_id/notebooks/app-builder-demo/runs': async ({ request }) => {
                     const body = (await request.json()) as { variables: NotebookVariable[] }
-                    saved = { ...saved, variables: body.variables, content: buildContent(body.variables) }
+                    Object.assign(currentNotebook(), {
+                        variables: body.variables,
+                        content: buildContent(body.variables),
+                    })
                     results = appBuilderDemoResults(body.variables)
                     runNumber++
                     return [
@@ -193,12 +213,12 @@ const meta: Meta = {
                 '/api/projects/:team_id/file_system/home_folder': { id: 'home-folder', path: 'Home' },
                 '/api/projects/:team_id/notebooks/app-builder-demo/collab/markdown_save': async ({ request }) => {
                     const body = (await request.json()) as { content: typeof notebook.content }
-                    saved = {
-                        ...saved,
+                    const fixture = currentNotebook()
+                    Object.assign(fixture, {
                         content: body.content,
-                        version: saved.version + 1,
-                    }
-                    return [200, saved]
+                        version: fixture.version + 1,
+                    })
+                    return [200, fixture]
                 },
             },
         }),
@@ -236,6 +256,11 @@ export const PublicationReview: Story = {
         const review = await canvas.findByRole('button', { name: 'Review and publish' }, { timeout: 60000 })
         await userEvent.click(review)
         await waitFor(() => expect(canvas.getByText('Ready to publish')).toBeVisible())
+        await userEvent.click(canvas.getByLabelText('More app actions'))
+        const body = within(document.body)
+        await waitFor(() => expect(body.getByText('Open notebook')).toBeVisible())
+        expect(body.queryByText('Add from template…')).not.toBeInTheDocument()
+        await userEvent.keyboard('{Escape}')
         expect(canvas.getByText(/Oldest displayed result ran/)).toBeVisible()
         expect(canvas.getByRole('button', { name: 'Publish release' })).toBeEnabled()
         await userEvent.click(canvas.getByRole('button', { name: 'Restore previous release' }))
@@ -334,18 +359,167 @@ export const SharedView: Story = {
 
 export const Notebook: Story = {
     parameters: { pageUrl: urls.notebook(SHORT_ID), testOptions: { waitForSelector: '.MarkdownNotebook' } },
+    beforeEach: () => {
+        saved.app_draft = { ...layout, tabs: [...layout.tabs, { id: 'notes', title: 'Review notes' }] }
+    },
     play: async ({ canvasElement }) => {
         const canvas = within(canvasElement)
-        await waitFor(() => expect(canvas.getByLabelText('Notebook options')).toBeVisible(), { timeout: 60000 })
-        expect(canvas.queryByText('App builder')).not.toBeInTheDocument()
-        await userEvent.click(canvas.getByLabelText('Notebook options'))
+        await userEvent.click(await canvas.findByRole('button', { name: 'App builder' }, { timeout: 60000 }))
         const menu = within(document.body)
-        await userEvent.click(await menu.findByText('App builder'))
         await waitFor(() => expect(canvas.getByLabelText('App components')).toBeVisible(), { timeout: 60000 })
+        await userEvent.click(canvas.getByText('Review notes', { exact: true }))
+        expect(await canvas.findByText('Build your app')).toBeVisible()
+        expect(canvas.queryByRole('button', { name: 'Start from a template' })).not.toBeInTheDocument()
+        await userEvent.click(canvas.getByLabelText('More app actions'))
+        await userEvent.click(await menu.findByText('Add from template…'))
+        const dialog = within(await menu.findByRole('dialog'))
+        await waitFor(() => expect(dialog.getByRole('heading', { name: 'Choose a template' })).toBeVisible())
+        await userEvent.click(dialog.getByRole('button', { name: 'Feature launch review' }))
+        expect(dialog.getByText(/Add a Launch review tab and save the whole draft/)).toBeVisible()
+        await userEvent.click(dialog.getByRole('button', { name: 'Cancel' }))
+        expect(saved.app_revision).toBe(1)
         await userEvent.click(canvas.getByLabelText('More app actions'))
         await userEvent.click(await menu.findByText('Open notebook'))
         await waitFor(() => expect(canvasElement.querySelector('.MarkdownNotebook')).toBeVisible(), { timeout: 60000 })
         expect(canvas.queryByLabelText('App components')).not.toBeInTheDocument()
+    },
+}
+const demoFlag = {
+    id: 42,
+    key: 'compact-checkout',
+    name: 'Compact checkout',
+    active: true,
+    deleted: false,
+    filters: {
+        groups: [{ properties: [], rollout_percentage: 100 }],
+        multivariate: { variants: [{ key: 'compact', rollout_percentage: 100 }] },
+    },
+    tags: [],
+    experiment_set: [],
+    features: [],
+    surveys: [],
+}
+const launchEvents = ['checkout opened', 'order placed']
+export const LaunchReview: Story = {
+    parameters: { pageUrl: urls.notebook(SHORT_ID) },
+    beforeEach: () => {
+        launchNotebook = { ...structuredClone(notebook), app_draft: null, app_published: null }
+    },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/feature_flags': { results: [demoFlag], count: 1 },
+                '/api/projects/:team_id/feature_flags/42': demoFlag,
+                '/api/projects/:team_id/feature_flags/42/status': {
+                    status: 'active',
+                    reason: 'The flag was called today.',
+                    rollout: {
+                        effectively_full_rollout: true,
+                        has_targeting_conditions: false,
+                        max_rollout_percentage: 100,
+                        is_multivariate: true,
+                    },
+                },
+                '/api/projects/:team_id/default_release_conditions': { enabled: false, default_groups: [] },
+                '/api/projects/:team_id/session_recordings/:session_id/viewed': { viewed: false, otherViewers: 0 },
+                '/api/projects/:team_id/event_definitions': {
+                    results: launchEvents.map((name, index) => ({
+                        id: index + 1,
+                        name,
+                        event_type: 'event',
+                        properties: [],
+                    })),
+                    count: 2,
+                },
+            },
+            post: {
+                '/api/projects/:team_id/query/:kind': async ({ request }) => {
+                    const { query } = (await request.json()) as { query: ActorsQuery | FunnelsQuery }
+                    const source = query.kind === NodeKind.ActorsQuery ? query.source : undefined
+                    if (source?.kind === NodeKind.FunnelsActorsQuery) {
+                        const matching =
+                            source.funnelStep === -2 &&
+                            source.includeRecordings &&
+                            source.source.series[0].properties?.some(
+                                (p) =>
+                                    'key' in p &&
+                                    p.key === '$feature/compact-checkout' &&
+                                    Array.isArray(p.value) &&
+                                    p.value[0] === 'compact'
+                            )
+                        return [
+                            200,
+                            {
+                                columns: ['actor', 'matched_recordings'],
+                                results: matching
+                                    ? [
+                                          [
+                                              {
+                                                  id: '019abbaa-0000-7000-a000-000000000001',
+                                                  distinct_ids: ['example-shopper'],
+                                                  is_identified: true,
+                                                  properties: { name: 'Example shopper' },
+                                              },
+                                              [{ session_id: '019abbaa-0000-7000-a000-000000000042', events: [] }],
+                                          ],
+                                      ]
+                                    : [],
+                                hasMore: false,
+                                limit: 100,
+                                offset: 0,
+                            },
+                        ]
+                    }
+                    return [
+                        200,
+                        {
+                            results: launchEvents.map((name, order) => ({
+                                name,
+                                order,
+                                type: 'events',
+                                count: order ? 60 : 100,
+                                people: [],
+                            })),
+                        },
+                    ]
+                },
+            },
+        }),
+    ],
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        const body = within(document.body)
+        await userEvent.click(await canvas.findByRole('button', { name: 'Create app' }, { timeout: 60000 }))
+        const start = await canvas.findByRole('button', { name: 'Start from a template' }, { timeout: 60000 })
+        expect(canvas.queryByRole('button', { name: 'Feature launch review' })).not.toBeInTheDocument()
+        await userEvent.click(start)
+        const dialog = within(await body.findByRole('dialog'))
+        await waitFor(() => expect(dialog.getByRole('heading', { name: 'Choose a template' })).toBeVisible())
+        expect(dialog.queryByRole('button', { name: 'Feature flag' })).not.toBeInTheDocument()
+        await userEvent.click(dialog.getByRole('button', { name: 'Feature launch review' }))
+        for (const [field, value] of [
+            ['Feature flag', demoFlag.key],
+            ['Entry event', launchEvents[0]],
+            ['Adoption event', launchEvents[1]],
+        ]) {
+            await userEvent.click(dialog.getByRole('button', { name: field }))
+            const option = await body.findByRole('option', { name: (name) => name.includes(value) })
+            await userEvent.click(option)
+            await waitFor(() => expect(option).not.toBeInTheDocument())
+            expect(dialog.getByRole('button', { name: field })).toHaveTextContent(value)
+        }
+        expect(launchNotebook?.app_draft).toBeNull()
+        failNextDraftSave = true
+        await userEvent.click(dialog.getByRole('button', { name: 'Save to draft' }))
+        expect(await dialog.findByText('The notebook changed. Try saving the draft again.')).toBeVisible()
+        expect(dialog.getByRole('button', { name: 'Feature flag' })).toHaveTextContent(demoFlag.key)
+        expect(launchNotebook?.app_draft).toBeNull()
+        await userEvent.click(dialog.getByRole('button', { name: 'Save to draft' }))
+        await waitFor(() => expect(launchNotebook?.app_draft?.blocks).toHaveLength(3))
+        expect(launchNotebook?.app_published).toBeNull()
+        await waitFor(() => expect(canvas.getByRole('button', { name: 'View drop-off recordings' })).toBeVisible(), {
+            timeout: 60000,
+        })
     },
 }
 export const FlagDisabled: Story = {
