@@ -180,15 +180,15 @@ describe('tracingSceneLogic', () => {
     it('ignores ?view=endpoints when its flag is off', () => {
         const filtersLogic = mountAt({ view: 'endpoints' })
         expect(logic.values.activeTracingTab).toBe('traces')
-        expect(filtersLogic.values.viewMode).toBe('spans')
+        expect(filtersLogic.values.viewMode).toBe('traces')
     })
 
-    it('round-trips the non-default traces view mode through the URL', () => {
-        const filtersLogic = mountAt({ view: 'traces' })
-        expect(filtersLogic.values.viewMode).toBe('traces')
-        expect(router.values.searchParams.view).toBe('traces')
+    it('round-trips the non-default spans view mode through the URL', () => {
+        const filtersLogic = mountAt({ view: 'spans' })
+        expect(filtersLogic.values.viewMode).toBe('spans')
+        expect(router.values.searchParams.view).toBe('spans')
 
-        logic.actions.setDisplayMode('spans')
+        logic.actions.setDisplayMode('traces')
         expect(router.values.searchParams).not.toHaveProperty('view')
     })
 
@@ -221,7 +221,7 @@ describe('tracingSceneLogic', () => {
 
         logic.actions.setDisplayMode('spans')
         expect(logic.values.activeTracingTab).toBe('traces')
-        expect(router.values.searchParams).not.toHaveProperty('view')
+        expect(router.values.searchParams.view).toBe('spans')
 
         // Back/forward to a non-operations URL while on the operations tab resets the tab.
         logic.actions.setDisplayMode('operations')
