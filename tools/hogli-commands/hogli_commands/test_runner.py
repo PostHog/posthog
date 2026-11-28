@@ -534,6 +534,16 @@ def _detect_uv_project_test(path: str, project_dir: str, node_id: str | None = N
     )
 
 
+# Collected by the @posthog/frontend jest config (its `roots` in frontend/jest.config.ts). These quill
+# packages declare no jest of their own, so their tests only run from the frontend.
+_FRONTEND_JEST_COLLECTED_PREFIXES = (
+    "products/",
+    "packages/quill/packages/primitives/",
+    "packages/quill/packages/components/",
+    "packages/quill/packages/tokens/",
+)
+
+
 def _detect_jest_test(file_only: str, file_path: str, node_id: str | None = None) -> TestRunConfig:
     """Detect Jest test configuration by finding the nearest package.json.
 
@@ -546,7 +556,7 @@ def _detect_jest_test(file_only: str, file_path: str, node_id: str | None = None
         return _detect_desktop_vitest(file_only, node_id)
     if _is_under(file_only, _MCP_ROOT):
         return _detect_mcp_vitest(file_only, node_id)
-    if file_only.startswith("products/"):
+    if file_only.startswith(_FRONTEND_JEST_COLLECTED_PREFIXES):
         pkg_name: str | None = "@posthog/frontend"
     else:
         package_json = _find_nearest(file_only, "package.json")
