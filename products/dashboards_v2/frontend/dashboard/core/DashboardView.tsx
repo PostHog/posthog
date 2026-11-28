@@ -17,7 +17,7 @@ import { useContainerWidth } from 'react-grid-layout'
 import { getJSHeapMemory } from 'lib/utils/dom'
 
 import { FilterBar } from '../../filters/bar/FilterBar'
-import { type ActiveFilters, FiltersContext, appliedFilters } from '../../filters/filtersContext'
+import { type ActiveFilters, FilterControlsContext, FiltersContext, appliedFilters } from '../../filters/filtersContext'
 import { TimeRangePicker } from '../../filters/time/TimeRangePicker'
 import type { DropTarget } from '../../grid/drag/dropTargets'
 import { GridDragContext, type GridDragState } from '../../grid/drag/gridDrag'
@@ -155,6 +155,10 @@ function DashboardViewContent({ header, surface, ...props }: DashboardViewProps)
         [filtersOn, savedFilters, filterValues]
     )
     const time = controller.timeRange?.value ?? controller.dashboard.time
+    const filterControls = useMemo(
+        () => ({ filters: filtersOn ? controller.filters : undefined, timeRange: controller.timeRange }),
+        [filtersOn, controller.filters, controller.timeRange]
+    )
     const activeFilters = useMemo<ActiveFilters>(() => ({ time, filters: applied }), [time, applied])
     const tiles = useMemo(
         () => (stacked ? stackTiles(activeTab.tiles, GRID.columns, sizeOf) : activeTab.tiles),
@@ -188,76 +192,78 @@ function DashboardViewContent({ header, surface, ...props }: DashboardViewProps)
         <DashboardStateContext.Provider value={state}>
             <GridDragContext.Provider value={drag}>
                 <FiltersContext.Provider value={activeFilters}>
-                    <PanelHostContext.Provider value={panelHost}>
-                        <TileMountContext.Provider value={capturing && !capturing.tileId ? null : mountScheduler}>
-                            <CapturingTileContext.Provider value={capturing?.tileId ?? null}>
-                                <div
-                                    ref={rootRef}
-                                    data-quill
-                                    className={clsx(
-                                        'DashboardV2 flex shrink-0 flex-col gap-4 p-4 min-h-full bg-background text-foreground',
-                                        downloadingImage && 'DashboardView--capturing'
-                                    )}
-                                >
-                                    {header}
-                                    {(filtersOn || controller.timeRange) && (
-                                        <div className="flex items-start gap-2">
-                                            {controller.timeRange && (
-                                                <TimeRangePicker
-                                                    value={time}
-                                                    onChange={controller.timeRange.onChange}
-                                                    ranges={controller.timeRange.ranges}
-                                                    timezone={controller.timeRange.timezone}
-                                                />
-                                            )}
-                                            <div className="min-w-0 flex-1">
-                                                {filtersOn && controller.filters && (
-                                                    <FilterBar
-                                                        filters={savedFilters ?? []}
-                                                        types={controller.filters.types}
-                                                        values={controller.filters.values}
-                                                        onValueChange={controller.filters.onValueChange}
-                                                        onAdd={
-                                                            can('addFilter')
-                                                                ? (filter) =>
-                                                                      state.onEdit({
-                                                                          edit: 'addFilter',
-                                                                          filter,
-                                                                      })
-                                                                : undefined
-                                                        }
-                                                        onRemove={
-                                                            can('removeFilter')
-                                                                ? (id) => state.onEdit({ edit: 'removeFilter', id })
-                                                                : undefined
-                                                        }
+                    <FilterControlsContext.Provider value={filterControls}>
+                        <PanelHostContext.Provider value={panelHost}>
+                            <TileMountContext.Provider value={capturing && !capturing.tileId ? null : mountScheduler}>
+                                <CapturingTileContext.Provider value={capturing?.tileId ?? null}>
+                                    <div
+                                        ref={rootRef}
+                                        data-quill
+                                        className={clsx(
+                                            'DashboardV2 flex shrink-0 flex-col gap-4 p-4 min-h-full bg-background text-foreground',
+                                            downloadingImage && 'DashboardView--capturing'
+                                        )}
+                                    >
+                                        {header}
+                                        {(filtersOn || controller.timeRange) && (
+                                            <div className="flex items-start gap-2">
+                                                {controller.timeRange && (
+                                                    <TimeRangePicker
+                                                        value={time}
+                                                        onChange={controller.timeRange.onChange}
+                                                        ranges={controller.timeRange.ranges}
+                                                        timezone={controller.timeRange.timezone}
                                                     />
                                                 )}
+                                                <div className="min-w-0 flex-1">
+                                                    {filtersOn && controller.filters && (
+                                                        <FilterBar
+                                                            filters={savedFilters ?? []}
+                                                            types={controller.filters.types}
+                                                            values={controller.filters.values}
+                                                            onValueChange={controller.filters.onValueChange}
+                                                            onAdd={
+                                                                can('addFilter')
+                                                                    ? (filter) =>
+                                                                          state.onEdit({
+                                                                              edit: 'addFilter',
+                                                                              filter,
+                                                                          })
+                                                                    : undefined
+                                                            }
+                                                            onRemove={
+                                                                can('removeFilter')
+                                                                    ? (id) => state.onEdit({ edit: 'removeFilter', id })
+                                                                    : undefined
+                                                            }
+                                                        />
+                                                    )}
+                                                </div>
                                             </div>
-                                        </div>
-                                    )}
-
-                                    <DashboardTabs />
-                                    <div
-                                        ref={containerRef as RefObject<HTMLDivElement>}
-                                        className="DashboardView__canvas"
-                                    >
-                                        {mounted && width > 0 && (
-                                            <DashboardTileGrid
-                                                key={`${activeTab.id}-${stacked ? 'stacked' : 'grid'}`}
-                                                gridId={activeTab.id}
-                                                tiles={tiles}
-                                                cols={GRID.columns}
-                                                width={width}
-                                                editable={can('placeTiles')}
-                                            />
                                         )}
+
+                                        <DashboardTabs />
+                                        <div
+                                            ref={containerRef as RefObject<HTMLDivElement>}
+                                            className="DashboardView__canvas"
+                                        >
+                                            {mounted && width > 0 && (
+                                                <DashboardTileGrid
+                                                    key={`${activeTab.id}-${stacked ? 'stacked' : 'grid'}`}
+                                                    gridId={activeTab.id}
+                                                    tiles={tiles}
+                                                    cols={GRID.columns}
+                                                    width={width}
+                                                    editable={can('placeTiles')}
+                                                />
+                                            )}
+                                        </div>
                                     </div>
-                                </div>
-                                <TileSlideshow />
-                            </CapturingTileContext.Provider>
-                        </TileMountContext.Provider>
-                    </PanelHostContext.Provider>
+                                    <TileSlideshow />
+                                </CapturingTileContext.Provider>
+                            </TileMountContext.Provider>
+                        </PanelHostContext.Provider>
+                    </FilterControlsContext.Provider>
                 </FiltersContext.Provider>
             </GridDragContext.Provider>
         </DashboardStateContext.Provider>

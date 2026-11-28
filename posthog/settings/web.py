@@ -1572,7 +1572,7 @@ MCP_CATALOG_SYNC_ON_WORKER_READY: bool = get_from_env("MCP_CATALOG_SYNC_ON_WORKE
 AEO_ANTHROPIC_MODEL = get_from_env("AEO_ANTHROPIC_MODEL", "claude-sonnet-5")
 # Setup's site research and prompt writing. A faster model than the Claude engine's, since a person waits on it.
 AEO_SETUP_MODEL = get_from_env("AEO_SETUP_MODEL", "claude-haiku-5-5")
-AEO_OPENAI_MODEL = get_from_env("AEO_OPENAI_MODEL", "gpt-5")
+AEO_OPENAI_MODEL = get_from_env("AEO_OPENAI_MODEL", "gpt-6-luna")
 AEO_PERPLEXITY_MODEL = get_from_env("AEO_PERPLEXITY_MODEL", "posthog/perplexity/sonar")
 # A full daily run covers the whole prompt set, so the cap only guards against a runaway import.
 AEO_MAX_PROMPTS_PER_RUN = get_from_env("AEO_MAX_PROMPTS_PER_RUN", 2000, type_cast=int)

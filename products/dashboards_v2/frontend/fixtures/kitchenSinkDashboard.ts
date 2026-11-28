@@ -299,6 +299,33 @@ export const kitchenSinkDashboard: Dashboard = {
             ],
         },
         {
+            id: 'custom-panels',
+            title: 'Custom panels',
+            tiles: [
+                tile(
+                    'cp-intro',
+                    0,
+                    0,
+                    24,
+                    4,
+                    text(
+                        "**Custom panels** draw a product's own components in a tile. They have no menu or customizations unless the product opts in, and the browser list, period switcher and active hours change this dashboard's filters."
+                    )
+                ),
+                tile('cp-setup', 0, 4, 24, 5, { type: 'custom', config: { content: 'kitchen-sink/setup-prompt' }, parts: { header: false } }),
+                tile('cp-time', 0, 9, 24, 3, { type: 'custom', config: { content: 'kitchen-sink/time-range-shortcuts' }, parts: { header: false } }),
+                tile('cp-browsers', 0, 12, 8, 8, { type: 'custom', title: 'Browsers', config: { content: 'kitchen-sink/browser-filter' } }),
+                tile('cp-health', 8, 12, 8, 8, { type: 'custom', config: { content: 'kitchen-sink/health-checklist' }, parts: { header: false } }),
+                tile('cp-line', 16, 12, 8, 8, line('Pageviews by browser', SQL.pageviewsOverTime)),
+                tile('cp-issues', 0, 20, 12, 10, { type: 'custom', title: 'Top issues', config: { content: 'kitchen-sink/top-issues' } }),
+                tile('cp-deck', 12, 20, 12, 5, { type: 'custom', config: { content: 'kitchen-sink/recommendation-deck' }, parts: { header: false } }),
+                tile('cp-breakdown', 0, 30, 12, 14, { type: 'custom', title: 'Breakdown', config: { content: 'kitchen-sink/tabbed-breakdown' } }),
+                tile('cp-heatmap', 12, 30, 12, 14, { type: 'custom', title: 'Active hours', config: { content: 'kitchen-sink/activity-heatmap' } }),
+                tile('cp-live', 0, 44, 8, 8, { type: 'custom', title: 'Live', config: { content: 'kitchen-sink/live-visitors' } }),
+                tile('cp-instrumentation', 8, 44, 16, 8, { type: 'custom', config: { content: 'kitchen-sink/instrumentation-checklist' }, parts: { header: false } }),
+            ],
+        },
+        {
             id: 'tile-states',
             title: 'Tile states',
             tiles: [
@@ -324,6 +351,7 @@ export const kitchenSinkDashboard: Dashboard = {
                     tile('ts-good-bar', 8, METRIC_ROWS, 8, 14, bar('Bars by breakdown', SQL.sources)),
                     tile('ts-good-stacked', 16, METRIC_ROWS, 8, 14, chart('Stacked bars', SQL.eventsByType, { type: 'bar', options: { stack: true } })),
                     tile('ts-good-markdown', 0, METRIC_ROWS + 14, 24, 12, text(RICH_MARKDOWN)),
+                    tile('ts-good-custom', 0, METRIC_ROWS + 26, 24, 4, { type: 'custom', config: { content: 'kitchen-sink/setup-prompt' }, parts: { header: false } }),
                 ]),
                 section('ts-loading', 0, 40, 24, 'Loading and refreshing', [
                     tile('ts-slow-line', 0, 0, 12, 12, { ...line('Slow query', SAMPLE.slow), description: 'The sample runner answers after 4 seconds' }),
@@ -354,6 +382,7 @@ export const kitchenSinkDashboard: Dashboard = {
                     tile('ts-bad-options', 0, 10, 8, 10, { type: 'chart', title: 'Invalid chart options', config: { query: { language: 'hogql', query: SQL.signups }, viz: { type: 'metric', options: { format: 'banana' } } } }),
                     tile('ts-bad-markdown', 8, 10, 8, 10, { type: 'markdown', title: 'Invalid text config', config: { text: 42 } }),
                     tile('ts-bad-chart', 16, 10, 8, 10, { type: 'chart', title: 'Chart with no query', config: { viz: { type: 'line' } } }),
+                    tile('ts-bad-custom', 0, 20, 8, 10, { type: 'custom', title: 'Unknown custom content', config: { content: 'kitchen-sink/missing' } }),
                 ]),
                 section('ts-appearance', 0, 104, 24, 'Tile appearance', [
                     tile('ts-headerless', 0, 0, 6, 8, { ...text('A tile with its header hidden.'), title: 'Hidden title', parts: { header: false } }),
