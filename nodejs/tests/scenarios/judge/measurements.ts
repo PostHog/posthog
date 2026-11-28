@@ -16,7 +16,6 @@ import { CounterReading, counterDrift } from './drift'
 import { deliveryKey } from './invariants'
 import type { JudgeEvidence } from './invariants'
 import { SCRAPE_GAP_MS, WORKER_OF } from './pickups'
-import { SOAK_MEASUREMENTS } from './vacuum'
 
 export type MetricSample = {
     role: string
@@ -83,7 +82,6 @@ export type MeasureEvidence = Omit<JudgeEvidence, 'janitorResets' | 'boundary'> 
         horizonAt?: number
         converged?: boolean
         unsettled?: string
-        autovacuumProfile?: Readonly<Record<string, string>>
     }
 
 export type MeasurementDefinition = Definition & {
@@ -1020,7 +1018,6 @@ export const MEASUREMENTS: MeasurementDefinition[] = [
     resentInvocations,
     counterDrift,
     ...RECOVERY_MEASUREMENTS,
-    ...SOAK_MEASUREMENTS,
 ]
 
 export function measure(measurements: Named[], evidence: MeasureEvidence): Measurement[] {

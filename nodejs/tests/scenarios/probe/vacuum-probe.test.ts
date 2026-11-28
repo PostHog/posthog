@@ -89,10 +89,9 @@ describe('vacuum probe', () => {
         )
         const probe = createVacuumProbe(PROBE_URL)
 
-        const { settings, types, storage } = await probe.settings()
+        const { settings, storage } = await probe.settings()
 
         expect(settings.autovacuum).toBe(server.autovacuum)
-        expect(types.autovacuum_naptime).toEqual({ unit: 's', vartype: 'integer' })
         expect(settings).toHaveProperty('autovacuum_vacuum_scale_factor')
         expect(settings).toHaveProperty('vacuum_cost_limit')
         expect(storage).toMatchObject({

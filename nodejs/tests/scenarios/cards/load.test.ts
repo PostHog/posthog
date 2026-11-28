@@ -148,48 +148,6 @@ describe('load', () => {
             'measure.0.name: unknown measurement queue_depth',
         ],
         [
-            'a profile that names an empty map of autovacuum settings',
-            card,
-            { ...profile, postgres: { autovacuum: {} } },
-            'profile.postgres.autovacuum: name at least one autovacuum setting, or leave postgres out',
-        ],
-        [
-            'a profile autovacuum value with a leading zero, which PostgreSQL reads as octal',
-            card,
-            { ...profile, postgres: { autovacuum: { autovacuum_naptime: '060' } } },
-            'profile.postgres.autovacuum.autovacuum_naptime: write the value as a decimal with no sign, space or leading zero and an optional unit, as 60s or 0.2, or as a word, as on',
-        ],
-        [
-            'a profile autovacuum value with a leading space before a leading zero',
-            card,
-            { ...profile, postgres: { autovacuum: { autovacuum_naptime: ' 060' } } },
-            'profile.postgres.autovacuum.autovacuum_naptime: write the value as a decimal with no sign, space or leading zero and an optional unit, as 60s or 0.2, or as a word, as on',
-        ],
-        [
-            'a profile autovacuum value with a plus sign before a leading zero',
-            card,
-            { ...profile, postgres: { autovacuum: { autovacuum_naptime: '+060' } } },
-            'profile.postgres.autovacuum.autovacuum_naptime: write the value as a decimal with no sign, space or leading zero and an optional unit, as 60s or 0.2, or as a word, as on',
-        ],
-        [
-            'a profile autovacuum value in hex',
-            card,
-            { ...profile, postgres: { autovacuum: { autovacuum_work_mem: '-0x1' } } },
-            'profile.postgres.autovacuum.autovacuum_work_mem: write the value as a decimal with no sign, space or leading zero and an optional unit, as 60s or 0.2, or as a word, as on',
-        ],
-        [
-            'a profile autovacuum value in exponent notation',
-            card,
-            { ...profile, postgres: { autovacuum: { autovacuum_naptime: '6e1' } } },
-            'profile.postgres.autovacuum.autovacuum_naptime: write the value as a decimal with no sign, space or leading zero and an optional unit, as 60s or 0.2, or as a word, as on',
-        ],
-        [
-            'a profile autovacuum value with a space before its unit',
-            card,
-            { ...profile, postgres: { autovacuum: { autovacuum_naptime: '1 min' } } },
-            'profile.postgres.autovacuum.autovacuum_naptime: write the value as a decimal with no sign, space or leading zero and an optional unit, as 60s or 0.2, or as a word, as on',
-        ],
-        [
             'an unknown bar',
             { ...card, bars: [{ name: 'writer_iops_under' }] },
             undefined,
@@ -891,17 +849,6 @@ describe('load', () => {
 
     it('accepts a bar declared twice with different params on a card that does not stop on break', () => {
         expect(loadCard({ ...card, bars: TWICE_DECLARED_BARS }).card.bars).toEqual(TWICE_DECLARED_BARS)
-    })
-
-    it('loads the autovacuum values a profile writes as a decimal with a unit, a fraction, a negative number or a word', () => {
-        const autovacuum = {
-            autovacuum: 'on',
-            autovacuum_naptime: '1min',
-            autovacuum_vacuum_scale_factor: '0.2',
-            autovacuum_work_mem: '-1',
-        }
-
-        expect(loadCard(card, { ...profile, postgres: { autovacuum } }).profile.postgres).toEqual({ autovacuum })
     })
 
     it('keeps the name of a profile passed from outside the repository', () => {

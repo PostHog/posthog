@@ -1216,7 +1216,6 @@ describe('runner through seed, drive and judge', () => {
             warmUp,
             convergeWithin,
             settings = {},
-            postgres,
         }: {
             replicas?: Profile['replicas']
             parks?: number
@@ -1231,7 +1230,6 @@ describe('runner through seed, drive and judge', () => {
             warmUp?: string
             convergeWithin?: string
             settings?: Profile['settings']
-            postgres?: Profile['postgres']
         } = {}
     ): LoadedCard => {
         const card = path.join(cacheHome, 'card.yaml')
@@ -1264,7 +1262,6 @@ describe('runner through seed, drive and judge', () => {
                 replicas,
                 ...(loadTargets ? { load: loadTargets } : {}),
                 ...(backlog ? { backlog } : {}),
-                ...(postgres ? { postgres } : {}),
                 settings: {
                     CDP_EVENTS_CONSUMER_TOPIC: topic,
                     KAFKA_PRODUCER_METADATA_BROKER_LIST: defaultConfig.KAFKA_HOSTS,
@@ -2162,18 +2159,6 @@ describe('runner through seed, drive and judge', () => {
         },
         60_000
     )
-
-    it('compares the autovacuum settings of the Cyclotron database with those the profile names', async () => {
-        const result = await run('all', [], undefined, {
-            measures: [{ name: 'autovacuum_settings_differ', params: {} }],
-            postgres: { autovacuum: { autovacuum: 'on', autovacuum_vacuum_cost_limit: '-12' } },
-        })
-
-        expect(result.measurements).toEqual([
-            { name: 'autovacuum_settings_differ', unit: 'settings', key: 'count', value: 1 },
-            { name: 'autovacuum_settings_differ', unit: 'settings', key: 'autovacuum_vacuum_cost_limit', value: 1 },
-        ])
-    }, 30_000)
 
     const noWriter = {
         name: 'writer_cpu_under',

@@ -827,7 +827,6 @@ export function createRunner(
                     drive: driveWindow,
                     steps,
                     timeline: valves.timeline(),
-                    autovacuumProfile: profile.postgres?.autovacuum,
                 }
                 const measurements = measure(card.measure, evidence)
                 const admissions = admissionsOf(
