@@ -42,7 +42,7 @@ class ShipmailSource(ResumableSource[ShipmailSourceConfig, ShipmailResumeConfig]
             releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your Shipmail API key to sync email activity, newsletters, subscribers, and members into the PostHog Data warehouse.
 
-Grant the key the read scopes for the tables you want to sync: `messages:read`, `mailboxes:read`, `domains:read`, `suppressions:read`, `threads:read`, `newsletters:read`, `audiences:read`, and `members:read`. Threads also require `mailboxes:read` to list their mailboxes.""",
+Grant the key the read scopes for the tables you want to sync: `messages:read`, `mailboxes:read`, `domains:read`, `suppressions:read`, `threads:read`, `newsletters:read`, `audiences:read`, and `members:read`. Threads and inbox threads also require `mailboxes:read` to list their mailboxes, and inbox threads require `messages:read`.""",
             iconPath="/static/services/shipmail.png",
             docsUrl="https://posthog.com/docs/cdp/sources/shipmail",
             fields=cast(

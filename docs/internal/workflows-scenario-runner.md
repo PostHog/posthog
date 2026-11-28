@@ -276,6 +276,7 @@ Each card is drawn from a failure class on the delivery path.
 | `cyclotron-failover-at-scale`      | `event_email`, `event_webhook`, `transactional_email` | `pg.failover` on `cyclotron` with `warmReader: true` at 15 minutes for 30 minutes, in a 60-minute drive at 10x, run paired; 15 minutes shorter than `cyclotron-failover-under-load`, so both runs of the pair fit the lease            | `at_least_once`, `duplicate_sends` (gate 0), `refused_at_intake`, `resident_backlog_intact`, `no_loss` | A Cyclotron writer failover at 10x load at any valid reader capacity; `reader_at_t0` says whether the reader was warm |
 | `cyclotron-scale`                  | `event_email`, `event_webhook`, `transactional_email` | none; the rates ramp through 1x, 2x and 5x, then hold 10x for 30 minutes, with the bars `writer_cpu_under` 70% and `pickup_p99_under` 5 seconds                                                                                        | `at_least_once`, `duplicate_sends` (gate 0), `refused_at_intake`, `resident_backlog_intact`            | Cyclotron falling behind at 10x load                                                                                  |
 | `cyclotron-breaking-point`         | `event_email`, `event_webhook`, `transactional_email` | none; 80 teams, and the rates ramp through 10x, 20x, 40x, 80x, 160x, 240x and 320x for 2 minutes each and stop only at a hard failure, with the same bars as `cyclotron-scale`                                                         | `at_least_once`, `duplicate_sends` (gate 0), `refused_at_intake` (gate 0), `resident_backlog_intact`   | The load at which Cyclotron first breaks                                                                              |
+| `cyclotron-autovacuum-soak`        | `event_email`, `event_webhook`, `transactional_email` | none; it holds 10x for 80 minutes, with the same bars as `cyclotron-scale`, and records the vacuum samples of `cyclotron_jobs`                                                                                                         | `at_least_once`, `duplicate_sends` (gate 0), `refused_at_intake` (gate 0), `resident_backlog_intact`   | Autovacuum falling behind a long 10x load                                                                             |
 
 `chaos-under-load` runs event email, event webhooks and transactional email at steady profile rates against the provider edge. It gives ambiguous provider responses, refused enqueues, lost commit replies and an email worker kill separate windows. Each run judges `no_loss` from the edge's delivery records and measures `counter_drift`. The pair compares the whole-run verdicts. The `faults.json` evidence shows which valves fired and the targets observed in each window. To run the pair locally, use `pnpm --dir nodejs exec tsx tests/scenarios/main.ts run chaos-under-load --pair`.
 
@@ -989,6 +990,16 @@ export interface CyclotronProbe {
 
 These are the runner's only queries against `cyclotron_jobs`. `unfinishedJobs` counts jobs that are `available`, scheduled for later included, or `running`; `runningJobs` counts the `running` ones, for a valve's `when`.
 When Cyclotron gains its own read of the same counts, that read replaces this module.
+
+### Vacuum probe
+
+`probe/vacuum-probe.ts` reads the vacuum state of `cyclotron_jobs` into `vacuum` in `probes.json`: once as the probes start, around the drive's start, then every 10 seconds through the drive and convergence, and once more when the probes stop. Each read carries the time its query was sent.
+Each read is one catalog query with no table scan: live and dead tuples, the autovacuum and vacuum counts, the last autovacuum, the start of an autovacuum running on the table, and the sizes of the heap, its TOAST and each index.
+A failed read is kept with its error.
+At the start, the probe reads the autovacuum and vacuum settings and the storage options of the table and its indexes into `vacuumSettings`.
+A role without `pg_read_all_stats`, or a server with `track_activities` off, never sees an autovacuum worker's start.
+So `vacuumSettings.statsHidden` records whether any other session's activity is hidden from the probe role, and each read counts in `untrackedWorkers` the autovacuum workers in this database that run with `track_activities` off.
+When `statsHidden` is set, or `untrackedWorkers` is above zero, a sample's `vacuumingSince` can be `null` while autovacuum runs on the table.
 
 ### Scorecard
 
