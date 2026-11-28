@@ -1039,7 +1039,13 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
             "has_more": False,
         }
 
-    @parameterized.expand([("send_stamped_after_its_landing", 1000, -1000), ("sub_second_stamps", -200, -100)])
+    @parameterized.expand(
+        [
+            ("send_stamped_after_its_landing", 1000, -1000),
+            ("sub_second_stamps", -200, -100),
+            ("send_at_the_end_of_the_pad", 5 * 60 * 1000 - 200, -100),
+        ]
+    )
     def test_keeps_a_landing_just_before_the_cutoff(self, _flag, _name, send_offset_ms, landing_offset_ms):
         cutoff = NOW - timedelta(hours=2) + timedelta(milliseconds=300)
         clicked = [("sent", 1, ""), ("delivered", 2, ""), ("clicked", 60, "")]
@@ -1052,6 +1058,18 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
         )
 
         assert [session["session_id"] for session in listed["sessions"]] == ["edge-session"]
+
+    def test_lists_sessions_for_a_cutoff_at_the_end_of_time(self, _flag):
+        clicked = [("sent", 1, ""), ("delivered", 2, ""), ("clicked", 60, "")]
+        message_id = self._send(30, "late@example.com", clicked)
+        self._land("late", "late-session", message_id, at=NOW - timedelta(minutes=20))
+        flush_persons_and_events()
+
+        listed = self._impact_sessions(
+            date_from=(NOW - timedelta(days=1)).isoformat(), landed_before="9999-12-31T23:59:00Z"
+        )
+
+        assert [session["session_id"] for session in listed["sessions"]] == ["late-session"]
 
     def test_finds_an_older_landing_behind_a_full_cap_of_recent_sends(self, _flag):
         clicked = [("sent", 1, ""), ("delivered", 2, ""), ("clicked", 60, "")]

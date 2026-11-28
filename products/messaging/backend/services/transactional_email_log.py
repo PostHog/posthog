@@ -810,10 +810,7 @@ def transactional_email_impact_sessions(
     if not is_email_workflow_run_link_tag_enabled(team_id=team.id):
         return TransactionalEmailImpactSessions(sessions=(), has_more=False)
     period = _window(date_from, date_to)
-    sent_before = (
-        _Period(start=period.start, end=min(period.end, landed_before + _CLOCK_SKEW)) if landed_before else period
-    )
-    clicked = _clicked_message_ids(team, workflow_id, sent_before, limit=MAX_RESULTS_RECIPIENTS)
+    clicked = _clicked_message_ids(team, workflow_id, _sent_before(period, landed_before), limit=MAX_RESULTS_RECIPIENTS)
     batches = list(_batches_by_query_size(team.id, clicked, _escaped_literal_bytes))
     if not batches:
         return TransactionalEmailImpactSessions(sessions=(), has_more=False)
@@ -825,6 +822,15 @@ def transactional_email_impact_sessions(
         sessions=tuple(newest[:MAX_IMPACT_SESSIONS]),
         has_more=len(newest) > MAX_IMPACT_SESSIONS or sends_left_out,
     )
+
+
+def _sent_before(period: _Period, landed_before: datetime | None) -> _Period:
+    if landed_before is None or landed_before >= period.end:
+        return period
+    padded = landed_before + _CLOCK_SKEW
+    whole_second = padded.replace(microsecond=0)
+    end = whole_second if whole_second == padded else whole_second + timedelta(seconds=1)
+    return _Period(start=period.start, end=min(period.end, end))
 
 
 def _session_landings_in_batch(
