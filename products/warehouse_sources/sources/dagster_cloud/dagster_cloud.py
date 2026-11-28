@@ -1,6 +1,7 @@
 import re
 import json
 from collections.abc import Iterator
+from dataclasses import field
 from datetime import UTC, date, datetime
 from typing import Any, Optional
 
@@ -55,6 +56,7 @@ class DagsterCloudResumeConfig:
     # resume — parent lists are small and cheap next to the child pages they drive.
     parents_done: int = 0
     window_cursor: str = ""
+    asset_check_cursors: dict[str, str | None] = field(default_factory=dict)
 
 
 def build_graphql_url(organization: str, deployment: str) -> str:
@@ -443,8 +445,6 @@ def _iter_parents(
         yield from _iter_repository_parents(sess, url)
     elif fan_out.parent_kind == "assets":
         yield from _iter_asset_parents(sess, url)
-    elif fan_out.parent_kind == "asset_checks":
-        yield from _iter_asset_check_parents(sess, url)
     elif fan_out.parent_kind == "runs":
         yield from _iter_run_parents(sess, url, watermark_epoch, sync_start_epoch)
     else:
@@ -669,6 +669,26 @@ def _iter_fanout_rows(
         resumable_source_manager.save_state(DagsterCloudResumeConfig(parents_done=index + 1))
 
 
+def _iter_asset_check_rows(
+    sess: requests.Session,
+    url: str,
+    endpoint_config: DagsterCloudEndpointConfig,
+    resumable_source_manager: ResumableSourceManager[DagsterCloudResumeConfig],
+    resume_config: DagsterCloudResumeConfig | None,
+) -> Iterator[list[dict[str, Any]]]:
+    check_cursors = resume_config.asset_check_cursors.copy() if resume_config else {}
+    for parent in _iter_asset_check_parents(sess, url):
+        check_id = json.dumps([parent["assetKeyInput"]["path"], parent["checkName"]], separators=(",", ":"))
+        cursor = check_cursors.get(check_id, "")
+        if cursor is None:
+            continue
+
+        for page, next_cursor in _iter_child_pages(sess, url, endpoint_config, parent, None, cursor):
+            check_cursors[check_id] = next_cursor
+            resumable_source_manager.save_state(DagsterCloudResumeConfig(asset_check_cursors=check_cursors.copy()))
+            yield page
+
+
 def _make_fanout_request(
     organization: str,
     deployment: str,
@@ -687,6 +707,10 @@ def _make_fanout_request(
     resume_config = resumable_source_manager.load_state()
 
     try:
+        if endpoint_config.fan_out.parent_kind == "asset_checks":
+            yield from _iter_asset_check_rows(sess, url, endpoint_config, resumable_source_manager, resume_config)
+            return
+
         yield from _iter_fanout_rows(
             sess,
             url,

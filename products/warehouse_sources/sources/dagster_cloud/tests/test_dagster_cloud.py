@@ -71,6 +71,28 @@ def _assets_container(ids: list[str], cursor: str | None) -> dict[str, Any]:
     }
 
 
+def _asset_check_parents(*check_names: str) -> ScriptedResponse:
+    parents = _assets_container(["orders", "retired"], None)
+    parents["nodes"][0]["key"] = {"path": ["sales", "orders"]}
+    parents["nodes"][0]["definition"] = {
+        "assetChecksOrError": {"__typename": "AssetChecks", "checks": [{"name": name} for name in check_names]}
+    }
+    parents["nodes"][1]["definition"] = None
+    return _gql_response("assetsOrError", parents)
+
+
+def _asset_check_executions(*execution_ids: str) -> ScriptedResponse:
+    return ScriptedResponse(
+        json={
+            "data": {
+                "assetCheckExecutions": [
+                    {"id": execution_id, "timestamp": EPOCH_2024, "evaluation": None} for execution_id in execution_ids
+                ]
+            }
+        }
+    )
+
+
 def _manager(saved: DagsterCloudResumeConfig | None = None) -> MagicMock:
     manager = MagicMock()
     manager.load_state.return_value = saved
@@ -404,6 +426,61 @@ class TestAssetEventFanOut:
 
 
 class TestAssetCheckExecutions:
+    @parameterized.expand(
+        [
+            ("completed_check_removed", ("42",), ("not_empty",), [("not_empty", None, "39")]),
+            ("completed_check_reordered", ("42",), ("not_empty", "unique"), [("not_empty", None, "39")]),
+            (
+                "active_check_reordered",
+                ("42", "41"),
+                ("not_empty", "unique"),
+                [("not_empty", None, "39"), ("unique", "41", "40")],
+            ),
+        ]
+    )
+    @patch(f"{MODULE}.DAGSTER_CLOUD_PAGE_SIZE", 2)
+    def test_resumes_each_check_by_identity(
+        self,
+        _name: str,
+        first_page: tuple[str, ...],
+        catalog: tuple[str, ...],
+        remaining: list[tuple[str, str | None, str]],
+    ) -> None:
+        driver = _driver()
+        first = driver.run(
+            "asset_check_executions",
+            [
+                _asset_check_parents("unique", "not_empty"),
+                _asset_check_executions(*first_page),
+                ScriptedResponse(status=400),
+            ],
+        )
+
+        assert first.raised is not None and str(first.raised).startswith("400 Client Error:")
+        assert [(row["checkName"], row["id"]) for row in first.rows] == [("unique", row_id) for row_id in first_page]
+        assert first.final_state is not None
+        assert first.committed_states == [first.final_state]
+
+        resumed = driver.run(
+            "asset_check_executions",
+            [_asset_check_parents(*catalog), *(_asset_check_executions(row_id) for _, _, row_id in remaining)],
+            resume_state=first.final_state,
+        )
+
+        assert resumed.raised is None
+        assert _variables(resumed, "AssetCheckExecutions") == [
+            {
+                "assetKey": {"path": ["sales", "orders"]},
+                "checkName": name,
+                "limit": 2,
+                **({"cursor": cursor} if cursor is not None else {}),
+            }
+            for name, cursor, _ in remaining
+        ]
+        assert [(row["checkName"], row["id"]) for row in resumed.rows] == [
+            (name, row_id) for name, _, row_id in remaining
+        ]
+
     @patch(f"{MODULE}.DAGSTER_CLOUD_PAGE_SIZE", 1)
     def test_shutdown_interrupts_pages_without_checks(self) -> None:
         first = _assets_container(["retired"], "page-two")
@@ -432,58 +509,22 @@ class TestAssetCheckExecutions:
             assert len(network.requests_log) == 2
             assert manager.load_state() is None
 
-    @parameterized.expand([("first_sync", None), ("resume", "50")])
     @patch(f"{MODULE}.DAGSTER_CLOUD_PAGE_SIZE", 2)
-    def test_paginates_each_check(self, _name: str, saved_cursor: str | None) -> None:
+    def test_paginates_each_check(self) -> None:
         asset_key = {"path": ["sales", "orders"]}
-        parents = _gql_response(
-            "assetsOrError",
-            {
-                "__typename": "AssetConnection",
-                "cursor": None,
-                "nodes": [
-                    {
-                        "id": "orders",
-                        "key": asset_key,
-                        "definition": {
-                            "assetChecksOrError": {
-                                "__typename": "AssetChecks",
-                                "checks": [{"name": "unique"}, {"name": "not_empty"}],
-                            }
-                        },
-                    },
-                    {"id": "retired", "key": {"path": ["retired"]}, "definition": None},
-                ],
-            },
-        )
-        pages = [
-            ScriptedResponse(
-                json={
-                    "data": {
-                        "assetCheckExecutions": [
-                            {"id": execution_id, "timestamp": EPOCH_2024, "evaluation": None}
-                            for execution_id in execution_ids
-                        ]
-                    }
-                }
-            )
-            for execution_ids in (("42", "41"), ("40",), ("39",))
-        ]
-
         result = _driver().run(
             "asset_check_executions",
-            _route({"AssetCheckParents": parents, "AssetCheckExecutions": pages}),
-            resume_state=DagsterCloudResumeConfig(window_cursor=saved_cursor) if saved_cursor else None,
+            [
+                _asset_check_parents("unique", "not_empty"),
+                _asset_check_executions("42", "41"),
+                _asset_check_executions("40"),
+                _asset_check_executions("39"),
+            ],
         )
 
         assert result.raised is None
         assert _variables(result, "AssetCheckExecutions") == [
-            {
-                "assetKey": asset_key,
-                "checkName": "unique",
-                "limit": 2,
-                **({"cursor": saved_cursor} if saved_cursor else {}),
-            },
+            {"assetKey": asset_key, "checkName": "unique", "limit": 2},
             {"assetKey": asset_key, "checkName": "unique", "limit": 2, "cursor": "41"},
             {"assetKey": asset_key, "checkName": "not_empty", "limit": 2},
         ]
@@ -494,11 +535,7 @@ class TestAssetCheckExecutions:
             ("orders", "not_empty", "39"),
         ]
         assert all(row["timestamp"] == ISO_2024 and row["evaluation"] is None for row in result.rows)
-        assert result.saved_states == [
-            DagsterCloudResumeConfig(window_cursor="41"),
-            DagsterCloudResumeConfig(parents_done=1),
-            DagsterCloudResumeConfig(parents_done=2),
-        ]
+        assert len(result.committed_states) == 3
 
     def test_check_discovery_error_does_not_look_like_an_empty_catalog(self) -> None:
         parents = _assets_container(["orders"], None)
