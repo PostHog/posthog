@@ -865,6 +865,7 @@ class TestRemoteConfigCaching(_RemoteConfigBase):
     def test_syncs_if_changes(self):
         synced_at = self.remote_config.synced_at
         self.remote_config.config["surveys"] = True
+        self.remote_config.save()
         self.remote_config.sync()
         assert synced_at < self.remote_config.synced_at  # type: ignore
 
@@ -885,6 +886,7 @@ class TestRemoteConfigCaching(_RemoteConfigBase):
 
         # Force a content change so sync() takes the change path.
         self.remote_config.config["surveys"] = True
+        self.remote_config.save()
 
         with (
             patch("posthog.storage.object_storage.write") as mock_s3_write,
@@ -959,6 +961,7 @@ class TestRemoteConfigCaching(_RemoteConfigBase):
         ):
             # Force a change to the config
             self.remote_config.config["surveys"] = True
+            self.remote_config.save()
             self.remote_config.sync()
             mock_post.assert_called_once_with(
                 "https://api.cloudflare.com/client/v4/zones/MY_ZONE_ID/purge_cache",
@@ -1087,6 +1090,38 @@ class TestRemoteConfigRaceCondition(_RemoteConfigBase):
             f"Cache should show hasFeatureFlags=True when database has {final_flag_count} active flags. "
             f"If this fails, the race condition fix is not working properly."
         )
+
+    @parameterized.expand(
+        [
+            ("stored_config_is_current", None, False, False),
+            ("stored_config_is_stale", "stale", False, True),
+            ("stored_config_comes_from_a_later_build", "later", True, False),
+        ]
+    )
+    @patch("posthog.models.remote_config.requests.post")
+    def test_sync_of_a_concurrent_new_instance_stores_only_a_newer_changed_config(
+        self, _name, stored_surveys, stored_build_is_later, stores, mock_post
+    ):
+        if stored_surveys is not None:
+            self.remote_config.config["surveys"] = stored_surveys
+        if stored_build_is_later:
+            self.remote_config.synced_at = timezone.now() + timedelta(hours=1)
+        self.remote_config.save()
+        stored_before = RemoteConfig.objects.get(team=self.team).config
+
+        with self.settings(
+            REMOTE_CONFIG_CDN_PURGE_ENDPOINT="https://api.cloudflare.com/client/v4/zones/MY_ZONE_ID/purge_cache",
+            REMOTE_CONFIG_CDN_PURGE_TOKEN="MY_TOKEN",
+            REMOTE_CONFIG_CDN_PURGE_DOMAINS=["cdn.posthog.com"],
+        ):
+            RemoteConfig(team=self.team).sync()
+
+        stored = RemoteConfig.objects.get(team=self.team)
+        assert stored.pk == self.remote_config.pk
+        assert (stored.config != stored_before) == stores
+        assert stored.config["surveys"] != "stale"
+        assert RemoteConfig.get_hypercache().get_from_cache(self.team.api_token) == stored.config
+        assert mock_post.called == stores
 
 
 def _write_accessor(kind: str) -> AuthAccessor:
