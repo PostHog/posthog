@@ -20,7 +20,8 @@ export interface ItemPeekLoadedScene {
 }
 
 /** Links inside the scene, or inside the drawer itself, peek. The navigation and the menus keep navigating. */
-const PEEK_SURFACES_SELECTOR = '#main-content, [data-item-peek-root]'
+// pinned: the drawer's `data-attr` doubles as this selector, so renaming it stops links inside the drawer from peeking.
+const PEEK_SURFACES_SELECTOR = '#main-content, [data-attr="item-peek-drawer"]'
 
 async function importPeekScene(sceneId: string): Promise<SceneExport<any> | null> {
     const config = ITEM_PEEK_SCENES[sceneId]

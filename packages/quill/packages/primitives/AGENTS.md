@@ -94,7 +94,7 @@ Every menu-like list marks its active row the same way: the row that keyboard in
 | ----------- | --------------------------------------------------------------------------------------------------------------------------------------- |
 | Dialog      | Modal, blocking flow — focused forms, multi-step content. `size="wide"`/`"full"` for big content                                        |
 | AlertDialog | Confirmation that must be resolved — destructive/irreversible actions. Backdrop clicks never dismiss, no X button, `role="alertdialog"` |
-| Drawer      | Mobile-first slide-up sheet; touch contexts. `swipeDirection="right"` with `backdrop={false}` for a side panel beside the page          |
+| Drawer      | Mobile-first slide-up sheet; touch contexts. `swipeDirection="right"` with `modal={false}` for a side panel beside the page             |
 | Credenza    | A Dialog on a wide viewport and a bottom Drawer on a phone, from one set of parts. Lives in `@posthog/quill-components`                 |
 | Popover     | Non-modal panel anchored to a trigger, with interactive content (filters, pickers)                                                      |
 | Tooltip     | Hover-only text hint; never interactive content, never essential information                                                            |
@@ -570,7 +570,7 @@ Same shell as Dialog (shared `quill-dialog__*` styles) but `role="alertdialog"`,
 `DrawerBody` works like `DialogBody`: a `ScrollArea` that takes the height the header and footer leave, with `viewportClassName` and `render`.
 `DrawerFooter` stacks its buttons in reverse, so write Cancel first and the main action last, as in a `DialogFooter`. The main action shows on top.
 A left or right drawer takes the width its `className` sets, and its content fills that width; the 32rem content cap applies only to top and bottom sheets.
-`backdrop={false}` on `DrawerContent` leaves out the dimmed, blurred backdrop, so the page stays visible beside a side drawer. A click outside still closes the drawer.
+Only a modal drawer draws the dimmed, blurred backdrop. A drawer with `modal={false}` on its root leaves the page visible beside it, and a click outside still closes it.
 
 ### Dropdown Menu
 

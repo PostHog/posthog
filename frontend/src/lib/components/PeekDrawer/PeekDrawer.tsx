@@ -33,7 +33,7 @@ export function PeekDrawer({
         <Drawer
             open={open}
             swipeDirection="right"
-            // Not modal, so a Lemon popover the content opens can still take focus.
+            // Not modal, so a Lemon popover the content opens can still take focus, and the page beside it stays visible.
             modal={false}
             onOpenChange={(nextOpen, details) => {
                 if (!nextOpen && !isInOutsideLayer(details.event?.target)) {
@@ -42,11 +42,9 @@ export function PeekDrawer({
             }}
         >
             <DrawerContent
-                backdrop={false}
                 // The quill default of 24rem is a menu's width; an item page needs half the window, as the logs drawer had.
                 className="w-[max(50vw,min(36rem,100vw))] max-w-full"
                 data-attr={dataAttr}
-                data-item-peek-root
             >
                 <DrawerHeader className="gap-2 border-b">
                     <div className="flex items-center gap-1">
