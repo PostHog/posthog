@@ -20,6 +20,15 @@ const insertJobs = (count: number): Promise<unknown> =>
          SELECT gen_random_uuid(), 1, 'hogflow', 'available', 0, now(), now(), now() FROM generate_series(1, ${count})`
     )
 
+const sizesOfTable = (): Promise<{ heap: number; toast: number }> =>
+    withPostgres(async (client) => {
+        const { rows } = await client.query<{ heap: string; toast: string }>(
+            `SELECT pg_relation_size(c.oid) AS heap, pg_total_relation_size(c.reltoastrelid) AS toast
+             FROM pg_class c WHERE c.oid = 'cyclotron_jobs'::regclass`
+        )
+        return { heap: Number(rows[0].heap), toast: Number(rows[0].toast) }
+    }, PROBE_URL)
+
 describe('vacuum probe', () => {
     beforeAll(async () => {
         await SCHEMA.create()
@@ -44,10 +53,13 @@ describe('vacuum probe', () => {
         )
 
         const sample = await probe.sample()
+        const sizes = await sizesOfTable()
 
         expect(sample).toMatchObject({ liveTuples: 300, deadTuples: 101, autovacuums: 0, lastAutovacuumAt: null })
         expect(sample.heapBytes).toBeGreaterThan(0)
         expect(sample.toastBytes).toBeGreaterThan(empty.toastBytes)
+        expect(sizes.toast).not.toEqual(sizes.heap)
+        expect({ heap: sample.heapBytes, toast: sample.toastBytes }).toEqual(sizes)
         expect(Object.keys(sample.indexBytes)).toContain('cyclotron_jobs_pkey')
         expect(Object.values(sample.indexBytes).every((bytes) => bytes > 0)).toBe(true)
         expect(sample.vacuumingSince).toBeNull()
