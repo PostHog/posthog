@@ -119,6 +119,25 @@ describe('AdventFlowStage', () => {
         expect(card()).toBeNull()
     })
 
+    it.each([
+        ['open', [1, 2, 24]],
+        ['locked', [1, 2]],
+    ])('names every pinned card by an element on the stage, with door 24 %s', (_, opened) => {
+        seed(opened, { 2: 'tim' })
+        renderStage({ width: 1200, height: 830 })
+
+        const names = Array.from({ length: 24 }, (_, index) => {
+            act(() => fireEvent.click(door(index + 1) as HTMLElement))
+            const label = card()?.getAttribute('aria-labelledby')
+            const name = [card()?.getAttribute('role'), document.getElementById(label ?? '')?.textContent?.trim()]
+            act(() => fireEvent.keyDown(window, { key: 'Escape' }))
+            waitForTheCardToClose()
+            return name
+        })
+
+        expect(names).toEqual(Array.from({ length: 24 }, () => ['dialog', expect.stringMatching(/\S/)]))
+    })
+
     it('opens the ready door on a click and pins its card on the hoggy behind it', async () => {
         jest.spyOn(window, 'matchMedia').mockReturnValue({ matches: false } as MediaQueryList)
         seed([1, 2], { 2: 'tim' })

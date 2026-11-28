@@ -1,6 +1,6 @@
 from typing import Any, cast
 
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound
@@ -10,6 +10,7 @@ from rest_framework.throttling import BaseThrottle
 
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.exceptions import Conflict
 from posthog.models.user import User
 from posthog.permissions import PostHogFeatureFlagPermission
 from posthog.rate_limit import PersonalApiKeyRateThrottle
@@ -17,6 +18,7 @@ from posthog.rate_limit import PersonalApiKeyRateThrottle
 from products.workflows.backend.facade.advent_calendar import (
     ADVENT_CALENDAR_QUESTIONS,
     advent_calendar_results,
+    advent_calendar_ticket_days,
     answer_advent_calendar,
     open_advent_calendar_door,
 )
@@ -61,11 +63,21 @@ class AdventCalendarQuestionResultSerializer(serializers.Serializer):
     )
 
 
+TICKET_DAYS_HELP = (
+    "The days whose door the signed-in person first opened on that day in their own time zone, using the offset "
+    "stored with the first open. Each day is one raffle ticket. Sorted ascending."
+)
+
+
 class AdventCalendarResultsSerializer(serializers.Serializer):
     questions = AdventCalendarQuestionResultSerializer(
         many=True,
         help_text="Every advent calendar question, by day. Shares count the answers of every user of this PostHog "
         "instance, not only this project's members. Each cloud region counts its own users.",
+    )
+    ticket_days = serializers.ListField(
+        child=serializers.IntegerField(min_value=1, max_value=24),
+        help_text=TICKET_DAYS_HELP,
     )
 
 
@@ -92,12 +104,21 @@ class AdventCalendarDoorOpenRequestSerializer(serializers.Serializer):
         help_text="The browser's offset from UTC in minutes, east positive, from -720 to 840. A later rule uses it "
         "to tell which local day the person opened the door on.",
     )
+    user_uuid = serializers.UUIDField(
+        required=False,
+        help_text="The UUID of the person the browser opened the door as. When it is not the signed-in person, the "
+        "server stores nothing and answers 409.",
+    )
 
 
 class AdventCalendarDoorOpenSerializer(serializers.Serializer):
     day = serializers.IntegerField(help_text="The calendar day of the door.")
     opened_at = serializers.DateTimeField(
         help_text="When the server stored the person's first open of this door. Opening it again keeps this time."
+    )
+    ticket_days = serializers.ListField(
+        child=serializers.IntegerField(min_value=1, max_value=24),
+        help_text=TICKET_DAYS_HELP,
     )
 
 
@@ -113,6 +134,11 @@ class AdventCalendarUserThrottle(PersonalApiKeyRateThrottle):
         return self.cache_format % {"scope": self.scope, "ident": request.user.pk}
 
 
+class AdventCalendarOpenThrottle(AdventCalendarUserThrottle):
+    scope = "workflow_advent_calendar_open"
+    rate = "60/minute"
+
+
 class WorkflowAdventCalendarViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     """How people open the doors of the Workflows advent calendar and answer its questions."""
 
@@ -121,12 +147,14 @@ class WorkflowAdventCalendarViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     permission_classes = [PostHogFeatureFlagPermission]
 
     def get_throttles(self) -> list[BaseThrottle]:
-        return [AdventCalendarUserThrottle(), *super().get_throttles()]
+        person_throttle = AdventCalendarOpenThrottle() if self.action == "open" else AdventCalendarUserThrottle()
+        return [person_throttle, *super().get_throttles()]
 
     @extend_schema(operation_id="workflow_advent_calendar_results", responses={200: AdventCalendarResultsSerializer})
     @action(detail=False, methods=["get"])
     def results(self, request: Request, **kwargs: Any) -> Response:
-        return self._results_response(advent_calendar_results(cast(User, request.user).id))
+        user_id = cast(User, request.user).id
+        return self._results_response(advent_calendar_results(user_id), user_id)
 
     @validated_request(
         request_serializer=AdventCalendarAnswerSerializer,
@@ -135,21 +163,26 @@ class WorkflowAdventCalendarViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     )
     @action(detail=False, methods=["post"])
     def answer(self, request: ValidatedRequest, **kwargs: Any) -> Response:
+        user_id = cast(User, request.user).id
         return self._results_response(
-            answer_advent_calendar(
-                cast(User, request.user).id, request.validated_data["day"], request.validated_data["option"]
-            )
+            answer_advent_calendar(user_id, request.validated_data["day"], request.validated_data["option"]), user_id
         )
 
     @validated_request(
         request_serializer=AdventCalendarDoorOpenRequestSerializer,
-        responses={200: AdventCalendarDoorOpenSerializer},
+        responses={
+            200: AdventCalendarDoorOpenSerializer,
+            409: OpenApiResponse(description="The browser opened the door as another person than the signed-in one."),
+        },
         operation_id="workflow_advent_calendar_open",
     )
     @action(detail=False, methods=["post"])
     def open(self, request: ValidatedRequest, **kwargs: Any) -> Response:
+        user = cast(User, request.user)
+        if request.validated_data.get("user_uuid", user.uuid) != user.uuid:
+            raise Conflict("The door was opened as another person than the signed-in one.")
         door_open = open_advent_calendar_door(
-            user_id=cast(User, request.user).id,
+            user_id=user.id,
             day=request.validated_data["day"],
             hoggy=request.validated_data["hoggy"],
             utc_offset_minutes=request.validated_data["utc_offset_minutes"],
@@ -158,5 +191,9 @@ class WorkflowAdventCalendarViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             raise NotFound("This account no longer exists.")
         return Response(AdventCalendarDoorOpenSerializer(door_open).data)
 
-    def _results_response(self, questions: list[AdventCalendarQuestionResult]) -> Response:
-        return Response(AdventCalendarResultsSerializer({"questions": questions}).data)
+    def _results_response(self, questions: list[AdventCalendarQuestionResult], user_id: int) -> Response:
+        return Response(
+            AdventCalendarResultsSerializer(
+                {"questions": questions, "ticket_days": advent_calendar_ticket_days(user_id)}
+            ).data
+        )
