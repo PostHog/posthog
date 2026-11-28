@@ -139,6 +139,7 @@ function createGrpcClient(): { client: PersonHogClient; handlers: ServiceHandler
             getDistinctIdsForPerson: () => ({ distinctIds: [] }),
             getDistinctIdsForPersons: () => ({ personDistinctIds: [] }),
             getHashKeyOverrideContext: () => ({ results: [] }),
+            getFlagContext: () => ({ cohortMemberships: [], groups: [], hashKeyOverrides: [] }),
             upsertHashKeyOverrides: () => ({}),
             deleteHashKeyOverridesByTeams: () => ({}),
             checkCohortMembership: () => ({ memberships: [] }),

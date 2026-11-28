@@ -14,7 +14,12 @@ from google.protobuf import (
 )
 from google.protobuf.internal import containers as _containers
 
-from personhog.types.v1 import common_pb2 as _common_pb2
+from personhog.types.v1 import (
+    cohort_pb2 as _cohort_pb2,
+    common_pb2 as _common_pb2,
+    group_pb2 as _group_pb2,
+    person_pb2 as _person_pb2,
+)
 
 DESCRIPTOR: _descriptor.FileDescriptor
 
@@ -105,3 +110,42 @@ class DeleteHashKeyOverridesByTeamsResponse(_message.Message):
     DELETED_COUNT_FIELD_NUMBER: _ClassVar[int]
     deleted_count: int
     def __init__(self, deleted_count: _Optional[int] = ...) -> None: ...
+
+class GetFlagContextRequest(_message.Message):
+    __slots__ = ("team_id", "person_id", "static_cohort_ids", "group_identifiers", "override_distinct_ids")
+    TEAM_ID_FIELD_NUMBER: _ClassVar[int]
+    PERSON_ID_FIELD_NUMBER: _ClassVar[int]
+    STATIC_COHORT_IDS_FIELD_NUMBER: _ClassVar[int]
+    GROUP_IDENTIFIERS_FIELD_NUMBER: _ClassVar[int]
+    OVERRIDE_DISTINCT_IDS_FIELD_NUMBER: _ClassVar[int]
+    team_id: int
+    person_id: int
+    static_cohort_ids: _containers.RepeatedScalarFieldContainer[int]
+    group_identifiers: _containers.RepeatedCompositeFieldContainer[_common_pb2.GroupIdentifier]
+    override_distinct_ids: _containers.RepeatedScalarFieldContainer[str]
+    def __init__(
+        self,
+        team_id: _Optional[int] = ...,
+        person_id: _Optional[int] = ...,
+        static_cohort_ids: _Optional[_Iterable[int]] = ...,
+        group_identifiers: _Optional[_Iterable[_Union[_common_pb2.GroupIdentifier, _Mapping]]] = ...,
+        override_distinct_ids: _Optional[_Iterable[str]] = ...,
+    ) -> None: ...
+
+class GetFlagContextResponse(_message.Message):
+    __slots__ = ("person", "cohort_memberships", "groups", "hash_key_overrides")
+    PERSON_FIELD_NUMBER: _ClassVar[int]
+    COHORT_MEMBERSHIPS_FIELD_NUMBER: _ClassVar[int]
+    GROUPS_FIELD_NUMBER: _ClassVar[int]
+    HASH_KEY_OVERRIDES_FIELD_NUMBER: _ClassVar[int]
+    person: _person_pb2.Person
+    cohort_memberships: _containers.RepeatedCompositeFieldContainer[_cohort_pb2.CohortMembership]
+    groups: _containers.RepeatedCompositeFieldContainer[_group_pb2.Group]
+    hash_key_overrides: _containers.RepeatedCompositeFieldContainer[HashKeyOverrideContext]
+    def __init__(
+        self,
+        person: _Optional[_Union[_person_pb2.Person, _Mapping]] = ...,
+        cohort_memberships: _Optional[_Iterable[_Union[_cohort_pb2.CohortMembership, _Mapping]]] = ...,
+        groups: _Optional[_Iterable[_Union[_group_pb2.Group, _Mapping]]] = ...,
+        hash_key_overrides: _Optional[_Iterable[_Union[HashKeyOverrideContext, _Mapping]]] = ...,
+    ) -> None: ...

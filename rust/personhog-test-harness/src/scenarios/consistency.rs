@@ -187,27 +187,43 @@ async fn followed_read_shows(
     key: String,
     marker: String,
     within: Duration,
-) -> Option<ConsistencyViolation> {
+) -> Vec<ConsistencyViolation> {
     tokio::time::sleep(within).await;
-    let person = client
-        .get_person(team_id, person_id, ConsistencyLevel::Eventual)
-        .await
-        .ok()?;
+    let reads = [
+        (
+            "get_person",
+            client
+                .get_person(team_id, person_id, ConsistencyLevel::Eventual)
+                .await,
+        ),
+        (
+            "flag_context",
+            client
+                .followed_person_in_flag_context(team_id, person_id)
+                .await,
+        ),
+    ];
     if state.is_merge_pending_or_merged(person_id).await {
-        return None;
+        return Vec::new();
     }
-    let props: serde_json::Value = person
-        .as_ref()
-        .and_then(|person| serde_json::from_slice(&person.properties).ok())
-        .unwrap_or_else(|| serde_json::json!({}));
     let expected = serde_json::Value::String(marker);
-    let actual = props.get(&key);
-    (actual != Some(&expected)).then(|| ConsistencyViolation {
-        person_id,
-        key: format!("__stale_followed_read:{key}"),
-        expected,
-        actual: actual.cloned().unwrap_or(serde_json::Value::Null),
-    })
+    reads
+        .into_iter()
+        .filter_map(|(call, read)| {
+            let person = read.ok()?;
+            let props: serde_json::Value = person
+                .as_ref()
+                .and_then(|person| serde_json::from_slice(&person.properties).ok())
+                .unwrap_or_else(|| serde_json::json!({}));
+            let actual = props.get(&key);
+            (actual != Some(&expected)).then(|| ConsistencyViolation {
+                person_id,
+                key: format!("__stale_followed_read:{call}:{key}"),
+                expected: expected.clone(),
+                actual: actual.cloned().unwrap_or(serde_json::Value::Null),
+            })
+        })
+        .collect()
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -362,7 +378,7 @@ pub async fn run_probers(
                 }
             }
             for check in followed_checks {
-                violations.extend(check.await.ok().flatten());
+                violations.extend(check.await.unwrap_or_default());
             }
             violations
         }));

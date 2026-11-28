@@ -116,6 +116,14 @@ impl MockPersonHogService {
 
 #[tonic::async_trait]
 impl PersonHogService for MockPersonHogService {
+    async fn get_flag_context(
+        &self,
+        _req: Request<personhog_proto::personhog::types::v1::GetFlagContextRequest>,
+    ) -> Result<Response<personhog_proto::personhog::types::v1::GetFlagContextResponse>, Status>
+    {
+        Err(Status::unimplemented("not exercised by this mock"))
+    }
+
     async fn fence_person(
         &self,
         _req: Request<personhog_proto::personhog::types::v1::FencePersonRequest>,
