@@ -77,6 +77,8 @@ A marker whose content names no commit cannot prove containment, so it corrobora
 Nothing above exists: use merge time + 24h for server-side code, + 72h or more for web client bundles and mobile apps (judge from the paths: a mobile repository, an SDK, a frontend bundle).
 Say "assumed live after a <24h or 72h> soak, this project has no deploy signal" in anything you file, with the soak you actually applied to that surface, and never call a claim failed inside the soak.
 Neither rule above applies here: there is no commit to contain and no environment to name, so the onset is always estimated, and the report says so.
+The soak is an upper bound: a server-side change can go live minutes after merge.
+So the side-effect sweep and the attribution window start at merge time, not at merge plus the soak, and the first step change you find after the merge is the measured onset you report.
 
 ## The onset
 
