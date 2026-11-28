@@ -2,10 +2,13 @@ import re
 import copy
 import dataclasses
 from collections.abc import Callable, Iterator
+from datetime import UTC, date, datetime, timedelta
+from functools import partial
 from typing import Any, Optional
-from urllib.parse import SplitResult, urlsplit
+from urllib.parse import SplitResult, quote, unquote, urlsplit
 
 import requests
+import structlog
 from requests import Request, Response
 
 from products.warehouse_sources.sources.grafana_irm.settings import (
@@ -17,6 +20,7 @@ from products.warehouse_sources.sources.grafana_irm.settings import (
 from products.warehouse_sources.sources.sdk import (
     BasePaginator,
     BearerTokenAuth,
+    ClientConfig,
     Endpoint,
     EndpointResource,
     PageNumberPaginator,
@@ -25,6 +29,7 @@ from products.warehouse_sources.sources.sdk import (
     ResumableSourceManager,
     SinglePagePaginator,
     SourceResponse,
+    build_dependent_resource,
     make_tracked_session,
     reach_safe_point,
     rest_api_resource,
@@ -38,6 +43,10 @@ GRAFANA_CLOUD_DOMAIN = "grafana.net"
 _GRAFANA_CLOUD_HOSTNAME = re.compile(r"(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+" + re.escape(GRAFANA_CLOUD_DOMAIN))
 INCIDENT_API_PATH = "/api/plugins/grafana-irm-app/resources/api/v1"
 REQUEST_TIMEOUT_SECONDS = 60
+_KEY_UPDATES_MAX_PAGES_PER_INCIDENT = 1000
+_FINAL_SHIFTS_MAX_PAGES_PER_SCHEDULE = 1000
+
+logger = structlog.get_logger(__name__)
 
 
 class GrafanaIRMConfigError(ValueError):
@@ -48,6 +57,12 @@ class GrafanaIRMConfigError(ValueError):
 class GrafanaIRMResumeConfig:
     page: Optional[int] = None
     cursor: Optional[str] = None
+    schedule_window_end: str | None = None
+    schedule_fanout_state: dict[str, Any] | None = None
+    incident_parent_cursor: str | None = None
+    completed_incidents: list[str] = dataclasses.field(default_factory=list)
+    incident_id: str | None = None
+    incident_child_state: dict[str, Any] | None = None
 
 
 def _parse_grafana_cloud_url(url: str, label: str) -> SplitResult:
@@ -123,6 +138,58 @@ class IncidentCursorPaginator(BasePaginator):
             self._has_next_page = True
 
 
+class KeyUpdatesCursorPaginator(IncidentCursorPaginator):
+    def __init__(self, incident_id: str) -> None:
+        super().__init__()
+        self._incident_id = incident_id
+        self._pages = 0
+
+    def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
+        super().update_state(response, data)
+        self._pages += 1
+        if self._pages >= _KEY_UPDATES_MAX_PAGES_PER_INCIDENT and self.has_next_page:
+            logger.warning(
+                "grafana_irm.page_cap_reached",
+                resource="incident_key_updates",
+                incident_id=self._incident_id,
+                pages=self._pages,
+            )
+            raise RuntimeError(
+                f"Grafana IRM key updates have more pages after the per-incident limit of "
+                f"{_KEY_UPDATES_MAX_PAGES_PER_INCIDENT}."
+            )
+
+    def get_resume_state(self) -> dict[str, Any] | None:
+        state = super().get_resume_state()
+        if state is not None:
+            state["pages"] = self._pages
+        return state
+
+    def set_resume_state(self, state: dict[str, Any]) -> None:
+        super().set_resume_state(state)
+        self._pages = state.get("pages", 0)
+
+
+class FinalShiftsPaginator(PageNumberPaginator):
+    def __init__(self) -> None:
+        super().__init__(base_page=1, page_param="page", total_path="total_pages")
+
+    def update_state(self, response: Response, data: list[Any] | None = None) -> None:
+        super().update_state(response, data)
+        if self.has_next_page and self.page > _FINAL_SHIFTS_MAX_PAGES_PER_SCHEDULE:
+            schedule_id = unquote(urlsplit(response.url).path.rstrip("/").rsplit("/", 2)[-2])
+            logger.warning(
+                "grafana_irm.page_cap_reached",
+                resource="final_schedule_shifts",
+                schedule_id=schedule_id,
+                pages=self.page - 1,
+            )
+            raise RuntimeError(
+                f"Grafana IRM final schedule shifts have more pages after the per-schedule limit of "
+                f"{_FINAL_SHIFTS_MAX_PAGES_PER_SCHEDULE}."
+            )
+
+
 def _oncall_paginator() -> PageNumberPaginator:
     # A page past the end returns the last page again instead of an empty one, so `total_pages` is
     # the only reliable stop signal.
@@ -146,6 +213,18 @@ def _drop_fields(fields: tuple[str, ...]) -> Callable[[dict[str, Any]], dict[str
         return {key: value for key, value in row.items() if key not in fields}
 
     return drop
+
+
+def _client_config(config: GrafanaIRMEndpointConfig, token: str, stack_url: str, oncall_api_url: str) -> ClientConfig:
+    return {
+        "base_url": _base_url(config, stack_url, oncall_api_url),
+        "headers": _headers(config, stack_url),
+        "auth": {"type": "bearer", "token": token},
+        "paginator": _oncall_paginator() if config.api == "oncall" else IncidentCursorPaginator(),
+        "allowed_hosts": [],
+        "allow_redirects": False,
+        "request_timeout": REQUEST_TIMEOUT_SECONDS,
+    }
 
 
 def _resource_config(
@@ -174,15 +253,7 @@ def _resource_config(
         resource["data_map"] = _drop_fields(config.dropped_fields)
 
     return {
-        "client": {
-            "base_url": _base_url(config, stack_url, oncall_api_url),
-            "headers": _headers(config, stack_url),
-            "auth": {"type": "bearer", "token": token},
-            "paginator": _oncall_paginator() if config.api == "oncall" else IncidentCursorPaginator(),
-            "allowed_hosts": [],
-            "allow_redirects": False,
-            "request_timeout": REQUEST_TIMEOUT_SECONDS,
-        },
+        "client": _client_config(config, token, stack_url, oncall_api_url),
         "resources": [resource],
     }
 
@@ -287,15 +358,43 @@ def _incident_membership_pages(client: RESTClient) -> Iterator[list[dict[str, An
                 reach_safe_point()
 
 
-def _incident_activity_pages(client: RESTClient) -> Iterator[list[dict[str, Any]]]:
-    """Fan out over every incident and yield its activity timeline page by page.
+def _encode_schedule_id(schedule: dict[str, Any]) -> dict[str, Any] | list[dict[str, Any]]:
+    schedule_id = schedule.get("id")
+    if not schedule_id:
+        return []
+    return {**schedule, "encoded_schedule_id": quote(schedule_id, safe="")}
 
-    The activity query takes the incident ID in the POST body, which the declarative fan-out can
-    only bind into the URL path, so this walks both levels with the same client.
-    """
+
+def _incident_child_pages(
+    client: RESTClient,
+    child: GrafanaIRMEndpointConfig,
+    resume_manager: ResumableSourceManager[GrafanaIRMResumeConfig] | None = None,
+) -> Iterator[list[dict[str, Any]]]:
+    """The declarative fan-out cannot bind the parent ID into the POST body."""
+
     incidents = GRAFANA_IRM_ENDPOINTS["incidents"]
-    activity = GRAFANA_IRM_ENDPOINTS["incident_activity"]
     incident_query = {"query": {"limit": INCIDENT_PAGE_SIZE, "orderField": "createdTime", "orderDirection": "ASC"}}
+    resume = resume_manager.load_state() if resume_manager is not None else None
+    parent_cursor = resume.incident_parent_cursor if resume else None
+    completed = set(resume.completed_incidents) if resume else set()
+    next_parent_cursor: str | None = None
+
+    def track_parent(state: dict[str, Any] | None, has_next_page: bool) -> None:
+        nonlocal next_parent_cursor
+        next_parent_cursor = state.get("cursor") if state and has_next_page else None
+
+    def checkpoint_child(state: dict[str, Any] | None, has_next_page: bool, *, incident_id: str) -> None:
+        assert resume_manager is not None
+        if not has_next_page:
+            completed.add(incident_id)
+        resume_manager.save_state(
+            GrafanaIRMResumeConfig(
+                incident_parent_cursor=parent_cursor,
+                completed_incidents=sorted(completed),
+                incident_id=incident_id if has_next_page else None,
+                incident_child_state=state,
+            )
+        )
 
     for incident_page in client.paginate(
         incidents.path,
@@ -304,24 +403,82 @@ def _incident_activity_pages(client: RESTClient) -> Iterator[list[dict[str, Any]
         paginator=IncidentCursorPaginator(),
         data_selector=incidents.data_selector,
         data_selector_required=True,
+        initial_paginator_state={"cursor": parent_cursor} if parent_cursor else None,
+        page_state_hook=track_parent if resume_manager is not None else None,
     ):
         for incident in incident_page:
             incident_id = incident.get("incidentID")
-            if not incident_id:
+            if not incident_id or incident_id in completed:
                 continue
-            body = copy.deepcopy(activity.json)
+            body = copy.deepcopy(child.json)
             body["query"]["incidentID"] = incident_id
-            for activity_page in client.paginate(
-                activity.path,
+            child_state = resume.incident_child_state if resume and resume.incident_id == incident_id else None
+            for child_page in client.paginate(
+                child.path,
                 method="post",
                 json=body,
-                paginator=IncidentCursorPaginator(),
-                data_selector=activity.data_selector,
+                paginator=KeyUpdatesCursorPaginator(incident_id)
+                if child.name == "incident_key_updates"
+                else IncidentCursorPaginator(),
+                data_selector=child.data_selector,
                 data_selector_required=True,
                 data_selector_empty_ok=True,
+                initial_paginator_state=child_state,
+                page_state_hook=partial(checkpoint_child, incident_id=incident_id)
+                if resume_manager is not None
+                else None,
             ):
-                if activity_page:
-                    yield activity_page
+                if child_page:
+                    yield child_page
+                else:
+                    reach_safe_point()
+        if resume_manager is not None and next_parent_cursor is not None:
+            parent_cursor = next_parent_cursor
+            completed.clear()
+            resume = None
+            resume_manager.save_state(GrafanaIRMResumeConfig(incident_parent_cursor=parent_cursor))
+            reach_safe_point()
+
+
+def _final_schedule_shifts(
+    config: GrafanaIRMEndpointConfig,
+    client_config: ClientConfig,
+    team_id: int,
+    job_id: str,
+    resume_manager: ResumableSourceManager[GrafanaIRMResumeConfig],
+) -> SourceResponse:
+    assert config.fanout is not None
+    resume = resume_manager.load_state() or GrafanaIRMResumeConfig()
+    end_date = resume.schedule_window_end or datetime.now(UTC).date().isoformat()
+    start_date = (date.fromisoformat(end_date) - timedelta(days=365)).isoformat()
+
+    def save_checkpoint(state: dict[str, Any] | None) -> None:
+        resume_manager.save_state(GrafanaIRMResumeConfig(schedule_window_end=end_date, schedule_fanout_state=state))
+
+    parent = GRAFANA_IRM_ENDPOINTS[config.fanout.parent_name]
+    resource = build_dependent_resource(
+        endpoint_configs=GRAFANA_IRM_ENDPOINTS,
+        child_endpoint=config.name,
+        fanout=config.fanout,
+        client_config=client_config,
+        path_format_values={},
+        team_id=team_id,
+        job_id=job_id,
+        db_incremental_field_last_value=None,
+        page_size_param="perpage",
+        parent_data_map=_encode_schedule_id,
+        parent_endpoint_extra={"data_selector": parent.data_selector, "data_selector_required": True},
+        child_endpoint_extra={
+            "data_selector": config.data_selector,
+            "data_selector_required": True,
+            "paginator": FinalShiftsPaginator(),
+        },
+        child_params_extra={"start_date": start_date, "end_date": end_date},
+        resume_hook=save_checkpoint,
+        initial_paginator_state=resume.schedule_fanout_state,
+        resume_parent_pagination=True,
+    )
+    return SourceResponse(name=config.name, items=lambda: resource, primary_keys=list(config.primary_keys))
 
 
 def grafana_irm_source(
@@ -337,6 +494,11 @@ def grafana_irm_source(
     stack_url = normalize_stack_url(stack_url)
     oncall_api_url = normalize_oncall_api_url(oncall_api_url)
 
+    if config.fanout is not None:
+        return _final_schedule_shifts(
+            config, _client_config(config, token, stack_url, oncall_api_url), team_id, job_id, resumable_source_manager
+        )
+
     partition_kwargs: dict[str, Any] = {}
     if config.partition_key:
         partition_kwargs = {
@@ -348,7 +510,10 @@ def grafana_irm_source(
         }
 
     fan_out_pages: dict[str, Callable[[], Iterator[list[dict[str, Any]]]]] = {
-        "incident_activity": lambda: _incident_activity_pages(_incident_client(token, stack_url)),
+        "incident_activity": lambda: _incident_child_pages(_incident_client(token, stack_url), config),
+        "incident_key_updates": lambda: _incident_child_pages(
+            _incident_client(token, stack_url), config, resumable_source_manager
+        ),
         "incident_membership": lambda: _incident_membership_pages(_incident_client(token, stack_url)),
         "alerts": lambda: _alert_pages(_oncall_client(token, stack_url, oncall_api_url)),
     }
@@ -423,7 +588,7 @@ def validate_credentials(
 
     if probe_oncall:
         # A fan-out child needs a parent ID, so probe its parent, which takes the same permission.
-        probe_name = (config.parent or config.name) if config is not None else "alert_groups"
+        probe_name = config.probe_name if config is not None else "alert_groups"
         oncall_path = GRAFANA_IRM_ENDPOINTS[probe_name].path
         status = _probe(
             session,

@@ -1,6 +1,10 @@
+from collections.abc import Iterable
 from typing import Any, Optional
 
 import pytest
+import time_machine
+
+from structlog.testing import capture_logs
 
 from products.warehouse_sources.sources.grafana_irm._config import GrafanaIRMSourceConfig
 from products.warehouse_sources.sources.grafana_irm.grafana_irm import (
@@ -11,13 +15,23 @@ from products.warehouse_sources.sources.grafana_irm.grafana_irm import (
     validate_credentials,
 )
 from products.warehouse_sources.sources.grafana_irm.source import GrafanaIRMSource
-from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
+from products.warehouse_sources.sources.sdk import Resource
+from products.warehouse_sources.sources.sdk.testing import (
+    RunStopped,
+    ScriptedResponse,
+    SourceDriver,
+    activate_safe_point,
+    always,
+    scripted_network,
+    source_inputs,
+)
 
 TOKEN = "glsa_test_token"
 STACK_URL = "https://acme.grafana.net"
 ONCALL_URL = "https://oncall-prod-us-central-0.grafana.net/oncall"
 INCIDENT_PATH = "/api/plugins/grafana-irm-app/resources/api/v1/IncidentsService.QueryIncidentPreviews"
 ACTIVITY_PATH = "/api/plugins/grafana-irm-app/resources/api/v1/ActivityService.QueryActivity"
+KEY_UPDATES_PATH = "/api/plugins/grafana-irm-app/resources/api/v1/KeyUpdatesService.QueryKeyUpdates"
 MEMBERSHIP_PATH = "/api/plugins/grafana-irm-app/resources/api/v1/IncidentsService.GetIncidentMembership"
 
 
@@ -156,40 +170,252 @@ def test_incident_cursor_travels_in_the_post_body(resume_cursor: Optional[str]) 
     assert result.response.primary_keys == ["incidentID"]
 
 
-def test_incident_activity_fans_out_over_every_incident() -> None:
+@pytest.mark.parametrize(
+    ("endpoint", "path", "selector", "row_id", "order_field"),
+    [
+        ("incident_activity", ACTIVITY_PATH, "activityItems", "activityItemID", None),
+        ("incident_key_updates", KEY_UPDATES_PATH, "keyUpdates", "id", "createdTime"),
+    ],
+)
+def test_incident_child_fans_out_over_every_incident(
+    endpoint: str, path: str, selector: str, row_id: str, order_field: str | None
+) -> None:
+    first_row = {"incidentID": "1", row_id: "item-a"}
+    next_row = {"incidentID": "1", row_id: "item-b"}
+    incidents = ScriptedResponse(
+        json={"incidentPreviews": [{"incidentID": "1"}, {"incidentID": "2"}], "cursor": {"hasMore": False}}
+    )
+    last_page = ScriptedResponse(json={selector: [next_row], "cursor": {"hasMore": False}})
+    empty_page = ScriptedResponse(json={selector: [], "cursor": {"hasMore": False}})
     result = _driver().run(
-        "incident_activity",
+        endpoint,
         [
-            ScriptedResponse(
-                json={"incidentPreviews": [{"incidentID": "1"}, {"incidentID": "2"}], "cursor": {"hasMore": False}}
-            ),
+            incidents,
             ScriptedResponse(
                 json={
-                    "activityItems": [{"incidentID": "1", "activityItemID": "a"}],
+                    selector: [first_row],
                     "cursor": {"nextValue": "c", "hasMore": True},
                 }
             ),
-            ScriptedResponse(
-                json={"activityItems": [{"incidentID": "1", "activityItemID": "b"}], "cursor": {"hasMore": False}}
-            ),
-            ScriptedResponse(json={"activityItems": [], "cursor": {"hasMore": False}}),
+            last_page,
+            empty_page,
         ],
     )
 
     assert result.raised is None
-    assert result.rows == [
-        {"incidentID": "1", "activityItemID": "a"},
-        {"incidentID": "1", "activityItemID": "b"},
-    ]
-    assert result.paths == [INCIDENT_PATH, ACTIVITY_PATH, ACTIVITY_PATH, ACTIVITY_PATH]
-    activity_bodies = [request.json() for request in result.requests if request.path == ACTIVITY_PATH]
-    assert [(body["query"]["incidentID"], body.get("cursor")) for body in activity_bodies] == [
+    assert result.rows == [first_row, next_row]
+    assert result.paths == [INCIDENT_PATH, path, path, path]
+    child_requests = result.requests[1:]
+    assert all(request.method == "POST" for request in child_requests)
+    child_bodies = [request.json() for request in child_requests]
+    assert [(body["query"]["incidentID"], body.get("cursor")) for body in child_bodies] == [
         ("1", None),
         ("1", {"nextValue": "c", "hasMore": True}),
         ("2", None),
     ]
+    assert all(body["query"].get("orderField") == order_field for body in child_bodies)
+    assert all(body["query"]["orderDirection"] == "ASC" for body in child_bodies)
+    if endpoint == "incident_key_updates":
+        assert result.response is not None
+        assert result.response.supports_resume
+        resumed = _driver().run(endpoint, [incidents, last_page, empty_page], resume_state=result.committed_states[0])
+        assert resumed.raised is None
+        assert resumed.rows == [next_row]
+        assert resumed.requests[1].json() == child_bodies[1]
+
+
+@pytest.mark.parametrize("has_more_at_limit", [False, True])
+def test_key_updates_page_cap_applies_per_incident(monkeypatch: pytest.MonkeyPatch, has_more_at_limit: bool) -> None:
+    monkeypatch.setattr(
+        "products.warehouse_sources.sources.grafana_irm.grafana_irm._KEY_UPDATES_MAX_PAGES_PER_INCIDENT", 2
+    )
+    rows = [{"incidentID": incident_id, "id": update_id} for incident_id in ("1", "2") for update_id in ("a", "b")]
+    next_cursor = {"nextValue": "next", "hasMore": True}
+    last_cursor = {"hasMore": False}
+    incident_list = ScriptedResponse(
+        json={"incidentPreviews": [{"incidentID": "1"}, {"incidentID": "2"}], "cursor": last_cursor}
+    )
+    cap_page = ScriptedResponse(
+        json={"keyUpdates": [rows[3]], "cursor": next_cursor if has_more_at_limit else last_cursor}
+    )
+    with capture_logs() as logs:
+        result = _driver().run(
+            "incident_key_updates",
+            [
+                incident_list,
+                ScriptedResponse(json={"keyUpdates": [rows[0]], "cursor": next_cursor}),
+                ScriptedResponse(json={"keyUpdates": [rows[1]], "cursor": last_cursor}),
+                ScriptedResponse(json={"keyUpdates": [rows[2]], "cursor": next_cursor}),
+                cap_page,
+            ],
+        )
+
+    assert result.paths == [INCIDENT_PATH, *([KEY_UPDATES_PATH] * 4)]
+    assert [request.json()["query"]["incidentID"] for request in result.requests[1:]] == ["1", "1", "2", "2"]
+    cap_logs = [entry for entry in logs if entry["event"] == "grafana_irm.page_cap_reached"]
+    if has_more_at_limit:
+        assert isinstance(result.raised, RuntimeError)
+        assert "per-incident limit of 2" in str(result.raised)
+        assert [(entry["resource"], entry["incident_id"], entry["pages"]) for entry in cap_logs] == [
+            ("incident_key_updates", "2", 2)
+        ]
+        assert result.final_state is not None
+        resumed = _driver().run("incident_key_updates", [incident_list, cap_page], resume_state=result.final_state)
+        assert str(resumed.raised) == str(result.raised)
+        assert resumed.paths == [INCIDENT_PATH, KEY_UPDATES_PATH]
+        assert resumed.requests[1].json() == result.requests[-1].json()
+    else:
+        assert result.raised is None
+        assert result.rows == rows
+        assert not cap_logs
+
+
+@time_machine.travel("2026-01-08T15:30:00Z", tick=False)
+def test_final_schedule_shifts_page_per_schedule() -> None:
+    first_shift = {"user_pk": "user-a", "shift_start": "2025-12-10T09:00:00Z", "shift_end": "2025-12-10T17:00:00Z"}
+    second_shift = {**first_shift, "user_pk": "user-b"}
+    script = [
+        ScriptedResponse(json=_oncall_page([{"id": "schedule-a"}], 1, total_pages=2)),
+        ScriptedResponse(json=_oncall_page([first_shift], 1, total_pages=2)),
+        ScriptedResponse(json=_oncall_page([second_shift], 2, total_pages=2)),
+        ScriptedResponse(
+            json=_oncall_page([{"id": "schedule-empty"}, {"name": "No ID"}, {"id": "schedule/b"}], 2, total_pages=2)
+        ),
+        ScriptedResponse(json=_oncall_page([], 1, total_pages=1)),
+        ScriptedResponse(json=_oncall_page([first_shift], 1, total_pages=1)),
+    ]
+    result = _driver().run("final_schedule_shifts", script)
+
+    assert result.raised is None
+    assert result.rows == [
+        {**first_shift, "schedule_id": "schedule-a"},
+        {**second_shift, "schedule_id": "schedule-a"},
+        {**first_shift, "schedule_id": "schedule/b"},
+    ]
+    base = "/oncall/api/v1/schedules/"
+    assert [(request.path, request.param("page")) for request in result.requests] == [
+        (base, "1"),
+        (f"{base}schedule-a/final_shifts", "1"),
+        (f"{base}schedule-a/final_shifts", "2"),
+        (base, "2"),
+        (f"{base}schedule-empty/final_shifts", "1"),
+        (f"{base}schedule%2Fb/final_shifts", "1"),
+    ]
+    for request in result.requests:
+        if request.path != base:
+            assert request.param("start_date") == "2025-01-08"
+            assert request.param("end_date") == "2026-01-08"
     assert result.response is not None
-    assert result.response.primary_keys == ["incidentID", "activityItemID"]
+    assert result.response.supports_resume
+    with time_machine.travel("2026-01-09T15:30:00Z", tick=False):
+        resumed = _driver().run(
+            "final_schedule_shifts", [script[0], *script[2:]], resume_state=result.committed_states[0]
+        )
+    assert resumed.raised is None
+    assert resumed.rows == result.rows[1:]
+    assert [(request.path, request.param("page")) for request in resumed.requests] == [
+        (request.path, request.param("page")) for request in [result.requests[0], *result.requests[2:]]
+    ]
+    for request in resumed.requests:
+        if request.path != base:
+            assert request.param("start_date") == "2025-01-08"
+            assert request.param("end_date") == "2026-01-08"
+
+
+@pytest.mark.parametrize("total_pages", [None, "2", 3])
+def test_final_schedule_shifts_fails_at_the_per_schedule_page_cap(
+    monkeypatch: pytest.MonkeyPatch, total_pages: str | int | None
+) -> None:
+    monkeypatch.setattr(
+        "products.warehouse_sources.sources.grafana_irm.grafana_irm._FINAL_SHIFTS_MAX_PAGES_PER_SCHEDULE", 2
+    )
+    shift = {"user_pk": "user-a", "shift_start": "2025-12-10T09:00:00Z", "shift_end": "2025-12-10T17:00:00Z"}
+    last_page = _oncall_page([shift], 2, total_pages=2)
+    capped_page = {**last_page, "total_pages": total_pages}
+    if total_pages is None:
+        del capped_page["total_pages"]
+    with capture_logs() as logs:
+        result = _driver().run(
+            "final_schedule_shifts",
+            [
+                ScriptedResponse(json=_oncall_page([{"id": "schedule-a"}, {"id": "schedule/b"}], 1, total_pages=1)),
+                ScriptedResponse(json=_oncall_page([shift], 1, total_pages=2)),
+                ScriptedResponse(json=last_page),
+                ScriptedResponse(json=_oncall_page([shift], 1, total_pages=3)),
+                ScriptedResponse(json=capped_page),
+            ],
+        )
+
+    assert isinstance(result.raised, RuntimeError)
+    assert "per-schedule limit of 2" in str(result.raised)
+    assert [(request.path.split("/")[-2], request.param("page")) for request in result.requests[1:]] == [
+        ("schedule-a", "1"),
+        ("schedule-a", "2"),
+        ("schedule%2Fb", "1"),
+        ("schedule%2Fb", "2"),
+    ]
+    assert [
+        (entry["resource"], entry["schedule_id"], entry["pages"])
+        for entry in logs
+        if entry["event"] == "grafana_irm.page_cap_reached"
+    ] == [("final_schedule_shifts", "schedule/b", 2)]
+
+
+@pytest.mark.parametrize(
+    ("endpoint", "parent_response", "empty_response", "next_path"),
+    [
+        (
+            "final_schedule_shifts",
+            _oncall_page([{"id": "schedule-a"}, {"id": "schedule-b"}], 1, total_pages=1),
+            _oncall_page([], 1, total_pages=1),
+            "/oncall/api/v1/schedules/schedule-b/final_shifts",
+        ),
+        (
+            "incident_key_updates",
+            {"incidentPreviews": [{"incidentID": "1"}, {"incidentID": "2"}], "cursor": {"hasMore": False}},
+            {"keyUpdates": [], "cursor": {"hasMore": False}},
+            KEY_UPDATES_PATH,
+        ),
+    ],
+)
+def test_empty_fanout_child_can_hand_off_before_the_next_parent(
+    endpoint: str, parent_response: dict[str, Any], empty_response: dict[str, Any], next_path: str
+) -> None:
+    source = GrafanaIRMSource()
+    inputs = source_inputs(endpoint)
+    config = GrafanaIRMSourceConfig(token=TOKEN, stack_url=STACK_URL, oncall_api_url=ONCALL_URL)
+
+    with scripted_network([ScriptedResponse(json=parent_response), ScriptedResponse(json=empty_response)]) as network:
+        manager = source.get_resumable_source_manager(inputs)
+        response = source.source_for_pipeline(config, manager, inputs)
+        assert response.supports_resume
+        items = response.items()
+        assert isinstance(items, Iterable)
+
+        def stop() -> None:
+            manager.confirm()
+            raise RunStopped("worker is shutting down")
+
+        with (
+            activate_safe_point(stop, covers_framework_checkpoints=isinstance(items, Resource)),
+            pytest.raises(RunStopped, match="worker is shutting down"),
+        ):
+            list(items)
+        manager.commit()
+        checkpoint = manager.load_state()
+
+    assert len(network.requests_log) == 2
+    assert checkpoint is not None
+    resumed = _driver().run(
+        endpoint,
+        [ScriptedResponse(json=parent_response), ScriptedResponse(json=empty_response)],
+        resume_state=checkpoint,
+    )
+    assert resumed.raised is None
+    assert len(resumed.requests) == 2
+    assert resumed.requests[1].path == next_path
+    if endpoint == "incident_key_updates":
+        assert resumed.requests[1].json()["query"]["incidentID"] == "2"
 
 
 def test_alerts_fan_out_over_every_alert_group() -> None:
@@ -292,6 +518,7 @@ def test_incident_lookup_tables_are_one_unfiltered_request(
         (200, 404, None, False, "isn't enabled"),
         (403, None, "alert_groups", False, "permission"),
         (200, None, "alerts", True, None),
+        (200, None, "final_schedule_shifts", True, None),
         (403, None, "alerts", False, "permission"),
         (None, 403, "incidents", False, "permission"),
         (500, 200, None, False, "HTTP 500"),
@@ -317,7 +544,8 @@ def test_validate_credentials_maps_statuses(
     assert network.session_options == [{"redact_values": (TOKEN,)}]
     expected_requests = []
     if schema_name != "incidents":
-        expected_requests.append(("GET", "/oncall/api/v1/alert_groups/"))
+        oncall_path = "schedules" if schema_name == "final_schedule_shifts" else "alert_groups"
+        expected_requests.append(("GET", f"/oncall/api/v1/{oncall_path}/"))
     if schema_name == "incidents" or (schema_name is None and oncall_status in (200, 403)):
         expected_requests.append(("POST", INCIDENT_PATH))
     requests = [(request.method, request.path) for request in network.requests_log]

@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
-from products.warehouse_sources.sources.sdk import IncrementalField
+from products.warehouse_sources.sources.sdk import DependentEndpointConfig, IncrementalField
 
 # The OnCall API caps `perpage` at 100.
 ONCALL_PAGE_SIZE = 100
@@ -28,6 +28,17 @@ class GrafanaIRMEndpointConfig:
     # Fan-out child: one request per row of this parent endpoint, so credential checks probe the parent.
     parent: str | None = None
     description: str | None = None
+    fanout: DependentEndpointConfig | None = None
+    incremental_fields: list[IncrementalField] = field(default_factory=list)
+    default_incremental_field: str | None = None
+
+    @property
+    def page_size(self) -> int:
+        return ONCALL_PAGE_SIZE if self.api == "oncall" else INCIDENT_PAGE_SIZE
+
+    @property
+    def probe_name(self) -> str:
+        return self.fanout.parent_name if self.fanout is not None else self.parent or self.name
 
 
 GRAFANA_IRM_ENDPOINTS: dict[str, GrafanaIRMEndpointConfig] = {
@@ -81,6 +92,20 @@ GRAFANA_IRM_ENDPOINTS: dict[str, GrafanaIRMEndpointConfig] = {
         # External iCal feed URLs are often private calendar links that grant read access on their own.
         dropped_fields=("ical_url_primary", "ical_url_overrides"),
     ),
+    "final_schedule_shifts": GrafanaIRMEndpointConfig(
+        name="final_schedule_shifts",
+        api="oncall",
+        path="/api/v1/schedules/{schedule_id}/final_shifts",
+        primary_keys=("schedule_id", "user_pk", "shift_start", "shift_end"),
+        description="On-call shifts after rotations and overrides. Covers the last 365 complete UTC days",
+        fanout=DependentEndpointConfig(
+            parent_name="schedules",
+            resolve_param="schedule_id",
+            resolve_field="encoded_schedule_id",
+            include_from_parent=["id"],
+            parent_field_renames={"id": "schedule_id"},
+        ),
+    ),
     "on_call_shifts": GrafanaIRMEndpointConfig(
         name="on_call_shifts",
         api="oncall",
@@ -133,6 +158,16 @@ GRAFANA_IRM_ENDPOINTS: dict[str, GrafanaIRMEndpointConfig] = {
         data_selector="activityItems",
         description="Timeline entries of every incident. Fetched per incident, so large incident histories take longer",
     ),
+    "incident_key_updates": GrafanaIRMEndpointConfig(
+        name="incident_key_updates",
+        api="incident",
+        path="/KeyUpdatesService.QueryKeyUpdates",
+        partition_key="createdTime",
+        json={"query": {"limit": INCIDENT_PAGE_SIZE, "orderField": "createdTime", "orderDirection": "ASC"}},
+        data_selector="keyUpdates",
+        parent="incidents",
+        description="Key updates for each incident, with their content, status, and severity",
+    ),
     "incident_membership": GrafanaIRMEndpointConfig(
         name="incident_membership",
         api="incident",
@@ -162,4 +197,6 @@ GRAFANA_IRM_ENDPOINTS: dict[str, GrafanaIRMEndpointConfig] = {
 ENDPOINTS = tuple(GRAFANA_IRM_ENDPOINTS.keys())
 
 # No endpoint exposes a server-side updated-since filter with ascending order, so every table is full refresh.
-INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {name: [] for name in ENDPOINTS}
+INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
+    name: config.incremental_fields for name, config in GRAFANA_IRM_ENDPOINTS.items()
+}
