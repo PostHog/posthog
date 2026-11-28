@@ -2,11 +2,21 @@ import { useActions, useValues } from 'kea'
 
 import { LemonCollapse, Tooltip } from '@posthog/lemon-ui'
 
-import type { BriefModel } from '../agentSearch'
+import type { BriefModel, StatusBrief as StatusBriefData } from '../agentSearch'
 import { autoresearchPipelineLogic } from '../autoresearchPipelineLogic'
 import { SectionCard } from './SectionCard'
 
-function ModelScores({ title, tooltip, model }: { title: string; tooltip: string; model: BriefModel }): JSX.Element {
+function ModelScores({
+    title,
+    tooltip,
+    model,
+    bestInTraining,
+}: {
+    title: string
+    tooltip: string
+    model: BriefModel
+    bestInTraining?: StatusBriefData['bestInTraining']
+}): JSX.Element {
     return (
         <div className="rounded bg-surface-secondary p-3 space-y-1 min-w-0" data-attr="autoresearch-brief-model">
             <Tooltip title={tooltip}>
@@ -24,6 +34,12 @@ function ModelScores({ title, tooltip, model }: { title: string; tooltip: string
                 <span>In training</span>
                 <span className="tabular-nums">{model.holdoutScore != null ? model.holdoutScore.toFixed(3) : '—'}</span>
             </div>
+            {bestInTraining && (
+                <div className="flex justify-between gap-2 text-xs text-secondary">
+                    <span>Best in training: run {bestInTraining.runNumber}</span>
+                    <span className="tabular-nums">{bestInTraining.score.toFixed(3)}</span>
+                </div>
+            )}
         </div>
     )
 }
@@ -35,8 +51,17 @@ export function StatusBrief(): JSX.Element | null {
     if (!statusBrief) {
         return null
     }
-    const { runNumber, readerSummary, factualLine, nextSteps, distillation, recommendedNext, live, scoredAlongside } =
-        statusBrief
+    const {
+        runNumber,
+        readerSummary,
+        factualLine,
+        nextSteps,
+        distillation,
+        recommendedNext,
+        live,
+        bestInTraining,
+        scoredAlongside,
+    } = statusBrief
     return (
         <SectionCard
             title="Where things stand"
@@ -49,6 +74,7 @@ export function StatusBrief(): JSX.Element | null {
                         title="Live"
                         tooltip="The model that scores people now. Real outcomes is the AUC against what people really did. In training is the AUC on held-out training data."
                         model={live}
+                        bestInTraining={bestInTraining}
                     />
                     {scoredAlongside && (
                         <ModelScores

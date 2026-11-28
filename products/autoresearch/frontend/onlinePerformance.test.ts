@@ -79,7 +79,7 @@ describe('onlinePerformance', () => {
 
         expect(values(accuracyTrend(rows, 'ranking', 'top_10', false))).toEqual([
             [
-                'Champion',
+                'Live model',
                 [
                     ['2026-02-10', 0.79],
                     ['2026-02-12', 0.82],
@@ -94,7 +94,7 @@ describe('onlinePerformance', () => {
             ],
         ])
         // Likely lift is the Likely hit rate over the base rate: 3/4 against 5%.
-        expect(values(accuracyTrend(rows, 'lift', 'likely', false))).toEqual([['Champion', []]])
+        expect(values(accuracyTrend(rows, 'lift', 'likely', false))).toEqual([['Live model', []]])
         const likely = rows.map((r) =>
             r.confusion ? { ...r, confusion: { ...r.confusion, likely: r.confusion.top_10 } } : r
         )
@@ -103,7 +103,7 @@ describe('onlinePerformance', () => {
             ['2026-02-12', expect.closeTo(0.75 / 0.05)],
         ])
         expect(values(accuracyTrend(rows, 'calibration', 'top_10', false)).map(([label]) => label)).toEqual([
-            'Champion score',
+            'Live model score',
             'Actual rate',
         ])
     })
@@ -121,7 +121,8 @@ describe('onlinePerformance', () => {
         },
         {
             metric: 'calibration' as const,
-            expected: "Over 2 checked dates, the champion's average score stayed within 2.0 points of the actual rate.",
+            expected:
+                "Over 2 checked dates, the live model's average score stayed within 2.0 points of the actual rate.",
         },
     ])('accuracyTrendSummary describes the champion over the checked dates for $metric', ({ metric, expected }) => {
         const rows = [
