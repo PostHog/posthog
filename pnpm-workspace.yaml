@@ -1,5 +1,4 @@
 packages:
-    - '.'
     - common/esbuilder
     - common/hogvm/typescript
     - common/plugin_transpiler
