@@ -168,7 +168,7 @@ from products.feature_flags.backend.facade.flags import get_flag_evaluations_rea
 from products.feature_flags.backend.facade.references import references
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.feature_flags.backend.models.team_feature_flags_config import (
-    PropertyMatchingVersion,
+    CACHED_SETTING_DEFAULTS,
     TeamFeatureFlagsConfig,
 )
 from products.feature_flags.backend.realtime_targeting import is_realtime_cohort_flag_targeting_enabled
@@ -3616,6 +3616,7 @@ def _batch_evaluate_flag_page_with_retries(
     flag_key: str,
     expected_version: int,
     expected_property_matching_version: int,
+    expected_null_counts_as_not_set: bool,
     cursor: int,
     limit: int,
 ) -> dict[str, Any]:
@@ -3631,6 +3632,7 @@ def _batch_evaluate_flag_page_with_retries(
                 flag_key=flag_key,
                 expected_version=expected_version,
                 expected_property_matching_version=expected_property_matching_version,
+                expected_null_counts_as_not_set=expected_null_counts_as_not_set,
                 cursor=cursor,
                 limit=limit,
             )
@@ -3700,12 +3702,14 @@ def get_cohort_actors_for_feature_flag(cohort_id: int, flag: str, team_id: int, 
     # service refuses to evaluate under any other, so a run can never mix two
     # definitions of the flag. Nullable versions coerce to 0 on both sides.
     expected_version = feature_flag.version or 0
-    expected_property_matching_version = (
+    pinned_settings = (
         TeamFeatureFlagsConfig.objects.filter(team_id=team_id)
-        .values_list("property_matching_version", flat=True)
+        .values("property_matching_version", "null_counts_as_not_set")
         .first()
-        or PropertyMatchingVersion.LEGACY
+        or CACHED_SETTING_DEFAULTS
     )
+    expected_property_matching_version = pinned_settings["property_matching_version"]
+    expected_null_counts_as_not_set = bool(pinned_settings["null_counts_as_not_set"])
 
     started_at = timezone.now()
     start_monotonic = time.monotonic()
@@ -3737,6 +3741,7 @@ def get_cohort_actors_for_feature_flag(cohort_id: int, flag: str, team_id: int, 
                 flag_key=feature_flag.key,
                 expected_version=expected_version,
                 expected_property_matching_version=expected_property_matching_version,
+                expected_null_counts_as_not_set=expected_null_counts_as_not_set,
                 cursor=cursor,
                 limit=batchsize,
             )

@@ -86,6 +86,9 @@ pub struct BatchFlagEvaluationRequest {
     /// Optimistic-lock pin for the team's property matching semantics.
     #[serde(default)]
     pub expected_property_matching_version: Option<i16>,
+    /// Optimistic-lock pin for the team's `null_counts_as_not_set` setting. Absent skips the check.
+    #[serde(default)]
+    pub expected_null_counts_as_not_set: Option<bool>,
     /// Exclusive lower bound on `posthog_person.id`; 0 (default) starts from the beginning.
     #[serde(default)]
     pub cursor: i64,
@@ -102,6 +105,7 @@ pub struct BatchFlagEvaluationResponse {
     pub errors_count: u64,
     /// Matching semantics used for this page.
     pub property_matching_version: i16,
+    pub null_counts_as_not_set: bool,
 }
 
 const DEFAULT_LIMIT: i64 = 1_000;
@@ -122,6 +126,7 @@ pub enum BatchFlagEvaluationError {
     UnsupportedConfigFormat,
     VersionConflict { expected: i32, actual: i32 },
     PropertyMatchingVersionConflict { expected: i16, actual: i16 },
+    NullCountsAsNotSetConflict { expected: bool, actual: bool },
     Upstream(FlagError),
 }
 
@@ -137,6 +142,7 @@ impl BatchFlagEvaluationError {
             Self::UnsupportedConfigFormat => "unsupported_config_format",
             Self::VersionConflict { .. } => "version_conflict",
             Self::PropertyMatchingVersionConflict { .. } => "property_matching_version_conflict",
+            Self::NullCountsAsNotSetConflict { .. } => "null_counts_as_not_set_conflict",
             Self::Upstream(_) => "upstream_error",
         }
     }
@@ -144,22 +150,20 @@ impl BatchFlagEvaluationError {
 
 impl IntoResponse for BatchFlagEvaluationError {
     fn into_response(self) -> Response {
-        let (status, error, detail, actual_version, actual_property_matching_version) = match self {
+        let (status, error, detail, actual) = match self {
             Self::Unauthorized => (
                 StatusCode::UNAUTHORIZED,
                 "unauthorized",
                 "Missing or invalid internal request token".to_string(),
                 None,
-                None,
             ),
             Self::InvalidRequest(detail) => {
-                (StatusCode::BAD_REQUEST, "invalid_request", detail, None, None)
+                (StatusCode::BAD_REQUEST, "invalid_request", detail, None)
             }
             Self::PayloadTooLarge => (
                 StatusCode::PAYLOAD_TOO_LARGE,
                 "payload_too_large",
                 format!("Request body exceeds the {MAX_BATCH_BODY_BYTES}-byte limit"),
-                None,
                 None,
             ),
             Self::FlagNotFound => (
@@ -167,13 +171,11 @@ impl IntoResponse for BatchFlagEvaluationError {
                 "flag_not_found",
                 "No flag with this key exists for this team".to_string(),
                 None,
-                None,
             ),
             Self::FlagInactive => (
                 StatusCode::BAD_REQUEST,
                 "flag_inactive",
                 "Flag is not active".to_string(),
-                None,
                 None,
             ),
             Self::GroupAggregatedFlag => (
@@ -181,21 +183,18 @@ impl IntoResponse for BatchFlagEvaluationError {
                 "group_aggregated_flag",
                 "Group-aggregated flags are not supported for batch evaluation".to_string(),
                 None,
-                None,
             ),
             Self::UnsupportedConfigFormat => (
                 StatusCode::BAD_REQUEST,
                 "unsupported_config_format",
                 "Flag is stored in a configuration format this service does not evaluate".to_string(),
                 None,
-                None,
             ),
             Self::VersionConflict { expected, actual } => (
                 StatusCode::CONFLICT,
                 "version_conflict",
                 format!("Flag version is {actual}, expected {expected}; the flag changed during cohort generation"),
-                Some(actual),
-                None,
+                Some(("actual_version", serde_json::json!(actual))),
             ),
             Self::PropertyMatchingVersionConflict { expected, actual } => (
                 StatusCode::CONFLICT,
@@ -203,24 +202,28 @@ impl IntoResponse for BatchFlagEvaluationError {
                 format!(
                     "Property matching version is {actual}, expected {expected}; matching semantics changed during cohort generation"
                 ),
-                None,
-                Some(actual),
+                Some(("actual_property_matching_version", serde_json::json!(actual))),
+            ),
+            Self::NullCountsAsNotSetConflict { expected, actual } => (
+                StatusCode::CONFLICT,
+                "null_counts_as_not_set_conflict",
+                format!(
+                    "null_counts_as_not_set is {actual}, expected {expected}; matching semantics changed during cohort generation"
+                ),
+                Some(("actual_null_counts_as_not_set", serde_json::json!(actual))),
             ),
             Self::Upstream(e) => {
                 // Delegate status selection to FlagError's own mapping, but keep the
                 // JSON envelope consistent with the other variants.
                 let status = StatusCode::from_u16(e.status_code())
                     .unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
-                (status, "upstream_error", e.to_string(), None, None)
+                (status, "upstream_error", e.to_string(), None)
             }
         };
 
         let mut body = serde_json::json!({ "error": error, "detail": detail });
-        if let Some(actual) = actual_version {
-            body["actual_version"] = serde_json::json!(actual);
-        }
-        if let Some(actual) = actual_property_matching_version {
-            body["actual_property_matching_version"] = serde_json::json!(actual);
+        if let Some((key, value)) = actual {
+            body[key] = value;
         }
         (status, Json(body)).into_response()
     }
@@ -549,24 +552,38 @@ async fn handle_batch_flag_evaluation(
     let expected_property_matching_version = request
         .expected_property_matching_version
         .unwrap_or(PropertyMatchingVersion::LEGACY.0);
+    let pinned_semantics_conflict = |team: &Team| {
+        if team.property_matching_version.0 != expected_property_matching_version {
+            return Some(BatchFlagEvaluationError::PropertyMatchingVersionConflict {
+                expected: expected_property_matching_version,
+                actual: team.property_matching_version.0,
+            });
+        }
+        request
+            .expected_null_counts_as_not_set
+            .filter(|&expected| team.null_counts_as_not_set != expected)
+            .map(
+                |expected| BatchFlagEvaluationError::NullCountsAsNotSetConflict {
+                    expected,
+                    actual: team.null_counts_as_not_set,
+                },
+            )
+    };
     let mut team = Team::from_pg_by_id(
         state.database_pools.non_persons_reader.clone(),
         request.team_id,
     )
     .await
     .map_err(BatchFlagEvaluationError::Upstream)?;
-    if team.property_matching_version.0 != expected_property_matching_version {
+    if pinned_semantics_conflict(&team).is_some() {
         team = Team::from_pg_by_id(
             state.database_pools.non_persons_writer.clone(),
             request.team_id,
         )
         .await
         .map_err(BatchFlagEvaluationError::Upstream)?;
-        if team.property_matching_version.0 != expected_property_matching_version {
-            return Err(BatchFlagEvaluationError::PropertyMatchingVersionConflict {
-                expected: expected_property_matching_version,
-                actual: team.property_matching_version.0,
-            });
+        if let Some(conflict) = pinned_semantics_conflict(&team) {
+            return Err(conflict);
         }
     }
 
@@ -648,6 +665,7 @@ async fn handle_batch_flag_evaluation(
             .with_cohort_membership_provider(state.cohort_membership_provider.clone())
             .with_realtime_cohort_evaluation(enable_realtime_cohort_evaluation)
             .with_explicit_exact_matching(use_explicit_exact_matching)
+            .with_null_counts_as_not_set(team.null_counts_as_not_set)
             .with_membership_stamp_policy(state.config.realtime_cohort_membership_stamp_policy)
             .with_rayon_dispatcher(state.rayon_dispatcher.clone())
             .with_parallel_eval_threshold(state.config.parallel_eval_threshold)
@@ -722,6 +740,7 @@ async fn handle_batch_flag_evaluation(
         next_cursor,
         errors_count,
         property_matching_version: team.property_matching_version.0,
+        null_counts_as_not_set: team.null_counts_as_not_set,
     })
 }
 

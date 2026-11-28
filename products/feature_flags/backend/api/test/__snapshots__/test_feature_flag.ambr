@@ -1059,7 +1059,8 @@
 # ---
 # name: TestFeatureFlag.test_creating_static_cohort.15
   '''
-  SELECT "feature_flags_teamfeatureflagsconfig"."property_matching_version" AS "property_matching_version"
+  SELECT "feature_flags_teamfeatureflagsconfig"."property_matching_version" AS "property_matching_version",
+         "feature_flags_teamfeatureflagsconfig"."null_counts_as_not_set" AS "null_counts_as_not_set"
   FROM "feature_flags_teamfeatureflagsconfig"
   WHERE "feature_flags_teamfeatureflagsconfig"."team_id" = 99999
   ORDER BY "feature_flags_teamfeatureflagsconfig"."team_id" ASC

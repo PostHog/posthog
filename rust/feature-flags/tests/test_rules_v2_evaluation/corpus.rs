@@ -103,6 +103,7 @@ pub fn context<'a>(
         },
         timezone: input["timezone"].as_str().unwrap().parse().unwrap(),
         use_explicit_exact_matching: input["explicit_exact_matching"].as_bool().unwrap(),
+        null_counts_as_not_set: input["null_counts_as_not_set"].as_bool().unwrap_or(false),
         now: input["now"].as_str().unwrap().parse().unwrap(),
     }
 }

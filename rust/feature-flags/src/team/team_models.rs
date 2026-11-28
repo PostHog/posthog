@@ -115,6 +115,10 @@ pub struct Team {
     // Cache entries written before this field existed retain legacy matching.
     #[serde(default)]
     pub property_matching_version: PropertyMatchingVersion,
+    // Sourced from TeamFeatureFlagsConfig. Cache entries written before this field existed
+    // read `false`, which keeps a `null` value counting as set.
+    #[serde(default)]
+    pub null_counts_as_not_set: bool,
     // Sourced from the customer-editable TeamFeatureFlagPolicyConfig extension. Cache entries
     // written before these fields existed deserialize to empty lists, which block nothing
     // and allow every caller.
@@ -213,6 +217,7 @@ mod tests {
             serde_json::from_value(legacy_json).expect("legacy blob must still deserialize");
 
         assert!(!team.minimal_flag_called_events);
+        assert!(!team.null_counts_as_not_set);
         assert_eq!(
             team.property_matching_version,
             PropertyMatchingVersion::LEGACY

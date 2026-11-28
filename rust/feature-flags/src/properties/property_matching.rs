@@ -46,7 +46,6 @@ pub fn lookup_key_for(filter: &PropertyFilter) -> Cow<'_, str> {
 pub enum FlagMatchingError {
     ValidationError(String),
     MissingProperty(String),
-    InconclusiveOperatorMatch,
     InvalidRegexPattern,
 }
 
@@ -64,6 +63,7 @@ pub fn to_string_representation(value: &Value) -> String {
 pub struct PropertyMatchingContext {
     team_timezone: Tz,
     use_explicit_exact_matching: bool,
+    null_counts_as_not_set: bool,
     evaluation_time: Option<DateTime<Utc>>,
 }
 
@@ -72,12 +72,19 @@ impl PropertyMatchingContext {
         Self {
             team_timezone,
             use_explicit_exact_matching,
+            null_counts_as_not_set: false,
             evaluation_time: None,
         }
     }
 
     pub fn at_time(mut self, now: DateTime<Utc>) -> Self {
         self.evaluation_time = Some(now);
+        self
+    }
+
+    /// When true, `is_set` and `is_not_set` treat a key whose value is JSON `null` as not set.
+    pub fn with_null_counts_as_not_set(mut self, null_counts_as_not_set: bool) -> Self {
+        self.null_counts_as_not_set = null_counts_as_not_set;
         self
     }
 }
@@ -233,17 +240,13 @@ pub(crate) fn match_property_input(
 
     // first match operators that don't require a value
     match operator {
-        OperatorType::IsSet => return Ok(matching_property_values.contains_key(key)),
-        OperatorType::IsNotSet => {
-            return if partial_props {
-                if matching_property_values.contains_key(key) {
-                    Ok(false)
-                } else {
-                    Err(FlagMatchingError::InconclusiveOperatorMatch)
-                }
-            } else {
-                Ok(!matching_property_values.contains_key(key))
-            }
+        OperatorType::IsSet | OperatorType::IsNotSet => {
+            let is_set = match match_value {
+                Some(Value::Null) => !context.null_counts_as_not_set,
+                Some(_) => true,
+                None => false,
+            };
+            return Ok(is_set == (operator == OperatorType::IsSet));
         }
         _ => {}
     }
@@ -814,12 +817,7 @@ mod test_match_properties {
         matching_property_values: &HashMap<String, Value>,
         partial_props: bool,
     ) -> Result<bool, FlagMatchingError> {
-        super::match_property(
-            property,
-            matching_property_values,
-            partial_props,
-            PropertyMatchingContext::new(Tz::UTC, true),
-        )
+        match_property_with_null_setting(property, matching_property_values, partial_props, false)
     }
 
     #[test]
@@ -2261,6 +2259,138 @@ mod test_match_properties {
         //         .expect("expected match to exist"),
         //     true
         // );
+    }
+
+    fn match_property_with_null_setting(
+        property: &PropertyFilter,
+        matching_property_values: &HashMap<String, Value>,
+        partial_props: bool,
+        null_counts_as_not_set: bool,
+    ) -> Result<bool, FlagMatchingError> {
+        super::match_property(
+            property,
+            matching_property_values,
+            partial_props,
+            PropertyMatchingContext::new(Tz::UTC, true)
+                .with_null_counts_as_not_set(null_counts_as_not_set),
+        )
+    }
+
+    fn operator_filter(operator: OperatorType, value: Option<Value>) -> PropertyFilter {
+        PropertyFilter {
+            key: "key".to_string(),
+            value,
+            operator: Some(operator),
+            prop_type: PropertyType::Person,
+            ..Default::default()
+        }
+    }
+
+    #[rstest::rstest]
+    #[case::on_is_set_partial(true, OperatorType::IsSet, true, false)]
+    #[case::on_is_set_full(true, OperatorType::IsSet, false, false)]
+    #[case::on_is_not_set_partial(true, OperatorType::IsNotSet, true, true)]
+    #[case::on_is_not_set_full(true, OperatorType::IsNotSet, false, true)]
+    #[case::off_is_set_partial(false, OperatorType::IsSet, true, true)]
+    #[case::off_is_set_full(false, OperatorType::IsSet, false, true)]
+    #[case::off_is_not_set_partial(false, OperatorType::IsNotSet, true, false)]
+    #[case::off_is_not_set_full(false, OperatorType::IsNotSet, false, false)]
+    fn test_null_value_with_set_operators_follows_null_counts_as_not_set(
+        #[case] null_counts_as_not_set: bool,
+        #[case] operator: OperatorType,
+        #[case] partial_props: bool,
+        #[case] expected: bool,
+    ) {
+        let filter = operator_filter(operator, None);
+
+        let result = match_property_with_null_setting(
+            &filter,
+            &HashMap::from([("key".to_string(), json!(null))]),
+            partial_props,
+            null_counts_as_not_set,
+        );
+
+        assert_eq!(result, Ok(expected));
+    }
+
+    #[rstest::rstest]
+    #[case::string_null(json!("null"))]
+    #[case::empty_string(json!(""))]
+    #[case::false_value(json!(false))]
+    #[case::zero(json!(0))]
+    #[case::empty_array(json!([]))]
+    #[case::empty_object(json!({}))]
+    #[case::array_of_null(json!([null]))]
+    fn test_non_null_value_stays_set_with_null_counts_as_not_set(#[case] value: Value) {
+        let values = HashMap::from([("key".to_string(), value)]);
+
+        for partial_props in [true, false] {
+            assert_eq!(
+                match_property_with_null_setting(
+                    &operator_filter(OperatorType::IsSet, None),
+                    &values,
+                    partial_props,
+                    true,
+                ),
+                Ok(true),
+                "is_set, partial_props={partial_props}"
+            );
+            assert_eq!(
+                match_property_with_null_setting(
+                    &operator_filter(OperatorType::IsNotSet, None),
+                    &values,
+                    partial_props,
+                    true,
+                ),
+                Ok(false),
+                "is_not_set, partial_props={partial_props}"
+            );
+        }
+    }
+
+    #[rstest::rstest]
+    #[case::is_set_partial(OperatorType::IsSet, true)]
+    #[case::is_set_full(OperatorType::IsSet, false)]
+    #[case::is_not_set_partial(OperatorType::IsNotSet, true)]
+    #[case::is_not_set_full(OperatorType::IsNotSet, false)]
+    fn test_missing_key_ignores_null_counts_as_not_set(
+        #[case] operator: OperatorType,
+        #[case] partial_props: bool,
+    ) {
+        let filter = operator_filter(operator, None);
+        let values = HashMap::from([("other_key".to_string(), json!(null))]);
+
+        let with_setting = match_property_with_null_setting(&filter, &values, partial_props, true);
+        let without_setting =
+            match_property_with_null_setting(&filter, &values, partial_props, false);
+
+        assert_eq!(with_setting, without_setting);
+    }
+
+    #[rstest::rstest]
+    #[case::exact(OperatorType::Exact, json!("null"))]
+    #[case::is_not(OperatorType::IsNot, json!("null"))]
+    #[case::icontains(OperatorType::Icontains, json!("nu"))]
+    #[case::not_icontains(OperatorType::NotIcontains, json!("nu"))]
+    #[case::regex(OperatorType::Regex, json!("^null$"))]
+    #[case::not_regex(OperatorType::NotRegex, json!("^null$"))]
+    #[case::gt(OperatorType::Gt, json!(1))]
+    #[case::is_date_after(OperatorType::IsDateAfter, json!("2024-01-01"))]
+    #[case::semver_eq(OperatorType::SemverEq, json!("1.2.3"))]
+    fn test_other_operators_on_null_value_ignore_null_counts_as_not_set(
+        #[case] operator: OperatorType,
+        #[case] value: Value,
+    ) {
+        let filter = operator_filter(operator, Some(value));
+        let values = HashMap::from([("key".to_string(), json!(null))]);
+
+        for partial_props in [true, false] {
+            assert_eq!(
+                match_property_with_null_setting(&filter, &values, partial_props, true),
+                match_property_with_null_setting(&filter, &values, partial_props, false),
+                "partial_props={partial_props}"
+            );
+        }
     }
 
     #[test]

@@ -7,6 +7,7 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use reqwest::StatusCode;
+use rstest::rstest;
 use serde_json::{json, Value};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
@@ -323,8 +324,29 @@ async fn test_version_mismatch_returns_conflict_with_actual_version() -> Result<
     Ok(())
 }
 
+#[rstest]
+#[case::property_matching_version(
+    "expected_property_matching_version",
+    json!(2),
+    "property_matching_version_conflict",
+    "actual_property_matching_version",
+    json!(1)
+)]
+#[case::null_counts_as_not_set(
+    "expected_null_counts_as_not_set",
+    json!(true),
+    "null_counts_as_not_set_conflict",
+    "actual_null_counts_as_not_set",
+    json!(false)
+)]
 #[tokio::test]
-async fn test_property_matching_version_mismatch_returns_conflict() -> Result<()> {
+async fn test_pinned_matching_semantics_mismatch_returns_conflict(
+    #[case] pin: &str,
+    #[case] pinned_value: Value,
+    #[case] error: &str,
+    #[case] actual_key: &str,
+    #[case] actual_value: Value,
+) -> Result<()> {
     let context = TestContext::new(None).await;
     let team = context.insert_new_team(None).await?;
     let server = ServerHandle::for_config(batch_eval_config()).await;
@@ -334,19 +356,19 @@ async fn test_property_matching_version_mismatch_returns_conflict() -> Result<()
             team.id,
             Some(flag_row(
                 team.id,
-                "matching-version-flag",
+                "pinned-semantics-flag",
                 json!({"groups": [{"rollout_percentage": 100}]}),
             )),
         )
         .await?;
 
-    let mut body = batch_body(team.id, "matching-version-flag", 0);
-    body["expected_property_matching_version"] = json!(2);
+    let mut body = batch_body(team.id, "pinned-semantics-flag", 0);
+    body[pin] = pinned_value;
     let res = send_batch_request(&server, Some(INTERNAL_TOKEN), &body).await;
     assert_eq!(res.status(), StatusCode::CONFLICT);
     let json_response = res.json::<Value>().await?;
-    assert_eq!(json_response["error"], "property_matching_version_conflict");
-    assert_eq!(json_response["actual_property_matching_version"], json!(1));
+    assert_eq!(json_response["error"], error);
+    assert_eq!(json_response[actual_key], actual_value);
 
     Ok(())
 }
@@ -432,6 +454,127 @@ async fn test_team_property_matching_version_selects_live_and_batch_semantics() 
         .await?;
     assert_eq!(explicit_response["property_matching_version"], json!(2));
     assert!(matched_uuids(&explicit_response).is_empty());
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_team_null_counts_as_not_set_selects_live_and_batch_semantics() -> Result<()> {
+    let context = TestContext::new(None).await;
+    let team = context.insert_new_team(None).await?;
+    let server = ServerHandle::for_config(batch_eval_config()).await;
+
+    context
+        .insert_flag(
+            team.id,
+            Some(flag_row(
+                team.id,
+                "plan-is-set-flag",
+                json!({
+                    "groups": [{
+                        "properties": [{
+                            "key": "plan",
+                            "value": "is_set",
+                            "type": "person",
+                            "operator": "is_set"
+                        }],
+                        "rollout_percentage": 100
+                    }]
+                }),
+            )),
+        )
+        .await?;
+    let null_distinct_id = "plan-is-null";
+    context
+        .insert_person(
+            team.id,
+            null_distinct_id.to_string(),
+            Some(json!({"plan": null})),
+        )
+        .await?;
+    let null_person_uuid = context
+        .get_person_uuid_by_distinct_id(team.id, null_distinct_id)
+        .await?;
+    let set_distinct_id = "plan-is-pro";
+    context
+        .insert_person(
+            team.id,
+            set_distinct_id.to_string(),
+            Some(json!({"plan": "pro"})),
+        )
+        .await?;
+    let set_person_uuid = context
+        .get_person_uuid_by_distinct_id(team.id, set_distinct_id)
+        .await?;
+
+    let live_enabled_for_null_person =
+        |response: Value| response["flags"]["plan-is-set-flag"]["enabled"].clone();
+
+    let live_off = server
+        .send_flags_request(
+            json!({"token": team.api_token, "distinct_id": null_distinct_id}).to_string(),
+            Some("2"),
+            None,
+        )
+        .await;
+    assert_eq!(live_off.status(), StatusCode::OK);
+    assert_eq!(
+        live_enabled_for_null_person(live_off.json::<Value>().await?),
+        json!(true)
+    );
+    let mut off_body = batch_body(team.id, "plan-is-set-flag", 0);
+    off_body["expected_null_counts_as_not_set"] = json!(false);
+    let batch_off = send_batch_request(&server, Some(INTERNAL_TOKEN), &off_body)
+        .await
+        .json::<Value>()
+        .await?;
+    assert_eq!(batch_off["null_counts_as_not_set"], json!(false));
+    let mut expected_off = vec![null_person_uuid, set_person_uuid];
+    expected_off.sort();
+    assert_eq!(matched_uuids(&batch_off), expected_off);
+
+    let mut conn = context.get_non_persons_connection().await?;
+    sqlx::query(
+        "INSERT INTO feature_flags_teamfeatureflagsconfig \
+         (team_id, minimal_flag_called_events, property_matching_version, null_counts_as_not_set) \
+         VALUES ($1, false, 1, true)",
+    )
+    .bind(team.id)
+    .execute(&mut *conn)
+    .await?;
+
+    let live_on = server
+        .send_flags_request(
+            json!({"token": team.api_token, "distinct_id": null_distinct_id}).to_string(),
+            Some("2"),
+            None,
+        )
+        .await;
+    assert_eq!(live_on.status(), StatusCode::OK);
+    assert_eq!(
+        live_enabled_for_null_person(live_on.json::<Value>().await?),
+        json!(false)
+    );
+    let mut on_body = batch_body(team.id, "plan-is-set-flag", 0);
+    on_body["expected_null_counts_as_not_set"] = json!(true);
+    let batch_on = send_batch_request(&server, Some(INTERNAL_TOKEN), &on_body)
+        .await
+        .json::<Value>()
+        .await?;
+    assert_eq!(batch_on["null_counts_as_not_set"], json!(true));
+    assert_eq!(matched_uuids(&batch_on), vec![set_person_uuid]);
+
+    let unpinned = send_batch_request(
+        &server,
+        Some(INTERNAL_TOKEN),
+        &batch_body(team.id, "plan-is-set-flag", 0),
+    )
+    .await;
+    assert_eq!(unpinned.status(), StatusCode::OK);
+    assert_eq!(
+        matched_uuids(&unpinned.json::<Value>().await?),
+        vec![set_person_uuid]
+    );
 
     Ok(())
 }
