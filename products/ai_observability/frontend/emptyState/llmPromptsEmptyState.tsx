@@ -8,6 +8,7 @@ import { urls } from 'scenes/urls'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
+import { PromptsTabs } from '../prompts/PromptsTabs'
 import { LLMPromptPreview } from './LLMPromptPreview'
 import { llmPromptsSetupLogic } from './llmPromptsSetupLogic'
 
@@ -15,6 +16,9 @@ const HedgehogDeskWizard = pngHoggie(deskWizardPng)
 
 export const llmPromptsEmptyState: SceneProductEmptyState = {
     statusLogic: llmPromptsSetupLogic,
+    SceneNav: function LLMPromptsEmptyStateNav(): JSX.Element {
+        return <PromptsTabs activeTab="prompts" />
+    },
     config: {
         productKey: ProductKey.LLM_PROMPTS,
         productName: 'Prompt management',

@@ -6401,6 +6401,7 @@ export interface FileSystemImport extends Omit<FileSystemEntry, 'id'> {
 export interface FileSystemSearchTab {
     name: string
     href: string
+    sceneKey?: string
     flag?: string
     /** Flags that must all be on to show the tab. */
     requiredFlags?: string[]

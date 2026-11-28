@@ -8,6 +8,7 @@ import { urls } from 'scenes/urls'
 import { useMocks } from '~/mocks/jest'
 import { recentItemsModel } from '~/models/recentItemsModel'
 import { initKeaTests } from '~/test/init'
+import { AccessControlLevel, AccessControlResourceType, AppContext } from '~/types'
 
 import { searchListsLogic } from './searchListsLogic'
 import { searchLogic } from './searchLogic'
@@ -155,6 +156,29 @@ describe('searchLogic', () => {
 
         const tabs = logic.values.allCategories.find((category) => category.key === SEARCH_TAB_CATEGORY)
         expect(tabs?.items.map((item) => item.href)).toContain(href)
+    })
+
+    it.each([
+        [AccessControlLevel.None, "You don't have access to Playground"],
+        [AccessControlLevel.Viewer, undefined],
+    ])('gates the Prompts Playground tab row by playground access %s', async (access, disabledReason) => {
+        const priorAppContext = window.POSTHOG_APP_CONTEXT
+        try {
+            window.POSTHOG_APP_CONTEXT = {
+                ...priorAppContext,
+                effective_resource_access_control: {
+                    ...priorAppContext?.effective_resource_access_control,
+                    [AccessControlResourceType.LlmPlayground]: access,
+                },
+            } as AppContext
+            await searchOnceProductsLoad('playground')
+
+            const tabs = logic.values.allCategories.find((category) => category.key === SEARCH_TAB_CATEGORY)
+            const row = tabs?.items.find((item) => item.href === urls.aiObservabilityPlayground())
+            expect(row).toMatchObject({ parentName: 'Prompts', disabledReason })
+        } finally {
+            window.POSTHOG_APP_CONTEXT = priorAppContext
+        }
     })
 
     it('does not list every tab row for "ab", which only resembles the group name', async () => {
