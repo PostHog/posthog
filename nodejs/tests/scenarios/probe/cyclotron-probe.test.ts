@@ -4,6 +4,7 @@ import { defaultConfig } from '~/common/config/config'
 import { waitForExpect } from '~/tests/helpers/expectations'
 
 import { scratchSchema, withPostgres, writerUrlOf } from '../environment/stack'
+import { MeasureEvidence, measure, readActivity } from '../judge/measurements'
 import { Queue, QueueCounts, createCyclotronProbe } from './cyclotron-probe'
 
 const SCHEMA = scratchSchema(defaultConfig.CYCLOTRON_NODE_DATABASE_URL!, `scenario_probe_${process.pid}`, [
@@ -175,7 +176,7 @@ describe('cyclotron probe', () => {
         )
     })
 
-    it('stamps a writer activity read when its rows arrive, before its connection closes', async () => {
+    it('counts a writer activity read for the step its rows arrived in when its connection closes after the step', async () => {
         const end: (this: Client) => Promise<void> = Client.prototype.end
         let closingAt: number | undefined
         let closed: () => void = () => undefined
@@ -185,16 +186,40 @@ describe('cyclotron probe', () => {
             await closing
             return end.call(this)
         })
+        const idle = new Client({ connectionString: PROBE_URL })
+        await idle.connect()
         try {
-            const read = createCyclotronProbe(PROBE_URL, undefined, PROBE_URL).activity()
+            const startedAt = Date.now()
+            const probe = createCyclotronProbe(PROBE_URL, undefined, PROBE_URL)
+            const read = readActivity(() => probe.activity())
             await waitForExpect(() => expect(closingAt).toBeDefined())
-            await waitForExpect(() => expect(Date.now()).toBeGreaterThan(closingAt!))
+            await waitForExpect(() => expect(Date.now()).toBeGreaterThan(closingAt! + 1))
             closed()
+            const haltedAt = closingAt! + 1
+            const evidence: MeasureEvidence = {
+                journal: [],
+                truth: [],
+                fetchRetries: 3,
+                truthFrom: 0,
+                samples: [],
+                missed: [],
+                host: [],
+                writer: [],
+                queue: [],
+                activity: [await read],
+                sampledFrom: startedAt,
+                drive: { startedAt, endedAt: haltedAt },
+                steps: [{ scale: 1, fromMs: 0, toMs: haltedAt - startedAt }],
+                timeline: [],
+            }
 
-            expect((await read).at).toBeLessThanOrEqual(closingAt!)
+            const measured = measure([{ name: 'step_writer_backends', params: {} }], evidence)
+            expect(measured).toContainEqual(expect.objectContaining({ key: 'idle_1x' }))
+            expect(measured.filter((entry) => 'unmeasured' in entry)).toEqual([])
         } finally {
             closed()
             slowClose.mockRestore()
+            await idle.end()
         }
     })
 
