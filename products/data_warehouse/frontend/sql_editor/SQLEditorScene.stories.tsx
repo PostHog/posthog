@@ -182,8 +182,14 @@ export const QuillWorkspace: Story = {
             },
             { timeout: 15000 }
         )
-        const runButton = await canvas.findByRole('button', { name: /^Run/ }, { timeout: 15000 })
-        await waitFor(() => expect(runButton).toHaveAttribute('aria-disabled', 'false'), { timeout: 15000 })
+        const runButton = await waitFor(
+            () => {
+                const button = canvasElement.querySelector<HTMLElement>('[data-attr="sql-editor-run-button"]')
+                expect(button).toHaveAttribute('aria-disabled', 'false')
+                return button!
+            },
+            { timeout: 15000 }
+        )
         await userEvent.click(runButton)
         await expect(
             await canvas.findByText('Claude Code', { selector: '.rdg span' }, { timeout: 15000 })
