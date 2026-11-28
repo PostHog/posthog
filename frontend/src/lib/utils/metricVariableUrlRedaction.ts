@@ -26,9 +26,10 @@ export function redactMetricVariableUrl(text: string): string {
 
 /** Every string at any depth, such as `$current_url`, an autocaptured `href`, or a request in a replay snapshot.
  * A value with nothing to redact is returned as it is, so a large snapshot is not copied. */
-function redactValue(value: unknown, seen: WeakSet<object>): unknown {
+export function redactStrings<T>(value: T, redact: (text: string) => string, seen?: WeakSet<object>): T
+export function redactStrings(value: unknown, redact: (text: string) => string, seen = new WeakSet<object>()): unknown {
     if (typeof value === 'string') {
-        return redactMetricVariableUrl(value)
+        return redact(value)
     }
     if (!value || typeof value !== 'object' || seen.has(value)) {
         return value
@@ -37,7 +38,7 @@ function redactValue(value: unknown, seen: WeakSet<object>): unknown {
     if (Array.isArray(value)) {
         let copy: unknown[] | null = null
         value.forEach((item, index) => {
-            const redacted = redactValue(item, seen)
+            const redacted = redactStrings(item, redact, seen)
             if (redacted !== item) {
                 copy ??= [...value]
                 copy[index] = redacted
@@ -47,7 +48,7 @@ function redactValue(value: unknown, seen: WeakSet<object>): unknown {
     }
     let copy: Record<string, unknown> | null = null
     for (const [key, item] of Object.entries(value)) {
-        const redacted = redactValue(item, seen)
+        const redacted = redactStrings(item, redact, seen)
         if (redacted !== item) {
             copy ??= { ...value }
             copy[key] = redacted
@@ -95,7 +96,7 @@ function redactProperties(properties: Record<string, any> | undefined): Record<s
     const snapshots = properties.$snapshot_data
     const filtered = withoutVariableRequests(snapshots)
     const base = filtered === snapshots ? properties : { ...properties, $snapshot_data: filtered }
-    return redactValue(base, new WeakSet()) as Record<string, any>
+    return redactStrings(base, redactMetricVariableUrl)
 }
 
 export const redactMetricVariableUrls: BeforeSendFn = (event) =>

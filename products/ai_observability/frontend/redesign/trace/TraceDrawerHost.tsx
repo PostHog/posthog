@@ -16,9 +16,10 @@ import { TraceViewHost } from './TraceViewHost'
 
 export interface TraceDrawerHostProps {
     listId: TraceDrawerListId
+    back?: { label: string; onBack: () => void }
 }
 
-export function TraceDrawerHost({ listId }: TraceDrawerHostProps): JSX.Element | null {
+export function TraceDrawerHost({ listId, back }: TraceDrawerHostProps): JSX.Element | null {
     const logic = traceDrawerLogic({ listId })
     const { hostId, openRef, openLabel, position, canStepPrevious, nextTrace, fullPageHref } = useValues(logic)
     const { stepTo, close } = useActions(logic)
@@ -80,6 +81,7 @@ export function TraceDrawerHost({ listId }: TraceDrawerHostProps): JSX.Element |
                     fullPageHref={fullPageHref}
                     fullPageInNewTab={TRACE_DRAWER_LISTS[listId].fullPageInNewTab}
                     onClose={close}
+                    back={back}
                 />
             }
         >

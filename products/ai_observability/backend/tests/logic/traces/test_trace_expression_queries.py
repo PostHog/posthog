@@ -20,6 +20,8 @@ from products.ai_observability.backend.logic.traces.trace_expression_queries imp
     AI_EVENTS_COLUMNS,
     EVENTS_COLUMNS,
     TraceColumns,
+    error_message,
+    event_anonymous,
     event_identified,
     grouped,
     over_trace,
@@ -61,6 +63,7 @@ def seed(team: Any, events: list[dict[str, Any]]) -> None:
             ("parent_id", "$ai_parent_id"),
             ("is_error", "$ai_is_error"),
             ("error", "$ai_error"),
+            ("error_message", "$ai_error_normalized"),
             ("ingestion_source", "$ai_ingestion_source"),
             ("total_cost", "$ai_total_cost_usd"),
             ("session_id", "$ai_session_id"),
@@ -137,6 +140,32 @@ class TestTraceExpressionQueries(ClickhouseTestMixin, BaseTest):
         )
 
         assert [bool(identified) for _, identified in rows] == case["identified"]
+
+    @parameterized.expand([(name, case, layout) for name, case, layout in case_on_each_layout() if "anonymous" in case])
+    def test_event_anonymous_cases(self, _name: str, case: dict[str, Any], layout: str) -> None:
+        seed(self.team, case["events"])
+        columns: TraceColumns = LAYOUTS[layout][1]
+
+        rows = self._run(
+            [ast.Field(chain=["timestamp"]), event_anonymous(columns)],
+            layout,
+            order_by=[ast.OrderExpr(expr=ast.Field(chain=["timestamp"]), order="ASC")],
+        )
+
+        assert [bool(anonymous) for _, anonymous in rows] == case["anonymous"]
+
+    @parameterized.expand(list(LAYOUTS))
+    def test_error_message_reads_the_message_as_sent_and_null_when_absent(self, layout: str) -> None:
+        message = 'Can\'t parse "réponse" in C:\\data\nat line <N> ✗'
+        seed(self.team, [{"event": "$ai_generation", "error_message": message}, {"event": "$ai_generation"}])
+
+        rows = self._run(
+            [error_message(LAYOUTS[layout][1])],
+            layout,
+            order_by=[ast.OrderExpr(expr=ast.Field(chain=["timestamp"]), order="ASC")],
+        )
+
+        assert rows == [(message,), (None,)]
 
     @parameterized.expand(case_on_each_layout())
     def test_trace_cost_cases(self, _name: str, case: dict[str, Any], layout: str) -> None:

@@ -253,6 +253,7 @@ rules:
           - '/frontend/src/taxonomy/*.test.*'
       owners: platform-ux
     - match:
+          - '/frontend/src/lib/utils/aiObservabilityUrlRedaction.*'
           - '/packages/llm-normalizer/src/*.test.*'
           - '/packages/llm-normalizer/src/normalizer/recipe/*.test.*'
           - '/packages/llm-normalizer/src/normalizer/recipe/ast/expr/*.test.*'

@@ -2,6 +2,8 @@ import { combineUrl } from 'kea-router'
 
 import { urls } from 'scenes/urls'
 
+import { ERRORS_SEARCH_PARAM, LIST_ORDER_PARAM, TOOLS_SEARCH_PARAM } from '../lists/listParams'
+import { LIST_SCOPE_KINDS } from '../lists/listScopes'
 import { withoutTraceDrawerParams } from '../trace/traceDrawerRows'
 
 export type ShellTabId = 'home' | 'activity' | 'diagnostics' | 'people'
@@ -131,10 +133,27 @@ export const SESSION_PARAM = 'session'
 export const SESSION_TIMESTAMP_PARAM = 'timestamp'
 
 const OPEN_SESSION_PARAMS: ReadonlySet<string> = new Set([SESSION_PARAM, SESSION_TIMESTAMP_PARAM])
+// A list scope's param means an open drawer on some paths, and the order and the search of one Diagnostics list mean
+// nothing to the others, so they never travel to another tab or scope.
+const LIST_OWNED_PARAMS: ReadonlySet<string> = new Set([
+    ...LIST_SCOPE_KINDS,
+    LIST_ORDER_PARAM,
+    ERRORS_SEARCH_PARAM,
+    TOOLS_SEARCH_PARAM,
+])
 
-/** The params a tab or scope link keeps. An open trace or session belongs to the list it was opened on. */
-export function shellLinkParams<T>(searchParams: Record<string, T>): Record<string, T> {
+/**
+ * The params a link between a list and a full page of one of its rows keeps, so the way back shows the same list. An open
+ * trace or session belongs to the list it was opened on.
+ */
+export function listPageLinkParams<T>(searchParams: Record<string, T>): Record<string, T> {
     return Object.fromEntries(
         Object.entries(withoutTraceDrawerParams(searchParams)).filter(([name]) => !OPEN_SESSION_PARAMS.has(name))
+    )
+}
+
+export function shellLinkParams<T>(searchParams: Record<string, T>): Record<string, T> {
+    return Object.fromEntries(
+        Object.entries(listPageLinkParams(searchParams)).filter(([name]) => !LIST_OWNED_PARAMS.has(name))
     )
 }

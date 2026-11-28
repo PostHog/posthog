@@ -1,6 +1,7 @@
 import posthog, { BeforeSendFn, PostHogConfig } from 'posthog-js'
 
 import { FEATURE_FLAGS } from 'lib/constants'
+import { redactAIObservabilityUrls } from 'lib/utils/aiObservabilityUrlRedaction'
 import { redactDestinationSecretsInReplay } from 'lib/utils/destinationSecretRedaction'
 import { inStorybook } from 'lib/utils/dom'
 import { isEmbeddedPageFrame } from 'lib/utils/embeddedPageFrame'
@@ -171,6 +172,7 @@ export function loadPostHogJS(): void {
                 dropInjectedScriptReferenceErrors,
                 dropWebMCPToolErrors,
                 redactMetricVariableUrls,
+                redactAIObservabilityUrls,
                 redactDestinationSecretsInReplay,
                 suppressPassiveTelemetryLastSeen,
                 // A page in a frame counts its own pageviews, so its events say so and analysis can filter them.

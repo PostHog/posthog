@@ -9,7 +9,7 @@ import { aiObservabilitySessionsPeopleCreate, aiObservabilitySessionsPreviewsCre
 import type { SessionListItemApi, SessionPreviewApi, TracePersonApi } from '../../generated/api.schemas'
 import type { TraceCellLoad } from '../shared/cellLoads'
 import { readOrFailure } from '../shared/readOrFailure'
-import { shellHref, shellLinkParams } from '../shell/shellNavigation'
+import { listPageLinkParams, shellHref } from '../shell/shellNavigation'
 import type { LoadFailure } from '../trace/types'
 import { readSession, sessionTimestampHint } from './sessionLookup'
 
@@ -181,7 +181,7 @@ export const sessionPageLogic: LogicWrapper<sessionPageLogicType> = kea<sessionP
         sessionsHref: [
             () => [router.selectors.searchParams],
             (searchParams: Record<string, unknown>): string =>
-                shellHref(urls.aiObservabilitySessions(), shellLinkParams(searchParams)),
+                shellHref(urls.aiObservabilitySessions(), listPageLinkParams(searchParams)),
         ],
     }),
     listeners(({ actions }) => ({

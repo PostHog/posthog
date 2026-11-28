@@ -204,6 +204,23 @@ describe('TracesListHost', () => {
         expect(requests[1]).toEqual({ ...FIRST_PAGE_PARAMS, view: 'errors' })
     })
 
+    it.each([
+        ['person', '0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b', 'Person:2e3f4a5b'],
+        ['error', 'Invalid API key for jane@example.com', 'Error:Invalid API key for jane@example.com'],
+    ])('shows the %s scope from the url as a masked chip that clears it', async (kind, value, text) => {
+        const view = renderHost({ url: `${LIST_PATH}?${kind}=${encodeURIComponent(value)}&view=errors` })
+        await view.findByText('summarize-ticket')
+
+        expect(attr(view, 'list-scope-chip').textContent).toBe(text)
+        expect(view.getByTitle(value).className).toContain('ph-no-capture')
+        fireEvent.click(attr(view, 'list-scope-chip-clear'))
+        await waitFor(() => expect(requests).toHaveLength(2))
+
+        expect(view.container.querySelector('[data-attr="list-scope-chip"]')).toBeNull()
+        expect(router.values.searchParams).toEqual({ view: 'errors' })
+        expect(requests[1]).toEqual({ ...FIRST_PAGE_PARAMS, view: 'errors' })
+    })
+
     it('shows what is being typed in the search box while the list still reads the applied search', async () => {
         const view = renderHost({ flags: [SEARCH_FLAG] })
         await view.findByText('summarize-ticket')

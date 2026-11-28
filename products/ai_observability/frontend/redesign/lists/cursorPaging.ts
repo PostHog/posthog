@@ -1,5 +1,6 @@
 import type { ListTableState } from './components/ListTable'
 import type { ListFilters } from './listFiltersLogic'
+import { scopeRequestParams } from './listScopes'
 
 /** A page of a list that is read a cursor at a time. */
 export interface CursorPage<Item> {
@@ -120,11 +121,13 @@ export interface ListRequestScope {
     searchEnabled: boolean
 }
 
-/** The request params every list shares: the date range, the property filters, test accounts and the search. */
+/**
+ * The request params every list shares: the date range, the property filters, test accounts, the search and the scope.
+ */
 export function listRequestParams(
     filters: ListFilters,
     { dateFrom, dateTo, filterTestAccounts, searchEnabled }: ListRequestScope
-): {
+): ReturnType<typeof scopeRequestParams> & {
     date_from: string
     date_to: string | undefined
     properties: string | undefined
@@ -132,6 +135,7 @@ export function listRequestParams(
     search: string | undefined
 } {
     return {
+        ...scopeRequestParams(filters.scope),
         date_from: dateFrom,
         date_to: dateTo ?? undefined,
         properties: filters.propertyFilters.length > 0 ? JSON.stringify(filters.propertyFilters) : undefined,

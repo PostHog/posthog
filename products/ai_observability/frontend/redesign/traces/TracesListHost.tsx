@@ -11,10 +11,12 @@ import { groupsModel } from '~/models/groupsModel'
 import { AiObservabilityTracesListView, type TraceListItemApi } from '../../generated/api.schemas'
 import { ListEmptyState } from '../lists/components/ListEmptyState'
 import { ListErrorState } from '../lists/components/ListErrorState'
+import { ListScopeChip } from '../lists/components/ListScopeChip'
 import { ListTable } from '../lists/components/ListTable'
 import { ListToolbar } from '../lists/components/ListToolbar'
 import { QuickFilterChips } from '../lists/components/QuickFilterChips'
 import { listFiltersLogic } from '../lists/listFiltersLogic'
+import { scopeLabel } from '../lists/listScopes'
 import { shellScopeLogic } from '../shell/shellScopeLogic'
 import { TraceDrawerHost } from '../trace/TraceDrawerHost'
 import { TraceDrawerListId } from '../trace/traceDrawerLists'
@@ -43,9 +45,11 @@ function toRow(item: TraceListItemApi, people: TracesTableCells['people']): Trac
 
 export function TracesListHost(): JSX.Element {
     const { items, counts, state, refreshing, canShowPrevious, canShowNext, searchEnabled } = useValues(tracesListLogic)
-    const { showPreviousPage, showNextPage, reload, clearFilters } = useActions(tracesListLogic)
+    const { showPreviousPage, showNextPage, reload } = useActions(tracesListLogic)
     const { filters, searchDraft } = useValues(listFiltersLogic(TRACES_LIST_FILTERS))
-    const { setPropertyFilters, setSearchDraft, toggleQuickFilter } = useActions(listFiltersLogic(TRACES_LIST_FILTERS))
+    const { setPropertyFilters, setSearchDraft, toggleQuickFilter, clearScope, clearFilters } = useActions(
+        listFiltersLogic(TRACES_LIST_FILTERS)
+    )
     const { previews, people, sentiments } = useValues(traceCellsLogic)
     const { dateFrom, dateTo, filterTestAccounts } = useValues(shellScopeLogic)
     const { setDateRange, setFilterTestAccounts } = useActions(shellScopeLogic)
@@ -85,6 +89,11 @@ export function TracesListHost(): JSX.Element {
                 search={searchDraft}
                 onSearchChange={searchEnabled ? setSearchDraft : undefined}
                 searchPlaceholder="Search inputs and outputs"
+                scope={
+                    filters.scope ? (
+                        <ListScopeChip scope={filters.scope} label={scopeLabel(filters.scope)} onClear={clearScope} />
+                    ) : null
+                }
                 filters={
                     <PropertyFilters
                         propertyFilters={filters.propertyFilters}

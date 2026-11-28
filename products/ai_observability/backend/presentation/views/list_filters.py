@@ -10,6 +10,9 @@ from posthog.permissions import scopes_caller_lacks
 from ...facade import api
 from .property_filters import QUERY_SCOPE, QUERY_SCOPE_REQUIRED, PropertyFiltersField, filters_need_query_scope
 
+# Bounds the text a request embeds in a ClickHouse query, while any real error message, tool name or key still fits.
+MAX_SCOPE_TEXT_LENGTH = 65_536
+
 
 def page_limit_field(noun: str, *, default: int, maximum: int) -> serializers.IntegerField:
     return serializers.IntegerField(
@@ -17,6 +20,14 @@ def page_limit_field(noun: str, *, default: int, maximum: int) -> serializers.In
         max_value=maximum,
         default=default,
         help_text=f"How many {noun} a page holds, from 1 to {maximum}. Defaults to {default}.",
+    )
+
+
+def page_offset_field(noun: str) -> serializers.IntegerField:
+    return serializers.IntegerField(
+        min_value=0,
+        default=0,
+        help_text=f"How many {noun} to skip before the page starts. Defaults to 0.",
     )
 
 
@@ -42,13 +53,48 @@ def search_field(searched: str) -> serializers.CharField:
 def person_scope_field(listed: str) -> serializers.UUIDField:
     return serializers.UUIDField(
         required=False,
-        help_text=f"Lists only {listed} belong to the person with this UUID.",
+        help_text=f"Lists only {listed} where any event belongs to the person with this UUID. A listed trace keeps "
+        "the events of other people.",
+    )
+
+
+# allow_blank lets an empty value through the field: DRF would otherwise drop it as if it were absent, and the list would
+# silently ignore the scope. TraceSelection then refuses it with a 400.
+def error_scope_field() -> serializers.CharField:
+    return serializers.CharField(
+        required=False,
+        allow_blank=True,
+        max_length=MAX_SCOPE_TEXT_LENGTH,
+        trim_whitespace=False,
+        help_text="Lists only traces where any event has this normalized error message, as the errors list shows it. "
+        "A listed trace keeps its other events.",
+    )
+
+
+def tool_scope_field() -> serializers.CharField:
+    return serializers.CharField(
+        required=False,
+        allow_blank=True,
+        max_length=MAX_SCOPE_TEXT_LENGTH,
+        help_text="Lists only traces where any event called the tool with this name. A listed trace keeps its other "
+        "events.",
+    )
+
+
+def failed_tool_scope_field() -> serializers.CharField:
+    return serializers.CharField(
+        required=False,
+        allow_blank=True,
+        max_length=MAX_SCOPE_TEXT_LENGTH,
+        help_text="Lists only traces where a call to the tool with this name failed. A listed trace keeps its other "
+        "events.",
     )
 
 
 def group_scope_field(listed: str) -> serializers.CharField:
     return serializers.CharField(
         required=False,
+        max_length=MAX_SCOPE_TEXT_LENGTH,
         help_text=f"Lists only {listed} belong to the group with this key. Send it with group_type_index.",
     )
 
@@ -73,10 +119,10 @@ class TraceDateRangeQuerySerializer(serializers.Serializer):
     )
 
 
-class ListFilterQuerySerializer(TraceDateRangeQuerySerializer):
-    """The filter and paging params that the traces list and the sessions list share. Each list adds the params whose
-    help names what it lists, `properties`, `search`, `person_id`, `group_key` and `limit`, through the field functions
-    above."""
+class SelectionFilterQuerySerializer(TraceDateRangeQuerySerializer):
+    """The filter params that every list over a trace selection shares, whichever way it pages. Each list adds the
+    params whose help names what it lists, `properties`, `search`, the scopes, `group_key` and `limit`, through the
+    field functions above."""
 
     group_type_index = serializers.IntegerField(
         required=False,
@@ -85,15 +131,20 @@ class ListFilterQuerySerializer(TraceDateRangeQuerySerializer):
         help_text=f"The index of the group type that group_key belongs to, from 0 to {GROUP_TYPES_LIMIT - 1}. "
         "Send it with group_key.",
     )
-    cursor = serializers.CharField(
-        required=False,
-        help_text="The nextCursor of the previous page, to read the page after it. Leave it out for the first page.",
-    )
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         if ("group_key" in attrs) != ("group_type_index" in attrs):
             raise serializers.ValidationError("Send group_key and group_type_index together.")
         return attrs
+
+
+class ListFilterQuerySerializer(SelectionFilterQuerySerializer):
+    """The filters plus the cursor paging of the traces list and the sessions list."""
+
+    cursor = serializers.CharField(
+        required=False,
+        help_text="The nextCursor of the previous page, to read the page after it. Leave it out for the first page.",
+    )
 
 
 _PAGE_POSITION_PARAMS = ("cursor", "before_cursor", "around")
@@ -105,12 +156,15 @@ def check_one_page_position(attrs: dict[str, Any]) -> None:
 
 
 def selection_filters(query: dict[str, Any]) -> dict[str, Any]:
-    """The `TraceSelection` arguments that the shared filter params set."""
+    """The `TraceSelection` arguments that the shared filter params set. A list's `search` looks in what that list
+    lists, so the list's view passes it on itself."""
     return {
         "properties": query.get("properties", ()),
         "filter_test_accounts": query["filter_test_accounts"],
-        "search": query.get("search") or None,
         "person_id": str(query["person_id"]) if "person_id" in query else None,
+        "error": query.get("error"),
+        "tool": query.get("tool"),
+        "failed_tool": query.get("failed_tool"),
         "group": api.TraceGroupScope(key=query["group_key"], type_index=query["group_type_index"])
         if "group_key" in query
         else None,

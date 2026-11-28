@@ -42,7 +42,7 @@ import type { UserType } from '../../../frontend/src/types'
 import { AI_OBSERVABILITY_CLUSTER_URL_PATTERN } from './clusters/constants'
 import { sessionPageIdFromPath } from './redesign/sessions/sessionPagePath'
 import { buildAiObservabilityStorageConfig } from './redesign/shared/preferenceStorage'
-import { shellHref, shellLinkParams } from './redesign/shell/shellNavigation'
+import { listPageLinkParams, shellHref, shellLinkParams } from './redesign/shell/shellNavigation'
 import { scorerFiltersFromSearchParams } from './scoreDefinitions/scoreDefinitionNavigation'
 import { parserRecipesLogic } from './settings/parserRecipesLogic'
 import { hasRecentAIEvents } from './utils/aiEvents'
@@ -620,7 +620,7 @@ export const aiObservabilitySharedLogic = kea<aiObservabilitySharedLogicType>([
                     {
                         key: 'AIObservabilitySessions',
                         name: 'Sessions',
-                        path: shellHref(urls.aiObservabilitySessions(), shellLinkParams(searchParams)),
+                        path: shellHref(urls.aiObservabilitySessions(), listPageLinkParams(searchParams)),
                         iconType: 'llm_analytics',
                     },
                     { key: ['AIObservabilitySession', sessionPageId], name: 'Session', iconType: 'llm_analytics' },
