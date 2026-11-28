@@ -137,6 +137,9 @@ services:
         # Hobby runs one worker, so the scheduler runs inside it and shares its memory.
         command: ./bin/docker-worker-celery --with-embedded-scheduler
         logging: *default-logging
+        networks:
+            - default
+            - browserless
         environment:
             # Each Celery pool process loads all of Django. Celery starts one per CPU by default,
             # which is more memory than a small host has. Raise it in .env on a larger host.
@@ -623,6 +626,11 @@ services:
         image: ghcr.io/browserless/chromium:v2.51.2
         restart: unless-stopped
         logging: *default-logging
+        # Browserless loads pages from outside this install, such as heatmap screenshot URLs.
+        # Keep it off the default network so those pages cannot reach the databases and other
+        # internal services. Only the services that call browserless join this network.
+        networks:
+            - browserless
         environment:
             TOKEN: ${BROWSERLESS_SECRET:-$POSTHOG_SECRET}
             LOG_LEVEL: warn
@@ -679,6 +687,9 @@ services:
             file: docker-compose.base.yml
             service: temporal-django-worker
         logging: *default-logging
+        networks:
+            - default
+            - browserless
         volumes:
             - ./compose:/compose
         image: $REGISTRY_URL:$POSTHOG_APP_TAG
@@ -1185,6 +1196,7 @@ services:
 
 networks:
     otel_network:
+    browserless:
 
 volumes:
     zookeeper-data:
