@@ -3,8 +3,8 @@
 Every seeder computes the case's oracle answer against the case team at run time, using the
 same query runners the MCP tools wrap, and returns it under ``oracle`` so the answer judge can
 compare the agent's final message with a number that moves with the seeded data. The web vitals
-and AI agent traffic cases also write designed events (``$web_vitals``, and pageviews from crawler
-user agents), because the Hedgebox simulation captures neither.
+and AI agent traffic cases also write designed events (``$web_vitals``, and pageviews with browser and crawler
+user agents), because the Hedgebox simulation captures no web vitals and no user agents.
 """
 
 from __future__ import annotations
@@ -34,6 +34,7 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.dataclasses import frozen
+from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models import Team
 from posthog.models.event.new_events_schema import use_new_events_schema
 from posthog.models.event.sql import EVENTS_JSON_DATA_TABLE, INSERT_EVENT_SQL
@@ -89,12 +90,47 @@ def _team(context: CustomPromptSandboxContext) -> Team:
 
 
 def _overview(team: Team, **kwargs: Any) -> dict[str, dict[str, float | None]]:
-    query = WebOverviewQuery(properties=[], **kwargs)
-    response = WebOverviewQueryRunner(team=team, query=query).calculate()
-    return {
-        item.key: {"value": item.value, "previous": item.previous, "change_pct": item.changeFromPreviousPct}
-        for item in response.results
-    }
+    return _overview_with_periods(team, **kwargs).metrics
+
+
+@frozen
+class OverviewPeriods:
+    metrics: dict[str, dict[str, float | None]]
+    current: str
+    previous: str | None
+
+
+def _days(date_range: QueryDateRange) -> str:
+    first, last = date_range.date_from().date(), date_range.date_to().date()
+    return f"{first:%Y-%m-%d}" if first == last else f"{first:%Y-%m-%d} to {last:%Y-%m-%d}"
+
+
+def _overview_with_periods(team: Team, **kwargs: Any) -> OverviewPeriods:
+    runner = WebOverviewQueryRunner(team=team, query=WebOverviewQuery(properties=[], **kwargs))
+    response = runner.calculate()
+    return OverviewPeriods(
+        metrics={
+            item.key: {"value": item.value, "previous": item.previous, "change_pct": item.changeFromPreviousPct}
+            for item in response.results
+        },
+        current=_days(runner.query_date_range),
+        previous=_days(runner.query_compare_to_date_range) if runner.query_compare_to_date_range else None,
+    )
+
+
+# The overview reports bounce rate in percent and session duration in seconds.
+_OVERVIEW_UNITS = {"bounce rate": "%", "session duration": "s"}
+
+
+def _metric_line(name: str, metric: dict[str, float | None]) -> str:
+    unit = _OVERVIEW_UNITS.get(name, "")
+    digits = 1 if unit == "%" else 0
+
+    def shown(value: float | None) -> str:
+        return "no data" if value is None else f"{_rounded(value, digits)}{unit}"
+
+    change = "no percent change" if metric["change_pct"] is None else f"{_rounded(metric['change_pct'], 1)}%"
+    return f"{name} {shown(metric['value'])} against {shown(metric['previous'])} ({change})"
 
 
 def _stats_cells(team: Team, breakdown: WebStatsBreakdown, limit: int, **kwargs: Any) -> list[dict[str, Any]]:
@@ -121,6 +157,10 @@ def _stats_rows(team: Team, breakdown: WebStatsBreakdown, limit: int, **kwargs: 
 
 def _share(part: float | None, total: float | None) -> float:
     return round(100 * (part or 0) / total, 1) if total else 0.0
+
+
+def _percent(fraction: float | None) -> str:
+    return f"{100 * (fraction or 0):.1f}%"
 
 
 def _rounded(value: float | None, digits: int = 0) -> float | int | None:
@@ -283,6 +323,94 @@ def seed_yesterday_vs_last_week(context: CustomPromptSandboxContext) -> dict[str
     }
 
 
+def seed_ready_compare_periods(context: CustomPromptSandboxContext) -> dict[str, Any]:
+    periods = _overview_with_periods(
+        _team(context),
+        dateRange=DateRange(date_from="-7d", excludeIncompletePeriods=True),
+        compareFilter=CompareFilter(compare=True),
+    )
+    lines = "; ".join(
+        _metric_line(name, periods.metrics[name])
+        for name in ("visitors", "views", "sessions", "bounce rate", "session duration")
+    )
+    return {
+        "oracle": {
+            "answer": (
+                f"This period {periods.current} against the previous period {periods.previous}, today left out: "
+                f"{lines}."
+            ),
+            "tolerance": (
+                "All five metrics must appear. Each current and previous value within 5% (bounce rate within 1 point), "
+                "each change in the same direction and within 3 points of the oracle's percent, and both periods named "
+                "by their days."
+            ),
+        }
+    }
+
+
+def seed_ready_yesterday_vs_last_week(context: CustomPromptSandboxContext) -> dict[str, Any]:
+    periods = _overview_with_periods(
+        _team(context),
+        dateRange=DateRange(date_from="-1dStart", date_to="-1dEnd"),
+        compareFilter=CompareFilter(compare=True, compare_to="-7d"),
+    )
+    lines = "; ".join(
+        _metric_line(name, periods.metrics[name]) for name in ("sessions", "visitors", "session duration")
+    )
+    return {
+        "oracle": {
+            "answer": f"Yesterday ({periods.current}) against the same weekday a week earlier ({periods.previous}): {lines}.",
+            "tolerance": (
+                "Sessions, visitors and average session duration must all appear. Session and visitor counts within "
+                "5%, durations within 10%, and each change in the same direction and within 3 points of the oracle's "
+                "percent."
+            ),
+        }
+    }
+
+
+def seed_ready_top_pages(context: CustomPromptSandboxContext) -> dict[str, Any]:
+    rows = _stats_rows(_team(context), WebStatsBreakdown.PAGE, limit=10, includeBounceRate=True, doPathCleaning=True)
+    ranked = ", ".join(
+        f"{row['breakdown_value']} ({_rounded(row['visitors'])} visitors, {_rounded(row['views'])} pageviews, "
+        f"{_percent(row['bounce_rate'])} bounce rate)"
+        for row in rows
+    )
+    return {
+        "oracle": {
+            "answer": f"Top pages by visitors over the last 7 days, in order: {ranked}.",
+            "tolerance": (
+                "The pages in the same order. For every page named, visitors and pageviews within 5% and bounce rate "
+                "within 3 points. Pages with equal visitors may swap places."
+            ),
+        }
+    }
+
+
+def seed_ready_worst_bounce_landing_pages(context: CustomPromptSandboxContext) -> dict[str, Any]:
+    rows = _stats_rows(
+        _team(context), WebStatsBreakdown.INITIAL_PAGE, limit=200, includeBounceRate=True, doPathCleaning=True
+    )
+    eligible = [row for row in rows if (row["visitors"] or 0) >= MIN_LANDING_PAGE_VISITORS]
+    eligible.sort(key=lambda row: (-(row["bounce_rate"] or 0), -(row["visitors"] or 0), str(row["breakdown_value"])))
+    ranked = ", ".join(
+        f"{row['breakdown_value']} ({_percent(row['bounce_rate'])} bounce rate, {_rounded(row['visitors'])} visitors)"
+        for row in eligible[:5]
+    )
+    return {
+        "oracle": {
+            "answer": (
+                f"Landing pages with at least {MIN_LANDING_PAGE_VISITORS} visitors, worst bounce rate first: {ranked}."
+            ),
+            "tolerance": (
+                "The same pages in the same order, each with its bounce rate within 3 points and visitors within 5%. "
+                f"A page with fewer than {MIN_LANDING_PAGE_VISITORS} visitors in the list is wrong. Pages with equal "
+                "bounce rates may swap places."
+            ),
+        }
+    }
+
+
 def seed_daily_visitors(context: CustomPromptSandboxContext) -> dict[str, Any]:
     team = _team(context)
     now = datetime.now(team.timezone_info)
@@ -339,12 +467,22 @@ class VisitorMove:
     current: int
     previous: int
 
+    @property
+    def delta(self) -> int:
+        return self.current - self.previous
+
+
+# The biggest mover explains the change when it accounts for at least this share of the headline move.
+DRIVER_SHARE = 0.5
+
 
 def seed_traffic_change_drivers(context: CustomPromptSandboxContext) -> dict[str, Any]:
     team = _team(context)
     complete_week = DateRange(date_from="-7d", excludeIncompletePeriods=True)
     compare = CompareFilter(compare=True)
-    visitors = _overview(team, dateRange=complete_week, compareFilter=compare)["visitors"]
+    periods = _overview_with_periods(team, dateRange=complete_week, compareFilter=compare)
+    visitors = periods.metrics["visitors"]
+    headline = round(visitors["value"] or 0) - round(visitors["previous"] or 0)
 
     def movers(breakdown: WebStatsBreakdown) -> list[VisitorMove]:
         rows = []
@@ -355,26 +493,45 @@ def seed_traffic_change_drivers(context: CustomPromptSandboxContext) -> dict[str
                     value=str(cells["breakdown_value"]), current=round(current or 0), previous=round(previous or 0)
                 )
             )
-        return sorted(rows, key=lambda row: abs(row.current - row.previous), reverse=True)[:3]
+        moved = [row for row in rows if row.delta]
+        return sorted(moved, key=lambda row: (-abs(row.delta), row.value))[:3]
+
+    breakdowns = {
+        "Channels": movers(WebStatsBreakdown.INITIAL_CHANNEL_TYPE),
+        "Referring domains": movers(WebStatsBreakdown.INITIAL_REFERRING_DOMAIN),
+        "Landing pages": movers(WebStatsBreakdown.INITIAL_PAGE),
+    }
+    top_movers = [rows[0] for rows in breakdowns.values() if rows]
+    biggest = max((abs(row.delta) for row in top_movers), default=0)
+    explained = headline != 0 and biggest >= DRIVER_SHARE * abs(headline)
+    drivers = [row.value for row in top_movers if abs(row.delta) == biggest] if explained else []
 
     def described(rows: list[VisitorMove]) -> str:
-        return ", ".join(f"{row.value} ({row.previous} to {row.current})" for row in rows)
+        return ", ".join(f"{row.value} ({row.previous} to {row.current})" for row in rows) or "none"
 
-    channels = movers(WebStatsBreakdown.INITIAL_CHANNEL_TYPE)
-    referrers = movers(WebStatsBreakdown.INITIAL_REFERRING_DOMAIN)
+    moved_text = " ".join(f"{label} that moved most: {described(rows)}." for label, rows in breakdowns.items())
+    if explained:
+        verdict = f"Biggest driver: {' or '.join(drivers)}."
+        rule = (
+            f"The answer must name at least one of {', '.join(row.value for row in top_movers)} (the top mover of each "
+            "breakdown) as a driver, with before and after visitor counts within 5%."
+        )
+    else:
+        verdict = "No single source explains the change."
+        rule = (
+            "No row moved enough to explain the change on its own, so an answer that says no single source explains "
+            "it is right. Naming movers is fine if their counts are within 5%."
+        )
     return {
         "oracle": {
             "answer": (
                 f"Visitors went from {_rounded(visitors['previous'])} to {_rounded(visitors['value'])} "
-                f"({_rounded(visitors['change_pct'], 1)}%) over the last 7 complete days against the 7 before. "
-                f"Channels that moved most: {described(channels)}. Referring domains that moved most: "
-                f"{described(referrers)}."
+                f"({_rounded(visitors['change_pct'], 1)}%), {periods.current} against {periods.previous}. "
+                f"{moved_text} {verdict}"
             ),
             "tolerance": (
-                "The direction of the headline change must match and the percentage must be within 3 points. The "
-                f"answer must name {channels[0].value if channels else 'the top channel mover'} or "
-                f"{referrers[0].value if referrers else 'the top referrer mover'} as a driver, with before and after "
-                "visitor counts within 5%, and say which days each period covers."
+                "The direction of the headline change must match and the percentage must be within 3 points. "
+                f"{rule} The answer must say which days each period covers. Rows with equal moves may swap places."
             ),
         }
     }
@@ -445,9 +602,20 @@ def seed_audience(context: CustomPromptSandboxContext) -> dict[str, Any]:
     }
 
 
-# Pageviews from public crawler user agents, spread over the last six days. GPTBot and ClaudeBot classify
-# as AI agents and Googlebot as a bot, so the answer has to split AI agents from other automated traffic.
+# Pageviews over the last six days from browser and crawler user agents. The Hedgebox simulation sends no user
+# agent, so its pageviews classify as Automation; the browser visits give the answer a Regular baseline. GPTBot and
+# ClaudeBot classify as AI agents and Googlebot as a bot, so the answer has to split AI agents from other bots.
 AI_AGENT_VISITS: tuple[tuple[str, str, int], ...] = (
+    (
+        "chrome-visitor",
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+        90,
+    ),
+    (
+        "safari-visitor",
+        "Mozilla/5.0 (iPhone; CPU iPhone OS 18_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.1 Mobile/15E148 Safari/604.1",
+        30,
+    ),
     (
         "gptbot",
         "Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko; compatible; GPTBot/1.2; +https://openai.com/gptbot)",
@@ -466,8 +634,8 @@ _AI_AGENT_PATHS = ("/", "/pricing/", "/blog/")
 def seed_ai_agent_traffic(context: CustomPromptSandboxContext) -> dict[str, Any]:
     team = _team(context)
     now = datetime.now(UTC)
-    for crawler, user_agent, visits in AI_AGENT_VISITS:
-        distinct_id = f"{crawler}-crawler"
+    for visitor, user_agent, visits in AI_AGENT_VISITS:
+        distinct_id = f"{visitor}-traffic"
         _insert_person(team, distinct_id, now - timedelta(days=10))
         for index in range(visits):
             timestamp = now - timedelta(days=1 + index % 6, hours=index % 13)
@@ -486,23 +654,36 @@ def seed_ai_agent_traffic(context: CustomPromptSandboxContext) -> dict[str, Any]
                 },
             )
 
+    # The same window `query-trends` reads for `date_from: "-7d"`: from the start of the day seven days ago, in the
+    # team's timezone, to now.
+    window = QueryDateRange(
+        date_range=DateRange(date_from="-7d"), team=team, interval=None, now=datetime.now(team.timezone_info)
+    )
+
     def grouped(query: str) -> list[tuple[str, int]]:
         response = execute_hogql_query(
             query_type="web_analytics_mcp_eval_oracle",
-            query=parse_select(query, placeholders={"date_from": ast.Constant(value=now - timedelta(days=7))}),
+            query=parse_select(
+                query,
+                placeholders={
+                    "date_from": ast.Constant(value=window.date_from()),
+                    "date_to": ast.Constant(value=window.date_to()),
+                },
+            ),
             team=team,
         )
         return [(str(value), int(count)) for value, count in response.results]
 
     types = grouped(
         "SELECT `$virt_traffic_type` AS value, count() AS pageviews FROM events "
-        "WHERE event = '$pageview' AND timestamp >= {date_from} GROUP BY value ORDER BY pageviews DESC"
+        "WHERE event = '$pageview' AND timestamp >= {date_from} AND timestamp <= {date_to} "
+        "GROUP BY value ORDER BY pageviews DESC, value"
     )
     total = sum(count for _, count in types)
     agents = grouped(
         "SELECT `$virt_bot_name` AS value, count() AS pageviews FROM events "
-        "WHERE event = '$pageview' AND timestamp >= {date_from} AND `$virt_traffic_type` = 'AI Agent' "
-        "GROUP BY value ORDER BY pageviews DESC"
+        "WHERE event = '$pageview' AND timestamp >= {date_from} AND timestamp <= {date_to} "
+        "AND `$virt_traffic_type` = 'AI Agent' GROUP BY value ORDER BY pageviews DESC, value"
     )
     type_text = ", ".join(f"{name} {count} ({_share(count, total)}%)" for name, count in types)
     agent_text = ", ".join(f"{name} ({count})" for name, count in agents[:5])
@@ -513,9 +694,9 @@ def seed_ai_agent_traffic(context: CustomPromptSandboxContext) -> dict[str, Any]
                 f"{agent_text}."
             ),
             "tolerance": (
-                "The share of AI Agent pageviews within 3 points, Googlebot not counted as an AI agent, and the AI "
-                "agents named in the same order with counts within 5%. Test accounts may be included or excluded if "
-                "the answer says which."
+                "Every traffic type in the oracle must appear with pageviews within 5% and a share within 3 points. "
+                "Googlebot must not count as an AI agent, and the AI agents must appear in the same order with counts "
+                "within 5%."
             ),
         }
     }
