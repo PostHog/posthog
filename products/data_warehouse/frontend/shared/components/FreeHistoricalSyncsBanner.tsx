@@ -8,6 +8,11 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { urls } from 'scenes/urls'
 
+function reportPricingLinkClicked(): void {
+    // Pinned: Renaming this event breaks filters in analytics reports.
+    posthog.capture('historical_sync_banner_pricing_link_clicked')
+}
+
 export function FreeHistoricalSyncsBanner({ hideGetStarted }: { hideGetStarted?: boolean }): JSX.Element {
     const [showModal, setShowModal] = useState(false)
 
@@ -94,8 +99,19 @@ export function FreeHistoricalSyncsBanner({ hideGetStarted }: { hideGetStarted?:
                         </div>
                     )}
 
-                    <p className="text-sm opacity-70">
-                        After the first 7-day period, standard Sources pricing will apply.
+                    {/* Pinned: Renaming the pricing link selector breaks autocapture filters. */}
+                    <p className="text-sm">
+                        After your first 7 days,{' '}
+                        <Link
+                            to="https://posthog.com/data-pipelines/pricing"
+                            target="_blank"
+                            data-attr="historical-sync-banner-pricing-link"
+                            onClickCapture={reportPricingLinkClicked}
+                            onAuxClick={(event) => event.button === 1 && reportPricingLinkClicked()}
+                        >
+                            Sources pricing
+                        </Link>{' '}
+                        applies to your syncs.
                     </p>
                 </div>
             </LemonModal>
