@@ -6,8 +6,6 @@ import { AdventFlowLayout, AdventFlowRect } from './adventFlowLayout'
 export interface AdventFlowViewport {
     fit: AdventFlowFit
     track: RefObject<HTMLDivElement>
-    // Where a rect of the layout shows on the stage now, after the zoom and the column's scroll. Anything drawn
-    // over the stage, such as the door card, places itself with this.
     rectOnStage: (rect: AdventFlowRect) => AdventFlowRect
 }
 

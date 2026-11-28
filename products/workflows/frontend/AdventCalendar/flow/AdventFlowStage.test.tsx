@@ -66,7 +66,7 @@ describe('AdventFlowStage', () => {
     })
 
     it.each([
-        [2, 'advent-hog-2', 'Door 2, open: Tim Glaser', ['Tim Glaser', 'Tim'], '2Dec 2', 1],
+        [2, 'advent-hog-2', 'Door 2, open: Tim Glaser', ['Tim Glaser', 'Tim'], '2', 1],
         [3, 'advent-door-3', 'Door 3, ready', ['Today'], '3Thu', 0],
         [4, 'advent-door-4', 'Door 4, opens December 4', [], '4Fri', 0],
         [21, 'advent-door-21', 'Door 21, opens December 21', ['Coffee or tea?'], '212 paths', 0],
@@ -265,11 +265,25 @@ describe('AdventFlowStage', () => {
         ['out of view', false, false, 'false'],
         ['in view in a hidden tab', true, true, 'false'],
     ])("wakes today's glow only while the stage is %s", (_, isIntersecting, isHidden, awake) => {
+        let reportView: (isIntersecting: boolean) => void = () => undefined
+        jest.mocked(IntersectionObserver).mockImplementation((callback) => {
+            const observer: IntersectionObserver = {
+                root: null,
+                rootMargin: '',
+                scrollMargin: '',
+                thresholds: [],
+                observe: () => undefined,
+                unobserve: () => undefined,
+                disconnect: () => undefined,
+                takeRecords: () => [],
+            }
+            reportView = (isIntersecting) => callback([{ isIntersecting } as IntersectionObserverEntry], observer)
+            return observer
+        })
         renderStage({ width: 1200, height: 830 })
-        const observe = (IntersectionObserver as unknown as jest.Mock).mock.calls.at(-1)?.[0]
         jest.spyOn(document, 'hidden', 'get').mockReturnValue(isHidden)
 
-        act(() => observe([{ isIntersecting }]))
+        act(() => reportView(isIntersecting))
         act(() => void document.dispatchEvent(new Event('visibilitychange')))
 
         expect(document.querySelector('[data-attr="advent-stage"]')?.getAttribute('data-awake')).toBe(awake)

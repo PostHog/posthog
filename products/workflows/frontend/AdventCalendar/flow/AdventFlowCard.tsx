@@ -42,7 +42,6 @@ function cardDoorOf(node: AdventFlowNode, face: AdventCardFace, stageHeight: num
 const nodeOfDoor = (layout: AdventFlowLayout, doorId: string | null): AdventFlowNode | null =>
     layout.nodes.find((node) => !!node.door && node.door.id === doorId) ?? null
 
-// The door card over the stage. It holds the hover state, so moving between doors re-renders only the card.
 export function AdventFlowCard({
     stageRef,
     stage,

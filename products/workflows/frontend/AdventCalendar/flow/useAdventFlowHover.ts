@@ -3,7 +3,6 @@ import { MutableRefObject, useMemo, useRef } from 'react'
 import { AdventCardState } from '../useAdventCard'
 
 export interface AdventFlowHover {
-    // The latest state of the card, which AdventFlowCard writes on each of its renders.
     card: MutableRefObject<AdventCardState | null>
     onEnter: (doorId: string) => void
     onLeave: () => void

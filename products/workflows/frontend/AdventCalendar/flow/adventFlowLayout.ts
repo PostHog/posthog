@@ -68,7 +68,7 @@ interface Slot {
 }
 
 const { width: DOOR_WIDTH, height: DOOR_HEIGHT } = ADVENT_FLOW_DOOR
-const CAPTION = { height: 30, gap: 14 }
+const CAPTION = { height: 30, wrappedHeight: 44, gap: 14 }
 const PORT = 7
 const CORNER_RUN = 16
 
@@ -150,7 +150,7 @@ function rowsSlot(slot: Slot, x: number, row: number): AdventFlowNode {
         x: x + DOOR_WIDTH / 2 - ROWS_CAPTION_WIDTH / 2,
         y: captionY,
         width: ROWS_CAPTION_WIDTH,
-        height: CAPTION.height,
+        height: slot.lane ? CAPTION.height : CAPTION.wrappedHeight,
     }
     return nodeOf(slot, row, tile, caption, slot.door ? rowsHover(tile) : null)
 }

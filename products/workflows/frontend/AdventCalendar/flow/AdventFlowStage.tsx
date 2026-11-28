@@ -40,8 +40,7 @@ function gridOf({ zoom, box }: AdventFlowFit): CSSProperties {
     } as CSSProperties
 }
 
-// The peek door's opening runs in CSS for this long, then the card shows. A door drawn by `renderLastDoor`
-// ends its own opening through `onOpened`.
+// The peek door's opening runs in CSS for this long, then the card shows.
 function useOpening(revealingDoor: AdventDoor | null, drawsLastDoor: boolean, finishReveal: () => void): void {
     const revealingDoorId = revealingDoor?.id ?? null
     const isHandedOff = drawsLastDoor && revealingDoor?.day === ADVENT_LAST_DAY
