@@ -19,6 +19,17 @@ from posthog.schema import PropertyGroupFilter
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
 from posthog.event_usage import report_user_action
+from posthog.models.property.filter_group_validation import (
+    MAX_FILTER_GROUP_DEPTH,
+    MAX_FILTER_GROUP_LEAF_VALUES,
+    MAX_FILTER_GROUP_NODES,
+    MAX_FILTER_GROUP_VALUE_LENGTH,
+    filter_group_depth,
+    filter_group_has_empty_group,
+    filter_group_has_oversized_value,
+    filter_group_leaf_value_count,
+    filter_group_node_count,
+)
 from posthog.models.scoping.manager import resolve_effective_team_id
 from posthog.models.user import User
 from posthog.permissions import PostHogFeatureFlagPermission
@@ -30,17 +41,6 @@ from products.logs.backend.models import (
     METRIC_RULE_GROUP_BY_SPAN_TOP_LEVEL_KEYS,
     METRIC_RULE_GROUP_BY_TOP_LEVEL_KEYS,
     LogsMetricRule,
-)
-from products.logs.backend.presentation.filter_group_validation import (
-    MAX_FILTER_GROUP_DEPTH,
-    MAX_FILTER_GROUP_LEAF_VALUES,
-    MAX_FILTER_GROUP_NODES,
-    MAX_FILTER_GROUP_VALUE_LENGTH,
-    filter_group_depth,
-    filter_group_has_empty_group,
-    filter_group_has_oversized_value,
-    filter_group_leaf_value_count,
-    filter_group_node_count,
 )
 
 # OTLP-safe metric name: leading letter, then letters/digits/dot/underscore/dash.

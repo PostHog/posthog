@@ -205,6 +205,9 @@
                             },
                             "type": "array"
                         },
+                        "filter_group": {
+                            "description": "Log transformations only. An AND/OR tree of log property filters; only matching records are transformed."
+                        },
                         "filter_test_accounts": {
                             "type": "boolean"
                         },
@@ -425,6 +428,9 @@
                                                     "type": "object"
                                                 },
                                                 "type": "array"
+                                            },
+                                            "filter_group": {
+                                                "description": "Log transformations only. An AND/OR tree of log property filters; only matching records are transformed."
                                             },
                                             "filter_test_accounts": {
                                                 "type": "boolean"

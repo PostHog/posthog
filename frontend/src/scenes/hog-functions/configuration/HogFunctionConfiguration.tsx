@@ -16,6 +16,7 @@ import { NotFound } from 'lib/components/NotFound'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { hogFunctionConfigurationLogic } from 'scenes/hog-functions/configuration/hogFunctionConfigurationLogic'
 import { HogFunctionFilters } from 'scenes/hog-functions/filters/HogFunctionFilters'
+import { HogFunctionLogFilters } from 'scenes/hog-functions/filters/HogFunctionLogFilters'
 import { HogFunctionMappings } from 'scenes/hog-functions/mapping/HogFunctionMappings'
 import { HogFunctionEventEstimates } from 'scenes/hog-functions/metrics/HogFunctionEventEstimates'
 import { SurveyResponseKeysReference } from 'scenes/surveys/components/SurveyResponseKeysReference'
@@ -230,6 +231,7 @@ export function HogFunctionConfiguration({
 
                                 {type === 'source_webhook' && <HogFunctionSourceWebhookInfo />}
                                 {showFilters && <HogFunctionFilters />}
+                                {type === 'transformation_log' && <HogFunctionLogFilters />}
                                 {survey && <SurveyResponseKeysReference questions={survey.questions} />}
                                 {showExpectedVolume ? <HogFunctionEventEstimates /> : null}
                             </div>

@@ -6,17 +6,15 @@ from django.db import transaction
 from django.db.models import F, Max, QuerySet
 
 from drf_spectacular.utils import extend_schema
-from pydantic import ValidationError as PydanticValidationError
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 
-from posthog.schema import PropertyGroupFilter
-
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.event_usage import report_user_action
+from posthog.models.property.filter_group_validation import filter_group_error
 from posthog.models.team.logs_retention import (
     LOGS_CUSTOM_RETENTION_FLAG,
     LOGS_RETENTION_BASE_TIERS_DAYS,
@@ -31,16 +29,6 @@ from posthog.scopes.catalog import APIScopeObjectOrNotSupported
 
 from products.logs.backend.facade.retention import suggest_retention_rule_name
 from products.logs.backend.models import LogsRetentionRule
-from products.logs.backend.presentation.filter_group_validation import (
-    MAX_FILTER_GROUP_DEPTH,
-    MAX_FILTER_GROUP_LEAF_VALUES,
-    MAX_FILTER_GROUP_NODES,
-    MAX_FILTER_GROUP_VALUE_LENGTH,
-    filter_group_depth,
-    filter_group_has_oversized_value,
-    filter_group_leaf_value_count,
-    filter_group_node_count,
-)
 
 # Rules accept the same retention periods as the team-wide setting in `TeamSerializer`
 # (`posthog/api/team.py`), so a per-log rule can never grant a tier the org couldn't set team-wide.
@@ -61,27 +49,7 @@ def retention_filter_group_error(filter_group: Any) -> str | None:
     # team default for all traffic — require an explicit selector.
     if filter_group is None:
         return "A retention rule requires a filter_group."
-    # Validate shape against PropertyGroupFilter so malformed payloads are rejected at write time
-    # rather than flowing through to the ingestion worker. Mirrors sampling_api / alerts_api.
-    try:
-        PropertyGroupFilter.model_validate(filter_group)
-    except PydanticValidationError as e:
-        return f"Invalid filter_group shape: {e.errors()[0]['msg']}"
-    # Bound depth and total node count — the Node ingestion worker recurses per record over this
-    # tree, so an adversarially deep or wide group is a stack-overflow + CPU footgun on every log
-    # line. Matches MAX_FILTER_GROUP_DEPTH / MAX_FILTER_GROUP_NODES shared with the sampling rules.
-    if filter_group_depth(filter_group) > MAX_FILTER_GROUP_DEPTH:
-        return f"filter_group is nested too deeply (max depth {MAX_FILTER_GROUP_DEPTH})."
-    if filter_group_node_count(filter_group) > MAX_FILTER_GROUP_NODES:
-        return f"filter_group has too many nodes (max {MAX_FILTER_GROUP_NODES} groups + leaves)."
-    # A single leaf can smuggle a huge value array or multi-megabyte string while counting as one
-    # node — the ingestion matcher would then scan that per record. Bound total leaf values and
-    # per-value length, matching the metric-rules validator.
-    if filter_group_leaf_value_count(filter_group) > MAX_FILTER_GROUP_LEAF_VALUES:
-        return f"filter_group has too many filter values (max {MAX_FILTER_GROUP_LEAF_VALUES} across all filters)."
-    if filter_group_has_oversized_value(filter_group):
-        return f"filter_group contains a value longer than {MAX_FILTER_GROUP_VALUE_LENGTH} characters."
-    return None
+    return filter_group_error(filter_group)
 
 
 class LogsRetentionRuleSerializer(serializers.ModelSerializer):

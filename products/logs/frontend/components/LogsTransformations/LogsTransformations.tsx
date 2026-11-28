@@ -13,8 +13,9 @@ export function LogsTransformations(): JSX.Element {
     return (
         <SceneContent>
             <LemonBanner type="info" dismissKey="logs-transformations-beta-banner" className="mb-3">
-                Transformations run on every log record as it is ingested. Use them to mutate, redact, or drop records.
-                They run in order, and a transformation that returns null drops the record.
+                Transformations run on log records as they are ingested. Use them to mutate, redact, or drop records,
+                and add filters to run one on a subset of records. They run in order, and a transformation that returns
+                null drops the record.
             </LemonBanner>
             <SceneSection title="Transformations" description="Modify or drop log records as they are ingested.">
                 <HogFunctionList logicKey={LOGS_TRANSFORMATIONS_LOGIC_KEY} type="transformation_log" />

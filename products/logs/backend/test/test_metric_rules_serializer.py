@@ -2,8 +2,9 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
+from posthog.models.property.filter_group_validation import MAX_FILTER_GROUP_LEAF_VALUES
+
 from products.logs.backend.models import LogsMetricRule
-from products.logs.backend.presentation.filter_group_validation import MAX_FILTER_GROUP_LEAF_VALUES
 from products.logs.backend.presentation.views.metric_rules_api import LogsMetricRuleSerializer
 from products.logs.backend.test.metric_rule_fixtures import VALID_FILTER_GROUP
 

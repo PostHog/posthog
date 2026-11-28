@@ -7530,6 +7530,8 @@ export interface CyclotronJobFiltersType {
     actions?: CyclotronJobFilterActions[]
     properties?: CyclotronJobFilterPropertyFilter[]
     filter_test_accounts?: boolean
+    /** Log transformations only: wrapped as `{type, values: [innerGroup]}`. */
+    filter_group?: UniversalFiltersGroup
     bytecode?: any[]
     bytecode_error?: string
 }

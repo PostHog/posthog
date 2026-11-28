@@ -19,18 +19,18 @@ from posthog.schema import PropertyGroupFilter
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.event_usage import report_user_action
-from posthog.models.user import User
-from posthog.permissions import posthog_feature_flag_enabled
-
-from products.access_control.backend.facade.user_access_control import AccessControlLevel, UserAccessControl
-from products.logs.backend.models import LogsExclusionRule
-from products.logs.backend.presentation.filter_group_validation import (
+from posthog.models.property.filter_group_validation import (
     MAX_FILTER_GROUP_DEPTH,
     MAX_FILTER_GROUP_NODES,
     filter_group_depth,
     filter_group_has_empty_group,
     filter_group_node_count,
 )
+from posthog.models.user import User
+from posthog.permissions import posthog_feature_flag_enabled
+
+from products.access_control.backend.facade.user_access_control import AccessControlLevel, UserAccessControl
+from products.logs.backend.models import LogsExclusionRule
 
 
 class LogsSamplingRuleSerializer(serializers.ModelSerializer):

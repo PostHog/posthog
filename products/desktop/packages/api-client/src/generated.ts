@@ -12976,6 +12976,7 @@ export namespace Schemas {
         bytecode: unknown;
         transpiled: unknown;
         filter_test_accounts: boolean;
+        filter_group: unknown;
         bytecode_error: string;
         bytecode_contract: string;
     }>;
